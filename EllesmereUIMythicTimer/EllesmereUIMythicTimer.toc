@@ -5,7 +5,7 @@
 ## Group: EllesmereUI
 ## Notes: A simple Mythic+ timer with full tracking customizations.
 ## Author: Ellesmere
-## Version: 9.6
+## Version: 9.6.9
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIMythicTimerDB
 ## SavedVariablesPerCharacter: EllesmereUIMythicRunsDB
@@ -15,8 +15,12 @@
 EllesmereUIMythicTimer.lua
 
 # Mythic+ Tools features
+EUI_MythicTimer_Where.lua
 EUI_MythicTimer_TargetedSpellBars.lua
 EUI_MythicTimer_TargetFocusBars.lua
 EUI_MythicTimer_RunSummary.lua
+EUI_MythicTimer_KickEngine.lua
+EUI_MythicTimer_KickPlates.lua
+EUI_MythicTimer_KickBars.lua
 
 # Options

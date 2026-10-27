@@ -323,7 +323,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
 
     -- Health bar color
     local hR, hG, hB, hA, bgR, bgG, bgB, bgA
-    local isDarkTheme = db.profile.darkTheme
+    local isDarkTheme = ns.UF_DarkThemeOn(settings)
     if isDarkTheme then
         hR, hG, hB, hA = EllesmereUI.GetDarkModeFill()
         bgR, bgG, bgB, bgA = EllesmereUI.GetDarkModeBg()
@@ -580,6 +580,41 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             return _pvAbbrev(math.floor(maxHP * 0.08))
         elseif content == "group" then
             return "3"
+        elseif content == "custom" then
+            -- Live twin: ns.ContentToZone's custom branch, the engine's parse
+            -- filled with one sample per schema key.
+            local str = prefix and s and s[prefix .. "CustomFormat"]
+            local parsed = EllesmereUI.TextTags.Parse(ns.UF_TextTags, str)
+            if not parsed then return "" end
+            local keys, vals = parsed.keys, {}
+            local maxHP = UnitHealthMax("player") or 1
+            local curHP = math.floor(maxHP * (optState._previewHealthPct or 0.70))
+            local maxPP = UnitPowerMax("player") or 100
+            local ppPct = optState._previewPowerPct or 0.85
+            local curPP = math.floor(maxPP * ppPct)
+            for i = 1, #keys do
+                local key, v = keys[i]
+                if key == "name" then v = _pvName()
+                elseif key == "target" then v = "Target"
+                elseif key == "group" then v = "3"
+                elseif key == "level" then v = PreviewTextForContent("level", s, prefix)
+                elseif key == "hp" then v = tostring(curHP)
+                elseif key == "hp:abr" then v = _pvAbbrev(curHP)
+                elseif key == "hp:max" then v = tostring(maxHP)
+                elseif key == "hp:max:abr" then v = _pvAbbrev(maxHP)
+                elseif key == "hp:pct" then v = _pvPct(optState._previewHealthPct or 0.70)
+                elseif key == "pp" then v = tostring(curPP)
+                elseif key == "pp:abr" then v = ns.AbbreviateNumbers(curPP)
+                elseif key == "pp:max" then v = tostring(maxPP)
+                elseif key == "pp:max:abr" then v = ns.AbbreviateNumbers(maxPP)
+                elseif key == "pp:pct" then v = tostring(math.floor(ppPct * 100))
+                elseif key == "absorb" then v = PreviewTextForContent("absorb", s, prefix)
+                elseif key == "absorb:abr" then v = PreviewTextForContent("absorbshort", s, prefix)
+                elseif key == "healabsorb" then v = PreviewTextForContent("healabsorb", s, prefix)
+                else v = PreviewTextForContent("healabsorbshort", s, prefix) end
+                vals[i] = v
+            end
+            return string.format(parsed.fmt, unpack(vals, 1, #keys))
         else
             return ""
         end
@@ -604,9 +639,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
 
 
     -- Power color override for preview (takes priority over class color for power-related text)
-    local function PreviewPowerColor(fs, contentKey, usePowerColor)
+    local function PreviewPowerColor(fs, contentKey, usePowerColor, customFmt)
         if not fs or not usePowerColor then return end
-        if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curmaxpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
+        if ns.UF_IsPowerContent(contentKey, customFmt) then
             local pcR, pcG, pcB = EllesmereUI.ResolveUnitPowerColor("player")
             local info = pcR and { r = pcR, g = pcG, b = pcB }
             if info then fs:SetTextColor(info.r, info.g, info.b)
@@ -682,6 +717,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local UF_TEXT_PADDING = 10
                 local ufTW = { both = 75, curhpshort = 38, healthshort = 38, curmaxhp = 75, curmaxpp = 75, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
                 local rightUsed = (ufTW[rc] or 0) + UF_TEXT_PADDING
+                if rc == "custom" then
+                    rightUsed = ns.UF_EstimateTextWidth(rc, s.rightTextCustomFormat, true)
+                end
                 PP.Width(leftFS, math.max(barW - rightUsed - 10, 20))
             else
                 leftFS:SetWidth(0)
@@ -1058,7 +1096,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 btbLeftFS:SetText(PreviewTextForContent(lc, s, "btbLeft"))
                 btbLeftFS:Show()
                 PreviewClassColor(btbLeftFS, s.btbLeftClassColor, s.btbLeftColorR, s.btbLeftColorG, s.btbLeftColorB)
-                PreviewPowerColor(btbLeftFS, lc, s.btbLeftPowerColor)
+                PreviewPowerColor(btbLeftFS, lc, s.btbLeftPowerColor, s.btbLeftCustomFormat)
             else btbLeftFS:Hide() end
 
             btbRightFS:SetFont(PREVIEW_FONT, rsz, GetUFOptOutline())
@@ -1069,7 +1107,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 btbRightFS:SetText(PreviewTextForContent(rc, s, "btbRight"))
                 btbRightFS:Show()
                 PreviewClassColor(btbRightFS, s.btbRightClassColor, s.btbRightColorR, s.btbRightColorG, s.btbRightColorB)
-                PreviewPowerColor(btbRightFS, rc, s.btbRightPowerColor)
+                PreviewPowerColor(btbRightFS, rc, s.btbRightPowerColor, s.btbRightCustomFormat)
             else btbRightFS:Hide() end
 
             btbCenterFS:SetFont(PREVIEW_FONT, csz, GetUFOptOutline())
@@ -1080,7 +1118,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 btbCenterFS:SetText(PreviewTextForContent(cc, s, "btbCenter"))
                 btbCenterFS:Show()
                 PreviewClassColor(btbCenterFS, s.btbCenterClassColor, s.btbCenterColorR, s.btbCenterColorG, s.btbCenterColorB)
-                PreviewPowerColor(btbCenterFS, cc, s.btbCenterPowerColor)
+                PreviewPowerColor(btbCenterFS, cc, s.btbCenterPowerColor, s.btbCenterCustomFormat)
             else btbCenterFS:Hide() end
 
             -- Class icon in BTB preview
@@ -1772,6 +1810,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         hTex[#hTex + 1] = healthFill
         hTex[#hTex + 1] = healthBg
         hTex[#hTex + 1] = healthBgColor
+        if health._euiBgTex then hTex[#hTex + 1] = health._euiBgTex end  -- Textured Background layer
         if dispelOverlayPreview then hTex[#hTex + 1] = dispelOverlayPreview end
         if absorbBar and absorbBar:GetStatusBarTexture() then hTex[#hTex + 1] = absorbBar:GetStatusBarTexture() end
         if healAbsorbBar then
@@ -1814,6 +1853,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             local _, pToken = UnitPowerType("player")
             local pc = EllesmereUI.GetPowerColor(pToken or "MANA")
             PV_FillColor(pw._fill, texPath, pc.r, pc.g, pc.b, nil, nil, nil, 1)
+            -- Textured Background, as live.
+            local _, mpTex = ns.UF_TexBgPaths(unitKey, s, texKey)
+            ns.UF_TexBgPaint(pw._bg, mpTex, 17/255, 17/255, 17/255, 1)
         end
         local pPos = ns.UF_PowerPos(s)
         local inTrack = pw and (isMini or pPos == "below" or pPos == "above")
@@ -2361,7 +2403,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
 
         -- Live-update dark mode colors
         do
-            local isDark = db.profile.darkTheme
+            local isDark = ns.UF_DarkThemeOn(s)
             local uHR, uHG, uHB, uBgR, uBgG, uBgB
             if isDark then
                 uHR, uHG, uHB = EllesmereUI.GetDarkModeFill()
@@ -2479,6 +2521,15 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             end
             if healthFill then healthFill:SetAlpha(hFillA) end
             if healthBgColor then healthBgColor:SetAlpha(hBgA) end
+            -- Textured Background, as live: a fixed full-size layer while the fill is opaque.
+            local tbPath = ns.UF_TexBgPaths(unitKey, s, ns.ResolveHealthBarTextureKey(s, isMini and ds or nil))
+            if tbPath then
+                local tb = ns.UF_TexBgLayer(health, tbPath, s.healthVerticalFill and not blizzG)
+                tb:SetVertexColor(uBgR, uBgG, uBgB, 1)
+                tb:SetAlpha(hBgA)
+            elseif health._euiBgTex then
+                health._euiBgTex:Hide()
+            end
         end
 
         -- Text sizes deliberately NOT donor-sourced (see the function):
@@ -2587,7 +2638,11 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 -- keep it at 1 there to avoid double-dimming (as the real frame does).
                 pf._powerFill:SetAlpha(s.powerGradientEnabled and 1 or pOpacity)
             end
-            if pf._powerBg then pf._powerBg:SetColorTexture(pvPbR, pvPbG, pvPbB, 1) end
+            if pf._powerBg then
+                -- Textured Background, as live.
+                local _, tp = ns.UF_TexBgPaths(unitKey, s, s.healthBarTexture or db.profile.healthBarTexture or "none")
+                ns.UF_TexBgPaint(pf._powerBg, tp, pvPbR, pvPbG, pvPbB, 1)
+            end
             -- Spell Cost Prediction eyeball (player, WoW Forever): the last
             -- third of the fill in the prediction color, as during a cast.
             -- Mana only, as live.
@@ -2667,7 +2722,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local ppSuffix = (s.powerShowPercent == false) and "" or "%"
                 local ppCurFake = ns.AbbreviateNumbers(18200)
                 local ppTxt
-                if ppFmt == "smart" then
+                if ppFmt == "custom" then
+                    ppTxt = PreviewTextForContent("custom", s, "powerText")
+                elseif ppFmt == "smart" then
                     ppTxt = ppPctRaw .. ppSuffix  -- preview always shows percent for smart
                 elseif ppFmt == "curpp" then
                     ppTxt = ppCurFake
@@ -2801,7 +2858,11 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 -- Re-apply bg color/alpha so Bar Background updates live.
                 if castbar._previewBgTex then
                     local cbgC = s.castBgColor
-                    castbar._previewBgTex:SetColorTexture(cbgC and cbgC.r or 0, cbgC and cbgC.g or 0, cbgC and cbgC.b or 0, s.castBgAlpha or 0.5)
+                    -- Textured Background, as live (never over the stock cast art).
+                    local cbPath = ns.UF_TexBgCastPath(s, s.healthBarTexture or db.profile.healthBarTexture or "none",
+                        EllesmereUI.BlizzStyle.Active("unitframes") == "blizzard")
+                    ns.UF_TexBgPaint(castbar._previewBgTex, cbPath, cbgC and cbgC.r or 0, cbgC and cbgC.g or 0,
+                        cbgC and cbgC.b or 0, s.castBgAlpha or 0.5)
                 end
                 if castFill then
                     castFill:ClearAllPoints()
@@ -4034,7 +4095,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local fSz = s.factionIndicatorSize or 18
                 local fPos = s.factionIndicatorPosition or "topright"
                 local fOx, fOy = s.factionIndicatorX or 0, s.factionIndicatorY or 0
-                EllesmereUI.SetFactionArt(factionInd, s.factionIndicatorStyle or "pvp", fac)
+                local fStyle = s.factionIndicatorStyle or "pvp"
+                -- The preview shows your own badge on both frames.
+                EllesmereUI.SetFactionArt(factionInd, fStyle, fac, EllesmereUI.FactionBadgeFor(fStyle, "player"))
                 factionInd:SetSize(fSz, fSz)
                 factionInd:ClearAllPoints()
                 if fPos == "portrait" and portraitFrame and sp then

@@ -102,6 +102,23 @@ local function DisabledTile(parent, y, W, tile)
     return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its texture settings.", EllesmereUI.L(tile.display)))
 end
 
+-- A texture row's Textured Background cog: the module page's own toggle row
+-- (rowFn builds it; nil while the module's options are not loaded), greyed while
+-- the Blizzard Style of styleKey draws its stock art there instead.
+local function TexBgCog(rgn, rowFn, styleKey)
+    if EllesmereUI._prebuilding then return end
+    local row = rowFn()
+    if not row then return end
+    local blizzOn = styleKey and EllesmereUI.BlizzStyle.Active(styleKey) == "blizzard"
+    EllesmereUI.BuildInlineCog(rgn, {
+        disabled = blizzOn and function() return true end or nil,
+        disabledTooltip = blizzOn and EllesmereUI.BlizzStyle.Label(styleKey) or nil,
+        requireState = blizzOn and "disabled" or nil,
+        title = "Texture Settings",
+        rows = { row },
+    })
+end
+
 -------------------------------------------------------------------------------
 --  Per-module card content builders
 -------------------------------------------------------------------------------
@@ -269,9 +286,19 @@ local function TileNameplates(parent, y, W, tile)
             end }
     end
 
-    local _, h = W:DualRow(parent, y,
+    local _, texRow, h
+    texRow, h = W:DualRow(parent, y,
         texCfg("Bar Texture", "healthBarTexture"),
         texCfg("Cast Bar Texture", "castBarTexture"));  y = y - h
+    -- Textured Background cogs.
+    local function Row(kind)
+        return function()
+            local env = ns._NPO_OptEnv
+            return env and env.TexBgRowCfg(kind, NPTexApply)
+        end
+    end
+    TexBgCog(texRow._leftRegion, Row("health"), "nameplates")
+    TexBgCog(texRow._rightRegion, Row("cast"), "nameplates")
     _, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Absorb Style", values = absorbStyleValues, order = absorbStyleOrder,
           getValue = function()
@@ -386,11 +413,21 @@ local function TileUnitFrames(parent, y, W, tile)
             UFReload()
         end }
     if EllesmereUI.BlizzStyle.Active("unitframes") == "blizzard" then EllesmereUI.BlizzStyle.Gate("unitframes", castTexCfg) end
-    local _, h = W:DualRow(parent, y, barTexCfg("player"), barTexCfg("target"));  y = y - h
-    _, h = W:DualRow(parent, y, barTexCfg("focus"), absorbCfg("player"));  y = y - h
+    local _, focusRow, castRow
+    local ptRow, h = W:DualRow(parent, y, barTexCfg("player"), barTexCfg("target"));  y = y - h
+    focusRow, h = W:DualRow(parent, y, barTexCfg("focus"), absorbCfg("player"));  y = y - h
     _, h = W:DualRow(parent, y, absorbCfg("target"), absorbCfg("focus"));  y = y - h
     _, h = W:DualRow(parent, y, healAbsorbCfg("player"), healAbsorbCfg("target"));  y = y - h
-    _, h = W:DualRow(parent, y, healAbsorbCfg("focus"), castTexCfg);  y = y - h
+    castRow, h = W:DualRow(parent, y, healAbsorbCfg("focus"), castTexCfg);  y = y - h
+    -- Textured Background cogs (u nil: the cast bars' row).
+    local env = ns._UFO_OptEnv
+    local function Row(u)
+        return function() return env and env.TexBgRowCfg(u and function() return unitTable(u) end, UFReload) end
+    end
+    TexBgCog(ptRow._leftRegion, Row("player"))
+    TexBgCog(ptRow._rightRegion, Row("target"))
+    TexBgCog(focusRow._leftRegion, Row("focus"))
+    TexBgCog(castRow._rightRegion, Row(), "unitframes")
     y = LinkRow(parent, y, "Pet, Target-of-Target & Boss Bar Textures",
         tile.folder, "Mini Frames", "DISPLAY", "Bar Texture")
     y = LinkRow(parent, y, "Frame, Power & Aura Border Styles",
@@ -434,7 +471,7 @@ local function TileRaidFrames(parent, y, W, tile)
     local healAbsorbStyleOrder = { "none", "healBlizzModern", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid", "pixelsShield" }
     local maxHealthStyleOrder = { "none", "maxHealthStripes", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "healBlizzModern", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "blizzardRaid", "pixelsShield" }
     AppendSmTail(absorbStyleValues, { absorbStyleOrder, healAbsorbStyleOrder, maxHealthStyleOrder }, ns.healthBarTextureNames, ns.healthBarTextureOrder)
-    -- Default Blizz Frames' swatch draws its in-game compound (see the Raid Frames page).
+    -- Default Blizz Frames' swatch draws its in-game compound (see the Raid & Party Frames page).
     local modernSwatch = { base = { 0.776, 0.784, 1.0 }, tint = { 0.569, 0.588, 1.0 }, tile = true }
     absorbStyleValues._menuOpts = {
         itemHeight = 28,
@@ -446,7 +483,7 @@ local function TileRaidFrames(parent, y, W, tile)
         end,
     }
 
-    -- Mirrors write the RAID keys (same as the Frames tab); the Party tab's
+    -- Mirrors write the RAID keys (same as the Raid tab); the Party tab's
     -- unsynced party_ variants stay in the module and are linked below.
     local _, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Health Bar Texture", values = hbtValues, order = hbtOrder,
@@ -467,7 +504,7 @@ local function TileRaidFrames(parent, y, W, tile)
           end,
           setValue = function(v)
               local p = db(); if not p then return end
-              -- Blizzard Glow Line follows the pick (see the Raid Frames page).
+              -- Blizzard Glow Line follows the pick (see the Raid & Party Frames page).
               if v == "blizzardModern" then
                   p.absorbGlowLine = true
               elseif p.absorbStyle == "blizzardModern" then
@@ -563,22 +600,11 @@ local function TileResourceBars(parent, y, W, tile)
               RBApply()
               if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_CastBar") end
           end });  y = y - h
-    -- Textured Background: the module pages' Texture Settings cog on each
-    -- texture dropdown, with the same row (the module's options env builds it).
+    -- Textured Background cogs.
     local env = ns._ERB_OptEnv
-    local function TexBgCog(rgn, kind, blizz)
-        if EllesmereUI._prebuilding or not env then return end
-        local blizzOn = blizz and EllesmereUI.BlizzStyle.Active("castbar") == "blizzard"
-        EllesmereUI.BuildInlineCog(rgn, {
-            disabled = blizzOn and function() return true end or nil,
-            disabledTooltip = blizzOn and EllesmereUI.BlizzStyle.Label("castbar") or nil,
-            requireState = blizzOn and "disabled" or nil,
-            title = "Texture Settings",
-            rows = { env.TexBgRowCfg(kind, RBApply) },
-        })
-    end
-    TexBgCog(barTexRow._leftRegion, "bars")
-    TexBgCog(barTexRow._rightRegion, "cast", true)
+    local function Row(kind) return function() return env and env.TexBgRowCfg(kind, RBApply) end end
+    TexBgCog(barTexRow._leftRegion, Row("bars"))
+    TexBgCog(barTexRow._rightRegion, Row("cast"), "castbar")
     if split then
         local function BarRow(text, barKey)
             local v, o = CopyBarDD(_G._ERB_BarTextureNames, _G._ERB_BarTextureOrder, _G._ERB_BarTextures, false)
@@ -617,7 +643,7 @@ local function TileResourceBars(parent, y, W, tile)
               if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized("ERB_GCDBar") end
           end },
         BLANK());  y = y - h
-    TexBgCog(gcdTexRow._leftRegion, "gcd")
+    TexBgCog(gcdTexRow._leftRegion, Row("gcd"))
     y = LinkRow(parent, y, "Border Styles (per bar)",
         tile.folder, "Class, Power and Health Bars", nil, "Border Style")
     return y
@@ -753,7 +779,7 @@ local function TileMythicTimer(parent, y, W, tile)
     local ns = NS(tile.folder)
     if not ns then return DisabledTile(parent, y, W, tile) end
     local function db() return _G._EMT_AceDB and _G._EMT_AceDB.profile end
-    local function MTApply() if _G._EMT_Apply then _G._EMT_Apply() end end
+    local function MTApply() if _G._EMT_ApplyTimer then _G._EMT_ApplyTimer() end end
     -- MT's registered tables live in module/options locals; own memoized
     -- core-set catalogue (registered once), separator dropped like MT's own.
     local cat = OwnBarCatalogue("mt", nil)
@@ -786,6 +812,7 @@ local function TileMythicTimer(parent, y, W, tile)
     local function tsb() local p = db(); return p and p.tsb end
     local function tfbT() local p = db(); return p and p.tfb and p.tfb.target end
     local function tfbF() local p = db(); return p and p.tfb and p.tfb.focus end
+    local function kt() local p = db(); return p and p.kickTracker end
     local _, h = W:DualRow(parent, y,
         texCfg("Timer Bar Texture", "barTexture"),
         texCfg("Timer Background Texture", "barBgTexture"));  y = y - h
@@ -793,10 +820,11 @@ local function TileMythicTimer(parent, y, W, tile)
         texCfg("Forces Bar Texture", "enemyBarTexture"),
         texCfg("Forces Background Texture", "enemyBarBgTexture"));  y = y - h
     _, h = W:DualRow(parent, y,
-        subTexCfg("Targeted Bars Texture", tsb, "TSB_Refresh"),
+        subTexCfg("Cast Bars Texture", tsb, "TSB_Refresh"),
         subTexCfg("Target Cast Bar Texture", tfbT, "TFB_Refresh"));  y = y - h
     _, h = W:DualRow(parent, y,
-        subTexCfg("Focus Cast Bar Texture", tfbF, "TFB_Refresh"), BLANK());  y = y - h
+        subTexCfg("Focus Cast Bar Texture", tfbF, "TFB_Refresh"),
+        subTexCfg("Kick Tracker Bar Texture", kt, "KT_Refresh"));  y = y - h
     return y
 end
 
@@ -968,6 +996,10 @@ end
 do
     local origNav = EllesmereUI.NavigateToElementSettings
     function EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName, preSelectFn, highlightText)
+        -- The original refuses in combat: no page state changes then.
+        if InCombatLockdown() then
+            return origNav(self, moduleName, pageName, sectionName, preSelectFn, highlightText)
+        end
         if moduleName == GLOBAL_KEY and pageName == PAGE_TEXTURES and (sectionName or highlightText) then
             local changed = false
             for _, tile in ipairs(BuildTileList()) do

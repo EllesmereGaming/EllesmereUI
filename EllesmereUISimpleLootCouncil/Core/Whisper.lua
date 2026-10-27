@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 
@@ -9,15 +10,7 @@ local T = addon.Locale.Text
 local Whisper = {}
 addon.Whisper = Whisper
 
-local issecretvalue = issecretvalue
-
-local function IsSecret(...)
-    if not issecretvalue then return false end
-    for i = 1, select("#", ...) do
-        if issecretvalue((select(i, ...))) then return true end
-    end
-    return false
-end
+local IsSecret = addon.IsSecret
 
 
 
@@ -101,12 +94,6 @@ local function AliasesFor(response)
             seen[word] = true
             out[#out + 1] = word
         end
-    end
-
-
-
-    for alias in tostring(response.whisper or ""):gmatch("[^,/%s]+") do
-        add(alias)
     end
 
     local text = tostring(response.text or "")
@@ -280,6 +267,28 @@ end
 
 local OUTBOX_MAX = 40
 
+
+local HELP_COOLDOWN = 60
+local helpAt = {}
+
+
+local function DropNewestGuide()
+    local to
+    for i = #outbox, 1, -1 do
+        if outbox[i].help then
+            to = outbox[i].to
+            break
+        end
+    end
+    if not to then return false end
+    for i = #outbox, 1, -1 do
+        if outbox[i].help and outbox[i].to == to then table.remove(outbox, i) end
+    end
+    helpAt[to] = nil
+    addon.Log:D("Whisper", "outbox full, guide for", to, "dropped to make room for replies")
+    return true
+end
+
 local function Say(to, lines, help)
     if not to then return end
     if type(lines) == "string" then lines = { lines } end
@@ -295,11 +304,22 @@ local function Say(to, lines, help)
 
     for _, line in ipairs(lines) do
         if line and line ~= "" then
-            if #outbox >= OUTBOX_MAX then
+            if #outbox >= OUTBOX_MAX and (help or not DropNewestGuide()) then
                 addon.Log:D("Whisper", "outbox full, dropping a reply to", to)
                 break
             end
-            outbox[#outbox + 1] = { to = to, text = line, help = help }
+            if help then
+                outbox[#outbox + 1] = { to = to, text = line, help = true }
+            else
+                local at = #outbox + 1
+                for i, queued in ipairs(outbox) do
+                    if queued.help then
+                        at = i
+                        break
+                    end
+                end
+                table.insert(outbox, at, { to = to, text = line })
+            end
         end
     end
 
@@ -503,7 +523,8 @@ local function Handle(text, sender)
     end
 
 
-    if not addon.PlayerIsMasterLooter() then return end
+
+    if not IsInGroup() or not addon.PlayerIsMasterLooter() then return end
 
 
     if IsSecret(text, sender) then
@@ -525,7 +546,15 @@ local function Handle(text, sender)
     if not parsed then return end
 
     if parsed.kind == "help" then
-        if CanReply(who) then Say(who, Whisper:HelpLines(), true) end
+        local last = helpAt[who]
+        if last and GetTime() - last < HELP_COOLDOWN then
+            addon.Log:D("Whisper", "guide already sent to", who, "in the last minute")
+            return
+        end
+        if CanReply(who) then
+            helpAt[who] = GetTime()
+            Say(who, Whisper:HelpLines(), true)
+        end
         return
     end
 

@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
@@ -35,7 +36,7 @@ local CM = {
 
     votedOn = setmetatable({}, { __mode = "k" }),
 }
-local endButton, timerText, strikeButton, menuHint
+local endButton, timerText, menuHint
 local rollButton, footer
 local timerLabel
 local answeredBar, answeredText, answeredCount, runCount
@@ -46,10 +47,6 @@ local againstFor
 local selectedSession = 1
 local paintedSession
 local selectedSet
-
-
-
-local currentRoute
 
 
 local TIMER_WARN_AT = 0.33
@@ -80,82 +77,51 @@ end
 
 
 
-function MLFrame:ConfirmAward(session, winner, reason, viaRoute)
+local function CannotAwardText(item)
+    if item.removed then
+        return addon.Locale.Format(
+            T["%s was removed from this run.\n\nRight-click it in the list to restore it first."],
+            ItemText(item.link))
+    elseif item.gone == "pending" then
+        return addon.Locale.Format(
+            T["%s has not been looted yet.\n\nIt can be awarded once it reaches the Loot Master's bags."],
+            ItemText(item.link))
+    elseif item.gone == "lost" then
+        return addon.Locale.Format(
+            T["%s went to another player in the loot roll, so it cannot be traded from here.\n\nRight-click it in the list to remove it from the run."],
+            ItemText(item.link))
+    elseif item.gone == "equipped" then
+        return addon.Locale.Format(
+            T["%s can no longer be traded.\n\nIts holder equipped it. Right-click it in the list to remove it from the run."],
+            ItemText(item.link))
+    elseif item.gone == "bound" then
+        return addon.Locale.Format(
+            T["%s can no longer be traded.\n\nIts trade window has ended. Right-click it in the list to remove it from the run."],
+            ItemText(item.link))
+    end
+    return addon.Locale.Format(
+        T["%s can no longer be traded.\n\nIts holder no longer has it in their bags. Right-click it in the list to remove it from the run."],
+        ItemText(item.link))
+end
+
+
+
+function MLFrame:Award(session, winner, reason)
     local runId = addon.Session:GetRunId()
     local item = addon.Session:GetItem(session)
     if not runId or not item or not winner then return false end
-
-
-
     if not addon.Session:IsAwardable(item) then
-        local body
-        if item.removed then
-            body = addon.Locale.Format(
-                T["%s was removed from this run.\n\nRight-click it in the list to restore it first."],
-                ItemText(item.link))
-        elseif item.gone == "equipped" then
-            body = addon.Locale.Format(
-                T["%s can no longer be traded.\n\nIts holder equipped it. Right-click it in the list to remove it from the run."],
-                ItemText(item.link))
-        elseif item.gone == "bound" then
-
-
-            body = addon.Locale.Format(
-                T["%s can no longer be traded.\n\nIts trade window has ended. Right-click it in the list to remove it from the run."],
-                ItemText(item.link))
-        else
-            body = addon.Locale.Format(
-                T["%s can no longer be traded.\n\nIts holder no longer has it in their bags. Right-click it in the list to remove it from the run."],
-                ItemText(item.link))
-        end
-        S.Confirm({
-            title = T["Cannot award"],
-            body = body,
-            acknowledge = true,
-        })
-        return true
+        addon.Chat.Print((CannotAwardText(item):gsub("\n\n", " ")))
+        return false
     end
-
-    local identity = item.id or item.link
-    local itemText = ItemText(item.link)
-    local short = Ambiguate(winner, "short")
-
-    local reasonEntry = type(reason) == "string" and { text = reason }
-        or reason and addon.db.awardReasons and addon.db.awardReasons[reason]
+    return addon.Session:Award(session, winner, reason, runId)
+end
 
 
-    local question = reasonEntry
-        and addon.Locale.Format(T["Award %s to %s (%s)?"], itemText, short, reasonEntry.text)
-        or addon.Locale.Format(T["Award %s to %s?"], itemText, short)
-    local paragraphs = { question }
-    local candidate = item.candidates and item.candidates[winner]
-    if candidate and candidate.status == "PASS" then
-        paragraphs[#paragraphs + 1] = addon.Locale.Format(T["%s passed on this item."], short)
-    end
-
-
-    if item.owed and not item.awarded then
-        paragraphs[#paragraphs + 1] = addon.Locale.Format(
-            T["This copy is already owed to %s from an earlier award. Awarding it here undoes that award and strikes it from history."],
-            Ambiguate(item.owed.w, "short"))
-    end
-    if viaRoute then
-        paragraphs[#paragraphs + 1] = addon.Locale.Format(T["Pre-filled by your BoE rule."])
-    end
-
-    S.Confirm({
-        title = T["Confirm award"],
-        body = table.concat(paragraphs, T["\n\n"]),
-        accept = item.awarded and T["Re-award"] or T["Award"],
-        onAccept = function()
-            if not ConfirmedItem(session, runId, identity) then
-                addon.Log:WLogOnly("UI", "stale award confirmation ignored", session)
-                return
-            end
-            addon.Session:Award(session, winner, reason, runId)
-        end,
-    })
-    return true
+function MLFrame:Unaward(session)
+    local item = addon.Session:GetItem(session)
+    if not item or not item.awarded then return false end
+    return addon.Session:Unaward(session, addon.Session:GetRunId())
 end
 
 
@@ -185,12 +151,19 @@ function MLFrame:ConfirmUnaward(session, expectedRunId, expectedLink, offerRemov
         return current
     end
 
+    local body = addon.Locale.Format(removable
+        and T["Undo the award of %s to %s?\n\nThis removes it from the trade queue and from history. It can no longer be traded, so it can also come out of the run."]
+        or T["Undo the award of %s to %s?\n\nThis removes it from the trade queue and from history."],
+        itemText, short)
+    if item.delivered then
+        body = body .. "\n\n" .. addon.Locale.Format(
+            T["%s was already traded to %s. This changes the history record."],
+            itemText, short)
+    end
+
     S.Confirm({
         title = T["Undo award?"],
-        body = addon.Locale.Format(removable
-            and T["Undo the award of %s to %s?\n\nThis removes it from the trade queue and from history. It can no longer be traded, so it can also come out of the run."]
-            or T["Undo the award of %s to %s?\n\nThis removes it from the trade queue and from history."],
-            itemText, short),
+        body = body,
         accept = T["Undo award"],
         onAccept = function()
             if Current() then addon.Session:Unaward(session, runId) end
@@ -220,6 +193,14 @@ function MLFrame:ConfirmRemove(session)
     if restoring then
         body = addon.Locale.Format(
             T["Put %s back into the run?\n\nRaiders see it again and the council can award it."],
+            itemText)
+    elseif item.gone == "pending" then
+        body = addon.Locale.Format(
+            T["Remove %s from the run? It has not been looted yet.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
+            itemText)
+    elseif item.gone == "lost" then
+        body = addon.Locale.Format(
+            T["Remove %s from the run? It went to another player in the loot roll.\n\nIt stays in this list, marked Removed, and leaves every raider's window. Right-click it again to restore it."],
             itemText)
     elseif item.gone == "equipped" then
         body = addon.Locale.Format(
@@ -285,7 +266,7 @@ function MLFrame:ConfirmRetract(entryId)
                 return
             end
             if not addon.Session:RetractAward(args.runId, args.session, args.recipient) then
-                print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+                addon.Chat.Print(addon.Locale.Format(
                     T["could not undo the award of %s - see /slc log."], entry.link or "?"))
             end
         end,
@@ -324,7 +305,7 @@ function MLFrame:ConfirmRetractOthers(key)
                 return
             end
             if not addon.Session:RetractAward(record.runId, record.session, record.winner) then
-                print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+                addon.Chat.Print(addon.Locale.Format(
                     T["could not undo the award of %s - see /slc log."], record.link or "?"))
             end
         end,
@@ -453,18 +434,22 @@ CM.RAIL_GAP_V = 10
 
 local FULL_RAIL_H = 564
 CM.FULL_H = 640
+local WINDOW_OPTIONS = { tabs = true, tabHeader = true }
 CM.FULL_ROWS = 7
 
 
 CM.ROWS = 3
 
 
-local function TableWidth(forCompact)
+local function TableWidth(forCompact, allColumns)
+    local t
+    if forCompact then t = CM.table else t = table_ end
+    if t and t.shownWidth and not allColumns then return t.shownWidth end
     return forCompact and (TABLE_W - CM.DROPPED_W) or TABLE_W
 end
 
-local function WindowWidth(forCompact)
-    return S.size.PAD + RAIL_W + RAIL_GAP + TableWidth(forCompact)
+local function WindowWidth(forCompact, allColumns)
+    return S.size.PAD + RAIL_W + RAIL_GAP + TableWidth(forCompact, allColumns)
         + CM.BAR_GAP + S.size.SCROLLBAR_W + FRAME_RIGHT_GAP
 end
 
@@ -512,8 +497,8 @@ function MLFrame:FitTextWidths()
     ACTIONS_W = math.max(ACTIONS_W, 2 + voteWidth + 6 + awardWidth + 5)
 
     probe:SetFontObject(S.fontHint)
-    for _, state in ipairs({ T["AWARDED"], T["REMOVED"], T["MISSING"], T["OWED"],
-        T["OPEN"], T["QUEUED"] }) do
+    for _, state in ipairs({ T["AWARDED"], T["REMOVED"], T["LOOTING"], T["MISSING"], T["OWED"],
+        T["QUEUED"] }) do
         CM.STRIP_STATE_W = Widest(state, CM.STRIP_STATE_W, 2)
     end
 
@@ -569,6 +554,13 @@ function CM.ApplySort(t)
 end
 
 
+function CM.VotesHidden()
+    return addon.Config:Vote().hideVotes
+        and not addon.Session:HasVoted(selectedSession,
+            addon.Player:GetFullName("player")) or false
+end
+
+
 
 local function ActiveTable()
     return CM.active and CM.table or table_
@@ -607,6 +599,18 @@ end
 local ShowRowMenu
 
 
+local function CellMouseUp(self, button)
+    local row = self:GetParent()
+    local data = row and row.rowData
+    if not data then return end
+    if button == "RightButton" then
+        ShowRowMenu(row, data)
+    elseif button == "LeftButton" and data.name then
+        CM.TogglePick(data.name)
+    end
+end
+
+
 
 
 
@@ -615,13 +619,6 @@ local ShowRowMenu
 local function ResolveResponse(candidate, sortOnly)
     if not candidate then
         return "-", S.color.textFaint, 999
-    end
-
-
-    local boe = candidate.status == "RESPONDED" and candidate.boe
-    if boe then
-        if sortOnly then return nil, nil, 0.5 end
-        return boe.t, { boe.r, boe.g, boe.b }, 0.5
     end
 
     if candidate.status == "RESPONDED" and candidate.response then
@@ -731,13 +728,13 @@ local function BuildColumns(forCompact)
                 local coinText = ""
                 if item and addon.BonusRoll then
                     local coin, spent = addon.BonusRoll:StatusFor(row.name, item)
-                    if coin then
-                        coinText = S.Colorize(S.color.accent, T["coined"])
-                    elseif spent > 0 then
-                        coinText = S.Colorize(S.color.accent,
-                            addon.Locale.Format(addon.Locale.Plural{
-                                one = "spent %d coin", other = "spent %d coins",
-                            }, spent, spent))
+                    spent = spent + (coin and 1 or 0)
+                    if spent > 0 then
+
+                        local possible = addon.BonusRoll:PossibleFor(row.name, item)
+                        coinText = S.Colorize(S.color.accent, possible
+                            and addon.Locale.Format(T["Bonus rolls: %d of %d"], spent, possible)
+                            or addon.Locale.Format(T["Bonus rolls: %d"], spent))
                     end
                 end
 
@@ -763,8 +760,7 @@ local function BuildColumns(forCompact)
                 local text, colour = ResolveResponse(row.candidate)
                 local candidate = row.candidate
                 local isResponse = candidate and candidate.status == "RESPONDED"
-                    and (candidate.boe or candidate.response
-                        and addon.Config:Responses()[candidate.response])
+                    and candidate.response and addon.Config:Responses()[candidate.response]
 
                 if isResponse then
                     if not cell.Chip then
@@ -829,7 +825,7 @@ local function BuildColumns(forCompact)
 
                 local setText, reachesBonus
                 if setMatch then
-                    setText, reachesBonus = addon.Gear.SetProgress(c.setCount)
+                    setText, reachesBonus = addon.Gear.SetProgress(c.setCount, c.setReplaces)
                 end
                 local replaced
 
@@ -838,7 +834,7 @@ local function BuildColumns(forCompact)
                     cell.Text:SetText("")
                 else
                     for _, item in ipairs({ c.gear1, c.gear2 }) do
-                        local ilvl = select(4, C_Item.GetItemInfo(item or ""))
+                        local ilvl = addon.Gear:ItemLevel(item)
                         if ilvl and (not replaced or ilvl < replaced) then
                             replaced = ilvl
                         end
@@ -876,10 +872,11 @@ local function BuildColumns(forCompact)
                     cell.hooked = true
                     cell:EnableMouse(true)
                     cell:SetScript("OnEnter", function(self)
+                        Tbl.HoverRow(self:GetParent())
                         local data = self.gear
                         if not data then return end
-                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                        S.TooltipSection(GameTooltip, T["Currently Equipped"])
+                        local lines = { S.Colorize(S.color.accent,
+                            addon.Locale.SectionTitle(T["Currently Equipped"])) }
                         local any = false
                         local slots = {
                             { link = data.gear1, sockets = data.sockets1 },
@@ -887,50 +884,44 @@ local function BuildColumns(forCompact)
                         }
                         for _, slot in ipairs(slots) do
                             if slot.link then
-                                local name, link, _, ilvl = C_Item.GetItemInfo(slot.link)
+                                local name, link = C_Item.GetItemInfo(slot.link)
+                                local ilvl = addon.Gear:ItemLevel(slot.link)
                                 local label = "  " .. (link or name or slot.link)
                                 if slot.sockets then
                                     label = label .. addon.Locale.Format(addon.Locale.Plural{
                                         one = " (%d socket)", other = " (%d sockets)",
                                     }, slot.sockets, slot.sockets)
                                 end
-                                GameTooltip:AddDoubleLine(label,
-                                    ilvl and tostring(ilvl) or "?",
-                                    0.8, 0.8, 0.8, 1, 1, 1)
+                                lines[#lines + 1] = label .. "  " .. (ilvl and tostring(ilvl) or "?")
                                 any = true
                             end
                         end
                         if not any then
-                            GameTooltip:AddLine(T["  Nothing in that slot"],
-                                0.55, 0.55, 0.55)
+                            lines[#lines + 1] = S.Colorize(S.color.textMuted, T["  Nothing in that slot"])
                         end
                         if data.ilvl then
-                            GameTooltip:AddDoubleLine(T["Average equipped"],
-                                tostring(data.ilvl), 0.8, 0.8, 0.8, 1, 1, 1)
+                            lines[#lines + 1] = addon.Locale.SectionTitle(T["Average equipped"])
+                                .. " " .. tostring(data.ilvl)
                         end
 
                         local ctx = self.setCtx
                         if ctx and ctx.match and data.setCount then
                             local setName = ctx.setID
                                 and C_Item.GetItemSetInfo(ctx.setID)
-                            S.TooltipSection(GameTooltip, T["Tier Set"])
-                            if setName then
-                                GameTooltip:AddLine(setName, 1, 1, 1)
-                            end
-                            GameTooltip:AddDoubleLine(T["  Pieces equipped"],
-                                tostring(data.setCount), 0.8, 0.8, 0.8, 1, 1, 1)
+                            lines[#lines + 1] = S.Colorize(S.color.accent,
+                                addon.Locale.SectionTitle(T["Tier Set"]))
+                            if setName then lines[#lines + 1] = setName end
+                            lines[#lines + 1] = addon.Locale.SectionTitle(T["  Pieces equipped"])
+                                .. " " .. tostring(data.setCount)
                         end
-                        GameTooltip:Show()
+                        S.TextTooltip(self, table.concat(lines, "\n"), self:GetParent(), true)
                     end)
-                    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                    cell:SetScript("OnLeave", function(self)
+                        S.HideTextTooltip()
+                        Tbl.LeaveRow(self:GetParent())
+                    end)
 
-                    cell:SetScript("OnMouseUp", function(self, button)
-                        if button ~= "RightButton" then return end
-                        local parent = self:GetParent()
-                        if parent and parent.rowData then
-                            ShowRowMenu(parent, parent.rowData)
-                        end
-                    end)
+                    cell:SetScript("OnMouseUp", CellMouseUp)
                 end
                 cell.gear = c
                 local ctx = cell.setCtx
@@ -945,13 +936,20 @@ local function BuildColumns(forCompact)
         {
             key = "votes", title = T["Votes"], width = VOTES_W, justify = "CENTER",
             font = S.fontNumHint,
-            value = function(row) return row.votes end,
+            prepare = function()
+                CM.votesSortHidden = CM.VotesHidden()
+            end,
+            value = function(row)
+                if CM.votesSortHidden then return 0 end
+                return row.votes
+            end,
             render = function(cell, row)
 
                 if not cell.hooked then
                     cell.hooked = true
                     cell:EnableMouse(true)
                     cell:SetScript("OnEnter", function(self)
+                        Tbl.HoverRow(self:GetParent())
                         local voters = not self.votesHidden and self.voters
                         if not voters or not next(voters) then return end
                         local names = {}
@@ -959,31 +957,25 @@ local function BuildColumns(forCompact)
                         table.sort(names, function(a, b)
                             return Ambiguate(a, "short") < Ambiguate(b, "short")
                         end)
-                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                        S.TooltipSection(GameTooltip, T["Votes"])
+                        local lines = { S.Colorize(S.color.accent,
+                            addon.Locale.SectionTitle(T["Votes"])) }
                         for _, name in ipairs(names) do
                             local r, g, b = S.ClassColor(addon.Player:Get(name).classFile)
-                            if r then
-                                GameTooltip:AddLine(Ambiguate(name, "short"), r, g, b)
-                            else
-                                GameTooltip:AddLine(Ambiguate(name, "short"), 1, 1, 1)
-                            end
+                            lines[#lines + 1] = r and S.Colorize({ r, g, b }, Ambiguate(name, "short"))
+                                or Ambiguate(name, "short")
                         end
-                        GameTooltip:Show()
+                        S.TextTooltip(self, table.concat(lines, "\n"), self:GetParent(), true)
                     end)
-                    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+                    cell:SetScript("OnLeave", function(self)
+                        S.HideTextTooltip()
+                        Tbl.LeaveRow(self:GetParent())
+                    end)
 
-                    cell:SetScript("OnMouseUp", function(self, button)
-                        if button ~= "RightButton" then return end
-                        local parent = self:GetParent()
-                        if parent and parent.rowData then ShowRowMenu(parent, parent.rowData) end
-                    end)
+                    cell:SetScript("OnMouseUp", CellMouseUp)
                 end
                 cell.voters = row.candidate and row.candidate.voters
 
-                cell.votesHidden = addon.Config:Vote().hideVotes
-                    and not addon.Session:HasVoted(selectedSession,
-                        addon.Player:GetFullName("player")) or false
+                cell.votesHidden = CM.VotesHidden()
                 if cell.votesHidden then
                     cell.Text:SetText("?")
                     cell.Text:SetTextColor(S.Unpack(S.color.textFaint))
@@ -1048,25 +1040,21 @@ local function BuildColumns(forCompact)
                     cell.hooked = true
                     cell:EnableMouse(true)
                     cell:SetScript("OnEnter", function(self)
-
+                        Tbl.HoverRow(self:GetParent())
                         local text = self.note and addon.Autopass
                             and addon.Autopass.NoteText(self.note) or self.note
                         if not text then return end
-                        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-                        S.TooltipSection(GameTooltip, T["Note"])
-
-                        for _, line in ipairs(addon.Locale.Wrap(text, NOTE_TOOLTIP_LETTERS)) do
-                            GameTooltip:AddLine(line, 1, 1, 1, false)
-                        end
-                        GameTooltip:Show()
+                        S.TextTooltip(self, S.Colorize(S.color.accent,
+                            addon.Locale.SectionTitle(T["Note"])) .. "\n"
+                            .. table.concat(addon.Locale.Wrap(text, NOTE_TOOLTIP_LETTERS), "\n"),
+                            self:GetParent(), true)
                     end)
-                    cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-                    cell:SetScript("OnMouseUp", function(self, button)
-                        if button ~= "RightButton" then return end
-                        local row = self:GetParent()
-                        if row and row.rowData then ShowRowMenu(row, row.rowData) end
+                    cell:SetScript("OnLeave", function(self)
+                        S.HideTextTooltip()
+                        Tbl.LeaveRow(self:GetParent())
                     end)
+
+                    cell:SetScript("OnMouseUp", CellMouseUp)
                 end
                 cell.note = note
             end,
@@ -1082,6 +1070,10 @@ local function BuildColumns(forCompact)
                     })
                     cell.awardButton:SetPoint("RIGHT", cell, "RIGHT", -5, 0)
                     cell.voteButton:SetPoint("RIGHT", cell.awardButton, "LEFT", -6, 0)
+                    Tbl.AdoptHover(cell:GetParent(), cell.voteButton)
+                    Tbl.AdoptHover(cell:GetParent(), cell.awardButton)
+                    cell.voteButton.slcTipUnder = cell:GetParent()
+                    cell.awardButton.slcTipUnder = cell:GetParent()
 
 
 
@@ -1097,19 +1089,11 @@ local function BuildColumns(forCompact)
                         local item = addon.Session:GetItem(selectedSession)
 
                         if item and item.awarded == row.name then
-                            MLFrame:ConfirmUnaward(selectedSession)
+                            MLFrame:Unaward(selectedSession)
                             return
                         end
 
-
-                        if currentRoute and currentRoute.state == "routed"
-                            and addon.Player:IsSame(row.name, currentRoute.winner) then
-                            MLFrame:ConfirmAward(selectedSession, row.name,
-                                currentRoute.reason, true)
-                            return
-                        end
-
-                        MLFrame:ConfirmAward(selectedSession, row.name)
+                        MLFrame:Award(selectedSession, row.name)
                     end)
                     cell.voteButton:Show()
                     cell.awardButton:Show()
@@ -1150,6 +1134,11 @@ local function BuildColumns(forCompact)
                 if cell.awardLabel ~= awardLabel then
                     cell.awardLabel = awardLabel
                     cell.awardButton:SetLabel(awardLabel)
+                    if isWinner then
+                        cell.awardButton:SetColour(S.color.bad, S.color.bad)
+                    else
+                        cell.awardButton:SetColour(nil)
+                    end
                 end
 
 
@@ -1250,9 +1239,13 @@ end
 
 
 
-local function ShowMoreInfo(anchor, name)
-    if not addon.db.showMoreInfo then return end
+local function RoleName(role)
+    if role == "TANK" then return T["Tank"] end
+    if role == "HEALER" then return T["Healer"] end
+    if role == "DAMAGER" then return T["DPS"] end
+end
 
+local function ShowMoreInfo(anchor, name)
     local qualified = addon.Player:Qualify(name)
     local main = addon.Player:Main(name)
     local isAlt = qualified and addon.Player:NameKey(main)
@@ -1260,10 +1253,9 @@ local function ShowMoreInfo(anchor, name)
     local stats = addon.History:GetStats(isAlt and main or name)
     local item = addon.Session:GetItem(selectedSession)
     local previous = item and addon.History:GetWinnersOfItem(item.link) or {}
-    local attendance = addon.Attendance
-        and addon.Attendance:For(name, addon.RaidTeam and addon.RaidTeam:GetSeasonStart())
     local notes = addon.RaidTeam and addon.RaidTeam:NoteFor(name)
-    local hasNotes = notes and (notes.note or notes.officerNote)
+    local shift = IsShiftKeyDown()
+    local hasNotes = notes and (notes.note or (shift and notes.officerNote))
 
 
 
@@ -1272,12 +1264,13 @@ local function ShowMoreInfo(anchor, name)
         coin, spentAtBoss = addon.BonusRoll:StatusFor(name, item)
     end
 
-    if not stats and #previous == 0 and not (attendance and attendance.nights > 0)
+
+    if not stats and #previous == 0 and not (notes and notes.officerNote)
         and not hasNotes and not coin and spentAtBoss == 0 then
         return
     end
 
-    GameTooltip:SetOwner(anchor, "ANCHOR_RIGHT")
+    S.SideTooltip(anchor, nil, true)
     S.TooltipSection(GameTooltip, T["Candidate"])
     GameTooltip:AddLine(Ambiguate(name, "short"), 1, 1, 1)
 
@@ -1287,7 +1280,7 @@ local function ShowMoreInfo(anchor, name)
         local info = addon.Specs:Info(addon.Specs:Get(record.guid))
         if info and info.name then
             GameTooltip:AddLine(
-                info.role and addon.Locale.Format(T["%s - %s"], info.name, info.role)
+                RoleName(info.role) and addon.Locale.Format(T["%s - %s"], info.name, RoleName(info.role))
                     or info.name,
                 0.55, 0.55, 0.55)
         end
@@ -1307,72 +1300,13 @@ local function ShowMoreInfo(anchor, name)
             GameTooltip:AddLine(addon.Locale.Format(T["Note: %s"], notes.note),
                 0.55, 0.55, 0.55, true)
         end
-        if notes.officerNote then
+        if shift and notes.officerNote then
             GameTooltip:AddLine(addon.Locale.Format(T["Officer: %s"], notes.officerNote),
                 0.55, 0.55, 0.55, true)
         end
     end
 
-
-    if attendance then
-        S.TooltipSection(GameTooltip, T["Attendance"])
-        local seasonal = addon.RaidTeam and addon.RaidTeam:GetSeasonStart()
-        if attendance.nights > 0 then
-            GameTooltip:AddLine(addon.Locale.Format(seasonal
-                and T["%d/%d nights this season"] or T["%d/%d nights"],
-                attendance.attended, attendance.nights), 0.64, 0.63, 0.60)
-        else
-            GameTooltip:AddLine(T["No raids recorded"], 0.45, 0.44, 0.42)
-        end
-    end
-
     if stats then
-        S.TooltipSection(GameTooltip, T["Loot history"])
-        GameTooltip:AddLine(addon.Locale.Format(addon.Locale.Plural{
-            one = "Received %d item", other = "Received %d items",
-        }, stats.total, stats.total), 1, 1, 1)
-
-
-        if (stats.imported or 0) > 0 then
-            local sources = {}
-            for source, count in pairs(stats.importedBySource or {}) do
-                sources[#sources + 1] = {
-                    label = addon.HistoryImport:Label(source), count = count,
-                }
-            end
-            table.sort(sources, function(a, b) return a.label < b.label end)
-            for _, source in ipairs(sources) do
-                GameTooltip:AddLine(addon.Locale.Format(T["  %d imported from %s"],
-                    source.count, source.label), 0.45, 0.44, 0.42)
-            end
-        end
-
-
-        if (stats.fromAlts or 0) > 0 then
-            GameTooltip:AddLine(addon.Locale.Format(addon.Locale.Plural{
-                one = "  incl. %d on alt", other = "  incl. %d on alts",
-            }, stats.fromAlts, stats.fromAlts),
-                0.45, 0.44, 0.42)
-        end
-
-
-        if (stats.reasons or 0) > 0 then
-            GameTooltip:AddLine(addon.Locale.Format(T["  plus %d held for the guild (not counted)"],
-                stats.reasons), 0.45, 0.44, 0.42)
-        end
-
-
-
-        local ordered = {}
-        for text, count in pairs(stats.counts) do
-            ordered[#ordered + 1] = { text = text, count = count }
-        end
-        table.sort(ordered, function(a, b) return a.count > b.count end)
-        for _, row in ipairs(ordered) do
-            GameTooltip:AddDoubleLine(addon.Locale.Format(T["  %s"], row.text), row.count,
-                0.8, 0.8, 0.8, 1, 1, 1)
-        end
-
         S.TooltipSection(GameTooltip, T["Most Recent Loot"])
         for i = 1, math.min(5, #stats.recent) do
             local entry = stats.recent[i]
@@ -1424,9 +1358,19 @@ local function ShowMoreInfo(anchor, name)
         }, spentAtBoss, spentAtBoss,
             addon.Encounter:DisplayName(item.boss, item.encounterID) or T["this boss"]),
             0.8, 0.8, 0.8)
+        local possible, bySpec = addon.BonusRoll:PossibleFor(name, item)
+        if possible then
+            GameTooltip:AddLine(addon.Locale.Format(bySpec and addon.Locale.Plural{
+                one = "  %d item there for their spec", other = "  %d items there for their spec",
+            } or addon.Locale.Plural{
+                one = "  %d item there for their class", other = "  %d items there for their class",
+            }, possible, possible), 0.8, 0.8, 0.8)
+        end
     end
 
     GameTooltip:Show()
+
+    S.WatchTooltipModifiers(anchor)
 end
 
 
@@ -1448,12 +1392,12 @@ function ShowRowMenu(row, data)
 
     if item.awarded == data.name then
         items[#items + 1] = { text = T["Undo award"], onClick = function()
-            MLFrame:ConfirmUnaward(selectedSession)
+            MLFrame:Unaward(selectedSession)
         end }
     else
         items[#items + 1] = {
             text = item.awarded and T["Re-award to this player"] or T["Award"],
-            onClick = function() MLFrame:ConfirmAward(selectedSession, data.name) end,
+            onClick = function() MLFrame:Award(selectedSession, data.name) end,
         }
     end
 
@@ -1464,7 +1408,7 @@ function ShowRowMenu(row, data)
         for index, reason in ipairs(addon.db.awardReasons) do
             local reasonIndex = index
             reasons[#reasons + 1] = { text = reason.text, onClick = function()
-                MLFrame:ConfirmAward(selectedSession, data.name, reasonIndex)
+                MLFrame:Award(selectedSession, data.name, reasonIndex)
             end }
         end
         items[#items + 1] = { text = T["Award for"], children = reasons }
@@ -1620,6 +1564,13 @@ end
 
 
 
+CM.NO_ITEMS = {}
+
+function CM.RunItems()
+    return addon.Session:IsRunning() and addon.Session:GetItems() or CM.NO_ITEMS
+end
+
+
 function CM.HasWork()
     local master = addon.PlayerIsMasterLooter()
     for _, item in ipairs(addon.Session:GetItems()) do
@@ -1629,6 +1580,146 @@ function CM.HasWork()
         end
     end
     return false
+end
+
+
+local warnedRun
+function CM.CheckOpened()
+    if frame and frame:IsShown() then return end
+    local runId = addon.Session:GetRunId()
+    if warnedRun == runId then return end
+    warnedRun = runId
+    addon.Log:W("UI", "run started - the council window did not open; /slc vote opens it")
+end
+
+
+
+function CM.SetPick(name)
+    CM.pick = name
+    if table_ then Tbl.SetPicked(table_, name) end
+    if CM.table then Tbl.SetPicked(CM.table, name) end
+    if CM.fullTables then
+        for _, t in pairs(CM.fullTables) do Tbl.SetPicked(t, name) end
+    end
+end
+
+function CM.TogglePick(name)
+    CM.SetPick(CM.pick ~= name and name or nil)
+    if not CM.hovered then
+        againstFor = CM.pick
+        addon.Callbacks:Invalidate("councilAgainst")
+    end
+end
+
+
+
+function CM.NextOpen(from)
+    local items = CM.RunItems()
+    local count = #items
+    for step = 1, count - 1 do
+        local index = (from - 1 + step) % count + 1
+        local item = items[index]
+        if item and not item.awarded and not item.removed then return index end
+    end
+    return nil
+end
+
+function CM.RevealStrip(index)
+    local bar = runScroll and runScroll.ScrollBar
+    local viewport = runScroll and runScroll.Viewport
+    if not bar or not viewport then return end
+    local top = (index - 1) * STRIP_STEP
+    local height = viewport:GetHeight() or 0
+    local _, maximum = bar:GetMinMaxValues()
+    local current = bar:GetValue() or 0
+    local target
+    if top < current then
+        target = top
+    elseif top + STRIP_ROW_H > current + height then
+        target = top + STRIP_ROW_H - height
+    end
+    if target then bar:SetValue(math.max(0, math.min(maximum or 0, target))) end
+end
+
+
+
+local TOAST_HOLD = 1
+local TOAST_FADE = 5
+local TOAST_ICON = 34
+local TOAST_PAD_X = 16
+local TOAST_PAD_Y = 12
+local TOAST_GAP = 12
+local TOAST_LINE = 4
+local TOAST_MIN_W = 200
+
+function CM.BuildToast()
+    local toast = CreateFrame("Frame", nil, frame)
+    toast:SetFrameLevel(frame:GetFrameLevel() + 20)
+    toast:SetClampedToScreen(true)
+    toast:EnableMouse(false)
+    toast:Hide()
+    toast:SetPoint("CENTER", frame, "TOP", 0, 0)
+    S.Fill(toast, S.color.canvas, 0.97)
+    toast.Edge = S.Border(toast, S.color.accent, "OVERLAY")
+
+    local icon = S.ItemIcon(toast, TOAST_ICON)
+    icon:EnableMouse(false)
+    icon:SetPoint("LEFT", toast, "LEFT", TOAST_PAD_X, 0)
+    toast.Icon = icon
+
+    local name = S.Label(toast, S.fontBody, "LEFT")
+    name:SetPoint("LEFT", icon, "RIGHT", TOAST_GAP, 0)
+    toast.Name = name
+
+    local title = S.Label(toast, S.fontHeading, "LEFT")
+    title:SetPoint("BOTTOMLEFT", name, "TOPLEFT", 0, TOAST_LINE)
+    title:SetTextColor(S.Unpack(S.color.text))
+    title:SetText(addon.Locale.Upper(T["Loot Awarded"]))
+    toast.Title = title
+
+    local who = S.Label(toast, S.fontSmall, "LEFT")
+    who:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 0, -TOAST_LINE)
+    who:SetTextColor(S.Unpack(S.color.textMuted))
+    toast.Who = who
+
+    local fade = toast:CreateAnimationGroup()
+    local out = fade:CreateAnimation("Alpha")
+    out:SetFromAlpha(1)
+    out:SetToAlpha(0)
+    out:SetStartDelay(TOAST_HOLD)
+    out:SetDuration(TOAST_FADE)
+    fade:SetScript("OnFinished", function() toast:Hide() end)
+    toast.Fade = fade
+
+    CM.toast = toast
+end
+
+function CM.ShowToast(item, winner)
+    local toast = CM.toast
+    if not toast or not frame:IsShown() or not item or not item.link or not winner then return end
+    local name, _, quality = C_Item.GetItemInfo(item.link)
+    toast.Icon:SetItem(item.link)
+    toast.Icon:SetQualityBorder(quality)
+    toast.Name:SetText(S.Colorize(S.color.accent, name or item.link))
+    toast.Who:SetText(addon.Locale.Format(T["Awarded to %s"],
+        S.Colorize(S.color.accent, Ambiguate(winner, "short"))))
+    toast.Edge:SetColor(S.color.accent)
+    local width = math.max(toast.Title:GetStringWidth() or 0, toast.Name:GetStringWidth() or 0,
+        toast.Who:GetStringWidth() or 0)
+    local height = (toast.Title:GetStringHeight() or 0) + (toast.Name:GetStringHeight() or 0)
+        + (toast.Who:GetStringHeight() or 0) + 2 * TOAST_LINE
+    P.Size(toast, math.max(TOAST_MIN_W, TOAST_PAD_X + TOAST_ICON + TOAST_GAP + math.ceil(width) + TOAST_PAD_X),
+        math.max(TOAST_ICON, math.ceil(height)) + 2 * TOAST_PAD_Y)
+    toast.Fade:Stop()
+    toast:Show()
+    toast.Fade:Play()
+end
+
+function CM.HideToast()
+    local toast = CM.toast
+    if not toast then return end
+    toast.Fade:Stop()
+    toast:Hide()
 end
 
 
@@ -1655,16 +1746,17 @@ local function PaintStripButton(button, index, item)
     end
 
     local removed = item.removed and not item.awarded
-    local missing = not removed and item.gone and not item.awarded
+    local looting = not removed and item.gone == "pending" and not item.awarded
+    local missing = not removed and not looting and item.gone and not item.awarded
 
 
-    local owed = not removed and not missing and item.owed and not item.awarded
+    local owed = not removed and not looting and not missing and item.owed and not item.awarded
     button.State:SetText(item.awarded and T["AWARDED"] or removed and T["REMOVED"]
-        or missing and T["MISSING"] or owed and T["OWED"]
-        or index == selectedSession and T["OPEN"] or T["QUEUED"])
+        or looting and T["LOOTING"] or missing and T["MISSING"] or owed and T["OWED"]
+        or T["QUEUED"])
     button.State:SetTextColor(S.Unpack(item.awarded and S.color.good
         or (removed or missing) and S.color.dangerText
-        or owed and S.color.warn
+        or (looting or owed) and S.color.warn
         or index == selectedSession and S.color.accentPale or S.color.textFaint))
     button.slcSelected = index == selectedSession
     button.RemovedWash:SetShown(removed)
@@ -1687,7 +1779,7 @@ end
 
 
 local function RefreshStrip(scope)
-    local items = addon.Session:GetItems()
+    local items = CM.RunItems()
     sessionStrip.buttons = sessionStrip.buttons or {}
     local painted = CM.stripCount or 0
     local missing = false
@@ -1782,7 +1874,7 @@ end
 local function RefreshEndButton()
 
 
-    local label = addon.PlayerIsMasterLooter() and T["End run"] or T["Close"]
+    local label = addon.PlayerIsMasterLooter() and addon.Session:IsRunning() and T["End run"] or T["Close"]
     if CM.endLabel ~= label then
         CM.endLabel = label
         endButton:SetLabel(label)
@@ -1801,6 +1893,16 @@ function MLFrame:ConfirmEndRun()
             unawarded = unawarded + 1
         end
     end
+    local function EndRun()
+        if addon.Session:GetRunId() ~= runId or not addon.PlayerIsMasterLooter()
+            or not addon.Session:IsRunning() then return end
+        addon.Session:End()
+        if frame then frame:Hide() end
+    end
+    if unawarded == 0 then
+        EndRun()
+        return
+    end
     S.Confirm({
         title = T["End run?"],
         body = addon.Locale.Format(addon.Locale.Plural{
@@ -1808,12 +1910,7 @@ function MLFrame:ConfirmEndRun()
             other = "End this run for everyone? %d items are still unawarded.",
         }, unawarded, unawarded),
         accept = T["End run"],
-        onAccept = function()
-            if addon.Session:GetRunId() ~= runId or not addon.PlayerIsMasterLooter()
-                or not addon.Session:IsRunning() then return end
-            addon.Session:End()
-            if frame then frame:Hide() end
-        end,
+        onAccept = EndRun,
     })
 end
 
@@ -1823,7 +1920,8 @@ local function LowerEquipped(candidate)
     local best, bestName, bestQuality, bestLevel
     for _, itemString in ipairs({ candidate.gear1, candidate.gear2 }) do
         if itemString then
-            local name, _, quality, ilvl = C_Item.GetItemInfo(itemString)
+            local name, _, quality = C_Item.GetItemInfo(itemString)
+            local ilvl = addon.Gear:ItemLevel(itemString)
             if not best
                 or (ilvl and (not bestLevel or ilvl < bestLevel)) then
                 best, bestName, bestQuality, bestLevel =
@@ -1849,7 +1947,7 @@ local function PaintAgainst(name)
         againstIcon:SetItem(nil)
         againstIcon:SetQualityBorder(nil)
         againstIcon:Hide()
-        againstName:SetText(T["Hover a candidate"])
+        againstName:SetText(T["Hover or click a candidate"])
         againstName:SetTextColor(S.Unpack(S.color.textMuted))
         againstDetail:SetText(T["Their equipped item and upgrade will appear here."])
         againstDetail:SetTextColor(S.Unpack(S.color.textFaint))
@@ -1917,22 +2015,6 @@ end
 
 
 
-local function BoERouteTagText(route)
-    if not route then return nil end
-
-    local shortName = Ambiguate(route.winner, "short")
-
-    if route.state == "routed" then
-        return S.Colorize(S.color.accent, addon.Locale.Format(T["route -> %s (%s)"],
-            shortName, route.reason or "?"))
-    elseif route.state == "absent" then
-        return addon.Locale.Format(T["route -> %s (not here)"], shortName)
-    end
-    return nil
-end
-
-
-
 local function BossLineText(item)
     if not item then return "" end
     local parts = {}
@@ -1978,29 +2060,28 @@ local function PaintFeatured(item)
         end
     end
 
-
-
-    currentRoute = (item and not item.awarded and not addon.Session:HasEnded())
-        and addon.BoERoute:For(item) or nil
-
     local removed = item and item.removed and not item.awarded
-    local missing = item and not removed and item.gone and not item.awarded
-    local owed = item and not removed and not missing and item.owed
+    local looting = item and not removed and item.gone == "pending" and not item.awarded
+    local missing = item and not removed and not looting and item.gone and not item.awarded
+    local owed = item and not removed and not looting and not missing and item.owed
         and not item.awarded
 
 
     local detail = not CM.active
     itemIcon.Halo:SetShown(detail and removed and true or false)
-    voteStatus.RemovedTag:SetShown(detail and (removed or missing or owed) and true or false)
-    voteStatus.RemovedTag:SetText(removed and T["Removed"] or missing and T["Missing"]
+    voteStatus.RemovedTag:SetShown(detail and (removed or looting or missing or owed) and true
+        or false)
+    voteStatus.RemovedTag:SetText(removed and T["Removed"] or looting and T["Not looted yet"]
+        or missing and T["Missing"]
         or owed and addon.Locale.Format(T["Owed to %s"], Ambiguate(item.owed.w, "short")) or "")
-    voteStatus.RemovedTag:SetTextColor(S.Unpack(owed and S.color.warn
+    voteStatus.RemovedTag:SetTextColor(S.Unpack((looting or owed) and S.color.warn
         or S.color.dangerText))
 
     CM.featuredMissing = false
     if item then
         itemIcon:SetItem(item.link)
-        local name, _, quality, ilvl = C_Item.GetItemInfo(item.link)
+        local name, _, quality = C_Item.GetItemInfo(item.link)
+        local ilvl = addon.Gear:ItemLevel(item.link)
         CM.featuredMissing = name == nil
         itemIcon:SetQualityBorder(quality)
         if removed or missing then itemIcon:SetBorderColor(S.color.danger) end
@@ -2010,7 +2091,9 @@ local function PaintFeatured(item)
         local answered, totalCandidates = 0, 0
         for _, candidate in pairs(item.candidates) do
             totalCandidates = totalCandidates + 1
-            if candidate.status ~= "ANNOUNCED" then answered = answered + 1 end
+            local status = candidate.status
+            if status == "AWARDED" then status = candidate.realStatus end
+            if status == "RESPONDED" or status == "PASS" then answered = answered + 1 end
         end
         answeredCount:SetText(addon.Locale.Format(T["%d of %d"], answered, totalCandidates))
         answeredBar:SetProgress(totalCandidates > 0 and answered / totalCandidates or 0,
@@ -2030,19 +2113,13 @@ local function PaintFeatured(item)
         else
 
 
-            local baseText = ilvl and addon.Locale.Format(T["ilvl %d"], ilvl) or ""
-            local tag = BoERouteTagText(currentRoute)
-            if tag then
-                voteStatus:SetText(baseText ~= ""
-                    and addon.Locale.Format(T["%s   %s"], baseText, tag) or tag)
-            else
-                voteStatus:SetText(baseText)
-            end
+            voteStatus:SetText(ilvl and addon.Locale.Format(T["ilvl %d"], ilvl) or "")
             voteStatus:SetTextColor(S.Unpack(S.color.textFaint))
         end
     else
         itemIcon:SetItem(nil)
-        itemName:SetText(T["No items"])
+        itemName:SetText(addon.Session:IsRunning() and T["No items"]
+            or T["No loot session running"])
         itemBoss:SetText("")
         voteStatus:SetText("")
         answeredCount:SetText(T["0 of 0"])
@@ -2059,11 +2136,16 @@ local function PaintTallies(items, item, full)
         CM.badge = badge
         frame.Badge:SetText(badge)
     end
-    local ended = addon.Session:HasEnded() and true or false
-    if CM.ended ~= ended then
-        CM.ended = ended
-        frame:SetTag(ended and T["ENDED"] or T["LIVE"],
-            ended and S.color.textMuted or S.color.good)
+    local state = addon.Session:HasEnded() and "ended"
+        or addon.Session:IsRunning() and "live" or "idle"
+    if CM.ended ~= state then
+        CM.ended = state
+        if state == "idle" then
+            frame:SetTag(nil)
+        else
+            frame:SetTag(state == "ended" and T["ENDED"] or T["LIVE"],
+                state == "ended" and S.color.textMuted or S.color.good)
+        end
     end
 
 
@@ -2091,13 +2173,7 @@ local function PaintTallies(items, item, full)
 
     rollButton:SetShown(isML)
 
-
-    local canStrike = item and item.awarded
-        and not addon.Session:HasEnded()
-        and addon.PlayerIsMasterLooter() and true or false
-    strikeButton:SetShown(canStrike)
-
-    local footerKey = (isML and 1 or 0) + (canStrike and 2 or 0)
+    local footerKey = isML and 1 or 0
     if full or CM.footerKey ~= footerKey then
         CM.footerKey = footerKey
         footer:Reflow()
@@ -2142,12 +2218,12 @@ end
 
 
 function MLFrame:Paint(scope)
-    if not frame or not frame:IsShown() then return end
+    if not frame or not frame:IsShown() or CM.tab == "queue" then return end
 
 
     if CM.SyncWishlist() then scope = nil end
 
-    local items = addon.Session:GetItems()
+    local items = CM.RunItems()
     if selectedSession > #items then selectedSession = 1 end
 
     if scope and (paintedSession ~= selectedSession or scope.kinds.coin) then
@@ -2167,6 +2243,7 @@ function MLFrame:Paint(scope)
     local stripMissing = RefreshStrip(scope)
 
     local item = items[selectedSession]
+    if CM.pick and paintedSession ~= selectedSession then CM.SetPick(nil) end
 
 
     local retry = CM.featuredMissing
@@ -2185,7 +2262,7 @@ function MLFrame:Paint(scope)
                 break
             end
         end
-        RefreshAgainst(hovered)
+        RefreshAgainst(hovered or CM.pick)
     end
     CM.namesMissing = stripMissing or CM.featuredMissing
     CM.WatchItemInfo()
@@ -2203,9 +2280,28 @@ end
 
 function MLFrame:Present()
     if not CM.Ensure() then return end
+    CM.ShowTab("council")
     addon.Callbacks:Invalidate("council")
     frame:Show()
     addon.Callbacks:PaintNow("council")
+end
+
+
+function MLFrame:ShowQueue()
+    if not CM.ready or not CM.Ensure() or not CM.QueueAllowed() then return false end
+    CM.ShowTab("queue")
+    frame:Show()
+    return true
+end
+
+
+function MLFrame:QueueShown()
+    return frame ~= nil and frame:IsShown() and CM.tab == "queue"
+end
+
+
+function MLFrame:Close()
+    if frame then frame:Hide() end
 end
 
 
@@ -2260,27 +2356,34 @@ function CM.Build()
     hasWishlist = (addon.Wishlist and addon.Wishlist:IsAvailable()) or false
 
 
-    CM.FULL_H = FULL_RAIL_H + S.HeaderHeight()
-
-
     CM.active = addon.db.mlCompact and true or false
     frame = S.Window("SimpleLootCouncilMLFrame", "ml", WindowWidth(false),
-        CM.FULL_H, T["Loot council"])
+        FULL_RAIL_H, T["Simple Loot Council"], WINDOW_OPTIONS)
+    CM.FULL_H = FULL_RAIL_H + frame.HeaderHeight
+    P.Size(frame, nil, CM.FULL_H)
     frame:RestorePosition()
+    CM.BuildToast()
     local content = frame.Content
 
+    CM.councilPane = CreateFrame("Frame", nil, content)
+    CM.councilPane:SetAllPoints(content)
+    CM.queuePane = CreateFrame("Frame", nil, content)
+    CM.queuePane:SetAllPoints(content)
+    CM.queuePane:Hide()
+    CM.tab = "council"
 
 
-    timerLabel = S.Label(frame.Header, S.fontHeading, "LEFT")
-    timerLabel:SetPoint("LEFT", frame.Tag, "RIGHT", S.size.GAP, 0)
-    timerText = S.Label(frame.Header, S.fontNum, "LEFT")
-    timerText:SetPoint("LEFT", timerLabel, "RIGHT", 6, 0)
+
+    local strip = frame.Badge:GetParent()
+    timerText = S.Label(strip, S.fontNum, "RIGHT")
     timerText:SetPoint("RIGHT", frame.Badge, "LEFT", -S.size.GAP, 0)
+    timerLabel = S.Label(strip, S.fontHeading, "RIGHT")
+    timerLabel:SetPoint("RIGHT", timerText, "LEFT", -6, 0)
 
     footer = S.FooterBar(frame)
 
 
-    local rail = CreateFrame("Frame", nil, content)
+    local rail = CreateFrame("Frame", nil, CM.councilPane)
     rail:SetPoint("TOPLEFT", content, "TOPLEFT")
     rail:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", S.size.PAD,
         S.size.FOOTER_H + CM.RAIL_GAP_V)
@@ -2377,7 +2480,7 @@ function CM.Build()
     local runTitle = S.Label(rail, S.fontHeading, "LEFT")
     runTitle:SetPoint("TOPLEFT", 14, -RAIL_RUN_TITLE)
     runTitle:SetPoint("RIGHT", runCount, "LEFT", -S.size.GAP, 0)
-    runTitle:SetText(T["THIS RUN"])
+    runTitle:SetText(T["CURRENT SESSION"])
 
     runScroll = S.ScrollRegion(rail, STRIP_STEP)
     sessionStrip = runScroll.Content
@@ -2392,31 +2495,41 @@ function CM.Build()
         t:SetPoint("TOPLEFT", rail, "TOPRIGHT", RAIL_GAP, t.slcLift or 0)
 
         CM.AnchorTableScrollbar(t)
+        t.hoverParts = true
         t.onEnter = function(row, data)
             if data and data.name then
+                CM.hovered = data.name
                 RefreshAgainst(data.name)
                 ShowMoreInfo(row, data.name)
             end
         end
 
-        t.onLeave = function()
-            GameTooltip:Hide()
-            againstFor = nil
+        t.onLeave = function(row)
+            CM.hovered = nil
+            if GameTooltip:IsOwned(row) then GameTooltip:Hide() end
+            againstFor = CM.pick
             addon.Callbacks:Invalidate("councilAgainst")
         end
         t.onClick = function(row, data, button)
-            if button == "RightButton" then ShowRowMenu(row, data) end
+            if button == "RightButton" then
+                ShowRowMenu(row, data)
+            elseif button == "LeftButton" and data.name then
+                CM.TogglePick(data.name)
+            end
         end
+        t.onHeaderMenu = function() CM.ShowColumnMenu(t.header, t) end
+        Tbl.SetHidden(t, CM.HiddenColumns())
+        Tbl.SetPicked(t, CM.pick)
         return t
     end
 
     local function BuildFullTable()
-        return WireTable(Tbl.Create(content, BuildColumns(false), CM.FULL_ROWS,
+        return WireTable(Tbl.Create(CM.councilPane, BuildColumns(false), CM.FULL_ROWS,
             CM.RowHeight(false)))
     end
 
     table_ = BuildFullTable()
-    CM.table = Tbl.Create(content, BuildColumns(true), CM.ROWS, CM.RowHeight(true))
+    CM.table = Tbl.Create(CM.councilPane, BuildColumns(true), CM.ROWS, CM.RowHeight(true))
     CM.table.slcLift = CM.HeaderLift()
 
     Tbl.SetFilter(CM.table, function(row)
@@ -2437,6 +2550,8 @@ function CM.Build()
         CM.fullTables[want] = table_
         CM.ApplySort(table_)
         table_:SetShown(not CM.active)
+
+        if not CM.active then CM.FitWindow() end
         addon.Log:D("UI", "council table rebuilt, wishlist columns", want and "shown" or "hidden")
         return true
     end
@@ -2447,7 +2562,7 @@ function CM.Build()
     footer:Add(endButton, true)
     endButton:SetScript("OnClick", function()
 
-        if not addon.PlayerIsMasterLooter() then
+        if not addon.PlayerIsMasterLooter() or not addon.Session:IsRunning() then
             frame:Hide()
             return
         end
@@ -2502,16 +2617,6 @@ function CM.Build()
         MLFrame:SetCompact(not CM.active)
     end)
 
-    strikeButton = S.Button(footer, T["Undo award"], { width = 150, labelPad = S.size.BTN_PAD_FOOTER })
-    footer:Add(strikeButton, true)
-    strikeButton:Hide()
-    strikeButton:SetScript("OnClick", function()
-            local item = addon.Session:GetItems()[selectedSession]
-            if not item or not item.awarded then return end
-            MLFrame:ConfirmUnaward(selectedSession)
-    end)
-
-
     menuHint = footer:AddText(S.fontHint)
     menuHint:SetText(T["Right-click a row to award, set a response, or ask for a roll"])
     menuHint:Hide()
@@ -2547,15 +2652,20 @@ function CM.Build()
         table_:SetShown(not CM.active)
         CM.table:SetShown(CM.active)
 
+        if CM.tab ~= "queue" then CM.FitWindow() end
+
+        CM.button:SetLabel(CM.active and T["Expand"] or T["Compact"])
+        MLFrame:Refresh()
+    end
+
+
+    function CM.FitWindow()
         local width = WindowWidth(CM.active)
 
         frame:SetSizeFromBottomRight(width, CM.Height(CM.active))
 
         content.slcWidth = width - S.size.PAD * 2
-        P.AfterLayout(frame.ClampTitle)
-
-        CM.button:SetLabel(CM.active and T["Expand"] or T["Compact"])
-        MLFrame:Refresh()
+        if frame.ClampTitle then P.AfterLayout(frame.ClampTitle) end
     end
 
 
@@ -2568,6 +2678,7 @@ function CM.Build()
 
 
     frame:HookScript("OnHide", function()
+        CM.HideToast()
         CM.WatchItemInfo()
         local hiddenRun = addon.Session:IsRunning()
             and addon.Session:GetRunId() or nil
@@ -2586,6 +2697,28 @@ function CM.Build()
     end)
 
 
+    CM.queueButtons = {}
+    CM.queueHost = {
+        window = frame, pane = CM.queuePane, footer = footer,
+        railWidth = RAIL_W, railGap = RAIL_GAP, railInset = 14,
+        railBottom = S.size.FOOTER_H + CM.RAIL_GAP_V,
+        mainWidth = WindowWidth(false, true) - S.size.PAD * 2 - RAIL_W - RAIL_GAP,
+        AddButton = function(button, rightAlign)
+            footer:Add(button, rightAlign)
+            CM.queueButtons[#CM.queueButtons + 1] = button
+            button:SetShown(CM.tab == "queue")
+        end,
+    }
+
+    frame.Tabs:AddTab("council", T["Loot council"])
+    frame.Tabs:AddTab("queue", T["Loot queue"])
+    frame.Tabs:Select("council")
+    frame.Tabs.onSelect = function(key)
+        if key == "queue" then MLFrame:ShowQueue() else MLFrame:Present() end
+    end
+    CM.SyncQueueTab()
+
+
     CM.ticker:SetParent(frame)
     CM.ticker:Show()
 
@@ -2597,7 +2730,7 @@ end
 
 function CM.WatchItemInfo()
     local want = (CM.againstLoading or CM.namesMissing)
-        and frame ~= nil and frame:IsShown() and true or false
+        and frame ~= nil and frame:IsShown() and CM.tab ~= "queue" and true or false
     if want == CM.itemInfoOn then return end
     CM.itemInfoOn = want
     if want then
@@ -2611,6 +2744,103 @@ end
 function CM.Ensure()
     if not frame and CM.ready then CM.Build() end
     return frame
+end
+
+
+
+function CM.QueueAllowed()
+    return addon.PlayerIsMasterLooter() and true or false
+end
+
+function CM.SyncQueueTab()
+    if not frame then return end
+    local allowed = CM.QueueAllowed()
+    frame.Tabs:SetTabShown("queue", allowed)
+    if not allowed and CM.tab == "queue" then CM.ShowTab("council") end
+end
+
+function CM.ShowTab(key)
+    if key == "queue" and not CM.QueueAllowed() then key = "council" end
+    local council = key ~= "queue"
+    key = council and "council" or "queue"
+    frame.Tabs:Select(key)
+    if CM.tab == key then return end
+    CM.tab = key
+
+    if not council then UI.QueueFrame:Attach(CM.queueHost) end
+    CM.councilPane:SetShown(council)
+    CM.queuePane:SetShown(not council)
+
+    endButton:SetShown(council)
+    CM.button:SetShown(council)
+    if not council then
+        rollButton:Hide()
+        menuHint:Hide()
+        frame:SetTag(nil)
+        CM.ended = nil
+    end
+    for _, button in ipairs(CM.queueButtons) do button:SetShown(not council) end
+    timerLabel:SetShown(council)
+    timerText:SetShown(council)
+    frame.Badge:SetShown(council)
+    CM.ticker:SetShown(council)
+    CM.WatchItemInfo()
+    CM.footerKey = nil
+
+    if council then
+        CM.apply()
+    else
+        frame:SetSizeFromBottomRight(WindowWidth(false, true), CM.FULL_H)
+        footer:Reflow()
+    end
+end
+
+
+
+function CM.HiddenColumns()
+    local hidden = addon.db.councilHiddenColumns
+    if type(hidden) ~= "table" then
+        hidden = {}
+        addon.db.councilHiddenColumns = hidden
+    end
+    return hidden
+end
+
+
+local FIXED_COLUMNS = { name = true, actions = true }
+
+function CM.ShowColumnMenu(anchor, t)
+    local hidden = CM.HiddenColumns()
+    local items = { { title = T["Columns"] } }
+    for _, column in ipairs(t.columns) do
+        local key = column.key
+        if not FIXED_COLUMNS[key] then
+            items[#items + 1] = {
+                text = column.title, checkbox = true,
+                checked = function() return not hidden[key] end,
+                onClick = function()
+                    hidden[key] = not hidden[key] or nil
+                    CM.ColumnsChanged()
+                end,
+            }
+        end
+    end
+    items[#items + 1] = "-"
+    items[#items + 1] = {
+        text = T["Reset Columns"], disabled = function() return next(hidden) == nil end,
+        onClick = function()
+            wipe(hidden)
+            CM.ColumnsChanged()
+        end,
+    }
+    S.ContextMenu(anchor, items)
+end
+
+function CM.ColumnsChanged()
+    local hidden = CM.HiddenColumns()
+    for _, t in pairs(CM.fullTables) do Tbl.SetHidden(t, hidden) end
+    Tbl.SetHidden(CM.table, hidden)
+    CM.apply()
 end
 
 function MLFrame:Init()
@@ -2639,7 +2869,7 @@ function MLFrame:Init()
     end)
 
 
-    local function Shown() return frame ~= nil and frame:IsShown() end
+    local function Shown() return frame ~= nil and frame:IsShown() and CM.tab ~= "queue" end
     addon.Callbacks:RegisterView("council", {
         shown = Shown,
         interval = CM.PAINT_INTERVAL,
@@ -2659,23 +2889,70 @@ function MLFrame:Init()
 
 
         local me = addon.Player:GetFullName("player")
-        if (addon.PlayerIsMasterLooter() or addon.Council:Contains(me)) and CM.HasWork() then
+        local seated = addon.PlayerIsMasterLooter() or addon.Council:Contains(me)
+        if seated and CM.HasWork() then
             MLFrame:Present()
+            CM.CheckOpened()
+        else
+            addon.Log:I("UI", "run started - council window not opened:",
+                seated and "nothing left to vote on" or "not on the council here")
         end
+    end)
+
+    addon.Callbacks:Register("ItemAwarded", function(session, winner, item)
+        if session ~= selectedSession then return end
+        local nextSession = CM.NextOpen(session)
+        if nextSession then
+            selectedSession = nextSession
+            CM.RevealStrip(nextSession)
+        end
+        CM.ShowToast(item, winner)
     end)
 
     addon.Callbacks:Register("SessionChanged", function(session, kind, candidate)
         addon.Callbacks:Invalidate("council", session, kind, candidate)
     end)
-    addon.Callbacks:Register("RunEnded", function() if frame then frame:Hide() end end)
+    addon.Callbacks:Register("RunEnded", function()
+        if frame and CM.tab ~= "queue" then frame:Hide() end
+    end)
 
 
     addon.Callbacks:Register("CouncilChanged", function()
+        addon.Callbacks:Invalidate("council")
         if not addon.Session:IsRunning() or (frame and frame:IsShown())
             or CM.dismissedRun == addon.Session:GetRunId() then return end
         local me = addon.Player:GetFullName("player")
         if (addon.PlayerIsMasterLooter() or addon.Council:Contains(me)) and CM.HasWork() then
             MLFrame:Open()
+            CM.CheckOpened()
+        end
+    end)
+    addon.Callbacks:Register("LootMasterChanged", function()
+        addon.Callbacks:Invalidate("council")
+    end)
+
+    local function SyncQueueTab() CM.SyncQueueTab() end
+    addon.Callbacks:Register("LootMasterChanged", SyncQueueTab)
+    addon.Callbacks:Register("CouncilChanged", SyncQueueTab)
+    addon.Callbacks:Register("SharedConfigChanged", SyncQueueTab)
+    addon.Callbacks:Register("RosterChanged", SyncQueueTab)
+
+
+    addon.Callbacks:Register("ItemsAdded", function(indices, runId)
+        if not addon.Session:IsRunning() or addon.Session:HasEnded()
+            or (frame and frame:IsShown()) or type(indices) ~= "table"
+            or (runId and runId ~= addon.Session:GetRunId()) then return end
+        local me = addon.Player:GetFullName("player")
+        local master = addon.PlayerIsMasterLooter()
+        if not master and not addon.Council:Contains(me) then return end
+        local items = addon.Session:GetItems()
+        for _, index in ipairs(indices) do
+            local item = items[index]
+            if item and not item.awarded and not item.removed
+                and (master or not HaveVotedOn(item)) then
+                MLFrame:Open()
+                return
+            end
         end
     end)
     addon.Restrictions:OnChange(function() addon.Callbacks:Invalidate("council") end)
@@ -2716,7 +2993,7 @@ end
 
 function MLFrame:Toggle()
     if not CM.ready then return end
-    if frame and frame:IsShown() then
+    if frame and frame:IsShown() and CM.tab ~= "queue" then
         CM.dismissedRun = addon.Session:GetRunId()
         frame:Hide()
     else

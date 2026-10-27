@@ -1133,8 +1133,8 @@ function EAB:ApplyMiscTextures()
         end
     end
 
-    -- ActionBarActionEventsFrame is killed at file-load time (top of
-    -- EllesmereUIActionBars.lua).
+    -- ActionBarActionEventsFrame is killed at file-load time
+    -- (EUI_ActionBars_Disposal.lua's ns.QuietBroadcasters).
     -- Spellcast events are no longer re-registered here -- our central
     -- dispatcher + ACTIONBAR_UPDATE_COOLDOWN handles cooldown/GCD swipes.
 end

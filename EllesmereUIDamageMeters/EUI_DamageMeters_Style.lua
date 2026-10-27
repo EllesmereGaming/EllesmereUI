@@ -401,8 +401,10 @@ function ns.DMClassicSeparator(tex, h)
     tex:Show()
     return true
 end
--- Window background: the configured colour on the EUI look; the classic box
--- above under Classic WoW UI (`edged` = this texture's window wears the edge).
+-- Window background: the configured colour on the EUI look, drawn through the
+-- texKey bar texture when one is given (the meter windows pass their
+-- Background Texture; Spell History passes none); the classic box above under
+-- Classic WoW UI (`edged` = this texture's window wears the edge).
 -- Under Blizzard Style the stock panel atlas is plain black with an alpha ramp
 -- baked in -- transparent at the top edge, opaque about a third of the way
 -- down (50 of its 148 rows, stretched with the window), and a short fade at
@@ -416,10 +418,21 @@ end
 ns.DM_BLIZZ_BG_BODY = 245 / 255
 ns._dmBgLo = CreateColor(0, 0, 0, 1)
 ns._dmBgHi = CreateColor(0, 0, 0, 0.5)
-function ns.DMPaintWindowBg(tex, r, g, b, a, edged)
+function ns.DMPaintWindowBg(tex, r, g, b, a, edged, texKey)
     local style = ns.DMStyle()
     if style == "eui" then
-        tex:SetColorTexture(r, g, b, a)
+        local path = texKey and texKey ~= "none" and EUI.ResolveTexturePath(_G._EDM_BarTextures, texKey, nil)
+        if path then
+            tex:SetTexture(path)
+            tex:SetVertexColor(r, g, b, a)
+            tex._dmTexturedBg = true
+        else
+            if tex._dmTexturedBg then
+                tex:SetVertexColor(1, 1, 1, 1)
+                tex._dmTexturedBg = nil
+            end
+            tex:SetColorTexture(r, g, b, a)
+        end
         return
     elseif style == "classic" then
         ns.DMPaintClassicBg(tex, r, g, b, a, edged)

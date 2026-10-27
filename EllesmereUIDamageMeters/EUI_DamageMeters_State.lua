@@ -245,7 +245,7 @@ ns.RegisterDMUnlock = function()
     for i = 1, #_windows do
         elements[#elements + 1] = MK({
             key   = "EDM_Win" .. i,
-            label = "Damage Meter " .. i,
+            label = EUI.Lf("Damage Meter %1$d", i),
             group = "Damage Meters",
             order = 650 + i,
             getFrame = function(key)
@@ -623,6 +623,8 @@ instanceFrame:SetScript("OnEvent", function(_, event)
             -- teammate pre-warm rather than asserting _inCombat -- SharedRefreshTick self-terminates the instant the group leaves combat, so a stale flag can't tick forever.
             SetInCombat(false)
             SetCombatEndTime(0)
+            -- A stale stamp of the last fight would trip the 5s failsafe on the first tick.
+            if ns.DMClearRegenStamp then ns.DMClearRegenStamp() end
             SetNeedsFinalRefresh(true)
             if not _sharedTicker then StartSharedTicker() end
         else

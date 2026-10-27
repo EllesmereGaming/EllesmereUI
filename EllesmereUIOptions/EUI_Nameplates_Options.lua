@@ -356,7 +356,7 @@ initFrame:SetScript("OnEvent", function(self)
         _displayHeaderBuilder = function(headerParent, headerW)
 
             local PRESET_HEADER_H = 0
-            local PREVIEW_TOP_PAD = 10
+            local PREVIEW_TOP_PAD = 5
             local PREVIEW_BOTTOM_PAD = 5
             local previewH = ns.NPO_BuildNameplatePreview(headerParent, headerW)
             -- Position the preview at the top of the header area. pf's SetScale matches the UIParent/panel ratio, so SetPoint offsets (in that scaled space) must divide by the same ratio for the correct visual offset.
@@ -488,26 +488,6 @@ initFrame:SetScript("OnEvent", function(self)
         local function RefreshAllSlots()
             RefreshAllAuras()
             for _, plate in pairs(plates) do
-                local ds, bs, cs = ns.GetAuraSlots()
-                if bs ~= "none" then
-                    local buffSz = ns.GetBuffIconSize()
-                    local buffH = ns.GetAuraCropHeight(ns.GetAuraCrop("buffs"), buffSz)
-                    local bxOff, byOff = ns.GetSlotOffsets(bs)
-                    ns.PositionAuraSlot(plate.buffs, 4, bs, plate, buffSz, buffH, ns.GetAuraSpacing("buffs"), bxOff, byOff)
-                else
-                    for i = 1, 4 do plate.buffs[i]:Hide() end
-                end
-                if cs ~= "none" then
-                    local ccSz = ns.GetCCIconSize()
-                    local ccH = ns.GetAuraCropHeight(ns.GetAuraCrop("ccs"), ccSz)
-                    local cxOff, cyOff = ns.GetSlotOffsets(cs)
-                    ns.PositionAuraSlot(plate.cc, 2, cs, plate, ccSz, ccH, ns.GetAuraSpacing("ccs"), cxOff, cyOff)
-                else
-                    for i = 1, 2 do plate.cc[i]:Hide() end
-                end
-                if ds == "none" then
-                    for i = 1, 4 do plate.debuffs[i]:Hide() end
-                end
                 plate:UpdateRaidIcon()
                 plate:UpdateClassification()
                 -- Rare/Quest + Faction: the classification pass already ran it.
@@ -562,91 +542,9 @@ initFrame:SetScript("OnEvent", function(self)
             return defaults[oldKey]
         end
 
-        -- Shared helper: apply a timer position to live plates for one aura type
-        local function LiveApplyTimerPos(auraFrames, count, v, kind)
-            local durC = AuraDurationVal(kind, "Color")
-            local durSz = AuraDurationVal(kind, "Size")
-            local durX = AuraDurationVal(kind, "X")
-            local durY = AuraDurationVal(kind, "Y")
-            for _, plate in pairs(plates) do
-                for i = 1, count do
-                    local af = auraFrames(plate, i)
-                    if af and af.cd then
-                        if v == "none" then
-                            if af.cd.SetHideCountdownNumbers then
-                                af.cd:SetHideCountdownNumbers(true)
-                            end
-                        else
-                            if af.cd.SetHideCountdownNumbers then
-                                af.cd:SetHideCountdownNumbers(false)
-                            end
-                            if af.cd.text then
-                                SetFSFont(af.cd.text, durSz, "OUTLINE, SLUG")
-                                af.cd.text:SetTextColor(durC.r, durC.g, durC.b, 1)
-                                af.cd.text:ClearAllPoints()
-                                if v == "center" then
-                                    af.cd.text:SetPoint("CENTER", af, "CENTER", durX, durY)
-                                    af.cd.text:SetJustifyH("CENTER")
-                                elseif v == "topright" then
-                                    PP.Point(af.cd.text, "TOPRIGHT", af, "TOPRIGHT", 3 + durX, 4 + durY)
-                                    af.cd.text:SetJustifyH("RIGHT")
-                                elseif v == "bottomleft" then
-                                    PP.Point(af.cd.text, "BOTTOMLEFT", af, "BOTTOMLEFT", -3 + durX, -4 + durY)
-                                    af.cd.text:SetJustifyH("LEFT")
-                                elseif v == "bottomright" then
-                                    PP.Point(af.cd.text, "BOTTOMRIGHT", af, "BOTTOMRIGHT", 3 + durX, -4 + durY)
-                                    af.cd.text:SetJustifyH("RIGHT")
-                                else
-                                    PP.Point(af.cd.text, "TOPLEFT", af, "TOPLEFT", -3 + durX, 4 + durY)
-                                    af.cd.text:SetJustifyH("LEFT")
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-            -- 12.1 aura containers render the text through the style pass instead of the legacy frames above (fingerprint-guarded; nil on 12.0).
-            if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
-        end
-
-        -- Shared helper: apply a stack-count position to live plates for one aura type
-        local function LiveApplyStackPos(auraFrames, count, v)
-            local stkC = (DB() and DB().auraStackTextColor) or defaults.auraStackTextColor
-            local stkSz = DBVal("auraStackTextSize") or defaults.auraStackTextSize
-            local stkX = DBVal("auraStackTextX") or defaults.auraStackTextX
-            local stkY = DBVal("auraStackTextY") or defaults.auraStackTextY
-            for _, plate in pairs(plates) do
-                for i = 1, count do
-                    local af = auraFrames(plate, i)
-                    if af and af.count then
-                        if v == "none" then
-                            af.count:Hide()
-                        else
-                            af.count:Show()
-                            SetFSFont(af.count, stkSz, "OUTLINE, SLUG")
-                            af.count:SetTextColor(stkC.r, stkC.g, stkC.b, 1)
-                            af.count:ClearAllPoints()
-                            if v == "center" then
-                                af.count:SetPoint("CENTER", af, "CENTER", stkX, stkY)
-                                af.count:SetJustifyH("CENTER")
-                            elseif v == "topright" then
-                                PP.Point(af.count, "TOPRIGHT", af, "TOPRIGHT", 3 + stkX, 4 + stkY)
-                                af.count:SetJustifyH("RIGHT")
-                            elseif v == "bottomleft" then
-                                PP.Point(af.count, "BOTTOMLEFT", af, "BOTTOMLEFT", -3 + stkX, -4 + stkY)
-                                af.count:SetJustifyH("LEFT")
-                            elseif v == "topleft" then
-                                PP.Point(af.count, "TOPLEFT", af, "TOPLEFT", -3 + stkX, 4 + stkY)
-                                af.count:SetJustifyH("LEFT")
-                            else
-                                PP.Point(af.count, "BOTTOMRIGHT", af, "BOTTOMRIGHT", 3 + stkX, -4 + stkY)
-                                af.count:SetJustifyH("RIGHT")
-                            end
-                        end
-                    end
-                end
-            end
-            -- 12.1 aura containers: stacks render through the style pass (fingerprint-guarded; nil on 12.0).
+        -- Aura duration and stack text draw through the aura containers' style
+        -- pass, which a settings edit re-runs (fingerprint-guarded).
+        local function LiveApplyAuraText()
             if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
         end
 
@@ -661,7 +559,7 @@ initFrame:SetScript("OnEvent", function(self)
             SetElementAtPosition = SetElementAtPosition,
             SetTextElementAtSlot = SetTextElementAtSlot, asFallback = asFallback,
             atFallback = atFallback, AuraDurationVal = AuraDurationVal,
-            LiveApplyStackPos = LiveApplyStackPos, LiveApplyTimerPos = LiveApplyTimerPos,
+            LiveApplyAuraText = LiveApplyAuraText,
             timerPosOrder = timerPosOrder, timerPosValues = timerPosValues,
         }
         local styleHeader, coreHeader, coreRow1, coreRow2, coreRow3, coreTextHeader, textSlotCells
@@ -1199,9 +1097,26 @@ initFrame:SetScript("OnEvent", function(self)
         return proxy
     end
 
+    -- Textured Background: the Texture Settings cog row, shared by the Display
+    -- page and Global Settings > Textures. kind: "health" or "cast"; apply: the
+    -- page's own refresh after a write.
+    local function TexBgRowCfg(kind, apply)
+        local cast = kind == "cast"
+        local key = cast and "castTextureBg" or "healthTextureBg"
+        local texKey = cast and "castBarTexture" or "healthBarTexture"
+        return ns.NP_BlizzOnlyGate({ type = "toggle", label = "Textured Background",
+            tooltip = cast and "Draws the bar texture on the cast bar background too."
+                or "Draws the bar texture on the health bar background too.",
+            disabled = function() return (DBVal(texKey) or "none") == "none" end,
+            disabledTooltip = cast and "This option requires a Cast Bar Texture other than None."
+                or "This option requires a Bar Texture other than None.",
+            get = function() return DBVal(key) == true end,
+            set = function(v) DB()[key] = v and true or false; apply() end })
+    end
     -- Shared with the page builders under Nameplates_Options\ (read in their
     -- prologs). Every field is final here: optState holds the mutable state.
     ns._NPO_OptEnv = {
+        TexBgRowCfg = TexBgRowCfg,
         _colorPagePreviews = _colorPagePreviews, ADDON_NAME = ADDON_NAME, BAR_W = BAR_W, DB = DB,
         DBColor = DBColor, DBVal = DBVal, defaults = defaults, displayCastIcons = displayCastIcons,
         FOCUS_LETTER_ANCHOR_ORDER = FOCUS_LETTER_ANCHOR_ORDER,

@@ -179,14 +179,21 @@ local function BuildCDMLivePreview(parent, yOff)
         return g
     end
 
-    -- Insertion line indicator (vertical accent line between icons)
+    -- Insertion line indicator (accent line between icons; horizontal on a vertical bar)
     local insertLine = pf:CreateTexture(nil, "OVERLAY", nil, 7)
     local eg = EllesmereUI.ELLESMERE_GREEN
     insertLine:SetColorTexture(eg.r, eg.g, eg.b, 0.9)
     insertLine:SetWidth(2)
     insertLine:Hide()
 
-    -- Animation: each slot has _targetOffX, _currentOffX; lerped inside drag OnUpdate
+    -- Two preview slots stacked in one column (a vertical bar: same X, one per row)
+    local function StackedSlots(a, b)
+        return a and b and a._baseX and b._baseX and a._baseY and b._baseY
+            and math.abs(a._baseX - b._baseX) < 1 and math.abs(a._baseY - b._baseY) >= 1
+    end
+
+    -- Animation: each slot has _targetOffX, _currentOffX (and _targetOffY, _currentOffY on a
+    -- vertical bar); lerped inside drag OnUpdate
     local ANIM_SPEED = 48
     local animRunning = false
 
@@ -211,9 +218,18 @@ local function BuildCDMLivePreview(parent, yOff)
                     s._currentOffX = s._currentOffX + diff * math.min(ANIM_SPEED * dt, 1)
                     allDone = false
                 end
+                local curY = s._currentOffY or 0
+                local diffY = (s._targetOffY or 0) - curY
+                if math.abs(diffY) < 0.3 then
+                    curY = s._targetOffY or 0
+                else
+                    curY = curY + diffY * math.min(ANIM_SPEED * dt, 1)
+                    allDone = false
+                end
+                s._currentOffY = curY
                 if s._baseX then
                     s:ClearAllPoints()
-                    PP.Point(s, "TOPLEFT", pf, "TOPLEFT", s._baseX + s._currentOffX, s._baseY)
+                    PP.Point(s, "TOPLEFT", pf, "TOPLEFT", s._baseX + s._currentOffX, s._baseY + curY)
                 end
             end
         end
@@ -240,6 +256,8 @@ local function BuildCDMLivePreview(parent, yOff)
             if s and s._baseX then
                 s._targetOffX = 0
                 s._currentOffX = 0
+                s._targetOffY = nil
+                s._currentOffY = nil
                 s:ClearAllPoints()
                 PP.Point(s, "TOPLEFT", pf, "TOPLEFT", s._baseX, s._baseY)
             end
@@ -269,6 +287,46 @@ local function BuildCDMLivePreview(parent, yOff)
         local rawPfT = pf:GetTop() * pfES
         local localX = (rawCX - rawPfL) / pfES
         local localY = -((rawPfT - rawCY) / pfES)
+
+        -- A vertical bar stacks its icons in columns, so there the cursor's height
+        -- inside an icon picks the drop (top part above it, bottom part below it,
+        -- the middle swaps), in the column nearest the cursor. The preview lays each
+        -- column out top-down in index order.
+        if StackedSlots(previewSlots[1], previewSlots[2]) then
+            local colX, colDist
+            for i = 1, slotCount do
+                local s = previewSlots[i]
+                if s and s:IsShown() and s._baseX then
+                    local d = math.abs(localX - (s._baseX + iconSz / 2))
+                    if not colDist or d < colDist then colX, colDist = s._baseX, d end
+                end
+            end
+            if not colX or colDist > iconSz then return nil, nil end
+            -- Each icon's band reaches half the spacing past its edges (+1 so rounding
+            -- leaves no seam; an overlap resolves to the same insert either way).
+            local pad = spacing * 0.5 + 1
+            local firstIdx, lastIdx
+            for i = 1, slotCount do
+                local s = previewSlots[i]
+                if s and s:IsShown() and s._baseX and math.abs(s._baseX - colX) < 1 then
+                    firstIdx = firstIdx or i
+                    lastIdx = i
+                    local h = s:GetHeight()
+                    local top = s._baseY
+                    if localY <= top + pad and localY > top - h - pad then
+                        local midY = top - h / 2
+                        local isBlank = not s._icon or not s._icon:GetTexture()
+                        if i ~= fromIdx and math.abs(localY - midY) < h * (isBlank and 0.45 or 0.2) then
+                            return "swap", i
+                        end
+                        return "insert", (localY > midY) and i or (i + 1)
+                    end
+                end
+            end
+            if not firstIdx then return nil, nil end
+            if localY > previewSlots[firstIdx]._baseY then return "insert", firstIdx end
+            return "insert", lastIdx + 1
+        end
 
         -- Group slots into rows by _baseY
         local bestRowStart, bestRowEnd, bestRowDist = 1, slotCount, math.huge
@@ -379,6 +437,7 @@ local function BuildCDMLivePreview(parent, yOff)
                     if s and s._baseX then
                         s._targetOffX = 0
                         if not s._currentOffX then s._currentOffX = 0 end
+                        s._targetOffY = 0
                         if i ~= fromIdx then s:SetAlpha(1) end
                     end
                 end
@@ -464,6 +523,41 @@ local function BuildCDMLivePreview(parent, yOff)
                 end
             end
         end
+        -- A vertical bar stacks its icons (same X, one per row, so the row shift above
+        -- moves only the target): the gap opens up and down within its column instead.
+        local first, second = previewSlots[1], previewSlots[2]
+        if StackedSlots(first, second) then
+            -- Later slots sit further along the column (down, or up on a bar growing up).
+            local towardEndY = (second._baseY < first._baseY) and -nudge or nudge
+            -- The target's column; past the last slot, the last slot's (as the row code above).
+            local ts = previewSlots[(targetIdx <= slotCount) and targetIdx or (targetIdx - 1)]
+            local colX = ts and ts._baseX
+            local virtualInsert = targetIdx
+            if targetIdx > fromIdx then virtualInsert = targetIdx - 1 end
+            for i = 1, slotCount do
+                local s = previewSlots[i]
+                if s and s._baseX then
+                    s._targetOffX = 0
+                    if not s._currentOffX then s._currentOffX = 0 end
+                    if i == fromIdx then
+                        s:SetAlpha(0.3)
+                        s._targetOffY = 0
+                    else
+                        s:SetAlpha(1)
+                        if colX and math.abs(s._baseX - colX) < 1 then
+                            local virtualPos = i
+                            if i > fromIdx then virtualPos = i - 1 end
+                            s._targetOffY = (virtualPos >= virtualInsert) and towardEndY or -towardEndY
+                        else
+                            s._targetOffY = 0
+                        end
+                    end
+                elseif s then
+                    s:SetAlpha(i == fromIdx and 0.3 or 1)
+                end
+            end
+        end
+
         StartAnimTicker()
 
         -- Position the insertion line between the two logical neighbors
@@ -501,8 +595,32 @@ local function BuildCDMLivePreview(parent, yOff)
                 end
             end
 
+            -- A vertical bar stacks its icons in columns: there the line runs across the
+            -- gap between the neighbors instead of down through an icon. Between two
+            -- columns it sits above the next column's first icon, where that column opens.
+            local stacked = StackedSlots(previewSlots[1], previewSlots[2])
+
             local lineX, lineY
-            if leftSlot and leftSlot:IsShown() and leftSlot._baseX
+            if stacked then
+                local gap = math.floor(spacing / 2) + 1
+                if leftSlot and leftSlot:IsShown() and leftSlot._baseX
+                   and rightSlot and rightSlot:IsShown() and rightSlot._baseX
+                   and StackedSlots(leftSlot, rightSlot) then
+                    local upper, lower = leftSlot, rightSlot
+                    if lower._baseY > upper._baseY then upper, lower = lower, upper end
+                    -- Centered in the gap the icons are opening (their shifted positions; the
+                    -- drawn height, which a cropped icon shape makes shorter than the size).
+                    lineX = upper._baseX
+                    lineY = ((upper._baseY + (upper._targetOffY or 0) - upper:GetHeight())
+                        + (lower._baseY + (lower._targetOffY or 0))) / 2
+                elseif rightSlot and rightSlot:IsShown() and rightSlot._baseX then
+                    lineX = rightSlot._baseX
+                    lineY = rightSlot._baseY + (rightSlot._targetOffY or 0) + gap
+                elseif leftSlot and leftSlot:IsShown() and leftSlot._baseX then
+                    lineX = leftSlot._baseX
+                    lineY = leftSlot._baseY + (leftSlot._targetOffY or 0) - leftSlot:GetHeight() - gap
+                end
+            elseif leftSlot and leftSlot:IsShown() and leftSlot._baseX
                and rightSlot and rightSlot:IsShown() and rightSlot._baseX then
                 local leftRight = leftSlot._baseX + iconSz2 - nudge
                 local rightLeft = rightSlot._baseX + nudge
@@ -518,8 +636,18 @@ local function BuildCDMLivePreview(parent, yOff)
 
             if lineX and lineY then
                 insertLine:ClearAllPoints()
-                PP.Point(insertLine, "TOP", pf, "TOPLEFT", lineX, lineY)
-                PP.Point(insertLine, "BOTTOM", pf, "TOPLEFT", lineX, lineY - iconSz2)
+                if stacked then
+                    insertLine:SetHeight(2)
+                    PP.Point(insertLine, "LEFT", pf, "TOPLEFT", lineX, lineY)
+                    PP.Point(insertLine, "RIGHT", pf, "TOPLEFT", lineX + iconSz2, lineY)
+                else
+                    -- As tall as the icons are drawn (a cropped shape is shorter than the size).
+                    local ref = rightSlot or leftSlot
+                    local lineH = (ref and ref:GetHeight()) or iconSz2
+                    insertLine:SetWidth(2)
+                    PP.Point(insertLine, "TOP", pf, "TOPLEFT", lineX, lineY)
+                    PP.Point(insertLine, "BOTTOM", pf, "TOPLEFT", lineX, lineY - lineH)
+                end
                 insertLine:Show()
             else
                 insertLine:Hide()
@@ -897,7 +1025,10 @@ local function BuildCDMLivePreview(parent, yOff)
 
                     for i = 1, MAX_PREVIEW_ICONS do
                         local s = previewSlots[i]
-                        if s then s._targetOffX = nil; s._currentOffX = nil end
+                        if s then
+                            s._targetOffX = nil; s._currentOffX = nil
+                            s._targetOffY = nil; s._currentOffY = nil
+                        end
                     end
                     animRunning = false
 
@@ -1786,7 +1917,16 @@ local function BuildCDMLivePreview(parent, yOff)
                     local sid = slot._previewSpellID
                     local chargeInfo = sid and C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
                     local maxC = chargeInfo and chargeInfo.maxCharges
-                    if (bd.showCharges ~= false) and maxC and maxC > 1 then
+                    -- A custom CD/utility spell EUI draws itself has no Blizzard charge
+                    -- frame: the live icon shows a count only with its Show Charges
+                    -- opt-in, so match it. A Blizzard-tracked one draws Blizzard's frame.
+                    local sdSc = sid and not isBuffBar and not isCustomBuffBar and ns.GetBarSpellData(bd.key)
+                    local showC = bd.showCharges ~= false
+                    if sdSc and sdSc.customSpellIDs and sdSc.customSpellIDs[sid]
+                       and not ns.IsCDMTrackedCooldown(sid) then
+                        showC = (sdSc.customSpellForceCount and sdSc.customSpellForceCount[sid]) or false
+                    end
+                    if showC and maxC and maxC > 1 then
                         slot._stackText:SetText(tostring(maxC))
                         slot._stackText:Show()
                     elseif slot._previewItemID and (bd.showItemCount ~= false) then

@@ -458,7 +458,7 @@ local function RefreshPartyPreview()
         ns._partyOC:SetFrameLevel(10)
         if ns._partyOC._title then
             ApplyFont(ns._partyOC._title, 13)
-            ns._partyOC._title:SetText("Preview")
+            ns._partyOC._title:SetText(EllesmereUI.L("Preview"))
             ns._partyOC._title:SetTextColor(1, 1, 1, 0.9)
             ns._partyOC._title:Show()
         end
@@ -627,10 +627,6 @@ end
 ns.ShowPartyPreview = ShowPartyPreview
 ns.HidePartyPreview = HidePartyPreview
 ns.partyPvActive = function() return ns._partyPvActive end
-ns.ResetPartyPreviewRandomization = function()
-    ns._partyPvRoles._randomized = nil
-    ns._partyPvInit = false
-end
 
 -- Guaranteed restore invariant. Ensures both real containers are parented to UIParent
 -- and their visibility recomputed whenever no preview should be active (e.g. the

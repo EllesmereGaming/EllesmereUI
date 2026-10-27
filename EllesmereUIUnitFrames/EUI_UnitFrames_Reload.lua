@@ -52,8 +52,6 @@ ReloadFramesBody = function()
         return
     end
 
-    ApplyEnemyColors()
-
     -- Normalize opacity values: old profiles stored 0-1 floats, new format is 0-100 integers
     do
         local prof = db.profile
@@ -1966,12 +1964,16 @@ ReloadFramesBody = function()
     -- Reload-all also SWEEPS stale bar ids (a previous profile's bars must
     -- park on swap -- field report).
     if ns.PAB_ReloadAllCustomBars then ns.PAB_ReloadAllCustomBars() end
+    ns.UF_PlayerPortraitChanged()
     -- Size matching: the unified borders were just applied, so report each
     -- frame's border pad; only a pad that really changed re-pushes its matches.
     if EllesmereUI.MatchPadChanged then
         local padKeys = ns.UF_PAD_KEYS
         for i = 1, #padKeys do EllesmereUI.MatchPadChanged(padKeys[i]) end
     end
+    -- Last: its ForceAll repaint must follow the per-frame ApplyDarkTheme, or turning
+    -- Dark Mode off left the class-colored fill dark until the next health event.
+    ApplyEnemyColors()
 end
 
 -- The unit frames whose unified border can reach outside the frame (the

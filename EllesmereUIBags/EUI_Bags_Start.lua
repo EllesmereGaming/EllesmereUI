@@ -119,6 +119,7 @@ local function StartAddon()
     end)
     EUI_Bags:SetScript("OnMouseDown", function(self, button)
         self:Raise()
+        self:RepinIconLevels()
         -- Locked (the footer's lock icon): the window stays put. Nor does it move
         -- while something is on the cursor: a click on its empty space drops an
         -- item from outside the bags (the OnMouseUp hook below).
@@ -169,6 +170,7 @@ local function StartAddon()
     -- bag fires no OnShow, and the login pre-build never shows the frame.
     EUI_Bags:HookScript("OnShow", function(self)
         self:Raise()
+        self:RepinIconLevels()
         PlaySound(SOUNDKIT.IG_BACKPACK_OPEN)
         -- Repaint if the unmerge state changed while hidden: the flag-flip refresh is gated on
         -- IsVisible, and closing a mailbox hides bags in the same breath so that repaint is thrown away (costs one boolean compare when already matching).
@@ -198,16 +200,12 @@ local function StartAddon()
     -- An item on the cursor that is not from the player's bags (bank withdrawals, mail, etc.).
     local function CursorItemIsExternal()
         if GetCursorInfo() ~= "item" then return false end
-        -- Check if the cursor item is from the player's bags (bag 0-5, reagent bag included)
-        for bag = 0, 5 do
-            local numSlots = C_Container.GetContainerNumSlots(bag)
-            for slot = 1, numSlots do
-                local info = C_Container.GetContainerItemInfo(bag, slot)
-                if info and info.isLocked then
-                    -- Locked = this slot is the pickup source
-                    return false
-                end
-            end
+        -- The cursor item's own location is its pickup source: a slot of the
+        -- player's bags (bag 0-5, reagent bag included) when it came from them.
+        local loc = C_Cursor.GetCursorItem()
+        if loc and loc:IsBagAndSlot() then
+            local bag = loc:GetBagAndSlot()
+            if bag >= 0 and bag <= 5 then return false end
         end
         return true
     end
@@ -238,8 +236,8 @@ local function StartAddon()
     -- catch layer over the item area's empty space takes the same drop and the
     -- window lights its border. The layer sits UNDER the slots, so a drop on a
     -- slot always reaches the slot (stack merges, gear swaps). Whether the
-    -- cursor item is from outside is a bag scan, cached until the cursor or an
-    -- item lock changes; the Compact display's drop zones read the same cache
+    -- cursor item is from outside is read from its location, cached until the
+    -- cursor or an item lock changes; the Compact display's drop zones read the same cache
     -- and follow the same watch. The events are registered only while the
     -- bags are open; everything is built on first use.
     local dropBorder, dropCatch
@@ -399,7 +397,11 @@ local function StartAddon()
     EUI_BagsReagent:SetPoint("BOTTOMRIGHT", EUI_Bags, "BOTTOMLEFT", -10, 0)
     EUI_BagsReagent:SetFrameStrata(EUI_Bags:GetFrameStrata())
     EUI_BagsReagent:SetToplevel(true)
-    EUI_BagsReagent:HookScript("OnShow", EUI_BagsReagent.Raise)
+    EUI_BagsReagent:HookScript("OnShow", function(self)
+        self:Raise()
+        -- Re-pins the reagent pool too
+        EUI_Bags:RepinIconLevels()
+    end)
     EUI_BagsReagent:EnableMouse(true)
     EUI_BagsReagent.bg = EUI_BagsReagent:CreateTexture(nil, "BACKGROUND")
     EUI_BagsReagent.bg:SetAllPoints()
@@ -756,7 +758,7 @@ local function StartAddon()
     end
     EUI_Bags.UpdateSetEventRegistration()
     -- Replays a refresh that was deferred during combat (secure-button taint guard).
-    EUI_Bags:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral by JuJuFX-dev: moved unchanged by the file split
+    EUI_Bags:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral by Ellesmere: moved unchanged by the file split
     -- Drives the post-mailbox/bank Recent Items resync (see MailOpen/BankOpen/DetectNewItems above).
     if C_PlayerInteractionManager then
         EUI_Bags:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")

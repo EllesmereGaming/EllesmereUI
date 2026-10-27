@@ -50,26 +50,27 @@ local DEFAULTS = {
     showValue = true, showPercent = true, percentMode = "pull",
     warnSound = false, warnSoundKey = "none", warnAt = 80, warnSkipTank = true,
     playerColorOn = false, playerColor = { r = 0.8, g = 0.1, b = 0.1 },
+    showPlayerMarker = true,
     tankColorOn = false, tankColor = { r = 0.1, g = 0.6, b = 0.1 },
     font = "__global", outlineMode = "__global",
 }
 
 -- Appearance groups, stored under appearance[group] (the Damage Meters shape).
 local STYLE_DEFAULTS = {
-    bars = { barTexture = "atrocity", iconStyle = "blizzard", classIconZoom = 0.06,
+    bars = { barTexture = "atrocity", iconStyle = "blizzard", classIconZoom = 0.06, iconZoom = 0, iconSeparator = false,
         leftTextOffsetX = 0, leftTextOffsetY = 0, rightTextOffsetX = 0, rightTextOffsetY = 0 },
     header = { hdrHeight = 22, hdrFontSize = 11, hdrBgColor = { r = 0.106, g = 0.106, b = 0.106 },
         hdrBgAlpha = 1, hdrTextUseAccent = true, hdrTextColor = { r = 1, g = 1, b = 1 },
-        hdrTextOffX = 0, hdrTextOffY = 0, hdrBottomBorderSize = 0,
+        hdrTextOffX = 0, hdrTextOffY = 0, hdrBottomBorderSize = 0, hdrBottomSeparator = false,
         hdrBottomBorderColor = { r = 0, g = 0, b = 0, a = 1 } },
     colors = { showClassColor = true, barColorUseAccent = true, barColor = { r = 0.35, g = 0.55, b = 0.8 },
-        barFillAlpha = 1, bgR = 0, bgG = 0, bgB = 0, bgAlpha = 0.75,
+        barFillAlpha = 1, bgR = 0, bgG = 0, bgB = 0, bgAlpha = 0.75, bgTexture = "none",
         barBgR = 0, barBgG = 0, barBgB = 0, barBgAlpha = 0.045, barBgUseClassColor = false,
-        leftTextUseClassColor = false, rightTextUseClassColor = false,
+        leftTextUseClassColor = false, rightTextUseClassColor = false, rightTextUseThreatGradient = false,
         leftTextColor = { r = 1, g = 1, b = 1 }, rightTextColor = { r = 1, g = 1, b = 1 } },
     borders = { windowBorderTexture = "solid", windowBorderSize = 0, windowBorderSizePx = false,
         windowBorderColor = { r = 0, g = 0, b = 0, a = 1 }, windowBorderIncludeHeader = true,
-        borderTexture = "solid", borderSize = 0, borderSizePx = false,
+        borderTexture = "solid", borderSize = 0, borderSizePx = false, barSeparators = false,
         borderR = 0, borderG = 0, borderB = 0, borderA = 1,
         borderTextureOffset = false, borderTextureShiftX = 0, borderTextureShiftY = 0,
         borderTextureOffsetY = false },
@@ -153,13 +154,6 @@ function ns.GetStyleValue(group, key)
         if v == nil then v = STYLE_DEFAULTS[group][key] end
     end
     return v
-end
-
--- A fresh merged copy of one appearance group (options getters).
-function ns.GetStyleGroup(group)
-    local result = {}
-    for key in pairs(STYLE_DEFAULTS[group]) do result[key] = ns.GetStyleValue(group, key) end
-    return result
 end
 
 -- Writes into the real saved appearance[group] table (created on first write)
@@ -365,6 +359,7 @@ local function Style()
     dm.focusEnabled, dm.tracked = Get("focusEnabled"), TrackedUnit()
     dm.pullColor, dm.playerColor, dm.tankColor = Get("pullColor"), Get("playerColor"), Get("tankColor")
     dm.playerColorOn, dm.tankColorOn = Get("playerColorOn"), Get("tankColorOn")
+    dm.showPlayerMarker = Get("showPlayerMarker")
     local showValue, showPercent = Get("showValue"), Get("showPercent")
     dm.showValue, dm.showPercent = showValue, showPercent
     dm.pullPercent = Get("percentMode") == "pull"
@@ -380,6 +375,18 @@ local function Style()
     elseif outlineMode == "thick" then dm.textFlag = EUI.SlugFlag("THICKOUTLINE, SLUG")
     elseif outlineMode == "none" then dm.textFlag = "" end
     dm.texturePath = EUI.ResolveTexturePath(ns.BarTextures(), dm.barTexture, "Interface\\Buttons\\WHITE8X8")
+    if dm.bgTexture ~= "none" and not Look.stock then
+        dm.bgTexturePath = EUI.ResolveTexturePath(ns.BarTextures(), dm.bgTexture, nil)
+    end
+    if not Look.stock then
+        dm.barSeparatorsOn = dm.barSeparators and dm.borderSize > 0
+            and EUI.GetBorderCompanion(dm.borderTexture, "sepH") ~= nil
+        dm.headerSeparatorOn = dm.hdrBottomSeparator and dm.showHeader and dm.windowBorderIncludeHeader ~= false
+            and dm.windowBorderSize > 0
+            and EUI.GetBorderCompanion(dm.windowBorderTexture, "sepH") ~= nil
+        dm.iconSeparatorOn = dm.iconSeparator and dm.iconStyle ~= "none" and dm.borderSize > 0
+            and EUI.GetBorderCompanion(dm.borderTexture, "sepV") ~= nil
+    end
     if dm.iconStyle ~= "none" and dm.iconStyle ~= "blizzard" then
         dm.iconPath = CLASS_ICON_DIR .. dm.iconStyle .. ".tga"
     end
@@ -411,7 +418,7 @@ local function Border(target, dm, window)
         size, texture, exact = dm.borderSize, dm.borderTexture, dm.borderSizePx
         r, g, b, a = dm.borderR, dm.borderG, dm.borderB, dm.borderA
     end
-    size = Look.stock and 0 or (size or 0)
+    size = (Look.stock or (not window and dm.barSeparatorsOn)) and 0 or (size or 0)
     local px = size > 0 and EUI.BorderPx(exact, size, texture) or nil
     if window then
         EUI.ApplyBorderStyle(target, size, r, g, b, a, texture, nil, nil, nil, nil, nil, nil, nil, px)
@@ -427,6 +434,123 @@ end
 local function PhysicalPixels(v)
     local PP = EUI.PP
     return PP.Scale((v or 0) * PP.mult)
+end
+
+-- Separator art draws above the window border, clipped inside the window.
+local function PlaceSeparators(host)
+    local s, dm = host.surface, host.style
+    local PP, es = EUI.PP, host:GetEffectiveScale()
+    local function Place(tex, key, size, exact, y, r, g, b, a)
+        local px = EUI.BorderPx(exact, size, key)
+        local thick = EUI.BorderCompanionThickness(key, size, px, es)
+        local lead = PP.SnapForES(thick * 2 / EUI.GetBorderCompanion(key, "sepSize"), es)
+        local bottom = PP.SnapForES(y - lead, es)
+        if bottom <= -s:GetHeight() + dm.inset then tex:Hide(); return end
+        tex:SetTexture(EUI.GetBorderCompanion(key, "sepH"))
+        tex:SetTexCoord(0, 1, 1, 0)
+        tex:SetVertexColor(r, g, b, a)
+        tex:ClearAllPoints()
+        tex:SetPoint("BOTTOMLEFT", s, "TOPLEFT", dm.inset, bottom)
+        tex:SetPoint("BOTTOMRIGHT", s, "TOPRIGHT", -dm.inset, bottom)
+        tex:SetHeight(thick)
+        tex:Show()
+    end
+    if dm.headerSeparatorOn then
+        if not host.headerLine then
+            host.headerLine = host.art:CreateTexture(nil, "OVERLAY")
+            PP.DisablePixelSnap(host.headerLine)
+        end
+        local c = dm.windowBorderColor
+        Place(host.headerLine, dm.windowBorderTexture, dm.windowBorderSize, dm.windowBorderSizePx,
+            -dm.inset - dm.headerHeight, c.r or 0, c.g or 0, c.b or 0, c.a or 1)
+    elseif host.headerLine then
+        host.headerLine:Hide()
+    end
+    local n = dm.barSeparatorsOn and host.count or 0
+    for i = 1, n do
+        local tex = host.lines[i]
+        if not tex then
+            tex = host.art:CreateTexture(nil, "OVERLAY")
+            PP.DisablePixelSnap(tex)
+            host.lines[i] = tex
+        end
+        local y = -dm.inset - dm.headerHeight - i * (dm.barHeight + dm.barSpacing) + dm.barSpacing / 2
+        Place(tex, dm.borderTexture, dm.borderSize, dm.borderSizePx, y,
+            dm.borderR, dm.borderG, dm.borderB, dm.borderA)
+    end
+    for i = n + 1, #host.lines do host.lines[i]:Hide() end
+    n = dm.iconSeparatorOn and host.count or 0
+    for i = 1, n do
+        local row, tex = s.rows[i], host.iconLines[i]
+        if not tex then
+            tex = host.art:CreateTexture(nil, "OVERLAY", nil, 1)
+            PP.DisablePixelSnap(tex)
+            host.iconLines[i] = tex
+        end
+        if row._iconWidth and row._iconWidth > 0 then
+            EUI.PlaceBorderDividerV(tex, row.fill, false, false, dm.borderTexture, dm.borderSize,
+                EUI.BorderPx(dm.borderSizePx, dm.borderSize, dm.borderTexture), es)
+            local slot = dm.growUp and (host.count - i + 1) or i
+            local above = slot == 1 and host.headerLine or host.lines[slot - 1]
+            local below = host.lines[slot]
+            local top, bottom = 0, 0
+            -- The flipped horizontal strip's solid stroke spans texels 3-7 of 32.
+            if above and above:IsShown() then
+                top = PP.SnapForES(math.max(0, above:GetHeight() / 32 - (slot == 1 and 0 or dm.barSpacing / 2)), es)
+            end
+            if below and below:IsShown() then
+                bottom = PP.SnapForES(math.max(0, below:GetHeight() * 3 / 32 - dm.barSpacing / 2), es)
+            end
+            top = top - PP.perfect / es
+            if top + bottom >= dm.barHeight then
+                tex:Hide()
+            else
+                local lead = PP.SnapForES(tex:GetWidth() * 2 / EUI.GetBorderCompanion(dm.borderTexture, "sepSize"), es)
+                tex:SetPoint("TOPLEFT", row.fill, "TOPLEFT", -lead, -top)
+                tex:SetPoint("BOTTOMLEFT", row.fill, "BOTTOMLEFT", -lead, bottom)
+            end
+            tex:SetVertexColor(dm.borderR, dm.borderG, dm.borderB, dm.borderA)
+        else
+            tex:Hide()
+        end
+    end
+    for i = n + 1, #host.iconLines do host.iconLines[i]:Hide() end
+end
+
+local function SyncSeparators(s, dm, count, iconsChanged)
+    local host = s.separators
+    if not dm.headerSeparatorOn and not dm.barSeparatorsOn and not dm.iconSeparatorOn then
+        if host and host.style then
+            host:Hide()
+            host.style = nil
+            EUI.RegisterPxReapply(host, nil)
+        end
+        return
+    end
+    if not host then
+        host = CreateFrame("Frame", nil, s)
+        host:SetAllPoints()
+        host:SetClipsChildren(true)
+        host:EnableMouse(false)
+        host.art = CreateFrame("Frame", nil, host)
+        host.art:SetAllPoints()
+        host.art:EnableMouse(false)
+        host.surface, host.lines, host.iconLines = s, {}, {}
+        s.separators = host
+    end
+    local scale, height = host:GetEffectiveScale(), s:GetHeight()
+    local strata, level = s:GetFrameStrata(), s.border:GetFrameLevel() + 2
+    if host.style == dm and host.count == count and host.scale == scale and host.height == height
+        and host.strata == strata and host.level == level and not iconsChanged then return end
+    host.style, host.count, host.scale, host.height = dm, count, scale, height
+    host.strata, host.level = strata, level
+    host:SetFrameStrata(strata)
+    host:SetFrameLevel(level)
+    host.art:SetFrameLevel(level + 1)
+    host:Show()
+    PlaceSeparators(host)
+    EUI.RegisterPxReapply(host, ((dm.headerSeparatorOn and dm.windowBorderSizePx)
+        or (dm.barSeparatorsOn and dm.borderSizePx) or dm.iconSeparatorOn) and PlaceSeparators or nil)
 end
 
 -------------------------------------------------------------------------------
@@ -461,7 +585,7 @@ local function ApplyChrome(dm, s)
         local size, line = dm.hdrBottomBorderSize or 0, dm.hdrBottomBorderColor
         header.line:SetHeight(PhysicalPixels(size))
         header.line:SetColorTexture(line.r or 0, line.g or 0, line.b or 0, line.a or 1)
-        header.line:SetShown(size > 0 and not Look.stock)
+        header.line:SetShown(size > 0 and not Look.stock and not dm.headerSeparatorOn)
     end
     Font(s.title, dm.hdrFontSize, dm)
     -- A look may colour the accented title its own way (WoW Forever's gold).
@@ -482,7 +606,13 @@ local function ApplyChrome(dm, s)
     s.bg:ClearAllPoints()
     s.bg:SetPoint("TOPLEFT", s, "TOPLEFT", 0, -dm.headerHeight)
     s.bg:SetPoint("BOTTOMRIGHT", s, "BOTTOMRIGHT", 0, 0)
-    Look.WindowBg(s.bg, dm.bgR, dm.bgG, dm.bgB, dm.bgAlpha)
+    s.bg:SetVertexColor(1, 1, 1, 1)
+    if dm.bgTexturePath then
+        s.bg:SetTexture(dm.bgTexturePath)
+        s.bg:SetVertexColor(dm.bgR, dm.bgG, dm.bgB, dm.bgAlpha)
+    else
+        Look.WindowBg(s.bg, dm.bgR, dm.bgG, dm.bgB, dm.bgAlpha)
+    end
     local border = s.border
     border:ClearAllPoints()
     if dm.windowBorderIncludeHeader == false then
@@ -574,6 +704,11 @@ end
 local BLIZZARD_CLASS_ICONS = "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES"
 local PET_ICON = EUI.ClientIcon(132161)
 
+local function IconCoords(icon, left, right, top, bottom, zoom)
+    local dx, dy = (right - left) * zoom, (bottom - top) * zoom
+    icon:SetTexCoord(left + dx, right - dx, top + dy, bottom - dy)
+end
+
 -- Class icon (none for a pet) plus the pet icon; returns the width they take.
 local function RowIcons(row, class, isPet, dm)
     row.classIcon:Hide()
@@ -588,15 +723,14 @@ local function RowIcons(row, class, isPet, dm)
         coords = class and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[class]
         if coords then
             row.classIcon:SetTexture(BLIZZARD_CLASS_ICONS)
-            local zoom = dm.classIconZoom
-            local dx, dy = (coords[2] - coords[1]) * zoom, (coords[4] - coords[3]) * zoom
-            row.classIcon:SetTexCoord(coords[1] + dx, coords[2] - dx, coords[3] + dy, coords[4] - dy)
+            local zoom = dm.classIconZoom + (1 - 2 * dm.classIconZoom) * dm.iconZoom
+            IconCoords(row.classIcon, coords[1], coords[2], coords[3], coords[4], zoom)
         end
     else
         coords = class and EUI.CLASS_ICON_SPRITE_COORDS[class]
         if coords then
             row.classIcon:SetTexture(dm.iconPath)
-            row.classIcon:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+            IconCoords(row.classIcon, coords[1], coords[2], coords[3], coords[4], dm.iconZoom)
         end
     end
     if coords then
@@ -608,7 +742,7 @@ local function RowIcons(row, class, isPet, dm)
     end
     if isPet then
         row.petIcon:SetTexture(PET_ICON)
-        row.petIcon:SetTexCoord(0.06, 0.94, 0.06, 0.94)
+        IconCoords(row.petIcon, 0.06, 0.94, 0.06, 0.94, dm.iconZoom)
         row.petIcon:SetSize(size, size)
         row.petIcon:ClearAllPoints()
         row.petIcon:SetPoint("LEFT", row, "LEFT", x, 0)
@@ -648,7 +782,8 @@ local function PaintRow(row, e, dm, top, gen)
         local isPet = e.isPet == true
         if restyle or row._class ~= class or row._isPet ~= isPet then
             -- The texts sit inside the fill wherever the look seats it.
-            local left, right = Look.SeatFill(row, RowIcons(row, class, isPet, dm), dm)
+            row._iconWidth = RowIcons(row, class, isPet, dm)
+            local left, right = Look.SeatFill(row, row._iconWidth, dm)
             row.value:ClearAllPoints()
             row.value:SetPoint("RIGHT", -5 - right + dm.rightTextOffsetX, dm.rightTextOffsetY)
             row.label:ClearAllPoints()
@@ -657,8 +792,9 @@ local function PaintRow(row, e, dm, top, gen)
             row._class, row._isPet = class, isPet
         end
         row._own = e.own == true
-        row.self:SetShown(row._own)
+        row.self:SetShown(row._own and dm.showPlayerMarker)
         row._aggro, row._name = nil, nil
+        row._valueThreat = nil
         if not e.unit then
             -- A preview row: the Name Format reaches your own sample name.
             local name = e.pull and EllesmereUI.L("Pull Aggro") or e.name
@@ -698,7 +834,17 @@ local function PaintRow(row, e, dm, top, gen)
         Look.RowBg(row.bg, bg and bg.r or dm.barBgR, bg and bg.g or dm.barBgG,
             bg and bg.b or dm.barBgB, dm.barBgAlpha)
         PaintText(row.label, dm.leftTextUseClassColor and color or dm.leftTextColor)
-        PaintText(row.value, dm.rightTextUseClassColor and color or dm.rightTextColor)
+        if not dm.rightTextUseThreatGradient then
+            PaintText(row.value, dm.rightTextUseClassColor and color or dm.rightTextColor)
+        end
+    end
+    if dm.rightTextUseThreatGradient and (dm.showValue or dm.showPercent) then
+        local pct = math.max(0, math.min(100, e.scaled or 0))
+        if row._valueThreat ~= pct then
+            row._valueThreat = pct
+            local t = pct / 50
+            row.value:SetTextColor(math.min(1, t), math.min(1, 2 - t), 0)
+        end
     end
     -- Every bar shares one scale: raw threat against the top of the whole list.
     local fillValue = top > 0 and e.raw * 100 / top or 0
@@ -730,6 +876,7 @@ end
 local function RenderRows(s, list, first, count, dm, top)
     local rows, gen = s.rows, ns.rosterGen
     local step, inset = dm.barHeight + dm.barSpacing, dm.inset
+    local iconsChanged
     for i = 1, count do
         local row = rows[i] or MakeRow(i, s, rows)
         local index = dm.growUp and (count - i) or (i - 1)
@@ -743,12 +890,15 @@ local function RenderRows(s, list, first, count, dm, top)
             row:SetHeight(dm.barHeight)
             row._y = y
         end
+        local iconWidth = row._iconWidth
         PaintRow(row, list[i + first], dm, top, gen)
+        if iconWidth ~= row._iconWidth then iconsChanged = true end
     end
     local shown = s._count or #rows
     for i = count + 1, shown do rows[i]:Hide() end
     for i = shown + 1, count do rows[i]:Show() end
     s._count = count
+    SyncSeparators(s, dm, count, iconsChanged)
 end
 
 -------------------------------------------------------------------------------
@@ -962,7 +1112,8 @@ end
 local function Paint(list, dm)
     local step = dm.barHeight + dm.barSpacing
     local area = frame:GetHeight() - 2 * dm.inset - dm.headerHeight
-    local capacity = math.floor((area + dm.barSpacing) / step)
+    local slack = 2 * EUI.PP.perfect / frame:GetEffectiveScale()
+    local capacity = math.floor((area + dm.barSpacing + slack) / step)
     if capacity < 1 then capacity = 1 end
     local n = #list
     local maxOffset = n - capacity

@@ -5,7 +5,7 @@
 ## Group: EllesmereUI
 ## Notes: Applies gear sets and talent loadouts automatically per instance type and specialization.
 ## Author: Ellesmere
-## Version: 9.6
+## Version: 9.6.9
 ## Dependencies: EllesmereUI
 # Held back (EllesmereUI.HELD_BACK_ADDONS): load on demand, and nothing loads
 # it, so it never loads and its saved data stays untouched. Drop this to ship.

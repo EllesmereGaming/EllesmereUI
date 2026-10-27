@@ -1012,9 +1012,12 @@ end
 --  child-update from the MainBar frame to drive the buttons' normal
 --  OnAttributeChanged -> UpdateAction path in combat.
 -------------------------------------------------------------------------------
+-- A combat pass (every page flip and spell swap) owes the main bar's own
+-- AlwaysShow pass once combat ends, never a full ApplyAll: the regen handler
+-- runs it from ns._eabMainBarAsbOwed.
 function EAB_VTABLE.MainBarPageSync.SetButtonConfig(btn, withinCutoff, showEmpty)
     if not btn then return end
-    if InCombatLockdown() then ns._eabApplyDeferred = true return end
+    if InCombatLockdown() then ns._eabMainBarAsbOwed = true return end
     btn:SetAttributeNoHandler("eab-withincutoff", withinCutoff and 1 or 0)
     btn:SetAttributeNoHandler("eab-showempty", showEmpty and 1 or 0)
 end
@@ -1025,7 +1028,7 @@ function EAB_VTABLE.MainBarPageSync.Queue()
     state.pending = true
     C_Timer_After(0, function()
         state.pending = false
-        if InCombatLockdown() then ns._eabApplyDeferred = true return end
+        if InCombatLockdown() then ns._eabMainBarAsbOwed = true return end
         if not EAB or not EAB.db then return end
         EAB:ApplyAlwaysShowButtons("MainBar")
     end)

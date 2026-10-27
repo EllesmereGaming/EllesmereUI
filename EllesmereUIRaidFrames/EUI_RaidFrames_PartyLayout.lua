@@ -255,8 +255,7 @@ end
 ns._UpdatePartyVisibility = function()
     if not ns._partyHeader then return end
     if InCombatLockdown() then return end
-    if ns._partyPvActive then return end
-    if previewActive then return end
+    if ns._partyPvActive or ns._raidPvActive then return end
     -- Defensive: re-assert full opacity unless a size preview is dimming the
     -- real frames (see UpdateVisibility). Out of combat only (bails above).
     if not ns._sizePreviewTier and ns._partyContainerFrame then
@@ -659,7 +658,7 @@ local function RegisterWithUnlockMode()
         EllesmereUI.MakeUnlockElement({
             key   = "RF_RaidFrames",
             label = "Raid Frames",
-            group = "Raid Frames",
+            group = "Raid & Party Frames",
             order = 500,
             noResize = true,
             -- RF positions its own container via _ApplyTierOffset (base 20-man top-left
@@ -707,7 +706,7 @@ local function RegisterWithUnlockMode()
         EllesmereUI.MakeUnlockElement({
             key   = "RF_PartyFrames",
             label = "Party Frames",
-            group = "Raid Frames",
+            group = "Raid & Party Frames",
             order = 501,
             noResize = true,
 
@@ -743,7 +742,7 @@ local function RegisterWithUnlockMode()
         EllesmereUI.MakeUnlockElement({
             key   = "RF_HealerMana",
             label = "Healer Mana Display",
-            group = "Raid Frames",
+            group = "Raid & Party Frames",
             order = 502,
             noResize = true,
             -- Disabled feature = no mover. Gates on the SETTING (mode none),

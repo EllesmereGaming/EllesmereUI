@@ -36,12 +36,7 @@ local WSkin = ns.WSkin
 -- table would let whichever skinner runs second silently no-op on a frame both
 -- touch. The engine's table is read for one key only: the Modern backdrop
 -- AdoptShell files there (modernBg).
-local FFD = setmetatable({}, { __mode = "k" })
-local function GetFFD(frame)
-    local d = FFD[frame]
-    if not d then d = {}; FFD[frame] = d end
-    return d
-end
+local FFD, GetFFD = EllesmereUI.NewFrameData()
 local EngineFFD = WSkin.FFD
 local Theme, ResolveTheme = WSkin.Theme, WSkin.ResolveTheme
 local SolidTex, FadeRegions = WSkin.SolidTex, WSkin.FadeRegions

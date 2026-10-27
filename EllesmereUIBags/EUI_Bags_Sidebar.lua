@@ -1328,6 +1328,8 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
 
     for i = #displayList + 1, #_sidebarBtns do _sidebarBtns[i]:Hide() end
 
+    local sidebarChild = EUI_Bags._sidebarChild
+
     -- Separator line between All Items/OneBag and categories
     if not sidebar._catDivider then
         local PP = EUI and EUI.PP
@@ -1339,7 +1341,6 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     end
 
     -- Position and populate (buttons go in the scroll child)
-    local sidebarChild = EUI_Bags._sidebarChild
     if sidebarChild then sidebarChild:SetWidth(sidebarW) end
     local y = 0
     local ar, ag, ab = GetAccentRGB()

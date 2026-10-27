@@ -821,8 +821,9 @@ end
 -- Registering an override binding itself fires UPDATE_BINDINGS, and
 -- UPDATE_BINDINGS is what brings us here -- so an unconditional rewrite feeds
 -- itself forever. Action Bars hit exactly this and solved it the same way (see
--- the note at EllesmereUIActionBars.lua:10486). It also makes the call free for
--- the options panel, which reaches Refresh on every slider tick.
+-- the signature cache note above UpdateKeybinds in EUI_ActionBars_Keybinds.lua).
+-- It also makes the call free for the options panel, which reaches Refresh on
+-- every slider tick.
 function ns.UpdateBindings()
     local p = P()
     if not p then return end

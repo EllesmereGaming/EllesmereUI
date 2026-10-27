@@ -15,12 +15,7 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 local WSkin = ns.WSkin
 if not (WSkin and WSkin.RegisterWindow and WSkin.Shell) then return end
 
-local FFD = setmetatable({}, { __mode = "k" })
-local function GetFFD(frame)
-    local d = FFD[frame]
-    if not d then d = {}; FFD[frame] = d end
-    return d
-end
+local FFD, GetFFD = EllesmereUI.NewFrameData()
 
 do
 -- Chrome atlases covering the house shell: the metal frame and textured backdrops.

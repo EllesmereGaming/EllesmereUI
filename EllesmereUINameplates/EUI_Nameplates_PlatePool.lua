@@ -19,7 +19,7 @@ local Enum = Enum
 
 local CAST_H, defaults, ENP, GetNPOutline = I.CAST_H, I.defaults, I.ENP, I.GetNPOutline
 local SetFSFont, GetBorderColor = I.SetFSFont, I.GetBorderColor
-local GetCastBarHeight, GetDebuffTextColor = I.GetCastBarHeight, I.GetDebuffTextColor
+local GetCastBarHeight = I.GetCastBarHeight
 local GetEnemyNameTextSize, GetHealthBarHeight = I.GetEnemyNameTextSize, I.GetHealthBarHeight
 local GetHealthBarWidth, GetHitboxYShift = I.GetHealthBarWidth, I.GetHitboxYShift
 local GetNameplateYOffset, GetRaidMarkerSize = I.GetNameplateYOffset, I.GetRaidMarkerSize
@@ -217,7 +217,22 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.nameRaid = plate.nameRaidFrame:CreateTexture(nil, "ARTWORK")
     plate.nameRaid:SetAllPoints()
     plate.nameRaid:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-    plate.raidFrame = CreateFrame("Frame", nil, plate)
+    -- Core Positions chains (ns.NP_CoreChain) anchor the raid marker, the Rare/Quest
+    -- indicator, the faction badge and the cast-lockout icon to aura containers, which only
+    -- aspect-bearing objects may anchor to (EnsureArrows), and the aspect is inherited at
+    -- creation alone: the four are born inside one template holder per plate, a child of the
+    -- plate so they show, fade and scale as before. Without the template they stay plain
+    -- children, and a chain leaves an icon that would follow a row at its own spot.
+    local coreHost = plate
+    do
+        local ok, holder = pcall(CreateFrame, "Frame", nil, plate, "DisableUntrustedLayoutScriptsTemplate")
+        if ok and holder then
+            holder:SetAllPoints(plate.health)
+            plate.coreHost = holder
+            coreHost = holder
+        end
+    end
+    plate.raidFrame = CreateFrame("Frame", nil, coreHost)
     local rmSize = GetRaidMarkerSize()
     PP.Size(plate.raidFrame, rmSize, rmSize)
     -- INDICATOR TIER (bottom of the three groups). Explicit MEDIUM strata like the aura icons
@@ -230,7 +245,7 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     plate.raid = plate.raidFrame:CreateTexture(nil, "ARTWORK")
     plate.raid:SetAllPoints()
     plate.raid:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
-    plate.classFrame = CreateFrame("Frame", nil, plate)
+    plate.classFrame = CreateFrame("Frame", nil, coreHost)
     local _reIconSz = GetRareEliteIconSize()
     PP.Size(plate.classFrame, _reIconSz, _reIconSz)
     PP.Point(plate.classFrame, "LEFT", plate.health, "LEFT", 2, 0)
@@ -605,138 +620,6 @@ local frameCache = CreateFramePool("Frame", UIParent, nil, nil, false, function(
     end
     plate.cast:HookScript("OnShow", OnCastVisibilityChanged)
     plate.cast:HookScript("OnHide", OnCastVisibilityChanged)
-    plate.debuffs = {}
-    local maxDbf = (p and p.maxDebuffs) or defaults.maxDebuffs
-    for i = 1, maxDbf do
-        local d = CreateFrame("Frame", nil, plate)
-        d:SetFrameStrata("MEDIUM")
-        d:SetFrameLevel(800)
-        PP.Size(d, 26, 26)
-        PP.Point(d, "BOTTOM", plate.name, "TOP", (i - (maxDbf + 1) / 2) * 30, 2)
-        AddBorder(d)
-        ns.ApplyFrameIconBorder(d, ns.GetIconBorderEnabled("debuffs"), true)
-        d.icon = d:CreateTexture(nil, "ARTWORK")
-        PP.Point(d.icon, "TOPLEFT", d, "TOPLEFT", 1, -1)
-        PP.Point(d.icon, "BOTTOMRIGHT", d, "BOTTOMRIGHT", -1, 1)
-        d.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        -- Snap-disable ONCE at creation: aura arm/clear hot paths use PP.RawSetTexture (pre-hook original), which never re-triggers the pixel-snap hook.
-        PP.DisablePixelSnap(d.icon)
-        d.cd = CreateFrame("Cooldown", nil, d, "CooldownFrameTemplate")
-        PP.Point(d.cd, "TOPLEFT", d, "TOPLEFT", 1, -1)
-        PP.Point(d.cd, "BOTTOMRIGHT", d, "BOTTOMRIGHT", -1, 1)
-        d.cd:SetFrameLevel(d:GetFrameLevel() + 2)
-        if d.cd.SetDrawSwipe then d.cd:SetDrawSwipe(true) end
-        if d.cd.SetDrawEdge then d.cd:SetDrawEdge(false) end
-        if d.cd.SetDrawBling then d.cd:SetDrawBling(false) end
-        if d.cd.SetReverse then d.cd:SetReverse(true) end
-        if d.cd.SetHideCountdownNumbers then d.cd:SetHideCountdownNumbers(false) end
-        -- Stack count + countdown text on a carrier ABOVE the cooldown so the zero-duration
-        -- alpha mask on d.cd (kills the permanent-aura swipe strobe) never hides them. Carrier
-        -- at slot+6, above the pandemic/dispel glow wrappers (slot+5).
-        d.countCarrier = CreateFrame("Frame", nil, d)
-        d.countCarrier:SetAllPoints(d)
-        d.countCarrier:SetFrameLevel(d:GetFrameLevel() + 6)
-        d.count = d.countCarrier:CreateFontString(nil, "OVERLAY")
-        SetFSFont(d.count, 11, "OUTLINE, SLUG")
-        PP.Point(d.count, "BOTTOMRIGHT", d, "BOTTOMRIGHT", 1, 1)
-        d.count:SetJustifyH("RIGHT")
-        local cdRegions = { d.cd:GetRegions() }
-        for _, region in ipairs(cdRegions) do
-            if region:GetObjectType() == "FontString" then
-                d.cd.text = region
-                region:SetParent(d.countCarrier)
-                SetFSFont(region, 11, "OUTLINE, SLUG")
-                region:ClearAllPoints()
-                PP.Point(region, "TOPLEFT", d, "TOPLEFT", -3, 4)
-                region:SetJustifyH("LEFT")
-                region:SetTextColor(GetDebuffTextColor())
-                break
-            end
-        end
-        d:Hide()
-        plate.debuffs[i] = d
-    end
-    plate.buffs = {}
-    for i = 1, 4 do
-        local b = CreateFrame("Frame", nil, plate)
-        b:SetFrameStrata("MEDIUM")
-        b:SetFrameLevel(800)
-        PP.Size(b, 24, 24)
-        PP.Point(b, "RIGHT", plate.health, "LEFT", -2 - (i - 1) * 26, 0)
-        AddBorder(b)
-        ns.ApplyFrameIconBorder(b, ns.GetIconBorderEnabled("buffs"), true)
-        b.icon = b:CreateTexture(nil, "ARTWORK")
-        PP.Point(b.icon, "TOPLEFT", b, "TOPLEFT", 1, -1)
-        PP.Point(b.icon, "BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
-        b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        PP.DisablePixelSnap(b.icon)
-        b.cd = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
-        PP.Point(b.cd, "TOPLEFT", b, "TOPLEFT", 1, -1)
-        PP.Point(b.cd, "BOTTOMRIGHT", b, "BOTTOMRIGHT", -1, 1)
-        b.cd:SetFrameLevel(b:GetFrameLevel() + 2)
-        if b.cd.SetDrawSwipe then b.cd:SetDrawSwipe(true) end
-        if b.cd.SetDrawEdge then b.cd:SetDrawEdge(false) end
-        if b.cd.SetDrawBling then b.cd:SetDrawBling(false) end
-        if b.cd.SetReverse then b.cd:SetReverse(true) end
-        if b.cd.SetHideCountdownNumbers then b.cd:SetHideCountdownNumbers(false) end
-        -- Stack count + countdown text on a carrier ABOVE the cooldown (see debuff slot) so
-        -- b.cd's zero-duration alpha mask never hides them. Carrier at slot+6, above dispel glow.
-        b.countCarrier = CreateFrame("Frame", nil, b)
-        b.countCarrier:SetAllPoints(b)
-        b.countCarrier:SetFrameLevel(b:GetFrameLevel() + 6)
-        b.count = b.countCarrier:CreateFontString(nil, "OVERLAY")
-        SetFSFont(b.count, 9, "OUTLINE, SLUG")
-        PP.Point(b.count, "BOTTOMRIGHT", b, "BOTTOMRIGHT", 2, -2)
-        local bCdRegions = { b.cd:GetRegions() }
-        for _, region in ipairs(bCdRegions) do
-            if region:GetObjectType() == "FontString" then
-                b.cd.text = region
-                region:SetParent(b.countCarrier)
-                SetFSFont(region, 12, "OUTLINE, SLUG")
-                region:ClearAllPoints()
-                region:SetPoint("CENTER", b, "CENTER", 0, 0)
-                break
-            end
-        end
-        b:Hide()
-        plate.buffs[i] = b
-    end
-    plate.cc = {}
-    for i = 1, 2 do
-        local c = CreateFrame("Frame", nil, plate)
-        c:SetFrameStrata("MEDIUM")
-        c:SetFrameLevel(800)
-        PP.Size(c, 24, 24)
-        PP.Point(c, "LEFT", plate.health, "RIGHT", 2 + (i - 1) * 26, 0)
-        AddBorder(c)
-        ns.ApplyFrameIconBorder(c, ns.GetIconBorderEnabled("ccs"), true)
-        c.icon = c:CreateTexture(nil, "ARTWORK")
-        PP.Point(c.icon, "TOPLEFT", c, "TOPLEFT", 1, -1)
-        PP.Point(c.icon, "BOTTOMRIGHT", c, "BOTTOMRIGHT", -1, 1)
-        c.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        PP.DisablePixelSnap(c.icon)
-        c.cd = CreateFrame("Cooldown", nil, c, "CooldownFrameTemplate")
-        PP.Point(c.cd, "TOPLEFT", c, "TOPLEFT", 1, -1)
-        PP.Point(c.cd, "BOTTOMRIGHT", c, "BOTTOMRIGHT", -1, 1)
-        c.cd:SetFrameLevel(c:GetFrameLevel() + 2)
-        if c.cd.SetDrawSwipe then c.cd:SetDrawSwipe(true) end
-        if c.cd.SetDrawEdge then c.cd:SetDrawEdge(false) end
-        if c.cd.SetDrawBling then c.cd:SetDrawBling(false) end
-        if c.cd.SetReverse then c.cd:SetReverse(true) end
-        if c.cd.SetHideCountdownNumbers then c.cd:SetHideCountdownNumbers(false) end
-        local cdRegions = { c.cd:GetRegions() }
-        for _, region in ipairs(cdRegions) do
-            if region:GetObjectType() == "FontString" then
-                c.cd.text = region
-                SetFSFont(region, 12, "OUTLINE, SLUG")
-                region:ClearAllPoints()
-                region:SetPoint("CENTER", c, "CENTER", 0, 0)
-                break
-            end
-        end
-        c:Hide()
-        plate.cc[i] = c
-    end
     plate:SetScript("OnEvent", function(self, event, ...)
         local handler = self[event]
         if handler then handler(self, ...) end

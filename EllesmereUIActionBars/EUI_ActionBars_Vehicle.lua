@@ -37,7 +37,7 @@ do
         vehVis:RegisterEvent("UNIT_ENTERED_VEHICLE")
         vehVis:RegisterEvent("UNIT_EXITED_VEHICLE")
         vehVis:RegisterEvent("PLAYER_ENTERING_WORLD")
-        vehVis:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral until 2027-01-31 by JuJu: moved verbatim from EllesmereUIActionBars.lua
+        vehVis:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: combat-deferral by Ellesmere: moved verbatim from EllesmereUIActionBars.lua
         vehVis:SetScript("OnEvent", function(self, event, unit)
             -- Only the UNIT_ events carry a unit; PLAYER_ENTERING_WORLD's first
             -- arg is isInitialLogin, so testing it as a unit skipped the whole
@@ -472,7 +472,8 @@ function EAB._UpdateSpellbookNeverBars(resync)
         for _, info in ipairs(BAR_CONFIG) do
             local s = EAB.db.profile.bars[info.key]
             if s and s.spellbookShow and s.enabled ~= false
-               and ((s.barVisibility or "always") ~= "always" or s.alwaysHidden
+               and ((EllesmereUI.VisOverrideValue(s) or s.barVisibility or "always") ~= "always"
+                    or EAB.VisibilityCompat.IsNever(s)
                     or (EAB._padHide and s.gamepadHideBar == true))
                and not (EAB._visOverride and EAB._visOverride[info.key]) then
                 EAB._visOverride = EAB._visOverride or {}
@@ -559,5 +560,7 @@ do
     end)
 end
 
--- Entry points the files after this one re-import by name.
-I.IsHouseEditorActive, I.OnGridChange = IsHouseEditorActive, OnGridChange
+-- Entry points the files after this one re-import by name. The housing API
+-- may be absent: false keeps the key published (a nil publish would make
+-- Setup's import raise), and Setup's guard reads false as "no editor".
+I.IsHouseEditorActive, I.OnGridChange = IsHouseEditorActive or false, OnGridChange

@@ -1328,7 +1328,7 @@ local function BuildBars()
             -- updated (so text-value writes never hit nil), just hidden while the
             -- power bar is visible. Re-evaluated every build (spec/power changes
             -- trigger a rebuild, same as the shift feature).
-            if _G._ERB_TextHiddenByForm(ERB.db.profile.secondary, true) or (sp.showTextOnlyIfNoPower and not IsPowerBarHidden()) then
+            if _G._ERB_TextHiddenByForm(ERB.db.profile.secondary) or (sp.showTextOnlyIfNoPower and not IsPowerBarHidden()) then
                 secondaryFrame._countText:Hide()
             else
                 secondaryFrame._countText:Show()

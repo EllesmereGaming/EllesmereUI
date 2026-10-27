@@ -1152,7 +1152,7 @@ end
 -- evaluation (charge spells report isActive with charges left, GCD tail races).
 -- The OnUpdate script is installed ONCE per frame object: the hook fires per
 -- repaint, so per-arm work stays plain field writes, never closure creation.
-local function ArmCdStateEval(frame, fd, cse, cseShift, lowAlpha, hideUntilSpent, usable, form)
+local function ArmCdStateEval(frame, fd, cse, cseShift, lowAlpha, hideUntilSpent, usable, form, stance, stanceOnly)
     local pending = fd._cdStatePending
     if not pending then
         pending = CreateFrame("Frame")
@@ -1164,6 +1164,20 @@ local function ArmCdStateEval(frame, fd, cse, cseShift, lowAlpha, hideUntilSpent
             local sid3 = fc3 and fc3.spellID
             local bk3 = fc3 and fc3.barKey
             if not sid3 or not bk3 then return end
+            -- Stance Bar: hidden on (or off) a stance bar page whatever the
+            -- cooldown, with its own Shift Icons choice.
+            if self.stance then
+                local sHide, sShift = ns.CdmStanceBarHidden(self.stance)
+                if sHide or self.stanceOnly then
+                    local bdS = barDataByKey and barDataByKey[bk3]
+                    frame:SetAlpha(sHide and 0 or ns.IconShownAlpha(fc3, bdS))
+                    fc3._cdStateHidden = sHide
+                    if ns.SetCdStateShiftHidden then
+                        ns.SetCdStateShiftHidden(fc3, sHide and sShift)
+                    end
+                    return
+                end
+            end
             local liveSid = sid3
             if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
                 liveSid = C_SpellBook.FindSpellOverrideByID(sid3) or sid3
@@ -1222,6 +1236,8 @@ local function ArmCdStateEval(frame, fd, cse, cseShift, lowAlpha, hideUntilSpent
     pending.hideUntilSpent = hideUntilSpent
     pending.usable = usable
     pending.form = form
+    pending.stance = stance
+    pending.stanceOnly = stanceOnly
     pending:Show()
 end
 
@@ -1308,10 +1324,22 @@ end
 do
     local watch = setmetatable({}, { __mode = "k" })  -- icon frame -> the spell ID it was watched with
     local eventFrame, flushFrame
-    local usableOn, formOn, auraOn = false, false, false
+    local usableOn, formOn, auraOn, stanceOn = false, false, false, false
     local flushedForm  -- the form ID the last pass evaluated
 
-    local function SyncEvents(usable, form, aura)
+    local function SyncEvents(usable, form, aura, stance)
+        stance = stance == true
+        if stance ~= stanceOn then
+            stanceOn = stance
+            -- A stance bar page change; Prowl pages on stealth within Cat Form.
+            if stance then
+                eventFrame:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
+                eventFrame:RegisterEvent("UPDATE_STEALTH")
+            else
+                eventFrame:UnregisterEvent("UPDATE_BONUS_ACTIONBAR")
+                eventFrame:UnregisterEvent("UPDATE_STEALTH")
+            end
+        end
         aura = aura == true
         if aura ~= auraOn then
             -- A proc highlight coming or going decides an overlay rule while
@@ -1355,43 +1383,65 @@ do
         local auraOnly = self.auraOnly
         self.auraOnly = nil
         flushedForm = ns.CdmCurrentFormID()
-        local usable, form, aura = false, false, false
+        local usable, form, aura, stanceAny = false, false, false, false
         for frame in pairs(watch) do
             local fd = hookFrameData[frame]
             local fc = _ecmeFC[frame]
             local sid = fc and fc.spellID
             local bk = fc and fc.barKey
-            local m
+            local m, ss, cse, stance
             -- Same ownership guards as the SetDesaturated hook.
             if fd and sid and bk and bk:sub(1, 7) ~= "__ghost" and bk ~= ns.FOCUSKICK_BAR_KEY
                and not (ns.PresetHasCdState and ns.PresetHasCdState(frame)) then
-                local cse = ns.CdStateHideOf(ResolveSpellSettings(frame, sid, false), frame)
+                ss = ResolveSpellSettings(frame, sid, false)
+                cse = ns.CdStateHideOf(ss, frame)
                 m = cse and ns.CD_STATE_HIDE[cse]
+                stance = ns.CdmStanceBarOf(ss, frame)
             end
-            if m and (m.usable or m.form) then
+            if (m and (m.usable or m.form)) or stance then
                 watch[frame] = sid
-                usable = usable or m.usable == true
-                form = form or m.form == true
-                local needsAura = m.form and ns.CdmFormNeedsAura(sid)
-                aura = aura or needsAura == true
+                local needsAura
+                if m then
+                    usable = usable or m.usable == true
+                    form = form or m.form == true
+                    needsAura = m.form and ns.CdmFormNeedsAura(sid)
+                    aura = aura or needsAura == true
+                end
+                stanceAny = stanceAny or stance ~= nil
                 if not auraOnly or needsAura then
-                    ArmCdStateEval(frame, fd, m.base, m.shift, nil, nil, m.usable, m.form)
+                    if stance then
+                        -- The icon's whole hide: its own mode beside the stance bar
+                        -- (Hidden (On CD) with the cooldown never read when alone).
+                        local base, shift, us, fo, only = "hiddenOnCD", nil, nil, nil, true
+                        if m then
+                            base, shift, us, fo, only = m.base, m.shift, m.usable, m.form, false
+                        elseif cse == "lowerAlphaOnCD" then
+                            base, only = cse, false
+                        end
+                        ArmCdStateEval(frame, fd, base, shift, (ss and ss.cdStateLowerAlpha) or 0.5,
+                            ss and ss.chargeHideUntilSpent, us, fo, stance, only)
+                    else
+                        ArmCdStateEval(frame, fd, m.base, m.shift, nil, nil, m.usable, m.form)
+                    end
                 end
             else
                 watch[frame] = nil
             end
         end
-        SyncEvents(usable, form, aura)
+        SyncEvents(usable, form, aura, stanceAny)
     end
 
     -- Called wherever the mode is resolved for an icon (SetDesaturated hook,
     -- RefreshCDMIconAppearance); form = the icon runs Hidden Outside
     -- Form/Stance. Table reads only, once the icon is watched with its spell.
-    function ns.WatchCdUsable(frame, form)
+    function ns.WatchCdUsable(frame, form, stance, usable)
         local fc = _ecmeFC[frame]
         local sid = fc and fc.spellID
         local was = watch[frame]
-        if was ~= nil and was == sid and ((form and formOn) or (not form and usableOn)) then return end
+        -- usable: the icon also runs Hidden Until Usable (implied by a plain call)
+        local needUsable = usable or (not form and not stance)
+        if was ~= nil and was == sid and (not form or formOn) and (not stance or stanceOn)
+            and (not needUsable or usableOn) then return end
         watch[frame] = sid or true
         if not eventFrame then
             flushFrame = ns.TakeShell()
@@ -1407,7 +1457,8 @@ do
                 elseif auraOnly then
                     -- Same form: only an exception aura coming or going counts
                     if not (auraOn and ns.CdmFormAuraEdge(updateInfo, "watch")) then return end
-                elseif event ~= "SPELL_UPDATE_USABLE" then
+                elseif event ~= "SPELL_UPDATE_USABLE" and event ~= "UPDATE_BONUS_ACTIONBAR"
+                    and event ~= "UPDATE_STEALTH" then
                     ns.CdmRetryUnreadForms()
                 end
                 -- A queued form/usability edge keeps its full pass.
@@ -1417,7 +1468,8 @@ do
             end)
         end
         local needsAura = form and ns.CdmFormNeedsAura(sid)
-        SyncEvents(usableOn or not form, formOn or form == true, auraOn or needsAura == true)
+        SyncEvents(usableOn or needUsable == true, formOn or form == true, auraOn or needsAura == true,
+            stanceOn or stance == true)
     end
 
     -- A talent change can teach or drop an exception: each watched icon

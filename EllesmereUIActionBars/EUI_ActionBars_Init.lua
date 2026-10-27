@@ -70,6 +70,10 @@ function EAB:OnInitialize()
         if EAB.db and EAB.db.profile and EAB.db.profile.barPositions then
             EllesmereUI._abBarPositions = EAB.db.profile.barPositions
         end
+        -- Toggle keys participate by the effective mode, which an override or a
+        -- profile swap can change. Before ApplyAll so a dropped toggle state is
+        -- already gone for its visibility pass (defers itself in combat).
+        EAB:RebuildVisToggleBindings()
         ApplyAll()
         -- Data bars: ApplyAll never lays them out, so a profile swap, an import
         -- or a spec override repaints their size, texture, text and Custom
@@ -157,9 +161,6 @@ function EAB:OnInitialize()
                     tex:Hide()
                     return
                 end
-                if EllesmereUI._RANKDEBUG then
-                    print("|cff33ff99[Rank]|r atlas", atlas)
-                end
             end
             -- Mirror Blizzard's overlay anchor: its template centers an
             -- atlas-sized texture 14,-14 from the button's TOPLEFT (designed for
@@ -204,12 +205,6 @@ function EAB:OnInitialize()
                                 rankAtlas = RankAtlasFor(q)
                             end
                         end
-                    end
-                    if EllesmereUI._RANKDEBUG and rankAtlas ~= nil then
-                        pcall(function()
-                            print("|cff33ff99[Rank]|r action", action,
-                                "atlas", tostring(rankAtlas))
-                        end)
                     end
                 end
             end

@@ -43,6 +43,7 @@ local activeIcons = {}  -- currently visible icons
 local combatAnchor      -- created in OnEnable, follows iconAnchor position
 I.combatAnchorSetters[#I.combatAnchorSetters + 1] = function(v) combatAnchor = v end
 local combatIconPool = {}
+local receiverIconPool = {}  -- a groupmate's raid buff the player cannot cast
 local combatActiveIcons = {}
 
 -------------------------------------------------------------------------------
@@ -127,6 +128,7 @@ end
 function EABR.ApplyAllIconBorders()
     for _, f in pairs(iconPool) do EABR.ApplyIconBorder(f, true) end
     for _, f in pairs(combatIconPool) do EABR.ApplyIconBorder(f, false) end
+    for _, f in pairs(receiverIconPool) do EABR.ApplyIconBorder(f, false) end
     for _, f in pairs(cursorIconPool) do EABR.ApplyIconBorder(f, false) end
     if EABR._providerCastBtn then EABR.ApplyIconBorder(EABR._providerCastBtn, true) end
     if _B.icons then
@@ -143,9 +145,8 @@ function EABR.GetIconTextOverlay(f)
     return overlay
 end
 
-local function GetOrCreateCombatIcon(index)
-    if combatIconPool[index] then return combatIconPool[index] end
-    local f = CreateFrame("Frame", "EABR_CombatIcon"..index, combatAnchor)
+local function BuildCombatIcon(name)
+    local f = CreateFrame("Frame", name, combatAnchor)
     f:SetSize(ICON_SIZE, ICON_SIZE)
     f:SetFrameStrata(GetStrata())
     f:SetFrameLevel(120)
@@ -165,9 +166,50 @@ local function GetOrCreateCombatIcon(index)
     EABR.AttachIconHover(f)
     EABR.AttachIconTooltip(f)
     EABR.AttachCombatClickHint(f)
-    combatIconPool[index] = f
     return f
 end
+
+local function GetOrCreateCombatIcon(index)
+    local f = combatIconPool[index]
+    if not f then
+        f = BuildCombatIcon("EABR_CombatIcon"..index)
+        combatIconPool[index] = f
+    end
+    return f
+end
+
+-- A groupmate's raid buff the player cannot cast is shown to be read, never
+-- clicked: its icon lets the left and right click through to whatever is
+-- behind, keeps the middle-click dismiss and shows no hover highlight. Click
+-- routing (SetPassThroughButtons) is blocked in combat on every frame, ours
+-- included, so these icons have a pool of their own whose routing is set once,
+-- out of combat. One first built in combat lets every click through (no
+-- dismiss) until HideCombatIcons routes it once combat is over.
+local receiversUnrouted = false
+local function RouteReceiverIcon(f)
+    if InCombatLockdown() then
+        f:SetMouseClickEnabled(false)
+        receiversUnrouted = true
+        return
+    end
+    f:SetPassThroughButtons("LeftButton", "RightButton")
+    f:SetMouseClickEnabled(true)
+    f._routed = true
+end
+
+local function GetOrCreateReceiverIcon(index)
+    local f = receiverIconPool[index]
+    if not f then
+        f = BuildCombatIcon("EABR_ReceiverIcon"..index)
+        EABR.SetIconHighlight(f, false)
+        RouteReceiverIcon(f)
+        receiverIconPool[index] = f
+    end
+    return f
+end
+
+-- Icons of each pool shown by the current combat pass.
+local combatShown, receiversShown = 0, 0
 
 local function HideCombatIcons()
     for i = 1, #combatActiveIcons do
@@ -179,14 +221,28 @@ local function HideCombatIcons()
         end
     end
     wipe(combatActiveIcons)
+    combatShown, receiversShown = 0, 0
+    if receiversUnrouted and not InCombatLockdown() then
+        receiversUnrouted = false
+        for _, f in pairs(receiverIconPool) do
+            if not f._routed then RouteReceiverIcon(f) end
+        end
+    end
     if EABR.SetProviderCastCombatVisible then
         EABR.SetProviderCastCombatVisible(false)
     end
     if combatAnchor then EllesmereUI.SetElementVisibility(combatAnchor, false) end
 end
 
-local function ShowCombatIcon(iconIdx, m)
-    local f = GetOrCreateCombatIcon(iconIdx)
+local function ShowCombatIcon(m)
+    local f
+    if EABR.IsReceiverRaidBuff(m) then
+        receiversShown = receiversShown + 1
+        f = GetOrCreateReceiverIcon(receiversShown)
+    else
+        combatShown = combatShown + 1
+        f = GetOrCreateCombatIcon(combatShown)
+    end
     f._dismissKey = m.dismissKey or nil
     local spellID = m.spellID or (m.data and m.data.castSpell)
     f._icon:SetTexture(m.texture or (spellID and Tex(spellID)) or 134400)
@@ -280,6 +336,15 @@ local function GetOrCreateCursorIcon(index)
     return f
 end
 
+-- Hides the cursor anchor once nothing rides it: no cursor icon and no beacon
+-- placed on it (_B.onCursor). Hidden, it stops following the cursor (OnHide
+-- unsubscribes); every placement shows it again.
+local function ReleaseCursorAnchor()
+    if cursorAnchor and #cursorActiveIcons == 0 and not _B.onCursor then
+        cursorAnchor:Hide()
+    end
+end
+
 local function HideCursorIcons()
     for i = 1, #cursorActiveIcons do
         local f = cursorActiveIcons[i]
@@ -291,6 +356,7 @@ local function HideCursorIcons()
     end
     wipe(cursorActiveIcons)
     if cursorAnchor then EllesmereUI.SetElementVisibility(cursorAnchor, false) end
+    ReleaseCursorAnchor()
 end
 
 local function ShowCursorIcon(iconIdx, m)
@@ -600,6 +666,7 @@ function EABR.AttachIconHover(f)
         hl:SetAllPoints(icon)
         hl:SetTexCoord(0.07, 0.93, 0.07, 0.93)
         hl:SetColorTexture(1, 1, 1, 0.2)
+        f._hl = hl
     else
         f:EnableMouse(true)
         local hl = f:CreateTexture(nil, "OVERLAY")
@@ -607,10 +674,26 @@ function EABR.AttachIconHover(f)
         hl:SetTexCoord(0.07, 0.93, 0.07, 0.93)
         hl:SetColorTexture(1, 1, 1, 0.2)
         hl:Hide()
-        f:HookScript("OnEnter", function() hl:Show() end)
+        f:HookScript("OnEnter", function(self) if not self._hlOff then hl:Show() end end)
         f:HookScript("OnLeave", function() hl:Hide() end)
     end
     f._eabrHoverAttached = true
+end
+
+-- A groupmate's raid buff the player cannot cast: shown to be read, never
+-- clicked (both clients' collectors mark it cat "raidbuff" in texture mode).
+function EABR.IsReceiverRaidBuff(m)
+    return m.cat == "raidbuff" and m.mode == "texture"
+end
+
+-- Per-use hover highlight: off on an icon that takes no left click, so it
+-- never reads as a button. A Button draws its highlight on the HIGHLIGHT
+-- layer (hidden as a texture); the plain pools gate their OnEnter on the flag.
+function EABR.SetIconHighlight(f, on)
+    local off = not on
+    if f._hlOff == off then return end
+    f._hlOff = off
+    if f._hl then f._hl:SetShown(on) end
 end
 
 function EABR.ApplyIconTooltipData(f, m)
@@ -1069,10 +1152,11 @@ end
 I.AcquireEntry, I.activeIcons, I.ApplyGlow = AcquireEntry, activeIcons, ApplyGlow
 I.ApplySetup, I.combatActiveIcons = ApplySetup, combatActiveIcons
 I.combatIconPool, I.cursorActiveIcons = combatIconPool, cursorActiveIcons
+I.receiverIconPool = receiverIconPool
 I.FadeOutSecureIcons, I.GetOrCreateIcon = FadeOutSecureIcons, GetOrCreateIcon
 I.GetStrata, I.HideCombatIcons, I.HideCursorIcons = GetStrata, HideCombatIcons, HideCursorIcons
 I.ICON_SIZE, I.iconPool, I.IsImportantBuff = ICON_SIZE, iconPool, IsImportantBuff
 I.LayoutCombatIcons, I.LayoutCursorIcons = LayoutCombatIcons, LayoutCursorIcons
 I.RemoveGlow, I.ResetEntryPool, I.ShowCombatIcon = RemoveGlow, ResetEntryPool, ShowCombatIcon
-I.ShowCursorIcon = ShowCursorIcon
+I.ShowCursorIcon, I.ReleaseCursorAnchor = ShowCursorIcon, ReleaseCursorAnchor
 I.broken = false

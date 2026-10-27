@@ -205,10 +205,12 @@ local function HarvestGroup(group)
             local m = maps[i]
             local preserve
             for fkey, dv in pairs(entry.values.default) do
-                if MatchOwnedFKey(fkey) then
+                if MatchOwnedFKey(fkey) or not FKeyLoaded(fkey) then
                     -- Match-owned size keys never bank FROM live (see Harvest): the
                     -- broadcast below would stamp the match engine's write onto EVERY
-                    -- member at once. Route through preserve so each member keeps its own value.
+                    -- member at once. A disabled module has no live value, and its
+                    -- snapshot reads nil, which would pass for a revert. Route both
+                    -- through preserve so each member keeps its own value.
                     preserve = preserve or {}
                     preserve[fkey] = true
                     m[fkey] = nil
@@ -803,6 +805,44 @@ function EllesmereUI.SpecOverrides_IsCaptured(folder, ...)
     return false
 end
 
+--- Which overrides hold any of these settings: keys are top-level keys of
+--- the module's profile root (no table sits above one, so IsCaptured's match
+--- is the key itself). An array of { kind = "spec", id = specID } and
+--- { kind = "cond", id = condition group id }, each once; empty when none
+--- does. One pass over both stores. Read-only, for options pages that tell
+--- apart where an override applies.
+function EllesmereUI.SpecOverrides_CapturedBy(folder, keys)
+    local want = {}
+    for i = 1, #keys do want[folder .. FS .. keys[i]] = true end
+    local C = EllesmereUI._CondOv
+    local out, seen = {}, { spec = {}, cond = {} }
+    for pass = 1, 2 do
+        local store, kind
+        if pass == 1 then store, kind = GetStore(), "spec"
+        elseif C and C.GetStore then store, kind = C.GetStore(), "cond" end
+        if store then
+            local seenKind = seen[kind]
+            for _, e in ipairs(store) do
+                local vals = e.values
+                if type(vals) == "table" then
+                    for id, map in pairs(vals) do
+                        if type(id) == "number" and type(map) == "table" and not seenKind[id] then
+                            for k in pairs(map) do
+                                if want[k] then
+                                    seenKind[id] = true
+                                    out[#out + 1] = { kind = kind, id = id }
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
+
 function EllesmereUI.SpecOverrides_GroupById(gid)
     return GroupById(gid)
 end
@@ -854,6 +894,16 @@ function EllesmereUI.SpecOverrides_EditSessionName()
         local cg = EllesmereUI.Conditions_GroupById(e.id)
         return cg and (cg.name or cg.label)
     end
+    return nil
+end
+
+--- READ-ONLY: the override session being edited as kind ("spec" | "cond")
+--- plus its group id, nil when none (EditSessionName's source).
+function EllesmereUI.SpecOverrides_EditSessionInfo()
+    if _editGroup then return "spec", _editGroup.id end
+    local C = EllesmereUI._CondOv
+    local e = C and C._edit
+    if e and e.id then return "cond", e.id end
     return nil
 end
 

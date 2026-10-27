@@ -207,7 +207,7 @@ do
     -- own, so SavedVariables would save it empty, and the next trace would wrap
     -- it again, one layer per walk until reading it overflows the C stack.
     -- Writes unwrap the value, and the proxies one level inside a plain table
-    -- built from them. (A do-block: the main chunk is at the local cap.)
+    -- built from them. (A do-block.)
     local proxyOf = setmetatable({}, { __mode = "k" })
     local function Unwrap(v)
         local r = proxyOf[v]

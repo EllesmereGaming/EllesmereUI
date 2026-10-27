@@ -4072,7 +4072,7 @@ EllesmereUI.RegisterMigration({
 -- Same split for the Health/Power "hide bar/text per form" popups: Moonkin
 -- used to share the "mana"/Caster bucket, so disabling Caster there also hid
 -- Moonkin. Seed moonkin=true wherever mana=true so that choice survives.
--- Class Resource is skipped: it exempts Moonkin from this system entirely.
+-- Class Resource is skipped: its Caster choice never applied in Moonkin Form.
 EllesmereUI.RegisterMigration({
     id          = "erb_moonkin_form_bucket_v1",
     scope       = "profile",
@@ -4359,6 +4359,39 @@ EllesmereUI.RegisterMigration({
         st.latencyEnabled, st.smoothTiming = nil, nil
     end,
 })
+
+-- WoW Forever: the Swing Timer follows the Resource Bars row of Global
+-- Settings > Style, and its texture rides that row's style slots. Slots saved
+-- before then take the texture it has now, so switching styles later brings a
+-- custom texture back (also after the Classic seed's Plating, which a profile
+-- already on Classic gets at its first load with this build); a slot without
+-- it restores the default. Existing accounts only: a fresh install stamps it
+-- without running.
+if EllesmereUI.IS_FOREVER == true then
+EllesmereUI.RegisterMigration({
+    id          = "swing_timer_style_slots_v1",
+    scope       = "global",
+    description = "Save the Swing Timer's texture into the Resource Bars style slots saved before it joined them.",
+    body        = function(ctx)
+        local profiles = ctx.db and ctx.db.profiles
+        if type(profiles) ~= "table" then return end
+        for _, profData in pairs(profiles) do
+            local erb = type(profData) == "table" and type(profData.addons) == "table"
+                and profData.addons.EllesmereUIResourceBars
+            local st = type(erb) == "table" and erb.swingTimer
+            local tex = type(st) == "table" and st.texture or nil
+            local slots = tex ~= nil and erb._styleSlots
+            if type(slots) == "table" then
+                for _, slot in pairs(slots) do
+                    if type(slot) == "table" and slot["swingTimer.texture"] == nil then
+                        slot["swingTimer.texture"] = tex
+                    end
+                end
+            end
+        end
+    end,
+})
+end
 
 -- Spell ID on Tooltip became on by default (an unset showSpellID reads as on,
 -- EllesmereUI.SpellIDOn). An account from before keeps it off: its unset value

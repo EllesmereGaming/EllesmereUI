@@ -107,7 +107,7 @@ local function CustomBuffSpellSignature(spells)
 end
 
 -- Unlock-mode registration for custom bars: per-element schema from
--- RegisterPABUnlock, "dynamic list" shape from EllesmereUICdmBuffBars.lua's
+-- RegisterPABUnlock, "dynamic list" shape from EUI_CDM_BuffBarUnlock.lua's
 -- ns.RegisterTBBUnlockElements -- rebuild the FULL element list (every persisted
 -- custom buff + debuff bar) and re-register it on every call rather than diffing
 -- adds/removes. Cheap at PAB's bar counts, and a freshly-added bar just appears next

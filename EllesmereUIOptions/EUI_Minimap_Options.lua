@@ -137,7 +137,9 @@ initFrame:SetScript("OnEvent", function(self)
         parent._showRowDivider = true
         EllesmereUI:ClearContentHeader()
 
-        _, h = W:SectionHeader(parent, SECTION_MINIMAP, y);  y = y - h
+        local hdr
+        hdr, h = W:SectionHeader(parent, SECTION_MINIMAP, y);  y = y - h
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EBS_Minimap" })
         y = EllesmereUI.BlizzStyle.Note(parent, y, "minimap")
 
         -- A square frame on the Forever client (the WoW Forever look's Forever

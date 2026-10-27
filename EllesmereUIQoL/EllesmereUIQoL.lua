@@ -74,6 +74,7 @@ qolFrame:SetScript("OnEvent", function(self)
     if EllesmereUIDB.envPingKey then EllesmereUI._applyEnvPing() end
     -- Self Combat Text (EllesmereUIQoL_SelfCombatText.lua): nothing is built while off.
     ns.SCT_Refresh()
+    if EllesmereUI._applyUpgradeTooltips then EllesmereUI._applyUpgradeTooltips() end
 
     ---------------------------------------------------------------------------
     -- Bonus roll confirmation. Addon-owned overlays intercept Roll/Pass clicks;
@@ -1629,10 +1630,14 @@ qolFrame:SetScript("OnEvent", function(self)
     --  and would leave the line half-closed (the close fade never runs on a
     --  hidden frame), so Blizzard showed it again on its next pass. Shown, the
     --  line closes through Blizzard's own fade. Edit Mode still shows the frame.
+    --  The 3D portrait model draws past its parents' alpha, so it is hidden
+    --  itself while suppressed (Blizzard never shows or hides it) and shown
+    --  again only if this block hid it.
     ---------------------------------------------------------------------------
     if not EllesmereUI.IS_FOREVER then
         local hooked, suppressed = false, false
         local frameMouse, closeMouse  -- mouse states found when suppression began
+        local modelHidden = false     -- the portrait model was hidden here
 
         local function Wanted()
             local db = EllesmereUIDB
@@ -1640,11 +1645,7 @@ qolFrame:SetScript("OnEvent", function(self)
         end
 
         local function ApplyTalkingHead(thf)
-            local close = thf.MainFrame.CloseButton
-            -- The 3D portrait ignores its parents' alpha: alpha 0 on the frame
-            -- hides text and art but leaves the model talking on screen. Only
-            -- hiding the model itself stops it from rendering.
-            local model = thf.MainFrame.Model
+            local close, model = thf.MainFrame.CloseButton, thf.MainFrame.Model
             if EllesmereUIDB and EllesmereUIDB.hideTalkingHead and not thf.isInEditMode then
                 if not suppressed then
                     suppressed = true
@@ -1653,13 +1654,19 @@ qolFrame:SetScript("OnEvent", function(self)
                     close:EnableMouse(false)
                 end
                 if thf:GetAlpha() ~= 0 then thf:SetAlpha(0) end
-                if model and model:IsShown() then model:Hide() end
+                if model:IsShown() then
+                    model:Hide()
+                    modelHidden = true
+                end
             elseif suppressed then
                 suppressed = false
                 thf:SetAlpha(1)
                 thf:EnableMouse(frameMouse)
                 close:EnableMouse(closeMouse)
-                if model then model:Show() end
+                if modelHidden then
+                    modelHidden = false
+                    model:Show()
+                end
             end
         end
 
@@ -1674,13 +1681,6 @@ qolFrame:SetScript("OnEvent", function(self)
             hooksecurefunc(thf, "SetAlpha", function(self, alpha)
                 if suppressed and alpha ~= 0 then ApplyTalkingHead(self) end
             end)
-            -- In case Blizzard shows the portrait again for a new line.
-            local model = thf.MainFrame.Model
-            if model then
-                hooksecurefunc(model, "Show", function(self)
-                    if suppressed then self:Hide() end
-                end)
-            end
             -- Audio: PlayCurrent keeps the line's sound handle in voHandle.
             hooksecurefunc(thf, "PlayCurrent", function(self)
                 if EllesmereUIDB and EllesmereUIDB.muteTalkingHead and self.voHandle then

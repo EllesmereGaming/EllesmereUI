@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 
@@ -12,6 +13,10 @@ addon.Storage = Storage
 
 Storage.TO_TRADE = "to_trade"
 Storage.AWARD_LATER = "award_later"
+Storage.KEPT = "kept"
+
+Storage.UNTRADEABLE_KEEP = 24 * 60 * 60
+Storage.TRADE_WINDOW = 2 * 60 * 60
 
 
 
@@ -106,6 +111,15 @@ Storage.ItemID = ItemID
 
 
 
+local function LinkIfId(bag, slot, wanted)
+    if C_Container.GetContainerItemID(bag, slot) ~= wanted then return nil end
+    local link = C_Container.GetContainerItemLink(bag, slot)
+    if ItemID(link) == wanted then return link end
+    return nil
+end
+
+
+
 function Storage:FindInBags(link, skip)
     local function Skipped(bag, slot)
         if not skip then return false end
@@ -115,19 +129,45 @@ function Storage:FindInBags(link, skip)
         return false
     end
 
-    local function Scan(matches)
-        local best
+    local wanted = ItemID(link)
+
+
+
+    local candidates
+    if wanted then
+        candidates = {}
         for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
             local slots = C_Container.GetContainerNumSlots(bag) or 0
             for slot = 1, slots do
-                local present = C_Container.GetContainerItemLink(bag, slot)
-                if not Skipped(bag, slot) and matches(present) then
-                    local secondsLeft = Storage:GetSlotTradeInfo(bag, slot)
+                local present = LinkIfId(bag, slot, wanted)
+                if present then candidates[#candidates + 1] = { bag, slot, present } end
+            end
+        end
+        if #candidates == 0 then return nil end
+    end
 
-                    if secondsLeft and secondsLeft > 0 then
-                        return bag, slot, secondsLeft, present
-                    end
-                    best = best or { bag = bag, slot = slot, link = present }
+    local function Scan(matches)
+        local best
+        local function Consider(bag, slot, present)
+            if Skipped(bag, slot) or not matches(present) then return nil end
+            local secondsLeft = Storage:GetSlotTradeInfo(bag, slot)
+
+            if secondsLeft and secondsLeft > 0 then return secondsLeft end
+            best = best or { bag = bag, slot = slot, link = present }
+            return nil
+        end
+        if candidates then
+            for _, c in ipairs(candidates) do
+                local secondsLeft = Consider(c[1], c[2], c[3])
+                if secondsLeft then return c[1], c[2], secondsLeft, c[3] end
+            end
+        else
+            for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+                local slots = C_Container.GetContainerNumSlots(bag) or 0
+                for slot = 1, slots do
+                    local present = C_Container.GetContainerItemLink(bag, slot)
+                    local secondsLeft = Consider(bag, slot, present)
+                    if secondsLeft then return bag, slot, secondsLeft, present end
                 end
             end
         end
@@ -140,7 +180,6 @@ function Storage:FindInBags(link, skip)
     end)
     if bag then return bag, slot, secondsLeft end
 
-    local wanted = ItemID(link)
     if not wanted then return nil end
 
     local found, foundSlot, foundSeconds, foundLink = Scan(function(present)
@@ -166,9 +205,7 @@ function Storage:CountInBags(link)
     for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
         local slots = C_Container.GetContainerNumSlots(bag) or 0
         for slot = 1, slots do
-            if ItemID(C_Container.GetContainerItemLink(bag, slot)) == wanted then
-                count = count + 1
-            end
+            if LinkIfId(bag, slot, wanted) then count = count + 1 end
         end
     end
     return count
@@ -186,7 +223,7 @@ function Storage:CountTradeable(link)
     for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
         local slots = C_Container.GetContainerNumSlots(bag) or 0
         for slot = 1, slots do
-            if ItemID(C_Container.GetContainerItemLink(bag, slot)) == wanted then
+            if LinkIfId(bag, slot, wanted) then
                 local secondsLeft, bonding = Storage:GetSlotTradeInfo(bag, slot)
                 if not (secondsLeft and secondsLeft > 0)
                     and bonding == Enum.TooltipDataItemBinding.Soulbound then
@@ -253,10 +290,110 @@ local function Pair(entries, copies)
 end
 
 
+
+local slotLocation
+local function SlotFacts(bag, slot)
+    if ItemLocation and C_Item and C_Item.IsBound then
+        slotLocation = slotLocation or ItemLocation:CreateEmpty()
+        slotLocation:SetBagAndSlot(bag, slot)
+        if not C_Item.DoesItemExist(slotLocation) then return nil end
+        return C_Item.IsBound(slotLocation), C_Item.GetItemQuality(slotLocation), slotLocation
+    end
+    local info = C_Container.GetContainerItemInfo(bag, slot)
+    if info then return info.isBound, info.quality end
+end
+
+
 local function IsEpicBoE(bag, slot, bonding)
     if bonding ~= Enum.TooltipDataItemBinding.BindOnEquip then return false end
-    local info = C_Container.GetContainerItemInfo(bag, slot)
-    return info ~= nil and not info.isBound and info.quality == Enum.ItemQuality.Epic
+    local bound, quality = SlotFacts(bag, slot)
+    return quality == Enum.ItemQuality.Epic and not bound
+end
+
+
+
+
+local timeless = {}
+local TIMELESS_TTL, TIMELESS_SPREAD = 300, 60
+local SOULBOUND_TTL, SOULBOUND_SPREAD = 3600, 600
+
+
+local function PruneTimeless()
+    local now = GetTime()
+    for guid, reading in pairs(timeless) do
+        if now > reading.expires then timeless[guid] = nil end
+    end
+end
+
+
+
+local KEPT_TTL, KEPT_MAX = 7 * 86400, 600
+
+
+local function Settled(bonding)
+    local bind = Enum.TooltipDataItemBinding
+    return bonding ~= nil and (bonding == bind.Soulbound or bonding == bind.Account
+        or bonding == bind.BnetAccount)
+end
+
+function Storage:KeepReading(guid, reading)
+    local db = addon.db
+    if not db then return end
+    if type(db.bagReadings) ~= "table" then db.bagReadings = {} end
+    local store, n = db.bagReadings, 0
+    for _ in pairs(store) do n = n + 1 end
+    if n >= KEPT_MAX then wipe(store) end
+    store[guid] = { link = reading.link, bound = reading.bound, bonding = reading.bonding,
+        at = GetServerTime() }
+end
+
+
+function Storage:ResumeReading(guid, link, bound)
+    local store = addon.db and addon.db.bagReadings
+    local saved = type(store) == "table" and store[guid]
+    if type(saved) ~= "table" then return nil end
+    if type(saved.at) ~= "number" or GetServerTime() - saved.at > KEPT_TTL then
+        store[guid] = nil
+        return nil
+    end
+    if saved.link ~= link or saved.bound ~= bound
+        or not Settled(saved.bonding) then
+        return nil
+    end
+    local reading = { link = link, bound = bound, bonding = saved.bonding,
+        expires = GetTime() + SOULBOUND_TTL - math.random() * SOULBOUND_SPREAD }
+    timeless[guid] = reading
+    return reading
+end
+
+
+
+local function ReadSlot(bag, slot, link)
+    local bound, quality, location = SlotFacts(bag, slot)
+    if bound == false and quality and quality < Enum.ItemQuality.Epic then
+        return nil, nil
+    end
+    local guid = location and C_Item.GetItemGUID(location)
+    local kept = guid and timeless[guid]
+    if guid and (not kept or GetTime() > kept.expires) then
+        kept = Storage:ResumeReading(guid, link, bound) or kept
+    end
+    local same = kept and kept.link == link and kept.bound == bound
+    if same and GetTime() <= kept.expires then
+        return nil, kept.bonding
+    end
+    local secondsLeft, bonding = Storage:GetSlotTradeInfo(bag, slot)
+    if guid and secondsLeft == nil and bonding ~= nil then
+
+
+        local soulbound = Settled(bonding)
+            and same and kept.bonding == bonding
+        timeless[guid] = { link = link, bound = bound, bonding = bonding,
+            expires = GetTime() + (soulbound and SOULBOUND_TTL or TIMELESS_TTL)
+                - math.random() * (soulbound and SOULBOUND_SPREAD or TIMELESS_SPREAD) }
+        if soulbound then Storage:KeepReading(guid, timeless[guid]) end
+    end
+    return secondsLeft, bonding
 end
 
 
@@ -284,7 +421,7 @@ local function RefreshBag(bag)
             if old and old.link == link then
                 fresh[slot] = old
             else
-                local seconds, bonding = Storage:GetSlotTradeInfo(bag, slot)
+                local seconds, bonding = ReadSlot(bag, slot, link)
                 fresh[slot] = { link = link, seconds = seconds, bonding = bonding,
                     at = GetTime() }
             end
@@ -295,12 +432,30 @@ local function RefreshBag(bag)
 end
 
 
+local sharedScan, sharing = nil, false
+
+local function CopyReadings(list)
+    local out = {}
+    for i, item in ipairs(list) do
+        out[i] = { link = item.link, bag = item.bag, slot = item.slot,
+            secondsLeft = item.secondsLeft, eligible = item.eligible, boe = item.boe }
+    end
+    return out
+end
 
 
 
-function Storage:GetTradeableItems(cached)
+function Storage:ShareLiveScan(fn)
+    if sharing then return fn() end
+    sharing = true
+    local ok, err = pcall(fn)
+    sharing, sharedScan = false, nil
+    if not ok then error(err, 0) end
+end
+
+
+local function Scan(cached)
     local found = {}
-
     for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
         local readings
         if cached then
@@ -316,7 +471,7 @@ function Storage:GetTradeableItems(cached)
                 end
             else
                 link = C_Container.GetContainerItemLink(bag, slot)
-                if link then secondsLeft, bonding = Storage:GetSlotTradeInfo(bag, slot) end
+                if link then secondsLeft, bonding = ReadSlot(bag, slot, link) end
             end
             if link and secondsLeft and secondsLeft > 0 then
                 found[#found + 1] = {
@@ -335,7 +490,24 @@ function Storage:GetTradeableItems(cached)
             end
         end
     end
-    if cached then dirtyBags = {} end
+    if cached then dirtyBags = {} else PruneTimeless() end
+    return found
+end
+
+
+
+
+
+function Storage:GetTradeableItems(cached)
+    local found
+    if cached then
+        found = Scan(true)
+    elseif sharedScan then
+        found = CopyReadings(sharedScan)
+    else
+        found = Scan(false)
+        if sharing then sharedScan = CopyReadings(found) end
+    end
 
     table.sort(found, function(a, b)
         if (a.boe or false) ~= (b.boe or false) then return b.boe or false end
@@ -355,10 +527,11 @@ function Storage:GetTradeableItems(cached)
                 item = item })
         end
     end
-    local ledger = addon.db and addon.db.itemStorage and Storage:GetAll(Storage.TO_TRADE)
+    local ledger = addon.db and addon.db.itemStorage and Storage:GetHeld()
     for entry, copy in pairs(Pair(ledger, copies)) do
         copy.item.owed = true
         copy.item.owedTo = entry.args and entry.args.recipient
+        if entry.category == Storage.KEPT then copy.item.kept = true end
     end
 
     return found
@@ -378,6 +551,7 @@ local function Settle(watch, bag, slot, secondsLeft)
     for i, other in ipairs(watches) do
         if other == watch then table.remove(watches, i) break end
     end
+    if #watches == 0 and watchFrame then watchFrame:UnregisterEvent("BAG_UPDATE_DELAYED") end
     watch.onFound(bag, slot, secondsLeft)
 end
 
@@ -398,10 +572,10 @@ function Storage:WatchForItem(link, onFound, attempts, interval)
     end
     if not watchFrame then
         watchFrame = CreateFrame("Frame")
-        watchFrame:RegisterEvent("BAG_UPDATE_DELAYED")
         watchFrame:SetScript("OnEvent", function() if #watches > 0 then CheckWatches() end end)
     end
     watches[#watches + 1] = watch
+    watchFrame:RegisterEvent("BAG_UPDATE_DELAYED")
     C_Timer.After((attempts or 5) * (interval or 1), function()
         if watch.done then return end
         local found, foundSlot, foundSeconds = Storage:FindInBags(link)
@@ -414,9 +588,30 @@ end
 
 
 
+local function NextEntryId()
+    local db = addon.db
+    local seq = (type(db.storageSeq) == "number" and db.storageSeq or 0) + 1
+    local stamp = GetServerTime()
+    local id = ("%d-%d"):format(stamp, seq)
+    local taken = true
+    while taken do
+        taken = false
+        for _, other in ipairs(db.itemStorage) do
+            if other.id == id then
+                taken = true
+                seq = seq + 1
+                id = ("%d-%d"):format(stamp, seq)
+                break
+            end
+        end
+    end
+    db.storageSeq = seq
+    return id
+end
+
 function Storage:Add(link, category, args)
     local entry = {
-        id = ("%d-%d"):format(GetServerTime(), math.random(1000, 9999)),
+        id = NextEntryId(),
         link = link,
         category = category,
         addedAt = time(),
@@ -494,6 +689,17 @@ function Storage:GetAll(category)
 end
 
 
+function Storage:GetHeld()
+    local out = {}
+    for _, entry in ipairs(addon.db.itemStorage) do
+        if entry.category == Storage.TO_TRADE or entry.category == Storage.KEPT then
+            out[#out + 1] = entry
+        end
+    end
+    return out
+end
+
+
 function Storage:TimeRemaining(entry)
     local bag, slot = Storage:FindInBags(entry.link)
     if bag then
@@ -524,9 +730,9 @@ function Storage:Clocks(entries)
     for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
         local slots = C_Container.GetContainerNumSlots(bag) or 0
         for slot = 1, slots do
-            local link = C_Container.GetContainerItemLink(bag, slot)
-            local id = ItemID(link)
-            if id and byId[id] then
+            local id = C_Container.GetContainerItemID(bag, slot)
+            local link = id and byId[id] and C_Container.GetContainerItemLink(bag, slot)
+            if link and ItemID(link) == id then
                 local secondsLeft = Storage:GetSlotTradeInfo(bag, slot)
                 if secondsLeft and secondsLeft > 0 then
                     copies[id] = copies[id] or {}
@@ -580,100 +786,193 @@ local function HandedToOther(id, recipient)
     return handed.to
 end
 
-function Storage:Reconcile(reason, timeOnly)
-
-
-    local totalSlots = 0
-    for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
-        totalSlots = totalSlots + (C_Container.GetContainerNumSlots(bag) or 0)
+local function RecordedClock(entry, now)
+    if entry.secondsLeft and entry.updatedAt then
+        return math.max(0, entry.secondsLeft - ((now or time()) - entry.updatedAt))
     end
-    if totalSlots == 0 and not timeOnly then
+    return nil
+end
+
+
+local function Aged(entry, now)
+    local since = entry.untradeableAt or entry.addedAt
+    return type(since) == "number" and now - since > Storage.UNTRADEABLE_KEEP
+end
+
+
+local function InTradeWindow(entry, now)
+    local left = RecordedClock(entry, now)
+    if left then return left > 0 end
+    return type(entry.addedAt) == "number" and now - entry.addedAt < Storage.TRADE_WINDOW
+end
+
+
+
+local function ScanHeld(entries)
+    local wanted = {}
+    for _, entry in ipairs(entries) do
+        local id = entry.link and ItemID(entry.link)
+        if id then wanted[id] = true end
+    end
+    local soulbound = Enum.TooltipDataItemBinding.Soulbound
+    local copies, counts, totalSlots = {}, {}, 0
+    for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
+        local slots = C_Container.GetContainerNumSlots(bag) or 0
+        totalSlots = totalSlots + slots
+        for slot = 1, slots do
+            local id = C_Container.GetContainerItemID(bag, slot)
+            local link = id and wanted[id] and C_Container.GetContainerItemLink(bag, slot)
+            if link and ItemID(link) == id then
+                local secondsLeft, bonding = Storage:GetSlotTradeInfo(bag, slot)
+                local count = counts[id]
+                if not count then
+                    count = { tradeable = 0, bound = 0 }
+                    counts[id] = count
+                end
+                if not (secondsLeft and secondsLeft > 0) and bonding == soulbound then
+                    count.bound = count.bound + 1
+                else
+                    count.tradeable = count.tradeable + 1
+                end
+                if secondsLeft and secondsLeft > 0 then
+                    copies[id] = copies[id] or {}
+                    table.insert(copies[id], { link = link, seconds = secondsLeft })
+                end
+            end
+        end
+    end
+    return copies, counts, totalSlots
+end
+
+function Storage:Reconcile(reason)
+    local list = addon.db.itemStorage
+    local copies, counts, totalSlots = ScanHeld(list)
+    if totalSlots == 0 then
         addon.Log:WLogOnly("Storage", "bags not readable - skipping reconcile,",
-            #addon.db.itemStorage, "entries kept")
+            #list, "entries kept")
         return {}, {}
     end
 
-    local budget = {}
-    local boundCopies = {}
+    local budget, boundCopies = {}, {}
+    for id, count in pairs(counts) do
+        budget[id], boundCopies[id] = count.tradeable, count.bound
+    end
+    local paired = Pair(list, copies)
+    local now = time()
+    local function Remaining(entry)
+        local copy = paired[entry]
+        if copy then return copy.seconds end
+        return RecordedClock(entry, now)
+    end
+
     local drop = {}
     local marked = {}
     local changed = false
 
-    for i = 1, #addon.db.itemStorage do
-        local entry = addon.db.itemStorage[i]
+    for i = 1, #list do
+        local entry = list[i]
         local id = entry.link and ItemID(entry.link)
 
         if entry.untradeable then
-
-
+            if Aged(entry, now) then drop[i] = "aged" end
         elseif not entry.link or not id then
             drop[i] = "unusable"
-        else
-            local remaining = Storage:TimeRemaining(entry)
-            if remaining and remaining <= 0 then
+        elseif entry.category == Storage.TO_TRADE then
+            local remaining = Remaining(entry)
+            local expired = remaining ~= nil and remaining <= 0
+            local handedTo = not expired and not entry.missingAtAdd
+                and HandedToOther(id, entry.args and entry.args.recipient)
+            if not expired and (budget[id] or 0) > 0 then
+                budget[id] = budget[id] - 1
+                if entry.missingAtAdd then
 
 
-                drop[i] = "expired"
-            elseif not timeOnly then
-                if budget[id] == nil then
-                    budget[id], boundCopies[id] = Storage:CountTradeable(entry.link)
+                    entry.missingAtAdd = nil
+                    changed = true
+                    addon.Log:I("Storage", "owed item turned up", entry.link)
                 end
-                local handedTo = not entry.missingAtAdd
-                    and HandedToOther(id, entry.args and entry.args.recipient)
-                if budget[id] > 0 then
-                    budget[id] = budget[id] - 1
-                    if entry.missingAtAdd then
+            elseif not expired and entry.tradeSeen and not entry.missingAtAdd and not handedTo
+                and now - entry.tradeSeen <= Storage.TRADE_EVIDENCE_SECONDS then
 
 
-                        entry.missingAtAdd = nil
-                        changed = true
-                        addon.Log:I("Storage", "owed item turned up", entry.link)
-                    end
-                elseif entry.tradeSeen and not entry.missingAtAdd and not handedTo
-                    and time() - entry.tradeSeen <= Storage.TRADE_EVIDENCE_SECONDS then
+                drop[i] = "gone"
+            else
 
 
-                    drop[i] = "gone"
+                if expired then
+                    entry.untradeable = Storage:IsEquipped(entry.link) and "equipped"
+                        or entry.missingAtAdd and "missing"
+                        or (boundCopies[id] or 0) > 0 and "bound" or "left"
+                elseif entry.missingAtAdd then
+                    entry.untradeable = "missing"
+                elseif handedTo then
+                    entry.untradeable = "wrong"
+                    entry.untradeableTo = handedTo
+                elseif Storage:IsEquipped(entry.link) then
+                    entry.untradeable = "equipped"
+                elseif (boundCopies[id] or 0) > 0 then
+                    entry.untradeable = "bound"
                 else
-
-
-                    if entry.missingAtAdd then
-                        entry.untradeable = "missing"
-                    elseif handedTo then
-                        entry.untradeable = "wrong"
-                        entry.untradeableTo = handedTo
-                    elseif Storage:IsEquipped(entry.link) then
-                        entry.untradeable = "equipped"
-                    elseif boundCopies[id] > 0 then
-                        entry.untradeable = "bound"
-                    else
-                        entry.untradeable = "left"
-                    end
-                    entry.untradeableAt = time()
-                    marked[#marked + 1] = entry
-                    addon.Log:I("Storage", "no longer tradeable -", entry.untradeable,
-                        entry.link, "owed to", tostring(entry.args and entry.args.recipient))
+                    entry.untradeable = "left"
                 end
+                entry.untradeableAt = now
+                marked[#marked + 1] = entry
+                addon.Log:I("Storage", "no longer tradeable -", entry.untradeable,
+                    entry.link, "owed to", tostring(entry.args and entry.args.recipient))
             end
+        end
+    end
 
+    for i = 1, #list do
+        local entry = list[i]
+        if not drop[i] and not entry.untradeable and entry.category ~= Storage.TO_TRADE then
+            local id = ItemID(entry.link)
+            local remaining = Remaining(entry)
+            if remaining and remaining <= 0 then
+                drop[i] = "expired"
+            elseif (budget[id] or 0) > 0 then
+                budget[id] = budget[id] - 1
+                if entry.missingAtAdd then
+                    entry.missingAtAdd = nil
+                    changed = true
+                end
+            else
+                drop[i] = "gone"
+            end
+        end
+    end
 
+    for i = 1, #list do
+        local entry = list[i]
+        local why = entry.untradeable
+        if not drop[i] and (why == "missing" or why == "left")
+            and entry.category == Storage.TO_TRADE then
+            local id = ItemID(entry.link)
+            if id and (budget[id] or 0) > 0 and InTradeWindow(entry, now) then
+                budget[id] = budget[id] - 1
+                entry.untradeable, entry.untradeableTo, entry.untradeableAt = nil, nil, nil
+                entry.missingAtAdd = nil
+                changed = true
+                addon.Log:I("Storage", "owed item is back in the bags -", why, entry.link,
+                    "owed to", tostring(entry.args and entry.args.recipient))
+            end
         end
     end
 
     local removed = {}
-    for i = #addon.db.itemStorage, 1, -1 do
+    for i = #list, 1, -1 do
         if drop[i] then
-            local entry = addon.db.itemStorage[i]
+            local entry = list[i]
 
             entry.dropped = drop[i]
             removed[#removed + 1] = entry
-            table.remove(addon.db.itemStorage, i)
+            table.remove(list, i)
         end
     end
 
     if #removed > 0 then
         addon.Log:I("Storage", "reconciled", tostring(reason), "-", #removed,
-            "entries dropped,", #addon.db.itemStorage, "kept")
+            "entries dropped,", #list, "kept")
         for _, entry in ipairs(removed) do
             addon.Log:D("Storage", "dropped", entry.dropped, entry.link,
                 "owed to", tostring(entry.args and entry.args.recipient))
@@ -688,53 +987,41 @@ end
 
 
 
-local LOGIN_SLICE = 2
-
 local function LoginPrune()
-    local pending = {}
-    for i, entry in ipairs(addon.db.itemStorage) do pending[i] = entry end
-    local expired, index = 0, 1
-
-    local function Step()
-        local stop = math.min(index + LOGIN_SLICE - 1, #pending)
-        for i = index, stop do
-            local entry = pending[i]
-            local id = entry.link and ItemID(entry.link)
-            local why
-            if entry.untradeable then
-                why = nil
-            elseif not id then
-                why = "unusable"
-            else
-                local remaining = Storage:TimeRemaining(entry)
-                if remaining and remaining <= 0 then why = "expired" end
-            end
-
-            for at, current in ipairs(why and addon.db.itemStorage or {}) do
-                if current == entry then
-                    table.remove(addon.db.itemStorage, at)
-                    entry.dropped = why
-                    expired = expired + 1
-                    addon.Log:D("Storage", "dropped", why, entry.link, "owed to",
-                        tostring(entry.args and entry.args.recipient))
-                    break
-                end
+    local list = addon.db.itemStorage
+    local now = time()
+    local expired = 0
+    for i = #list, 1, -1 do
+        local entry = list[i]
+        local id = type(entry) == "table" and entry.link and ItemID(entry.link)
+        local why
+        if type(entry) ~= "table" then
+            why = "unusable"
+        elseif entry.untradeable then
+            if Aged(entry, now) then why = "aged" end
+        elseif not id then
+            why = "unusable"
+        elseif entry.category ~= Storage.TO_TRADE then
+            local remaining = RecordedClock(entry, now)
+            if remaining and remaining <= 0 then why = "expired" end
+        end
+        if why then
+            table.remove(list, i)
+            expired = expired + 1
+            if type(entry) == "table" then
+                entry.dropped = why
+                addon.Log:D("Storage", "dropped", why, entry.link, "owed to",
+                    tostring(entry.args and entry.args.recipient))
             end
         end
-        index = stop + 1
-        if index <= #pending then
-            C_Timer.After(0, Step)
-            return
-        end
-        addon.Log:I("Storage", "ready", #addon.db.itemStorage, "held,", expired, "expired")
-        if expired > 0 and addon.Callbacks then addon.Callbacks:Fire("StorageChanged") end
     end
-    C_Timer.After(0, Step)
+    addon.Log:I("Storage", "ready", #list, "held,", expired, "dropped")
+    if expired > 0 and addon.Callbacks then addon.Callbacks:Fire("StorageChanged") end
 end
 
 function Storage:Init()
     addon.db.itemStorage = addon.db.itemStorage or {}
 
 
-    LoginPrune()
+    C_Timer.After(0, LoginPrune)
 end

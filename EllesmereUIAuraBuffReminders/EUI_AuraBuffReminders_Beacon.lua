@@ -20,6 +20,7 @@ local ResolveFontPath, SetABRFont, ShortLabel = I.ResolveFontPath, I.SetABRFont,
 local Tex, texCache, FLASK_ITEMS, FOOD_ITEMS = I.Tex, I.texCache, I.FLASK_ITEMS, I.FOOD_ITEMS
 local WEAPON_ENCHANT_ITEMS, ApplyGlow = I.WEAPON_ENCHANT_ITEMS, I.ApplyGlow
 local ICON_SIZE, RemoveGlow, LayoutIcons = I.ICON_SIZE, I.RemoveGlow, I.LayoutIcons
+local CursorAttachActive, ReleaseCursorAnchor = I.CursorAttachActive, I.ReleaseCursorAnchor
 
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
@@ -62,6 +63,8 @@ _B.iconState = {}
 _B.glowState = {}
 _B.cachedInInstance = false
 _B.refreshPending = false
+_B.onCursor = false  -- shown beacons are placed on the cursor anchor
+local _cursorBeacons = {}  -- BeaconLayoutIcons' scratch list, reused
 _B.BOL = 53563
 _B.BOF = 156910
 _B.VIRTUE = 200025
@@ -124,15 +127,17 @@ local function BeaconLayoutIcons()
     if _B.anchor then EllesmereUI.SetElementVisibility(_B.anchor, false) end
 
     -- When cursor-attached, position beacon icons at the cursor anchor
-    local useCursor = db and db.profile.display.cursorAttach and cursorAnchor
+    local useCursor = db and CursorAttachActive(db.profile.display) and cursorAnchor
     if useCursor then
-        local visIcons = {}
+        local visIcons = _cursorBeacons
+        wipe(visIcons)
         for _, id in ipairs(_B.ALL or {}) do
             if _B.iconState and _B.iconState[id] and _B.icons[id] then
                 visIcons[#visIcons + 1] = _B.icons[id]
             end
         end
-        if #visIcons > 0 then
+        _B.onCursor = #visIcons > 0
+        if _B.onCursor then
             local p = db.profile.display
             local spacing = p.iconSpacing or 8
             local baseScale = p.scale or 1.0
@@ -150,11 +155,14 @@ local function BeaconLayoutIcons()
             end
             cursorAnchor:Show()
             EllesmereUI.SetElementVisibility(cursorAnchor, true)
+        else
+            ReleaseCursorAnchor()
         end
         return
     end
 
     -- Restore beacon icons to normal strata after leaving cursor mode
+    _B.onCursor = false
     for _, id in ipairs(_B.ALL or {}) do
         if _B.icons and _B.icons[id] then
             _B.icons[id]:SetFrameStrata("HIGH")
@@ -163,6 +171,7 @@ local function BeaconLayoutIcons()
     end
     -- Re-layout main icons to include/exclude beacon icons
     LayoutIcons()
+    ReleaseCursorAnchor()
 end
 
 local function BeaconApplyGlow(f, show)
@@ -258,6 +267,16 @@ local function BeaconRefresh()
     BeaconSetVisible(_B.BOF, trackBOF and IsSpellOverlayed(_B.BOF))
 end
 
+-- Combat edges (the main event handler, right after the combat flag moves):
+-- with Only on Cursor in Combat on, shown beacons move between the reminder
+-- row and the cursor. Their layout otherwise runs only when one shows or
+-- hides. Nothing to do for a non-Paladin or with the option off.
+local function BeaconCombatEdge()
+    if not _B.isPaladin then return end
+    local p = db and db.profile.display
+    if p and p.cursorAttach and p.cursorAttachCombatOnly then BeaconLayoutIcons() end
+end
+
 local function BeaconRefreshSoon()
     if _B.refreshPending then return end
     _B.refreshPending = true
@@ -295,7 +314,6 @@ end
 
 -- Expose for options and anchor positioning
 _G._EABR_BeaconRefresh = BeaconRefresh
-_G._EABR_BeaconAnchor = function() return _B.anchor end
 
 -- Beacon tracking is retail Holy Paladin; WoW Forever registers nothing here
 -- (BeaconInit is skipped there too, so the handler would only ever return).
@@ -343,4 +361,5 @@ _B.frame:SetScript("OnEvent", function(_, e, id)
 end)
 
 I.BeaconInit, I.BeaconRefresh, I.TrackItemUse = BeaconInit, BeaconRefresh, TrackItemUse
+I.BeaconCombatEdge = BeaconCombatEdge
 I.broken = false

@@ -529,7 +529,7 @@ local PORTRAIT_BORDERS = EllesmereUI.SHAPE_BORDERS
 -- Top pixel inset for each mask shape (px from edge to visible portrait area in 128px mask)
 local MASK_INSETS = EllesmereUI.SHAPE_INSETS
 
--- Shared with EllesmereUIUnitFrames_PlayerAuraBars.lua (same addon/ns), which reuses
+-- Shared with EUI_PlayerAuraBars_Style.lua (same addon/ns), which reuses
 -- this shape media set for Player Aura Bars' iconShape feature.
 ns.PORTRAIT_MASKS   = PORTRAIT_MASKS
 ns.PORTRAIT_BORDERS = PORTRAIT_BORDERS
@@ -995,7 +995,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
     local bR, bG, bB = borderColor.r, borderColor.g, borderColor.b
     if useClassColor then
         -- Unit Color in Dark Mode keeps the unit path below under Dark Mode.
-        local isDark = db and db.profile and db.profile.darkTheme
+        local isDark = ns.UF_DarkThemeOn(uSettings)
             and not (uSettings and uSettings.detachedPortraitUnitColorDark)
         if isDark then
             -- Dark mode: always the player's own class color.

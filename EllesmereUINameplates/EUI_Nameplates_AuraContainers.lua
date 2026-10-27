@@ -20,6 +20,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
+local PP = EllesmereUI.PP
 
 ns.NPC_OwnsAuras = true
 -- Born in this module's main chunk, so the aura containers it builds bill this
@@ -153,8 +154,8 @@ local function StackCfg()
     }
 end
 
--- Position -> corner/nudge/justify, mirroring the legacy ApplyTimerPosition /
--- ApplyStackPosition mapping exactly (same baked edge nudges, user X/Y on top).
+-- Position -> corner/nudge/justify: a baked edge nudge per corner, the user's
+-- X/Y on top.
 local TEXT_POS = {
     center      = { point = "CENTER",      nx = 0,  ny = 0,  justify = "CENTER" },
     topright    = { point = "TOPRIGHT",    nx = 3,  ny = 4,  justify = "RIGHT" },
@@ -303,7 +304,8 @@ end
 -- glow's animations while it shows an aura and stops them whenever it has
 -- none, so the hosts on hidden pooled buttons cost nothing. No prewarm:
 -- StartSpecGlow makes the regions of the style it draws, so a default host
--- holds just the static border, and a later style makes its own.
+-- holds just the static border, and a later style makes its own. Made only on
+-- buttons that can ever show an aura (NPGlowable).
 local function NPGlowHost(button, d, key)
     local host = d[key]
     if host then return host end
@@ -322,21 +324,24 @@ local function NPGlowHost(button, d, key)
     return host
 end
 
+-- Whether a button gets a glow at all: only the buttons that can ever show an
+-- aura (AuraKit.ButtonCanShow). Each group builds a 10-button batch but shows
+-- at most its cap (5 debuffs, 1 for a one-icon group), so most pooled buttons
+-- never show; skipping their glow setup keeps it out of the login build. The
+-- others are dressed again when their group's cap grows (AuraKit re-runs the
+-- style on them), the path an unbound host (a client whose buttons cannot run
+-- animations themselves) has always taken.
+local function NPGlowable(button)
+    return EllesmereUI.AuraKit.ButtonCanShow(button)
+end
+
 -- Draws spec on the glow host, sized to the icon (the height follows cropped
--- icons); unchanged, StartSpecGlow returns at once. A bound host always draws:
--- its button decides when the animations play. An unbound one (a client whose
--- buttons cannot run animations themselves) plays on its own, so it draws only
--- on the buttons that can ever show an aura (AuraKit.ButtonCanShow; the others
--- are dressed again when their group's cap grows).
-local function NPStartGlow(button, host, spec, style)
-    local Glows = EllesmereUI.Glows
+-- icons); unchanged, StartSpecGlow returns at once. Callers pass only glowable
+-- buttons; a bound host's button decides when the animations play.
+local function NPStartGlow(host, spec, style)
     host:SetAlpha(1)
-    if Glows.IsEngineHostBound(host) or EllesmereUI.AuraKit.ButtonCanShow(button) then
-        local sz = style.width or 24
-        Glows.StartSpecGlow(host, spec, sz, style.height or sz, "engine")
-    elseif host._euiGlowActive then
-        Glows.StopGlow(host)
-    end
+    local sz = style.width or 24
+    EllesmereUI.Glows.StartSpecGlow(host, spec, sz, style.height or sz, "engine")
 end
 
 -- Dispel Glow on the buff row: every buff in the glow group is dispellable (the
@@ -346,8 +351,8 @@ end
 -- Border and Blizzard Pandemic Border render through the same call.
 local function ApplyNPBuffExtra(button, d, style)
     ApplyNPText(button, d, style)
-    if style.purgeGlow and style.purgeSpec then
-        NPStartGlow(button, NPGlowHost(button, d, "npGlowHost"), style.purgeSpec, style)
+    if style.purgeGlow and style.purgeSpec and NPGlowable(button) then
+        NPStartGlow(NPGlowHost(button, d, "npGlowHost"), style.purgeSpec, style)
     elseif d.npGlowHost then
         local host = d.npGlowHost
         if host._euiGlowActive then EllesmereUI.Glows.StopGlow(host) end
@@ -366,13 +371,13 @@ end
 local function ApplyNPDebuffExtra(button, d, style)
     ApplyNPText(button, d, style)
     local host = d.npPanHost
-    if style.pandemicGlow and style.pandemicSpec and button.AddPandemicRegion then
+    if style.pandemicGlow and style.pandemicSpec and button.AddPandemicRegion and NPGlowable(button) then
         host = NPGlowHost(button, d, "npPanHost")
         if not d.npPanRegion then
             button:AddPandemicRegion(host)
             d.npPanRegion = true
         end
-        NPStartGlow(button, host, style.pandemicSpec, style)
+        NPStartGlow(host, style.pandemicSpec, style)
     elseif host then
         if d.npPanRegion then
             button:ClearPandemicRegions()
@@ -1214,7 +1219,7 @@ local function BindContainer(c, unit, slotVal)
 end
 
 ------------------------------------------------------------------------------
--- Anchoring: mirrors PositionAuraSlot's slot semantics with container flow.
+-- Anchoring: each aura slot's placement, with container flow.
 -- top/bottom center-pin (self-centering rows); left/right chain outward
 -- from the health bar; topleft/topright corner-pin with per-slot growth.
 ------------------------------------------------------------------------------
@@ -1265,20 +1270,23 @@ local function AnchorNPContainer(container, kind, plate, slotVal)
     elseif slotVal == "bottom" then
         container:SetPoint("TOP", plate.cast or plate.health, "BOTTOM", xOff, -2 + yOff)
         anchorPoint, gH, gV = "TOPLEFT", "RIGHT", "DOWN"
-    elseif slotVal == "left" then
-        -- Classic WoW UI: gap off the border art, not the bare bar edge
-        -- (ns.NP_ClassicSide is 0 on every other style).
+    elseif slotVal == "left" or slotVal == "right" then
+        -- Classic WoW UI: gap off the border art, not the bare bar edge; WoW
+        -- Forever's level box on the right (ns.NP_ClassicSide, 0 on every other
+        -- style). During a cast the full-size spell icon pushes the row out past
+        -- it where the two meet (the row spans its Y offset up by one icon);
+        -- the push is kept for NPC_PlaceSideRows.
+        local push = ns.NP_FullIconPush(plate, slotVal, yOff, yOff + height)
+        container._npcPush = push
         local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
-            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("left")) or 0)
-        container:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMLEFT", -sideOff + xOff, yOff)
-        anchorPoint, gH, gV = "BOTTOMRIGHT", "LEFT", "UP"
-    elseif slotVal == "right" then
-        -- Classic WoW UI's border and WoW Forever's level box both push the
-        -- side auras out (ns.NP_ClassicSide).
-        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
-            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("right")) or 0)
-        container:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMRIGHT", sideOff + xOff, yOff)
-        anchorPoint, gH, gV = "BOTTOMLEFT", "RIGHT", "UP"
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide(slotVal)) or 0) + push
+        if slotVal == "left" then
+            container:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMLEFT", -sideOff + xOff, yOff)
+            anchorPoint, gH, gV = "BOTTOMRIGHT", "LEFT", "UP"
+        else
+            container:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMRIGHT", sideOff + xOff, yOff)
+            anchorPoint, gH, gV = "BOTTOMLEFT", "RIGHT", "UP"
+        end
     elseif slotVal == "topleft" or slotVal == "topright" then
         local debuffY = (ns.GetDebuffYOffset and ns.GetDebuffYOffset()) or 2
         local cpPush = ns.NP_ClassPowerTopPush and ns.NP_ClassPowerTopPush(plate) or 0
@@ -1332,34 +1340,40 @@ local function AnchorNPContainer(container, kind, plate, slotVal)
     -- generation already carries this exact engine state from its last
     -- attach -- skip the setters (plate churn re-attaches bundles
     -- constantly; unconditional re-drives were per-spawn dirty marks).
-    if container._npcGeoGen == geoGen and container._npcSlotVal == slotVal then return end
-    container._npcGeoGen = geoGen
-    container._npcSlotVal = slotVal
+    if container._npcGeoGen ~= geoGen or container._npcSlotVal ~= slotVal then
+        container._npcGeoGen = geoGen
+        container._npcSlotVal = slotVal
 
-    AK.SetContainerAnchor(container, anchorPoint)
-    AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
-    AK.SetContainerRowWidth(container, rowWidth)
-    local gLayout = {
-        elementWidth = size, elementHeight = height,
-        elementSpacing = spacing, lineSpacing = spacing,
-    }
-    container:SetAuraGroupLayout("np", gLayout)
-    -- The buff row's non-Magic glow group shares the row's element sizing.
-    if container._npbSplit then
-        container:SetAuraGroupLayout("np2", gLayout)
-    end
-    -- NPF record groups share the row's element sizing.
-    if container._npfGroups then
-        for gkey in pairs(container._npfGroups) do
-            container:SetAuraGroupLayout(gkey, gLayout)
+        AK.SetContainerAnchor(container, anchorPoint)
+        AK.SetContainerGrowth(container, FlowDir(gH), FlowDir(gV))
+        AK.SetContainerRowWidth(container, rowWidth)
+        local gLayout = {
+            elementWidth = size, elementHeight = height,
+            elementSpacing = spacing, lineSpacing = spacing,
+        }
+        container:SetAuraGroupLayout("np", gLayout)
+        -- The buff row's non-Magic glow group shares the row's element sizing.
+        if container._npbSplit then
+            container:SetAuraGroupLayout("np2", gLayout)
         end
+        -- NPF record groups share the row's element sizing.
+        if container._npfGroups then
+            for gkey in pairs(container._npfGroups) do
+                container:SetAuraGroupLayout(gkey, gLayout)
+            end
+        end
+
+        -- Aura tier of the flattened plate render order (text 900 > auras 800),
+        -- honoring the per-slot Raise Strata toggle like the legacy pools.
+        local raise = ns.GetSlotRaiseStrata and ns.GetSlotRaiseStrata(slotVal)
+        container:SetFrameStrata(raise and "HIGH" or "MEDIUM")
+        container:SetFrameLevel(800)
     end
 
-    -- Aura tier of the flattened plate render order (text 900 > auras 800),
-    -- honoring the per-slot Raise Strata toggle like the legacy pools.
-    local raise = ns.GetSlotRaiseStrata and ns.GetSlotRaiseStrata(slotVal)
-    container:SetFrameStrata(raise and "HIGH" or "MEDIUM")
-    container:SetFrameLevel(800)
+    -- Elements sharing the slot: with the row at its own spot, the chain places them (and
+    -- the row itself, unless it is the slot's first shown element). One count for a slot
+    -- that holds nothing else.
+    ns.NP_CoreChain(plate, slotVal)
 end
 
 -- Cast-lockout pseudo-aura (kick lockout displayed as a CC icon): armed by
@@ -1376,15 +1390,17 @@ local function PositionLockout(plate, f, slotVal)
         f:SetPoint("BOTTOM", anchor, "TOP", xOff, debuffY + cpPush + yOff)
     elseif slotVal == "bottom" then
         f:SetPoint("TOP", plate.cast or plate.health, "BOTTOM", xOff, -2 + yOff)
-    elseif slotVal == "left" then
-        -- Classic WoW UI: gap off the border art, as the containers above do.
+    elseif slotVal == "left" or slotVal == "right" then
+        -- Classic WoW UI's border and the full-size spell icon push it out, as
+        -- the containers above.
         local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
-            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("left")) or 0)
-        f:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMLEFT", -sideOff + xOff, yOff)
-    elseif slotVal == "right" then
-        local sideOff = ((ns.GetSideAuraXOffset and ns.GetSideAuraXOffset()) or 2)
-            + ((ns.NP_ClassicSide and ns.NP_ClassicSide("right")) or 0)
-        f:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMRIGHT", sideOff + xOff, yOff)
+            + ((ns.NP_ClassicSide and ns.NP_ClassicSide(slotVal)) or 0)
+            + ns.NP_FullIconPush(plate, slotVal, yOff, yOff + (NPHeight("cc", NPSize("cc"))))
+        if slotVal == "left" then
+            f:SetPoint("BOTTOMRIGHT", plate.health, "BOTTOMLEFT", -sideOff + xOff, yOff)
+        else
+            f:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMRIGHT", sideOff + xOff, yOff)
+        end
     else -- topleft / topright
         local debuffY = (ns.GetDebuffYOffset and ns.GetDebuffYOffset()) or 2
         local cpPush = ns.NP_ClassPowerTopPush and ns.NP_ClassPowerTopPush(plate) or 0
@@ -1392,6 +1408,309 @@ local function PositionLockout(plate, f, slotVal)
         local hc = (slotVal == "topleft") and "TOPLEFT" or "TOPRIGHT"
         f:SetPoint(corner, plate.health, hc, xOff, debuffY + cpPush + yOff)
     end
+end
+
+------------------------------------------------------------------------------
+-- Core Positions chains: the elements sharing one slot (the raid marker, the Rare/Quest
+-- indicator, the faction badge, the three aura rows), laid out one after another in the
+-- slot's order (<pos>SlotOrder: the option keys joined by commas; unset = the default
+-- order), <pos>SlotElementSpacing apart (unset = the first aura row's Spacing in that
+-- order, else the global aura spacing). A slot holding fewer than two of them costs one
+-- count, and every element keeps the placement its own pass gave it. With two or more,
+-- every pass that places a member (UpdateRaidIcon / UpdateClassification / UpdateFaction
+-- in Name.lua; AnchorNPContainer: attach, re-anchors, the lockout, the cast icon push)
+-- ends here, and the chain places every shown member again: the first by its own rule
+-- (the pivot), each later one off the one before it. Left and Right grow outward, the
+-- corners by the slot's Grow, Top and Bottom around the first shown aura row, which keeps
+-- its centred spot: the members before it in the order hang off its left edge, the ones
+-- after off its right. Every element keeps its own height (an icon centred on the bar, a
+-- row on the bar's bottom), so alone or chained it sits where it always did. A hidden
+-- member (no marker, no mark, no badge) is skipped, so the chain closes up; an empty row
+-- keeps its spacing (its width is engine-secret). The cast-lockout icon leads the Crowd
+-- Control row, which chains off it in the chain's direction. A member after a row hangs
+-- from the row's engine-sized corner, which only an aspect-born frame may (plate.coreHost,
+-- PlatePool): without the host it keeps its own spot. NPC_SideRow hands the target arrows
+-- and the Kick Tracker the chain's outermost element on a side.
+------------------------------------------------------------------------------
+local Chain = {
+    DEFAULT = "debuffs,buffs,ccs,raidmarker,rare,quest,faction",
+    -- Option key -> member (rare and quest are one frame).
+    MEMBER = { debuffs = "debuffs", buffs = "buffs", ccs = "cc", raidmarker = "raid",
+        rare = "class", quest = "class", faction = "faction" },
+    orderMemo = {},   -- [pos] = { src = the saved string, list = { member, ... } }
+    keys = {},        -- [pos] = the slot's setting keys (no string building per pass)
+    m = {},           -- the slot's members in order (ChainMembers)
+    -- The plate's shown members (ChainShown): the frame the chain places, the frame the
+    -- next member hangs off, the bottom edge of the member's own placement, row or icon,
+    -- the member id.
+    lead = {}, trail = {}, base = {}, row = {}, id = {},
+    busy = false,
+}
+
+local function ChainKeys(pos)
+    local k = Chain.keys[pos]
+    if not k then
+        k = { order = pos .. "SlotOrder", spacing = pos .. "SlotElementSpacing", growth = pos .. "SlotGrowth" }
+        Chain.keys[pos] = k
+    end
+    return k
+end
+
+-- The slot's order: its saved string parsed once per value; members a saved order lacks
+-- follow in the default order.
+local function ChainOrder(pos)
+    local src = PVal(ChainKeys(pos).order)
+    if type(src) ~= "string" then src = Chain.DEFAULT end
+    local memo = Chain.orderMemo[pos]
+    if memo and memo.src == src then return memo.list end
+    local list, seen = {}, {}
+    local function take(s)
+        for key in string.gmatch(s, "[^,]+") do
+            local id = Chain.MEMBER[key]
+            if id and not seen[id] then
+                seen[id] = true
+                list[#list + 1] = id
+            end
+        end
+    end
+    take(src)
+    take(Chain.DEFAULT)
+    Chain.orderMemo[pos] = { src = src, list = list }
+    return list
+end
+
+-- The members the slot holds, in its order, into Chain.m; returns their count. A member
+-- counts while its own position key names the slot: the badge riding the Rare/Quest
+-- indicator is part of that member, Crowd Control inside the debuff row is the debuff row's.
+local function ChainMembers(pos)
+    local m = Chain.m
+    local n = 0
+    local ds, bs, cs = ns.GetAuraSlots()
+    local raid, class = ns.GetRaidMarkerPos(), ns.GetClassificationSlot()
+    local fac = (PVal("classificationIncludeFaction") ~= true) and ns.NP_GetFactionSlot() or "none"
+    local order = ChainOrder(pos)
+    for i = 1, #order do
+        local id = order[i]
+        local at
+        if id == "debuffs" then at = ds
+        elseif id == "buffs" then at = bs
+        elseif id == "cc" then at = cs
+        elseif id == "raid" then at = raid
+        elseif id == "class" then at = class
+        else at = fac end
+        if at == pos then
+            n = n + 1
+            m[n] = id
+        end
+    end
+    for i = n + 1, #m do m[i] = nil end
+    return n
+end
+
+-- Whether the slot holds two or more members (the chain places its elements).
+function ns.NP_CoreChained(pos)
+    return pos ~= nil and pos ~= "none" and ChainMembers(pos) >= 2
+end
+-- The slot's member count (the options show Element Spacing from two).
+function ns.NP_CoreMemberCount(pos)
+    if not pos or pos == "none" then return 0 end
+    return ChainMembers(pos)
+end
+
+-- The spacing between the slot's elements: its own, else the first aura row's Spacing in
+-- the slot's order, else the global aura spacing. ChainMembers has filled Chain.m.
+local function ChainSpacing(pos)
+    local v = PVal(ChainKeys(pos).spacing)
+    if type(v) == "number" then return v end
+    local m = Chain.m
+    for i = 1, #m do
+        local id = m[i]
+        if id == "debuffs" or id == "buffs" or id == "cc" then
+            return ns.GetAuraSpacing((id == "cc") and "ccs" or id) or 4
+        end
+    end
+    return ns.GetAuraSpacing() or 4
+end
+-- The options' Element Spacing row reads the same rule.
+function ns.NP_CoreElementSpacing(pos)
+    if not pos or pos == "none" then return 0 end
+    ChainMembers(pos)
+    return ChainSpacing(pos)
+end
+
+-- A member's bottom edge over the slot's reference, as its own placement puts it: a row's
+-- Y offset, an icon's centred on the bar at Left and Right; at the corners the row sits a
+-- Debuff Y Offset up, the raid marker on the corner, the indicators 2 up (the class power
+-- push, shared, cancels). Top and Bottom align every member to the one before it.
+local function ChainBase(pos, id, isRow, sz, yOff, barH)
+    if pos == "left" or pos == "right" then
+        if isRow then return yOff end
+        return yOff + barH / 2 - sz / 2
+    elseif pos == "topleft" or pos == "topright" then
+        if isRow then return ns.GetDebuffYOffset() + yOff end
+        if id == "raid" then return yOff end
+        return 2 + yOff
+    end
+    return 0
+end
+
+-- The plate's shown members of the slot, in order, into Chain.lead / trail / base / row /
+-- id; returns their count. A row counts only while shown and last placed in this very
+-- slot (IsSideRow); the Crowd Control row behind its lockout icon is led by the icon.
+local function ChainShown(plate, pos, n)
+    local b = active[plate]
+    local _, yOff = ns.GetSlotOffsets(pos)
+    local barH = ns.GetHealthBarHeight()
+    local sz = ns.GetSlotSize(pos)
+    local k = 0
+    for i = 1, n do
+        local id = Chain.m[i]
+        local lead, trail, isRow
+        if id == "raid" then
+            lead = plate.raidFrame
+        elseif id == "class" then
+            lead = plate.classFrame
+            -- Rare/Quest + Faction with no mark: the badge stands in for the pair.
+            if not (lead and lead:IsShown()) and PVal("classificationIncludeFaction") == true then
+                lead = plate.factionFrame
+            end
+        elseif id == "faction" then
+            lead = plate.factionFrame
+        else
+            local c = b and b.containers[id]
+            if c and c._npcSlotVal == pos then
+                lead, isRow = c, true
+                if id == "cc" then
+                    local lk = plate.npcLockout
+                    if lk and lk:IsShown() then
+                        trail = c
+                        lead = lk
+                    end
+                end
+            end
+        end
+        if lead and lead:IsShown() then
+            k = k + 1
+            Chain.lead[k], Chain.trail[k], Chain.row[k], Chain.id[k] = lead, trail or lead, isRow or false, id
+            Chain.base[k] = ChainBase(pos, id, isRow, sz, yOff, barH)
+        end
+    end
+    for i = k + 1, #Chain.lead do
+        Chain.lead[i], Chain.trail[i], Chain.base[i], Chain.row[i], Chain.id[i] = nil, nil, nil, nil, nil
+    end
+    return k
+end
+
+-- The chain's direction at the slot: outward from the bar at Left and Right, the slot's
+-- Grow at the corners, rightward from the pivot at Top and Bottom (the members before the
+-- pivot run leftward).
+local function ChainDir(pos)
+    if pos == "left" then return "left" end
+    if pos == "topleft" or pos == "topright" then
+        local g = PVal(ChainKeys(pos).growth) or ((pos == "topleft") and "left" or "right")
+        if g == "up" or g == "left" then return g end
+    end
+    return "right"
+end
+
+-- Places member i by its own rule: an icon by the slot icon placer (Name.lua), a row by
+-- AnchorNPContainer, behind its lockout icon where one shows (PositionLockout).
+local function ChainPlaceOwn(plate, pos, i)
+    local id, lead = Chain.id[i], Chain.lead[i]
+    if Chain.row[i] then
+        local c = Chain.trail[i]
+        if lead ~= c then PositionLockout(plate, lead, pos) end
+        AnchorNPContainer(c, id, plate, pos)
+    else
+        local xOff, yOff = ns.GetSlotOffsets(pos)
+        ns.NP_PlaceSlotIcon(plate, lead, pos, xOff, yOff, (id == "raid") and 0 or 2, ns.GetSlotSize(pos))
+    end
+end
+
+-- An icon keeps its own placement's units (PP.Point); a row or the lockout icon the
+-- containers' plain ones.
+local function ChainPoint(f, raw, point, rel, relPoint, x, y)
+    if raw then f:SetPoint(point, rel, relPoint, x, y)
+    else PP.Point(f, point, rel, relPoint, x, y) end
+end
+
+-- Places member i off prev, the outer frame of member j (the one before it along the
+-- chain), s apart, dir the chain's direction: the member's own height kept (base), at
+-- Top and Bottom the two sharing their bottom (top) edge. A plain icon after a row keeps
+-- its own spot (no aspect host). The Crowd Control row then chains off its lockout icon,
+-- sp apart, in the same direction.
+local function ChainPlaceAfter(plate, pos, i, j, prev, s, dir, sp)
+    local lead, c = Chain.lead[i], Chain.trail[i]
+    local raw = Chain.row[i] or lead ~= c
+    if Chain.row[j] and not plate.coreHost and (lead ~= c or not Chain.row[i]) then
+        ChainPlaceOwn(plate, pos, i)
+        return
+    end
+    local dy = Chain.base[i] - Chain.base[j]
+    lead:ClearAllPoints()
+    if dir == "up" then
+        local side = (pos == "topleft") and "LEFT" or "RIGHT"
+        ChainPoint(lead, raw, "BOTTOM" .. side, prev, "TOP" .. side, 0, s)
+    elseif pos == "bottom" then
+        if dir == "left" then ChainPoint(lead, raw, "TOPRIGHT", prev, "TOPLEFT", -s, 0)
+        else ChainPoint(lead, raw, "TOPLEFT", prev, "TOPRIGHT", s, 0) end
+    elseif dir == "left" then
+        ChainPoint(lead, raw, "BOTTOMRIGHT", prev, "BOTTOMLEFT", -s, dy)
+    else
+        ChainPoint(lead, raw, "BOTTOMLEFT", prev, "BOTTOMRIGHT", s, dy)
+    end
+    if Chain.row[i] and c ~= lead then
+        c:ClearAllPoints()
+        if dir == "up" then
+            local side = (pos == "topleft") and "LEFT" or "RIGHT"
+            c:SetPoint("BOTTOM" .. side, lead, "TOP" .. side, 0, sp)
+        elseif dir == "left" then
+            c:SetPoint("BOTTOMRIGHT", lead, "BOTTOMLEFT", -sp, 0)
+        else
+            c:SetPoint("BOTTOMLEFT", lead, "BOTTOMRIGHT", sp, 0)
+        end
+    end
+end
+
+-- One pass over the plate's shown members of the slot (Chain.busy set: the passes it
+-- runs end in ns.NP_CoreChain again).
+local function ChainRun(plate, pos, k)
+    local centred = (pos == "top" or pos == "bottom")
+    local pivot = 1
+    if centred then
+        for i = 1, k do
+            if Chain.row[i] then pivot = i; break end
+        end
+    end
+    local s = ChainSpacing(pos)
+    local sp = ns.GetAuraSpacing("ccs") or 4
+    local dir = ChainDir(pos)
+    ChainPlaceOwn(plate, pos, pivot)
+    for i = pivot + 1, k do
+        ChainPlaceAfter(plate, pos, i, i - 1, Chain.trail[i - 1], s, dir, sp)
+    end
+    if centred then
+        -- Leftward from the pivot, whose left edge is its lead (its lockout icon, where the
+        -- Crowd Control row is the pivot: the row chains rightward off it).
+        for i = pivot - 1, 1, -1 do
+            local prev = (i + 1 == pivot) and Chain.lead[i + 1] or Chain.trail[i + 1]
+            ChainPlaceAfter(plate, pos, i, i + 1, prev, s, "left", sp)
+        end
+    end
+end
+
+function ns.NP_CoreChain(plate, pos)
+    if Chain.busy or not pos or pos == "none" then return end
+    local n = ChainMembers(pos)
+    if n < 2 then return end
+    local k = ChainShown(plate, pos, n)
+    if k == 0 then return end
+    Chain.busy = true
+    local ok, err = pcall(ChainRun, plate, pos, k)
+    Chain.busy = false
+    if not ok then error(err, 0) end
+    -- A side chain's outermost element is what the target arrows hug.
+    if pos == "left" or pos == "right" then ns.PositionArrowsOutsideAuras(plate) end
 end
 
 -- The cast-lockout icon is hand-built outside AuraKit, so Custom Border on Aura Icons
@@ -1464,7 +1783,9 @@ function ns.NPC_UpdateLockout(plate)
     local f = plate.npcLockout
     if lockout and plate.health then
         if not f then
-            f = CreateFrame("Frame", nil, plate)
+            -- Born in the plate's aspect holder like the slot icons (PlatePool, coreHost),
+            -- so a Core Positions chain can hang it off an aura row.
+            f = CreateFrame("Frame", nil, plate.coreHost or plate)
             f:SetFrameStrata("MEDIUM")
             f:SetFrameLevel(800)
             f.icon = f:CreateTexture(nil, "ARTWORK")
@@ -1516,87 +1837,86 @@ function ns.NPC_UpdateLockout(plate)
     end
 end
 
--- Target arrows sat outside the legacy side-aura rows by computed extents;
--- shown counts are engine-secret now, so arrows anchor to the outermost
--- side CONTAINER edge instead (the engine sizes it with the aura count --
--- an empty row collapses the arrow back to the health bar edge). Sides
--- without an aura row keep the legacy readable-extent positioning.
-
+-- The target arrows (ns.PositionArrowsOutsideAuras) hug the outer edge of a side aura row
+-- they meet: shown counts are engine-secret, so only the engine knows a row's width (an empty
+-- row brings the arrow back to the bar's edge).
 -- 68914: AddAuraGroup stamps UntrustedLayoutScriptExecution on the container, and only
 -- aspect-bearing objects may anchor to one. Aspects cannot be conferred after creation
 -- (SetParent/SetPoint inheritance is deliberately blocked -- a reparent-into-holder
--- attempt here hard-errored in the field), so the MAIN file births the arrows inside a
--- DisableUntrustedLayoutScriptsTemplate holder on 12.1: they inherit the aspect at
--- creation and anchor to containers and readable frames alike, and this file keeps
--- anchoring them directly.
-local function ReanchorArrows(plate)
-    if not (plate.leftArrow and plate.rightArrow) then return end
-    if not plate.leftArrow:IsShown() then return end
+-- attempt hard-errored in the field), so EnsureArrows births the arrows inside a
+-- DisableUntrustedLayoutScriptsTemplate holder: they inherit the aspect at creation and
+-- anchor to containers and readable frames alike.
+-- A row counts only while shown and last placed in this very slot: the buff row hides itself
+-- for units you cannot attack but keeps its stale layout, and AnchorNPContainer's
+-- _npcSlotVal stamp lags a slot change until the plate is placed again.
+local function IsSideRow(b, kind, slotVal, side)
+    local c = b.containers[kind]
+    return slotVal == side and c ~= nil and c:IsShown() and c._npcSlotVal == side
+end
+
+-- This plate's aura row on `side` ("left"/"right"): the first shown row in that slot
+-- (debuffs, buffs, crowd control), with its slot's Y offset and its icons' height. A side
+-- that chains two or more elements answers with the outermost shown one instead (an icon
+-- too: its bottom over the bar's bottom and its size), the outermost that meets the span
+-- a0..a1 over the bar's bottom when one is given (the target arrows' own).
+function ns.NPC_SideRow(plate, side, a0, a1)
+    if not Chain.busy and ns.NP_CoreChained(side) then
+        local k = ChainShown(plate, side, #Chain.m)
+        for i = k, 1, -1 do
+            local id = Chain.id[i]
+            local y = Chain.base[i]
+            local h = Chain.row[i] and (NPHeight(id, NPSize(id))) or ns.GetSlotSize(side)
+            if not a0 or (y < a1 and a0 < y + h) then return Chain.trail[i], y, h end
+        end
+        return nil
+    end
+    local b = active[plate]
+    if not b then return nil end
+    local ds, bs, cs = ns.GetAuraSlots()
+    local kind, key
+    if IsSideRow(b, "debuffs", ds, side) then
+        kind, key = "debuffs", "debuffSlot"
+    elseif IsSideRow(b, "buffs", bs, side) then
+        kind, key = "buffs", "buffSlot"
+    elseif IsSideRow(b, "cc", cs, side) then
+        kind, key = "cc", "ccSlot"
+    else
+        return nil
+    end
+    local _, y = ns.GetAuraSlotOffsets(key)
+    return b.containers[kind], y or 0, (NPHeight(kind, NPSize(kind)))
+end
+
+-- Whether the full-size spell icon's push on a side row moved since AnchorNPContainer last
+-- placed it (container._npcPush).
+local function SidePushMoved(c, kind, key, plate, side)
+    if not c then return false end
+    local _, yOff = ns.GetAuraSlotOffsets(key)
+    return ns.NP_FullIconPush(plate, side, yOff, yOff + (NPHeight(kind, NPSize(kind)))) ~= c._npcPush
+end
+
+-- The full-size spell icon shows only during a cast, and a side row it meets steps out past it
+-- (AnchorNPContainer, PositionLockout): on every cast show and hide, re-place this plate's
+-- rows on the icon's side whose push moved. Called only while the full-size icon is on
+-- (RefreshCastIconSideReserve).
+function ns.NPC_PlaceSideRows(plate)
     local b = active[plate]
     if not b then return end
+    local side = ns.GetCastIconOnRight() and "right" or "left"
     local ds, bs, cs = ns.GetAuraSlots()
-    local leftC, rightC, leftKey, rightKey
-    local function consider(slotVal, c, key)
-        -- The buffs container hides itself (AnchorNPContainer) for non-attackable
-        -- units, but stays a live, non-nil frame -- anchoring an arrow to a hidden
-        -- container's geometry pins it to whatever stale layout it had before being
-        -- hidden, instead of collapsing with it. Skip anything not actually shown.
-        if not c or not c:IsShown() then return end
-        -- A settings change (e.g. moving this row to a different slot) doesn't
-        -- retroactively re-anchor every already-visible plate's container --
-        -- AnchorNPContainer stamps container._npcSlotVal with whatever slot it
-        -- was ACTUALLY last anchored at, which can lag behind the live slotVal
-        -- this function just read from GetAuraSlots() for a plate that hasn't
-        -- been re-attached since. Trusting a stale container's geometry here
-        -- anchors the arrow to wherever the row used to be, not where it is.
-        if c._npcSlotVal ~= slotVal then return end
-        if slotVal == "left" and not leftC then leftC = c; leftKey = key end
-        if slotVal == "right" and not rightC then rightC = c; rightKey = key end
+    local c = b.containers
+    if ds == side and SidePushMoved(c.debuffs, "debuffs", "debuffSlot", plate, side) then
+        AnchorNPContainer(c.debuffs, "debuffs", plate, ds)
     end
-    -- Priority by row cap (debuffs widest first).
-    consider(ds, b.containers.debuffs, "debuffSlot")
-    consider(bs, b.containers.buffs, "buffSlot")
-    consider(cs, b.containers.cc, "ccSlot")
-    local PP = EllesmereUI.PP
-    -- Side containers are BOTTOM-anchored to the bar's bottom edge and grow
-    -- UP (AnchorNPContainer), so a container's vertical CENTER sits above the
-    -- bar -- anchoring the arrows to the container's LEFT/RIGHT relPoint
-    -- (its center line) is what floated them high. The container's BOTTOM
-    -- corner is the one anchor where both axes are truthful: x = the
-    -- engine-sized outer edge (aura counts are secret; only the engine knows
-    -- the row width), y = the bar's bottom (minus the slot's own yOff). From
-    -- there the arrow centers on the bar via the profile bar height.
-    local aw = plate._arrowW or 16
-    local ah = plate._arrowH or 16
-    local barH = (ns.GetHealthBarHeight and ns.GetHealthBarHeight()) or 10
-    if leftC then
-        local yOff = 0
-        if ns.GetAuraSlotOffsets then
-            local _, y = ns.GetAuraSlotOffsets(leftKey)
-            yOff = y or 0
-        end
-        local cy = barH / 2 - yOff
-        plate.leftArrow:ClearAllPoints()
-        PP.Point(plate.leftArrow, "TOP", leftC, "BOTTOMLEFT", -(8 + aw / 2), cy + ah / 2)
-        PP.Point(plate.leftArrow, "BOTTOM", leftC, "BOTTOMLEFT", -(8 + aw / 2), cy - ah / 2)
-        PP.Width(plate.leftArrow, aw)
+    if bs == side and SidePushMoved(c.buffs, "buffs", "buffSlot", plate, side) then
+        AnchorNPContainer(c.buffs, "buffs", plate, bs)
     end
-    if rightC then
-        local yOff = 0
-        if ns.GetAuraSlotOffsets then
-            local _, y = ns.GetAuraSlotOffsets(rightKey)
-            yOff = y or 0
-        end
-        local cy = barH / 2 - yOff
-        plate.rightArrow:ClearAllPoints()
-        PP.Point(plate.rightArrow, "TOP", rightC, "BOTTOMRIGHT", 8 + aw / 2, cy + ah / 2)
-        PP.Point(plate.rightArrow, "BOTTOM", rightC, "BOTTOMRIGHT", 8 + aw / 2, cy - ah / 2)
-        PP.Width(plate.rightArrow, aw)
+    if cs == side and SidePushMoved(c.cc, "cc", "ccSlot", plate, side) then
+        local lk = plate.npcLockout
+        if lk and lk:IsShown() then PositionLockout(plate, lk, cs) end
+        AnchorNPContainer(c.cc, "cc", plate, cs)
     end
 end
--- Exposed for the main file's RAID_TARGET_UPDATE pass: after the legacy extent
--- positioning runs there, container-bearing sides need this override re-applied.
-ns.NPC_ReanchorArrows = ReanchorArrows
 
 ------------------------------------------------------------------------------
 -- Attach / detach
@@ -1655,7 +1975,7 @@ function ns.NPC_AttachPlate(plate, unit)
     BindContainer(b.containers.debuffs, unit, ds)
     BindContainer(b.containers.buffs, unit, bs)
     BindContainer(b.containers.cc, unit, cs)
-    ReanchorArrows(plate)
+    ns.PositionArrowsOutsideAuras(plate)
 end
 
 -- True while a built glow spec plays animations: everything but the static
@@ -1677,9 +1997,8 @@ function NPB.CycleGroup(c, key)
 end
 
 -- A pooled bundle's holder is hidden, and a hidden container runs no aura
--- pass: its unit "none" re-parse waits for the next attach, so every button
--- that showed an aura at detach keeps it, and a bound glow on it keeps
--- playing. Released here instead, after the hide (the group switches then
+-- pass: its next parse waits for the next attach, so every button that
+-- showed an aura at detach keeps it, and a bound glow on it keeps playing. Released here instead, after the hide (the group switches then
 -- register no events), only for the groups whose style draws an animated
 -- glow, and only once a host is bound: default (static) plates pay nothing.
 -- force: the style pass (NPC_ReloadAll), whose restyle may bind the hosts.
@@ -1711,12 +2030,12 @@ function ns.NPC_DetachPlate(plate)
     local b = active[plate]
     if not b then return end
     active[plate] = nil
+    -- Unbound only: the next attach binds its unit afresh (SetUnit +
+    -- UpdateAllAuras). A unit cleared here would change nothing, since the
+    -- holder hides next and a hidden container neither listens nor parses.
     for i = 1, #KINDS do
         local c = b.containers[KINDS[i]]
-        if c and c._npcBoundUnit then
-            c._npcBoundUnit = nil
-            SafeClearUnit(c)
-        end
+        if c then c._npcBoundUnit = nil end
     end
     b.holder:Hide()
     NPB.ReleaseGlowButtons(b)
@@ -1808,7 +2127,15 @@ local function GeoFP()
         -- toggles must flip the geometry fingerprint like everything else.
         ns.GetSlotRaiseStrata and ns.GetSlotRaiseStrata(ds) or false,
         ns.GetSlotRaiseStrata and ns.GetSlotRaiseStrata(bs) or false,
-        ns.GetSlotRaiseStrata and ns.GetSlotRaiseStrata(cs) or false)
+        ns.GetSlotRaiseStrata and ns.GetSlotRaiseStrata(cs) or false,
+        -- The Core Positions chains (order and spacing per slot) and the other members'
+        -- slots: ReanchorActive runs every chain again.
+        PVal("topSlotOrder"), PVal("rightSlotOrder"), PVal("leftSlotOrder"),
+        PVal("toprightSlotOrder"), PVal("topleftSlotOrder"), PVal("bottomSlotOrder"),
+        PVal("topSlotElementSpacing"), PVal("rightSlotElementSpacing"), PVal("leftSlotElementSpacing"),
+        PVal("toprightSlotElementSpacing"), PVal("topleftSlotElementSpacing"), PVal("bottomSlotElementSpacing"),
+        PVal("raidMarkerPos"), PVal("classificationSlot"), PVal("factionSlot"),
+        PVal("classificationIncludeFaction"))
 end
 
 local function CfgFP()
@@ -1832,7 +2159,7 @@ local function ReanchorActive()
             BindContainer(b.containers.buffs, plate.unit, bs)
             BindContainer(b.containers.cc, plate.unit, cs)
         end
-        ReanchorArrows(plate)
+        ns.PositionArrowsOutsideAuras(plate)
     end
 end
 
@@ -2159,7 +2486,7 @@ boot:SetScript("OnEvent", function(self, event)
                 AnchorNPContainer(b.containers.debuffs, "debuffs", plate, ds)
                 AnchorNPContainer(b.containers.buffs, "buffs", plate, bs)
                 AnchorNPContainer(b.containers.cc, "cc", plate, cs)
-                ReanchorArrows(plate)
+                ns.PositionArrowsOutsideAuras(plate)
             end
         end
     end

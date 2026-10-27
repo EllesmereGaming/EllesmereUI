@@ -64,9 +64,10 @@ local MO_KEY     = "swing"   -- ERB._moEligible slot for the shared mouseover po
 
 -- Display order, top to bottom. `key` is the colour-key prefix in the store
 -- (mhR/mhG/... ohR/... rR/..., and mhSparkR/... for the spark), `show` the
--- per-row toggle key, `melee` the rows a queued on-next-swing attack lands on.
+-- per-row toggle key, `melee` the rows the Auto Attack state colors, `queue` the
+-- row a queued attack always lands on (Main Hand).
 local ROWS = {
-    { type = SWING.MainHand, key = "mh", tag = "MH", show = "showMH", melee = true },
+    { type = SWING.MainHand, key = "mh", tag = "MH", show = "showMH", melee = true, queue = true },
     { type = SWING.OffHand,  key = "oh", tag = "OH", show = "showOH", melee = true },
     { type = SWING.Ranged,   key = "r",  tag = "R",  show = "showR" },
 }
@@ -80,8 +81,15 @@ local ROWS = {
 -- for a class that has one: ACTIONBAR_UPDATE_STATE storms in combat and is
 -- registered only while there are names to compare (the paint touches the rows
 -- only when the queued attack changes).
+-- Heroic Strike / Raptor Strike / Maul colors (queueHS, queueRaptor, queueMaul);
+-- while unset they use the shared "queue" color (`shared`).
 local QUEUE_COLOR  = { key = "queue", r = 1, g = 0.70, b = 0.20 }
-local QUEUE_COLORS = { [845] = { key = "queueCleave", r = 0.95, g = 0.35, b = 0.25 } }  -- Cleave
+local QUEUE_COLORS = {
+    [845]  = { key = "queueCleave", r = 0.95, g = 0.35, b = 0.25 },                    -- Cleave
+    [78]   = { key = "queueHS",     r = 1, g = 0.70, b = 0.20, shared = "queue" },     -- Heroic Strike
+    [2973] = { key = "queueRaptor", r = 1, g = 0.70, b = 0.20, shared = "queue" },     -- Raptor Strike
+    [6807] = { key = "queueMaul",   r = 1, g = 0.70, b = 0.20, shared = "queue" },     -- Maul
+}
 
 -- Attack State Full, On: while a row's auto attack is on, its fill takes the On
 -- colour (melee rows: Auto Attack; Ranged: the auto-repeat shot, Shoot or
@@ -147,6 +155,31 @@ local function P()
     return p and p.swingTimer or nil
 end
 
+-- The look the rows wear: the Resource Bars row of Global Settings > Style
+-- (ns.ERB_BarsStyle, latched for the session; WoW Forever draws Blizzard Style).
+function ns.ST_Style()
+    return ns.ERB_BarsStyle()
+end
+
+-- Under a stock style every row wears its own frame, whose rim reaches past
+-- the row: the stack adds the rims of two neighbours to Row Spacing, so the
+-- setting stays the gap between frames.
+local function StockGap(cfg)
+    local style = ns.ST_Style()
+    if style == "blizzard" then
+        local _, ph = ns.ERB_BlizzMatchPad(false)
+        return ph or 0
+    elseif style == "classic" then
+        local _, ph = ns.ERB_ClassicMatchPad(0, 0, false, ns.ERB_ClassicFrameK(cfg))
+        return math.ceil(ph)
+    end
+    return 0
+end
+
+local function RowGap(cfg)
+    return (cfg.rowSpacing or 0) + StockGap(cfg)
+end
+
 -- Secret values throw on comparison and on truth tests: every read from the
 -- swing API and from UnitAttackSpeed passes here before it is looked at, and a
 -- restricted answer is treated as "no information" (no swing, no range
@@ -172,9 +205,30 @@ local function CanSwing(swingType)
     return type(speed) == "number" and speed > 0
 end
 
+-- Shield in the off hand slot: it never swings but counts as an off hand.
+local OFFHAND_SLOT = 17
+local function OffHandIsShield()
+    local id = GetInventoryItemID("player", OFFHAND_SLOT)
+    if not (id and Plain(id)) then return false end
+    local _, _, _, loc = C_Item.GetItemInfoInstant(id)
+    return Plain(loc) and loc == "INVTYPE_SHIELD"
+end
+
+-- Shield handling (and its event) is active only with Show Shield As Off Hand
+-- or Always Show Rows on.
+local function ShieldAware(cfg)
+    return cfg and (cfg.shieldRow or cfg.alwaysShowRows) and true or false
+end
+local function ShieldOff(cfg) return ShieldAware(cfg) and OffHandIsShield() end
+
+-- Rows a queued attack shows on: Main Hand, plus Off Hand unless Queued On Main
+-- Hand Only is on.
+local function QueueRow(def, cfg) return def.queue or (def.melee and not cfg.queueMainHandOnly) end
+
 -- A row is shown while its toggle is on and its slot can swing: the live answer
 -- when it is plain, else the last one known for that row (a swing of its type
--- is proof too, see PLAYER_SWING). Nothing known yet reads as no row.
+-- is proof too, see PLAYER_SWING). Nothing known yet reads as no row. Always
+-- Show Rows shows every ticked row; row._canSwing keeps the real answer.
 local function RowWanted(def, cfg, row)
     if cfg and cfg[def.show] == false then return false end
     local can = CanSwing(def.type)
@@ -183,6 +237,8 @@ local function RowWanted(def, cfg, row)
     elseif row then
         row._canSwing = can
     end
+    if cfg and cfg.alwaysShowRows then return true end
+    if not can and def.type == SWING.OffHand and ShieldOff(cfg) then return true end
     return can
 end
 
@@ -195,7 +251,8 @@ local function ShownCount()
     local n = 0
     for i = 1, #ROWS do if RowWanted(ROWS[i], cfg) then n = n + 1 end end
     -- ROWS[1] / ROWS[2] = Main Hand / Off Hand
-    if cfg and cfg.combineHands and RowWanted(ROWS[1], cfg) and RowWanted(ROWS[2], cfg) then
+    if cfg and cfg.combineHands and RowWanted(ROWS[1], cfg) and RowWanted(ROWS[2], cfg)
+        and not ShieldOff(cfg) then
         n = n - 1
     end
     return math.max(n, 1)
@@ -207,7 +264,7 @@ local function Size(cfg)
     if not cfg then return 220, 12 end
     local n = ShownCount()
     local h = cfg.height or 12
-    local sp = cfg.rowSpacing or 0
+    local sp = RowGap(cfg)
     return cfg.width or 220, n * h + (n - 1) * sp
 end
 
@@ -321,6 +378,7 @@ local function BuildRow(def)
     local textFrame = CreateFrame("Frame", nil, row)
     textFrame:SetAllPoints(row)
     textFrame:SetFrameLevel(bar:GetFrameLevel() + 3)
+    row._textFrame = textFrame
     -- Font before any SetText: a FontString with no font errors on SetText
     -- ("Font not set", seen on the Forever client). ApplyRowLook re-sizes it.
     local tag = textFrame:CreateFontString(nil, "OVERLAY")
@@ -358,8 +416,9 @@ end
 
 -- Out-of-range look: Blizzard dims the whole row to 0.4 and paints the text
 -- red. Unlock mode suppresses the dimming without touching the state. A
--- combined off-hand row keeps no bg or border (alpha, not Hide: a border
--- re-apply shows its frame again); its range dims the clip, i.e. its spark.
+-- combined off-hand row keeps no bg, border or stock frame (alpha, not Hide: a
+-- border re-apply shows its frame again); its range dims the clip, i.e. its
+-- spark.
 local function ApplyRangeLook(row, cfg)
     cfg = cfg or P()
     local oor = row._outOfRange and not S.sample
@@ -367,6 +426,8 @@ local function ApplyRangeLook(row, cfg)
     local frameAlpha = row._merged and 0 or alpha
     row._bg:SetAlpha(frameAlpha)
     row._border:SetAlpha(frameAlpha)
+    if row._blizzBarBg then row._blizzBarBg:SetAlpha(frameAlpha) end
+    if row._classicArt then row._classicArt:SetAlpha(frameAlpha) end
     row._clip:SetAlpha(alpha)
     if oor then
         row._tag:SetTextColor(1, 0.1, 0.1, 1)
@@ -600,7 +661,7 @@ end
 -- slot) never waits: it would count as live and hold the bar up under Hide
 -- When Idle.
 local function ShouldWait(row, cfg)
-    return row:IsShown() and not row._merged and AttackOn(row._def)
+    return row:IsShown() and row._canSwing ~= false and not row._merged and AttackOn(row._def)
         and (StateFull(cfg) or GuideRow(row, cfg)) and true or false
 end
 
@@ -892,7 +953,7 @@ function ApplyRowFill(row, cfg)
     local def = row._def
     local pend = row._waiting and StateFull(cfg)
     local aim = not pend and row._aiming
-    local q = not (pend or aim) and def.melee and S.queued
+    local q = not (pend or aim) and QueueRow(def, cfg) and S.queued
     local act = not (pend or aim or q) and S.active[def.melee and "melee" or "ranged"]
     local fR, fG, fB, fA
     if pend then
@@ -903,6 +964,8 @@ function ApplyRowFill(row, cfg)
         fR, fG, fB, fA = cfg.aimR or c.r, cfg.aimG or c.g, cfg.aimB or c.b, 1
     elseif q then
         local k = q.key
+        -- Unset per-ability colour: the shared Queued colour (older profiles).
+        if q.shared and cfg[k .. "R"] == nil then k = q.shared end
         fR, fG, fB, fA = cfg[k .. "R"] or q.r, cfg[k .. "G"] or q.g, cfg[k .. "B"] or q.b, cfg[k .. "A"] or 1
     elseif act then
         local c = ACTIVE_COLOR
@@ -918,14 +981,24 @@ function ApplyRowFill(row, cfg)
     end
 end
 
--- Slot tag, with the queued attack's name on the melee rows while one is queued.
+-- The slot tag, or "Shield" on an Off Hand row with a shield equipped.
+local function TagText(row, cfg)
+    if row._def.type == SWING.OffHand and row._canSwing == false and ShieldOff(cfg) then
+        return EllesmereUI.L("Shield")
+    end
+    return row._def.tag
+end
+
+-- Slot tag, with the queued attack's name on the Main Hand row while one is queued.
+-- Written only when the slot text or the queued attack changed: RefreshRows runs
+-- this for every row on each weapon and attack speed change.
 local function ApplyRowTag(row, cfg)
     local def = row._def
-    if S.queued and def.melee then
-        row._tag:SetText(def.tag .. " - " .. S.queued.name)
-    else
-        row._tag:SetText(def.tag)
-    end
+    local q = S.queued and QueueRow(def, cfg) and S.queued.name or false
+    local base = q and def.tag or TagText(row, cfg)
+    if base == row._tagBase and q == row._tagQueued then return end
+    row._tagBase, row._tagQueued = base, q
+    row._tag:SetText(q and (base .. " - " .. q) or base)
 end
 
 -- Which on-next-swing attack is queued right now (its S.queueSpells entry), or
@@ -950,7 +1023,7 @@ local function PaintQueue(cfg)
     S.queued = queued
     for i = 1, #S.rows do
         local row = S.rows[i]
-        if row._def.melee then
+        if QueueRow(row._def, cfg) then
             ApplyRowFill(row, cfg)
             ApplyRowTag(row, cfg)
         end
@@ -1021,7 +1094,7 @@ end
 -- when the frame height changed (anchored neighbours need a nudge).
 local function Layout(cfg)
     local h = cfg.height or 12
-    local sp = cfg.rowSpacing or 0
+    local sp = RowGap(cfg)
     local w = cfg.width or 220
     local idx = 0
     for i = 1, #S.rows do
@@ -1046,20 +1119,66 @@ local function Layout(cfg)
     return changed
 end
 
+-- Stock styles: the row's stock frame round its bar (the Blizzard Style panel
+-- or the Classic WoW UI frame, ns.ERB_ApplyBlizzBarChrome), built on first
+-- use. Under Blizzard Style the bar-shape mask also takes the fill and the
+-- GO / STILL zones. A combined off-hand row is only a spark over the Main
+-- Hand row: its frame takes alpha 0 (ApplyRangeLook) and its bevel hides.
+local function StockChrome(row, cfg, w, h)
+    local bar = row._bar
+    if row._merged then
+        local sh = bar._blizzShadow
+        if sh then for i = 1, 4 do sh[i]:Hide() end end
+        return
+    end
+    ns.ERB_ApplyBlizzBarChrome(row, bar, w, h, false, ns.ERB_ClassicFrameK(cfg))
+    local mask = row._blizzBarMask
+    if mask then
+        ns.ERB_SeatBlizzMask(row, bar)
+        local zones = row._zones
+        if zones then
+            for _, z in pairs(zones) do
+                ns.ERB_MaskTex(z.back, mask)
+                ns.ERB_MaskTex(z.front, mask)
+            end
+        end
+    end
+    -- The vanilla frame art sits at the row's level + 9, over the bar's ends.
+    if ns.ERB_BarsClassic() then row._textFrame:SetFrameLevel(row:GetFrameLevel() + 10) end
+end
+
+-- Tag visibility: Show Weapon Label, not on a combined off hand, and with Hide
+-- Label Without Weapon not on a weaponless row (a shield keeps its tag).
+local function ApplyRowLabel(row, cfg)
+    local show = cfg.showLabel ~= false and not row._merged
+    if show and cfg.hideLabelNoWeapon and row._canSwing == false
+        and not (row._def.type == SWING.OffHand and ShieldOff(cfg)) then
+        show = false
+    end
+    ApplyRowTag(row, cfg)
+    if show then row._tag:Show() else row._tag:Hide() end
+end
+
 local function ApplyRowLook(row, cfg, w, h)
     row._restyle = nil
     local PP = EllesmereUI.PP
-    local bs = cfg.borderSize or 0
+    -- A stock style's frame (StockChrome) replaces the EUI border.
+    local stock = ns.ST_Style() ~= "eui"
+    local bs = (not stock and cfg.borderSize) or 0
     local bdr = row._border
     local pl = row:GetFrameLevel()
     bdr:SetFrameLevel(cfg.borderBehind and math.max(0, pl - 1) or (pl + 5))
     -- Lost-rect recovery, see the cast bar border in the main file.
     if not bdr:GetLeft() then bdr:SetAllPoints(row) end
-    EllesmereUI.ApplyBorderStyle(bdr, bs,
-        cfg.borderR or 0, cfg.borderG or 0, cfg.borderB or 0, cfg.borderA or 1,
-        cfg.borderTexture or "solid", cfg.borderTextureOffset, cfg.borderTextureOffsetY,
-        cfg.borderTextureShiftX, cfg.borderTextureShiftY, "resourcebars", bs,
-        nil, EllesmereUI.BorderPx(cfg.borderSizePx, bs, cfg.borderTexture or "solid"))
+    if stock then
+        EllesmereUI.ApplyBorderStyle(bdr, 0, 0, 0, 0, 0, "solid")
+    else
+        EllesmereUI.ApplyBorderStyle(bdr, bs,
+            cfg.borderR or 0, cfg.borderG or 0, cfg.borderB or 0, cfg.borderA or 1,
+            cfg.borderTexture or "solid", cfg.borderTextureOffset, cfg.borderTextureOffsetY,
+            cfg.borderTextureShiftX, cfg.borderTextureShiftY, "resourcebars", bs,
+            nil, EllesmereUI.BorderPx(cfg.borderSizePx, bs, cfg.borderTexture or "solid"))
+    end
 
     -- Clip + bar layout. The 1px inset keeps the fill from bleeding past the
     -- border; with no border there is nothing to clip to, so skip it.
@@ -1080,6 +1199,7 @@ local function ApplyRowLook(row, cfg, w, h)
     row._bg:SetTexture(nil)
     row._bg:SetColorTexture(cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgA or 0.7)
     StyleZones(row, cfg, texPath)
+    if stock then StockChrome(row, cfg, w, h) end
 
     ApplyRowFill(row, cfg)
 
@@ -1123,12 +1243,13 @@ local function ApplyRowLook(row, cfg, w, h)
     ApplyRowTag(row, cfg)
     -- A combined off-hand row shows no text; the Main Hand row keeps its own.
     local merged = row._merged
-    if cfg.showLabel ~= false and not merged then row._tag:Show() else row._tag:Hide() end
+    ApplyRowLabel(row, cfg)
     if cfg.showTime ~= false and not merged then row._time:Show() else row._time:Hide() end
     ApplyRangeLook(row, cfg)
     -- Rounded corners (EllesmereUI_RoundedCorners.lua; nothing at radius 0).
     -- A combined off-hand row is only a spark over the Main Hand row: no fill.
-    local radius = cfg.cornerRadius or 0
+    -- The stock frames are square.
+    local radius = (not stock and cfg.cornerRadius) or 0
     if radius > 0 then
         EllesmereUI.RoundCorners(row, radius, {
             roots = { clip }, textures = { row._bg },
@@ -1173,6 +1294,7 @@ local function RefreshRows(cfg)
         local row = S.rows[i]
         local def = row._def
         local can = RowWanted(def, cfg, row)
+        ApplyRowLabel(row, cfg)
         if can then
             if not row:IsShown() then
                 row._restyle = true
@@ -1184,7 +1306,8 @@ local function RefreshRows(cfg)
             if row._live then IdleRow(row, cfg) end
         end
         if def.type == SWING.MainHand then mhShown = can end
-        local merged = (def.type == SWING.OffHand and can and mhShown and cfg.combineHands) and true or nil
+        local merged = (def.type == SWING.OffHand and can and mhShown and cfg.combineHands
+            and not ShieldOff(cfg)) and true or nil
         if merged ~= row._merged then
             row._merged = merged
             row._restyle = true
@@ -1321,7 +1444,9 @@ shell:SetScript("OnEvent", function(self, event, a1, a2, a3)
         end
         UpdateRangeAll()
     else
-        -- WEAPON_SLOT_CHANGED / UNIT_ATTACK_SPEED / PLAYER_ENTERING_WORLD
+        -- WEAPON_SLOT_CHANGED / PLAYER_EQUIPMENT_CHANGED (off hand slot only) /
+        -- UNIT_ATTACK_SPEED / PLAYER_ENTERING_WORLD
+        if event == "PLAYER_EQUIPMENT_CHANGED" and a1 ~= OFFHAND_SLOT then return end
         if RefreshRows(cfg) then RestyleMarked(cfg) end
         if TracksAttack(cfg) then
             -- A loading screen can end an attack without its edge reaching us.
@@ -1356,6 +1481,16 @@ local function ApplyQueueEvents(cfg)
         shell:RegisterEvent("ACTIONBAR_UPDATE_STATE")
     else
         shell:UnregisterEvent("ACTIONBAR_UPDATE_STATE")
+    end
+end
+
+-- Equipment changes matter only to the shield handling.
+local function ApplyShieldEvents(cfg)
+    if not S.events then return end
+    if ShieldAware(cfg) then
+        shell:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+    else
+        shell:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED")
     end
 end
 
@@ -1405,7 +1540,7 @@ local function EnsureBuilt()
             local name = C_Spell.GetSpellName(ids[i])
             if Plain(name) and name then
                 local c = QUEUE_COLORS[ids[i]] or QUEUE_COLOR
-                S.queueSpells[#S.queueSpells + 1] = { id = ids[i], key = c.key, r = c.r, g = c.g, b = c.b, name = name }
+                S.queueSpells[#S.queueSpells + 1] = { id = ids[i], key = c.key, shared = c.shared, r = c.r, g = c.g, b = c.b, name = name }
             end
         end
     end
@@ -1492,6 +1627,7 @@ function ns.ST_Apply()
     RegisterEvents()
     ApplyQueueEvents(cfg)
     ApplyActiveEvents(cfg)
+    ApplyShieldEvents(cfg)
     -- Highlight turned off with an attack queued: the paint below must clear it.
     if not QueueOn(cfg) then S.queued = false end
     -- Attack state: read once per enable, kept by the edges while on.
@@ -1615,20 +1751,35 @@ function ns.ST_MakeUnlockElement(MK, Rebuild)
         getFrame = function() return S.built and shell or nil end,
         isHidden = function() local cfg = P(); return not (cfg and cfg.enabled) end,
         getSize  = function() return Size(P()) end,
-        -- The rows' textured border outside the stack: every row spans the full
-        -- width and the outer rows' edges are the stack's, so one row's reach.
-        getMatchPad = function() return ns.ERB_EuiBorderPad(P()) end,
+        -- What a row draws outside itself: every row spans the full width and
+        -- the outer rows' edges are the stack's, so one row's reach. A stock
+        -- style's frame rim, else the textured border (ns.ERB_EuiBorderPad).
+        getMatchPad = function()
+            local cfg = P()
+            local style = ns.ST_Style()
+            if style == "blizzard" then return ns.ERB_BlizzMatchPad(false) end
+            if style == "classic" then
+                return ns.ERB_ClassicMatchPad(0, 0, false, ns.ERB_ClassicFrameK(cfg))
+            end
+            return ns.ERB_EuiBorderPad(cfg)
+        end,
+        -- Rebuild is a full ApplyAll and the settle pass hands the size again
+        -- after every resize burst: an unchanged size rebuilds nothing.
         setWidth = function(_, w)
             local cfg = P(); if not cfg then return end
-            cfg.width = PP.Snap(math.max(w, 10))
+            local v = PP.Snap(math.max(w, 10))
+            if cfg.width == v then return end
+            cfg.width = v
             Rebuild()
         end,
         -- The mover resizes the whole stack; the per-row height is what is stored.
         setHeight = function(_, h)
             local cfg = P(); if not cfg then return end
             local n = ShownCount()
-            local sp = cfg.rowSpacing or 0
-            cfg.height = PP.Snap(math.max((h - (n - 1) * sp) / n, 4))
+            local sp = RowGap(cfg)
+            local v = PP.Snap(math.max((h - (n - 1) * sp) / n, 4))
+            if cfg.height == v then return end
+            cfg.height = v
             Rebuild()
         end,
         savePos = save, loadPos = load, clearPos = clear, applyPos = apply,

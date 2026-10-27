@@ -19,6 +19,7 @@ local _B, DEFAULT_TEXT_COLOR, EABR = I._B, I.DEFAULT_TEXT_COLOR, I.EABR
 local GetPlayerClass, GetTextAnchorPoints = I.GetPlayerClass, I.GetTextAnchorPoints
 local InCombat, InPvPInstance, isSecret = I.InCombat, I.InPvPInstance, I.isSecret
 local Known, NON_SECRET_SPELL_IDS = I.Known, I.NON_SECRET_SPELL_IDS
+local CursorAttachActive = I.CursorAttachActive
 local ResolveFontPath, SetABRFont, ShortLabel = I.ResolveFontPath, I.SetABRFont, I.ShortLabel
 local Tex, _preCombatOwnOnRaidCache = I.Tex, I._preCombatOwnOnRaidCache
 local BuffExistsOnAnyGroupMember = I.BuffExistsOnAnyGroupMember
@@ -93,7 +94,7 @@ local function LayoutIcons()
         allIcons[#allIcons+1] = EABR._providerCastBtn
     end
     for _, btn in ipairs(activeIcons) do allIcons[#allIcons+1] = btn end
-    local beaconsOnCursor = db and db.profile.display.cursorAttach and cursorAnchor
+    local beaconsOnCursor = db and CursorAttachActive(db.profile.display) and cursorAnchor
     if _B.icons and not beaconsOnCursor then
         for _, id in ipairs(_B.ALL or {}) do
             if _B.iconState and _B.iconState[id] and _B.icons[id] then
@@ -139,19 +140,27 @@ local function ShowIcon(iconIdx, m)
     btn._petCycleTotal = m.petCycleTotal or nil
     -- Right-click is passed through to whatever's behind (e.g. camera drag)
     -- for every other reminder; only a multi-pet cycle button claims it.
+    -- Left-click is passed through too on a groupmate's raid buff the player
+    -- cannot cast: nothing it could do (the middle-click dismiss stays).
     -- Click-routing changes are combat-protected, same as the attribute
     -- writes below, so this only ever runs OOC.
+    local receiver = EABR.IsReceiverRaidBuff(m)
     if not InCombat() then
-        local wantRightCapture = m.petCycleTotal and true or false
-        if btn._petCycleRightCapture ~= wantRightCapture then
-            btn._petCycleRightCapture = wantRightCapture
-            if wantRightCapture then
-                securecallfunction(btn.SetPassThroughButtons, btn)
-            else
+        local pass = (receiver and 1 or 0) + (m.petCycleTotal and 0 or 2)
+        if btn._passButtons ~= pass then
+            btn._passButtons = pass
+            if pass == 3 then
+                securecallfunction(btn.SetPassThroughButtons, btn, "LeftButton", "RightButton")
+            elseif pass == 2 then
                 securecallfunction(btn.SetPassThroughButtons, btn, "RightButton")
+            elseif pass == 1 then
+                securecallfunction(btn.SetPassThroughButtons, btn, "LeftButton")
+            else
+                securecallfunction(btn.SetPassThroughButtons, btn)
             end
         end
     end
+    EABR.SetIconHighlight(btn, not receiver)
     ApplySetup(btn, m)
     local p = db.profile.display
     local baseScale = p.scale or 1.0
@@ -455,6 +464,47 @@ function EABR.EmitWeaponEnchantReminders(missing, co)
     end
 end
 
+-- The Inky Black Potion reminder's zone test reads the player's map from
+-- PLAYER_MAP_CHANGED, so a refresh never asks the game for it (the game's
+-- own map lookup misbehaves in places, Murder Row on 12.1.5). The watch runs
+-- only while that reminder has zones listed and can show; it reads the map
+-- once when it starts and after each loading screen, and a map change that
+-- moves the player into or out of the listed zones asks for one refresh.
+local inkyMap = { on = false, key = "0", inZone = false }
+
+local function InkyMapRead(mapID)
+    inkyMap.key = tostring(mapID or 0)
+    local nowIn = (inkyMap.set and inkyMap.set[inkyMap.key]) and true or false
+    if nowIn ~= inkyMap.inZone then
+        inkyMap.inZone = nowIn
+        I.RequestRefresh()
+    end
+end
+
+local function InkyMapWatch(want)
+    if want == inkyMap.on then return end
+    inkyMap.on = want
+    local f = inkyMap.frame
+    if not want then
+        f:UnregisterAllEvents()
+        return
+    end
+    if not f then
+        f = CreateFrame("Frame")
+        f:SetScript("OnEvent", function(_, event, _, newMapID)
+            if event == "PLAYER_MAP_CHANGED" then
+                InkyMapRead(newMapID)
+            else
+                InkyMapRead(C_Map.GetBestMapForUnit("player"))
+            end
+        end)
+        inkyMap.frame = f
+    end
+    f:RegisterEvent("PLAYER_MAP_CHANGED")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    inkyMap.key = tostring(C_Map.GetBestMapForUnit("player") or 0)
+end
+
 local function CollectConsumables(missing, playerClass, specID, inInstance, inKeystone, inCombat)
 local co = db.profile.consumables
 -- Class specials (poisons/rites/imbues/shields) share one "Where to Show"
@@ -686,9 +736,11 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
         end
 
         -- Inky Black Potion (zone-specific)
+        local inkyWatch = false
         if co.enabled.inky_black and EABR.ConsumableShows(co, "inky_black", inInstance) then
             local zones = co.inkyBlackZones or ""
             if zones ~= "" then
+                inkyWatch = true
                 -- Cache parsed zone set on the string itself
                 if not co._inkyZoneSet or co._inkyZoneSrc ~= zones then
                     local s = {}
@@ -696,8 +748,10 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
                     co._inkyZoneSet = s
                     co._inkyZoneSrc = zones
                 end
-                local currentZone = tostring(C_Map.GetBestMapForUnit("player") or 0)
-                if co._inkyZoneSet[currentZone] then
+                InkyMapWatch(true)
+                inkyMap.set = co._inkyZoneSet
+                inkyMap.inZone = co._inkyZoneSet[inkyMap.key] or false
+                if inkyMap.inZone then
                     local hasPotion = EABR._resolved.inky.hasPotion
                     if not PlayerHasInkyBlackness() and hasPotion then
                         local e = AcquireEntry()
@@ -713,6 +767,7 @@ local specialsActive = EABR.SectionShows(co.specialsWhereToShow, inInstance)
                 end
             end
         end
+        if not inkyWatch then InkyMapWatch(false) end
     end -- consumables block
 
     -- Earth Shield self-buff (383648), only with Elemental Orbit. NOT
@@ -848,6 +903,7 @@ end
 -- CollectTalentReminders moved to EllesmereUIABR_TalentReminders.lua
 
 I.CollectAuras, I.CollectConsumables = CollectAuras, CollectConsumables
-I.CollectRaidBuffs, I.HideAllIcons, I.LayoutIcons = CollectRaidBuffs, HideAllIcons, LayoutIcons
+I.CollectRaidBuffs, I.HideAllIcons, I.InkyMapWatch = CollectRaidBuffs, HideAllIcons, InkyMapWatch
+I.LayoutIcons = LayoutIcons
 I.ResizeAnchorCentered, I.ShowIcon = ResizeAnchorCentered, ShowIcon
 I.broken = false

@@ -4,23 +4,35 @@
 ## Group: EllesmereUI
 ## Notes: EllesmereUI community translations. Loads on demand for non-English locales.
 ## Author: Ellesmere
-## Version: 9.6
+## Version: 9.6.9
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Community translation files (one per locale; only the active one builds
 # entries). Loaded by EllesmereUI_Locale.lua at the parent's ADDON_LOADED
-# whenever the effective locale is non-English -- English clients never pay
-# the parse. To add a language: create <code>.lua here and add one line
-# below. See CONTRIBUTING_TRANSLATIONS.md in the parent addon.
-deDE.lua
-esES.lua
-esMX.lua
-frFR.lua
-itIT.lua
-koKR.lua
-ptBR.lua
-ruRU.lua
-zhCN.lua
-zhTW.lua
+# whenever the effective locale is non-English. Each line's
+# [AllowLoadTextLocale ...] names the game client languages that read the
+# file at all: its own language, the paired language a client may pick in
+# EUI Options Language (esMX clients read esES; zhCN and zhTW read each
+# other), and English, whose clients load this addon only when that option
+# picks a translation. So a non-English client parses its own file (and its
+# pair) only. To add a language: create <code>.lua here and add its line
+# below with the same tag. See CONTRIBUTING_TRANSLATIONS.md in the parent addon.
+deDE.lua [AllowLoadTextLocale deDE, enUS, enGB]
+esES.lua [AllowLoadTextLocale esES, esMX, enUS, enGB]
+esMX.lua [AllowLoadTextLocale esMX, enUS, enGB]
+frFR.lua [AllowLoadTextLocale frFR, enUS, enGB]
+itIT.lua [AllowLoadTextLocale itIT, enUS, enGB]
+koKR.lua [AllowLoadTextLocale koKR, enUS, enGB]
+ptBR.lua [AllowLoadTextLocale ptBR, enUS, enGB]
+ruRU.lua [AllowLoadTextLocale ruRU, enUS, enGB]
+zhCN.lua [AllowLoadTextLocale zhCN, zhTW, enUS, enGB]
+zhTW.lua [AllowLoadTextLocale zhTW, zhCN, enUS, enGB]
+
+# A module's own translations (<code>_<Module>.lua): the same tag as its
+# language's line; each returns at its top unless that module will load this
+# session (EllesmereUI.LocaleModuleLoads), so players who keep it off hold none
+# of its strings. SLC = Simple Loot Council.
+deDE_SLC.lua [AllowLoadTextLocale deDE, enUS, enGB]
+ptBR_SLC.lua [AllowLoadTextLocale ptBR, enUS, enGB]

@@ -570,23 +570,22 @@ local function CreateHeader()
     clear.tex:SetPoint("CENTER", 0, 1)
     clear.tex:SetTextColor(0.8, 0.8, 0.8)
     clear:Hide()
-    clear:SetScript("OnClick", function() search:SetText(""); search:ClearFocus(); C_Container.SetItemSearch("") end)
+    clear:SetScript("OnClick", function() search:SetText(""); search:ClearFocus(); EUI_Bags.ClearSearch() end)
 
     search:SetScript("OnEscapePressed", function(self)
         self:SetText("")
         self:ClearFocus()
-        C_Container.SetItemSearch("")
+        EUI_Bags.ClearSearch()
     end)
-    search:SetScript("OnTextChanged", function(self)
+    -- SetItemSearch is client-global and the bank reads isFiltered too: the
+    -- bags, the reagent bag and an open bank all repaint when the game reports
+    -- the search (EUI_Bags.SetSearchText), so both windows show the same filter.
+    local searchChanged = EUI_Bags.WatchSearchBox(search, EUI_Bags.SetSearchText)
+    search:SetScript("OnTextChanged", function(self, userInput)
         local text = self:GetText()
         placeholder:SetShown(text == "")
         clear:SetShown(text ~= "")
-        EUI_Bags.SetSearchText(text)
-        if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
-        -- SetItemSearch is client-global and the bank reads isFiltered too:
-        -- re-render an open bank so both windows always show the same filter
-        -- state (the bank's box already mirrors this refresh toward bags).
-        ns.RefreshOpenBank()
+        searchChanged(userInput)
     end)
 
     local close = CreateFrame("Button", nil, header)

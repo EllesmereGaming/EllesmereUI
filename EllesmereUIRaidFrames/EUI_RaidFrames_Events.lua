@@ -538,16 +538,14 @@ local function OnEvent(self, event, arg1, ...)
         -- fallback for a unit no button maps yet (token shape we do not route).
         local btn = arg1 and (unitToButton[arg1] or ns._partyUnitToButton[arg1])
         if btn then
-            local pv = GetFFD(btn)._isParty and ns._partyPvActive or previewActive
+            local pv = GetFFD(btn)._isParty and ns._partyPvActive
             if not pv and btn:IsVisible() then UpdateButton(btn) end
             local xf = ns._xfUnitToButton[arg1]
-            if xf and not previewActive and xf:IsVisible() then UpdateButton(xf) end
+            if xf and xf:IsVisible() then UpdateButton(xf) end
         else
-            if not previewActive then
-                for _, b in ipairs(allButtons) do
-                    local u = b:GetAttribute("unit")
-                    if u and b:IsVisible() then UpdateButton(b) end
-                end
+            for _, b in ipairs(allButtons) do
+                local u = b:GetAttribute("unit")
+                if u and b:IsVisible() then UpdateButton(b) end
             end
             if not ns._partyPvActive then
                 for _, b in ipairs(ns._partyAllButtons) do

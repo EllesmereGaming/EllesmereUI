@@ -185,6 +185,15 @@ ns.ApplyFocusKickAnchor = ApplyFocusKickAnchor
 local _focusKickProxy
 local _focusKickLastPlateVisible
 local _FOCUSKICK_TICK_INTERVAL = 0.1
+
+-- The re-anchor after a layout pass (LayoutCDMBar): only while the proxy is live (the
+-- demand gate unregisters its events), and with the plate-visibility cache cleared as
+-- every proxy event clears it, so the plate watch re-applies the fade alpha.
+ns.ReapplyFocusKick = function()
+    if not (_focusKickProxy and _focusKickProxy:IsEventRegistered("PLAYER_FOCUS_CHANGED")) then return end
+    _focusKickLastPlateVisible = nil
+    ApplyFocusKickAnchor()
+end
 local function EnsureFocusKickProxy()
     if _focusKickProxy then
         -- Re-apply/re-activate paths must restore the event set (a demand-gate teardown
@@ -835,7 +844,7 @@ local function EnsureFocusReminderProxy()
         elseif event == "NAME_PLATE_UNIT_ADDED" then
             if _focusKickHasFocus then return end
             if not _focusKickInDungeon then return end
-            if _focusKickIsHealer then return end
+            if _focusKickNoKick then return end
             ShowFocusReminder(unit)
         elseif event == "NAME_PLATE_UNIT_REMOVED" then
             HideFocusReminder(unit)
@@ -898,6 +907,7 @@ function ns.RefreshFocusKickProxies()
     -- Icon-bearing parts of the family keep the original bar-content gate.
     if hasContent then
         EnsureFocusKickProxy()
+        _focusKickLastPlateVisible = nil
         ApplyFocusKickAnchor()
         EnsureFocusReminderProxy()
         RefreshFocusReminders()

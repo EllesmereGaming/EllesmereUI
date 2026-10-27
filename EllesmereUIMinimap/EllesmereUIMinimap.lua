@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Custom minimap skin and layout for EllesmereUI.
 -------------------------------------------------------------------------------
 local ADDON_NAME = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.NewFrameData) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 local ns = select(2, ...)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -19,12 +19,7 @@ EllesmereUI.RegisterBorderDefaults("minimap", EllesmereUI.BORDER_DEFAULTS_FRAMES
 local EG = EllesmereUI.ELLESMERE_GREEN
 
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
-local FFD = setmetatable({}, { __mode = "k" })
-local function GetFFD(frame)
-    local d = FFD[frame]
-    if not d then d = {}; FFD[frame] = d end
-    return d
-end
+local FFD, GetFFD = EllesmereUI.NewFrameData()
 
 -- Call-site compat only; the minimap module is never force-disabled here.
 local TEMP_DISABLED = {}
@@ -198,7 +193,7 @@ end
 
 -- The clock and zone Edge Box fill: the border colour above, or black under
 -- a square frame on the Forever client (its bronze frame takes no colour, and
--- the border colour rows are hidden there). EBS field: main-chunk local cap.
+-- the border colour rows are hidden there). An EBS field.
 function EBS._EdgeBoxColor(cfg)
     if EBS._fvSquare then return 0, 0, 0 end
     return GetBorderStyleColor(cfg)
@@ -250,7 +245,7 @@ local flyoutOwnedFrames = {}
 -- goes through the Set<Name> function built below, which runs them all.
 -- broken: true while an EUI_Minimap_*.lua file loads; a file that fails
 -- leaves it set, and the files behind it return at their first lines.
-ns._internals = {
+EllesmereUI.NewInternals(ns, "_internals", {
     _addonVisible = _addonVisible, ADDON_NAME = ADDON_NAME,
     cachedAddonButtons = cachedAddonButtons, defaults = defaults, EBS = EBS, EG = EG,
     flyoutOwnedFrames = flyoutOwnedFrames, GetBorderStyleColor = GetBorderStyleColor,
@@ -262,10 +257,7 @@ ns._internals = {
     portalFlyoutSetters = {}, coordFrameSetters = {}, coordTickerSetters = {},
     clockFrameSetters = {}, clockBgSetters = {}, locationFrameSetters = {},
     locationBgSetters = {}, mmKeyHiddenSetters = {},
-    broken = false,
-}
--- Set<Name> hands a new value to every copy registered in <name>Setters.
-for setter, listName in pairs({
+}, {
     SetApplyAll = "applyAllSetters", SetMOEvaluate = "moEvaluateSetters",
     SetFlyoutToggle = "flyoutToggleSetters", SetFlyoutPanel = "flyoutPanelSetters",
     SetPortalFlyout = "portalFlyoutSetters", SetCoordFrame = "coordFrameSetters",
@@ -273,14 +265,4 @@ for setter, listName in pairs({
     SetClockBg = "clockBgSetters", SetLocationFrame = "locationFrameSetters",
     SetLocationBg = "locationBgSetters", SetMMKeyHidden = "mmKeyHiddenSetters",
     SetApplyMinimap = "applyMinimapSetters",
-}) do
-    local list = ns._internals[listName]
-    ns._internals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
-end
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._internals, { __index = function(_, k)
-    error("ns._internals has no entry " .. tostring(k), 2)
-end })
+})

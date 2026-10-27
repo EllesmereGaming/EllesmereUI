@@ -541,16 +541,6 @@ ns._UpdatePartyIndicatorScale = function()
     if ns._RefreshProxyModes then ns._RefreshProxyModes() end
 end
 
-ns._IsPartyAllSynced = function()
-    if not db or not db.profile then return true end
-    local ss = db.profile.partySyncSections
-    if not ss then return true end
-    for _, sec in ipairs(ns._PARTY_SECTION_ORDER) do
-        if ss[sec] == false then return false end
-    end
-    return true
-end
-
 -- Create a single SecureGroupHeader for party frames (5 buttons max).
 -- Called once from OnEnable.
 ns._CreatePartyHeader = function()

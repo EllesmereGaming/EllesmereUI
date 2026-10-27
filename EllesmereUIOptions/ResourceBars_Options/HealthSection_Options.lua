@@ -26,6 +26,8 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
 
     local hdr
     hdr, h = W:SectionHeader(parent, "HEALTH BAR", y);  y = y - h
+    -- Move in Unlock Mode on the title; handed back so the page's preview eye sits after it.
+    local unlockJump = EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ERB_Health", disabled = healthOff, disabledTooltip = "Health Bar" })
     y = EllesmereUI.BlizzStyle.Note(parent, y, "resourcebars")
 
     local _advTop = y  -- content top; also used by the Simple override overlay
@@ -594,7 +596,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                   local isClassColored = not c or not c.customColored
                   return isClassColored and 1 or 0.3
               end },
-    }, { disabled = healthOff, disabledTooltip = "Health Bar" })
+    }, { size = 20, disabled = healthOff, disabledTooltip = "Health Bar" })
     end
     if not ctx.advanced and ctx.syncRows and not EllesmereUI._prebuilding then
         ctx.syncRows.healthOpacity = healthBorderRow._leftRegion
@@ -643,13 +645,13 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         })
     end
 
-    -- Out of Combat Opacity cog: dims the Health bar to this alpha out of combat (100 = no fade); applied by ns.ResolveBarAlpha in UpdateVisibility, which reacts to combat.
+    -- Out of Combat Opacity & Visibility cog: Fade Out of Combat dims the Health bar to this alpha out of combat (100 = no fade; ns.ResolveBarAlpha in UpdateVisibility, which reacts to combat). Show When Health Missing reveals a rule-hidden bar while health is below full (ns.ERB_MissingWanted, same pass).
     if not EllesmereUI._prebuilding then
         local rgn = healthBorderRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local c = cfg(); return c and not c.enabled end,
             disabledTooltip = "Health Bar",
-            title = "Out of Combat Opacity",
+            title = "Out of Combat Opacity & Visibility",
             rows = {
                 { type = "toggle", label = "Fade Out of Combat",
                   get = function() local c = cfg(); return c and c.oocFadeEnabled == true end,
@@ -664,6 +666,13 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                   set = function(v)
                       local c = cfg(); if not c then return end
                       c.oocAlpha = v / 100; RefreshHealth()
+                  end },
+                { type = "toggle", label = "Show When Health Missing",
+                  tooltip = "Shows the Health bar while your health is below full, even when its Visibility setting hides it.",
+                  get = function() local c = cfg(); return c and c.showWhenMissing == true end,
+                  set = function(v)
+                      local c = cfg(); if not c then return end
+                      c.showWhenMissing = v; RefreshHealth()
                   end },
             },
         })
@@ -827,5 +836,5 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
     -- Simple page: cover these controls when the current spec overrides Health in Advanced, so edits here aren't silently ignored.
     if not ctx.advanced then ns.ERB_SimpleOverrideOverlay(parent, _advTop, y, "health") end
 
-    return y
+    return y, hdr, healthEnableRow, unlockJump
 end

@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 
@@ -9,8 +10,6 @@ local addon = SimpleLootCouncil
 
 local Specs = {}
 addon.Specs = Specs
-
-local issecretvalue = issecretvalue
 
 
 
@@ -28,16 +27,22 @@ local count = 0
 
 
 
-local function IsSecret(value)
-    return issecretvalue and issecretvalue(value) or false
-end
+local IsSecret = addon.IsSecret
 
 
 
 local infoCache = {}
 
+local MAX_SPEC_ID = 100000
+
+local function ValidSpec(specID)
+    return type(specID) == "number" and not IsSecret(specID) and specID == specID
+        and specID > 0 and specID < MAX_SPEC_ID and math.floor(specID) == specID
+end
+Specs.Valid = ValidSpec
+
 function Specs:Info(specID)
-    if not specID or specID == 0 then return nil end
+    if not ValidSpec(specID) then return nil end
 
     local cached = infoCache[specID]
     if cached ~= nil then
@@ -75,7 +80,8 @@ function Specs:Get(guid)
     local key = Normalise(guid)
     if not key then return nil end
     local record = cache[key]
-    return record and record.spec or nil
+    local spec = record and record.spec
+    return ValidSpec(spec) and spec or nil
 end
 
 
@@ -83,7 +89,7 @@ end
 function Specs:Set(guid, specID, via)
     local key = Normalise(guid)
     if not key then return false end
-    if type(specID) ~= "number" or specID <= 0 then return false end
+    if not ValidSpec(specID) then return false end
 
     local record = cache[key]
     if record and record.spec == specID then
@@ -143,7 +149,8 @@ function Specs:Prune()
     local now, removed, kept = time(), 0, {}
     local own = UnitGUID and UnitGUID("player")
     for guid, record in pairs(cache) do
-        if type(record) ~= "table" or (now - (record.at or 0)) > CACHE_TTL then
+        if type(record) ~= "table" or not ValidSpec(record.spec)
+            or (now - (record.at or 0)) > CACHE_TTL then
             cache[guid] = nil
             removed = removed + 1
         elseif guid ~= own then

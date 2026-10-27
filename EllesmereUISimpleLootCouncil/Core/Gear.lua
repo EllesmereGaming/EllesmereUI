@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 
@@ -9,11 +10,7 @@ local T = addon.Locale.Text
 local Gear = {}
 addon.Gear = Gear
 
-local issecretvalue = issecretvalue
-
-local function IsSecret(value)
-    return issecretvalue and issecretvalue(value) or false
-end
+local IsSecret = addon.IsSecret
 
 
 
@@ -253,9 +250,19 @@ function Gear:Equipped(equipLoc)
 end
 
 
+function Gear:ItemLevel(item)
+    if item == nil or IsSecret(item) then return nil end
+    local kind = type(item)
+    if (kind ~= "string" and kind ~= "number") or item == "" then return nil end
+    local level = C_Item.GetDetailedItemLevelInfo(item)
+    if type(level) == "number" and not IsSecret(level) and level > 0 then return level end
+    level = select(4, C_Item.GetItemInfo(item))
+    if type(level) == "number" and not IsSecret(level) then return level end
+    return nil
+end
+
 local function ItemLevel(item)
-    if not item then return nil end
-    return (select(4, C_Item.GetItemInfo(item)))
+    return Gear:ItemLevel(item)
 end
 
 
@@ -354,8 +361,11 @@ end
 
 
 
-function Gear.SetProgress(setCount)
+function Gear.SetProgress(setCount, replaces)
     if setCount == nil then return nil end
+    if replaces == 1 or replaces == true then
+        return addon.Locale.Format(T["%d/4 set"], setCount), false
+    end
     local total = setCount + 1
     if total == 2 or total == 4 then
         return addon.Locale.Format(T["+%dset"], total), true
@@ -398,6 +408,21 @@ local function CurrentSetSummary()
         linkFor = CurrentSetLink,
         infoFor = CurrentSetInfo,
     })
+end
+
+local function ReplacesSetPiece(equipLoc, setID)
+    if not setID then return false end
+    local slots = ResolveSlots(equipLoc, CurrentSetLink, function(link)
+        return (select(9, C_Item.GetItemInfo(link)))
+    end)
+    if not slots or not slots[1] then return false end
+    for _, slot in ipairs(slots) do
+        local link = CurrentSetLink(slot)
+        if not link then return false end
+        local cached, pieceSetID, hasBonus = CurrentSetInfo(link)
+        if not (cached and hasBonus and pieceSetID == setID) then return false end
+    end
+    return true
 end
 
 
@@ -460,6 +485,8 @@ function Gear:BuildResponsePayload(itemLink)
     end
     local ilvl = Gear:GetSummary()
     local setInfo = CurrentSetSummary()
+    local replaces = setInfo and not tokenGear
+        and ReplacesSetPiece(equipLoc, setInfo.setID) and 1 or nil
     local k1 = Gear:Sockets(g1)
     local k2 = Gear:Sockets(g2)
 
@@ -474,6 +501,7 @@ function Gear:BuildResponsePayload(itemLink)
 
         t  = setInfo and setInfo.count or nil,
         ts = setInfo and setInfo.setID or nil,
+        tr = replaces,
 
 
         k1 = k1,
@@ -488,10 +516,11 @@ local LINK_MAX, ITEM_MAX = 512, 255
 local RANGES = {
     diff = { -9999, 9999 }, ilvl = { 0, 9999 }, setCount = { 0, 99 },
     setID = { 0, 2 ^ 31 }, sockets1 = { 0, 9 }, sockets2 = { 0, 9 },
+    setReplaces = { 1, 1 },
 }
 
 local WIRE = { gear1 = "g1", gear2 = "g2", diff = "d", ilvl = "il", setCount = "t",
-    setID = "ts", sockets1 = "k1", sockets2 = "k2" }
+    setID = "ts", sockets1 = "k1", sockets2 = "k2", setReplaces = "tr" }
 
 
 

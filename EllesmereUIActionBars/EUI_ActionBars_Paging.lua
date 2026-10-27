@@ -39,35 +39,9 @@ EAB_VTABLE.PAGING_STATES = {
         { id = "help",  macro = "[help]",      label = "Friendly Target" },
         { id = "harm",  macro = "[harm]",      label = "Hostile Target" },
     },
-    class = {
-        DRUID = {
-            { id = "prowl",   macro = "[bonusbar:1,stealth]", label = "Prowl" },
-            { id = "cat",     macro = "[bonusbar:1]",         label = "Cat Form" },
-            { id = "bear",    macro = "[bonusbar:3]",         label = "Bear Form" },
-            { id = "moonkin", macro = "[bonusbar:4]",         label = "Moonkin Form" },
-        },
-        ROGUE = {
-            { id = "stealth", macro = "[bonusbar:1]", label = "Stealth" },
-        },
-        WARRIOR = {
-            { id = "battle",    macro = "[bonusbar:1]", label = "Battle Stance" },
-            { id = "defensive", macro = "[bonusbar:2]", label = "Defensive Stance" },
-        },
-        EVOKER = {
-            { id = "soar", macro = "[bonusbar:1]", label = "Soar" },
-        },
-    },
+    -- Shared with the CDM's Stance Bar hide (EllesmereUI_VisibilityRules.lua).
+    class = EllesmereUI.CLASS_PAGING_STATES,
 }
--- A form pages only where the client gives it a bonus bar: on WoW Forever
--- Berserker Stance has one (3) and Moonkin Form none, on retail the other way
--- round. Tree of Life has none on either client, so it is not listed.
-if EllesmereUI.IS_FOREVER == true then
-    local states = EAB_VTABLE.PAGING_STATES.class
-    table.insert(states.WARRIOR, { id = "berserker", macro = "[bonusbar:3]", label = "Berserker Stance" })
-    for i = #states.DRUID, 1, -1 do
-        if states.DRUID[i].id == "moonkin" then table.remove(states.DRUID, i) end
-    end
-end
 
 -- Modifier/Target Paging (the bar's modTargetPaging): false switches the five
 -- modifier and target states off without clearing them; never set, they apply
@@ -89,9 +63,10 @@ end
 
 -- Auto-paging opt-outs for MainBar. Returns noForm, noSky: suppress implicit bonusbar
 -- swaps for forms/stealth/stance (bonusbar 1-4) and skyriding (bonusbar 5). Does NOT
--- cover vehicle/override/possess -- those replace abilities outright, so suppressing
--- them would leave no way to use the vehicle. Only ever true for MainBar, the only bar
--- the engine drives off bonusbar and the only one with these toggles.
+-- cover vehicle/override/possess or a temporary transformation's bar -- those replace
+-- abilities outright, so suppressing them would leave no way to use them. Only ever
+-- true for MainBar, the only bar the engine drives off bonusbar and the only one with
+-- these toggles.
 function EAB_VTABLE.GetAutoPagingOptOuts(barKey)
     if barKey ~= "MainBar" then return false, false end
     local bs = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars.MainBar
@@ -113,6 +88,9 @@ function EAB_VTABLE.BuildPagingConditions(barKey, pagingConfig, defaultPage)
         end
         if EAB_VTABLE.GetVehicleBarIndex then
             parts[#parts + 1] = "[vehicleui][possessbar] " .. EAB_VTABLE.GetVehicleBarIndex()
+        end
+        if EAB_VTABLE.GetTempShapeshiftBarIndex then
+            parts[#parts + 1] = "[shapeshift] " .. EAB_VTABLE.GetTempShapeshiftBarIndex()
         end
     end
     if not noModTarget then
@@ -189,13 +167,18 @@ local function GetClassPagingConditions()
     local noForm, noSky = EAB_VTABLE.GetAutoPagingOptOuts("MainBar")
     local conditions = ""
 
-    -- Override bar (soft vehicle/quest abilities) and possess bar: remap bar
-    -- 1 to those slots so our buttons stay visible and keybinds work.
+    -- Override bar (soft vehicle/quest abilities), possess bar and a temporary
+    -- transformation's bar ([shapeshift], e.g. a quest that turns you into a
+    -- creature): remap bar 1 to those slots so our buttons stay visible and
+    -- keybinds work, in Blizzard's own order (ActionBarController_UpdateAll).
     if EAB_VTABLE.GetOverrideBarIndex then
         conditions = conditions .. "[overridebar] " .. EAB_VTABLE.GetOverrideBarIndex() .. "; "
     end
     if EAB_VTABLE.GetVehicleBarIndex then
         conditions = conditions .. "[vehicleui][possessbar] " .. EAB_VTABLE.GetVehicleBarIndex() .. "; "
+    end
+    if EAB_VTABLE.GetTempShapeshiftBarIndex then
+        conditions = conditions .. "[shapeshift] " .. EAB_VTABLE.GetTempShapeshiftBarIndex() .. "; "
     end
 
     -- Manual page switching (pages 2-6): [bar:N] responds to the internal page set by
@@ -268,7 +251,7 @@ function ns.GetPagingSkipMask()
     for barKey, page in pairs(EAB_VTABLE.BAR_KEY_TO_PAGE) do
         if barKey ~= "MainBar" and page >= 1 and page <= NUM_AB_PAGES then
             local settings = bars[barKey]
-            if settings and settings.enabled ~= false and not settings.alwaysHidden then
+            if settings and settings.enabled ~= false and not EAB.VisibilityCompat.IsNever(settings) then
                 skip[page] = true
             end
         end
@@ -478,7 +461,7 @@ LayoutPagingFrame = function()
     local lvl = (mainFrame:GetFrameLevel() or 1) + 1 + (caps and caps.lvl or 4)
     if f:GetFrameLevel() ~= lvl then f:SetFrameLevel(lvl) end
 
-    if s.alwaysHidden or s.enabled == false or not s.showPagingArrows then
+    if EAB.VisibilityCompat.IsNever(s) or s.enabled == false or not s.showPagingArrows then
         f:Hide()
         return
     end

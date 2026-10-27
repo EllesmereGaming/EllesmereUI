@@ -43,18 +43,27 @@ end
 if EllesmereUI.IS_FOREVER then
     local HAS_NAME = { name = true, levelname = true, namelevel = true, nametotarget = true, targetname = true }
     local FORMATS, FORMAT_ORDER = EllesmereUI.NAME_FORMAT_VALUES, EllesmereUI.NAME_FORMAT_ORDER
-    function ns.UF_NameFormatRows(prefix, contentDefault, get, set, rows)
-        local contentKey, formatKey = prefix .. "Content", prefix .. "NameFormat"
+    -- A custom format shows a name when its parse holds a name tag.
+    function ns.UF_ContentShowsName(content, customFmt)
+        if content ~= "custom" then return HAS_NAME[content] or false end
+        local parsed = EllesmereUI.TextTags.Parse(ns.UF_TextTags, customFmt)
+        return parsed ~= nil and (parsed.has.name or parsed.has.target) == true
+    end
+    -- contentKey: the slot's content key when it is not <prefix>Content
+    -- (the power text's powerTextFormat).
+    function ns.UF_NameFormatRows(prefix, contentDefault, get, set, rows, contentKey)
+        local formatKey = prefix .. "NameFormat"
+        contentKey = contentKey or (prefix .. "Content")
         table.insert(rows, 1, { type="dropdown", label="Name Format", values=FORMATS, order=FORMAT_ORDER,
             get=function() return get(formatKey, "full") end,
             -- First and Last is the unset default.
             set=function(v) set(formatKey, (v ~= "full") and v or nil) end,
-            disabled=function() return not HAS_NAME[get(contentKey, contentDefault)] end,
+            disabled=function() return not ns.UF_ContentShowsName(get(contentKey, contentDefault), get(prefix .. "CustomFormat")) end,
             disabledTooltip="This option only applies when the text shows a name." })
         return rows
     end
     -- The same slots for the Forever Essentials NAME FORMAT section, which
-    -- reads and sets every name text at once: { unit settings key, content key,
+    -- reads and sets every name text at once: { unit settings key, content key, custom format key,
     -- format key, text bar slot }, keys prebuilt so its reads build no strings.
     -- Boss frames have no text bar; the other mini frames no extra text either.
     do
@@ -65,11 +74,17 @@ if EllesmereUI.IS_FOREVER then
         for _, set in ipairs({ { "player", MAIN }, { "target", MAIN }, { "focus", MAIN }, { "boss", BOSS },
                 { "targettarget", MINI }, { "focustarget", MINI }, { "pet", MINI } }) do
             for _, pre in ipairs(set[2]) do
-                slots[#slots + 1] = { unit = set[1], content = pre .. "Content", format = pre .. "NameFormat",
+                slots[#slots + 1] = { unit = set[1], content = pre .. "Content", custom = pre .. "CustomFormat", format = pre .. "NameFormat",
                     btb = pre:sub(1, 3) == "btb" }
             end
         end
-        ns.UF_NAME_FORMAT_SLOTS, ns.UF_HAS_NAME = slots, HAS_NAME
+        -- The power text: a name only through a custom format, shown while
+        -- its Text Position is not None (power = that position key).
+        for _, unit in ipairs({ "player", "target", "focus", "boss", "pet" }) do
+            slots[#slots + 1] = { unit = unit, content = "powerTextFormat", custom = "powerTextCustomFormat",
+                format = "powerTextNameFormat", power = "powerPercentText" }
+        end
+        ns.UF_NAME_FORMAT_SLOTS = slots
     end
 else
     function ns.UF_NameFormatRows(_, _, _, _, rows) return rows end
@@ -107,9 +122,7 @@ function ns.UF_ClassicCastBorderRow(W, parent, y, getS, key, onChange, sync, mat
                 if t then t[ns.UF_CastClassicKey(units[i])] = v end
             end
             sync.reload()
-            if EllesmereUI.ReapplyMatchPads then
-                for i = 1, #units do EllesmereUI.ReapplyMatchPads(units[i] .. "Castbar") end
-            end
+            for i = 1, #units do EllesmereUI.ReapplyMatchPads(units[i] .. "Castbar") end
             EllesmereUI:RefreshPage()
         end
         EllesmereUI.BuildSyncIcon({
@@ -1306,14 +1319,15 @@ initFrame:SetScript("OnEvent", function(self)
         ["healabsorb"]      = "Heal Absorb Amount",
         ["healabsorbshort"] = "Heal Absorb Short (80k)",
         ["group"]        = "Group Number",
+        ["custom"]       = "Custom",
         ["none"]         = "None",
     }
-    local healthTextOrder = { "none", "---", "name", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both" }
+    local healthTextOrder = { "none", "---", "custom", "---", "name", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both" }
     -- Boss frames also get "Name > Target" (the boss's target); ToT/FoT/Pet do not.
-    local healthTextOrderBoss = { "none", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
-    local healthTextOrderPlayer = { "none", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort", "group" }
+    local healthTextOrderBoss = { "none", "---", "custom", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
+    local healthTextOrderPlayer = { "none", "---", "custom", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort", "group" }
     -- Target/Focus: player's absorb options minus "group" (raid group number is meaningless off the player).
-    local healthTextOrderTargetFocus = { "none", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
+    local healthTextOrderTargetFocus = { "none", "---", "custom", "---", "name", "nametotarget", "targetname", "levelname", "namelevel", "level", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "bothdash", "perhpnumdash", "absorb", "absorbshort", "healabsorb", "healabsorbshort" }
 
     -- Text bar (BTB) text dropdown values (includes power options)
     local btbTextValues = {
@@ -1330,9 +1344,10 @@ initFrame:SetScript("OnEvent", function(self)
         ["curmaxpp"]     = "Power Value / Max",
         ["curhp_curpp"]  = "Health | Power Value",
         ["perhp_perpp"]  = "Health | Power %",
+        ["custom"]       = "Custom",
         ["none"]         = "None",
     }
-    local btbTextOrder = { "none", "---", "name", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "perpp", "curpp", "curmaxpp", "curhp_curpp", "perhp_perpp" }
+    local btbTextOrder = { "none", "---", "custom", "---", "name", "perhp", "perhpnosign", "curhpshort", "healthshort", "curmaxhp", "perhpnum", "both", "perpp", "curpp", "curmaxpp", "curhp_curpp", "perhp_perpp" }
 
     -- Class theme portrait icons: full-size versions of the sidebar class art.
     local ICONS_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
@@ -1343,7 +1358,7 @@ initFrame:SetScript("OnEvent", function(self)
     local classIconValues = {
         ["none"]="None", ["modern"]="Modern",
         ["arcade"]="Arcade", ["glyph"]="Glyph", ["legend"]="Legend",
-        ["midnight"]="Midnight", ["pixel"]="Pixel", ["pixelsComic"]="Pixels Comic", ["runic"]="Runic",
+        ["midnight"]="Midnight", ["pixel"]="Pixel", ["pixelsComic"]="Comic", ["runic"]="Runic",
         _menuOpts = { itemHeight = 32, icon = function(key)
             if key == "none" then return nil end
             local _, ct = UnitClass("player")
@@ -1608,7 +1623,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- Portrait art style dropdown values
     local classThemeSubValues = {
         ["modern"]="Modern", ["arcade"]="Arcade", ["glyph"]="Glyph",
-        ["legend"]="Legend", ["midnight"]="Midnight", ["pixel"]="Pixel", ["pixelsComic"]="Pixels Comic",
+        ["legend"]="Legend", ["midnight"]="Midnight", ["pixel"]="Pixel", ["pixelsComic"]="Comic",
         ["runic"]="Runic",
     }
     local classThemeSubOrder = { "modern", "arcade", "glyph", "legend", "midnight", "pixel", "pixelsComic", "runic" }
@@ -1840,7 +1855,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- color settings do nothing: grey out and block the whole DualRow region (every
     -- swatch/slider/cog/sync in it). A widget-refresh callback tracks the toggle live
     -- (RefreshPage's fast path re-runs these without a full rebuild).
-    local function AddDarkModeBlock(rgn)
+    local function AddDarkModeBlock(rgn, unitFn)
         if not rgn then return end
         local block = CreateFrame("Frame", nil, rgn)
         block:SetAllPoints()
@@ -1849,7 +1864,7 @@ initFrame:SetScript("OnEvent", function(self)
         block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(block, "Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Colors.") end)
         block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         local function Update()
-            if db and db.profile and db.profile.darkTheme then
+            if ns.UF_DarkThemeOn(unitFn()) then
                 rgn:SetAlpha(0.3); block:Show()
             else
                 rgn:SetAlpha(1); block:Hide()
@@ -2925,10 +2940,58 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end
     end)
+    -- Textured Background: the Texture Settings cog row, shared by the Main and
+    -- Mini Frames pages and Global Settings > Textures. unitFn returns the
+    -- frame's settings (nil unitFn: the cast bar row); mini: a mini frame's key,
+    -- which follows its main frame while its Bar Texture is Inherit; apply: the
+    -- page's own refresh after a write.
+    local function TexBgRowCfg(unitFn, apply, mini)
+        if not unitFn then
+            return { type = "toggle", label = "Textured Background",
+                tooltip = "Draws the bar texture on the cast bar backgrounds too.",
+                disabled = function() return db.profile.castBarTexture == "blizzard" end,
+                disabledTooltip = "This option requires a Cast Bar Texture other than Blizzard.",
+                get = function() return db.profile.castTextureBg == true end,
+                set = function(v) db.profile.castTextureBg = v and true or false; apply() end }
+        end
+        local function Inheriting(s)
+            local v = mini and s.healthBarTexture
+            return mini and (v == nil or v == "inherit")
+        end
+        local function Tex(s) return s.healthBarTexture or db.profile.healthBarTexture or "none" end
+        return { type = "toggle", label = "Textured Background",
+            tooltip = "Draws the bar texture on the health and power backgrounds too.",
+            disabled = function()
+                local s = unitFn()
+                if not s or Inheriting(s) then return true end
+                return Tex(s) == "none" or not ns.UF_HealthOpaque(s)
+            end,
+            disabledTooltip = function()
+                local s = unitFn()
+                if not s then return nil end
+                if Inheriting(s) then return "This option requires a Bar Texture other than Inherit (Main Frames)." end
+                if Tex(s) == "none" then return "This option requires a Bar Texture other than None." end
+                if ns.UF_DarkThemeOn(s) then return "This option requires a Dark Mode Fill of 100 (Global Settings > Colors)." end
+                if mini == "boss" then return "This option requires a health Fill Color of 100." end
+                return "This option requires a health Fill Opacity of 100."
+            end,
+            get = function()
+                local s = unitFn()
+                if not s then return false end
+                if Inheriting(s) then return ns.UF_TexBgOn(mini) end
+                return s.textureBg == true
+            end,
+            set = function(v)
+                local s = unitFn(); if not s then return end
+                s.textureBg = v and true or false
+                apply()
+            end }
+    end
 
     -- Shared helpers and state for the builders under UnitFrames_Options\
     -- (loaded before this file, read when a page builds).
     ns._UFO_OptEnv = {
+        TexBgRowCfg = TexBgRowCfg,
         _previewBuffIcons = _previewBuffIcons, _previewCreatureNames = _previewCreatureNames, abs = abs,
         AddDarkModeBlock = AddDarkModeBlock, allPreviews = allPreviews, ApplyClassIconTexture_Preview = ApplyClassIconTexture_Preview,
         ApplyPreviewPortraitShape = ApplyPreviewPortraitShape, AttachDebuffModeWarn = AttachDebuffModeWarn, AttachFrameSourceCog = AttachFrameSourceCog,

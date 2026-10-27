@@ -91,6 +91,14 @@ end
 if EllesmereUI._unlockModeLoaded then return end
 EllesmereUI._unlockModeLoaded = true
 
+-- Overlap cycling in Unlock Mode: "disabled", or the wheel alone ("scroll",
+-- the default) or with Shift / Ctrl / Alt held ("shiftscroll" /
+-- "controlscroll" / "altscroll").
+function EllesmereUI.GetUnlockOverlapMethod()
+    local db = EllesmereUIDB
+    return (db and db.unlockOverlapMethod) or "scroll"
+end
+
 -------------------------------------------------------------------------------
 --  Anchor reapply stub (pre-EnsureLoaded): lets child addons (CDM) reposition
 --  anchored elements at login before the full body loads; deferred block replaces it.
@@ -108,6 +116,10 @@ if not EllesmereUI.ReapplyOwnAnchor then
         local childBar = childElem and childElem.getFrame and childElem.getFrame(key)
         local targetBar = targetElem and targetElem.getFrame and targetElem.getFrame(info.target)
         if not childBar or not targetBar then return end
+        if info.mode == "POINT" then
+            ns.PointAnchors.EarlyApply(key, info, childBar, targetBar)
+            return
+        end
         if not targetBar:GetLeft() then return end
 
         local side = info.side
@@ -412,6 +424,10 @@ end
 -- On EllesmereUI to avoid an upvalue in CreateMover (Lua 5.1 limit: 60).
 function EllesmereUI.RepositionBarToMover(barKey)
     if not UM.isUnlocked then return end
+    if EllesmereUI.IsPointAnchored(barKey) then
+        EllesmereUI.ReapplyOwnAnchor(barKey)
+        return
+    end
     local m = UM.movers[barKey]
     if not m then return end
     local bar = UM.GetBarFrame(barKey)
@@ -506,7 +522,7 @@ local snapshotGrowDirs = {}   -- original growth directions captured when unlock
 -- field, not local: deferred-init function is at Lua 5.1's 200-local cap). Layer
 -- banking is a wholesale harvest at CommitPositions.
 UM.hasChanges = false         -- true if user dragged anything this session
-local combatSuspended = false  -- true if unlock mode was auto-closed by combat
+UM.combatSuspended = false  -- true if unlock mode was auto-closed by combat
 local preCombatChanges = false -- the session's change mark when combat hid it
 UM.objTrackerWasVisible = false     -- track objective tracker state for restore
 
@@ -644,9 +660,10 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
 
     -- Mythic+ Tools
     ["EMT_MythicTimer"]    = { module = "EllesmereUIMythicTimer",     page = "Mythic+ Timer",     sectionName = "DISPLAY",           highlightText = "Scale" },
-    ["EMT_TargetedSpellBars"] = { module = "EllesmereUIMythicTimer",  page = "Targeted Spell Bars", sectionName = "TARGETED SPELL BARS", highlightText = "Enable Targeted Spell Bars" },
+    ["EMT_TargetedSpellBars"] = { module = "EllesmereUIMythicTimer",  page = "Targeted Spell Bars", sectionName = "CAST BARS", highlightText = "Enable Cast Bars" },
     ["EMT_TargetCastBar"]  = { module = "EllesmereUIMythicTimer",     page = "Target/Focus Bars", sectionName = "TARGET CAST BAR",   highlightText = "Enable Target Cast Bar" },
     ["EMT_FocusCastBar"]   = { module = "EllesmereUIMythicTimer",     page = "Target/Focus Bars", sectionName = "FOCUS CAST BAR",    highlightText = "Enable Focus Cast Bar" },
+    ["EMT_KickBars"]       = { module = "EllesmereUIMythicTimer",     page = "Kick Tracker",      sectionName = "BARS",              highlightText = "Show Bars" },
 
     -- Dragon Riding HUD (Blizz UI Enhanced > Dragon Riding page)
     ["EDR_Cluster"]        = { module = "EllesmereUIBlizzardSkin",    page = "Dragon Riding",     sectionName = "GENERAL",           highlightText = "Enable Skyriding Bar" },
@@ -719,8 +736,10 @@ UM.SELECT_ELEMENT_FADE = SELECT_ELEMENT_FADE
 ns.unlockParts.Anchors(UM)
 ns.unlockParts.Positions(UM)
 ns.unlockParts.Tools(UM)
+ns.unlockParts.PointPicker(UM)
 ns.unlockParts.Movers(UM)
 ns.unlockParts.Session(UM)
+ns.unlockParts.Filter(UM)
 local HideAllGuidesAndHighlight, DeselectMover = UM.HideAllGuidesAndHighlight, UM.DeselectMover
 local SortMoverFrameLevels, HideBlizzOwnedOverlays = UM.SortMoverFrameLevels, UM.HideBlizzOwnedOverlays
 
@@ -783,7 +802,8 @@ end
 -------------------------------------------------------------------------------
 local function SuspendForCombat()
     if not UM.isUnlocked then return end
-    combatSuspended = true
+    if UM.PointPicker.Active() then UM.CancelPickMode() end
+    UM.combatSuspended = true
     preCombatChanges = UM.hasChanges and true or false
     if EllesmereUI._HideFallbackGhosts then EllesmereUI._HideFallbackGhosts() end
     if EllesmereUI._HideOverrideGhosts then EllesmereUI._HideOverrideGhosts() end
@@ -847,9 +867,11 @@ local function SuspendForCombat()
 end
 
 local function ResumeAfterCombat()
-    if not combatSuspended then return end
-    combatSuspended = false
-    if InCombatLockdown() then return end  -- safety check
+    if not UM.combatSuspended then return end
+    -- A pull again inside the resume delay: stay suspended, so the end of that
+    -- combat resumes the session (its own PLAYER_REGEN_ENABLED calls this again).
+    if InCombatLockdown() then return end
+    UM.combatSuspended = false
 
     -- Nothing can be edited while the session is hidden: whatever moved during
     -- the fight (bars rebuilding, anchored elements following them) is not a

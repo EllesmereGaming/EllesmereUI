@@ -1,26 +1,28 @@
 ## Interface: 120000, 120001, 120005, 120007, 120100, 120105, 16001
 ## Title: |cff0cd29fEllesmereUI|r Simple Loot Council
-## Category: |cff0cd29fEllesmere|rUI
+## Category: Loot
 ## Group: EllesmereUI
 ## Notes: Lets a raid's loot council vote on item distribution over addon comms.
 ## Author: Laxx
 ## X-License: All Rights Reserved
-## Version: 9.6
-## X-SLC-Version: 0.43.34
-## X-SLC-Commit: ba4e88284814
-## X-SLC-Port-Commit: 4c3112901583
+## Version: 9.6.9
+## X-SLC-Version: 0.44.3
+## X-SLC-Commit: 4da62ba013dc
+## X-SLC-Port-Commit: 10202af4ab11
 ## Dependencies: EllesmereUI
 # Held back (EllesmereUI.HELD_BACK_ADDONS): load on demand, and nothing loads
 # it, so it never loads and its saved data stays untouched. Drop this to ship.
 ## LoadOnDemand: 1
-## SavedVariables: EllesmereUISimpleLootCouncilDB, SimpleLootCouncilDB
+## SavedVariables: EllesmereUISimpleLootCouncilDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 Edition.lua
 Core\Locale.lua
-Locale\shared.lua
-Locale\enUS.lua
+Locale.lua
+Core\Util.lua
 Core\Defaults.lua
+Core\SharedSaved.lua
+Core\Chat.lua
 Core\Log.lua
 Core\Config.lua
 Core\Callbacks.lua
@@ -37,14 +39,16 @@ Core\TestLoot.lua
 Core\Session.lua
 Core\BonusRoll.lua
 Core\SimC.lua
-Core\StartRequest.lua
 Core\Roll.lua
 Core\Storage.lua
 Core\Encounter.lua
 Core\Attendance.lua
+Core\WowauditFileOpen.lua
+Core\WowauditFileClose.lua
 Core\Wishlist.lua
 Core\Loot.lua
 Core\MasterLoot.lua
+Core\AutoStart.lua
 Core\Trade.lua
 Core\BagShare.lua
 Core\Announce.lua
@@ -53,7 +57,6 @@ Core\History.lua
 Core\HistorySnapshot.lua
 Core\HistoryImport.lua
 Core\Autopass.lua
-Core\BoERoute.lua
 Core\Specs.lua
 Core\RaidTeam.lua
 Core\Perf.lua
@@ -65,7 +68,6 @@ UI\Table.lua
 UI\VoterFrame.lua
 UI\MLFrame.lua
 UI\QueueFrame.lua
-UI\StartRequestFrame.lua
 UI\TradeQueueFrame.lua
 UI\HistoryFrame.lua
 UI\RaidTeamFrame.lua
@@ -74,7 +76,6 @@ UI\RaidPrompt.lua
 UI\VersionFrame.lua
 UI\ConfigShareFrame.lua
 UI\EUI\ColorPicker.lua
-UI\SessionPanel.lua
 UI\OptionsSchema.lua
 OptionsBridge.lua
 SimpleLootCouncil.lua

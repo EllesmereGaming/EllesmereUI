@@ -93,6 +93,8 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
 
     local hdr
     hdr, h = W:SectionHeader(parent, "CLASS RESOURCE BAR", y);  y = y - h
+    -- Move in Unlock Mode on the title; handed back so the page's preview eye sits after it.
+    local unlockJump = EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ERB_ClassResource", disabled = classOff, disabledTooltip = "Class Resource" })
 
     local _advTop = y  -- content top; also used by the Simple override overlay
     -- Guardian Ironfur + Prot Ignore Pain special bars stay global at runtime (stored on
@@ -474,7 +476,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                           local c = cfg(); if not c then return end
                           c.borderBehind = v == false and nil or v; RebuildClass(); EllesmereUI:RefreshPage()
                       end },
-                    -- Extend Top / Extend Bottom: the full-bar border only, which pip and
+                    -- Border extensions: the full-bar border only, which pip and
                     -- rune resources drop under Border on individual pips (bar types keep it).
                     { type = "slider", label = "Extend Top", min = 0, max = 50, step = 1,
                       tooltip = "Grows the border past the bar's top edge on screen without resizing the bar.",
@@ -493,6 +495,24 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                       set = function(v)
                           local c = cfg(); if not c then return end
                           c.borderExtendBottom = v; RebuildClass(); EllesmereUI:RefreshPage()
+                      end },
+                    { type = "slider", label = "Extend Left", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's left edge on screen without resizing the bar.",
+                      disabled = function() local c = cfg(); return (c and c.borderOnPips and not ns.IsBarTypeSecondary()) and true or false end,
+                      disabledTooltip = "This option can't be used while Border on individual pips is enabled.", rawTooltip = true,
+                      get = function() local c = cfg(); return c and c.borderExtendLeft or 0 end,
+                      set = function(v)
+                          local c = cfg(); if not c then return end
+                          c.borderExtendLeft = v; RebuildClass(); EllesmereUI:RefreshPage()
+                      end },
+                    { type = "slider", label = "Extend Right", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's right edge on screen without resizing the bar.",
+                      disabled = function() local c = cfg(); return (c and c.borderOnPips and not ns.IsBarTypeSecondary()) and true or false end,
+                      disabledTooltip = "This option can't be used while Border on individual pips is enabled.", rawTooltip = true,
+                      get = function() local c = cfg(); return c and c.borderExtendRight or 0 end,
+                      set = function(v)
+                          local c = cfg(); if not c then return end
+                          c.borderExtendRight = v; RebuildClass(); EllesmereUI:RefreshPage()
                       end },
                     -- Separators: None = off (edgeSep false); an art entry turns them on
                     -- with that art. The rows below pick its lines; Bar Spacing and the
@@ -865,7 +885,7 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                   local c = cfg()
                   return (c and c.resourceColored) and 1 or 0.3
               end },
-    }, { disabled = function() local c = cfg(); return (not c) or (not c.enabled) or c.darkTheme end,
+    }, { size = 20, disabled = function() local c = cfg(); return (not c) or (not c.enabled) or c.darkTheme end,
          disabledTooltip = function()
              local c = cfg()
              if c and c.darkTheme then return "This option requires Class Resource Bar Dark Mode to be off. Dark Mode colors can be adjusted in Global Settings -> Colors." end
@@ -1422,6 +1442,6 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
     ns.ERB_BlizzArtBlockRegions(artRegions)
 
     -- Header + row frames go back so the Simple page can wire its preview click-mappings (classSection/classEnableRow, and the Resource Text row for the count-text overlay).
-    return y, hdr, classEnableRow, classColorRow
+    return y, hdr, classEnableRow, classColorRow, unlockJump
 end
 --- [class resource end]

@@ -728,7 +728,7 @@ local function TileMythicTimer(parent, y, W, tile)
         return NoteRow(parent, y, EllesmereUI.Lf("Enable %1$s to edit its text settings.", EllesmereUI.L(tile.display)))
     end
     local function db() return _G._EMT_AceDB and _G._EMT_AceDB.profile end
-    local function MTApply() if _G._EMT_Apply then _G._EMT_Apply() end end
+    local function MTApply() if _G._EMT_ApplyTimer then _G._EMT_ApplyTimer() end end
     local function size(label, key, minV, maxV, def, fallbackKey)
         return { type = "slider", text = label, min = minV, max = maxV, step = 1,
             getValue = function()
@@ -758,6 +758,7 @@ local function TileMythicTimer(parent, y, W, tile)
     local function tsb() local p = db(); return p and p.tsb end
     local function tfbT() local p = db(); return p and p.tfb and p.tfb.target end
     local function tfbF() local p = db(); return p and p.tfb and p.tfb.focus end
+    local function kt() local p = db(); return p and p.kickTracker end
     local fontValues, fontOrder = EllesmereUI.BuildFontDropdownData()
     _, h = W:DualRow(parent, y, ModuleOutlineCfg(tile.folder, tile.display),
         { type = "dropdown", text = "Timer Font",
@@ -785,10 +786,10 @@ local function TileMythicTimer(parent, y, W, tile)
         size("+1 Threshold Text Size", "thresholdPlusOneSize", 6, 20, 12, "thresholdSize"),
         size("Enemy Forces Text Size", "enemyForcesTextSize", 8, 24, 12, "objectivesSize"));  y = y - h
     _, h = W:DualRow(parent, y,
-        subSize("Targeted Bars Name Size", tsb, 6, 20, 10, "nameSize", "TSB_Refresh"),
-        subSize("Targeted Bars Timer Size", tsb, 6, 20, 10, "timerSize", "TSB_Refresh"));  y = y - h
+        subSize("Cast Bars Name Size", tsb, 6, 20, 10, "nameSize", "TSB_Refresh"),
+        subSize("Cast Bars Timer Size", tsb, 6, 20, 10, "timerSize", "TSB_Refresh"));  y = y - h
     _, h = W:DualRow(parent, y,
-        subSize("Targeted Bars Target Size", tsb, 6, 20, 10, "targetSize", "TSB_Refresh"),
+        subSize("Cast Bars Target Size", tsb, 6, 20, 10, "targetSize", "TSB_Refresh"),
         subSize("Target Cast Bar Name Size", tfbT, 6, 22, 11, "nameSize", "TFB_Refresh"));  y = y - h
     _, h = W:DualRow(parent, y,
         subSize("Target Cast Bar Timer Size", tfbT, 6, 22, 11, "timerSize", "TFB_Refresh"),
@@ -797,7 +798,11 @@ local function TileMythicTimer(parent, y, W, tile)
         subSize("Focus Cast Bar Name Size", tfbF, 6, 22, 11, "nameSize", "TFB_Refresh"),
         subSize("Focus Cast Bar Timer Size", tfbF, 6, 22, 11, "timerSize", "TFB_Refresh"));  y = y - h
     _, h = W:DualRow(parent, y,
-        subSize("Focus Cast Bar Target Size", tfbF, 6, 20, 10, "targetSize", "TFB_Refresh"), BLANK());  y = y - h
+        subSize("Focus Cast Bar Target Size", tfbF, 6, 20, 10, "targetSize", "TFB_Refresh"),
+        subSize("Kick Tracker Timer Size", kt, 6, 24, 11, "timerSize", "KT_Refresh"));  y = y - h
+    _, h = W:DualRow(parent, y,
+        subSize("Kick Tracker Bar Name Size", kt, 6, 24, 11, "barNameSize", "KT_Refresh"),
+        subSize("Kick Tracker Bar Timer Size", kt, 6, 24, 11, "barTimerSize", "KT_Refresh"));  y = y - h
     return y
 end
 
@@ -1133,6 +1138,7 @@ local TILE_BUILDERS = {
     EllesmereUIBags              = { TileBags,             "Item count, item level, category and label text" },
     EllesmereUIDataBars          = { TileDataBars,         "Per-bar text scale" },
     EllesmereUIQuickdraw         = { TileFontOnly,         "Font face and outline only" },
+    EllesmereUISimpleLootCouncil = { TileFontOnly,         "Font face and outline only" },
 }
 
 local function BuildTileList()
@@ -1221,6 +1227,10 @@ end
 do
     local origNav = EllesmereUI.NavigateToElementSettings
     function EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName, preSelectFn, highlightText)
+        -- The original refuses in combat: no page state changes then.
+        if InCombatLockdown() then
+            return origNav(self, moduleName, pageName, sectionName, preSelectFn, highlightText)
+        end
         if moduleName == GLOBAL_KEY and pageName == PAGE_FONTS and (sectionName or highlightText) then
             local changed = false
             for _, tile in ipairs(BuildTileList()) do
@@ -1309,7 +1319,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
         -- glyph-restricted branch above skips it (its "System Default" entry
         -- already is the client's own font).
         fontDropValues[EllesmereUI.BLIZZARD_FONT_KEY] = { text = "Blizzard Default",
-            font = _G.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF" }
+            font = EllesmereUI.GetBlizzardFontPath() }
         fontDropOrder[#fontDropOrder + 1] = EllesmereUI.BLIZZARD_FONT_KEY
         fontDropOrder[#fontDropOrder + 1] = "---"
         local FONT_DIR_GLOBAL = EllesmereUI.MEDIA_PATH .. "fonts\\"
@@ -1410,7 +1420,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
             { key = "actionBars", label = "Action Bars Icons" },
             { key = "unitFrames", label = "Unit Frames Icons" },
             { key = "cdm",        label = "CDM Icons" },
-            { key = "raidFrames", label = "Raid Frames Icons" },
+            { key = "raidFrames", label = "Raid & Party Frames Icons" },
             { key = "bags",       label = "Bags Icons" },
         }
         local rgn = oitRow._leftRegion

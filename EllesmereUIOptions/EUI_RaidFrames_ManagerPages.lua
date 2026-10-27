@@ -1,4 +1,4 @@
-﻿if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
+if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -- EUI_RaidFrames_ManagerPages.lua
 -- 12.1 redesigned manager options: the Debuff Manager page (sidebar of
 -- tiles with the undeletable Base Icons tile first) plus the Buff Manager v2
@@ -29,7 +29,7 @@ local POS_ORDER = EllesmereUI.POSITION_GRID_ORDER
 local GROW_VALUES = EllesmereUI.GROW_DIR_VALUES_FULL
 local GROW_ORDER = EllesmereUI.GROW_DIR_ORDER_FULL
 
-local CAT_VALUES = { boss = "Boss", role = "Role", priority = "Important",
+local CAT_VALUES = { boss = "Boss", role = "Boss Role", priority = "Important",
     cc = "Crowd Control", raid = "Raid", raidcombat = "Raid In Combat", dispel = "Dispellable",
     nonplayer = "Non-Player" }
 local CAT_ORDER = { "nonplayer", "priority", "boss", "role", "cc", "raid", "raidcombat", "dispel" }
@@ -74,6 +74,81 @@ local dmSpecSel = "allspecs"
 local dmInhSel = nil
 
 local function L(s) return EllesmereUI.L(s) or s end
+
+-- The managers share the unit-frame aura border controls and size/offset helpers.
+function ns.RFO_AuraBorderSettings(parent, y, W, get, set, apply, disabled, dispel)
+    local function Val(k, fallback)
+        local v = get(k); if v ~= nil then return v end; return fallback
+    end
+    local values, order = EllesmereUI.GetBorderTextureDropdown()
+    local row, h = W:DualRow(parent, y,
+        { type="dropdown", text="Border Style", values=values, order=order,
+          disabled=disabled, disabledTooltip="Hide Icons", requireState="disabled",
+          getValue=function() return Val("Texture", "solid") end,
+          setValue=function(v)
+              local color = EllesmereUI.GetBorderStyleSelectDefaults(v)
+              set("Texture", v)
+              set("TextureOffset", nil); set("TextureOffsetY", nil)
+              set("TextureShiftX", nil); set("TextureShiftY", nil)
+              set("Color", color)
+              local size = EllesmereUI.GetBorderDefaultSize("unitframes", v)
+              if size then set("Size", size) end
+              set("SizePx", false)
+              apply(); EllesmereUI:RefreshPage(true)
+          end },
+        EllesmereUI.BorderPxSliderCfg({ trackWidth=120,
+          disabled=disabled, disabledTooltip="Hide Icons", requireState="disabled",
+          getStep=function() return Val("Size", 1) end,
+          setStep=function(v) set("Size", v) end,
+          getTex=function() return Val("Texture", "solid") end,
+          getPx=function() return get("SizePx") end,
+          setPx=function(v) set("SizePx", v) end, apply=apply })); y = y - h
+    if not EllesmereUI._prebuilding then
+        local rgn = row._rightRegion
+        local swatch, refresh = EllesmereUI.BuildColorSwatch(rgn, row:GetFrameLevel() + 3,
+            function()
+                local c = Val("Color", {})
+                return c.r or 0, c.g or 0, c.b or 0, c.a or 1
+            end,
+            function(r, g, b, a) set("Color", { r=r, g=g, b=b, a=a }); apply() end, true, 20)
+        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = swatch
+        EllesmereUI.RegisterWidgetRefresh(refresh)
+    end
+    local tex = Val("Texture", "solid")
+    if tex ~= "solid" and tex ~= "" and not EllesmereUI._prebuilding then
+        local rows = {}
+        for i, axis in ipairs({ "X", "Y" }) do
+            rows[#rows + 1] = { type="slider", label="Shift " .. axis, min=-10, max=10, step=1,
+                get=function()
+                    local v = get("TextureShift" .. axis); if v ~= nil then return v end
+                    local _, _, sx, sy = EllesmereUI.GetBorderDefaults("unitframes", Val("Texture", "solid"), Val("Size", 1))
+                    return i == 1 and sx or sy
+                end,
+                set=function(v) set("TextureShift" .. axis, v); apply() end }
+        end
+        local offX, offY = EllesmereUI.BorderOffsetCogRows({ addonKey="unitframes",
+            getTex=function() return Val("Texture", "solid") end,
+            getStep=function() return Val("Size", 1) end,
+            getSizeKey=function() return Val("Size", 1) end,
+            getPx=function() return get("SizePx") end,
+            getX=function() return get("TextureOffset") end,
+            setX=function(v) set("TextureOffset", v) end,
+            getY=function() return get("TextureOffsetY") end,
+            setY=function(v) set("TextureOffsetY", v) end, apply=apply })
+        rows[#rows + 1] = offX
+        rows[#rows + 1] = offY
+        if dispel then
+            rows[#rows + 1] = { type="toggle", label="Textured Dispel Ring",
+                get=function() return Val("DispelTextured", false) end,
+                set=function(v) set("DispelTextured", v); apply() end }
+        end
+        EllesmereUI.BuildInlineCog(row._leftRegion, { icon=EllesmereUI.DIRECTIONS_ICON,
+            title="Border Options", rows=rows, disabled=disabled,
+            disabledTooltip="Hide Icons", requireState="disabled" })
+    end
+    return y
+end
 
 -- Stable random preview swipe seeds (fraction remaining, 0.2-0.9), keyed by preview
 -- slot index -- generated once and reused so refreshes never reshuffle the frozen swipe
@@ -187,8 +262,8 @@ local TILE_FILTER_ITEMS = {
       tooltip = "Loss-of-control debuffs." },
     { key = "boss", label = "Boss Debuffs",
       tooltip = "Debuffs applied by boss encounters." },
-    { key = "role", label = "Role Debuffs",
-      tooltip = "Debuffs flagged as relevant to your role." },
+    { key = "role", label = "Boss Role Debuffs",
+      tooltip = "Debuffs from enemies that Blizzard labels as relevant to your role." },
     { key = "raid", label = "Raid",
       tooltip = "Blizzard's curated raid-frame debuff set." },
     { key = "raidcombat", label = "Raid In Combat",
@@ -256,8 +331,8 @@ local TILE_LANE_ITEMS = {
       tooltip = "Loss-of-control debuffs." },
     { key = "boss", label = "Boss Debuffs", dual = true,
       tooltip = "Debuffs applied by boss encounters." },
-    { key = "role", label = "Role Debuffs", dual = true,
-      tooltip = "Debuffs flagged as relevant to your role." },
+    { key = "role", label = "Boss Role Debuffs", dual = true,
+      tooltip = "Debuffs from enemies that Blizzard labels as relevant to your role." },
     { key = "raid", label = "Raid", dual = true,
       tooltip = "Blizzard's curated raid-frame debuff set." },
     { key = "raidcombat", label = "Raid In Combat", dual = true,
@@ -661,8 +736,8 @@ local function BuildBaseDetailDM(frame, fontPath)
               tooltip = "Loss-of-control debuffs. When shown, these lead the row and carry the CC glow." },
             { key = "boss", label = "Boss Debuffs", dual = true, showLockedFn = AllOn,
               tooltip = "Debuffs applied by boss encounters." },
-            { key = "role", label = "Role Debuffs", dual = true, showLockedFn = AllOn,
-              tooltip = "Debuffs flagged as relevant to your role." },
+            { key = "role", label = "Boss Role Debuffs", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs from enemies that Blizzard labels as relevant to your role." },
             { key = "raid", label = "Raid", dual = true, showLockedFn = AllOn,
               tooltip = "Blizzard's curated raid-frame debuff set." },
             { key = "raidcombat", label = "Raid In Combat", dual = true, showLockedFn = AllOn,
@@ -902,7 +977,7 @@ local function BuildBaseDetailDM(frame, fontPath)
         })
     end
 
-    -- Row: Icons Per Row (end of CORE). The key predates this UI (its row
+    -- Row: Icons Per Row | Spacing. The key predates this UI (its row
     -- died with the Auras tab): >= 2 wraps -- rows for horizontal growth,
     -- COLUMNS for vertical (12.1 flow axis) -- with the stored
     -- debuffWrapDirection convention deciding the stack side.
@@ -911,7 +986,9 @@ local function BuildBaseDetailDM(frame, fontPath)
           tooltip = "Wraps into a new row (or column for vertical growth) after this many icons; below 2 keeps one continuous run.",
           getValue = function() return p.debuffPerRow or 5 end,
           setValue = function(v) p.debuffPerRow = v; DmApply() end },
-        { type = "label", text = "" }); sy = sy - hh
+        { type = "slider", pixel = true, text = "Spacing", min = -1, max = 10, step = 1, trackWidth = 120,
+          getValue = function() return p.debuffSpacing or 1 end,
+          setValue = function(v) p.debuffSpacing = v; DmApply() end }); sy = sy - hh
 
     -- Display: the legacy debuff style keys (retired Auras tab), which the
     -- base grid and icon tiles read directly. CC glow settings are
@@ -919,29 +996,9 @@ local function BuildBaseDetailDM(frame, fontPath)
     -- sync from these keys unless an old party override exists.
     _, hh = W:SectionHeader(frame, "DISPLAY", sy); sy = sy - hh
 
-    -- Row: Border (+ swatch) | Spacing
-    local bRow
-    bRow, hh = W:DualRow(frame, sy,
-        { type = "slider", text = "Border", min = 0, max = 4, step = 1, trackWidth = 120,
-          getValue = function() return p.debuffBorderSize or 1 end,
-          setValue = function(v) p.debuffBorderSize = v; DmApply() end },
-        { type = "slider", pixel = true, text = "Spacing", min = -1, max = 10, step = 1, trackWidth = 120,
-          getValue = function() return p.debuffSpacing or 1 end,
-          setValue = function(v) p.debuffSpacing = v; DmApply() end }); sy = sy - hh
-    do
-        local rgn = bRow._leftRegion
-        local swatch = EllesmereUI.BuildColorSwatch(rgn, bRow:GetFrameLevel() + 3,
-            function()
-                local c = p.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                return c.r or 0, c.g or 0, c.b or 0, 1
-            end,
-            function(r, g, b)
-                p.debuffBorderColor = { r = r, g = g, b = b }
-                DmApply()
-            end, false, 20)
-        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-    end
+    sy = ns.RFO_AuraBorderSettings(frame, sy, W,
+        function(k) return p["debuffBorder" .. k] end,
+        function(k, v) p["debuffBorder" .. k] = v end, DmApply, nil, true)
 
     -- Row: Show Duration Text (+ swatch + cog) | Show Stacks (+ swatch + cog)
     local dtRow
@@ -1092,9 +1149,9 @@ local function BuildTileDetail(frame, fontPath, t)
         -- (nil = inherit; getters show the effective value).
         local p = DmProfile() or {}
         local dm = DmTable() or {}
-        local PP = EllesmereUI.PP or EllesmereUI.PanelPP
         local function TEff(key, baseKey, default)
             local v = t[key]
+            if key == "borderSizePx" and v == nil and (t.borderSize ~= nil or t.borderTexture ~= nil) then return false end
             if v == nil then v = p[baseKey] end
             if v == nil then v = default end
             return v
@@ -1174,7 +1231,7 @@ local function BuildTileDetail(frame, fontPath, t)
             })
         end
 
-        -- Row: Icons Per Row (end of CORE). Tile-local key, no base
+        -- Row: Icons Per Row | Spacing. Tile-local key, no base
         -- inheritance: >= 2 wraps the tile's run -- rows for horizontal
         -- growth, COLUMNS for vertical -- stacking away from the anchored
         -- edge (position rule).
@@ -1183,33 +1240,15 @@ local function BuildTileDetail(frame, fontPath, t)
               tooltip = "Wraps into a new row (or column for vertical growth) after this many icons; below 2 keeps one continuous run.",
               getValue = function() return t.iconsPerRow or 0 end,
               setValue = function(v) TSet("iconsPerRow", v) end },
-            { type = "label", text = "" }); sy = sy - hh
-
-        _, hh = W:SectionHeader(frame, "DISPLAY", sy); sy = sy - hh
-
-        -- Row: Border (+ swatch) | Spacing
-        local bRow
-        bRow, hh = W:DualRow(frame, sy,
-            { type = "slider", text = "Border", min = 0, max = 4, step = 1, trackWidth = 120,
-              getValue = function() return TEff("borderSize", "debuffBorderSize", 1) end,
-              setValue = function(v) TSet("borderSize", v) end },
             { type = "slider", pixel = true, text = "Spacing", min = -1, max = 10, step = 1, trackWidth = 120,
               getValue = function() return t.spacing or 1 end,
               setValue = function(v) TSet("spacing", v) end }); sy = sy - hh
-        do
-            local rgn = bRow._leftRegion
-            local swatch = EllesmereUI.BuildColorSwatch(rgn, bRow:GetFrameLevel() + 3,
-                function()
-                    local c = t.borderColor or p.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                    return c.r or 0, c.g or 0, c.b or 0, 1
-                end,
-                function(r, g, b)
-                    t.borderColor = { r = r, g = g, b = b }
-                    DmApply()
-                end, false, 20)
-            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = swatch
-        end
+
+        _, hh = W:SectionHeader(frame, "DISPLAY", sy); sy = sy - hh
+
+        sy = ns.RFO_AuraBorderSettings(frame, sy, W,
+            function(k) return TEff("border" .. k, "debuffBorder" .. k) end,
+            function(k, v) t["border" .. k] = v end, DmApply, nil, true)
 
         -- Row: Show Duration Text (+ swatch + cog) | Show Stacks (+ swatch + cog)
         local dtRow
@@ -1568,8 +1607,12 @@ end
 function ns.DMP_RefreshPreview()
     local pv = ns._dmPreviewFrame
     if not (pv and pv._health and pv:IsShown()) then return end
-    local p = DmProfile()
+    -- Party style: the replica's party view (scaled base grid, kit keys).
+    local p = pv._bmPvS or DmProfile()
     if not p then return end
+    -- Tile icon sizes live in dmDebuff, outside the proxy's scaled keys: live
+    -- party frames scale them by the party indicator scale, so does this.
+    local tileScale = pv._bmPvS and (ns._partyIndicatorScale or 1) or 1
     local PP = EllesmereUI.PanelPP or EllesmereUI.PP
     local fontPath = pv._dmFontPath
         or (EllesmereUI.GetFontPath("raidFrames"))
@@ -1768,16 +1811,7 @@ function ns.DMP_RefreshPreview()
                 fr._tex:SetTexCoord(z, 1 - z, z, 1 - z)
             end
             fr:SetAlpha(cfg.alpha)
-            if fr._borderFrame and PP then
-                local bsz = sv.debuffBorderSize or 1
-                if bsz > 0 then
-                    local bc = sv.debuffBorderColor or { r = 0, g = 0, b = 0 }
-                    PP.UpdateBorder(fr._borderFrame, bsz, bc.r or 0, bc.g or 0, bc.b or 0, 1)
-                    fr._borderFrame:Show()
-                else
-                    fr._borderFrame:Hide()
-                end
-            end
+            ns.RFC_PreviewAuraBorder(fr, fr._borderFrame, sv, "debuffBorder")
             local cd = fr._cooldown
             if cd then
                 local wantSwipe = sv.debuffShowSwipe ~= false
@@ -1896,7 +1930,7 @@ function ns.DMP_RefreshPreview()
                     -- Tile Display values: the tile's own keys over the base (nil = inherit).
                     sv = (ns.DM_TileStyleView and ns.DM_TileStyleView(p, t)) or p,
                     count = math.min(t.cap or 3, (sel or allVis) and 4 or 2),
-                    size = t.size or 18,
+                    size = (t.size or 18) * tileScale,
                     spacing = t.spacing or 1,
                     pos = t.position or "top",
                     grow = t.growDirection or "CENTER",
@@ -2553,6 +2587,9 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         tileY = tileY - ADD_BTN_PAD - ADD_BTN_H - ADD_BTN_PAD
     end
 
+    -- Override list (BM parity; builder lives in the Buff Manager file).
+    tileY = ns.BM_BuildOverrideList(sidebarChild, tileY, sidebarW, fontPath, "dm")
+
     sidebarChild:SetHeight(max(10, math.abs(tileY)))
 
     -------------------------------------------------------------------
@@ -2572,16 +2609,12 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
     -- Preview: the shared health-bar replica in replica-only mode; the DM
     -- renderer draws the base grid + tiles on it. Centered in the LEFT 65%
     -- (the Editing Spec section owns the right 35%).
-    local pvFrame, sectionH = ns.BM_BuildSimplePreview(leftFixed, p, fontPath, PP, pvSplitW / 2, -PAD)
+    local ovRaid, ovParty = ns.BM_PreviewOverrideTips("dm")
+    local pvFrame, sectionH, PV_SCALE = ns.BM_BuildSimplePreview(leftFixed, p, fontPath, PP, pvSplitW / 2, -PAD,
+        { party = ns.BM_PreviewIsParty(), styleToggle = true, kitAuras = "debuffs",
+          overrideTips = { raid = ovRaid, party = ovParty } })
     ns._dmPreviewFrame = pvFrame
     pvFrame._dmFontPath = fontPath
-
-    -- Matches the replica builder's scale math (for the eyeball offset).
-    local PV_SCALE = 1.5
-    do
-        local rawH = p.frameHeight or 46
-        if rawH * PV_SCALE > 100 then PV_SCALE = 100 / rawH end
-    end
 
     -- Eyeball toggle: show all tiles at full opacity (BM parity)
     do
@@ -3702,7 +3735,13 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
         setValue = function(v)
             if v == "raid" or v == "party" then ind.showIn = v else ind.showIn = nil end
             if ns.BM2_Invalidate then ns.BM2_Invalidate() end
-            if ns.ReloadFrames then ns.ReloadFrames() end
+            -- Frames and preview: the preview shows the indicator only on the
+            -- side of its Raid / Party switch that renders it.
+            if ns._bmReloadAndUpdate then
+                ns._bmReloadAndUpdate()
+            elseif ns.ReloadFrames then
+                ns.ReloadFrames()
+            end
         end }
 
     -- CUSTOM ORDER (icon/square indicators, beside Show In): opt-in fixed

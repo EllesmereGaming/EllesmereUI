@@ -1,8 +1,10 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
 local addon = SimpleLootCouncil
+local T = addon.Locale.Text
 
 local ConfigShare = {}
 addon.ConfigShare = ConfigShare
@@ -59,7 +61,7 @@ local function ResponsesPart()
     local out = {}
     for index, entry in ipairs(addon.db.responses or {}) do
         out[index] = {
-            id = entry.id, t = entry.text, w = entry.whisper,
+            id = entry.id, t = entry.text,
             r = entry.r, g = entry.g, b = entry.b,
         }
     end
@@ -158,7 +160,7 @@ local function ParseResponses(part)
         local r, g, b = text and Channel(entry.r), text and Channel(entry.g), text and Channel(entry.b)
         if text and r and g and b then
             out[#out + 1] = {
-                id = Text(entry.id), text = text, whisper = Text(entry.w),
+                id = Text(entry.id), text = text,
                 r = r, g = g, b = b,
             }
         end
@@ -183,8 +185,12 @@ function ConfigShare.Parse(args, sender)
 
 
     local record = addon.Player:Get(sender)
-    local inGroup = IsInGroup() and record.fullName and addon.GetCandidates()[record.fullName]
-    if inGroup and not addon.IsMasterLooter(sender) then return nil, "not_loot_master" end
+    if IsInGroup() then
+        local member = record.fullName and addon.GetCandidates()[record.fullName]
+            or addon.Roster and addon.Roster.IsMember and addon.Roster:IsMember(sender)
+        if not member then return nil, "outside_group" end
+        if not addon.IsMasterLooter(sender) then return nil, "not_loot_master" end
+    end
 
     local council = args.c ~= nil and ParseCouncil(args.c) or nil
     local responses = args.rs ~= nil and ParseResponses(args.rs) or nil
@@ -209,6 +215,19 @@ local function OnOffer(args, sender)
     local offer, why = ConfigShare.Parse(args, sender)
     if not offer then
         addon.Log:D("ConfigShare", "offer from", tostring(sender), "ignored -", why)
+        return
+    end
+    local current = pending
+    if current and not addon.Player:IsSame(current.from, offer.from) then
+        addon.Log:I("ConfigShare", "offer from", offer.from, "refused - the offer from",
+            current.from, "is still open")
+        current.refused = current.refused or {}
+        if not current.refused[offer.from] then
+            current.refused[offer.from] = true
+            addon.Chat.Print(addon.Locale.Format(
+                T["%s also sent you their config. Accept or decline the open offer from %s first, then ask them to send it again."],
+                Ambiguate(offer.from, "none"), Ambiguate(current.from, "none")))
+        end
         return
     end
     addon.Log:I("ConfigShare", "offer from", offer.from, "council",
@@ -263,7 +282,7 @@ local function ApplyResponses(list)
     for index, entry in ipairs(list) do
         out[index] = {
             id = entry.id or ("CUSTOM" .. index), text = entry.text,
-            whisper = entry.whisper, r = entry.r, g = entry.g, b = entry.b,
+            r = entry.r, g = entry.g, b = entry.b,
             sort = index,
         }
     end

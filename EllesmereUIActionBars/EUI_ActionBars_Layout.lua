@@ -668,7 +668,7 @@ local function LayoutBar(key)
                 if grow ~= "CENTER" then
                     local adb = EllesmereUIDB and EllesmereUIDB.unlockAnchors
                     local ai = adb and adb[key]
-                    if ai then
+                    if ai and ai.mode ~= "POINT" then
                         local side = ai.side
                         local PPo = EllesmereUI and EllesmereUI.PP
                         local uiES = PPo and UIParent:GetEffectiveScale()
@@ -716,6 +716,8 @@ local function LayoutBar(key)
             end
         end
     end
+
+    if EllesmereUI.IsPointAnchored(key) then EllesmereUI.ReapplyOwnAnchor(key) end
 
     -- flyoutDirection per button from orientation + live screen position: split
     -- each axis into thirds and open away from the nearest screen edge.

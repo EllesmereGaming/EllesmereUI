@@ -201,19 +201,29 @@ do
     ns.Engine.SetPainter("absorb", PaintAbsorb)
 end
 
--- Global Dark Mode master: exposes darkTheme so the parent addon's master toggle can
--- flip it with other modules. setOn mirrors the individual toggle (write flag + reload).
-EllesmereUI.RegisterDarkModeToggle({
-    id = "unitFrames",
-    isOn = function()
-        return (db and db.profile and db.profile.darkTheme) or false
-    end,
-    setOn = function(on)
-        if not (db and db.profile) then return end
-        db.profile.darkTheme = on
-        if ns.ReloadFrames then ns.ReloadFrames() end
-    end,
-})
+-- The global master reads and sets every frame's effective Dark Mode choice.
+do
+    local UNITS = { "player", "target", "focus", "targettarget", "focustarget", "pet", "boss" }
+    EllesmereUI.RegisterDarkModeToggle({
+        id = "unitFrames",
+        isOn = function()
+            if not (db and db.profile) then return false end
+            for _, key in ipairs(UNITS) do
+                if not ns.UF_DarkThemeOn(db.profile[key]) then return false end
+            end
+            return true
+        end,
+        setOn = function(on)
+            if not (db and db.profile) then return end
+            db.profile.darkTheme = on
+            for _, key in ipairs(UNITS) do
+                local s = db.profile[key]
+                if s then s.darkTheme = on end
+            end
+            if ns.ReloadFrames then ns.ReloadFrames() end
+        end,
+    })
+end
 
 -- Smart power text: percent for healers/prot pally/arcane mage, numeric for the rest.
 -- Shared by the oUF tag and the resource bars renderer. `displayedPowerType` (optional
@@ -475,7 +485,15 @@ function EllesmereUI.GetPlayerPowerOverride()
         or (C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo(spec))
         or nil
     local ov = db.profile.player and db.profile.player.powerTypeOverride
-    if sid and ov and ov[sid] and classAlt then
+    local choice = sid and ov and ov[sid]
+    if choice == "astral" then
+        -- Balance "Astral Power (Except Cat & Bear)", saved only under its spec
+        -- ID: Cat and Bear Form (form IDs 1 and 5) keep their own power, every
+        -- other form shows Astral Power.
+        local f = GetShapeshiftFormID()
+        if f ~= 1 and f ~= 5 then return Enum.PowerType.LunarPower end
+        return nil
+    elseif choice and classAlt then
         return classAlt[spec]
     elseif classDef and classDef[spec] ~= nil then
         return classDef[spec]
@@ -883,6 +901,27 @@ do
         local pType = _G._EUI_ResolvedPowerType[u] or UnitPowerType(u)
         return AbbreviateNumbers(UnitPowerMax(u, pType))
     end
+    -- Full numbers for the custom text tags ([hp], [hp:max], [pp], [pp:max]).
+    -- %d formats a secret value like P.perpp does; [hp] names the status as
+    -- curhpshort does.
+    P.curhp = function(u)
+        if not u or not UnitExists(u) then return "" end
+        if not UnitIsConnected(u) then return "OFFLINE" end
+        if UnitIsDeadOrGhost(u) then return "DEAD" end
+        return sf("%d", UnitHealth(u) or 0)
+    end
+    P.maxhp = function(u)
+        if not u or not UnitExists(u) then return "" end
+        return sf("%d", UnitHealthMax(u) or 0)
+    end
+    P.curppfull = function(u)
+        local pType = _G._EUI_ResolvedPowerType[u] or UnitPowerType(u)
+        return sf("%d", UnitPower(u, pType))
+    end
+    P.maxppfull = function(u)
+        local pType = _G._EUI_ResolvedPowerType[u] or UnitPowerType(u)
+        return sf("%d", UnitPowerMax(u, pType))
+    end
     P.absorb = function(u)
         if not u or not UnitExists(u) then return "" end
         return sf("%s", C_StringUtil.TruncateWhenZero(UnitGetTotalAbsorbs(u) or 0))
@@ -1004,16 +1043,50 @@ do
     -- the WoW Forever name twins) makes its zone repaint on every value event.
     local PIECE_READS = {
         [P.perhp] = "hp", [P.perhpnosign] = "hp", [P.curhpshort] = "hp",
-        [P.healthshort] = "hp", [P.maxhpshort] = "hp",
-        [P.perpp] = "pp", [P.curpp] = "pp", [P.maxpp] = "pp",
+        [P.healthshort] = "hp", [P.maxhpshort] = "hp", [P.curhp] = "hp", [P.maxhp] = "hp",
+        [P.perpp] = "pp", [P.curpp] = "pp", [P.maxpp] = "pp", [P.curppfull] = "pp", [P.maxppfull] = "pp",
         [P.absorb] = "abs", [P.absorbshort] = "abs",
         [P.healabsorb] = "habs", [P.healabsorbshort] = "habs",
         [P.name] = "id", [P.level] = "id", [P.levelcol] = "id", [P.levelcolall] = "id",
     }
 
+    -- Custom content: the slot's own format string (<prefix>CustomFormat),
+    -- parsed by EllesmereUI.TextTags against this binding of the unit schema.
+    -- Options, preview and the width estimate read the same catalog.
+    local TAG_CATALOG = EllesmereUI.TextTags.Bind(EllesmereUI.TextTags.UNIT, {
+        ["hp"] = P.curhp, ["hp:abr"] = P.curhpshort, ["hp:max"] = P.maxhp,
+        ["hp:max:abr"] = P.maxhpshort, ["hp:pct"] = P.perhp,
+        ["pp"] = P.curppfull, ["pp:abr"] = P.curpp, ["pp:max"] = P.maxppfull,
+        ["pp:max:abr"] = P.maxpp, ["pp:pct"] = P.perpp,
+        ["absorb"] = P.absorb, ["absorb:abr"] = P.absorbshort,
+        ["healabsorb"] = P.healabsorb, ["healabsorb:abr"] = P.healabsorbshort,
+        ["name"] = P.name, ["target"] = P.tgtname, ["level"] = P.level, ["group"] = P.group,
+    })
+    ns.UF_TextTags = TAG_CATALOG
+
     --- Resolves a content key to (fmt, piecesArray, static) for a zone, or nil
     --- for "none"/unknown. nametotarget builds its settings-closure separator.
     function ns.ContentToZone(content, prefix, settings)
+        if content == "custom" then
+            local parsed = EllesmereUI.TextTags.Parse(TAG_CATALOG, settings and settings[prefix .. "CustomFormat"])
+            if not parsed then return nil end
+            local keys, map, pieces = parsed.keys, TAG_CATALOG.map, {}
+            local lvlCol = settings.levelDifficultyColor
+            for i = 1, #keys do
+                local key = keys[i]
+                if key == "level" and lvlCol then
+                    pieces[i] = settings.levelDifficultyColorFriendly and P.levelcolall or P.levelcol
+                else
+                    pieces[i] = map[key]
+                end
+            end
+            -- Static (identity repaints only) unless a tag reads a value.
+            local static = true
+            for cls in pairs(parsed.reads) do
+                if cls ~= "id" then static = nil; break end
+            end
+            return parsed.fmt, pieces, static
+        end
         if content == "nametotarget" then
             return "%s%s%s%s", { P.name, ns.MakeTgtSepPiece(prefix, settings), P.tgtcol, P.tgtname }
         end

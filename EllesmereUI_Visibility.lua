@@ -275,9 +275,6 @@ end
 _G._EBS_InCombat         = IsInCombat
 _G._EBS_EvalVisibility   = EvalVisibility
 _G._EBS_UpdateVisibility = RequestVisibilityUpdate
--- UpdateVisEventRegistration is a no-op now -- the events are always on,
--- but the overhead is trivial (a handful of rarely-firing events).
-_G._EBS_UpdateVisEventRegistration = function() end
 
 -------------------------------------------------------------------------------
 --  Multi-Select Visibility Engine

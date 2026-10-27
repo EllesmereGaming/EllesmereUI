@@ -766,16 +766,16 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             local info = C_PlayerInfo.GetPlayerMythicPlusRatingSummary(unit)
             local score = info and info.currentSeasonScore
             if score and not (_isSecret and _isSecret(score)) and score > 0
-                and not _tipHasLine(tt, "M+ Score") then
+                and not _tipHasLine(tt, EllesmereUI.L("M+ Score:")) then
                 local sColor = C_ChallengeMode and C_ChallengeMode.GetDungeonScoreRarityColor
                     and C_ChallengeMode.GetDungeonScoreRarityColor(score)
                 local r, g, b = 1, 1, 1
                 if sColor then r, g, b = sColor.r, sColor.g, sColor.b end
-                tt:AddDoubleLine("M+ Score:", score, 1, 1, 1, r, g, b)
+                tt:AddDoubleLine(EllesmereUI.L("M+ Score:"), score, 1, 1, 1, r, g, b)
             end
         end
         -- Mount name from the live helpful aura MountJournal recognizes. Opt-in (default off); per-GUID cached so refresh ticks on an unmounted player never re-walk the aura list.
-        if unit and guid and db and db.tooltipShowMount and not _tipHasLine(tt, "Mount:") then
+        if unit and guid and db and db.tooltipShowMount and not _tipHasLine(tt, EllesmereUI.L("Mount:")) then
             local mountName, mountCollected
             local cached = _mountCache[guid]
             local now = GetTime()
@@ -806,7 +806,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
                 elseif mountCollected == false then
                     valText = mountName .. " |TInterface\\RaidFrame\\ReadyCheck-NotReady:0|t"
                 end
-                tt:AddDoubleLine("Mount:", valText, 1, 1, 1, 1, 1, 1)
+                tt:AddDoubleLine(EllesmereUI.L("Mount:"), valText, 1, 1, 1, 1, 1, 1)
             end
         end
         _ttShowBuffs(guid, unit)
@@ -1546,7 +1546,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             if not popup then return end
 
             if not timerBar then
-                local timerParent = GetFFD(popup).bgFrame or dialog or popup
+                local timerParent = GetFFD(popup).bgFrame or popup
                 timerBar = CreateFrame("StatusBar", nil, timerParent)
                 timerBar:SetMinMaxValues(0, TIMER_DURATION)
 

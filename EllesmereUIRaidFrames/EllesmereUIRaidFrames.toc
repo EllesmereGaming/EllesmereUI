@@ -1,10 +1,10 @@
 ## Interface: 120000, 120001, 120005, 120007, 120100, 120105, 16001
-## Title: |cff0cd29fEllesmereUI|r Raid Frames
+## Title: |cff0cd29fEllesmereUI|r Raid & Party Frames
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
-## Notes: Incredibly light performance, modern raid frames with endless flexibility.
+## Notes: Incredibly light performance, modern raid and party frames with endless flexibility.
 ## Author: Ellesmere
-## Version: 9.6
+## Version: 9.6.9
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIRaidFramesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga

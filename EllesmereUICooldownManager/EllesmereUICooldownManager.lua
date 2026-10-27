@@ -7,19 +7,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Does NOT parse secret values works around restricted APIs.
 -------------------------------------------------------------------------------
 local _, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the loot roll placement uses the parent's frame placer)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer and EllesmereUI._Pool and EllesmereUI.NewFrameData) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the loot roll placement uses the parent's frame placer, the hooks file its frame-data constructor)
 EllesmereUI._ModuleNS["EllesmereUICooldownManager"] = ns  -- LOD options files read this module ns via the registry
-
--- ns[field] = t, the table a chain of split files re-imports main-chunk locals
--- from. broken: true while a part file loads; a file that fails leaves it set
--- and the files behind it return at their first lines. Reading a name the
--- table lacks fails where the part file loads, not later as a nil upvalue.
-function ns._NewInternals(field, t)
-    t.broken = false
-    ns[field] = setmetatable(t, { __index = function(_, k)
-        error("ns." .. field .. " has no entry " .. tostring(k), 2)
-    end })
-end
 
 -- CPU-attribution shell pool: the engine bills a handler's call tree to the addon
 -- whose context created the frame, so frames built later under the parent's dispatch
@@ -349,6 +338,10 @@ local function ResolveActiveRacial()
 end
 
 
+-- The potion and healthstone ids of the presets below: the shared consumables
+-- catalogue (EllesmereUI_BuffPresets.lua), never copied here.
+local CON = EllesmereUI.CONSUMABLES
+
 -- Custom Aura Bar presets (potions with hardcoded durations). Detection: SPELL_UPDATE_COOLDOWN
 -- (spell just used) drives a reverse swipe for the duration. Exceptions: Bloodlust/Heroism is
 -- debuff-driven (TBB special-case "bloodlust") since the lust buff is cast by others and secret --
@@ -382,14 +375,14 @@ local BUFF_BAR_PRESETS = {
         key      = "lights_potential",
         name     = "Light's Potential",
         icon     = 7548911,
-        spellIDs = { 1236616 },
+        spellIDs = CON.lights_potential.spellIDs,
         duration = 30,
     },
     {
         key      = "potion_recklessness",
         name     = "Potion of Recklessness",
         icon     = 7548916,
-        spellIDs = { 1236994 },
+        spellIDs = CON.potion_recklessness.spellIDs,
         duration = 30,
     },
     {
@@ -398,14 +391,14 @@ local BUFF_BAR_PRESETS = {
         -- Picker art runtime-resolved (fileID not known statically at authoring
         -- time), mirroring CDM_ITEM_PRESETS' liquid_luster entry below.
         icon     = (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(271887)) or 134400,
-        spellIDs = { 1295132 },
+        spellIDs = CON.liquid_luster.spellIDs,
         duration = 30,
     },
     {
         key      = "invis_potion",
         name     = "Invisibility Potion",
         icon     = 134764,
-        spellIDs = { 371125, 431424, 371133, 371134, 1236551 },
+        spellIDs = CON.invis_potion.spellIDs,
         duration = 18,
     },
 }
@@ -460,28 +453,18 @@ local CDM_ITEM_PRESETS = {
         key      = "lights_potential",
         name     = "Light's Potential",
         icon     = 7548911,
-        itemID   = 241308,
-        altItemIDs = { 245898, 245897, 241309 },
-        displayOrder = {
-            245898,  -- Fleeting Light's Potential r2
-            241308,  -- Light's Potential r2
-            245897,  -- Fleeting Light's Potential r1
-            241309,  -- Light's Potential r1
-        },
+        itemID   = CON.lights_potential.itemID,
+        altItemIDs = CON.lights_potential.altItemIDs,
+        displayOrder = CON.lights_potential.displayOrder,
         swapWith = { "potion_recklessness", "liquid_luster" },
     },
     {
         key      = "potion_recklessness",
         name     = "Potion of Recklessness",
         icon     = 7548916,
-        itemID   = 241288,
-        altItemIDs = { 241289, 245902, 245903 },
-        displayOrder = {
-            245902,  -- Fleeting Potion of Recklessness r2
-            241288,  -- Potion of Recklessness r2
-            245903,  -- Fleeting Potion of Recklessness r1
-            241289,  -- Potion of Recklessness r1
-        },
+        itemID   = CON.potion_recklessness.itemID,
+        altItemIDs = CON.potion_recklessness.altItemIDs,
+        displayOrder = CON.potion_recklessness.displayOrder,
         swapWith = { "lights_potential", "liquid_luster" },
     },
     {
@@ -491,14 +474,9 @@ local CDM_ITEM_PRESETS = {
         -- time); question-mark fallback is theoretical -- icon lookups are
         -- client-DB-local.
         icon     = (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(271887)) or 134400,
-        itemID   = 271887,
-        altItemIDs = { 274764, 274763, 271886 },
-        displayOrder = {
-            274764,  -- Fleeting Liquid Luster r2
-            271887,  -- Liquid Luster r2
-            274763,  -- Fleeting Liquid Luster r1
-            271886,  -- Liquid Luster r1
-        },
+        itemID   = CON.liquid_luster.itemID,
+        altItemIDs = CON.liquid_luster.altItemIDs,
+        displayOrder = CON.liquid_luster.displayOrder,
         swapWith = { "potion_recklessness", "lights_potential" },
     },
     {
@@ -509,49 +487,44 @@ local CDM_ITEM_PRESETS = {
         -- icon. Runtime-resolved because the fileID isn't item-DB-stable across
         -- builds; the old Silvermoon art is the fallback.
         icon     = (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(271884)) or 7548909,
-        itemID   = 241304,
-        altItemIDs = { 241305, 271884, 271883 },
-        -- Newest tier leads (r2 before r1), then the Silvermoon pair. itemID must stay
-        -- 241304: identity anchor for saved frames + PotSwap.Ensure's primary check, so it can't follow the new tier.
-        displayOrder = {
-            271884,  -- Concentrated Silvermoon Health Potion r2
-            271883,  -- Concentrated Silvermoon Health Potion r1
-            241304,  -- Silvermoon Health Potion r2
-            241305,  -- Silvermoon Health Potion r1
-        },
+        -- itemID (241304) is the identity anchor for saved frames and PotSwap.Ensure's
+        -- primary check, so it never follows the newer tier that leads the display.
+        itemID   = CON.silvermoon_health.itemID,
+        altItemIDs = CON.silvermoon_health.altItemIDs,
+        displayOrder = CON.silvermoon_health.displayOrder,
     },
     {
         key      = "lightfused_mana",
         name     = "Lightfused Mana Potion",
         icon     = 7548907,
-        itemID   = 241300,
-        altItemIDs = { 245917, 245916, 241301 },
+        itemID   = CON.lightfused_mana.itemID,
+        altItemIDs = CON.lightfused_mana.altItemIDs,
     },
     {
         key      = "invis_potion",
         name     = "Invisibility Potion",
         icon     = 7548917,
-        itemID   = 241302,
-        altItemIDs = { 241303 },
+        itemID   = CON.invis_potion.itemID,
+        altItemIDs = CON.invis_potion.altItemIDs,
     },
     {
         key      = "healthstone",
         name     = "Healthstone",
         icon     = 538745,
-        itemID   = 5512,
+        itemID   = CON.healthstone.itemID,
         -- Pact of Gluttony turns self-conjured stones into Demonic Healthstones. Both
         -- share one unique slot, so a warlock holds one or the other and the
         -- primary-then-alts count shows whichever is owned. The lockout stays keyed
         -- to 6262 only: Demonic stones are reusable in combat.
-        altItemIDs = { 224464 },
-        spellID  = 6262,
+        altItemIDs = CON.healthstone.altItemIDs,
+        spellID  = CON.healthstone.spellIDs[1],
         combatLockout = true,
     },
     {
         key      = "demonic_healthstone",
         name     = "Demonic Healthstone",
-        itemID   = 224464,
-        spellID  = 452930,
+        itemID   = CON.demonic_healthstone.itemID,
+        spellID  = CON.demonic_healthstone.spellIDs[1],
     },
 }
 ns.CDM_ITEM_PRESETS = CDM_ITEM_PRESETS
@@ -580,14 +553,7 @@ if EllesmereUI.IS_FOREVER then
     for _, p in ipairs(CDM_ITEM_PRESETS) do
         if p.key == "healthstone" then
             p.icon = (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(5512)) or 134400
-            -- Major, Greater, Healthstone and Lesser tiers, then the improved Minor stones.
-            p.altItemIDs = {
-                9421, 19012, 19013,
-                5510, 19010, 19011,
-                5509, 19008, 19009,
-                5511, 19006, 19007,
-                19004, 19005,
-            }
+            p.altItemIDs = EllesmereUI.FOREVER_HEALTHSTONES
             p.combatLockout = nil
             break
         end
@@ -722,7 +688,10 @@ local DEFAULTS = {
 -- Main-chunk locals the EUI_CDM_*.lua files re-import by name.
 -- inCombatSetters: a file that reads _inCombat keeps its own local and adds a
 -- setter here; the event frame writes through SetInCombat, which runs them all.
-ns._NewInternals("_internals", {
+-- broken: true while a part file loads; a file that fails leaves it set and
+-- the files behind it return at their first lines (same for the Hooks and
+-- Buff Bars tables).
+EllesmereUI.NewInternals(ns, "_internals", {
     _bonusScanSeen = _bonusScanSeen, _cdmKeybindCache = _cdmKeybindCache,
     _cdmKeybindRank = _cdmKeybindRank, _cdmMouseState = _cdmMouseState,
     _cdmViewerNames = _cdmViewerNames, _ecmeFC = _ecmeFC, _getFD = _getFD,
@@ -733,8 +702,4 @@ ns._NewInternals("_internals", {
     IsPlaceholderRenderHidden = IsPlaceholderRenderHidden, RACE_RACIALS = RACE_RACIALS,
     ResolveActiveRacial = ResolveActiveRacial, SnapForScale = SnapForScale,
     inCombatSetters = { function(v) _inCombat = v end },
-    SetInCombat = function(v)
-        local list = ns._internals.inCombatSetters
-        for i = 1, #list do list[i](v) end
-    end,
-})
+}, { SetInCombat = "inCombatSetters" })

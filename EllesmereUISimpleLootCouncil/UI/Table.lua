@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 
@@ -46,6 +47,67 @@ local function HasText(fs)
 end
 
 
+local function PaintPick(t, row)
+    local data = row.rowData
+    local picked = t.picked ~= nil and data ~= nil and data.name == t.picked
+    row.Highlight:SetShown(row.slcHover or picked)
+end
+
+
+
+local leaving = {}
+local leaveFrame
+
+local function FinishLeaves()
+    local row = next(leaving)
+    while row do
+        leaving[row] = nil
+        local t = row:GetParent()
+        row.slcHover = nil
+        PaintPick(t, row)
+        if t.onLeave then t.onLeave(row, row.rowData) end
+        row = next(leaving)
+    end
+end
+
+function Table.HoverRow(row)
+    local stayed = leaving[row]
+    leaving[row] = nil
+    FinishLeaves()
+    row.slcHover = true
+    row.Highlight:Show()
+    if stayed then return end
+    local t = row:GetParent()
+    if t.onEnter and row.rowData then t.onEnter(row, row.rowData) end
+end
+
+function Table.LeaveRow(row)
+    leaving[row] = true
+    if not row:GetParent().hoverParts then
+        FinishLeaves()
+        return
+    end
+    if not leaveFrame then
+        leaveFrame = CreateFrame("Frame")
+        leaveFrame:Hide()
+        leaveFrame:SetScript("OnUpdate", function(self)
+            self:Hide()
+            FinishLeaves()
+        end)
+    end
+    leaveFrame:Show()
+end
+
+
+function Table.AdoptHover(row, child)
+    child.slcHoverIn = function() Table.HoverRow(row) end
+    child.slcHoverOut = function() Table.LeaveRow(row) end
+    return child
+end
+
+local function RowEnter(self) Table.HoverRow(self) end
+
+
 
 
 
@@ -85,6 +147,7 @@ function Table.Create(parent, columns, visibleRows, rowHeight, headerFont)
     header:SetPoint("TOPRIGHT")
     P.Size(header, nil, headerHeight)
     t.header = header
+    t.headerButtons = {}
 
     local x = 0
     for index, column in ipairs(columns) do
@@ -101,20 +164,28 @@ function Table.Create(parent, columns, visibleRows, rowHeight, headerFont)
         button.Label = label
 
 
-
-        if column.compare or column.value then
-            button:SetScript("OnClick", function()
-                if t.sortColumn == index then
-                    t.sortAscending = not t.sortAscending
-                else
-                    t.sortColumn, t.sortAscending = index, true
-                end
-                if t.onSort then t.onSort(t) end
-                Table.Refresh(t)
-            end)
+        local sortable = column.compare or column.value
+        button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        button:SetScript("OnClick", function(self, mouse)
+            if mouse == "RightButton" then
+                if t.onHeaderMenu then t.onHeaderMenu(self, column) end
+                return
+            end
+            if not sortable then return end
+            if t.sortColumn == index then
+                t.sortAscending = not t.sortAscending
+            else
+                t.sortColumn, t.sortAscending = index, true
+            end
+            if t.onSort then t.onSort(t) end
+            Table.Refresh(t)
+        end)
+        if sortable then
+            local rest = headerFont or S.fontMicro
             button:SetScript("OnEnter", function() label:SetTextColor(S.Unpack(S.color.text)) end)
-            button:SetScript("OnLeave", function() label:SetTextColor(S.Unpack(S.color.textMuted)) end)
+            button:SetScript("OnLeave", function() label:SetTextColor(rest:GetTextColor()) end)
         end
+        t.headerButtons[index] = button
 
         x = x + column.width
     end
@@ -190,14 +261,8 @@ function Table.Create(parent, columns, visibleRows, rowHeight, headerFont)
             cx = cx + column.width
         end
 
-        row:SetScript("OnEnter", function(self)
-            highlight:Show()
-            if t.onEnter and self.rowData then t.onEnter(self, self.rowData) end
-        end)
-        row:SetScript("OnLeave", function(self)
-            highlight:Hide()
-            if t.onLeave then t.onLeave(self, self.rowData) end
-        end)
+        row:SetScript("OnEnter", RowEnter)
+        row:SetScript("OnLeave", Table.LeaveRow)
         row:SetScript("OnClick", function(self, button)
             if t.onClick and self.rowData then t.onClick(self, self.rowData, button) end
         end)
@@ -252,6 +317,15 @@ function Table.SetData(t, data, keepScroll)
     Table.Refresh(t)
 end
 
+
+
+function Table.Release(t)
+    t.data, t.filtered = {}, {}
+    t.ordered, t.orderedData, t.orderedBy = nil, nil, nil
+    t.sortKeys, t.sortKeysData = nil, nil
+    for _, row in ipairs(t.rows) do row.rowData = nil end
+end
+
 function Table.SetFilter(t, predicate)
     t.filter = predicate
     Table.Refresh(t)
@@ -260,6 +334,13 @@ end
 
 function Table.IsFiltering(t)
     return #t.filtered < #t.data
+end
+
+
+function Table.SetPicked(t, name)
+    if t.picked == name then return end
+    t.picked = name
+    for _, row in ipairs(t.rows) do PaintPick(t, row) end
 end
 
 
@@ -278,7 +359,11 @@ local function CompareChain(t, columnIndex, a, b, depth)
     if column.compare then
         result = column.compare(a, b)
     elseif column.value then
-        local va, vb = column.value(a), column.value(b)
+
+        local keys = t.sortKeys and t.sortKeys[depth]
+        local va, vb = keys and keys[a], keys and keys[b]
+        if va == nil then va = column.value(a) end
+        if vb == nil then vb = column.value(b) end
         if va == vb then
             result = 0
         elseif va == nil then
@@ -310,14 +395,32 @@ local function Less(t, a, b)
     return result > 0
 end
 
+local function Wipe(keys) for row in pairs(keys) do keys[row] = nil end end
+
+
 
 
 local function PrepareSort(t, rows)
+    t.sortKeys = t.sortKeys or {}
+    if t.sortKeysData ~= t.data then
+
+        for _, keys in pairs(t.sortKeys) do Wipe(keys) end
+        t.sortKeysData = t.data
+    end
     local index, depth = t.sortColumn, 1
     while index and depth <= 4 do
         local column = t.columns[index]
         if not column then return end
         if column.prepare then column.prepare(rows) end
+        if column.value and not column.compare then
+            local keys = t.sortKeys[depth] or {}
+            t.sortKeys[depth] = keys
+            local value = column.value
+            for i = 1, #rows do
+                local row = rows[i]
+                keys[row] = value(row)
+            end
+        end
         index, depth = column.sortNext, depth + 1
     end
 end
@@ -330,8 +433,31 @@ local function SortFiltered(t)
     t.sorts = (t.sorts or 0) + 1
 end
 
+
+
+local function Ordered(t)
+    local order = t.sortColumn and (tostring(t.sortColumn) .. (t.sortAscending and "+" or "-"))
+    if t.ordered and t.orderedData == t.data and t.orderedBy == order then return t.ordered end
+    local list = {}
+    for i, row in ipairs(t.data) do list[i] = row end
+    if order then
+        PrepareSort(t, list)
+        table.sort(list, function(a, b) return Less(t, a, b) end)
+        t.sorts = (t.sorts or 0) + 1
+    end
+    t.ordered, t.orderedData, t.orderedBy = list, t.data, order
+    return list
+end
+
 Rebuild = function(t)
     t.filtered = {}
+    if t.fixedRows then
+        local filtered = t.filtered
+        for _, row in ipairs(Ordered(t)) do
+            if not t.filter or t.filter(row) then filtered[#filtered + 1] = row end
+        end
+        return
+    end
     for _, row in ipairs(t.data) do
         if not t.filter or t.filter(row) then
             t.filtered[#t.filtered + 1] = row
@@ -411,6 +537,7 @@ local function DrawRows(t, offset, force)
             local version = versions[data] or 0
             if force or row.rowData ~= data or row.slcVersion ~= version then
                 row.rowData, row.slcVersion = data, version
+                PaintPick(t, row)
 
 
                 local parity = (i + offset) % 2
@@ -419,15 +546,18 @@ local function DrawRows(t, offset, force)
                     row.Stripe:SetColorTexture(S.Unpack(
                         parity == 0 and S.color.rowEven or S.color.rowOdd))
                 end
+                local hidden = t.hiddenColumns
                 for index, column in ipairs(t.columns) do
-                    local cell = row.cells[index]
-                    if column.render then
-                        column.render(cell, data)
-                    else
-                        cell.Text:SetText(column.text and column.text(data) or "")
-                        cell.Text:SetTextColor(S.Unpack(S.color.text))
+                    if not (hidden and hidden[column.key]) then
+                        local cell = row.cells[index]
+                        if column.render then
+                            column.render(cell, data)
+                        else
+                            cell.Text:SetText(column.text and column.text(data) or "")
+                            cell.Text:SetTextColor(S.Unpack(S.color.text))
+                        end
+                        if column.sub then RepositionSub(cell, column, t.anchorGen) end
                     end
-                    if column.sub then RepositionSub(cell, column, t.anchorGen) end
                 end
             end
             if not row.slcShown then
@@ -441,6 +571,34 @@ local function DrawRows(t, offset, force)
         end
     end
 end
+
+
+function Table.SetHidden(t, hidden)
+    local P = addon.Pixel
+    local x = 0
+    for index, column in ipairs(t.columns) do
+        local shown = not (hidden and hidden[column.key])
+        local button = t.headerButtons[index]
+        button:SetShown(shown)
+        if shown then
+            button:ClearAllPoints()
+            P.Point(button, "LEFT", x, 0)
+        end
+        for _, row in ipairs(t.rows) do
+            local cell = row.cells[index]
+            cell:SetShown(shown)
+            if shown then
+                cell:ClearAllPoints()
+                P.Point(cell, "LEFT", x, 0)
+            end
+        end
+        if shown then x = x + column.width end
+    end
+    t.hiddenColumns, t.shownWidth = hidden, x
+    P.Size(t, x, nil)
+    Table.Draw(t)
+end
+
 
 
 function Table.Draw(t)
@@ -467,6 +625,7 @@ function Table.UpdateRows(t, rows)
     if not rows or #rows == 0 then return end
     local versions = t.versions
     for _, row in ipairs(rows) do versions[row] = (versions[row] or 0) + 1 end
+    t.ordered = nil
 
     local filtered = t.filtered
     local position = {}

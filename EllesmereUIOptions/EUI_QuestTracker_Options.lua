@@ -529,7 +529,9 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return Cfg("autoTrackZone") or false end,
                   setValue=function(v) Set("autoTrackZone", v); ApplyWatches() end })
             EllesmereUI.BuildInlineCog(row._leftRegion, {
-                disabled = function() return not Cfg("filterEnabled") end,
+                -- Open while the header button shows too: it turns Filter Quests
+                -- off, and its own row is in here.
+                disabled = function() return not Cfg("filterEnabled") and not Cfg("filterHeaderToggle") end,
                 disabledTooltip = "Filter Quests",
                 title = "Filter Settings",
                 rows = {
@@ -537,6 +539,7 @@ initFrame:SetScript("OnEvent", function(self)
                     FilterRow("filterCompleted", "Hide Completed Quests"),
                     FilterRow("filterTrivial", "Hide Low Level Quests"),
                     FilterRow("filterRepeatable", "Hide Daily & Weekly Quests"),
+                    FilterRow("filterHeaderToggle", "Show Toggle on Quests Header"),
                 },
             })
             y = y - h
@@ -595,7 +598,27 @@ initFrame:SetScript("OnEvent", function(self)
         local kbRow
         kbRow, h = W:DualRow(parent, y,
             { type="label", text="" },
-            { type="label", text="" })
+            { type="toggle", text="Wowhead Quest Links",
+                tooltip="Adds a copyable Wowhead link to the right-click menu of quests in the quest tracker and quest log.",
+                getValue=function() return Cfg("wowheadQuestLinks") == true end,
+                setValue=function(v)
+                    Set("wowheadQuestLinks", v)
+                    EQT.ApplyQuestLinks()
+                    EllesmereUI:RefreshPage()
+                end })
+        EllesmereUI.BuildInlineCog(kbRow._rightRegion, {
+            title = "Wowhead Link Settings",
+            disabled = function() return not Cfg("wowheadQuestLinks") end,
+            disabledTooltip = "Wowhead Quest Links",
+            rows = {
+                { type="toggle", label="Use Client Language",
+                  get=function() return Cfg("wowheadQuestClientLanguage") == true end,
+                  set=function(v) Set("wowheadQuestClientLanguage", v) end },
+                { type="toggle", label="Jump to Comments",
+                  get=function() return Cfg("wowheadQuestComments") == true end,
+                  set=function(v) Set("wowheadQuestComments", v) end },
+            },
+        })
         if not EllesmereUI._prebuilding then
             local rgn = kbRow._leftRegion
             local SIDE_PAD = 20

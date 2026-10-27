@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
@@ -8,7 +9,7 @@ local T = addon.Locale.Text
 
 
 
-addon.SCHEMA_VERSION = 9
+addon.SCHEMA_VERSION = 11
 
 
 local interface = GetBuildInfo and select(4, GetBuildInfo())
@@ -30,6 +31,7 @@ addon.defaults = {
 
 
     logMaxEntries = 10000,
+    logDetail = "quiet",
 
 
 
@@ -75,14 +77,13 @@ addon.defaults = {
     },
 
 
-
-    boeRoute = {},
-
-
     timer = {
         enabled = false,
         duration = 120,
     },
+
+
+    autoStart = true,
 
 
     vote = {
@@ -92,15 +93,13 @@ addon.defaults = {
     },
 
 
-
-    allowStartRequests = false,
-    councilMayStartRuns = false,
-
-
     shareCouncilBags = true,
 
 
     itemStorage = {},
+
+
+    bagReadings = {},
 
 
 
@@ -122,6 +121,8 @@ addon.defaults = {
 
         guildGroupOnly = true,
 
+        never = false,
+
 
 
         ignore = {},
@@ -132,7 +133,6 @@ addon.defaults = {
 
     raidPrompt = {
         silence = false,
-        inGroups = false,
 
 
         neverLead = false,
@@ -191,17 +191,14 @@ addon.defaults = {
     imported = {},
 
 
+    historyArchive = {},
+
+
     importMaxDays = 365,
 
 
 
-    showMoreInfo = true,
-
-
     teamShowAlts = true,
-
-
-    sessionFrame = true,
 
 
     wishlistEnabled = true,
@@ -221,11 +218,6 @@ addon.defaults = {
     masterAutoLoot = true,
 
 
-    autoOpenQueue = true,
-
-    autoAddBags = false,
-
-
     specs = {},
 
 
@@ -243,6 +235,9 @@ addon.defaults = {
     mlCompact = false,
 
 
+    councilHiddenColumns = {},
+
+
     voterCompact = false,
 
 
@@ -250,6 +245,14 @@ addon.defaults = {
 
 
     pride = false,
+
+
+
+    savedAt = nil,
+
+
+
+    deleted = {},
 }
 
 
@@ -379,22 +382,6 @@ addon.migrations = addon.Locale.Texts{
         end,
     },
     {
-        version = 8,
-        name = "BoE route reason as text",
-        func = function(db)
-
-            local rule = db.boeRoute
-            if type(rule) ~= "table" then return end
-            local index = rule.reason
-            rule.reason = nil
-            if type(index) ~= "number" or rule.reasonText ~= nil then return end
-            local entry = type(db.awardReasons) == "table" and db.awardReasons[index]
-            if type(entry) ~= "table" or type(entry.text) ~= "string" then return end
-            if entry.id == "BANK" or entry.text:lower() == "guild bank" then return end
-            rule.reasonText = entry.text
-        end,
-    },
-    {
         version = 9,
         name = "guild loot funnel guard on",
         notify = T["The loot funnel now runs in guild groups only by default: you are asked before your loot is passed outside your guild. Set \"Loot funnel in which groups?\" to All Groups in Settings if you would rather not be asked."],
@@ -402,6 +389,36 @@ addon.migrations = addon.Locale.Texts{
 
             if type(db.funnel) ~= "table" or db.funnel.guildGroupOnly == true then return false end
             db.funnel.guildGroupOnly = true
+        end,
+    },
+    {
+        version = 10,
+        name = "history archive",
+        func = function(db)
+
+            if db.historyArchive ~= nil and type(db.historyArchive) ~= "table" then
+                db.historyArchive = nil
+            end
+            return false
+        end,
+    },
+    {
+        version = 11,
+        name = "settings back to defaults",
+        notify = T["Your Simple Loot Council settings were reset to their new defaults. Your councils, alts, response buttons, raid team and history were kept."],
+        func = function(db)
+
+            local settings = {
+                "debug", "chatWarnings", "logMaxEntries", "logDetail", "noteMaxLength",
+                "whispers", "awardReasons", "boeRoute", "timer", "vote", "allowStartRequests",
+                "councilMayStartRuns", "shareCouncilBags", "funnel", "raidPrompt", "ignoredItems",
+                "suppressTradeWarnings", "announce", "recordAttendance", "recordHistory",
+                "shareHistory", "historyPruneDays", "csvDelimiter", "historyFilter", "importMaxDays",
+                "showMoreInfo", "teamShowAlts", "sessionFrame", "wishlistEnabled", "wishlistSource",
+                "autopass", "silentAutopass", "autopassTransmog", "masterAutoLoot", "autoOpenQueue",
+                "autoAddBags", "mlCompact", "voterCompact", "windowAlpha",
+            }
+            for _, key in ipairs(settings) do db[key] = nil end
         end,
     },
 }

@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
@@ -82,7 +83,6 @@ local function ResponseText(session, winner)
     local item = addon.Session:GetItem(session)
     local candidate = item and item.candidates and item.candidates[winner]
     if not candidate then return nil end
-    if type(candidate.boe) == "table" then return candidate.boe.t end
 
     local index = candidate.realResponse or candidate.response
     local response = index and addon.Config:Responses()[index]
@@ -100,7 +100,7 @@ end
 function Announce:Init()
 
 
-    addon.Callbacks:Register("ItemAwarded", function(session, winner, item)
+    addon.Callbacks:Register("ItemAwarded", function(session, winner, item, previous)
         if item and item.simulated then return end
         if not addon.db.announce or not addon.db.announce.awards then return end
         if not addon.PlayerIsMasterLooter() then return end
@@ -108,12 +108,25 @@ function Announce:Init()
 
 
         local why = item.reasonText or ResponseText(session, winner)
-        if why then
+        if previous and why then
+            Send(addon.Locale.Format(T["%s award changed to %s (%s)"],
+                item.link, Who(winner), why))
+        elseif previous then
+            Send(addon.Locale.Format(T["%s award changed to %s"], item.link, Who(winner)))
+        elseif why then
             Send(addon.Locale.Format(T["%s awarded to %s (%s)"],
                 item.link, Who(winner), why))
         else
             Send(addon.Locale.Format(T["%s awarded to %s"], item.link, Who(winner)))
         end
+    end)
+
+
+    addon.Callbacks:Register("ItemUnawarded", function(session, previous, item, runId, movedTo)
+        if movedTo or not item or item.simulated or not item.link then return end
+        if not addon.db.announce or not addon.db.announce.awards then return end
+        if not addon.PlayerIsMasterLooter() then return end
+        Send(addon.Locale.Format(T["%s award to %s withdrawn"], item.link, Who(previous)))
     end)
 
 
@@ -129,6 +142,10 @@ function Announce:Init()
         if not item or not item.link then
             addon.Log:WLogOnly("Announce", "trade not announced: no item for session",
                 tostring(session))
+            return
+        end
+        if item.owner and winner and addon.Player:IsSame(item.owner, winner) then
+            addon.Log:D("Announce", "trade not announced: the holder kept it")
             return
         end
         if not Channel() then

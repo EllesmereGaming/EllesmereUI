@@ -235,6 +235,7 @@ function npAddon:OnEnable()
     end
     SetRawSetTex((PP and PP.RawSetTexture) or function(t, v) t:SetTexture(v) end)
     SetupAuraCVars()
+    ns.ApplyKeptNameplateCVars()
     ApplyClassPowerSetting()
     -- Apply spec-assigned preset on login (before UI is opened)
     if ns._ApplySpecPresetFromDB then ns._ApplySpecPresetFromDB() end
@@ -492,6 +493,57 @@ ns._oocPlatesCtl:SetScript("OnEvent", function(self, event)
     end
 end)
 ns._oocPlatesCtl:RegisterEvent("PLAYER_LOGIN")
+
+-------------------------------------------------------------------------------
+--  Stacking Speed and Top Screen Inset (General): the client does not save
+--  nameplateMotionSpeed or nameplateTopInset, so a game restart puts both back
+--  to its default. The sliders keep their value account-wide
+--  (EllesmereUIDB.nameplateKeptCVars; a value at the client's default is not
+--  kept) and OnEnable writes it again, only where the CVar differs. Only these
+--  two names are ever read from the table. All state lives on ns -- this chunk
+--  is at the 200-local cap.
+-------------------------------------------------------------------------------
+ns._keptCVarNames = { "nameplateMotionSpeed", "nameplateTopInset" }
+
+-- Equal as numbers: the client keeps its own number format.
+ns.KeptCVarSame = function(a, b)
+    local x, y = tonumber(a), tonumber(b)
+    if x and y then return math.abs(x - y) < 1e-6 end
+    return a == b
+end
+
+-- The sliders' write: sets the CVar, then keeps what the client holds.
+ns.KeepNameplateCVar = function(name, value)
+    if not EllesmereUI.SetCVar(name, value, "EllesmereUINameplates") then return end
+    local cur = tonumber(GetCVar(name))
+    if not (cur and EllesmereUIDB) then return end
+    local kept = EllesmereUIDB.nameplateKeptCVars
+    if type(kept) ~= "table" then kept = nil end
+    if ns.KeptCVarSame(cur, C_CVar.GetCVarDefault(name)) then
+        if kept then kept[name] = nil end
+        if not (kept and next(kept)) then EllesmereUIDB.nameplateKeptCVars = nil end
+    else
+        if not kept then kept = {}; EllesmereUIDB.nameplateKeptCVars = kept end
+        kept[name] = cur
+    end
+end
+
+ns.ApplyKeptNameplateCVars = function()
+    local kept = EllesmereUIDB and EllesmereUIDB.nameplateKeptCVars
+    if type(kept) ~= "table" then return end
+    if InCombatLockdown() then
+        ns.CombatQueue.Defer("NPKeptCVars", ns.ApplyKeptNameplateCVars)
+        return
+    end
+    local names = ns._keptCVarNames
+    for i = 1, #names do
+        local name = names[i]
+        local v = tonumber(kept[name])
+        if v and C_CVar.GetCVarInfo(name) and not ns.KeptCVarSame(GetCVar(name), v) then
+            EllesmereUI.SetCVar(name, v, "EllesmereUINameplates")
+        end
+    end
+end
 
 
 I.broken = false

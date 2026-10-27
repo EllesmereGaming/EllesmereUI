@@ -460,11 +460,6 @@ local function BookIDForName(name)
 end
 ns.WipeCdmBookNameCache = function() _bookByName = nil end
 ns.CdmBookIDForName = BookIDForName
-ns.CdmBookNameCount = function()
-    local n = 0
-    for _ in pairs(EnsureBookNameMap()) do n = n + 1 end
-    return n
-end
 
 -- Resolve the spell whose ICON an inactive placeholder should paint. An ACTIVE
 -- buff frame renders the live aura, so a talent that REPLACES a spell shows the

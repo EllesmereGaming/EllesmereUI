@@ -276,11 +276,12 @@ local function BuildSelfCombatTextSection(parent, y)
     local W = EllesmereUI.Widgets
     local qns = EllesmereUI._ModuleNS["EllesmereUIQoL"]
     local SCTGet, SCTSet = qns.SCT_Get, qns.SCT_Set
-    local _, h
+    local _, h, hdr
 
-    _, h = W:SectionHeader(parent, "SELF COMBAT TEXT", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "SELF COMBAT TEXT", y);  y = y - h
 
     local function sctOff() return not SCTGet("enabled") end
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_SelfCombatText", disabled = sctOff, disabledTooltip = "Self Combat Text" })
     local function sctToggle(text, key)
         return { type="toggle", text=text,
           disabled=sctOff, disabledTooltip="Self Combat Text",
@@ -404,6 +405,10 @@ initFrame:SetScript("OnEvent", function(self)
     do
         local origNav = EllesmereUI.NavigateToElementSettings
         function EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName, preSelectFn, highlightText)
+            -- The original refuses in combat: no page state changes then.
+            if InCombatLockdown() then
+                return origNav(self, moduleName, pageName, sectionName, preSelectFn, highlightText)
+            end
             if moduleName == "EllesmereUIQoL" and pageName == PAGE_QOL and sectionName ~= nil
                and sectionName == macroFactorySection and not macroFactoryOpen.macroFactory then
                 macroFactoryOpen.macroFactory = true
@@ -416,7 +421,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function BuildQoLPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
-        local _, h
+        local _, h, hdr
         local PP = EllesmereUI.PanelPP
 
         parent._showRowDivider = true
@@ -906,7 +911,12 @@ initFrame:SetScript("OnEvent", function(self)
         ---------------------------------------------------------------------------
         --  EXTRAS
         ---------------------------------------------------------------------------
-        _, h = W:SectionHeader(parent, "EXTRAS", y);  y = y - h
+        hdr, h = W:SectionHeader(parent, "EXTRAS", y);  y = y - h
+        -- The FPS Counter is the section's first mover, so the header's button
+        -- takes it; the button explains itself while the counter is off.
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_FPS",
+            disabled = function() return not EllesmereUI.QoLExtrasGet("showFPS") end,
+            disabledTooltip = "Show FPS Counter" })
 
         -- Row 1: Show FPS Counter (left, with swatch+cog) | FPS Toggle Keybind (right)
         local fpsRow
@@ -2488,7 +2498,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- No item upgrade system on WoW Forever: the Upgrader tab is not offered there
     -- (its resident file returns at load, so the page builder never exists either).
     if not EllesmereUI.IS_FOREVER then pages[#pages + 1] = PAGE_UPGCALC end
-    local searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown" }
+    local searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "upgrade tooltips", "tooltip", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown" }
     -- Terms for features WoW Forever does not have (the Battle Res indicator,
     -- the Macro Factory) are dropped there, so a sidebar search for them does
     -- not list this module; retail keeps the full list.

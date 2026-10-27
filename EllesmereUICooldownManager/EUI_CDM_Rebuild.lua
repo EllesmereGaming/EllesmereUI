@@ -349,7 +349,7 @@ end
 ns.ApplyBarOpacity = ApplyBarOpacity
 
 -- Helper to get barData by key
-function GetBarData(barKey)
+local function GetBarData(barKey)
     return barDataByKey[barKey]
 end
 ns.GetBarData = GetBarData
@@ -862,6 +862,7 @@ BuildAllCDMBars = function()
     ns.RescanCustomIconFlag()     -- set the per-spell Custom Icon gate (once) before refresh
     ns.RescanActiveGlowFlag()     -- set the Active State Glow gate (once) before refresh
     ns.RescanTalentCondFlag()     -- set the Talent Conditions gate (once) before refresh
+    ns.RescanStanceBarFlag()      -- set the Stance Bar gate (once) before refresh
 
     local p = ECME.db.profile
 

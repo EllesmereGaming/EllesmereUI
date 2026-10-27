@@ -350,6 +350,7 @@ end
 local function OnEvent(self, event, ...)
     if event == "UNIT_HEALTH" then
         UpdateHealthBar()
+        if healthBar and healthBar._missLive then ns.ERB_MissingPaint(healthBar) end
         -- Stagger is based on health, so update secondary resource too
         if cachedSecondary and cachedSecondary.power == "BREWMASTER_STAGGER" then
             UpdateSecondaryResource()
@@ -367,10 +368,23 @@ local function OnEvent(self, event, ...)
             if not tok or issecretvalue(powerToken) or powerToken == tok then
                 UpdatePrimaryBar()
             end
+            if primaryBar then
+                if primaryBar._missLive then
+                    local mtok = POWER_ENUM_TO_KEY[primaryBar._missPower]
+                    if not mtok or issecretvalue(powerToken) or powerToken == mtok then
+                        ns.ERB_MissingPaint(primaryBar)
+                    end
+                end
+                local mh = primaryBar._missHost
+                if mh and mh._missLive and (issecretvalue(powerToken) or powerToken == "MANA") then
+                    ns.ERB_MissingPaint(mh)
+                end
+            end
             UpdateSecondaryResource()
         end
     elseif event == "UNIT_MAXHEALTH" or event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
         UpdateHealthBar()
+        if healthBar and healthBar._missLive then ns.ERB_MissingPaint(healthBar) end
         -- Two-step max-health landing (max first, value after): one next-frame
         -- re-read settles torn numbers (canonical story: UF engine RESETTLE_EVENTS).
         if not self._erbHpResettle then
@@ -421,6 +435,11 @@ local function OnEvent(self, event, ...)
             UpdateVisibility()
         end
         UpdatePrimaryBar()
+        if primaryBar then
+            if primaryBar._missLive then ns.ERB_MissingPaint(primaryBar) end
+            local mh = primaryBar._missHost
+            if mh and mh._missLive then ns.ERB_MissingPaint(mh) end
+        end
         UpdateSecondaryResource()
     elseif event == "RUNE_POWER_UPDATE" then
         UpdateSecondaryResource()
@@ -656,11 +675,10 @@ function ERB:OnInitialize()
         -- spec has no class resource. The frame is created unconditionally (zero
         -- alpha when off), so there is always a target to anchor to -- mirrors
         -- ResolveShiftDirPower. The form test must match the visibility pass
-        -- EXACTLY, second argument included: isClassResource exempts Moonkin
-        -- forms, whose Astral Power IS this bar -- omitting it left a form-hidden
-        -- bar's empty slot uncovered because the shift never fired.
+        -- exactly, or a form-hidden bar's empty slot stays uncovered (the shift
+        -- never fires).
         if sp.enabled ~= false and not IsSpecDisabled(sp)
-           and not _G._ERB_BarHiddenByForm(sp, true)
+           and not _G._ERB_BarHiddenByForm(sp)
            and GetSecondaryResource() then return 0 end
         return (mode == "Up") and 1 or -1
     end

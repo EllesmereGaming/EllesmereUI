@@ -21,9 +21,9 @@ local function BuildDisplayBars(parent, y, ctx)
     local defaults, displayCastIcons, hbtOrder, hbtValues = env.defaults, env.displayCastIcons, env.hbtOrder, env.hbtValues
     local LazyColorPreviewBar, npImpCastGlowDesc, optState, pairs = env.LazyColorPreviewBar, env.npImpCastGlowDesc, env.optState, env.pairs
     local plates, PP, RefreshAllPlates, SECTION_CASTBAR = env.plates, env.PP, env.RefreshAllPlates, env.SECTION_CASTBAR
-    local SetFSFont, UpdatePreview = env.SetFSFont, env.UpdatePreview
+    local UpdatePreview = env.UpdatePreview
     local asFallback, atFallback, AuraDurationVal, CogPopupOpen = ctx.asFallback, ctx.atFallback, ctx.AuraDurationVal, ctx.CogPopupOpen
-    local LiveApplyStackPos, LiveApplyTimerPos, RefreshAllTextures, ShowCogPopup = ctx.LiveApplyStackPos, ctx.LiveApplyTimerPos, ctx.RefreshAllTextures, ctx.ShowCogPopup
+    local LiveApplyAuraText, RefreshAllTextures, ShowCogPopup = ctx.LiveApplyAuraText, ctx.RefreshAllTextures, ctx.ShowCogPopup
     local timerPosOrder, timerPosValues = ctx.timerPosOrder, ctx.timerPosValues
     local W = ctx.W
     local _, h
@@ -1818,9 +1818,9 @@ local function BuildDisplayBars(parent, y, ctx)
     local auraTimerStackRow
     do
         local durationTypes = {
-            debuff = { text = "Debuff Duration", title = "Debuff Duration Settings", key = "debuffTimerPosition", count = 4, frames = function(p, i) return p.debuffs[i] end },
-            buff = { text = "Buff Duration", title = "Buff Duration Settings", key = "buffTimerPosition", count = 4, frames = function(p, i) return p.buffs[i] end },
-            cc = { text = "CC Duration", title = "CC Duration Settings", key = "ccTimerPosition", count = 2, frames = function(p, i) return p.cc[i] end },
+            debuff = { text = "Debuff Duration", title = "Debuff Duration Settings", key = "debuffTimerPosition" },
+            buff = { text = "Buff Duration", title = "Buff Duration Settings", key = "buffTimerPosition" },
+            cc = { text = "CC Duration", title = "CC Duration Settings", key = "ccTimerPosition" },
         }
         local function DurationDropdown(kind)
             local cfg = durationTypes[kind]
@@ -1828,16 +1828,12 @@ local function BuildDisplayBars(parent, y, ctx)
               getValue=function() return DBVal(cfg.key) or atFallback end,
               setValue=function(v)
                 DB()[cfg.key] = v
-                LiveApplyTimerPos(cfg.frames, cfg.count, v, kind)
+                LiveApplyAuraText()
                 UpdatePreview()
               end, order=timerPosOrder }
         end
-        local function CurrentDurationPos(cfg)
-            return DBVal(cfg.key) or atFallback
-        end
-        local function RefreshDuration(kind)
-            local cfg = durationTypes[kind]
-            LiveApplyTimerPos(cfg.frames, cfg.count, CurrentDurationPos(cfg), kind)
+        local function RefreshDuration()
+            LiveApplyAuraText()
             UpdatePreview()
         end
         local function AttachDurationTools(region, kind)
@@ -1848,7 +1844,7 @@ local function BuildDisplayBars(parent, y, ctx)
             end
             local colorSet = function(r, g, b)
                 DB()[kind .. "DurationTextColor"] = { r = r, g = g, b = b }
-                RefreshDuration(kind)
+                RefreshDuration()
             end
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(region, region:GetFrameLevel() + 5, colorGet, colorSet, nil, 20)
             PP.Point(swatch, "RIGHT", region._control, "LEFT", -12, 0)
@@ -1861,13 +1857,13 @@ local function BuildDisplayBars(parent, y, ctx)
                 rows = {
                     { type="slider", label="Size", min=6, max=20, step=1,
                       get=function() return AuraDurationVal(kind, "Size") end,
-                      set=function(v) DB()[kind .. "DurationTextSize"] = v; RefreshDuration(kind) end },
+                      set=function(v) DB()[kind .. "DurationTextSize"] = v; RefreshDuration() end },
                     { type="slider", label="X", min=-50, max=50, step=1,
                       get=function() return AuraDurationVal(kind, "X") end,
-                      set=function(v) DB()[kind .. "DurationTextX"] = v; RefreshDuration(kind) end },
+                      set=function(v) DB()[kind .. "DurationTextX"] = v; RefreshDuration() end },
                     { type="slider", label="Y", min=-50, max=50, step=1,
                       get=function() return AuraDurationVal(kind, "Y") end,
-                      set=function(v) DB()[kind .. "DurationTextY"] = v; RefreshDuration(kind) end },
+                      set=function(v) DB()[kind .. "DurationTextY"] = v; RefreshDuration() end },
                 },
             })
         end
@@ -1887,8 +1883,7 @@ local function BuildDisplayBars(parent, y, ctx)
               getValue=function() return DBVal("auraStackTextPosition") or asFallback end,
               setValue=function(v)
                 DB().auraStackTextPosition = v
-                LiveApplyStackPos(function(p, i) return p.debuffs[i] end, 4, v)
-                LiveApplyStackPos(function(p, i) return p.buffs[i] end, 4, v)
+                LiveApplyAuraText()
                 UpdatePreview()
               end, order=timerPosOrder }); y = y - h
         auraTimerStackRow = durationRow2
@@ -1905,17 +1900,7 @@ local function BuildDisplayBars(parent, y, ctx)
         end
         local asColorSet = function(r, g, b)
             DB().auraStackTextColor = { r = r, g = g, b = b }
-            for _, plate in pairs(plates) do
-                for i = 1, 4 do
-                    if plate.debuffs[i] and plate.debuffs[i].count then
-                        plate.debuffs[i].count:SetTextColor(r, g, b, 1)
-                    end
-                    if plate.buffs[i] and plate.buffs[i].count then
-                        plate.buffs[i].count:SetTextColor(r, g, b, 1)
-                    end
-                end
-            end
-            if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end -- 12.1 containers
+            LiveApplyAuraText()
             UpdatePreview()
         end
         local asSwatch, asUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, asColorGet, asColorSet, nil, 20)
@@ -1932,33 +1917,21 @@ local function BuildDisplayBars(parent, y, ctx)
                   get=function() return DBVal("auraStackTextSize") or defaults.auraStackTextSize end,
                   set=function(v)
                     DB().auraStackTextSize = v
-                    for _, plate in pairs(plates) do
-                        for i = 1, 4 do
-                            if plate.debuffs[i] and plate.debuffs[i].count then
-                                SetFSFont(plate.debuffs[i].count, v, "OUTLINE, SLUG")
-                            end
-                            if plate.buffs[i] and plate.buffs[i].count then
-                                SetFSFont(plate.buffs[i].count, v, "OUTLINE, SLUG")
-                            end
-                        end
-                    end
-                    if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end -- 12.1 containers
+                    LiveApplyAuraText()
                     UpdatePreview()
                   end },
                 { type="slider", label="X", min=-50, max=50, step=1,
                   get=function() return DBVal("auraStackTextX") or defaults.auraStackTextX end,
                   set=function(v)
                     DB().auraStackTextX = v
-                    LiveApplyStackPos(function(p, i) return p.debuffs[i] end, 4, DBVal("auraStackTextPosition") or asFallback)
-                    LiveApplyStackPos(function(p, i) return p.buffs[i] end, 4, DBVal("auraStackTextPosition") or asFallback)
+                    LiveApplyAuraText()
                     UpdatePreview()
                   end },
                 { type="slider", label="Y", min=-50, max=50, step=1,
                   get=function() return DBVal("auraStackTextY") or defaults.auraStackTextY end,
                   set=function(v)
                     DB().auraStackTextY = v
-                    LiveApplyStackPos(function(p, i) return p.debuffs[i] end, 4, DBVal("auraStackTextPosition") or asFallback)
-                    LiveApplyStackPos(function(p, i) return p.buffs[i] end, 4, DBVal("auraStackTextPosition") or asFallback)
+                    LiveApplyAuraText()
                     UpdatePreview()
                   end },
             },

@@ -39,6 +39,7 @@ do
     qt.filterCompleted    = false
     qt.filterTrivial      = false
     qt.filterRepeatable   = false
+    qt.filterHeaderToggle = false
     -- Tracks quests listed under the current zone or dungeon.
     qt.autoTrackZone      = false
     -- Progress feedback: alert sound keys ("none" = off), party chat.
@@ -549,9 +550,50 @@ local function ApplyBlizzardSort()
     end
 end
 
+-- Filter Quests button on the Quests header, left of its minimize button.
+-- Built on first enable; the skin tints it and switches its mouse off with
+-- the tracker's (EQT.FilterToggle).
+local function FilterToggleTip()
+    return Cfg("filterEnabled") and "Quest Filters On" or "Quest Filters Off"
+end
+
+local function ApplyFilterToggle()
+    local want = Exp() and Cfg("filterHeaderToggle") == true
+    local btn = EQT.FilterToggle
+    if not btn then
+        if not want then return end
+        local qt = _G.QuestObjectiveTracker
+        local header = qt and qt.Header
+        local minBtn = header and header.MinimizeButton
+        if not minBtn then return end
+        btn = CreateFrame("Button", nil, header)
+        btn:SetSize(minBtn:GetSize())
+        btn:SetPoint("RIGHT", minBtn, "LEFT", -2, 0)
+        -- Above the minimize button's header-wide hit rect (SkinHeader).
+        btn:SetFrameLevel(minBtn:GetFrameLevel() + 1)
+        btn:SetNormalAtlas("ui-questtrackerbutton-filter")
+        btn:SetPushedAtlas("ui-questtrackerbutton-filter-pressed")
+        btn:SetHighlightAtlas("ui-questtrackerbutton-red-highlight", "ADD")
+        btn:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, FilterToggleTip()) end)
+        btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        btn:SetScript("OnClick", function(self)
+            EQT.Set("filterEnabled", not Cfg("filterEnabled"))
+            EQT.ApplyQuestWatches()
+            EllesmereUI:RefreshPage()
+            EllesmereUI.ShowWidgetTooltip(self, FilterToggleTip())
+        end)
+        EQT.FilterToggle = btn
+        EQT.SkinHeader(header)
+        if EQT._trackerMouseOff then EQT.MouseOff(btn) end
+    end
+    btn:SetShown(want)
+    btn:SetAlpha(Cfg("filterEnabled") and 1 or 0.4)
+end
+
 -- Options / profile entry point.
 function EQT.ApplyQuestWatches()
     ApplyBlizzardSort()
+    ApplyFilterToggle()
     -- The tools turned off (or a profile without them): the next pass puts
     -- the watch list back in quest log order.
     local sortOn = SortOn()

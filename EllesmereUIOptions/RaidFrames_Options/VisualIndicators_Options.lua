@@ -35,7 +35,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     local db, floor, IsPreviewOff, MissingGlowDesc = env.db, env.floor, env.IsPreviewOff, env.MissingGlowDesc
     local optState, PP, ReloadAndUpdate, SGet = env.optState, env.PP, env.ReloadAndUpdate, env.SGet
     local SSet, SVal, SWrite = env.SSet, env.SVal, env.SWrite
-    local _, h
+    local _, h, hdr
     local row
     local _secY = y  -- section start tracker
     -------------------------------------------------------------------
@@ -1734,7 +1734,18 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     -------------------------------------------------------------------
     --  RANGE & TOOLTIP
     -------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
+    hdr, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
+    -- The Healer Mana Display's Move in Unlock Mode button, on the raid tab
+    -- only: both tabs build this section and the display's settings are
+    -- shared. Greyed while the mode is None, when the display has no mover.
+    if not optState._partyCtx then
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "RF_HealerMana",
+            disabled = function()
+                local hm = db.profile.healerMana
+                return not hm or (hm.mode or "none") == "none"
+            end,
+            disabledTooltip = "Healer Mana Display" })
+    end
 
     -- OOR Alpha | Show Raid Frames Tooltip (dropdown + cog). The dropdown is a pure VIEW over the legacy keys: with tooltipMode unset it derives the shown option from the showTooltip toggle plus the global "show in combat" flag, so behavior only changes once the user picks.
     -- Same derive as the runtime ns._ResolveTooltipMode.
@@ -1754,7 +1765,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
               -- Seed all buttons so the slider takes effect now.
               if ns._RangeSeedAll then ns._RangeSeedAll() end
           end },
-        { type="dropdown", text="Show Raid Frames Tooltip",
+        { type="dropdown", text="Show Raid & Party Frames Tooltip",
           tooltip="Controls when the tooltip appears as you hover a raid or party frame",
           values={ always="Always", outOfCombat="Out of Combat", outOfBossCombat="Out of Boss Combat", never="Never" },
           order={ "always", "outOfCombat", "outOfBossCombat", "never" },
@@ -1966,7 +1977,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     -- Right-click + drag over a raid/party frame turns the camera (mouselook).
     _, h = W:DualRow(parent, y,
         { type="toggle", text="Right Mouse Camera Unlock",
-          tooltip="Allows free camera movement while holding and dragging right mouse button over raid frames. Right-click tap still opens the unit menu.",
+          tooltip="Allows free camera movement while holding and dragging right mouse button over raid and party frames. Right-click tap still opens the unit menu.",
           getValue=function() return SVal("freeRightClickCamera", false) end,
           setValue=function(v) SSet("freeRightClickCamera", v); if ns.FRCM_Refresh then ns.FRCM_Refresh() end end },
         { type="dropdown", text="Frame Strata",

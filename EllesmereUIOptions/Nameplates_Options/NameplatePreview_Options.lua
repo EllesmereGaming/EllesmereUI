@@ -39,6 +39,169 @@ local function PreviewNameStrata(pf, health, nameFS, nameRaidFrame, strata)
     end
 end
 
+-- Core Positions chains in the preview (mirror ns.NP_CoreChain in
+-- EUI_Nameplates_AuraContainers.lua): a slot holding two or more elements lays
+-- them out one after another in its order (<pos>SlotOrder),
+-- <pos>SlotElementSpacing apart (unset: the first aura row's gap in that order,
+-- else the global aura spacing). The first shown element keeps the spot the
+-- refresh gave it (at Top and Bottom the first aura row, which stays centred:
+-- the elements before it in the order hang off its left edge); each later one
+-- hangs off the one before it, keeping its own height (an icon centred on the
+-- bar, a row on the bar's bottom). A chained aura row is laid out icon by icon
+-- from its pinned end. Fills cx.sideEnd[side] with a side chain's outermost
+-- element that meets the target arrows' span ({ frame, y, h }: the frame, its
+-- bottom over the bar's bottom, its height), for the arrows to hug.
+-- cx: DBVal, defaults, barH, arrowH, debuffY, rows[id] = { list, count, sz, h,
+-- gap, slot }, icons[id] = { frame, slot, sz } (a faction riding the Rare/Quest
+-- indicator is slot "none" there), classFaction, factionFrame, sideEnd.
+local CHAIN_MEMBER = { debuffs = "debuffs", buffs = "buffs", ccs = "ccs", raidmarker = "raidmarker",
+    rare = "class", quest = "class", faction = "faction" }
+local CHAIN_DEFAULT = { "debuffs", "buffs", "ccs", "raidmarker", "rare", "quest", "faction" }
+local CHAIN_POS = { "top", "right", "left", "topright", "topleft", "bottom" }
+local function ChainPreview(cx)
+    local DBVal, defaults = cx.DBVal, cx.defaults
+    local barH = cx.barH
+    cx.sideEnd.left, cx.sideEnd.right = nil, nil
+    local a0, a1 = (barH - cx.arrowH) / 2, (barH + cx.arrowH) / 2
+    for _, pos in ipairs(CHAIN_POS) do
+        -- The slot's members in its order.
+        local members, seen = {}, {}
+        local function take(id)
+            if seen[id] then return end
+            seen[id] = true
+            local r, ic = cx.rows[id], cx.icons[id]
+            local at = (r and r.slot) or (ic and ic.slot) or "none"
+            if at == pos then members[#members + 1] = id end
+        end
+        local src = DBVal(pos .. "SlotOrder")
+        if type(src) == "string" then
+            for key in string.gmatch(src, "[^,]+") do
+                if CHAIN_MEMBER[key] then take(CHAIN_MEMBER[key]) end
+            end
+        end
+        for i = 1, #CHAIN_DEFAULT do take(CHAIN_MEMBER[CHAIN_DEFAULT[i]]) end
+        if #members >= 2 then
+            local yOff = DBVal(pos .. "SlotYOffset") or 0
+            local side = (pos == "left" or pos == "right")
+            local corner = (pos == "topleft" or pos == "topright")
+            -- The shown members: a row (list, count, sz, h, gap) or an icon (frame, sz),
+            -- with the bottom edge its own placement gives it over the slot's reference.
+            local shown = {}
+            for i = 1, #members do
+                local id = members[i]
+                local r = cx.rows[id]
+                if r then
+                    local base = 0
+                    if side then base = yOff elseif corner then base = cx.debuffY + yOff end
+                    shown[#shown + 1] = { id = id, row = r, base = base }
+                else
+                    local ic = cx.icons[id]
+                    local f = ic.frame
+                    -- Rare/Quest + Faction with no mark: the badge stands in for the pair.
+                    if id == "class" and not f:IsShown() and cx.classFaction then f = cx.factionFrame end
+                    if f:IsShown() then
+                        local base = 0
+                        if side then base = yOff + barH / 2 - ic.sz / 2
+                        elseif corner then base = ((id == "raidmarker") and 0 or 2) + yOff end
+                        shown[#shown + 1] = { id = id, frame = f, sz = ic.sz, base = base }
+                    end
+                end
+            end
+            local k = #shown
+            if k > 0 then
+                local s = DBVal(pos .. "SlotElementSpacing")
+                if type(s) ~= "number" then
+                    s = nil
+                    for i = 1, #members do
+                        local r = cx.rows[members[i]]
+                        if r then s = r.gap; break end
+                    end
+                    s = s or DBVal("auraSpacing") or defaults.auraSpacing
+                end
+                local dir = "right"
+                if pos == "left" then dir = "left"
+                elseif corner then
+                    local g = DBVal(pos .. "SlotGrowth") or defaults[pos .. "SlotGrowth"]
+                    if g == "up" or g == "left" then dir = g end
+                end
+                local centred = (pos == "top" or pos == "bottom")
+                local pivot = 1
+                if centred then
+                    for i = 1, k do
+                        if shown[i].row then pivot = i; break end
+                    end
+                end
+                -- A member's outer frame in direction d: a row the refresh placed grows
+                -- outward from its first icon, so its last is the outer one; a row the
+                -- chain pinned leftward is pinned at its last icon, so its first is.
+                local function Outer(m, d)
+                    if not m.row then return m.frame end
+                    if d == "left" and m.pinned then return m.row.list[1] end
+                    return m.row.list[m.row.count]
+                end
+                -- Hangs member m off prev (member j's outer frame) in direction d.
+                local function Place(m, j, prev, d)
+                    local dy = m.base - shown[j].base
+                    local r = m.row
+                    local pin = m.frame
+                    if r then
+                        pin = (d == "left") and r.list[r.count] or r.list[1]
+                        m.pinned = true
+                    end
+                    pin:ClearAllPoints()
+                    if d == "up" then
+                        local sd = (pos == "topleft") and "LEFT" or "RIGHT"
+                        pin:SetPoint("BOTTOM" .. sd, prev, "TOP" .. sd, 0, s)
+                    elseif pos == "bottom" then
+                        if d == "left" then pin:SetPoint("TOPRIGHT", prev, "TOPLEFT", -s, 0)
+                        else pin:SetPoint("TOPLEFT", prev, "TOPRIGHT", s, 0) end
+                    elseif d == "left" then
+                        pin:SetPoint("BOTTOMRIGHT", prev, "BOTTOMLEFT", -s, dy)
+                    else
+                        pin:SetPoint("BOTTOMLEFT", prev, "BOTTOMRIGHT", s, dy)
+                    end
+                    if not r then return end
+                    -- The row's other icons, from the pinned one.
+                    local sp = r.gap + r.sz
+                    for n = 1, r.count do
+                        local f = r.list[n]
+                        if f ~= pin then
+                            f:ClearAllPoints()
+                            if d == "up" then
+                                f:SetPoint("BOTTOMLEFT", pin, "BOTTOMLEFT", 0, (n - 1) * (sp - r.sz + r.h))
+                            elseif d == "left" then
+                                f:SetPoint("BOTTOMRIGHT", pin, "BOTTOMRIGHT", -(r.count - n) * sp, 0)
+                            else
+                                f:SetPoint("BOTTOMLEFT", pin, "BOTTOMLEFT", (n - 1) * sp, 0)
+                            end
+                        end
+                    end
+                end
+                for i = pivot + 1, k do
+                    Place(shown[i], i - 1, Outer(shown[i - 1], dir), dir)
+                end
+                if centred then
+                    for i = pivot - 1, 1, -1 do
+                        local pm = shown[i + 1]
+                        local prev = (i + 1 == pivot) and (pm.row and pm.row.list[1] or pm.frame) or Outer(pm, "left")
+                        Place(shown[i], i + 1, prev, "left")
+                    end
+                end
+                if side then
+                    for i = k, 1, -1 do
+                        local m = shown[i]
+                        local y, h = m.base, m.row and m.row.h or m.sz
+                        if y < a1 and a0 < y + h then
+                            cx.sideEnd[pos] = { frame = Outer(m, dir), y = y, h = h }
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 --- Build the nameplate preview in the content header area: an exact 1:1
 --- replica of a real enemy nameplate (same pixel sizes, anchors, fonts,
 --- borders; no glow, no added effects).
@@ -1090,12 +1253,14 @@ local function BuildNameplatePreview(parent, parentW)
         cast:SetValue(optState._previewCastFill or 0.60)
         castParts.icon:SetTexture(displayCastIcons[optState._previewCastIconIdx or 1])
         do
+            -- Backgrounds and Textured Background as live (the Blizzard Style
+            -- pass below wins).
             local hbgC = (DB() and DB().bgColor) or defaults.bgColor
-            local hbgA = DBVal("bgAlpha") or defaults.bgAlpha
-            healthBG:SetColorTexture(hbgC.r, hbgC.g, hbgC.b, hbgA)
             local cbgC = (DB() and DB().castBgColor) or defaults.castBgColor
-            local cbgA = DBVal("castBgAlpha") or defaults.castBgAlpha
-            castParts.bg:SetColorTexture(cbgC.r, cbgC.g, cbgC.b, cbgA)
+            ns.NP_TexBgPaint(healthBG, ns.NP_TexBgPath(DB(), false),
+                hbgC.r, hbgC.g, hbgC.b, DBVal("bgAlpha") or defaults.bgAlpha)
+            ns.NP_TexBgPaint(castParts.bg, ns.NP_TexBgPath(DB(), true),
+                cbgC.r, cbgC.g, cbgC.b, DBVal("castBgAlpha") or defaults.castBgAlpha)
         end
 
         -- Cast bar border (pixel-perfect, mirrors the real nameplates)
@@ -1365,17 +1530,21 @@ local function BuildNameplatePreview(parent, parentW)
             -- border's own plate and reserves nothing of its own, while the
             -- border art counts as part of the bar on both sides.
             castIconLeftPush, castIconRightPush = ns.NP_ClassicBarReserve()
-        elseif showIcon then
-            if fullSize then
-                if onRight then castIconRightPush = barH + castH
-                else castIconLeftPush = barH + castH end
-            elseif onRight and not iconInWidth then
-                castIconRightPush = castH * iconScale
-            end
+        elseif showIcon and onRight and not iconInWidth and not fullSize then
+            castIconRightPush = castH * iconScale
         end
         -- WoW Forever, as live: right-side elements clear the level box
         -- (it never counts for centring).
         if previewGlow.forever then castIconRightPush = castIconRightPush + ns.NP_ForeverSide() end
+        -- The full-size icon pushes an element beside it only where their spans
+        -- meet, as live during a cast (ns.NP_FullIconPush; the preview always
+        -- shows its cast bar): the element centres on the bar plus y, sz tall.
+        local function FullPush(side, y, sz)
+            if previewGlow.classic or not (showIcon and fullSize) or (side == "right") ~= onRight then return 0 end
+            local mid = barH / 2 + y
+            local castBottom = (DBVal("castBarOffsetY") or defaults.castBarOffsetY) - castH
+            return ns.NP_MeetsFullIcon(mid - sz / 2, mid + sz / 2, barH, castBottom) and (barH + castH) or 0
+        end
 
         raidFrame:ClearAllPoints()
         raidFrame:SetSize(rmSize, rmSize)
@@ -1387,10 +1556,10 @@ local function BuildNameplatePreview(parent, parentW)
                 raidFrame:SetPoint("BOTTOM", health, "TOP", rmXOff, debuffY + cpPush + rmYOff)
             elseif rmPos == "left" then
                 local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
-                raidFrame:SetPoint("RIGHT", health, "LEFT", -sideOff - castIconLeftPush + rmXOff, rmYOff)
+                raidFrame:SetPoint("RIGHT", health, "LEFT", -sideOff - castIconLeftPush - FullPush("left", rmYOff, rmSize) + rmXOff, rmYOff)
             elseif rmPos == "right" then
                 local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
-                raidFrame:SetPoint("LEFT", health, "RIGHT", sideOff + castIconRightPush + rmXOff, rmYOff)
+                raidFrame:SetPoint("LEFT", health, "RIGHT", sideOff + castIconRightPush + FullPush("right", rmYOff, rmSize) + rmXOff, rmYOff)
             elseif rmPos == "topleft" then
                 raidFrame:SetPoint("BOTTOMLEFT", health, "TOPLEFT", rmXOff, cpPush + rmYOff)
             elseif rmPos == "topright" then
@@ -1424,10 +1593,10 @@ local function BuildNameplatePreview(parent, parentW)
                 classIcon:SetPoint("BOTTOM", health, "TOP", clXOff, debuffY + cpPush + clYOff)
             elseif clPos == "left" then
                 local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
-                classIcon:SetPoint("RIGHT", health, "LEFT", -sideOff - castIconLeftPush + clXOff, clYOff)
+                classIcon:SetPoint("RIGHT", health, "LEFT", -sideOff - castIconLeftPush - FullPush("left", clYOff, reIconSz) + clXOff, clYOff)
             elseif clPos == "right" then
                 local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
-                classIcon:SetPoint("LEFT", health, "RIGHT", sideOff + castIconRightPush + clXOff, clYOff)
+                classIcon:SetPoint("LEFT", health, "RIGHT", sideOff + castIconRightPush + FullPush("right", clYOff, reIconSz) + clXOff, clYOff)
             elseif clPos == "topleft" then
                 classIcon:SetPoint("BOTTOMLEFT", health, "TOPLEFT", clXOff, 2 + cpPush + clYOff)
             elseif clPos == "topright" then
@@ -1450,6 +1619,7 @@ local function BuildNameplatePreview(parent, parentW)
         -- other faction's badge (what Opposite Faction Only would show).
         local fcCombined = DBVal("classificationIncludeFaction") == true
         local fcPos = fcCombined and clPos or (DBVal("factionSlot") or defaults.factionSlot or "none")
+        local factionTopExtent = 0 -- height above the health bar, read by the height calculation
         factionIcon:ClearAllPoints()
         if fcPos == "none" then
             factionIcon:Hide()
@@ -1467,16 +1637,22 @@ local function BuildNameplatePreview(parent, parentW)
             end
             local mine = UnitFactionGroup("player")
             local fac = (mine == "Horde") and "Alliance" or "Horde"
-            EllesmereUI.SetFactionArt(factionIcon, DBVal("factionStyle") or defaults.factionStyle, fac)
+            local fStyle = DBVal("factionStyle") or defaults.factionStyle
+            EllesmereUI.SetFactionArt(factionIcon, fStyle, fac, EllesmereUI.FactionBadgeFor(fStyle, "player"))
             factionIcon:SetSize(fcSz, fcSz)
+            if fcPos == "top" then
+                factionTopExtent = debuffY + fcSz + fcY
+            elseif fcPos == "topleft" or fcPos == "topright" then
+                factionTopExtent = 2 + fcSz + fcY
+            end
             if fcPos == "top" then
                 factionIcon:SetPoint("BOTTOM", health, "TOP", fcX, debuffY + cpPush + fcY)
             elseif fcPos == "left" then
                 local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
-                factionIcon:SetPoint("RIGHT", health, "LEFT", -sideOff - castIconLeftPush + fcX, fcY)
+                factionIcon:SetPoint("RIGHT", health, "LEFT", -sideOff - castIconLeftPush - FullPush("left", fcY, fcSz) + fcX, fcY)
             elseif fcPos == "right" then
                 local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
-                factionIcon:SetPoint("LEFT", health, "RIGHT", sideOff + castIconRightPush + fcX, fcY)
+                factionIcon:SetPoint("LEFT", health, "RIGHT", sideOff + castIconRightPush + FullPush("right", fcY, fcSz) + fcX, fcY)
             elseif fcPos == "topleft" then
                 factionIcon:SetPoint("BOTTOMLEFT", health, "TOPLEFT", fcX, 2 + cpPush + fcY)
             elseif fcPos == "topright" then
@@ -1981,13 +2157,17 @@ local function BuildNameplatePreview(parent, parentW)
                 local slotCpPush = (slotTop == "none") and cpPush or 0
                 frame:SetPoint("BOTTOM", anchor, "TOP",
                     (index - (count + 1) / 2) * slotSpacing + sxOff, debuffY + slotCpPush + syOff)
-            elseif slotName == "left" then
-                -- Classic WoW UI: gap off the border art, as live does.
-                local sideOff = (DBVal("sideAuraXOffset") or defaults.sideAuraXOffset) + ns.NP_ClassicSide("left")
-                frame:SetPoint("BOTTOMRIGHT", health, "BOTTOMLEFT", -sideOff - (index - 1) * slotSpacing + sxOff, syOff)
-            elseif slotName == "right" then
-                local sideOff = (DBVal("sideAuraXOffset") or defaults.sideAuraXOffset) + ns.NP_ClassicSide("right")
-                frame:SetPoint("BOTTOMLEFT", health, "BOTTOMRIGHT", sideOff + (index - 1) * slotSpacing + sxOff, syOff)
+            elseif slotName == "left" or slotName == "right" then
+                -- Classic WoW UI: gap off the border art, as live does; the
+                -- full-size spell icon pushes the row out where they meet (the
+                -- row spans its Y offset up by one icon).
+                local sideOff = (DBVal("sideAuraXOffset") or defaults.sideAuraXOffset) + ns.NP_ClassicSide(slotName)
+                    + FullPush(slotName, syOff + iconH / 2 - barH / 2, iconH) + (index - 1) * slotSpacing
+                if slotName == "left" then
+                    frame:SetPoint("BOTTOMRIGHT", health, "BOTTOMLEFT", -sideOff + sxOff, syOff)
+                else
+                    frame:SetPoint("BOTTOMLEFT", health, "BOTTOMRIGHT", sideOff + sxOff, syOff)
+                end
             elseif slotName == "topleft" then
                 local growth = DBVal("topleftSlotGrowth") or defaults.topleftSlotGrowth
                 local idx = index - 1  -- 0 for icon 1, never moves
@@ -2177,50 +2357,92 @@ local function BuildNameplatePreview(parent, parentW)
             end
         end
 
-        -- Position target arrows OUTSIDE the outermost side auras
+        -- Core Positions chains: a slot holding two or more elements lays them out one
+        -- after another (ChainPreview, mirroring the live chain); its inputs ride one
+        -- kept table (this function is near Lua 5.1's 200-local cap).
+        do
+            local cx = optState._pvChain
+            if not cx then
+                cx = { rows = { debuffs = {}, buffs = {}, ccs = {} },
+                       icons = { raidmarker = {}, class = {}, faction = {} }, sideEnd = {} }
+                optState._pvChain = cx
+            end
+            cx.DBVal, cx.defaults = DBVal, defaults
+            cx.barH, cx.arrowH, cx.debuffY = barH, arrowH, debuffY
+            local r = cx.rows.debuffs
+            r.list, r.count, r.sz, r.h, r.gap, r.slot = debuffs, PV_CONST.DEBUFF_COUNT, debuffSz, debuffH, debuffGap, debuffSlotVal
+            r = cx.rows.buffs
+            r.list, r.count, r.sz, r.h, r.gap, r.slot = buffs, PV_CONST.BUFF_COUNT, buffSz, buffH, buffGap, buffSlotVal
+            r = cx.rows.ccs
+            r.list, r.count, r.sz, r.h, r.gap, r.slot = ccs, PV_CONST.CC_COUNT, ccSz, ccH, ccGap, ccSlotVal
+            r = cx.icons.raidmarker
+            r.frame, r.slot, r.sz = raidFrame, rmPos, rmSize
+            r = cx.icons.class
+            r.frame, r.slot, r.sz = classIcon, clPos, reIconSz
+            r = cx.icons.faction
+            r.frame, r.slot = factionIcon, fcCombined and "none" or fcPos
+            r.sz = (fcPos ~= "none") and (DBVal(fcPos .. "SlotSize") or defaults[fcPos .. "SlotSize"] or 20) or 20
+            cx.classFaction, cx.factionFrame = fcCombined, factionIcon
+            ChainPreview(cx)
+        end
+
+        -- Position target arrows OUTSIDE the side elements they meet (mirror live
+        -- PositionArrowsOutsideAuras): they centre on the bar, arrowH tall, and an
+        -- element its slot's Y offset moved above or below them is passed over.
         if showArrows then
             arrows.left:ClearAllPoints()
             arrows.right:ClearAllPoints()
-            -- Compute per-slot pixel extent on each side (accounts for X offsets)
             local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
-            local leftExtent, rightExtent = 0, 0
-            -- Cast spell icon reserve (mirror live PositionArrowsOutsideAuras)
-            if castIconLeftPush > 0 then leftExtent = math.max(leftExtent, castIconLeftPush) end
-            if castIconRightPush > 0 then rightExtent = math.max(rightExtent, castIconRightPush) end
-            -- Aura slots (debuffs, buffs, ccs)
-            local function addAuraSide(slotVal, count, sz, sp, xOff)
-                -- Classic WoW UI: the rows sit past the border art, as live.
-                if slotVal == "left" then
-                    leftExtent = math.max(leftExtent, sideOff + ns.NP_ClassicSide("left") + (count - 1) * sp + sz - xOff)
-                elseif slotVal == "right" then
-                    rightExtent = math.max(rightExtent, sideOff + ns.NP_ClassicSide("right") + (count - 1) * sp + sz + xOff)
-                end
+            -- The cast icon (and Classic WoW UI's border) on the arrows' own span.
+            local leftExtent = castIconLeftPush + FullPush("left", 0, arrowH)
+            local rightExtent = castIconRightPush + FullPush("right", 0, arrowH)
+            -- One element on `side`, centred on the bar plus y, sz tall, reaching
+            -- `reach` past the bar's edge.
+            local function add(side, y, sz, reach)
+                if math.abs(y) >= (sz + arrowH) / 2 then return end
+                if side == "left" then leftExtent = math.max(leftExtent, reach)
+                elseif side == "right" then rightExtent = math.max(rightExtent, reach) end
             end
-            addAuraSide(debuffSlotVal, PV_CONST.DEBUFF_COUNT, debuffSz, debuffSpacing, debuffXOff)
-            addAuraSide(buffSlotVal, PV_CONST.BUFF_COUNT, buffSz, buffSpacing, buffXOff)
-            addAuraSide(ccSlotVal, PV_CONST.CC_COUNT, ccSz, ccSpacing, ccXOff)
-            -- Raid marker
-            if rmPos == "left" and showRM then
-                leftExtent = math.max(leftExtent, sideOff + castIconLeftPush + rmSize - rmXOff)
-            elseif rmPos == "right" and showRM then
-                rightExtent = math.max(rightExtent, sideOff + castIconRightPush + rmSize + rmXOff)
+            -- Aura slots (debuffs, buffs, ccs): a row spans its Y offset up by one
+            -- icon, sits past Classic WoW UI's border art and steps out for the
+            -- full-size spell icon where it meets it, as live.
+            local function addAuraSide(slotVal, count, sz, h, sp, xOff, yOff)
+                if slotVal ~= "left" and slotVal ~= "right" then return end
+                local y = yOff + h / 2 - barH / 2
+                add(slotVal, y, h, sideOff + ns.NP_ClassicSide(slotVal) + FullPush(slotVal, y, h)
+                    + (count - 1) * sp + sz + ((slotVal == "left") and -xOff or xOff))
             end
-            -- Classification icon
-            if clPos == "left" and showCL then
-                leftExtent = math.max(leftExtent, sideOff + castIconLeftPush + reIconSz - clXOff)
-            elseif clPos == "right" and showCL then
-                rightExtent = math.max(rightExtent, sideOff + castIconRightPush + reIconSz + clXOff)
+            addAuraSide(debuffSlotVal, PV_CONST.DEBUFF_COUNT, debuffSz, debuffH, debuffSpacing, debuffXOff, debuffYOff)
+            addAuraSide(buffSlotVal, PV_CONST.BUFF_COUNT, buffSz, buffH, buffSpacing, buffXOff, buffYOff)
+            addAuraSide(ccSlotVal, PV_CONST.CC_COUNT, ccSz, ccH, ccSpacing, ccXOff, ccYOff)
+            -- Side icons (raid marker, classification, faction), each past its
+            -- own cast icon push.
+            local function addIcon(side, y, sz, xOff)
+                if side ~= "left" and side ~= "right" then return end
+                add(side, y, sz, sideOff + ((side == "left") and castIconLeftPush or castIconRightPush)
+                    + FullPush(side, y, sz) + sz + ((side == "left") and -xOff or xOff))
             end
-
-            if leftExtent > 0 then
+            if raidFrame:IsShown() then addIcon(rmPos, rmYOff, rmSize, rmXOff) end
+            if classIcon:IsShown() then addIcon(clPos, clYOff, reIconSz, clXOff) end
+            if factionIcon:IsShown() and (fcPos == "left" or fcPos == "right") then
+                -- Stacked behind a showing Rare/Quest icon it sits higher.
+                local fy = (DBVal(fcPos .. "SlotYOffset") or 0)
+                    + ((fcCombined and classIcon:IsShown()) and math.floor(reIconSz * 0.6 + 0.5) or 0)
+                addIcon(fcPos, fy, DBVal(fcPos .. "SlotSize") or defaults[fcPos .. "SlotSize"] or 20,
+                    DBVal(fcPos .. "SlotXOffset") or 0)
+            end
+            -- A side chain's outermost element is hugged at its outer bottom corner,
+            -- the arrow centred on the bar, as live.
+            local chainEnd = optState._pvChain.sideEnd
+            if chainEnd.left then
+                arrows.left:SetPoint("RIGHT", chainEnd.left.frame, "BOTTOMLEFT", -8, barH / 2 - chainEnd.left.y)
+            else
                 arrows.left:SetPoint("RIGHT", health, "LEFT", -(leftExtent + 8), 0)
-            else
-                arrows.left:SetPoint("RIGHT", health, "LEFT", -8, 0)
             end
-            if rightExtent > 0 then
-                arrows.right:SetPoint("LEFT", health, "RIGHT", rightExtent + 8, 0)
+            if chainEnd.right then
+                arrows.right:SetPoint("LEFT", chainEnd.right.frame, "BOTTOMRIGHT", 8, barH / 2 - chainEnd.right.y)
             else
-                arrows.right:SetPoint("LEFT", health, "RIGHT", 8, 0)
+                arrows.right:SetPoint("LEFT", health, "RIGHT", rightExtent + 8, 0)
             end
             arrows.left:Show(); arrows.right:Show()
             if pf._arrowOverlay then pf._arrowOverlay:Show() end
@@ -2229,25 +2451,45 @@ local function BuildNameplatePreview(parent, parentW)
             if pf._arrowOverlay then pf._arrowOverlay:Hide() end
         end
 
-        -- Height calculation: the "top" slot determines the area above the name. Find which aura type occupies it, including per-slot Y offsets that push elements further up.
-        local topExtent = 0
-        local function isTopSlot(s) return s == "top" or s == "topleft" or s == "topright" end
-        if isTopSlot(debuffSlotVal) then topExtent = math.max(topExtent, debuffSz + debuffYOff) end
-        if isTopSlot(buffSlotVal) then topExtent = math.max(topExtent, buffSz + buffYOff) end
-        if isTopSlot(ccSlotVal) then topExtent = math.max(topExtent, ccSz + ccYOff) end
-        if isTopSlot(rmPos) and showRM then topExtent = math.max(topExtent, rmSize + rmYOff) end
-        if isTopSlot(clPos) and showCL then topExtent = math.max(topExtent, reIconSz + clYOff) end
-        -- Only include name text height when something is actually in the top slot
-        local topTextH = (slotTop ~= "none") and (topFontSz + 4 + nameYOff + topYOff) or 0
-        -- Only add debuffY gap when something occupies the center "top" position or top text slot
-        local hasTopCenter = false
-        if debuffSlotVal == "top" then hasTopCenter = true end
-        if buffSlotVal == "top" then hasTopCenter = true end
-        if ccSlotVal == "top" then hasTopCenter = true end
-        if rmPos == "top" and showRM then hasTopCenter = true end
-        if clPos == "top" and showCL then hasTopCenter = true end
-        local effectiveDebuffY = (hasTopCenter or slotTop ~= "none") and debuffY or 0
-        local healthFromTop = Snap(15 + 4 + topExtent + effectiveDebuffY + topTextH + cpPush)
+        -- Height calculation: "top" slot auras stack above the top text; corner items (and a "top" raid marker or classification icon) anchor to the health bar beside it, so the two count as max, not sum.
+        -- Its working locals live in a block: this function is near Lua 5.1's 200-local cap.
+        local healthFromTop
+        do
+            local stackExtent, cornerExtent = 0, 0
+            local function isCorner(s) return s == "topleft" or s == "topright" end
+            local function addAura(slotVal, count, sz, iconH, spacing, yOff)
+                if slotVal == "top" then
+                    stackExtent = math.max(stackExtent, sz + yOff)
+                elseif isCorner(slotVal) then
+                    -- "up" growth stacks the icons, as PlaceInSlot does
+                    local stackH = 0
+                    if (DBVal(slotVal .. "SlotGrowth") or defaults[slotVal .. "SlotGrowth"]) == "up" then
+                        stackH = (count - 1) * (spacing - sz + iconH)
+                    end
+                    cornerExtent = math.max(cornerExtent, debuffY + sz + stackH + yOff)
+                end
+            end
+            addAura(debuffSlotVal, PV_CONST.DEBUFF_COUNT, debuffSz, debuffH, debuffSpacing, debuffYOff)
+            addAura(buffSlotVal, PV_CONST.BUFF_COUNT, buffSz, buffH, buffSpacing, buffYOff)
+            addAura(ccSlotVal, PV_CONST.CC_COUNT, ccSz, ccH, ccSpacing, ccYOff)
+            if showRM then
+                if rmPos == "top" then cornerExtent = math.max(cornerExtent, debuffY + rmSize + rmYOff)
+                elseif isCorner(rmPos) then cornerExtent = math.max(cornerExtent, rmSize + rmYOff) end
+            end
+            if showCL then
+                if clPos == "top" then cornerExtent = math.max(cornerExtent, debuffY + reIconSz + clYOff)
+                elseif isCorner(clPos) then cornerExtent = math.max(cornerExtent, 2 + reIconSz + clYOff) end
+            end
+            cornerExtent = math.max(cornerExtent, factionTopExtent)
+            -- Only include name text height when something is actually in the top slot
+            local topTextH = (slotTop ~= "none") and (topFontSz + 4 + nameYOff + topYOff) or 0
+            -- Only add debuffY gap when an aura occupies the center "top" position or the top text slot is used
+            local hasTopAura = (debuffSlotVal == "top") or (buffSlotVal == "top") or (ccSlotVal == "top")
+            local effectiveDebuffY = (hasTopAura or slotTop ~= "none") and debuffY or 0
+            local topStackH = topTextH + effectiveDebuffY + stackExtent
+            -- 15 matches the bottom margin below the cast bar in totalH
+            healthFromTop = Snap(15 + math.max(topStackH, cornerExtent) + cpPush)
+        end
         health:ClearAllPoints()
         health:SetSize(barW, barH)
 

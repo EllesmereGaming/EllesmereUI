@@ -50,9 +50,12 @@ end
 
 _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
     local y = yOffset
-    local _, h
+    local _, h, hdr
 
-    _, h = W:SectionHeader(parent, "ALERTS", y); y = y - h
+    hdr, h = W:SectionHeader(parent, "ALERTS", y); y = y - h
+    -- One anchor carries the Combat, Potion Ready and Unspent Talents alerts,
+    -- each with its own enable, so the button has no single requirement.
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_CombatAlert" })
 
     local row1
     row1, h = W:DualRow(parent, y,

@@ -42,7 +42,7 @@ local ADDON_DB_MAP = {
     { folder = "EllesmereUIUnitFrames",        display = "Unit Frames",         svName = "EllesmereUIUnitFramesDB",        suffix = "UnitFrames"        },
     { folder = "EllesmereUICooldownManager",   display = "Cooldown Manager",    svName = "EllesmereUICooldownManagerDB",   suffix = "CooldownManager"   },
     { folder = "EllesmereUIResourceBars",      display = "Resource Bars",       svName = "EllesmereUIResourceBarsDB",      suffix = "ResourceBars"      },
-    { folder = "EllesmereUIRaidFrames",       display = "Raid Frames",         svName = "EllesmereUIRaidFramesDB",        suffix = "RaidFrames"        },
+    { folder = "EllesmereUIRaidFrames",       display = "Raid & Party Frames", svName = "EllesmereUIRaidFramesDB",        suffix = "RaidFrames"        },
     { folder = "EllesmereUIAuraBuffReminders", display = "AuraBuff Reminders",  svName = "EllesmereUIAuraBuffRemindersDB", suffix = "AuraBuffReminders" },
     -- v6.6 split-out addons (were previously bundled under the retired
     -- EllesmereUIBasics, removed from the suite v8.7.x).
@@ -291,6 +291,14 @@ end
 local deserializeYieldHook
 local deserializeOps = 0
 
+-- A truncated s/n token (no delimiter, so no way to advance) flags the parse
+-- and jumps past the end, so every enclosing table loop stops. Not error():
+-- the async decode yields mid-parse, which a pcall would forbid.
+local function Malformed(str)
+    Serializer._malformed = true
+    return nil, #str + 1
+end
+
 local function DeserializeValue(str, pos)
     if deserializeYieldHook then
         deserializeOps = deserializeOps + 1
@@ -303,14 +311,14 @@ local function DeserializeValue(str, pos)
     if tag == "s" then
         -- Find the colon after the length
         local colonPos = str:find(":", pos + 1, true)
-        if not colonPos then return nil, pos end
+        if not colonPos then return Malformed(str) end
         local len = tonumber(str:sub(pos + 1, colonPos - 1))
-        if not len then return nil, pos end
+        if not len or not (len >= 0) then return Malformed(str) end  -- negative/NaN would not advance
         local val = str:sub(colonPos + 1, colonPos + len)
         return val, colonPos + len + 1
     elseif tag == "n" then
         local semi = str:find(";", pos + 1, true)
-        if not semi then return nil, pos end
+        if not semi then return Malformed(str) end
         return tonumber(str:sub(pos + 1, semi - 1)), semi + 1
     elseif tag == "T" then
         return true, pos + 1
@@ -349,7 +357,14 @@ end
 
 function Serializer.Deserialize(str)
     if not str or #str == 0 then return nil end
+    -- The flag is shared module state and the async decode yields mid-parse: a
+    -- decode run while another is parked keeps that one's flag as it found it.
+    local prev = Serializer._malformed
+    Serializer._malformed = nil
     local val, _ = DeserializeValue(str, 1)
+    local bad = Serializer._malformed
+    Serializer._malformed = prev
+    if bad then return nil end
     return val
 end
 
@@ -947,7 +962,7 @@ local function ResolveSpecProfile()
     local specProfiles = EllesmereUIDB.specProfiles
     if not specProfiles or not next(specProfiles) then return nil end
 
-    local charKey = UnitName("player") .. " - " .. GetRealmName()
+    local charKey = EllesmereUI.CharKey(" - ", EllesmereUIDB.lastSpecByChar)
     if not EllesmereUIDB.lastSpecByChar then
         EllesmereUIDB.lastSpecByChar = {}
     end
@@ -1117,7 +1132,7 @@ function EllesmereUI.ApplyProfileData(profileData)
     -- An open unlock session's snapshots and pending edits belong to the
     -- OUTGOING data about to be replaced: discard-close before the wipe
     -- (mirrors SwitchProfile / spec changes / condition flips).
-    if EllesmereUI._unlockModeActive and EllesmereUI.ForceCloseUnlockDiscard then
+    if EllesmereUI._unlockModeSessionActive and EllesmereUI.ForceCloseUnlockDiscard then
         EllesmereUI.ForceCloseUnlockDiscard()
     end
 
@@ -1379,6 +1394,7 @@ local REFRESH_ADDON_STEPS = {
         if _G._ECL_ApplyCastCircle then _G._ECL_ApplyCastCircle() end
         if EllesmereUI._applyCrosshair then EllesmereUI._applyCrosshair() end
         if EllesmereUI._applySelfCombatText then EllesmereUI._applySelfCombatText() end
+        if EllesmereUI._applyUpgradeTooltips then EllesmereUI._applyUpgradeTooltips() end
         if EllesmereUI._applyFPSDisplay then
             EllesmereUI._applyFPSDisplay()
         elseif EllesmereUI._applySecondaryStats then
@@ -2037,7 +2053,8 @@ end
 -- roles), charSheetCollapsedSections (transient UI state), characterFramePos /
 -- friendsFramePos (dragged panel positions, resolution- bound), tooltipFixedPos (stale
 -- account key; the live one is per-profile and rides the profile itself),
--- blizzWindowModernBG (dead key, read nowhere).
+-- blizzWindowModernBG (dead key, read nowhere), mailAltRoster / mailAltHidden (the
+-- player's own characters and which of them the Mail card's Alt List leaves out).
 -------------------------------------------------------------------------------
 local BLIZZ_SKIN_GLOBAL_KEYS = {}
 do
@@ -2124,9 +2141,10 @@ do
         -- Inspect card
         "inspectShowEnchants", "inspectEnchantNames", "inspectEnchantSize",
         "inspectShowItemLevel", "inspectShowUpgradeTrack",
-        -- LFG / Merchant cards
+        -- LFG / Merchant / Mail cards
         "lfgRememberRoles",
         "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel", "merchantBulkBuy",
+        "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
         -- Friends List card (WoW Forever: the friend tiles and auto-accept)
         "friendsListCard",
     })
@@ -2148,20 +2166,14 @@ end
 
 -- Apply an imported bundle: every allowlisted key takes the bundle's value,
 -- INCLUDING nil (absent = exporter default), so mixed old/new state can't
--- linger. Bundle keys this build doesn't know yet apply too (a newer exporter's keys
--- are inert on builds that never read them). Callers reload right after -- these
--- settings install at load, so no live re-apply is needed or attempted.
+-- linger. Keys outside the allowlist are ignored, so a string can never write
+-- other account data (saved profiles, click casting, the per-character
+-- records). Callers reload right after -- these settings install at load, so
+-- no live re-apply is needed or attempted.
 function EllesmereUI.ApplyBlizzSkinGlobals(bundle)
     if type(bundle) ~= "table" or not EllesmereUIDB then return end
-    local known = {}
     for _, k in ipairs(BLIZZ_SKIN_GLOBAL_KEYS) do
-        known[k] = true
         EllesmereUIDB[k] = DeepCopy(bundle[k])
-    end
-    for k, v in pairs(bundle) do
-        if not known[k] then
-            EllesmereUIDB[k] = DeepCopy(v)
-        end
     end
 end
 
@@ -2342,7 +2354,7 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
     -- Normalize local db.folder keys -> canonical (suite) keys so the string
     -- imports correctly into any build. No-op in the suite (canon == folder).
     exportData.addons = AddonsToCanon(exportData.addons)
-    local payload = { version = 3, type = "full", data = exportData }
+    local payload = { version = EllesmereUI.LayoutExportVersion(exportData), type = "full", data = exportData }
     EllesmereUI.StampPayloadClient(payload)
     local serialized = Serializer.Serialize(payload)
     if not LibDeflate then return nil end
@@ -2354,6 +2366,7 @@ end
 -- Public: re-encode a decoded payload back to an import string.
 function EllesmereUI.EncodePayload(payload)
     if not payload then return nil end
+    if EllesmereUI.LayoutExportVersion(payload.data) == 4 then payload.version = 4 end
     local serialized = Serializer.Serialize(payload)
     if not LibDeflate then return nil end
     local compressed = LibDeflate:CompressDeflate(serialized)
@@ -2365,11 +2378,15 @@ end
 --  FULL ACCOUNT EXPORT  (separate format, purely additive)
 --
 --  A string that carries the WHOLE central store: every account-global key
---  plus the ACTIVE profile. The recipient ends up with the exporter's entire
+--  plus the ACTIVE profile. The recipient ends up with the exporter's account
 --  setup, including everything a normal profile string deliberately refuses
 --  to carry -- HoverCast bindings, CDM spell assignments, Quality of Life
---  account settings, unlock anchors and size matches, UI scale, profile
---  keybinds, spec assignments, first-install state.
+--  account settings, unlock anchors and size matches, UI scale, spec
+--  assignments, first-install state. Stores keyed by the recipient's own
+--  profiles keep the recipient's entries and take only the carried
+--  profile's from the string (FULL_IMPORT_MERGE: profile keybinds, sync
+--  groups, last-spec records, color pull-from pointers, the other
+--  profiles' CDM spell layouts).
 --
 --  It shares NOTHING with ExportProfile / ImportProfile: no include toggles,
 --  no per-module filtering, no canonical re-keying, no store merging, no
@@ -2387,6 +2404,12 @@ end
 --    xpBarChars           XP bar session clock, XP rate and time this level
 --    questWatchChars      WoW Forever quest tools: quests each character's
 --                         filters and auto-track moved
+--    mailAltRoster        the Mail card's Alt List: every character recorded
+--    mailAltHidden        and the ones its Shown Characters leaves out
+--    raidHoroscope        Party Mode's Should I Raid Tonight?: each
+--                         character's birthday
+--    cdmCachedBarSizes    Cooldown Manager bar sizes cached per character
+--    bagCurrencyByChar    Bags' tracked currencies per character
 --  (The upgrade-calc and gold blobs are what PRIVATE_ADDON_KEYS strips from
 --  normal strings, at their current top-level homes. The three legacy gold
 --  keys stay listed: until Bags or DataBars loads and absorbs them they are
@@ -2412,6 +2435,60 @@ local FULL_EXPORT_EXCLUDED = {
     chatTellMuted         = true,
     groupFinderApps       = true,
     questWatchChars       = true,
+    cdmRepopulatePending  = true,
+    mailAltRoster         = true,
+    mailAltHidden         = true,
+    raidHoroscope         = true,
+    cdmCachedBarSizes     = true,
+    bagCurrencyByChar     = true,
+}
+
+-- Root stores keyed by profile name (or character) describe the recipient's
+-- own profiles. A full import keeps them and takes from the string only the
+-- carried profile's entry: fn(own, fromString, carriedName) -> new value.
+local function KeepOwn(own) return own end
+-- A pointer to one profile: the recipient's stands; the string's is taken only
+-- when the recipient has none and it names the carried profile.
+local function OwnOrCarried(own, str, name)
+    if own == nil and str == name then return str end
+    return own
+end
+local FULL_IMPORT_MERGE = {
+    syncedModules  = KeepOwn,
+    lastSpecByChar = KeepOwn,
+    lastNonSpecProfile = OwnOrCarried,
+    colorsPullFrom     = OwnOrCarried,
+    colorsSectionPullFrom = function(own, str, name)
+        if type(own) ~= "table" then own = {} end
+        if type(str) == "table" then
+            for section, p in pairs(str) do
+                if p == name and own[section] == nil then own[section] = p end
+            end
+        end
+        return own
+    end,
+    profileKeybinds = function(own, str, name)
+        if type(own) ~= "table" then own = {} end
+        local key = type(str) == "table" and str[name]
+        if key then
+            for n, k in pairs(own) do
+                if k == key and n ~= name then return own end
+            end
+            own[name] = key
+        end
+        return own
+    end,
+    spellAssignments = function(own, str, name)
+        if type(str) ~= "table" then return own end
+        if type(own) ~= "table" then own = {} end
+        local profiles = type(own.profiles) == "table" and own.profiles or {}
+        for k, v in pairs(str) do
+            if k ~= "profiles" then own[k] = v end
+        end
+        profiles[name] = type(str.profiles) == "table" and str.profiles[name] or nil
+        own.profiles = profiles
+        return own
+    end,
 }
 
 --- Builds a full-account export string, or nil.
@@ -2456,7 +2533,7 @@ function EllesmereUI.ExportFullAccountData()
     out.activeProfile = activeName
     out.profileOrder  = { activeName }
     local payload = {
-        version     = 3,
+        version     = EllesmereUI.LayoutExportVersion(out),
         type        = FULL_EXPORT_TYPE,
         fullExport  = true,     -- the routing stamp the import flow reads
         profileName = activeName,
@@ -2485,6 +2562,10 @@ function EllesmereUI.ImportFullAccountData(payload)
     -- The reload is asked for first in the click (RequestReload); the client
     -- reloads only once this function has finished, so everything below lands.
     EllesmereUI.RequestReload(EllesmereUI.L("Profile Imported"), EllesmereUI.ImportReloadMessage(payload))
+    -- Close any edit session or Default view and bank live edits while the stores
+    -- are still the recipient's: a later exit would bank live into the import.
+    if EllesmereUI.SpecOverrides_CloseEditSessions then EllesmereUI.SpecOverrides_CloseEditSessions() end
+    if EllesmereUI.SpecOverrides_HarvestCurrent then EllesmereUI.SpecOverrides_HarvestCurrent() end
     local activeName = data.activeProfile or payload.profileName or "Default"
 
     -- 1) Account globals, wholesale. profiles/profileOrder/activeProfile are
@@ -2508,12 +2589,19 @@ function EllesmereUI.ImportFullAccountData(payload)
     local fvSnapKey = EllesmereUI._FvSnapFlag
     local fvSnap = fvSnapKey and type(EllesmereUIDB._migrations) == "table"
         and EllesmereUIDB._migrations[fvSnapKey]
+    local own = {}
+    for k in pairs(FULL_IMPORT_MERGE) do own[k] = EllesmereUIDB[k] end
     for k, v in pairs(data) do
         if k ~= "profiles" and k ~= "profileOrder" and k ~= "activeProfile"
            and not FULL_EXPORT_EXCLUDED[k]
            and not (otherClient and (k == "spellAssignments" or k == "_tbbLinkOwner")) then
             EllesmereUIDB[k] = DeepCopy(v)
         end
+    end
+    for k, merge in pairs(FULL_IMPORT_MERGE) do
+        local str = EllesmereUIDB[k]
+        if str == own[k] then str = nil end  -- not carried, or refused above
+        EllesmereUIDB[k] = merge(own[k], str, activeName)
     end
     if fvSweep then
         if type(EllesmereUIDB._migrations) ~= "table" then EllesmereUIDB._migrations = {} end
@@ -2810,7 +2898,7 @@ function EllesmereUI.ExportCurrentProfile(includeLayout, includeCDM, cdmSpecs)
     }
     -- Normalize local db.folder keys -> canonical (suite) keys (no-op in suite).
     profileData.addons = AddonsToCanon(profileData.addons)
-    local payload = { version = 3, type = "full", data = profileData, meta = meta }
+    local payload = { version = EllesmereUI.LayoutExportVersion(profileData), type = "full", data = profileData, meta = meta }
     EllesmereUI.StampPayloadClient(payload)
     local serialized = Serializer.Serialize(payload)
     if not LibDeflate then return nil end
@@ -2822,7 +2910,7 @@ end
 function EllesmereUI.DecodeImportString(importStr)
     if not importStr or #importStr < 5 then return nil, "Invalid string" end
     -- Detect old CDM bar layout strings (format removed in 5.1.2)
-    if importStr:sub(1, 9) == "!EUICDM_" then
+    if importStr:sub(1, 8) == "!EUICDM_" then
         return nil, "This is an old CDM Bar Layout string. This format is no longer supported. Use the standard profile import instead."
     end
     if importStr:sub(1, #EXPORT_PREFIX) ~= EXPORT_PREFIX then
@@ -2841,7 +2929,7 @@ function EllesmereUI.DecodeImportString(importStr)
     if not payload.version or payload.version < 3 then
         return nil, "This profile was created before the beta wipe and is no longer compatible. Please create a new export."
     end
-    if payload.version > 3 then
+    if payload.version > 4 then
         return nil, "This profile was created with a newer version of EllesmereUI. Please update your addon."
     end
     -- Drop account data an older exporter left in the string, before any
@@ -2893,7 +2981,7 @@ do
             onDone(nil, "Invalid string")
             return nil
         end
-        if importStr:sub(1, 9) == "!EUICDM_" then
+        if importStr:sub(1, 8) == "!EUICDM_" then
             onDone(nil, "This is an old CDM Bar Layout string. This format is no longer supported. Use the standard profile import instead.")
             return nil
         end
@@ -2978,7 +3066,7 @@ do
             if not payload.version or payload.version < 3 then
                 return nil, "This profile was created before the beta wipe and is no longer compatible. Please create a new export."
             end
-            if payload.version > 3 then
+            if payload.version > 4 then
                 return nil, "This profile was created with a newer version of EllesmereUI. Please update your addon."
             end
             -- Same strip as the sync path: account data never reaches a profile.
@@ -3269,6 +3357,16 @@ function EllesmereUI.ImportProfile(importStr, profileName)
     end
 
     if payload.type == "full" then
+        -- Spec Overrides: close any edit session or Default view and sync the
+        -- current-spec values with live edits before current/merged are built
+        -- (as SwitchProfile does), so an import over the active profile's own
+        -- name never banks live state into the imported stores.
+        if EllesmereUI.SpecOverrides_CloseEditSessions then
+            EllesmereUI.SpecOverrides_CloseEditSessions()
+        end
+        if EllesmereUI.SpecOverrides_HarvestCurrent then
+            EllesmereUI.SpecOverrides_HarvestCurrent()
+        end
         -- WoW Forever: the one-time buff clear runs on the payload itself, before
         -- the merge copy and the raw re-apply below (EllesmereUI_Migration.lua).
         if EllesmereUI.FvBW then EllesmereUI.FvBW.ProcessProfile(payload.data, "import") end
@@ -3575,12 +3673,11 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         -- every anchor / width-match the user had set on the old profile since it was
         -- last saved (they survived only inside the imported profile, so deleting it
         -- lost them for good). This is the reported "bars lose their anchors and width
-        -- match after import" bug. Spec Overrides: sync the outgoing profile's
-        -- current-spec values with live edits before the imported profile takes over.
-        if EllesmereUI.SpecOverrides_HarvestCurrent then
-            EllesmereUI.SpecOverrides_HarvestCurrent()
-        end
-        local outgoing = db.profiles[db.activeProfile or "Default"]
+        -- match after import" bug. Importing over the active profile's own name:
+        -- merged is already installed under it, so the snapshot would bank the
+        -- live layout over the imported one.
+        local outgoingName = db.activeProfile or "Default"
+        local outgoing = outgoingName ~= profileName and db.profiles[outgoingName]
         if outgoing and EllesmereUIDB then
             outgoing.unlockLayout = SnapshotUnlockLayout()
         end
@@ -3855,7 +3952,7 @@ function EllesmereUI.SwitchProfile(name)
     -- and condition flips): its movers, snapshots, and pending edits all belong to the
     -- OUTGOING profile's stores -- committing or harvesting them after the swap would
     -- write them into the WRONG profile's layers and snapshots. Discard-close first.
-    if EllesmereUI._unlockModeActive and EllesmereUI.ForceCloseUnlockDiscard then
+    if EllesmereUI._unlockModeSessionActive and EllesmereUI.ForceCloseUnlockDiscard then
         EllesmereUI.ForceCloseUnlockDiscard()
     end
 
@@ -4057,7 +4154,7 @@ do
                         specRetryTimer = nil
                         -- Record the spec so future events use the fast path
                         lastKnownSpecID = sid
-                        local ck = UnitName("player") .. " - " .. GetRealmName()
+                        local ck = EllesmereUI.CharKey(" - ")
                         lastKnownCharKey = ck
                         if not EllesmereUIDB then EllesmereUIDB = {} end
                         if not EllesmereUIDB.lastSpecByChar then
@@ -4109,7 +4206,7 @@ do
             specRetryTimer = nil
         end
 
-        local charKey = UnitName("player") .. " - " .. GetRealmName()
+        local charKey = EllesmereUI.CharKey(" - ")
         local isFirstLogin = (lastKnownSpecID == nil)
         -- charChanged is true when the active character is different from the
         -- last session (alt-swap). On a plain /reload the charKey stays the same.

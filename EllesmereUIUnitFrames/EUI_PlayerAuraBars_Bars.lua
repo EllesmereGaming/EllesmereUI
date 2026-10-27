@@ -280,7 +280,7 @@ local function BarPositionKey(isBuff)
 end
 
 -- Snaps a saved (x, y) to the physical pixel grid before SetPoint, matching
--- EllesmereUIUnitFrames.lua's ApplyFramePosition. An unsnapped coordinate is only
+-- EUI_UnitFrames_Layout.lua's ApplyFramePosition. An unsnapped coordinate is only
 -- wrong at a non-pixel-perfect UIParent scale (1 coord unit == 1 physical pixel at
 -- PP.PixelBestSize()). CENTER/CENTER anchors need SnapCenterForDim -- its odd-
 -- dimension handling keeps both edges on whole pixels, while plain SnapForES would
@@ -781,8 +781,9 @@ local function MapElementSettings(key, kind, barId)
     }
 end
 
--- Unlock-mode registration, patterned on EllesmereUIDamageMeters.lua's
--- ns.RegisterDMUnlock/MakeSATimerUnlockElement (observed EUI.MakeUnlockElement field
+-- Unlock-mode registration, patterned on Damage Meters' ns.RegisterDMUnlock
+-- (EUI_DamageMeters_State.lua) and MakeSATimerUnlockElement (EUI_DamageMeters_Timer.lua)
+-- (observed EUI.MakeUnlockElement field
 -- usage, not a verified schema). Both bars use noResize (AuraKit sizes the container
 -- from the active aura count, nothing to drag-resize) and noAnchorTarget (a
 -- dynamically-resizing frame is a bad anchor target for other elements).
@@ -1156,7 +1157,7 @@ local function ApplyLiveConfig(isBuff)
 end
 ns.PAB_ApplyLiveConfig = ApplyLiveConfig
 -- Bridge for EllesmereUF:GetGrowDirectionForBar/SetGrowDirectionForBar, kept here
--- rather than in EllesmereUIUnitFrames.lua so the settings-field names stay defined
+-- rather than in EUI_UnitFrames_Lifecycle.lua so the settings-field names stay defined
 -- in one place.
 --
 -- Also handles custom-bar keys ("PAB_CustomBuff_<id>"/"PAB_CustomDebuff_<id>", the

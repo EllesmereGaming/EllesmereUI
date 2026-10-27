@@ -3,20 +3,29 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUI_SharedHelpers.lua
 --  Frame data store, third-party skin registry, Edit Mode-safe anchoring and
 --  frame placers, Blizzard cast bar ownership and suppression, and small
---  shared helpers (Swiftmend, level colors, faction art). Loads right after
---  EllesmereUI_VisibilityRules.lua.
+--  shared helpers (Swiftmend, level colors, faction art, split-module guard
+--  tables). Loads right after EllesmereUI_VisibilityRules.lua.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
+local _, EUI_NS = ...
+EUI_NS = EUI_NS.__euiCoreNS or EUI_NS  -- standalone builds: the core's own table (EllesmereUI.lua)
 
 -------------------------------------------------------------------------------
 --  External weak-keyed lookup table for frame state (prevents tainting Blizzard
---  frames). Stored on EllesmereUI to avoid the 200-local cap in EllesmereUI.lua.
+--  frames). NewFrameData returns a fresh table and its getter; each file keeps
+--  its own, so two files never share fields on one frame. The core's pair is
+--  stored on EllesmereUI to avoid the 200-local cap in EllesmereUI.lua.
 -------------------------------------------------------------------------------
-EllesmereUI._FFD = EllesmereUI._FFD or setmetatable({}, { __mode = "k" })
-function EllesmereUI._GetFFD(frame)
-    local d = EllesmereUI._FFD[frame]
-    if not d then d = {}; EllesmereUI._FFD[frame] = d end
-    return d
+function EllesmereUI.NewFrameData()
+    local FFD = setmetatable({}, { __mode = "k" })
+    return FFD, function(frame)
+        local d = FFD[frame]
+        if not d then d = {}; FFD[frame] = d end
+        return d
+    end
+end
+if not EllesmereUI._FFD then
+    EllesmereUI._FFD, EllesmereUI._GetFFD = EllesmereUI.NewFrameData()
 end
 
 -- Stock styles, enable-time catch-up seeds: a profile already on a stock
@@ -81,8 +90,9 @@ function EllesmereUI.SetElementVisibility(frame, visible)
         frame:SetAlpha(EllesmereUI._GetFFD(frame).restoreAlpha or 1)
         frame:EnableMouse(EllesmereUI._GetFFD(frame).restoreMouse or false)
     else
-        if frame:GetAlpha() > 0 then
-            EllesmereUI._GetFFD(frame).restoreAlpha = frame:GetAlpha()
+        local a = frame:GetAlpha()
+        if not issecretvalue(a) and a > 0 then
+            EllesmereUI._GetFFD(frame).restoreAlpha = a
         end
         EllesmereUI._GetFFD(frame).restoreMouse = frame:IsMouseEnabled()
         frame:SetAlpha(0)
@@ -780,7 +790,7 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI.FACTION_ART = {
     pvp       = { atlas = "UI-HUD-UnitFrame-Player-PVP-%sIcon" },
-    honor     = { atlas = "honorsystem-portrait-%s", lower = true },
+    honor     = { atlas = "honorsystem-portrait-%s", lower = true, badge = true },
     poi       = { atlas = "poi-%s", lower = true },
     classic   = { file = "Interface\\TargetingFrame\\UI-PVP-%s", coords = { 0, 0.65625, 0, 0.65625 } },
     banner    = { file = "Interface\\Icons\\INV_BannerPVP_0%s", num = true },
@@ -792,7 +802,70 @@ EllesmereUI.FACTION_ART_LABELS = {
     pvp = "PvP Emblem", honor = "Honor Portrait", poi = "Map Flag", classic = "Classic Banner",
     banner = "Banner Icon", honoricon = "Honor Icon", friends = "Friends Crest",
 }
-function EllesmereUI.SetFactionArt(tex, style, faction)
+-- Honor Portrait is an empty hexagon; the unit's honor badge is drawn on top (30 on 50).
+-- Returns that badge's file id, or nil. Callers pass it to SetFactionArt and memoize it.
+local HONOR_BADGE_RATIO = 30 / 50
+local honorBadgeFiles = {}
+function EllesmereUI.FactionBadgeFor(style, unit)
+    local art = EllesmereUI.FACTION_ART[style]
+    if not (art and art.badge and unit) then return nil end
+    local level = UnitHonorLevel and UnitHonorLevel(unit)
+    if issecretvalue(level) or not level or level <= 0 then return nil end
+    local file = honorBadgeFiles[level]
+    if file == nil then
+        local info = C_PvP and C_PvP.GetHonorRewardInfo and C_PvP.GetHonorRewardInfo(level)
+        file = (info and info.badgeFileDataID) or false
+        honorBadgeFiles[level] = file
+    end
+    return file or nil
+end
+
+-- The badge sits on a frame that follows the faction texture (textures cannot be parents);
+-- the texture's Show/Hide/alpha/desaturation are mirrored onto it.
+local function GetBadgeHost(tex)
+    local host = tex._honorBadgeHost
+    if host then return host end
+    local par = tex:GetParent()
+    host = CreateFrame("Frame", nil, par)
+    host:SetAllPoints(tex)
+    host:SetFrameLevel(par:GetFrameLevel() + 1)
+    host:Hide()
+    host:SetAlpha(tex:GetAlpha())
+    local icon = host:CreateTexture(nil, "OVERLAY")
+    icon:SetPoint("CENTER")
+    icon:SetDesaturated(tex:IsDesaturated())
+    host.icon = icon
+    host:SetScript("OnSizeChanged", function(_, w)
+        local s = w * HONOR_BADGE_RATIO
+        icon:SetSize(s, s)
+    end)
+    hooksecurefunc(tex, "Hide", function() host:Hide() end)
+    hooksecurefunc(tex, "Show", function() if host.wanted then host:Show() end end)
+    hooksecurefunc(tex, "SetAlpha", function(_, a) host:SetAlpha(a) end)
+    hooksecurefunc(tex, "SetDesaturated", function(_, d) icon:SetDesaturated(d) end)
+    tex._honorBadgeHost = host
+    return host
+end
+
+local function SetBadge(tex, file)
+    local host = tex._honorBadgeHost
+    if not file then
+        if host then host.wanted = false; host:Hide() end
+        return
+    end
+    host = host or GetBadgeHost(tex)
+    host.icon:SetTexture(file)
+    local w = tex:GetWidth()
+    if w and w > 0 then
+        local s = w * HONOR_BADGE_RATIO
+        host.icon:SetSize(s, s)
+    end
+    host.wanted = true
+    if tex:IsShown() then host:Show() end
+end
+
+function EllesmereUI.SetFactionArt(tex, style, faction, badgeFile)
+    SetBadge(tex, badgeFile)
     local art = EllesmereUI.FACTION_ART[style] or EllesmereUI.FACTION_ART.pvp
     -- The resolved atlas or file name is built once per style and faction and kept
     -- on the style's entry (art.Horde / art.Alliance).
@@ -817,4 +890,64 @@ function EllesmereUI.SetFactionArt(tex, style, faction)
         local c = art.coords
         if c then tex:SetTexCoord(c[1], c[2], c[3], c[4]) else tex:SetTexCoord(0, 1, 0, 1) end
     end
+end
+
+-------------------------------------------------------------------------------
+--  Secret values (12.1): the one test every module uses, and the string reader
+--  that gives back a readable, non-empty string or nil. Hot paths import both
+--  as locals; no module keeps a copy.
+-------------------------------------------------------------------------------
+local issecretvalue = issecretvalue or function() return false end
+function EllesmereUI.IsSecret(v)
+    return v ~= nil and issecretvalue(v)
+end
+function EllesmereUI.PlainString(v)
+    -- The secrecy test comes first: comparing a secret string raises.
+    if type(v) == "string" and not issecretvalue(v) and v ~= "" then return v end
+    return nil
+end
+
+-------------------------------------------------------------------------------
+--  Guard table of a split module: the main file's names that its part files
+--  re-import. setters maps Set<Name> to a list in t; Set<Name>(v) hands v to
+--  every function in that list, and a function added to the list after a
+--  Set<Name> call gets the last value at once (registered as
+--  list[#list + 1] = fn: table.insert sets raw and skips that). broken starts
+--  false (a file chain that guards on t.last ignores it). Reading a name the
+--  table lacks raises at the reader; label names the owner in that message
+--  (default "ns"). The parent's own chain calls the private copy on EUI_NS, so
+--  the parent's namespace never passes through a public slot.
+-------------------------------------------------------------------------------
+do
+    local function NewFanOut(list)
+        local has, cur = false, nil
+        setmetatable(list, { __newindex = function(l, i, fn)
+            rawset(l, i, fn)
+            if has then fn(cur) end
+        end })
+        return function(v)
+            has, cur = true, v
+            for i = 1, #list do list[i](v) end
+        end
+    end
+
+    local function NewInternals(ns, field, t, setters, label)
+        local name = (label or "ns") .. "." .. field
+        if setters then
+            for setter, listName in pairs(setters) do
+                local list = t[listName]
+                if type(list) ~= "table" then
+                    error(name .. ": " .. setter .. " has no list " .. tostring(listName), 2)
+                end
+                t[setter] = NewFanOut(list)
+            end
+        end
+        t.broken = false
+        ns[field] = setmetatable(t, { __index = function(_, k)
+            error(name .. " has no entry " .. tostring(k), 2)
+        end })
+        return ns[field]
+    end
+    EUI_NS.NewInternals = NewInternals
+    EllesmereUI.NewInternals = NewInternals
 end

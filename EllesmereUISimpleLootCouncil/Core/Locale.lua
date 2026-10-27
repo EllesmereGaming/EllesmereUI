@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 SimpleLootCouncil = SimpleLootCouncil or {}
 local addon = SimpleLootCouncil
@@ -219,6 +220,15 @@ end
 
 function Locale.RegisterShared(entries)
     Install(entries)
+end
+
+function Locale.ValidTranslation(key, text, plural)
+    if type(key) ~= "string" then return false, "key is not a string" end
+    local keySlots = Slots(key)
+    if not keySlots then return false, "invalid key format slot" end
+    local keyEscapes = Escapes(key)
+    if not keyEscapes then return false, "invalid key escape" end
+    return ValidForm(keySlots, keyEscapes, text, plural)
 end
 
 function Locale.Plural(forms)

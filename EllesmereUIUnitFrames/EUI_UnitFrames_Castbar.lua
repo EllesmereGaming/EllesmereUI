@@ -540,6 +540,32 @@ function ns.UF_CastIconPortraitLayout(ico, tex, bd, s)
     end
 end
 
+-- Resource Bars' Embed in Player Portrait lays its cast icon out with the same geometry:
+-- the player portrait's backdrop and settings, or nil plus why. "uf": the Unit Frames
+-- player cast bar already shows its icon there (two icons would stack); else there is no
+-- EllesmereUI player portrait to embed in (the stock styles own the icon, as for ours).
+function ns.UF_GetPlayerCastPortrait()
+    local p = db and db.profile
+    if not p or ns.GetUnitFrameSource("player") ~= "eui" or ns.UF_Blizz() then return nil end
+    local s = GetSettingsForUnit("player")
+    if s.showPortrait == false or (s.portraitStyle or p.portraitStyle or "attached") == "none"
+        or (s.portraitMode or p.portraitMode or "2d") == "none" then return nil end
+    if s.showPlayerCastbar and ns.UF_CastIconOnPortrait("player", s) then return nil, nil, "uf" end
+    local pt = frames.player and frames.player.Portrait
+    return pt and pt.backdrop, s
+end
+
+-- A module that lays something over the player portrait asks to be called back after
+-- each frame reload, which can move, reshape or remove the portrait: one callback per
+-- key, nil drops it. The reload pays one table walk, empty unless a module asked.
+local portraitWatchers = {}
+function ns.UF_WatchPlayerPortrait(key, fn)
+    portraitWatchers[key] = fn
+end
+function ns.UF_PlayerPortraitChanged()
+    for _, fn in pairs(portraitWatchers) do fn() end
+end
+
 -- The live cast bar's side of Show Icon on Portrait, run as LayoutCastbarIcon's
 -- portraitBd argument: returns the backdrop the icon now sits on, or nil. One
 -- settings test while off; the layout runs only while on or on the pass that
@@ -1042,10 +1068,14 @@ local function CreateCastBar(frame, unit, settings)
             cb.Target:SetPoint(pt, cb, pt, xb + (cb._tgtOX or 0), (cb._tgtOY or 0))
         end
         -- Duration/timer: side is only "left"/"right"; visibility via _showDuration.
+        -- Its box is wider than the room it reserves (timerW), up to half the
+        -- bar: the countdown sits justified at the anchored edge, and a
+        -- pushback's added time ("1.5+0.50") still fits in a wide font instead
+        -- of being cut off.
         do
             local pt, xb, jh = ns.GetCastTextAnchor(durSide, false, timerW, true)
             cb.Time:ClearAllPoints()
-            cb.Time:SetWidth(timerW)
+            cb.Time:SetWidth(math.max(timerW * 2.5, barW * 0.5))
             cb.Time:SetJustifyH(jh)
             cb.Time:SetPoint(pt, cb, pt, xb + (cb._durOX or 0), (cb._durOY or 0))
         end
@@ -1196,33 +1226,24 @@ local function CreateCastBar(frame, unit, settings)
     end
 
     castbar.CustomTimeText = function(self, durationObject)
+        local time = self.Time
         if self._showDuration == false then
-            self.Time:SetText("")
-            self.Time:Hide()
-            self._timeBucket = nil
+            if time:IsShown() then
+                time:SetText("")
+                time:Hide()
+            end
             return
         end
-        self.Time:Show()
+        time:Show()
         if durationObject then
-            -- oUF calls this per RENDER FRAME, but the displayed value has %.1f
-            -- precision -- format + SetText only when the displayed tenth actually
-            -- changes (~6x fewer at 60fps, more uncapped). Secret durations (other
-            -- units' casts in combat) can't be floored: fail open to formatting every
-            -- call (SetFormattedText accepts secrets). The delay branch is rare
-            -- (pushback) and stays unmemoized.
+            -- The engine calls this only when the shown tenth can have changed
+            -- (CastOnUpdate paces it), so every call formats. SetFormattedText
+            -- accepts the secret durations of other units' casts in combat.
             local duration = durationObject:GetRemainingDuration()
             if self.delay and self.delay ~= 0 then
-                self._timeBucket = nil
-                self.Time:SetFormattedText('%.1f|cffff0000%s%.2f|r', duration, self.channeling and '-' or '+', self.delay)
-            elseif issecretvalue and issecretvalue(duration) then
-                self._timeBucket = nil
-                self.Time:SetFormattedText('%.1f', duration)
+                time:SetFormattedText('%.1f|cffff0000%s%.2f|r', duration, self.channeling and '-' or '+', self.delay)
             else
-                local bucket = math.floor(duration * 10)
-                if bucket ~= self._timeBucket then
-                    self._timeBucket = bucket
-                    self.Time:SetFormattedText('%.1f', duration)
-                end
+                time:SetFormattedText('%.1f', duration)
             end
         end
     end

@@ -21,7 +21,7 @@ local barFrames, blizzMovableHolders, dataBarFrames = I.barFrames, I.blizzMovabl
 local extraBarHolders, SecureSetupHandler_PrepareRefs = I.extraBarHolders, I.SecureSetupHandler_PrepareRefs
 local LayoutBar = I.LayoutBar
 local SetSecureRefsReady = I.SetSecureRefsReady
--- Written in EUI_ActionBars_Layout.lua;
+-- Written by ApplyAll (EUI_ActionBars_ApplyAll.lua);
 -- SetIsApplyingAll hands the value to this copy.
 local _isApplyingAll = false
 I.isApplyingAllSetters[#I.isApplyingAllSetters + 1] = function(v) _isApplyingAll = v end
@@ -227,7 +227,7 @@ function EAB:ApplyExtraBarVisibility()
                 else
                 local key = info.key
                 local s = EAB.db and EAB.db.profile.bars[key]
-                if s and not s.alwaysHidden then
+                if s and not EAB.VisibilityCompat.IsNever(s) then
                     local frame
                     if EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info) then
                         frame = EAB_VTABLE.ExtraBars.GetManagedNonSecureFrame(info)
@@ -274,7 +274,7 @@ function EAB:ApplyCombatVisibility()
             local frame = barFrames[key] or (info.isDataBar and dataBarFrames[key]) or (info.isBlizzardMovable and blizzMovableHolders[key]) or (extraBarHolders[key]) or (info.visibilityOnly and _G[info.frameName])
             if frame and not info.visibilityOnly then
                 local newStr
-                if s.alwaysHidden then
+                if EAB.VisibilityCompat.IsNever(s) then
                     newStr = "hide"
                 -- Under Any the compiled driver already carries both halves (Show lanes as
                 -- disjuncts, Hide lanes as leading gates, the Lua-only ones resolved at
@@ -367,6 +367,11 @@ end
 -- buttonless until the next reload. Returns true when anything was built. The
 -- CALLER owns the binding rebuild: one caller is UpdateKeybinds itself. On ns:
 -- not a file local.
+-- Never status is asked of ns.IsNeverBar, the predicate the load-time skip
+-- used, not the ns._eabBarNever map: the map fills on the first
+-- RefreshRuntimeVisibility, and the login keybind build runs before it, so
+-- reading the empty map there built every skipped bar one frame after load
+-- (plus a second full apply).
 ns._eabBuildSkippedBars = function()
     if not next(ns._eabBarNoButtons) or InCombatLockdown() then return false end
     local built = false
@@ -374,7 +379,7 @@ ns._eabBuildSkippedBars = function()
         local key = info.key
         local frame = barFrames[key]
         if frame and ns._eabBarNoButtons[key]
-           and (not ns._eabBarNever[key] or ns.BarHasBoundKeys(info)) then
+           and (not ns.IsNeverBar(info) or ns.BarHasBoundKeys(info)) then
             ns.BuildBarButtons(info, frame, false)
             LayoutBar(key)
             -- Still hidden (keybind case, or a reveal whose driver has not

@@ -309,11 +309,13 @@ local function HideBlizzardBars()
         ActionBar_PageDown = function() ChangeManualPage(-1) end
     end
 
-    -- Hide status tracking bar manager (unless user wants Blizzard data bars)
+    -- Hide status tracking bar manager (unless user wants Blizzard data bars).
+    -- Its events come back only with a reload (ns.SetUseBlizzardDataBars).
     if not (EAB.db and EAB.db.profile.useBlizzardDataBars) then
         if StatusTrackingBarManager then
             StatusTrackingBarManager:UnregisterAllEvents()
             StatusTrackingBarManager:Hide()
+            ns._eabBlizzDataBarsDropped = true
         end
     end
     -- ActionBarParent is hidden at file load; OverrideActionBar visibility is fully
@@ -456,6 +458,21 @@ end
 -- Bar dormancy strips this same list per button (see ns.ApplyBarDormancy;
 -- the loop is inlined there).
 
+-- Blizzard's own attack flash on our buttons. The mixin starts it from its
+-- hover and show refreshes (UpdateFlash), but the events that stop it no
+-- longer reach our buttons (the broadcasters are quiet), so a flash started
+-- there kept running beside ours after the attack ended. Our flash
+-- (ns.AB_SetAttackFlash) is the only one: a mixin start is switched off again
+-- at once (flashing is the field its OnUpdate reads, which then unregisters
+-- the button on its next tick), and either edge has ours read the state.
+local function OnMixinStartFlash(btn)
+    btn.flashing = 0
+    ns.AB_SyncAttackState(btn, btn:GetAttribute("action"))
+end
+local function OnMixinStopFlash(btn)
+    ns.AB_SyncAttackState(btn, btn:GetAttribute("action"), true)
+end
+
 -- Get or create an action button for a slot. Action bars (1-8) always create
 -- our own buttons, eliminating the taint surface: Blizzard's protected
 -- buttons are never reused, so cross-addon taint can't propagate to
@@ -583,6 +600,13 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
                 EAB:QueueHotkeyColorReassert()
             end)
         end
+        -- The mixin's own flash hands over to ours (OnMixinStartFlash above).
+        -- Guarded as above.
+        if not EFD(btn).flashHooked then
+            EFD(btn).flashHooked = true
+            hooksecurefunc(btn, "StartFlash", OnMixinStartFlash)
+            hooksecurefunc(btn, "StopFlash", OnMixinStopFlash)
+        end
         -- Physical-press GCD paint: keybinds arrive as clicks too
         -- (SetOverrideBindingClick), so PostClick fires at the actual press
         -- before any server round-trip; pushes the predicted cooldown and
@@ -675,6 +699,7 @@ do
     local V = EAB_VTABLE
     V.GetOverrideBarIndex = GetOverrideBarIndex or (C_ActionBar and C_ActionBar.GetOverrideBarIndex) or function() return 14 end
     V.GetVehicleBarIndex = GetVehicleBarIndex or (C_ActionBar and C_ActionBar.GetVehicleBarIndex) or function() return 12 end
+    V.GetTempShapeshiftBarIndex = GetTempShapeshiftBarIndex or (C_ActionBar and C_ActionBar.GetTempShapeshiftBarIndex) or function() return 13 end
     V.GetActionBarPage = GetActionBarPage or (C_ActionBar and C_ActionBar.GetActionBarPage) or function() return 1 end
     V.HasVehicleActionBar = HasVehicleActionBar or (C_ActionBar and C_ActionBar.HasVehicleActionBar) or function() return false end
     V.HasOverrideActionBar = HasOverrideActionBar or (C_ActionBar and C_ActionBar.HasOverrideActionBar) or function() return false end

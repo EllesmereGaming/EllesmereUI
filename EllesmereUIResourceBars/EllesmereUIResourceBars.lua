@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  animations, combat fade, low-resource alerts, class-colored bars
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Call Totem Bar scales its Edit Mode system through the parent's SetFrameScale)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Call Totem Bar scales its Edit Mode system through the parent's SetFrameScale)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local ERB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.ERB = ERB
@@ -362,7 +362,9 @@ local function GetPrimaryPowerType()
     if classFile == "DRUID" then
         local pp = ERB.db and ERB.db.profile and ERB.db.profile.primary
         local ov = pp and pp.powerTypeOverride
-        if ovSpec and ov and ov[ovSpec] then
+        local o = ovSpec and ov and ov[ovSpec]
+        if o == "mana" then return PT.MANA end            -- "Mana (Always)": every form
+        if o then
             if spec == 1 then return PT.LUNAR_POWER end  -- Balance alt: Astral Power
             return PT.MANA                                -- Feral/Guardian alt: Mana
         end
@@ -644,7 +646,7 @@ end
 -- (a file that holds the only copy of a name assigns its local directly).
 -- broken: true while an EUI_ResourceBars_*.lua file loads; a file that
 -- fails leaves it set, and the files behind it return at their first lines.
-ns._internals = {
+EllesmereUI.NewInternals(ns, "_internals", {
     CHANNEL_TICK_DATA = CHANNEL_TICK_DATA, CLASS_COLORS = CLASS_COLORS, DARK_BG_A = DARK_BG_A,
     DARK_FILL_A = DARK_FILL_A, EBON_MIGHT_DURATION = EBON_MIGHT_DURATION,
     EBON_MIGHT_SPELL_ID = EBON_MIGHT_SPELL_ID, ERB = ERB, FRENZIED_REGEN = FRENZIED_REGEN,
@@ -662,10 +664,7 @@ ns._internals = {
     cachedPrimarySetters = {}, cachedSecondarySetters = {}, ebonMightExpirySetters = {},
     UpdateCastBarSetters = {}, UpdateGCDBarSetters = {}, stageThresholdsSetters = {},
     essenceNextTickSetters = {}, essenceLastCountSetters = {}, essenceTickDurSetters = {},
-    broken = false,
-}
--- Set<Name> hands a new value to every copy registered in <name>Setters.
-for setter, listName in pairs({
+}, {
     SetIronfurBaseDur = "ironfurBaseDurSetters", SetIronfurGoEUntil = "ironfurGoEUntilSetters",
     SetMainFrame = "mainFrameSetters", SetHealthBar = "healthBarSetters",
     SetPrimaryBar = "primaryBarSetters", SetSecondaryFrame = "secondaryFrameSetters",
@@ -678,14 +677,4 @@ for setter, listName in pairs({
     SetEssenceNextTick = "essenceNextTickSetters",
     SetEssenceLastCount = "essenceLastCountSetters",
     SetEssenceTickDur = "essenceTickDurSetters",
-}) do
-    local list = ns._internals[listName]
-    ns._internals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
-end
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._internals, { __index = function(_, k)
-    error("ns._internals has no entry " .. tostring(k), 2)
-end })
+})

@@ -2,9 +2,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_RaidFrames_Preview.lua
 --
---  Options preview for the raid and party frames: fake members, the preview
---  aura ticker, the real-frame overlay and the size preview. Loads behind
---  the EUI_RaidFrames_*.lua chain and reads it through ns and ns._internals.
+--  The options preview's shared data: the sample rosters and icon tables,
+--  and ns._previewInternals for the EUI_RaidFrames_Preview*.lua files behind
+--  it, which hold the preview itself (fake members, the tickers, the
+--  real-frame overlay, the size preview). Loads behind the EUI_RaidFrames_*.lua
+--  chain and reads it through ns and ns._internals.
 -------------------------------------------------------------------------------
 local _, ns = ...
 
@@ -76,25 +78,19 @@ ns._pvActiveAuras = {}
 -- which runs them all.
 -- broken: true while an EUI_RaidFrames_Preview*.lua file loads; a file that
 -- fails leaves it set, and the files behind it return at their first lines.
-ns._previewInternals = {
+EllesmereUI.NewInternals(ns, "_previewInternals", {
     -- Created here: files that load ahead of CreatePreviewFrame and
     -- BuildPreviewRoles read them too.
     previewFrames = {},
     previewClassTokens = {}, -- [1..20] class token per slot
     previewActiveSetters = {}, previewContainerSetters = {},
-    broken = false,
-}
--- Set<Name> hands a new value to every copy registered in <name>Setters.
-for setter, listName in pairs({
+}, {
     SetPreviewActive = "previewActiveSetters", SetPreviewContainer = "previewContainerSetters",
-}) do
-    local list = ns._previewInternals[listName]
-    ns._previewInternals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
+})
+-- The main chain's visibility passes read the raid preview's state as this plain
+-- field (as the party preview's ns._partyPvActive), never a preview function: a
+-- preview file that fails to load must not leave them a nil call.
+do
+    local list = ns._previewInternals.previewActiveSetters
+    list[#list + 1] = function(v) ns._raidPvActive = v end
 end
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._previewInternals, { __index = function(_, k)
-    error("ns._previewInternals has no entry " .. tostring(k), 2)
-end })

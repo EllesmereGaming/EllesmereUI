@@ -95,6 +95,8 @@ local defaults = {
             opacity = 1.0,
             frameStrata = "MEDIUM",
             cursorAttach = false,
+            -- Attach Important Buffs to Cursor's cog: on the cursor only in combat.
+            cursorAttachCombatOnly = false,
             -- Preserve the historical reminder look exactly: black, solid,
             -- pixel-perfect 1 px. Extra texture controls remain nil until the
             -- user customizes them.
@@ -175,7 +177,7 @@ local defaults = {
             inkyBlackZones = "",
         },
         unlockPos = nil,
-        talentReminders = {},  -- array of {zoneIDs={}, zoneNames={}, spellID=number, spellName=string, showNotNeeded=bool}
+        talentReminders = {},  -- array of {zoneNames={} (zoneName = an older version's single zone, read while there is no list), spellID=number, spellName=string, notNeededMode="never"|"season"|"all", showNotNeeded=bool (the old checkbox, kept in step)}
         talentReminderYOffset = -50,
     },
 }
@@ -184,9 +186,13 @@ local defaults = {
 if EABR.FOREVER then
     defaults.profile.forever = {
         camp = false,       -- Camp Benefits reminder; opt-in, it shows whenever the buff is missing
+        gather = false,     -- gathering tracking reminder; opt-in, it shows while no tracker is up
+        gatherClassTrack = true,  -- an active class tracking also hides it
+        treasure = false,   -- Find Treasure reminder (Dwarf); opt-in, it shows while it is off
         wellFed = false,    -- Well Fed reminder; opt-in, matched by aura name (every food has its own spell ID)
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added
+        customGroups = {},  -- { name = string, ids = { spell IDs } }: one reminder while none of ids is active
     }
 end
 

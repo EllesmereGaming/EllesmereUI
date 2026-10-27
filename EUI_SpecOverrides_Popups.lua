@@ -66,6 +66,21 @@ local function ApplyGroupIcon(tex, icon)
         if c then tex:SetTexCoord(c[1], c[2], c[3], c[4]) end
     end
 end
+EllesmereUI.SpecOverrides_ApplyGroupIcon = ApplyGroupIcon
+
+-- Pages (by module) that list override groups and are rebuilt after a group
+-- is renamed, re-specced or deleted; modules add theirs: [module][page] = true.
+EllesmereUI.SpecOverrides_GroupListingPages = EllesmereUI.SpecOverrides_GroupListingPages or {}
+
+-- Forced rebuild of the pages that list override groups: the overrides list
+-- page and every page a module registered above.
+local function RefreshGroupListingPage()
+    local ap = EllesmereUI:GetActivePage()
+    local pages = EllesmereUI.SpecOverrides_GroupListingPages[EllesmereUI:GetActiveModule()]
+    if ap == LIST_PAGE or (pages and pages[ap]) then
+        EllesmereUI:RefreshPage(true)
+    end
+end
 
 -------------------------------------------------------------------------------
 --  Toolbar button + active-group indicator
@@ -352,13 +367,20 @@ local function ShowNameIconPopup(specIDs, editing)
             local editing = p._editing
             if editing then
                 local name = p._nameBox:GetText()
-                if name and name ~= "" then editing.name = name end
-                if p._selectedIcon then editing.icon = p._selectedIcon end
+                local changed = false
+                if name and name ~= "" and name ~= editing.name then
+                    editing.name = name; changed = true
+                end
+                local sel, cur = p._selectedIcon, editing.icon
+                if sel and not (cur and cur.kind == sel.kind and cur.key == sel.key) then
+                    editing.icon = sel; changed = true
+                end
                 p:Hide()
                 if UpdateIndicator then UpdateIndicator() end
                 if RefreshCardsPopup then RefreshCardsPopup() end
-                local ap = EllesmereUI:GetActivePage()
-                if ap == LIST_PAGE then EllesmereUI:RefreshPage(true) end
+                -- SetGroupSpecs already rebuilt the listing pages; only a new
+                -- name or icon needs another rebuild.
+                if changed then RefreshGroupListingPage() end
                 return
             end
             local specs = p._specs
@@ -653,6 +675,10 @@ end
 -- re-syncs immediately so a current-spec join/leave takes effect without a spec swap.
 local function SetGroupSpecs(g, newSpecs)
     if _editGroup == g then ExitGroupEdit(true) end
+    -- Bank live Buff/Debuff Manager edits into the layer that holds them before
+    -- the membership change can move fork ownership (the apply below never harvests).
+    EllesmereUI.SpecOverrides_HarvestBmLayout()
+    EllesmereUI.SpecOverrides_HarvestDmLayout()
     local oldSet, newSet = {}, {}
     for _, id in ipairs(g.specs or {}) do oldSet[id] = true end
     for _, id in ipairs(newSpecs) do newSet[id] = true end
@@ -761,6 +787,8 @@ local function SetGroupSpecs(g, newSpecs)
     UpdateIndicator()
     RequestGoldWalk()
     RefreshCardsPopup()
+    -- The membership already changed here, even if the name/icon step is cancelled.
+    RefreshGroupListingPage()
 end
 
 local function EditGroupSpecs(g)
@@ -869,7 +897,7 @@ RefreshCardsPopup = function()
                 p:Hide()
                 EllesmereUI.SpecOverrides_EnterUnlockForGroup(g)
             end,
-            onEdit = function() EditGroupSpecs(g) end,
+            onEdit = function() EllesmereUI.SpecOverrides_EditOverrideGroup("spec", g.id) end,
             onClick = function()
                 if _editGroup == g then
                     ExitGroupEdit()
@@ -943,9 +971,7 @@ RefreshCardsPopup = function()
                         if EllesmereUI.IS_FOREVER then EllesmereUI._SO_ForeverConverge() end
                         UpdateIndicator()   -- current spec may have been a member
                         RefreshCardsPopup()
-                        if EllesmereUI:GetActivePage() == LIST_PAGE then
-                            EllesmereUI:RefreshPage(true)
-                        end
+                        RefreshGroupListingPage()
                     end,
                 })
             end,
@@ -1006,10 +1032,7 @@ RefreshCardsPopup = function()
                 p:Hide()
                 EllesmereUI.Conditions_EnterUnlockForGroup(g)
             end or nil,
-            onEdit = function()
-                p:Hide()
-                Cond.ShowPickerPopup(g)
-            end,
+            onEdit = function() EllesmereUI.SpecOverrides_EditOverrideGroup("cond", g.id) end,
             onClick = function()
                 -- Click = editing-as toggle, exactly like spec group cards.
                 if Cond._edit == g then
@@ -1187,6 +1210,48 @@ function EllesmereUI.SpecOverrides_ToggleCardsPopup(anchorBtn)
     EnsurePanelHideHook()
 end
 
+--- Editing-as toggle for one override group, like clicking its card in the
+--- cards popup, but switching directly past the manager page lock (the
+--- manager sidebar's override list). kind "spec"|"cond". The lock is only
+--- skipped when the target's fork can go live here; otherwise the page would
+--- open covered by the "info" overlay, so the lock's popup explains instead.
+function EllesmereUI.SpecOverrides_ToggleOverrideEdit(kind, gid)
+    local lockKind, lockGid = EllesmereUI.SpecOverrides_BmPageLockInfo()
+    if not lockKind then lockKind, lockGid = EllesmereUI.SpecOverrides_DmPageLockInfo() end
+    if kind == "spec" then
+        local g = GroupById(gid)
+        if not g then return end
+        -- Eligible: a member spec, and no OTHER group owns the live spec fork.
+        local cur, member = CurrentSpecID(), false
+        for _, sid in ipairs(g.specs or {}) do
+            if sid == cur then member = true; break end
+        end
+        local force = member and not (lockKind == "spec" and lockGid ~= g.id)
+        if _editGroup == g then ExitGroupEdit() else EnterGroupEdit(g, force) end
+    elseif kind == "cond" then
+        local g = EllesmereUI.Conditions_GroupById(gid)
+        if not g then return end
+        -- A live spec fork means a spec owner exists, and spec wins.
+        local force = lockKind ~= "spec"
+        if Cond._edit == g then Cond.ExitEdit() else Cond.EnterEdit(g, force) end
+    end
+    RefreshCardsPopup()
+end
+
+--- The cards popup's pencil for one override group (spec: specs, then name and
+--- icon; cond: the condition picker), for the manager sidebar's override list.
+function EllesmereUI.SpecOverrides_EditOverrideGroup(kind, gid)
+    if kind == "spec" then
+        local g = GroupById(gid)
+        if g then EditGroupSpecs(g) end
+    elseif kind == "cond" then
+        local g = EllesmereUI.Conditions_GroupById(gid)
+        if not g then return end
+        if cardsPopup then cardsPopup:Hide() end
+        Cond.ShowPickerPopup(g)
+    end
+end
+
 -------------------------------------------------------------------------------
 --  CONDITIONAL OVERRIDES UI: toolbar button, cards popup, condition picker
 --  (with keybind capture), name/icon popup. Mirrors the spec-overrides UI
@@ -1261,9 +1326,7 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
             -- self-guards the BM page lock and any active session.
             if newGroup then Cond.EnterEdit(newGroup) end
             Cond.RefreshCards()
-            if EllesmereUI:GetActivePage() == LIST_PAGE then
-                EllesmereUI:RefreshPage(true)
-            end
+            RefreshGroupListingPage()
         end)
         Cond._namePopup = p
     end
@@ -1306,7 +1369,13 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
 end
 
 -- ---- condition picker popup (checklist + keybind capture) -------------------
+-- Its key capture uses SetPropagateKeyboardInput, which is blocked in combat on
+-- every frame: the picker never opens in combat and closes with the panel
+-- (which closes as combat starts). It lets go of the keyboard when it hides out
+-- of combat, and on every open.
 function Cond.ShowPickerPopup(existing)
+    if InCombatLockdown() then return end
+    EnsurePanelHideHook()
     local p = Cond._pickerPopup
     if not p then
         -- Controller cursor: overlay parent (UIParent unless a controller cursor is loaded).
@@ -1432,21 +1501,35 @@ function Cond.ShowPickerPopup(existing)
             end
         end
         p._showKeyText = ShowKeyText
+        -- Ends a capture. Its keyboard calls run out of combat only (a hide at
+        -- combat start skips them: a hidden popup takes no keys), so every open
+        -- releases again.
+        local function ReleaseKeys()
+            p._capturing = false
+            if InCombatLockdown() then return end
+            p:EnableKeyboard(false)
+            if p.SetPropagateKeyboardInput then p:SetPropagateKeyboardInput(true) end
+        end
+        p._releaseKeys = ReleaseKeys
+        p:SetScript("OnHide", ReleaseKeys)
         keyBtn:SetScript("OnClick", function()
+            if InCombatLockdown() then return end
             p._capturing = not p._capturing
             p:EnableKeyboard(p._capturing and true or false)
             if p.SetPropagateKeyboardInput then p:SetPropagateKeyboardInput(not p._capturing) end
             ShowKeyText()
         end)
         p:SetScript("OnKeyDown", function(_, key)
-            if not p._capturing then return end
+            if not p._capturing or InCombatLockdown() then return end
             if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
                or key == "LALT" or key == "RALT" then
                 return
             end
-            p._capturing = false
-            p:EnableKeyboard(false)
-            if p.SetPropagateKeyboardInput then p:SetPropagateKeyboardInput(true) end
+            ReleaseKeys()
+            -- The key that ends the capture stays here: an Escape that cancels
+            -- it must not close the options (and the picker with them). The
+            -- keyboard is off now, and the next open restores propagation.
+            if p.SetPropagateKeyboardInput then p:SetPropagateKeyboardInput(false) end
             if key ~= "ESCAPE" then
                 local mods = ""
                 if IsAltKeyDown() then mods = mods .. "ALT-" end
@@ -1509,12 +1592,8 @@ function Cond.ShowPickerPopup(existing)
         xlbl2:SetText(L("Cancel"))
         cancel:SetScript("OnEnter", function() if xbrd2 and xbrd2.SetColor then xbrd2:SetColor(1, 1, 1, 0.4) end end)
         cancel:SetScript("OnLeave", function() if xbrd2 and xbrd2.SetColor then xbrd2:SetColor(1, 1, 1, 0.22) end end)
-        cancel:SetScript("OnClick", function()
-            p._capturing = false
-            p:EnableKeyboard(false)
-            if p.SetPropagateKeyboardInput then p:SetPropagateKeyboardInput(true) end
-            p:Hide()
-        end)
+        -- The OnHide releases a capture in progress.
+        cancel:SetScript("OnClick", function() p:Hide() end)
 
         -- Controller cursor: its cancel press backs out through Cancel, and the
         -- panel is a blocker, not a stop.
@@ -1526,7 +1605,7 @@ function Cond.ShowPickerPopup(existing)
     p._editing = existing
     p._staged = {}
     p._stagedKey = existing and existing.key or nil
-    p._capturing = false
+    p._releaseKeys()
     if existing and existing.conds then
         for k, v in pairs(existing.conds) do p._staged[k] = v end
     end

@@ -24,7 +24,7 @@ local EllesmereUF = EllesmereUI.Lite.NewAddon("EllesmereUIUnitFrames")
 
 function EllesmereUF:OnInitialize()
     db = EllesmereUI.Lite.NewDB("EllesmereUIUnitFramesDB", defaults, true)
-    for i = 1, #ns._internals.dbSetters do ns._internals.dbSetters[i](db) end
+    I.SetDB(db)
 
     -- A fresh install starts Target of Target on the Target frame's look; a
     -- profile from an earlier version keeps Automatic (no lookSource). Written
@@ -92,7 +92,6 @@ local function EnableBody()
     end
     C_Timer.After(0, SetupOptionsPanel)
     C_Timer.After(0, function()
-        EllesmereUI.ApplyColorsToOUF()
         -- Restore the threat watchers saved enabled (nothing registers when off).
         ns.SyncPlayerThreat()
         if ns.SyncThreatPct then ns.SyncThreatPct() end
@@ -130,7 +129,7 @@ end
 
 -- Called by EUI_UnlockMode.lua's Grow Direction dropdown for barKey ==
 -- "PAB_Buffs" / "PAB_Debuffs". Thin delegation to
--- EllesmereUIUnitFrames_PlayerAuraBars.lua's ns.PAB_Get/SetGrowDirection so
+-- EUI_PlayerAuraBars_Bars.lua's ns.PAB_Get/SetGrowDirection so
 -- the settings field names stay defined in exactly one file.
 
 function EllesmereUF:GetGrowDirectionForBar(barKey)
