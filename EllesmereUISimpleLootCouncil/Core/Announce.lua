@@ -68,6 +68,8 @@ local function Send(message)
     end
 end
 
+Announce.Send = Send
+
 
 
 

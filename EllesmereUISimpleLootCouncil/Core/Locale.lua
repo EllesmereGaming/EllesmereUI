@@ -213,13 +213,24 @@ local function Install(entries)
     end
 end
 
+local ran = {}
+
 function Locale.Register(locale, entries)
+    ran[#ran + 1] = locale
     if locale == clientLocale then Install(entries) end
 end
 
 
 function Locale.RegisterShared(entries)
+    ran[#ran + 1] = "shared"
     Install(entries)
+end
+
+
+function Locale.Loaded()
+    local count = 0
+    for _ in pairs(registered) do count = count + 1 end
+    return ran, count
 end
 
 function Locale.ValidTranslation(key, text, plural)

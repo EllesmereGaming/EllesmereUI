@@ -299,7 +299,7 @@ local function Text()
             Scourge            = Zone(EllesmereUI.L("Tirisfal Glades"), 8),
             BloodElf           = Zone(EllesmereUI.L("Eversong Woods"), 5),
             Goblin             = Zone(EllesmereUI.L("Kezan"), 3),
-            Dracthyr           = Zone(EllesmereUI.L("The Forbidding Reach"), 5),
+            Dracthyr           = Zone(EllesmereUI.L("The Forbidden Reach"), 5),
             EarthenDwarf       = Zone(EllesmereUI.L("Isle of Dorn"), 2),
             Harronir           = Zone(EllesmereUI.L("Harandar"), 12),
             VoidElf            = Zone(EllesmereUI.L("Telogrus Rift"), 11),

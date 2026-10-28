@@ -1917,7 +1917,16 @@ local function BuildCDMLivePreview(parent, yOff)
                     local sid = slot._previewSpellID
                     local chargeInfo = sid and C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(sid)
                     local maxC = chargeInfo and chargeInfo.maxCharges
-                    if (bd.showCharges ~= false) and maxC and maxC > 1 then
+                    -- A custom CD/utility spell EUI draws itself has no Blizzard charge
+                    -- frame: the live icon shows a count only with its Show Charges
+                    -- opt-in, so match it. A Blizzard-tracked one draws Blizzard's frame.
+                    local sdSc = sid and not isBuffBar and not isCustomBuffBar and ns.GetBarSpellData(bd.key)
+                    local showC = bd.showCharges ~= false
+                    if sdSc and sdSc.customSpellIDs and sdSc.customSpellIDs[sid]
+                       and not ns.IsCDMTrackedCooldown(sid) then
+                        showC = (sdSc.customSpellForceCount and sdSc.customSpellForceCount[sid]) or false
+                    end
+                    if showC and maxC and maxC > 1 then
                         slot._stackText:SetText(tostring(maxC))
                         slot._stackText:Show()
                     elseif slot._previewItemID and (bd.showItemCount ~= false) then

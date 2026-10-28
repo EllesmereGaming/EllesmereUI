@@ -429,6 +429,17 @@ function EAB.VisibilityCompat.Normalize(settings)
     return EAB.VisibilityCompat.ApplyMode(settings, "always")
 end
 
+-- Effective Never for runtime gates: an applied Visibility override replaces the
+-- saved mode, so a Never bar with an Always override is NOT hidden, and
+-- an Always bar with a Never override is. Raw alwaysHidden/barVisibility reads stay
+-- correct only where the SHARED value is meant (sync copies, the setter itself).
+function EAB.VisibilityCompat.IsNever(s)
+    if not s then return false end
+    local ov = EllesmereUI.VisOverrideValue(s)
+    if ov then return ov == "never" end
+    return (s.alwaysHidden or s.barVisibility == "never") and true or false
+end
+
 function EAB.VisibilityCompat.Copy(dst, src, dstNoGroupModes)
     if not dst or not src then return end
 
@@ -883,8 +894,7 @@ local function ShouldQuickKeybindSurfaceBar(s)
     -- Surfaces bars hidden by transient runtime rules, but explicit "Never" wins.
     -- Hide Bar When Using Gamepad is not a Never: its verdict (EAB._padHide) is
     -- off while this mode is open, so a controller player can bind those bars.
-    local vis = s.barVisibility or "always"
-    return not s.alwaysHidden and vis ~= "never"
+    return not EAB.VisibilityCompat.IsNever(s)
 end
 
 local function FadeTo(frame, toAlpha, duration)

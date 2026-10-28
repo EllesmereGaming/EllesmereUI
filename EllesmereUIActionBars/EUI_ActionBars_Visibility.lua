@@ -20,7 +20,7 @@ local BAR_LOOKUP, ALL_BARS, EXTRA_BARS = ns.BAR_LOOKUP, ns.ALL_BARS, ns.EXTRA_BA
 local I = ns._internals
 local BAR_CONFIG, barFrames, _fadeAlpha = I.BAR_CONFIG, I.barFrames, I._fadeAlpha
 local dataBarFrames, extraBarHolders, blizzMovableHolders = I.dataBarFrames, I.extraBarHolders, I.blizzMovableHolders
-local hoverStates, _quickKeybindState = I.hoverStates, I._quickKeybindState
+local hoverStates, _quickKeybindState, _gridState = I.hoverStates, I._quickKeybindState, I._gridState
 local SafeEnableMouse, SafeEnableMouseMotionOnly = I.SafeEnableMouse, I.SafeEnableMouseMotionOnly
 local ShouldQuickKeybindSurfaceBar, BuildVisibilityString = I.ShouldQuickKeybindSurfaceBar, I.BuildVisibilityString
 
@@ -64,7 +64,7 @@ function EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s)
     if C_PetBattles and C_PetBattles.IsInBattle and C_PetBattles.IsInBattle() then
         return false
     end
-    if s.enabled == false or s.alwaysHidden then return false end
+    if s.enabled == false or EAB.VisibilityCompat.IsNever(s) then return false end
     if EllesmereUI.CheckVisibilityOptions(s) then
         return false
     end
@@ -362,10 +362,10 @@ function EAB:RefreshRuntimeVisibility()
         local frame = barFrames[key] or (info.isDataBar and dataBarFrames[key]) or (info.isBlizzardMovable and blizzMovableHolders[key]) or (extraBarHolders[key]) or (info.visibilityOnly and _G[info.frameName])
         if frame then
             local vis = s.barVisibility or "always"
-            local isHidden = (vis == "never") or s.alwaysHidden
+            local isHidden = EAB.VisibilityCompat.IsNever(s)
             -- Runtime "Toggle Action Bar" override (keybind-driven, NOT persisted):
             -- flips a bar between always-shown and hidden without touching the saved
-            -- barVisibility. Only ever set for bars whose saved mode is always/never.
+            -- barVisibility. Only ever set for bars whose effective mode is always/never.
             local _visToggleOv = EAB._visOverride and EAB._visOverride[key]
             if _visToggleOv then
                 vis = _visToggleOv
@@ -420,7 +420,9 @@ function EAB:RefreshRuntimeVisibility()
                     end
                 end
                 if not InCombatLockdown() then
-                    if vis ~= "in_combat" and vis ~= "out_of_combat" and not s.combatShowEnabled then
+                    -- An applied Visibility override replaces the saved combat mode.
+                    if EllesmereUI.VisOverrideValue(s)
+                       or (vis ~= "in_combat" and vis ~= "out_of_combat" and not s.combatShowEnabled) then
                         -- Only Show frames without a state-visibility driver.
                         -- Frames with a driver (any _eabLastVisStr) are managed by the driver.
                         -- Movable wrappers are ours: restore them when their hide
@@ -631,7 +633,8 @@ end
 --  between active/shown and dormant/hidden at RUNTIME. Action bindings stay
 --  live; barVisibility is never written, so the toggle does not persist
 --  (/reload restores saved state).
---  Meaningful only when saved visibility is "always" or "never", and only
+--  Meaningful only when the effective visibility (an applied override, else
+--  the saved mode) is "always" or "never", and only
 --  out of combat (changing a secure frame's state-visibility driver is
 --  combat-blocked). The keybind itself IS saved per-bar (s.toggleVisKey) and
 --  re-applied on login.
@@ -642,15 +645,15 @@ end
 -------------------------------------------------------------------------------
 
 -- Toggle every bar bound to `key` as a group. If any participant is currently
--- shown, hide them all; otherwise show them all. Only bars whose saved mode is
--- "always"/"never" participate. Runtime-only -- never writes barVisibility.
+-- shown, hide them all; otherwise show them all. Only bars whose effective mode
+-- is "always"/"never" participate. Runtime-only -- never writes barVisibility.
 function EAB:ToggleVisKey(key)
     if InCombatLockdown() or not key then return end
     local participants, anyShown = {}, false
     for _, info in ipairs(ALL_BARS) do
         local s = self.db.profile.bars[info.key]
         if s and s.toggleVisKey == key then
-            local saved = s.barVisibility or "always"
+            local saved = EllesmereUI.VisOverrideValue(s) or s.barVisibility or "always"
             if saved == "always" or saved == "never" then
                 participants[#participants + 1] = info.key
                 -- A controller-hidden bar counts as hidden (as Never does), so
@@ -678,7 +681,7 @@ end
 
 -- Rebuild override bindings from the saved per-bar keys: one pooled button
 -- per UNIQUE key (a key shared by several bars drives all of them). A key is
--- only bound if at least one bar using it has a saved always/never mode, so
+-- only bound if at least one bar using it has an effective always/never mode, so
 -- a shared key never dead-overrides the player's normal binding. Binding
 -- APIs are combat-protected, so defer to PLAYER_REGEN_ENABLED in combat.
 function EAB:RebuildVisToggleBindings()
@@ -693,14 +696,31 @@ function EAB:RebuildVisToggleBindings()
     for _, info in ipairs(ALL_BARS) do
         local s = self.db.profile.bars[info.key]
         local k = s and s.toggleVisKey
-        if k and k ~= "" and not seen[k] then
-            local saved = s.barVisibility or "always"
+        if k and k ~= "" then
+            local saved = EllesmereUI.VisOverrideValue(s) or s.barVisibility or "always"
             if saved == "always" or saved == "never" then
-                seen[k] = true
-                keys[#keys + 1] = k
+                if not seen[k] then
+                    seen[k] = true
+                    keys[#keys + 1] = k
+                end
+            elseif self._visOverride and self._visOverride[info.key] then
+                -- An override change took the bar out of the toggle set: drop its
+                -- toggle state, its key may no longer be bound to undo it.
+                -- Spellbook / drag surfacing own their entries and restore them.
+                local g = _gridState
+                if not ((g._sbNeverForced and g._sbNeverForced[info.key])
+                        or (g._dragNeverForced and g._dragNeverForced[info.key])) then
+                    self._visOverride[info.key] = nil
+                end
             end
         end
     end
+    -- Every binding write fires UPDATE_BINDINGS, and _EAB_Apply runs this on each
+    -- profile swap and override change: rebind only when the key set moved.
+    -- Nothing else touches these pooled buttons' bindings.
+    local sig = table.concat(keys, "\n")
+    if sig == self._visToggleBoundSig then return end
+    self._visToggleBoundSig = sig
     -- Clear every pooled button's binding, then (re)assign one per unique key.
     self._visToggleBtnPool = self._visToggleBtnPool or {}
     for _, btn in ipairs(self._visToggleBtnPool) do
@@ -887,8 +907,7 @@ function EAB:UpdateHousingVisibility()
                             -- (mode, prefixes and any [mounted] clause keep working there).
                             -- Never / always-hidden bars keep the plain hide.
                             local hideStr = "hide"
-                            if shouldHide == "combathide" and not s.alwaysHidden
-                                and (s.barVisibility or "always") ~= "never" then
+                            if shouldHide == "combathide" and not EAB.VisibilityCompat.IsNever(s) then
                                 hideStr = "[nocombat] hide; " .. BuildVisibilityString(info, s)
                             end
                             if frame._eabLastVisStr ~= hideStr then
@@ -905,7 +924,7 @@ function EAB:UpdateHousingVisibility()
                         else
                             frame:Hide()
                         end
-                    elseif not s.alwaysHidden and (s.barVisibility or "always") ~= "never" then
+                    elseif not EAB.VisibilityCompat.IsNever(s) then
                         if isSecure then
                             local newStr = BuildVisibilityString(info, s)
                             if frame._eabLastVisStr ~= newStr then

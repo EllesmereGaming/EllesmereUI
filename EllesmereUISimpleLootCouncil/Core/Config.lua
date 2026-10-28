@@ -151,10 +151,13 @@ function Config:ApplyShared(config, sender)
         end
     end
 
-    if type(config.councilBags) == "boolean" then
-        next_.councilBags = config.councilBags
-    elseif config.councilBags ~= nil then
-        Malformed("councilBags", sender)
+    for _, field in ipairs({ "startRequests", "councilMayStartRuns", "councilBags" }) do
+        local value = config[field]
+        if type(value) == "boolean" then
+            next_[field] = value
+        elseif value ~= nil then
+            Malformed(field, sender)
+        end
     end
 
 
@@ -214,6 +217,32 @@ end
 function Config:NoteMax()
     return (shared and shared.noteMax) or (addon.db and addon.db.noteMaxLength) or 64
 end
+
+
+
+local QUEUE_MODES = { off = true, request = true, start = true }
+function Config.CleanCouncilQueue(value)
+    return QUEUE_MODES[value] and value or "off"
+end
+
+
+
+function Config:StartRequestsAllowed()
+    if shared then return shared.startRequests == true end
+    return Config.CleanCouncilQueue(addon.db and addon.db.councilQueue) ~= "off"
+end
+
+function Config:CouncilMayStartRuns()
+    if not self:StartRequestsAllowed() then return false end
+    if shared then return shared.councilMayStartRuns == true end
+    return Config.CleanCouncilQueue(addon.db and addon.db.councilQueue) == "start"
+end
+
+function Config:CouncilQueueMode()
+    if not self:StartRequestsAllowed() then return "off" end
+    return self:CouncilMayStartRuns() and "start" or "request"
+end
+
 
 function Config:CouncilBagsShared()
 

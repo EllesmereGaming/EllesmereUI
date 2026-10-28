@@ -430,10 +430,17 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
         down:SetPoint("LEFT", up, "RIGHT", 0, 0)
     end
 
-    local SINGLE_TIP = "Missing debuffs color enemies fighting you or your group and win over every other debuff color; otherwise higher in the list wins."
-    local COMBO_TIP = "Missing debuffs win over combos; combos win over applied debuffs; higher in the list wins."
+    local SINGLE_TIP = "Higher in the list wins when several are up."
+    local COMBO_TIP = "Combos win over single debuffs; higher in the list wins."
     local STATE_ORDER = { "applied", "missing" }
-    local STATE_VALUES = { applied = "Applied", missing = "Missing" }
+    local STATE_VALUES = { applied = "Applied", missing = "Missing", _menuOpts = {
+        onItemHover = function(key, item)
+            if key == "missing" then
+                EllesmereUI.ShowWidgetTooltip(item, EllesmereUI.L("Colors enemies you fight without this debuff."))
+            end
+        end,
+        onItemLeave = function() EllesmereUI.HideWidgetTooltip() end,
+    } }
 
     -- A debuff: its spell menu (Remove, Custom Spell..., the class's presets,
     -- then its custom spells) with its color inline. The custom tail follows

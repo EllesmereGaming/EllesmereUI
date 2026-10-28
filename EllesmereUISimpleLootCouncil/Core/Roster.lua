@@ -358,6 +358,21 @@ function addon.CanAssignMasterLooter()
 end
 
 
+
+
+local groupTest
+local function GroupShape()
+    if IsInRaid() then return nil end
+    return IsInGroup() and "party" or "solo"
+end
+function addon.GroupTestActive()
+    if groupTest and groupTest ~= GroupShape() then groupTest = nil end
+    return groupTest ~= nil
+end
+function addon.SetGroupTest(on)
+    groupTest = on and GroupShape() or nil
+end
+
 function addon.PlayerIsMasterLooter()
     if not IsInGroup() then return true end
     local current = addon.GetMasterLooter()

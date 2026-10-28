@@ -399,7 +399,7 @@ function EAB_VTABLE.ExtraBars.BeginManagedDataBarUpdate(barKey)
 
     local s = EAB.db.profile.bars[barKey]
     if not s then return nil, nil end
-    if s.alwaysHidden or not EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s) then
+    if not EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s) then
         if info then
             EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, false, true)
         else
@@ -608,7 +608,7 @@ local function FavorWanted()
     local p = EAB.db and EAB.db.profile
     if not p or p.useBlizzardDataBars then return false end
     local s = p.bars and p.bars.FavorBar
-    return (s and not s.alwaysHidden) and true or false
+    return (s and not EAB.VisibilityCompat.IsNever(s)) and true or false
 end
 
 local function UpdateFavorBar()
@@ -957,7 +957,7 @@ function ns.SetUseBlizzardDataBars(v)
                 if frame._updateFunc then frame._updateFunc() end
             else
                 local s = p.bars[k]
-                if not s or not s.alwaysHidden then
+                if not s or not EAB.VisibilityCompat.IsNever(s) then
                     frame:Show()
                     if frame._updateFunc then frame._updateFunc() end
                 end

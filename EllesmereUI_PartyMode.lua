@@ -60,6 +60,7 @@ end
 --  Celebration / dim-lights state
 -------------------------------------------------------------------------------
 local celebrationTimer = nil
+local celebrationEnd = nil  -- end hook of the running celebration (Random's reschedule)
 local randomTimer = nil
 local randomScheduledTimer = nil
 local randomCooldownTimer = nil
@@ -312,8 +313,21 @@ end
 -------------------------------------------------------------------------------
 --  Keybind toggle function
 -------------------------------------------------------------------------------
+-- Ends a running celebration's timer and runs its end hook, so Random still
+-- reschedules when something other than the timer ends the celebration.
+local function CancelCelebration()
+    if not celebrationTimer then return end
+    celebrationTimer:Cancel()
+    celebrationTimer = nil
+    local onEnd = celebrationEnd
+    celebrationEnd = nil
+    if onEnd then onEnd() end
+end
+
 function EllesmereUI_TogglePartyMode()
     if not EllesmereUIDB then EllesmereUIDB = {} end
+    -- A manual toggle takes over: no celebration timer may end it later.
+    CancelCelebration()
     if EllesmereUIDB.partyMode then
         EllesmereUIDB.partyMode = false
         EllesmereUI_StopPartyMode()
@@ -321,6 +335,21 @@ function EllesmereUI_TogglePartyMode()
         EllesmereUIDB.partyMode = true
         EllesmereUI_StartPartyMode()
     end
+end
+
+-- Automatic celebration: Party Mode on for `duration` seconds. A session the
+-- user started by hand (on, no timer) is left alone, so a trigger never ends it.
+local function Celebrate(duration, onEnd)
+    if EllesmereUIDB.partyMode and not celebrationTimer then return end
+    EllesmereUIDB.partyMode = true
+    EllesmereUI_StartPartyMode()
+    if celebrationTimer then celebrationTimer:Cancel() end
+    celebrationEnd = onEnd or celebrationEnd  -- a replacing trigger keeps Random's hook
+    celebrationTimer = C_Timer.NewTimer(duration, function()
+        if EllesmereUIDB then EllesmereUIDB.partyMode = false end
+        EllesmereUI_StopPartyMode()
+        CancelCelebration()
+    end)
 end
 
 -------------------------------------------------------------------------------
@@ -348,14 +377,7 @@ local function ScheduleRandomActivation()
             end)
             return
         end
-        EllesmereUIDB.partyMode = true
-        EllesmereUI_StartPartyMode()
-        if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
-        celebrationTimer = C_Timer.NewTimer(duration, function()
-            celebrationTimer = nil
-            if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-            EllesmereUI_StopPartyMode()
+        Celebrate(EllesmereUIDB.partyModeMPlusDuration or 30, function()
             -- Start cooldown, then schedule next random window
             randomCooldownTimer = C_Timer.NewTimer(GetRandomCooldown(), function()
                 randomCooldownTimer = nil
@@ -380,15 +402,15 @@ end
 --  Pause random trigger while EUI settings panel is open
 -------------------------------------------------------------------------------
 local function OnSettingsOpen()
-    -- Cancel any pending random activation / cooldown
-    EllesmereUI_StopRandomTrigger()
     -- If party mode is running from a celebration timer (auto-triggered), stop it
     if celebrationTimer then
-        celebrationTimer:Cancel()
-        celebrationTimer = nil
+        CancelCelebration()
         if EllesmereUIDB then EllesmereUIDB.partyMode = false end
         EllesmereUI_StopPartyMode()
     end
+    -- Cancel any pending random activation / cooldown (after the end hook, which
+    -- schedules one); the panel close restarts the trigger.
+    EllesmereUI_StopRandomTrigger()
 end
 
 local function OnSettingsClose()
@@ -482,14 +504,7 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
         if present and not _pmSatedPresent then
             -- Rising edge: lust just went out. Hardcoded 40s (NOT the slider),
             -- and this trigger never enables the Auto Celebration Duration setting.
-            EllesmereUIDB.partyMode = true
-            EllesmereUI_StartPartyMode()
-            if celebrationTimer then celebrationTimer:Cancel() end
-            celebrationTimer = C_Timer.NewTimer(40, function()
-                celebrationTimer = nil
-                if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-                EllesmereUI_StopPartyMode()
-            end)
+            Celebrate(40)
         end
         _pmSatedPresent = present
 
@@ -505,15 +520,7 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
             onTime = ot
         end
         if not onTime then return end
-        EllesmereUIDB.partyMode = true
-        EllesmereUI_StartPartyMode()
-        if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
-        celebrationTimer = C_Timer.NewTimer(duration, function()
-            celebrationTimer = nil
-            if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-            EllesmereUI_StopPartyMode()
-        end)
+        Celebrate(EllesmereUIDB.partyModeMPlusDuration or 30)
 
     elseif event == "ENCOUNTER_END" then
         local encounterID, encounterName, difficultyID, groupSize, success = ...
@@ -529,15 +536,7 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
         local key = diffMap[difficultyID]
         if not key then return end
         if not (EllesmereUIDB and EllesmereUIDB[key]) then return end
-        EllesmereUIDB.partyMode = true
-        EllesmereUI_StartPartyMode()
-        if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
-        celebrationTimer = C_Timer.NewTimer(duration, function()
-            celebrationTimer = nil
-            if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-            EllesmereUI_StopPartyMode()
-        end)
+        Celebrate(EllesmereUIDB.partyModeMPlusDuration or 30)
 
     elseif event == "PVP_MATCH_COMPLETE" then
         local winner = ...
@@ -557,27 +556,11 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
             triggered = true
         end
         if not triggered then return end
-        EllesmereUIDB.partyMode = true
-        EllesmereUI_StartPartyMode()
-        if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
-        celebrationTimer = C_Timer.NewTimer(duration, function()
-            celebrationTimer = nil
-            if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-            EllesmereUI_StopPartyMode()
-        end)
+        Celebrate(EllesmereUIDB.partyModeMPlusDuration or 30)
 
     elseif event == "PLAYER_LEVEL_UP" then
         if not (EllesmereUIDB and EllesmereUIDB.partyModeTriggerLevelUp) then return end
-        EllesmereUIDB.partyMode = true
-        EllesmereUI_StartPartyMode()
-        if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
-        celebrationTimer = C_Timer.NewTimer(duration, function()
-            celebrationTimer = nil
-            if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-            EllesmereUI_StopPartyMode()
-        end)
+        Celebrate(EllesmereUIDB.partyModeMPlusDuration or 30)
 
     elseif event == "PLAYER_LOGOUT" then
         -- An automatic celebration only lives as long as its timer, so never save
@@ -942,15 +925,7 @@ end
 local function CornerParty()
     local db = EllesmereUIDB
     if not (db and db.partyModeAfkCorner) then return end
-    if db.partyMode and not celebrationTimer then return end
-    db.partyMode = true
-    EllesmereUI_StartPartyMode()
-    if celebrationTimer then celebrationTimer:Cancel() end
-    celebrationTimer = C_Timer.NewTimer(CornerSecs(), function()
-        celebrationTimer = nil
-        if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-        EllesmereUI_StopPartyMode()
-    end)
+    Celebrate(CornerSecs())
 end
 
 local function Recolor()

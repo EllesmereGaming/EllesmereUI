@@ -204,78 +204,6 @@ local function ResolveChildSpellID(child)
     return nil
 end
 
--------------------------------------------------------------------------------
---  Set of currently known (learned) spellIDs across all CDM categories, via
---  GetCooldownViewerCategorySet(cat, false) (learned only), resolving each cdID to its base spellID.
--------------------------------------------------------------------------------
-local function BuildAvailableSpellPool()
-    local known = {}
-    if not C_CooldownViewer or not C_CooldownViewer.GetCooldownViewerCategorySet then return known end
-    for cat = 0, 3 do
-        local knownIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, false)
-        if knownIDs then
-            for _, cdID in ipairs(knownIDs) do
-                local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
-                if info then
-                    local primarySid = ResolveInfoSpellID(info)
-                    -- Store ALL related spell IDs so reconcile matches whether the bar stores
-                    -- the base, override or a linked ID. Guard override-sourced IDs with
-                    -- IsPlayerSpell: CDM info can report a stale overrideSpellID after the talent providing it is removed (e.g. Cleave/Whirlwind).
-                    local staleOverride = info.overrideSpellID
-                        and info.overrideSpellID > 0
-                        and IsPlayerSpell
-                        and not IsPlayerSpell(info.overrideSpellID)
-                    if primarySid and primarySid > 0 then
-                        if not (staleOverride and primarySid == info.overrideSpellID) then
-                            known[primarySid] = true
-                        end
-                    end
-                    if info.spellID and info.spellID > 0 then
-                        known[info.spellID] = true
-                    end
-                    if info.overrideSpellID and info.overrideSpellID > 0
-                       and not staleOverride then
-                        known[info.overrideSpellID] = true
-                    end
-                    if info.linkedSpellIDs then
-                        for _, lsid in ipairs(info.linkedSpellIDs) do
-                            if lsid and lsid > 0 then
-                                known[lsid] = true
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    -- Fallback: the full CDM category set (cat, true) covers ALL class spells regardless of
-    -- talents. Anything in it that passes IsPlayerSpell is known even if the viewer hasn't updated yet after a talent swap.
-    local _IsPlayerSpell = IsPlayerSpell
-    if _IsPlayerSpell then
-        for cat = 0, 3 do
-            local allIDs = C_CooldownViewer.GetCooldownViewerCategorySet(cat, true)
-            if allIDs then
-                for _, cdID in ipairs(allIDs) do
-                    local info = C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
-                    if info then
-                        local sid = ResolveInfoSpellID(info)
-                        if sid and sid > 0 and not known[sid] and _IsPlayerSpell(sid) then
-                            known[sid] = true
-                        end
-                        if info.spellID and info.spellID > 0 and not known[info.spellID] and _IsPlayerSpell(info.spellID) then
-                            known[info.spellID] = true
-                        end
-                        if info.overrideSpellID and info.overrideSpellID > 0 and not known[info.overrideSpellID] and _IsPlayerSpell(info.overrideSpellID) then
-                            known[info.overrideSpellID] = true
-                        end
-                    end
-                end
-            end
-        end
-    end
-    return known
-end
-
 local DeepCopy = EllesmereUI.Lite.DeepCopy
 
 -------------------------------------------------------------------------------
@@ -385,7 +313,7 @@ ns.CDM_BAR_ROOTS = {
     CDM_UTILITY  = "UtilityCooldownViewer",
 }
 
-I.BuildAvailableSpellPool, I.CheckSpecChange = BuildAvailableSpellPool, CheckSpecChange
+I.CheckSpecChange = CheckSpecChange
 I.ComputeLiveSpecKey, I.EnsureMappings = ComputeLiveSpecKey, EnsureMappings
 I.GetStore, I.GHOST_CD_BAR_KEY, I.MAIN_BAR_KEYS = GetStore, GHOST_CD_BAR_KEY, MAIN_BAR_KEYS
 I.ResolveChildSpellID, I.ResolveInfoSpellID = ResolveChildSpellID, ResolveInfoSpellID

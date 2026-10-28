@@ -399,7 +399,7 @@ local function UpdateVisibility()
 
     -- Preview overrides all visibility logic -- real buttons stay suppressed
     -- (alpha), no state changes; the preview close re-runs this.
-    if previewActive then return end
+    if ns._raidPvActive then return end
 
     -- Defensive: re-assert full opacity unless a preview is intentionally
     -- dimming the real frames. The preview system is the only thing that lowers

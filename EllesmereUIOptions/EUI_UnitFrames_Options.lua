@@ -46,7 +46,7 @@ if EllesmereUI.IS_FOREVER then
     -- A custom format shows a name when its parse holds a name tag.
     function ns.UF_ContentShowsName(content, customFmt)
         if content ~= "custom" then return HAS_NAME[content] or false end
-        local parsed = ns.UF_TextTags and EllesmereUI.TextTags.Parse(ns.UF_TextTags, customFmt)
+        local parsed = EllesmereUI.TextTags.Parse(ns.UF_TextTags, customFmt)
         return parsed ~= nil and (parsed.has.name or parsed.has.target) == true
     end
     -- contentKey: the slot's content key when it is not <prefix>Content

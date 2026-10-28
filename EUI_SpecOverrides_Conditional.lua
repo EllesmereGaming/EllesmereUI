@@ -1217,28 +1217,9 @@ function Cond.PruneEntries()
     if removed then Cond.RebuildIndex() end
 end
 
---- The engine's transition handler: harvest the outgoing group, overlay the
---- incoming one, swap unlock layers, refresh. Returns false when the value
---- system is mid-swap (spec transition / edit sessions); the engine retries on
---- its next signal (the spec Apply tail calls Conditions_Recheck).
-local _condBusy = false   -- re-entrancy latch (see below)
+local _condBusy = false   -- re-entrancy latch (see SpecOverrides_CondTransition)
 
--- _defaultView is deliberately NOT a refusal reason: the engine steps OUT of the
--- Default view for the duration of a real flip (Conditions_Recheck ->
--- SpecOverrides_SuspendDefaultView) and back in once the applied pointer has
--- advanced, so live is canonical here as on every other boundary. Refusing instead
--- would strand the flip whenever the panel is open -- for the Dark Mode condition
--- that is ALWAYS (its only inputs are options widgets).
-function EllesmereUI.SpecOverrides_CondTransition(oldGid, newGid, establish)
-    if _inTransition or _editGroup or Cond._edit then return false end
-    -- NON-RE-ENTRANT: the refresh fan-out below can reach RefreshAllAddons
-    -- (unmapped-folder fallback, module internals), whose tail calls
-    -- Conditions_MarkStale + Recheck; re-entering mid-flight rewrites values
-    -- against a stale applied pointer and recurses until the client watchdog kills
-    -- the frame. Refuse; the engine flags the flip pending and the next signal (or
-    -- the establish flag) converges it.
-    if _condBusy then return false end
-    _condBusy = true
+local function CondTransitionBody(oldGid, newGid, establish)
     -- Values: bank the outgoing state, write the incoming one. An ESTABLISH transition
     -- (post profile-apply) has no outgoing owner: live is the incoming store's raw data
     -- (possibly the EXPORTER's overlaid state), so banking it corrupts the new
@@ -1275,8 +1256,38 @@ function EllesmereUI.SpecOverrides_CondTransition(oldGid, newGid, establish)
     -- Condition applied/removed with the panel open: the labeled "Override
     -- Active" slot overlays must follow immediately.
     RequestGoldWalk()
+end
+
+--- The engine's transition handler: harvest the outgoing group, overlay the
+--- incoming one, swap unlock layers, refresh (CondTransitionBody). Returns false
+--- when the value system is mid-swap (spec transition / edit sessions); the engine
+--- retries on its next signal (the spec Apply tail calls Conditions_Recheck).
+--- Returns false, true on an error (reported, latch released, engine marked stale).
+-- _defaultView is deliberately NOT a refusal reason: the engine steps OUT of the
+-- Default view for the duration of a real flip (Conditions_Recheck ->
+-- SpecOverrides_SuspendDefaultView) and back in once the applied pointer has
+-- advanced, so live is canonical here as on every other boundary. Refusing instead
+-- would strand the flip whenever the panel is open -- for the Dark Mode condition
+-- that is ALWAYS (its only inputs are options widgets).
+function EllesmereUI.SpecOverrides_CondTransition(oldGid, newGid, establish)
+    if _inTransition or _editGroup or Cond._edit then return false end
+    -- NON-RE-ENTRANT: the refresh fan-out in CondTransitionBody can reach RefreshAllAddons
+    -- (unmapped-folder fallback, module internals), whose tail calls
+    -- Conditions_MarkStale + Recheck; re-entering mid-flight rewrites values
+    -- against a stale applied pointer and recurses until the client watchdog kills
+    -- the frame. Refuse; the engine flags the flip pending and the next signal (or
+    -- the establish flag) converges it.
+    if _condBusy then return false end
+    _condBusy = true
+    -- An error must not leave the latch set (every later flip refused until a
+    -- reload): report it, release, and leave the flip pending for a retry. Live
+    -- may already hold the incoming values, so the retry establishes (applies
+    -- without banking them into the outgoing group).
+    local ok = xpcall(CondTransitionBody, geterrorhandler(), oldGid, newGid, establish)
+    Cond._resolveOverride = nil
     _condBusy = false
-    return true
+    if not ok and EllesmereUI.Conditions_MarkStale then EllesmereUI.Conditions_MarkStale() end
+    return ok, not ok
 end
 
 --- The conditional gid unlock layer resolution should use: during a condition

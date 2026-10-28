@@ -1965,8 +1965,34 @@ end
 
 
 
+function Session:StageRefusal()
+    if addon.PlayerIsMasterLooter() then return nil end
+    local seated = addon.Council and addon.Council:Contains(addon.Player:GetFullName("player"))
+    if addon.Config:CouncilQueueMode() == "off" then
+        return seated and "mode" or "lootmaster"
+    end
+    return not seated and "council" or nil
+end
+
+
+
+function Session:MayStage()
+    return Session:StageRefusal() == nil
+end
+
+local function RefusesStaging()
+    if RefusesLiveAppend() then return true end
+    if not Session:MayStage() then
+        addon.Log:I("Session", "not staging - only the loot master and the council stage items")
+        return true
+    end
+    return false
+end
+
+
+
 function Session:AddItem(itemLink, owner, boss, encounterID)
-    if RefusesLiveAppend() then return nil end
+    if RefusesStaging() then return nil end
     local index = AppendItem(itemLink, owner, boss, encounterID)
     AnnounceAdded({ index })
     return index
@@ -1977,7 +2003,7 @@ end
 
 function Session:AddItems(itemLinks, owner, boss, encounterIDs)
     local indices = {}
-    if RefusesLiveAppend() then return indices end
+    if RefusesStaging() then return indices end
     local perItem = type(boss) == "table"
     for i, itemLink in ipairs(itemLinks) do
 
@@ -2028,12 +2054,13 @@ end
 
 
 
-function Session:StartTest(itemLinks, count, sources)
+function Session:StartTest(itemLinks, count, sources, inParty)
     if run.active then return false, T["a run is already active"] end
     if not addon.PlayerIsMasterLooter() then
         return false, T["only the Loot Master can start a test"]
     end
-    if IsInGroup() and not IsInRaid() then
+
+    if IsInGroup() and not IsInRaid() and not inParty and not addon.GroupTestActive() then
         return false, T["only possible in a raid"]
     end
     if #run.items > 0 then
@@ -2060,7 +2087,7 @@ function Session:StartTest(itemLinks, count, sources)
             source and source.encounterID, true, source and source.difficultyID)
     end
 
-    if not Session:Start() then
+    if not Session:Start(inParty) then
 
         run.items = {}
         return false, T["the council is not ready"]
@@ -2371,13 +2398,13 @@ end
 
 
 
-function Session:Start()
+function Session:Start(inParty)
     if run.active then return false end
     if not addon.PlayerIsMasterLooter() then
         addon.Log:W("Session", "only the group leader can start a run")
         return false
     end
-    if IsInGroup() and not IsInRaid() then
+    if IsInGroup() and not IsInRaid() and not inParty and not addon.GroupTestActive() then
         addon.Chat.Print(addon.Locale.Format(T["could not start the run: %s"],
             T["only possible in a raid"]))
         return false, "raid"
@@ -3440,6 +3467,21 @@ local function ForgetUndelivered()
     undeliveredSeen, undeliveredCount = {}, 0
 end
 
+local function UndeliveredKey(runId, session, winner, sender)
+    return ("%s|%s|%s|%s"):format(tostring(runId), tostring(session),
+        tostring(winner), tostring(sender))
+end
+
+
+
+function Session:ForgetUndelivered(runId, session, winner, sender)
+    local key = UndeliveredKey(runId, session, winner, sender)
+    if undeliveredSeen[key] then
+        undeliveredSeen[key] = nil
+        undeliveredCount = undeliveredCount - 1
+    end
+end
+
 local UNDELIVERED = { missing = true, equipped = true, bound = true, wrong = true, left = true }
 
 
@@ -3450,8 +3492,7 @@ function Session:ApplyUndelivered(session, winner, sender, link, runId, why, to)
     if addon.Player:IsSelf(sender) then return end
     if not UNDELIVERED[why] then return Refuse("undelivered", "unknown_reason", sender) end
 
-    local key = ("%s|%s|%s|%s"):format(tostring(runId), tostring(session),
-        tostring(winner), tostring(sender))
+    local key = UndeliveredKey(runId, session, winner, sender)
     if undeliveredSeen[key] then return end
     if undeliveredCount >= UNDELIVERED_SEEN_MAX then ForgetUndelivered() end
     undeliveredSeen[key] = true
@@ -3703,7 +3744,7 @@ function Session:End()
     return true
 end
 
-function Session:ApplyRunEnd()
+function Session:ApplyRunEnd(left)
 
 
     if not run.active then
@@ -3712,7 +3753,8 @@ function Session:ApplyRunEnd()
     end
 
     addon.Log:I("Session", "run ended")
-    RememberEnded(run.id)
+
+    if not left then RememberEnded(run.id) end
     run.active = false
     run.ended = true
     assembling = nil
@@ -4504,6 +4546,23 @@ function Session:Init()
 
 
 
+
+    addon.Comms:Register("start_request", "any", function(args, sender)
+        if addon.StartRequest then addon.StartRequest:Request(sender, args and args.items) end
+    end)
+
+
+    addon.Comms:Register("start_ack", "ml", function(args, _)
+        if type(args) ~= "table" then return end
+        if args.ok then
+            addon.Chat.Print(T["the Loot Master started the run."])
+        else
+            addon.Chat.Print(addon.StartRequest.DeclineText(args.why))
+        end
+    end)
+
+
+
     local function PoliceOwnQueue()
         if run.active then return end
 
@@ -4530,6 +4589,7 @@ function Session:Init()
             end
             for id, link in pairs(mine) do
                 local list = gone[id]
+
                 addon.Comms:Send("queue_drop", {
                     l = list and list[1] or link,
                     held = counts[id] and counts[id].n or 0,
@@ -4740,7 +4800,9 @@ function Session:Init()
         if run.active and type(diff) == "table" and diff.wasInGroup and diff.inGroup == false
             and not IsInGroup() and GroupRun() then
             addon.Log:I("Session", "left the group - closing run", tostring(run.id), "on this side")
-            Session:ApplyRunEnd()
+            Session:ApplyRunEnd(true)
+
+            noRunFrom = nil
             ScheduleRecovery()
             return
         end

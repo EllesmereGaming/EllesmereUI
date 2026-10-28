@@ -252,6 +252,7 @@ local function ReportIfTradeable(link)
         local lootMaster = addon.GetMasterLooter()
         if not lootMaster or addon.PlayerIsMasterLooter() then return end
 
+
         local boss, encounterID = addon.Encounter:ForTradeableItem(secondsLeft)
         addon.Comms:Send("tradeable", {
             link = link,
@@ -499,6 +500,7 @@ local heldRolls = {}
 local heldHooked = false
 local HELD_DEADLINE_MS = 5000
 
+
 local function RollQueued(rollID)
     local waiting = GroupLootContainer and GroupLootContainer.waitingRolls
     if type(waiting) ~= "table" then return false end
@@ -508,6 +510,7 @@ local function RollQueued(rollID)
     return false
 end
 
+
 local function SendHeldRoll(rollID)
     local held = heldRolls[rollID]
     if not held then return end
@@ -516,6 +519,7 @@ local function SendHeldRoll(rollID)
     addon.Log:I("Loot", "funnel roll", held.role, held.rollType, held.link)
     RollOnLoot(rollID, held.rollType)
 end
+
 
 local function HookShownRolls()
     if heldHooked then return true end
@@ -527,6 +531,8 @@ local function HookShownRolls()
     end)
     return true
 end
+
+
 
 local function FunnelRoll(rollID, rollType, link, role)
     if not RollQueued(rollID) or not HookShownRolls() then
@@ -663,7 +669,7 @@ end
 
 
 local function FunnelWanted()
-    return not Loot:UsesMasterLoot()
+    return IsInRaid() and not Loot:UsesMasterLoot()
 end
 
 
@@ -702,9 +708,9 @@ end
 
 
 
-
 function Loot:DecisionKey()
-    return IsInRaid() and "raid" or nil
+    if IsInRaid() then return "raid" end
+    return addon.GroupTestActive() and "party" or nil
 end
 
 
@@ -1017,6 +1023,7 @@ function Loot:Init()
     if addon.Restrictions then addon.Restrictions:OnChange(Loot.OnRestrictionChange) end
 
     local listening = false
+
 
     local function GroupChanged(atLogin)
 

@@ -1315,7 +1315,7 @@ end
 local function XPBarCanShow(s)
     local p = EAB.db and EAB.db.profile
     if not (p and s) or p.useBlizzardDataBars then return false end
-    if s.enabled == false or s.alwaysHidden or s.barVisibility == "never" then return false end
+    if s.enabled == false or EAB.VisibilityCompat.IsNever(s) then return false end
     return not ns.XPBarAtMaxLevel() and not (IsXPUserDisabled and IsXPUserDisabled())
 end
 

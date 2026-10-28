@@ -530,7 +530,7 @@ ns.IsNeverBar = function(info)
     local s = bars and bars[info.key]
     -- Hide Bar When Using Gamepad joins the set while a controller is connected
     -- (EAB._padHide only turns on out of combat, see EAB._PadSync).
-    local never = s and (s.alwaysHidden or s.enabled == false
+    local never = s and (EAB.VisibilityCompat.IsNever(s) or s.enabled == false
         or (EAB._padHide and s.gamepadHideBar == true)) or false
     -- Toggle override wins both ways: hiding an Always bar hard-disables its UI
     -- work; showing a Never bar wakes it. Action bindings stay live.

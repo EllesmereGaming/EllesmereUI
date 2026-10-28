@@ -12,13 +12,20 @@ EUI_NS = EUI_NS.__euiCoreNS or EUI_NS  -- standalone builds: the core's own tabl
 
 -------------------------------------------------------------------------------
 --  External weak-keyed lookup table for frame state (prevents tainting Blizzard
---  frames). Stored on EllesmereUI to avoid the 200-local cap in EllesmereUI.lua.
+--  frames). NewFrameData returns a fresh table and its getter; each file keeps
+--  its own, so two files never share fields on one frame. The core's pair is
+--  stored on EllesmereUI to avoid the 200-local cap in EllesmereUI.lua.
 -------------------------------------------------------------------------------
-EllesmereUI._FFD = EllesmereUI._FFD or setmetatable({}, { __mode = "k" })
-function EllesmereUI._GetFFD(frame)
-    local d = EllesmereUI._FFD[frame]
-    if not d then d = {}; EllesmereUI._FFD[frame] = d end
-    return d
+function EllesmereUI.NewFrameData()
+    local FFD = setmetatable({}, { __mode = "k" })
+    return FFD, function(frame)
+        local d = FFD[frame]
+        if not d then d = {}; FFD[frame] = d end
+        return d
+    end
+end
+if not EllesmereUI._FFD then
+    EllesmereUI._FFD, EllesmereUI._GetFFD = EllesmereUI.NewFrameData()
 end
 
 -- Stock styles, enable-time catch-up seeds: a profile already on a stock

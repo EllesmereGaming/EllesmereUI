@@ -15,10 +15,10 @@ I.broken = true
 local EUI = EllesmereUI
 local ForeverShortName = EUI.ForeverShortName
 
-local DB, GetHeaderH, ICON_ALPHA, MIN_H = I.DB, I.GetHeaderH, I.ICON_ALPHA, I.MIN_H
-local MIN_W, _windows = I.MIN_W, I._windows
+local DB, GetHeaderH, ICON_ALPHA = I.DB, I.GetHeaderH, I.ICON_ALPHA
+local _windows = I._windows
 local ApplyHeaderButtonsHoverVisibility = I.ApplyHeaderButtonsHoverVisibility
-local LayoutHeaderButtons, WinDB, GetAccentRGB = I.LayoutHeaderButtons, I.WinDB, I.GetAccentRGB
+local LayoutHeaderButtons, GetAccentRGB = I.LayoutHeaderButtons, I.GetAccentRGB
 local PhysicalPixels, SetDMFont = I.PhysicalPixels, I.SetDMFont
 
 -- ns exports (loop over all windows)
@@ -246,22 +246,6 @@ ns.ApplyIconBorder = function()
         end
         if w.stickyPlayer and w.stickyPlayer.ApplyIconBorder then
             w.stickyPlayer.ApplyIconBorder()
-        end
-    end
-end
-
-ns.ApplyDMPosition = function()
-    for _, w in ipairs(_windows) do
-        if w.ApplyPosition then w.ApplyPosition() end
-    end
-end
-
-ns.ApplyDMSize = function()
-    for _, w in ipairs(_windows) do
-        local wdb = WinDB(w.idx)
-        if w.frame then
-            if wdb.width then w.frame:SetWidth(math.max(MIN_W, wdb.width)) end
-            if wdb.height then w.frame:SetHeight(math.max(MIN_H, wdb.height)) end
         end
     end
 end

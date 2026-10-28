@@ -18,6 +18,8 @@ local clearButton, fromBags
 local rows = {}
 
 local bagPanel, bagHost, bagEmpty, bagTitle, bagHint
+local FitEmpty
+local bagHostY, bagHintBase
 local bagScroll, bagContent
 local bagRows, bagHeaders = {}, {}
 local bagCache, bagCacheAt
@@ -39,6 +41,8 @@ local function GetRow(index)
 
     row = L.Row(itemContent, 0, L.WidthOf(itemContent), -(index - 1) * ROW_HEIGHT,
         ROW_HEIGHT)
+
+    P.Point(row, "TOPRIGHT", itemContent, "TOPRIGHT", 0, -(index - 1) * ROW_HEIGHT)
     row:SetStripe(index)
 
 
@@ -179,6 +183,18 @@ local function PlayerLabel(fullName)
 end
 
 
+local function StageRequirement()
+    local why = addon.Session:StageRefusal()
+    if why == "mode" then
+        return S.RequiresSentence(T["Requires the group leader to let council members manage the loot queue."])
+    elseif why == "council" then
+        return S.RequiresSentence(T["Requires you to be the Loot Master or on the council."])
+    elseif why then
+        return S.RequiresSentence(T["Requires you to be the Loot Master."])
+    end
+end
+
+
 local function OwnItems()
     if not ownScan then
         ownScan = { items = addon.Storage:GetTradeableItems(), at = GetTime() }
@@ -190,7 +206,7 @@ local function OwnItems()
         if not remaining or remaining > 0 then
             items[#items + 1] = { link = entry.link, secondsLeft = remaining,
                 eligible = entry.eligible, owed = entry.owed, owedTo = entry.owedTo,
-                kept = entry.kept }
+                kept = entry.kept, won = entry.won }
         end
     end
     return items
@@ -216,6 +232,7 @@ function QueueFrame:RefreshBags()
                 available[#available + 1] = {
                     link = entry.link, secondsLeft = remaining, eligible = entry.eligible,
                     owed = entry.owed, owedTo = entry.owedTo, kept = entry.kept,
+                    won = entry.won,
                 }
             end
         end
@@ -252,9 +269,19 @@ function QueueFrame:RefreshBags()
 
 
     local running = addon.Session:IsRunning()
-    bagHint:SetText(not running and T["Click an item to queue it"]
+    local refusal = addon.Session:StageRefusal()
+    bagHint:SetText(not running and (not refusal and T["Click an item to queue it"]
+            or refusal == "council" and T["Only the Loot Master and council can queue"]
+            or T["Only the Loot Master can queue"])
         or mine and T["Click an item to add it to the run"]
         or T["Only the Loot Master can add mid-run"])
+
+
+    local hintHeight = bagHint:GetStringHeight()
+    if type(hintHeight) == "number" and not addon.IsSecret(hintHeight) and hintHeight > 0 then
+        local extra = math.max(0, math.ceil(hintHeight) - bagHintBase)
+        P.Point(bagHost, "TOPLEFT", bagPanel, "TOPLEFT", bagHost.slcX, bagHostY - extra)
+    end
 
 
 
@@ -292,14 +319,17 @@ function QueueFrame:RefreshBags()
 
 
 
-            row.label:SetText((entry.eligible ~= false and not entry.owed)
+            row.label:SetText((entry.eligible ~= false and not entry.owed and not entry.won)
                 and (name or entry.link or "?")
                 or S.Colorize(S.color.textFaint, name or entry.link or "?"))
-            row.note:SetText(not entry.owed and ""
-                or entry.kept and T["awarded to you"]
-                or entry.owedTo and addon.Locale.Format(T["owed to %s"],
-                    Ambiguate(entry.owedTo, "short"))
-                or T["owed"])
+            row.note:SetTextColor(S.Unpack(entry.owed and not entry.kept
+                and S.color.warn or S.color.accentPale))
+            row.note:SetText(entry.kept and T["(Awarded to you)"]
+                or entry.owed and (entry.owedTo and addon.Locale.Format(T["(Owed to %s)"],
+                        Ambiguate(entry.owedTo, "short"))
+                    or T["(Owed)"])
+                or entry.won and T["(Awarded to you)"]
+                or "")
             row.ilvl:SetText(ilvl or "")
 
             local link, owner = entry.link, section.owner
@@ -311,13 +341,7 @@ function QueueFrame:RefreshBags()
                     addon.Chat.Print(addon.Locale.Format(
                         T["added %s to the running run as session %d."], link, index))
                 elseif not index then
-
-
-                    local sentence = why == "active"
-                        and T["could not queue %s - a run is in progress, and only the Loot Master can add to it."]
-                        or why == "queued" and T["could not queue %s - every copy is already queued."]
-                        or T["could not queue %s - it is no longer in the holder's bags with an active trade timer."]
-                    addon.Chat.Print(addon.Locale.Format(sentence, link))
+                    addon.Chat.Print(addon.BagShare.RefusalText(why, link))
                 end
                 QueueFrame:Refresh()
             end)
@@ -334,6 +358,7 @@ function QueueFrame:RefreshBags()
             and T["Nothing in your bags is inside its trade window."]
             or T["Nothing shared yet. The Loot Master's list arrives when they pick something up."])
         bagEmpty:Show()
+        if FitEmpty then FitEmpty() end
     else
         bagEmpty:Hide()
     end
@@ -355,6 +380,13 @@ local function PaintQueue()
     local items = addon.Session:GetItems()
     local running = addon.Session:IsRunning()
     local shown = #items
+
+
+    local host = QueueFrame.host
+    if host and host.SetCount then
+        host.SetCount(addon.Locale.Format(
+            addon.Locale.Plural{ one = "%d ITEM", other = "%d ITEMS" }, shown, shown))
+    end
 
     for i = 1, shown do
         local item = items[i]
@@ -393,9 +425,10 @@ local function PaintQueue()
     emptyText:ClearAllPoints()
 
 
+
     local function PlaceEmpty(y)
         emptyText:SetPoint("TOPLEFT", itemHost, "TOPLEFT", 30, y)
-        emptyText:SetPoint("TOPRIGHT", itemHost, "TOPRIGHT", -10, y)
+        emptyText:SetPoint("TOPRIGHT", itemHost, "TOPRIGHT", 0, y)
     end
 
     if #items == 0 then
@@ -441,9 +474,18 @@ local function PaintQueue()
 
 
     local mine = addon.PlayerIsMasterLooter()
+    local mayStage = addon.Session:MayStage()
+
+    local mayRequest = not mine and mayStage
     local ready = not running and #items > 0 and #names > 0
 
-    startButton:SetLabel(running and T["Run in progress"] or T["Start run"])
+    if running then
+        startButton:SetLabel(T["Run in progress"])
+    elseif mayRequest and addon.Config:CouncilQueueMode() == "request" then
+        startButton:SetLabel(T["Request start"])
+    else
+        startButton:SetLabel(T["Start run"])
+    end
 
 
     local blocked = addon.Restrictions:IsBlocked()
@@ -452,20 +494,25 @@ local function PaintQueue()
         startReason = S.RequiresSentence(T["The current run must finish first."])
     elseif blocked then
         startReason = addon.Restrictions:GetBlockReason() or T["unavailable"]
-    elseif not mine then
-        startReason = S.RequiresSentence(T["Requires you to be the Loot Master."])
+    elseif not mine and not mayRequest then
+        startReason = StageRequirement()
+            or S.RequiresSentence(T["Requires you to be the Loot Master."])
     elseif #items == 0 then
         startReason = S.RequiresSentence(T["Requires at least one item in the queue."])
     elseif #names == 0 then
         startReason = S.RequiresSentence(T["Requires at least one council member who is here."])
     end
     startButton:SetDisabledReason(startReason)
-    startButton:SetEnabled(mine and ready and not blocked)
+    startButton:SetEnabled((mine or mayRequest) and ready and not blocked)
 
     clearButton:SetDisabledReason(running
         and S.RequiresSentence(T["The current run must finish first."])
         or nil)
     clearButton:SetEnabled(not running)
+
+
+    fromBags:SetDisabledReason(not running and StageRequirement() or nil)
+    fromBags:SetEnabled(running or mayStage)
 end
 
 
@@ -481,8 +528,18 @@ end
 function QueueFrame:AddAllFromBags()
     local me = addon.Player:GetFullName("player")
 
+    local refusal = addon.Session:StageRefusal()
+    if refusal then
+        addon.Chat.Print(refusal == "council"
+            and T["nothing added from bags - only the Loot Master and council members can queue items."]
+            or refusal == "mode"
+            and T["nothing added from bags - the group leader has not let council members manage the loot queue."]
+            or T["nothing added from bags - only the Loot Master can queue items."])
+        return 0
+    end
 
-    local picks, skipped = addon.BagShare.FreeToStage(
+
+    local picks, skipped, won = addon.BagShare.FreeToStage(
         addon.Storage:GetTradeableItems(), me)
     local links, bosses, encounterIDs = {}, {}, {}
     for i, entry in ipairs(picks) do
@@ -502,6 +559,12 @@ function QueueFrame:AddAllFromBags()
             one = "skipped %d copy already owed to a winner in Loot to Trade - click it in the bags panel to queue it anyway.",
             other = "skipped %d copies already owed to winners in Loot to Trade - click one in the bags panel to queue it anyway.",
         }, skipped, skipped))
+    end
+    if won > 0 then
+        addon.Chat.Print(addon.Locale.Format(addon.Locale.Plural{
+            one = "skipped %d item awarded to you - click it in the bags panel to queue it anyway.",
+            other = "skipped %d items awarded to you - click one in the bags panel to queue it anyway.",
+        }, won, won))
     end
     QueueFrame:Refresh()
     return added
@@ -534,6 +597,7 @@ local function Opened()
     addon.Storage:ShareLiveScan(function()
         bagCache, bagCacheAt, ownScan = nil, nil, nil
 
+
         if not addon.PlayerIsMasterLooter() or addon.Config:CouncilBagsShared() then
             addon.BagShare:Request()
         end
@@ -546,7 +610,10 @@ end
 
 local function Build(host)
     frame = host.pane
+    QueueFrame.host = host
     local inset = host.railInset
+
+
 
 
     bagPanel = CreateFrame("Frame", nil, frame)
@@ -559,6 +626,7 @@ local function Build(host)
     local bagCursor = L.Cursor(bagPanel, { x = inset, top = inset })
     bagTitle = bagCursor:Add(L.Section, T["Your bags"], { font = S.fontHeading })
 
+
     bagHint = bagCursor:Add(L.Paragraph, T["Click an item to queue it"], S.fontSmall)
     bagCursor:Gap()
 
@@ -567,8 +635,11 @@ local function Build(host)
         L.Above(holder, parent)
         P.Point(holder, "TOPLEFT", parent, "TOPLEFT", x, y)
         P.Point(holder, "BOTTOMRIGHT", parent, "BOTTOMRIGHT", -inset, inset)
+        holder.slcX, bagHostY = x, y
         return holder, 0
     end)
+    bagHintBase = math.ceil(bagHint:GetStringHeight() or 0)
+
 
 
     bagScroll = S.ScrollRegion(bagHost, BAG_ROW_HEIGHT)
@@ -578,14 +649,39 @@ local function Build(host)
     bagEmpty = S.EmptyState(bagHost, T["No tradeable items"],
         T["Nothing in your bags is inside its trade window."],
         host.railWidth - inset * 2)
-    P.Point(bagEmpty, "TOPLEFT", 0, 0)
-    P.Point(bagEmpty, "TOPRIGHT", 0, 0)
+
+
+    P.Point(bagEmpty, "TOPLEFT", bagHost, "TOPLEFT", 0, 0)
+    P.Point(bagEmpty, "BOTTOMRIGHT", bagHost, "BOTTOMRIGHT", 0, 0)
+    FitEmpty = function()
+        local h, w = bagEmpty:GetHeight(), bagEmpty:GetWidth()
+        if type(h) ~= "number" or h <= 0 or type(w) ~= "number" or w <= 0 then return end
+        local body = bagEmpty.Body
+        P.Size(body, math.min(250, w - 44), 0)
+        local text = 18 + 6 + math.ceil(body:GetStringHeight())
+        local withBox = text + 38 + 9
+        local showBox = h >= withBox + 16
+        local total = showBox and withBox or text
+        local top = math.max(0, (h - total) / 2)
+        bagEmpty.Box:SetShown(showBox)
+        bagEmpty.Box:ClearAllPoints()
+        bagEmpty.Title:ClearAllPoints()
+        if showBox then
+            P.Point(bagEmpty.Box, "TOP", bagEmpty, "TOP", 0, -top)
+            P.Point(bagEmpty.Title, "TOP", bagEmpty.Box, "BOTTOM", 0, -9)
+        else
+            P.Point(bagEmpty.Title, "TOP", bagEmpty, "TOP", 0, -top)
+        end
+    end
+    bagEmpty:SetScript("OnSizeChanged", FitEmpty)
+    P.AfterLayout(FitEmpty)
 
 
     local main = CreateFrame("Frame", nil, frame)
     P.Point(main, "TOPLEFT", bagPanel, "TOPRIGHT", host.railGap, 0)
     P.Point(main, "BOTTOMLEFT", bagPanel, "BOTTOMRIGHT", host.railGap, 0)
-    P.Size(main, host.mainWidth, nil)
+    P.Point(main, "TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+    P.Point(main, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
     main.slcWidth = host.mainWidth
 
     local cursor = L.Cursor(main)
@@ -601,7 +697,8 @@ local function Build(host)
     councilText = cursor:Add(StatusLine)
 
     cursor:Gap(S.size.SECTION)
-    cursor:Add(L.Section, T["Queued items"])
+    local queuedHeading = cursor:Add(L.Section, T["Queued items"])
+    queuedHeading:SetPoint("TOPRIGHT", main, "TOPRIGHT", 0, select(5, queuedHeading:GetPoint(1)))
 
     itemHost = cursor:Add(function(parent, x, width, y)
         local holder = CreateFrame("Frame", nil, parent)
@@ -634,13 +731,31 @@ local function Build(host)
     startButton = S.Button(host.footer, T["Start run"], {
         width = 150, primary = true, labelPad = S.size.BTN_PAD_FOOTER,
     })
-    host.AddButton(startButton, true)
+    host.AddButton(startButton, true, true)
 
     startButton:SetScript("OnClick", function()
-        if not addon.PlayerIsMasterLooter() then return end
-        if addon.Session:Start() then
-            QueueFrame:Refresh()
+        if addon.PlayerIsMasterLooter() then
+            if addon.Session:Start() then
+                QueueFrame:Refresh()
+            end
+            return
         end
+
+
+
+        if not addon.Session:MayStage() then return end
+        local proposal = {}
+        for _, item in ipairs(addon.Session:GetItems()) do
+            if item.link and not item.simulated then
+                proposal[#proposal + 1] = { l = item.link, o = item.owner, b = item.boss,
+                    e = item.encounterID }
+            end
+        end
+        addon.Comms:Send("start_request", { items = proposal })
+        addon.Chat.Print(addon.Locale.Format(addon.Locale.Plural{
+            one = "asking the Loot Master to start the run with %d proposed item...",
+            other = "asking the Loot Master to start the run with %d proposed items...",
+        }, #proposal, #proposal))
     end)
 
 
@@ -661,6 +776,7 @@ local function Build(host)
     end)
 
     local function Visible() return frame:IsVisible() end
+
     QueueFrame.view = addon.Callbacks:RegisterView("queue", {
         shown = Visible,
         paint = PaintQueue,
@@ -728,10 +844,14 @@ function QueueFrame:Init()
 
     local function HoldersChanged()
         HeaderChanged()
+
+        addon.Callbacks:Invalidate("queueBags")
         if frame and frame:IsVisible() then addon.BagShare:AskMissing() end
     end
     addon.Callbacks:Register("CouncilChanged", HoldersChanged)
     addon.Callbacks:Register("LootMasterChanged", HoldersChanged)
+
+    addon.Callbacks:Register("SharedConfigChanged", HoldersChanged)
     addon.Callbacks:Register("RosterChanged", HeaderChanged)
     addon.Restrictions:OnChange(HeaderChanged)
 
@@ -745,6 +865,8 @@ function QueueFrame:Toggle()
         return
     end
     if not council:ShowQueue() then
-        addon.Chat.Print(T["only the Loot Master can use the loot queue."])
+        addon.Chat.Print(addon.Session:StageRefusal() == "council"
+            and T["only the Loot Master and council members can use the loot queue."]
+            or T["only the Loot Master can use the loot queue."])
     end
 end

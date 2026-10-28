@@ -1319,7 +1319,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
         -- glyph-restricted branch above skips it (its "System Default" entry
         -- already is the client's own font).
         fontDropValues[EllesmereUI.BLIZZARD_FONT_KEY] = { text = "Blizzard Default",
-            font = _G.STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF" }
+            font = EllesmereUI.GetBlizzardFontPath() }
         fontDropOrder[#fontDropOrder + 1] = EllesmereUI.BLIZZARD_FONT_KEY
         fontDropOrder[#fontDropOrder + 1] = "---"
         local FONT_DIR_GLOBAL = EllesmereUI.MEDIA_PATH .. "fonts\\"

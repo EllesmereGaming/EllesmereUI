@@ -289,25 +289,53 @@ local REACH = 96   -- past each bar edge, for border art
 -- stretched this far fades over its outer 32px, so border art up to 64px past
 -- the bar draws at full strength.
 local SPAN = 512
-local kits = {}    -- plate -> { gate, hider, sensors, used, unit, open }
-local engagers     -- you, your group and the pets out; nil after a roster or pet change
+local kits = {}    -- plate -> { gate, hider, host, sensors, looks, used, unit, open }
+local engagers = {}        -- you, your group and the pets out
+local engagersStale = true -- a roster or pet change: the next read rebuilds the list
+local groupTokens          -- the raid and party tokens and their pets', built once
+local resync               -- the roster re-check's one-shot frame (RequestResync)
+
+local function GroupTokens()
+    if not groupTokens then
+        groupTokens = { raid = {}, raidpet = {}, party = {}, partypet = {} }
+        for i = 1, 40 do
+            groupTokens.raid[i], groupTokens.raidpet[i] = "raid" .. i, "raidpet" .. i
+        end
+        for i = 1, 4 do
+            groupTokens.party[i], groupTokens.partypet[i] = "party" .. i, "partypet" .. i
+        end
+    end
+    return groupTokens
+end
 
 -- Whether an engager is on the mob's threat list (a mob fighting only
 -- strangers is not). Only the type tag is read: the value can be secret.
 local function Engaged(unit)
-    if not engagers then
-        engagers = { "player", UnitExists("pet") and "pet" or nil }
-        local prefix = IsInRaid() and "raid" or "party"
-        for i = 1, GetNumGroupMembers() - (prefix == "raid" and 0 or 1) do
-            local who, pet = prefix .. i, prefix .. "pet" .. i
-            if not UnitIsUnit(who, "player") then
-                engagers[#engagers + 1] = who
-                if UnitExists(pet) then engagers[#engagers + 1] = pet end
+    if engagersStale then
+        engagersStale = false
+        local n = 1
+        engagers[1] = "player"
+        if UnitExists("pet") then
+            n = 2
+            engagers[2] = "pet"
+        end
+        local tokens, raid = GroupTokens(), IsInRaid()
+        local who = raid and tokens.raid or tokens.party
+        local pets = raid and tokens.raidpet or tokens.partypet
+        for i = 1, math.min(GetNumGroupMembers() - (raid and 0 or 1), #who) do
+            if not UnitIsUnit(who[i], "player") then
+                n = n + 1
+                engagers[n] = who[i]
+                if UnitExists(pets[i]) then
+                    n = n + 1
+                    engagers[n] = pets[i]
+                end
             end
         end
+        for i = #engagers, n + 1, -1 do engagers[i] = nil end
     end
-    for _, who in ipairs(engagers) do
-        if type(UnitThreatSituation(who, unit)) ~= "nil" then return true end
+    for i = 1, #engagers do
+        if type(UnitThreatSituation(engagers[i], unit)) ~= "nil" then return true end
     end
     return false
 end
@@ -321,11 +349,33 @@ local function SyncGate(kit)
     end
 end
 
+local function RunResync(self)
+    self:Hide()
+    self:SetScript("OnUpdate", nil)
+    for _, kit in pairs(kits) do
+        if kit.unit then SyncGate(kit) end
+    end
+end
+
+-- Roster and pet changes come in bursts: the engager list goes stale at once
+-- (a gate event in between reads it fresh), and the bound plates are checked
+-- again once, on the next frame.
+local function RequestResync()
+    engagersStale = true
+    if not resync then
+        resync = CreateFrame("Frame")
+        resync:Hide()
+    end
+    resync:SetScript("OnUpdate", RunResync)
+    resync:Show()
+end
+
 local function Kit(plate)
     local kit = kits[plate]
     if kit then return kit end
     -- Only aspect-bearing objects may anchor to a container that holds a group,
-    -- and the aspect is inherited at creation: the masks are born in the gate.
+    -- and the aspect is inherited at creation: the masks are born in the gate,
+    -- and so is the host the Missing rows draw on (DressLook).
     local gate = CreateFrame("Frame", nil, plate.health, "DisableUntrustedLayoutScriptsTemplate")
     gate:SetAllPoints(plate.health)
     gate:Hide()
@@ -333,7 +383,9 @@ local function Kit(plate)
     hider:SetAllPoints(plate.health)
     hider:SetAlpha(0)
     hider:Hide()
-    kit = { gate = gate, hider = hider, sensors = {}, used = 0 }
+    local host = CreateFrame("Frame", nil, gate)
+    host:SetAllPoints(gate)
+    kit = { gate = gate, hider = hider, host = host, sensors = {}, looks = {}, used = 0 }
     gate:SetScript("OnEvent", function() SyncGate(kit) end)
     kits[plate] = kit
     return kit
@@ -404,10 +456,7 @@ local function ReleaseBundle(b)
         container:SetEnabled(false)
         EllesmereUI.AuraKit.ReleaseContainer(container)
     end
-    if b.kit then
-        b.host:Hide()
-        ParkKit(b.kit)
-    end
+    if b.kit then ParkKit(b.kit) end
 end
 
 -- Containers are born enabled on unit "none" and stay enabled: the holder's
@@ -435,9 +484,16 @@ local function CreateTintContainer(b, parent)
     return c
 end
 
--- sensor: a missing debuff's; its tint draws on OVERLAY through the sensor's
--- mask, on the bar's level (one higher draws over the border).
-local function MakeTintInit(b, color, sublevel, sensor)
+-- The health fill's tint: the bar's own texture in the color, over the fill.
+local function PaintTint(tint, b, color)
+    tint:SetTexture(b.config.texture)
+    tint:SetVertexColor(color.r, color.g, color.b, 1)
+    tint:ClearAllPoints()
+    tint:SetPoint("TOPLEFT", b.fill, "TOPLEFT", 0, 0)
+    tint:SetPoint("BOTTOMRIGHT", b.fill, "BOTTOMRIGHT", 0, 0)
+end
+
+local function MakeTintInit(b, color, sublevel)
     local initialized = setmetatable({}, { __mode = "k" })
     return function(button)
         if initialized[button] then return end
@@ -446,34 +502,115 @@ local function MakeTintInit(b, color, sublevel, sensor)
         -- regions may become forbidden; never read or repaint them on rebind.
         button:SetFrameLevel(b.level)
         button:EnableMouse(false)
-        local tint = button:CreateTexture(nil, sensor and "OVERLAY" or "ARTWORK", nil, sublevel)
-        tint:SetTexture(b.config.texture)
-        tint:SetVertexColor(color.r, color.g, color.b, 1)
-        tint:SetPoint("TOPLEFT", b.fill, "TOPLEFT", 0, 0)
-        tint:SetPoint("BOTTOMRIGHT", b.fill, "BOTTOMRIGHT", 0, 0)
+        local tint = button:CreateTexture(nil, "ARTWORK", nil, sublevel)
+        PaintTint(tint, b, color)
         if b.mask then tint:AddMaskTexture(b.mask) end
-        if sensor then tint:AddMaskTexture(sensor.mask) end
     end
 end
 
--- Color Border init: the plate's border drawn again in the debuff color, just
--- above it (b.config.border, see BorderSpec), so the border reads as recolored
--- while the slot shows. Strips keep whole physical pixels in scale-1 space as
--- the plate scales, like the border's own (the PP scale guard); slices sit on
--- the textured border's own geometry. Built in the creation window only.
+-- Color Border: the plate's border drawn again in the debuff color, just above
+-- it (b.config.border, see BorderSpec), so the border reads as recolored while
+-- its slot shows. Strips keep whole physical pixels in scale-1 space as the
+-- plate scales, like the border's own (the PP scale guard); slices sit on the
+-- textured border's own geometry.
 -- The copies rank like the tints (a combo over the top single over the rest)
 -- without moving past anything else. On a custom border's MEDIUM strata a copy
 -- stays one level above the border and its sublevel ranks it (the frames that
 -- share that level draw ARTWORK). A Basic copy shares the flattened plate with
 -- the border's OVERLAY 7 strips, under which a lower sublevel sinks, so it keeps
 -- OVERLAY 7 and ranks by frame level (no other plate frame uses those levels).
--- sensor: a missing debuff's; its copy ranks over all of those, through a copy of
--- the sensor's mask on its own frame (it may draw on another strata).
-local function MakeBorderInit(b, color, sublevel, sensor)
+
+-- A copy's frame level: rank levels over the plate border it recolors (a custom
+-- border's frame level as ns.ApplyCustomBorderStyle sets it; Basic counts from
+-- the bar).
+local function CopyLevel(b, spec, rank)
+    local base = b.level
+    if spec.behind ~= nil then
+        base = spec.behind and math.max(1, b.level - 1) or (b.level + 1)
+    end
+    return base + spec.up + rank
+end
+
+-- A copy's frame and pieces, not yet colored or placed: four strips, or one
+-- texture per edge-art slice (the shared cut table's keys). sensorMask: a
+-- Missing row's; the pieces draw through a copy of it on their own frame (it
+-- may draw on another strata).
+local function NewBorderCopy(parent, spec, sensorMask)
+    local f = CreateFrame("Frame", nil, parent)
+    f:EnableMouse(false)
+    if spec.strata then f:SetFrameStrata(spec.strata) end
+    local mask
+    if sensorMask then
+        mask = f:CreateMaskTexture()
+        mask:SetTexture(WHITE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        mask:SetAllPoints(sensorMask)
+    end
+    local pieces = {}
+    if spec.kind == "strips" then
+        f:SetIgnoreParentScale(true)
+        f:SetScale(1)
+        for i = 1, 4 do
+            local tx = f:CreateTexture(nil, "OVERLAY")
+            if tx.SetSnapToPixelGrid then
+                tx:SetSnapToPixelGrid(false)
+                tx:SetTexelSnappingBias(0)
+            end
+            pieces[i] = tx
+        end
+    else
+        for key, coords in pairs(EllesmereUI.SECRET_BORDER_UV) do
+            local tx = f:CreateTexture(nil, "OVERLAY")
+            tx:SetTexCoord(unpack(coords))
+            pieces[key] = tx
+        end
+    end
+    if mask then
+        for _, tx in pairs(pieces) do tx:AddMaskTexture(mask) end
+    end
+    return f, pieces
+end
+
+local function LayStrip(tx, f, p1, y1, p2, y2, width, height)
+    tx:SetPoint(p1, f, p1, 0, y1)
+    tx:SetPoint(p2, f, p2, 0, y2)
+    if width then tx:SetWidth(width) else tx:SetHeight(height) end
+end
+
+-- Colors a copy and lays it over owner (the bar's rect), on OVERLAY sublevel.
+local function DressBorderCopy(f, pieces, spec, owner, color, sublevel)
+    f:ClearAllPoints()
+    f:SetAllPoints(owner)
+    for _, tx in pairs(pieces) do
+        tx:SetDrawLayer("OVERLAY", sublevel)
+        tx:ClearAllPoints()
+    end
+    if spec.kind == "strips" then
+        local ok, es = pcall(f.GetEffectiveScale, f)
+        if not (ok and es and es > 0) then es = 1 end
+        local one = EllesmereUI.PP.perfect / es
+        local t = math.max(one, math.floor(spec.px + 0.5) * one)
+        for _, tx in ipairs(pieces) do tx:SetColorTexture(color.r, color.g, color.b, 1) end
+        LayStrip(pieces[1], f, "TOPLEFT", 0, "TOPRIGHT", 0, nil, t)
+        LayStrip(pieces[2], f, "BOTTOMLEFT", 0, "BOTTOMRIGHT", 0, nil, t)
+        LayStrip(pieces[3], f, "TOPLEFT", -t, "BOTTOMLEFT", t, t)
+        LayStrip(pieces[4], f, "TOPRIGHT", -t, "BOTTOMRIGHT", t, t)
+    else
+        for _, tx in pairs(pieces) do
+            tx:SetTexture(spec.path, true, true)
+            tx:SetVertexColor(color.r, color.g, color.b, 1)
+        end
+        local edge, aL, aT, aR, aB = EllesmereUI.SecretBorderGeometry(f, spec.size, spec.tex,
+            spec.offX, spec.offY, spec.shX, spec.shY, "nameplates", spec.size, nil, spec.px)
+        EllesmereUI.LayoutSecretBorderEdges(pieces, f, edge, aL, aT, aR, aB)
+    end
+end
+
+-- A slot's copy, built in the creation window only.
+local function MakeBorderInit(b, color, sublevel)
     local initialized = setmetatable({}, { __mode = "k" })
     local rank = 0
     if not b.config.border.strata then
-        rank = (sensor and 2) or (sublevel == 7 and 2) or (sublevel == 5 and 1) or 0
+        rank = (sublevel == 7 and 2) or (sublevel == 5 and 1) or 0
         sublevel = 7
     end
     return function(button)
@@ -482,69 +619,64 @@ local function MakeBorderInit(b, color, sublevel, sensor)
         button:SetFrameLevel(b.level)
         button:EnableMouse(false)
         local spec = b.config.border
-        local f = CreateFrame("Frame", nil, button)
-        f:EnableMouse(false)
-        if spec.strata then f:SetFrameStrata(spec.strata) end
-        -- A custom border's frame level as ns.ApplyCustomBorderStyle sets it;
-        -- Basic counts from the bar.
-        local base = b.level
-        if spec.behind ~= nil then
-            base = spec.behind and math.max(1, b.level - 1) or (b.level + 1)
-        end
-        f:SetFrameLevel(base + spec.up + rank + (sensor and sensor.n or 0))
-        local mask = sensor and f:CreateMaskTexture()
-        if mask then
-            mask:SetTexture(WHITE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-            mask:SetAllPoints(sensor.mask)
-        end
-        if spec.kind == "strips" then
-            f:SetIgnoreParentScale(true)
-            f:SetScale(1)
-            f:SetAllPoints(b.holder)
-            local ok, es = pcall(f.GetEffectiveScale, f)
-            if not (ok and es and es > 0) then es = 1 end
-            local one = EllesmereUI.PP.perfect / es
-            local t = math.max(one, math.floor(spec.px + 0.5) * one)
-            local function Strip(p1, y1, p2, y2, width, height)
-                local tx = f:CreateTexture(nil, "OVERLAY", nil, sublevel)
-                tx:SetColorTexture(color.r, color.g, color.b, 1)
-                if tx.SetSnapToPixelGrid then
-                    tx:SetSnapToPixelGrid(false)
-                    tx:SetTexelSnappingBias(0)
-                end
-                tx:SetPoint(p1, f, p1, 0, y1)
-                tx:SetPoint(p2, f, p2, 0, y2)
-                if width then tx:SetWidth(width) else tx:SetHeight(height) end
-                if mask then tx:AddMaskTexture(mask) end
-            end
-            Strip("TOPLEFT", 0, "TOPRIGHT", 0, nil, t)
-            Strip("BOTTOMLEFT", 0, "BOTTOMRIGHT", 0, nil, t)
-            Strip("TOPLEFT", -t, "BOTTOMLEFT", t, t)
-            Strip("TOPRIGHT", -t, "BOTTOMRIGHT", t, t)
-        else
-            f:SetAllPoints(b.holder)
-            -- One texture per edge-art slice (the shared cut table's keys).
-            local edges = {}
-            for key, coords in pairs(EllesmereUI.SECRET_BORDER_UV) do
-                local tx = f:CreateTexture(nil, "OVERLAY", nil, sublevel)
-                tx:SetTexture(spec.path, true, true)
-                tx:SetTexCoord(unpack(coords))
-                tx:SetVertexColor(color.r, color.g, color.b, 1)
-                if mask then tx:AddMaskTexture(mask) end
-                edges[key] = tx
-            end
-            local edge, aL, aT, aR, aB = EllesmereUI.SecretBorderGeometry(f, spec.size, spec.tex,
-                spec.offX, spec.offY, spec.shX, spec.shY, "nameplates", spec.size, nil, spec.px)
-            EllesmereUI.LayoutSecretBorderEdges(edges, f, edge, aL, aT, aR, aB)
-        end
+        local f, pieces = NewBorderCopy(button, spec)
+        f:SetFrameLevel(CopyLevel(b, spec, rank))
+        DressBorderCopy(f, pieces, spec, b.holder, color, sublevel)
     end
 end
 
 -- What a slot shows while its debuffs are up: the health fill's tint (Color
 -- Nameplate) or the border in the color (Color Border).
-local function ColorInit(b, color, sublevel, sensor)
-    if b.config.border then return MakeBorderInit(b, color, sublevel, sensor) end
-    return MakeTintInit(b, color, sublevel, sensor)
+local function ColorInit(b, color, sublevel)
+    if b.config.border then return MakeBorderInit(b, color, sublevel) end
+    return MakeTintInit(b, color, sublevel)
+end
+
+-- Missing row n draws on the kit's host through sensor n's mask: a tint on
+-- OVERLAY at the bar's level (one higher draws over the border), or a copy
+-- ranked over every other copy by n. These frames are ours, unlike the slots'
+-- engine buttons, so each is built once (a copy once per border style) and
+-- dressed again on every rebuild.
+local function DressLook(b, sensor, color, sublevel)
+    local kit, n = b.kit, sensor.n
+    local look = kit.looks[n]
+    if not look then
+        look = { copies = {} }
+        kit.looks[n] = look
+    end
+    local spec = b.config.border
+    if not spec then
+        local tint = look.tint
+        if not tint then
+            tint = kit.host:CreateTexture(nil, "OVERLAY")
+            if b.mask then tint:AddMaskTexture(b.mask) end
+            tint:AddMaskTexture(sensor.mask)
+            look.tint = tint
+        end
+        tint:SetDrawLayer("OVERLAY", sublevel)
+        PaintTint(tint, b, color)
+        tint:Show()
+        return
+    end
+    local rank = 0
+    if not spec.strata then rank, sublevel = 2, 7 end
+    local style = spec.kind .. (spec.strata or "")
+    local copy = look.copies[style]
+    if not copy then
+        local f, pieces = NewBorderCopy(kit.host, spec, sensor.mask)
+        copy = { frame = f, pieces = pieces }
+        look.copies[style] = copy
+    end
+    copy.frame:SetFrameLevel(CopyLevel(b, spec, rank) + n)
+    DressBorderCopy(copy.frame, copy.pieces, spec, kit.host, color, sublevel)
+    copy.frame:Show()
+end
+
+local function HideLooks(kit)
+    for _, look in ipairs(kit.looks) do
+        if look.tint then look.tint:Hide() end
+        for _, copy in pairs(look.copies) do copy.frame:Hide() end
+    end
 end
 
 local function AddTintSlot(b, container, key, spell, initialize)
@@ -611,21 +743,22 @@ local function CreateBundle(plate)
     b.holder:EnableMouse(false)
     b.holder:Hide()
     local root = CreateTintContainer(b, b.holder)
-    if b.kit then
-        b.kit.used = 0
-        b.host = CreateFrame("Frame", nil, b.kit.gate)
-        b.host:SetAllPoints(b.kit.gate)
+    local kit = b.kit
+    if kit then
+        kit.used = 0
+        kit.host:SetFrameLevel(b.level)
+        HideLooks(kit)
     end
     for i, single in ipairs(config.singles) do
         if single.missing then
-            b.kit.used = b.kit.used + 1
-            ColorInit(b, single.color, single.sublevel, PointSensor(b.kit, b.kit.used, single.spell))(b.host)
+            kit.used = kit.used + 1
+            DressLook(b, PointSensor(kit, kit.used, single.spell), single.color, single.sublevel)
         else
             AddTintSlot(b, root, "EUI_DEBUFF_COLOR_" .. i, single.spell,
                 ColorInit(b, single.color, single.sublevel))
         end
     end
-    if b.kit then ParkSensors(b.kit) end
+    if kit then ParkSensors(kit) end
     for i, run in ipairs(config.comboRuns) do
         AddComboRun(b, root, "EUI_DEBUFF_COMBO_" .. i, run)
     end
@@ -669,10 +802,7 @@ local function EnsureWorker()
             and not (unit or ""):find("^party%d") and not (unit or ""):find("^raid%d") then
             return
         elseif event == "GROUP_ROSTER_UPDATE" or event == "UNIT_PET" then
-            engagers = nil
-            for _, kit in pairs(kits) do
-                if kit.unit then SyncGate(kit) end
-            end
+            RequestResync()
             return
         end
         self:UnregisterEvent("PLAYER_REGEN_ENABLED")
@@ -723,13 +853,18 @@ function ns.DebuffColors_Refresh()
     local border = config and config.any and config.border
     EllesmereUI.RegisterPxReapply(DC, (border and border.kind == "slices")
         and ns.DebuffColors_RequestRefresh or nil)
-    engagers = nil
+    engagersStale = true
+    local watchRoster = config and config.any and config.anyMissing
     for _, event in ipairs({ "GROUP_ROSTER_UPDATE", "UNIT_PET" }) do
-        if config and config.any and config.anyMissing then
+        if watchRoster then
             EnsureWorker():RegisterEvent(event)
         elseif worker then
             worker:UnregisterEvent(event)
         end
+    end
+    if not watchRoster and resync then
+        resync:SetScript("OnUpdate", nil)
+        resync:Hide()
     end
     if border and border.kind == "strips" then
         EnsureWorker():RegisterEvent("DISPLAY_SIZE_CHANGED")

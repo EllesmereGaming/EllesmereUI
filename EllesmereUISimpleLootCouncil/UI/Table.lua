@@ -192,11 +192,11 @@ function Table.Create(parent, columns, visibleRows, rowHeight, headerFont)
 
     local rule = t:CreateTexture(nil, "ARTWORK")
     rule:SetColorTexture(S.Unpack(S.color.border))
-    P.Crisp(rule)
+    P.Edge(rule)
     rule:SetPoint("TOPLEFT", header, "BOTTOMLEFT")
     rule:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT")
 
-    local function ruleThickness() rule:SetHeight(P.Hairline()) end
+    local function ruleThickness() rule:SetHeight(P.Hairline(rule)) end
     ruleThickness()
     P.OnRescale(ruleThickness)
     P.OnRescale(function() t.anchorGen = t.anchorGen + 1 end)

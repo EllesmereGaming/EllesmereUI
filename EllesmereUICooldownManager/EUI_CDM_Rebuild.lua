@@ -349,7 +349,7 @@ end
 ns.ApplyBarOpacity = ApplyBarOpacity
 
 -- Helper to get barData by key
-function GetBarData(barKey)
+local function GetBarData(barKey)
     return barDataByKey[barKey]
 end
 ns.GetBarData = GetBarData

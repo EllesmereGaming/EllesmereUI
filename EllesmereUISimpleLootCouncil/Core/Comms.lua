@@ -406,6 +406,7 @@ local function GroupChannel()
     return nil
 end
 
+
 function Comms.InHomeGroup()
     if not IsInGroup(LE_PARTY_CATEGORY_HOME) then return false end
     if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then return false end
@@ -642,11 +643,13 @@ function Comms:Measure(command, args)
     return #escaped, #Split(escaped)
 end
 
+
 local function QueueChunks(lane, msg, front, pieces)
     pieces = pieces or Split(msg.escaped)
     local total = #pieces
     nextMessageId = nextMessageId % MAX_MESSAGE_ID + 1
     local id = nextMessageId
+
     local head, totalByte = "C" .. char(id + 1), char(total + 1)
     local queue, now = lane.queue, GetTime()
     for seq = 1, total do
@@ -659,6 +662,8 @@ local function QueueChunks(lane, msg, front, pieces)
     end
     Stats.Queued(QueueDepth(), lane.name, #queue)
 end
+
+
 
 local function RestartPartial(lane)
     local queue = lane.queue
@@ -699,6 +704,7 @@ local function SendFramed(lane, command, escaped, channel, target)
     Pump()
     return true
 end
+
 
 
 
@@ -768,9 +774,10 @@ local RESUME_DELAY = 1
 
 
 
-local OUTBOX = { delivered = true, undelivered = true }
+local OUTBOX = { delivered = true, undelivered = true, owed_again = true }
 local OUTBOX_MAX, OUTBOX_MAX_AGE, RUN_MASTERS_MAX = 40, 3 * 24 * 60 * 60, 8
 local outbox = { pending = false }
+
 
 local function OutboxStore()
     local db = addon.db
@@ -784,6 +791,7 @@ local function OutboxStore()
     if type(store.queue) ~= "table" then store.queue = {} end
     return store
 end
+
 
 local function NoteRunMaster(runId, sender)
     if #runId > 64 or type(sender) ~= "string" or sender == "" then return end
@@ -804,6 +812,7 @@ local function NoteRunMaster(runId, sender)
     end
     if count > RUN_MASTERS_MAX and oldest then masters[oldest] = nil end
 end
+
 
 local function Postpone(command, args)
     if type(args) ~= "table" or type(args.i) ~= "string" then return false end
@@ -1035,6 +1044,7 @@ function Comms:Register(command, authority, handler)
     handlers[command] = { authority = authority, handler = handler }
 end
 
+
 local function IsAuthorised(authority, sender, args)
     if authority == "any" then return true end
     if authority == "ml" then
@@ -1050,10 +1060,10 @@ local function IsAuthorised(authority, sender, args)
     return false
 end
 
-
-
 local REFUSED_HELD_MAX, REFUSED_HELD_TTL = 16, 30
 local refusedHeld = { list = {}, pending = false }
+
+
 
 local function HoldRefused(command, args, sender, authority)
     if authority ~= "ml" and type(authority) ~= "function" then return end
@@ -1064,6 +1074,8 @@ local function HoldRefused(command, args, sender, authority)
     if #list >= REFUSED_HELD_MAX then table.remove(list, 1) end
     list[#list + 1] = { c = command, a = args, s = sender, at = GetTime() }
 end
+
+
 
 local function ApplyOne(command, args, sender)
     local entry = handlers[command]
@@ -1113,6 +1125,7 @@ local function Apply(command, args, sender)
     ApplyOne(command, args, sender)
     addon.Log:Release()
 end
+
 
 local function ReplayRefused()
     refusedHeld.pending = false
@@ -1203,9 +1216,11 @@ end
 
 local blockedSince
 
+
 local function Expired(buffer, now)
     return now - buffer.at > INCOMPLETE_TTL and not addon.Restrictions:IsBlocked()
 end
+
 
 local function ResumePartials(now)
     local since = blockedSince
@@ -1355,6 +1370,7 @@ end
 
 
 
+
 local function FlushOutbox()
     outbox.pending = false
     local store = OutboxStore()
@@ -1376,6 +1392,7 @@ local function FlushOutbox()
     addon.Log:I("Comms", "sending", #due, "kept hand-over report(s)")
     for _, entry in ipairs(due) do Comms:Send(entry.c, entry.a, nil, true) end
 end
+
 
 local function ScheduleOutbox(delay)
     if outbox.pending then return end

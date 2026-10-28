@@ -3,6 +3,7 @@ if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLo
 
 
 
+
 SimpleLootCouncil = SimpleLootCouncil or {}
 local addon = SimpleLootCouncil
 local T = addon.Locale.Text
@@ -356,7 +357,7 @@ end
 local function EstimateBytes(candidate)
     if type(candidate) ~= "table" then return 0 end
     local n = 40
-    for _, field in ipairs({ "response", "note", "gear1", "gear2" }) do
+    for _, field in ipairs({ "response" }) do
         local text = Str(candidate[field])
         if text then n = n + #text end
     end

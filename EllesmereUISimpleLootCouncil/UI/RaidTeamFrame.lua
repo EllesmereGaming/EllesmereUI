@@ -125,6 +125,7 @@ end
 
 
 
+
 local function SeasonCutoff()
     if not filter.seasonOnly then return nil end
     return addon.RaidTeam:GetSeasonStart()
@@ -181,29 +182,29 @@ local function Flatten(reuse)
                 end
 
 
-                if #loot > 0 then
-                    local count, latest, reasons = 0, 0, 0
-                    for _, entry in ipairs(loot) do
+                local count, latest, reasons = 0, 0, 0
+                for _, entry in ipairs(loot) do
 
-                        if addon.History.IsReasonAward(entry) then
-                            reasons = reasons + 1
-                        else
-                            count = count + 1
+                    if addon.History.IsReasonAward(entry) then
+                        reasons = reasons + 1
+                    else
+                        count = count + 1
 
 
-                            if latest == 0 then latest = entry.epoch or 0 end
-                        end
+                        if latest == 0 then latest = entry.epoch or 0 end
                     end
-
-                    prepared[#prepared + 1] = {
-                        kind = "player",
-                        member = member,
-                        loot = loot,
-                        count = count,
-                        reasons = reasons,
-                        latest = latest,
-                    }
                 end
+
+
+
+                prepared[#prepared + 1] = {
+                    kind = "player",
+                    member = member,
+                    loot = loot,
+                    count = count,
+                    reasons = reasons,
+                    latest = latest,
+                }
             end
         end
     end
@@ -245,8 +246,14 @@ local function Flatten(reuse)
         rows[#rows + 1] = record
 
         if expanded[member.fullName] then
-            for _, entry in ipairs(record.loot) do
-                rows[#rows + 1] = { kind = "item", member = member, entry = entry }
+
+
+            if #record.loot == 0 then
+                rows[#rows + 1] = { kind = "empty", member = member }
+            else
+                for _, entry in ipairs(record.loot) do
+                    rows[#rows + 1] = { kind = "item", member = member, entry = entry }
+                end
             end
         end
     end
@@ -372,6 +379,14 @@ local function BuildColumns()
 
                     cell.Text:SetText(itemName)
                     cell.Text:SetTextColor(S.Unpack(S.color.text))
+                    cell.Text:SetAlpha(1)
+                else
+                    cell.Text:SetPoint("LEFT", 40, 0)
+                    cell.Chevron:Hide()
+                    cell.Marker:Hide()
+                    cell.Icon:Hide()
+                    cell.Text:SetText(S.Colorize(S.color.textFaint, T["no loot recorded"]))
+                    cell.Text:SetTextColor(S.Unpack(S.color.textFaint))
                     cell.Text:SetAlpha(1)
                 end
             end,

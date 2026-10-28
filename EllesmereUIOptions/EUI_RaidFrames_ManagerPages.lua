@@ -29,7 +29,7 @@ local POS_ORDER = EllesmereUI.POSITION_GRID_ORDER
 local GROW_VALUES = EllesmereUI.GROW_DIR_VALUES_FULL
 local GROW_ORDER = EllesmereUI.GROW_DIR_ORDER_FULL
 
-local CAT_VALUES = { boss = "Boss", role = "Role", priority = "Important",
+local CAT_VALUES = { boss = "Boss", role = "Boss Role", priority = "Important",
     cc = "Crowd Control", raid = "Raid", raidcombat = "Raid In Combat", dispel = "Dispellable",
     nonplayer = "Non-Player" }
 local CAT_ORDER = { "nonplayer", "priority", "boss", "role", "cc", "raid", "raidcombat", "dispel" }
@@ -262,8 +262,8 @@ local TILE_FILTER_ITEMS = {
       tooltip = "Loss-of-control debuffs." },
     { key = "boss", label = "Boss Debuffs",
       tooltip = "Debuffs applied by boss encounters." },
-    { key = "role", label = "Role Debuffs",
-      tooltip = "Debuffs flagged as relevant to your role." },
+    { key = "role", label = "Boss Role Debuffs",
+      tooltip = "Debuffs from enemies that Blizzard labels as relevant to your role." },
     { key = "raid", label = "Raid",
       tooltip = "Blizzard's curated raid-frame debuff set." },
     { key = "raidcombat", label = "Raid In Combat",
@@ -331,8 +331,8 @@ local TILE_LANE_ITEMS = {
       tooltip = "Loss-of-control debuffs." },
     { key = "boss", label = "Boss Debuffs", dual = true,
       tooltip = "Debuffs applied by boss encounters." },
-    { key = "role", label = "Role Debuffs", dual = true,
-      tooltip = "Debuffs flagged as relevant to your role." },
+    { key = "role", label = "Boss Role Debuffs", dual = true,
+      tooltip = "Debuffs from enemies that Blizzard labels as relevant to your role." },
     { key = "raid", label = "Raid", dual = true,
       tooltip = "Blizzard's curated raid-frame debuff set." },
     { key = "raidcombat", label = "Raid In Combat", dual = true,
@@ -736,8 +736,8 @@ local function BuildBaseDetailDM(frame, fontPath)
               tooltip = "Loss-of-control debuffs. When shown, these lead the row and carry the CC glow." },
             { key = "boss", label = "Boss Debuffs", dual = true, showLockedFn = AllOn,
               tooltip = "Debuffs applied by boss encounters." },
-            { key = "role", label = "Role Debuffs", dual = true, showLockedFn = AllOn,
-              tooltip = "Debuffs flagged as relevant to your role." },
+            { key = "role", label = "Boss Role Debuffs", dual = true, showLockedFn = AllOn,
+              tooltip = "Debuffs from enemies that Blizzard labels as relevant to your role." },
             { key = "raid", label = "Raid", dual = true, showLockedFn = AllOn,
               tooltip = "Blizzard's curated raid-frame debuff set." },
             { key = "raidcombat", label = "Raid In Combat", dual = true, showLockedFn = AllOn,

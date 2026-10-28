@@ -1558,7 +1558,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                         pastePage:Hide()
                         EllesmereUI:ShowConfirmPopup({
                             title = EllesmereUI.L("Import Full Account Data"),
-                            message = EllesmereUI.L("This string is a FULL ACCOUNT export. It replaces your account-wide settings with the sender's, including Quality of Life, HoverCast bindings, Cooldown Manager spell setups, unlock anchors, UI scale, and profile keybinds -- not just a profile. Your other profiles are kept, but a profile with the same name is replaced.")
+                            message = EllesmereUI.L("This string is a FULL ACCOUNT export. It replaces your account-wide settings with the sender's, including Quality of Life, HoverCast bindings, Cooldown Manager spell setups, unlock anchors, UI scale, and spec assignments -- not just a profile. Your other profiles keep their own settings, but a profile with the same name is replaced.")
                                 .. ((EllesmereUI.PayloadFromOtherClient(payload) and type(payload.data) == "table"
                                     and payload.data.spellAssignments ~= nil)
                                     and ("\n\n" .. EllesmereUI.L("Its Cooldown Manager spells come from the other game client and will not be imported.")) or ""),
@@ -2022,7 +2022,8 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                 confirmText = EllesmereUI.L("Save"),
                 cancelText  = EllesmereUI.L("Cancel"),
                 onConfirm   = function(name)
-                    if not name or name == "" then return end
+                    name = name and strtrim(name) or ""
+                    if name == "" then return end
                     local _, profiles = EllesmereUI.GetProfileList()
                     if profiles and profiles[name] then
                         EllesmereUI:ShowConfirmPopup({

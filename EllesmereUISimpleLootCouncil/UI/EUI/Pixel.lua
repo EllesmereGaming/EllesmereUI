@@ -1,6 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end if (select(2, ...)).slcInert then return end
 
 
+
 SimpleLootCouncil = SimpleLootCouncil or {}
 local addon = SimpleLootCouncil
 
@@ -75,6 +76,39 @@ end
 
 
 
+
+local edges = setmetatable({}, { __mode = "k" })
+local edgeSnap, edgeForced = false, nil
+
+local function ApplyEdgeSnap(on)
+    if on == edgeSnap then return end
+    edgeSnap = on
+    for tex in pairs(edges) do
+        tex:SetSnapToPixelGrid(on)
+        tex:SetTexelSnappingBias(0)
+    end
+end
+
+function P.Edge(tex)
+    P.Crisp(tex)
+    edges[tex] = true
+    if edgeSnap then tex:SetSnapToPixelGrid(true) end
+    return tex
+end
+
+
+function P.SetEdgeSnap(on)
+    if on == nil then edgeForced = nil return end
+    edgeForced = on and true or false
+    ApplyEdgeSnap(edgeForced)
+end
+
+function P.AutoEdgeSnap(on)
+    if edgeForced == nil then ApplyEdgeSnap(on and true or false) end
+end
+
+
+
 local resnap = {}
 
 function P.OnRescale(fn)
@@ -82,11 +116,16 @@ function P.OnRescale(fn)
     return fn
 end
 
-local function Rescale()
+
+function P.Resnap()
     for i = 1, #resnap do
         local fn = resnap[i]
         if fn then pcall(fn) end
     end
+end
+
+local function Rescale()
+    P.Resnap()
 end
 
 function P:Init()

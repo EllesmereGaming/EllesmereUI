@@ -208,6 +208,7 @@ end
 
 
 
+
 local function DeclinedMessage()
     addon.Chat.Print(addon.Locale.Format(
         T["you declined to take part in Simple Loot Council for this raid."]))
@@ -412,9 +413,11 @@ function RaidPrompt:Evaluate()
             local runId = addon.Session:GetRunId()
             if runId ~= nil and addon.Loot:GetDecision() == false
                 and addon.Loot:DecisionRun() == runId then
+                addon.Log:I("RaidPrompt", "loot master not asked - run", tostring(runId), "was disabled from the tag")
                 return
             end
             if not addon.Loot.handling or addon.Loot:GetDecision() ~= true then
+                addon.Log:I("RaidPrompt", "loot master not asked - our own run", tostring(runId), "counts as the Yes")
                 addon.Loot:SetHandling(true)
             end
             return
@@ -426,6 +429,7 @@ function RaidPrompt:Evaluate()
         if decision ~= nil then
             Retire()
             askedFor = asked
+            addon.Log:I("RaidPrompt", "loot master not asked - answered earlier:", tostring(decision))
             if decision and not addon.Loot.handling then
                 addon.Chat.Print(addon.Locale.Format(
                     T["still active for this raid - you said yes earlier."]))
@@ -437,6 +441,7 @@ function RaidPrompt:Evaluate()
 
         if addon.db.raidPrompt.autoHandover and addon.Loot:HandedOverActive() then
             askedFor = asked
+            addon.Log:I("RaidPrompt", "loot master not asked - handed an active group, keeping it")
             addon.Chat.Print(addon.Locale.Format(
                 T["SLC stays active for this raid - you were handed loot while it was in use."]))
             RaidPrompt:Activate(true)
@@ -446,10 +451,15 @@ function RaidPrompt:Evaluate()
 
         if addon.db.raidPrompt.neverLead then
             if showing == "lootMaster" then Retire() end
+            addon.Log:I("RaidPrompt", "loot master not asked - never prompt to lead is on")
             return
         end
-        if askedFor == asked then return end
+        if askedFor == asked then
+            addon.Log:I("RaidPrompt", "loot master not asked - already asked for", asked)
+            return
+        end
         askedFor = asked
+        addon.Log:I("RaidPrompt", "asking the loot master -", asked, "handling", tostring(addon.Loot.handling))
         AskLootMaster()
         return
     end
@@ -468,6 +478,7 @@ function RaidPrompt:Evaluate()
         if not addon.db.raidPrompt.silence then
             if askedFor == asked then return end
             askedFor = asked
+            addon.Log:I("RaidPrompt", "asking the raider -", asked)
             AskRaider()
             return
         end
@@ -489,6 +500,7 @@ function RaidPrompt:Evaluate()
     end
     if guardAskedFor == asked then return end
     guardAskedFor = asked
+    addon.Log:I("RaidPrompt", "asking about the guard -", tostring(addon.Loot:GuardReason()), asked)
     AskGuard()
 end
 

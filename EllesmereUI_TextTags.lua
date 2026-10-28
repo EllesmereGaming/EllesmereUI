@@ -221,7 +221,7 @@ local function Descs(cat)
     end
     return d
 end
-local DIM, MOD, UNKNOWN = "|cff999999", "|cffffd27a", "|cffffa633"
+local DIM, MOD, UNKNOWN = EllesmereUI.COLOR_CODES.DIM, "|cffffd27a", "|cffffa633"
 
 --- The parse filled with the schema's samples. mark (a colour escape such as
 --- "|cffffa633"), when given, colours the unknown tags left as text.

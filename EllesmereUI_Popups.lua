@@ -331,6 +331,55 @@ local function WirePopupEscape(popup, dimmer)
     EllesmereUI.PadHint(popup, "nodepass")
 end
 
+-- Checkbox row of the confirm and input popups (opts.checkbox): a box with an
+-- accent tick and a label, hidden until a show asks for it. A click flips
+-- popup._cbChecked.
+local function MakePopupCheckbox(popup, width)
+    local EG = ELLESMERE_GREEN
+    local cbRow = CreateFrame("Button", nil, popup)
+    cbRow:SetSize(width, 18)
+    cbRow:SetFrameLevel(popup:GetFrameLevel() + 2)
+
+    local cbBox = CreateFrame("Frame", nil, cbRow)
+    cbBox:SetSize(14, 14)
+    cbBox:SetPoint("LEFT", cbRow, "LEFT", 0, 0)
+    cbBox:SetFrameLevel(cbRow:GetFrameLevel() + 1)
+    local cbBoxBg = SolidTex(cbBox, "BACKGROUND", 0.103, 0.095, 0.088, 1)
+    cbBoxBg:SetAllPoints()
+    MakeBorder(cbBox, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.25)
+    local cbCheck = SolidTex(cbBox, "ARTWORK", EG.r, EG.g, EG.b, 1)
+    cbCheck:SetPoint("TOPLEFT", 3, -3)
+    cbCheck:SetPoint("BOTTOMRIGHT", -3, 3)
+    cbCheck:Hide()
+
+    local cbLabel = MakeFont(cbRow, 11, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
+    cbLabel:SetPoint("LEFT", cbBox, "RIGHT", 6, 0)
+
+    popup._cbChecked = false
+    cbRow:SetScript("OnClick", function()
+        popup._cbChecked = not popup._cbChecked
+        if popup._cbChecked then cbCheck:Show() else cbCheck:Hide() end
+    end)
+    cbRow:Hide()
+    popup._cbRow = cbRow
+    popup._cbCheck = cbCheck
+    popup._cbLabel = cbLabel
+end
+
+-- Shows the checkbox row unchecked with its label, centred y above the
+-- popup's bottom edge.
+local function ShowPopupCheckbox(popup, label, y)
+    local EG = ELLESMERE_GREEN
+    popup._cbChecked = false
+    popup._cbCheck:SetColorTexture(EG.r, EG.g, EG.b, 1)
+    popup._cbCheck:Hide()
+    popup._cbLabel:SetText(EllesmereUI.L(label))
+    popup._cbRow:SetWidth(14 + 6 + popup._cbLabel:GetStringWidth())
+    popup._cbRow:ClearAllPoints()
+    popup._cbRow:SetPoint("BOTTOM", popup, "BOTTOM", 0, y)
+    popup._cbRow:Show()
+end
+
 local function CreateConfirmPopup()
     if confirmPopup then return confirmPopup end
 
@@ -413,7 +462,6 @@ local function CreateConfirmPopup()
     popup._baseH = POPUP_H
 
     -- Button dimensions
-    local BTN_H = 27
     local BTN_GAP = 16
     local BTN_Y = 13
 
@@ -440,35 +488,7 @@ local function CreateConfirmPopup()
     popup._confirmBtn = confirmBtn
 
     -- Optional checkbox (above buttons, centered)
-    local cbRow = CreateFrame("Button", nil, popup)
-    cbRow:SetSize(POPUP_W - 60, 18)
-    cbRow:SetPoint("BOTTOM", popup, "BOTTOM", 0, BTN_Y + BTN_H + 10)
-    cbRow:SetFrameLevel(popup:GetFrameLevel() + 2)
-
-    local cbBox = CreateFrame("Frame", nil, cbRow)
-    cbBox:SetSize(14, 14)
-    cbBox:SetPoint("LEFT", cbRow, "LEFT", 0, 0)
-    cbBox:SetFrameLevel(cbRow:GetFrameLevel() + 1)
-    local cbBoxBg = SolidTex(cbBox, "BACKGROUND", 0.103, 0.095, 0.088, 1)
-    cbBoxBg:SetAllPoints()
-    MakeBorder(cbBox, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.25)
-    local cbCheck = SolidTex(cbBox, "ARTWORK", EG.r, EG.g, EG.b, 1)
-    cbCheck:SetPoint("TOPLEFT", 3, -3)
-    cbCheck:SetPoint("BOTTOMRIGHT", -3, 3)
-    cbCheck:Hide()
-
-    local cbLabel = MakeFont(cbRow, 11, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
-    cbLabel:SetPoint("LEFT", cbBox, "RIGHT", 6, 0)
-
-    popup._cbChecked = false
-    cbRow:SetScript("OnClick", function()
-        popup._cbChecked = not popup._cbChecked
-        if popup._cbChecked then cbCheck:Show() else cbCheck:Hide() end
-    end)
-    cbRow:Hide()
-    popup._cbRow = cbRow
-    popup._cbCheck = cbCheck
-    popup._cbLabel = cbLabel
+    MakePopupCheckbox(popup, POPUP_W - 60)
 
     -- Close on dimmer click outside the popup; modal popups ignore dimmer clicks.
     popup:EnableMouse(true)
@@ -571,14 +591,7 @@ function EllesmereUI:ShowConfirmPopup(opts)
     -- Optional checkbox
     local cbH = 0
     if opts.checkbox then
-        popup._cbChecked = false
-        popup._cbCheck:Hide()
-        popup._cbLabel:SetText(EllesmereUI.L(opts.checkbox))
-        local rowW = 14 + 6 + popup._cbLabel:GetStringWidth()
-        popup._cbRow:SetWidth(rowW)
-        popup._cbRow:ClearAllPoints()
-        popup._cbRow:SetPoint("BOTTOM", popup, "BOTTOM", 0, 13 + 27 + 10)
-        popup._cbRow:Show()
+        ShowPopupCheckbox(popup, opts.checkbox, 13 + 27 + 10)
         cbH = 28
     else
         popup._cbRow:Hide()
@@ -917,7 +930,11 @@ end
 --          preview(text) returns a preview line (under the input, below previewLabel,
 --          in previewColor) and a hint line. complete(text, cursor) returns
 --          items { text, label, desc, detail }, from, to: a suggestion list under the input
---          (Up/Down select, Tab inserts, Esc closes it). messageSize sets the message size.
+--          (Up/Down select, Tab inserts, Esc closes it). messageSize sets the message size,
+--          messageColor { r, g, b[, a] } its colour (a red note). numeric takes digits
+--          only. validate(text) runs on a confirm: a message it returns shows in red under
+--          the input and keeps the popup open. checkbox (a label) adds a box above the
+--          buttons, unchecked on each show; onConfirm then receives its state second.
 -------------------------------------------------------------------------------
 function EllesmereUI:ShowInputPopup(opts)
     if not self._inputPopup then
@@ -1055,6 +1072,10 @@ function EllesmereUI:ShowInputPopup(opts)
         editBox:SetScript("OnTextChanged", function(self)
             local text = self:GetText() or ""
             if text == "" then placeholder:Show() else placeholder:Hide() end
+            if popup._statusShown then
+                popup._statusShown = nil
+                popup._statusLabel:SetText("")
+            end
             if popup._maxCount then
                 local count = strlenutf8 and strlenutf8(text) or #text
                 popup._countLabel:SetText(count .. "/" .. popup._maxCount)
@@ -1084,6 +1105,17 @@ function EllesmereUI:ShowInputPopup(opts)
         popup._warnLabel = warnLabel
         popup._inputFrame = inputFrame  -- store so reuse block can anchor against it
         PanelPP.Point(info, "RIGHT", inputFrame, "LEFT", -8, 0)
+
+        -- A message from opts.validate, right under the input (each show anchors
+        -- it); it clears when the text changes.
+        local statusLabel = MakeFont(popup, 11, nil, 1, 0.3, 0.3, 1)
+        statusLabel:SetWidth(POPUP_W - 40)
+        statusLabel:SetJustifyH("CENTER")
+        statusLabel:SetWordWrap(false)
+        popup._statusLabel = statusLabel
+
+        -- Optional checkbox (above the buttons, centred)
+        MakePopupCheckbox(popup, POPUP_W - 60)
 
         -- Optional scale/resolution mismatch warning (red, shown below the orange warning)
         local scaleWarnLabel = MakeFont(popup, 10, nil, 1, 0.2, 0.2, 1)
@@ -1157,19 +1189,37 @@ function EllesmereUI:ShowInputPopup(opts)
 
         WirePopupEscape(popup, dimmer)
 
+        -- The one confirm path (the confirm button and Enter). A message from
+        -- opts.validate keeps the popup open. The callback runs before the
+        -- popup closes, so a reload it asks for comes first in the click or
+        -- keypress (RequestReload); the popup closes only while it still shows
+        -- the same request (the callback may have opened the next one).
+        popup._tryConfirm = function()
+            local txt = editBox:GetText()
+            if not txt or (txt == "" and not popup._allowEmpty) then
+                popup._flashEmpty()
+                return
+            end
+            local err = popup._validate and popup._validate(txt)
+            if err then
+                popup._statusLabel:SetText(EllesmereUI.L(err))
+                popup._statusShown = true
+                popup._flashEmpty()
+                return
+            end
+            local shown, cb = popup._handle, popup._onConfirmCb
+            if cb then
+                if popup._cbRow:IsShown() then cb(txt, popup._cbChecked) else cb(txt) end
+            end
+            if popup._handle == shown then dimmer:Hide() end
+        end
+        confirmBtn:SetScript("OnClick", popup._tryConfirm)
+
         editBox:SetScript("OnEnterPressed", function()
             if popup._multiline then return end
             -- An open suggestion list takes Enter like Tab.
             if popup._suggest then popup._acceptSuggest(); return end
-            local txt = editBox:GetText()
-            if txt and (txt ~= "" or popup._allowEmpty) then
-                -- The callback before the close, as the confirm button runs it.
-                local shown = popup._handle
-                if popup._onConfirmCb then popup._onConfirmCb(txt) end
-                if popup._handle == shown then dimmer:Hide() end
-            else
-                popup._flashEmpty()
-            end
+            popup._tryConfirm()
         end)
         editBox:SetScript("OnEscapePressed", function()
             -- An open suggestion list closes first.
@@ -1215,11 +1265,14 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._onCancel = opts.onDismiss or opts.onCancel or nil
     popup._onConfirmCb = opts.onConfirm or nil
     -- This show's request: a confirm closes the popup only while it still shows it.
-    local handle = {}
-    popup._handle = handle
+    popup._handle = {}
     popup._allowEmpty = opts.allowEmpty == true
     popup._multiline = opts.multiline == true
+    popup._validate = opts.validate
+    popup._statusShown = nil
+    popup._statusLabel:SetText("")
 
+    popup._editBox:SetNumeric(opts.numeric == true)
     popup._editBox:SetMaxLetters(opts.maxLetters or 30)
     popup._editBox:SetMultiLine(popup._multiline)
     popup._editBox:SetJustifyV(popup._multiline and "TOP" or "MIDDLE")
@@ -1251,6 +1304,8 @@ function EllesmereUI:ShowInputPopup(opts)
         end
     end
     popup._msg:SetFont(EllesmereUI.EXPRESSWAY, opts.messageSize or 12, "")
+    local mc = opts.messageColor or TEXT_DIM
+    popup._msg:SetTextColor(mc.r, mc.g, mc.b, mc.a or 1)
     -- Optional preview block under the input (opts.preview), centred, one line
     -- each at a fixed height so typing never re-lays out the popup; the
     -- suggestion list (opts.complete) floats over it.
@@ -1451,6 +1506,13 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._cancelBtn._resetAnim()
     popup._confirmBtn._resetAnim()
 
+    -- The validate status line sits under the input (and a preview block); the
+    -- blocks below it move down by its height.
+    local statusH = opts.validate and 16 or 0
+    popup._statusLabel:ClearAllPoints()
+    popup._statusLabel:SetPoint("TOP", popup._inputFrame, "BOTTOM", 0, -6 - belowH)
+    belowH = belowH + statusH
+
     -- Extra button (e.g. "Add Current Zone")
     local extraH = 0
     if opts.extraButton then
@@ -1466,6 +1528,15 @@ function EllesmereUI:ShowInputPopup(opts)
         extraH = 26
     else
         popup._extraBtn:Hide()
+    end
+
+    -- Optional checkbox above the buttons
+    local cbH = 0
+    if opts.checkbox then
+        ShowPopupCheckbox(popup, opts.checkbox, popup._btnY + 27 + 10)
+        cbH = 28
+    else
+        popup._cbRow:Hide()
     end
 
     -- Optional warning text below the input field
@@ -1498,7 +1569,7 @@ function EllesmereUI:ShowInputPopup(opts)
         popup._scaleWarnLabel:Hide()
     end
 
-    popup:SetHeight(194 + math.max(0, (opts.inputHeight or 28) - 28) + extraH + warnH + scaleWarnH + belowH)
+    popup:SetHeight(194 + math.max(0, (opts.inputHeight or 28) - 28) + extraH + warnH + scaleWarnH + belowH + cbH)
 
     popup._cancelBtn:SetScript("OnClick", function()
         popup._dimmer:Hide()
@@ -1509,18 +1580,6 @@ function EllesmereUI:ShowInputPopup(opts)
     if EllesmereUI.PadCP() then
         popup.CloseButton = (not (opts.onDismiss or opts.hideCancel)) and popup._cancelBtn or nil
     end
-    popup._confirmBtn:SetScript("OnClick", function()
-        local txt = popup._editBox:GetText()
-        if txt and (txt ~= "" or opts.allowEmpty) then
-            -- The callback runs before the popup closes, so a reload it asks
-            -- for comes first in the click (RequestReload); the popup closes
-            -- only while it still shows this request.
-            if opts.onConfirm then opts.onConfirm(txt) end
-            if popup._handle == handle then popup._dimmer:Hide() end
-        else
-            popup._flashEmpty()
-        end
-    end)
 
     popup._dimmer:Show()
     C_Timer.After(0.05, function()

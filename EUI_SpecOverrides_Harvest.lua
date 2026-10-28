@@ -205,10 +205,12 @@ local function HarvestGroup(group)
             local m = maps[i]
             local preserve
             for fkey, dv in pairs(entry.values.default) do
-                if MatchOwnedFKey(fkey) then
+                if MatchOwnedFKey(fkey) or not FKeyLoaded(fkey) then
                     -- Match-owned size keys never bank FROM live (see Harvest): the
                     -- broadcast below would stamp the match engine's write onto EVERY
-                    -- member at once. Route through preserve so each member keeps its own value.
+                    -- member at once. A disabled module has no live value, and its
+                    -- snapshot reads nil, which would pass for a revert. Route both
+                    -- through preserve so each member keeps its own value.
                     preserve = preserve or {}
                     preserve[fkey] = true
                     m[fkey] = nil

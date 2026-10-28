@@ -1013,7 +1013,6 @@ end
 -- writes (_BumpAbsorbGen), profile swaps (_ERF_RefreshAll) and cross-module pushes (UpdateAllFrames).
 ns._paintGen = 0
 local function UpdateAllButtons()
-    if previewActive then return end  -- real buttons hidden during preview
     local now, gen = GetTime(), ns._paintGen
     for _, btn in ipairs(allButtons) do
         local u = btn:GetAttribute("unit")

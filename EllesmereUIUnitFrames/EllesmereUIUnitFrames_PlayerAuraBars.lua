@@ -66,7 +66,7 @@ local CLASS_LABELS = {
     Cancelable        = { "Cancelable",         "Shows only buffs that can be canceled" },
     Stealable         = { "Stealable",          "Shows only buffs you can spellsteal or purge" },
     BossAura          = { "Boss Debuffs",       "Shows only debuffs applied by bosses" },
-    RoleAura          = { "Role Debuffs",       "Shows only debuffs flagged for your role" },
+    RoleAura          = { "Boss Role Debuffs",  "Shows only debuffs from enemies that Blizzard labels as relevant to your role" },
     -- "Important" matches Raid Frames' wording for this isPriorityAura flag.
     PriorityAura      = { "Important",          "Shows only debuffs Blizzard flags as important" },
     NonPlayer         = { "Non-Player Auras",   "Shows only debuffs not caused by any player or player pet (this is what shows most pve debuffs, do not check this while All Debuffs is selected!" },

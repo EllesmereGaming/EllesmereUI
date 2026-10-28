@@ -2,7 +2,6 @@ if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLo
 
 
 
-
 SimpleLootCouncil = SimpleLootCouncil or {}
 local addon = SimpleLootCouncil
 local T = addon.Locale.Text
@@ -27,8 +26,9 @@ local function IsHost()
 end
 
 local function Enabled()
-    return not addon.db or addon.db.autoStart ~= false
+    return not addon.db or addon.db.autoStart == true
 end
+
 
 local function SyncEvents()
     local want = #kills > 0
@@ -60,7 +60,6 @@ local function FindKill(encounterID)
     end
     return nil
 end
-
 
 
 local function Finished()
@@ -102,7 +101,6 @@ local function Settle(kill, listID, drop)
 end
 
 
-
 local Flush
 
 local function FlushSoon()
@@ -124,12 +122,14 @@ Flush = function()
         Forget("automatic start turned off")
         return
     end
+
     if addon.Restrictions:IsBlocked() then return end
     local Session = addon.Session
     if Session:IsRunning() and Finished() then
         addon.Log:I("AutoStart", "every item of the open run is settled - ending it for the new loot")
         Session:End()
     end
+
     if not Session:IsRunning() and addon.Council:GetCount() == 0 then
         if not toldCouncil then
             toldCouncil = true
@@ -146,6 +146,7 @@ Flush = function()
     for i, entry in ipairs(batch) do
         links[i], bosses[i], encounterIDs[i] = entry.link, entry.kill.name, entry.kill.id
     end
+
     local running = Session:IsRunning()
     local indices = Session:AddDrops(links, bosses, encounterIDs)
     local items = Session:GetItems()
@@ -157,12 +158,12 @@ Flush = function()
         running and "to the open run" or "- starting a run")
     if not running then Session:Start() end
 
+
     for _, entry in ipairs(batch) do
         local drop = C_LootHistory.GetSortedInfoForDrop(entry.kill.id, entry.listID)
         if drop then Settle(entry.kill, entry.listID, drop) end
     end
 end
-
 
 
 local function Consider(kill, drop)
@@ -175,11 +176,13 @@ local function Consider(kill, drop)
     end
     if taken == false then return end
 
+
     local winner = drop.winner
     if drop.allPassed == true or (winner ~= nil and winner.isSelf ~= true) then
         kill.taken[listID] = false
         return
     end
+
     if not C_Item.IsItemDataCachedByID(link) then
         if kill.loading[listID] then return end
         kill.loading[listID] = true
@@ -205,7 +208,6 @@ local function Scan(kill)
 end
 
 
-
 local function WarnMissingHost()
     if not IsInRaid() or not addon.Comms.InHomeGroup() then return end
     if addon.PlayerIsMasterLooter() or addon.Loot.handling ~= nil
@@ -223,12 +225,22 @@ local function WarnMissingHost()
         Ambiguate(master, "short")))
 end
 
+
+local function OpenWindow()
+    local MLFrame = addon.UI and addon.UI.MLFrame
+    if not MLFrame then return end
+    local ok, err = pcall(MLFrame.OpenForKill, MLFrame)
+    if not ok then addon.Log:Bug("AutoStart", "opening the window on a kill failed: " .. tostring(err)) end
+end
+
+
 local function OnEncounterEnded(entry)
     if type(entry) ~= "table" or not entry.success or not entry.id then return end
     if not IsHost() then
         WarnMissingHost()
         return
     end
+    OpenWindow()
     if not Enabled() then return end
     local kill = FindKill(entry.id)
     if not kill then
@@ -257,12 +269,9 @@ local function OnEvent(_, event, encounterID, lootListID)
 end
 
 
-
 function AutoStart:Refresh()
     if not Enabled() then Forget("automatic start turned off") end
 end
-
-
 
 function AutoStart:Init()
     frame = CreateFrame("Frame")

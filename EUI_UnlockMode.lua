@@ -522,7 +522,7 @@ local snapshotGrowDirs = {}   -- original growth directions captured when unlock
 -- field, not local: deferred-init function is at Lua 5.1's 200-local cap). Layer
 -- banking is a wholesale harvest at CommitPositions.
 UM.hasChanges = false         -- true if user dragged anything this session
-local combatSuspended = false  -- true if unlock mode was auto-closed by combat
+UM.combatSuspended = false  -- true if unlock mode was auto-closed by combat
 local preCombatChanges = false -- the session's change mark when combat hid it
 UM.objTrackerWasVisible = false     -- track objective tracker state for restore
 
@@ -803,7 +803,7 @@ end
 local function SuspendForCombat()
     if not UM.isUnlocked then return end
     if UM.PointPicker.Active() then UM.CancelPickMode() end
-    combatSuspended = true
+    UM.combatSuspended = true
     preCombatChanges = UM.hasChanges and true or false
     if EllesmereUI._HideFallbackGhosts then EllesmereUI._HideFallbackGhosts() end
     if EllesmereUI._HideOverrideGhosts then EllesmereUI._HideOverrideGhosts() end
@@ -867,11 +867,11 @@ local function SuspendForCombat()
 end
 
 local function ResumeAfterCombat()
-    if not combatSuspended then return end
+    if not UM.combatSuspended then return end
     -- A pull again inside the resume delay: stay suspended, so the end of that
     -- combat resumes the session (its own PLAYER_REGEN_ENABLED calls this again).
     if InCombatLockdown() then return end
-    combatSuspended = false
+    UM.combatSuspended = false
 
     -- Nothing can be edited while the session is hidden: whatever moved during
     -- the fight (bars rebuilding, anchored elements following them) is not a

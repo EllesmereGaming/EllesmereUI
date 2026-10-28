@@ -371,19 +371,30 @@ local function Wrap(prefix, parts, separator, out)
 end
 
 
-local MAX_LISTED_ITEMS = 6
+local MAX_LISTED_ITEMS = 30
 
 
 
-function Whisper:HelpLines()
+function Whisper:HelpLines(raid)
     local responses = addon.Config:Responses()
     local keys = Whisper.BuildKeys(responses)
 
+
+    local lootMaster = raid and Ambiguate(addon.Player:GetFullName("player") or "", "short")
     local lines = {
 
-        "SimpleLootCouncil: " .. T["whisper me your answer for an item."],
-        T["Format: <item number or link> <keyword> <optional note>"],
+        "SimpleLootCouncil: " .. (lootMaster and lootMaster ~= ""
+            and addon.Locale.Format(T["whisper %s your answer for an item."], lootMaster)
+            or T["whisper me your answer for an item."]),
+        T["Format: <item number or link> <keyword> <optional note> <optional equipped item links>"],
     }
+
+
+    local first = responses[1] and AliasesFor(responses[1])[1]
+    if first and keys[first] == 1 then
+        lines[#lines + 1] = addon.Locale.Format(
+            T["Example: 2 %s my note [equipped item link] [equipped item link]"], first)
+    end
 
 
     local labels = {}
@@ -402,8 +413,14 @@ function Whisper:HelpLines()
 
     local items = addon.Session:GetItems()
     if addon.Session:IsRunning() and #items > 0 then
-        local shown = math.min(#items, MAX_LISTED_ITEMS)
-        for index = 1, shown do
+
+        local listed = {}
+        for index, item in ipairs(items) do
+            if not item.delivered then listed[#listed + 1] = index end
+        end
+        local shown = math.min(#listed, MAX_LISTED_ITEMS)
+        for n = 1, shown do
+            local index = listed[n]
             local item = items[index]
 
 
@@ -411,8 +428,8 @@ function Whisper:HelpLines()
                 or item.awarded and T["%d: %s (awarded)"] or T["%d: %s"]
             lines[#lines + 1] = addon.Locale.Format(text, index, item.link or "?")
         end
-        if #items > shown then
-            lines[#lines + 1] = addon.Locale.Format(T["...and %d more."], #items - shown)
+        if #listed > shown then
+            lines[#lines + 1] = addon.Locale.Format(T["...and %d more."], #listed - shown)
         end
         local open = 0
         for _, item in ipairs(items) do
@@ -432,6 +449,70 @@ end
 
 
 
+local asking, promptFor, promptFrame, promptAccept = {}, nil, nil, nil
+local ASK_MAX = 5
+
+local function PromptOpen()
+    if promptFor and promptFrame and promptFrame:IsShown() and promptFrame.onAccept == promptAccept then
+        return true
+    end
+    promptFor = nil
+    return false
+end
+
+local function SendGuide(who, toRaid)
+    if not IsInGroup() or not addon.PlayerIsMasterLooter() then return false end
+    if toRaid then
+        for _, line in ipairs(Whisper:HelpLines(true)) do addon.Announce.Send(line) end
+    else
+        Say(who, Whisper:HelpLines(), true)
+    end
+    return true
+end
+
+
+function Whisper:SendRaidGuide() return SendGuide(nil, true) end
+
+local function ShowPrompt()
+    local S = addon.Style
+    if PromptOpen() or not S or not S.Confirm then return end
+    local who = table.remove(asking, 1)
+    if not who then return end
+    promptFor = who
+    promptAccept = function() Whisper:SendRaidGuide() end
+    promptFrame = S.Confirm({
+        title = T["Response guide"],
+        body = addon.Locale.Format(T["%s asked for the response guide."], Ambiguate(who, "short")),
+        accept = T["Send to raid"], onAccept = promptAccept,
+        alternate = T["Send as whisper"], onAlternate = function() SendGuide(who, false) end,
+        cancel = T["Decline"], neutral = true,
+    })
+    if not promptFrame.slcGuideHook then
+        promptFrame.slcGuideHook = true
+        promptFrame:HookScript("OnHide", function()
+            if promptFor then
+                promptFor = nil
+                C_Timer.After(0, ShowPrompt)
+            end
+        end)
+    end
+end
+
+local function AskGuide(who)
+    for _, name in ipairs(asking) do
+        if name == who then return end
+    end
+    if PromptOpen() and promptFor == who then return end
+    if #asking >= ASK_MAX then
+        addon.Log:D("Whisper", "guide prompts full, ignoring", who)
+        return
+    end
+    asking[#asking + 1] = who
+    ShowPrompt()
+end
+
+
+
 
 
 
@@ -439,11 +520,25 @@ end
 
 local function ResolveSession(parsed, items)
 
-    local open = {}
-    for index, item in ipairs(items) do
-        if not item.removed then open[#open + 1] = index end
+
+
+    local function Delivered(item)
+        return addon.Locale.Format(T["%s has already been awarded and traded to %s."],
+            item.link or "?", Ambiguate(tostring(item.awarded or "?"), "short"))
     end
-    if #open == 0 then return nil, T["There is nothing up for loot right now."] end
+    local open, live = {}, 0
+    for index, item in ipairs(items) do
+        if not item.removed then live = live + 1 end
+        if not item.removed and not item.delivered then open[#open + 1] = index end
+    end
+    if live == 0 then return nil, T["There is nothing up for loot right now."] end
+    local function Matching(list, link)
+        local found = {}
+        for _, index in ipairs(list) do
+            if addon.Storage.ItemsMatch(items[index].link, link) then found[#found + 1] = index end
+        end
+        return found
+    end
 
 
     if parsed.session then
@@ -456,16 +551,12 @@ local function ResolveSession(parsed, items)
         if items[parsed.session].removed then
             return nil, T["That item is not up for loot. Whisper 'help' for the list."]
         end
+        if items[parsed.session].delivered then return nil, Delivered(items[parsed.session]) end
         return parsed.session
     end
 
     if parsed.link then
-        local matches = {}
-        for _, index in ipairs(open) do
-            if addon.Storage.ItemsMatch(items[index].link, parsed.link) then
-                matches[#matches + 1] = index
-            end
-        end
+        local matches = Matching(open, parsed.link)
 
 
         if #matches == 0 then
@@ -481,11 +572,18 @@ local function ResolveSession(parsed, items)
 
         if #matches == 1 then return matches[1] end
         if #matches == 0 then
+            for index, item in ipairs(items) do
+                if item.delivered and not item.removed
+                    and addon.Storage.ItemsMatch(item.link, parsed.link) then
+                    return nil, Delivered(item)
+                end
+            end
             return nil, T["That item is not up for loot. Whisper 'help' for the list."]
         end
         return nil, addon.Locale.Format(T["There are %d of those up - whisper the number instead. 'help' lists them."], #matches)
     end
 
+    if #open == 0 then return nil, T["There is nothing up for loot right now."] end
     if #open == 1 then return open[1] end
 
     return nil, addon.Locale.Format(T["There are %d items up - start with the item number. 'help' lists them."], #open)
@@ -551,10 +649,8 @@ local function Handle(text, sender)
             addon.Log:D("Whisper", "guide already sent to", who, "in the last minute")
             return
         end
-        if CanReply(who) then
-            helpAt[who] = GetTime()
-            Say(who, Whisper:HelpLines(), true)
-        end
+        helpAt[who] = GetTime()
+        AskGuide(who)
         return
     end
 
@@ -625,7 +721,7 @@ function Whisper:Describe(text)
     end
 
     if parsed.kind == "help" then
-        local lines = { T["would whisper back the guide:"] }
+        local lines = { T["would ask whether to send the guide to the raid or by whisper:"] }
         for _, line in ipairs(Whisper:HelpLines()) do
             lines[#lines + 1] = "    " .. line
         end

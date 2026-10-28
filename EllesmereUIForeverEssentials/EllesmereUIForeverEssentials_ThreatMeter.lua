@@ -156,13 +156,6 @@ function ns.GetStyleValue(group, key)
     return v
 end
 
--- A fresh merged copy of one appearance group (options getters).
-function ns.GetStyleGroup(group)
-    local result = {}
-    for key in pairs(STYLE_DEFAULTS[group]) do result[key] = ns.GetStyleValue(group, key) end
-    return result
-end
-
 -- Writes into the real saved appearance[group] table (created on first write)
 -- and restyles. Callers whose toggle gates other rows refresh the page.
 function ns.SetStyleValues(group, values)

@@ -2088,6 +2088,7 @@ local _bankListGripCfg = setmetatable({
     end,
 }, { __index = _bankGripCfg })
 
+local BuildBankSidebar  -- defined further down
 function EUI_Bank:RefreshBank()
     if not EUI_Bank:IsVisible() then return end
     NotifyBankTypeForTSM()
@@ -3297,34 +3298,44 @@ eventFrame:SetScript("OnEvent", function(_, event)
         end
         EUI_Bank._autoOpenedBags = false
 
-    elseif event == "BANK_TABS_CHANGED" or event == "BANK_TAB_SETTINGS_UPDATED"
-        or event == "PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED" then
+    elseif event == "BANK_TABS_CHANGED" or event == "BANK_TAB_SETTINGS_UPDATED" then
         if EUI_Bank:IsVisible() then
             local prevCount = #_allTabs
             DiscoverBankTabs()
             ScheduleBankRefresh()
             -- Server may not have slot data ready yet for a newly purchased tab.
-            -- Poll until tab count changes or we give up after 5 seconds.
-            if #_allTabs == prevCount then
-                local attempts = 0
-                local poller = CreateFrame("Frame")
-                poller:SetScript("OnUpdate", function(self, elapsed)
-                    attempts = attempts + 1
-                    if attempts % 6 ~= 0 then return end -- ~0.1s per check
-                    if not EUI_Bank:IsVisible() or attempts > 300 then
-                        self:SetScript("OnUpdate", nil)
-                        return
-                    end
-                    DiscoverBankTabs()
-                    if #_allTabs ~= prevCount then
-                        self:SetScript("OnUpdate", nil)
-                        EUI_Bank:RefreshBank()
-                    end
-                end)
+            -- Poll until tab count changes or we give up after 300 frames. Only a
+            -- purchase changes the count, and one reused frame serves every poll.
+            if event == "BANK_TABS_CHANGED" and #_allTabs == prevCount then
+                local poller = EUI_Bank._tabPoller
+                if not poller then
+                    -- Hidden while idle: a poll request arms its fields and shows it,
+                    -- and it hides itself when the poll ends.
+                    poller = CreateFrame("Frame")
+                    poller:Hide()
+                    poller:SetScript("OnUpdate", function(self)
+                        self.attempts = self.attempts + 1
+                        if self.attempts % 6 ~= 0 then return end -- ~0.1s per check
+                        if not EUI_Bank:IsVisible() or self.attempts > 300 then
+                            self:Hide()
+                            return
+                        end
+                        DiscoverBankTabs()
+                        if #_allTabs ~= self.prevCount then
+                            self:Hide()
+                            EUI_Bank:RefreshBank()
+                        end
+                    end)
+                    EUI_Bank._tabPoller = poller
+                end
+                poller.attempts = 0
+                poller.prevCount = prevCount
+                poller:Show()
             end
         end
 
-    elseif event == "BAG_UPDATE" or event == "PLAYERBANKSLOTS_CHANGED" then
+    elseif event == "BAG_UPDATE" or event == "PLAYERBANKSLOTS_CHANGED"
+        or event == "PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED" then
         if EUI_Bank:IsVisible() then
             ScheduleBankRefresh()
         end

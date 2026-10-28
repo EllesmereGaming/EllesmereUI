@@ -35,12 +35,7 @@ local WSkin = {}
 ns.WSkin = WSkin
 
 -- Weak-keyed external state (prevents tainting Blizzard frames) ---------------
-local FFD = setmetatable({}, { __mode = "k" })
-local function GetFFD(frame)
-    local d = FFD[frame]
-    if not d then d = {}; FFD[frame] = d end
-    return d
-end
+local FFD, GetFFD = EllesmereUI.NewFrameData()
 WSkin.GetFFD = GetFFD
 WSkin.FFD = FFD
 

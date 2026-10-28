@@ -584,7 +584,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             -- Live twin: ns.ContentToZone's custom branch, the engine's parse
             -- filled with one sample per schema key.
             local str = prefix and s and s[prefix .. "CustomFormat"]
-            local parsed = ns.UF_TextTags and EllesmereUI.TextTags.Parse(ns.UF_TextTags, str)
+            local parsed = EllesmereUI.TextTags.Parse(ns.UF_TextTags, str)
             if not parsed then return "" end
             local keys, vals = parsed.keys, {}
             local maxHP = UnitHealthMax("player") or 1
@@ -717,7 +717,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local UF_TEXT_PADDING = 10
                 local ufTW = { both = 75, curhpshort = 38, healthshort = 38, curmaxhp = 75, curmaxpp = 75, perhp = 38, perpp = 38, curpp = 38, curhp_curpp = 75, perhp_perpp = 75, level = 24 }
                 local rightUsed = (ufTW[rc] or 0) + UF_TEXT_PADDING
-                if rc == "custom" and ns.UF_EstimateTextWidth then
+                if rc == "custom" then
                     rightUsed = ns.UF_EstimateTextWidth(rc, s.rightTextCustomFormat, true)
                 end
                 PP.Width(leftFS, math.max(barW - rightUsed - 10, 20))

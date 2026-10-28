@@ -52,8 +52,6 @@ ReloadFramesBody = function()
         return
     end
 
-    ApplyEnemyColors()
-
     -- Normalize opacity values: old profiles stored 0-1 floats, new format is 0-100 integers
     do
         local prof = db.profile
@@ -1973,6 +1971,9 @@ ReloadFramesBody = function()
         local padKeys = ns.UF_PAD_KEYS
         for i = 1, #padKeys do EllesmereUI.MatchPadChanged(padKeys[i]) end
     end
+    -- Last: its ForceAll repaint must follow the per-frame ApplyDarkTheme, or turning
+    -- Dark Mode off left the class-colored fill dark until the next health event.
+    ApplyEnemyColors()
 end
 
 -- The unit frames whose unified border can reach outside the frame (the

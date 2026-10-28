@@ -83,6 +83,7 @@ function methods:SetFrameLevel(level) Mutable(self); states[self].level = level 
 function methods:GetFrameLevel() assert(not states[self].locked); return states[self].level or 10 end
 function methods:SetAllPoints(anchor) Mutable(self); states[self].anchor = anchor end
 function methods:SetPoint(...) Mutable(self); table.insert(states[self].points, {...}) end
+function methods:ClearAllPoints() Mutable(self); states[self].points, states[self].anchor = {}, nil end
 function methods:SetSize(w, h) Mutable(self); states[self].size = { w, h } end
 function methods:SetAlpha(alpha) Mutable(self); states[self].alpha = alpha end
 function UIState(obj) return states[obj] end
@@ -121,6 +122,7 @@ function methods:SetTexelSnappingBias(v) Mutable(self); states[self].bias = v en
 function methods:SetWidth(w) Mutable(self); states[self].width = w end
 function methods:SetHeight(h) Mutable(self); states[self].height = h end
 function methods:SetTexCoord(...) Mutable(self); states[self].texCoord = {...} end
+function methods:SetDrawLayer(layer, sublevel) Mutable(self); states[self].layer, states[self].sublevel = layer, sublevel end
 function methods:SetTexture(value, wrapH, wrapV)
     Mutable(self); states[self].texture = value; states[self].wrap = { wrapH, wrapV }
 end
@@ -1008,25 +1010,58 @@ mobThreat.nameplate7 = nil
 FireEvent("UNIT_THREAT_LIST_UPDATE")
 AssertColor(q, nil, nil, nil, "a mob out of combat kept the missing color")
 -- Your pet, your group and their pets count; a roster or pet change re-checks
--- every plate; a party token past the group is never read.
+-- every plate on the next frame; a party token past the group is never read.
 unitsOut = { pet = true, partypet1 = true }
 for _, case in ipairs({ { false, 0, "pet" }, { false, 3, "party2" }, { false, 3, "partypet1" }, { true, 10, "raid10" } }) do
     groupRaid, groupSize = case[1], case[2]
     mobThreat.nameplate7 = { [case[3]] = 1 }
     FireEvent("GROUP_ROSTER_UPDATE")
+    RunWorker()
     AssertColor(q, .8, .2, .1, "a mob fighting " .. case[3] .. " was not colored")
 end
 groupRaid, groupSize, mobThreat.nameplate7 = false, 3, { party3 = 1 }
 FireEvent("GROUP_ROSTER_UPDATE")
+RunWorker()
 AssertColor(q, nil, nil, nil, "a party token past the group counted")
 groupSize, mobThreat.nameplate7 = 0, { pet = 1 }
 FireEvent("GROUP_ROSTER_UPDATE")
+RunWorker()
 AssertColor(q, .8, .2, .1, "a mob fighting your pet was not colored")
 unitsOut = {}
 FireEvent("UNIT_PET", "arena1")
+RunWorker()
 AssertColor(q, .8, .2, .1, "a stranger's pet change re-checked the plates")
 FireEvent("UNIT_PET", "player")
+RunWorker()
 AssertColor(q, nil, nil, nil, "a dismissed pet still counted")
+-- A burst of roster and pet changes reads the roster and re-checks each bound
+-- plate once, on the next frame.
+local assists, rosterReads = 0, 0
+local CanAssist, NumMembers = UnitCanAssist, GetNumGroupMembers
+UnitCanAssist = function(...) assists = assists + 1; return CanAssist(...) end
+GetNumGroupMembers = function() rosterReads = rosterReads + 1; return NumMembers() end
+groupSize, mobThreat.nameplate7 = 3, { party2 = 1 }
+for _ = 1, 10 do
+    FireEvent("GROUP_ROSTER_UPDATE")
+    FireEvent("UNIT_PET", "party1")
+end
+assert(assists == 0 and rosterReads == 0, "a roster burst re-checked the plates on every event")
+AssertColor(q, nil, nil, nil, "a roster burst applied before its frame")
+RunWorker()
+assert(assists == Watching("UNIT_FLAGS") and assists > 1 and rosterReads == 1,
+    "a roster burst re-checked more than once (" .. assists .. " plate checks, " .. rosterReads .. " roster reads)")
+AssertColor(q, .8, .2, .1, "a roster burst did not re-check the plates")
+RunWorker()
+assert(assists == Watching("UNIT_FLAGS") and rosterReads == 1, "the re-check ran again without a change")
+UnitCanAssist, GetNumGroupMembers = CanAssist, NumMembers
+-- The engager list goes stale at once: a gate event before that frame reads the new roster.
+groupSize = 2
+FireEvent("GROUP_ROSTER_UPDATE")
+FireEvent("UNIT_THREAT_LIST_UPDATE")
+AssertColor(q, nil, nil, nil, "a gate event before the re-check read the old roster")
+groupSize = 0
+FireEvent("GROUP_ROSTER_UPDATE")
+RunWorker()
 mobThreat.nameplate7 = { player = 0 }
 FireEvent("UNIT_THREAT_LIST_UPDATE")
 
@@ -1085,6 +1120,61 @@ AssertColor(q, .8, .2, .1, "a reused plate did not watch its new mob")
 Auras("nameplate8", {{ id=164815, mine=true }})
 AssertColor(q, nil)
 
+-- The Missing rows draw on the plate's own host, dressed again by every
+-- rebuild: a recolor builds nothing, a new row adds one drawing, and a row the
+-- list dropped hides.
+local function HostOf(plate)
+    local gate
+    for _, f in ipairs(frames) do
+        local s = UIState(f)
+        if s.parent == plate.health and s.scripts.OnEvent then gate = f end
+    end
+    for _, f in ipairs(frames) do
+        if UIState(f).parent == gate and UIState(f).kind == "Frame" then return f end
+    end
+end
+local function Children(parent, kind, shownOnly)
+    local n = 0
+    for _, o in ipairs(frames) do
+        local s = UIState(o)
+        if s.parent == parent and s.kind == kind and (s.shown or not shownOnly) then n = n + 1 end
+    end
+    return n
+end
+local host = HostOf(q)
+Auras("nameplate8", {})
+local drawn = Paint(q)
+assert(drawn and drawn.parent == host, "the missing tint is not on the plate's host")
+-- One tint per Missing row the plate has drawn so far.
+local made = Children(host, "Texture")
+assert(made >= 1 and made < DC.MAX_MISSING)
+profile.debuffColorsDRUID = "!164815:" .. MGREEN .. "/"
+ns.DebuffColors_Refresh()
+AssertColor(q, .1, .88, .32, "a recolored missing debuff kept its old color")
+assert(Paint(q) == drawn and Children(host, "Texture") == made, "a recolor built a new missing tint")
+local more = { "!1079:" .. MRED }
+for i = 1, made do more[#more + 1] = "!" .. (900000 + i) .. ":" .. MGREEN end
+more = table.concat(more, ";") .. "/"
+profile.debuffColorsDRUID = more
+ns.DebuffColors_Refresh()
+AssertColor(q, .8, .2, .1, "the higher missing debuff did not win")
+assert(Children(host, "Texture") == made + 1 and Children(host, "Texture", true) == made + 1,
+    "one more missing debuff did not add one tint")
+profile.debuffColorsDRUID = "!164815:" .. MGREEN .. "/"
+ns.DebuffColors_Refresh()
+AssertColor(q, .1, .88, .32)
+assert(Paint(q) == drawn and Children(host, "Texture", true) == 1, "a dropped missing debuff's tint stayed up")
+for _ = 1, 3 do
+    profile.debuffColorsDRUID = more
+    ns.DebuffColors_Refresh()
+    profile.debuffColorsDRUID = "!164815:" .. MGREEN .. "/"
+    ns.DebuffColors_Refresh()
+end
+assert(Children(host, "Texture") == made + 1 and Children(host, "Frame") == 0, "rebuilds kept adding drawings")
+assert(Paint(q) == drawn and #drawn.masks == 2, "a dressed-again tint gained masks")
+Auras("nameplate8", {{ id=164815, mine=true }})
+AssertColor(q, nil)
+
 -- One sublevel per missing debuff: past MAX_MISSING, lower ones get no sensor.
 profile.debuffColorsDRUID = "!1:" .. MRED .. ";!2:" .. MRED .. ";!3:" .. MRED .. ";!4:" .. MRED
     .. ";!5:" .. MRED .. ";!6:" .. MRED .. "/"
@@ -1096,11 +1186,15 @@ end
 assert(live == 5, "a sixth missing debuff got a sensor (" .. live .. ")")
 assert(Watching("GROUP_ROSTER_UPDATE") == 1 and Watching("UNIT_PET") == 1, "roster and pet changes are not watched once")
 
+FireEvent("GROUP_ROSTER_UPDATE")
 profile.debuffColorsDRUID = "164815:" .. MORANGE .. "/"
 ns.DebuffColors_Refresh()
 assert(Watching("UNIT_FLAGS") == 0 and Watching("UNIT_THREAT_LIST_UPDATE") == 0 and Watching("UNIT_COMBAT") == 0
     and Watching("GROUP_ROSTER_UPDATE") == 0 and Watching("UNIT_PET") == 0,
     "a list without missing debuffs kept the combat gates")
+for _, frame in ipairs(frames) do
+    assert(not UIState(frame).scripts.OnUpdate, "a list without missing debuffs kept a roster re-check armed")
+end
 
 -- Color Border: a missing copy ranks one level over every other copy per
 -- missing row (the higher row on top), through its sensor's mask.
@@ -1112,11 +1206,19 @@ Auras("nameplate8", {})
 f, pieces = AssertBorder(q, .1, .88, .32, "the higher missing copy did not win")
 assert(f.level == UIState(q.health).level + 6 and #pieces[1].masks == 1, "a Basic missing copy is not over the combos'")
 assert(UIState(UIState(pieces[1].masks[1]).parent) == f, "a missing copy's mask is not on its own frame")
+local topCopy = f
 Auras("nameplate8", {{ id=164812, mine=true }})
 f = AssertBorder(q, .8, .2, .1)
 assert(f.level == UIState(q.health).level + 5)
+local basicCopy = f
 Auras("nameplate8", {{ id=164812, mine=true }, { id=164815, mine=true }})
 AssertBorder(q, nil)
+-- A recolor dresses the same copies.
+profile.debuffColorsDRUID = "!164812:" .. MORANGE .. ";!164815:" .. MRED .. "/"
+ns.DebuffColors_Refresh()
+Auras("nameplate8", {})
+f = AssertBorder(q, 1, .43, .04, "a recolored missing copy kept its old color")
+assert(f == topCopy and Children(host, "Frame") == 2, "a recolor built a new missing copy")
 border.custom = true
 profile.customBorderTexture, profile.customBorderSize = "solid", 2
 profile.debuffColorsDRUID = "!164815:" .. MRED .. "/"
@@ -1124,6 +1226,20 @@ ns.DebuffColors_Refresh()
 Auras("nameplate8", {})
 f = AssertBorder(q, .8, .2, .1)
 assert(f.strata == "MEDIUM" and f.level == CustomBorderLevel(q, false, true) + 2, "a custom missing copy is not over the copies")
+-- Each border style keeps its own copy: back on Basic, the Basic one returns.
+border.custom = false
+ns.DebuffColors_Refresh()
+f = AssertBorder(q, .8, .2, .1)
+assert(f == basicCopy and not f.strata and f.level == UIState(q.health).level + 5, "Basic did not dress its own copy again")
+border.custom = true
+ns.DebuffColors_Refresh()
+assert(AssertBorder(q, .8, .2, .1).strata == "MEDIUM" and Children(host, "Frame") == 3,
+    "switching border styles kept adding copies")
+-- Back to Color Nameplate: the copies hide and the row's own tint returns.
+profile.debuffColorsBorder = false
+ns.DebuffColors_Refresh()
+AssertColor(q, .8, .2, .1)
+assert(Paint(q) == drawn and not BorderPaint(q), "a missing copy outlived Color Border")
 border.custom = false
 profile.debuffColorsBorder = false
 profile.debuffColorsDRUID = nil
@@ -1139,7 +1255,8 @@ end
 print('PASS: list codec, caps, class scoping, priority by order, combos (chains of 2-4, shared first slots),')
 print('      duplicates, ownership, plate churn, combat deferral, pooling, profiles, textures, coalesced')
 print('      refreshes, no-op edits, Color Border (Basic, Custom Solid, textured, no border, stock style),')
-print('      While Missing (combat/threat gate, over every other color, sensor reuse, parking, border).')
+print('      While Missing (combat/threat gate, coalesced roster re-checks, over every other color, sensor')
+print('      and drawing reuse, parking, border).')
 
 # Execute the actual Colors-page builder against mocked widgets.
 options = (ROOT / 'EllesmereUIOptions/Nameplates_Options/ColorsPage_Options.lua').read_text()
@@ -1461,8 +1578,8 @@ for _, rgn in ipairs({ uiRows[2].frame._leftRegion, uiRows[2].frame._rightRegion
     local tc = rgn._label.textColor
     assert(rgn._label.fontSize == 12 and tc and tc[1] == 1 and tc[4] == .41, "a column title is not a header")
 end
-local SINGLE_TIP = "Missing debuffs color enemies fighting you or your group and win over every other debuff color; otherwise higher in the list wins."
-local COMBO_TIP = "Missing debuffs win over combos; combos win over applied debuffs; higher in the list wins."
+local SINGLE_TIP = "Higher in the list wins when several are up."
+local COMBO_TIP = "Combos win over single debuffs; higher in the list wins."
 assert(uiRows[2][1].tooltip == SINGLE_TIP and uiRows[2][2].tooltip == COMBO_TIP)
 assert(uiRows[3][1].text == "1. Debuff" and uiRows[3][2].text == "+ Add Combo")
 assert(uiRows[3][2].disabled(), "Add Combo enabled with no debuffs")
@@ -1537,6 +1654,13 @@ local st1, st2 = uiStates[u1.rgn], uiStates[u2.rgn]
 assert(st1 and st2, "a debuff row has no Applied / Missing dropdown")
 assert(#st1.order == 2 and st1.order[1] == "applied" and st1.order[2] == "missing"
     and st1.values.applied == "Applied" and st1.values.missing == "Missing" and st1.get() == "applied")
+-- Only Missing explains itself, on hovering it in the menu.
+local tips = #uiTips
+st1.values._menuOpts.onItemHover("applied", {})
+assert(#uiTips == tips, "Applied has a hover tooltip")
+st1.values._menuOpts.onItemHover("missing", {})
+assert(#uiTips == tips + 1 and uiTips[#uiTips] == "Colors enemies you fight without this debuff.",
+    "Missing has no hover tooltip")
 assert(st1.btn.points[1][2] == u1.rgn._control, "the state dropdown is not beside the spell menu")
 for _, entry in ipairs(uiSwatches) do
     if entry.rgn == u1.rgn then

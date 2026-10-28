@@ -1231,10 +1231,6 @@ end
 
 function ns.IsTBBRebuildPending() return _tbbRebuildPending end
 
--- No-ops kept because options or the other CDM files may still reference them.
-ns.RefreshTBBResolvedIDs = function() end
-ns.RefreshBuffBarGating  = function() end
-
 I._MarkTBBReflowDirty, I._tbbWake, I.GroupGrowOf = _MarkTBBReflowDirty, _tbbWake, GroupGrowOf
 I.GroupSpacingOf, I.ReflowVisibleGroupedTBBars = GroupSpacingOf, ReflowVisibleGroupedTBBars
 I.ResetReflowStates, I.tbbFrames = ResetReflowStates, tbbFrames

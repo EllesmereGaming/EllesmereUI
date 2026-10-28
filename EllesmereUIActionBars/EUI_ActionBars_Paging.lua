@@ -251,7 +251,7 @@ function ns.GetPagingSkipMask()
     for barKey, page in pairs(EAB_VTABLE.BAR_KEY_TO_PAGE) do
         if barKey ~= "MainBar" and page >= 1 and page <= NUM_AB_PAGES then
             local settings = bars[barKey]
-            if settings and settings.enabled ~= false and not settings.alwaysHidden then
+            if settings and settings.enabled ~= false and not EAB.VisibilityCompat.IsNever(settings) then
                 skip[page] = true
             end
         end
@@ -461,7 +461,7 @@ LayoutPagingFrame = function()
     local lvl = (mainFrame:GetFrameLevel() or 1) + 1 + (caps and caps.lvl or 4)
     if f:GetFrameLevel() ~= lvl then f:SetFrameLevel(lvl) end
 
-    if s.alwaysHidden or s.enabled == false or not s.showPagingArrows then
+    if EAB.VisibilityCompat.IsNever(s) or s.enabled == false or not s.showPagingArrows then
         f:Hide()
         return
     end

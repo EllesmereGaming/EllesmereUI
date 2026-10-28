@@ -143,10 +143,12 @@ do
                         for ck, cv in pairs(v) do
                             if type(cv) == "table" then
                                 local subCopy = {}
+                                local subPath = fullKey .. "." .. tostring(ck)
                                 for sk, sv in pairs(cv) do
-                                    if not childExclusions[tostring(sk)] then
+                                    local leafPath = subPath .. "." .. tostring(sk)
+                                    if not childExclusions[tostring(sk)] and not exclusions[leafPath] then
                                         if type(sv) == "table" then
-                                            subCopy[sk] = SelectiveCopy(sv, {})
+                                            subCopy[sk] = SelectiveCopy(sv, exclusions, leafPath)
                                         else
                                             subCopy[sk] = sv
                                         end
@@ -170,10 +172,30 @@ do
     end
     EllesmereUI._SelectiveCopy = SelectiveCopy
 
+    -- True when an exclusion is fullKey itself or a path below it, by string prefix; a
+    -- wildcard only counts above its '*', so a removed list entry goes with its
+    -- wildcard-excluded leaves.
+    local function HoldsExclusion(exclusions, fullKey)
+        if exclusions[fullKey] then return true end
+        local pre = fullKey .. "."
+        for exKey in pairs(exclusions) do
+            if exKey:sub(1, #pre) == pre then return true end
+        end
+        return false
+    end
+
     -- Exclusion-aware deep overlay for destinations with existing data: writes src into dst
     -- leaf-by-leaf wherever an exclusion path (flat/dotted/wildcard) touches the subtree, so
     -- excluded keys keep dest values (replacing a parent whole would delete them).
     function EllesmereUI._SelectiveOverlay(src, dst, exclusions, deepCopy, parentPath)
+        -- Mirror deletions, as the full copy does: drop dest keys the source no
+        -- longer has, unless they hold excluded data.
+        for k in pairs(dst) do
+            if src[k] == nil then
+                local fullKey = parentPath and (parentPath .. "." .. tostring(k)) or tostring(k)
+                if not HoldsExclusion(exclusions, fullKey) then dst[k] = nil end
+            end
+        end
         for k, v in pairs(src) do
             local keyStr = tostring(k)
             local fullKey = parentPath and (parentPath .. "." .. keyStr) or keyStr
@@ -196,13 +218,34 @@ do
                         -- Merge each sub-table, preserving excluded child keys
                         if type(dst[k]) ~= "table" then dst[k] = {} end
                         local dstContainer = dst[k]
+                        for ck in pairs(dstContainer) do
+                            if v[ck] == nil
+                               and not HoldsExclusion(exclusions, fullKey .. "." .. tostring(ck)) then
+                                dstContainer[ck] = nil
+                            end
+                        end
                         for ck, cv in pairs(v) do
                             if type(cv) == "table" then
                                 if type(dstContainer[ck]) ~= "table" then dstContainer[ck] = {} end
                                 local dstSub = dstContainer[ck]
+                                local subPath = fullKey .. "." .. tostring(ck)
+                                -- Exact paths below the wildcard (override-owned keys) are
+                                -- excluded too, not only the wildcard child names.
+                                for sk in pairs(dstSub) do
+                                    if cv[sk] == nil and not childExclusions[tostring(sk)]
+                                       and not HoldsExclusion(exclusions, subPath .. "." .. tostring(sk)) then
+                                        dstSub[sk] = nil
+                                    end
+                                end
                                 for sk, sv in pairs(cv) do
-                                    if not childExclusions[tostring(sk)] then
-                                        dstSub[sk] = type(sv) == "table" and deepCopy(sv) or sv
+                                    local leafPath = subPath .. "." .. tostring(sk)
+                                    if not childExclusions[tostring(sk)] and not exclusions[leafPath] then
+                                        if type(sv) == "table" and HoldsExclusion(exclusions, leafPath) then
+                                            if type(dstSub[sk]) ~= "table" then dstSub[sk] = {} end
+                                            EllesmereUI._SelectiveOverlay(sv, dstSub[sk], exclusions, deepCopy, leafPath)
+                                        else
+                                            dstSub[sk] = type(sv) == "table" and deepCopy(sv) or sv
+                                        end
                                     end
                                 end
                             else

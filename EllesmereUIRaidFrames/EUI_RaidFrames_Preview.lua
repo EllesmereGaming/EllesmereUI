@@ -87,3 +87,10 @@ EllesmereUI.NewInternals(ns, "_previewInternals", {
 }, {
     SetPreviewActive = "previewActiveSetters", SetPreviewContainer = "previewContainerSetters",
 })
+-- The main chain's visibility passes read the raid preview's state as this plain
+-- field (as the party preview's ns._partyPvActive), never a preview function: a
+-- preview file that fails to load must not leave them a nil call.
+do
+    local list = ns._previewInternals.previewActiveSetters
+    list[#list + 1] = function(v) ns._raidPvActive = v end
+end

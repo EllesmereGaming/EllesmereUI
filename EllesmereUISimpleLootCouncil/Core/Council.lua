@@ -498,6 +498,11 @@ local function BuildSharedConfig()
         },
         noteMax = addon.Config:NoteMax(),
 
+
+        startRequests = addon.Config:StartRequestsAllowed(),
+        councilMayStartRuns = addon.Config:CouncilMayStartRuns(),
+
+
         councilBags = addon.Config:CouncilBagsShared(),
 
         lootMaster = addon.Config:LootMaster()
@@ -577,7 +582,8 @@ local function Digest(payload, config, ranks, rankPayload, rankOf)
         tostring(config.noteMax), tostring(config.lootMaster))
 
 
-    parts[#parts + 1] = tostring(config.councilBags)
+    parts[#parts + 1] = ("%s~%s~%s"):format(tostring(config.startRequests),
+        tostring(config.councilMayStartRuns), tostring(config.councilBags))
 
     return table.concat(parts, ";")
 end
@@ -587,7 +593,7 @@ Council.Digest = Digest
 
 
 
-local relayed, heardFrom
+local relayed, heardFrom, leaderLM
 
 local function StringList(list)
     if type(list) ~= "table" then return nil end
@@ -1036,9 +1042,52 @@ end
 
 
 
-
-
 local LEADER_SILENT_ASKS = 2
+
+
+local RELAY_KEPT_FOR = 12 * 60 * 60
+
+
+
+function Council:NoteLeaderDelegate(from, lootMaster)
+    if not addon.db or not IsInGroup() or IsAuthor() then return end
+    if not addon.Player:IsSame(from, addon.GetGroupLeader()) then return end
+    if lootMaster ~= false and (type(lootMaster) ~= "string" or IsSecret(lootMaster)
+        or #lootMaster > addon.Config.MAX_TEXT) then
+        return
+    end
+    local kept = addon.db.councilRelayKept
+    if leaderLM and leaderLM.from == from and leaderLM.lootMaster == lootMaster
+        and type(kept) == "table" then
+        kept.at = GetServerTime()
+        return
+    end
+    leaderLM = { from = from, lootMaster = lootMaster }
+    local delegate = lootMaster and addon.Player:Get(lootMaster)
+    addon.db.councilRelayKept = {
+        owner = UnitGUID("player"), at = GetServerTime(),
+        leader = addon.Player:Get(from).guid or from,
+        lootMaster = delegate and (delegate.guid or lootMaster) or false,
+    }
+end
+
+
+local function LeaderDelegate(leader)
+    if leaderLM and addon.Player:IsSame(leaderLM.from, leader) then return leaderLM.lootMaster end
+    local kept = addon.db and addon.db.councilRelayKept
+    if type(kept) ~= "table" or kept.owner ~= UnitGUID("player") then return nil end
+    if type(kept.at) ~= "number" or GetServerTime() - kept.at > RELAY_KEPT_FOR then return nil end
+    if type(kept.leader) ~= "string" or not addon.Player:IsSame(kept.leader, leader) then return nil end
+    if kept.lootMaster ~= false and type(kept.lootMaster) ~= "string" then return nil end
+    return kept.lootMaster
+end
+
+local function ForgetLeaderDelegate()
+    leaderLM = nil
+    if addon.db then addon.db.councilRelayKept = nil end
+end
+
+
 
 local function MayApplyCouncil(sender, args)
     if addon.IsMasterLooter(sender) then return true end
@@ -1048,10 +1097,19 @@ local function MayApplyCouncil(sender, args)
     if not IsInGroup() or IsAuthor() or addon.Config:HasShared() then return false end
     if syncAsks < LEADER_SILENT_ASKS then return false end
     if not addon.Player:IsSame(named, sender) then return false end
+    local leader = addon.GetGroupLeader()
+    local delegate = leader and LeaderDelegate(leader)
+    if type(delegate) ~= "string" or not addon.Player:IsSame(delegate, named) then
+        addon.Log:D("Council", "refusing a council relayed by", tostring(sender),
+            "- the leader named", tostring(delegate))
+        return false
+    end
     addon.Log:I("Council", "the leader has not answered - taking the council relayed by",
         tostring(sender))
     return true
 end
+
+
 
 local function OnCouncil(args, sender)
     if type(args) ~= "table" then return end
@@ -1067,6 +1125,10 @@ local function OnCouncil(args, sender)
 
 
             if type(args.guids) == "table" then relayed = RelayCopy(args, sender) end
+            local config = args.config
+            if type(config) == "table" and config.lootMaster ~= nil then
+                Council:NoteLeaderDelegate(sender, config.lootMaster)
+            end
         elseif IsAuthor() then
             addon.Log:D("Council", "we lead - ignoring a council relayed by", tostring(sender))
             return
@@ -1154,6 +1216,7 @@ function Council:Init()
         C_Timer.After(3, function()
             if not IsInGroup() then
                 ForgetDelegation("not in a group")
+                ForgetLeaderDelegate()
             elseif addon.Loot and addon.Loot.CheckLootMaster then
 
 
@@ -1171,6 +1234,7 @@ function Council:Init()
             addon.Config:ClearShared("left the group")
             ForgetDelegation("left the group")
             relayed, heardFrom, appliedDigest = nil, nil, nil
+            ForgetLeaderDelegate()
             answeredAt, answeredCount = {}, 0
         elseif addon.Player:IsSame(addon.Player:GetFullName("player"),
             addon.GetGroupLeader()) then

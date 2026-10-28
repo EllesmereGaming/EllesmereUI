@@ -1515,8 +1515,8 @@ LayoutCDMBar = function(barKey)
     if EllesmereUI.IsPointAnchored(unlockKey) then EllesmereUI.ReapplyOwnAnchor(unlockKey) end
 
     -- FocusKick: re-anchor against the focus nameplate after every layout pass so the bar tracks size/icon-count changes from the options panel.
-    if barKey == FOCUSKICK_BAR_KEY and ns.ApplyFocusKickAnchor then
-        ns.ApplyFocusKickAnchor()
+    if barKey == ns.FOCUSKICK_BAR_KEY and ns.ReapplyFocusKick then
+        ns.ReapplyFocusKick()
     end
 end
 
@@ -1625,13 +1625,9 @@ local function ApplyCDMTooltipState(barKey)
     else
         _tooltipBars[barKey] = nil
         -- Clear a tooltip showing for an icon on this bar
-        if _tooltipCurrentIcon then
-            local sfc = _ecmeFC[_tooltipCurrentIcon]
-            if sfc and sfc.barKey == barKey then
-                GameTooltip:Hide()
-                _tooltipCurrentIcon = nil
-            end
-        end
+        local owner = GameTooltip:GetOwner()
+        local sfc = owner and _ecmeFC[owner]
+        if sfc and sfc.barKey == barKey then GameTooltip:Hide() end
     end
     -- Mouse-motion follows the tooltip setting. A motion-enabled icon with no unit becomes the
     -- mouseover-focus frame and steals hover from unit frames underneath (raid frame hover

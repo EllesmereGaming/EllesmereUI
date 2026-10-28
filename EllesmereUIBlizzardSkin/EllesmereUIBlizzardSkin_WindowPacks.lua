@@ -323,6 +323,8 @@ local function FadeSpellItem(item)
     end
     if item.Name then WSkin.White(item.Name) end
     if item.SubName then WSkin.White(item.SubName) end
+    -- The "Level N" / trainable line of an unlearned spell: the same parchment ink.
+    if item.RequiredLevel then WSkin.White(item.RequiredLevel) end
 end
 
 local function FadeSpellItemsIn(frame, depth)

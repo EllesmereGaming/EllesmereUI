@@ -1459,8 +1459,14 @@ end
 --- on a spec transition: movers, snapshots, and pending edits all belong to the
 --- OUTGOING spec's layout, so saving them against the incoming spec would corrupt both baseline and spec-override data.
 function EllesmereUI.ForceCloseUnlockDiscard()
+    -- A combat-suspended session is still open (it keeps its snapshots for the
+    -- resume): reopen its state so the close below ends it.
+    if UM.combatSuspended then
+        UM.combatSuspended = false
+        UM.isUnlocked = true
+    end
     if not UM.isUnlocked then return end
-    print("|cffff6060[EllesmereUI]|r Spec changed: Unlock Mode closed, unsaved layout changes discarded.")
+    EllesmereUI.PrintError(EllesmereUI.L("Layout changed: Unlock Mode closed, unsaved layout changes discarded."))
     pendingAfterClose = nil
     -- Unconditional: RevertPositions only runs below when positions changed,
     -- but the value-edit snapshot must never survive a discard-close.

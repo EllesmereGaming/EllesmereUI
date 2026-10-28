@@ -72,11 +72,9 @@ function ns.UFO_EditCustomText(prefix, db, unit, onSave, warning)
             onSave()
         end,
     }
-    if ns.UF_TextTags then
-        EllesmereUI.TextTags.PopupOpts(ns.UF_TextTags, popupOpts, {
-            tagNotes = { hp = EllesmereUI.L("shows DEAD or OFFLINE") },
-        })
-    end
+    EllesmereUI.TextTags.PopupOpts(ns.UF_TextTags, popupOpts, {
+        tagNotes = { hp = EllesmereUI.L("shows DEAD or OFFLINE") },
+    })
     EllesmereUI:ShowInputPopup(popupOpts)
 end
 
@@ -155,7 +153,6 @@ end
 -- on a Custom slot, or one holding a format an override may switch back to.
 function ns.UFO_AddCustomFormatAccessor(rgn, label, prefix, content, getDB, apply)
     local fk = prefix .. "CustomFormat"
-    if not EllesmereUI.AddCaptureAccessor then return end
     if content ~= "custom" and type(getDB()[fk]) ~= "string" then return end
     EllesmereUI.AddCaptureAccessor(rgn, {
         type = "input", text = label .. " Custom Format",
@@ -171,7 +168,7 @@ end
 function ns.UF_CoreTextRows(prefix, contentDefault, get, set, rows)
     rows = ns.UF_NameFormatRows(prefix, contentDefault, get, set, rows)
     local content = get(prefix .. "Content", contentDefault)
-    local parsed = content == "custom" and ns.UF_TextTags
+    local parsed = content == "custom"
         and EllesmereUI.TextTags.Parse(ns.UF_TextTags, get(prefix .. "CustomFormat"))
     local hasLevel = content == "level" or content == "levelname" or content == "namelevel"
         or (parsed and parsed.has.level)

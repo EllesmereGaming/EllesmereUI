@@ -34,7 +34,6 @@ local filter = {
 }
 
 
-
 local WINDOW_ORDER = { 0, 30, 90, 365 }
 local WINDOW_LABEL = addon.Locale.Texts{ [0] = T["All time"], [30] = T["Last 30 days"], [90] = T["Last 90 days"],
     [365] = T["Last year"] }
@@ -159,6 +158,7 @@ end
 local function ShortDate(entry)
     if type(entry.epoch) == "number" and entry.epoch > 0 then return addon.WhenText(entry.epoch) end
     if entry.date and entry.date ~= "" then
+
         return addon.StoredDateText(entry.date, true) .. " " .. tostring(entry.time or ""):sub(1, 5)
     end
     return "?"
@@ -308,8 +308,10 @@ local function ShowRowMenu(row, entry)
         end
     end
 
+
+    local _, canonical = C_Item.GetItemInfo(entry.link or "")
     local items = {
-        { title = entry.name or entry.link or T["History entry"] },
+        { title = canonical or entry.name or entry.link or T["History entry"] },
         { text = T["Set winner"], children = winners },
         { text = T["Set response"], children = responses },
     }
@@ -519,6 +521,7 @@ local function OriginMenu(window)
 
 
     function menu:Finish(used)
+        S.MatchScale(menu, window)
         for i = used + 1, #rows do rows[i]:Hide() end
         local visible = math.max(1, math.min(used, ORIGIN_MENU_ROWS))
         P.Size(menu, ORIGIN_MENU_W, visible * size.ROW_H + 2 * ORIGIN_PAD)
@@ -986,19 +989,11 @@ end
 
 
 
-
-
-
-
-
-
-
-
 local SEARCH_DELAY = 0.2
 
 
 local function Build()
-    frame = S.Window("SimpleLootCouncilHistoryFrame", "history", HISTORY_W, 470, T["Loot History"],
+    frame = S.Window("SimpleLootCouncilHistoryFrame", "history", HISTORY_W, 470, T["Loot history"],
         { tabs = true })
     frame:RestorePosition()
 
@@ -1196,7 +1191,8 @@ local function Build()
     historyPane:HookScript("OnHide", function()
         Tbl.Release(table_)
         addon.Callbacks:Invalidate("history")
-        addon.History:DropArchive("history")    end)
+        addon.History:DropArchive("history")
+    end)
 
     historyPane:HookScript("OnShow", function() addon.History:HoldArchive("history") end)
 
@@ -1207,8 +1203,23 @@ local function Build()
         shown = function() return historyPane:IsVisible() end,
     })
 
-    frame.Tabs:AddTab("history", T["All loot"])
-    frame.Tabs:AddTab("team", T["Raid team"])
+    local function TeamTabText()
+        return S.PrideActive() and S.PrideText(T["Raid team"]) or T["Raid team"]
+    end
+    local function AllTabText()
+        return S.PrideActive() and T["All gay loot"] or T["All loot"]
+    end
+    frame.Tabs:AddTab("history", AllTabText())
+    frame.Tabs:AddTab("team", TeamTabText())
+
+    local refreshTitle = frame.RefreshTitle
+    frame.RefreshTitle = function()
+        refreshTitle()
+        if frame.Tabs.SetTabText then
+            frame.Tabs:SetTabText("history", AllTabText())
+            frame.Tabs:SetTabText("team", TeamTabText())
+        end
+    end
     frame.Tabs.onSelect = function(key) HistoryFrame:ShowTab(key) end
 
     addon.Log:D("UI", "history frame built")

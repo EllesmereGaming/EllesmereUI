@@ -186,10 +186,7 @@ function XF.Dungeons()
     return dungeons
 end
 
-local function Contains(list, v)
-    for i = 1, #list do if list[i] == v then return i end end
-    return nil
-end
+local Contains = tIndexOf
 
 -- No dungeon restriction: empty list or every season dungeon.
 local function DungeonsDefault(f)

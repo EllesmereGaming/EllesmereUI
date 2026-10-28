@@ -562,8 +562,7 @@ local function SnapPosition(dragKey, cx, cy, halfW, halfH)
         -- X-axis: dragged {left, center, right} vs target {left, center, right}
         local dragXEdges = { dL, cx, dR }
         local targXEdges = { oL, oCX, oR }
-        local snapXEdgeIdx = nil
-        for di, de in ipairs(dragXEdges) do
+        for _, de in ipairs(dragXEdges) do
             for _, te in ipairs(targXEdges) do
                 local dx = de - te
                 local adx = abs(dx)
@@ -571,7 +570,6 @@ local function SnapPosition(dragKey, cx, cy, halfW, halfH)
                     bestDistX = adx
                     bestDX = dx
                     snapXLinePos = te
-                    snapXEdgeIdx = di
                 end
             end
         end
@@ -579,8 +577,7 @@ local function SnapPosition(dragKey, cx, cy, halfW, halfH)
         -- Y-axis: dragged {top, center, bottom} vs target {top, center, bottom}
         local dragYEdges = { dT, cy, dB }
         local targYEdges = { oT, oCY, oB }
-        local snapYEdgeIdx = nil
-        for di, de in ipairs(dragYEdges) do
+        for _, de in ipairs(dragYEdges) do
             for _, te in ipairs(targYEdges) do
                 local dy = de - te
                 local ady = abs(dy)
@@ -588,7 +585,6 @@ local function SnapPosition(dragKey, cx, cy, halfW, halfH)
                     bestDistY = ady
                     bestDY = dy
                     snapYLinePos = te
-                    snapYEdgeIdx = di
                 end
             end
         end
@@ -603,12 +599,10 @@ local function SnapPosition(dragKey, cx, cy, halfW, halfH)
     -- Record guide line positions for ShowAlignmentGuides
     if bestDistX < SNAP_THRESH and snapXLinePos then
         lastSnapInfo.snapXPos = snapXLinePos
-        lastSnapInfo.xEdge = snapXEdgeIdx
         lastSnapInfo.lockX = true  -- skip SnapForES on X axis
     end
     if bestDistY < SNAP_THRESH and snapYLinePos then
         lastSnapInfo.snapYPos = snapYLinePos
-        lastSnapInfo.yEdge = snapYEdgeIdx
         lastSnapInfo.lockY = true  -- skip SnapForES on Y axis
     end
 

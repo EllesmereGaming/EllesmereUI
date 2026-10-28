@@ -185,7 +185,7 @@ end
 local function EstimateUFTextWidth(content, customFmt, isRight)
     if content == "custom" then
         local TT, cat = EllesmereUI.TextTags, ns.UF_TextTags
-        local parsed = cat and TT.Parse(cat, customFmt)
+        local parsed = TT.Parse(cat, customFmt)
         if not parsed then return UF_TEXT_PADDING end
         return TT.EstimateWidth(cat, parsed, not isRight and NoNameWidth or nil) + UF_TEXT_PADDING
     end
@@ -201,7 +201,7 @@ function ns.UF_IsPowerContent(content, customFmt)
         return true
     end
     if content ~= "custom" then return false end
-    local parsed = ns.UF_TextTags and EllesmereUI.TextTags.Parse(ns.UF_TextTags, customFmt)
+    local parsed = EllesmereUI.TextTags.Parse(ns.UF_TextTags, customFmt)
     return parsed ~= nil and parsed.reads.pp == true
 end
 
