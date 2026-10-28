@@ -246,6 +246,7 @@ local emLast = {}
 -- write chat's anchor (and its size, once saved) into it. A preset is never
 -- written.
 function ns.EMChatSync()
+    if ECHAT.DataBarDockActive and ECHAT.DataBarDockActive() then return end
     if InCombatLockdown() then return end
     local cfg = ECHAT.DB()
     local cf1 = _G.ChatFrame1
@@ -368,6 +369,10 @@ end
 local CanonicalizeChatPosition
 
 local function ApplyChatPosition()
+    if ECHAT.DataBarDockActive and ECHAT.DataBarDockActive() then
+        if not InCombatLockdown() then EnsureChatClampInsets() end
+        if ECHAT.ApplyDataBarDock and ECHAT.ApplyDataBarDock() then return end
+    end
     -- A grip resize is an engine-driven op on ChatFrame1; the op re-anchors
     -- the frame, Edit Mode's machinery reacts with ApplySystemAnchor, and
     -- the guard below would then re-apply the SAVED anchors every tick --
@@ -462,6 +467,7 @@ local function ApplyChatPosition()
 end
 CanonicalizeChatPosition = function()
     ns._chatCanonPending = nil
+    if ECHAT.DataBarDockActive and ECHAT.DataBarDockActive() then return end
     local cf1 = _G.ChatFrame1
     local cfg2 = ECHAT.DB()
     if not cf1 or not cfg2 or not cfg2.chatPosition or ns._chatSizingActive then
@@ -762,6 +768,7 @@ local function BuildMainChatResizeGrip(cf)
     end)
 
     grip:SetScript("OnMouseDown", function(_, button)
+        if ECHAT.DataBarDockActive and ECHAT.DataBarDockActive() then return end
         if button ~= "LeftButton" then return end
         -- Belt behind the combat hide: no drag may start in lockdown even
         -- if a hide edge races the click.
