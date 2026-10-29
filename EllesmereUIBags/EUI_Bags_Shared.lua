@@ -85,6 +85,8 @@ local function PinItemButtonLevel(btn, level)
     btn:SetFrameLevel(level)
     if btn._textOverlay then btn._textOverlay:SetFrameLevel(level + 3) end
     if btn._warbankDim then btn._warbankDim:SetFrameLevel(level + 6) end
+    -- Item Icons' marks (+4, a fixed level as well) follow (EUI_Bags_Slots.lua)
+    if ns.ItemIconsRepin then ns.ItemIconsRepin(btn) end
 end
 
 -- background color/opacity for bags and bank: the texture fades with the
@@ -554,6 +556,8 @@ do
         if standDown == nil then standDown = EUI.PadGamepadUI() end
         return standDown
     end
+    -- Item Icons (EllesmereUIQoL) follows it for Blizzard's bags and bank
+    EUI._BagsStandDown = ns.PadUIStandDown
 
     function ns.PadStyleChanged()
         if styleAsked then return end

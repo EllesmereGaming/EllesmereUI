@@ -8020,16 +8020,25 @@ end
 --  level top-left of each vendor tile for weapons/armor when
 --  EllesmereUIDB.merchantShowItemLevel is set. Buttons carry their merchant
 --  slot index as their ID (set by MerchantFrame_Update), so the link resolves
---  straight from GetMerchantItemLink.
+--  straight from GetMerchantItemLink. Steps aside while Quality of Life >
+--  Item Icons manages the vendor, which then draws the item levels itself and
+--  calls EllesmereUI._Merchant_RefreshItemLevels as it takes over and lets go.
 -------------------------------------------------------------------------------
 do
 local MERCHANT_ILVL_WEAPON = Enum.ItemClass.Weapon
 local MERCHANT_ILVL_ARMOR  = Enum.ItemClass.Armor
 
+-- The toggle, unless Item Icons (EllesmereUIQoL_ItemIcons.lua) manages the vendor
+local function ShowItemLevels()
+    local II = EllesmereUI.ItemIcons
+    return EllesmereUIDB and EllesmereUIDB.merchantShowItemLevel == true
+        and not (II and II.IsFrameEnabled("merchant"))
+end
+
 local function UpdateMerchantItemLevels()
     local f = _G.MerchantFrame
     if not f then return end
-    local show = EllesmereUIDB and EllesmereUIDB.merchantShowItemLevel == true
+    local show = ShowItemLevels()
     local onSellTab = (f.selectedTab or 1) == 1
     local numItems
     if EllesmereUIDB.merchantShowAsList then
@@ -8105,7 +8114,7 @@ end
 local mILvlBoot = CreateFrame("Frame")
 local _merchantOpen = false
 local function SyncMerchantILvlEvents()
-    local on = EllesmereUIDB and EllesmereUIDB.merchantShowItemLevel == true
+    local on = ShowItemLevels()
     if on then EnsureMerchantILvlHook() end
     if on and _merchantOpen then
         mILvlBoot:RegisterEvent("GET_ITEM_INFO_RECEIVED")

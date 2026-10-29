@@ -8,7 +8,6 @@ local EUI = EllesmereUI
 local ns = select(2, ...)  -- helpers shared with EllesmereUIBags.lua and the EUI_Bags_*.lua files (loaded first)
 local GetItemInfo = C_Item.GetItemInfo
 local GetItemInfoInstant = C_Item.GetItemInfoInstant
-local GetItemQualityColor = C_Item.GetItemQualityColor
 -- Profile access helper (DB created in EUI_Bags_Options.lua, loaded first per TOC)
 local _emptyP = {}
 local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
@@ -2569,6 +2568,9 @@ function EUI_Bank:RefreshBank()
     -- as on the bank's list rows (read once per refresh)
     local junkOn = _G.EUI_CategoryManager:IsJunkMarkerEnabled()
     local desatJunk = BP().bagDesaturateJunkItems == true
+    -- Item Icons takeover: its marks replace the item level, bind type and
+    -- crafting quality overlays (read once per refresh)
+    local iiOn = ns.ItemIconsOn()
     local function RenderSlotContent(btn, bagID, slot, cachedInfo)
         if btn.ProfessionQualityOverlay then btn.ProfessionQualityOverlay:SetAlpha(0) end
         if btn.IconOverlay then btn.IconOverlay:SetAlpha(0); btn.IconOverlay:Hide() end
@@ -2587,6 +2589,7 @@ function EUI_Bank:RefreshBank()
             if btn.BindTypeText then btn.BindTypeText:SetText("") end
             if btn.IconBorder then btn.IconBorder:Hide() end
             if btn.NormalTexture then btn.NormalTexture:SetAlpha(0) end
+            if iiOn then ns.ItemIconsPaint(btn) end
         else
             btn:EnableMouse(true)
             btn._emptyBg:Hide()
@@ -2598,7 +2601,7 @@ function EUI_Bank:RefreshBank()
                 or (junkOn and _G.EUI_CategoryManager:IsJunk(info.itemID, quality)))) or false)
             local itemLink = C_Container.GetContainerItemLink(bagID, slot)
             if itemLink then btn:SetItemButtonQuality(quality, itemLink, false, false) end
-            if btn.ProfessionQualityOverlay and btn.ProfessionQualityOverlay:IsShown() and btn._textOverlay then
+            if btn.ProfessionQualityOverlay and btn.ProfessionQualityOverlay:IsShown() and btn._textOverlay and not iiOn then
                 btn.ProfessionQualityOverlay:SetAlpha(1)
                 btn.ProfessionQualityOverlay:SetParent(btn._textOverlay)
             end
@@ -2627,8 +2630,8 @@ function EUI_Bank:RefreshBank()
             -- One gear check + one GetItemInfo fetch shared by the bind-type
             -- and item-level texts
             local isGear = itemLink and IsGearItem(itemLink)
-            local showBindType = isGear and not info.isBound and BP().bagDisplayBindType
-            local showIlvl = isGear and BP().showItemlevelInBags ~= false
+            local showBindType = isGear and not info.isBound and BP().bagDisplayBindType and not iiOn
+            local showIlvl = isGear and BP().showItemlevelInBags ~= false and not iiOn
             local giIlvl, giBindType
             local loc
             if showBindType or showIlvl then
@@ -2655,23 +2658,15 @@ function EUI_Bank:RefreshBank()
             if btn.ItemLevelText then
                 if showIlvl then
                     btn.ItemLevelText:SetText(giIlvl or "")
-                    local r, g, b
+                    local custom, track
                     if GetUpgradeTrack then
-                        local rankText, trackColor = GetUpgradeTrack(itemLink)
-                        if BP().itemlevelUseCustomColor and BP().itemlevelCustomColor then
-                            r, g, b = BP().itemlevelCustomColor.r, BP().itemlevelCustomColor.g, BP().itemlevelCustomColor.b
-                        elseif rankText and rankText ~= "" and trackColor then
-                            r, g, b = trackColor.r, trackColor.g, trackColor.b
-                        else
-                            local craftedColor = EUI.GetCraftedTrackColor(itemLink)
-                            if craftedColor then
-                                r, g, b = craftedColor.r, craftedColor.g, craftedColor.b
-                            end
+                        custom = BP().itemlevelUseCustomColor and BP().itemlevelCustomColor
+                        if not custom then
+                            local rankText, trackColor = GetUpgradeTrack(itemLink)
+                            track = rankText and rankText ~= "" and trackColor or EUI.GetCraftedTrackColor(itemLink)
                         end
                     end
-                    if not r then
-                        r, g, b = GetItemQualityColor(quality)
-                    end
+                    local r, g, b = EUI.ItemLevelRGB(custom, track, quality)
                     btn.ItemLevelText:SetTextColor(r, g, b, 1)
                 else
                     btn.ItemLevelText:SetText("")
@@ -2682,6 +2677,14 @@ function EUI_Bank:RefreshBank()
                 if cdE and cdE ~= 0 and cdS > 0 and cdD > 0 then
                     btn.Cooldown:SetDrawEdge(true); btn.Cooldown:SetCooldown(cdS, cdD)
                 else btn.Cooldown:Clear() end
+            end
+            if iiOn then
+                local f = ns.ItemIconsFacts(btn)
+                f.isGear, f.isBound = isGear, info.isBound
+                -- The Junk Marker's verdict only while it is on
+                if junkOn then f.isJunk = _G.EUI_CategoryManager:IsJunk(info.itemID, quality) end
+                -- The bank leaves search misses out instead of dimming them
+                ns.ItemIconsPaint(btn, bagID, slot, itemLink, info.stackCount, info.quality, info.itemID, false)
             end
         end
         if next(EUI_Bags.itemOverlayIcons) ~= nil then

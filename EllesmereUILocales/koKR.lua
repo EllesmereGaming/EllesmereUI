@@ -59,11 +59,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- to generate the full remaining key list. Untranslated keys fall back to English.
 -- + bag keystone Korean-cut engine below this header (가방 쐐기돌 한글컷 엔진 포함)
 
--- Bag keystone dungeon abbreviation overrides (koKR). AbbrevDungeon in
--- EllesmereUIBags cuts the localized dungeon name to first-letters, which in
--- Korean yields awkward 2-char cuts; remap those to cleaner short names. DATA
--- ONLY -- EllesmereUIBags applies it after computing the abbreviation (no
--- global SetText hook, no per-call cost). "마정"/"하늘탑" already correct.
+-- Bag keystone dungeon abbreviation overrides (koKR). EllesmereUI.AbbrevDungeon
+-- (EllesmereUI.lua, shared by EUI Bags and QoL Item Icons) cuts the localized
+-- dungeon name to first-letters, which in Korean yields awkward 2-char cuts;
+-- remap those to cleaner short names. DATA ONLY -- AbbrevDungeon applies it
+-- after computing the abbreviation (no global SetText hook, no per-call cost). "마정"/"하늘탑" already correct.
 -- (가방 쐐기돌 한글컷 -> 단축명. 순수 한글 키는 본체 L() 불가라 자체 처리)
 -- To reuse for another locale, check in-game how that client cuts the localized
 -- dungeon names, then add its own guarded override table the same way.

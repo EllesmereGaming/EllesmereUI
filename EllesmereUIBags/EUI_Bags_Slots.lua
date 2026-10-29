@@ -3,7 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EUI_Bags_Slots.lua
 --
 --  Drag-to-drop, the slot factory, the fast font and icon-zoom updates,
---  bind text, border color and the item overlay icons.
+--  bind text, border color, the item overlay icons and the Item Icons
+--  takeover adapter.
 --  Reads the earlier Bags files through ns and ns._bagsInternals.
 -------------------------------------------------------------------------------
 local ns = select(2, ...)
@@ -403,19 +404,14 @@ EUI_Bags.RefreshIconZoom = RefreshIconZoom
 -------------------------------------------------------------------------------
 --  Bind type text (shared by bags and bank render paths)
 -------------------------------------------------------------------------------
--- WuE items report bindType == OnEquip (no dedicated enum): check WuE first.
+-- The label and color of EllesmereUI.BindLabel; empty for any other bind type
 function EUI_Bags.SetBindTypeText(fs, isWuE, bindType, quality)
-    local c
-    if isWuE then
-        c = ITEM_QUALITY_COLORS[7] -- Heirloom color (no quality enum for WuE)
-        fs:SetText(EllesmereUI.L("WuE"))
-    elseif bindType == Enum.ItemBind.OnEquip then
-        c = ITEM_QUALITY_COLORS[quality]
-        fs:SetText(EllesmereUI.L("BoE"))
-    else
+    local text, c = EUI.BindLabel(isWuE, bindType, quality)
+    if not text then
         fs:SetText("")
         return
     end
+    fs:SetText(text)
     if c then fs:SetTextColor(c.r, c.g, c.b) else fs:SetTextColor(1, 1, 1) end
 end
 
@@ -564,6 +560,111 @@ function EUI_Bags.RunItemOverlays(btn, data)
     if next(fns) == nil then return end
     for _, fn in pairs(fns) do
         securecallfunction(fn, btn, data)
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Item Icons takeover (Quality of Life > Item Icons, frame key "eui_bags").
+--  While it manages EUI Bags, the grid, Compact, reagent and bank slots draw
+--  their marks through EllesmereUI.ItemIcons.Paint with the facts the render
+--  pass already holds, and Bags' own overlays stay empty. Released, or QoL not
+--  loaded, they draw from the Bags settings as before. List rows keep their
+--  columns. The overlay icons above run in both cases.
+-------------------------------------------------------------------------------
+do
+    local II  -- EllesmereUI.ItemIcons once the adapter is registered
+    local FRAME_KEY = "eui_bags"
+    -- Per button, the ctx of its last paint (link, bag, slot, count, quality,
+    -- itemID, alpha, facts), built once and reused: a Refresh repaints the
+    -- shown slots from these without a bag scan. link nil: nothing painted.
+    local records = setmetatable({}, { __mode = "k" })
+
+    local function Record(btn)
+        local rec = records[btn]
+        if not rec then
+            rec = { facts = {} }
+            records[btn] = rec
+        end
+        return rec
+    end
+
+    -- Read once per render pass
+    function ns.ItemIconsOn()
+        return II ~= nil and II.IsFrameEnabled(FRAME_KEY)
+    end
+
+    -- The button's facts for the ns.ItemIconsPaint that follows, emptied
+    -- first: nil = not read (the element reads it if it needs it), false =
+    -- known absent
+    function ns.ItemIconsFacts(btn)
+        local facts = Record(btn).facts
+        wipe(facts)
+        return facts
+    end
+
+    -- Paints a slot's marks with the facts from ns.ItemIconsFacts (none
+    -- without a link); the stackCount element replaces the stack count.
+    -- filtered: the search dims the slot.
+    function ns.ItemIconsPaint(btn, bag, slot, link, count, quality, itemID, filtered)
+        if btn.Count then btn.Count:Hide() end
+        if not link then
+            local rec = records[btn]
+            if rec then rec.link = nil end
+            II.Clear(btn)
+            return
+        end
+        local rec = Record(btn)
+        rec.link, rec.bag, rec.slot, rec.count = link, bag, slot, count
+        rec.quality, rec.itemID = quality, itemID
+        rec.alpha = filtered and II.DIM_ALPHA or 1
+        II.Paint(btn, rec, FRAME_KEY)
+    end
+
+    -- ns.PinItemButton moved a slot to a new fixed level: its marks repaint at
+    -- that level (the core levels them off the button on every paint)
+    function ns.ItemIconsRepin(btn)
+        local rec = records[btn]
+        if rec and rec.link then II.Paint(btn, rec, FRAME_KEY) end
+    end
+
+    -- Mark mode: a painted slot's Junk Marker verdict changed
+    function ns.ItemIconsSetJunk(btn, isJunk)
+        local rec = records[btn]
+        if rec and rec.link then
+            rec.facts.isJunk = isJunk
+            II.Paint(btn, rec, FRAME_KEY)
+        end
+    end
+
+    -- Take and release: the open windows repaint in full (each refresh returns
+    -- while its window is closed). A sort running holds the bags' refresh and
+    -- repaints them when it ends.
+    local function RepaintOpenWindows()
+        if EUI_Bags.refreshEnabled ~= false then EUI_Bags:RefreshInventory() end
+        EUI_BagsReagent:RefreshInventory()
+        ns.RefreshOpenBank()
+    end
+
+    local function Release()
+        for _, rec in pairs(records) do rec.link = nil end
+        RepaintOpenWindows()
+    end
+
+    -- Layout, style or item data changes: only the marks of the shown slots
+    local function RepaintMarks()
+        for btn, rec in pairs(records) do
+            if rec.link and btn:IsVisible() then II.Paint(btn, rec, FRAME_KEY) end
+        end
+    end
+
+    -- At login: QoL (loaded after Bags) has built EllesmereUI.ItemIcons by then
+    function ns.RegisterItemIcons()
+        II = EUI.ItemIcons
+        if II and not II.RegisterFrame(FRAME_KEY, {
+            Enable = RepaintOpenWindows, Refresh = RepaintMarks, Disable = Release,
+        }) then
+            II = nil
+        end
     end
 end
 

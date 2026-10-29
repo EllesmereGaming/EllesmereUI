@@ -1333,6 +1333,8 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Show Item Levels",
               tooltip="Shows the item level on each item in the character sheet gear flyout (the popup of same-slot bag items that appears when hovering an equipped slot), coloured by quality.",
+              disabled=function() return EllesmereUI.ItemIconsManages("flyout") end,
+              disabledTooltip=EllesmereUI.ITEM_ICONS_MANAGED_TIP, rawTooltip=true,
               getValue=function() return EllesmereUIDB and EllesmereUIDB.flyoutItemLevels or false end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1844,6 +1846,8 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:DualRow(parent, y,
             { type="toggle", text="Show Item Level",
               tooltip="Shows the item level on weapons and armor a vendor sells.",
+              disabled=function() return EllesmereUI.ItemIconsManages("merchant") end,
+              disabledTooltip=EllesmereUI.ITEM_ICONS_MANAGED_TIP, rawTooltip=true,
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.merchantShowItemLevel == true
               end,

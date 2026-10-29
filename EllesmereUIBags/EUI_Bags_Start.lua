@@ -1031,6 +1031,8 @@ loader:SetScript("OnEvent", function(self, event)
             self:RegisterEvent("PLAYER_ENTERING_WORLD")
         end
     end
+    -- Quality of Life > Item Icons (EUI_Bags_Slots.lua): nothing while QoL is off
+    ns.RegisterItemIcons()
 end)
 
 -------------------------------------------------------------------------------

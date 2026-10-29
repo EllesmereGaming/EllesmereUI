@@ -1,9 +1,9 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_QoL_Options.lua
---  Registers the Quality of Life sidebar addon with its two tabs:
---    * Quality of Life -- general QoL features (built by parent general options)
---    * Cursor          -- cursor skin (built by EUI_QoL_Cursor_Options.lua)
+--  Registers the Quality of Life sidebar addon and its tabs. This file builds
+--  the Quality of Life page; the other tabs come from their own option files
+--  (Cursor, Shifter, Upgrader, Item Icons and more).
 -------------------------------------------------------------------------------
 -- Page names are DEEP-LINK IDENTIFIERS, not just tab labels: every
 -- NavigateToElementSettings tuple (_ELEMENT_SETTINGS_MAP, What's New nav)
@@ -22,6 +22,8 @@ local PAGE_UPGCALC  = "Upgrader"
 local PAGE_SHIFTER  = "Shifter"
 local PAGE_MOVEMENT = "MoveAlert"
 local PAGE_RAIDTOOLS = "Raid Tools"
+-- Also the target of the Bags module's link tab (EUI_Bags_Options.lua)
+local PAGE_ITEMICONS = "Item Icons"
 
 -------------------------------------------------------------------------------
 --  Hide Item Transforms picker popup
@@ -2525,7 +2527,7 @@ initFrame:SetScript("OnEvent", function(self)
         end -- not IS_FOREVER
 
         -- Keys, Logs & Brez sections live at the bottom of this page (the
-        -- separate tab was retired to keep the tab bar at five pages).
+        -- separate tab was retired to keep the tab bar short).
         if _G._EUI_BuildAutoLoggingPage then
             _, h = W:Spacer(parent, y, 16);  y = y - h
             local alH = _G._EUI_BuildAutoLoggingPage(pageName, parent, y)
@@ -2535,17 +2537,18 @@ initFrame:SetScript("OnEvent", function(self)
         return math.abs(y)
     end
 
-    local pages = { PAGE_QOL, PAGE_RAIDTOOLS, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT }
+    local pages = { PAGE_QOL, PAGE_RAIDTOOLS, PAGE_CURSOR, PAGE_SHIFTER, PAGE_MOVEMENT, PAGE_ITEMICONS }
     -- No item upgrade system on WoW Forever: the Upgrader tab is not offered there
     -- (its resident file returns at load, so the page builder never exists either).
     if not EllesmereUI.IS_FOREVER then pages[#pages + 1] = PAGE_UPGCALC end
-    local searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "upgrade tooltips", "tooltip", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown" }
+    local searchTerms = { "brez", "bres", "battle res", "combat res", "cursor", "macro", "fps", "logging", "combat log", "warcraft logs", "upgrade", "ilvl", "item level", "crest", "upgrade calculator", "upgrade tooltips", "tooltip", "shifter", "move", "drag", "position", "demodal", "drift", "combat alert", "enter combat", "leave combat", "in combat", "combat text", "combat notification", "transform", "transforms", "costume", "disguise", "chef's hat", "noggenfogger", "target distance", "distance to target", "range text", "yard", "yards", "movement", "mobility", "gap closer", "blink", "gateway", "warlock gateway", "control shard", "time spiral", "free movement", "raid tools", "raid", "pull timer", "pull", "ready check", "role check", "raid marker", "target marker", "world marker", "flare", "disband", "convert to raid", "countdown", "item icons", "transmog", "appearance", "upgrade track", "pip", "stack count", "boe", "warbound", "set name", "junk", "keystone", "crafting quality", "overlay", "upgrade arrow" }
     -- Terms for features WoW Forever does not have (the Battle Res indicator,
-    -- the Macro Factory) are dropped there, so a sidebar search for them does
-    -- not list this module; retail keeps the full list.
+    -- the Macro Factory, upgrade tracks, crafting quality) are dropped there,
+    -- so a sidebar search for them does not list this module; retail keeps the
+    -- full list.
     if EllesmereUI.IS_FOREVER then
         local foreverDrop = { ["brez"] = true, ["bres"] = true, ["battle res"] = true, ["combat res"] = true,
-            ["macro"] = true }
+            ["macro"] = true, ["upgrade track"] = true, ["pip"] = true, ["crafting quality"] = true }
         for i = #searchTerms, 1, -1 do
             if foreverDrop[searchTerms[i]] then table.remove(searchTerms, i) end
         end
@@ -2581,6 +2584,9 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if pageName == PAGE_RAIDTOOLS and _G._EUI_BuildRaidToolsPage then
                 return _G._EUI_BuildRaidToolsPage(pageName, parent, yOffset)
+            end
+            if pageName == PAGE_ITEMICONS and _G._EUI_BuildItemIconsPage then
+                return _G._EUI_BuildItemIconsPage(pageName, parent, yOffset)
             end
         end,
         -- Cached pages are restored WITHOUT a rebuild, so buildPage never runs
@@ -2710,6 +2716,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._ShutdownShifter then EllesmereUI._ShutdownShifter() end
             if _G._EUI_AutoLogging_Check then _G._EUI_AutoLogging_Check() end
             EllesmereUI._ModuleNS["EllesmereUIQoL"].SCT_Reset()
+            EllesmereUI.ItemIcons.Reset()
             EllesmereUI:InvalidatePageCache()
         end,
         -- Tears down Duration Warning, Raid Tools, and Movement Alert

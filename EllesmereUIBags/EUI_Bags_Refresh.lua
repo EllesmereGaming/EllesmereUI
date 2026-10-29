@@ -13,11 +13,11 @@ if not I or I.broken then return end
 I.broken = true
 
 local GetItemInfo = C_Item.GetItemInfo
-local GetItemQualityColor = C_Item.GetItemQualityColor
 local EUI = EllesmereUI
 local GetUpgradeTrack = EUI.GetUpgradeTrack
+local AbbrevDungeon = EUI.AbbrevDungeon
 
-local AbbrevDungeon, BP, GetColumns = I.AbbrevDungeon, I.BP, I.GetColumns
+local BP, GetColumns = I.BP, I.GetColumns
 local GetItemLevelAtLocation, IsGearItem = I.GetItemLevelAtLocation, I.IsGearItem
 local IsItemPinned, SetBagFont, SLOT_SIZE = I.IsItemPinned, I.SetBagFont, I.SLOT_SIZE
 local SPACING, _pendingResortCats = I.SPACING, I._pendingResortCats
@@ -614,11 +614,16 @@ function EUI_Bags:RefreshInventory()
                                 facts.trackText, facts.trackColor = rankText, trackColor
                             end
                         end
+                        -- false: read and none (nil: not read), so the Item
+                        -- Icons takeover passes these as known facts
                         if rankText and rankText ~= "" then
                             d._giTrackRank = rankText
-                            d._giTrackColor = trackColor
-                        elseif d._giIlvl and not (BP().itemlevelUseCustomColor and BP().itemlevelCustomColor) then
-                            d._giTrackColor = EUI.GetCraftedTrackColor(itemLink)
+                            d._giTrackColor = trackColor or false
+                        else
+                            d._giTrackRank = false
+                            if d._giIlvl and not (BP().itemlevelUseCustomColor and BP().itemlevelCustomColor) then
+                                d._giTrackColor = EUI.GetCraftedTrackColor(itemLink) or false
+                            end
                         end
                     end
                     -- Warbound check (warbank dim overlay) + WuE bind check (gear only, when bind-type text is enabled).
@@ -631,15 +636,13 @@ function EUI_Bags:RefreshInventory()
                         end
                     end
                     -- Keystone data (rare, fast string match gates the API calls)
-                    if info.itemID == 180653 or itemLink:find("keystone:", 1, true) then
-                        local ksMap, ksLvl = itemLink:match("keystone:[^:]*:(%d+):(%d+)")
-                        if ksLvl then
-                            d._ksLevel = ksLvl
-                            d._ksAbbrev = AbbrevDungeon(tonumber(ksMap))
-                            local ok, color = pcall(C_ChallengeMode.GetKeystoneLevelRarityColor, tonumber(ksLvl))
-                            if ok and color then
-                                d._ksR = color.r; d._ksG = color.g; d._ksB = color.b
-                            end
+                    local ksLvl, ksMap = EUI.ParseKeystoneLink(itemLink)
+                    if ksLvl then
+                        d._ksLevel = ksLvl
+                        d._ksAbbrev = AbbrevDungeon(ksMap)
+                        local ok, color = pcall(C_ChallengeMode.GetKeystoneLevelRarityColor, ksLvl)
+                        if ok and color then
+                            d._ksR = color.r; d._ksG = color.g; d._ksB = color.b
                         end
                     end
                     -- Cooldown (any item can have a cooldown: trinkets, consumables, toys, etc.)
@@ -1013,6 +1016,10 @@ function EUI_BagsReagent:RefreshInventory()
     end
 
     for _, btn in pairs(reagentSlots) do btn:GetParent():Hide() end
+    -- Item Icons takeover: the marks come from it, the item level stays empty;
+    -- the Junk Marker's verdict is passed only while the marker is on
+    local iiOn = ns.ItemIconsOn()
+    local junkOn = iiOn and EUI_CategoryManager:IsJunkMarkerEnabled()
 
     local startX, startY = 15, -45
     local REAGENT_COLUMNS = 4
@@ -1044,7 +1051,7 @@ function EUI_BagsReagent:RefreshInventory()
             if btn._textOverlay then btn._textOverlay:SetAlpha(filtered and 0.2 or 1) end
 
             if btn.ItemLevelText and data.info.itemID then
-                local showItemlevel = BP().showItemlevelInBags ~= false
+                local showItemlevel = BP().showItemlevelInBags ~= false and not iiOn
                 if showItemlevel then
                     if itemLink then
                         local _, _, quality = GetItemInfo(itemLink)
@@ -1054,12 +1061,8 @@ function EUI_BagsReagent:RefreshInventory()
                             local fs = BP().itemlevelFontSize or 12
                             btn.ItemLevelText:SetFont(STANDARD_TEXT_FONT, fs, (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG")
                             btn.ItemLevelText:SetText(level or "")
-                            local r, g, b
-                            if BP().itemlevelUseCustomColor and BP().itemlevelCustomColor then
-                                r, g, b = BP().itemlevelCustomColor.r, BP().itemlevelCustomColor.g, BP().itemlevelCustomColor.b
-                            else
-                                r, g, b = GetItemQualityColor(quality or 1)
-                            end
+                            local r, g, b = EUI.ItemLevelRGB(BP().itemlevelUseCustomColor and BP().itemlevelCustomColor,
+                                nil, quality or 1)
                             btn.ItemLevelText:SetTextColor(r, g, b, 1)
                         else btn.ItemLevelText:SetText("") end
                     else btn.ItemLevelText:SetText("") end
@@ -1069,7 +1072,17 @@ function EUI_BagsReagent:RefreshInventory()
             local r, g, b = ns.QualityBorderColor(data.info.quality or 1)
             SetInsetBorderColor(btn, r, g, b, 1)
         end
-        UpdatePawnArrow(btn, itemLink)
+        -- No link: Pawn's arrow stays hidden (Item Icons draws its own upgrade arrow)
+        UpdatePawnArrow(btn, not iiOn and itemLink or nil)
+        if iiOn and itemLink then
+            local info, f = data.info, ns.ItemIconsFacts(btn)
+            f.isBound = info.isBound
+            if junkOn then f.isJunk = EUI_CategoryManager:IsJunk(info.itemID, info.quality) end
+            ns.ItemIconsPaint(btn, data.bag, data.slot, itemLink, info.stackCount,
+                info.quality, info.itemID, info.isFiltered)
+        elseif iiOn then
+            ns.ItemIconsPaint(btn)
+        end
         if next(EUI_Bags.itemOverlayIcons) ~= nil then
             data.itemLink = itemLink
             EUI_Bags.RunItemOverlays(btn, data)
