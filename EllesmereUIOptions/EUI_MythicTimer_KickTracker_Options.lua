@@ -45,9 +45,6 @@ end
 
 local function On() return Get("enabled", false) == true end
 local function Off() return not On() end
-local function NoMarker()
-    return not (ns.FM_ValidMarker and ns.FM_ValidMarker(Get("focusMarker", 0)))
-end
 local function AnnounceOff() return Off() or Get("focusAnnounce", true) == false end
 local function PlatesOn() return On() and Get("showPlates", true) ~= false end
 local function PlatesOff() return not PlatesOn() end
@@ -287,11 +284,7 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
           tooltip="Your focus kick's raid marker. The Set Focus macro places it and Focus Announce tells it to the party.",
           values=MarkerValues(), order=MARKER_ORDER,
           getValue=function() return tostring(Get("focusMarker", 0)) end,
-          setValue=function(v)
-              Set("focusMarker", tonumber(v) or 0)
-              -- Auto Mark Focus follows the marker.
-              EllesmereUI:RefreshPage()
-          end },
+          setValue=function(v) Set("focusMarker", tonumber(v) or 0) end },
         nil);  y = y - h
     -- The red warning on the dropdown while the nameplate icons are on with
     -- no marker set (the standard empty-selection warning), with a dismiss
@@ -329,9 +322,9 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
     -- The Set Focus macro (EUI_MythicTimer_FocusMacro.lua), written from the
     -- Focus Marker. Not on WoW Forever, as the Macro Factory is not.
     if not EllesmereUI.IS_FOREVER then
-        _, h = W:TripleRow(parent, y,
+        _, h = W:DualRow(parent, y,
             { type="toggle", text="Set Focus Macro",
-              tooltip="The EUI_Focus macro: focuses your mouseover, else your target. Drag it from the game's macro window (General Macros) to your bars. It updates by itself when your Focus Marker changes.",
+              tooltip="The EUI_Focus macro: focuses the enemy under your mouse, else your target, and puts your Focus Marker on it unless a group member already marked it. Drag it from the game's macro window (General Macros) to your bars. It updates by itself when your Focus Marker changes.",
               getValue=function() return ns.FM_Exists and ns.FM_Exists() or false end,
               setValue=function(v)
                   if ns.FM_Create then
@@ -339,11 +332,6 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
                   end
                   EllesmereUI:RefreshPage()
               end },
-            { type="toggle", text="Auto Mark Focus",
-              tooltip="The macro puts your Focus Marker on the mob you focus, unless a group member already marked it.",
-              disabled=NoMarker, disabledTooltip="Pick a Focus Marker first.", rawTooltip=true,
-              getValue=function() return Get("focusMacroMark", false) == true end,
-              setValue=function(v) Set("focusMacroMark", v and true or false) end },
             { type="toggle", text="Ping Focus",
               tooltip="The macro pings the mob you focus (On My Way).",
               getValue=function() return Get("focusMacroPing", false) == true end,
