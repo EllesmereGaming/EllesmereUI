@@ -71,6 +71,8 @@ EllesmereUI_Visibility.lua
 EllesmereUI_Presets.lua
 EllesmereUI_Profiles.lua
 EllesmereUI_PartyMode.lua
+# Addon Manager (which addons are on, by default and per character, kept in the profile)
+EllesmereUI_AddonManager.lua
 EUI_MacroFactory.lua
 EUI_UnlockMode_PointAnchors.lua
 EUI_UnlockMode.lua
