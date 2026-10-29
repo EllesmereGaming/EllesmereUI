@@ -2549,6 +2549,9 @@ initFrame:SetScript("OnEvent", function(self)
         for i = #searchTerms, 1, -1 do
             if foreverDrop[searchTerms[i]] then table.remove(searchTerms, i) end
         end
+        -- The Unspent Legacy Points alert exists only there.
+        searchTerms[#searchTerms + 1] = "legacy"
+        searchTerms[#searchTerms + 1] = "legacy points"
     end
     EllesmereUI:RegisterModule("EllesmereUIQoL", {
         title       = "Quality of Life",
@@ -2666,6 +2669,11 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.talentAlertTextSize = nil
                 EllesmereUIDB.talentAlertColor = nil
                 EllesmereUIDB.talentAlertUseClassColor = nil
+                EllesmereUIDB.legacyAlertEnabled = false
+                EllesmereUIDB.legacyAlertText = nil
+                EllesmereUIDB.legacyAlertTextSize = nil
+                EllesmereUIDB.legacyAlertColor = nil
+                EllesmereUIDB.legacyAlertUseClassColor = nil
                 EllesmereUIDB.targetDistanceEnabled = false
                 EllesmereUIDB.targetDistanceFormat = nil
                 EllesmereUIDB.targetDistanceAlign = nil
