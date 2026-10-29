@@ -12,10 +12,12 @@
 # Main Lua
 EllesmereUIForeverEssentials.lua
 
-# General (spell uprank, classic spellbook and talents, junk items, simplified stats, gathering skill, map fade, active stance icon, map reveal, map markers, quest rewards)
+# General (spell uprank, classic spellbook and talents, group finder languages and zones, junk items, simplified stats, gathering skill, map fade, active stance icon, map reveal, map markers, quest rewards)
 EllesmereUIForeverEssentials_Uprank.lua
 EllesmereUIForeverEssentials_ClassicSpellbook.lua
 EllesmereUIForeverEssentials_ClassicTalents.lua
+EllesmereUIForeverEssentials_LFGLanguages.lua
+EllesmereUIForeverEssentials_LFGZones.lua
 EllesmereUIForeverEssentials_JunkItems.lua
 EllesmereUIForeverEssentials_SimplifiedStats.lua
 EllesmereUIForeverEssentials_GatherSkill.lua

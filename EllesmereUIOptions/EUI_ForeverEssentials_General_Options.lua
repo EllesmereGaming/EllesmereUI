@@ -185,6 +185,31 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     );  y = y - h
 
     ---------------------------------------------------------------------------
+    --  GROUP FINDER (EllesmereUIForeverEssentials_LFGLanguages.lua, _LFGZones.lua)
+    ---------------------------------------------------------------------------
+    local LL = EllesmereUI._LFGLanguages
+    local LZ = EllesmereUI._LFGZones
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "GROUP FINDER", y);  y = y - h
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Search Other Languages",
+          tooltip = "Adds Choose Languages to the cog menu of the Looking For Group window: each language you tick or untick there searches again, in the languages ticked (all by default), not only your game's. The refresh button still searches your language only.",
+          getValue = function() return LL.Get("enabled") end,
+          setValue = function(v)
+              LL.Cfg().enabled = v
+              LL.Apply()
+          end },
+        { type = "toggle", text = "Show Solo Player Zones",
+          tooltip = "Shows the zone of the players listed on their own (not in a group) in the Looking For Group window, on their result row and in their listing's tooltip.",
+          getValue = function() return LZ.Get("enabled") end,
+          setValue = function(v)
+              LZ.Cfg().enabled = v
+              LZ.Apply()
+          end }
+    );  y = y - h
+
+    ---------------------------------------------------------------------------
     --  WORLD MAP (Fade Map While Moving | Show the Game Behind the Map, then
     --  Reveal Unexplored Areas with its color in the cog | Show Zone Levels,
     --  then Show Map Markers with its sets in the cog:
