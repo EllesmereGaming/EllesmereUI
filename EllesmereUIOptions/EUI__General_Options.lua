@@ -2645,6 +2645,28 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -------------------------------------------------------------------
+        --  ADDON MANAGER (EllesmereUI_AddonManager.lua): the switch is here, the
+        --  window opens from the button, /euiaddons or the game menu.
+        -------------------------------------------------------------------
+        local AM = EllesmereUI.AddonManager
+        _, h = W:SectionHeader(parent, "ADDON MANAGER", y);  y = y - h
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Enable Addon Manager",
+              tooltip="Choose which addons are on, by default and per character. Nothing is read or changed while this is off.",
+              getValue=function()
+                local s = AM.Store()
+                return s ~= nil and s.enabled == true
+              end,
+              setValue=function(v)
+                AM.SetEnabled(v)
+                EllesmereUI:RefreshPage()
+              end },
+            { type="button", text="Open Addon Manager", width=220,
+              onClick=function() AM.Open(true) end });  y = y - h
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        -------------------------------------------------------------------
         --  DEVELOPER -- both toggles are duplicated in Quality of Life
         --  (Suppress Lua Errors) and Blizzard Skins+ (Spell ID on Tooltip):
         --  hidden here when BOTH modules are loaded, shown if either is missing so the settings stay reachable.
