@@ -148,7 +148,6 @@
 %s is no longer in %s's bags, so it cannot be awarded. Right-click it in the council list to remove it from the run.
 %s is not in your group
 %s is not in your group.
-%s is not in your guild.
 %s is not on the council.
 %s is now the group's Master Looter.
 %s is running Simple Loot Council for this raid.
@@ -443,7 +442,6 @@ It was equipped, which ends its trade window.
 It was not in %s's bags when it was awarded to %s.
 It was not in your bags when it was awarded to %s.
 Item
-Item Level %s
 Items
 Items appear here when you are holding something that was awarded to someone else.
 Items cannot be removed once the run has started.
@@ -969,6 +967,7 @@ history / h
 how much the log records
 ignored - not an attempt at a command, so no reply is sent.
 ilvl %d
+ilvl %s
 import failed
 item %d
 item %d skipped: %s

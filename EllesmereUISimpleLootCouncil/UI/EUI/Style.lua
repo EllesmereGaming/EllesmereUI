@@ -416,14 +416,107 @@ end
 
 
 
-local function IconGlyph(button, file, extent)
-    local tex = button:CreateTexture(nil, "OVERLAY")
-    P.Size(tex, extent, extent)
-    tex:SetPoint("CENTER")
-    tex:SetTexture(ICONS .. file)
-    return { SetColor = function(_, c) tex:SetVertexColor(Unpack(c)) end }
+local function IconGlyph(button, file, extent, spread)
+
+    local texs = {}
+    for i = 0, spread and 3 or 0 do
+        local tex = button:CreateTexture(nil, "OVERLAY")
+        P.Size(tex, extent, extent)
+        if spread then
+            tex:SetPoint("CENTER", (i % 2 - 0.5) * spread, (math.floor(i / 2) - 0.5) * spread)
+        else
+            tex:SetPoint("CENTER")
+        end
+        tex:SetTexture(ICONS .. file)
+        texs[#texs + 1] = tex
+    end
+    return { SetColor = function(_, c)
+        for i = 1, #texs do texs[i]:SetVertexColor(Unpack(c)) end
+    end }
 end
 
+
+
+
+
+
+
+
+
+local TOGGLE_CUT = { 14, 28, 2, 16 }
+local TOGGLE_CENTRE = { 21, 9 }
+
+
+
+local TOGGLE_ENDS = { { 17, 20, 11, 13, -1, -1 }, { 18, 20, 5, 6, -1, 0 }, { 24, 25, 10, 12, 0, -1 } }
+
+
+
+
+local TOGGLE_HEADS = { { 3.1, 0, 2.4, 8.6 }, { 0, 3.1, 8.6, 2.4 }, { 2.5, 2.5, 3.6, 3.6 } }
+local TOGGLE_SHAFT = { 16, 22 }
+local TOGGLE_STROKE = 0.6
+
+local function ArrowGlyph(button)
+    local cuts = {}
+    local cx, cy = TOGGLE_CENTRE[1], TOGGLE_CENTRE[2]
+    for _, name in ipairs({ "expand", "compact" }) do
+
+        local s = name == "expand" and 1 or -1
+        local stamps = {}
+
+        local function Piece(x0, x1, y0, y1, px, py)
+            for i = 0, 3 do
+                local tex = button:CreateTexture(nil, "OVERLAY")
+                P.Size(tex, x1 - x0, y1 - y0)
+                tex:SetPoint("CENTER", px + (i % 2 - 0.5) * TOGGLE_STROKE,
+                    py + (math.floor(i / 2) - 0.5) * TOGGLE_STROKE)
+                tex:SetTexture(EUI.RESIZE_ICON)
+                if s == 1 then
+                    tex:SetTexCoord(x0 / 30, x1 / 30, y0 / 30, y1 / 30)
+                else
+                    tex:SetTexCoord(x1 / 30, x0 / 30, y1 / 30, y0 / 30)
+                end
+                stamps[#stamps + 1] = tex
+            end
+        end
+        local function Bar(px, py, width, height)
+            local bar = button:CreateTexture(nil, "OVERLAY")
+            bar:SetColorTexture(1, 1, 1, 1)
+            P.Size(bar, width, height)
+            bar:SetPoint("CENTER", px * s, py * s)
+            stamps[#stamps + 1] = bar
+        end
+
+        Piece(TOGGLE_CUT[1], TOGGLE_CUT[2], TOGGLE_CUT[3], TOGGLE_CUT[4], 0, 0)
+        for _, e in ipairs(TOGGLE_ENDS) do
+            Piece(e[1], e[2], e[3], e[4],
+                ((e[1] + e[2]) / 2 - cx + e[5]) * s, -((e[3] + e[4]) / 2 - cy - e[6]) * s)
+        end
+        for _, h in ipairs(TOGGLE_HEADS) do Bar(h[1], h[2], h[3], h[4]) end
+        for x = TOGGLE_SHAFT[1], TOGGLE_SHAFT[2] do
+            Bar(x + 0.5 - cx, -(29 - x + 0.5 - cy), 2.6, 2.6)
+        end
+        cuts[name] = stamps
+    end
+
+    local function SetCompacted(_, compacted)
+        for name, stamps in pairs(cuts) do
+            local shown = (name == "expand") == (compacted and true or false)
+            for i = 1, #stamps do stamps[i]:SetShown(shown) end
+        end
+    end
+    SetCompacted(nil, false)
+
+    return {
+        SetColor = function(_, c)
+            for _, stamps in pairs(cuts) do
+                for i = 1, #stamps do stamps[i]:SetVertexColor(Unpack(c)) end
+            end
+        end,
+        SetCompacted = SetCompacted,
+    }
+end
 
 local function PlusGlyph(button, extent)
     local bars = {}
@@ -473,7 +566,7 @@ function S.Button(parent, text, opts)
     label:SetWordWrap(false)
     label:SetMaxLines(1)
 
-    local bare = opts.glyph == "close"
+    local bare = opts.glyph == "close" or opts.glyph == "arrow"
     if bare then
         bg:Hide()
         border:SetColor(0, 0, 0, 0)
@@ -579,10 +672,15 @@ function S.Button(parent, text, opts)
     local glyph
     if opts.glyph == "close" then
         label:Hide()
-        glyph = IconGlyph(b, "eui-close.png", 12)
+
+
+        glyph = IconGlyph(b, "eui-close.png", 15, 0.35)
     elseif opts.glyph == "plus" then
         label:Hide()
         glyph = PlusGlyph(b, math.floor(math.min(w, h) * 0.46))
+    elseif opts.glyph == "arrow" then
+        label:Hide()
+        glyph = ArrowGlyph(b)
     elseif opts.glyph == "chat" then
         label:Hide()
         glyph = IconGlyph(b, "eui-edit.png", math.floor(math.min(w, h) * 0.6))
@@ -1926,6 +2024,32 @@ function S.Window(globalName, key, width, height, title, options)
         math.max(slot, math.ceil(slot * badgeFontH / 11)),
         math.max(size.CLOSE, math.ceil(size.CLOSE * badgeFontH / 11)))
     f.Badge = badge
+    f.CloseInset = closeInset
+
+
+
+    function f:AddToggle(onClick)
+        local toggle = S.Button(f, "", { width = size.CLOSE, height = size.CLOSE, glyph = "arrow" })
+        toggle:SetFrameLevel(close:GetFrameLevel())
+        P.Point(toggle, "RIGHT", close, "LEFT", -closeInset, 0)
+        toggle:SetScript("OnClick", onClick)
+        badge:ClearAllPoints()
+        P.Point(badge, "RIGHT", toggle, "LEFT", -size.GAP, 0)
+
+        local tip = T["Compact"]
+        toggle:HookScript("OnEnter", function(self)
+            S.AboveTooltip(self)
+            GameTooltip:AddLine(tip, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        toggle:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        function f:SetToggleState(compacted)
+            toggle.Glyph:SetCompacted(compacted)
+            tip = compacted and T["Expand"] or T["Compact"]
+        end
+        f.Toggle = toggle
+        return toggle
+    end
 
 
 

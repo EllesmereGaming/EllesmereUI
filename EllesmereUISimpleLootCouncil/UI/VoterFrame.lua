@@ -41,8 +41,7 @@ local suppressDismiss = false
 local ENTRY_HEIGHT
 local RESPONSE_BUTTON_H = 26
 
-
-local WISH_ICON, WISH_ICON_GAP, WISH_ICON_INSET = 12, 4, 1
+local WISH_ICON = 12
 
 local BUTTON_INSET
 
@@ -54,7 +53,7 @@ local CARDS_PER_PAINT = 4
 local SCROLL_CHANNEL
 
 local MIN_WIDTH = 400
-local scroll, compactButton
+local scroll, toggle
 
 
 local dock, scrollIn, dockLaid, dockSelect, dockSig
@@ -73,7 +72,21 @@ local titleProbe
 local function PlaceTag()
     local tag = frame.Tag
     tag:ClearAllPoints()
-    P.Point(tag, "RIGHT", frame.Badge, "LEFT", -S.size.GAP, 0)
+    if not toggle then
+        P.Point(tag, "RIGHT", frame.Badge, "LEFT", -S.size.GAP, 0)
+        return
+    end
+
+
+    P.Point(tag, "RIGHT", toggle, "LEFT", -frame.CloseInset, 0)
+    if timerText then
+        timerText:ClearAllPoints()
+        if tag:IsShown() then
+            timerText:SetPoint("RIGHT", tag, "LEFT", -S.size.GAP, -1)
+        else
+            timerText:SetPoint("RIGHT", toggle, "LEFT", -S.size.GAP, -1)
+        end
+    end
 end
 
 
@@ -168,17 +181,6 @@ local function CreateEntry(parent, index)
     e.detail = S.Label(e, S.fontSmall, "LEFT")
     P.Point(e.detail, "TOPLEFT", e.name, "BOTTOMLEFT", 0, -2)
     P.Point(e.detail, "TOPRIGHT", e.name, "BOTTOMRIGHT", 0, -2)
-
-
-    e.wish = S.Label(e, S.fontSmall, "LEFT")
-    P.Point(e.wish, "TOPLEFT", e.detail, "BOTTOMLEFT", 0, -2)
-    P.Point(e.wish, "RIGHT", e.name, "RIGHT", 0, 0)
-
-    e.wishIcon = e:CreateTexture(nil, "ARTWORK")
-    P.Size(e.wishIcon, WISH_ICON, WISH_ICON)
-    P.Point(e.wishIcon, "LEFT", e.wish, "LEFT", -(WISH_ICON + WISH_ICON_GAP), 0)
-    e.wishIcon:Hide()
-    e.wishIconShown = false
 
 
 
@@ -323,7 +325,7 @@ local function EnsureNoteButton(e)
     if e.noteButton then return e.noteButton end
 
     e.noteButton = S.Button(e.buttonRow, "", {
-        width = NOTE_BUTTON_WIDTH, height = S.size.BTN_H_SM, glyph = "chat",
+        width = NOTE_BUTTON_WIDTH, height = RESPONSE_BUTTON_H, glyph = "chat",
     })
     e.noteButton:SetScript("OnClick", function()
         e.buttonRow:Hide()
@@ -549,7 +551,7 @@ local function DetailText(group, me)
 
     local ilvl = addon.Gear:ItemLevel(group.link)
     if ilvl then
-        parts[#parts + 1] = addon.Locale.Format(T["Item Level %s"], ilvl)
+        parts[#parts + 1] = addon.Locale.Format(T["ilvl %s"], ilvl)
     end
 
 
@@ -593,19 +595,15 @@ end
 
 
 
-local function PlaceWish(e, text)
-    local icon = text ~= "" and addon.Wishlist and addon.Wishlist:SourceIcon() or nil
-    if icon then e.wishIcon:SetTexture(icon) end
-    e.wishIcon:SetShown(icon ~= nil)
-    local shown = icon ~= nil
-    if e.wishIconShown ~= shown then
-        e.wishIconShown = shown
-        e.wish:ClearAllPoints()
-        P.Point(e.wish, "TOPLEFT", e.detail, "BOTTOMLEFT",
-            shown and WISH_ICON_INSET + WISH_ICON + WISH_ICON_GAP or 0, -2)
-        P.Point(e.wish, "RIGHT", e.name, "RIGHT", 0, 0)
+local function PlaceDetail(e, wish, detail)
+    if wish ~= "" then
+        local icon = addon.Wishlist and addon.Wishlist:SourceIcon()
+        if icon then
+            wish = "|T" .. icon .. ":" .. WISH_ICON .. ":" .. WISH_ICON .. "|t" .. " " .. wish
+        end
     end
-    e.wish:SetText(text)
+    local sep = wish ~= "" and detail ~= "" and S.Colorize(S.color.textFaint, "  -  ") or ""
+    e.detail:SetText(detail .. sep .. wish)
 end
 
 
@@ -825,37 +823,13 @@ local function Build()
 
 
 
-    local tagHeight = frame.Tag:GetHeight()
     local probe = S.Label(frame, S.fontBody, "LEFT")
-    local expandWidth = 0
-    for _, label in ipairs({ T["Expand"], T["Compact"] }) do
-        probe:SetText(label)
-        local width = probe:GetUnboundedStringWidth()
-        if type(width) == "number" then expandWidth = math.max(expandWidth, width) end
-    end
     probe:Hide()
-    if expandWidth <= 0 then expandWidth = 60 end
-
-    local tagPad = frame.TagPadding or 8
-    compactButton = S.Chip(frame, "", S.color.accent, {
-        height = tagHeight, font = S.fontBody, padding = tagPad, square = true, plain = true,
-        minWidth = math.ceil(expandWidth) + tagPad * 2,
-    })
-    compactButton.SetLabel = compactButton.SetText
-    compactButton:EnableMouse(true)
-    compactButton:SetFrameLevel(frame.Close:GetFrameLevel())
-    P.Point(compactButton, "RIGHT", frame.Close, "LEFT", -S.size.GAP, 0)
-    compactButton:SetScript("OnMouseUp", function(self, button)
-        if button == "LeftButton" and self:IsMouseOver() then
-            VoterFrame:SetCompact(not addon.db.voterCompact)
-        end
-    end)
-    compactButton:SetScript("OnEnter", function(self) self:SetHighlight(true) end)
-    compactButton:SetScript("OnLeave", function(self) self:SetHighlight(false) end)
-    frame.Badge:ClearAllPoints()
-    P.Point(frame.Badge, "RIGHT", compactButton, "LEFT", -S.size.GAP, 0)
+    if frame.AddToggle then
+        toggle = frame:AddToggle(function() VoterFrame:SetCompact(not addon.db.voterCompact) end)
+        frame:SetToggleState(addon.db.voterCompact and true or false)
+    end
     P.Size(frame.Badge, 1, nil)
-    compactButton:SetLabel(addon.db.voterCompact and T["Expand"] or T["Compact"])
 
 
     local strip = frame.Badge:GetParent()
@@ -1036,8 +1010,7 @@ local function PaintWindow()
             e.name:SetTextColor(S.Unpack(S.color.text))
         end
 
-        e.detail:SetText(DetailText(group, me))
-        PlaceWish(e, WishText(group, me))
+        PlaceDetail(e, WishText(group, me), DetailText(group, me))
         if PaintStatus(e, group) then pending = true end
 
 
@@ -1096,7 +1069,9 @@ local function PaintWindow()
             addon.Locale.Plural{ one = "%d ITEM", other = "%d ITEMS" }, #groups, #groups)
         if not dock then
             frame.Title:SetText(T["Loot response"])
-            frame:SetTag(countText)
+
+            frame:SetTag((toggle and not addon.db.voterCompact) and "" or countText)
+            P.AfterLayout(PlaceTag)
         elseif dock.SetCount then
             dock.SetCount(countText)
         end
@@ -1132,10 +1107,10 @@ local function PaintWindow()
             local bandWidth = (type(titleWidth) == "number" and math.ceil(titleWidth) or 0)
                 + TAG_OFFSET + frame.Tag:GetWidth()
                 + ((addon.Session:GetTimerDuration() or 0) > 0 and timerReserve or 0)
-                + S.size.GAP * 2 + compactButton:GetWidth() + frame.Close:GetWidth()
+                + S.size.GAP * 2 + (toggle and toggle:GetWidth() or 0) + frame.Close:GetWidth()
                 + S.size.PAD * 2 + 24
             local windowWidth = math.max(MIN_WIDTH, cardWidth + S.size.PAD * 2, bandWidth)
-            P.Size(frame, windowWidth, nil)
+            frame:SetSizeFromTopRight(windowWidth, frame:GetHeight())
             frame.Content.slcWidth = windowWidth - S.size.PAD * 2
             frame:ClampTitle()
             P.AfterLayout(PlaceTag)
@@ -1329,8 +1304,9 @@ end
 function VoterFrame:SetCompact(on)
     addon.db.voterCompact = on and true or false
     if not frame then return end
-    compactButton:SetLabel(on and T["Expand"] or T["Compact"])
+    if frame.SetToggleState then frame:SetToggleState(on and true or false) end
 
+    laidOutCount = nil
     P.AfterLayout(frame.ClampTitle)
     VoterFrame:Refresh()
 end

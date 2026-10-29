@@ -2168,7 +2168,16 @@ function CM.ShowCount()
     local chip = CM.countChip
     if not chip then return end
     local text = CM.counts and CM.counts[CM.tab]
-    if text == "" then text = nil end
+
+
+    local response = CM.tab == "response"
+    if text == "" or (response and not CM.active) then text = nil end
+    local gap = response and frame.CloseInset or S.size.GAP
+    if gap and CM.countGap ~= gap then
+        CM.countGap = gap
+        chip:ClearAllPoints()
+        chip:SetPoint("RIGHT", frame.Toggle or frame.Close, "LEFT", -gap, 0)
+    end
     if CM.countText == text then return end
     CM.countText = text
     if text then chip:SetText(text) end
@@ -2439,6 +2448,9 @@ function CM.Build()
     CM.FULL_H = FULL_RAIL_H + frame.HeaderHeight
     P.Size(frame, nil, CM.FULL_H)
     frame:RestorePosition()
+    if frame.AddToggle then
+        frame:AddToggle(function() MLFrame:SetCompact(not CM.active) end)
+    end
     CM.BuildToast()
     local content = frame.Content
 
@@ -2460,7 +2472,7 @@ function CM.Build()
     CM.countChip = S.Chip(frame.Tag:GetParent(), "", S.color.accent,
         { height = frame.Tag:GetHeight(), font = S.fontBody,
             padding = frame.TagPadding or 9, square = true, plain = true })
-    CM.countChip:SetPoint("RIGHT", frame.Close, "LEFT", -S.size.GAP, 0)
+    CM.countChip:SetPoint("RIGHT", frame.Toggle or frame.Close, "LEFT", -S.size.GAP, 0)
     CM.countChip:Hide()
     CM.countSlot = frame.Badge:GetWidth()
 
@@ -2695,13 +2707,6 @@ function CM.Build()
     end)
 
 
-    CM.button = S.Button(footer, T["Compact"], { width = 100, labelPad = S.size.BTN_PAD_FOOTER })
-    footer:Add(CM.button, true)
-    CM.button:SetScript("OnClick", function()
-        MLFrame:SetCompact(not CM.active)
-    end)
-
-
 
     menuHint = footer:AddText(S.fontHint)
     menuHint:SetText(T["Right-click a row to award, set a response, or ask for a roll"])
@@ -2740,10 +2745,12 @@ function CM.Build()
 
         if CM.tab == "council" or CM.tab == "queue" then CM.FitWindow() end
 
-        CM.button:SetLabel(CM.active and T["Expand"] or T["Compact"])
-        if CM.responseButton then
-            CM.responseButton:SetLabel(CM.active and T["Expand"] or T["Compact"])
-            if CM.tab == "response" then addon.Callbacks:Invalidate("voter") end
+        if frame.SetToggleState then frame:SetToggleState(CM.active) end
+
+        CM.countText = nil
+        CM.ShowCount()
+        if CM.responseHost and CM.tab == "response" then
+            addon.Callbacks:Invalidate("voter")
         end
         MLFrame:Refresh()
     end
@@ -2756,7 +2763,7 @@ function CM.Build()
         if CM.tabSwitch and frame.SetSizeFromTopLeft then
             frame:SetSizeFromTopLeft(width, CM.Height(CM.active))
         else
-            frame:SetSizeFromBottomRight(width, CM.Height(CM.active))
+            frame:SetSizeFromTopRight(width, CM.Height(CM.active))
         end
 
         content.slcWidth = width - S.size.PAD * 2
@@ -2930,19 +2937,11 @@ function CM.PlaceTimer(response)
 end
 
 function CM.BuildResponse(content)
-
     CM.responsePane = CreateFrame("Frame", nil, content)
     CM.responsePane:SetPoint("TOPLEFT", content, "TOPLEFT")
     CM.responsePane:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -S.size.PAD,
         S.size.FOOTER_H)
     CM.responsePane:Hide()
-    CM.responseButton = S.Button(footer, CM.active and T["Expand"] or T["Compact"],
-        { width = 100, labelPad = S.size.BTN_PAD_FOOTER })
-    footer:Add(CM.responseButton, true)
-    CM.responseButton:Hide()
-    CM.responseButton:SetScript("OnClick", function()
-        MLFrame:SetCompact(not CM.active)
-    end)
     CM.responseHost = {
         pane = CM.responsePane,
         IsActive = function() return frame:IsShown() and CM.tab == "response" end,
@@ -2967,9 +2966,9 @@ function CM.BuildResponse(content)
 
 
                 CM.responseSig = sig
-                frame:SetSizeFromBottomRight(w, h)
+                frame:SetSizeFromTopRight(w, h)
             else
-                frame:SetSizeFromBottomRight(w, frame:GetHeight())
+                frame:SetSizeFromTopRight(w, frame:GetHeight())
                 frame:SetHeightFromTop(h)
             end
             content.slcWidth = w - S.size.PAD * 2
@@ -3003,7 +3002,6 @@ function CM.ShowTab(key)
     CM.responsePane:SetShown(response)
 
     endButton:SetShown(council)
-    CM.button:SetShown(not response)
     if not council then
         rollButton:Hide()
         menuHint:Hide()
@@ -3011,7 +3009,6 @@ function CM.ShowTab(key)
     CM.countText = nil
     CM.ShowCount()
     for _, button in ipairs(CM.queueButtons) do button:SetShown(queue) end
-    CM.responseButton:SetShown(response)
 
     footer:Reflow()
 

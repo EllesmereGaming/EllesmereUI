@@ -259,7 +259,7 @@ local function ReportIfTradeable(link)
             secondsLeft = secondsLeft,
             boss = boss,
             encounterID = encounterID,
-        }, lootMaster, true)
+      }, lootMaster, true)
     end)
 end
 
@@ -346,12 +346,33 @@ end
 local inGuildParty = false
 
 
+
+local serverAnswered = false
+
+
+
+local guildGroupLatched = false
+
+
 local guildPresent, guildRequired = nil, nil
+
+
+local CENSUS_TTL = 5
+local census, censusAt = nil, nil
+
+
+
+local sim = nil
 
 
 local issecretvalue = issecretvalue
 
 local function ReadGuildParty()
+    if sim then
+        local s = sim.server
+        if not s then return nil end
+        return s[1], s[2], s[3]
+    end
     if type(InGuildParty) ~= "function" then return nil end
     local ok, isGuildGroup, present, required = pcall(InGuildParty)
     if not ok then return nil end
@@ -387,11 +408,31 @@ local function AskGuildParty()
 end
 
 
+
+
+local function NoteServerAnswer(isGuildGroup, readable, required)
+    serverAnswered = true
+    if isGuildGroup then
+        guildGroupLatched = true
+    elseif readable and not required then
+        guildGroupLatched = false
+    end
+end
+
+
+local function ForgetGuildGroup()
+    inGuildParty, serverAnswered, guildGroupLatched = false, false, false
+    guildPresent, guildRequired = nil, nil
+    census, censusAt = nil, nil
+end
+
+
 local function RefreshGuildParty()
     local isGuildGroup, present, required = ReadGuildParty()
     if isGuildGroup == nil then return end
 
     guildPresent, guildRequired = present, required
+    NoteServerAnswer(isGuildGroup, true, required)
     if inGuildParty ~= isGuildGroup then
         inGuildParty = isGuildGroup
         addon.Log:I("Loot", "guild group is now", tostring(inGuildParty),
@@ -401,14 +442,9 @@ local function RefreshGuildParty()
 end
 
 
-local function IsGuildGroup()
-    return inGuildParty and true or false
-end
-Loot.IsGuildGroup = IsGuildGroup
-
-
 
 local function InInstance()
+    if sim then return true end
     if type(IsInInstance) ~= "function" then return true end
     return IsInInstance() and true or false
 end
@@ -423,10 +459,183 @@ end
 
 
 
+local function RosterMembership(name)
+    if not addon.RaidTeam or not name then return nil end
+    local member, why = addon.RaidTeam:FindMember(name)
+    if member then return true end
+    if why then return nil end
+    local list, readable = addon.RaidTeam:GetRoster()
+    if not readable or not list or #list == 0 then return nil end
+    return false
+end
+
+
+
+
+local function Census()
+    if sim then
+        census = sim.census
+        return census
+    end
+    if type(GetTime) ~= "function" then return nil end
+    local now = GetTime()
+    if censusAt and now >= censusAt and now - censusAt < CENSUS_TTL then return census end
+    census, censusAt = nil, now
+    if type(IsInGuild) ~= "function" or not IsInGuild() or type(UnitExists) ~= "function"
+        or type(GetGuildInfo) ~= "function" or type(GetNumGroupMembers) ~= "function"
+        or type(IsInRaid) ~= "function" then
+        return nil
+    end
+    local mine, _, _, myRealm = GetGuildInfo("player")
+    if not mine or (issecretvalue and (issecretvalue(mine) or issecretvalue(myRealm))) then
+        return nil
+    end
+
+    local units = {}
+    if IsInRaid() then
+        for i = 1, GetNumGroupMembers() do units[#units + 1] = "raid" .. i end
+    else
+        units[1] = "player"
+        local others = type(GetNumSubgroupMembers) == "function" and GetNumSubgroupMembers() or 0
+        for i = 1, others do units[#units + 1] = "party" .. i end
+    end
+
+    local result = { inGuild = 0, unknown = 0, total = 0 }
+    for _, unit in ipairs(units) do
+        result.total = result.total + 1
+        if not UnitExists(unit) then
+            result.unknown = result.unknown + 1
+        else
+            local theirs, _, _, theirRealm = GetGuildInfo(unit)
+            if issecretvalue and (issecretvalue(theirs) or issecretvalue(theirRealm)) then
+                theirs = nil
+            end
+            if theirs then
+                if theirs == mine and (theirRealm or "") == (myRealm or "") then
+                    result.inGuild = result.inGuild + 1
+                end
+            else
+                local name = addon.Player:GetFullName(unit)
+                local member = RosterMembership(name)
+                if member == true then
+                    result.inGuild = result.inGuild + 1
+                elseif member == nil then
+                    result.unknown = result.unknown + 1
+                end
+            end
+        end
+    end
+    census = result
+    return result
+end
+
+
+
+local function CensusVerdict()
+    local counts = Census()
+    local required = guildRequired
+    if not counts or counts.total == 0 or not required or required <= 0 then return nil end
+    if counts.inGuild >= required then return true end
+    if counts.unknown == 0 then return false end
+    return nil
+end
+
+
+
+
+local function GuildGroupState()
+    if not sim then
+        if type(IsInGuild) == "function" and not IsInGuild() then return false end
+        if type(IsInGroup) == "function" and not IsInGroup() then return false end
+    end
+    RefreshGuildParty()
+    if inGuildParty then guildGroupLatched = true end
+    if guildGroupLatched then return true end
+
+    local verdict = CensusVerdict()
+    if verdict == true then
+        guildGroupLatched = true
+        addon.Log:I("Loot", "guild group proved by the roster census",
+            tostring(census and census.inGuild), "of", tostring(guildRequired), "required")
+        return true
+    end
+    if not serverAnswered then return nil end
+    return verdict
+end
+Loot.GuildGroupState = GuildGroupState
+
+
+local function IsGuildGroup()
+    return GuildGroupState() == true
+end
+Loot.IsGuildGroup = IsGuildGroup
+
+
+
+
+local PENDING_RETRY_SECONDS = 10
+local pendingScheduled, lastPending = false, false
+local function SchedulePendingRecheck()
+    if pendingScheduled then return end
+    pendingScheduled = true
+    C_Timer.After(PENDING_RETRY_SECONDS, function()
+        pendingScheduled = false
+        census, censusAt = nil, nil
+        AskGuildParty()
+        if addon.RaidTeam and addon.RaidTeam.Request then addon.RaidTeam:Request() end
+        GuildStateChanged()
+    end)
+end
+
+
+
+
+local SIM_SCENARIOS = {
+    ["late-zoners"] = { server = { false, 12, 23 }, census = { inGuild = 28, unknown = 0, total = 28 },
+        shares = true},
+    ["leader-absent"] = { server = { false, 12, 23 }, census = { inGuild = 27, unknown = 0, total = 27 },
+        shares = true},
+    ["roster-unloaded"] = { server = { false, 12, 23 }, census = { inGuild = 12, unknown = 16, total = 28 },
+        shares = nil},
+    ["silent"] = { server = nil, census = nil, shares = nil},
+    ["pug"] = { server = { false, 3, 23 }, census = { inGuild = 3, unknown = 0, total = 28 },
+        shares = false},
+    ["leader-elsewhere"] = { server = { true, 28, 23 }, census = { inGuild = 28, unknown = 0, total = 28 },
+        shares = false},
+}
+
+
+function Loot.Simulate(name)
+    if name == "clear" or name == "off" then
+        sim = nil
+        ForgetGuildGroup()
+        GuildStateChanged()
+        return true
+    end
+    local scenario = SIM_SCENARIOS[name]
+    if not scenario then return false end
+    sim = scenario
+    ForgetGuildGroup()
+    GuildStateChanged()
+    return true
+end
+
+function Loot.SimulationNames()
+    local names = {}
+    for name in pairs(SIM_SCENARIOS) do names[#names + 1] = name end
+    table.sort(names)
+    return names
+end
+
+function Loot.IsSimulating() return sim ~= nil end
+
+
+
 local lootMasterGuild = {}
 
 
 function Loot:SharesLootMasterGuild()
+    if sim then return sim.shares end
     local lootMaster = addon.GetMasterLooter()
     if not lootMaster then return nil end
     if addon.Player:IsSelf(lootMaster) then return true end
@@ -443,17 +652,11 @@ function Loot:SharesLootMasterGuild()
         local known = lootMasterGuild[lootMaster]
         if not known then
 
-            if not addon.RaidTeam then return nil end
-            local member, why = addon.RaidTeam:FindMember(lootMaster)
-            if member then
-                lootMasterGuild[lootMaster] = { name = mine, realm = myRealm }
-                return true
-            end
-            if why then return nil end
 
-            local list, readable = addon.RaidTeam:GetRoster()
-            if not readable or not list or #list == 0 then return nil end
-            return false
+
+            local member = RosterMembership(lootMaster)
+            if member then lootMasterGuild[lootMaster] = { name = mine, realm = myRealm } end
+            return member
         end
         theirs, theirRealm = known.name, known.realm
     else
@@ -464,6 +667,7 @@ end
 
 
 
+
 function Loot:FunnelNever()
     return addon.db.funnel ~= nil and addon.db.funnel.never == true
 end
@@ -471,9 +675,22 @@ end
 function Loot:GuardReason()
     if Loot:FunnelNever() then return "never" end
     if not addon.db.funnel or not addon.db.funnel.guildGroupOnly then return nil end
-    if InInstance() and not IsGuildGroup() then return "group" end
-    if Loot:SharesLootMasterGuild() ~= true then return "guild" end
-    return nil
+    lastPending = false
+
+
+    if InInstance() then
+        local state = GuildGroupState()
+        if state == true then
+                    return nil
+        end
+        if state == false then return "group" end
+    end
+    if Loot:SharesLootMasterGuild() == true then
+            return nil
+    end
+    lastPending = true
+    SchedulePendingRecheck()
+    return "pending"
 end
 
 
@@ -1044,8 +1261,7 @@ function Loot:Init()
 
 
         if not IsInGroup() then
-            inGuildParty = false
-            guildPresent, guildRequired = nil, nil
+            ForgetGuildGroup()
             wipe(lootMasterGuild)
             if atLogin then
 
@@ -1071,7 +1287,7 @@ function Loot:Init()
 
     local ACTIVE_EVENTS = { "LOOT_READY", "LOOT_OPENED", "LOOT_SLOT_CLEARED", "LOOT_CLOSED",
         "START_LOOT_ROLL", "GUILD_PARTY_STATE_UPDATED", "INSTANCE_GROUP_SIZE_CHANGED",
-        "UPDATE_INSTANCE_INFO", "PLAYER_DIFFICULTY_CHANGED", "PLAYER_GUILD_UPDATE" }
+        "UPDATE_INSTANCE_INFO", "PLAYER_DIFFICULTY_CHANGED", "PLAYER_GUILD_UPDATE", "GUILD_ROSTER_UPDATE" }
 
     local function SyncEvents()
         local want = Loot.handling == true and IsInGroup() and true or false
@@ -1100,8 +1316,12 @@ function Loot:Init()
             end
 
 
-            local _, present, required = ReadGuildParty()
+            local read, present, required = ReadGuildParty()
             guildPresent, guildRequired = present, required
+            NoteServerAnswer(inGuildParty, read ~= nil, required)
+
+            census, censusAt = nil, nil
+            if lastPending then GuildStateChanged() end
             return
         elseif event == "INSTANCE_GROUP_SIZE_CHANGED" or event == "UPDATE_INSTANCE_INFO"
             or event == "PLAYER_DIFFICULTY_CHANGED" then
@@ -1114,12 +1334,19 @@ function Loot:Init()
             if wasInInstance ~= nil and inside ~= wasInInstance then GuildStateChanged() end
             wasInInstance = inside
             return
+        elseif event == "GUILD_ROSTER_UPDATE" then
+
+            if lastPending then
+                census, censusAt = nil, nil
+                GuildStateChanged()
+            end
+            return
         elseif event == "PLAYER_GUILD_UPDATE" then
             if IsInGroup() then
                 if IsInGuild() then
                     AskGuildParty()
-                elseif inGuildParty then
-                    inGuildParty, guildPresent, guildRequired = false, nil, nil
+                elseif inGuildParty or guildGroupLatched then
+                    ForgetGuildGroup()
                     addon.Log:I("Loot", "guild group is now false (left the guild)")
                     GuildStateChanged()
                 end
@@ -1146,6 +1373,16 @@ function Loot:Init()
     addon.Callbacks:Register("RosterChanged", function()
         GroupChanged(false)
         SyncEvents()
+
+
+        census, censusAt = nil, nil
+        if guildGroupLatched and not inGuildParty and CensusVerdict() == false then
+            guildGroupLatched = false
+            addon.Log:I("Loot", "guild group released: the roster census is below the threshold")
+            GuildStateChanged()
+        elseif lastPending then
+            GuildStateChanged()
+        end
     end)
     addon.Callbacks:Register("HandlingChanged", SyncEvents)
     SyncEvents()
@@ -1194,7 +1431,7 @@ function Loot:Init()
         addon.Comms:Send("handling", {
             on = Loot.handling and true or false,
             funnel = Loot.funnelArmed == true,
-        }, sender, true)
+      }, sender, true)
     end)
 
 
@@ -1205,6 +1442,7 @@ function Loot:Init()
     else
         inGuildParty = seeded
         guildPresent, guildRequired = present, required
+        NoteServerAnswer(seeded, true, required)
         addon.Log:I("Loot", "guild group at login", tostring(seeded),
             required and ("%s of %s"):format(tostring(present), tostring(required))
                 or "(no counts)")
