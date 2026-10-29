@@ -777,11 +777,12 @@ initFrame:SetScript("OnEvent", function(self)
             }
             local EXTRA_BTN_DEFAULT_ORDER = { "greatVault", "friendsOnline", "portals" }
             -- WoW Forever has no Great Vault and no keystone portals: the module
-            -- never builds those two buttons there, so the list offers Friends
-            -- Online only (a saved order still carrying the keys is skipped below).
+            -- never builds the vault button there, and the portals button is the
+            -- Teleport Menu button of Forever Essentials, off until ticked.
             if EllesmereUI.IS_FOREVER then
-                EXTRA_BTN_LABELS.greatVault, EXTRA_BTN_LABELS.portals = nil, nil
-                EXTRA_BTN_DEFAULT_ORDER = { "friendsOnline" }
+                EXTRA_BTN_LABELS.greatVault = nil
+                EXTRA_BTN_LABELS.portals = EllesmereUI._ForeverTeleport and "Teleport Menu" or nil
+                EXTRA_BTN_DEFAULT_ORDER = { "friendsOnline", "portals" }
             end
             local function GetExtraBtnItems()
                 local m = MinimapDB()
@@ -810,6 +811,7 @@ initFrame:SetScript("OnEvent", function(self)
                 function(k)
                     local m = MinimapDB(); if not m then return true end
                     local heb = m.hideExtraBtns
+                    if EllesmereUI.IS_FOREVER and k == "portals" then return heb and heb.portals == false end
                     return not (heb and heb[k])
                 end,
                 function(k, v)
@@ -852,7 +854,11 @@ initFrame:SetScript("OnEvent", function(self)
                 m.openMicroMenuOnMiddleClick = v
               end }
         if EllesmereUI.IS_FOREVER then
-            _, h = W:DualRow(parent, y, middleClickCfg, { type="label", text="" })
+            local teleportScaleCfg = { type="slider", text="Teleport Menu Scale", min=0.5, max=2.0, step=0.01,
+                  tooltip="Scales the Teleport Menu the button opens.",
+                  getValue=portalsScaleCfg.getValue, setValue=portalsScaleCfg.setValue }
+            _, h = W:DualRow(parent, y, EllesmereUI._ForeverTeleport and teleportScaleCfg or middleClickCfg,
+                EllesmereUI._ForeverTeleport and middleClickCfg or { type="label", text="" })
         else
             _, h = W:DualRow(parent, y, portalsScaleCfg, middleClickCfg)
         end
