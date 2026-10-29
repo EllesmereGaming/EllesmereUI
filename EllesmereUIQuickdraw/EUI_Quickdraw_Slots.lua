@@ -484,6 +484,81 @@ do
     end
 end
 
+-------------------------------------------------------------------------------
+--  Emotes: one entry per emote the client knows, stored by TOKEN ("DANCE")
+--  rather than by the text of its command. The token is the same in every
+--  language; the command is not -- "/dance" here is "/danse" on a French
+--  client -- so a palette shared between the two would fire nothing on one of
+--  them if the typed text were what got saved. The command is looked up from
+--  the token when the attributes are written, and fired as macro text from
+--  the secure button, the same route as the markers.
+--
+--  The name is the client's own command without its slash, which is what the
+--  player types and recognises, in the client's language. Every emote draws
+--  the one glyph (media\micromenu\quickdraw-emote.png), which leaves its lower
+--  band empty: the paint writes the name there, because a ring of identical
+--  bubbles told apart only by hovering each one is no menu at all.
+-------------------------------------------------------------------------------
+do
+    ns.EMOTE_ICON = "Interface\\AddOns\\EllesmereUI\\media\\micromenu\\quickdraw-emote.png"
+
+    -- token -> { token, command, name }, and the same records as a list.
+    -- Built on first use rather than at load: the emote strings are global
+    -- strings, present from login, and a player who never opens an emote
+    -- entry never pays for the walk.
+    local byToken, list
+
+    local function Build()
+        byToken, list = {}, {}
+        -- Indexes have gaps, so the walk runs to the client's own ceiling
+        -- rather than stopping at the first missing one.
+        for i = 1, (MAXEMOTEINDEX or 1000) do
+            local token = _G["EMOTE" .. i .. "_TOKEN"]
+            local cmd = _G["EMOTE" .. i .. "_CMD1"]
+            -- Several indexes alias one token; the first is the emote's own.
+            if type(token) == "string" and type(cmd) == "string"
+               and cmd:sub(1, 1) == "/" and not byToken[token] then
+                local name = cmd:sub(2)
+                -- Capitalised for display only. A first letter outside ASCII
+                -- (a French emote with an accented first letter) is left as typed:
+                -- upper() would not touch it.
+                name = name:sub(1, 1):upper() .. name:sub(2)
+                local rec = { token = token, command = cmd, name = name }
+                byToken[token] = rec
+                list[#list + 1] = rec
+            end
+        end
+    end
+
+    local function Emote(slot)
+        if not slot or type(slot.token) ~= "string" then return nil end
+        if not byToken then Build() end
+        return byToken[slot.token]
+    end
+
+    -- The command this entry fires, or nil for a token this client has not got.
+    ns.EmoteCommand = function(slot)
+        local rec = Emote(slot)
+        return rec and rec.command
+    end
+
+    -- The name drawn on the entry. A token this client does not know still
+    -- names itself, lowercased the way the game's own commands read.
+    ns.EmoteName = function(slot)
+        local rec = Emote(slot)
+        if rec then return rec.name end
+        return slot and type(slot.token) == "string" and slot.token:lower() or nil
+    end
+
+    -- Candidate slots for the picker, one per emote.
+    ns.EmoteSlots = function()
+        if not list then Build() end
+        local out = {}
+        for i = 1, #list do out[i] = { kind = "emote", token = list[i].token } end
+        return out
+    end
+end
+
 I.CycleNext, I.CyclePosBack, I.CycleSteps = CycleNext, CyclePosBack, CycleSteps
 I.MARKER_NAMES, I.MarkerIcon = MARKER_NAMES, MarkerIcon
 I.RANDOM_FAVORITE_MOUNT, I.SpecIndexFor = RANDOM_FAVORITE_MOUNT, SpecIndexFor
