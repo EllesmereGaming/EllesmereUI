@@ -323,6 +323,8 @@ local function FadeSpellItem(item)
     end
     if item.Name then WSkin.White(item.Name) end
     if item.SubName then WSkin.White(item.SubName) end
+    -- The "Level N" / trainable line of an unlearned spell: the same parchment ink.
+    if item.RequiredLevel then WSkin.White(item.RequiredLevel) end
 end
 
 local function FadeSpellItemsIn(frame, depth)
@@ -14015,4 +14017,161 @@ WSkin.RegisterWindow({
 --  framestack, and far cheaper than a pack plus an options card.
 -------------------------------------------------------------------------------
 
+end
+
+-------------------------------------------------------------------------------
+--  Battleground flag carriers (ArenaEnemyMatchFrame1..5, Blizzard_Deprecated_
+--  ArenaUI): Blizzard's old arena frames, which now show only in battlegrounds,
+--  for the carriers of flags and orbs. Each one is a SECURE unit button in a
+--  right-side MANAGED column, so this pack is visual-only: no script hook on
+--  the buttons or their container (code run in their show path would leave
+--  the managed-layout pass under our taint), and never a Show, Hide, SetPoint
+--  or SetSize on a frame of theirs. Built once at login. Blizzard's updates
+--  set the portraits' textures and the bars' values and colors, never the art
+--  alphas or the fonts; the one thing it puts back is the mana bars' texture
+--  (FC.ManaType below).
+--
+--  Kept as Blizzard draws them: the class circle, the faction icon, the cast
+--  bar's fill (its atlas carries the cast type, uninterruptible included, and
+--  that type is secret in combat) and the heal prediction segments.
+-------------------------------------------------------------------------------
+do
+local FC = {
+    FLAT = "Interface\\Buttons\\WHITE8X8",
+    CIRCLE = "Interface\\CharacterFrame\\TempPortraitAlphaMask",
+    BAR_TEXTS = {
+        "HealthBarText", "HealthBarTextLeft", "HealthBarTextRight",
+        "ManaBarText", "ManaBarTextLeft", "ManaBarTextRight",
+    },
+}
+
+-- The pre-10.0 power-type update these frames still use puts Blizzard's bar
+-- texture back on every call: the plain one, or for the power types with art
+-- of their own an atlas that carries the color. A mana bar of ours goes flat
+-- again after it, in the power type's own color where the art carried it.
+function FC.ManaType(bar)
+    local d = bar and FFD[bar]
+    if not (d and d.fcMana) then return end
+    bar:SetStatusBarTexture(FC.FLAT)
+    if bar.lockColor then return end
+    local token = bar.powerToken
+    if token == nil or issecretvalue(token) then return end
+    local info = PowerBarColor and PowerBarColor[token]
+    if info and info.atlas then bar:SetStatusBarColor(info.r, info.g, info.b) end
+end
+
+-- Flat fill over a dark trough, in the color Blizzard gives the bar (health
+-- green, mana blue, the grey of a carrier out of sight).
+function FC.Bar(bar, mana)
+    if not bar or bar:IsForbidden() then return end
+    local d = GetFFD(bar)
+    if d.fcTrough then return end
+    local trough = SolidTex(bar, "BACKGROUND", 0, 0, 0, 0.55)
+    trough:SetAllPoints(bar)
+    d.fcTrough = trough
+    if mana then
+        d.fcMana = true
+        FC.ManaType(bar)
+    else
+        bar:SetStatusBarTexture(FC.FLAT)
+    end
+end
+
+-- Panel behind a button's bar pair: a frame of ours at the button's own
+-- level, where its regions and the button's interleave by draw layer, so the
+-- class circle (the button's BACKGROUND) stays over the panel's edge. The
+-- house fill for the EllesmereUI style, the Modern color for Modern (the
+-- shell registry swaps them live), and the house border below the circle too.
+function FC.Panel(owner, top, bottom, pad)
+    local d = GetFFD(owner)
+    if d.fcPanel then return end
+    local panel = CreateFrame("Frame", nil, owner)
+    panel:SetPoint("TOPLEFT", top, "TOPLEFT", -pad, pad)
+    panel:SetPoint("BOTTOMRIGHT", bottom, "BOTTOMRIGHT", pad, -pad)
+    panel:SetFrameLevel(owner:GetFrameLevel())
+    d.fcPanel = panel
+    local bg = SolidTex(panel, "BACKGROUND", Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA, -8)
+    bg:SetAllPoints(panel)
+    WSkin.AdoptShell("flagcarrier", panel, bg)
+    WSkin.AddBorder(panel, nil, nil, nil, nil, "BACKGROUND", -5)
+end
+
+function FC.SkinPet(pet)
+    if not pet or pet:IsForbidden() then return end
+    local name = pet:GetName()
+    if not name then return end
+    local art = _G[name .. "Texture"]
+    if art then art:SetAlpha(0) end
+    local hb, mb = _G[name .. "HealthBar"], _G[name .. "ManaBar"]
+    FC.Bar(hb)
+    FC.Bar(mb, true)
+    if hb and mb then FC.Panel(pet, hb, mb, 1) end
+end
+
+function FC.SkinFrame(f)
+    if not f or f:IsForbidden() then return end
+    local name = f:GetName()
+    local d = GetFFD(f)
+    if not name or d.fcSkinned then return end
+    d.fcSkinned = true
+
+    -- Blizzard's frame art and the black wash behind its bars.
+    for _, suffix in ipairs({ "Texture", "Background" }) do
+        local t = _G[name .. suffix]
+        if t then t:SetAlpha(0) end
+    end
+    local hb, mb = _G[name .. "HealthBar"], _G[name .. "ManaBar"]
+    FC.Bar(hb)
+    FC.Bar(mb, true)
+    if hb and mb then FC.Panel(f, hb, mb, 2) end
+
+    -- Spec icon: Blizzard's gold ring off, the icon itself a round badge on
+    -- the class circle. The mask is made on the frame that owns the icon.
+    local ring = _G[name .. "SpecBorder"]
+    if ring then ring:SetAlpha(0) end
+    local spec = _G[name .. "SpecPortrait"]
+    if spec and spec.AddMaskTexture then
+        local mask = spec:GetParent():CreateMaskTexture()
+        mask:SetTexture(FC.CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        mask:SetAllPoints(spec)
+        spec:AddMaskTexture(mask)
+    end
+
+    -- Name white like the windows' titles; the bar texts keep their color.
+    local nameFS = _G[name .. "Name"]
+    if nameFS then
+        WSkin.Font(nameFS)
+        WSkin.White(nameFS)
+    end
+    for _, suffix in ipairs(FC.BAR_TEXTS) do WSkin.Font(_G[name .. suffix]) end
+
+    -- The trinket slot shows all the time, often empty: its icon is cropped
+    -- square with no edge, so an empty slot draws nothing.
+    local cc = f.CC
+    if cc and cc.Icon then WSkin.SquareIcon(cc.Icon) end
+    local cast = f.CastingBar
+    if cast and not cast:IsForbidden() then
+        if cast.Icon then WSkin.SquareIcon(cast.Icon, cast) end
+        if cast.Text then WSkin.Font(cast.Text) end
+    end
+
+    FC.SkinPet(f.petFrame)
+end
+
+function FC.Apply()
+    for i = 1, (MAX_ARENA_ENEMIES or 5) do
+        FC.SkinFrame(_G["ArenaEnemyMatchFrame" .. i])
+    end
+    if not FC.hooked and UnitFrameManaBar_UpdateTypeOld then
+        FC.hooked = true
+        hooksecurefunc("UnitFrameManaBar_UpdateTypeOld", FC.ManaType)
+    end
+end
+
+WSkin.RegisterWindow({
+    key = "flagcarrier",
+    -- Loaded with the game on both clients; a client without it never runs the pack.
+    addons = { Blizzard_Deprecated_ArenaUI = true },
+    apply = FC.Apply,
+})
 end

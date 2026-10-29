@@ -149,7 +149,7 @@ function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
 
     -- Art Style: 2D, 3D, or class art in one of seven sets (the flyout).
     local classVals = { modern = "Modern", arcade = "Arcade", glyph = "Glyph", legend = "Legend",
-        midnight = "Midnight", pixel = "Pixel", pixelsComic = "Pixels Comic", runic = "Runic" }
+        midnight = "Midnight", pixel = "Pixel", pixelsComic = "Comic", runic = "Runic" }
     local classOrder = { "modern", "arcade", "glyph", "legend", "midnight", "pixel", "pixelsComic", "runic" }
     local artValues = {
         ["3d"] = "3D Portrait",
@@ -774,24 +774,6 @@ initFrame:SetScript("OnEvent", function(self)
         ["customDynamic"] = "Custom Dynamic Colors",
     }
     local healthColorOrder = { "class", "classReactive", "dark", "classic", "custom", "customDynamic" }
-
-    local namePositionValues = EllesmereUI.POSITION_GRID_VALUES
-    local namePositionOrder = EllesmereUI.POSITION_GRID_ORDER
-
-    -- Name Position adds "None" (hides the name); Health Text Position reuses these base tables, so keep "None" out of the shared set.
-    local namePositionValuesName = EllesmereUI.POSITION_GRID_VALUES_NONE
-    local namePositionOrderName = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright", "none" }
-
-    local healthTextValues = {
-        ["none"]          = "None",
-        ["percent"]       = "Percent",
-        ["percentNoSign"] = "Percent (No Sign)",
-        ["number"]        = "Number",
-        ["numberPercent"] = "Number | Percent",
-        ["percentNumber"] = "Percent | Number",
-        ["missing"]       = "Missing Number",
-    }
-    local healthTextOrder = { "none", "percent", "percentNoSign", "number", "numberPercent", "percentNumber", "missing" }
 
     local absorbStyleValues = {
         ["none"]            = "None",
@@ -1582,11 +1564,8 @@ initFrame:SetScript("OnEvent", function(self)
         groupGrowthValues = groupGrowthValues, hbtOrder = hbtOrder,
         hbtValues = hbtValues, healAbsorbStyleOrder = healAbsorbStyleOrder,
         healthColorOrder = healthColorOrder, healthColorValues = healthColorValues,
-        healthTextOrder = healthTextOrder, healthTextValues = healthTextValues,
         IsPreviewOff = IsPreviewOff, KeepGrowthPerpendicular = KeepGrowthPerpendicular,
         maxHealthStyleOrder = maxHealthStyleOrder, MissingGlowDesc = MissingGlowDesc,
-        namePositionOrder = namePositionOrder, namePositionOrderName = namePositionOrderName,
-        namePositionValues = namePositionValues, namePositionValuesName = namePositionValuesName,
         optState = optState, PP = PP, ReadGroupGrowth = ReadGroupGrowth,
         ReloadAndUpdate = ReloadAndUpdate, SGet = SGet,
         SGetPx = SGetPx, SSet = SSet, SVal = SVal, SWrite = SWrite,
@@ -1738,6 +1717,14 @@ initFrame:SetScript("OnEvent", function(self)
             -- Mirrors buildPage's root cleanup: fires INSTEAD of buildPage when the target page is already cached.
             -- Without it, switching from Buffs/HoverCast to a cached page never hides ns._bmRoot/ns._ccRoot, which are built onto the shared live scroll frame (not a per-page wrapper) and would stay stuck over the restored page.
             DropManagerRoots(pageName)
+            -- Presets, spec changes and profile switches can alter the text list
+            -- while the page is cached (EUI_RaidFrames_TextDisplay_Options.lua).
+            local textCheck = ns._rfTextChecks and ns._rfTextChecks[pageName]
+            if textCheck and textCheck() then
+                C_Timer.After(0, function()
+                    if RFPageShown(pageName) then EllesmereUI:RefreshPage(true) end
+                end)
+            end
             if pageName == PAGE_MAIN then
                 local mode = db.profile.previewMode or "overlay"
                 -- Skip-restore; see buildPage.

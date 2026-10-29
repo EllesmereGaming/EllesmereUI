@@ -329,9 +329,7 @@ local function MMButtonOn(mm, key)
 end
 ns.MicroMenuButtonOn = MMButtonOn
 
-local function IndexOf(list, key)
-    for i = 1, #list do if list[i] == key then return i end end
-end
+local IndexOf = tIndexOf
 
 -- Saved order first (unknown and repeated keys dropped). A default key the
 -- saved order lacks (new, or saved on the other client: profiles are shared)

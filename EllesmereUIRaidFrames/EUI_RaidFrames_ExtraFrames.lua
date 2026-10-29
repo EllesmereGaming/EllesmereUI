@@ -111,7 +111,7 @@ XF.FreeAnchor = function(c, set)
     if not r then return false end
     local grow, wrap, horizontal = XF.GrowInfo(set, db and db.profile)
     local corner, x, y = FB.CornerPin(horizontal and grow or wrap, horizontal and wrap or grow, r)
-    FB.Pin(c, corner, UIParent, "CENTER", x, y)
+    FB.FreePin(c, corner, x, y)
     return true
 end
 
@@ -168,7 +168,8 @@ XF.Pitch = function(set, s)
     if set and set.position ~= "free" and ns.RF_CompactOn(db.profile, false) then
         return ns.RF_OnePixel(false)
     end
-    return s.cellSpacing or 2
+    -- Same grid as FB.FreePin: the extra container's own scale.
+    return EllesmereUI.PP.SnapForES(s.cellSpacing or 2, XF.container:GetEffectiveScale())
 end
 
 -- Geometry only: container size, button stacking, per-button size (Extra
@@ -279,28 +280,11 @@ XF.Layout = function()
                 d.ApplyBorderColor()
             end
         end
-        if d.nameText then
-            ApplyFont(d.nameText, xs.nameSize or 10)
-            if d.AnchorNameText then d.AnchorNameText() end
-            -- AnchorNameText derives width from the BASE frame width; the
-            -- offset width is authoritative here.
-            d.nameText:SetWidth(w * ns.RF_NAME_WIDTH_FRACTION)
-        end
-        if d.healthText then
-            ApplyFont(d.healthText, xs.healthTextSize or 9)
-            if d.AnchorHealthText then d.AnchorHealthText() end
-        end
-        if d.powerText then
-            ApplyFont(d.powerText, xs.powerTextSize or 8)
-            ns._RFAnchorPowerText(d)
-        end
-        if d.levelText then
-            ApplyFont(d.levelText, xs.levelTextSize or 10)
-            ns._RFAnchorLevelText(d)
-        end
-        if d.healAbsorbText then
-            ApplyFont(d.healAbsorbText, xs.healAbsorbTextSize or 9)
-            if d.AnchorHealAbsorbText then d.AnchorHealAbsorbText() end
+        -- The texts through the extra proxy; the name width follows the offset
+        -- width (the layout derives it from the BASE frame width).
+        if d.AnchorTexts then
+            d.AnchorTexts()
+            ns.RF_TextNameWidth(d, w)
         end
         if d.statusText then
             ApplyFont(d.statusText, xs.statusTextSize or 14)
@@ -407,19 +391,22 @@ XF.EnsureBuilt = function(count)
                     end
                     local ppct = UnitPowerPercent(unit, pType, true, CurveConstants.ScaleTo100)
                     d.power:SetValue(ppct)
-                    -- Power Text rides the same value (nil = off: this one field test).
-                    local pwtMode = d._pwtMode
-                    if pwtMode then ns.RF_PowerTextInto(d.powerText, pwtMode, ppct, unit, pType) end
+                    -- Power Texts ride the same value (one field test while off);
+                    -- the Custom texts follow below, power bar or not.
+                    if d._pwtOn then ns.RF_TextPower(d, unit, ppct, pType, true) end
                 end
+                local tp = d._txP
+                if tp and tp.reads and tp.reads.pp then ns.RF_TextRepaintCustom(d, unit, "pp") end
             elseif event == "UNIT_DISPLAYPOWER" then
                 local d = GetFFD(b)
                 if d.power and d.power:IsShown() then
                     ns._RFPowerTypeEdge(d, unit)
                     local ppct = UnitPowerPercent(unit, d._pwType, true, CurveConstants.ScaleTo100)
                     d.power:SetValue(ppct)
-                    local pwtMode = d._pwtMode
-                    if pwtMode then ns.RF_PowerTextInto(d.powerText, pwtMode, ppct, unit, d._pwType) end
+                    if d._pwtOn then ns.RF_TextPower(d, unit, ppct, d._pwType, true) end
                 end
+                local tp = d._txP
+                if tp and tp.reads and tp.reads.pp then ns.RF_TextRepaintCustom(d, unit, "pp") end
             elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" or event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED"
                 or event == "UNIT_HEAL_PREDICTION" or event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
                 -- The event IS the arm: plainly observable even while the
@@ -438,6 +425,12 @@ XF.EnsureBuilt = function(count)
                 if event ~= "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then ns._AbArm(b, unit, dd) end
                 ns._MarkAbsorbDirty(b, unit)
                 if event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then ns.UpdateHealAbsorbTextFor(b, unit) end
+                -- Custom texts showing the amount this event moved (two field reads while
+                -- none does); the max-health-modifier edge moves health only.
+                local tp = dd._txP
+                if tp and tp.reads and event ~= "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
+                    ns.RF_TextRepaintCustom(dd, unit, event == "UNIT_ABSORB_AMOUNT_CHANGED" and "abs" or "habs")
+                end
                 if event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
                     dd._rmhPct = nil -- reduced-max cache: this is its only value edge
                     ns._UpdateButtonHealth(b, unit)
@@ -462,6 +455,8 @@ XF.EnsureBuilt = function(count)
                 end
             elseif event == "UNIT_LEVEL" then
                 ns._RFRepaintLevel(b)
+            elseif event == "UNIT_TARGET" then
+                ns.RF_TextRepaintCustom(GetFFD(b), unit, "tgt")
             else -- UNIT_NAME_UPDATE / UNIT_CONNECTION
                 UpdateButton(b)
                 if event == "UNIT_CONNECTION" then ns._UpdateButtonRange(unit, b) end
@@ -543,9 +538,13 @@ function ns.XF_Apply()
             if db.profile.showCombatIndicator then
                 t:RegisterUnitEvent("UNIT_FLAGS", unit)
             end
-            -- UNIT_LEVEL is opt-in too: only while a view shows Level Text.
-            if ns._RFLevelWanted() then
+            -- UNIT_LEVEL is opt-in too: only while a view shows the level.
+            if ns.RF_TextWanted("level") then
                 t:RegisterUnitEvent("UNIT_LEVEL", unit)
+            end
+            -- UNIT_TARGET likewise: only while a view's Custom text shows [target].
+            if ns.RF_TextWanted("tgt") then
+                t:RegisterUnitEvent("UNIT_TARGET", unit)
             end
             t:RegisterEvent("READY_CHECK_CONFIRM")
             t:RegisterEvent("PLAYER_FLAGS_CHANGED")

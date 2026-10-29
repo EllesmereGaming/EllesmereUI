@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local GetSpecialization = (C_SpecializationInfo and C_SpecializationInfo.GetSpecialization) or GetSpecialization
 local addonName, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.HideFrame and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard frame suppression hides through the parent's HideFrame)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.AbsorbGlow) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard frame suppression hides through the parent's HideFrame, and the player absorb glow line is the parent's AbsorbGlow)
 EllesmereUI._ModuleNS[addonName] = ns  -- LOD options files read this module ns via the registry
 
 local math_floor, math_ceil, math_max, math_min, math_abs =
@@ -1521,9 +1521,15 @@ do
         return s.textureBg == true
     end
 
+    -- Unset per-frame choices keep the profile's existing Dark Mode setting.
+    function ns.UF_DarkThemeOn(s)
+        if s and s.darkTheme ~= nil then return s.darkTheme end
+        return (db and db.profile and db.profile.darkTheme) or false
+    end
+
     -- The health fill is opaque: Dark Mode Fill in Dark Mode, else Fill Opacity.
     function ns.UF_HealthOpaque(s)
-        if db.profile.darkTheme then
+        if ns.UF_DarkThemeOn(s) then
             local _, _, _, fa = EllesmereUI.GetDarkModeFill()
             return fa >= 1
         end
@@ -2163,7 +2169,7 @@ local function ApplyDarkTheme(health, unit)
     -- TEMPORARY (see UF_SecretSafeHealthColor). Idempotent: this function
     -- re-runs on settings changes and re-assigning is harmless.
         health.UpdateColor = UF_SecretSafeHealthColor
-    local isDark = db and db.profile and db.profile.darkTheme
+    local isDark = ns.UF_DarkThemeOn(health._euiUnitKey and db.profile[health._euiUnitKey])
     if isDark then
         health.colorClass = false
         health.colorClassPet = false
@@ -2546,8 +2552,8 @@ end
 -- Main-chunk locals the other EUI_UnitFrames_*.lua files re-import by name.
 -- dbSetters: a file that reads db keeps its own local and adds a setter here,
 -- this file first; EllesmereUF:OnInitialize (EUI_UnitFrames_Lifecycle.lua)
--- assigns its own db, then runs the list.
-ns._internals = {
+-- assigns its own db, then calls SetDB.
+EllesmereUI.NewInternals(ns, "_internals", {
     frames = frames, GetSettingsForUnit = GetSettingsForUnit, UnsnapTex = UnsnapTex,
     unitSettingsKey = unitSettingsKey, UnitToSettingsKey = UnitToSettingsKey,
     ResolveFontPath = ResolveFontPath, ApplyDarkTheme = ApplyDarkTheme,
@@ -2560,9 +2566,4 @@ ns._internals = {
     ApplyHealthBarAlpha = ApplyHealthBarAlpha, ApplyPowerBarAlpha = ApplyPowerBarAlpha,
     SpecHasClassPower = SpecHasClassPower, UF_SecretSafeHealthColor = UF_SecretSafeHealthColor,
     dbSetters = { function(v) db = v end },
-}
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._internals, { __index = function(_, k)
-    error("ns._internals has no entry " .. tostring(k), 2)
-end })
+}, { SetDB = "dbSetters" })

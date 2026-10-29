@@ -1292,38 +1292,43 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             if ns.ApplyOOCPlates then ns.ApplyOOCPlates() end
           end });  y = y - h
 
-    -- Row 6 (Blood Death Knight only): Hide Copies of Blood Plague. The row
-    -- is not built at all for anyone else -- the setting only affects a
-    -- debuff Blood spec applies.
+    -- Row 6: Out of Combat Opacity | the class option, if any. Hide Copies of Blood
+    -- Plague (Blood Death Knight only) and Show Sunder Armor (WoW Forever warriors
+    -- only) are not built at all for anyone else -- each only affects that class's
+    -- debuff.
+    local classCfg
     do
         local _, classFile = UnitClass("player")
         local specIdx = C_SpecializationInfo.GetSpecialization()
         local specID = specIdx and C_SpecializationInfo.GetSpecializationInfo(specIdx)
         if classFile == "DEATHKNIGHT" and specID == 250 then
-            _, h = W:DualRow(parent, y,
-                { type="toggle", text="Hide Copies of Blood Plague",
+            classCfg = { type="toggle", text="Hide Copies of Blood Plague",
                   tooltip="Shows a single Blood Plague debuff on enemy nameplates instead of one per copy (Blood Boil from weapon copies).",
                   getValue=function() return DBVal("hideBloodPlagueCopies") ~= false end,
                   setValue=function(v)
                     DB().hideBloodPlagueCopies = v
                     if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
-                  end },
-                EllesmereUI.BlankRowCfg());  y = y - h
+                  end }
+        elseif EllesmereUI.IS_FOREVER and classFile == "WARRIOR" then
+            classCfg = { type="toggle", text="Show Sunder Armor",
+                  tooltip="Shows Sunder Armor and its stacks on enemy nameplates, including stacks applied by other warriors.",
+                  getValue=function() return DBVal("showSunderArmor") == true end,
+                  setValue=function(v)
+                    DB().showSunderArmor = v
+                    if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
+                  end }
         end
     end
-
-    -- Row 7 (WoW Forever warriors only): Show Sunder Armor.
-    if EllesmereUI.IS_FOREVER and select(2, UnitClass("player")) == "WARRIOR" then
-        _, h = W:DualRow(parent, y,
-            { type="toggle", text="Show Sunder Armor",
-              tooltip="Shows Sunder Armor and its stacks on enemy nameplates, including stacks applied by other warriors.",
-              getValue=function() return DBVal("showSunderArmor") == true end,
-              setValue=function(v)
-                DB().showSunderArmor = v
-                if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
-              end },
-            EllesmereUI.BlankRowCfg());  y = y - h
-    end
+    _, h = W:DualRow(parent, y,
+        { type="slider", text="Out of Combat Opacity",
+          tooltip="Fades the nameplates of enemies that are not in combat with anyone, such as packs you have not pulled. Your target, and your focus while Keep Focus Full Opacity is on, are never faded by this. Multiplies with Non-Target Opacity. 100 = no fading.",
+          min=0, max=100, step=1,
+          getValue=function() return DBVal("outOfCombatAlpha") or 100 end,
+          setValue=function(v)
+            DB().outOfCombatAlpha = v
+            if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
+          end },
+        classCfg or EllesmereUI.BlankRowCfg());  y = y - h
 
     return math.abs(y)
 end

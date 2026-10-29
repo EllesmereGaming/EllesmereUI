@@ -706,17 +706,33 @@ initFrame:SetScript("OnEvent", function(self)
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Auto Accept Quests",
               getValue=function() return Cfg("autoAccept") or false end,
-              setValue=function(v) Set("autoAccept", v) end },
+              setValue=function(v)
+                  Set("autoAccept", v)
+                  if EQT.SyncAutoQuests then EQT.SyncAutoQuests() end
+              end },
             { type="toggle", text="Auto Turn In Quests",
               getValue=function() return Cfg("autoTurnIn") or false end,
-              setValue=function(v) Set("autoTurnIn", v) end })
+              setValue=function(v)
+                  Set("autoTurnIn", v)
+                  if EQT.SyncAutoQuests then EQT.SyncAutoQuests() end
+              end })
         local acceptRows = {
             { type="toggle", label="Prevent Multi Quest Accept",
               get=function() return Cfg("autoAcceptPreventMulti") ~= false end,
               set=function(v) Set("autoAcceptPreventMulti", v) end },
+            -- Hold Shift to Enable and Hold Shift to Skip are opposites: turning one on turns the other off.
+            { type="toggle", label="Hold Shift to Enable",
+              get=function() return Cfg("autoAcceptShiftEnable") == true end,
+              set=function(v)
+                  Set("autoAcceptShiftEnable", v)
+                  if v then Set("autoAcceptShiftSkip", false) end
+              end },
             { type="toggle", label="Hold Shift to Skip",
               get=function() return Cfg("autoAcceptShiftSkip") ~= false end,
-              set=function(v) Set("autoAcceptShiftSkip", v) end },
+              set=function(v)
+                  Set("autoAcceptShiftSkip", v)
+                  if v then Set("autoAcceptShiftEnable", false) end
+              end },
             { type="toggle", label="Ignore Low Level Quests",
               get=function() return Cfg("autoAcceptIgnoreTrivial") or false end,
               set=function(v) Set("autoAcceptIgnoreTrivial", v) end },
@@ -735,9 +751,18 @@ initFrame:SetScript("OnEvent", function(self)
         EllesmereUI.BuildInlineCog(row._rightRegion, {
             title = "Auto Turn In Settings",
             rows = {
+                { type="toggle", label="Hold Shift to Enable",
+                  get=function() return Cfg("autoTurnInShiftEnable") == true end,
+                  set=function(v)
+                      Set("autoTurnInShiftEnable", v)
+                      if v then Set("autoTurnInShiftSkip", false) end
+                  end },
                 { type="toggle", label="Hold Shift to Skip",
                   get=function() return Cfg("autoTurnInShiftSkip") ~= false end,
-                  set=function(v) Set("autoTurnInShiftSkip", v) end },
+                  set=function(v)
+                      Set("autoTurnInShiftSkip", v)
+                      if v then Set("autoTurnInShiftEnable", false) end
+                  end },
             },
         })
         y = y - h
@@ -746,7 +771,27 @@ initFrame:SetScript("OnEvent", function(self)
         local kbRow
         kbRow, h = W:DualRow(parent, y,
             { type="label", text="" },
-            { type="label", text="" })
+            { type="toggle", text="Wowhead Quest Links",
+                tooltip="Adds a copyable Wowhead link to the right-click menu of quests in the quest tracker and quest log.",
+                getValue=function() return Cfg("wowheadQuestLinks") == true end,
+                setValue=function(v)
+                    Set("wowheadQuestLinks", v)
+                    EQT.ApplyQuestLinks()
+                    EllesmereUI:RefreshPage()
+                end })
+        EllesmereUI.BuildInlineCog(kbRow._rightRegion, {
+            title = "Wowhead Link Settings",
+            disabled = function() return not Cfg("wowheadQuestLinks") end,
+            disabledTooltip = "Wowhead Quest Links",
+            rows = {
+                { type="toggle", label="Use Client Language",
+                  get=function() return Cfg("wowheadQuestClientLanguage") == true end,
+                  set=function(v) Set("wowheadQuestClientLanguage", v) end },
+                { type="toggle", label="Jump to Comments",
+                  get=function() return Cfg("wowheadQuestComments") == true end,
+                  set=function(v) Set("wowheadQuestComments", v) end },
+            },
+        })
         if not EllesmereUI._prebuilding then
             local rgn = kbRow._leftRegion
             local SIDE_PAD = 20

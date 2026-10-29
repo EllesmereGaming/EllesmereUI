@@ -348,7 +348,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     local ma = MA()
     if not ma then return 0 end
     local y = yOffset
-    local _, h
+    local _, h, hdr
 
     parent._showRowDivider = true
 
@@ -405,12 +405,13 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     -------------------------------------------------------------------------
     --  MOVEMENT COOLDOWN ALERT
     -------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "MOVEMENT COOLDOWN ALERT", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "MOVEMENT COOLDOWN ALERT", y);  y = y - h
 
     -- Off = no class checked at all (enabledClasses nil), the Totem Bar
     -- convention -- the page stays configurable while ANY class is checked;
     -- the backend additionally gates runtime on the player's own class.
     local function maOff() return not ma.enabledClasses end
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_MovementAlert", disabled = maOff, disabledTooltip = "Select a class above", rawTooltip = true })
 
     local enableRow
     enableRow, h = W:DualRow(parent, y,
@@ -984,11 +985,14 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     -------------------------------------------------------------------------
     --  EXTRA TRACKING
     -------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "EXTRA TRACKING", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "EXTRA TRACKING", y);  y = y - h
 
     -- The two sibling trackers' master toggles, each carrying its full settings cog.
     local function tsOff() return not ma.tsEnabled end
     local function gwOff() return not ma.gwEnabled end
+    -- Time Spiral is the section's first mover, so the header's button takes
+    -- it; the Gateway Shard mover stays reachable through its cog's footer.
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_TimeSpiralAlert", disabled = tsOff, disabledTooltip = "Enable Time Spiral Tracker" })
 
     local extraRow
     extraRow, h = W:DualRow(parent, y,

@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  animations, combat fade, low-resource alerts, class-colored bars
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Call Totem Bar scales its Edit Mode system through the parent's SetFrameScale)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI._Pool and EllesmereUI.AbsorbGlow) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Call Totem Bar scales its Edit Mode system through the parent's SetFrameScale, and the health bar's absorb glow line is the parent's AbsorbGlow)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local ERB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.ERB = ERB
@@ -49,6 +49,24 @@ local function SetRBFont(fs, font, size) EllesmereUI.ApplyModuleFont(fs, font, s
 -- Shared with EUI_ResourceBars_SwingTimer.lua (same font lane as the cast bar text).
 ns.GetRBFont = GetRBFont
 ns.SetRBFont = SetRBFont
+
+-- "Hide at Zero" test for the class resource text: the leading number, so "0",
+-- "0%", "0.0" and "0/5" are zero and "0.5" or "10/5" are not. Blank and secret
+-- text pass through.
+function ns.ERB_TextIsZero(text)
+    if text == nil or (issecretvalue and issecretvalue(text)) then return false end
+    if type(text) == "number" then return text == 0 end
+    if type(text) ~= "string" or text == "" then return false end
+    return tonumber(text:match("^%s*%-?%d+%.?%d*")) == 0
+end
+
+-- A secret count (Insanity and other power bars read secret) goes through
+-- TruncateWhenZero, which blanks it at zero engine-side. Returns ok, display;
+-- not ok when the call fails, and the caller shows the raw value.
+function ns.ERB_TruncateSecretZero(v)
+    if not (C_StringUtil and C_StringUtil.TruncateWhenZero) then return false end
+    return pcall(C_StringUtil.TruncateWhenZero, v)
+end
 
 -- Cast-bar text side anchoring (mirrors nameplate/unit-frame cast text). Spell text
 -- and duration share one line; duration reserves a slot on its side and pushes spell
@@ -363,10 +381,10 @@ local function GetPrimaryPowerType()
         local pp = ERB.db and ERB.db.profile and ERB.db.profile.primary
         local ov = pp and pp.powerTypeOverride
         local o = ovSpec and ov and ov[ovSpec]
-        if o == "mana" then return PT.MANA end            -- "Mana (Always)": every form
+        if o == "mana" then return PT.MANA end            -- Balance "Mana": every form
         if o then
             if spec == 1 then return PT.LUNAR_POWER end  -- Balance alt: Astral Power
-            return PT.MANA                                -- Feral/Guardian alt: Mana
+            return PT.MANA                                -- Feral/Guardian/Restoration alt: Mana
         end
         if form == 1 then return PT.ENERGY end
         if form == 5 then return PT.RAGE end
@@ -646,7 +664,7 @@ end
 -- (a file that holds the only copy of a name assigns its local directly).
 -- broken: true while an EUI_ResourceBars_*.lua file loads; a file that
 -- fails leaves it set, and the files behind it return at their first lines.
-ns._internals = {
+EllesmereUI.NewInternals(ns, "_internals", {
     CHANNEL_TICK_DATA = CHANNEL_TICK_DATA, CLASS_COLORS = CLASS_COLORS, DARK_BG_A = DARK_BG_A,
     DARK_FILL_A = DARK_FILL_A, EBON_MIGHT_DURATION = EBON_MIGHT_DURATION,
     EBON_MIGHT_SPELL_ID = EBON_MIGHT_SPELL_ID, ERB = ERB, FRENZIED_REGEN = FRENZIED_REGEN,
@@ -664,10 +682,7 @@ ns._internals = {
     cachedPrimarySetters = {}, cachedSecondarySetters = {}, ebonMightExpirySetters = {},
     UpdateCastBarSetters = {}, UpdateGCDBarSetters = {}, stageThresholdsSetters = {},
     essenceNextTickSetters = {}, essenceLastCountSetters = {}, essenceTickDurSetters = {},
-    broken = false,
-}
--- Set<Name> hands a new value to every copy registered in <name>Setters.
-for setter, listName in pairs({
+}, {
     SetIronfurBaseDur = "ironfurBaseDurSetters", SetIronfurGoEUntil = "ironfurGoEUntilSetters",
     SetMainFrame = "mainFrameSetters", SetHealthBar = "healthBarSetters",
     SetPrimaryBar = "primaryBarSetters", SetSecondaryFrame = "secondaryFrameSetters",
@@ -680,14 +695,4 @@ for setter, listName in pairs({
     SetEssenceNextTick = "essenceNextTickSetters",
     SetEssenceLastCount = "essenceLastCountSetters",
     SetEssenceTickDur = "essenceTickDurSetters",
-}) do
-    local list = ns._internals[listName]
-    ns._internals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
-end
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._internals, { __index = function(_, k)
-    error("ns._internals has no entry " .. tostring(k), 2)
-end })
+})

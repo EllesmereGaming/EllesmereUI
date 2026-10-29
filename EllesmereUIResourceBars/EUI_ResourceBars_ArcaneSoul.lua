@@ -52,11 +52,15 @@ local SUNFURY_TREE_ID = 39      -- C_ClassTalents.GetActiveHeroTalentSpec()
 local GCD_SPELL_ID    = EllesmereUI.GCD_SPELL
 local STYLE_KEY       = "erb:arcsoul121"
 local UNLOCK_KEY      = "EUI_ArcaneSoul"
+-- WoW Forever has no Arcane spec or Sunfury: the helper stays off there.
+local FOREVER         = EllesmereUI.IS_FOREVER == true
 
 local DEFAULT_POS = { point = "CENTER", relPoint = "CENTER", x = 0, y = -150 }
 
--- proxy, built, queued, gcdLen, dirty, fsErr, ev/evCast, sample, class;
--- ph[phase] = { container, btn, fs, stamp }
+-- proxy, built, queued, gcdLen, dirty, fsErr, ev/evCast, sample/sampleHost,
+-- class; ph[phase] = { container, btn, fs, stamp }; options live preview:
+-- demo (driver), demoOwner/demoPending (page watcher), demoApplied/demoCombat/
+-- demoEv (SyncDemo)
 local S = { ph = { surge = {}, soul = {} } }
 S.class = select(2, UnitClass("player"))
 
@@ -207,7 +211,8 @@ local function ReadHasteGcd()
     return 1.5 / (1 + haste / 100)
 end
 
-local function GetGcdLen()
+-- Reads only; GetGcdLen also records the result as the bound GCD.
+local function CalcGcdLen()
     local ok, len = pcall(ReadLiveGcd)
     if not ok then len = nil end
     if not len then
@@ -216,7 +221,11 @@ local function GetGcdLen()
     end
     if not len then len = S.gcdLen or 1.5 end
     if len < 0.75 then len = 0.75 elseif len > 1.6 then len = 1.6 end -- engine floor / unhasted cap
-    len = math.floor(len * 100 + 0.5) / 100  -- bounds the formatter and curve caches
+    return math.floor(len * 100 + 0.5) / 100  -- bounds the formatter and curve caches
+end
+
+local function GetGcdLen()
+    local len = CalcGcdLen()
     S.gcdLen = len
     return len
 end
@@ -258,12 +267,12 @@ end
 local BAND_EPS = 0.0001
 local BAND_MAX = 24
 
-local function GcdBandPoints(prefix, gcd, upTo, firstLabel)
+local function GcdBandPoints(fmt, gcd, upTo, firstLabel)
     local pts = {}
     for n = 1, BAND_MAX do
         local t = (n == 1) and 0 or ((n - 1) * gcd + BAND_EPS)
         if n > 1 and t >= upTo then break end
-        pts[#pts + 1] = { threshold = t, format = (n == 1 and firstLabel) or (prefix .. n) }
+        pts[#pts + 1] = { threshold = t, format = (n == 1 and firstLabel) or string.format(fmt, n) }
     end
     return pts
 end
@@ -283,17 +292,19 @@ local function SurgeFormatter(mode, thr, gcd)
 
     local Up   = Enum and Enum.NumericRuleFormatRounding and Enum.NumericRuleFormatRounding.Up
     local Down = Enum and Enum.NumericRuleFormatRounding and Enum.NumericRuleFormatRounding.Down
+    local soulInCount = EllesmereUI.L("Soul in %d")
+    local soulInTenths = EllesmereUI.L("Soul in %.1f")
     local attempts
     if mode == "gcd" then
         attempts = {
-            GcdBandPoints("Soul in ", gcd, thr, "Soul in 1"),
-            { { threshold = 0, format = "Soul in %d", step = 1, rounding = Up, components = { { div = gcd } } } },
-            { { threshold = 0, format = "Soul in %.1f", step = 0.1, rounding = Down } },
+            GcdBandPoints(soulInCount, gcd, thr, string.format(soulInCount, 1)),
+            { { threshold = 0, format = soulInCount, step = 1, rounding = Up, components = { { div = gcd } } } },
+            { { threshold = 0, format = soulInTenths, step = 0.1, rounding = Down } },
             { { threshold = 0, format = "%.1f", step = 0.1, rounding = Down } },
         }
     else
         attempts = {
-            { { threshold = 0, format = "Soul in %.1f", step = 0.1, rounding = Down } },
+            { { threshold = 0, format = soulInTenths, step = 0.1, rounding = Down } },
             { { threshold = 0, format = "%.1f", step = 0.1, rounding = Down } },
         }
     end
@@ -333,14 +344,15 @@ local function SoulFormatter(mode, gcd)
     local Down = Enum and Enum.NumericRuleFormatRounding and Enum.NumericRuleFormatRounding.Down
     local f
     if mode == "gcd" then
-        f = NewFormatter(GcdBandPoints("", gcd, SOUL_BAND_MAX_S, "LAST"))
+        local lastText = EllesmereUI.L("LAST")
+        f = NewFormatter(GcdBandPoints("%d", gcd, SOUL_BAND_MAX_S, lastText))
         if not f then
             -- Divisor fallback. If the literal-only "LAST" band is what was
             -- refused, the same ceil renders a "1" there instead -- still red,
             -- because the color flip rides the curve, not the text.
             local count = { threshold = gcd + BAND_EPS, format = "%d", step = 1, rounding = Up,
                 components = { { div = gcd } } }
-            f = NewFormatter({ { threshold = 0, format = "LAST" }, count })
+            f = NewFormatter({ { threshold = 0, format = lastText }, count })
                 or NewFormatter({
                     { threshold = 0, format = "%d", step = 1, rounding = Up, components = { { div = gcd } } },
                     count,
@@ -629,30 +641,134 @@ local function EnsureBuilt()
 end
 
 -------------------------------------------------------------------------------
---  Unlock-mode sample. Engine slots only render while their aura is up, so the
---  mover gets a plain sample string on the proxy -- our own frame, no engine
---  restrictions -- shown only while unlock mode is open.
+--  Sample string over the proxy, for the unlock-mode mover and the options live
+--  preview. Engine slots only render while their aura is up, so both get a
+--  plain string on our own frame -- no engine restrictions.
 -------------------------------------------------------------------------------
 
+-- Sample look and text, shared with the options preview header. The font is
+-- set again only when it changed; returns the text size and whether it did.
+local function StyleSample(fs)
+    local font, flags, size, mode = GetASFont(), GetASOutline(), TextSize(), PhaseMode("surge")
+    local stamp = font .. "|" .. size .. "|" .. flags .. "|" .. mode
+    local changed = fs._asStamp ~= stamp
+    if changed then
+        EllesmereUI.PrimeFontShadow(fs, flags == "")
+        fs:SetFont(font, size, flags)
+        fs._asStamp = stamp
+    end
+    fs:SetTextColor(PreColor())
+    fs:SetText(mode == "gcd" and string.format(EllesmereUI.L("Soul in %d"), 3)
+        or string.format(EllesmereUI.L("Soul in %.1f"), 3.2))
+    return size, changed
+end
+_G._ERB_StyleArcaneSoulSample = StyleSample
+
+-- The sample sits on its own host over the proxy, so it can show while the
+-- proxy (and with it any engine slot built earlier) stays hidden. Showing the
+-- proxy is Activate's: every caller runs it first.
 local function ShowSample()
     EnsureProxy()
     local fs = S.sample
     if not fs then
-        fs = S.proxy:CreateFontString(nil, "OVERLAY")
-        fs:SetPoint("CENTER", S.proxy, "CENTER", 0, 0)
+        local host = CreateFrame("Frame", nil, UIParent)
+        host:SetAllPoints(S.proxy)
+        host:SetFrameStrata(S.proxy:GetFrameStrata())
+        host:SetFrameLevel(S.proxy:GetFrameLevel() + 10)
+        S.sampleHost = host
+        fs = host:CreateFontString(nil, "OVERLAY")
+        fs:SetPoint("CENTER", host, "CENTER", 0, 0)
         S.sample = fs
     end
-    local flags = GetASOutline()
-    EllesmereUI.PrimeFontShadow(fs, flags == "")
-    fs:SetFont(GetASFont(), TextSize(), flags)
-    fs:SetTextColor(PreColor())
-    fs:SetText(PhaseMode("surge") == "gcd" and "Soul in 3" or "Soul in 3.2")
+    StyleSample(fs)
+    if S.demo then S.demo:Hide() end
     fs:Show()
-    S.proxy:Show()
+    S.sampleHost:Show()
 end
 
 local function HideSample()
-    if S.sample then S.sample:Hide() end
+    if S.sampleHost then S.sampleHost:Hide() end
+    if S.demo then S.demo:Hide() end
+end
+
+-------------------------------------------------------------------------------
+--  Live preview: the combat sequence replayed for the options page, in its
+--  header and, while that page shows out of combat, as this sample at its real
+--  spot. Texts and colours follow the formatters and curves above. The driver
+--  only runs while a frame using it shows.
+-------------------------------------------------------------------------------
+
+local SOUL_LEN, DEMO_GAP, DEMO_GCD_AGE = 4, 1, 5
+
+-- ceil(left / gcd) with the band boundary rule of GcdBandPoints.
+local function DemoGcdCount(left, gcd)
+    local n = math.floor((left - BAND_EPS) / gcd) + 1
+    return (n < 1) and 1 or n
+end
+
+local function DemoText(fs, t, gcd)
+    local thr = Thr()
+    t = t % (thr + SOUL_LEN + DEMO_GAP)
+    if t >= thr + SOUL_LEN then fs:SetText(""); return end
+    local r, g, b
+    if t < thr then
+        -- The hide rule owns thr itself: the first visible value is below it.
+        local left = math.min(thr - t, thr - 0.01)
+        if PhaseMode("surge") == "gcd" then
+            fs:SetFormattedText(EllesmereUI.L("Soul in %d"), DemoGcdCount(left, gcd))
+        else
+            fs:SetFormattedText(EllesmereUI.L("Soul in %.1f"), math.floor(left * 10) / 10)
+        end
+        r, g, b = PreColor()
+    else
+        local left = thr + SOUL_LEN - t
+        if PhaseMode("soul") ~= "gcd" then
+            fs:SetFormattedText("%.1f", math.floor(left * 10) / 10)
+            r, g, b = SoulColor()
+        else
+            local n = DemoGcdCount(left, gcd)
+            if n == 1 then
+                fs:SetText(EllesmereUI.L("LAST"))
+                r, g, b = LastColor()
+            else
+                fs:SetFormattedText("%d", n)
+                r, g, b = SoulColor()
+            end
+        end
+    end
+    fs:SetTextColor(r, g, b, 1)
+end
+
+-- One step for a driver frame holding its font string in _fs. The GCD is the
+-- driver's own (re-read every few seconds while a phase counts GCDs), never
+-- the live binding's S.gcdLen.
+local function DemoTick(self)
+    local t = self._demoT or 0
+    if NeedsGcd() and (not self._demoGcd or t - (self._demoGcdAt or 0) > DEMO_GCD_AGE) then
+        self._demoGcd, self._demoGcdAt = CalcGcdLen(), t
+    end
+    if self._fs then DemoText(self._fs, t, self._demoGcd) end
+end
+_G._ERB_ArcaneSoulDemoTick = DemoTick
+
+local function DemoOnUpdate(self, elapsed)
+    self._demoT = (self._demoT or 0) + elapsed
+    self._demoAcc = (self._demoAcc or 0) + elapsed
+    if self._demoAcc < 0.1 then return end
+    self._demoAcc = 0
+    DemoTick(self)
+end
+_G._ERB_ArcaneSoulDemoOnUpdate = DemoOnUpdate
+
+local function ShowDemo()
+    ShowSample()
+    if not S.demo then
+        S.demo = CreateFrame("Frame", nil, S.sampleHost)
+        S.demo:SetScript("OnUpdate", DemoOnUpdate)
+    end
+    S.demo._fs = S.sample
+    S.demo:Show()
+    DemoTick(S.demo)
 end
 
 -------------------------------------------------------------------------------
@@ -663,7 +779,7 @@ end
 
 local function EnabledForClass()
     local p = P()
-    return (p and p.enabled and S.class == "MAGE") and true or false
+    return (p and p.enabled and S.class == "MAGE" and not FOREVER) and true or false
 end
 
 local function GateOK()
@@ -701,11 +817,18 @@ local function MoverShowOK()
     return (EllesmereUI and EllesmereUI._unlockActive) or GateOK()
 end
 
-local function Activate()
+-- placeOnly: size and position the proxy but keep it, and with it any engine
+-- slot built earlier, hidden (the options live preview for a Mage the gate
+-- does not pass; its sample has a host of its own).
+local function Activate(placeOnly)
     EnsureProxy()
-    ApplyLook()
+    if placeOnly then S.proxy:SetSize(ProxySize()) else ApplyLook() end
     -- Placement belongs to the mover while unlock mode is open (see ApplyPosition).
     if not (EllesmereUI and EllesmereUI._unlockActive) then ApplyPosition() end
+    if placeOnly then
+        S.proxy:Hide()
+        return
+    end
     S.proxy:Show()
     if not S.built then EnsureBuilt() end
 end
@@ -778,11 +901,45 @@ local function DropGateEvents()
 end
 
 -------------------------------------------------------------------------------
+--  Options live preview state. The options page header reports whether it
+--  shows (owner: its watcher frame, so a rebuilt header's late hide cannot
+--  switch off the new one). The combat events are registered only while that
+--  page shows for a Mage with the helper on.
+-------------------------------------------------------------------------------
+
+local function DemoOnEvent(_, event)
+    S.demoCombat = (event == "PLAYER_REGEN_DISABLED")
+    if ns.AS_Apply then ns.AS_Apply() end
+end
+
+-- Brings S.demoApplied (what AS_Apply reads) and the combat events in line
+-- with the owner; true when that changed anything.
+local function SyncDemo()
+    local want = (S.demoOwner ~= nil) and EnabledForClass()
+    if want == (S.demoApplied or false) then return false end
+    S.demoApplied = want
+    if want then
+        if not S.demoEv then
+            S.demoEv = CreateFrame("Frame")
+            S.demoEv:SetScript("OnEvent", DemoOnEvent)
+        end
+        S.demoEv:RegisterEvent("PLAYER_REGEN_DISABLED")
+        S.demoEv:RegisterEvent("PLAYER_REGEN_ENABLED")
+        S.demoCombat = InCombatLockdown() and true or nil
+    elseif S.demoEv then
+        S.demoEv:UnregisterAllEvents()
+        S.demoCombat = nil
+    end
+    return true
+end
+
+-------------------------------------------------------------------------------
 --  Single entry point: called from ERB:ApplyAll (login, profile swap, every
 --  options change) and from this module's own gate events.
 -------------------------------------------------------------------------------
 
 function ns.AS_Apply()
+    SyncDemo()
     if not EnabledForClass() then
         DropGateEvents()
         Park()
@@ -795,6 +952,13 @@ function ns.AS_Apply()
         return
     end
     HideSample()
+    -- Options page open, out of combat: the live preview, for any Mage (as
+    -- unlock mode). The engine slots only for a Mage the gate passes.
+    if S.demoApplied and not S.demoCombat then
+        Activate(not GateOK())
+        ShowDemo()
+        return
+    end
     if not GateOK() then
         Park()
         return
@@ -802,12 +966,32 @@ function ns.AS_Apply()
     Activate()
 end
 
+-- Applied a frame later, once: a rebuild hides and shows the watcher in one pass.
+local function ApplyDemoState()
+    S.demoPending = nil
+    if SyncDemo() and ns.AS_Apply then ns.AS_Apply() end
+end
+
+_G._ERB_ArcaneSoulScreenDemo = function(owner, on)
+    if on then
+        S.demoOwner = owner
+    elseif S.demoOwner == owner then
+        S.demoOwner = nil
+    else
+        return
+    end
+    if not S.demoPending then
+        S.demoPending = true
+        C_Timer.After(0, ApplyDemoState)
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Unlock element
 -------------------------------------------------------------------------------
 
 function ns.AS_MakeUnlockElement(MK)
-    if not MK or S.class ~= "MAGE" then return nil end
+    if not MK or S.class ~= "MAGE" or FOREVER then return nil end
 
     if not S.unlockHooked and EllesmereUI and EllesmereUI.RegisterUnlockModeListener then
         S.unlockHooked = true

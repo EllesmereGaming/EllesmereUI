@@ -43,7 +43,7 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
     local BuildCDMLivePreview = ns.CDMO_BuildCDMLivePreview
     local W = EllesmereUI.Widgets
     local y = yOffset
-    local _, h
+    local _, h, hdr
 
     local p = DB()
     if not p or not p.cdmBars then return math.abs(yOffset) end
@@ -963,7 +963,9 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
     end
 
     if not isFocusKick then
-    _, h = W:SectionHeader(parent, "BAR LAYOUT", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "BAR LAYOUT", y);  y = y - h
+    -- The selected bar's mover (the key is read at the click).
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = function() return "CDM_" .. BD().key end })
 
     -- Row 1: (Sync) Visibility. Mouseover stays structurally absent for CDM bars
     -- (noMouseover), matching the old VIS_VALUES_CDM list.
@@ -1705,27 +1707,55 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
         local function RebuildSpellOptions()
             wipe(spellValues)
             for i = #spellOrder, 1, -1 do spellOrder[i] = nil end
+            -- Interrupts only. The list comes from EllesmereUI.KickData (the suite's
+            -- interrupt table, built from game spell data and shared with the Kick
+            -- Tracker), filtered to what this character can cast right now. Picking
+            -- one keeps the "only when my kick is ready" gate with an EMPTY FocusKick
+            -- bar (no nameplate icon, kick stays on the CDM); the engine already
+            -- honors an explicit pick without bar content.
             local sd = ns.GetBarSpellData and ns.GetBarSpellData("focuskick")
             local list = sd and sd.assignedSpells
+            local barHasSpell = false
             if list then
                 for _, sid in ipairs(list) do
-                    -- Only positive spell IDs (Blizzard cooldownable spells).
-                    -- Skip negative preset markers (trinkets / items).
-                    if type(sid) == "number" and sid > 0 then
-                        local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
-                        local label = (info and info.name) or ("Spell " .. sid)
-                        local key = tostring(sid)
-                        if not spellValues[key] then
-                            spellValues[key] = label
-                            spellOrder[#spellOrder + 1] = key
+                    if type(sid) == "number" and sid > 0 then barHasSpell = true; break end
+                end
+            end
+            -- No explicit pick: the engine falls back to the bar's first castable
+            -- spell, or stays silent on an empty bar. Name that state honestly.
+            spellValues["__none"] = barHasSpell and "Auto (First on Bar)" or "None"
+            spellOrder[#spellOrder + 1] = "__none"
+
+            local kicks, seenName = {}, {}
+            local KD = EllesmereUI.KickData
+            local resolve = ns.ResolveCastableInterrupt
+            if KD and KD.INTERRUPTS and resolve then
+                for id, k in pairs(KD.INTERRUPTS) do
+                    -- True kicks only: `tracked = false` marks spells that merely
+                    -- also interrupt (Avenger's Shield), same rule as the Kick Tracker.
+                    local castable = k.tracked ~= false and resolve(id)
+                    if castable then
+                        local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(id)
+                        local name = (info and info.name) or ("Spell " .. id)
+                        if not seenName[name] then
+                            seenName[name] = true
+                            kicks[#kicks + 1] = { key = tostring(id), name = name }
                         end
                     end
                 end
             end
-            if #spellOrder == 0 then
-                spellValues["__none"] = "(no spells on bar)"
-                spellOrder[#spellOrder + 1] = "__none"
+            table.sort(kicks, function(a, b) return a.name < b.name end)
+            if #kicks > 0 then
+                spellOrder[#spellOrder + 1] = "---"
+                for _, k in ipairs(kicks) do
+                    spellValues[k.key] = k.name
+                    spellOrder[#spellOrder + 1] = k.key
+                end
             end
+            -- Sound-only mode: fire on every cast, no interrupt or cooldown gate.
+            spellOrder[#spellOrder + 1] = "---"
+            spellValues["__any"] = "Any Cast (Sound Only)"
+            spellOrder[#spellOrder + 1] = "__any"
             -- The stored selection can outlive its spell (removing the kick empties
             -- assignedSpells, focusKickInterruptSpellID keeps pointing at it) and the
             -- dropdown would render the raw spell id. Give it a NAME but do NOT add it
@@ -1753,10 +1783,16 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
             { type = "dropdown", text = "Focus Cast Sound",
               values = soundValues, order = soundOrder,
               getValue = function() return BD().focusCastSoundKey or "none" end,
-              setValue = function(v) BD().focusCastSoundKey = v end },
+              setValue = function(v)
+                  BD().focusCastSoundKey = v
+                  -- Arm/disarm the cast proxy live (it is demand-gated on the sound).
+                  if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
+              end },
             { type = "dropdown", text = "Interrupt Spell",
+              tooltip = "Pick your kick to play the sound only while it is off cooldown, or Any Cast (Sound Only) to play it on every enemy cast.\nLeave the bar above empty for a sound with no nameplate icon.",
               values = spellValues, order = spellOrder,
               getValue = function()
+                  if BD().focusCastSoundAnyCast == true then return "__any" end
                   local sid = BD().focusKickInterruptSpellID
                   if not sid then return spellOrder[1] end
                   -- No label means RebuildSpellOptions rejected it: either
@@ -1768,11 +1804,13 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                   return key
               end,
               setValue = function(v)
-                  if v == "__none" then
+                  BD().focusCastSoundAnyCast = (v == "__any") or nil
+                  if v == "__none" or v == "__any" then
                       BD().focusKickInterruptSpellID = nil
                   else
                       BD().focusKickInterruptSpellID = tonumber(v)
                   end
+                  if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
               end });  y = y - h
 
         -- Live refresh: every click on the Interrupt Spell dropdown

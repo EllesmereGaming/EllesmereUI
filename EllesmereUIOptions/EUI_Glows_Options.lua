@@ -752,6 +752,10 @@ end
 do
     local origNav = EllesmereUI.NavigateToElementSettings
     function EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName, preSelectFn, highlightText)
+        -- The original refuses in combat: no page state changes then.
+        if InCombatLockdown() then
+            return origNav(self, moduleName, pageName, sectionName, preSelectFn, highlightText)
+        end
         if moduleName == GLOBAL_KEY and pageName == PAGE_GLOWS and (sectionName or highlightText) then
             local changed = false
             for _, entry in ipairs(GO.sites) do

@@ -587,8 +587,8 @@ function NameplateFrame:EnsureToTText()
     end
     return fs
 end
--- The unit's target's name, repainted on UNIT_TARGET (registered only while a
--- slot shows it). Name and class token may be secret: they only reach setters.
+-- The unit's target's name, repainted through RefreshTargetTexts below while a slot
+-- shows it. Name and class token may be secret: they only reach setters.
 -- The slot's Class text mode paints a player target in its class colour; anything
 -- else keeps the slot colour.
 function NameplateFrame:UpdateToT()
@@ -623,13 +623,50 @@ function NameplateFrame:UpdateToT()
     if c then fs:SetTextColor(c.r, c.g, c.b, 1) else fs:SetTextColor(1, 1, 1, 1) end
 end
 function NameplateFrame:UNIT_TARGET()
+    self:RefreshTargetTexts(true)
+end
+-- Target of Target and the [target] custom texts. UNIT_TARGET does not arrive for
+-- every nameplate unit (seen in game) and in restricted combat the target cannot be
+-- compared, so threat list updates, casts and the health tick repaint them too, while
+-- a slot shows one. force (UNIT_TARGET) repaints now; the rest at most every 0.2 s per
+-- plate, counted from any repaint. A call inside that window marks the plate, and one
+-- shared flusher repaints it once the window is over (shown only while a mark waits),
+-- so the last change is never dropped. what: the custom entries to repaint (default
+-- "tgt"; "tgtOnly" from the health tick, whose own paint wrote the rest).
+ns._npTgtDirty = ns._npTgtDirty or {}
+ns._npTgtFlush = ns._npTgtFlush or CreateFrame("Frame")
+ns._npTgtFlush:Hide()
+ns._npTgtFlush:SetScript("OnUpdate", function(self)
+    local now, dirty = GetTime(), ns._npTgtDirty
+    for plate, what in pairs(dirty) do
+        if now - (plate._tgtT or 0) >= 0.2 then
+            dirty[plate] = nil
+            plate:RefreshTargetTexts(true, what)
+        end
+    end
+    if next(dirty) == nil then self:Hide() end
+end)
+function NameplateFrame:RefreshTargetTexts(force, what)
+    if not self.unit then return end
+    local now = GetTime()
+    if not force and now - (self._tgtT or 0) < 0.2 then
+        local dirty = ns._npTgtDirty
+        local cur = dirty[self]
+        if cur ~= "tgt" then dirty[self] = what or "tgt" end
+        -- A new mark wakes the flusher; it stays shown while any mark waits.
+        if not cur then ns._npTgtFlush:Show() end
+        return
+    end
+    self._tgtT = now
+    ns._npTgtDirty[self] = nil
     self:UpdateToT()
+    self:PaintCustomTexts(what or "tgt")
 end
 -- Target of Target for the plate's (new) unit: UNIT_TARGET follows the token
--- while a slot shows it, and the text repaints. Plate acquire and both
--- occupant-swap paths come here.
+-- while a slot shows it or a custom text reads [target], and the text repaints.
+-- Plate acquire and both occupant-swap paths come here.
 function NameplateFrame:SyncToT(unit)
-    if ns._npToTSlot then
+    if ns._npTgtTexts then
         if self._totEv ~= unit then
             self:RegisterUnitEvent("UNIT_TARGET", unit)
             self._totEv = unit
@@ -641,11 +678,91 @@ function NameplateFrame:SyncToT(unit)
     end
 end
 
+-- Custom text in one slot (slot: its HP_BAR_SLOTS entry, nil for Top): its own font
+-- string, placed and coloured like the slot's other texts, plus an entry in the
+-- plate's custom list (ca._cu) for PaintCustomTexts.
+function NameplateFrame:AddCustomText(ca, slotKey, slot)
+    local fsKey = ns.NP_CustomFSKey[slotKey]
+    local fs = self[fsKey]
+    if not fs then
+        fs = self.healthTextFrame:CreateFontString(nil, "OVERLAY")
+        self[fsKey] = fs
+    end
+    local c = ns.NP_CustomCompiled(slotKey)
+    local txOff, tyOff = GetTextSlotOffsets(slotKey)
+    local sr, sg, sb = GetTextSlotColor(slotKey)
+    fs:SetParent(ns.SlotTextHost(self, slotKey, (p and p[slotKey .. "Strata"]) or "MEDIUM"))
+    SetFSFont(fs, GetTextSlotSize(slotKey), GetNPOutline())
+    if slot then
+        self:PlaceSlotText(fs, slot, txOff, tyOff)
+        fs:SetJustifyH(slot.justify or slot.anchor)
+    else
+        fs:ClearAllPoints()
+        PP.Point(fs, "BOTTOM", self.health, "TOP", txOff, 4 + GetNameYOffset() + GetClassPowerTopPush(self) + tyOff)
+        fs:SetJustifyH("CENTER")
+    end
+    fs:SetTextColor(sr, sg, sb, 1)
+    -- Width: the bottom slots never truncate. A text naming the unit ends where the
+    -- name would (the bar left by the other bar texts, or on Top the room the name
+    -- has there, kept current by UpdateNameWidth), scaled by Width %; any other text
+    -- is boxed only below 100% (the health loop).
+    local bottom = slot and slot.bottom
+    local w = 0
+    if not slot then self._cuTopName = (c and c.has.name) and true or nil end
+    if not bottom then
+        local wpct = (p and p[slotKey .. "WidthPct"]) or 100
+        if c and c.has.name then
+            w = math.max((slot and ns.NP_BarRestWidth(slotKey)
+                or ns.NP_TopNameWidth(self, GetHealthBarWidth())) * wpct / 100, 20)
+        elseif wpct < 100 then
+            w = GetHealthBarWidth() * wpct / 100
+        end
+    end
+    fs:SetWidth(w)
+    local wrap = (not bottom and p and p[slotKey .. "Wrap"]) and true or false
+    fs:SetWordWrap(wrap)
+    fs:SetMaxLines(wrap and 2 or 1)
+    if w > 0 then ns.ReflowFontString(fs) end
+    fs:Show()
+    if not c then
+        fs:SetText("")
+        return
+    end
+    local cu = ca._cu
+    if not cu then cu = {}; ca._cu = cu end
+    local n = ca._cuN + 1
+    local e = cu[n]
+    if not e then e = {}; cu[n] = e end
+    e.fs, e.slot, e.c = fs, slotKey, c
+    e.tick = (c.reads.hp or c.reads.abs) and true or false
+    e.tgt = c.reads.tgt and true or false
+    -- The health tick's target refresh skips what its own tick paint just wrote.
+    e.tgtOnly = e.tgt and not e.tick
+    ca._cuN = n
+    if e.tick then ca._cuTick = true end
+end
+-- Repaints the plate's custom texts: all of them (what nil), or those whose entry
+-- flag what is set ("tick": reads health or absorbs; "tgt": reads [target];
+-- "tgtOnly": reads [target] but not health or absorbs).
+function NameplateFrame:PaintCustomTexts(what)
+    local ca, unit = self._cachedHealthSlots, self.unit
+    if not (ca and unit) then return end
+    local cu = ca._cu
+    for i = 1, ca._cuN or 0 do
+        local e = cu[i]
+        if not what or e[what] then ns.NP_PaintCustom(e.fs, e.c, unit, e.slot) end
+    end
+end
+
 function NameplateFrame:ApplyHealthTextAppearance()
     self.hpText:Hide()
     self.hpNumber:Hide()
     if self.levelText then self.levelText:Hide() end
     if self.totText then self.totText:Hide() end
+    for i = 1, #ns.textSlotKeys do
+        local fs = self[ns.NP_CustomFSKey[ns.textSlotKeys[i]]]
+        if fs then fs:Hide() end
+    end
     -- Slot assignments may change element kinds: drop the value memo so the
     -- next UpdateHealthValues rewrites every slot's content.
     self._hpTxtPct, self._hpTxtCur, self._hpTxtMax = nil, nil, nil
@@ -655,6 +772,8 @@ function NameplateFrame:ApplyHealthTextAppearance()
     local ca = self._cachedHealthSlots
     -- Slot kinds may change: re-derive the lazily-computed number/combo flag.
     ca._anyNum = nil
+    ca._cuN, ca._cuTick = 0, false
+    self._cuTopName = nil
     local ci = 0
 
     for si = 1, #HP_BAR_SLOTS do
@@ -709,7 +828,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
         elseif element == "level" or element == "targetOfTarget" then
             -- Standalone level / Target of Target: own FontString, NOT in the health slot
             -- cache (level content is static per unit -- written here and by UpdateName on
-            -- acquire; Target of Target rides UNIT_TARGET -- never on health ticks).
+            -- acquire; Target of Target repaints through RefreshTargetTexts).
             -- Width/wrap applied inline since the cache loop below skips it.
             local isLevel = element == "level"
             local fs = isLevel and self.levelText or self:EnsureToTText()
@@ -726,6 +845,8 @@ function NameplateFrame:ApplyHealthTextAppearance()
             fs:SetWordWrap(lwrap)
             fs:SetMaxLines(lwrap and 2 or 1)
             fs:Show()
+        elseif element == "custom" then
+            self:AddCustomText(ca, slot.key, slot)
         end
     end
 
@@ -780,6 +901,8 @@ function NameplateFrame:ApplyHealthTextAppearance()
         fs:SetWordWrap(lwrap)
         fs:SetMaxLines(lwrap and 2 or 1)
         fs:Show()
+    elseif topElement == "custom" then
+        self:AddCustomText(ca, "textSlotTop")
     end
     ca._count = ci
     -- Per-slot health % decimal preference, resolved in this rare appearance pass and cached
@@ -812,6 +935,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
         e.fs:SetMaxLines(wrap and 2 or 1)
     end
     ca._anyDecimal = anyDec
+    self:PaintCustomTexts()
 end
 
 function NameplateFrame:SetUnit(unit, nameplate)
@@ -844,8 +968,9 @@ function NameplateFrame:SetUnit(unit, nameplate)
     -- Attach a pooled aura-container bundle for this unit.
     if ns.NPC_AttachPlate then ns.NPC_AttachPlate(self, unit) end
     if ns.DebuffColors_Attach then ns.DebuffColors_Attach(self, unit) end
-    -- Non-Target Opacity (zero cost while off: one numeric compare).
-    if ns._ntAlpha < 1 then ns.NT_Apply(self) end
+    -- Non-Target and Out of Combat Opacity (zero cost while off: numeric compares).
+    if ns._oocAlpha < 1 then self:RegisterUnitEvent("UNIT_FLAGS", unit) end
+    if ns._ntAlpha < 1 or ns._oocAlpha < 1 then ns.NT_Apply(self) end
     -- Execute glow is per-spawn state, not appearance: ApplyAppearance is generation-cached
     -- (skipped on recycled plates) and the threshold watcher only reaches plates active at flip
     -- time, so a plate pooled during a no-execute window would return glowless. Re-assert.
@@ -939,6 +1064,8 @@ function NameplateFrame:ClearUnit()
     self:UnregisterAllEvents()
     self._factionEv = nil
     self._totEv = nil
+    self._tgtT = nil
+    ns._npTgtDirty[self] = nil
 
     -- Classic WoW UI: blank the level in the border's plate. Plates are
     -- pooled, so a recycled one would otherwise carry the last unit's level
@@ -970,6 +1097,12 @@ function NameplateFrame:ClearUnit()
     end
 
     self.name:SetText("")
+    -- The Custom texts too: a recycled plate never shows the last unit's for a frame.
+    local ca = self._cachedHealthSlots
+    local cu = ca and ca._cu
+    if cu then
+        for i = 1, ca._cuN or 0 do cu[i].fs:SetText("") end
+    end
     -- Release this plate's aura-container bundle back to the pool.
     if ns.NPC_DetachPlate then ns.NPC_DetachPlate(self) end
     if ns.DebuffColors_Detach then ns.DebuffColors_Detach(self) end

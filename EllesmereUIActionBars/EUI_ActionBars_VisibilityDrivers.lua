@@ -227,7 +227,7 @@ function EAB:ApplyExtraBarVisibility()
                 else
                 local key = info.key
                 local s = EAB.db and EAB.db.profile.bars[key]
-                if s and not s.alwaysHidden then
+                if s and not EAB.VisibilityCompat.IsNever(s) then
                     local frame
                     if EAB_VTABLE.ExtraBars.IsManagedNonSecureBar(info) then
                         frame = EAB_VTABLE.ExtraBars.GetManagedNonSecureFrame(info)
@@ -274,7 +274,7 @@ function EAB:ApplyCombatVisibility()
             local frame = barFrames[key] or (info.isDataBar and dataBarFrames[key]) or (info.isBlizzardMovable and blizzMovableHolders[key]) or (extraBarHolders[key]) or (info.visibilityOnly and _G[info.frameName])
             if frame and not info.visibilityOnly then
                 local newStr
-                if s.alwaysHidden then
+                if EAB.VisibilityCompat.IsNever(s) then
                     newStr = "hide"
                 -- Under Any the compiled driver already carries both halves (Show lanes as
                 -- disjuncts, Hide lanes as leading gates, the Lua-only ones resolved at

@@ -52,17 +52,10 @@ local function Enabled()
     return c and c.enabled == true
 end
 
-local function IsSecret(v)
-    return issecretvalue ~= nil and issecretvalue(v)
-end
+local IsSecret, PlainString = EllesmereUI.IsSecret, EllesmereUI.PlainString
 
 local function PlainNumber(v)
     if type(v) == "number" and not IsSecret(v) then return v end
-    return nil
-end
-
-local function PlainString(v)
-    if type(v) == "string" and not IsSecret(v) and v ~= "" then return v end
     return nil
 end
 

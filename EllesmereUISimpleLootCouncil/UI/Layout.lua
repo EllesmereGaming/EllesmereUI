@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
@@ -7,6 +8,7 @@ local addon = SimpleLootCouncil
 local L = {}
 addon.Layout = L
 
+local T = addon.Locale.Text
 local P = addon.Pixel
 local S = addon.Style
 local size = S.size
@@ -154,7 +156,7 @@ function L.Row(parent, x, width, y, height)
         if not index then return end
 
         if index % 2 == 1 then return end
-        S.RoundFill(f, S.color.rowStripe, S.radius.CTRL, "BACKGROUND", -1)
+        f.Stripe = S.RoundFill(f, S.color.rowStripe, S.radius.CTRL, "BACKGROUND", -1)
     end
 
     return f, height or size.ROW_H
@@ -344,16 +346,8 @@ end
 
 
 
-function L.Select(parent, x, width, y, opts)
-    local hasHelp = opts.tooltip ~= nil
-    local height = SettingHeight(hasHelp)
-    local row = L.Row(parent, x, width, y, height)
-    row:SetStripe(opts.stripe)
-
-    local select = S.SelectButton(row)
-    P.Point(select, "RIGHT", row, "RIGHT", -size.ROW_PAD, 0)
-    row:AdoptHover(select)
-    row.Control = select
+function L.SelectControl(parent, opts)
+    local select = S.SelectButton(parent)
     local text = select.Text
 
     local function TextFor(value)
@@ -372,13 +366,13 @@ function L.Select(parent, x, width, y, opts)
         end
         text:SetText(TextFor(opts.get and opts.get()))
         P.Size(select, math.max(select.MinWidth,
-            math.ceil(widest) + select.Chrome), size.CTRL_H)
+            math.ceil(widest) + select.Chrome), opts.height or size.CTRL_H)
     end
     Fit()
     P.AfterLayout(Fit)
     P.OnRescale(Fit)
 
-    function row:Sync()
+    function select:Sync()
         text:SetText(TextFor(opts.get and opts.get()))
     end
 
@@ -386,12 +380,28 @@ function L.Select(parent, x, width, y, opts)
         GameTooltip:Hide()
         S.ShowSelectMenu(self, opts.options, opts.get and opts.get(), function(value)
             if opts.set then opts.set(value) end
-            row:Sync()
+            self:Sync()
         end)
     end)
 
     local window = S.WindowOf(parent)
     if window then window:HookScript("OnHide", function() S.HideSelectMenu() end) end
+    return select
+end
+
+
+function L.Select(parent, x, width, y, opts)
+    local hasHelp = opts.tooltip ~= nil
+    local height = SettingHeight(hasHelp)
+    local row = L.Row(parent, x, width, y, height)
+    row:SetStripe(opts.stripe)
+
+    local select = L.SelectControl(row, opts)
+    P.Point(select, "RIGHT", row, "RIGHT", -size.ROW_PAD, 0)
+    row:AdoptHover(select)
+    row.Control = select
+
+    function row:Sync() select:Sync() end
 
     local label = BoundedLabel(row, select, opts.label, S.fontSetting)
     row.LabelText = label
@@ -414,6 +424,86 @@ function L.Select(parent, x, width, y, opts)
             GameTooltip:AddLine(opts.tooltip, 0.8, 0.8, 0.8, true)
             GameTooltip:Show()
         end)
+        select:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
+    return row, height
+end
+
+
+
+
+
+local MULTI_W = 220
+
+function L.MultiSelect(parent, x, width, y, opts)
+    local hasHelp = opts.tooltip ~= nil
+    local height = SettingHeight(hasHelp)
+    local row = L.Row(parent, x, width, y, height)
+    row:SetStripe(opts.stripe)
+
+    local select = S.SelectButton(row)
+    P.Size(select, opts.width or MULTI_W, size.CTRL_H)
+    P.Point(select, "RIGHT", row, "RIGHT", -size.ROW_PAD, 0)
+    row:AdoptHover(select)
+    row.Control = select
+
+    local function Summary()
+        local chosen = {}
+        for _, o in ipairs(opts.options) do
+            if opts.get(o.key) then chosen[#chosen + 1] = o.text end
+        end
+        if opts.exclusive then return chosen[1] or "" end
+        if #chosen == #opts.options and #chosen > 0 then return T["All"] end
+        if #chosen == 0 then return T["None"] end
+        return table.concat(chosen, ", ")
+    end
+
+    function select:Sync() select.Text:SetText(Summary()) end
+    select:Sync()
+
+    select:SetScript("OnClick", function(self)
+        GameTooltip:Hide()
+        local items = {}
+        for _, o in ipairs(opts.options) do
+            items[#items + 1] = {
+                text = o.text, checkbox = not opts.exclusive, tooltip = o.tooltip,
+                checked = function() return opts.get(o.key) end,
+                onClick = function()
+
+                    if opts.exclusive then
+                        if not opts.get(o.key) then opts.set(o.key, true) end
+                    else
+                        opts.set(o.key, not opts.get(o.key))
+                    end
+                    self:Sync()
+                end,
+            }
+        end
+        S.ContextMenu(self, items, { below = true, minWidth = self:GetWidth(), toggle = true })
+    end)
+    local window = S.WindowOf(parent)
+    if window then window:HookScript("OnHide", function() S.CloseContextMenu() end) end
+
+    function row:Sync() select:Sync() end
+
+    local label = BoundedLabel(row, select, opts.label, S.fontSetting)
+    row.LabelText = label
+    if hasHelp then
+        InlineHelp(row, label, select, height, opts.tooltip)
+    else
+        L.RevealIfTruncated(row, label, opts.label)
+    end
+    if opts.tooltip then
+        local function Tip(anchor)
+            S.SideTooltip(anchor)
+            S.TooltipSection(GameTooltip, opts.label)
+            GameTooltip:AddLine(opts.tooltip, 0.8, 0.8, 0.8, true)
+            GameTooltip:Show()
+        end
+        row:HookScript("OnEnter", function(self) Tip(self) end)
+        row:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        select:HookScript("OnEnter", function() Tip(row) end)
         select:HookScript("OnLeave", function() GameTooltip:Hide() end)
     end
 

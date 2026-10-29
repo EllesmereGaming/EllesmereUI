@@ -102,6 +102,18 @@ EllesmereUI.RegisterLocale = function(code)
     return t
 end
 
+-- A module's own translation file (EllesmereUILocales/<code>_<Module>.lua, e.g.
+-- ptBR_SLC.lua) builds only while that module will load this session: a held
+-- back, disabled or load-on-demand module reads false, so players who keep it
+-- off hold none of its strings. Called by those files while the locale addon
+-- loads, after RegisterLocale.
+EllesmereUI.LocaleModuleLoads = function(folder)
+    local held = EllesmereUI.HELD_BACK_ADDONS
+    if held and held[folder] then return false end
+    if not (C_AddOns and C_AddOns.IsAddOnLoadable) then return true end
+    return C_AddOns.IsAddOnLoadable(folder, UnitName("player")) == true
+end
+
 --------------------------------------------------------------------------------
 --  Resolve + activate the effective locale
 --------------------------------------------------------------------------------
@@ -174,9 +186,12 @@ Activate()
 
 -- Re-resolve once SavedVariables (the override) are available. Nothing renders
 -- before this point. Translation data lives in the LoadOnDemand
--- EllesmereUILocales child (2.8MB of source English clients never parse):
--- loaded here SYNCHRONOUSLY, before Activate(), whenever the effective locale
--- needs it, with that locale recorded first so only its own file builds.
+-- EllesmereUILocales child: loaded here SYNCHRONOUSLY, before Activate(),
+-- whenever the effective locale needs it, with that locale recorded first so
+-- only its own file builds. Its TOC tags each file with the game client
+-- languages that read it (its own, its pair, English), so a non-English
+-- client parses only its own file and its pair, and an English client parses
+-- them all, only when the override picks a translation.
 -- localeData already populated (the child loaded before this point) skips
 -- the call.
 local f = CreateFrame("Frame")

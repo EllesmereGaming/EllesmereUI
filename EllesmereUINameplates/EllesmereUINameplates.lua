@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local addon, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[addon] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -76,6 +76,10 @@ function ns._appendDisplayPresetKeys(t)
         "leftSlotSize", "leftSlotXOffset", "leftSlotYOffset", "leftSlotRaiseStrata",
         "toprightSlotSize", "toprightSlotXOffset", "toprightSlotYOffset", "toprightSlotGrowth", "toprightSlotRaiseStrata",
         "topleftSlotSize", "topleftSlotXOffset", "topleftSlotYOffset", "topleftSlotGrowth", "topleftSlotRaiseStrata",
+        -- Core Positions chains: the order of a slot's elements (a string) and their spacing.
+        "topSlotOrder", "rightSlotOrder", "leftSlotOrder", "toprightSlotOrder", "topleftSlotOrder", "bottomSlotOrder",
+        "topSlotElementSpacing", "rightSlotElementSpacing", "leftSlotElementSpacing",
+        "toprightSlotElementSpacing", "topleftSlotElementSpacing", "bottomSlotElementSpacing",
         "textSlotTopSize", "textSlotTopXOffset", "textSlotTopYOffset", "textSlotTopStrata",
         "textSlotRightSize", "textSlotRightXOffset", "textSlotRightYOffset", "textSlotRightStrata",
         "textSlotLeftSize", "textSlotLeftXOffset", "textSlotLeftYOffset", "textSlotLeftStrata",
@@ -968,19 +972,10 @@ end
 -- SetProfile, which runs them all.
 -- broken: true while an EUI_Nameplates_*.lua file loads; a file that fails
 -- leaves it set, and the files behind it return at their first lines.
-ns._npInternals = {
+EllesmereUI.NewInternals(ns, "_npInternals", {
     _npYOffsetState = _npYOffsetState, BAR_W = BAR_W, CAST_H = CAST_H, defaults = defaults,
     ENP = ENP, GetFont = GetFont, GetNPOutline = GetNPOutline, HP_BAR_SLOTS = HP_BAR_SLOTS,
     SetFSFont = SetFSFont,
     profileSetters = { function(v) p = v end },
-    SetProfile = function(v)
-        local list = ns._npInternals.profileSetters
-        for i = 1, #list do list[i](v) end
-    end,
-    broken = false,
-}
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._npInternals, { __index = function(_, k)
-    error("ns._npInternals has no entry " .. tostring(k), 2)
-end })
+    classPowerTypeSetters = {},
+}, { SetProfile = "profileSetters", SetClassPowerType = "classPowerTypeSetters" })

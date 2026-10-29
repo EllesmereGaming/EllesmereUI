@@ -596,6 +596,33 @@ function ns.EnumerateCDMSettingsCatalog(wantSet)
     return result
 end
 
+-- True when the picker's spell list for a CD/utility bar holds spellID (or a
+-- variant of it): a cooldown in Blizzard's Essential/Utility viewers or its
+-- settings catalog, talented or not (GetCDMSpellsForBar's own sources). Added
+-- by Spell ID, such a spell is drawn from Blizzard's frame, which never reads
+-- the custom-spell settings its menu writes. A spell set to Not Displayed is
+-- left out, as the list leaves it out: it has no Blizzard frame, so EUI draws
+-- its own and those settings work. Built per call (Add Custom Spell only).
+function ns.IsCDMTrackedCooldown(spellID)
+    if not _IsUsableSID(spellID) then return false end
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    local set = {}
+    local function Add(cdID, sid)
+        if _IsUsableSID(sid) then set[sid] = true end
+        local info = gci and _IsUsableSID(cdID) and gci(cdID)
+        if info then
+            if _IsUsableSID(info.spellID) then set[info.spellID] = true end
+            if _IsUsableSID(info.overrideSpellID) then set[info.overrideSpellID] = true end
+        end
+    end
+    for _, e in ipairs(EnumerateCDMViewerSpells(false)) do Add(e.cdID, e.sid) end
+    local catalog = ns.EnumerateCDMSettingsCatalog(ns.CDM_ICON_CD_CATS)
+    if catalog then
+        for _, ce in ipairs(catalog) do Add(ce.cdID, ce.sid) end
+    end
+    return ResolveVariantValue(set, spellID) == true
+end
+
 --- Returns array of { cdID, spellID, name, icon, cdmCat, cdmCatGroup, onEUIBar, isKnown },
 --- sorted by viewer order (Essential before Utility) then alpha.
 --- Walks Blizzard's CDM viewer pools (live frames), NOT the static category

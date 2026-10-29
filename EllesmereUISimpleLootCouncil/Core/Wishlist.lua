@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 
@@ -39,8 +40,16 @@ end
 
 
 
+local SOURCE_ADDON = {
+    wowutils = "wowutils",
+    gow = "GuildsOfWoW",
+    wowaudit = "RCLootCouncil_wowaudit",
+}
+
+
 function Wishlist:Source()
-    return addon.db and addon.db.wishlistSource == "gow" and "gow" or "wowutils"
+    local source = addon.db and addon.db.wishlistSource
+    return SOURCE_ADDON[source] and source or "wowutils"
 end
 
 
@@ -51,14 +60,49 @@ local function GoWModule()
 end
 
 
+
+
+local function WowauditData()
+    local file = addon.WowauditFile
+    if type(wowauditDataPresent) == "function" and type(_G.wishlistData) == "table" then
+        local stamp = type(_G.wowauditTimestamp) == "number" and _G.wowauditTimestamp or 0
+        if not (file and file.wowauditTimestamp > stamp) then
+            return _G.wishlistData, "addon"
+        end
+    end
+    if file then return file.wishlistData, file.origin or "file" end
+    return nil
+end
+
+
 function Wishlist:IsAvailable()
 
     if addon.IsForever then return false end
     if addon.db and addon.db.wishlistEnabled == false then return false end
-    if self:Source() == "gow" then return GoWModule() ~= nil end
+    local source = self:Source()
+    if source == "gow" then return GoWModule() ~= nil end
+    if source == "wowaudit" then return WowauditData() ~= nil end
     return type(WowUtilsAPI) == "table"
         and type(WowUtilsAPI.GetWishlist) == "function"
         and type(WowUtilsAPI.GetDroptimizers) == "function"
+end
+
+
+
+local iconCache = {}
+
+function Wishlist:SourceIcon()
+    local source = self:Source()
+    local cached = iconCache[source]
+    if cached == nil then
+        cached = false
+        local get = C_AddOns and C_AddOns.GetAddOnMetadata
+        local ok, path = false, nil
+        if get then ok, path = pcall(get, SOURCE_ADDON[source], "IconTexture") end
+        if ok and type(path) == "string" and path ~= "" then cached = path end
+        iconCache[source] = cached
+    end
+    return cached or nil
 end
 
 
@@ -307,6 +351,127 @@ end
 
 
 
+
+
+local WA_DIFFICULTY = { [17] = "R", [14] = "N", [15] = "H", [16] = "M" }
+local WA_ORDER = { "M", "H", "N", "R" }
+local WA_DIFFICULTY_ID = { R = 17, N = 14, H = 15, M = 16 }
+
+
+
+local WA_STATUS_RANK = { b = 1, n = 2, o = 4 }
+local WA_LEVEL_RANK = { huge = 1, big = 2, small = 3, tiny = 4 }
+local WA_LABEL = addon.Locale.Texts{
+    b = T["BiS"],
+    n = T["Not BiS"],
+    o = T["Outdated"],
+    huge = T["Huge"],
+    big = T["Big"],
+    small = T["Small"],
+    tiny = T["Tiny"],
+}
+
+
+local waIndex, waIndexOf
+
+local function WowauditEntriesFor(name)
+    local data = WowauditData()
+    if not data then return nil end
+    if waIndexOf ~= data then
+        waIndex, waIndexOf = {}, data
+        for character, diffs in pairs(data) do
+            local key = type(character) == "string" and addon.Player:NameKey(character)
+            if key and type(diffs) == "table" then waIndex[key] = diffs end
+        end
+    end
+    return waIndex[addon.Player:NameKey(name) or ""]
+end
+
+
+local function WaNumber(raw)
+    local kind = type(raw)
+    if kind == "string" then return tonumber((raw:gsub("%%", ""))) end
+    return kind == "number" and raw or nil
+end
+
+
+local function WaRead(wish)
+    local level = wish.l or wish.level
+    level = type(level) == "string" and level:lower() or nil
+    local value, pct = wish.v or wish.value, wish.p or wish.percent
+    if not WA_LEVEL_RANK[level] and type(value) == "string" and WA_LEVEL_RANK[value:lower()] then
+        level = value:lower()
+    end
+    if level and WA_LEVEL_RANK[level] then
+        return WA_LEVEL_RANK[level], level, nil
+    end
+    local status = wish.s or wish.status
+    local sim
+    local p = WaNumber(pct)
+    if p then sim = { pct = p, gain = type(value) == "number" and value or nil } end
+    return WA_STATUS_RANK[status], WA_STATUS_RANK[status] and status or nil, sim
+end
+
+
+
+local function WowauditMatches(name, item)
+    local diffs = WowauditEntriesFor(name)
+    local itemID = diffs and addon.Storage.ItemID(item.link)
+    if not itemID then return nil end
+
+    local want = WA_DIFFICULTY[DifficultyOf(item) or 0]
+    for _, letter in ipairs(WA_ORDER) do
+        local wishes = (not want or want == letter) and diffs[letter]
+        if type(wishes) == "table" then
+            local matches
+            for _, wish in ipairs(wishes) do
+                if type(wish) == "table" and tonumber(wish.id) == itemID then
+                    matches = matches or {}
+                    matches[#matches + 1] = wish
+                end
+            end
+            if matches then return matches, letter, want ~= nil end
+        end
+    end
+    return nil
+end
+
+local function WowauditFor(name, item)
+    local matches, letter, exact = WowauditMatches(name, item)
+    if not matches then return nil end
+    local best, bestRank, bestKey, bestPct
+    for _, wish in ipairs(matches) do
+        local rank, key, sim = WaRead(wish)
+        local pct = sim and sim.pct or -math.huge
+        if key and (not best or rank < bestRank or (rank == bestRank and pct > bestPct)) then
+            best, bestRank, bestKey, bestPct = wish, rank, key, pct
+        end
+    end
+    if not best then return nil end
+    return {
+        label = WA_LABEL[bestKey],
+        priorityId = bestRank,
+        colour = TierColour(bestRank),
+        difficultyID = WA_DIFFICULTY_ID[letter],
+        exact = exact,
+    }
+end
+
+
+local function WowauditSimFor(name, item)
+    local matches = WowauditMatches(name, item)
+    if not matches then return nil end
+    local best
+    for _, wish in ipairs(matches) do
+        local _, _, sim = WaRead(wish)
+        if sim and (not best or best.pct < sim.pct) then best = sim end
+    end
+    return best
+end
+
+
+
+
 local function WowUtilsFor(name, item)
     local itemID = addon.Storage.ItemID(item.link)
     if not itemID then return nil end
@@ -349,7 +514,9 @@ end
 
 function Wishlist:For(name, item)
     if not (self:IsAvailable() and name and item and item.link) then return nil end
-    if self:Source() == "gow" then return Cached("gw", name, item, GoWFor) end
+    local source = self:Source()
+    if source == "gow" then return Cached("gw", name, item, GoWFor) end
+    if source == "wowaudit" then return Cached("aw", name, item, WowauditFor) end
     return Cached("w", name, item, WowUtilsFor)
 end
 
@@ -465,7 +632,9 @@ end
 
 function Wishlist:SimFor(name, item)
     if not (self:IsAvailable() and name and item and item.link) then return nil end
-    if self:Source() == "gow" then return Cached("gs", name, item, GoWSimFor) end
+    local source = self:Source()
+    if source == "gow" then return Cached("gs", name, item, GoWSimFor) end
+    if source == "wowaudit" then return Cached("as", name, item, WowauditSimFor) end
     return Cached("s", name, item, WowUtilsSimFor)
 end
 
@@ -504,14 +673,38 @@ end
 
 
 
+
+
+local function Usable(file)
+    return type(file) == "table" and type(file.wowauditTimestamp) == "number"
+        and type(file.wishlistData) == "table"
+end
+
+function Wishlist.ReconcileFile()
+    local db = addon.db
+    if not db then return end
+    local file, saved = addon.WowauditFile, db.wowauditCopy
+    if Usable(file) and (not Usable(saved) or file.wowauditTimestamp > saved.wowauditTimestamp) then
+        db.wowauditCopy = file
+    elseif Usable(saved) and (not Usable(file) or saved.wowauditTimestamp > file.wowauditTimestamp) then
+        local copy = {}
+        for k, v in pairs(saved) do copy[k] = v end
+        copy.origin = "saved_copy"
+        addon.WowauditFile = copy
+    end
+end
+
 function Wishlist:Init()
+    Wishlist.ReconcileFile()
 
 
     local source = self:Source()
     if addon.db and addon.db.wishlistEnabled == false then
         addon.Log:I("Wishlist", "imported wishlist data switched off, wishlist columns hidden")
     elseif self:IsAvailable() then
-        addon.Log:I("Wishlist", source, "detected, wishlist and sim columns enabled")
+        local _, from = WowauditData()
+        addon.Log:I("Wishlist", source, "detected, wishlist and sim columns enabled",
+            source == "wowaudit" and ("read from " .. from) or "")
     else
         addon.Log:I("Wishlist", source, "not installed, wishlist columns hidden")
     end

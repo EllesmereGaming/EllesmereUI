@@ -8,12 +8,7 @@ local skinned = false
 local issecretvalue = issecretvalue or function() return false end
 
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
-local FFD = setmetatable({}, { __mode = "k" })
-local function GetFFD(frame)
-    local d = FFD[frame]
-    if not d then d = {}; FFD[frame] = d end
-    return d
-end
+local FFD, GetFFD = EllesmereUI.NewFrameData()
 
 -- The Character Sheet card's style: "blizzard" for Blizz Default, else "eui"
 -- (EllesmereUI and Modern skin the sheet alike). Account-wide, swapped with
@@ -611,6 +606,13 @@ local function PreSkinCharacterSheet()
         mouseOverlay:SetScript("OnHide", function(self)
             dragMode = nil
             self:SetScript("OnUpdate", nil)
+        end)
+
+        -- SetUnit loads asynchronously and the widget drops its camera while hidden; recentre once the model is in.
+        myModel:SetScript("OnModelLoaded", function(self)
+            self:RefreshCamera()
+            self:SetPortraitZoom(zoomLevel)
+            self:SetPosition(0, 0, 0)
         end)
 
         mouseOverlay:SetScript("OnMouseWheel", function(_, delta)

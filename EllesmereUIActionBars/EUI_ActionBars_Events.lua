@@ -4,7 +4,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  The central event dispatcher for the action bar buttons, the assist and
 --  charge cooldown helpers it drives, ForceButtonRefresh and bar dormancy.
---  Loads right after the main file and reads it through ns only.
+--  Loads right after EUI_ActionBars_Visibility.lua and reads the main file
+--  through ns only.
 -------------------------------------------------------------------------------
 local _, ns = ...
 
@@ -529,7 +530,7 @@ ns.IsNeverBar = function(info)
     local s = bars and bars[info.key]
     -- Hide Bar When Using Gamepad joins the set while a controller is connected
     -- (EAB._padHide only turns on out of combat, see EAB._PadSync).
-    local never = s and (s.alwaysHidden or s.enabled == false
+    local never = s and (EAB.VisibilityCompat.IsNever(s) or s.enabled == false
         or (EAB._padHide and s.gamepadHideBar == true)) or false
     -- Toggle override wins both ways: hiding an Always bar hard-disables its UI
     -- work; showing a Never bar wakes it. Action bindings stay live.
@@ -1392,6 +1393,10 @@ do
                     if oldRes then
                         table.wipe(oldRes); pn = pn + 1; pool[pn] = oldRes
                     end
+                    local oldMacFast = ns._cdMacroFast
+                    if oldMacFast then
+                        table.wipe(oldMacFast); pn = pn + 1; pool[pn] = oldMacFast
+                    end
                     local _filled = CdTakeTable()
                     ns._cdFilled = _filled
                     -- SPELL-KEYED CLASSIFICATION for the targeted cooldown
@@ -1405,8 +1410,16 @@ do
                     --   residual = non-spell slots (items, macros -- whose
                     --          resolved spell shifts with modifier keys --
                     --          mounts): slot-polled at the slow cadence.
+                    --   macroFast = macros resolving to a CURATED spell (RunMacros):
+                    --          fast cadence and probe-reachable, resolved LIVE per
+                    --          pass. A rotation spell behind a macro otherwise
+                    --          lagged its own cooldown shortenings by up to 0.5s.
+                    --          Membership is decided here, so a macro rebuilt while
+                    --          a modifier resolved it elsewhere stays residual.
                     local fast, slow, residual = CdTakeTable(), CdTakeTable(), CdTakeTable()
                     ns._cdFastSpells, ns._cdSlowSpells, ns._cdResidual = fast, slow, residual
+                    local macroFast = CdTakeTable()
+                    ns._cdMacroFast = macroFast
                     -- curated[sid] = true (Essential rotation kit -> fast
                     -- tier) or false (other curated category -> slow). The fast tier
                     -- must stay LEAN: its per-pass fetch floor runs at the capped storm
@@ -1473,7 +1486,7 @@ do
                                     local a = btn:GetAttribute("action")
                                     if a and HasAction(a) then
                                         list[#list + 1] = btn
-                                        local aType = GetActionInfo(a)
+                                        local aType, aID, aSub = GetActionInfo(a)
                                         -- Spell lookups only for spell slots (nothing
                                         -- else reads them).
                                         local sid = aType == "spell" and GetSpell and GetSpell(a)
@@ -1494,6 +1507,12 @@ do
                                             local g = tier[sid]
                                             if not g then g = CdTakeTable(); tier[sid] = g end
                                             g[#g + 1] = btn
+                                        elseif aType == "macro" and aSub == "spell"
+                                            and type(aID) == "number"
+                                            and not (issecretvalue and issecretvalue(aID))
+                                            and (not haveCurated or curated[aID]
+                                                or curated[GetBaseSpell and GetBaseSpell(aID) or 0]) then
+                                            macroFast[#macroFast + 1] = btn
                                         else
                                             residual[#residual + 1] = btn
                                         end
@@ -1503,6 +1522,39 @@ do
                             end
                         end
                     end
+        end
+        -- Spell-macro push (ns._cdMacroFast). Each slot is resolved LIVE: a modifier
+        -- or castsequence step re-resolves a macro with no content edge, so nothing
+        -- is keyed at rebuild time. One fetch per resolved spell per call. only1/only2
+        -- (probe payload) restrict the push to macros currently resolving to them.
+        local _macCi, _macDur = {}, {}
+        local function RunMacros(list, visOn, only1, only2)
+            local live = false
+            wipe(_macCi); wipe(_macDur)
+            for i = 1, #list do
+                local btn = list[i]
+                local a = btn:GetAttribute("action")
+                local t, id, sub
+                if a then t, id, sub = GetActionInfo(a) end
+                if t == "macro" and sub == "spell" and type(id) == "number"
+                   and not (issecretvalue and issecretvalue(id)) and id > 0 then
+                    if not only1 or id == only1 or id == only2 then
+                        local ci = _macCi[id]
+                        if ci == nil then
+                            ci = C_Spell.GetSpellCooldown(id) or false
+                            _macCi[id] = ci
+                            if ci and ci.isActive then
+                                _macDur[id] = C_Spell.GetSpellCooldownDuration(id)
+                            end
+                        end
+                        if PushButtonCooldown(btn, visOn, ci or nil, _macDur[id]) then live = true end
+                    end
+                elseif not only1 then
+                    -- No longer a readable spell macro: plain slot fetch.
+                    if PushButtonCooldown(btn, visOn) then live = true end
+                end
+            end
+            return live
         end
         -- Targeted-probe body (see the dispatch site below), named for profiler
         -- attribution. g is the tier group for key; push-through, same semantics as the
@@ -1594,6 +1646,8 @@ do
                     end
                 end
                 RunTier(ns._cdFastSpells)
+                local mf = ns._cdMacroFast
+                if mf and RunMacros(mf, visOn) then liveSeen = true end
                 local nowS = GetTime()
                 if nowS >= (ns._cdSlowNext or 0) then
                     ns._cdSlowNext = nowS + 0.5
@@ -1743,6 +1797,15 @@ do
                 if g then
                     DispProbe(g, key)
                 end
+                local mac = ns._cdMacroFast
+                if mac and mac[1] then
+                    local p = EAB.db.profile
+                    local visOn = p.desaturateOnCooldown
+                        or (p.alphaWhenOnCD or 100) ~= 100
+                    if RunMacros(mac, visOn, arg1, arg2) then
+                        ns._cdDirtyUntil = GetTime() + 2
+                    end
+                end
                 return
             end
             -- SPELL_UPDATE_COOLDOWN drives the same walk as its action-bar twin:
@@ -1879,6 +1942,8 @@ do
                         if g4 then for i = 1, #g4 do heal(g4[i]) end end
                         local res = ns._cdResidual
                         if res then for i = 1, #res do heal(res[i]) end end
+                        local mf = ns._cdMacroFast
+                        if mf then for i = 1, #mf do heal(mf[i]) end end
                         return
                     end
                 end

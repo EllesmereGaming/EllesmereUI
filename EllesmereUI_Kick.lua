@@ -5,21 +5,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  and unit frames.
 --------------------------------------------------------------------------------
 
-local kickSpellsByClass = {
-    DEATHKNIGHT = { 47528 },
-    WARRIOR = { 6552 },
-    WARLOCK = { 19647, 89766, 119910, 1276467, 132409 },
-    SHAMAN = { 57994 },
-    ROGUE = { 1766 },
-    PRIEST = { 15487 },
-    PALADIN = { 31935, 96231 },
-    MONK = { 116705 },
-    MAGE = { 2139 },
-    HUNTER = { 187707, 147362 },
-    EVOKER = { 351338 },
-    DRUID = { 38675, 78675, 106839 },
-    DEMONHUNTER = { 183752 },
-}
+-- Retail interrupts by class, from the suite's interrupt data
+-- (EllesmereUI_KickData.lua): every interrupt of the class, each list ending
+-- with its main one, and a warlock's with the demon command spells and the
+-- Grimoire of Sacrifice Spell Lock.
+local kickSpellsByClass = EllesmereUI.KickData.ClassLists()
 
 -- WoW Forever (Classic) interrupts. Classic abilities have one spell id per
 -- rank and these lists are used INSTEAD of kickSpellsByClass there, never

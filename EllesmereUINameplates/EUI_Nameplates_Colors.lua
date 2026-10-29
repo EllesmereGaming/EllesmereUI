@@ -462,12 +462,16 @@ ns._npSlotLevelCK = {}  -- parallel: the owning slot's colour key (unreadable-le
 -- either owns one (the cast show / hide re-anchor runs only then), and the slot
 -- showing Target of Target (false = none; its UNIT_TARGET registration follows
 -- it) plus whether that slot is in class mode. _npToTUnits caches "<unit>target".
+-- _npCustomTgt: a custom text reads [target] (UNIT_TARGET follows it too).
+-- _npTgtTexts: either is shown, the one gate of every target-text trigger.
 ns._npBottomFS = { false, false }
 ns._npBottomUsed = false
 ns._npToTSlot = false
 ns._npToTClass = false
 ns._npToTColorKey = nil
 ns._npToTUnits = {}
+ns._npCustomTgt = false
+ns._npTgtTexts = false
 do
     -- The order ApplyHealthTextAppearance lays the slots out in (bar slots, then top):
     -- the last slot writing a shared font string owns it.
@@ -476,8 +480,10 @@ do
     local owner, ownerSlot, lastIdx = {}, {}, {}
     local COLOR_KEY = {}  -- slot -> its colour key (prebuilt for UpdateToT and the painter)
     for i = 1, #SLOTS do COLOR_KEY[SLOTS[i]] = SLOTS[i] .. "Color" end
-    -- The plate font string key an element renders on (nil for None).
-    function ns.NP_ElementFSKey(el)
+    -- The plate font string key an element renders on (nil for None). slot: the slot
+    -- showing it, which picks a custom text's own font string.
+    function ns.NP_ElementFSKey(el, slot)
+        if el == "custom" then return slot and ns.NP_CustomFSKey[slot] end
         if ns.IsNameElement(el) then return "name" end
         if el == "level" then return "levelText" end
         if el == "targetOfTarget" then return "totText" end
@@ -496,13 +502,19 @@ do
         wipe(lastIdx)
         ns._npToTSlot = false
         ns._npToTClass = false
+        ns._npCustomTgt = false
         local B = ns._npBottomFS
         -- The name is placed in FindNameSlot's slot (the first holding one), the
         -- other shared font strings by the last slot writing them.
         local nameSlot = ns.FindNameSlot()
         for i = 1, #SLOTS do
             local s = SLOTS[i]
-            local key = ns.NP_ElementFSKey(GetTextSlot(s))
+            local el = GetTextSlot(s)
+            local key = ns.NP_ElementFSKey(el, s)
+            if el == "custom" and not ns._npCustomTgt then
+                local parsed = ns.NP_CustomParse(s)
+                ns._npCustomTgt = (parsed and parsed.reads.tgt) or false
+            end
             if key == "totText" then
                 -- Painted by UpdateToT from the target's class, never the plate unit's.
                 ns._npToTSlot = s
@@ -522,6 +534,7 @@ do
             end
         end
         ns._npToTColorKey = ns._npToTSlot and COLOR_KEY[ns._npToTSlot] or nil
+        ns._npTgtTexts = (ns._npToTSlot or ns._npCustomTgt) and true or false
         ns._npBottomUsed = (B[1] or B[2]) and true or false
         for key, mode in pairs(owner) do
             if mode == "class" then
@@ -550,7 +563,8 @@ end
 -- slot colours are written statically. Returns true while the name's slot is in either
 -- mode. An inline colour escape in the text (a Level | Name part colour) still wins over
 -- it. skipName leaves the name alone (Threat Colors "Text" holds it) and drops its memo
--- entry, so the first call without it repaints the name.
+-- entry, so the first call without it repaints the name. A custom text's font string
+-- is missing until the plate's next appearance pass builds it: skipped until then.
 function ns.NP_PaintSlotClassColors(plate, unit, skipName)
     local m = plate._scMemo
     if not m then m = {}; plate._scMemo = m end
@@ -581,7 +595,7 @@ function ns.NP_PaintSlotClassColors(plate, unit, skipName)
                     local e = m[key]
                     if e then e[1] = nil end
                     if not (skipName and key == "name") then
-                        plate[key]:SetTextColor(sr, sg, sb, 1)
+                        local fs = plate[key]; if fs then fs:SetTextColor(sr, sg, sb, 1) end
                     end
                 end
             end
@@ -605,7 +619,7 @@ function ns.NP_PaintSlotClassColors(plate, unit, skipName)
                     e[1] = nil
                 elseif e[1] ~= r or e[2] ~= g or e[3] ~= b then
                     e[1], e[2], e[3] = r, g, b
-                    plate[key]:SetTextColor(r, g, b, 1)
+                    local fs = plate[key]; if fs then fs:SetTextColor(r, g, b, 1) end
                 end
             end
         end
@@ -624,11 +638,11 @@ function ns.NP_PaintSlotClassColors(plate, unit, skipName)
                     e[1] = false
                     local ck = ns._npSlotLevelCK[i]
                     local c = (p and p[ck]) or defaults[ck]
-                    plate[key]:SetTextColor(c.r, c.g, c.b, 1)
+                    local fs = plate[key]; if fs then fs:SetTextColor(c.r, c.g, c.b, 1) end
                 end
             elseif e[1] ~= r or e[2] ~= g or e[3] ~= b then
                 e[1], e[2], e[3] = r, g, b
-                plate[key]:SetTextColor(r, g, b, 1)
+                local fs = plate[key]; if fs then fs:SetTextColor(r, g, b, 1) end
             end
         end
     end

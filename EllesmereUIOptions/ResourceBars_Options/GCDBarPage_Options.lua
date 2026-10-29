@@ -14,13 +14,20 @@ local CreateFrame = EllesmereUI._Pool.CreateFrame
 -- GCD Bar page
 function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
     local env = ns._ERB_OptEnv
-    local DB, PP, CLASS_COLORS = env.DB, env.PP, env.CLASS_COLORS
+    local DB, PP, CLASS_COLORS, _clickMappings = env.DB, env.PP, env.CLASS_COLORS, env._clickMappings
+    local UpdateGCDPreview = env.UpdateGCDPreview
     local TexBgRowCfg = env.TexBgRowCfg
     local W = EllesmereUI.Widgets
     local y = yOffset
     local _, h
 
     parent._showRowDivider = true
+
+    env.SetGCDPreviewFill(math.random(30, 85) / 100)
+    EllesmereUI:SetContentHeader(env._gcdPreviewBuilder)
+
+    -- Clear this page's own click mapping (shared table; never from a hidden pre-build)
+    if not EllesmereUI._prebuilding then _clickMappings.gcdBar = nil end
 
     -- Re-append SharedMedia textures (catches lazy-registered SM packs)
     EllesmereUI.AppendSharedMediaTextures(
@@ -49,10 +56,13 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
         if EllesmereUI.NotifyElementResized then
             EllesmereUI.NotifyElementResized("ERB_GCDBar")
         end
+        UpdateGCDPreview()
     end
 
     local _sec
     _sec, h = W:SectionHeader(parent, "LAYOUT", y);  y = y - h
+    EllesmereUI.BuildSectionUnlockJump(_sec, { key = "ERB_GCDBar", disabled = gcdOff, disabledTooltip = "GCD Bar" })
+    local layoutSection = _sec
 
     local gStrataValues = EllesmereUI.FRAME_STRATA_LABELS
     local gStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
@@ -121,7 +131,8 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
     end
     local ghDis, ghTip, ghRaw = ns.OrientedMatchGuard("ERB_GCDBar", "Height", gcdOri, gcdOff, "GCD Bar")
     local gwDis, gwTip, gwRaw = ns.OrientedMatchGuard("ERB_GCDBar", "Width", gcdOri, gcdOff, "GCD Bar")
-    _, h = W:DualRow(parent, y,
+    local sizeRow
+    sizeRow, h = W:DualRow(parent, y,
         { type = "slider", text = "Height", min = 1, max = 60, step = 1,
           disabled = ghDis, disabledTooltip = ghTip, rawTooltip = ghRaw,
           getValue = function() local p = DB(); return p and p.gcdBar.height or 12 end,
@@ -282,7 +293,7 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
                     { type = "toggle", label = "Show Behind",
                       get = function() local p = DB(); return p and p.gcdBar.borderBehind or false end,
                       set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderBehind = v == false and nil or v; RefreshGCD(); EllesmereUI:RefreshPage() end },
-                    -- Extend Top / Extend Bottom (0 = off); the cog has no bar-off block.
+                    -- Border extensions (0 = off); the cog has no bar-off block.
                     { type = "slider", label = "Extend Top", min = 0, max = 50, step = 1,
                       tooltip = "Grows the border past the bar's top edge on screen without resizing the bar.",
                       disabled = gcdOff, disabledTooltip = "GCD Bar",
@@ -293,6 +304,16 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
                       disabled = gcdOff, disabledTooltip = "GCD Bar",
                       get = function() local p = DB(); return p and p.gcdBar.borderExtendBottom or 0 end,
                       set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderExtendBottom = v; RefreshGCD(); EllesmereUI:RefreshPage() end },
+                    { type = "slider", label = "Extend Left", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's left edge on screen without resizing the bar.",
+                      disabled = gcdOff, disabledTooltip = "GCD Bar",
+                      get = function() local p = DB(); return p and p.gcdBar.borderExtendLeft or 0 end,
+                      set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderExtendLeft = v; RefreshGCD(); EllesmereUI:RefreshPage() end },
+                    { type = "slider", label = "Extend Right", min = 0, max = 300, step = 1,
+                      tooltip = "Grows the border past the bar's right edge on screen without resizing the bar.",
+                      disabled = gcdOff, disabledTooltip = "GCD Bar",
+                      get = function() local p = DB(); return p and p.gcdBar.borderExtendRight or 0 end,
+                      set = function(v) local p = DB(); if not p then return end; p.gcdBar.borderExtendRight = v; RefreshGCD(); EllesmereUI:RefreshPage() end },
                     -- Bottom Separator: None = off (edgeSep false); an art entry turns it
                     -- on with that art.
                     { type = "dropdown", label = "Bottom Separator", values = sepValues, order = sepOrder,
@@ -428,6 +449,11 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
           setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.depleteFill = v; RefreshGCD() end },
         { type = "spacer" }
     );  y = y - h
+
+    -- Click mapping for the preview's hit overlay (never from a hidden pre-build)
+    if not EllesmereUI._prebuilding then
+        _clickMappings.gcdBar = { section = layoutSection, target = sizeRow }
+    end
 
     return math.abs(y)
 end

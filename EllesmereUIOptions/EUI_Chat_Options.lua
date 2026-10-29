@@ -73,7 +73,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- reposition banner and its Force Chat on Screen link are gone.
 
         -- -- DISPLAY -----------------------------------------------------------
-        _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
+        local hdr
+        hdr, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ECHAT_MainChat" })
         if BS then y = BS.Note(parent, y, "chat") end
 
         -- Row 1: Visibility (one control; no mouseover for chat frames) | Lock Main Chat Size
@@ -1115,7 +1117,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- (No tab idle-fade section: the per-tab fade layer was removed
             -- 2026-07-20 -- Blizzard's own tab alpha machinery always won and
             -- the setting visibly did nothing. Tabs fade with the chat panel
-            -- via the dock; see the tab-alpha note in EllesmereUIChat.lua.)
+            -- via the dock; see _ApplyAlpha in EUI_Chat_Visibility.lua.)
 
             _, h = W:SectionHeader(parent, "BORDER", y); y = y - h
             _, h = W:DualRow(parent, y,

@@ -119,6 +119,7 @@ local function StartAddon()
     end)
     EUI_Bags:SetScript("OnMouseDown", function(self, button)
         self:Raise()
+        self:RepinIconLevels()
         -- Locked (the footer's lock icon): the window stays put. Nor does it move
         -- while something is on the cursor: a click on its empty space drops an
         -- item from outside the bags (the OnMouseUp hook below).
@@ -169,6 +170,7 @@ local function StartAddon()
     -- bag fires no OnShow, and the login pre-build never shows the frame.
     EUI_Bags:HookScript("OnShow", function(self)
         self:Raise()
+        self:RepinIconLevels()
         PlaySound(SOUNDKIT.IG_BACKPACK_OPEN)
         -- Repaint if the unmerge state changed while hidden: the flag-flip refresh is gated on
         -- IsVisible, and closing a mailbox hides bags in the same breath so that repaint is thrown away (costs one boolean compare when already matching).
@@ -395,7 +397,11 @@ local function StartAddon()
     EUI_BagsReagent:SetPoint("BOTTOMRIGHT", EUI_Bags, "BOTTOMLEFT", -10, 0)
     EUI_BagsReagent:SetFrameStrata(EUI_Bags:GetFrameStrata())
     EUI_BagsReagent:SetToplevel(true)
-    EUI_BagsReagent:HookScript("OnShow", EUI_BagsReagent.Raise)
+    EUI_BagsReagent:HookScript("OnShow", function(self)
+        self:Raise()
+        -- Re-pins the reagent pool too
+        EUI_Bags:RepinIconLevels()
+    end)
     EUI_BagsReagent:EnableMouse(true)
     EUI_BagsReagent.bg = EUI_BagsReagent:CreateTexture(nil, "BACKGROUND")
     EUI_BagsReagent.bg:SetAllPoints()

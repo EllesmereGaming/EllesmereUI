@@ -3063,6 +3063,10 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end)
 
         kbBtn:SetScript("OnKeyDown", function(self, key)
+            -- SetPropagateKeyboardInput is blocked in combat on every frame; the
+            -- page closes as combat starts, so this stands aside like the
+            -- Quickbind cells.
+            if InCombatLockdown() then return end
             if not listening then self:SetPropagateKeyboardInput(true); return end
             if MODIFIER_KEYS[key] then
                 self:SetPropagateKeyboardInput(true); return

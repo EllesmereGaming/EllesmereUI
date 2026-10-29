@@ -518,7 +518,7 @@ local function ShouldHide(hideInDungeon, hideInRaid, hideInDelve, hideInPvP, hid
     local _, iType = IsInInstance()
     if hideInDungeon and iType == "party" then return true end
     if hideInRaid and iType == "raid" then return true end
-    if hideInDelve and C_PartyInfo and C_PartyInfo.IsDelveInProgress and C_PartyInfo.IsDelveInProgress() then return true end
+    if hideInDelve and EUI.IsInDelve() then return true end
     if hideInPvP and (iType == "pvp" or iType == "arena") then return true end
     if hideOutOfInstance and (iType == "none" or iType == nil) then return true end
     return false

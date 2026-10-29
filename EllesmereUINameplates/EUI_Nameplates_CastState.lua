@@ -14,6 +14,7 @@ I.broken = true
 
 local pairs, type = pairs, type
 local UnitIsUnit, UnitCanAttack = UnitIsUnit, UnitCanAttack
+local UnitAffectingCombat = UnitAffectingCombat
 local C_NamePlate = C_NamePlate
 local NamePlateConstants, Enum = NamePlateConstants, Enum
 
@@ -34,6 +35,9 @@ I.profileSetters[#I.profileSetters + 1] = function(v) p = v end
 ns._ntAlpha = 1   -- cached 0..1 from the profile; 1 = inert
 ns._ntKeepFocus = true   -- cached "Keep Focus Full Opacity" (default on)
 ns._oorAlpha = 1  -- cached out-of-range alpha; 1 = inert
+-- Out of Combat Opacity: plates of mobs not in combat fade to outOfCombatAlpha (0-100).
+-- 100 = OFF. Target and kept focus are exempt.
+ns._oocAlpha = 1
 
 -- Applies the correct root alpha to ONE plate. Value-guarded via _ntCurAlpha so redundant
 -- SetAlpha calls are skipped and pooled frames reset cheaply (nil = never faded).
@@ -47,6 +51,11 @@ function ns.NT_Apply(plate)
        and not (ns._ntKeepFocus and UnitIsUnit(unit, "focus"))
        and not UnitIsUnit(unit, "player") then
         a = nt
+    end
+    local ooc = ns._oocAlpha
+    if ooc < 1 and not UnitAffectingCombat(unit) and not UnitIsUnit(unit, "target")
+       and not (ns._ntKeepFocus and UnitIsUnit(unit, "focus")) then
+        a = a * ooc
     end
     a = a * (plate._oorCurAlpha or 1)
     if (plate._ntCurAlpha or 1) ~= a then
@@ -68,6 +77,20 @@ function ns.NT_RefreshSetting()
     if v < 0 then v = 0 elseif v > 100 then v = 100 end
     ns._ntAlpha = v / 100
     ns._ntKeepFocus = not (p and p.nonTargetKeepFocus == false)
+    local wasOn = ns._oocAlpha < 1
+    v = tonumber(p and p.outOfCombatAlpha) or 100
+    if v < 0 then v = 0 elseif v > 100 then v = 100 end
+    ns._oocAlpha = v / 100
+    local on = ns._oocAlpha < 1
+    if on ~= wasOn then
+        for _, plate in pairs(ns.plates) do
+            if not on then
+                plate:UnregisterEvent("UNIT_FLAGS")
+            elseif plate.unit then
+                plate:RegisterUnitEvent("UNIT_FLAGS", plate.unit)
+            end
+        end
+    end
     ns.NT_ApplyAll()
 end
 

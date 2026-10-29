@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 
@@ -12,10 +13,7 @@ local BonusRoll = {}
 addon.BonusRoll = BonusRoll
 
 
-local issecretvalue = issecretvalue
-local function IsSecret(value)
-    return issecretvalue ~= nil and issecretvalue(value)
-end
+local IsSecret = addon.IsSecret
 
 
 
@@ -114,8 +112,7 @@ function BonusRoll.FirstSighting(store, name, itemString, encounterKey, now)
     for key, at in pairs(store) do
         if now - at > SEEN_TTL then store[key] = nil end
     end
-    local id = addon.Storage.ItemID(itemString)
-    local key = tostring(name) .. "|" .. tostring(id) .. "|" .. tostring(encounterKey)
+    local key = tostring(name) .. "|" .. tostring(encounterKey)
     if store[key] then return false end
     store[key] = now
     return true
@@ -172,6 +169,7 @@ end
 
 
 local REPLAY_WINDOW = 24 * 60 * 60
+BonusRoll.REPLAY_WINDOW = REPLAY_WINDOW
 function BonusRoll.AlreadyRecorded(entries, winner, link, boss, encounterID,
         difficultyID, epoch)
     local id = addon.Storage.ItemID(link)
@@ -194,7 +192,8 @@ end
 
 function BonusRoll:CoinsSpentAtBoss(winner, boss, encounterID, difficultyID,
         excludeItemLink)
-    return BonusRoll.CountAtBoss(addon.History:GetForWinner(winner), winner, boss,
+
+    return BonusRoll.CountAtBoss(addon.History:CoinRowsFor(winner), winner, boss,
         encounterID, difficultyID, excludeItemLink)
 end
 
@@ -204,11 +203,102 @@ end
 function BonusRoll:StatusFor(name, item)
     if not item or not item.link then return nil, 0 end
     local coin = BonusRoll.For(addon.Session:GetCoins(), name, item.link)
-    if coin then return coin, 0 end
     local difficultyID = item.difficultyID
         or addon.Encounter:DifficultyFor(item.boss, item.encounterID)
-    return nil, BonusRoll:CoinsSpentAtBoss(name, item.boss, item.encounterID,
+    return coin, BonusRoll:CoinsSpentAtBoss(name, item.boss, item.encounterID,
         difficultyID, item.link)
+end
+
+
+
+
+local RETRY_DELAY, MAX_TRIES, FORGET_MISS = 5, 3, 60
+local possible, asking, missedAt = {}, {}, {}
+local classIDs
+
+local function ClassID(classFile)
+    if not classIDs then
+        classIDs = {}
+        for i = 1, (GetNumClasses and GetNumClasses() or 0) do
+            local _, file, id = GetClassInfo(i)
+            if file then classIDs[file] = id end
+        end
+    end
+    return classFile and classIDs[classFile]
+end
+
+
+
+local function Answered(key, count)
+    if not count or possible[key] then return end
+    asking[key], possible[key] = nil, count
+    addon.Callbacks:Invalidate("council")
+end
+
+local function Ask(key, item, difficultyID, classID, specID, tries)
+    asking[key] = true
+    C_Timer.After(tries == 1 and 0 or RETRY_DELAY, function()
+        if not asking[key] then return end
+        local count = addon.Encounter:JournalCoinLoot(item.boss, item.encounterID,
+            difficultyID, classID, specID, function(answer) Answered(key, answer) end)
+        if count then
+            asking[key], possible[key] = nil, count
+            addon.Callbacks:Invalidate("council")
+        elseif tries < MAX_TRIES then
+            Ask(key, item, difficultyID, classID, specID, tries + 1)
+        else
+
+            local guideOpen = EncounterJournal and EncounterJournal:IsShown()
+            asking[key], possible[key] = nil, false
+            missedAt[key] = GetTime() - (guideOpen and (FORGET_MISS + 1) or 0)
+        end
+    end)
+end
+
+function BonusRoll:PossibleFor(name, item)
+    if addon.IsForever or not item or not (item.boss or item.encounterID) then return nil end
+    local record = addon.Player:Get(name)
+    local classID = ClassID(record and record.classFile)
+    if not classID then return nil end
+    local specID = addon.Specs and record.guid and addon.Specs:Get(record.guid) or 0
+    local difficultyID = item.difficultyID
+        or addon.Encounter:DifficultyFor(item.boss, item.encounterID)
+
+    local key = table.concat({ tostring(item.encounterID or item.boss),
+        tostring(difficultyID), classID, specID }, "|")
+    local count = possible[key]
+    if count == false and GetTime() - missedAt[key] > FORGET_MISS then count = nil end
+    if count == nil and not asking[key] then
+        Ask(key, item, difficultyID, classID, specID, 1)
+    end
+    if not count then return nil end
+    return count, specID ~= 0
+end
+
+
+
+local MAX_EVENT_RETRIES = 3
+local eventRetries = {}
+function BonusRoll:RetryCoinLoot(fromLootEvent)
+    local any = false
+    for key, count in pairs(possible) do
+        if count == false and not (fromLootEvent
+                and (eventRetries[key] or 0) >= MAX_EVENT_RETRIES) then
+            if fromLootEvent then eventRetries[key] = (eventRetries[key] or 0) + 1 end
+            possible[key], missedAt[key] = nil, nil
+            any = true
+        end
+    end
+    if any then addon.Callbacks:Invalidate("council") end
+    return any
+end
+
+
+local guideHooked = false
+local function HookGuide()
+    if guideHooked or not EncounterJournal then return end
+    guideHooked = true
+    EncounterJournal:HookScript("OnHide", function() BonusRoll:RetryCoinLoot(false) end)
 end
 
 
@@ -275,14 +365,15 @@ function BonusRoll:ReceiveCoin(args, sender)
     local record = addon.Player:Get(sender)
     if not record or not record.fullName then return false end
 
-    local logBoss, logID = addon.Encounter:AtTime(coin.epoch)
-    if not (logBoss or logID) then Refuse("no_recent_encounter", sender) return false end
+    local logBoss, logID, logStart = addon.Encounter:KillAtTime(coin.epoch)
+    if not (logBoss or logID) then Refuse("no_recent_kill", sender) return false end
 
     if not coin.boss and not coin.encounterID then
         coin.boss, coin.encounterID = logBoss, logID
     end
     if not BonusRoll.FirstSighting(seen, record.fullName, coin.link,
-            tostring(logID or logBoss), now) then
+            tostring(logID or logBoss) .. "@" .. tostring(logStart), now) then
+        Refuse("second_claim", sender)
         return false
     end
     BonusRoll:ApplyCoin(record.fullName, coin.link, coin.epoch, coin.boss,
@@ -303,24 +394,35 @@ end
 
 
 
-function BonusRoll:ParseTestCoinArgs(args)
+
+function BonusRoll:ParseFakeCoinArgs(args)
     args = (args or ""):gsub("^%s+", ""):gsub("%s+$", "")
-    if args:match("^%d+$") then return nil, tonumber(args) end
-    if args == "" then return nil, 1 end
+    if args:lower() == "clear" then return { clear = true } end
 
-    local first = addon.Session:GetItem(1)
-    if first and CandidateName(args, first) then return args, 1 end
+    local session
+    local rest, number = args:match("^(.-)%s*#(%d+)$")
+    if not rest then rest, number = args:match("^(.-)%s*[Ii][Tt][Ee][Mm]%s+(%d+)$") end
+    if rest then args, session = rest, tonumber(number) end
 
-    local name, number = args:match("^(.-)%s+(%d+)$")
-    if name then
-        local session = tonumber(number)
+    local count, name = args:match("^(%d+)%s+(.+)$")
+    if not count and args:match("^%d+$") then count = args end
+    if not count then name = args end
+    if count then count = math.max(1, math.min(20, math.floor(tonumber(count)))) end
+    if name == "" then name = nil end
+    return { count = count, name = name, session = session }
+end
 
-        if not first or CandidateName(name, first)
-            or addon.Session:GetItem(session) or not args:find("-", 1, true) then
-            return name, session
-        end
+
+
+function BonusRoll:FindCandidate(input, session)
+    if session then
+        local item = addon.Session:GetItem(session)
+        return item and CandidateName(input, item)
     end
-    return args, 1
+    for _, item in ipairs(addon.Session:GetItems()) do
+        local found = CandidateName(input, item)
+        if found then return found end
+    end
 end
 
 function BonusRoll:TestCoin(name, session)
@@ -358,6 +460,86 @@ function BonusRoll:ApplyTestCoin(args, sender)
     if not name then return false end
     BonusRoll:ApplyCoin(name, item.link, args.t, args.b, args.e, 1, sender, true)
     return true
+end
+
+
+
+
+local FAKE_MARK = "SLC fake coin (test)"
+local FAKE_ITEMS = { 6948, 2589, 2592, 4306 }
+local fakeSerial = 0
+
+function BonusRoll.IsFakeCoin(entry)
+    return entry ~= nil and entry.coin == true and entry.instance == FAKE_MARK
+end
+
+
+function BonusRoll:ClearTestHistory(name)
+    local ids = {}
+    addon.History.EachEntry(function(entry)
+        if BonusRoll.IsFakeCoin(entry) and (not name or entry.winner == name
+                or addon.Player:IsSame(entry.winner, name)) then
+            ids[#ids + 1] = entry.id
+        end
+    end, "history")
+    addon.History:DeleteEntries(ids)
+    return #ids
+end
+
+
+
+
+
+function BonusRoll:SeedTestHistory(name, perBoss, onlySession)
+    BonusRoll:ClearTestHistory(name)
+    local seeded, skipped, done = {}, {}, {}
+    local now = GetServerTime()
+    for session, item in ipairs(addon.Session:GetItems()) do
+        local boss, encounterID = item.boss, item.encounterID
+        if boss == "Simulated Loot" then boss = nil end
+        local difficultyID = item.difficultyID
+            or addon.Encounter:DifficultyFor(item.boss, item.encounterID)
+        if onlySession and session ~= onlySession then
+
+        elseif not (boss or encounterID) then
+            skipped[#skipped + 1] = { session = session, why = "boss" }
+        elseif not difficultyID then
+            skipped[#skipped + 1] = { session = session, why = "difficulty" }
+        else
+            local key = tostring(encounterID or boss) .. "|" .. difficultyID
+            if not done[key] then
+                done[key] = true
+                local count = perBoss or ((#seeded % 3) + 1)
+                local itemID = addon.Storage.ItemID(item.link)
+                for i = 1, count do
+                    fakeSerial = fakeSerial + 1
+                    local epoch = now - 60 * fakeSerial
+                    local coinID = FAKE_ITEMS[(fakeSerial % #FAKE_ITEMS) + 1]
+                    if coinID == itemID then coinID = 19019 end
+                    addon.History:Record({
+                        id = ("%d-%d"):format(epoch, 9000000 + fakeSerial),
+                        link = "item:" .. coinID,
+                        winner = name,
+                        coin = true,
+                        responseCode = "COIN",
+                        date = date("!%Y/%m/%d", epoch),
+                        time = date("!%H:%M:%S", epoch),
+                        epoch = epoch,
+                        instance = FAKE_MARK,
+                        difficultyID = difficultyID,
+                        boss = boss,
+                        encounterID = tonumber(encounterID),
+                        delivered = true,
+                        quantity = 1,
+                    })
+                end
+                seeded[#seeded + 1] = { boss = boss or tostring(encounterID),
+                    difficultyID = difficultyID, count = count, session = session }
+            end
+        end
+    end
+    addon.Callbacks:Invalidate("council")
+    return seeded, skipped
 end
 
 
@@ -417,9 +599,18 @@ function BonusRoll:Init()
     if addon.IsForever then return end
     local watcher = CreateFrame("Frame")
     watcher:RegisterEvent("BONUS_ROLL_RESULT")
-    watcher:SetScript("OnEvent", function(_, _, ...)
-        BonusRoll:OnBonusRollResult(...)
+    watcher:RegisterEvent("EJ_LOOT_DATA_RECIEVED")
+    watcher:RegisterEvent("ADDON_LOADED")
+    watcher:SetScript("OnEvent", function(_, event, ...)
+        if event == "BONUS_ROLL_RESULT" then
+            BonusRoll:OnBonusRollResult(...)
+        elseif event == "EJ_LOOT_DATA_RECIEVED" then
+            BonusRoll:RetryCoinLoot(true)
+        elseif ... == "Blizzard_EncounterJournal" then
+            HookGuide()
+        end
     end)
+    HookGuide()
 
 
     addon.Comms:Register("coin", "any", function(args, sender)

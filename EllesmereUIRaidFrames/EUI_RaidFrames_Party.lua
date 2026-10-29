@@ -114,6 +114,8 @@ do
             "healAbsorbTextSize", "healAbsorbTextPosition", "healAbsorbTextOffsetX", "healAbsorbTextOffsetY",
             "powerTextMode", "powerTextColorMode", "powerTextCustomColor",
             "powerTextSize", "powerTextPosition", "powerTextOffsetX", "powerTextOffsetY",
+            "nameTextAboveIcons",
+            -- Plus the second Health Text and the Custom texts (ns.RF_TEXT_NEW_KEYS).
         },
         indicators = {
             "roleIconStyle", "roleIconSize", "roleIconPosition", "roleIconOffsetX", "roleIconOffsetY", "roleIconHideInCombat",
@@ -176,6 +178,7 @@ do
             ns._PARTY_KEY_SECTION[k] = section
         end
     end
+    for _, k in ipairs(ns.RF_TEXT_NEW_KEYS) do ns._PARTY_KEY_SECTION[k] = "textDisplay" end
 end
 
 -- A border's exact-size companion ("<key>Px", read through EllesmereUI.BorderPx)
@@ -320,6 +323,8 @@ for _, k in ipairs({
     "defDurTextOffsetX", "defDurTextOffsetY",
     "dispelIconOffsetX", "dispelIconOffsetY",
 }) do INDICATOR_SCALE_KEYS[k] = true end
+-- The second Health Text and the Custom texts: font size and offsets.
+for _, k in ipairs(ns.RF_TEXT_NEW_SCALE_KEYS) do INDICATOR_SCALE_KEYS[k] = true end
 
 ns._scaledProfile = setmetatable({}, { __index = function(_, key)
     -- Return active tier dimensions so all rendering uses the correct size
@@ -493,8 +498,12 @@ function ns._RefreshProxyModes()
     -- invalidate every button's absorb value-memo (and the gen-gated
     -- settings pushes inside UpdateAbsorb).
     ns._absorbGen = (ns._absorbGen or 0) + 1
-    -- Level Text's event follows the views (defined once the unit trackers exist).
+    -- The text plans are rebuilt on their next use (EUI_RaidFrames_TextPaint.lua).
+    if ns.RF_TextPlanDirty then ns.RF_TextPlanDirty() end
+    -- The level's event follows the views (defined once the unit trackers exist).
     if ns._RFSyncLevelRegistration then ns._RFSyncLevelRegistration() end
+    -- Custom texts' UNIT_TARGET and power events follow the views too (Lifecycle).
+    if ns._RFSyncCustomRegistration then ns._RFSyncCustomRegistration() end
 end
 ns._RefreshProxyModes()
 
@@ -539,16 +548,6 @@ ns._UpdatePartyIndicatorScale = function()
     ns._partyBmScale = (s.partyAutoResizeTrackedBuffs ~= false) and scale or 1
     ns._partyIndicatorScale = s.partyAutoResizeIndicators and scale or 1
     if ns._RefreshProxyModes then ns._RefreshProxyModes() end
-end
-
-ns._IsPartyAllSynced = function()
-    if not db or not db.profile then return true end
-    local ss = db.profile.partySyncSections
-    if not ss then return true end
-    for _, sec in ipairs(ns._PARTY_SECTION_ORDER) do
-        if ss[sec] == false then return false end
-    end
-    return true
 end
 
 -- Create a single SecureGroupHeader for party frames (5 buttons max).

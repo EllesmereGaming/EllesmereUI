@@ -1369,7 +1369,13 @@ function Cond.ShowNameIconPopup(conds, keyStr, existing)
 end
 
 -- ---- condition picker popup (checklist + keybind capture) -------------------
+-- Its key capture uses SetPropagateKeyboardInput, which is blocked in combat on
+-- every frame: the picker never opens in combat and closes with the panel
+-- (which closes as combat starts). It lets go of the keyboard when it hides out
+-- of combat, and on every open.
 function Cond.ShowPickerPopup(existing)
+    if InCombatLockdown() then return end
+    EnsurePanelHideHook()
     local p = Cond._pickerPopup
     if not p then
         -- Controller cursor: overlay parent (UIParent unless a controller cursor is loaded).
@@ -1495,21 +1501,35 @@ function Cond.ShowPickerPopup(existing)
             end
         end
         p._showKeyText = ShowKeyText
+        -- Ends a capture. Its keyboard calls run out of combat only (a hide at
+        -- combat start skips them: a hidden popup takes no keys), so every open
+        -- releases again.
+        local function ReleaseKeys()
+            p._capturing = false
+            if InCombatLockdown() then return end
+            p:EnableKeyboard(false)
+            if p.SetPropagateKeyboardInput then p:SetPropagateKeyboardInput(true) end
+        end
+        p._releaseKeys = ReleaseKeys
+        p:SetScript("OnHide", ReleaseKeys)
         keyBtn:SetScript("OnClick", function()
+            if InCombatLockdown() then return end
             p._capturing = not p._capturing
             p:EnableKeyboard(p._capturing and true or false)
             if p.SetPropagateKeyboardInput then p:SetPropagateKeyboardInput(not p._capturing) end
             ShowKeyText()
         end)
         p:SetScript("OnKeyDown", function(_, key)
-            if not p._capturing then return end
+            if not p._capturing or InCombatLockdown() then return end
             if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL"
                or key == "LALT" or key == "RALT" then
                 return
             end
-            p._capturing = false
-            p:EnableKeyboard(false)
-            if p.SetPropagateKeyboardInput then p:SetPropagateKeyboardInput(true) end
+            ReleaseKeys()
+            -- The key that ends the capture stays here: an Escape that cancels
+            -- it must not close the options (and the picker with them). The
+            -- keyboard is off now, and the next open restores propagation.
+            if p.SetPropagateKeyboardInput then p:SetPropagateKeyboardInput(false) end
             if key ~= "ESCAPE" then
                 local mods = ""
                 if IsAltKeyDown() then mods = mods .. "ALT-" end
@@ -1572,12 +1592,8 @@ function Cond.ShowPickerPopup(existing)
         xlbl2:SetText(L("Cancel"))
         cancel:SetScript("OnEnter", function() if xbrd2 and xbrd2.SetColor then xbrd2:SetColor(1, 1, 1, 0.4) end end)
         cancel:SetScript("OnLeave", function() if xbrd2 and xbrd2.SetColor then xbrd2:SetColor(1, 1, 1, 0.22) end end)
-        cancel:SetScript("OnClick", function()
-            p._capturing = false
-            p:EnableKeyboard(false)
-            if p.SetPropagateKeyboardInput then p:SetPropagateKeyboardInput(true) end
-            p:Hide()
-        end)
+        -- The OnHide releases a capture in progress.
+        cancel:SetScript("OnClick", function() p:Hide() end)
 
         -- Controller cursor: its cancel press backs out through Cancel, and the
         -- panel is a blocker, not a stop.
@@ -1589,7 +1605,7 @@ function Cond.ShowPickerPopup(existing)
     p._editing = existing
     p._staged = {}
     p._stagedKey = existing and existing.key or nil
-    p._capturing = false
+    p._releaseKeys()
     if existing and existing.conds then
         for k, v in pairs(existing.conds) do p._staged[k] = v end
     end

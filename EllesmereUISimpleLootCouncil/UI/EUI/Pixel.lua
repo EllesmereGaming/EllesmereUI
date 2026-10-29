@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if (select(2, ...)).slcInert then return end
+
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
@@ -8,9 +9,6 @@ local P = addon.Pixel
 local PP = EllesmereUI.PP
 
 local EffectiveScale = P.EffectiveScale
-
-function P.Multiplier() return PP.mult end
-function P.Perfect() return PP.perfect end
 
 
 function P.OnePixel(frame)
@@ -46,22 +44,67 @@ function P.Size(frame, w, h)
     return frame
 end
 
+local function SnapArg(v)
+    if type(v) == "number" then return Snap(v) end
+    return v
+end
+
+
 
 function P.Point(obj, ...)
     local n = select("#", ...)
     if n == 0 then return obj end
-
-    local args = { ... }
-    for i = 1, n do
-        if type(args[i]) == "number" then args[i] = Snap(args[i]) end
+    local a, b, c, d, e = ...
+    if n == 1 then
+        obj:SetPoint(a)
+    elseif n == 2 then
+        obj:SetPoint(a, SnapArg(b))
+    elseif n == 3 then
+        obj:SetPoint(a, SnapArg(b), SnapArg(c))
+    elseif n == 4 then
+        obj:SetPoint(a, SnapArg(b), SnapArg(c), SnapArg(d))
+    else
+        obj:SetPoint(a, SnapArg(b), SnapArg(c), SnapArg(d), SnapArg(e))
     end
-    obj:SetPoint(unpack(args, 1, n))
     return obj
 end
 
 function P.Crisp(tex)
     PP.DisablePixelSnap(tex)
     return tex
+end
+
+
+
+
+local edges = setmetatable({}, { __mode = "k" })
+local edgeSnap, edgeForced = false, nil
+
+local function ApplyEdgeSnap(on)
+    if on == edgeSnap then return end
+    edgeSnap = on
+    for tex in pairs(edges) do
+        tex:SetSnapToPixelGrid(on)
+        tex:SetTexelSnappingBias(0)
+    end
+end
+
+function P.Edge(tex)
+    P.Crisp(tex)
+    edges[tex] = true
+    if edgeSnap then tex:SetSnapToPixelGrid(true) end
+    return tex
+end
+
+
+function P.SetEdgeSnap(on)
+    if on == nil then edgeForced = nil return end
+    edgeForced = on and true or false
+    ApplyEdgeSnap(edgeForced)
+end
+
+function P.AutoEdgeSnap(on)
+    if edgeForced == nil then ApplyEdgeSnap(on and true or false) end
 end
 
 
@@ -73,11 +116,16 @@ function P.OnRescale(fn)
     return fn
 end
 
-local function Rescale()
+
+function P.Resnap()
     for i = 1, #resnap do
         local fn = resnap[i]
         if fn then pcall(fn) end
     end
+end
+
+local function Rescale()
+    P.Resnap()
 end
 
 function P:Init()

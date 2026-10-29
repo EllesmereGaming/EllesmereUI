@@ -185,6 +185,47 @@ function ns.HasRezKit()
 end
 end
 
+-------------------------------------------------------------------------------
+--  Random Hearthstone
+--
+--  One entry that is a different owned hearthstone toy each time a menu
+--  holding it opens. The pick is shared by every Random Hearthstone cell on
+--  every palette, so whatever a cell draws is what its pushed attributes fire.
+--  Rolled again by the press of such a menu's key (RerollHearth in
+--  EUI_Quickdraw_Runtime.lua), which also rewrites every such cell's
+--  attributes -- out of combat only, since combat refuses the writes, so a
+--  menu opened mid-fight keeps the last roll.
+--
+--  The roll is the portal flyout's own (EllesmereUI.ResolveHearthSlot), so
+--  the two agree on what counts: a random owned toy, or the plain Hearthstone
+--  item for a character with none. Without the flyout's Astral Recall swap:
+--  the entry is a hearthstone, and a shaman who wants the spell can put it on
+--  the palette beside it. That function rolls again on every call, so its
+--  answer is kept here until the next press asks for a new one.
+-------------------------------------------------------------------------------
+local Hearth = {}
+do
+local pickKind, pickID
+
+-- A new pick, rolled once more when the first repeats the last pick, so two
+-- opens in a row rarely draw the same toy.
+function Hearth.Roll()
+    local lastID = pickID
+    local kind, id = EllesmereUI.ResolveHearthSlot(true)
+    if id == lastID then kind, id = EllesmereUI.ResolveHearthSlot(true) end
+    -- The flyout fires every toy as "item"; the toy action is the one the
+    -- rest of this module uses for toys.
+    if kind == "item" and PlayerHasToy(id) then kind = "toy" end
+    pickKind, pickID = kind, id
+end
+
+-- kind ("toy" or "item") and itemID of what the entry fires right now.
+function Hearth.Current()
+    if not pickID then Hearth.Roll() end
+    return pickKind, pickID
+end
+end
+
 -- The filtered answers, one per palette table. Wiped ONLY at the top of
 -- PushAllPalettes: the memo is what keeps the drawn menu and the pushed
 -- secure attributes reading the SAME list even when the spellbook shifts
@@ -341,6 +382,11 @@ local function ResolveAction(slot, p)
     elseif k == "toy" then
         if type(slot.id) ~= "number" then return nil end
         return "toy", "toy", slot.id
+
+    elseif k == "randomhearth" then
+        local kind, id = Hearth.Current()
+        if kind == "toy" then return "toy", "toy", id end
+        return "item", "item", "item:" .. id
 
     elseif k == "outfit" then
         local info = ns.OutfitInfo(slot)
@@ -622,6 +668,18 @@ local function SlotDisplay(slot)
         local _, name, icon = C_ToyBox.GetToyInfo(slot.id)
         return icon or QUESTION_MARK, name or slot.name
 
+    elseif k == "randomhearth" then
+        -- The hearthstone this open rolled, like the last-mount entry draws
+        -- the mount it would summon. The entry's own name stands in until the
+        -- toy's data has loaded.
+        local kind, id = Hearth.Current()
+        if kind == "toy" then
+            local _, name, icon = C_ToyBox.GetToyInfo(id)
+            return icon or QUESTION_MARK, name or "Random Hearthstone"
+        end
+        local _, _, _, _, icon = C_Item.GetItemInfoInstant(id)
+        return icon or QUESTION_MARK, C_Item.GetItemInfo(id) or "Random Hearthstone"
+
     elseif k == "outfit" then
         local info = ns.OutfitInfo(slot)
         return ns.OutfitIcon(info) or ns.OutfitIcon(slot) or QUESTION_MARK,
@@ -829,6 +887,19 @@ local function SlotSpellID(slot)
     return nil
 end
 
+-- The itemID an entry's live state is read from, for the item-backed kinds.
+-- A toy's id IS its itemID. Random Hearthstone answers this open's pick.
+local function SlotItemID(slot)
+    local k = slot and slot.kind
+    if k == "item" or k == "toy" then
+        return type(slot.id) == "number" and slot.id or nil
+    elseif k == "randomhearth" then
+        local _, id = Hearth.Current()
+        return id
+    end
+    return nil
+end
+
 -- Display data the client only has once it has been ASKED for: GetSpellInfo
 -- answers nothing for a spell whose data has not been loaded this session
 -- (SpellDocumentation.lua:800-803), and the toy and item getters answer nothing
@@ -849,8 +920,9 @@ function ns.SlotDataReady(slot)
     -- A toy's id IS its itemID, so the two kinds share the one cache. An item's
     -- icon comes off the client's own table and is right either way; its NAME
     -- is what the load is for, and the hub caption reads that.
-    if k == "item" or k == "toy" then
-        return type(slot.id) ~= "number" or C_Item.IsItemDataCachedByID(slot.id)
+    if k == "item" or k == "toy" or k == "randomhearth" then
+        local id = SlotItemID(slot)
+        return not id or C_Item.IsItemDataCachedByID(id)
     end
 
     -- Every other kind reads a client-side table -- the mount journal, the pet
@@ -863,8 +935,9 @@ end
 -- the request again with each one.
 function ns.WarmSlot(slot)
     if ns.SlotDataReady(slot) then return false end
-    if slot.kind == "item" or slot.kind == "toy" then
-        C_Item.RequestLoadItemDataByID(slot.id)
+    local itemID = SlotItemID(slot)
+    if itemID then
+        C_Item.RequestLoadItemDataByID(itemID)
     else
         C_Spell.RequestLoadSpellData(SlotSpellID(slot))
     end
@@ -892,9 +965,10 @@ local function SlotCooldown(slot)
             -- hand a boolean to CooldownFrame_Set.
             return (C_Spell.GetSpellCooldownDuration(id))
         end
-    elseif k == "item" or k == "toy" then
-        if slot.id and C_Item.GetItemCooldown then
-            return nil, C_Item.GetItemCooldown(slot.id)
+    elseif k == "item" or k == "toy" or k == "randomhearth" then
+        local id = SlotItemID(slot)
+        if id and C_Item.GetItemCooldown then
+            return nil, C_Item.GetItemCooldown(id)
         end
     end
     return nil
@@ -1104,6 +1178,7 @@ end
 ns.SlotFromCursor = SlotFromCursor
 
 I.FireInsecure, I.ResolveAction, I.Rez = FireInsecure, ResolveAction, Rez
+I.Hearth = Hearth
 I.SlotCooldown, I.SlotCount, I.SlotDisplay = SlotCooldown, SlotCount, SlotDisplay
 I.SlotUsability, I.USABILITY_TINT, I.usableMemo = SlotUsability, USABILITY_TINT, usableMemo
 I.UsableSlots = UsableSlots

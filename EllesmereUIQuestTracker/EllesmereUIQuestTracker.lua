@@ -70,10 +70,12 @@ local QT_DEFAULTS = {
             -- QoL
             autoAccept           = false,
             autoAcceptPreventMulti = true,
+            autoAcceptShiftEnable = false,
             autoAcceptShiftSkip  = true,
             autoAcceptIgnoreTrivial = false,
             autoAcceptIgnoreOldExpansion = false,
             autoTurnIn           = false,
+            autoTurnInShiftEnable = false,
             autoTurnInShiftSkip  = true,
             questItemHotkey      = nil,
         },
@@ -214,9 +216,11 @@ _G._EQT_RefreshAll = function()
     -- profile's key stays overridden -- taken from whatever the player really
     -- has bound there -- and the incoming profile's key is never laid down.
     if EQT.ApplyQuestItemHotkey then EQT.ApplyQuestItemHotkey() end
+    if EQT.SyncAutoQuests then EQT.SyncAutoQuests() end
     -- WoW Forever's quest tools (nil on retail).
     if EQT.ApplyQuestWatches then EQT.ApplyQuestWatches() end
     if EQT.ApplyQuestProgress then EQT.ApplyQuestProgress() end
+    if EQT.ApplyQuestLinks then EQT.ApplyQuestLinks() end
 end
 
 -------------------------------------------------------------------------------

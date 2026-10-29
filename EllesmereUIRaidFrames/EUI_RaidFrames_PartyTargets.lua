@@ -672,8 +672,8 @@ local function PT_Build(owner, globalName)
     frame:RegisterForClicks("AnyUp")
     frame:Hide()
 
-    -- Background, health bar, texts and border frame (the stock edge under a stock style). The
-    -- font comes with the next restyle, before the frame can show. Name only: no health texts.
+    -- Background, health bar, name text and border frame (the stock edge under a stock style).
+    -- The font comes with the next restyle, before the frame can show.
     local FB = ns._FB
     FB.BuildVisuals(frame)
     local name = frame._nameText
@@ -681,8 +681,6 @@ local function PT_Build(owner, globalName)
     name:SetJustifyH("CENTER")
     name:SetJustifyV("MIDDLE")
     name:SetTextColor(1, 1, 1, 1)
-    frame._healthText:Hide()
-    frame._healAbsorbText:Hide()
 
     frame._ptOwner = owner
     FB.src[frame] = PT_Source
@@ -911,8 +909,6 @@ local function PT_PvFrame(i, parent, s, spec)
         name:SetJustifyH("CENTER")
         name:SetJustifyV("MIDDLE")
         name:SetTextColor(1, 1, 1, 1)
-        f._healthText:Hide()
-        f._healAbsorbText:Hide()
         PT.pv[i] = f
     elseif f:GetParent() ~= parent then
         f:SetParent(parent)

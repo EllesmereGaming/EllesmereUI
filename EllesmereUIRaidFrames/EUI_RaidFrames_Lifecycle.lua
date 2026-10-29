@@ -410,23 +410,64 @@ function ERF:OnEnable()
     for i = 1, 40 do MakeUnitTracker("raid" .. i) end
     eventFrame:SetScript("OnEvent", OnEvent)
 
-    -- Level Text's UNIT_LEVEL: registered on every tracker only while a view shows the
-    -- level. Called from _RefreshProxyModes (every settings write, reload and profile
-    -- swap); the stamp keeps the 45-tracker walk to real flips.
-    local lvlRegistered = false
-    function ns._RFSyncLevelRegistration()
-        local want = ns._RFLevelWanted()
-        if want == lvlRegistered then return end
-        lvlRegistered = want
+    -- An opt-in unit event (UNIT_LEVEL, UNIT_TARGET) on every tracker, the Extra Frames'
+    -- assigned per-slot ones included (XF_Apply registers it there on assignment).
+    local function SyncOptInEvent(event, want)
         for unit, tracker in pairs(unitTrackers) do
             if want then
-                tracker:RegisterUnitEvent("UNIT_LEVEL", unit)
+                tracker:RegisterUnitEvent(event, unit)
             else
-                tracker:UnregisterEvent("UNIT_LEVEL")
+                tracker:UnregisterEvent(event)
+            end
+        end
+        local XF = ns._XF
+        if XF then
+            for i = 1, #XF.trackers do
+                local b = XF.buttons[i]
+                local unit = b and b:IsShown() and b:GetAttribute("unit")
+                if want and unit then
+                    XF.trackers[i]:RegisterUnitEvent(event, unit)
+                elseif not want then
+                    XF.trackers[i]:UnregisterEvent(event)
+                end
             end
         end
     end
+
+    -- UNIT_LEVEL: registered only while a view shows the level. Called from
+    -- _RefreshProxyModes (every settings write, reload and profile swap); the stamp keeps
+    -- the tracker walk to real flips.
+    local lvlRegistered = false
+    function ns._RFSyncLevelRegistration()
+        local want = ns.RF_TextWanted("level")
+        if want == lvlRegistered then return end
+        lvlRegistered = want
+        SyncOptInEvent("UNIT_LEVEL", want)
+    end
     ns._RFSyncLevelRegistration()
+
+    -- Custom texts: UNIT_TARGET only while a view's Custom text shows [target]. A Custom
+    -- text reading power keeps the power events of units whose power bar is off: the raid
+    -- view's on every unit (raid frames show a party on its player and party tokens), the
+    -- party view's on those tokens only (UpdatePowerEventRegistration below reads the
+    -- stamps and re-runs on a flip). Called with the level's sync; the stamps keep the
+    -- walks to real flips.
+    local tgtRegistered, raidPowerWanted, partyPowerWanted = false, false, false
+    function ns._RFSyncCustomRegistration()
+        local want = ns.RF_TextWanted("tgt")
+        if want ~= tgtRegistered then
+            tgtRegistered = want
+            SyncOptInEvent("UNIT_TARGET", want)
+        end
+        local r = ns.RF_TextPlan(ns._scaledProfile).reads
+        local p = ns.RF_TextPlan(ns._scaledPartyProxy).reads
+        local raidPP, partyPP = (r and r.pp) and true or false, (p and p.pp) and true or false
+        if raidPP ~= raidPowerWanted or partyPP ~= partyPowerWanted then
+            raidPowerWanted, partyPowerWanted = raidPP, partyPP
+            if ns.UpdatePowerEventRegistration then ns.UpdatePowerEventRegistration() end
+        end
+    end
+    ns._RFSyncCustomRegistration()
 
     -- UNIT_FLAGS is opt-in: only registered while the combat icon is enabled.
     if ns.UpdateCombatEventRegistration then ns.UpdateCombatEventRegistration() end
@@ -456,13 +497,15 @@ function ERF:OnEnable()
             if UnitExists(unit) then
                 local role = ns._ResolvePowerRole(unit)
                 wantPower = (IsPowerBarEnabled(rs) and wantsPower(rs, role))
-                    or (hmOn and role == "HEALER")
+                    or (hmOn and role == "HEALER") or raidPowerWanted
                 -- player/party tokens always count as party-displayable; the
                 -- routing-map check additionally covers arena, where the party
                 -- header binds raid1-5.
                 if not wantPower and (unit == "player" or unit:match("^party%d$")
                         or (ns._partyUnitToButton and ns._partyUnitToButton[unit])) then
-                    if ns.RF_PartyKit() then
+                    if partyPowerWanted then
+                        wantPower = true
+                    elseif ns.RF_PartyKit() then
                         -- Party Frames kit: the stock mana bar always shows
                         -- (while the party frames are shown; the hide edge
                         -- re-runs this through RF_KitPortraitEvents).

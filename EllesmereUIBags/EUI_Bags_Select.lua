@@ -91,12 +91,19 @@ function ns.AssignCursorItem(catKey)
     return true
 end
 
+-- The "+" overlays lie over an empty slot's item button and its overlays (the
+-- window's level + 9 to + 15, ns.PinItemButton), so each placement levels them
+-- from the window's current level: 100 over a window at level 1
+local function OverSlots(ov)
+    ov:SetFrameLevel(EUI_Bags:GetFrameLevel() + 99)
+    return ov
+end
+
 -- Pin "+" overlay: a click-catcher frame placed over a regular empty slot
 local function GetOrCreatePinOverlay()
-    if EUI_Bags._pinOverlayBtn then return EUI_Bags._pinOverlayBtn end
+    if EUI_Bags._pinOverlayBtn then return OverSlots(EUI_Bags._pinOverlayBtn) end
     local ov = ns.CreatePlusButton(EUI_Bags, ns.PIN_PLUS_TIP)
     ov:SetSize(SLOT_SIZE, SLOT_SIZE)
-    ov:SetFrameLevel(100)
     ov:SetScript("OnReceiveDrag", ns.PinCursorItem)
     ov:SetScript("OnClick", function(self)
         -- Click-to-place also pins
@@ -114,7 +121,7 @@ local function GetOrCreatePinOverlay()
     end)
     ov:Hide()
     EUI_Bags._pinOverlayBtn = ov
-    return ov
+    return OverSlots(ov)
 end
 
 -- Assign "+" overlay: click/drag an item to assign to a category; pooled so multiple sections can show one simultaneously.
@@ -123,10 +130,9 @@ local _assignOverlayIdx = 0
 
 local function GetOrCreateAssignOverlay()
     _assignOverlayIdx = _assignOverlayIdx + 1
-    if _assignOverlays[_assignOverlayIdx] then return _assignOverlays[_assignOverlayIdx] end
+    if _assignOverlays[_assignOverlayIdx] then return OverSlots(_assignOverlays[_assignOverlayIdx]) end
     local ov = ns.CreatePlusButton(EUI_Bags, ns.ASSIGN_PLUS_TIP)
     ov:SetSize(SLOT_SIZE, SLOT_SIZE)
-    ov:SetFrameLevel(100)
     local function DoAssign(self)
         if ns.AssignCursorItem(self._assignCatKey) then return end
         -- No cursor item: enter assign select mode (like pin select)
@@ -147,7 +153,7 @@ local function GetOrCreateAssignOverlay()
     ov:SetScript("OnClick", DoAssign)
     ov:Hide()
     _assignOverlays[_assignOverlayIdx] = ov
-    return ov
+    return OverSlots(ov)
 end
 
 local function ResetAssignOverlays()

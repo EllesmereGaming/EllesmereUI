@@ -256,7 +256,7 @@ function EllesmereUI.Conditions_Recheck()
     end
     -- An open unlock session never survives a layout-owner change (same rule
     -- as spec changes): discard-close first, then transition.
-    if EllesmereUI._unlockModeActive and EllesmereUI.ForceCloseUnlockDiscard then
+    if EllesmereUI._unlockModeSessionActive and EllesmereUI.ForceCloseUnlockDiscard then
         EllesmereUI.ForceCloseUnlockDiscard()
     end
     local handler = EllesmereUI.SpecOverrides_CondTransition
@@ -293,7 +293,8 @@ function EllesmereUI.Conditions_Recheck()
             return
         end
     end
-    if handler(applied, gid, est) then
+    local ok, failed = handler(applied, gid, est)
+    if ok then
         _appliedGid = gid
         PersistAppliedGid(gid)
     else
@@ -303,8 +304,10 @@ function EllesmereUI.Conditions_Recheck()
         _flipPending = true
     end
     -- Strictly AFTER the pointer advances: re-entering the view harvests
-    -- through HarvestCurrent, which banks against the APPLIED gid.
-    if resumeView and EllesmereUI.SpecOverrides_ResumeDefaultView then
+    -- through HarvestCurrent, which banks against the APPLIED gid. Not after a
+    -- handler error: live may hold half-applied incoming values, and the harvest
+    -- would bank them into the outgoing group's maps.
+    if resumeView and not failed and EllesmereUI.SpecOverrides_ResumeDefaultView then
         EllesmereUI.SpecOverrides_ResumeDefaultView()
     end
 end

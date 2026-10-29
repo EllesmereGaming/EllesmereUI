@@ -389,41 +389,41 @@ local function CalcPipGeometry(totalW, numPips, pipSp, frame, esOverride)
     return slots, spPx * onePixel, onePixel, totalPx * onePixel
 end
 
--- Extend Top / Extend Bottom (Border Options cog on the power, class resource,
--- cast and GCD bars): how far a bar's border host reaches past the bar's top
--- and bottom edges on screen, in UI units (screen axes, a vertical bar too).
+-- Border extensions (power, class resource, cast and GCD bars), in UI units
+-- along screen axes, including vertical bars.
 -- Read only while the bar's style is textured, the only state that shows the
 -- rows, so the stored values stay inert after a switch to Solid. Kept out of
 -- ns.ERB_EuiBorderPad: size matching ignores it (the extension is meant to
 -- overlap a neighbour). Callers pass nil under a stock style.
 function ns.ERB_BorderExtents(c)
-    if not c then return 0, 0 end
+    if not c then return 0, 0, 0, 0 end
     local tex = c.borderTexture
-    if not tex or tex == "" or tex == "solid" then return 0, 0 end
-    return c.borderExtendTop or 0, c.borderExtendBottom or 0
+    if not tex or tex == "" or tex == "solid" then return 0, 0, 0, 0 end
+    return c.borderExtendTop or 0, c.borderExtendBottom or 0, c.borderExtendLeft or 0, c.borderExtendRight or 0
 end
 
 -- Seats a border host frame we created (bf) on its bar (parent). An extent
--- above 0 anchors TOPLEFT up by top and BOTTOMRIGHT down by bottom, each on
+-- above 0 moves the corresponding edge outwards, each on
 -- whole physical pixels at the host's scale (the textured backdrop snaps its
 -- own anchors to the same grid); the stamp on bf makes a repeat pass with a
--- live rect a no-op. Both 0 (callers that pass none: pips, health, the stock
+-- live rect a no-op. All 0 (callers that pass none: pips, health, the stock
 -- styles): an extended host goes back to SetAllPoints once, and any host whose
 -- rect stopped resolving is re-seated the same way -- a bar repositioned by the
 -- unlock anchor system loses this frame's SetAllPoints edge (GetLeft() nil,
 -- GetWidth() 0) and the border vanishes until re-issued. Build paths only.
-function ns.ERB_AnchorBorderHost(bf, parent, top, bottom)
-    top, bottom = top or 0, bottom or 0
-    if top > 0 or bottom > 0 then
+function ns.ERB_AnchorBorderHost(bf, parent, top, bottom, left, right)
+    top, bottom, left, right = top or 0, bottom or 0, left or 0, right or 0
+    if top > 0 or bottom > 0 or left > 0 or right > 0 then
         local es = bf:GetEffectiveScale()
         top, bottom = PP.SnapForES(top, es), PP.SnapForES(bottom, es)
-        if bf._erbExtT == top and bf._erbExtB == bottom and bf:GetLeft() then return end
+        left, right = PP.SnapForES(left, es), PP.SnapForES(right, es)
+        if bf._erbExtT == top and bf._erbExtB == bottom and bf._erbExtL == left and bf._erbExtR == right and bf:GetLeft() then return end
         bf:ClearAllPoints()
-        bf:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, top)
-        bf:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, -bottom)
-        bf._erbExtT, bf._erbExtB = top, bottom
+        bf:SetPoint("TOPLEFT", parent, "TOPLEFT", -left, top)
+        bf:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", right, -bottom)
+        bf._erbExtT, bf._erbExtB, bf._erbExtL, bf._erbExtR = top, bottom, left, right
     elseif bf._erbExtT or not bf:GetLeft() then
-        bf._erbExtT, bf._erbExtB = nil, nil
+        bf._erbExtT, bf._erbExtB, bf._erbExtL, bf._erbExtR = nil, nil, nil, nil
         bf:SetAllPoints(parent)
     end
 end
@@ -450,16 +450,15 @@ local function MakePixelBorder(parent, r, g, b, a, size, textureKey, texOffset, 
             if shown then PP.ShowBorder(bf) else PP.HideBorder(bf) end
         end,
         -- edgePx: the bar's exact border size (EllesmereUI.BorderPx), nil for the legacy path.
-        -- extTop / extBottom: Extend Top / Extend Bottom (ns.ERB_BorderExtents), full-bar
-        -- borders only; pips never pass them.
-        ApplyStyle = function(self, newSz, cr, cg, cb, ca, texKey, texOff, texOffY, sX, sY, addonKey, sizeKey, edgePx, extTop, extBottom)
+        -- Extensions from ns.ERB_BorderExtents: full-bar borders only, never pips.
+        ApplyStyle = function(self, newSz, cr, cg, cb, ca, texKey, texOff, texOffY, sX, sY, addonKey, sizeKey, edgePx, extTop, extBottom, extLeft, extRight)
             -- A bar repositioned by the unlock anchor system loses this frame's
             -- SetAllPoints edge: GetPoint still reports TOPLEFT/BOTTOMRIGHT to the bar,
             -- but the rect stops resolving (GetLeft() nil, GetWidth() 0). The strips are
             -- anchored here, so each one falls back to WHITE8X8's natural 8px on the
             -- dimension it takes from anchors and the border disappears until the border
             -- SIZE changes. Re-seating the host restores it (with the extents, if any).
-            ns.ERB_AnchorBorderHost(bf, parent, extTop, extBottom)
+            ns.ERB_AnchorBorderHost(bf, parent, extTop, extBottom, extLeft, extRight)
             EllesmereUI.ApplyBorderStyle(bf, newSz, cr, cg, cb, ca or 1, texKey or "solid", texOff, texOffY, sX, sY, addonKey, sizeKey, nil, edgePx)
         end,
     }
@@ -518,15 +517,15 @@ local function CreateStatusBar(parent, name, w, h, borderSize, borderR, borderG,
     local bSz = borderSize or 1
     bar._border = MakePixelBorder(bar, borderR or 0, borderG or 0, borderB or 0, borderA or 1, bSz)
 
-    -- extTop / extBottom: Extend Top / Extend Bottom (power bar only; nil elsewhere).
-    function bar:ApplyBorder(sz, r, g, b, a, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey, behind, edgePx, extTop, extBottom)
+    -- Border extensions: power bar only; nil elsewhere.
+    function bar:ApplyBorder(sz, r, g, b, a, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey, behind, edgePx, extTop, extBottom, extLeft, extRight)
         -- "Show Behind": set the border frame level before styling so the textured
         -- backdrop inherits it. +1 draws in front of the fill, level-1 behind it.
         if self._border._frame then
             local pl = self:GetFrameLevel()
             self._border._frame:SetFrameLevel(behind and math.max(0, pl - 1) or (pl + 1))
         end
-        self._border:ApplyStyle(sz, r, g, b, a, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey, edgePx, extTop, extBottom)
+        self._border:ApplyStyle(sz, r, g, b, a, textureKey, texOffset, texOffsetY, shiftX, shiftY, addonKey, sizeKey, edgePx, extTop, extBottom, extLeft, extRight)
     end
 
     -- Lift the border above an overlay that draws inside the bar's rect. The

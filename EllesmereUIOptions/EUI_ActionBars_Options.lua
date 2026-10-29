@@ -924,6 +924,8 @@ initFrame:SetScript("OnEvent", function(self)
         getHeaderBuilder = function(pageName)
             if pageName == PAGE_DISPLAY then
                 return _barsHeaderBuilder
+            elseif pageName == PAGE_XPBAR then
+                return ns.ABO_XPHeaderBuilder()
             end
             return nil
         end,
@@ -959,6 +961,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             else
                 HideEditOverlay()
+                if pageName == PAGE_XPBAR then ns.ABO_XPPreviewRefresh() end
             end
         end,
         onReset     = function()

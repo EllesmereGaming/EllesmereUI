@@ -1012,8 +1012,6 @@ function ns.SetupViewerHooks()
         end
     end
 
-    ns.SyncViewerToContainer = function() end
-
     -- CDM settings panel: reanchor when user finishes editing
     if CooldownViewerSettings then
         CooldownViewerSettings:HookScript("OnHide", function()

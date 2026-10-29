@@ -426,8 +426,15 @@ local function BuildAssignedBuffsFields(frame, fontPath, sy, cfg, apply, isDefau
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PanelPP
     local _, hh = 0, 0
+    local hdr
 
-    _, hh = W:SectionHeader(frame, "ASSIGNED BUFFS", sy); sy = sy - hh
+    hdr, hh = W:SectionHeader(frame, "ASSIGNED BUFFS", sy); sy = sy - hh
+    -- The Move in Unlock Mode button on the bar's first section: the key reads
+    -- the sidebar selection at the click, so it highlights the selected bar.
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = function()
+        if pabSel.id == "default" then return "PAB_Buffs" end
+        return "PAB_CustomBuff_" .. pabSel.id
+    end })
 
     -- "Filters": single unified checkbox dropdown -- pinned pseudo-filter
     -- rows above a divider, then the real (user-editable) PAB_Filters
@@ -739,8 +746,15 @@ local function BuildAssignedDebuffsFields(frame, fontPath, sy, cfg, apply)
     local W = EllesmereUI.Widgets
     local PP = EllesmereUI.PanelPP
     local _, hh = 0, 0
+    local hdr
 
-    _, hh = W:SectionHeader(frame, "ASSIGNED DEBUFFS", sy); sy = sy - hh
+    hdr, hh = W:SectionHeader(frame, "ASSIGNED DEBUFFS", sy); sy = sy - hh
+    -- The Move in Unlock Mode button on the bar's first section: the key reads
+    -- the sidebar selection at the click, so it highlights the selected bar.
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = function()
+        if pabSel.id == "default" then return "PAB_Debuffs" end
+        return "PAB_CustomDebuff_" .. pabSel.id
+    end })
 
     local safRow
     safRow, hh = W:DualRow(frame, sy,

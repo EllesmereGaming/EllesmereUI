@@ -22,6 +22,94 @@ local DeselectMover, GetActionBarVisualSize, SortMoverFrameLevels = UM.DeselectM
 
 local _mouseHeld = false       -- true while left mouse button is held down anywhere
 
+local function OverlapUsesScroll(method)
+    return method == "scroll" or method == "shiftscroll" or method == "controlscroll" or method == "altscroll"
+end
+
+local function OverlapModifierDown(method)
+    if method == "scroll" then return true end
+    if method == "shiftscroll" then return IsShiftKeyDown() end
+    if method == "controlscroll" then return IsControlKeyDown() end
+    if method == "altscroll" then return IsAltKeyDown() end
+    return false
+end
+
+local function OverlapScrollDown()
+    local method = EllesmereUI.GetUnlockOverlapMethod()
+    return OverlapUsesScroll(method) and OverlapModifierDown(method)
+end
+
+function UM.UpdateMoverMouseWheel()
+    local method = EllesmereUI.GetUnlockOverlapMethod()
+    local active = UM.isUnlocked and UM.arrowKeyFrame and UM.arrowKeyFrame:IsShown()
+        and OverlapUsesScroll(method)
+    if UM.arrowKeyFrame then
+        if active and method ~= "scroll" then
+            UM.arrowKeyFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
+        else
+            UM.arrowKeyFrame:UnregisterEvent("MODIFIER_STATE_CHANGED")
+        end
+    end
+    local enabled = active and OverlapModifierDown(method) or false
+    for _, m in pairs(movers) do
+        m:EnableMouseWheel(enabled)
+        if m._linkBtns then
+            for _, btn in ipairs(m._linkBtns) do btn:EnableMouseWheel(enabled) end
+        end
+        if m._cogBtn then m._cogBtn:EnableMouseWheel(enabled) end
+    end
+end
+EllesmereUI.RefreshUnlockOverlapMethod = UM.UpdateMoverMouseWheel
+
+-- Rotate only the overlay levels; the real elements and saved layout stay put.
+local function CycleOverlappingMovers(current, delta)
+    if not UM.isUnlocked or InCombatLockdown() or _mouseHeld or delta == 0
+        or not OverlapScrollDown() then return end
+    local hits = {}
+    for _, m in pairs(movers) do
+        if m._dragging then return end
+        if m:IsShown() and m:IsMouseOver() then
+            hits[#hits + 1] = { mover = m, base = m._baseLevel, raised = m._raisedLevel }
+        end
+    end
+    if #hits < 2 then return end
+    table.sort(hits, function(a, b)
+        if a.base == b.base then return a.mover._barKey < b.mover._barKey end
+        return a.base > b.base
+    end)
+    local index
+    for i, hit in ipairs(hits) do
+        if hit.mover == current then index = i; break end
+    end
+    if not index then return end
+    index = (index - 1 + (delta > 0 and -1 or 1)) % #hits + 1
+    local target = hits[index].mover
+    for i = 1, #hits do
+        local m = hits[(index + i - 2) % #hits + 1].mover
+        m._baseLevel = hits[i].base
+        m._raisedLevel = hits[i].raised
+        m._cycleLowered = m ~= target
+        m._hoverPending = false
+    end
+    -- Raise first so none of the lowered overlays can take mouse focus midway.
+    target:SetFrameLevel(target._raisedLevel + 100)
+    local ar, ag, ab = GetAccent()
+    EllesmereUI.HideWidgetTooltip()
+    for _, hit in ipairs(hits) do
+        local m = hit.mover
+        if m ~= target then
+            if m._forceCollapse then m._forceCollapse() end
+            m:SetFrameLevel(m._baseLevel)
+            if m._cogBtn then m._cogBtn:SetFrameLevel(m._baseLevel + 10) end
+            if not m._selected then
+                if not UM.darkOverlaysEnabled then m:SetAlpha(MOVER_ALPHA) end
+                m._brd:SetColor(ar, ag, ab, 0.6)
+            end
+        end
+    end
+    target:GetScript("OnEnter")(target)
+end
+
 -- True while any part of a frame's rect reads secret: all of it when the frame
 -- rides an engine aura container, its size alone when only one edge does (a
 -- Blizzard Style unit frame's box around its aura stack). Nothing measures it then.
@@ -265,6 +353,9 @@ local function CreateMover(barKey)
     mover:SetMovable(true)
     mover:RegisterForDrag("LeftButton")
     mover:EnableMouse(true)
+    local function OnMoverWheel(_, delta) CycleOverlappingMovers(mover, delta) end
+    mover:EnableMouseWheel(OverlapScrollDown())
+    mover:SetScript("OnMouseWheel", OnMoverWheel)
     mover:SetScript("OnMouseDown", function(self, button)
         if button == "LeftButton" then _mouseHeld = true end
     end)
@@ -370,6 +461,10 @@ local function CreateMover(barKey)
 
     -- Store link buttons on mover so OnLeave can check if any are hovered
     mover._linkBtns = { wmBtn, hmBtn, atBtn, gdBtn }
+    for _, btn in ipairs(mover._linkBtns) do
+        btn:EnableMouseWheel(OverlapScrollDown())
+        btn:SetScript("OnMouseWheel", OnMoverWheel)
+    end
 
     -- Font strings inside each button (accent colored, drop shadow)
     local wmFS = wmBtn:CreateFontString(nil, "OVERLAY")
@@ -571,6 +666,7 @@ local function CreateMover(barKey)
             end
             -- Anchor mover to bar TOPLEFT for pixel-perfect overlay
             EllesmereUI._unlockAttachMover(self2, b, bk, il, it)
+            UM.PointPicker.Refresh(self2)
         end)
     end
 
@@ -1079,6 +1175,7 @@ local function CreateMover(barKey)
         UM.pickModeMover = mover
         ShowPickText("Click any element\nto anchor to it")
         FadeOverlayForSelectElement(true)
+        UM.PointPicker.Begin(mover)
     end)
 
     gdBtn:SetScript("OnClick", function()
@@ -1087,7 +1184,7 @@ local function CreateMover(barKey)
         if not UM.growDropdownFrame then
             UM.growDropdownFrame = CreateFrame("Frame", nil, UM.unlockFrame)
             UM.growDropdownFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-            UM.growDropdownFrame:SetFrameLevel(260)
+            UM.SetMoverOverlayLevel(UM.growDropdownFrame, 10)
             UM.growDropdownFrame:SetClampedToScreen(true)
             UM.growDropdownFrame:EnableMouse(true)
             -- Built once: background, border, the title and the divider under it.
@@ -1108,7 +1205,7 @@ local function CreateMover(barKey)
         if not UM.growDropdownCatcher then
             UM.growDropdownCatcher = CreateFrame("Button", nil, UM.unlockFrame)
             UM.growDropdownCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
-            UM.growDropdownCatcher:SetFrameLevel(259)
+            UM.SetMoverOverlayLevel(UM.growDropdownCatcher, 9)
             UM.growDropdownCatcher:SetAllPoints(UIParent)
             UM.growDropdownCatcher:RegisterForClicks("AnyUp")
             UM.growDropdownCatcher:SetScript("OnClick", function()
@@ -1567,6 +1664,8 @@ local function CreateMover(barKey)
     -- Drag handlers: manual cursor-based positioning for live snap + live bar movement
     mover:SetScript("OnDragStart", function(self)
         if InCombatLockdown() then return end
+        if UM.pickMode == "pointAnchor" then return end
+        if UM.PointPicker.Active() then CancelPickMode() end
         -- Position-locked: the module's anchor option owns this bar's position
         if ns.IsMoverPosLocked(self._barKey) then SelectMover(self); return end
         -- Anchored bars can be dragged -- the offset from parent is updated on drop
@@ -1875,7 +1974,13 @@ local function CreateMover(barKey)
         -- moves don't snap this child back. Read actual child edges directly
         -- instead of computing from center+half to avoid float dust from (top+bottom)/2 - height/2 != bottom.
         local ai = GetAnchorInfo(self._barKey)
-        if ai then
+        if ai and ai.mode == "POINT" then
+            local ox, oy = ns.PointAnchors.Capture(self._barKey, ai)
+            if ox then
+                ai.offsetX, ai.offsetY = ox, oy
+                UM.ApplyAnchorPosition(self._barKey, ai.target, nil, true)
+            end
+        elseif ai then
             local targetBar = UM.GetBarFrame(ai.target)
             if targetBar then
                 local tS = targetBar:GetEffectiveScale()
@@ -1993,6 +2098,7 @@ local function CreateMover(barKey)
     mover:SetScript("OnEnter", function(self)
         if not self._dragging then
             if _mouseHeld and not self._dragging then return end
+            self._cycleLowered = nil
             -- Collapse any other expanded mover before expanding this one
             if UM.hoveredMover and UM.hoveredMover ~= self and not UM.hoveredMover._dragging then
                 if UM.hoveredMover._hideOverlayText then UM.hoveredMover._hideOverlayText() end
@@ -2006,6 +2112,7 @@ local function CreateMover(barKey)
             -- Raise above all other movers
             self:SetFrameLevel(self._raisedLevel + 100)
             if self._cogBtn then self._cogBtn:SetFrameLevel(self:GetFrameLevel() + 10) end
+            UM.PointPicker.Enter(self)
             -- Select Element mode: white border highlight on hover targets
             if UM.selectElementPicker and UM.selectElementPicker ~= self then
                 self._brd:SetColor(1, 1, 1, 0.9)
@@ -2062,11 +2169,12 @@ local function CreateMover(barKey)
         end
     end)
     mover:SetScript("OnLeave", function(self)
+        UM.PointPicker.Leave(self)
         if not self._dragging then
             -- Delay so hovering child buttons (cog, link buttons) doesn't flicker
             C_Timer.After(0.12, function()
-                if self._dragging then return end
-                if self:IsMouseOver() then
+                if self._dragging or self._cycleLowered then return end
+                if self:IsMouseOver() or self._pointHandleHovered then
                     self:SetFrameLevel(self._raisedLevel + 100)
                     self._brd:SetColor(1, 1, 1, 0.9)
                     if not UM.darkOverlaysEnabled then self:SetAlpha(MOVER_HOVER) end
@@ -2104,6 +2212,7 @@ local function CreateMover(barKey)
 
     -- Left-click to select
     mover:SetScript("OnClick", function(self, button)
+        if UM.PointPicker.BodyClick(self, button) then return end
         if button == "LeftButton" then
             -- Width Match / Height Match / Anchor To pick mode handling
             -- Clicking the source mover itself cancels the pick mode
@@ -2312,7 +2421,7 @@ local function CreateMover(barKey)
                     if not UM.anchorDropdownFrame then
                         UM.anchorDropdownFrame = CreateFrame("Frame", nil, UM.unlockFrame)
                         UM.anchorDropdownFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-                        UM.anchorDropdownFrame:SetFrameLevel(260)
+                        UM.SetMoverOverlayLevel(UM.anchorDropdownFrame, 10)
                         UM.anchorDropdownFrame:SetClampedToScreen(true)
                         UM.anchorDropdownFrame:EnableMouse(true)
                         -- Built once: background, border and both title styles (the
@@ -2337,7 +2446,7 @@ local function CreateMover(barKey)
                     if not UM.anchorDropdownCatcher then
                         UM.anchorDropdownCatcher = CreateFrame("Button", nil, UM.unlockFrame)
                         UM.anchorDropdownCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
-                        UM.anchorDropdownCatcher:SetFrameLevel(259)
+                        UM.SetMoverOverlayLevel(UM.anchorDropdownCatcher, 9)
                         UM.anchorDropdownCatcher:SetAllPoints(UIParent)
                         UM.anchorDropdownCatcher:RegisterForClicks("AnyUp")
                         UM.anchorDropdownCatcher:SetScript("OnClick", function()
@@ -2652,6 +2761,7 @@ local function CreateMover(barKey)
             -- mode is next entered, so the overlay reappears then. Purely a visual
             -- toggle on the overlay -- it never touches the underlying element.
             if IsShiftKeyDown() then
+                if UM.pickModeMover == self and UM.PointPicker.Active() then CancelPickMode() end
                 self._tempHidden = true
                 self._hoverPending = false
                 if UM.selectedMover == self then DeselectMover() end
@@ -2685,6 +2795,8 @@ local function CreateMover(barKey)
     cogBtn:SetFrameLevel(mover:GetFrameLevel() + 10)
     cogBtn:RegisterForClicks("AnyUp")
     cogBtn:EnableMouse(true)
+    cogBtn:EnableMouseWheel(OverlapScrollDown())
+    cogBtn:SetScript("OnMouseWheel", OnMoverWheel)
     cogBtn:SetSize(ACT_SZ, ACT_SZ)
     do
         local bg = cogBtn:CreateTexture(nil, "BACKGROUND")
@@ -2841,7 +2953,7 @@ local function CreateMover(barKey)
         end
         snapMenu = snapMenu or CreateFrame("Frame", nil, UM.unlockFrame)
         snapMenu:SetFrameStrata("FULLSCREEN_DIALOG")
-        snapMenu:SetFrameLevel(250)
+        UM.SetMoverOverlayLevel(snapMenu)
         snapMenu:SetClampedToScreen(true)
         snapMenu:SetSize(DD_W, 10)
         snapMenu:SetPoint("TOPLEFT", mover, "TOPRIGHT", 4, 0)
@@ -2996,7 +3108,7 @@ local function CreateMover(barKey)
                 end
                 regSub = regSub or CreateFrame("Frame", nil, UM.unlockFrame)
                 regSub:SetFrameStrata("FULLSCREEN_DIALOG")
-                regSub:SetFrameLevel(260)
+                UM.SetMoverOverlayLevel(regSub, 10)
                 regSub:SetClampedToScreen(true)
                 regSub:SetSize(DD_W, 10)
                 regSub:SetPoint("TOPLEFT", rgItem, "TOPRIGHT", 2, 0)
@@ -3089,7 +3201,7 @@ local function CreateMover(barKey)
         if not snapClickCatcher then
             snapClickCatcher = CreateFrame("Button", nil, UM.unlockFrame)
             snapClickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
-            snapClickCatcher:SetFrameLevel(249)  -- just below snapMenu (250)
+            UM.SetMoverOverlayLevel(snapClickCatcher, -1)
             snapClickCatcher:SetAllPoints(UIParent)
             snapClickCatcher:RegisterForClicks("AnyUp")
             snapClickCatcher:SetScript("OnClick", function()
@@ -3188,7 +3300,7 @@ local function CreateMover(barKey)
         if not cogMenu then
             cogMenu = CreateFrame("Frame", nil, UM.unlockFrame)
             cogMenu:SetFrameStrata("FULLSCREEN_DIALOG")
-            cogMenu:SetFrameLevel(250)
+            UM.SetMoverOverlayLevel(cogMenu)
             -- Built once: background, border and the arrow-key hint at the top.
             MenuPool.Chrome(cogMenu)
             local hintFS = cogMenu:CreateFontString(nil, "OVERLAY")
@@ -3202,7 +3314,7 @@ local function CreateMover(barKey)
             cogMenu._hintFS = hintFS
         end
         cogMenu:SetFrameStrata("FULLSCREEN_DIALOG")
-        cogMenu:SetFrameLevel(250)
+        UM.SetMoverOverlayLevel(cogMenu)
         cogMenu:SetClampedToScreen(true)
         cogMenu:SetSize(DD_W + 60, 10)
         cogMenu:SetPoint("TOPLEFT", cogBtn, "BOTTOMLEFT", 0, -2)
@@ -3578,6 +3690,10 @@ local function CreateMover(barKey)
                     local _, lbl = MakeAnchorRow(EllesmereUI.Lf("Anchored to: %1$s", tgtName))
                     lbl:SetTextColor(0.55, 0.55, 0.55, 0.9)
                 end
+                if aiM.mode == "POINT" then
+                    local _, lbl = MakeAnchorRow(ns.PointAnchors.Description(aiM))
+                    lbl:SetTextColor(1, 0.35, 0.35, 0.9)
+                end
                 -- Offset X / Offset Y: typed values, Enter applies, Escape reverts.
                 -- Physical pixels in the box, units in the record, like the X/Y
                 -- Position boxes (AxisToPx): +1 here is one pixel, one nudge. A typed
@@ -3907,11 +4023,11 @@ local function CreateMover(barKey)
                     seSub = CreateFrame("Frame", nil, UM.unlockFrame)
                     mover._cogEdgeSub = seSub
                     seSub:SetFrameStrata("FULLSCREEN_DIALOG")
-                    seSub:SetFrameLevel(cogMenu:GetFrameLevel() + 4)
+                    UM.SetMoverOverlayLevel(seSub, 4)
                     MenuPool.Chrome(seSub)
                 end
                 seSub:SetFrameStrata("FULLSCREEN_DIALOG")
-                seSub:SetFrameLevel(cogMenu:GetFrameLevel() + 4)
+                UM.SetMoverOverlayLevel(seSub, 4)
                 seSub:SetClampedToScreen(true)
                 seSub:ClearAllPoints()
                 seSub:SetPoint("TOPLEFT", seItem, "TOPRIGHT", 2, 0)
@@ -4095,11 +4211,11 @@ local function CreateMover(barKey)
                             sub = CreateFrame("Frame", nil, cogMenu)
                             item._sub = sub
                             sub:SetFrameStrata("FULLSCREEN_DIALOG")
-                            sub:SetFrameLevel(cogMenu:GetFrameLevel() + 4)
+                            UM.SetMoverOverlayLevel(sub, 4)
                             MenuPool.Chrome(sub)
                         end
                         sub:SetFrameStrata("FULLSCREEN_DIALOG")
-                        sub:SetFrameLevel(cogMenu:GetFrameLevel() + 4)
+                        UM.SetMoverOverlayLevel(sub, 4)
                         sub:SetClampedToScreen(true)
                         -- Build UPWARD: the subnav's bottom is pinned level
                         -- with the row, so added rows extend toward the top.
@@ -4219,7 +4335,7 @@ local function CreateMover(barKey)
         if not cogClickCatcher then
             cogClickCatcher = CreateFrame("Button", nil, UM.unlockFrame)
             cogClickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
-            cogClickCatcher:SetFrameLevel(249)
+            UM.SetMoverOverlayLevel(cogClickCatcher, -1)
             cogClickCatcher:SetAllPoints(UIParent)
             cogClickCatcher:RegisterForClicks("AnyUp")
             cogClickCatcher:SetScript("OnClick", function()
@@ -4290,6 +4406,8 @@ local function CreateMover(barKey)
     mover:HookScript("OnDragStart", function()
         EllesmereUI.HideWidgetTooltip()
     end)
+    -- Element filter (EUI_UnlockMode_Filter.lua): a new or re-shown mover stays hidden while filtered.
+    if UM.FilterOnShow then mover:HookScript("OnShow", UM.FilterOnShow); UM.FilterOnShow(mover) end
 
     movers[barKey] = mover
     return mover

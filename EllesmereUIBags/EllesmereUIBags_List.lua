@@ -206,6 +206,7 @@ function ns.CreateListRow(host)
     if InCombatLockdown() then return nil end
     local slotParent = CreateFrame("Frame", nil, host)
     local btn = CreateFrame("ItemButton", nil, slotParent, "ContainerFrameItemButtonTemplate")
+    ns.PinItemButton(btn, host)
     btn:SetAllPoints(slotParent)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:RegisterForDrag("LeftButton")
@@ -226,7 +227,7 @@ function ns.CreateListRow(host)
     -- as on the grid slots: here it covers the row's icon.
     local ov = CreateFrame("Frame", nil, btn)
     ov:SetAllPoints(btn._lvIcon)
-    ov:SetFrameLevel((btn.Cooldown and btn.Cooldown:GetFrameLevel() or btn:GetFrameLevel()) + 2)
+    ov:SetFrameLevel(btn:GetFrameLevel() + 3)
     btn._textOverlay = ov
     btn._cells = {}
     local list = _hostRows[host]
@@ -806,6 +807,13 @@ function ns.ListPaintJunk(btn, info)
     local q = info.quality or 1
     btn._lvIcon:SetDesaturated(info.isLocked or (BP().bagDesaturateJunkItems == true
         and (q == 0 or EUI_CategoryManager:IsJunk(info.itemID, q))) or false)
+end
+
+-- Re-pins each host's rows (the bags and the bank) after its level moved (ns.PinItemPool)
+function ns.ResyncListRowLevels()
+    for host, rows in pairs(_hostRows) do
+        ns.PinItemPool(rows, host, "_rowPinLevel")
+    end
 end
 
 -- Empty bag slot row (OneBag / MultiBag); clicking or dropping an item

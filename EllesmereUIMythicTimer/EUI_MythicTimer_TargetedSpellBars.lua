@@ -57,143 +57,35 @@ local shown = {}            -- active entries in display order
 local unitEntry = {}        -- unit token -> entry while its bar is shown
 local plateUnits = {}       -- unit token -> true while its nameplate exists
 local active = false        -- events registered / feature live
-local previewOn = false     -- sample bars forced on (options eyeball / unlock)
+local previewOn = false     -- sample bars forced on (unlock placement)
 local timerTicker           -- shared 10Hz text ticker, self-stops when idle
 local slowAccum = 0         -- 10Hz tick counter driving the 0.2s poll pass
 local styleGen = 0          -- bumped by TSB_Refresh; O3 restyle-on-stale stamp
 local anyCastDropped = false -- true only when the maxBars cap actually dropped a cast
-local whereActive = false   -- location/combat watcher registered (tied to cfg.enabled only)
-local whereInCombat = false -- combat state, tracked from the regen edges (see ReadCombatFlag)
 
 local DEFAULT_X, DEFAULT_Y = -340, 60
 
 --------------------------------------------------------------------------------
---  Where to Show: content-type gate (positive filter, see WhereShows). Runs
---  independently of the nameplate-tracking lifecycle below -- entering or
+--  Where to Show: content-type gate (positive filter, see ns.MTWhere.Shows).
+--  Runs independently of the nameplate-tracking lifecycle below -- entering or
 --  leaving a matching zone must be able to (de)activate the group even while
---  the bucket the player is currently in is excluded, so this watcher stays
---  armed for as long as the feature is enabled, never tied to `active`.
+--  the bucket the player is currently in is excluded, so the subscription to
+--  the shared location/combat watcher stays for as long as the feature is
+--  enabled, never tied to `active`.
 --------------------------------------------------------------------------------
-local function CurrentWhereBucket()
-    if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive and C_ChallengeMode.IsChallengeModeActive() then
-        return "dungeon_mythic"
-    end
-    -- Housing plots report as "scenario"; they belong to the open world.
-    if C_Housing and C_Housing.IsInsideHouseOrPlot and C_Housing.IsInsideHouseOrPlot() then
-        return "open_world"
-    end
-    local _, iType, diffID, _, _, _, _, _, _, _, hasWorldTier = GetInstanceInfo()
-    diffID = tonumber(diffID) or 0
-    -- Lairs carry the World Tier flag instead of a difficulty id the branches
-    -- below know; the instance gate keeps the flag from ever reclassifying
-    -- the open world, whatever else it may be set on.
-    if hasWorldTier == true and iType ~= "none" then return "lair" end
-    if iType == "party" then
-        if diffID == 23 or diffID == 8 then return "dungeon_mythic" end
-        if diffID == 2 or diffID == 1 or diffID == 205 then return "dungeon_nonmythic" end
-        if diffID == 24 then return "timewalking" end
-    elseif iType == "raid" then
-        if diffID == 16 or diffID == 233 then return "raid_mythic" end
-        if diffID == 15 or diffID == 6 then return "raid_heroic" end
-        if diffID == 14 or diffID == 3 or diffID == 4 or diffID == 5
-            or diffID == 17 or diffID == 7 then return "raid_normal_lfr" end
-        if diffID == 33 then return "timewalking" end
-    elseif iType == "scenario" then
-        if diffID == 208 then return "delve" end
-        return "scenario"
-    end
-    if IsInInstance and not IsInInstance() then return "open_world" end
-    return nil -- unmapped (PvP/arena/etc.) -- always shows, matching AuraBuffReminders
-end
+local MTWhere = ns.MTWhere
 
--- Positive filter: nothing selected = no filter (bars show everywhere, the
--- original behavior). Selected location buckets limit WHERE, the two combat
--- entries limit WHEN, and the two groups AND together. Unmapped content
--- (PvP, arena) never hides.
-local LOCATION_KEYS = {
+-- The location buckets this filter offers. Arena and battleground are not
+-- among them, so that content never hides the bars.
+local WHERE_KEYS = MTWhere.NewKeySet({
     "open_world", "raid_mythic", "raid_heroic", "raid_normal_lfr",
     "dungeon_mythic", "dungeon_nonmythic", "timewalking", "delve", "lair",
     "scenario",
-}
-
--- Combat state is TRACKED from PLAYER_REGEN_DISABLED / _ENABLED instead of
--- sampled inside the gate: a live lockdown read is the one input here that can
--- answer differently (or as a secret) inside restricted instanced combat, and a
--- wrong answer at that moment leaves the group switched off for the whole fight.
--- The edges are exact everywhere, so this seed only has to cover login/zoning.
-local function ReadCombatFlag()
-    if not InCombatLockdown then return false end
-    local ok, v = pcall(InCombatLockdown)
-    if not ok then return false end
-    if issecretvalue then
-        local sok, secret = pcall(issecretvalue, v)
-        if sok and secret then return false end
-    end
-    return v and true or false
-end
-
-local function WhereShows(whereToShow)
-    if not whereToShow or not next(whereToShow) then return true end
-    local wantIn  = whereToShow.in_combat == true
-    local wantOut = whereToShow.out_of_combat == true
-    if wantIn ~= wantOut then
-        if whereInCombat ~= wantIn then return false end
-    end
-    local anyLoc = false
-    for i = 1, #LOCATION_KEYS do
-        if whereToShow[LOCATION_KEYS[i]] == true then anyLoc = true; break end
-    end
-    if not anyLoc then return true end
-    local bucket = CurrentWhereBucket()
-    if not bucket then return true end
-    return whereToShow[bucket] == true
-end
+})
 
 -- Zone/combat edges only flip the group on or off (defined after Activate/
 -- Deactivate); a full restyle belongs to settings writes, not combat entry.
 local SyncWhereActive
-
-local whereEvt = CreateFrame("Frame")
-local WHERE_EVENTS = {
-    "PLAYER_ENTERING_WORLD", "CHALLENGE_MODE_START", "CHALLENGE_MODE_COMPLETED",
-    "CHALLENGE_MODE_RESET", "PLAYER_DIFFICULTY_CHANGED",
-    "ZONE_CHANGED_NEW_AREA", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
-}
-local whereRecheckPending = false
-whereEvt:SetScript("OnEvent", function(_, event)
-    if event == "PLAYER_REGEN_DISABLED" then
-        whereInCombat = true
-    elseif event == "PLAYER_REGEN_ENABLED" then
-        whereInCombat = false
-    elseif event == "PLAYER_ENTERING_WORLD" then
-        whereInCombat = ReadCombatFlag()
-    end
-    SyncWhereActive()
-    -- GetInstanceInfo() can still report the PREVIOUS zone on the first frame
-    -- after a loading screen, which resolves the wrong content bucket and leaves
-    -- the group deactivated in a zone the filter actually allows (same read
-    -- hazard AuraBuffReminders defers 0.5s for). Re-check once the client has
-    -- settled; the sync only flips the group when the answer actually changed.
-    if event == "PLAYER_ENTERING_WORLD" and not whereRecheckPending then
-        whereRecheckPending = true
-        C_Timer.After(0.5, function()
-            whereRecheckPending = false
-            SyncWhereActive()
-        end)
-    end
-end)
-
-local function SetWhereWatcherActive(on)
-    on = on and true or false
-    if on == whereActive then return end
-    whereActive = on
-    if on then
-        whereInCombat = ReadCombatFlag()
-        for i = 1, #WHERE_EVENTS do whereEvt:RegisterEvent(WHERE_EVENTS[i]) end
-    else
-        whereEvt:UnregisterAllEvents()
-    end
-end
 
 --------------------------------------------------------------------------------
 --  Container + position (unlock interchange = raw UIParent-logical center
@@ -223,10 +115,11 @@ end
 --------------------------------------------------------------------------------
 --  Bar construction: holder > bg + icon + StatusBar fill + uninterruptible
 --  overlay + raid marker + text zones. Built once per pool slot, restyled by
---  StyleBar.
+--  StyleBar. `parent` is the options header sample's host; the live pool
+--  passes nothing and hangs its bars on the group container.
 --------------------------------------------------------------------------------
-local function BuildBar()
-    local holder = CreateFrame("Frame", nil, EnsureContainer())
+local function BuildBar(parent)
+    local holder = CreateFrame("Frame", nil, parent or EnsureContainer())
     holder:Hide()
 
     holder.bg = holder:CreateTexture(nil, "BACKGROUND")
@@ -452,13 +345,16 @@ local function StyleBar(holder, cfg)
     holder._styleGen = styleGen
 end
 
-local function PositionBar(holder, slot, cfg)
+-- anchor: the frame the slot stacks from (the options header sample's host);
+-- the live group passes nothing and stacks from its container.
+local function PositionBar(holder, slot, cfg, anchor)
+    anchor = anchor or container
     holder:ClearAllPoints()
     local off = (slot - 1) * ((cfg.height or 20) + (cfg.spacing or 4))
     if cfg.growUp then
-        holder:SetPoint("BOTTOMLEFT", container, "BOTTOMLEFT", 0, off)
+        holder:SetPoint("BOTTOMLEFT", anchor, "BOTTOMLEFT", 0, off)
     else
-        holder:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -off)
+        holder:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -off)
     end
 end
 
@@ -1113,17 +1009,15 @@ end
 
 -- Seed from plates that already exist (mid-session enable, or the gate turning
 -- the group on mid-combat). The event-maintained roster is the source of truth;
--- the C_NamePlate sweep only tops it up with plates that appeared BEFORE the
--- feature was enabled, and is allowed to come back empty.
+-- this sweep only tops it up with plates that appeared BEFORE the feature was
+-- enabled. It walks the unit tokens: a plate's namePlateUnitToken can be nil
+-- when polled outside its NAME_PLATE_UNIT_ADDED.
+local NAMEPLATE_TOKENS = ns.NAMEPLATE_TOKENS
+
 local function SeedFromLivePlates()
-    if C_NamePlate and C_NamePlate.GetNamePlates then
-        local ok, plates = pcall(C_NamePlate.GetNamePlates)
-        if ok and type(plates) == "table" then
-            for i = 1, #plates do
-                local u = plates[i] and plates[i].namePlateUnitToken
-                if u then plateUnits[u] = true end
-            end
-        end
+    for i = 1, #NAMEPLATE_TOKENS do
+        local u = NAMEPLATE_TOKENS[i]
+        if UnitExists(u) then plateUnits[u] = true end
     end
     for unit in pairs(plateUnits) do
         local nm = UnitCastingInfo(unit)
@@ -1159,11 +1053,11 @@ SyncWhereActive = function()
         previewOn = false
         return
     end
-    -- The preview owns the display while it runs: the options eye and the unlock
-    -- mover must show sample bars wherever the player stands, including content
-    -- the Where to Show filter excludes. Leaving it re-applies the gate.
+    -- The preview owns the display while it runs: the unlock mover must show
+    -- sample bars wherever the player stands, including content the Where to
+    -- Show filter excludes. Leaving it re-applies the gate.
     if previewOn then return end
-    local want = WhereShows(cfg.whereToShow)
+    local want = MTWhere.Shows(cfg.whereToShow, WHERE_KEYS)
     if want and not active then
         Activate()
     elseif not want and active then
@@ -1182,6 +1076,76 @@ local PREVIEW_ROWS = {
     { name = "Terrifying Roar", fill = 0.85, timer = "0.6", marker = 8, important = true },
 }
 
+-- One sample row: style, stack into `slot` from `anchor` (nil = the group
+-- container) and paint the static content. `e` is an entry table (e.bar,
+-- e._important), shared by the on-screen preview and the options header
+-- sample.
+local function PaintSampleRow(e, cfg, sample, slot, anchor)
+    StyleBar(e.bar, cfg)
+    PositionBar(e.bar, slot, cfg, anchor)
+    e.bar:SetAlpha(1)
+    e.bar.icon:SetTexture(134400)
+    local hasTarget = cfg.showTarget ~= false
+    if hasTarget then
+        local tc = cfg.targetColor
+        if cfg.targetClassColor ~= false and C_ClassColor and UnitClassBase then
+            -- Class token only: UnitClassBase also returns the class ID, which
+            -- would land in GetClassColor's optional tint color argument.
+            local col = C_ClassColor.GetClassColor((UnitClassBase("player")))
+            if col then e.bar.target:SetTextColor(col:GetRGB()) end
+        elseif tc then
+            e.bar.target:SetTextColor(tc.r, tc.g, tc.b, 1)
+        end
+        e.bar.target:SetText(UnitName("player") or "Target")
+        e.bar.target:Show()
+    else
+        e.bar.target:SetText("")
+        e.bar.target:Hide()
+    end
+
+    -- Raid marker sample: static, non-secret index.
+    if cfg.showRaidMarker and sample.marker then
+        local tc = RAID_MARKER_TEXCOORDS[sample.marker]
+        if tc then e.bar.marker:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) end
+        e.bar.marker:Show()
+        AnchorName(e.bar, cfg, true, hasTarget)
+    else
+        e.bar.marker:Hide()
+        AnchorName(e.bar, cfg, false, hasTarget)
+    end
+    -- Name sized/anchored above; SetWidth after SetText does not reliably
+    -- re-truncate an already-laid-out FontString.
+    if cfg.showSpellName ~= false then e.bar.name:SetText(sample.name) end
+    e.bar.timer:SetText(cfg.showTimer ~= false and sample.timer or "")
+    e.bar.sb:SetValue(sample.fill)
+
+    -- Uninterruptible / kick-ready sample: static, no live unit involved.
+    if sample.uninterruptible then
+        e.bar.overlay:SetAlpha(1)
+        local un = cfg.uninterruptible or { r = 0.45, g = 0.45, b = 0.45 }
+        e.bar.sb:GetStatusBarTexture():SetVertexColor(un.r, un.g, un.b)
+    else
+        e.bar.overlay:SetAlpha(0)
+        local c = cfg.barColor
+        if c then e.bar.sb:GetStatusBarTexture():SetVertexColor(c.r, c.g, c.b) end
+    end
+
+    -- Important sample: tint and/or glow, both driven by a plain (never
+    -- secret) boolean here.
+    e._important = sample.important == true
+    if cfg.importantEnabled and sample.important then
+        local ic = cfg.importantColor or { r = 1, g = 0.2, b = 0.2 }
+        e.bar.sb:GetStatusBarTexture():SetVertexColor(ic.r, ic.g, ic.b)
+    end
+    if cfg.importantGlow and sample.important then
+        ApplyImportantGlow(e, cfg)
+    else
+        ClearImportantGlow(e.bar)
+    end
+
+    e.bar:Show()
+end
+
 local function ShowPreview()
     local cfg = Cfg()
     if not cfg then return end
@@ -1189,73 +1153,32 @@ local function ShowPreview()
     EnsureContainer()
     local rows = math.min(#PREVIEW_ROWS, cfg.maxBars or 5)
     for i = 1, rows do
-        local sample = PREVIEW_ROWS[i]
         local e = { unit = "preview" .. i, bar = AcquireBarFrame(), preview = true }
         shown[#shown + 1] = e
-        StyleBar(e.bar, cfg)
-        PositionBar(e.bar, i, cfg)
-        e.bar:SetAlpha(1)
-        e.bar.icon:SetTexture(134400)
-        local hasTarget = cfg.showTarget ~= false
-        if hasTarget then
-            local tc = cfg.targetColor
-            if cfg.targetClassColor ~= false and C_ClassColor and UnitClassBase then
-                -- Class token only: UnitClassBase also returns the class ID, which
-                -- would land in GetClassColor's optional tint color argument.
-                local col = C_ClassColor.GetClassColor((UnitClassBase("player")))
-                if col then e.bar.target:SetTextColor(col:GetRGB()) end
-            elseif tc then
-                e.bar.target:SetTextColor(tc.r, tc.g, tc.b, 1)
-            end
-            e.bar.target:SetText(UnitName("player") or "Target")
-            e.bar.target:Show()
-        else
-            e.bar.target:SetText("")
-            e.bar.target:Hide()
-        end
-
-        -- Raid marker sample: static, non-secret index.
-        if cfg.showRaidMarker and sample.marker then
-            local tc = RAID_MARKER_TEXCOORDS[sample.marker]
-            if tc then e.bar.marker:SetTexCoord(tc[1], tc[2], tc[3], tc[4]) end
-            e.bar.marker:Show()
-            AnchorName(e.bar, cfg, true, hasTarget)
-        else
-            e.bar.marker:Hide()
-            AnchorName(e.bar, cfg, false, hasTarget)
-        end
-        -- Name sized/anchored above; SetWidth after SetText does not reliably
-        -- re-truncate an already-laid-out FontString.
-        if cfg.showSpellName ~= false then e.bar.name:SetText(sample.name) end
-        e.bar.timer:SetText(cfg.showTimer ~= false and sample.timer or "")
-        e.bar.sb:SetValue(sample.fill)
-
-        -- Uninterruptible / kick-ready sample: static, no live unit involved.
-        if sample.uninterruptible then
-            e.bar.overlay:SetAlpha(1)
-            local un = cfg.uninterruptible or { r = 0.45, g = 0.45, b = 0.45 }
-            e.bar.sb:GetStatusBarTexture():SetVertexColor(un.r, un.g, un.b)
-        else
-            e.bar.overlay:SetAlpha(0)
-            local c = cfg.barColor
-            if c then e.bar.sb:GetStatusBarTexture():SetVertexColor(c.r, c.g, c.b) end
-        end
-
-        -- Important sample: tint and/or glow, both driven by a plain (never
-        -- secret) boolean here.
-        e._important = sample.important == true
-        if cfg.importantEnabled and sample.important then
-            local ic = cfg.importantColor or { r = 1, g = 0.2, b = 0.2 }
-            e.bar.sb:GetStatusBarTexture():SetVertexColor(ic.r, ic.g, ic.b)
-        end
-        if cfg.importantGlow and sample.important then
-            ApplyImportantGlow(e, cfg)
-        else
-            ClearImportantGlow(e.bar)
-        end
-
-        e.bar:Show()
+        PaintSampleRow(e, cfg, PREVIEW_ROWS[i], i, nil)
     end
+end
+
+--------------------------------------------------------------------------------
+--  Options header sample: the first preview row, built ONCE on the header's
+--  column host and painted static on every call (no events, tickers or
+--  OnUpdate; a plain SetValue fill). The holder never joins the live pool,
+--  so the cast lifecycle, the restyle pass and the ticker never see it.
+--------------------------------------------------------------------------------
+local sampleBar
+local sampleEntry = { unit = "sample", preview = true }
+
+-- Hangs the sample at the host's TOPLEFT and returns its size (width, height
+-- in the host's units); nil before the settings exist.
+function ns.TSB_PaintSample(host)
+    local cfg = Cfg()
+    if not cfg then return nil end
+    if not sampleBar then sampleBar = BuildBar(host) end
+    sampleEntry.bar = sampleBar
+    sampleBar:SetParent(host)
+    sampleBar._styleGen = nil
+    PaintSampleRow(sampleEntry, cfg, PREVIEW_ROWS[1], 1, host)
+    return cfg.width or 240, cfg.height or 20
 end
 
 function ns.TSB_SetPreview(on)
@@ -1281,7 +1204,11 @@ end
 --------------------------------------------------------------------------------
 function ns.TSB_Refresh()
     local cfg = Cfg()
-    SetWhereWatcherActive(cfg and cfg.enabled == true)
+    if cfg and cfg.enabled == true then
+        MTWhere.Subscribe("tsb", SyncWhereActive)
+    else
+        MTWhere.Unsubscribe("tsb")
+    end
     SetPlateRosterActive(cfg and cfg.enabled == true)
     SyncWhereActive()
     if not cfg then return end
@@ -1328,12 +1255,11 @@ end
 --  the mover is hidden while the feature is disabled.
 --------------------------------------------------------------------------------
 local function RegisterUnlock()
-    if not (EllesmereUI.RegisterUnlockElements and EllesmereUI.MakeUnlockElement) then return end
     local MK = EllesmereUI.MakeUnlockElement
     EllesmereUI:RegisterUnlockElements({
         MK({
             key   = "EMT_TargetedSpellBars",
-            label = "Targeted Spell Bars",
+            label = "Cast Bars",
             group = "Mythic+",
             order = 521,
             -- Sized by the options sliders (no drag-resize handle), but the

@@ -3,8 +3,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  EllesmereUIBlizzardSkin_MerchantBulkBuy.lua
 --  Merchant Bulk Buy (opt-in, EllesmereUIDB.merchantBulkBuy): a shift-click on
 --  a vendor item opens a quantity window (EllesmereUI.CreateQuantityDialog) in
---  place of Blizzard's split popup and buys any amount, one purchase of at most
---  GetMerchantItemMaxStack at a time, the next sent once the bags show the last.
+--  place of Blizzard's split popup (an item sold one at a time, which gets no
+--  popup, opens it from the click alone) and buys any amount, one purchase of
+--  at most GetMerchantItemMaxStack at a time, the next sent once the bags show
+--  the last.
 --  The hooks install on the first enable and return at once while off; events
 --  are registered only while the window or a purchase confirm is up or a run
 --  is going. A purchase paid in a limited currency keeps Blizzard's popup and
@@ -296,13 +298,25 @@ end
 -- Merchant repaints come in bursts: one refresh per frame while the window shows.
 local refreshSoon = WSkin.Debounce(Validate)
 
+-- A shift-click on an item sold one at a time, unless it went into a focused
+-- edit box (not the window's own) as a link.
+local function SingleBuyClick(index)
+    local focus = GetCurrentKeyBoardFocus()
+    return (MerchantFrame.selectedTab or 1) == 1 and IsModifiedClick("SPLITSTACK")
+        and GetMerchantItemMaxStack(index) == 1
+        and (not focus or (dialog ~= nil and focus == dialog._eb))
+        and not EUI.PadGamepadUI()
+end
+
 local function TakeOver(button)
-    if not Enabled() or not EUI.StackSplitFor(button) then return end
+    if not Enabled() then return end
     local index = button:GetID()
+    local split = EUI.StackSplitFor(button)
+    if not split and not (index and SingleBuyClick(index)) then return end
     local itemID = index and GetMerchantItemID(index)
     local info = itemID and C_MerchantFrame.GetItemInfo(index)
     if not info or info.currencyID or LimitedCurrencyCost(index) then return end
-    EUI.TakeStackSplit()
+    if split then EUI.TakeStackSplit() end
     dialog = dialog or CreateDialog()
     local step = max(info.stackCount, 1)
     dialog._owner, dialog._index, dialog._itemID = button, index, itemID

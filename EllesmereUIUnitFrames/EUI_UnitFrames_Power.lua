@@ -617,7 +617,10 @@ local function CreatePowerBar(frame, unit, settings)
         local pctSuffix = showPct and "%%" or ""
         local fmt = s.powerTextFormat or "perpp"
         local TP = ns.TextPieces
-        if fmt == "curpp" then
+        if fmt == "custom" then
+            -- Tag template (powerTextCustomFormat); a missing format shows nothing.
+            ns.SetTextZone(frame, ppFS, "custom", "powerText", s)
+        elseif fmt == "curpp" then
             ns.SetTextZoneRaw(frame, ppFS, "%s", { TP.curpp })
         elseif fmt == "curmaxpp" then
             ns.SetTextZoneRaw(frame, ppFS, "%s / %s", { TP.curpp, TP.maxpp })

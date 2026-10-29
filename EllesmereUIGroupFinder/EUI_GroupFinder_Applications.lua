@@ -7,10 +7,7 @@ local ADDON_NAME, ns = ...
 if EllesmereUI.HELD_BACK_ADDONS[ADDON_NAME] then return end -- held back (EllesmereUIGroupFinder.lua)
 local CM = EllesmereUI
 
-local function IsSecret(v) return issecretvalue ~= nil and issecretvalue(v) end
-local function PlainString(v)
-    if type(v) == "string" and not IsSecret(v) and v ~= "" then return v end
-end
+local IsSecret, PlainString = EllesmereUI.IsSecret, EllesmereUI.PlainString
 -- Realm the way UnitFullName returns it.
 local function NormRealm(realm)
     realm = PlainString(realm)

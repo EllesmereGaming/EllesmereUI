@@ -252,6 +252,115 @@ local function ApplyAbsorbGate(frame, unit, textOverlay, zone, fs, content)
     end
 end
 
+-- Text zones shared by every Style*Frame builder. Simple frames have no ExtraText.
+-- Extra Text is tagged like the other zones; only its positioning differs. The
+-- builders' wrappers pass the unit's settings as they are at the call: a profile
+-- switch or import replaces the unit's table between frame reloads.
+local function ApplyFrameTextTags(frame, unit, settings, lc, rc, cc, ec)
+    local textOverlay, extraText = frame._textOverlay, frame.ExtraText
+    ns.SetTextZone(frame, frame.LeftText, lc, "leftText", settings)
+    ns.SetTextZone(frame, frame.RightText, rc, "rightText", settings)
+    ns.SetTextZone(frame, frame.CenterText, cc, "centerText", settings)
+    -- ReloadFrames passes 3 args; ec falls back to the stored content.
+    if extraText then
+        ec = ec or (settings.extraTextContent or "none")
+        ns.SetTextZone(frame, extraText, ec, "extraText", settings)
+    end
+    ApplyAbsorbGate(frame, unit, textOverlay, "left", frame.LeftText, lc)
+    ApplyAbsorbGate(frame, unit, textOverlay, "right", frame.RightText, rc)
+    ApplyAbsorbGate(frame, unit, textOverlay, "center", frame.CenterText, cc)
+    if extraText then ApplyAbsorbGate(frame, unit, textOverlay, "extra", extraText, ec) end
+    ns.UF_PaintText(frame, frame._euiUnit or unit)
+end
+
+-- Position and show/hide based on content + offsets
+local function ApplyFrameTextPositions(frame, unit, s, rcDefault, barWDefault)
+    local textOverlay = frame._textOverlay
+    local leftText, rightText, centerText, extraText = frame.LeftText, frame.RightText, frame.CenterText, frame.ExtraText
+    local lc = s.leftTextContent or "name"
+    local rc = s.rightTextContent or rcDefault
+    local cc = s.centerTextContent or "none"
+    local lsz = s.leftTextSize or s.textSize or 12
+    local rsz = s.rightTextSize or s.textSize or 12
+    local csz = s.centerTextSize or s.textSize or 12
+    local lxo = s.leftTextX or 0
+    local lyo = s.leftTextY or 0
+    local rxo = s.rightTextX or 0
+    local ryo = s.rightTextY or 0
+    local cxo = s.centerTextX or 0
+    local cyo = s.centerTextY or 0
+    local barW = s.frameWidth or barWDefault
+
+    -- Extra Text: anchored per extraTextAlign (left/right/center); ellipsis-
+    -- truncated past 95% of health bar width (SetWordWrap(false) + capped width below).
+    if extraText then
+        local ec = s.extraTextContent or "none"
+        SetFSFont(extraText, s.extraTextSize or s.textSize or 12)
+        extraText:ClearAllPoints()
+        if ec ~= "none" then
+            local exo = s.extraTextX or 0
+            local eyo = s.extraTextY or 0
+            local ealign = s.extraTextAlign or "left"
+            if ealign == "right" then
+                extraText:SetJustifyH("RIGHT")
+                PP.Point(extraText, "RIGHT", textOverlay, "RIGHT", -5 + exo, eyo)
+            elseif ealign == "center" then
+                extraText:SetJustifyH("CENTER")
+                PP.Point(extraText, "CENTER", textOverlay, "CENTER", exo, eyo)
+            else
+                extraText:SetJustifyH("LEFT")
+                PP.Point(extraText, "LEFT", textOverlay, "LEFT", 5 + exo, eyo)
+            end
+            PP.Width(extraText, barW * 0.95 * SlotWidthMul(s, "extraText"))
+            extraText:Show()
+            ApplyClassColor(extraText, unit, s.extraTextClassColor, s.extraTextColorR, s.extraTextColorG, s.extraTextColorB)
+        else extraText:Hide() end
+    end
+
+    -- Each text position renders independently.
+    SetFSFont(centerText, csz)
+    centerText:ClearAllPoints()
+    if cc ~= "none" then
+        centerText:SetJustifyH("CENTER")
+        PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
+        PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
+        centerText:Show()
+        ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
+    else centerText:Hide() end
+
+    SetFSFont(leftText, lsz)
+    leftText:ClearAllPoints()
+    if lc ~= "none" then
+        leftText:SetJustifyH("LEFT")
+        PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
+        -- Constrain width when opposing right text exists
+        if rc ~= "none" then
+            local rightUsed = EstimateUFTextWidth(rc, s.rightTextCustomFormat, true)
+            PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
+        else
+            PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
+        end
+        leftText:Show()
+        ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
+    else leftText:Hide() end
+
+    SetFSFont(rightText, rsz)
+    rightText:ClearAllPoints()
+    if rc ~= "none" then
+        rightText:SetJustifyH("RIGHT")
+        PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
+        -- Constrain width when opposing left text exists
+        if lc ~= "none" then
+            local leftUsed = EstimateUFTextWidth(lc, s.leftTextCustomFormat)
+            PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
+        else
+            PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
+        end
+        rightText:Show()
+        ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
+    else rightText:Hide() end
+end
+
 local function StyleFullFrame(frame, unit)
     local settings = GetSettingsForUnit(unit)
     local powerPos = settings.powerPosition or "below"
@@ -460,107 +569,10 @@ local function StyleFullFrame(frame, unit)
     frame.NameText = leftText
     frame.HealthValue = rightText
 
-    -- Apply tags based on content. Extra Text is handled identically to the other
-    -- zones (same ContentToTag + absorb gate); only positioning differs (alignment-
-    -- based anchor, 95%-of-bar-width clamp with ellipsis truncation).
-    local function ApplyTextTags(lc, rc, cc, ec)
-        ec = ec or (settings.extraTextContent or "none")
-        ns.SetTextZone(frame, leftText, lc, "leftText", settings)
-        ns.SetTextZone(frame, rightText, rc, "rightText", settings)
-        ns.SetTextZone(frame, centerText, cc, "centerText", settings)
-        ns.SetTextZone(frame, extraText, ec, "extraText", settings)
-        ApplyAbsorbGate(frame, unit, textOverlay, "left", leftText, lc)
-        ApplyAbsorbGate(frame, unit, textOverlay, "right", rightText, rc)
-        ApplyAbsorbGate(frame, unit, textOverlay, "center", centerText, cc)
-        ApplyAbsorbGate(frame, unit, textOverlay, "extra", extraText, ec)
-        ns.UF_PaintText(frame, frame._euiUnit or unit)
-    end
+    local function ApplyTextTags(lc, rc, cc, ec) ApplyFrameTextTags(frame, unit, GetSettingsForUnit(unit), lc, rc, cc, ec) end
     ApplyTextTags(leftContent, rightContent, centerContent, extraContent)
     frame._applyTextTags = ApplyTextTags
-
-    -- Position and show/hide based on content + offsets
-    local function ApplyTextPositions(s)
-        local lc = s.leftTextContent or "name"
-        local rc = s.rightTextContent or "both"
-        local cc = s.centerTextContent or "none"
-        local lsz = s.leftTextSize or s.textSize or 12
-        local rsz = s.rightTextSize or s.textSize or 12
-        local csz = s.centerTextSize or s.textSize or 12
-        local lxo = s.leftTextX or 0
-        local lyo = s.leftTextY or 0
-        local rxo = s.rightTextX or 0
-        local ryo = s.rightTextY or 0
-        local cxo = s.centerTextX or 0
-        local cyo = s.centerTextY or 0
-        local barW = s.frameWidth or 181
-
-        -- Extra Text: anchored per extraTextAlign (left/right/center); ellipsis-
-        -- truncated past 95% of health bar width (SetWordWrap(false) + capped width below).
-        local ec = s.extraTextContent or "none"
-        SetFSFont(extraText, s.extraTextSize or s.textSize or 12)
-        extraText:ClearAllPoints()
-        if ec ~= "none" then
-            local exo = s.extraTextX or 0
-            local eyo = s.extraTextY or 0
-            local ealign = s.extraTextAlign or "left"
-            if ealign == "right" then
-                extraText:SetJustifyH("RIGHT")
-                PP.Point(extraText, "RIGHT", textOverlay, "RIGHT", -5 + exo, eyo)
-            elseif ealign == "center" then
-                extraText:SetJustifyH("CENTER")
-                PP.Point(extraText, "CENTER", textOverlay, "CENTER", exo, eyo)
-            else
-                extraText:SetJustifyH("LEFT")
-                PP.Point(extraText, "LEFT", textOverlay, "LEFT", 5 + exo, eyo)
-            end
-            PP.Width(extraText, barW * 0.95 * SlotWidthMul(s, "extraText"))
-            extraText:Show()
-            ApplyClassColor(extraText, unit, s.extraTextClassColor, s.extraTextColorR, s.extraTextColorG, s.extraTextColorB)
-        else extraText:Hide() end
-
-        -- Each text position renders independently; Center no longer hides Left/Right.
-        SetFSFont(centerText, csz)
-        centerText:ClearAllPoints()
-        if cc ~= "none" then
-            centerText:SetJustifyH("CENTER")
-            PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
-            centerText:Show()
-            ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
-        else centerText:Hide() end
-
-        SetFSFont(leftText, lsz)
-        leftText:ClearAllPoints()
-        if lc ~= "none" then
-            leftText:SetJustifyH("LEFT")
-            PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
-            -- Constrain width when opposing right text exists
-            if rc ~= "none" then
-                local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
-            else
-                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
-            end
-            leftText:Show()
-            ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
-        else leftText:Hide() end
-
-        SetFSFont(rightText, rsz)
-        rightText:ClearAllPoints()
-        if rc ~= "none" then
-            rightText:SetJustifyH("RIGHT")
-            PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
-            -- Constrain width when opposing left text exists
-            if lc ~= "none" then
-                local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
-            else
-                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
-            end
-            rightText:Show()
-            ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
-        else rightText:Hide() end
-    end
+    local function ApplyTextPositions(s) ApplyFrameTextPositions(frame, unit, s, "both", 181) end
     ApplyTextPositions(settings)
     frame._applyTextPositions = ApplyTextPositions
 
@@ -732,105 +744,10 @@ local function StyleFocusFrame(frame, unit)
     frame.NameText = leftText
     frame.HealthValue = rightText
 
-    -- Apply tags based on content. Extra Text is handled identically to the other
-    -- zones (same ContentToTag + absorb gate); only positioning differs (alignment-
-    -- based anchor, 95%-of-bar-width clamp with ellipsis truncation).
-    local function ApplyTextTags(lc, rc, cc, ec)
-        ec = ec or (settings.extraTextContent or "none")
-        ns.SetTextZone(frame, leftText, lc, "leftText", settings)
-        ns.SetTextZone(frame, rightText, rc, "rightText", settings)
-        ns.SetTextZone(frame, centerText, cc, "centerText", settings)
-        ns.SetTextZone(frame, extraText, ec, "extraText", settings)
-        ApplyAbsorbGate(frame, unit, textOverlay, "left", leftText, lc)
-        ApplyAbsorbGate(frame, unit, textOverlay, "right", rightText, rc)
-        ApplyAbsorbGate(frame, unit, textOverlay, "center", centerText, cc)
-        ApplyAbsorbGate(frame, unit, textOverlay, "extra", extraText, ec)
-        ns.UF_PaintText(frame, frame._euiUnit or unit)
-    end
+    local function ApplyTextTags(lc, rc, cc, ec) ApplyFrameTextTags(frame, unit, GetSettingsForUnit(unit), lc, rc, cc, ec) end
     ApplyTextTags(leftContent, rightContent, centerContent, extraContent)
     frame._applyTextTags = ApplyTextTags
-
-    -- Position and show/hide based on content + offsets
-    local function ApplyTextPositions(s)
-        local lc = s.leftTextContent or "name"
-        local rc = s.rightTextContent or "perhp"
-        local cc = s.centerTextContent or "none"
-        local lsz = s.leftTextSize or s.textSize or 12
-        local rsz = s.rightTextSize or s.textSize or 12
-        local csz = s.centerTextSize or s.textSize or 12
-        local lxo = s.leftTextX or 0
-        local lyo = s.leftTextY or 0
-        local rxo = s.rightTextX or 0
-        local ryo = s.rightTextY or 0
-        local cxo = s.centerTextX or 0
-        local cyo = s.centerTextY or 0
-        local barW = s.frameWidth or 181
-
-        -- Extra Text: anchored per extraTextAlign (left/right/center); ellipsis-
-        -- truncated past 95% of health bar width (SetWordWrap(false) + capped width below).
-        local ec = s.extraTextContent or "none"
-        SetFSFont(extraText, s.extraTextSize or s.textSize or 12)
-        extraText:ClearAllPoints()
-        if ec ~= "none" then
-            local exo = s.extraTextX or 0
-            local eyo = s.extraTextY or 0
-            local ealign = s.extraTextAlign or "left"
-            if ealign == "right" then
-                extraText:SetJustifyH("RIGHT")
-                PP.Point(extraText, "RIGHT", textOverlay, "RIGHT", -5 + exo, eyo)
-            elseif ealign == "center" then
-                extraText:SetJustifyH("CENTER")
-                PP.Point(extraText, "CENTER", textOverlay, "CENTER", exo, eyo)
-            else
-                extraText:SetJustifyH("LEFT")
-                PP.Point(extraText, "LEFT", textOverlay, "LEFT", 5 + exo, eyo)
-            end
-            PP.Width(extraText, barW * 0.95 * SlotWidthMul(s, "extraText"))
-            extraText:Show()
-            ApplyClassColor(extraText, unit, s.extraTextClassColor, s.extraTextColorR, s.extraTextColorG, s.extraTextColorB)
-        else extraText:Hide() end
-
-        -- Each text position renders independently; Center no longer hides Left/Right.
-        SetFSFont(centerText, csz)
-        centerText:ClearAllPoints()
-        if cc ~= "none" then
-            centerText:SetJustifyH("CENTER")
-            PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
-            centerText:Show()
-            ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
-        else centerText:Hide() end
-
-        SetFSFont(leftText, lsz)
-        leftText:ClearAllPoints()
-        if lc ~= "none" then
-            leftText:SetJustifyH("LEFT")
-            PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
-            if rc ~= "none" then
-                local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
-            else
-                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
-            end
-            leftText:Show()
-            ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
-        else leftText:Hide() end
-
-        SetFSFont(rightText, rsz)
-        rightText:ClearAllPoints()
-        if rc ~= "none" then
-            rightText:SetJustifyH("RIGHT")
-            PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
-            if lc ~= "none" then
-                local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
-            else
-                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
-            end
-            rightText:Show()
-            ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
-        else rightText:Hide() end
-    end
+    local function ApplyTextPositions(s) ApplyFrameTextPositions(frame, unit, s, "perhp", 181) end
     ApplyTextPositions(settings)
     frame._applyTextPositions = ApplyTextPositions
 
@@ -988,72 +905,10 @@ local function StyleSimpleFrame(frame, unit)
     frame.NameText = leftText
     frame.HealthValue = rightText
 
-    local function ApplyTextTags(lc, rc, cc)
-        ns.SetTextZone(frame, leftText, lc, "leftText", settings)
-        ns.SetTextZone(frame, rightText, rc, "rightText", settings)
-        ns.SetTextZone(frame, centerText, cc, "centerText", settings)
-        ApplyAbsorbGate(frame, unit, textOverlay, "left", leftText, lc)
-        ApplyAbsorbGate(frame, unit, textOverlay, "right", rightText, rc)
-        ApplyAbsorbGate(frame, unit, textOverlay, "center", centerText, cc)
-        ns.UF_PaintText(frame, frame._euiUnit or unit)
-    end
+    local function ApplyTextTags(lc, rc, cc) ApplyFrameTextTags(frame, unit, GetSettingsForUnit(unit), lc, rc, cc) end
     ApplyTextTags(leftContent, rightContent, centerContent)
     frame._applyTextTags = ApplyTextTags
-
-    local function ApplyTextPositions(s)
-        local lc = s.leftTextContent or "name"
-        local rc = s.rightTextContent or "none"
-        local cc = s.centerTextContent or "none"
-        local lsz = s.leftTextSize or s.textSize or 12
-        local rsz = s.rightTextSize or s.textSize or 12
-        local csz = s.centerTextSize or s.textSize or 12
-        local lxo = s.leftTextX or 0
-        local lyo = s.leftTextY or 0
-        local rxo = s.rightTextX or 0
-        local ryo = s.rightTextY or 0
-        local cxo = s.centerTextX or 0
-        local cyo = s.centerTextY or 0
-        local barW = s.frameWidth or 100
-        -- Each text position renders independently; Center no longer hides Left/Right.
-        SetFSFont(centerText, csz)
-        centerText:ClearAllPoints()
-        if cc ~= "none" then
-            centerText:SetJustifyH("CENTER")
-            PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
-            centerText:Show()
-            ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
-        else centerText:Hide() end
-
-        SetFSFont(leftText, lsz)
-        if lc ~= "none" then
-            leftText:ClearAllPoints()
-            leftText:SetJustifyH("LEFT")
-            PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
-            if rc ~= "none" then
-                local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
-            else
-                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
-            end
-            leftText:Show()
-            ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
-        else leftText:Hide() end
-        SetFSFont(rightText, rsz)
-        if rc ~= "none" then
-            rightText:ClearAllPoints()
-            rightText:SetJustifyH("RIGHT")
-            PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
-            if lc ~= "none" then
-                local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
-            else
-                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
-            end
-            rightText:Show()
-            ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
-        else rightText:Hide() end
-    end
+    local function ApplyTextPositions(s) ApplyFrameTextPositions(frame, unit, s, "none", 100) end
     ApplyTextPositions(settings)
     frame._applyTextPositions = ApplyTextPositions
     if unit == "pet" then ns.UF_EnsurePetAuras(frame) end
@@ -1192,100 +1047,10 @@ local function StyleBossFrame(frame, unit)
     frame.NameText = leftText
     frame.HealthValue = rightText
 
-    local function ApplyTextTags(lc, rc, cc, ec)
-        -- Callers that predate the Extra Text zone pass 3 args; fall back to
-        -- the stored content so those sites keep working (same as Main Frames).
-        ec = ec or (settings.extraTextContent or "none")
-        ns.SetTextZone(frame, leftText, lc, "leftText", settings)
-        ns.SetTextZone(frame, rightText, rc, "rightText", settings)
-        ns.SetTextZone(frame, centerText, cc, "centerText", settings)
-        ns.SetTextZone(frame, extraText, ec, "extraText", settings)
-        ApplyAbsorbGate(frame, unit, textOverlay, "left", leftText, lc)
-        ApplyAbsorbGate(frame, unit, textOverlay, "right", rightText, rc)
-        ApplyAbsorbGate(frame, unit, textOverlay, "center", centerText, cc)
-        ApplyAbsorbGate(frame, unit, textOverlay, "extra", extraText, ec)
-        ns.UF_PaintText(frame, frame._euiUnit or unit)
-    end
+    local function ApplyTextTags(lc, rc, cc, ec) ApplyFrameTextTags(frame, unit, GetSettingsForUnit(unit), lc, rc, cc, ec) end
     ApplyTextTags(leftContent, rightContent, centerContent, extraContent)
     frame._applyTextTags = ApplyTextTags
-
-    local function ApplyTextPositions(s)
-        local lc = s.leftTextContent or "name"
-        local rc = s.rightTextContent or "perhp"
-        local cc = s.centerTextContent or "none"
-        local lsz = s.leftTextSize or s.textSize or 12
-        local rsz = s.rightTextSize or s.textSize or 12
-        local csz = s.centerTextSize or s.textSize or 12
-        local lxo = s.leftTextX or 0
-        local lyo = s.leftTextY or 0
-        local rxo = s.rightTextX or 0
-        local ryo = s.rightTextY or 0
-        local cxo = s.centerTextX or 0
-        local cyo = s.centerTextY or 0
-        local barW = s.frameWidth or 100
-        -- Extra Text: anchored per extraTextAlign (left/right/center); ellipsis-
-        -- truncated past 95% of health bar width (SetWordWrap(false) + capped width below), matching Main Frames.
-        local ec = s.extraTextContent or "none"
-        SetFSFont(extraText, s.extraTextSize or s.textSize or 12)
-        extraText:ClearAllPoints()
-        if ec ~= "none" then
-            local exo = s.extraTextX or 0
-            local eyo = s.extraTextY or 0
-            local ealign = s.extraTextAlign or "left"
-            if ealign == "right" then
-                extraText:SetJustifyH("RIGHT")
-                PP.Point(extraText, "RIGHT", textOverlay, "RIGHT", -5 + exo, eyo)
-            elseif ealign == "center" then
-                extraText:SetJustifyH("CENTER")
-                PP.Point(extraText, "CENTER", textOverlay, "CENTER", exo, eyo)
-            else
-                extraText:SetJustifyH("LEFT")
-                PP.Point(extraText, "LEFT", textOverlay, "LEFT", 5 + exo, eyo)
-            end
-            PP.Width(extraText, barW * 0.95 * SlotWidthMul(s, "extraText"))
-            extraText:Show()
-            ApplyClassColor(extraText, unit, s.extraTextClassColor, s.extraTextColorR, s.extraTextColorG, s.extraTextColorB)
-        else extraText:Hide() end
-        -- Each text position renders independently; Center no longer hides Left/Right.
-        SetFSFont(centerText, csz)
-        centerText:ClearAllPoints()
-        if cc ~= "none" then
-            centerText:SetJustifyH("CENTER")
-            PP.Point(centerText, "CENTER", textOverlay, "CENTER", cxo, cyo)
-            PP.Width(centerText, barW * 0.9 * SlotWidthMul(s, "centerText"))
-            centerText:Show()
-            ApplyClassColor(centerText, unit, s.centerTextClassColor, s.centerTextColorR, s.centerTextColorG, s.centerTextColorB)
-        else centerText:Hide() end
-
-        SetFSFont(leftText, lsz)
-        if lc ~= "none" then
-            leftText:ClearAllPoints()
-            leftText:SetJustifyH("LEFT")
-            PP.Point(leftText, "LEFT", textOverlay, "LEFT", 5 + lxo, lyo)
-            if rc ~= "none" then
-                local rightUsed = EstimateUFTextWidth(rc)
-                PP.Width(leftText, math.max(barW - rightUsed - 10, 20) * SlotWidthMul(s, "leftText"))
-            else
-                PP.Width(leftText, barW * 0.9 * SlotWidthMul(s, "leftText"))
-            end
-            leftText:Show()
-            ApplyClassColor(leftText, unit, s.leftTextClassColor, s.leftTextColorR, s.leftTextColorG, s.leftTextColorB)
-        else leftText:Hide() end
-        SetFSFont(rightText, rsz)
-        if rc ~= "none" then
-            rightText:ClearAllPoints()
-            rightText:SetJustifyH("RIGHT")
-            PP.Point(rightText, "RIGHT", textOverlay, "RIGHT", -5 + rxo, ryo)
-            if lc ~= "none" then
-                local leftUsed = EstimateUFTextWidth(lc)
-                PP.Width(rightText, math.max(barW - leftUsed - 10, 20) * SlotWidthMul(s, "rightText"))
-            else
-                PP.Width(rightText, barW * 0.9 * SlotWidthMul(s, "rightText"))
-            end
-            rightText:Show()
-            ApplyClassColor(rightText, unit, s.rightTextClassColor, s.rightTextColorR, s.rightTextColorG, s.rightTextColorB)
-        else rightText:Hide() end
-    end
+    local function ApplyTextPositions(s) ApplyFrameTextPositions(frame, unit, s, "perhp", 100) end
     ApplyTextPositions(settings)
     frame._applyTextPositions = ApplyTextPositions
 end

@@ -60,6 +60,7 @@ end
 --  Celebration / dim-lights state
 -------------------------------------------------------------------------------
 local celebrationTimer = nil
+local celebrationEnd = nil  -- end hook of the running celebration (Random's reschedule)
 local randomTimer = nil
 local randomScheduledTimer = nil
 local randomCooldownTimer = nil
@@ -312,8 +313,21 @@ end
 -------------------------------------------------------------------------------
 --  Keybind toggle function
 -------------------------------------------------------------------------------
+-- Ends a running celebration's timer and runs its end hook, so Random still
+-- reschedules when something other than the timer ends the celebration.
+local function CancelCelebration()
+    if not celebrationTimer then return end
+    celebrationTimer:Cancel()
+    celebrationTimer = nil
+    local onEnd = celebrationEnd
+    celebrationEnd = nil
+    if onEnd then onEnd() end
+end
+
 function EllesmereUI_TogglePartyMode()
     if not EllesmereUIDB then EllesmereUIDB = {} end
+    -- A manual toggle takes over: no celebration timer may end it later.
+    CancelCelebration()
     if EllesmereUIDB.partyMode then
         EllesmereUIDB.partyMode = false
         EllesmereUI_StopPartyMode()
@@ -321,6 +335,21 @@ function EllesmereUI_TogglePartyMode()
         EllesmereUIDB.partyMode = true
         EllesmereUI_StartPartyMode()
     end
+end
+
+-- Automatic celebration: Party Mode on for `duration` seconds. A session the
+-- user started by hand (on, no timer) is left alone, so a trigger never ends it.
+local function Celebrate(duration, onEnd)
+    if EllesmereUIDB.partyMode and not celebrationTimer then return end
+    EllesmereUIDB.partyMode = true
+    EllesmereUI_StartPartyMode()
+    if celebrationTimer then celebrationTimer:Cancel() end
+    celebrationEnd = onEnd or celebrationEnd  -- a replacing trigger keeps Random's hook
+    celebrationTimer = C_Timer.NewTimer(duration, function()
+        if EllesmereUIDB then EllesmereUIDB.partyMode = false end
+        EllesmereUI_StopPartyMode()
+        CancelCelebration()
+    end)
 end
 
 -------------------------------------------------------------------------------
@@ -348,14 +377,7 @@ local function ScheduleRandomActivation()
             end)
             return
         end
-        EllesmereUIDB.partyMode = true
-        EllesmereUI_StartPartyMode()
-        if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
-        celebrationTimer = C_Timer.NewTimer(duration, function()
-            celebrationTimer = nil
-            if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-            EllesmereUI_StopPartyMode()
+        Celebrate(EllesmereUIDB.partyModeMPlusDuration or 30, function()
             -- Start cooldown, then schedule next random window
             randomCooldownTimer = C_Timer.NewTimer(GetRandomCooldown(), function()
                 randomCooldownTimer = nil
@@ -380,15 +402,15 @@ end
 --  Pause random trigger while EUI settings panel is open
 -------------------------------------------------------------------------------
 local function OnSettingsOpen()
-    -- Cancel any pending random activation / cooldown
-    EllesmereUI_StopRandomTrigger()
     -- If party mode is running from a celebration timer (auto-triggered), stop it
     if celebrationTimer then
-        celebrationTimer:Cancel()
-        celebrationTimer = nil
+        CancelCelebration()
         if EllesmereUIDB then EllesmereUIDB.partyMode = false end
         EllesmereUI_StopPartyMode()
     end
+    -- Cancel any pending random activation / cooldown (after the end hook, which
+    -- schedules one); the panel close restarts the trigger.
+    EllesmereUI_StopRandomTrigger()
 end
 
 local function OnSettingsClose()
@@ -460,6 +482,9 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
         if EllesmereUIDB and EllesmereUIDB.partyMode then
             EllesmereUI_StartPartyMode()
         end
+        if EllesmereUIDB and EllesmereUIDB.partyModeAfk then
+            EllesmereUI_UpdateAfkScreen()
+        end
         -- Register events
         self:RegisterEvent("CHALLENGE_MODE_COMPLETED")
         self:RegisterEvent("ENCOUNTER_END")
@@ -479,14 +504,7 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
         if present and not _pmSatedPresent then
             -- Rising edge: lust just went out. Hardcoded 40s (NOT the slider),
             -- and this trigger never enables the Auto Celebration Duration setting.
-            EllesmereUIDB.partyMode = true
-            EllesmereUI_StartPartyMode()
-            if celebrationTimer then celebrationTimer:Cancel() end
-            celebrationTimer = C_Timer.NewTimer(40, function()
-                celebrationTimer = nil
-                if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-                EllesmereUI_StopPartyMode()
-            end)
+            Celebrate(40)
         end
         _pmSatedPresent = present
 
@@ -502,15 +520,7 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
             onTime = ot
         end
         if not onTime then return end
-        EllesmereUIDB.partyMode = true
-        EllesmereUI_StartPartyMode()
-        if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
-        celebrationTimer = C_Timer.NewTimer(duration, function()
-            celebrationTimer = nil
-            if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-            EllesmereUI_StopPartyMode()
-        end)
+        Celebrate(EllesmereUIDB.partyModeMPlusDuration or 30)
 
     elseif event == "ENCOUNTER_END" then
         local encounterID, encounterName, difficultyID, groupSize, success = ...
@@ -526,15 +536,7 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
         local key = diffMap[difficultyID]
         if not key then return end
         if not (EllesmereUIDB and EllesmereUIDB[key]) then return end
-        EllesmereUIDB.partyMode = true
-        EllesmereUI_StartPartyMode()
-        if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
-        celebrationTimer = C_Timer.NewTimer(duration, function()
-            celebrationTimer = nil
-            if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-            EllesmereUI_StopPartyMode()
-        end)
+        Celebrate(EllesmereUIDB.partyModeMPlusDuration or 30)
 
     elseif event == "PVP_MATCH_COMPLETE" then
         local winner = ...
@@ -554,27 +556,11 @@ pmInit:SetScript("OnEvent", function(self, event, ...)
             triggered = true
         end
         if not triggered then return end
-        EllesmereUIDB.partyMode = true
-        EllesmereUI_StartPartyMode()
-        if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
-        celebrationTimer = C_Timer.NewTimer(duration, function()
-            celebrationTimer = nil
-            if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-            EllesmereUI_StopPartyMode()
-        end)
+        Celebrate(EllesmereUIDB.partyModeMPlusDuration or 30)
 
     elseif event == "PLAYER_LEVEL_UP" then
         if not (EllesmereUIDB and EllesmereUIDB.partyModeTriggerLevelUp) then return end
-        EllesmereUIDB.partyMode = true
-        EllesmereUI_StartPartyMode()
-        if celebrationTimer then celebrationTimer:Cancel() end
-        local duration = (EllesmereUIDB and EllesmereUIDB.partyModeMPlusDuration) or 30
-        celebrationTimer = C_Timer.NewTimer(duration, function()
-            celebrationTimer = nil
-            if EllesmereUIDB then EllesmereUIDB.partyMode = false end
-            EllesmereUI_StopPartyMode()
-        end)
+        Celebrate(EllesmereUIDB.partyModeMPlusDuration or 30)
 
     elseif event == "PLAYER_LOGOUT" then
         -- An automatic celebration only lives as long as its timer, so never save
@@ -888,4 +874,237 @@ end
 -- Bloodlust; its two public entry points catch all of them.
 hooksecurefunc("EllesmereUI_StartPartyMode", RefreshAll)
 hooksecurefunc("EllesmereUI_StopPartyMode", RefreshAll)
+end
+
+-------------------------------------------------------------------------------
+--  AFK Screen: while the player is AFK, the EUI logo bounces around a dimmed
+--  screen and changes colour on every wall hit. Each leg between walls is one
+--  Translation animation, so Lua only runs once per bounce. Click to dismiss.
+-------------------------------------------------------------------------------
+do
+local LOGO_TEX  = "Interface\\AddOns\\EllesmereUI\\media\\logo-full.tga"
+local LOGO_SIZE = 96
+local BOX_W, BOX_H = 160, LOGO_SIZE + 34
+local boxW, boxH, boxScale = BOX_W, BOX_H, 1
+local DIM_ALPHA = 0.75
+
+local afkEvents = CreateFrame("Frame")
+local overlay, box, logo, word, anim, slide, spin, turn, flip, flipIn, flipOut
+local x, y, dx, dy, hue = 0, 0, 1, 1, 0
+local dismissed = false
+
+local function AfkSpeed()
+    local v = EllesmereUIDB and EllesmereUIDB.partyModeAfkSpeed
+    if v == nil then v = 150 end
+    return v
+end
+
+local function SpinSpeed(key)
+    local v = EllesmereUIDB and EllesmereUIDB[key]
+    if v == nil then v = 180 end
+    return math.max(v, 10)
+end
+
+-- Corner Odds 50 at Logo Speed 750 lands about one corner a minute on any
+-- screen size: the hit rate grows with window * speed / play area, so the
+-- window scales with the play area.
+local function CornerPx(maxX, maxY)
+    local v = EllesmereUIDB and EllesmereUIDB.partyModeAfkCornerSize
+    if v == nil then v = 50 end
+    return math.min(v * maxX * maxY / 4500000, math.min(maxX, maxY) * 0.5)
+end
+
+local function CornerSecs()
+    local v = EllesmereUIDB and EllesmereUIDB.partyModeAfkCornerSecs
+    if v == nil then v = 15 end
+    return v
+end
+
+-- A corner hit starts Party Mode as a timed celebration, like the other
+-- triggers. A session the user turned on by hand is left alone.
+local function CornerParty()
+    local db = EllesmereUIDB
+    if not (db and db.partyModeAfkCorner) then return end
+    Celebrate(CornerSecs())
+end
+
+local function Recolor()
+    hue = (hue + 0.2 + math_random() * 0.6) % 1
+    local r, g, b = HSVtoRGB(hue, 0.85, 1)
+    logo:SetVertexColor(r, g, b)
+    word:SetTextColor(r, g, b)
+end
+
+local function Place()
+    box:ClearAllPoints()
+    box:SetPoint("BOTTOMLEFT", overlay, "BOTTOMLEFT", x / boxScale, y / boxScale)
+end
+
+local function NextLeg()
+    local maxX, maxY = overlay:GetWidth() - boxW, overlay:GetHeight() - boxH
+    if maxX <= 0 or maxY <= 0 then return end
+    x = math.max(0, math.min(x, maxX))
+    y = math.max(0, math.min(y, maxY))
+    local s = math.max(AfkSpeed(), 10)
+    local tx = (dx > 0 and (maxX - x) or x) / s
+    local ty = (dy > 0 and (maxY - y) or y) / s
+    local t = math.max(math.min(tx, ty), 0.01)
+    local ex = math.max(0, math.min(x + dx * s * t, maxX))
+    local ey = math.max(0, math.min(y + dy * s * t, maxY))
+    anim._ex, anim._ey = ex, ey
+    anim._hitX, anim._hitY = tx <= t + 0.001, ty <= t + 0.001
+    -- Corner: the leg ends on one wall with the other wall close by.
+    anim._corner = math.abs(tx - ty) * s <= CornerPx(maxX, maxY)
+    slide:SetOffset((ex - x) / boxScale, (ey - y) / boxScale)
+    slide:SetDuration(t)
+    anim:Play()
+end
+
+local function HideAfk()
+    if not overlay then return end
+    anim:Stop()
+    spin:Stop()
+    flip:Stop()
+    overlay:Hide()
+end
+
+local function Build()
+    overlay = CreateFrame("Frame", "EllesmereUIAfkScreen", UIParent)
+    overlay:SetFrameStrata("FULLSCREEN_DIALOG")
+    overlay:SetAllPoints(UIParent)
+    overlay:EnableMouse(true)
+    overlay:Hide()
+    local bg = overlay:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0, 0, 0, DIM_ALPHA)
+    overlay:SetScript("OnMouseDown", function()
+        dismissed = true
+        HideAfk()
+    end)
+    overlay:SetScript("OnSizeChanged", function(self)
+        if not self:IsShown() then return end
+        anim:Stop()
+        Place()
+        NextLeg()
+    end)
+
+    box = CreateFrame("Frame", nil, overlay)
+    box:SetSize(BOX_W, BOX_H)
+    logo = box:CreateTexture(nil, "ARTWORK")
+    logo:SetTexture(LOGO_TEX)
+    logo:SetSize(LOGO_SIZE, LOGO_SIZE)
+    logo:SetPoint("TOP")
+    spin = logo:CreateAnimationGroup()
+    spin:SetLooping("REPEAT")
+    turn = spin:CreateAnimation("Rotation")
+    turn:SetDegrees(-360)
+    turn:SetOrigin("CENTER", 0, 0)
+
+    -- Horizontal spin: the width squeezes to an edge and opens back out.
+    flip = logo:CreateAnimationGroup()
+    flip:SetLooping("REPEAT")
+    flipIn = flip:CreateAnimation("Scale")
+    flipIn:SetScaleFrom(1, 1)
+    flipIn:SetScaleTo(0.02, 1)
+    flipIn:SetSmoothing("IN")
+    flipIn:SetOrder(1)
+    flipOut = flip:CreateAnimation("Scale")
+    flipOut:SetScaleFrom(0.02, 1)
+    flipOut:SetScaleTo(1, 1)
+    flipOut:SetSmoothing("OUT")
+    flipOut:SetOrder(2)
+
+    word = box:CreateFontString(nil, "ARTWORK")
+    word:SetFont(EllesmereUI.GetFontPath(), 22, "")
+    word:SetPoint("BOTTOM")
+    word:SetText("EllesmereUI")
+
+    anim = box:CreateAnimationGroup()
+    slide = anim:CreateAnimation("Translation")
+    anim:SetScript("OnFinished", function(self)
+        x, y = self._ex, self._ey
+        if self._hitX then dx = -dx end
+        if self._hitY then dy = -dy end
+        Place()
+        Recolor()
+        if self._corner then CornerParty() end
+        NextLeg()
+    end)
+end
+
+local function ApplySpin()
+    if EllesmereUIDB and EllesmereUIDB.partyModeAfkSpin then
+        local d = 360 / SpinSpeed("partyModeAfkSpinSpeed")
+        if turn:GetDuration() ~= d then
+            spin:Stop()
+            turn:SetDuration(d)
+        end
+        if not spin:IsPlaying() then spin:Play() end
+    else
+        spin:Stop()
+    end
+    if EllesmereUIDB and EllesmereUIDB.partyModeAfkFlip then
+        -- Each squeeze or open is a quarter turn.
+        local d = 90 / SpinSpeed("partyModeAfkFlipSpeed")
+        if flipIn:GetDuration() ~= d then
+            flip:Stop()
+            flipIn:SetDuration(d)
+            flipOut:SetDuration(d)
+        end
+        if not flip:IsPlaying() then flip:Play() end
+    else
+        flip:Stop()
+    end
+end
+
+-- Logo Size scales the whole box. Positions are kept in overlay units and
+-- divided by the scale where they reach the box (its points and offsets are
+-- in its own scaled units).
+local function ApplySize()
+    boxScale = (EllesmereUIDB and EllesmereUIDB.partyModeAfkScale) or 1
+    box:SetScale(boxScale)
+    boxW, boxH = BOX_W * boxScale, BOX_H * boxScale
+end
+
+local function ShowAfk()
+    if not overlay then Build() end
+    ApplySpin()
+    if overlay:IsShown() then return end
+    ApplySize()
+    overlay:Show()
+    x = math_random() * math.max(overlay:GetWidth() - boxW, 0)
+    y = math_random() * math.max(overlay:GetHeight() - boxH, 0)
+    dx = math_random() < 0.5 and -1 or 1
+    dy = math_random() < 0.5 and -1 or 1
+    Place()
+    Recolor()
+    NextLeg()
+end
+
+local function Check()
+    if UnitIsAFK("player") and not InCombatLockdown() then
+        if not dismissed then ShowAfk() end
+    else
+        dismissed = false
+        HideAfk()
+    end
+end
+
+afkEvents:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_REGEN_DISABLED" then HideAfk() return end
+    Check()
+end)
+
+-- Events live only while the setting is on. Called at login and by the options toggle.
+function EllesmereUI_UpdateAfkScreen()
+    if EllesmereUIDB and EllesmereUIDB.partyModeAfk then
+        afkEvents:RegisterUnitEvent("PLAYER_FLAGS_CHANGED", "player")
+        afkEvents:RegisterEvent("PLAYER_REGEN_DISABLED")
+        Check()
+    else
+        afkEvents:UnregisterAllEvents()
+        dismissed = false
+        HideAfk()
+    end
+end
 end

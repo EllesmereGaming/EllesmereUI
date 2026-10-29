@@ -1091,12 +1091,7 @@ local function BuildCogPopup(opts)
             unlockFS:SetPoint("CENTER")
             unlockBtn:SetScript("OnClick", function()
                 pf:Hide()
-                if EllesmereUI._openUnlockMode then
-                    EllesmereUI._unlockAutoSelectKey = opts.footer.unlockKey
-                    local panel = EllesmereUI._mainFrame
-                    if panel and panel:IsShown() then panel:Hide() end
-                    C_Timer.After(0, EllesmereUI._openUnlockMode)
-                end
+                EllesmereUI.OpenUnlockModeAt(opts.footer.unlockKey)
             end)
             unlockBtn:SetScript("OnEnter", function(self)
                 unlockFS:SetTextColor(_uhr, _uhg, _uhb)

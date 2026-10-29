@@ -27,7 +27,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Only the newest announcement stays live: the looks announcement
 --  (EllesmereUI_StyleLaunchPopup.lua) retired when this shipped, so users
 --  upgrading across several versions never see two intro popups back to back.
+--
+--  RETIRED 2026-10-23: superseded by the Kick Tracker announcement
+--  (EllesmereUI_KickTrackerPopup.lua); killed at the top so only the newest
+--  announcement fires. Everything below is inert -- loader, popup, reset
+--  command and DB stamping all dead; groupFinderIntroShown is no longer
+--  written for anyone. Delete the guard below to revive the popup.
 -------------------------------------------------------------------------------
+do return end
 
 local EllesmereUI = _G.EllesmereUI
 if not EllesmereUI then return end
@@ -250,7 +257,7 @@ local function ShowGroupFinderPopup()
         ReleaseConflictCheck()
         if not act then return end
         if InCombatLockdown() then
-            EllesmereUI.PrintError(EllesmereUI.L("Cannot open options during combat. Group Finder is under UI Reskin Addons in /eui."))
+            EllesmereUI.PrintError(EllesmereUI.L("Cannot open options during combat. Group Finder is under UI Enhancements in /eui."))
             return
         end
         -- Carries the options first-open split, so the page still lands when
@@ -278,8 +285,8 @@ local function ShowGroupFinderPopup()
     footnote:SetWidth(POPUP_W - 90)
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)
-    footnote:SetText(isOn and EllesmereUI.L("Group Finder is under UI Reskin Addons in /eui.")
-        or EllesmereUI.L("Turning it on reloads your UI. Group Finder is under UI Reskin Addons in /eui."))
+    footnote:SetText(isOn and EllesmereUI.L("Group Finder is under UI Enhancements in /eui.")
+        or EllesmereUI.L("Turning it on reloads your UI. Group Finder is under UI Enhancements in /eui."))
 
     -- Height from the laid-out text: header art and eyebrow (112), eyebrow,
     -- title and description with their gaps, the bullets, then the buttons and

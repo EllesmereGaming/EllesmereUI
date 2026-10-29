@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
@@ -8,7 +9,7 @@ local T = addon.Locale.Text
 
 
 
-addon.SCHEMA_VERSION = 9
+addon.SCHEMA_VERSION = 15
 
 
 local interface = GetBuildInfo and select(4, GetBuildInfo())
@@ -30,6 +31,7 @@ addon.defaults = {
 
 
     logMaxEntries = 10000,
+    logDetail = "quiet",
 
 
 
@@ -47,11 +49,12 @@ addon.defaults = {
 
 
 
+
     responses = {
-        { id = "MAINSPEC", text = "Mainspec",  r = 0.20, g = 0.80, b = 0.20, sort = 1 },
-        { id = "OFFSPEC",  text = "Offspec",   r = 1.00, g = 0.60, b = 0.10, sort = 2 },
+        { id = "MAINSPEC", text = T["Mainspec"],  r = 0.20, g = 0.80, b = 0.20, sort = 1 },
+        { id = "OFFSPEC",  text = T["Offspec"],   r = 1.00, g = 0.60, b = 0.10, sort = 2 },
         not forever and
-            { id = "TRANSMOG", text = "Transmog",  r = 0.30, g = 0.75, b = 0.85, sort = 3 }
+            { id = "TRANSMOG", text = T["Transmog"],  r = 0.30, g = 0.75, b = 0.85, sort = 3 }
             or nil,
     },
 
@@ -75,14 +78,13 @@ addon.defaults = {
     },
 
 
-
-    boeRoute = {},
-
-
     timer = {
         enabled = false,
         duration = 120,
     },
+
+
+    autoStart = false,
 
 
     vote = {
@@ -93,14 +95,19 @@ addon.defaults = {
 
 
 
-    allowStartRequests = false,
-    councilMayStartRuns = false,
+    councilQueue = "off",
 
 
     shareCouncilBags = true,
 
 
     itemStorage = {},
+
+
+    bagReadings = {},
+
+
+    wonCopies = {},
 
 
 
@@ -123,6 +130,9 @@ addon.defaults = {
         guildGroupOnly = true,
 
 
+        never = false,
+
+
 
         ignore = {},
     },
@@ -132,7 +142,6 @@ addon.defaults = {
 
     raidPrompt = {
         silence = false,
-        inGroups = false,
 
 
         neverLead = false,
@@ -191,17 +200,13 @@ addon.defaults = {
     imported = {},
 
 
+    historyArchive = {},
+
+
     importMaxDays = 365,
 
 
-
-    showMoreInfo = true,
-
-
     teamShowAlts = true,
-
-
-    sessionFrame = true,
 
 
     wishlistEnabled = true,
@@ -221,11 +226,6 @@ addon.defaults = {
     masterAutoLoot = true,
 
 
-    autoOpenQueue = true,
-
-    autoAddBags = false,
-
-
     specs = {},
 
 
@@ -243,13 +243,37 @@ addon.defaults = {
     mlCompact = false,
 
 
+    councilHiddenColumns = {},
+
+
     voterCompact = false,
+
+
+
+    responseTab = true,
+
+
+    soundNotifications = { responseFrame = true, responseTab = true },
 
 
     windowAlpha = 1,
 
 
+    windowScale = 1.0,
+
+
+    minimap = { hide = false, angle = 215 },
+
+
     pride = false,
+
+
+
+    savedAt = nil,
+
+
+
+    deleted = {},
 }
 
 
@@ -379,22 +403,6 @@ addon.migrations = addon.Locale.Texts{
         end,
     },
     {
-        version = 8,
-        name = "BoE route reason as text",
-        func = function(db)
-
-            local rule = db.boeRoute
-            if type(rule) ~= "table" then return end
-            local index = rule.reason
-            rule.reason = nil
-            if type(index) ~= "number" or rule.reasonText ~= nil then return end
-            local entry = type(db.awardReasons) == "table" and db.awardReasons[index]
-            if type(entry) ~= "table" or type(entry.text) ~= "string" then return end
-            if entry.id == "BANK" or entry.text:lower() == "guild bank" then return end
-            rule.reasonText = entry.text
-        end,
-    },
-    {
         version = 9,
         name = "guild loot funnel guard on",
         notify = T["The loot funnel now runs in guild groups only by default: you are asked before your loot is passed outside your guild. Set \"Loot funnel in which groups?\" to All Groups in Settings if you would rather not be asked."],
@@ -402,6 +410,92 @@ addon.migrations = addon.Locale.Texts{
 
             if type(db.funnel) ~= "table" or db.funnel.guildGroupOnly == true then return false end
             db.funnel.guildGroupOnly = true
+        end,
+    },
+    {
+        version = 10,
+        name = "history archive",
+        func = function(db)
+
+            if db.historyArchive ~= nil and type(db.historyArchive) ~= "table" then
+                db.historyArchive = nil
+            end
+            return false
+        end,
+    },
+    {
+        version = 11,
+        name = "settings back to defaults",
+        supersedes = { 7, 9 },
+        notify = T["Your Simple Loot Council settings were reset to their new defaults. Your councils, alts, response buttons, raid team and history were kept."],
+        func = function(db)
+
+            local settings = {
+                "debug", "chatWarnings", "logMaxEntries", "logDetail", "noteMaxLength",
+                "whispers", "awardReasons", "boeRoute", "timer", "vote", "allowStartRequests",
+                "councilMayStartRuns", "shareCouncilBags", "funnel", "raidPrompt", "ignoredItems",
+                "suppressTradeWarnings", "announce", "recordAttendance", "recordHistory",
+                "shareHistory", "historyPruneDays", "csvDelimiter", "historyFilter", "importMaxDays",
+                "showMoreInfo", "teamShowAlts", "sessionFrame", "wishlistEnabled", "wishlistSource",
+                "autopass", "silentAutopass", "autopassTransmog", "masterAutoLoot", "autoOpenQueue",
+                "autoAddBags", "mlCompact", "voterCompact", "windowAlpha",
+            }
+            for _, key in ipairs(settings) do db[key] = nil end
+        end,
+    },
+    {
+        version = 12,
+        name = "shipped response names translated (retired)",
+        func = function()
+
+
+            return false
+        end,
+    },
+    {
+        version = 13,
+        name = "council queue mode from the two start switches",
+        func = function(db)
+
+
+            if db.allowStartRequests == true then
+                db.councilQueue = db.councilMayStartRuns == true and "start" or "request"
+            end
+            db.allowStartRequests, db.councilMayStartRuns = nil, nil
+        end,
+    },
+    {
+        version = 14,
+        name = "response buttons in the client's language (retired)",
+        func = function()
+
+
+            return false
+        end,
+    },
+    {
+        version = 15,
+        name = "untouched response buttons in the client's language",
+        notify = T["Your untouched response buttons now read in your language. Buttons you renamed, recoloured or added were kept."],
+        func = function(db)
+
+            if type(db.responses) ~= "table" then return false end
+            local function near(a, b) return a == nil or (type(a) == "number" and math.abs(a - b) < 0.001) end
+            local changed = false
+            for _, default in ipairs(addon.defaults.responses) do
+                local english = default.id:sub(1, 1) .. default.id:sub(2):lower()
+                if default.text ~= english then
+                    for _, stored in ipairs(db.responses) do
+                        if type(stored) == "table" and stored.id == default.id and stored.text == english
+                            and stored.whisper == nil and near(stored.r, default.r)
+                            and near(stored.g, default.g) and near(stored.b, default.b) then
+                            stored.text = default.text
+                            changed = true
+                        end
+                    end
+                end
+            end
+            if not changed then return false end
         end,
     },
 }
@@ -441,18 +535,26 @@ function addon.RunMigrations(db)
         return notices
     end
 
+    local pending, superseded = {}, {}
     for _, m in ipairs(addon.migrations) do
         if from < m.version then
             local ok, err = pcall(m.func, db)
             if ok then
 
-                if m.notify and err ~= false then notices[#notices + 1] = m.notify end
+                if m.notify and err ~= false then
+                    pending[#pending + 1] = { version = m.version, text = m.notify }
+                    for _, v in ipairs(m.supersedes or {}) do superseded[v] = true end
+                end
             else
-                notices[#notices + 1] =
+                pending[#pending + 1] = { text =
                     addon.Locale.Format(T["Migration %q failed: %s"],
-                        tostring(m.name), tostring(err))
+                        tostring(m.name), tostring(err)) }
             end
         end
+    end
+
+    for _, p in ipairs(pending) do
+        if not (p.version and superseded[p.version]) then notices[#notices + 1] = p.text end
     end
 
     db.schemaVersion = addon.SCHEMA_VERSION

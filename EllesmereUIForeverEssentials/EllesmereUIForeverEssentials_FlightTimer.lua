@@ -45,10 +45,16 @@ local DEFAULTS = {
     enabled = true,
     -- trackHeight: its own key; the retired bar style's `height` stays unread.
     width = 300, trackHeight = TRACK_HEIGHT, showEndCaps = true,
-    texture = "none",
+    texture = "none", bgTexture = "none",
     fillOpacity = 100, classColored = false,
-    bgA = 0.8,
+    showSpark = false, sparkR = 1, sparkG = 1, sparkB = 1,
+    bgR = 0.1, bgG = 0.1, bgB = 0.1, bgA = 0.8,
     borderSize = 1, borderR = 0, borderG = 0, borderB = 0,
+    borderTexture = "solid", borderBehind = false,
+    exitBorderCustom = false,
+    -- Visibility controls retain the plain button border and white route marker.
+    exitBorder = true,
+    showSeparator = true, separatorHeight = PIN_SIZE + 4, customSeparator = false,
     -- destText / timeText: "none" hides; any other value (older saves hold a
     -- side from the retired bar style) shows.
     destText = "show", destSize = 12, destX = 0, destY = 0,
@@ -69,7 +75,8 @@ local Get, Cfg, Read, Enabled = F.Get, F.Cfg, F.Read, F.Enabled
 -- The display's full height, centred on the track: end names above it, stop
 -- icons and names below (the same room the stop strip clips to).
 local function BoxHeight()
-    return math.max(PIN_SIZE, Get("trackHeight")) + 2 * (Get("destSize") + 8)
+    local separator = Get("showSeparator") and Get("separatorHeight") or 0
+    return math.max(PIN_SIZE, Get("trackHeight"), separator - 4) + 2 * (Get("destSize") + 8)
 end
 
 -- How much further a label must sit from a mark of this height, centred on
@@ -213,7 +220,7 @@ local function LayoutRoute(b, fl)
     local n = points and #points or 0
     local names = Get("destText") ~= "none"
     local dx, dy = Get("destX"), Get("destY")
-    local level = b.track:GetFrameLevel() + 2
+    local level = b.track:GetFrameLevel() + 3
     b.over:SetFrameLevel(level)
     b.clip:SetFrameLevel(level)
 
@@ -274,11 +281,81 @@ local function LayoutRoute(b, fl)
     -- "You are here": a white post at the centre, where each stop is reached;
     -- a direct flight has no stops to reach, so none.
     ShowMark(b.you, MarkText(scroll, EllesmereUI.L("You"), names))
+    local icon = b.you.icon
+    local height = Get("separatorHeight")
+    local tex, size = Get("borderTexture"), Get("borderSize")
+    if scroll and Get("showSeparator") and Get("customSeparator") and size > 0
+            and EllesmereUI.GetBorderCompanion(tex, "sepV") then
+        if not b.separatorAnchor then
+            b.separatorAnchor = CreateFrame("Frame", nil, b.over)
+        end
+        local anchor = b.separatorAnchor
+        anchor:ClearAllPoints()
+        anchor:SetPoint("TOPLEFT", b, "CENTER", 0, height / 2)
+        anchor:SetSize(1, height)
+        EllesmereUI.PlaceBorderDividerV(icon, anchor, false, false, tex, size,
+            EllesmereUI.BorderPx(Get("borderSizePx"), size, tex), b.over:GetEffectiveScale())
+        icon:SetVertexColor(Get("borderR"), Get("borderG"), Get("borderB"), 1)
+    else
+        icon:SetTexture(WHITE)
+        icon:SetTexCoord(0, 1, 0, 1)
+        icon:SetVertexColor(1, 1, 1, 1)
+        icon:ClearAllPoints()
+        icon:SetPoint("CENTER", b, "CENTER")
+        icon:SetSize(2, height)
+        icon:SetShown(scroll and Get("showSeparator"))
+    end
     b.you.label:ClearAllPoints()
-    b.you.label:SetPoint("BOTTOM", b.you.icon, "TOP", 0, 2 + Rise(PIN_SIZE + 4))
+    b.you.label:SetPoint("BOTTOM", b, "CENTER", 0, math.max(height, Get("trackHeight")) / 2 + 2)
 end
 
 local RequestLanding -- the early exit button's click; defined with the flight code
+
+-- Separate hosts let size 0 hide the border without hiding the track or button.
+local function StyleBorder(owner, isExit)
+    local PP = EllesmereUI.PP
+    local host = owner.travelBorder
+    if isExit and not Get("exitBorder") then
+        PP.HideBorder(owner)
+        if host then EllesmereUI.HideBorderStyle(host); host:Hide() end
+        return
+    end
+    -- A saved style (including Solid) opts into exact sizing; old sizes stay capped.
+    local custom
+    if isExit then
+        custom = Get("exitBorderCustom")
+    else
+        custom = Read().borderTexture ~= nil or Get("borderSizePx")
+    end
+    if not custom then
+        if host then EllesmereUI.HideBorderStyle(host); host:Hide() end
+        local size, r, g, b = 1, 0, 0, 0
+        if not isExit then
+            local cap = math.floor((Get("trackHeight") / (PP.mult or 1) - 1) / 2)
+            size = math.max(0, math.min(Get("borderSize"), cap))
+            r, g, b = Get("borderR"), Get("borderG"), Get("borderB")
+        end
+        if PP.GetBorders(owner) then
+            PP.UpdateBorder(owner, size, r, g, b, 1)
+        else
+            PP.CreateBorder(owner, r, g, b, 1, size, "OVERLAY", 2)
+        end
+        if size > 0 then PP.ShowBorder(owner) else PP.HideBorder(owner) end
+        return
+    end
+    PP.HideBorder(owner)
+    if not host then
+        host = CreateFrame("Frame", nil, owner)
+        host:SetAllPoints(owner)
+        owner.travelBorder = host
+    end
+    host:SetFrameLevel(Get("borderBehind") and math.max(0, owner:GetFrameLevel() - 1) or owner:GetFrameLevel() + 1)
+    local size, tex = Get("borderSize"), Get("borderTexture")
+    local prefix = isExit and "exitBorder" or "borderTexture"
+    EllesmereUI.ApplyBorderStyle(host, size, Get("borderR"), Get("borderG"), Get("borderB"), 1, tex,
+        Get(prefix .. "Offset"), Get(prefix .. "OffsetY"), Get("borderTextureShiftX"), Get("borderTextureShiftY"),
+        nil, nil, nil, EllesmereUI.BorderPx(Get("borderSizePx"), size, tex))
+end
 
 -- Early exit button right of the bar, built on first enable. Greyed out once a
 -- landing is requested, as Blizzard's leave button does.
@@ -295,7 +372,6 @@ local function StyleExit(b, fl)
         btn:SetNormalTexture(EXIT_ICON)
         btn:GetNormalTexture():SetTexCoord(0.08, 0.92, 0.08, 0.92) -- trim the icon frame
         btn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-        EllesmereUI.PP.CreateBorder(btn, 0, 0, 0, 1, 1, "OVERLAY", 2)
         btn:SetScript("OnClick", function() RequestLanding(b) end)
         btn:SetScript("OnEnter", function(self)
             EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Land at the next flight point"))
@@ -303,6 +379,7 @@ local function StyleExit(b, fl)
         btn:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         b.exit = btn
     end
+    StyleBorder(btn, true)
     local done = fl and fl.early
     btn:SetEnabled(not done)
     btn:SetAlpha(done and 0.4 or 1)
@@ -310,7 +387,6 @@ local function StyleExit(b, fl)
 end
 
 local function StyleBar(b, fl)
-    local PP = EllesmereUI.PP
     local track = b.track
     b:SetSize(Get("width"), BoxHeight())
     track:SetHeight(Get("trackHeight"))
@@ -320,17 +396,9 @@ local function StyleBar(b, fl)
     -- back from an armed SetTimerDuration, so an elapsed-only flight hides it.
     local cr, cg, cb = FillColor()
     track:SetStatusBarColor(cr, cg, cb, (fl and not fl.eta) and 0 or Get("fillOpacity") / 100)
-    track.bg:SetColorTexture(0.1, 0.1, 0.1, Get("bgA"))
-    -- The border draws inside the track: kept under half its height in pixels,
-    -- so at least a pixel of fill always shows (the saved size is kept).
-    local cap = math.floor((Get("trackHeight") / (PP.mult or 1) - 1) / 2)
-    local bs = math.max(0, math.min(Get("borderSize"), cap))
-    if bs > 0 then
-        PP.UpdateBorder(track, bs, Get("borderR"), Get("borderG"), Get("borderB"), 1)
-        PP.ShowBorder(track)
-    else
-        PP.HideBorder(track)
-    end
+    track.bg:SetTexture(EllesmereUI.ResolveTexturePath(BAR_TEXTURES, Get("bgTexture"), WHITE))
+    track.bg:SetVertexColor(Get("bgR"), Get("bgG"), Get("bgB"), Get("bgA"))
+    StyleBorder(track)
     -- The time sits left of the track, mirroring the early exit button on the
     -- right; under the track is the stop names' lane.
     b.time:SetShown(Get("timeText") ~= "none")
@@ -338,6 +406,23 @@ local function StyleBar(b, fl)
     b.time:ClearAllPoints()
     b.time:SetPoint("RIGHT", b, "LEFT", -PIN_SIZE / 2 - 6 + Get("timeX"), Get("timeY"))
     LayoutRoute(b, fl)
+    local spark = b.spark
+    if Get("showSpark") and fl and fl.eta and Get("fillOpacity") > 0 then
+        if not spark then
+            spark = track:CreateTexture(nil, "OVERLAY")
+            spark:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\pixels-glowline.tga")
+            spark:SetBlendMode("ADD")
+            b.spark = spark
+        end
+        -- The fill texture's edge moves with the native timer, without polling.
+        spark:ClearAllPoints()
+        spark:SetPoint("CENTER", track:GetStatusBarTexture(), "RIGHT", 0, 0)
+        spark:SetSize(5, Get("trackHeight"))
+        spark:SetVertexColor(Get("sparkR"), Get("sparkG"), Get("sparkB"), Get("fillOpacity") / 100)
+        spark:Show()
+    elseif spark then
+        spark:Hide()
+    end
     StyleExit(b, fl)
 end
 
@@ -353,12 +438,10 @@ local function BuildBar(parent)
     track:SetValue(0)
     track.bg = track:CreateTexture(nil, "BACKGROUND")
     track.bg:SetAllPoints()
-    EllesmereUI.PP.CreateBorder(track, 0, 0, 0, 1, 1, "OVERLAY", 2)
     b.track = track
     b.time = b:CreateFontString(nil, "OVERLAY")
     b.time:SetJustifyH("RIGHT")
-    -- PP.CreateBorder draws on its own frame one level above the bar, so the
-    -- marks sit on frames two levels up (set in LayoutRoute) to stay on top.
+    -- Border hosts and their PP children sit above the track; marks stay on top.
     b.over = CreateFrame("Frame", nil, b)
     b.over:SetAllPoints()
     b.ends = { NewMark(b.over, WHITE, PIN_SIZE / 2), NewMark(b.over, WHITE, PIN_SIZE / 2) }

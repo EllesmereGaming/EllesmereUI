@@ -53,6 +53,37 @@ EllesmereUI.VIS_VALUES_CDM = {
 }
 EllesmereUI.VIS_ORDER_CDM = { "never", "always", "in_combat", "out_of_combat", "---", "in_raid", "in_party", "solo" }
 
+-- Each class's stance bar pages, as macro conditions: the action bars' paging
+-- states and the CDM's Stance Bar hide. A form pages only where the client
+-- gives it a bonus bar: on WoW Forever Berserker Stance has one (3) and
+-- Moonkin Form none, on retail the other way round. Tree of Life has none on
+-- either client, so it is not listed.
+EllesmereUI.CLASS_PAGING_STATES = {
+    DRUID = {
+        { id = "prowl",   macro = "[bonusbar:1,stealth]", label = "Prowl" },
+        { id = "cat",     macro = "[bonusbar:1]",         label = "Cat Form" },
+        { id = "bear",    macro = "[bonusbar:3]",         label = "Bear Form" },
+        { id = "moonkin", macro = "[bonusbar:4]",         label = "Moonkin Form" },
+    },
+    ROGUE = {
+        { id = "stealth", macro = "[bonusbar:1]", label = "Stealth" },
+    },
+    WARRIOR = {
+        { id = "battle",    macro = "[bonusbar:1]", label = "Battle Stance" },
+        { id = "defensive", macro = "[bonusbar:2]", label = "Defensive Stance" },
+    },
+    EVOKER = {
+        { id = "soar", macro = "[bonusbar:1]", label = "Soar" },
+    },
+}
+if EllesmereUI.IS_FOREVER == true then
+    local states = EllesmereUI.CLASS_PAGING_STATES
+    table.insert(states.WARRIOR, { id = "berserker", macro = "[bonusbar:3]", label = "Berserker Stance" })
+    for i = #states.DRUID, 1, -1 do
+        if states.DRUID[i].id == "moonkin" then table.remove(states.DRUID, i) end
+    end
+end
+
 -- Checkbox dropdown 2: Visibility Options (keys match DB fields). Every entry is
 -- evaluated by CheckVisibilityOptions below, so any module using that evaluator
 -- may offer the whole list; the skyriding edge (PLAYER_CAN_GLIDE_CHANGED /
@@ -126,6 +157,16 @@ function EllesmereUI.IsInDungeon()
     return not (C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap())
 end
 
+-- Delve probe for the Hide in Delves rules: a delve in progress that is not a Lair.
+-- The game runs Lairs on its delve system, so its delve check alone also answers
+-- true inside one.
+function EllesmereUI.IsInDelve()
+    if not (C_PartyInfo and C_PartyInfo.IsDelveInProgress and C_PartyInfo.IsDelveInProgress()) then
+        return false
+    end
+    return not (C_DelvesUI and C_DelvesUI.IsInLair and C_DelvesUI.IsInLair())
+end
+
 -- Runtime check: returns true if the element should be HIDDEN by visibility options.
 -- `opts` is the settings table containing the vis option booleans.
 function EllesmereUI.IsPlayerMountedLike()
@@ -177,7 +218,7 @@ end
 -- skipMountAxis: the caller's secure state driver already carries [mounted]/[nomounted]
 -- clauses that self-update inside combat. Evaluating the mount axis here too would let
 -- Lua clobber the driver with a literal "hide" that cannot re-evaluate until combat ends
--- (see BuildVisibilityString in EllesmereUIActionBars.lua). Such callers pass true and
+-- (see BuildVisibilityString in EUI_ActionBars_VisibilityDrivers.lua). Such callers pass true and
 -- keep their own narrower mount check for the shapeshift forms [mounted] cannot see.
 function EllesmereUI.CheckVisibilityOptionsNonMacro(opts, skipMountAxis)
     if not opts then return false end

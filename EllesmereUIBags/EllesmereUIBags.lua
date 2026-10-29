@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUIBags.lua -- Enhanced Bags System for EllesmereUI (Midnight): sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS["EllesmereUIBags"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -182,6 +182,16 @@ function EUI_Bags:ApplyWindowLayering()
     end
     local bank = _G.EUI_BankFrame
     if bank and bank.ApplyWindowLayering then bank:ApplyWindowLayering() end
+    self:RepinIconLevels()
+end
+
+-- Item buttons hold fixed levels (ns.PinItemButton): re-pin them after anything that
+-- can move a window's level, the layering above and every Raise
+function EUI_Bags:RepinIconLevels()
+    local I = ns._bagsInternals
+    ns.PinItemPool(I.itemSlots, self, "_slotPinLevel")
+    ns.PinItemPool(I.reagentSlots, EUI_BagsReagent, "_slotPinLevel")
+    ns.ResyncListRowLevels()
 end
 layerUpdateFrame:SetScript("OnEvent", function() EUI_Bags:ApplyWindowLayering() end)
 
@@ -196,9 +206,8 @@ layerUpdateFrame:SetScript("OnEvent", function() EUI_Bags:ApplyWindowLayering() 
 local _bagsCharKey  -- session-constant; UpdateCurrencyDisplays is a render path
 local function BagsCharKey()
     if not _bagsCharKey then
-        local n, r = UnitName("player"), GetRealmName()
-        if not n or not r then return nil end  -- too early; do not cache a stub
-        _bagsCharKey = n .. " - " .. r
+        -- nil too early; do not cache a stub
+        _bagsCharKey = EllesmereUI.CharKey(" - ", EllesmereUIDB and EllesmereUIDB.bagCurrencyByChar)
     end
     return _bagsCharKey
 end
@@ -391,7 +400,7 @@ end
 -- them all.
 -- broken: true while an EUI_Bags_*.lua file loads; a file that fails leaves
 -- it set, and the files behind it return at their first lines.
-ns._bagsInternals = {
+EllesmereUI.NewInternals(ns, "_bagsInternals", {
     _bankRouted = _bankRouted, AbbrevDungeon = AbbrevDungeon, ApplyBagScale = ApplyBagScale,
     BagsItemUnusable = BagsItemUnusable, BP = BP, CurrencyOrder = CurrencyOrder,
     GetAccentRGB = GetAccentRGB, GetCatTitleSize = GetCatTitleSize, GetColumns = GetColumns,
@@ -401,22 +410,9 @@ ns._bagsInternals = {
     SLOT_SIZE = SLOT_SIZE, SPACING = SPACING,
     categoryIndexSetters = {}, groupNameSetters = {}, gearCatSetSetters = {},
     anyItemPanelOpenSetters = {}, paintedPanelOpenSetters = {},
-    broken = false,
-}
--- Set<Name> hands a new value to every copy registered in <name>Setters.
-for setter, listName in pairs({
+}, {
     SetSelectedCategoryIndex = "categoryIndexSetters",
     SetSelectedGroupName = "groupNameSetters", SetGearCatSet = "gearCatSetSetters",
     SetAnyItemPanelOpen = "anyItemPanelOpenSetters",
     SetPaintedPanelOpen = "paintedPanelOpenSetters",
-}) do
-    local list = ns._bagsInternals[listName]
-    ns._bagsInternals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
-end
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._bagsInternals, { __index = function(_, k)
-    error("ns._bagsInternals has no entry " .. tostring(k), 2)
-end })
+})

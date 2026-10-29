@@ -2314,6 +2314,10 @@ local function CollectAndReanchor()
             if EllesmereUI.ScheduleSettleReapply then
                 EllesmereUI.ScheduleSettleReapply()
             end
+            -- A repopulate queued through EllesmereUI.RequestCDMRepopulate: this
+            -- is the settled point for the live spec, and outside the reanchor,
+            -- which the repopulate's own rebuild runs again.
+            if ns.RunQueuedRepopulate then ns.RunQueuedRepopulate() end
         end)
     else
         -- Routine reanchor (icon churn, mob death, etc.) -- still clear

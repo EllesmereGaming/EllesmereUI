@@ -117,6 +117,9 @@ local _hasUserRules = false                             -- any profile (user) ru
 -- answers hang on a druid exception aura (_formAuraRules) re-evaluate alone
 -- when the UNIT_AURA payload shows one coming or going (ns.CdmFormAuraEdge).
 local _needUsable, _needForms, _needFormAuras, _formSeen = false, false, false, nil
+-- Any cd-state rule with a Stance Bar hide (EllesmereUICdmStanceBar.lua): a
+-- stance bar page change (UPDATE_BONUS_ACTIONBAR, UPDATE_STEALTH for Prowl).
+local _needStance = false
 local _formAuraRules = {}
 local _formAuraQueued = false
 
@@ -1023,6 +1026,9 @@ OnEvent = function(self, event, unit, updateInfo, spellID)
         if unit == 13 or unit == 14 then
             ns.FakeActive_Rearm()
         end
+    elseif event == "UPDATE_BONUS_ACTIONBAR" or event == "UPDATE_STEALTH" then
+        -- A Stance Bar edge.
+        QueueCdStateEval()
     elseif event == "PLAYER_REGEN_ENABLED" or event == "SPELL_UPDATE_USABLE"
         or event == "UPDATE_SHAPESHIFT_FORM" then
         -- Combat end: cooldown reads were secret-dropped during combat, so any
@@ -1050,6 +1056,13 @@ UpdateListeners = function()
         else _events:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED") end
         if _needForms then _events:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
         else _events:UnregisterEvent("UPDATE_SHAPESHIFT_FORM") end
+        if _needStance then
+            _events:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
+            _events:RegisterEvent("UPDATE_STEALTH")
+        else
+            _events:UnregisterEvent("UPDATE_BONUS_ACTIONBAR")
+            _events:UnregisterEvent("UPDATE_STEALTH")
+        end
         -- Combat end re-syncs cd-state once: cooldown reads secret-drop during
         -- combat, so the first plain read corrects anything painted fail-open.
         if #_cdStateRules > 0 then _events:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -1438,7 +1451,8 @@ local function EvalCdStateRule(rule, icons, FCt)
     local hide, glow = ns.CdStateOf(cas)
     local soundKey = cas and cas.cdReadySoundKey
     if soundKey == "none" then soundKey = nil end
-    if hide or glow or soundKey then
+    local stance = ns.CdmStanceBarOf(cas)
+    if hide or glow or soundKey or stance then
         local onCD = PresetOnCD(rule.spellID)
         -- Separate read for the Hidden (CD Ready) effects: a charge spell is
         -- ready only at max charges (items fall through to "not onCD").
@@ -1455,6 +1469,17 @@ local function EvalCdStateRule(rule, icons, FCt)
                 hideCD = PresetSpellTest(rule.spellID, ns.CdmSpellOutsideForm)
             elseif not onCD then
                 hideCD = PresetSpellTest(rule.spellID, ns.CdmSpellNotUsable)
+            end
+        end
+        -- Stance Bar: hidden on (or off) a stance bar page whatever the
+        -- cooldown, with its own Shift Icons choice; alone it never hides on
+        -- the cooldown.
+        if stance then
+            local sHide, sShift = ns.CdmStanceBarHidden(stance)
+            if sHide then
+                hide, hideCD = sShift and "hiddenOnCDShift" or "hiddenOnCD", true
+            elseif not hide then
+                hide, hideCD = "hiddenOnCD", false
             end
         end
         local sid = rule.spellID
@@ -1658,6 +1683,7 @@ function ns.FakeActive_Rearm()
     -- the map empty and the lazy refresh in KeyMatches would just rebuild it.
     RefreshSlotItemKeys()
     _needAura, _needCast, _armed, _hasUserRules, _needUsable, _needForms, _needFormAuras = false, false, false, false, false, false, false
+    _needStance = false
     if FA121 then FA121.BeginSweep() end
 
     -- 1. Built-in rules (class/spec gated).
@@ -1696,7 +1722,8 @@ function ns.FakeActive_Rearm()
             -- Explicit false = a per-trinket "None" blocking the slot's bar-apply
             -- value from showing through; ns.CdStateOf reads it as none.
             local hide, glow = ns.CdStateOf(cas)
-            local hasCd = hide ~= nil or glow ~= nil
+            local stance = ns.CdmStanceBarOf(cas)
+            local hasCd = hide ~= nil or glow ~= nil or stance ~= nil
             local hasSound = cas.cdReadySoundKey ~= nil and cas.cdReadySoundKey ~= "none"
             -- Keep Colored (On CD) and Ignore Resource Cost need no rule of their
             -- own -- preset frames read them directly (PresetKeepsColor,
@@ -1719,6 +1746,7 @@ function ns.FakeActive_Rearm()
                 local m = hide and ns.CD_STATE_HIDE[hide]
                 if m and m.usable then _needUsable = true end
                 if m and m.form then _needForms = true end
+                if stance then _needStance = true end
             end
         end
         local eq13 = GetInventoryItemID and GetInventoryItemID("player", 13) or nil

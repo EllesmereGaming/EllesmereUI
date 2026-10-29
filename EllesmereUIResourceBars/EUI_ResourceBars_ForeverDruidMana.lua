@@ -50,14 +50,14 @@ local evf = CreateFrame("Frame")
 -- textOn / fmt / suffix (text settings as last applied), extSide / extSig
 -- (the Power Bar side this bar extends and its layout, nil for Inside),
 -- extLast (the extent last cascaded).
-local S = { enabled = false, shown = false, live = false, pbVis = true }
+local S = { enabled = false, shown = false, live = false, pbVis = true, parked = false }
 
 -- Let the unit frame aura reserve see this bar when it floats below the stack
 -- (EllesmereUI.ERB_PlayerStackBars consumes it; see EUI_UnitFrames_AuraContainers.lua).
 -- Returns the host ONLY while it is shown for the current form, so the reserved
 -- footprint tracks the form (not transient paint state) and is nil on every other
 -- client/class and in the carve/inside modes that add no height below the frame.
-ns._FDMStackBottomFrame = function() if S.shown and S.host then return S.host end end
+ns._FDMStackBottomFrame = function() if S.shown and not S.parked and S.host then return S.host end end
 
 -------------------------------------------------------------------------------
 --  Helpers
@@ -119,13 +119,8 @@ local function PowerBarReach(pp, pos, pbSide, vertical, es)
         local CF = EllesmereUI.ClassicFrame
         return ((pos == "above") and CF.OVER_T or CF.OVER_B) * ns.ERB_BarFrameK(pp)
     end
-    -- Extend Top / Extend Bottom move a horizontal bar's border host.
-    local ext = 0
-    if not vertical then
-        local top, bottom = ns.ERB_BorderExtents(pp)
-        ext = (pos == "above") and top or bottom
-    end
-    return Side(pbSide, ReachOf(pp, es)) + ext
+    local top, bottom, left, right = ns.ERB_BorderExtents(pp)
+    return Side(pbSide, ReachOf(pp, es)) + Side(pbSide, left, right, top, bottom)
 end
 
 -- Inside: the Power Bar's hash-line inset (an exact solid border size, else
@@ -212,7 +207,7 @@ end
 -- that leaves it in place schedules no anchor work. Unlock mode re-applies
 -- every link on exit, so a change there only records.
 local function NotifyExtent()
-    local sig = (S.shown and S.extSide) and S.extSig or nil
+    local sig = (S.shown and not S.parked and S.extSide) and S.extSig or nil
     if sig == S.extLast then return end
     S.extLast = sig
     if not EllesmereUI._unlockActive and EllesmereUI.PropagateAnchorChain then
@@ -497,6 +492,21 @@ function ns.FDM_Visibility(vis)
     if S.enabled then UpdateLive() end
 end
 
+-- The bar frame while it is shown for the current form (Show When Missing).
+function ns.FDM_Host()
+    return S.shown and S.host or nil
+end
+
+-- Show When Energy Missing parks this bar out of sight while the Power Bar is
+-- revealed (main file, ns.ERB_MissingHost): its edge goes back to the elements
+-- below for that time.
+function ns.FDM_Parked(parked)
+    parked = parked and true or false
+    if parked == S.parked then return end
+    S.parked = parked
+    NotifyExtent()
+end
+
 -- Anchor-target edge for the unlock anchor system: while this bar shows
 -- Below / Above the Power Bar, an element linked to that side of "ERB_Power"
 -- measures from this bar's far edge, so a form change moves it clear of the
@@ -507,7 +517,7 @@ end
 -- any provider installed before this file loaded.
 local prevExtent = EllesmereUI._GetAnchorTargetExtent
 EllesmereUI._GetAnchorTargetExtent = function(targetKey, side)
-    if targetKey == "ERB_Power" and S.shown and side == S.extSide then
+    if targetKey == "ERB_Power" and S.shown and not S.parked and side == S.extSide then
         local host, pb = S.host, S.pb
         local v, pv
         if side == "BOTTOM" then v, pv = host:GetBottom(), pb:GetBottom()
@@ -534,7 +544,7 @@ end
 -- the same edge linked elements measure from; 0 otherwise. Power Bar units
 -- (this bar is its child: one scale).
 function ns.FDM_BottomExtra()
-    if not (S.shown and S.extSide == "BOTTOM") then return 0 end
+    if not (S.shown and not S.parked and S.extSide == "BOTTOM") then return 0 end
     local hb, pb = S.host:GetBottom(), S.pb:GetBottom()
     if not (hb and pb) or hb >= pb then return 0 end
     return pb - hb

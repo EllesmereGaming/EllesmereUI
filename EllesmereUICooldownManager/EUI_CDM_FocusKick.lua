@@ -92,6 +92,9 @@ local function EnsureFocusKickBar()
         -- FocusKick-specific: focus-cast sound trigger
         focusCastSoundKey = "none",
         focusKickInterruptSpellID = nil,
+        -- Sound-only mode: play on every tracked-unit cast, no interrupt or
+        -- cooldown gate, so the bar can stay empty (no icon, kick stays on CDM).
+        focusCastSoundAnyCast = false,
         growDirection = "RIGHT",
     })
     local sd = ns.GetBarSpellData(FOCUSKICK_BAR_KEY)
@@ -185,6 +188,15 @@ ns.ApplyFocusKickAnchor = ApplyFocusKickAnchor
 local _focusKickProxy
 local _focusKickLastPlateVisible
 local _FOCUSKICK_TICK_INTERVAL = 0.1
+
+-- The re-anchor after a layout pass (LayoutCDMBar): only while the proxy is live (the
+-- demand gate unregisters its events), and with the plate-visibility cache cleared as
+-- every proxy event clears it, so the plate watch re-applies the fade alpha.
+ns.ReapplyFocusKick = function()
+    if not (_focusKickProxy and _focusKickProxy:IsEventRegistered("PLAYER_FOCUS_CHANGED")) then return end
+    _focusKickLastPlateVisible = nil
+    ApplyFocusKickAnchor()
+end
 local function EnsureFocusKickProxy()
     if _focusKickProxy then
         -- Re-apply/re-activate paths must restore the event set (a demand-gate teardown
@@ -343,11 +355,28 @@ local function EnsureFocusCastProxy()
     local unit = GetFocusKickUnit()
     _focusCastProxy:RegisterUnitEvent("UNIT_SPELLCAST_START", unit)
     _focusCastProxy:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", unit)
-    _focusCastProxy:SetScript("OnEvent", function()
+    _focusCastProxy:SetScript("OnEvent", function(_, _, castUnit)
+        -- Never trust the registration alone: only the tracked unit's own casts
+        -- count, it must exist, and it is never the player (no focus set, or
+        -- focus/target on yourself, must stay silent).
+        local fkUnit = GetFocusKickUnit()
+        if castUnit ~= fkUnit then return end
+        if not UnitExists(fkUnit) or UnitIsUnit(fkUnit, "player") then return end
+        -- Enemies only: a friendly focus (raid member) casts constantly. A secret
+        -- answer (protected content) cannot vouch either way, so it plays rather
+        -- than silencing a real enemy focus.
+        local attackable = UnitCanAttack("player", fkUnit)
+        if not (issecretvalue and issecretvalue(attackable)) and not attackable then return end
         local bd = barDataByKey and barDataByKey[FOCUSKICK_BAR_KEY]
         if not bd then return end
         local soundKey = bd.focusCastSoundKey or "none"
         if soundKey == "none" then return end
+        -- Sound-only mode ("Any Cast"): no interrupt lookup, no cooldown gate.
+        if bd.focusCastSoundAnyCast == true then
+            local anyPath = FOCUSKICK_SOUND_PATHS[soundKey]
+            if anyPath then PlaySoundFile(anyPath, "Master") end
+            return
+        end
         local spellID = bd.focusKickInterruptSpellID
         -- An explicit pick is only trusted while this character can cast it: a stale profile-level
         -- id sails through the cooldown gate below forever (a spell you do not know is never on
@@ -835,7 +864,7 @@ local function EnsureFocusReminderProxy()
         elseif event == "NAME_PLATE_UNIT_ADDED" then
             if _focusKickHasFocus then return end
             if not _focusKickInDungeon then return end
-            if _focusKickIsHealer then return end
+            if _focusKickNoKick then return end
             ShowFocusReminder(unit)
         elseif event == "NAME_PLATE_UNIT_REMOVED" then
             HideFocusReminder(unit)
@@ -875,7 +904,8 @@ function ns.RefreshFocusKickProxies()
         local sk = bd.focusCastSoundKey
         if sk and sk ~= "none" then
             local pick = bd.focusKickInterruptSpellID
-            soundWanted = (type(pick) == "number" and pick > 0) or hasContent
+            soundWanted = (bd.focusCastSoundAnyCast == true)
+                or (type(pick) == "number" and pick > 0) or hasContent
         end
     end
 
@@ -898,6 +928,7 @@ function ns.RefreshFocusKickProxies()
     -- Icon-bearing parts of the family keep the original bar-content gate.
     if hasContent then
         EnsureFocusKickProxy()
+        _focusKickLastPlateVisible = nil
         ApplyFocusKickAnchor()
         EnsureFocusReminderProxy()
         RefreshFocusReminders()

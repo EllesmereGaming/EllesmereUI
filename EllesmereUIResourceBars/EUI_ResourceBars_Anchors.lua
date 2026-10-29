@@ -536,9 +536,6 @@ local function RegisterUnlockElements()
     EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIResourceBars")
 end
 
-_G._ERB_ApplyUnlock = function()
-    -- The shared unlock system handles everything now
-end
 _G._ERB_RegisterUnlock = RegisterUnlockElements
 
 -- Anchor resolution helper: returns the target frame for an anchorTo key, or nil.

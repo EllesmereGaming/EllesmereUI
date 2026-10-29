@@ -5,16 +5,24 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  Show Zone Levels: on a continent map, the level range of the hovered zone
 --  under its name, colored by difficulty, as the map shows it wherever
 --  C_Map.GetMapLevels has data (it returns 0 on Forever).
+--  Show Fishing Skill: under it, the fishing skill the zone needs, on a
+--  continent for the hovered zone, on a zone map for that zone.
 --
 --  The map's area label writes the hovered zone's name into its Name text,
 --  only when it changes; a hooksecurefunc on that SetText reads it, and the
---  range goes in a text of our own under the label. Nothing of Blizzard's is
+--  lines go in texts of our own under the label, the fishing skill in a
+--  much smaller one. Nothing of Blizzard's is
 --  written; no cursor reading, no OnUpdate.
+--  Fishing skills: the original game's zone values, fish no longer getting
+--  away 95 points above them. The zones WoW Forever added are left out until
+--  their skill is known.
 -------------------------------------------------------------------------------
 local _, module = ...
 
 -- Settings live in EllesmereUIDB.zoneLevels; unset keys read these.
-local F = module.Feature("zoneLevels", { enabled = false })
+--   enabled   Show Zone Levels
+--   fishing   Show Fishing Skill
+local F = module.Feature("zoneLevels", { enabled = false, fishing = false })
 
 -- uiMapID = { min, max }
 local LEVELS = {
@@ -66,8 +74,32 @@ local LEVELS = {
     [2521] = { 1, 12 },   -- Zephras Isle (Forever)
 }
 
-local byName      -- zone name (as the map writes it) = { min, max }; built on first use
-local text, waiter
+-- uiMapID = the zone's base fishing skill: fish bite from it (at least 1) and
+-- stop getting away 95 points above.
+local FISHING = {
+    -- Eastern Kingdoms
+    [1426] = -70, [1429] = -70, [1420] = -70,                -- Dun Morogh, Elwynn Forest, Tirisfal Glades
+    [1432] = -20, [1436] = -20, [1421] = -20,                -- Loch Modan, Westfall, Silverpine Forest
+    [1433] = 55, [1431] = 55, [1437] = 55, [1424] = 55,      -- Redridge Mountains, Duskwood, Wetlands, Hillsbrad
+    [1416] = 130, [1417] = 130, [1434] = 130, [1435] = 130,  -- Alterac, Arathi, Stranglethorn Vale, Swamp of Sorrows
+    [1425] = 205, [1422] = 205,                              -- The Hinterlands, Western Plaguelands
+    [1423] = 330, [1428] = 330, [1430] = 330,                -- Eastern Plaguelands, Burning Steppes, Deadwind Pass
+    [1453] = -20, [1455] = -20, [1458] = -20,                -- Stormwind City, Ironforge, Undercity
+    -- Kalimdor
+    [1411] = -70, [1412] = -70, [1438] = -70,                -- Durotar, Mulgore, Teldrassil
+    [1439] = -20, [1413] = -20,                              -- Darkshore, The Barrens
+    [1442] = 55, [1440] = 55,                                -- Stonetalon Mountains, Ashenvale
+    [1441] = 130, [1443] = 130, [1445] = 130,                -- Thousand Needles, Desolace, Dustwallow Marsh
+    [1444] = 205, [1446] = 205, [1447] = 205, [1448] = 205, -- Feralas, Tanaris, Azshara, Felwood
+    [1449] = 205, [1450] = 205,                              -- Un'Goro Crater, Moonglade
+    [1451] = 330, [1452] = 330,                              -- Silithus, Winterspring
+    [1454] = -20, [1456] = -20, [1457] = -20,                -- Orgrimmar, Thunder Bluff, Darnassus
+}
+local NO_GETAWAY = 95
+local FISHING_SPELL = 7620
+
+local byName      -- zone name (as the map writes it) = its uiMapID; built on first use
+local text, fishText, areaName, waiter
 local hooked = false
 
 -- The map's own format: the range colored like a quest of the nearest level.
@@ -85,20 +117,62 @@ local function LevelsText(lv)
     return EllesmereUI.HexColor(c.r, c.g, c.b) .. ("(%d-%d)|r"):format(lo, hi)
 end
 
--- The area label's Name changed: the range when it names a zone of the shown
--- continent, nothing otherwise. Off, Apply has hidden the text.
-local function OnLabelName(_, name)
-    if not F.Enabled() then return end
-    local lv
-    if name and name ~= "" then
-        local info = C_Map.GetMapInfo(WorldMapFrame:GetMapID())
-        if info and info.mapType == Enum.UIMapType.Continent then lv = byName[name] end
+-- "Fishing 330": the skill the zone needs, colored by the player's skill
+-- (lures and gear included): red below it, yellow while fish still get away,
+-- green once none do; white without Fishing.
+local function FishingText(base)
+    local low, high = math.max(base, 1), base + NO_GETAWAY
+    local r, g, b = 1, 1, 1
+    local _, _, _, fishing = GetProfessions()
+    if fishing then
+        local _, _, rank, _, _, _, _, modifier = GetProfessionInfo(fishing)
+        local skill = rank + (modifier or 0)
+        if skill < low then
+            r, g, b = 1, 0.25, 0.25
+        elseif skill < high then
+            r, g, b = 1, 0.82, 0
+        else
+            r, g, b = 0.25, 1, 0.25
+        end
     end
-    if lv then
-        text:SetText(LevelsText(lv))
-        text:Show()
-    else
+    return EllesmereUI.HexColor(r, g, b)
+        .. ("%s %d|r"):format(C_Spell.GetSpellName(FISHING_SPELL) or "", low)
+end
+
+-- The area label's Name changed. On a continent, when it names one of its
+-- zones: that zone's range and fishing skill. On a zone map, whatever area
+-- it names: the zone's fishing skill. Both off, Apply has hidden the text.
+local function OnLabelName(_, name)
+    local levels, fishing = F.Enabled(), F.Get("fishing")
+    if not (levels or fishing) then return end
+    local zone, onContinent
+    if name and name ~= "" then
+        local mapID = WorldMapFrame:GetMapID()
+        local info = mapID and C_Map.GetMapInfo(mapID)
+        if info and info.mapType == Enum.UIMapType.Continent then
+            zone, onContinent = byName[name], true
+        elseif info and info.mapType == Enum.UIMapType.Zone then
+            zone = mapID
+        end
+    end
+    local lv = levels and onContinent and zone and LEVELS[zone]
+    local base = fishing and zone and FISHING[zone]
+    if not (lv or base) then
         text:Hide()
+        fishText:Hide()
+        return
+    end
+    text:SetShown(lv and true or false)
+    if lv then text:SetText(LevelsText(lv)) end
+    fishText:SetShown(base and true or false)
+    if base then
+        fishText:SetText(FishingText(base))
+        fishText:ClearAllPoints()
+        if lv then
+            fishText:SetPoint("TOP", text, "BOTTOM", 0, -2)
+        else
+            fishText:SetPoint("TOP", areaName, "BOTTOM", 0, -6)
+        end
     end
 end
 
@@ -115,30 +189,42 @@ local function Build()
     if not label then return end
     hooked = true
     byName = {}
-    for id, lv in pairs(LEVELS) do
-        local info = C_Map.GetMapInfo(id)
-        if info and info.name then byName[info.name] = lv end
+    for _, list in ipairs({ LEVELS, FISHING }) do
+        for id in pairs(list) do
+            local info = C_Map.GetMapInfo(id)
+            if info and info.name then byName[info.name] = id end
+        end
     end
     local holder = CreateFrame("Frame", nil, WorldMapFrame.ScrollContainer)
     holder:SetAllPoints()
     holder:SetFrameStrata("HIGH")
+    areaName = label.Name
     text = holder:CreateFontString(nil, "OVERLAY", "SubZoneTextFont")
-    -- Smaller than the zone name it sits under.
-    local font, size, flags = label.Name:GetFont()
-    if font and size then text:SetFont(font, math.floor(size * 0.7 + 0.5), flags) end
-    text:SetPoint("TOP", label.Name, "BOTTOM", 0, -6)
+    fishText = holder:CreateFontString(nil, "OVERLAY", "SubZoneTextFont")
+    -- Smaller than the zone name they sit under, the fishing skill much smaller.
+    local font, size, flags = areaName:GetFont()
+    if font and size then
+        text:SetFont(font, math.floor(size * 0.7 + 0.5), flags)
+        fishText:SetFont(font, math.max(9, math.floor(size * 0.4 + 0.5)), flags)
+    end
+    text:SetPoint("TOP", areaName, "BOTTOM", 0, -6)
     text:Hide()
+    fishText:Hide()
     hooksecurefunc(label.Name, "SetText", OnLabelName)
 end
 
--- Nothing exists until the setting is first on; off, the text hides and the
--- hook returns at once. The world map loads on demand, so building may wait.
+-- Nothing exists until a setting is first on; both off, the text hides and
+-- the hook returns at once. The world map loads on demand, so building may wait.
 local function Apply()
+    local any = F.Enabled() or F.Get("fishing")
     if hooked then
-        if not F.Enabled() then text:Hide() end
+        if not any then
+            text:Hide()
+            fishText:Hide()
+        end
         return
     end
-    if not F.Enabled() then
+    if not any then
         if waiter then waiter:UnregisterEvent("ADDON_LOADED") end
         return
     end

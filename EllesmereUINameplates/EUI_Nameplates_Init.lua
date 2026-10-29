@@ -277,6 +277,8 @@ do
             anchorTo = plate.levelText
         elseif rightEl == "targetOfTarget" then
             anchorTo = plate.totText
+        elseif rightEl == "custom" then
+            anchorTo = plate.customRight
         elseif rightEl and rightEl ~= "none" then
             local ca = plate._cachedHealthSlots
             if ca then

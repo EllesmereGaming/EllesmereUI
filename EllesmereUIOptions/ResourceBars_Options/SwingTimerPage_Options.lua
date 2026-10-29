@@ -53,6 +53,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
 
     local _sec
     _sec, h = W:SectionHeader(parent, "LAYOUT", y);  y = y - h
+    EllesmereUI.BuildSectionUnlockJump(_sec, { key = "ERB_SwingTimer", disabled = stOff, disabledTooltip = ST_TIP })
 
     local sStrataValues = EllesmereUI.FRAME_STRATA_LABELS
     local sStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
@@ -521,6 +522,20 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
             disabled = stOff, disabledTooltip = ST_TIP,
             title = "Tracked Weapons",
             rows = {
+                { type = "toggle", label = "Always Show Rows",
+                  tooltip = "Show every row ticked in the list even when no weapon is equipped in that slot, so the bar keeps the same layout on every class.",
+                  get = function() local p = DB(); return p and p.swingTimer.alwaysShowRows == true end,
+                  set = function(v) local p = DB(); if not p then return end; p.swingTimer.alwaysShowRows = v; RefreshST() end },
+                { type = "toggle", label = "Hide Label Without Weapon",
+                  tooltip = "A row shown only because of Always Show Rows drops its MH / OH / R label while no weapon is equipped in that slot. A shield keeps its Shield label.",
+                  disabled = function() local p = DB(); return not (p and p.swingTimer.alwaysShowRows) end,
+                  disabledTooltip = "Always Show Rows",
+                  get = function() local p = DB(); return p and p.swingTimer.hideLabelNoWeapon == true end,
+                  set = function(v) local p = DB(); if not p then return end; p.swingTimer.hideLabelNoWeapon = v; RefreshST() end },
+                { type = "toggle", label = "Show Shield As Off Hand",
+                  tooltip = "Show the Off Hand row, labelled Shield, while a shield is equipped. Always Show Rows also labels it.",
+                  get = function() local p = DB(); return p and p.swingTimer.shieldRow == true end,
+                  set = function(v) local p = DB(); if not p then return end; p.swingTimer.shieldRow = v; RefreshST() end },
                 { type = "toggle", label = "Combine Hands",
                   tooltip = "Show the off hand as a spark on the Main Hand bar instead of its own row.",
                   disabled = function() local p = DB(); return p and (p.swingTimer.showMH == false or p.swingTimer.showOH == false) end,
@@ -547,13 +562,16 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
 
     -- A cog's colour row: store keys prefix .. R/G/B/A, `def` the fallback
     -- {r, g, b, a}; `off` (optional) greys it out with `offTip`.
-    local function ColorRow(label, prefix, def, tip, off, offTip)
+    -- `shared` (optional): a prefix whose colour shows while this one is unset.
+    local function ColorRow(label, prefix, def, tip, off, offTip, shared)
         return { type = "colorpicker", label = label, tooltip = tip, hasAlpha = true,
             disabled = off, disabledTooltip = offTip,
             get = function()
                 local p = DB(); local g = p and p.swingTimer
                 if not g then return def[1], def[2], def[3], def[4] end
-                return g[prefix .. "R"] or def[1], g[prefix .. "G"] or def[2], g[prefix .. "B"] or def[3], g[prefix .. "A"] or def[4]
+                local k = prefix
+                if shared and g[prefix .. "R"] == nil then k = shared end
+                return g[k .. "R"] or def[1], g[k .. "G"] or def[2], g[k .. "B"] or def[3], g[k .. "A"] or def[4]
             end,
             set = function(r, gg, b, a)
                 local p = DB(); if not p then return end
@@ -589,8 +607,15 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
             rows = {
                 ColorRow("On", "active", { 0.047, 0.824, 0.616, 1 }, "While the attack is on and a swing is running.", stateNotFull, "This option requires Attack State Full."),
                 ColorRow("Waiting", "pending", { 0.659, 0.502, 0.949, 1 }, "While the attack is on but nothing is swinging.", stateNotFull, "This option requires Attack State Full."),
-                ColorRow("Queued", "queue", { 1, 0.70, 0.20, 1 }, "Heroic Strike, Maul or Raptor Strike queued.", stateOff, "This option requires an Attack State other than Off."),
+                ColorRow("Heroic Strike", "queueHS", { 1, 0.70, 0.20, 1 }, "Heroic Strike queued.", stateOff, "This option requires an Attack State other than Off.", "queue"),
+                ColorRow("Raptor Strike", "queueRaptor", { 1, 0.70, 0.20, 1 }, "Raptor Strike queued.", stateOff, "This option requires an Attack State other than Off.", "queue"),
+                ColorRow("Maul", "queueMaul", { 1, 0.70, 0.20, 1 }, "Maul queued.", stateOff, "This option requires an Attack State other than Off.", "queue"),
                 ColorRow("Cleave", "queueCleave", { 0.95, 0.35, 0.25, 1 }, "Cleave queued.", stateOff, "This option requires an Attack State other than Off."),
+                { type = "toggle", label = "Queued On Main Hand Only",
+                  tooltip = "Show a queued attack on the Main Hand row only, not on the Off Hand row.",
+                  disabled = stateOff, disabledTooltip = "This option requires an Attack State other than Off.",
+                  get = function() local p = DB(); return p and p.swingTimer.queueMainHandOnly == true end,
+                  set = function(v) local p = DB(); if not p then return end; p.swingTimer.queueMainHandOnly = v; RefreshST() end },
             },
         })
     end

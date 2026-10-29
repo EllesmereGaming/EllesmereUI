@@ -398,12 +398,13 @@ function ns.ERB_SepPlace(host)
             host._erbH = h
         end
         local y = PP.SnapForES((c.edgeSepY or 0) - 2 * f, es)
+        local _, _, left, right = ns.ERB_BorderExtents((not c.borderOnPips or ns.IsBarTypeSecondary()) and c or nil)
         h:SetTexture(path)
         h:SetTexCoord(0, 1, 1, 0)
         h:SetVertexColor(r, g, b, a)
         h:ClearAllPoints()
-        h:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", 0, y)
-        h:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", 0, y)
+        h:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", -PP.SnapForES(left, es), y)
+        h:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", PP.SnapForES(right, es), y)
         h:SetHeight(PP.SnapForES(size * f, es))
         h:Show()
         exact = ex and true or false

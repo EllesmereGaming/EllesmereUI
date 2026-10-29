@@ -229,11 +229,11 @@ function ns.DataBarPlaceText(frame, s)
     end
 end
 
-local function ApplyDataBarLayout(barKey)
-    local frame = dataBarFrames[barKey]
-    if not frame then return end
-    local s = EAB.db.profile.bars[barKey]
-    if not s then return end
+-- A data bar frame's look from its settings: size, texture, orientation, the
+-- XP bar's style, text, dividers and Custom Border. Frame-bound only, so the
+-- options preview's own frame takes it too; ApplyDataBarLayout adds the live
+-- bar's size matching and value update. On ns.
+function ns.StyleDataBarFrame(frame, s)
     local w = s.width or 400
     local h = s.height or 18
     local orient = s.orientation or "HORIZONTAL"
@@ -263,7 +263,7 @@ local function ApplyDataBarLayout(barKey)
     end
 
     -- XP bar art style and profession fill (both opt-in; EUI_ActionBars_XPBar.lua).
-    if barKey == "XPBar" then ns.ApplyXPBarStyle(frame, s) end
+    if frame._isXP then ns.ApplyXPBarStyle(frame, s) end
 
     -- Per-bar Text Size (default 9) and the readout's placement (anchor,
     -- offsets, rotation, background). Re-applied here so the options take
@@ -273,7 +273,7 @@ local function ApplyDataBarLayout(barKey)
         -- saved fonts and a login spec-profile switch.
         frame._text:SetFont(EllesmereUI.GetFontPath("actionBars"), s.textSize or 9, EllesmereUI.GetFontOutlineFlag("actionBars"))
         ns.DataBarPlaceText(frame, s)
-        if barKey == "XPBar" then ns.XPBarTextSlots(frame, s) end
+        if frame._isXP then ns.XPBarTextSlots(frame, s) end
     end
 
     -- Dividers (EUI_ActionBars_XPBar.lua): one boolean read while off; a
@@ -282,20 +282,43 @@ local function ApplyDataBarLayout(barKey)
         ns.AB_DataBarDividers(frame, w, h, orient, s)
     end
 
-    -- Custom Border (one boolean read while off), then its reach for width /
-    -- height matching (value-compared and deferred; a no-op in unlock mode and
-    -- before the bar is registered).
+    -- Custom Border (one boolean read while off).
     ns.ApplyDataBarBorder(frame, s)
-    EllesmereUI.MatchPadChanged(barKey)
+end
 
-    if frame._updateFunc then frame._updateFunc() end
+local function ApplyDataBarLayout(barKey)
+    local frame = dataBarFrames[barKey]
+    local s = EAB.db.profile.bars[barKey]
+    if frame and s then
+        ns.StyleDataBarFrame(frame, s)
+        -- The Custom Border's reach for width / height matching (value-compared
+        -- and deferred; a no-op in unlock mode and before the bar is registered).
+        EllesmereUI.MatchPadChanged(barKey)
+        if frame._updateFunc then frame._updateFunc() end
+    end
+    ns.RefreshDataBarPreview(barKey)
 end
 ns.ApplyDataBarLayout = ApplyDataBarLayout
 
-local function CreateDataBarFrame(barKey, updateFunc)
-    local holder = CreateFrame("Frame", "EllesmereEAB_" .. barKey, UIParent)
+-- An options preview of a data bar repaints after the live bar (one per bar
+-- key in ns._dataBarPreview, set by the options; also while Blizzard's bars
+-- build no frame of ours). Every options write that repaints the live bar
+-- calls it: through ApplyDataBarLayout, or directly after a value-only
+-- update (valueOnly: the fill alone changed). On ns.
+function ns.RefreshDataBarPreview(barKey, valueOnly)
+    local pv = ns._dataBarPreview
+    local hook = pv and pv[barKey]
+    if hook then hook(valueOnly) end
+end
+
+-- parent: a preview frame for the options (its own parent, no global names,
+-- not in dataBarFrames, holder._preview set); nil builds the live bar.
+local function CreateDataBarFrame(barKey, updateFunc, parent)
+    local holder = CreateFrame("Frame", not parent and "EllesmereEAB_" .. barKey or nil, parent or UIParent)
     holder:SetSize(400, 18)
-    holder:SetClampedToScreen(true)
+    if not parent then holder:SetClampedToScreen(true) end
+    holder._preview = parent and true or nil
+    holder._isXP = (barKey == "XPBar") or nil
 
     -- Pixel-perfect background
     local bg = holder:CreateTexture(nil, "BACKGROUND")
@@ -314,7 +337,7 @@ local function CreateDataBarFrame(barKey, updateFunc)
         holder._border = EllesmereUI.MakeBorder(holder, 0, 0, 0, 1)
     end
 
-    local bar = CreateFrame("StatusBar", "EllesmereEAB_" .. barKey .. "_Bar", holder)
+    local bar = CreateFrame("StatusBar", not parent and "EllesmereEAB_" .. barKey .. "_Bar" or nil, holder)
     bar:SetStatusBarTexture("Interface\\BUTTONS\\WHITE8X8")
     if PP then
         PP.SetInside(bar, holder, 1, 1)
@@ -351,7 +374,7 @@ local function CreateDataBarFrame(barKey, updateFunc)
     holder._text = text
     holder._updateFunc = updateFunc
 
-    dataBarFrames[barKey] = holder
+    if not parent then dataBarFrames[barKey] = holder end
     return holder
 end
 -- The XP bar (EUI_ActionBars_XPBar.lua) builds its frame through this too.
@@ -376,7 +399,7 @@ function EAB_VTABLE.ExtraBars.BeginManagedDataBarUpdate(barKey)
 
     local s = EAB.db.profile.bars[barKey]
     if not s then return nil, nil end
-    if s.alwaysHidden or not EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s) then
+    if not EAB_VTABLE.ExtraBars.ShouldShowManagedNonSecureBar(s) then
         if info then
             EAB_VTABLE.ExtraBars.ApplyManagedNonSecurePresentation(info, frame, s, false, true)
         else
@@ -585,7 +608,7 @@ local function FavorWanted()
     local p = EAB.db and EAB.db.profile
     if not p or p.useBlizzardDataBars then return false end
     local s = p.bars and p.bars.FavorBar
-    return (s and not s.alwaysHidden) and true or false
+    return (s and not EAB.VisibilityCompat.IsNever(s)) and true or false
 end
 
 local function UpdateFavorBar()
@@ -934,7 +957,7 @@ function ns.SetUseBlizzardDataBars(v)
                 if frame._updateFunc then frame._updateFunc() end
             else
                 local s = p.bars[k]
-                if not s or not s.alwaysHidden then
+                if not s or not EAB.VisibilityCompat.IsNever(s) then
                     frame:Show()
                     if frame._updateFunc then frame._updateFunc() end
                 end

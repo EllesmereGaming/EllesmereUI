@@ -17,10 +17,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    "vehicle", the pet frame's for both "pet" and "player". Painters read
 --    frame._euiUnit (the live token) at paint time, so a vehicle swap needs no
 --    event surgery at all.
---  - targettarget/focustarget have no unit events; ONE shared 0.5s ticker
---    repaints them (value channels every tick, identity channels only when
---    the GUID actually changed). The ticker frame is hidden -- and therefore
---    completely idle -- whenever neither frame is shown.
+--  - targettarget/focustarget have no unit events of their own; ONE shared
+--    0.5s ticker repaints them (value channels every tick, identity channels
+--    only when the GUID actually changed), and the parent unit's UNIT_TARGET
+--    (the target's or focus's own target changing: a mob turning on someone
+--    else, a tank swap) repaints them at once, so the occupant never waits
+--    out a tick. The ticker frame is hidden -- and therefore completely idle
+--    -- whenever neither frame is shown.
 --  - Same-frame dedupe: each (frame, channel) paint is stamped with a global
 --    generation + GetTime pair; stacked triggers inside one frame collapse to
 --    one paint (heal prediction adds one trailing next-frame paint for a
@@ -565,6 +568,22 @@ local function TrackerOnEvent(self, event, unitToken, ...)
     if not frame or not frame:IsShown() then return end
     local chans = self._euiChannelsByEvent[event]
     if not chans then return end
+    -- Boss slots re-sort mid-encounter (a new add takes boss2, the old one
+    -- moves to boss3) and no event promises to name the move: the unit
+    -- events of the new occupant kept painting health and casts under the
+    -- old occupant's name. A GUID change on any event is the repaint edge.
+    -- An unreadable GUID skips the probe (the engage repaint still runs).
+    if self._euiGuidGuard then
+        local guid = UnitGUID(frame._euiUnit)
+        if guid ~= nil and not issecretvalue(guid) then
+            local old = self._euiGuid
+            self._euiGuid = guid
+            if old ~= nil and old ~= guid then
+                Engine.RepaintAll(frame, "UnitChanged")
+                return
+            end
+        end
+    end
     for i = 1, #chans do
         local ch = chans[i]
         if ch == "castbar" then
@@ -620,6 +639,7 @@ function Engine.Attach(frame, unit, channels)
     t._euiFrame = frame
     attached[frame] = { unit = unit, channels = channels }
     unitFrames[unit] = frame
+    t._euiGuidGuard = unit:match("^boss%d$") and true or nil
     -- Unit-watch shows happen while events were being dropped (hidden frames
     -- skip dispatch), so a freshly shown frame repaints in full.
     if not frame._euiEngineShowHook then
@@ -957,7 +977,13 @@ globalFrame:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
 -- (rare event, bounded fan-out -- the old element wiring registered it
 -- unconditionally on every portrait frame).
 globalFrame:RegisterEvent("PORTRAITS_UPDATED")
-globalFrame:SetScript("OnEvent", function(self, event)
+-- The target's and the focus's own target changing: their small frames
+-- repaint on the event instead of waiting out the poll tick. (A cast they
+-- begin is no trigger: the unit's target field changes a moment after the
+-- cast starts, or not at all, so a repaint at the cast would paint the old
+-- occupant.)
+globalFrame:RegisterUnitEvent("UNIT_TARGET", "target", "focus")
+globalFrame:SetScript("OnEvent", function(self, event, unit)
     if event == "PLAYER_TARGET_CHANGED" then
         local f = unitFrames.target
         if f then Engine.RepaintAll(f, event) end
@@ -968,10 +994,34 @@ globalFrame:SetScript("OnEvent", function(self, event)
         if f then Engine.RepaintAll(f, event) end
         local fot = unitFrames.focustarget
         if fot then fot._euiLastGuid = nil; pollAccum = POLL_INTERVAL end
+    elseif event == "UNIT_TARGET" then
+        local f = (unit == "target" and unitFrames.targettarget) or (unit == "focus" and unitFrames.focustarget) or nil
+        if f and f:IsShown() and UnitExists(f._euiUnit) then
+            -- The whole occupant changed, so the repaint is an identity one
+            -- (the text painter paints only its target zones for the event
+            -- name itself, which would leave the old name under the new
+            -- colour). The poll's GUID memo takes the new occupant, so its
+            -- next tick does not repeat this paint.
+            f._euiLastGuid = UnitGUID(f._euiUnit)
+            Engine.RepaintAll(f, "UnitChanged")
+        end
     elseif event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then
         for i = 1, 5 do
             local f = unitFrames["boss" .. i]
             if f and f:IsShown() then Engine.RepaintAll(f, event) end
+        end
+        -- The slots can still be settling when the event lands (one occupant
+        -- moves down while the new one moves in): one next-frame pass reads
+        -- the final order.
+        if not self._euiBossSettle then
+            self._euiBossSettle = true
+            C_Timer.After(0, function()
+                self._euiBossSettle = nil
+                for i = 1, 5 do
+                    local f = unitFrames["boss" .. i]
+                    if f and f:IsShown() then Engine.RepaintAll(f, "UnitChanged") end
+                end
+            end)
         end
     elseif event == "RAID_TARGET_UPDATE" then
         local fn = painters.raidicon

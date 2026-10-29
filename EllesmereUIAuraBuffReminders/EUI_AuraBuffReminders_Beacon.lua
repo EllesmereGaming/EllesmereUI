@@ -314,7 +314,6 @@ end
 
 -- Expose for options and anchor positioning
 _G._EABR_BeaconRefresh = BeaconRefresh
-_G._EABR_BeaconAnchor = function() return _B.anchor end
 
 -- Beacon tracking is retail Holy Paladin; WoW Forever registers nothing here
 -- (BeaconInit is skipped there too, so the handler would only ever return).

@@ -1468,7 +1468,7 @@ LayoutCDMBar = function(barKey)
            and (oldW >= 1 or oldH >= 1) then
             local adb = EllesmereUIDB and EllesmereUIDB.unlockAnchors
             local ai = adb and adb[unlockKey]
-            if ai then
+            if ai and ai.mode ~= "POINT" then
                 local side = ai.side
                 local PPo = EllesmereUI and EllesmereUI.PP
                 local uiES = PPo and UIParent:GetEffectiveScale()
@@ -1512,9 +1512,11 @@ LayoutCDMBar = function(barKey)
         end
     end
 
+    if EllesmereUI.IsPointAnchored(unlockKey) then EllesmereUI.ReapplyOwnAnchor(unlockKey) end
+
     -- FocusKick: re-anchor against the focus nameplate after every layout pass so the bar tracks size/icon-count changes from the options panel.
-    if barKey == FOCUSKICK_BAR_KEY and ns.ApplyFocusKickAnchor then
-        ns.ApplyFocusKickAnchor()
+    if barKey == ns.FOCUSKICK_BAR_KEY and ns.ReapplyFocusKick then
+        ns.ReapplyFocusKick()
     end
 end
 
@@ -1554,6 +1556,7 @@ function ns.QueueShiftLayout(bk)
         local grow = bd and bd.growDirection or "CENTER"
         local fixedEdge
         if frame and grow ~= "CENTER"
+           and not EllesmereUI.IsPointAnchored("CDM_" .. bk)
            and not frame._mouseTrack and bk ~= ns.FOCUSKICK_BAR_KEY
            and not EllesmereUI._unlockActive
            and frame:GetNumPoints() == 1 then
@@ -1622,13 +1625,9 @@ local function ApplyCDMTooltipState(barKey)
     else
         _tooltipBars[barKey] = nil
         -- Clear a tooltip showing for an icon on this bar
-        if _tooltipCurrentIcon then
-            local sfc = _ecmeFC[_tooltipCurrentIcon]
-            if sfc and sfc.barKey == barKey then
-                GameTooltip:Hide()
-                _tooltipCurrentIcon = nil
-            end
-        end
+        local owner = GameTooltip:GetOwner()
+        local sfc = owner and _ecmeFC[owner]
+        if sfc and sfc.barKey == barKey then GameTooltip:Hide() end
     end
     -- Mouse-motion follows the tooltip setting. A motion-enabled icon with no unit becomes the
     -- mouseover-focus frame and steals hover from unit frames underneath (raid frame hover

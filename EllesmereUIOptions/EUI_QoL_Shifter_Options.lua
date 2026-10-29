@@ -22,7 +22,7 @@ end
 _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
     local y = yOffset
-    local _, h
+    local _, h, hdr
 
     -- Info text (top of page, matching bags pattern)
     do
@@ -158,11 +158,13 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
     ---------------------------------------------------------------------------
     --  LOOT WINDOWS
     ---------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "LOOT WINDOWS", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "LOOT WINDOWS", y);  y = y - h
 
     local function lootUnlockOff()
         return not (EllesmereUIDB and EllesmereUIDB.shifterLootUnlock)
     end
+    -- One toggle adds all three loot movers, so the button takes the first.
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_BonusRoll", disabled = lootUnlockOff, disabledTooltip = "Move Loot Windows in Unlock Mode" })
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Move Loot Windows in Unlock Mode",
@@ -199,11 +201,12 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
     ---------------------------------------------------------------------------
     --  BLIZZARD TOP BAR EVENT TEXT
     ---------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "BLIZZARD TOP BAR EVENT TEXT", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "BLIZZARD TOP BAR EVENT TEXT", y);  y = y - h
 
     local function topBarUnlockOff()
         return not (EllesmereUIDB and EllesmereUIDB.shifterTopBarUnlock)
     end
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_TopBarEventText", disabled = topBarUnlockOff, disabledTooltip = "Move Top Bar Event Text in Unlock Mode" })
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Move Top Bar Event Text in Unlock Mode",

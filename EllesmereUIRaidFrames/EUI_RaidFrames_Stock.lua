@@ -809,19 +809,11 @@ local function SetLevel(frame, lvl)
     if frame and frame:GetFrameLevel() ~= lvl then frame:SetFrameLevel(lvl) end
 end
 
--- Preview frames have no anchor closures: the kit pass places their name,
--- role and ready check itself (every refresh re-anchors them first).
+-- Preview frames have no anchor closures: the kit pass places their
+-- texts (with the settings they were painted with), role and ready check
+-- itself (every refresh re-anchors them first).
 local function PreviewSpots(f, s, g)
-    local nm = f._nameText
-    if nm and nm:IsShown() then
-        nm:SetWidth(g.name.w)
-        nm:SetHeight(0)
-        ns.RF_KitSpot(g.name, nm, f, s.nameOffsetX, s.nameOffsetY)
-        nm:SetJustifyH("LEFT"); nm:SetJustifyV(g.name.jv)
-        local txt = nm:GetText()
-        nm:SetText("")
-        nm:SetText(txt or "")
-    end
+    if f._txL then ns.RF_TextLayout(f, f._txS) end
     if f._roleIcon then
         ns.RF_KitSpot(g.role, f._roleIcon, f, s.roleIconOffsetX, s.roleIconOffsetY)
         if f._roleIcon._roleText then
@@ -972,15 +964,12 @@ function ns.RF_ApplyPartyKit(owner, st, s, unit, force)
             Seat(owner, st, g)
             st.kitG, st.kitPx = g, px
             -- The spots scale with the frame: re-run what reads them.
-            if st.AnchorNameText then st.AnchorNameText() end
+            if st.AnchorTexts then st.AnchorTexts() end
             if st.AnchorRoleIcon then st.AnchorRoleIcon() end
             if st.AnchorReadyCheck then st.AnchorReadyCheck() end
-            if st.AnchorHealthText then st.AnchorHealthText() end
-            if st.AnchorHealAbsorbText then st.AnchorHealAbsorbText() end
-            if st.powerText then ns._RFAnchorPowerText(st) end
-            if st.levelText then ns._RFAnchorLevelText(st) end
             ns.RF_KitLeader(st, s)
-            if st._nameText and s then PreviewSpots(owner, s, g) end
+            -- A preview frame is its own state (RF_KitBuild(f, f, ...)).
+            if owner == st and s then PreviewSpots(owner, s, g) end
         end
     end
     -- Levels follow the owner (a party strata change rebuilds child levels):

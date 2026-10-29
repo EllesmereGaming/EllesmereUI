@@ -890,9 +890,11 @@ function ns.PresetHasCdState(frame)
        and not (ns._myRacialsSet and ns._myRacialsSet[fc.spellID]) then
         return false
     end
-    -- A hide or a glow (blocking-false = none in either).
-    local hide, glow = ns.CdStateOf(ns.GetEffectiveCustomActiveState(fc.spellID))
-    return hide ~= nil or glow ~= nil
+    -- A hide, a glow (blocking-false = none in either) or a Stance Bar hide: the
+    -- Fake-Active engine owns this icon's hidden state, so the other paths leave it.
+    local cas = ns.GetEffectiveCustomActiveState(fc.spellID)
+    local hide, glow = ns.CdStateOf(cas)
+    return hide ~= nil or glow ~= nil or ns.CdmStanceBarOf(cas) ~= nil
 end
 
 -- Max Stacks Glow gate: set ns._cdmAnyMaxStacksGlow once if any saved spell (any spec) has

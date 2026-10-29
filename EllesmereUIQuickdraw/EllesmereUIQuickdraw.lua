@@ -45,7 +45,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local EQD = EllesmereUI.Lite.NewAddon(ADDON_NAME)
-if not (EllesmereUI and EllesmereUI._ModuleNS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read this module ns via the registry
 
 -- The live palette's frame. CreateLiveView fills it in, and this is the one
@@ -912,7 +912,7 @@ ns.MAX_CHILDREN = MAX_CHILDREN
 -- SetUsableSlots: EUI_Quickdraw_Actions.lua assigns the forward declaration.
 -- broken: true while an EUI_Quickdraw_*.lua file loads; a file that fails
 -- leaves it set, and the files behind it return at their first lines.
-ns._qdInternals = {
+EllesmereUI.NewInternals(ns, "_qdInternals", {
     BINDING_PREFIX = BINDING_PREFIX, ChildIndex = ChildIndex, ChildSlots = ChildSlots,
     DB_DEFAULTS = DB_DEFAULTS, EnsurePalette = EnsurePalette, EQD = EQD,
     LIVE_STRATA = LIVE_STRATA, liveFrame = liveFrame, MAX_CHILD_ROWS = MAX_CHILD_ROWS,
@@ -927,18 +927,7 @@ ns._qdInternals = {
     scrollCatcherSetters = {},
     cancelButtonSetters = {},
     SetUsableSlots = function(f) UsableSlots = f end,
-    broken = false,
-}
--- Set<Name> hands a new value to every copy registered in <name>Setters.
-for setter, listName in pairs({ SetDB = "dbSetters", SetLiveView = "liveViewSetters",
-        SetScrollCatcher = "scrollCatcherSetters", SetCancelButton = "cancelButtonSetters" }) do
-    local list = ns._qdInternals[listName]
-    ns._qdInternals[setter] = function(v)
-        for i = 1, #list do list[i](v) end
-    end
-end
--- A re-import of a name this table lacks fails where the part file loads,
--- not later as a nil upvalue inside one of its functions.
-setmetatable(ns._qdInternals, { __index = function(_, k)
-    error("ns._qdInternals has no entry " .. tostring(k), 2)
-end })
+}, {
+    SetDB = "dbSetters", SetLiveView = "liveViewSetters",
+    SetScrollCatcher = "scrollCatcherSetters", SetCancelButton = "cancelButtonSetters",
+})

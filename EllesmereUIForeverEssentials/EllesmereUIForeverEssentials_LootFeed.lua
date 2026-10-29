@@ -15,7 +15,6 @@ local _, module = ...
 -- it at call time.
 local POOL = EllesmereUI._Pool
 
-local GAP = 2
 local FADE_IN = 0.35
 local FADE_OUT = 0.8
 local SLIDE = 24 -- px a new row glides in from the left
@@ -35,10 +34,12 @@ local DEFAULTS = {
     -- BOX: bordered rows, BAR: accent bar on a fading background, TRAY: icon
     -- tiles with a name row, TOAST: framed plates.
     style = "BAR",
-    width = 300, rowHeight = 36, maxRows = 6, duration = 5, grow = "UP",
+    width = 300, rowHeight = 36, spacing = 2, maxRows = 6, duration = 5, grow = "UP",
     textSize = 13, barWidth = 3,
-    bgR = 0.05, bgG = 0.05, bgB = 0.05, bgA = 0.3,
+    bgTexture = "none", bgR = 0.05, bgG = 0.05, bgB = 0.05, bgA = 0.3,
     borderSize = 1, borderR = 0, borderG = 0, borderB = 0, qualityBorder = true,
+    -- An unset borderTexture keeps the original pixel borders.
+    borderBehind = false, separator = false,
 }
 local F = module.Feature("lootFeed", DEFAULTS,
     { point = "BOTTOMRIGHT", relPoint = "BOTTOMRIGHT", x = -320, y = 260 })
@@ -102,7 +103,7 @@ end
 
 -- Toast plates draw a frame 1 px outside the row, so they need more space.
 local function Gap()
-    return Get("style") == "TOAST" and GAP + 2 or GAP
+    return Get("spacing") + (Get("style") == "TOAST" and 2 or 0)
 end
 
 -- Space the pinned tracker row takes at the anchor end of the feed.
@@ -113,8 +114,9 @@ end
 
 -- Icon Tray: tiles per line and lines needed for n tiles.
 local function TrayGrid(n)
-    local step = Get("rowHeight") + GAP
-    local cols = math.max(1, math.floor((Get("width") + GAP) / step))
+    local gap = Get("spacing")
+    local step = Get("rowHeight") + gap
+    local cols = math.max(1, math.floor((Get("width") + gap) / step))
     return cols, math.ceil(n / cols)
 end
 
@@ -125,7 +127,8 @@ local function AnchorHeight(n)
     n = n or Get("maxRows")
     if Get("style") == "TRAY" then
         local _, lines = TrayGrid(n)
-        return pin + h + CALLOUT_GAP + lines * (h + GAP) - GAP
+        local gap = Get("spacing")
+        return pin + h + CALLOUT_GAP + lines * (h + gap) - gap
     end
     local gap = Gap()
     return pin + n * (h + gap) - gap
@@ -140,10 +143,22 @@ end
 -- Gradient end colours, refilled for each paint (SetGradient copies them).
 local gradFrom, gradTo = CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0)
 
+local backgroundTextures
+local function SetBackgroundTexture(tex)
+    local key = Get("bgTexture")
+    if key == "none" then
+        tex:SetColorTexture(1, 1, 1, 1)
+        return
+    end
+    if not backgroundTextures then backgroundTextures = EllesmereUI.BuildBarTextureTables() end
+    tex:SetTexture(EllesmereUI.ResolveTexturePath(backgroundTextures, key, "Interface\\Buttons\\WHITE8x8"))
+    tex:SetVertexColor(1, 1, 1, 1)
+end
+
 -- Solid, or a two-colour fade to transparent (BAR).
 local function PaintBackground(tex, fade)
     local r, g, b, a = Get("bgR"), Get("bgG"), Get("bgB"), Get("bgA")
-    tex:SetColorTexture(1, 1, 1, 1)
+    SetBackgroundTexture(tex)
     gradFrom:SetRGBA(r, g, b, a)
     gradTo:SetRGBA(r, g, b, fade and 0 or a)
     tex:SetGradient("HORIZONTAL", gradFrom, gradTo)
@@ -192,6 +207,70 @@ local function RowStyle(r)
     return r.pinned and style == "TRAY" and "BAR" or style
 end
 
+local function LayoutSeparator(sep)
+    EllesmereUI.PlaceBorderDividerV(sep.tex, sep, sep.right, true, sep.key, sep.size, sep.px, sep:GetEffectiveScale())
+end
+
+local function StyleSeparator(r, style, size, tex, px)
+    local sep = r.separator
+    local callout = style == "CALLOUT"
+    if (style ~= "BOX" and not callout) or not Get("separator") or size <= 0
+            or (callout and Get("barWidth") <= 0) or not EllesmereUI.GetBorderCompanion(tex, "sepV") then
+        if sep then sep:Hide(); EllesmereUI.RegisterPxReapply(sep, nil) end
+        return
+    end
+    if not sep then
+        sep = CreateFrame("Frame", nil, r)
+        sep.tex = sep:CreateTexture(nil, "OVERLAY")
+        r.separator = sep
+    end
+    sep:ClearAllPoints()
+    sep:SetAllPoints(callout and r.bar or r.icon)
+    sep:SetFrameLevel(r:GetFrameLevel() + 3)
+    sep.key, sep.size, sep.px, sep.right = tex, size, px, callout
+    sep.tex:SetVertexColor(RowColor(r.data, false))
+    LayoutSeparator(sep)
+    sep:Show()
+    EllesmereUI.RegisterPxReapply(sep, px and LayoutSeparator or nil)
+end
+
+local function StyleBorder(r, style)
+    local PP = EllesmereUI.PP
+    local size, tex, host = Get("borderSize"), Get("borderTexture"), r.lootBorder
+    local px = tex and EllesmereUI.BorderPx(Get("borderSizePx"), size, tex)
+    -- The white Pixels artwork takes the item's quality colour without a baked-in tint.
+    if tex == "pixels-textured" and r.data.border and Get("qualityBorder") then tex = "pixels" end
+    if Get("separator") or r.separator then StyleSeparator(r, style, size, tex, px) end
+    if size <= 0 or ((style == "BAR" or style == "CALLOUT") and not tex) then
+        PP.HideBorder(r)
+        if host then EllesmereUI.HideBorderStyle(host); host:Hide() end
+        return
+    end
+    local br, bg, bb
+    if style == "TOAST" then
+        br, bg, bb = TOAST_GOLD[1], TOAST_GOLD[2], TOAST_GOLD[3]
+    else
+        br, bg, bb = RowColor(r.data, false)
+    end
+    if not tex or style == "TOAST" then
+        if host then EllesmereUI.HideBorderStyle(host); host:Hide() end
+        PP.UpdateBorder(r, size, br, bg, bb, 1)
+        PP.ShowBorder(r)
+        return
+    end
+    PP.HideBorder(r)
+    if not host then
+        host = CreateFrame("Frame", nil, r)
+        r.lootBorder = host
+    end
+    host:ClearAllPoints()
+    host:SetAllPoints(style == "BAR" and r.icon or r)
+    host:SetFrameLevel(Get("borderBehind") and math.max(0, r:GetFrameLevel() - 1) or r:GetFrameLevel() + 1)
+    EllesmereUI.ApplyBorderStyle(host, size, br, bg, bb, 1, tex,
+        Get("borderTextureOffset"), Get("borderTextureOffsetY"), Get("borderTextureShiftX"), Get("borderTextureShiftY"),
+        nil, nil, nil, px)
+end
+
 local function StyleRow(r)
     local h, size, style = Get("rowHeight"), Get("textSize"), RowStyle(r)
     local tray, bar, toast = style == "TRAY", style == "BAR", style == "TOAST"
@@ -212,17 +291,17 @@ local function StyleRow(r)
         r.icon:SetSize(h, h)
         r.icon:SetPoint("LEFT")
     end
-    -- Icon frame: 1 px black (BAR) or 2 px quality colour (TOAST, set by Fill).
+    -- Legacy BAR icon: 1 px black; TOAST: 2 px quality colour (set by Fill).
     local edge = toast and 2 or 1
     r.iconBg:ClearAllPoints()
     r.iconBg:SetPoint("TOPLEFT", r.icon, "TOPLEFT", -edge, edge)
     r.iconBg:SetPoint("BOTTOMRIGHT", r.icon, "BOTTOMRIGHT", edge, -edge)
     if bar then r.iconBg:SetColorTexture(0, 0, 0, 1) end
-    r.iconBg:SetShown(bar or toast)
+    r.iconBg:SetShown((bar and not Get("borderTexture")) or toast)
     if toast then
         ToastChrome(r):SetShown(Get("borderSize") > 0)
         local a = Get("bgA")
-        r.bg:SetColorTexture(1, 1, 1, 1)
+        SetBackgroundTexture(r.bg)
         gradFrom:SetRGBA(TOAST_BOTTOM[1], TOAST_BOTTOM[2], TOAST_BOTTOM[3], a)
         gradTo:SetRGBA(TOAST_TOP[1], TOAST_TOP[2], TOAST_TOP[3], a)
         r.bg:SetGradient("VERTICAL", gradFrom, gradTo)
@@ -280,7 +359,8 @@ local function ShowCallout(set)
     c:ClearAllPoints()
     if Get("grow") == "UP" then
         local _, lines = TrayGrid(#set.rows)
-        c:SetPoint("BOTTOMRIGHT", set.frame, "BOTTOMRIGHT", 0, pin + lines * (h + GAP) - GAP + CALLOUT_GAP)
+        local gap = Get("spacing")
+        c:SetPoint("BOTTOMRIGHT", set.frame, "BOTTOMRIGHT", 0, pin + lines * (h + gap) - gap + CALLOUT_GAP)
     else
         c:SetPoint("TOPRIGHT", set.frame, "TOPRIGHT", 0, -pin)
     end
@@ -288,6 +368,10 @@ local function ShowCallout(set)
     c.bar:SetWidth(math.max(bw, 1))
     c.bar:SetShown(bw > 0)
     c.bar:SetColorTexture(RowColor(d, true))
+    if Get("borderTexture") or c.lootBorder then
+        c.data = d
+        StyleBorder(c, "CALLOUT")
+    end
     StyleFont(c.name, size)
     StyleFont(c.value, size)
     StyleFont(c.sub, size - 2)
@@ -319,7 +403,7 @@ local function Layout(set)
     local frame = set.frame
     local up = Get("grow") == "UP"
     local tray = Get("style") == "TRAY"
-    local step = Get("rowHeight") + (tray and GAP or Gap())
+    local step = Get("rowHeight") + (tray and Get("spacing") or Gap())
     local cols = TrayGrid(1)
     local below = Get("rowHeight") + CALLOUT_GAP -- grow Down: tiles start under the name row
     local pin = Pin() -- the rows start past the tracker row
@@ -458,7 +542,7 @@ end
 -- border (quality colour, optional). Box rows keep their one-line form
 -- (flat) and show no quest line.
 local function Fill(r)
-    local d, PP, style = r.data, EllesmereUI.PP, RowStyle(r)
+    local d, style = r.data, RowStyle(r)
     local text, sub, value = d.text, d.sub or d.questSub, d.value
     if style == "BOX" then
         sub = not d.flat and d.sub or nil
@@ -487,19 +571,7 @@ local function Fill(r)
             r.iconBg:SetColorTexture(TOAST_EDGE[1], TOAST_EDGE[2], TOAST_EDGE[3], 1)
         end
     end
-    local size = Get("borderSize")
-    if size > 0 and style ~= "BAR" then
-        local br, bg, bb
-        if style == "TOAST" then
-            br, bg, bb = TOAST_GOLD[1], TOAST_GOLD[2], TOAST_GOLD[3]
-        else
-            br, bg, bb = RowColor(d, false)
-        end
-        PP.UpdateBorder(r, size, br, bg, bb, 1)
-        PP.ShowBorder(r)
-    else
-        PP.HideBorder(r)
-    end
+    StyleBorder(r, style)
 end
 
 local function FindRow(key)

@@ -790,6 +790,9 @@ EnsurePanelHideHook = function()
         -- exit sweep adopts those seeds as phantom captures. Close them with the panel.
         if EllesmereUI._specOvNamePopup then EllesmereUI._specOvNamePopup:Hide() end
         if Cond._namePopup then Cond._namePopup:Hide() end
+        -- The condition picker leads into the name popup and holds a key
+        -- capture that must not stay up into combat: it closes too.
+        if Cond._pickerPopup then Cond._pickerPopup:Hide() end
     end)
     -- Re-entering the panel returns to the Default Editing Mode view, or after
     -- an options-entered unlock roundtrip back to the session that was active
@@ -1289,8 +1292,14 @@ Cond.ExitEdit = function(noRestore, noRecheck)
         if EllesmereUI.IS_FOREVER and not noRecheck and PanelShown() then
             EllesmereUI._SO_ForeverConverge()
         end
+    else
+        -- The transition re-applies only the spec layer, and its conditional
+        -- recheck is a no-op while the applied group holds: put the applied
+        -- overlay back over the session's values here (spec-owned fkeys skip).
+        local t2 = Cond.WriteValues(
+            EllesmereUI.Conditions_AppliedGid and EllesmereUI.Conditions_AppliedGid() or nil)
+        if t2 then RunRefreshers(t2) end
     end
-    -- noRestore: store writes only -- the transition applies + refreshes.
     if Cond.RefreshCards then Cond.RefreshCards() end
 end
 

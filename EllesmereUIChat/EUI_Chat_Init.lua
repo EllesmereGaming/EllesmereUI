@@ -458,6 +458,16 @@ initFrame:SetScript("OnEvent", function(self)
             idleTimer = C_Timer.NewTimer(delay, StartIdleFade)
         end
 
+        -- Visibility fully hid the chat: fade now and drop the leftover delay.
+        function ECHAT.StartIdleFadeNow()
+            if not IsIdleApplicable() then return end
+            if idleTimer then
+                idleTimer:Cancel()
+                idleTimer = nil
+            end
+            StartIdleFade()
+        end
+
         -- Idle reset throttle: max once per second.
         local _lastIdleReset = 0
         local function OnActiveMessage()
@@ -466,6 +476,9 @@ initFrame:SetScript("OnEvent", function(self)
             -- message frames are hidden outright while passthrough is
             -- engaged -- a hidden frame arms nothing.)
             if not IsIdleApplicable() then return end
+            -- Hidden by visibility: lines and whispers land unseen, so they must
+            -- not wake the fade (StartIdleFadeNow) and flash the chat on reveal.
+            if not _visChatVisible then return end
             local now = GetTime()
             if now - _lastIdleReset < 1 then return end
             _lastIdleReset = now

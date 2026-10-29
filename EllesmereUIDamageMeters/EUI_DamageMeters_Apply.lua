@@ -15,15 +15,20 @@ I.broken = true
 local EUI = EllesmereUI
 local ForeverShortName = EUI.ForeverShortName
 
-local DB, GetHeaderH, ICON_ALPHA, MIN_H = I.DB, I.GetHeaderH, I.ICON_ALPHA, I.MIN_H
-local MIN_W, _windows = I.MIN_W, I._windows
+local DB, GetHeaderH, ICON_ALPHA = I.DB, I.GetHeaderH, I.ICON_ALPHA
+local _windows = I._windows
 local ApplyHeaderButtonsHoverVisibility = I.ApplyHeaderButtonsHoverVisibility
-local LayoutHeaderButtons, WinDB, GetAccentRGB = I.LayoutHeaderButtons, I.WinDB, I.GetAccentRGB
+local LayoutHeaderButtons, GetAccentRGB = I.LayoutHeaderButtons, I.GetAccentRGB
 local PhysicalPixels, SetDMFont = I.PhysicalPixels, I.SetDMFont
 
 -- ns exports (loop over all windows)
 ns.RefreshMeter = function()
-    for _, w in ipairs(_windows) do w.Refresh() end
+    ns.DMInvalidateAppearance()
+    local cfg = DB()
+    for _, w in ipairs(_windows) do
+        if cfg.barSeparators or cfg.iconSeparator or w._decorSync then ns.DMSetWindowBorderLayer(w, cfg) end
+        w.Refresh()
+    end
 end
 
 -- Re-lay out every row after a UI scale change. The row stride is derived from
@@ -34,6 +39,7 @@ end
 -- not _EDM_Apply (a full re-apply of every window): the core scale slider calls
 -- this on every drag step.
 ns.Rescale = function()
+    ns.DMInvalidateAppearance()
     for _, w in ipairs(_windows) do
         w._barCacheKey = nil
         w.Refresh()
@@ -75,6 +81,7 @@ if ForeverShortName then
 end
 
 ns.ApplyBorder = function()
+    ns.DMInvalidateAppearance()
     for _, w in ipairs(_windows) do
         if w.rowPool then
             for _, bar in ipairs(w.rowPool) do
@@ -84,6 +91,7 @@ ns.ApplyBorder = function()
         if w.stickyPlayer and w.stickyPlayer.ApplyBorder then
             w.stickyPlayer.ApplyBorder()
         end
+        ns.DMRefreshRowDecor(w)
     end
 end
 
@@ -117,14 +125,15 @@ ns.ApplyBackground = function()
     local cfg = DB()
     local r, g, b, a = cfg.bgR or 0, cfg.bgG or 0, cfg.bgB or 0, cfg.bgAlpha or 0.75
     for _, w in ipairs(_windows) do
-        if w.frame and w.frame._bg then ns.DMPaintWindowBg(w.frame._bg, r, g, b, a, true) end
-        if w.sourceFrame and w.sourceFrame._bg then ns.DMPaintWindowBg(w.sourceFrame._bg, r, g, b, a) end
+        if w.frame and w.frame._bg then ns.DMPaintWindowBg(w.frame._bg, r, g, b, a, true, cfg.bgTexture) end
+        if w.sourceFrame and w.sourceFrame._bg then ns.DMPaintWindowBg(w.sourceFrame._bg, r, g, b, a, nil, cfg.bgTexture) end
     end
     -- Under Classic WoW UI the header tint is shaded from the window colour.
     if ns.DMClassic() then ns.ApplyHeader() end
 end
 
 ns.ApplyWindowBorder = function()
+    ns.DMInvalidateAppearance()
     local cfg = DB()
     -- Stock-style windows carry their own frame art (the stock panel, the
     -- classic tooltip edge), no EUI border.
@@ -141,8 +150,7 @@ ns.ApplyWindowBorder = function()
     for _, w in ipairs(_windows) do
         local target = w.windowBorderTarget
         if target and w.frame and w.header then
-            local frameLevel = w.frame:GetFrameLevel()
-            target:SetFrameLevel(cfg.windowBorderBehind and math.max(0, frameLevel - 1) or (w.header:GetFrameLevel() + 4))
+            local relayered = ns.DMSetWindowBorderLayer(w, cfg)
             target:ClearAllPoints()
             if includeHeader then
                 target:SetPoint("TOPLEFT", w.frame, "TOPLEFT", -offsetX, offsetY)
@@ -152,6 +160,9 @@ ns.ApplyWindowBorder = function()
             target:SetPoint("BOTTOMRIGHT", w.frame, "BOTTOMRIGHT", offsetX, -offsetY)
             -- Offsets are represented by the target geometry itself, which also makes them work for the solid four-strip border implementation
             EUI.ApplyBorderStyle(target, size, r, g, b, a, texture, nil, nil, nil, nil, nil, nil, nil, px)
+            if cfg.hdrBottomSeparator or w._headerSeparator then ns.DMApplyHeaderSeparator(w) end
+            -- The row decorations read no window border setting but its level.
+            if relayered then ns.DMRefreshRowDecor(w) end
         end
     end
     -- Border reach counts in size matching (each window's getMatchPad reads
@@ -235,22 +246,6 @@ ns.ApplyIconBorder = function()
         end
         if w.stickyPlayer and w.stickyPlayer.ApplyIconBorder then
             w.stickyPlayer.ApplyIconBorder()
-        end
-    end
-end
-
-ns.ApplyDMPosition = function()
-    for _, w in ipairs(_windows) do
-        if w.ApplyPosition then w.ApplyPosition() end
-    end
-end
-
-ns.ApplyDMSize = function()
-    for _, w in ipairs(_windows) do
-        local wdb = WinDB(w.idx)
-        if w.frame then
-            if wdb.width then w.frame:SetWidth(math.max(MIN_W, wdb.width)) end
-            if wdb.height then w.frame:SetHeight(math.max(MIN_H, wdb.height)) end
         end
     end
 end

@@ -29,8 +29,8 @@ local _isDruid = (_playerClass == "DRUID")
 
 ns._spellOrderDirty = true  -- start dirty so first reanchor builds caches
 
--- Per-frame decoration state (weak-keyed)
-local hookFrameData = setmetatable({}, { __mode = "k" })
+-- Per-frame decoration state (weak-keyed; FD(frame) makes a frame's record)
+local hookFrameData, FD = EllesmereUI.NewFrameData()
 ns._hookFrameData = hookFrameData
 
 -- Glow at Stacks (per-spell): REPLACES the Buff Glow for icons with a stack
@@ -372,11 +372,6 @@ function ns._PandemicWindowSet(self)
     if fd then fd._panStale = nil end
 end
 
-local function FD(f)
-    local d = hookFrameData[f]
-    if not d then d = {}; hookFrameData[f] = d end
-    return d
-end
 ns.FD = FD
 
 -------------------------------------------------------------------------------
@@ -588,7 +583,7 @@ local function IsCDMSettingsOpen()
 end
 
 -- Main-chunk locals the EUI_CDM_Hook*.lua files re-import by name.
-ns._NewInternals("_hookInternals", {
+EllesmereUI.NewInternals(ns, "_hookInternals", {
     _isDruid = _isDruid, FD = FD, GetViewerFrame = GetViewerFrame,
     hookFrameData = hookFrameData, IsCDMSettingsOpen = IsCDMSettingsOpen,
     VIEWER_NAMES = VIEWER_NAMES, VIEWER_TO_BAR = VIEWER_TO_BAR,

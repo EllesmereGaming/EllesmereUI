@@ -1415,14 +1415,6 @@ do
         tex:SetVertexColor(cr or 1, cg or 1, cb or 1)
         tex:Show()
     end
-
-    function G.HideStealableBorder(host)
-        local tex = host and host._euiStealTex
-        if tex then tex:Hide() end
-        -- StartSpecGlow's change check must not skip showing it again.
-        local s = host and host._euiSpecSig
-        if s and s.idx == G.STEALABLE_BORDER then s.idx = nil end
-    end
 end
 
 -------------------------------------------------------------------------------
@@ -1460,14 +1452,6 @@ do
         tex:SetPoint("TOPLEFT", host, "TOPLEFT", -out, out)
         tex:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", out, -out)
         tex:Show()
-    end
-
-    function G.HidePandemicBorder(host)
-        local tex = host and host._euiPanTex
-        if tex then tex:Hide() end
-        -- StartSpecGlow's change check must not skip showing it again.
-        local s = host and host._euiSpecSig
-        if s and s.idx == PANDEMIC_BORDER then s.idx = nil end
     end
 end
 
@@ -1811,15 +1795,6 @@ do
 
     function G.IsEngineHostBound(wrapper)
         return wrapper ~= nil and BOUND[wrapper] ~= nil
-    end
-
-    -- The groups shared style idx (as ResolveStyle returned it) plays on an
-    -- engine host, in out[1..n] (the rest of out cleared; pass a reused
-    -- table); returns n. A static border, or a family the host has no regions
-    -- for yet, lists none.
-    function G.EngineGroups(wrapper, idx, out)
-        if not (wrapper and out) then return 0 end
-        return EngineGroupsInto(wrapper, idx, out)
     end
 end
 

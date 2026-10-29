@@ -1183,5 +1183,77 @@ function ns.RepopulateFromBlizzard()
     end)
 end
 
+-------------------------------------------------------------------------------
+--  Queued repopulate (public API, PLUGINS_API.md)
+--  EllesmereUI.RequestCDMRepopulate([specIDs]) queues the Repopulate from
+--  Blizzard CDM button's work for this character: each requested spec is
+--  repopulated the next time it is active and settled, at the final layout
+--  pass of a login, reload or spec swap (Blizzard's viewer pools hold that
+--  spec's icons by then), never during combat. A profile installer that writes
+--  Blizzard CDM layouts calls it before its ReloadUI. Requests are kept per
+--  character, by the game's own spec IDs, in EllesmereUIDB.cdmRepopulatePending.
+-------------------------------------------------------------------------------
+local function LiveSpecID()
+    local index = C_SpecializationInfo.GetSpecialization()
+    if not index or index == 0 then return nil end
+    local id = C_SpecializationInfo.GetSpecializationInfo(index)
+    if not id or id == 0 then return nil end
+    return id
+end
+
+local function IsSpecID(id)
+    return type(id) == "number" and id > 0 and id == math.floor(id)
+end
+
+-- specIDs: nil = every spec of the player's class, or one spec ID, or a list of them.
+-- Returns true once queued, false when nothing valid was given.
+function EllesmereUI.RequestCDMRepopulate(specIDs)
+    if not EllesmereUIDB then return false end
+    local ids = {}
+    if specIDs == nil then
+        local _, _, classID = UnitClass("player")
+        local count = classID and C_SpecializationInfo.GetNumSpecializationsForClassID(classID) or 0
+        for i = 1, count do
+            local id = GetSpecializationInfoForClassID(classID, i)
+            if IsSpecID(id) then ids[#ids + 1] = id end
+        end
+    elseif IsSpecID(specIDs) then
+        ids[1] = specIDs
+    elseif type(specIDs) == "table" then
+        for _, id in ipairs(specIDs) do
+            if IsSpecID(id) then ids[#ids + 1] = id end
+        end
+    end
+    if #ids == 0 then return false end
+    local pending = EllesmereUIDB.cdmRepopulatePending or {}
+    EllesmereUIDB.cdmRepopulatePending = pending
+    local charKey = ns.GetCharKey()
+    local mine = pending[charKey] or {}
+    pending[charKey] = mine
+    for _, id in ipairs(ids) do mine[id] = true end
+    return true
+end
+
+-- Runs the live spec's queued repopulate, if any. Called a frame after the
+-- final layout pass; in combat it waits for combat to end and checks again.
+function ns.RunQueuedRepopulate()
+    local pending = EllesmereUIDB and EllesmereUIDB.cdmRepopulatePending
+    if not pending then return end
+    local charKey = ns.GetCharKey()
+    local mine = pending[charKey]
+    if not mine then return end
+    local id = LiveSpecID()
+    if not id or not mine[id] then return end
+    if InCombatLockdown() then
+        ns.CombatQueue.Defer("CDMQueuedRepopulate", ns.RunQueuedRepopulate)
+        return
+    end
+    -- Taken off the queue before it runs, so a failure can never repeat it.
+    mine[id] = nil
+    if not next(mine) then pending[charKey] = nil end
+    if not next(pending) then EllesmereUIDB.cdmRepopulatePending = nil end
+    ns.RepopulateFromBlizzard()
+end
+
 I.CDMFirstLoginCapture = CDMFirstLoginCapture
 I.broken = false

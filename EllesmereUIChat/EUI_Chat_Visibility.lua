@@ -380,7 +380,13 @@ local function SetChatMousePassthrough(on)
     if not on then SetChatStackShown(true) end
     PassthroughFrames(on)
     if on then
-        if not _visChatVisible then SetChatStackShown(false) end
+        if not _visChatVisible then
+            SetChatStackShown(false)
+            -- A visibility hide counts as idle: the reveal then finds the chat
+            -- already faded instead of showing it until the leftover idle delay
+            -- runs out. Here, not at the flip, so the hide keeps its own fade speed.
+            if ECHAT.StartIdleFadeNow then ECHAT.StartIdleFadeNow() end
+        end
         local cf1 = _G.ChatFrame1
         local sb = cf1 and CFD(cf1).sidebar
         if sb then
@@ -560,8 +566,23 @@ end)
 -- Animated alpha for the visibility/mouseover system. Top-level authority:
 -- idle fade cannot exceed this.
 function ECHAT.SetChatAlpha(alpha)
+    local wasVisible = _visChatVisible
     _visAlpha = alpha
     SetVisChatVisible(alpha >= 1)
+    -- Already fully hidden (idle fade at strength 100): the alpha stays 0 across a
+    -- visibility flip, so SetChatMousePassthrough never sees an edge and the
+    -- hover-wake poll / stack hide are never switched. Switch them here.
+    if _chatPassthrough and wasVisible ~= _visChatVisible then
+        if _visChatVisible then
+            SetChatStackShown(true)
+            if _idleFadeActive and ECHAT.DB().idleFadeEnabled ~= false then
+                StartPTWake()
+            end
+        else
+            StopPTWake()
+            SetChatStackShown(false)
+        end
+    end
     _SetAlphaTarget(alpha)
 end
 

@@ -1500,20 +1500,22 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                         end
                                     end
                                     if fr._bdr and PP then
-                                        local ibs = pvHideIcon and 0 or (ind.indBorderSize or 1)
+                                        local border = not pvHideIcon and ns.RFC_AuraBorder(ind, "indBorder") or nil
                                         local pandemicPreview = indType == "icon" and isSelected
                                             and ind.pandemicBorderEnabled and not pvHideIcon
                                             and not EllesmereUI.IS_FOREVER
-                                        if pandemicPreview then ibs = ind.pandemicBorderWidth or 2 end
-                                        if ibs > 0 then
-                                            local ibc = pandemicPreview
-                                                and (ind.pandemicBorderColor or { r=1, g=0.2, b=0.2 })
-                                                or ind.indBorderColor or { r=0, g=0, b=0 }
-                                            PP.UpdateBorder(fr._bdr, ibs, ibc.r, ibc.g, ibc.b, 1)
-                                            fr._bdr:Show()
-                                        else
-                                            fr._bdr:Hide()
+                                        if pandemicPreview then
+                                            local c = ind.pandemicBorderColor or { r=1, g=0.2, b=0.2 }
+                                            if ind.pandemicBorderTextured == true and border and border.texture
+                                                and border.texture ~= "solid" and border.texture ~= ""
+                                                and EllesmereUI.ResolveBorderTexture(border.texture) then
+                                                border[1], border[2], border[3], border[4] = c.r, c.g, c.b, 1
+                                            else
+                                                border = { c.r, c.g, c.b, 1, size=ind.pandemicBorderWidth or 2 }
+                                            end
                                         end
+                                        ns.RFC_ApplyAuraBorder(fr._bdr, fr._bdr, border,
+                                            (fr._cooldown or fr):GetFrameLevel())
                                     end
                                 end
                             end
@@ -1857,59 +1859,18 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         end
     end
 
-    -- Name text on a carrier in the live text band (ns.LVL_TEXT) so it draws above the +8 main border, exactly like real frames.
-    local nameCarrier = CreateFrame("Frame", nil, pvFrame)
-    nameCarrier:SetAllPoints(pvFrame)
-    nameCarrier:SetFrameLevel(pvFrame:GetFrameLevel() + (ns.LVL_TEXT or 12))
-    local nameFS = nameCarrier:CreateFontString(nil, "OVERLAY")
+    -- The texts on a carrier in the live text band (ns.LVL_TEXT) so they draw above the +8 main border, exactly like real
+    -- frames; the name's Show Above Icons lifts it over the aura band as live (texts set otherwise get their own carrier).
+    local textCarrier = CreateFrame("Frame", nil, pvFrame)
+    textCarrier:SetAllPoints(pvFrame)
+    textCarrier:SetFrameLevel(pvFrame:GetFrameLevel()
+        + (s.nameTextAboveIcons and (ns.LVL_AURA + 6) or (ns.LVL_TEXT or 12)))
     local outline = (EllesmereUI.GetFontOutlineFlag("raidFrames")) or ""
-    EllesmereUI.PrimeFontShadow(nameFS, outline == "" and EllesmereUI.GetFontUseShadow("raidFrames"))
-    nameFS:SetFont(fontPath, s.nameSize or 10, outline)
-    nameFS:SetWordWrap(false)
-    local npos = s.namePosition or "center"
-    nameFS:SetShown(npos ~= "none" and not s.topNameBarEnabled)
-    local nox = s.nameOffsetX or 0
-    local noy = s.nameOffsetY or 0
-    nameFS:SetPoint("LEFT", health, "LEFT", 2 + nox, 0)
-    nameFS:SetPoint("RIGHT", health, "RIGHT", -floor(rawW * 0.25) + nox, 0)
-    if npos == "topleft" then
-        nameFS:SetPoint("TOP", health, "TOP", 0, -2 + noy); nameFS:SetJustifyH("LEFT"); nameFS:SetJustifyV("TOP")
-    elseif npos == "top" then
-        nameFS:SetPoint("TOP", health, "TOP", 0, -2 + noy); nameFS:SetJustifyH("CENTER"); nameFS:SetJustifyV("TOP")
-    elseif npos == "topright" then
-        nameFS:SetPoint("TOP", health, "TOP", 0, -2 + noy); nameFS:SetJustifyH("RIGHT"); nameFS:SetJustifyV("TOP")
-    elseif npos == "left" then
-        nameFS:SetPoint("CENTER", health, "CENTER", 0, noy); nameFS:SetJustifyH("LEFT"); nameFS:SetJustifyV("MIDDLE")
-    elseif npos == "right" then
-        nameFS:SetPoint("CENTER", health, "CENTER", 0, noy); nameFS:SetJustifyH("RIGHT"); nameFS:SetJustifyV("MIDDLE")
-    elseif npos == "bottomleft" then
-        nameFS:SetPoint("BOTTOM", health, "BOTTOM", 0, 2 + noy); nameFS:SetJustifyH("LEFT"); nameFS:SetJustifyV("BOTTOM")
-    elseif npos == "bottom" then
-        nameFS:SetPoint("BOTTOM", health, "BOTTOM", 0, 2 + noy); nameFS:SetJustifyH("CENTER"); nameFS:SetJustifyV("BOTTOM")
-    else
-        nameFS:SetPoint("CENTER", health, "CENTER", 0, noy); nameFS:SetJustifyH("CENTER"); nameFS:SetJustifyV("MIDDLE")
-    end
     local playerName = UnitName("player") or "Player"
     if Ambiguate then playerName = Ambiguate(playerName, "short") end
     if ns.RF_FormatName then playerName = ns.RF_FormatName(playerName, s) end
-    -- Level Position "Attach to Name" (either format): the level in front of the name.
-    local lvlPos = s.levelTextPosition or ns.RF_LEVEL_DEFAULT
-    local lvlAttach = ns.RF_LEVEL_ATTACH[lvlPos]
-    if lvlAttach then
-        nameFS:SetFormattedText(lvlAttach[1], ns._RFPreviewLevel(), playerName)
-    else
-        nameFS:SetText(playerName)
-    end
-    local nameMode = s.nameColorMode or "class"
-    if nameMode == "accent" then
-        local ar, ag, ab = EllesmereUI.ResolveActiveAccent()
-        if ar then nameFS:SetTextColor(ar, ag, ab) else nameFS:SetTextColor(1, 1, 1) end
-    elseif nameMode == "custom" then
-        local c = s.nameCustomColor or { r=1, g=1, b=1 }
-        nameFS:SetTextColor(c.r, c.g, c.b)
-    else
-        if cc then nameFS:SetTextColor(cc.r, cc.g, cc.b) else nameFS:SetTextColor(1, 1, 1) end
-    end
+    -- Level Position "Attach to Name" (either format): the Top Name Bar shows the level too.
+    local lvlAttach = ns.RF_TextNameAttach(s)
 
     -- Top Name Bar band (preview replica)
     if s.topNameBarEnabled then
@@ -1957,62 +1918,14 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         if s.topNameBarDivider == true then ns.RF_ApplyTopNameDivider(tnb, s, true) end
     end
 
-    local htMode = s.healthTextMode or "none"
-    if htMode ~= "none" then
-        local htFS = health:CreateFontString(nil, "OVERLAY")
-        htFS:SetFont(fontPath, s.healthTextSize or 9, outline)
-        htFS:SetTextColor(1, 1, 1, 0.9)
-        local htPos = s.healthTextPosition or "center"
-        local htOX = s.healthTextOffsetX or 0
-        local htOY = s.healthTextOffsetY or 0
-        htFS:SetWidth(rawW * 0.75); htFS:SetHeight(0)
-        if htPos == "topleft" then
-            htFS:SetPoint("TOPLEFT", health, "TOPLEFT", 2 + htOX, -2 + htOY); htFS:SetJustifyH("LEFT"); htFS:SetJustifyV("TOP")
-        elseif htPos == "top" then
-            htFS:SetPoint("TOP", health, "TOP", htOX, -2 + htOY); htFS:SetJustifyH("CENTER"); htFS:SetJustifyV("TOP")
-        elseif htPos == "topright" then
-            htFS:SetPoint("TOPRIGHT", health, "TOPRIGHT", -2 + htOX, -2 + htOY); htFS:SetJustifyH("RIGHT"); htFS:SetJustifyV("TOP")
-        elseif htPos == "left" then
-            htFS:SetPoint("LEFT", health, "LEFT", 2 + htOX, htOY); htFS:SetJustifyH("LEFT"); htFS:SetJustifyV("MIDDLE")
-        elseif htPos == "right" then
-            htFS:SetPoint("RIGHT", health, "RIGHT", -2 + htOX, htOY); htFS:SetJustifyH("RIGHT"); htFS:SetJustifyV("MIDDLE")
-        elseif htPos == "bottomleft" then
-            htFS:SetPoint("BOTTOMLEFT", health, "BOTTOMLEFT", 2 + htOX, 2 + htOY); htFS:SetJustifyH("LEFT"); htFS:SetJustifyV("BOTTOM")
-        elseif htPos == "bottom" then
-            htFS:SetPoint("BOTTOM", health, "BOTTOM", htOX, 2 + htOY); htFS:SetJustifyH("CENTER"); htFS:SetJustifyV("BOTTOM")
-        else
-            htFS:SetPoint("CENTER", health, "CENTER", htOX, htOY); htFS:SetJustifyH("CENTER"); htFS:SetJustifyV("MIDDLE")
-        end
-        if htMode == "percent" then htFS:SetText("85%")
-        elseif htMode == "percentNoSign" then htFS:SetText("85")
-        elseif htMode == "number" then htFS:SetText(AbbreviateNumbers(1020000)) end
-    end
-
-    -- Power text on the replica's power sample (72% mana), shown only with it like the live frames.
-    if rawPowerH > 0 and (s.powerTextMode or "none") ~= "none" then
-        local ptFS = nameCarrier:CreateFontString(nil, "OVERLAY")
-        EllesmereUI.PrimeFontShadow(ptFS, outline == "" and EllesmereUI.GetFontUseShadow("raidFrames"))
-        ptFS:SetFont(fontPath, s.powerTextSize or 8, outline)
-        ptFS:SetWordWrap(false)
-        ns.AnchorRFText(ptFS, health, s.powerTextPosition or "bottom",
-            s.powerTextOffsetX or 0, s.powerTextOffsetY or 0, rawW * 0.75)
-        ns.RF_PowerTextInto(ptFS, s.powerTextMode, 72, nil, nil, 2500)
-        local pr, pg, pb = ns.RF_PreviewTextColor(s.powerTextColorMode or "custom",
-            s.powerTextCustomColor, previewClass, 1, 1, 1, "MANA")
-        ptFS:SetTextColor(pr, pg, pb, 0.9)
-    end
-
-    -- Level text on its own spot, in the name's colour, like the live frames.
-    if lvlPos ~= "none" and not lvlAttach then
-        local lvFS = nameCarrier:CreateFontString(nil, "OVERLAY")
-        EllesmereUI.PrimeFontShadow(lvFS, outline == "" and EllesmereUI.GetFontUseShadow("raidFrames"))
-        lvFS:SetFont(fontPath, s.levelTextSize or 10, outline)
-        lvFS:SetWordWrap(false)
-        ns.AnchorRFText(lvFS, health, lvlPos, s.levelTextOffsetX or 0, s.levelTextOffsetY or 0)
-        lvFS:SetFormattedText("%d", ns._RFPreviewLevel())
-        lvFS:SetTextColor(ns.RF_PreviewTextColor(s.nameColorMode or "class",
-            s.nameCustomColor, previewClass, 1, 1, 1))
-    end
+    -- The texts as live, from this replica's sample values (85% health, 72% mana,
+    -- shown with the power sample only). A fresh state per build: the carrier's pooled
+    -- FontStrings come back through the pool.
+    ns.RF_TextPreview({ textCarrier = textCarrier, _health = health, _txW = rawW }, s, {
+        hpPct = 85, hpPer = 12000, ppPct = 72, ppPer = 2500, ha = 85 * 3000,
+        name = ns.CapName(playerName, s), power = rawPowerH > 0 or nil,
+        class = previewClass, pToken = "MANA",
+    })
 
     pvFrame._health = health
     -- Settings source for every later indicator pass on this replica (nil = the caller's).
@@ -2056,6 +1969,10 @@ end
 local DM_BASE_KEYS = { "debuffSize", "debuffPosition", "debuffOffsetX", "debuffOffsetY",
     "debuffGrowDirection", "debuffWrapDirection", "debuffPerRow", "debuffCap",
     "debuffSpacing", "debuffIconZoom", "debuffBorderSize", "debuffShowSwipe",
+    "debuffBorderTexture", "debuffBorderSizePx", "debuffBorderColor",
+    "debuffBorderTextureOffset", "debuffBorderTextureOffsetY",
+    "debuffBorderTextureShiftX", "debuffBorderTextureShiftY",
+    "debuffBorderDispelTextured",
     "debuffShowDurText", "debuffDurTextSize", "debuffShowStacks", "debuffStacksTextSize",
     "debuffStacksOffsetX", "debuffStacksOffsetY" }
 
@@ -3776,41 +3693,28 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 })
             end
 
-            local bdrRow = SettingsRow(
+            SettingsRow(
                 { type="slider", text="Opacity", min=0, max=100, step=1,
                   disabled=IconHidden, disabledTooltip="Hide Icons", requireState="disabled",
                   getValue=function() return ind.iconOpacity or 100 end,
                   setValue=function(v) ind.iconOpacity = v; ReloadAndUpdate() end },
-                { type="slider", text="Border", min=0, max=4, step=1, trackWidth=120,
-                  disabled=IconHidden, disabledTooltip="Hide Icons", requireState="disabled",
-                  getValue=function() return ind.indBorderSize or 1 end,
-                  setValue=function(v) ind.indBorderSize = v; ReloadAndUpdate() end })
-            do
-                local rgn = bdrRow._rightRegion
-                local swatch = EllesmereUI.BuildColorSwatch(
-                    rgn, bdrRow:GetFrameLevel() + 3,
-                    function()
-                        local c = ind.indBorderColor or { r=0, g=0, b=0 }
-                        return c.r, c.g, c.b, 1
-                    end,
-                    function(r, g, b)
-                        ind.indBorderColor = { r=r, g=g, b=b }
-                        ReloadAndUpdate()
-                    end, false, 20)
-                swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = swatch
-            end
-
-            local durRow = SettingsRow(
                 { type="toggle", text="Duration Swipe",
                   disabled=IconHidden, disabledTooltip="Hide Icons", requireState="disabled",
                   getValue=function() return ind.showDuration ~= false end,
-                  setValue=function(v) ind.showDuration = v; ReloadAndUpdate() end },
+                  setValue=function(v) ind.showDuration = v; ReloadAndUpdate() end })
+            sy = ns.RFO_AuraBorderSettings(leftFrame, sy, W,
+                function(k) return ind["indBorder" .. k] end,
+                function(k, v) ind["indBorder" .. k] = v end, ReloadAndUpdate, IconHidden)
+
+            local durRow = SettingsRow(
                 { type="toggle", text="Duration Text",
                   getValue=function() return ind.showDurationText or false end,
-                  setValue=function(v) ind.showDurationText = v; ReloadAndUpdate() end })
+                  setValue=function(v) ind.showDurationText = v; ReloadAndUpdate() end },
+                { type="toggle", text="Show Stacks",
+                  getValue=function() return ind.showStacks ~= false end,
+                  setValue=function(v) ind.showStacks = v; ReloadAndUpdate() end })
             do
-                local rgn = durRow._rightRegion
+                local rgn = durRow._leftRegion
                 local swatch = EllesmereUI.BuildColorSwatch(
                     rgn, durRow:GetFrameLevel() + 3,
                     function()
@@ -3841,19 +3745,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 })
             end
 
-            local stacksRow = SettingsRow(
-                { type="toggle", text="Show Stacks",
-                  getValue=function() return ind.showStacks ~= false end,
-                  setValue=function(v) ind.showStacks = v; ReloadAndUpdate() end },
-                (indType == "square") and { type="label", text="Colors" }
-                  or { type="toggle", text="Hide Icons",
-                       tooltip="Hide the icon texture, border, and duration swipe, leaving only the stack count. Forces icon opacity, border, and duration swipe off.",
-                       getValue=function() return ind.hideIcon == true end,
-                       setValue=function(v) ind.hideIcon = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end })
             do
-                local rgn = stacksRow._leftRegion
+                local rgn = durRow._rightRegion
                 local swatch = EllesmereUI.BuildColorSwatch(
-                    rgn, stacksRow:GetFrameLevel() + 3,
+                    rgn, durRow:GetFrameLevel() + 3,
                     function()
                         local c = ind.stacksTextColor or { r=1, g=1, b=1 }
                         return c.r, c.g, c.b, 1
@@ -3866,7 +3761,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 rgn._lastInline = swatch
             end
             do
-                local rgn = stacksRow._leftRegion
+                local rgn = durRow._rightRegion
                 EllesmereUI.BuildInlineCog(rgn, {
                     icon = EllesmereUI.RESIZE_ICON,
                     disabled = function() return ind.showStacks == false end,
@@ -3885,16 +3780,45 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     },
                 })
             end
+            -- Display-level Icon Glow (v2): permanent, every visible icon of the
+            -- group glows while shown. No Max Duration setting by design: the
+            -- engine offers no baseline/cap on its duration bindings.
+            local GO = EllesmereUI.GlowOptions
+            local glowDesc = GO.PrefixSite(function() return ind end, "displayGlow", "engine", ReloadAndUpdate)
+            -- The color swatches take the free right half.
+            local mdRow = SettingsRow(GO.DropdownSpec(glowDesc, "Icon Glow"),
+                { type="label", text="Glow Color" })
+            if not EllesmereUI._prebuilding then
+                local rgn = mdRow._leftRegion
+                GO.AttachInline(rgn, glowDesc, mdRow._rightRegion)
+                local pv = GO.BuildPreview(rgn, glowDesc, { bar = false, width = 26, height = 26,
+                    anchor = rgn._lastInline or rgn._control, x = -12 })
+                if pv then
+                    pv:SetFrameLevel(rgn:GetFrameLevel() + 5)
+                    rgn._lastInline = pv
+                end
+            end
+
+            local extraCfg = (indType == "square") and { type="label", text="Colors" }
+                or { type="toggle", text="Hide Icons",
+                     tooltip="Hide the icon texture, border, and duration swipe, leaving only the stack count. Forces icon opacity, border, and duration swipe off.",
+                     getValue=function() return ind.hideIcon == true end,
+                     setValue=function(v) ind.hideIcon = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end }
+            local extraRow
+            if indType ~= "icon" or EllesmereUI.IS_FOREVER then
+                extraRow = SettingsRow(extraCfg, EllesmereUI.BlankRowCfg())
+            end
+
             -- Per-ability color swatches (square only), right-to-left like every inline
             -- swatch row (ability 1 at the right edge); no per-spell color falls back to ind.color, then the default.
             if indType == "square" then
-                local rgn = stacksRow._rightRegion
+                local rgn = extraRow._leftRegion
                 local DEFAULT_SQ = { r=0.05, g=0.82, b=0.62 }
                 local prev = nil
                 for _, sid in ipairs(ind.spells or {}) do
                     local mySid = sid
                     local swatch = EllesmereUI.BuildColorSwatch(
-                        rgn, stacksRow:GetFrameLevel() + 3,
+                        rgn, extraRow:GetFrameLevel() + 3,
                         function()
                             local c = (ind.spellColors and ind.spellColors[mySid])
                                 or ind.color or DEFAULT_SQ
@@ -3932,7 +3856,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     for _, fid in ipairs(fids) do
                         local myFid = fid
                         local swatch = EllesmereUI.BuildColorSwatch(
-                            rgn, stacksRow:GetFrameLevel() + 3,
+                            rgn, extraRow:GetFrameLevel() + 3,
                             function()
                                 local c = (ind.filterColors and ind.filterColors[myFid])
                                     or ind.color or DEFAULT_SQ
@@ -3958,38 +3882,24 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 rgn._lastInline = prev
             end
 
-            -- Display-level Icon Glow (v2): permanent, every visible icon of the
-            -- group glows while shown. No Max Duration setting by design: the
-            -- engine offers no baseline/cap on its duration bindings.
-            local GO = EllesmereUI.GlowOptions
-            local glowDesc = GO.PrefixSite(function() return ind end, "displayGlow", "engine", ReloadAndUpdate)
-            -- The color swatches take the free right half.
-            local mdRow = SettingsRow(GO.DropdownSpec(glowDesc, "Icon Glow"),
-                { type="label", text="Glow Color" })
-            if not EllesmereUI._prebuilding then
-                local rgn = mdRow._leftRegion
-                GO.AttachInline(rgn, glowDesc, mdRow._rightRegion)
-                local pv = GO.BuildPreview(rgn, glowDesc, { bar = false, width = 26, height = 26,
-                    anchor = rgn._lastInline or rgn._control, x = -12 })
-                if pv then
-                    pv:SetFrameLevel(rgn:GetFrameLevel() + 5)
-                    rgn._lastInline = pv
-                end
-            end
-
             -- Pandemic Border (icon only, not on WoW Forever): the game shows it while
             -- the buff is in its refresh window; color and size in the row's swatch and cog.
             if indType == "icon" and not EllesmereUI.IS_FOREVER then
                 local pandemicOff = function() return IconHidden() or not ind.pandemicBorderEnabled end
                 local pandemicTip = function() return IconHidden() and "Hide Icons" or "Pandemic Border" end
                 local pandemicState = function() return IconHidden() and "disabled" or "enabled" end
+                local function PandemicTextureOff()
+                    local tex = ind.indBorderTexture
+                    return not tex or tex == "solid" or tex == "" or (ind.indBorderSize or 1) <= 0
+                        or not EllesmereUI.ResolveBorderTexture(tex)
+                end
                 local pandemicRow = SettingsRow(
                     { type="toggle", text="Pandemic Border",
                       tooltip="Shows a colored border on these icons while the buff can be refreshed without losing time.",
                       disabled=IconHidden, disabledTooltip="Hide Icons", requireState="disabled",
                       getValue=function() return ind.pandemicBorderEnabled == true end,
                       setValue=function(v) ind.pandemicBorderEnabled = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
-                    { type="label", text="" })
+                    extraCfg)
                 local rgn = pandemicRow._leftRegion
                 EllesmereUI.BuildInlineSwatches(rgn, {
                     { tooltip = "Pandemic Border Color",
@@ -4006,7 +3916,15 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     disabled = pandemicOff, disabledTooltip = pandemicTip, requireState = pandemicState,
                     title = "Pandemic Border",
                     rows = {
+                        { type="toggle", label="Textured Pandemic Ring",
+                          tooltip="Uses the selected aura Border Style, size, shifts and offsets for the pandemic highlight.",
+                          disabled=PandemicTextureOff,
+                          disabledTooltip="This option requires a textured aura Border Style and a Border Size above 0.",
+                          get=function() return ind.pandemicBorderTextured == true end,
+                          set=function(v) ind.pandemicBorderTextured = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
                         { type="slider", label="Border Size", min=1, max=5, step=1,
+                          disabled=function() return ind.pandemicBorderTextured == true and not PandemicTextureOff() end,
+                          disabledTooltip="Textured Pandemic Ring uses the aura's Border Size.",
                           get=function() return ind.pandemicBorderWidth or 2 end,
                           set=function(v) ind.pandemicBorderWidth = v; ReloadAndUpdate() end },
                     },

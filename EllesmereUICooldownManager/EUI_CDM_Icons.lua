@@ -1050,6 +1050,13 @@ local function RefreshCDMIconAppearance(barKey)
             local m = cse and ns.CD_STATE_HIDE[cse]
             local cseShift, cseUsable, cseForm
             if m then cse, cseShift, cseUsable, cseForm = m.base, m.shift, m.usable, m.form end
+            -- Stance Bar (EllesmereUICdmStanceBar.lua): one more hide reason. Alone,
+            -- it runs as Hidden (On CD) with the cooldown never read.
+            local stance = ns.CdmStanceBarOf(csSs, icon)
+            local stanceOnly = false
+            if stance and cse ~= "hiddenOnCD" and cse ~= "hiddenReady" and cse ~= "lowerAlphaOnCD" then
+                cse, stanceOnly = "hiddenOnCD", true
+            end
             if cse or csGlow then
                 local csLive = csSid
                 if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
@@ -1058,7 +1065,9 @@ local function RefreshCDMIconAppearance(barKey)
                 -- realCD is the plain cooldown read the glow runs on; onCD is
                 -- what the hide runs on (the form alone, or unusable counting too).
                 local realCD, onCD
-                if cseForm then
+                if stanceOnly then
+                    onCD = false
+                elseif cseForm then
                     -- Only the form decides; form changes re-arm through the form watch.
                     onCD = ns.CdmSpellOutsideForm(csLive)
                     ns.WatchCdUsable(icon, true)
@@ -1071,7 +1080,19 @@ local function RefreshCDMIconAppearance(barKey)
                     -- Proc edges change only usability: SPELL_UPDATE_USABLE watch.
                     ns.WatchCdUsable(icon)
                 end
-                if cse == "hiddenOnCD" or cse == "hiddenReady" then
+                local sHide, sShift = false, false
+                if stance then
+                    sHide, sShift = ns.CdmStanceBarHidden(stance)
+                    -- Page changes re-arm through the stance bar watch.
+                    ns.WatchCdUsable(icon, cseForm, true, cseUsable)
+                end
+                if sHide then
+                    icon:SetAlpha(0)
+                    if fc then
+                        fc._cdStateHidden = true
+                        if ns.SetCdStateShiftHidden then ns.SetCdStateShiftHidden(fc, sShift) end
+                    end
+                elseif cse == "hiddenOnCD" or cse == "hiddenReady" then
                     local hide
                     if cse == "hiddenOnCD" then
                         hide = onCD and true or false

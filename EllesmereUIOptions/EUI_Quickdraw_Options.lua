@@ -641,6 +641,8 @@ initFrame:SetScript("OnEvent", function(self)
                     or (slot.kind == "cycleworldmarker"
                         and "world marker, next on each press")
                     or (slot.kind == "randommount" and "mount")
+                    or (slot.kind == "randomhearth"
+                        and "random hearthstone, rolled again on each open")
                     or (slot.kind == "panel" and "interface panel")
                     or (slot.kind == "spec" and "specialization")
                     -- Same icon and same name as a fixed spec entry on the
@@ -952,6 +954,14 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function ToyEntries()
         local out = {}
+        -- A different owned hearthstone on every open, pinned ahead of the
+        -- collection the way the random mount leads the mounts. Named for what
+        -- the ENTRY is rather than for the toy it happens to draw right now.
+        do
+            local slot = { kind = "randomhearth" }
+            local icon = ns.SlotDisplay(slot)
+            out[1] = { icon = icon, name = "Random Hearthstone", slot = slot, pin = true }
+        end
         ScanToysUnfiltered(function()
             for i = 1, (C_ToyBox.GetNumFilteredToys() or 0) do
                 local itemID = C_ToyBox.GetToyFromIndex(i)

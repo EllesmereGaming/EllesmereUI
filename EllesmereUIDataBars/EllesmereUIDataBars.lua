@@ -1993,10 +1993,12 @@ local function EnsureSlot(rec, blockCfg)
     if not slot then
         slot = CreateFrame("Frame", nil, rec.bar)
         slot:SetSize(10, 10)
+        rec.slots[blockCfg.id] = slot
+    end
+    if not slot._edbContent then
         local content = CreateFrame("Frame", nil, slot)
         content:SetSize(10, 10)
         slot._edbContent = content
-        rec.slots[blockCfg.id] = slot
     end
     return slot
 end
@@ -2302,7 +2304,18 @@ function ns.ApplyBar(id)
             rec.insts[blockId] = nil
             rec.assigned[blockId] = nil
             local slot = rec.slots[blockId]
-            if slot then slot:Hide() end
+            if slot then
+                slot:Hide()
+                -- The block's frames stay parented to its content, and Destroy
+                -- only hides it; a later block with this id (another type, or a
+                -- profile switch) would show them again. Retire it so EnsureSlot
+                -- builds a fresh one.
+                local content = slot._edbContent
+                if content and not (InCombatLockdown() and content:IsProtected()) then
+                    content:Hide()
+                    slot._edbContent = nil
+                end
+            end
         end
     end
     for blockId, slot in pairs(rec.slots) do

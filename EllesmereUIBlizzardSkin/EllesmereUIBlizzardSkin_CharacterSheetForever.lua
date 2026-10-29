@@ -59,12 +59,7 @@ local ADDON_NAME, ns = ...
 local EllesmereUI = _G.EllesmereUI
 if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 
-local FFD = setmetatable({}, { __mode = "k" })
-local function GetFFD(frame)
-    local d = FFD[frame]
-    if not d then d = {}; FFD[frame] = d end
-    return d
-end
+local FFD, GetFFD = EllesmereUI.NewFrameData()
 
 -- The Character Sheet card's Off and the window skins kill switch, which
 -- stop both looks (as they stop the retail sheet's).

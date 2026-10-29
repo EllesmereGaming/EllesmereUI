@@ -344,9 +344,21 @@ local function BuildStyle(isBuff, cfg)
     -- math at any UIParent scale.
     local iconSize = PabSnap(PabShapedSize(cfg.iconSize or 32, cfg.iconShape))
 
+    -- Negative Spacing / Row Spacing overlap neighbouring icons; AuraKit shrinks
+    -- each mouse area by half the overlap so the icon being left cannot hide the
+    -- tooltip of the one entered (see hitInsetX in EllesmereUI_AuraKit.lua).
+    -- Same defaults and snap as ComputeGrid. In vertical growth the icon-to-icon
+    -- gap runs along Y and the row gap along X.
+    local gapOverlap = math.max(0, -PabSnap(cfg.padding or 5))
+    local rowOverlap = math.max(0, -PabSnap(cfg.rowSpacing or 12))
+    local vertical = cfg.growDirection == "UP" or cfg.growDirection == "DOWN"
+        or cfg.growDirection == "CENTER_VERTICAL"
+
     local style = {
         width = iconSize,
         height = iconSize,
+        hitInsetX = (vertical and rowOverlap or gapOverlap) / 2,
+        hitInsetY = (vertical and gapOverlap or rowOverlap) / 2,
         centeredGrowth = cfg.growDirection == "CENTER_HORIZONTAL" or cfg.growDirection == "CENTER_VERTICAL",
         iconCrop = true,
         iconZoom = iconZoom or 0.055,
@@ -429,7 +441,7 @@ local function BuildStyle(isBuff, cfg)
 
     -- Custom icon shape (Square/Circle/Hexagon/etc, same media set as Action Bars
     -- and Unit Frames' detached portraits). ns.PORTRAIT_MASKS/BORDERS/MASK_INSETS are
-    -- exposed by EllesmereUIUnitFrames.lua (same addon/ns); AuraKit itself lives in a
+    -- exposed by EUI_UnitFrames_Portrait.lua (same addon/ns); AuraKit itself lives in a
     -- separate TOC and never touches ns, so resolved paths travel through style.*.
     local shape = cfg.iconShape
     if PabShapeActive(shape) then

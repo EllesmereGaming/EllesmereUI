@@ -581,7 +581,6 @@ local function ProcessPresetCooldowns()
         end
     end
     _pcAllSettled = not anyUnsettled
-    if QueueCustomBuffUpdate then QueueCustomBuffUpdate() end
 end
 ns._ProcessPresetCooldowns = ProcessPresetCooldowns
 ns._isPresetCdDirty = function() return _presetCdDirty end

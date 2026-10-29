@@ -251,9 +251,12 @@ _G._EUI_BuildBattleResPage = BuildBattleResPage
 -- Returns total height consumed.
 _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
     local y = yOffset
-    local _, h, row
+    local _, h, row, hdr
 
-    _, h = W:SectionHeader(parent, "BATTLE RES", y); y = y - h
+    hdr, h = W:SectionHeader(parent, "BATTLE RES", y); y = y - h
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_BattleRes",
+        disabled = function() return Cfg("visibility") == "NEVER" end,
+        disabledTooltip = "BattleRes Icon" })
 
     -- Live preview: forces the icon on screen for as long as this page is (mirrors
     -- the Bloodlust Tracker section below). PollCharges falls back to stand-in
@@ -568,9 +571,12 @@ end
 -- below the Battle Res section. Returns total height consumed.
 _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
     local y = yOffset
-    local _, h, row
+    local _, h, row, hdr
 
-    _, h = W:SectionHeader(parent, "BLOODLUST TRACKER", y); y = y - h
+    hdr, h = W:SectionHeader(parent, "BLOODLUST TRACKER", y); y = y - h
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_Bloodlust",
+        disabled = function() return BL_Cfg("visibility") == "NEVER" end,
+        disabledTooltip = "Bloodlust Icon" })
 
     -- Live preview: the icon is forced on screen for as long as this page is, so the
     -- ready label, sizes and offsets can be judged without waiting for a real lust.

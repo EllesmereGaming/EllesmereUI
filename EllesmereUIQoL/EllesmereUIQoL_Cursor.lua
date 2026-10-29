@@ -286,14 +286,13 @@ local function ApplyTrail()
     end
 end
 
-local _unlockHidGCD, _unlockHidCast
--- Cursor glue + state watch, riding the suite's shared cursor service
+-- Cursor glue, riding the suite's shared cursor service
 -- (EllesmereUI.Mouse) instead of a per-frame OnUpdate on the cursor frame:
 -- the glue is a Tier A motionOnly subscriber (per render frame while the cursor MOVES,
 -- parked while it rests -- a resting cursor ring needs no repositioning, and mouselook
 -- freezes GetCursorPosition so steering parks it too, which Only-Show-When-Hidden wants
--- anyway); the unlock-mode circle sync is pure state and rides the 0.15s Tier B watch.
--- Both are subscribed ONLY while the frame is visible (UpdateVisibility owns the
+-- anyway). Unlock mode hides the attached circles through the listener in OnEnable.
+-- It is subscribed ONLY while the frame is visible (UpdateVisibility owns the
 -- edges), preserving the old hidden-frame-stops-OnUpdate behavior.
 local function CursorGlueBody(rawX, rawY)
     local s = UIParent:GetEffectiveScale()
@@ -301,20 +300,6 @@ local function CursorGlueBody(rawX, rawY)
     if x ~= lastX or y ~= lastY then
         lastX, lastY = x, y
         f:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
-    end
-end
-local function CursorWatchBody()
-    -- Hide attached GCD/Cast circles during unlock mode
-    if EllesmereUI._unlockActive then
-        if gcdAttached and gcdRoot and gcdRoot:IsShown() then
-            gcdRoot:Hide(); _unlockHidGCD = true
-        end
-        if castAttached and castRoot and castRoot:IsShown() then
-            castRoot:Hide(); _unlockHidCast = true
-        end
-    else
-        if _unlockHidGCD and gcdRoot then gcdRoot:Show(); _unlockHidGCD = nil end
-        if _unlockHidCast and castRoot then castRoot:Show(); _unlockHidCast = nil end
     end
 end
 local function SetCursorGlue(on)
@@ -326,10 +311,8 @@ local function SetCursorGlue(on)
         -- CENTER default on login) until the first pixel of motion.
         CursorGlueBody(M.Get())
         M.SubscribeFrame("qolCursor", CursorGlueBody, true)
-        M.SubscribeTick("qolCursorWatch", 0.15, CursorWatchBody)
     else
         M.UnsubscribeFrame("qolCursor")
-        M.UnsubscribeTick("qolCursorWatch")
     end
 end
 
@@ -1450,15 +1433,7 @@ function ECL:OnEnable()
 
         -- Every _unlockActive check in this file only stops a FUTURE re-arm
         -- of the attached cursor-tracking OnUpdate -- none of them tear down
-        -- one that's already running. CursorWatchBody (the 0.15s tick above)
-        -- is meant to hide an attached circle once unlock mode starts, but
-        -- it only ticks while the base cursor frame (f) is itself
-        -- subscribed/visible, so a user running GCD/Cast circles without the
-        -- base cursor dot gets no safety net at all: toggle Attach to Cursor
-        -- off then on (arms the OnUpdate while _unlockActive is still false,
-        -- correctly), then open unlock mode, and the circle just keeps
-        -- chasing the mouse forever with nothing to ever stop it. Hook the
-        -- real open/close event directly instead of depending on that tick.
+        -- one that's already running, so hook the real unlock open/close here.
         if EllesmereUI and EllesmereUI.RegisterUnlockModeListener then
             EllesmereUI:RegisterUnlockModeListener("EllesmereUIQoL_Cursor", function(active)
                 if active then

@@ -472,7 +472,8 @@ function EAB._UpdateSpellbookNeverBars(resync)
         for _, info in ipairs(BAR_CONFIG) do
             local s = EAB.db.profile.bars[info.key]
             if s and s.spellbookShow and s.enabled ~= false
-               and ((s.barVisibility or "always") ~= "always" or s.alwaysHidden
+               and ((EllesmereUI.VisOverrideValue(s) or s.barVisibility or "always") ~= "always"
+                    or EAB.VisibilityCompat.IsNever(s)
                     or (EAB._padHide and s.gamepadHideBar == true))
                and not (EAB._visOverride and EAB._visOverride[info.key]) then
                 EAB._visOverride = EAB._visOverride or {}

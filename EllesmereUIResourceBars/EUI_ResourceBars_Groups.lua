@@ -166,7 +166,7 @@ function ns.ERB_BarsAnchoredTight(p)
                 if j ~= i and members[j] and keys[j] == target then inGroup = true end
             end
             if inGroup then
-                local side = info.side
+                local side = EllesmereUI.GetUnlockAnchorSide(info)
                 local onAxis
                 if vert then onAxis = (side == "LEFT" or side == "RIGHT")
                 else onAxis = (side == "TOP" or side == "BOTTOM") end
@@ -659,18 +659,24 @@ end
 -- the icon stays a square of the bar height). The frame width, the fill
 -- inset and the unlock sizing all take it from here.
 function ns.ERB_CastIconW(cb)
-    if cb.showIcon == false or ns.ERB_CastIconFree(cb) then return 0 end
+    if cb.showIcon == false or ns.ERB_CastIconPortrait(cb) or ns.ERB_CastIconFree(cb) then return 0 end
     local h = cb.height
     if ns.ERB_CastStyle() == "blizzard" and cb.showSpellText and ns.ERB_BlizzAtlas("textbox") then
         return h + 13
     end
     return h
 end
+-- Resolve lazily: Unit Frames can load after Resource Bars.
+function ns.ERB_CastIconPortrait(cb)
+    if not cb.iconOnPortrait or cb.showIcon == false then return nil end
+    local uf = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
+    if uf and uf.UF_GetPlayerCastPortrait then return uf.UF_GetPlayerCastPortrait() end
+end
 -- Icon Size / Offset: a custom size or any offset takes the icon out of the
 -- frame (ERB_CastIconW is 0) and it floats beside the bar with its own border.
 -- The stock styles keep it inside their frame art.
 function ns.ERB_CastIconFree(cb)
-    if cb.showIcon == false or ns.ERB_CastStyle() ~= "eui" then return false end
+    if cb.showIcon == false or ns.ERB_CastIconPortrait(cb) or ns.ERB_CastStyle() ~= "eui" then return false end
     return (cb.iconSize or 0) > 0 or (cb.iconOffsetX or 0) ~= 0 or (cb.iconOffsetY or 0) ~= 0
 end
 -- Lays out a floating icon (live bar and options preview), or hides its border.

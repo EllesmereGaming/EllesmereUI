@@ -72,8 +72,12 @@ qolFrame:SetScript("OnEvent", function(self)
     -- Environment Ping keybind (EllesmereUI._applyEnvPing, further down):
     -- nothing is built unless a key is saved.
     if EllesmereUIDB.envPingKey then EllesmereUI._applyEnvPing() end
+    -- Transparent World Map Sidebars (EllesmereUI._applyMapSidebars, further down;
+    -- not on WoW Forever): nothing is built while off.
+    if EllesmereUIDB.mapSidebarsClear and EllesmereUI._applyMapSidebars then EllesmereUI._applyMapSidebars() end
     -- Self Combat Text (EllesmereUIQoL_SelfCombatText.lua): nothing is built while off.
     ns.SCT_Refresh()
+    if EllesmereUI._applyUpgradeTooltips then EllesmereUI._applyUpgradeTooltips() end
 
     ---------------------------------------------------------------------------
     -- Bonus roll confirmation. Addon-owned overlays intercept Roll/Pass clicks;
@@ -3833,6 +3837,57 @@ do
                 end
             end)
         end
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Transparent World Map Sidebars: the black beside the maximized world map goes
+--  to the chosen opacity (clear by default) and lets the mouse through to
+--  the world. Blizzard only shows and hides BlackoutFrame, so the change
+--  holds until turned off. Not offered on WoW Forever: Forever Essentials
+--  has its own map background option there.
+-------------------------------------------------------------------------------
+if not EllesmereUI.IS_FOREVER then
+    local loader
+    local applied = false
+    local mouseWas, wheelWas
+
+    function EllesmereUI._applyMapSidebars()
+        local on = EllesmereUIDB and EllesmereUIDB.mapSidebarsClear == true
+        if not (on or applied or loader) then return end
+        -- The world map loads on demand.
+        if not C_AddOns.IsAddOnLoaded("Blizzard_WorldMap") then
+            if on and not loader then
+                loader = CreateFrame("Frame")
+                loader:SetScript("OnEvent", function(self, _, name)
+                    if name ~= "Blizzard_WorldMap" then return end
+                    self:UnregisterEvent("ADDON_LOADED")
+                    EllesmereUI._applyMapSidebars()
+                end)
+            end
+            if on then loader:RegisterEvent("ADDON_LOADED") else loader:UnregisterEvent("ADDON_LOADED") end
+            return
+        end
+        if not (on or applied) then return end
+        if InCombatLockdown() then
+            ns.CombatQueue.Defer("MapSidebars", EllesmereUI._applyMapSidebars)
+            return
+        end
+        local b = WorldMapFrame.BlackoutFrame
+        if not (b and b.Blackout) then return end
+        if on then
+            if not applied then
+                mouseWas, wheelWas = b:IsMouseEnabled(), b:IsMouseWheelEnabled()
+            end
+            b.Blackout:SetAlpha((EllesmereUIDB.mapSidebarsOpacity or 0) / 100)
+            b:EnableMouse(false)
+            b:EnableMouseWheel(false)
+        else
+            b.Blackout:SetAlpha(1)
+            b:EnableMouse(mouseWas)
+            b:EnableMouseWheel(wheelWas)
+        end
+        applied = on
     end
 end
 

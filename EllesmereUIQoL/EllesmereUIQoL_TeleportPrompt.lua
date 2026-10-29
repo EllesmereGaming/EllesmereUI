@@ -383,12 +383,6 @@ _G._EUI_RefreshTeleportPrompt = function()
     ApplyDisableVisibility()
 end
 
--- Immediate hide hook used by the options toggle when disabling the feature.
-_G._EUI_HideTeleportPrompt = function()
-    ClearPending()
-    HidePrompt()
-end
-
 -------------------------------------------------------------------------------
 --  Events. No Blizzard frame is ever hooked or SetScript-ed. Heavy events are
 --  only registered when the feature is enabled (zero cost when disabled).
