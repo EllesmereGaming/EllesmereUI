@@ -389,6 +389,72 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         -- ── HEADER ──────────────────────────────────────────────────────
+        local dock = EllesmereUI._ModuleNS.EllesmereUIDataBars
+        local dockCfg = dock and dock.SetMeterDockEnabled and {
+            type = "toggle", text = "Dock to DataBar",
+            tooltip = "Dock meters above the DataBar selected in the cog. The bar button overrides visibility until reload.",
+            getValue = function() local p = dock.GetProfile(); return p and p.meterDockBar ~= nil end,
+            setValue = function(v) dock.SetMeterDockEnabled(v) end,
+        } or EllesmereUI.BlankRowCfg()
+        local dockRow, dockRegion
+        dockRow, h = W:DualRow(parent, y, dockCfg, EllesmereUI.BlankRowCfg())
+        y = y - h
+        dockRegion = dockRow._leftRegion
+        if dock and dock.SetMeterDock then
+            local barValues, barOrder = { none = "None" }, { "none" }
+            for _, bar in ipairs(dock.BarsInOrder()) do
+                if bar.orientation ~= "V" then
+                    barValues[bar.id] = bar.name or tostring(bar.id)
+                    barOrder[#barOrder + 1] = bar.id
+                end
+            end
+            local types, typeOrder = {}, {}
+            local dm = EllesmereUI._ModuleNS.EllesmereUIDamageMeters
+            local names = dm and dm._dmInternals and dm._dmInternals.DM_TYPE_NAMES
+            if names then
+                for key, label in pairs(names) do
+                    types[key] = label; typeOrder[#typeOrder + 1] = key
+                end
+                if EllesmereUI._ThreatFeed and not types.threat then
+                    types.threat = "Threat"; typeOrder[#typeOrder + 1] = "threat"
+                end
+                table.sort(typeOrder, function(a, b) return types[a] < types[b] end)
+            end
+            EllesmereUI.BuildInlineCog(dockRegion, {
+                title = "Meter Dock",
+                rows = {
+                    { type = "dropdown", label = "DataBar", values = barValues, order = barOrder,
+                      get = function() local p = dock.GetProfile(); return p and (p.meterDockBar or p.meterDockSelectedBar) or "none" end,
+                      set = function(v) dock.SelectDockBar(v ~= "none" and v or nil) end },
+                    { type = "dropdown", label = "Number of Meters",
+                      values = { [1] = "1 - Full Width", [2] = "2 - Side by Side" }, order = { 1, 2 },
+                      get = function() local p = dock.GetProfile(); return p and p.meterDockCount or 2 end,
+                      set = function(v) dock.SetDockMeterCount(v) end },
+                    { type = "dropdown", label = "Left / Full Width Meter Type", values = types, order = typeOrder,
+                      get = function() return dock.GetDockMeterType(1) end,
+                      set = function(v) dock.SetDockMeterType(1, v) end },
+                    { type = "dropdown", label = "Right Meter Type", values = types, order = typeOrder,
+                      disabled = function() local p = dock.GetProfile(); return p and p.meterDockCount == 1 end,
+                      get = function() return dock.GetDockMeterType(2) end,
+                      set = function(v) dock.SetDockMeterType(2, v) end },
+                    { type = "toggle", label = "Show DataBar Button",
+                      get = function() local p = dock.GetProfile(); return not p or p.meterDockShowButton ~= false end,
+                      set = function(v) local p = dock.GetProfile(); p.meterDockShowButton = v; dock.RefreshMeterDock() end },
+                    { type = "dropdown", label = "Button Position",
+                      values = { left = "Left", right = "Right" }, order = { "left", "right" },
+                      disabled = function() local p = dock.GetProfile(); return p and p.meterDockShowButton == false end,
+                      get = function() local p = dock.GetProfile(); return p and p.meterDockButtonSide or "right" end,
+                      set = function(v) local p = dock.GetProfile(); p.meterDockButtonSide = v; dock.RefreshMeterDock() end },
+                    { type = "slider", label = "Meter Height", min = 100, max = 500, step = 5,
+                      get = function() local p = dock.GetProfile(); return p and p.meterDockHeight or 210 end,
+                      set = function(v) local p = dock.GetProfile(); p.meterDockHeight = v; dock.RefreshMeterDock() end },
+                },
+            })
+        end
+
+
+
+
         _, h = W:SectionHeader(parent, "HEADER", y); y = y - h
 
         -- Row 1: Header Height | Opacity (+ inline bg color swatch)
