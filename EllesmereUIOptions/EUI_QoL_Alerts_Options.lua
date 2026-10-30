@@ -257,6 +257,16 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
                     if EllesmereUI._applyGroupDeathAlert then EllesmereUI._applyGroupDeathAlert() end
                     if EllesmereUI._groupDeathShowVisual then EllesmereUI._groupDeathShowVisual() end
                   end },
+                { type="toggle", label="Role Icon",
+                  tooltip="Shows the dead player's role icon if assigned, instead of the skull icon.",
+                  get=function()
+                    return (EllesmereUIDB and EllesmereUIDB.groupDeathRoleIcon) or false
+                  end,
+                  set=function(v)
+                    if not EllesmereUIDB then EllesmereUIDB = {} end
+                    EllesmereUIDB.groupDeathRoleIcon = v
+                    if EllesmereUI._groupDeathShowVisual then EllesmereUI._groupDeathShowVisual() end
+                  end },
                 { type="dropdown", label="Sound",
                   values=gdSoundValues, order=gdSoundOrder,
                   get=function()
