@@ -62,17 +62,28 @@ end
 -- Duration text formatters
 --
 -- SetDurationText accepts a NumericFormatter object evaluated engine-side against the
--- (possibly secret) remaining duration. The suite's duration text has always been bare
--- seconds under a minute ("10"), then floored "2m"/"1h"/"1d" with no space -- a
--- SecondsFormatter cannot drop the unit on seconds, so this is a banded
--- NumericRuleFormatter. Seconds round UP so the text never reads 0 while time remains;
--- larger units floor, matching the legacy text exactly at the 60s boundary ("1m" at 60,
--- "59" at 59). The one-second Up bucket AT 60 exists for the sub-second crossing INTO
--- the minute -- see the note inside the breakpoint table.
+-- (possibly secret) remaining duration. A SecondsFormatter cannot drop the unit on
+-- seconds, so this is a banded NumericRuleFormatter that reads like Blizzard's buff
+-- frame: bare seconds ("10"), then "2m" from 90 seconds, "2h" from 90 minutes and "2d"
+-- from 36 hours, each rounded up. Seconds round up as well, so the text never reads 0
+-- while time remains, unless the account turns on Global Settings' Round Timer
+-- Seconds Down, which rounds them down as Blizzard's buff frame does.
 ------------------------------------------------------------------------------
 
 local durationFormatter, durationFormatterS
 local preciseDurationFormatters = {}
+-- One second past Blizzard's switch to hours and to days; see the band note below.
+local HOURS_AT, DAYS_AT = 5401, 129601
+
+-- Round Timer Seconds Down, read once: every timer keeps the formatter it was
+-- handed, so a change waits for the reload its row asks for.
+local secondsDown
+local function SecondsRoundDown()
+    if secondsDown == nil then
+        secondsDown = EllesmereUIDB and EllesmereUIDB.timerSecondsDown == true or false
+    end
+    return secondsDown
+end
 
 local function BuildRuleDurationFormatter(withSecondsUnit, preciseThreshold)
     if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter
@@ -80,45 +91,49 @@ local function BuildRuleDurationFormatter(withSecondsUnit, preciseThreshold)
         return nil
     end
     local Up = Enum.NumericRuleFormatRounding.Up
-    local Down = Enum.NumericRuleFormatRounding.Down
+    local secRound = SecondsRoundDown() and Enum.NumericRuleFormatRounding.Down or Up
     local formatter = C_StringUtil.CreateNumericRuleFormatter()
     -- Schema per the field-proven CDM threshold formatter: step/rounding
     -- live at the BREAKPOINT level; components carry only the divisor.
     -- (The original nested step/rounding inside components -- silently
     -- rejected or default-rounded depending on validation strictness.)
-    local points = {
-        { threshold = 0,     format = withSecondsUnit and "%ds" or "%d",  step = 1, rounding = Up },
-        -- Minute-boundary catcher (field report: text flashed "0" just under a minute).
-        -- Seconds round UP, so a raw value in (59, 60) can reach 60 and land at this
-        -- threshold; the old Down bucket here floored the raw back to 0 -> "0m" for a
-        -- moment. Up in this one-second band yields exactly 1 -> "1m". The Down bucket
-        -- resumes at 61, so every later reading keeps the legacy floored text unchanged
-        -- ("1m" until 120, "59m" until the hour). Down never rounds ACROSS a threshold,
-        -- so no other unit boundary has this collision.
-        { threshold = 60,    format = "%dm", step = 1, rounding = Up,   components = { { div = 60 } } },
-        { threshold = 61,    format = "%dm", step = 1, rounding = Down, components = { { div = 60 } } },
-        { threshold = 3600,  format = "%dh", step = 1, rounding = Down, components = { { div = 3600 } } },
-        { threshold = 86400, format = "%dd", step = 1, rounding = Down, components = { { div = 86400 } } },
-    }
+    --
+    -- The engine picks a band by the raw value, and when that band's rounding
+    -- carries the value into the next band it formats the raw value with the
+    -- next band's rules. So hours and days start one second past Blizzard's
+    -- switch, keeping the rounded-up "90m" and "36h" in their own band, while
+    -- minutes start at 90 seconds itself: the seconds count down from "89" in
+    -- either rounding, as Blizzard's do.
+    local seconds = { threshold = 0, format = withSecondsUnit and "%ds" or "%d", step = 1, rounding = secRound }
+    local hours = { threshold = HOURS_AT, format = "%dh", step = 3600, rounding = Up, components = { { div = 3600 } } }
+    local days = { threshold = DAYS_AT, format = "%dd", step = 86400, rounding = Up, components = { { div = 86400 } } }
+    local points
     -- > 60, not > 0: with the threshold at exactly one minute the m:ss band is
     -- empty and the table would carry duplicate 60-thresholds -- the standard
     -- table renders identically there.
     if preciseThreshold and preciseThreshold > 60 then
-        -- Below the selected threshold, a clock-style value such as 5:23;
-        -- under a minute plain seconds ("45", or "45s" with the unit on),
-        -- matching the standard formatter's sub-minute look. The 60-band
-        -- catcher mirrors the stock table's: seconds round UP, so a raw value
-        -- in (59, 60) reaches 60 and must land as exactly 1:00, not wrap.
+        -- Below the selected threshold, a clock-style value such as 5:23; under
+        -- a minute plain seconds, as in the standard table (rounded-up seconds
+        -- carry 59.5 into the clock, which reads it as exactly 1:00). Minutes
+        -- start one second past the threshold so the clock reads "10:00" before
+        -- "9:59"; at 90 minutes the clock runs up to the hours.
         points = {
-            { threshold = 0, format = withSecondsUnit and "%ds" or "%d", step = 1, rounding = Up },
-            { threshold = 60, format = "%d:%02d", step = 1, rounding = Up,
+            seconds,
+            { threshold = 60, format = "%d:%02d", step = 1, rounding = secRound,
                 components = { { div = 60 }, { mod = 60 } } },
-            { threshold = preciseThreshold, format = "%dm", step = 1, rounding = Down,
-                components = { { div = 60 } } },
-            { threshold = 3600, format = "%dh", step = 1, rounding = Down,
-                components = { { div = 3600 } } },
-            { threshold = 86400, format = "%dd", step = 1, rounding = Down,
-                components = { { div = 86400 } } },
+        }
+        if preciseThreshold + 1 < HOURS_AT then
+            points[#points + 1] = { threshold = preciseThreshold + 1, format = "%dm", step = 60, rounding = Up,
+                components = { { div = 60 } } }
+        end
+        points[#points + 1] = hours
+        points[#points + 1] = days
+    else
+        points = {
+            seconds,
+            { threshold = 90, format = "%dm", step = 60, rounding = Up, components = { { div = 60 } } },
+            hours,
+            days,
         }
     end
     local ok = pcall(formatter.SetBreakpoints, formatter, points)
@@ -145,20 +160,19 @@ local function BuildSecondsDurationFormatter()
     return formatter
 end
 
--- showSecondsUnit: sub-minute readings keep their unit ("10s" instead of
--- "10"); minutes and up are identical. Two cached instances -- omitting the
--- arg (every pre-existing caller) returns the original bare-seconds
--- formatter unchanged. The SecondsFormatter fallback shows the unit in both
--- variants (it cannot drop it) -- the accepted degraded look either way.
+-- showSecondsUnit: seconds readings keep their unit ("10s" instead of "10");
+-- minutes and up are identical. Two cached instances -- omitting the arg
+-- (every pre-existing caller) returns the bare-seconds formatter. The
+-- SecondsFormatter fallback shows the unit in both variants (it cannot drop
+-- it) -- the accepted degraded look either way.
 function AK.GetDurationFormatter(showSecondsUnit, preciseThreshold)
     preciseThreshold = tonumber(preciseThreshold)
     if preciseThreshold and preciseThreshold > 0 then
-        -- The UI tops out at 60 minutes. Keep that maximum just below one hour
-        -- internally so 59:59 stays in the precise bucket while 1h remains 1h.
-        -- Clamp saved/imported values too so malformed profiles cannot create
-        -- out-of-order formatter breakpoints.
+        -- The UI tops out at 90 minutes, where the hours begin. Clamp saved and
+        -- imported values too so a malformed profile cannot put the bands out
+        -- of order.
         preciseThreshold = math.max(60, math.floor(preciseThreshold + 0.5))
-        if preciseThreshold >= 3600 then preciseThreshold = 3599.0001 end
+        if preciseThreshold > 5400 then preciseThreshold = 5400 end
         local key = (showSecondsUnit and "s" or "b") .. preciseThreshold
         if preciseDurationFormatters[key] == nil then
             preciseDurationFormatters[key] = BuildRuleDurationFormatter(showSecondsUnit, preciseThreshold) or false

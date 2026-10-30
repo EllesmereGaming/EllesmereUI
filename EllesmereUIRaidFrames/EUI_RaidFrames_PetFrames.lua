@@ -443,7 +443,7 @@ end
 -- its own), plus the UI scale its pixel-sized borders follow, gathered into a reused list, so a
 -- reload that changed none of them leaves the pets' fonts, textures and borders alone. The hover and
 -- target borders are painted, not styled.
-PF.STYLE_N = 25 + ns.RF_TEXT_STYLE_N
+PF.STYLE_N = 26 + ns.RF_TEXT_STYLE_N
 PF.fp = {}
 PF.fpNew = {}
 PF.StyleInputs = function(t, s, texPath)
@@ -461,6 +461,7 @@ PF.StyleInputs = function(t, s, texPath)
     t[24], t[25] = s.cornerRadius, s.cornerMask
     -- The texts: the plan signature, then offsets and size of each (t[26] on).
     ns.RF_TextStyleInputs(t, 25, s)
+    t[PF.STYLE_N] = s.textureBg  -- Textured Background
 end
 
 -- True when the inputs differ from the ones last styled under key ("hdr": the header, "owner": the

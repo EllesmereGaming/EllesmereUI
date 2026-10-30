@@ -30,6 +30,10 @@ local PITCH = SLOT_SIZE + SPACING
 -- icon spacing
 local BLOCK_GAP = 14
 local GAP_EXTRA = BLOCK_GAP - SPACING
+ns.OnSlotMetrics(function(m)
+    SLOT_SIZE, SPACING = m[1], m[2]
+    PITCH, GAP_EXTRA = SLOT_SIZE + SPACING, BLOCK_GAP - SPACING
+end)
 -- The fewest cells a block takes when another block follows it in its band;
 -- a band's last block takes what it needs
 local MID_MIN_CELLS = 3
@@ -80,7 +84,7 @@ function ns.CompactNewOut()
         bandTop = {}, bandH = {},               -- per band
         labelBand = 0,                          -- label band height used (0: no labels)
         -- Inputs of the last plan
-        _mN = 0, _mColumns = 0, _mBandH = 0, _mLooks = 0, _mSize = {}, _mLabel = {},
+        _mN = 0, _mColumns = 0, _mBandH = 0, _mLooks = 0, _mPitch = 0, _mGap = 0, _mSize = {}, _mLabel = {},
         -- The last plan: per group its icon columns and block width in cells,
         -- per band its first and last group and its rows
         _pCols = {}, _pWidth = {}, _pBands = 0, _pFirst = {}, _pLast = {}, _pRows = {},
@@ -375,10 +379,10 @@ function ns.CompactPack(size, labelW, n, columns, bandH, startY, out)
     if columns < 1 then columns = 1 end
     -- Memo inputs: the group count, each group's cells and label width
     -- (rounded up to whole px, which keeps every label cell count), columns,
-    -- bandH and LOOKS_ROWS
+    -- bandH, LOOKS_ROWS and the slot pitch / gap
     local mSize, mLabel = out._mSize, out._mLabel
     local same = out._mN == n and out._mColumns == columns and out._mBandH == bandH
-        and out._mLooks == LOOKS_ROWS
+        and out._mLooks == LOOKS_ROWS and out._mPitch == PITCH and out._mGap == GAP_EXTRA
     local band = 0
     for g = 1, n do
         local s, lw = size[g], ceil(labelW[g])
@@ -393,6 +397,7 @@ function ns.CompactPack(size, labelW, n, columns, bandH, startY, out)
     if band > 0 then band = band + LABEL_BELOW end
     if not same then
         out._mN, out._mColumns, out._mBandH, out._mLooks = n, columns, bandH, LOOKS_ROWS
+        out._mPitch, out._mGap = PITCH, GAP_EXTRA
         pSize, pColumns, pCap, pBand = mSize, columns, columns * PITCH, band
         for g = 1, n do pLabel[g] = max(1, ceil((mLabel[g] + 2 * SPACING - BLOCK_GAP) / PITCH)) end
         Plan(n, out)

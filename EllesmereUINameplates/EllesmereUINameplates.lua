@@ -151,6 +151,9 @@ local defaults = {
     -- Solid border while it shows.
     debuffColorsBorder = false,
     debuffColorsBorderExtra = 0,
+    -- debuffColorsMode ("texture" = Texture Nameplate, "name" = Color Name) and
+    -- debuffColorsTexture have no defaults: unset reads debuffColorsBorder's
+    -- choice and the health bar's own texture.
     -- Blizzard Style (Global Settings > Style): the stock nameplate's bar,
     -- background, selection and cast bar art on our plates with every feature
     -- intact. Default OFF; reload-gated.

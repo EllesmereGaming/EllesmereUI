@@ -931,11 +931,69 @@ end
 --          in previewColor) and a hint line. complete(text, cursor) returns
 --          items { text, label, desc, detail }, from, to: a suggestion list under the input
 --          (Up/Down select, Tab inserts, Esc closes it). messageSize sets the message size,
---          messageColor { r, g, b[, a] } its colour (a red note). numeric takes digits
+--          messageColor { r, g, b[, a] } its colour (a red note). warning adds an
+--          orange line under the input, redWarning a red one below it. numeric takes digits
 --          only. validate(text) runs on a confirm: a message it returns shows in red under
 --          the input and keeps the popup open. checkbox (a label) adds a box above the
 --          buttons, unchecked on each show; onConfirm then receives its state second.
+--          money swaps the text box for gold/silver/copper boxes, onConfirm
+--          then gets the total in copper.
 -------------------------------------------------------------------------------
+local MONEY_ICONS = {
+    "Interface\\MoneyFrame\\UI-GoldIcon",
+    "Interface\\MoneyFrame\\UI-SilverIcon",
+    "Interface\\MoneyFrame\\UI-CopperIcon",
+}
+
+-- opts.money: three number boxes with coin icons in the input frame (built on
+-- first use). tab / shift-tab jumps between them.
+local function BuildMoneyRow(popup)
+    if popup._moneyRow then return end
+    local row = CreateFrame("Frame", nil, popup._inputFrame)
+    row:SetAllPoints()
+    row:SetFrameLevel(popup._inputFrame:GetFrameLevel() + 1)
+    local boxes, widths = {}, { 100, 36, 36 }
+    local x = 12
+    for i = 1, 3 do
+        local eb = CreateFrame("EditBox", nil, row)
+        eb:SetPoint("TOPLEFT", row, "TOPLEFT", x, -1)
+        eb:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", x, 1)
+        eb:SetWidth(widths[i])
+        eb:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
+        eb:SetTextColor(1, 1, 1, 0.9)
+        eb:SetJustifyH("RIGHT")
+        eb:SetAutoFocus(false)
+        eb:SetNumeric(true)
+        eb:SetMaxLetters(i == 1 and 7 or 2)
+        local zero = eb:CreateFontString(nil, "ARTWORK")
+        zero:SetFont(EllesmereUI.EXPRESSWAY, 11, "")
+        zero:SetTextColor(TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a * 0.5)
+        zero:SetPoint("RIGHT")
+        zero:SetText("0")
+        eb:SetScript("OnTextChanged", function(self) zero:SetShown((self:GetText() or "") == "") end)
+        eb:SetScript("OnEnterPressed", function() popup._tryConfirm() end)
+        eb:SetScript("OnEscapePressed", function()
+            popup._dimmer:Hide()
+            if popup._onCancel then popup._onCancel() end
+        end)
+        eb:SetScript("OnTabPressed", function()
+            boxes[(i - 1 + (IsShiftKeyDown() and 2 or 1)) % 3 + 1]:SetFocus()
+        end)
+        local coin = row:CreateTexture(nil, "ARTWORK")
+        coin:SetSize(13, 13)
+        coin:SetPoint("LEFT", eb, "RIGHT", 4, 0)
+        coin:SetTexture(MONEY_ICONS[i])
+        boxes[i] = eb
+        x = x + widths[i] + 4 + 13 + 14
+    end
+    popup._moneyRow, popup._moneyBoxes = row, boxes
+    -- silver and copper past 99 count as 99
+    popup._moneyValue = function()
+        local function N(eb) return tonumber(eb:GetText()) or 0 end
+        return N(boxes[1]) * 10000 + math.min(N(boxes[2]), 99) * 100 + math.min(N(boxes[3]), 99)
+    end
+end
+
 function EllesmereUI:ShowInputPopup(opts)
     if not self._inputPopup then
         local POPUP_W, POPUP_H = 390, 194
@@ -1052,7 +1110,7 @@ function EllesmereUI:ShowInputPopup(opts)
             flashing = true
             iBrd:SetColor(0.9, 0.15, 0.15, 0.7)
             flashFrame:Show()
-            popup._editBox:SetFocus()
+            popup._focusInput()
         end
 
         local editBox = CreateFrame("EditBox", nil, inputFrame)
@@ -1195,6 +1253,15 @@ function EllesmereUI:ShowInputPopup(opts)
         -- keypress (RequestReload); the popup closes only while it still shows
         -- the same request (the callback may have opened the next one).
         popup._tryConfirm = function()
+            -- money boxes: total in copper, has to be more than zero
+            if popup._money then
+                local copper = popup._moneyValue()
+                if copper <= 0 then popup._flashEmpty(); return end
+                local shown, cb = popup._handle, popup._onConfirmCb
+                if cb then cb(copper) end
+                if popup._handle == shown then dimmer:Hide() end
+                return
+            end
             local txt = editBox:GetText()
             if not txt or (txt == "" and not popup._allowEmpty) then
                 popup._flashEmpty()
@@ -1227,6 +1294,12 @@ function EllesmereUI:ShowInputPopup(opts)
             dimmer:Hide()
             if popup._onCancel then popup._onCancel() end
         end)
+
+        popup._focusInput = function()
+            local box = popup._money and popup._moneyBoxes[1] or popup._editBox
+            box:SetFocus()
+            return box
+        end
 
         popup._dimmer = dimmer
         self._inputPopup = popup
@@ -1269,6 +1342,13 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._allowEmpty = opts.allowEmpty == true
     popup._multiline = opts.multiline == true
     popup._validate = opts.validate
+    popup._money = opts.money == true
+    if popup._money then
+        BuildMoneyRow(popup)
+        for _, eb in ipairs(popup._moneyBoxes) do eb:SetText("") end
+    end
+    if popup._moneyRow then popup._moneyRow:SetShown(popup._money) end
+    popup._editBox:SetShown(not popup._money)
     popup._statusShown = nil
     popup._statusLabel:SetText("")
 
@@ -1552,16 +1632,18 @@ function EllesmereUI:ShowInputPopup(opts)
         popup._warnLabel:Hide()
     end
 
-    -- Optional scale/resolution mismatch warning (red)
+    -- Optional red warning (redWarning; scaleWarning, its first use, a
+    -- scale/resolution mismatch), below the orange one
     local scaleWarnH = 0
-    if opts.scaleWarning and opts.scaleWarning ~= "" then
+    local redWarning = opts.redWarning or opts.scaleWarning
+    if redWarning and redWarning ~= "" then
         popup._scaleWarnLabel:ClearAllPoints()
         if opts.warning and opts.warning ~= "" then
             popup._scaleWarnLabel:SetPoint("TOP", popup._warnLabel, "BOTTOM", 0, -14)
         else
             popup._scaleWarnLabel:SetPoint("TOP", popup._inputFrame, "BOTTOM", 0, -18 - belowH)
         end
-        popup._scaleWarnLabel:SetText(EllesmereUI.L(opts.scaleWarning))
+        popup._scaleWarnLabel:SetText(EllesmereUI.L(redWarning))
         popup._scaleWarnLabel:Show()
         scaleWarnH = 30
     else
@@ -1583,8 +1665,8 @@ function EllesmereUI:ShowInputPopup(opts)
 
     popup._dimmer:Show()
     C_Timer.After(0.05, function()
-        popup._editBox:SetFocus()
-        if popup._selectText then popup._editBox:HighlightText() end
+        local box = popup._focusInput()
+        if popup._selectText then box:HighlightText() end
     end)
 end
 

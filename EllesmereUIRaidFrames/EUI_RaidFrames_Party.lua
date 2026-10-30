@@ -84,6 +84,7 @@ do
             "customBgColor", "bgClassColored", "bgDarkness", "smoothBars",
             "healPrediction", "healPredOpacity", "healPredColor",
             "healthVerticalFill", "healthInvertFill",
+            "textureBg",
             -- Drawn as "Threat Borders" (and its cog) on the Health Bar row, so they file here.
             "threatBorderSize", "threatCustomBorder",
         },

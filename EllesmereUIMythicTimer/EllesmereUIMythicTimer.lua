@@ -17,6 +17,8 @@ local wipe = wipe
 -- Constants
 local PLUS_TWO_RATIO   = 0.8
 local PLUS_THREE_RATIO = 0.6
+-- SEASON UPDATE: the affix that adds time to the key timer (Challenger's Peril,
+-- +90 s; the only such affix in the 12.1.5 affix table, build 70575).
 local CHALLENGERS_PERIL_AFFIX_ID = 152
 
 local COMPARE_NONE = "NONE"
@@ -1190,25 +1192,26 @@ local function ResetRun()
     NotifyRefresh()
 end
 
--- Preview data
+-- Preview data. SEASON UPDATE (cosmetic): a current-season dungeon and affixes,
+-- so LocalizePreview finds their names; shared with the Run Summary preview.
 local PREVIEW_RUN = {
     active        = true,
     completed     = false,
-    mapID         = 2648,
-    mapName       = "The Rookery",
+    mapID         = 585,
+    mapName       = "Voidscar Arena",
     level         = 12,
-    maxTime       = 1920,
+    maxTime       = 1800,
     elapsed       = 1380,
     deaths        = 2,
     deathTimeLost = 10,
     affixes       = {},
-    _previewAffixNames = { "Tyrannical", "Xal'atath's Bargain: Ascendant" },
-    _previewAffixIDs = { 9, 152 },
+    _previewAffixNames = { "Tyrannical", "Fortified" },
+    _previewAffixIDs = { 9, 10 },
     -- Current pull sample: two pulled mobs worth 18 and 14 forces (~13%).
     _previewPullValues = { 18, 14 },
     objectives    = {
-        { name = "Kyrioss",                 completed = true,  elapsed = 510,  quantity = 1,     totalQuantity = 1,   rawQuantity = 1, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 528 },
-        { name = "Stormguard Gorren",       completed = true,  elapsed = 1005, quantity = 1,     totalQuantity = 1,   rawQuantity = 1, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 972 },
+        { name = "Taz'Rah",                 completed = true,  elapsed = 510,  quantity = 1,     totalQuantity = 1,   rawQuantity = 1, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 528 },
+        { name = "Atroxus",                 completed = true,  elapsed = 1005, quantity = 1,     totalQuantity = 1,   rawQuantity = 1, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 972 },
         { name = "Lua Error Monstrosity",   completed = false, elapsed = 0,    quantity = 0,     totalQuantity = 1,   rawQuantity = 0, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 1500 },
         { name = "|cffff3333Ellesmere|r",    completed = false, elapsed = 0,    quantity = 0,     totalQuantity = 1,   rawQuantity = 0, rawTotalQuantity = 1, percent = 0, isWeighted = false, previewSplit = 1770 },
         { name = "Enemy Forces",            completed = false, elapsed = 0,    quantity = 78.42, totalQuantity = 100, rawQuantity = 188, rawTotalQuantity = 240, percent = 78.42, isWeighted = true },

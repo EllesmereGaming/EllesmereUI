@@ -19,61 +19,37 @@ if not EllesmereUI or EllesmereUI.IS_FOREVER then return end
 -------------------------------------------------------------------------------
 local _, ns = ...
 
-local isSecret = issecretvalue or function() return false end
+local IsSecret, PlainString = EllesmereUI.IsSecret, EllesmereUI.PlainString
+local RT = ns.RT
 
 local WELL_FED_ICON = 136000
 local EATING_ICON   = 133950
 local AURA_SCAN_LIMIT = 255
 local EXPIRE_SOON = 600     -- under 10 minutes left shows the time instead of a check
-local TICK = 15             -- re-render interval for the countdowns while the window is open
+local TICK = 15             -- countdown repaint interval while one shows
 local TEX_YES  = "Interface\\RaidFrame\\ReadyCheck-Ready"
 local TEX_NO   = "Interface\\RaidFrame\\ReadyCheck-NotReady"
+-- SEASON UPDATE: the season's augment rune and Vantus Rune items (header icons).
 local RUNE_ITEM   = 259085   -- header icons come from items: the buff spells have no cached texture
 local VANTUS_ITEM = 272195   -- Vantus Rune: Tides
 
--- Buff IDs. A copy of AuraBuff Reminders' lists on purpose: QoL must not depend
--- on a sibling child addon the user may have disabled (the same reason Raid
--- Tools replicates the window skin).
-local FLASK_BUFF_IDS = {
-    1235110, 1235108, 1235111, 1235057, 1239355,                -- Midnight
-    1235113, 1235114, 1235115, 1235116,                         -- Midnight, PvP variants
-    432473, 432021, 431974, 431973, 431972, 431971,             -- The War Within
-}
--- Augment runes of the current expansion: Tidesworn (12.1), Void-Touched (12.0).
-local RUNE_IDS = { 1295329, 1264426 }
--- Older runes count as missing: Ethereal, Soulgorged, Crystallization (TWW),
--- Draconic (DF), Veiled (SL).
-local OLD_RUNE_IDS = { 1234969, 1242347, 453250, 393438, 347901 }
--- class = who provides it; only buffs whose class is in the group are checked.
-local RAID_BUFFS = {
-    { class = "DRUID",   castSpell = 1126,   buffIDs = { 1126, 432661 } },
-    { class = "WARRIOR", castSpell = 6673,   buffIDs = { 6673 } },
-    { class = "PRIEST",  castSpell = 21562,  buffIDs = { 21562 } },
-    { class = "MAGE",    castSpell = 1459,   buffIDs = { 1459, 432778 } },
-    { class = "EVOKER",  castSpell = 364342, buffIDs = { 381732, 381741, 381746, 381748, 381749,
-        381750, 381751, 381752, 381753, 381754, 381756, 381757, 381758 } },
-    { class = "SHAMAN",  castSpell = 462854, buffIDs = { 462854 } },
-}
+-- Buff IDs: the shared lists AuraBuff Reminders reads too. Older augment runes
+-- count as missing. Raid buffs: only those whose class is in the group are checked.
+local PREP = EllesmereUI.RAID_PREP_IDS
+local FLASK_BUFF_IDS = PREP.flask
+local RUNE_IDS, OLD_RUNE_IDS = PREP.rune, PREP.oldRune
+local VANTUS_IDS = PREP.vantus
+local RAID_BUFFS = PREP.raidBuffs
 
--- Midnight boss buffs of Vantus Runes (Season 1 and 2, both IDs of each boss).
-local VANTUS_IDS = {
-    1276666, 1276669, 1276682, 1276683, 1276685, 1276686, 1276687, 1276688,
-    1276691, 1276698, 1276704, 1276705, 1276708, 1276709, 1276711, 1276712,
-    1276714, 1276715,
-    1300173, 1300174, 1303172, 1303173, 1303174, 1303175, 1303176, 1303177,
-    1303178, 1303179, 1303180, 1303181, 1303182, 1303183, 1303184, 1303185,
-    1303186, 1303187, 1310437, 1310439, 1319284, 1319286,
-}
-
-local PAD, TITLE_H, HEAD_H = 8, 24, 20
+local PAD, TITLE_H, HEAD_H = 8, RT.TOPBAR_H, 20
 local ROW_H, NAME_W, CELL_W, ICON = 18, 110, 24, 14
 local BUFF_SLOTS, BUFF_STEP = 6, 16
 local CELLS = 4             -- flask, food, rune, vantus
-local RUNE_COL = 3
+local RUNE_COL, VANTUS_COL = 3, 4
 local BLOCK_GAP = 12
 local ROWS_PER_BLOCK = 20
 local TOTAL_ROWS = 3        -- Missing, Expiring soon, Unknown
-local MIN_W = 400           -- fits the checkbox row and the note line
+local MIN_W = 400           -- fits the note line; the checkbox row can widen it
 local NOTE_H = 16
 local CB_H = 22             -- checkbox row between the totals and the note
 
@@ -82,20 +58,20 @@ local frame
 local rows, heads = {}, {}
 local units = {}            -- display order
 local isMember = {}         -- [unit] = true for listed group members
-local states = {}           -- [unit] = last computed state
+local states = {}           -- [unit] = last computed state, reused
 local shownUnits = {}       -- units drawn, in order
 local Render                -- defined with the refresh code below
 
--- Column geometry. The rune column drops out while Require Augment Rune is
--- off; SetColumns recomputes this and bumps colsKey, and every row, header
--- and totals row re-places itself once per change (Place*).
+-- Column geometry. The rune and vantus columns drop out while their Require
+-- box is off; SetColumns recomputes this and bumps colsKey, and every row,
+-- header and totals row re-places itself once per change (Place*).
 local colShown, colX = { true, true, true, true }, {}
 local buffsX, blockW
 local colsKey = 0
 
-local function SetColumns(runeShown)
-    if buffsX and colShown[RUNE_COL] == runeShown then return end
-    colShown[RUNE_COL] = runeShown
+local function SetColumns(runeShown, vantusShown)
+    if buffsX and colShown[RUNE_COL] == runeShown and colShown[VANTUS_COL] == vantusShown then return end
+    colShown[RUNE_COL], colShown[VANTUS_COL] = runeShown, vantusShown
     local x = NAME_W
     for k = 1, CELLS do
         colX[k] = x
@@ -105,9 +81,9 @@ local function SetColumns(runeShown)
     blockW = buffsX + BUFF_SLOTS * BUFF_STEP + 2
     colsKey = colsKey + 1
 end
-SetColumns(true)
+SetColumns(true, false)
 local providers = {}        -- [classToken] = true for connected members
-local dirty, flushPending = {}, false
+local dirty, flushPending, rosterDirty = {}, false, false
 local runeReadable, vantusReadable  -- every ID of the list is non-secret on this client; set on first open
 
 local function CDB()
@@ -136,20 +112,23 @@ local function RuneRequired()
     return not c or c.buffCheckRuneRequired ~= false
 end
 
-local function CanLead()
-    if IsInRaid() then
-        return UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")
-    end
-    return IsInGroup() and UnitIsGroupLeader("player")
+-- Default off: a missing vantus rune makes a player not fully buffed.
+local function VantusRequired()
+    local c = CDB()
+    return c and c.buffCheckVantusRequired == true or false
 end
 
 local function Restricted()
-    local ak = EllesmereUI.AuraKit
-    return ak and ak.AurasRestricted() or false
+    return EllesmereUI.AuraKit.AurasRestricted()
 end
 
 local function Msg(text)
     EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. text)
+end
+
+-- On-screen text in the QoL font; Raid Tools' ApplyFonts keeps it current.
+local function Text(parent, size, r, g, b)
+    return RT.Text(frame, parent, size, r, g, b)
 end
 
 -------------------------------------------------------------------------------
@@ -160,7 +139,7 @@ local function AllReadable(ids)
     if not should then return true end
     for i = 1, #ids do
         local ok, secret = pcall(should, ids[i])
-        if not ok or isSecret(secret) or secret ~= false then return false end
+        if not ok or IsSecret(secret) or secret ~= false then return false end
     end
     return true
 end
@@ -169,7 +148,7 @@ end
 -- secret or the aura never expires.
 local function Present(aura)
     local exp = aura.expirationTime
-    if exp == nil or isSecret(exp) or exp == 0 then return true end
+    if exp == nil or IsSecret(exp) or exp == 0 then return true end
     return exp
 end
 
@@ -181,14 +160,6 @@ end
 
 -- State values: true or an expiration time = has it, false = verified
 -- missing, nil = cannot tell, "eating" = food channel up.
-local function FlaskState(unit)
-    for i = 1, #FLASK_BUFF_IDS do
-        local v = FindID(unit, FLASK_BUFF_IDS[i])
-        if v then return v end
-    end
-    return false
-end
-
 local function ListState(unit, ids, readable, restricted)
     for i = 1, #ids do
         local v = FindID(unit, ids[i])
@@ -218,7 +189,7 @@ local function FoodState(unit, restricted)
         if not ok then return nil end
         if not aura then break end
         local ic = aura.icon
-        if ic ~= nil and not isSecret(ic) then
+        if ic ~= nil and not IsSecret(ic) then
             sawReadable = true
             if ic == WELL_FED_ICON then return Present(aura) end
             -- Eating only counts when no stat buff is up: refreshing one shows both.
@@ -266,7 +237,7 @@ local function MakeCell(parent)
     cell.tex = cell:CreateTexture(nil, "ARTWORK")
     cell.tex:SetSize(ICON, ICON)
     cell.tex:SetPoint("CENTER")
-    cell.q = EllesmereUI.MakeFont(cell, 11, nil, 0.6, 0.6, 0.6)
+    cell.q = Text(cell, 11, 0.6, 0.6, 0.6)
     cell.q:SetPoint("CENTER")
     cell.q:SetText("?")
     return cell
@@ -280,7 +251,7 @@ local function MakeRow(i)
         stripe:SetColorTexture(1, 1, 1, 0.03)
         stripe:SetAllPoints(r)
     end
-    r.name = EllesmereUI.MakeFont(r, 11, nil, 1, 1, 1)
+    r.name = Text(r, 11, 1, 1, 1)
     r.name:SetPoint("LEFT", r, "LEFT", 4, 0)
     r.name:SetWidth(NAME_W - 6)
     r.name:SetJustifyH("LEFT")
@@ -300,7 +271,7 @@ local function MakeRow(i)
     r.buffsOk = r:CreateTexture(nil, "ARTWORK")
     r.buffsOk:SetSize(ICON, ICON)
     r.buffsOk:SetTexture(TEX_YES)
-    r.buffsQ = EllesmereUI.MakeFont(r, 11, nil, 0.6, 0.6, 0.6)
+    r.buffsQ = Text(r, 11, 0.6, 0.6, 0.6)
     r.buffsQ:SetPoint("LEFT", r.buffsOk, "LEFT", 0, 0)
     r.buffsQ:SetText("?")
     rows[i] = r
@@ -370,11 +341,11 @@ local function MakeHeader(b)
         hit:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, tip) end)
         hit:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
     end
-    Icon(C_Spell.GetSpellTexture(1235110), EllesmereUI.L("Flask"))
+    Icon(C_Spell.GetSpellTexture(FLASK_BUFF_IDS[1]), EllesmereUI.L("Flask"))
     Icon(WELL_FED_ICON, EllesmereUI.L("Food"))
     Icon(C_Item.GetItemIconByID(RUNE_ITEM), EllesmereUI.L("Augment Rune"))
     Icon(C_Item.GetItemIconByID(VANTUS_ITEM), EllesmereUI.L("Vantus Rune"))
-    h.buffsLabel = EllesmereUI.MakeFont(h, 11, nil, 0.8, 0.8, 0.8)
+    h.buffsLabel = Text(h, 11, 0.8, 0.8, 0.8)
     h.buffsLabel:SetText(EllesmereUI.L("Raid Buffs"))
     heads[b] = h
     return h
@@ -405,6 +376,11 @@ local function SavePosition()
     c.buffCheckPos = { point = "TOPLEFT", relPoint = "TOPLEFT", x = x, y = y }
 end
 
+local function StopWake()
+    if frame._wake then frame._wake:Cancel() end
+    frame._wake, frame._wakeAt = nil, nil
+end
+
 local function Build()
     if frame then return end
     frame = CreateFrame("Frame", "EllesmereUIRaidBuffCheck", UIParent)
@@ -421,27 +397,21 @@ local function Build()
     frame:Hide()
     frame:SetScript("OnHide", function()
         Listen(false)
-        if frame._ticker then frame._ticker:Cancel(); frame._ticker = nil end
+        StopWake()
     end)
+    RT.AddFontOwner(frame)
+    RT.SkinPanelBg(frame)
+    RT.SkinPanelBorder(frame)
 
-    local bg = frame:CreateTexture(nil, "BACKGROUND", nil, -8)
-    bg:SetColorTexture(0.05, 0.05, 0.05, 0.92)
-    bg:SetAllPoints(frame)
-    local band = frame:CreateTexture(nil, "BACKGROUND", nil, -7)
-    band:SetColorTexture(0, 0, 0, 0.5)
-    band:SetPoint("TOPLEFT")
-    band:SetPoint("TOPRIGHT")
-    band:SetHeight(TITLE_H)
-    EllesmereUI.MakeBorder(frame, 0.2, 0.2, 0.2, 1)
-
-    local title = EllesmereUI.MakeFont(frame, 12, nil, 1, 1, 1)
+    local title = Text(frame, 12, 1, 1, 1)
     title:SetPoint("LEFT", frame, "TOPLEFT", PAD, -TITLE_H / 2)
     title:SetText(EllesmereUI.L("Raid Buff Check"))
 
     local close = CreateFrame("Button", nil, frame)
-    close:SetSize(16, 16)
+    close:SetSize(14, 14)
     close:SetPoint("RIGHT", frame, "TOPRIGHT", -6, -TITLE_H / 2)
-    local cfs = EllesmereUI.MakeFont(close, 13, nil, 1, 1, 1)
+    RT.SkinButtonChrome(close)
+    local cfs = Text(close, 12, 1, 1, 1)
     cfs:SetPoint("CENTER", close, "CENTER", 0, 1)
     cfs:SetText("x")
     cfs:SetAlpha(0.7)
@@ -451,8 +421,7 @@ local function Build()
 
     -- Checkbox row above the note, left to right; each label is part of its
     -- box's hit rect.
-    local ar, ag, ab = 1, 1, 1
-    if EllesmereUI.GetAccentColor then ar, ag, ab = EllesmereUI.GetAccentColor() end
+    local ar, ag, ab = EllesmereUI.GetAccentColor()
     local function MakeCheckbox(text, onClick)
         local cb = CreateFrame("Button", nil, frame)
         cb:SetSize(14, 14)
@@ -465,7 +434,7 @@ local function Build()
         cb.check:SetPoint("CENTER")
         cb.check:SetSize(16, 16)
         cb.check:SetVertexColor(ar, ag, ab)
-        cb.label = EllesmereUI.MakeFont(frame, 11, nil, 0.85, 0.85, 0.85)
+        cb.label = Text(frame, 11, 0.85, 0.85, 0.85)
         cb.label:SetPoint("LEFT", cb, "RIGHT", 6, 0)
         cb.label:SetText(text)
         cb:SetHitRectInsets(0, -(cb.label:GetStringWidth() + 6), 0, 0)
@@ -484,10 +453,18 @@ local function Build()
         c.buffCheckRuneRequired = not RuneRequired()
         Render()
     end)
+    frame.vantusBox = MakeCheckbox(EllesmereUI.L("Require Vantus Rune"), function()
+        local c = CDB()
+        if not c then return end
+        c.buffCheckVantusRequired = not VantusRequired()
+        Render()
+    end)
+    frame.boxes = { frame.onlyBox, frame.runeBox, frame.vantusBox }
     frame.onlyBox:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD + 4, NOTE_H + (CB_H - 14) / 2)
     frame.runeBox:SetPoint("LEFT", frame.onlyBox.label, "RIGHT", 16, 0)
+    frame.vantusBox:SetPoint("LEFT", frame.runeBox.label, "RIGHT", 16, 0)
 
-    frame.empty = EllesmereUI.MakeFont(frame, 11, nil, 0.4, 0.9, 0.4)
+    frame.empty = Text(frame, 11, 0.4, 0.9, 0.4)
     frame.empty:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + 4, -TITLE_H - 6)
     frame.empty:SetText(EllesmereUI.L("Everyone is fully buffed."))
     frame.empty:Hide()
@@ -504,19 +481,19 @@ local function Build()
     for t = 1, TOTAL_ROWS do
         local tr = CreateFrame("Frame", nil, frame.table)
         tr:SetHeight(ROW_H)
-        local lbl = EllesmereUI.MakeFont(tr, 11, nil, 0.85, 0.85, 0.85)
+        local lbl = Text(tr, 11, 0.85, 0.85, 0.85)
         lbl:SetPoint("LEFT", tr, "LEFT", 4, 0)
         lbl:SetText(labels[t])
         tr.counts = {}
         for k = 1, CELLS + 1 do
-            tr.counts[k] = EllesmereUI.MakeFont(tr, 11, nil, 1, 1, 1)
+            tr.counts[k] = Text(tr, 11, 1, 1, 1)
         end
         frame.totals[t] = tr
     end
     frame.sep = frame.table:CreateTexture(nil, "ARTWORK")
     frame.sep:SetColorTexture(1, 1, 1, 0.15)
     frame.sep:SetHeight(1)
-    frame.note = EllesmereUI.MakeFont(frame, 10, nil, 0.6, 0.6, 0.6)
+    frame.note = Text(frame, 10, 0.6, 0.6, 0.6)
     frame.note:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, 4)
 
     local pos = CDB() and CDB().buffCheckPos
@@ -532,8 +509,7 @@ end
 -------------------------------------------------------------------------------
 local function UnitClassToken(unit)
     local _, cls = UnitClass(unit)
-    if cls == nil or isSecret(cls) then return nil end
-    return cls
+    return PlainString(cls)
 end
 
 -- Alphabetical by name; a secret name sorts last, by unit token.
@@ -567,8 +543,8 @@ local function CollectUnits()
     wipe(sortName)
     for i = 1, #units do
         local u = units[i]
-        local name = UnitName(u)
-        if name ~= nil and not isSecret(name) then sortName[u] = strlower(name) end
+        local name = PlainString(UnitName(u))
+        if name then sortName[u] = strlower(name) end
     end
     table.sort(units, SortByName)
     for i = 1, #units do
@@ -585,9 +561,9 @@ local function ComputeState(unit, restricted)
     local online = UnitIsConnected(unit)
     local dead = UnitIsDeadOrGhost(unit)
     local visible = UnitIsVisible(unit)
-    if isSecret(online) then online = true end
-    if isSecret(dead) then dead = false end
-    if isSecret(visible) then visible = true end
+    if IsSecret(online) then online = true end
+    if IsSecret(dead) then dead = false end
+    if IsSecret(visible) then visible = true end
     s.online = online
     s.missing = 0
     s.buffsExp = nil
@@ -597,7 +573,7 @@ local function ComputeState(unit, restricted)
         for j = #icons, 1, -1 do icons[j] = nil end
         return
     end
-    s.flask = FlaskState(unit)
+    s.flask = ListState(unit, FLASK_BUFF_IDS, true, false)
     s.food = FoodState(unit, restricted)
     s.rune = ListState(unit, RUNE_IDS, runeReadable, restricted)
     if not s.rune and ListState(unit, OLD_RUNE_IDS, true, false) then s.rune = false end
@@ -624,11 +600,11 @@ local function ComputeState(unit, restricted)
 end
 
 -- Missing, unknown (nil) and running out count; eating does not.
-local function NotFullyBuffed(s, now, runeRequired)
+local function NotFullyBuffed(s, now, runeRequired, vantusRequired)
     if runeRequired and (not s.rune or SoonLeft(s.rune, now)) then return true end
-    return not s.flask or not s.food or not s.vantus or s.missing > 0
-        or SoonLeft(s.flask, now) or SoonLeft(s.food, now)
-        or SoonLeft(s.vantus, now) or SoonLeft(s.buffsExp, now)
+    if vantusRequired and (not s.vantus or SoonLeft(s.vantus, now)) then return true end
+    return not s.flask or not s.food or s.missing > 0
+        or SoonLeft(s.flask, now) or SoonLeft(s.food, now) or SoonLeft(s.buffsExp, now)
 end
 
 local function PaintRow(r, unit, now)
@@ -667,11 +643,22 @@ local function PaintRow(r, unit, now)
     end
 end
 
+-- Wide enough for the note line and the checkbox row (its labels follow the font).
+local function MinWidth()
+    local w = PAD + 4
+    for i, cb in ipairs(frame.boxes) do
+        if i > 1 then w = w + 16 end
+        w = w + 14 + 6 + cb.label:GetStringWidth()
+    end
+    return math.max(MIN_W, w + PAD)
+end
+
 -- n == 0: Render hides the whole table; the empty message takes one row
 -- under the title.
 local function Layout(n, nTotals)
     if n == 0 then
-        frame:SetSize(MIN_W, TITLE_H + 2 + ROW_H + 6 + CB_H + NOTE_H)
+        frame:SetSize(MinWidth(), TITLE_H + 2 + ROW_H + 6 + CB_H + NOTE_H)
+        frame._bgFit()
         return
     end
     local blocks = math.max(1, math.ceil(n / ROWS_PER_BLOCK))
@@ -694,8 +681,9 @@ local function Layout(n, nTotals)
         r:Show()
     end
     for i = n + 1, #rows do rows[i]:Hide() end
-    frame:SetSize(math.max(MIN_W, PAD * 2 + blocks * blockW + (blocks - 1) * BLOCK_GAP),
+    frame:SetSize(math.max(MinWidth(), PAD * 2 + blocks * blockW + (blocks - 1) * BLOCK_GAP),
         TITLE_H + 2 + HEAD_H + perBlock * ROW_H + 6 + nTotals * ROW_H + CB_H + NOTE_H)
+    frame._bgFit()
 end
 
 -- totals[row][column]; columns are flask, food, rune, vantus, raid buffs.
@@ -707,15 +695,32 @@ local function Tally(t, col, v, now)
     elseif SoonLeft(v, now) then t[2][col] = t[2][col] + 1 end
 end
 
+-- The next time the drawing changes on its own: a countdown's next step, or a
+-- shown buff crossing into its last 10 minutes. One timer, re-armed only for
+-- an earlier time.
+local wakeAt
+local function Wake(v, now)
+    if type(v) ~= "number" then return end
+    local at = v - EXPIRE_SOON
+    if at <= now then at = now + TICK end
+    if not wakeAt or at < wakeAt then wakeAt = at end
+end
+
+local function OnWake()
+    frame._wake, frame._wakeAt = nil, nil
+    Render()
+end
+
 function Render()
     local filter = OnlyMissing()
-    local runeRequired = RuneRequired()
-    SetColumns(runeRequired)
+    local runeRequired, vantusRequired = RuneRequired(), VantusRequired()
+    SetColumns(runeRequired, vantusRequired)
     local now = GetTime()
     for t = 1, TOTAL_ROWS do
         for k = 1, CELLS + 1 do totals[t][k] = 0 end
     end
     wipe(shownUnits)
+    wakeAt = nil
     for i = 1, #units do
         local u = units[i]
         local s = states[u]
@@ -732,7 +737,14 @@ function Render()
             elseif SoonLeft(s.buffsExp, now) then
                 totals[2][5] = totals[2][5] + 1
             end
-            if not filter or NotFullyBuffed(s, now, runeRequired) then shownUnits[#shownUnits + 1] = u end
+            Wake(s.flask, now)
+            Wake(s.food, now)
+            if runeRequired then Wake(s.rune, now) end
+            if vantusRequired then Wake(s.vantus, now) end
+            Wake(s.buffsExp, now)
+            if not filter or NotFullyBuffed(s, now, runeRequired, vantusRequired) then
+                shownUnits[#shownUnits + 1] = u
+            end
         end
     end
     -- Totals rows with a non-zero count, stacked upward from the note line.
@@ -776,10 +788,16 @@ function Render()
     frame.empty:SetShown(n == 0)
     frame.onlyBox.check:SetShown(filter)
     frame.runeBox.check:SetShown(runeRequired)
+    frame.vantusBox.check:SetShown(vantusRequired)
     if frame._restricted then
         frame.note:SetText(EllesmereUI.L("Food and runes cannot be read here (aura restriction). ? = unknown"))
     else
         frame.note:SetText(EllesmereUI.L("? = unknown (offline, dead or out of range)"))
+    end
+    if wakeAt and (not frame._wakeAt or wakeAt < frame._wakeAt) then
+        if frame._wake then frame._wake:Cancel() end
+        frame._wake = C_Timer.NewTimer(wakeAt - now, OnWake)
+        frame._wakeAt = wakeAt
     end
 end
 
@@ -788,14 +806,25 @@ local function Rebuild()
     CollectUnits()
     local restricted = Restricted()
     frame._restricted = restricted
-    wipe(states)
     for i = 1, #units do ComputeState(units[i], restricted) end
     Render()
 end
 
+-- Same-burst events end in one pass: a roster or connection change re-reads
+-- every member, aura changes only the members they named.
 local function Flush()
     flushPending = false
-    if not frame or not frame:IsShown() or InCombatLockdown() then wipe(dirty); return end
+    if not frame or not frame:IsShown() or InCombatLockdown() then
+        wipe(dirty)
+        rosterDirty = false
+        return
+    end
+    if rosterDirty then
+        rosterDirty = false
+        wipe(dirty)
+        Rebuild()
+        return
+    end
     local restricted = Restricted()
     frame._restricted = restricted
     for unit in pairs(dirty) do
@@ -803,6 +832,13 @@ local function Flush()
     end
     wipe(dirty)
     Render()
+end
+
+local function Schedule()
+    if not flushPending then
+        flushPending = true
+        C_Timer.After(0.2, Flush)
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -821,7 +857,6 @@ local function Open()
     frame:Show()
     Listen(true)
     Rebuild()
-    if not frame._ticker then frame._ticker = C_Timer.NewTicker(TICK, Render) end
 end
 
 -- Called by RaidTools' Apply (login, settings, profile switch).
@@ -831,18 +866,21 @@ function ns.BuffCheckSync()
 end
 
 ev:SetScript("OnEvent", function(_, event, unit)
-    if event == "UNIT_AURA" or event == "UNIT_CONNECTION" then
+    if event == "UNIT_AURA" then
         if not isMember[unit] then return end
         dirty[unit] = true
-        if not flushPending then
-            flushPending = true
-            C_Timer.After(0.2, Flush)
-        end
+        Schedule()
+    elseif event == "UNIT_CONNECTION" then
+        -- Also who can provide the raid buffs.
+        if not isMember[unit] then return end
+        rosterDirty = true
+        Schedule()
     elseif event == "GROUP_ROSTER_UPDATE" then
         if not IsInGroup() then frame:Hide(); return end
-        Rebuild()
+        rosterDirty = true
+        Schedule()
     elseif event == "READY_CHECK" then
-        if CanLead() then Open() end
+        if RT.HasAssist() then Open() end
     elseif event == "PLAYER_REGEN_DISABLED" then
         if frame then frame:Hide() end
     end

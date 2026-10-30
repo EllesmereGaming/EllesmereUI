@@ -119,11 +119,15 @@ local function EnsureTooltipFrame()
     _ttFrame._hdrText:SetWidth(TT_WIDTH - 25); _ttFrame._hdrText:SetJustifyH("LEFT"); _ttFrame._hdrText:SetWordWrap(false)
     SetDMFont(_ttFrame._hdrText, 10)
 
-    -- Combat lockdown message (shown instead of bars)
+    -- Combat lockdown message (shown instead of bars), centred in the body
+    -- under the header: the note's own 40-unit body, or the taller one sized
+    -- for the mid-fight enemy panels.
+    local msgArea = CreateFrame("Frame", nil, _ttFrame)
+    msgArea:SetPoint("TOPLEFT", _ttFrame._hdr, "BOTTOMLEFT", 0, 0)
+    msgArea:SetPoint("BOTTOMRIGHT", _ttFrame, "BOTTOMRIGHT", 0, 0)
     _ttFrame._combatMsg = _ttFrame:CreateFontString(nil, "OVERLAY")
-    _ttFrame._combatMsg:SetPoint("TOP", _ttFrame._hdr, "BOTTOM", 0, -8)
-    _ttFrame._combatMsg:SetPoint("LEFT", _ttFrame, "LEFT", 8, 0)
-    _ttFrame._combatMsg:SetPoint("RIGHT", _ttFrame, "RIGHT", -8, 0)
+    _ttFrame._combatMsg:SetPoint("LEFT", msgArea, "LEFT", 8, 0)
+    _ttFrame._combatMsg:SetPoint("RIGHT", msgArea, "RIGHT", -8, 0)
     _ttFrame._combatMsg:SetJustifyH("CENTER"); _ttFrame._combatMsg:SetWordWrap(true)
     SetDMFont(_ttFrame._combatMsg, 10)
     _ttFrame._combatMsg:SetTextColor(0.6, 0.6, 0.6, 1)
@@ -136,16 +140,12 @@ local function EnsureTooltipFrame()
     _ttFrame:Hide()
 end
 
--- Lazy bar pool: creates bars on demand up to the requested index
-local function EnsureTTBar(i)
-    if _ttBars[i] then return _ttBars[i] end
-    EnsureTooltipFrame()
-    local ttStride = TTStride()
+-- One breakdown row (fill, icon, name and amount), built hidden; the caller
+-- places it.
+local function NewTTRow(parent)
     local b = {}
-    b.row = CreateFrame("Frame", nil, _ttFrame)
+    b.row = CreateFrame("Frame", nil, parent)
     b.row:SetHeight(TT_BAR_H)
-    b.row:SetPoint("TOPLEFT", _ttFrame, "TOPLEFT", 0, -(TT_HDR_H + (i-1) * ttStride))
-    b.row:SetPoint("TOPRIGHT", _ttFrame, "TOPRIGHT", 0, -(TT_HDR_H + (i-1) * ttStride))
     b.fill = CreateFrame("StatusBar", nil, b.row)
     b.fill:SetAllPoints(); b.fill:SetMinMaxValues(0, 1); b.fill:SetValue(0); b.fill:SetStatusBarTexture(BAR_TEX)
     b.spellIcon = b.row:CreateTexture(nil, "OVERLAY")
@@ -159,12 +159,24 @@ local function EnsureTTBar(i)
     b.amount = tf:CreateFontString(nil, "OVERLAY"); b.amount:SetPoint("RIGHT", tf, "RIGHT", -2, 0); b.amount:SetJustifyH("RIGHT"); SetDMFont(b.amount, 10)
     b.label:SetPoint("RIGHT", b.amount, "LEFT", -3, 0)
     b.row:Hide()
+    return b
+end
+
+-- Lazy bar pool: creates bars on demand up to the requested index
+local function EnsureTTBar(i)
+    if _ttBars[i] then return _ttBars[i] end
+    EnsureTooltipFrame()
+    local ttStride = TTStride()
+    local b = NewTTRow(_ttFrame)
+    b.row:SetPoint("TOPLEFT", _ttFrame, "TOPLEFT", 0, -(TT_HDR_H + (i-1) * ttStride))
+    b.row:SetPoint("TOPRIGHT", _ttFrame, "TOPRIGHT", 0, -(TT_HDR_H + (i-1) * ttStride))
     _ttBars[i] = b
     return b
 end
 
 local _ttLastStride = -1
 local _ttSorted = {}
+local _ttEnemyRows = {}
 
 -- Hide the "Targets" sub-section left over from a prior tooltip
 local function HideTTTargets()
@@ -174,9 +186,260 @@ local function HideTTTargets()
     end
 end
 
+-- An Enemy Damage Taken attacker row (AggregateEnemyPlayers): spec icon or
+-- class art, class coloured fill, name and amount. A secret name or amount
+-- passes whole to the bar and text setters.
+local function PaintAttackerRow(b, p, maxAmt, texPath, texKey, numFmt)
+    local specIcon = p.specIcon
+    if specIcon and type(specIcon) == "number" and specIcon ~= 0 then
+        b.spellIcon:SetTexture(specIcon)
+        b.spellIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        b.spellIcon:Show()
+    elseif p.class and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[p.class] then
+        b.spellIcon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
+        b.spellIcon:SetTexCoord(unpack(CLASS_ICON_TCOORDS[p.class]))
+        b.spellIcon:Show()
+    else
+        b.spellIcon:Hide()
+    end
+    if b.spellIcon:IsShown() then
+        b.fill:ClearAllPoints(); b.fill:SetPoint("TOPLEFT", b.spellIcon, "TOPRIGHT", 0, 0); b.fill:SetPoint("BOTTOMRIGHT", b.row, "BOTTOMRIGHT", 0, 0)
+    else
+        b.fill:ClearAllPoints(); b.fill:SetAllPoints(b.row)
+    end
+    ApplyBarTexture(b.fill, texPath, texKey); b.fill:SetMinMaxValues(0, maxAmt); b.fill:SetValue(p.total)
+    local cc = p.class and RAID_CLASS_COLORS[p.class] and EUI.GetClassColor(p.class)
+    if cc then b.fill:SetStatusBarColor(cc.r, cc.g, cc.b)
+    else b.fill:SetStatusBarColor(0x33/255, 0x33/255, 0x33/255) end
+    b.label:SetTextColor(1, 1, 1); b.amount:SetTextColor(1, 1, 1)
+    b.label:SetText(StripRealm(p.name, nil, p))
+    b.amount:SetText(FormatBarValue(p.total, p.amountPerSecond, numFmt))
+    b.row:Show()
+end
+
+-------------------------------------------------------------------------------
+--  Enemy Damage Taken mid-fight, inside this season's dungeons
+--
+--  Combat hides each enemy row's own creature ID, and the breakdown getters
+--  refuse a secret ID from addon code, but a plain NPC ID still fetches that
+--  mob's live attackers. ns.DM_SEASON_MOBS lists the NPC IDs of this season's
+--  dungeons, so a hover fetches every listed mob in the fight and gives each
+--  one a panel. Each panel sits behind two hidden bars fed the hovered row's
+--  secret ID: the first fills once the ID reaches the panel's NPC ID, the
+--  second once it passes it. One clip runs up to the first fill's edge, a
+--  second from the second fill's edge, so a panel shows only while the ID is
+--  its NPC ID. Lua never learns which panel that is; the engine draws the
+--  match. The combat note sits under the panels' opaque bodies, so it shows
+--  only when no listed mob matches the row.
+-------------------------------------------------------------------------------
+local GATE_MAX = 16   -- listed mobs in one fight that get a panel
+local ENEMY_DAMAGE_TAKEN = Enum.DamageMeterType.EnemyDamageTaken
+local _seasonByInstance
+local _gateHost, _gateReveal
+local _gatePanels, _gateUsed = {}, 0
+
+-- This instance's listed NPC IDs, or nil outside this season's dungeons, raids
+-- and boss lairs. A raid or lair is named by the map ID the game reports inside
+-- it (ns.DM_SEASON_RAIDS). A dungeon in a key by its Mythic+ map ID; on any
+-- other difficulty by the reported map ID, matched through each Mythic+ map's
+-- own (GetMapUIInfo's sixth return), resolved once every map answers.
+local function SeasonMobsHere()
+    local data = ns.DM_SEASON_MOBS
+    if not data then return nil end
+    local raid = ns.DM_SEASON_RAIDS[select(8, GetInstanceInfo())]
+    if raid then return raid end
+    local keyMap = C_ChallengeMode.GetActiveChallengeMapID()
+    if keyMap and data[keyMap] then return data[keyMap] end
+    local byInstance = _seasonByInstance
+    if not byInstance then
+        byInstance = {}
+        local complete = true
+        for keyMapID, mobs in pairs(data) do
+            local mapID = select(6, C_ChallengeMode.GetMapUIInfo(keyMapID))
+            if mapID then byInstance[mapID] = mobs else complete = false end
+        end
+        if complete then _seasonByInstance = byInstance end
+    end
+    return byInstance[select(8, GetInstanceInfo())]
+end
+-- For the row hover gate in CreateDMWindow, which sits at Lua 5.1's
+-- 60-upvalue cap and reaches helpers through ns.
+ns.DMSeasonMobsHere = SeasonMobsHere
+
+local function FetchEnemy(session, sessionID, npcID)
+    local ok, sd
+    if sessionID then
+        ok, sd = pcall(C_DamageMeter.GetCombatSessionSourceFromID, sessionID, ENEMY_DAMAGE_TAKEN, nil, npcID)
+    else
+        ok, sd = pcall(C_DamageMeter.GetCombatSessionSourceFromType, session, ENEMY_DAMAGE_TAKEN, nil, npcID)
+    end
+    return ok and sd or nil
+end
+
+-- A hidden bar: its fill draws nothing and is never snapped to the pixel
+-- grid, so its edge sits exactly where the value puts it.
+local function NewGateBar(parent)
+    local gate = CreateFrame("StatusBar", nil, parent)
+    gate:EnableMouse(false)
+    gate:SetAllPoints(parent)
+    gate:SetStatusBarTexture("Interface\\Buttons\\WHITE8x8")
+    local fill = gate:GetStatusBarTexture()
+    fill:SetVertexColor(0, 0, 0, 0)
+    fill:SetSnapToPixelGrid(false)
+    fill:SetTexelSnappingBias(0)
+    gate:SetAlpha(0)
+    gate:SetMinMaxValues(0, 1)
+    gate:SetValue(0)
+    return gate, fill
+end
+
+local function NewGateClip(parent)
+    local clip = CreateFrame("Frame", nil, parent)
+    clip:SetClipsChildren(true)
+    clip:EnableMouse(false)
+    return clip
+end
+
+-- The clips again from the fills' current edges: after every feed and once
+-- more on the next frame, so neither keeps the edge of a fill that moved.
+local function HangGatePanel(gp)
+    local clipA, clipB = gp.clipA, gp.clipB
+    clipA:ClearAllPoints()
+    clipA:SetPoint("TOPLEFT", gp.gateA, "TOPLEFT", 0, 0)
+    clipA:SetPoint("BOTTOMLEFT", gp.gateA, "BOTTOMLEFT", 0, 0)
+    clipA:SetPoint("TOPRIGHT", gp.fillA, "TOPRIGHT", 0, 0)
+    clipA:SetPoint("BOTTOMRIGHT", gp.fillA, "BOTTOMRIGHT", 0, 0)
+    clipB:ClearAllPoints()
+    clipB:SetPoint("TOPLEFT", gp.fillB, "TOPRIGHT", 0, 0)
+    clipB:SetPoint("BOTTOMLEFT", gp.fillB, "BOTTOMRIGHT", 0, 0)
+    clipB:SetPoint("TOPRIGHT", gp.gateB, "TOPRIGHT", 0, 0)
+    clipB:SetPoint("BOTTOMRIGHT", gp.gateB, "BOTTOMRIGHT", 0, 0)
+end
+
+local function EnsureGateHost()
+    if _gateHost then return end
+    _gateHost = CreateFrame("Frame", nil, _ttFrame)
+    _gateHost:EnableMouse(false)
+    -- Shown one frame after a hover's feed: the clips are hung again, then
+    -- the panels and the note behind them appear together.
+    _gateReveal = CreateFrame("Frame")
+    _gateReveal:Hide()
+    _gateReveal:SetScript("OnUpdate", function(self)
+        self:Hide()
+        if not _gateHost:IsShown() then return end
+        for i = 1, _gateUsed do HangGatePanel(_gatePanels[i]) end
+        _gateHost:SetAlpha(1)
+        _ttFrame._combatMsg:Show()
+    end)
+end
+
+local function EnsureGatePanel(k)
+    local gp = _gatePanels[k]
+    if gp then return gp end
+    gp = { data = {}, rows = {} }
+    gp.gateA, gp.fillA = NewGateBar(_gateHost)
+    gp.gateB, gp.fillB = NewGateBar(_gateHost)
+    gp.clipA = NewGateClip(_gateHost)
+    gp.clipB = NewGateClip(gp.clipA)
+    gp.body = CreateFrame("Frame", nil, gp.clipB)
+    gp.body:SetAllPoints(_gateHost)
+    gp.bg = gp.body:CreateTexture(nil, "BACKGROUND")
+    gp.bg:SetAllPoints()
+    _gatePanels[k] = gp
+    return gp
+end
+
+local function ShowGatePanel(gp, shown)
+    gp.gateA:SetShown(shown); gp.gateB:SetShown(shown); gp.clipA:SetShown(shown)
+end
+
+-- The tooltip's own background colour, opaque, so a panel covers the note.
+local function TooltipBgRGB()
+    if BlizzardSkinBordersAvailable() and EUI.GetTooltipBg then
+        local r, g, b = EUI.GetTooltipBg()
+        return r, g, b
+    end
+    return 0, 0, 0
+end
+
+-- The hovered enemy's attackers from the listed NPC IDs. Returns false
+-- outside this season's dungeons (the row waits for combat to end), true
+-- otherwise: the panels, or the combat note when no listed mob is in the
+-- fight.
+local function GatedEnemyPreview(bar, curSession, curSessionID, ApplyTTHeader, ttStride, ttSp)
+    local mobs = SeasonMobsHere()
+    if not mobs then return false end
+    EnsureGateHost()
+    ApplyTTHeader(StripRealm(bar._src.name, bar._src) or "Unknown", L("Damage Taken"))
+    for bi = 1, #_ttBars do _ttBars[bi].row:Hide() end
+    local rowID = bar._src.sourceCreatureID
+    local used, tallest = 0, 0
+    if rowID ~= nil then
+        local duration = GetBreakdownDuration(curSession, curSessionID)
+        local texPath, texKey = GetBreakdownBarTexturePath()
+        local numFmt = DB().numberFormat or 2
+        local ttMax = TT_MAX()
+        local bgR, bgG, bgB = TooltipBgRGB()
+        for i = 1, #mobs do
+            if used == GATE_MAX then break end
+            local npcID = mobs[i]
+            local sd = FetchEnemy(curSession, curSessionID, npcID)
+            local spells = sd and sd.combatSpells
+            if spells and #spells > 0 then
+                local gp = EnsureGatePanel(used + 1)
+                local players, n = AggregateEnemyPlayers(sd, duration, gp.data)
+                if players then
+                    used = used + 1
+                    if n > ttMax then n = ttMax end
+                    if n > tallest then tallest = n end
+                    gp.gateA:SetMinMaxValues(npcID - 1, npcID)
+                    gp.gateA:SetValue(rowID)
+                    gp.gateB:SetMinMaxValues(npcID, npcID + 1)
+                    gp.gateB:SetValue(rowID)
+                    HangGatePanel(gp)
+                    gp.bg:SetColorTexture(bgR, bgG, bgB, 1)
+                    local maxAmt = players[1].total
+                    local rows = gp.rows
+                    for ri = 1, math.max(n, #rows) do
+                        local b = rows[ri]
+                        if ri <= n then
+                            if not b then b = NewTTRow(gp.body); rows[ri] = b end
+                            b.row:ClearAllPoints()
+                            b.row:SetPoint("TOPLEFT", gp.body, "TOPLEFT", 0, -((ri - 1) * ttStride))
+                            b.row:SetPoint("TOPRIGHT", gp.body, "TOPRIGHT", 0, -((ri - 1) * ttStride))
+                            PaintAttackerRow(b, players[ri], maxAmt, texPath, texKey, numFmt)
+                        else
+                            b.row:Hide()
+                        end
+                    end
+                    ShowGatePanel(gp, true)
+                end
+            end
+        end
+    end
+    for k = used + 1, #_gatePanels do ShowGatePanel(_gatePanels[k], false) end
+    _gateUsed = used
+    _ttFrame._combatMsg:SetText(EllesmereUI.L("Detailed information is\nsecret while in combat"))
+    local bodyH = math.max(40, tallest * ttStride - (tallest > 0 and ttSp or 0))
+    _ttFrame:SetSize(TT_WIDTH, TT_HDR_H + bodyH)
+    if used == 0 then
+        _gateHost:Hide()
+        _ttFrame._combatMsg:Show()
+        return true
+    end
+    _gateHost:ClearAllPoints()
+    _gateHost:SetPoint("TOPLEFT", _ttFrame, "TOPLEFT", 0, -TT_HDR_H)
+    _gateHost:SetSize(TT_WIDTH, bodyH)
+    _gateHost:SetAlpha(0)
+    _gateHost:Show()
+    _gateReveal:Show()
+    return true
+end
+
 local function PopulatePreview(bar, curSession, curSessionID, curDMType)
 
     if _ttFrame and _ttFrame._combatMsg then _ttFrame._combatMsg:Hide() end
+    if _gateHost then _gateHost:Hide() end
     HideTTTargets()
     if not bar._src then return false end
     if not bar._srcGUID and not bar._src.sourceCreatureID then return false end
@@ -314,52 +577,29 @@ local function PopulatePreview(bar, curSession, curSessionID, curDMType)
     if curDMType == Enum.DamageMeterType.EnemyDamageTaken then
         local guid = bar._srcGUID
         local cid = bar._src.sourceCreatureID
-        if issecretvalue and (issecretvalue(guid) or issecretvalue(cid)) then return false end
+        -- Mid-fight the row's own ID is secret: this season's listed NPC IDs.
+        if issecretvalue and (issecretvalue(guid) or issecretvalue(cid)) then
+            return GatedEnemyPreview(bar, curSession, curSessionID, ApplyTTHeader, ttStride, ttSp)
+        end
         local srcData
         if curSessionID and C_DamageMeter.GetCombatSessionSourceFromID then
             srcData = C_DamageMeter.GetCombatSessionSourceFromID(curSessionID, curDMType, guid, cid)
         elseif C_DamageMeter.GetCombatSessionSourceFromType then
             srcData = C_DamageMeter.GetCombatSessionSourceFromType(curSession, curDMType, guid, cid)
         end
-        local players = AggregateEnemyPlayers(srcData, GetBreakdownDuration(curSession, curSessionID))
+        local players, playerCount = AggregateEnemyPlayers(srcData, GetBreakdownDuration(curSession, curSessionID), _ttEnemyRows)
         if not players then return false end
 
         ApplyTTHeader(StripRealm(bar._src.name, bar._src) or "Unknown", L("Damage Taken"))
         local texPath, texKey = GetBreakdownBarTexturePath()
         local maxAmt = players[1].total
         local ttMax = TT_MAX()
-        local count = math.min(ttMax, #players)
+        local count = math.min(ttMax, playerCount)
         local numFmt = DB().numberFormat or 2
         for i = 1, math.max(ttMax, #_ttBars) do
             local b = EnsureTTBar(i)
             if i <= count then
-                local p = players[i]
-                -- Use spec icon if available, else class atlas
-                local specIcon = p.specIcon
-                if specIcon and type(specIcon) == "number" and specIcon ~= 0 then
-                    b.spellIcon:SetTexture(specIcon)
-                    b.spellIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-                    b.spellIcon:Show()
-                elseif p.class and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[p.class] then
-                    b.spellIcon:SetTexture("Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES")
-                    b.spellIcon:SetTexCoord(unpack(CLASS_ICON_TCOORDS[p.class]))
-                    b.spellIcon:Show()
-                else
-                    b.spellIcon:Hide()
-                end
-                if b.spellIcon:IsShown() then
-                    b.fill:ClearAllPoints(); b.fill:SetPoint("TOPLEFT", b.spellIcon, "TOPRIGHT", 0, 0); b.fill:SetPoint("BOTTOMRIGHT", b.row, "BOTTOMRIGHT", 0, 0)
-                else
-                    b.fill:ClearAllPoints(); b.fill:SetAllPoints(b.row)
-                end
-                ApplyBarTexture(b.fill, texPath, texKey); b.fill:SetMinMaxValues(0, maxAmt); b.fill:SetValue(p.total)
-                local cc = p.class and RAID_CLASS_COLORS[p.class] and EUI.GetClassColor(p.class)
-                if cc then b.fill:SetStatusBarColor(cc.r, cc.g, cc.b)
-                else b.fill:SetStatusBarColor(0x33/255, 0x33/255, 0x33/255) end
-                b.label:SetTextColor(1, 1, 1); b.amount:SetTextColor(1, 1, 1)
-                b.label:SetText(StripRealm(p.name, nil, p))
-                b.amount:SetText(FormatBarValue(p.total, p.amountPerSecond, numFmt))
-                b.row:Show()
+                PaintAttackerRow(b, players[i], maxAmt, texPath, texKey, numFmt)
             else b.row:Hide() end
         end
         _ttFrame:SetSize(TT_WIDTH, TT_HDR_H + count * ttStride - (count > 0 and ttSp or 0))
@@ -558,8 +798,11 @@ end
 -- would add an upvalue, and CreateDMWindow sits at Lua 5.1's 60-upvalue cap.
 ns._AnchorBreakdownFrame = AnchorBreakdownFrame
 
+-- The enemy panels go with it: the window's combat note shows the tooltip
+-- again without PopulatePreview, so none may wait inside it.
 local function HideBarTooltip()
     if _ttFrame then _ttFrame:Hide() end
+    if _gateHost then _gateHost:Hide() end
 end
 
 local function ShowBarTooltip(bar, curSession, curSessionID, curDMType)

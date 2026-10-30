@@ -1072,7 +1072,7 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
             { type = "toggle", label = "Show S for Seconds",
               get = function() return cfg.durationShowSeconds == true end,
               set = function(v) cfg.durationShowSeconds = v and true or nil; apply() end },
-            { type = "slider", label = "Precise Below (minutes, 0 = off)", min = 0, max = 60, step = 1,
+            { type = "slider", label = "Precise Below (minutes, 0 = off)", min = 0, max = 90, step = 1,
               get = function() return cfg.durationPrecisionThreshold and cfg.durationPrecisionThreshold / 60 or 0 end,
               set = function(v) cfg.durationPrecisionThreshold = v > 0 and math.floor(v * 60 + 0.5) or nil; apply() end },
         } })

@@ -938,6 +938,9 @@ function ERF:UpdateAllFrames()
     -- Cross-module pushes (Dark Mode master, accent) change paint inputs outside the RF options
     -- funnel: break the same-frame paint-stamp window.
     ns._paintGen = (ns._paintGen or 0) + 1
+    -- Textured Background layers first (a Dark Mode Fill edit can cross 100 with no
+    -- reload): the repaints below paint them.
+    ns.RF_TexBgRecheck()
     UpdateAllButtons()
     -- Party and Boss frames are NOT in `allButtons` (Extra frames ARE, see XF.EnsureBuilt), so
     -- repaint their health too, or Dark Mode / color pushes (ApplyColorsToOUF) miss those frame

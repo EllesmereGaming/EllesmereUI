@@ -426,14 +426,25 @@ local function StartAddon()
     end)
 
     local OriginalToggleAllBags = ToggleAllBags
+    local function CloseBags()
+        EUI_Bags:Hide()
+        EUI_BagsReagent:Hide()
+        if not EllesmereUIDB then EllesmereUIDB = {} end
+        EllesmereUIDB.bagsVisible = false
+        -- Controller cursor: keep Blizzard's hidden bag frames closed too.
+        if EUI.PadInUse() then ns.PadReleaseBlizzBags() end
+    end
+    -- Close Bags on Mail Close, a setting of the Blizzard Skins+ Mail card (on
+    -- unless set false): like the rest of that card, only while that module is loaded.
+    local function CloseBagsForMail()
+        if EUI_Bags:IsShown() and not (EllesmereUIDB and EllesmereUIDB.mailCloseBags == false)
+            and EUI._ModuleNS.EllesmereUIBlizzardSkin then
+            CloseBags()
+        end
+    end
     local function ToggleEUI()
         if EUI_Bags:IsVisible() then
-            EUI_Bags:Hide()
-            EUI_BagsReagent:Hide()
-            if not EllesmereUIDB then EllesmereUIDB = {} end
-            EllesmereUIDB.bagsVisible = false
-            -- Controller cursor: keep Blizzard's hidden bag frames closed too.
-            if EUI.PadInUse() then ns.PadReleaseBlizzBags() end
+            CloseBags()
         else
             -- Controller cursor: gamepad pointer on at this user-requested
             -- open, as Blizzard's own bag toggle does (one C call when no
@@ -803,6 +814,9 @@ local function StartAddon()
     end
     HookSendMail(_G.SendMailFrame)
 
+    -- The saved slot size before the pool is built (out of combat only): a first
+    -- bag open in combat could not resize the slots for the whole fight.
+    ns.ApplySlotMetrics()
     -- Pre-warm the secure item-button pool out of combat: a ContainerFrameItemButtonTemplate created
     -- in lockdown is tainted (UseContainerItem() blocked in M+/Delves), so build every button we could
     -- need up front and let RefreshInventory only position/show clean ones. Slots the loading-screen
@@ -912,6 +926,7 @@ local function StartAddon()
             -- the interaction check reads closed.
             _snapshotReady = false
             C_Timer.After(0.5, SnapshotKnownIDs)
+            if event == "MAIL_CLOSED" then CloseBagsForMail() end
             -- No return: falls through to the ITEM_PANEL_EVENTS handling below.
         end
         if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
@@ -922,6 +937,7 @@ local function StartAddon()
                 _snapshotReady = false
                 C_Timer.After(0.5, SnapshotKnownIDs)
             end
+            if interactionType == Enum.PlayerInteractionType.MailInfo then CloseBagsForMail() end
             return
         end
         local panel = ITEM_PANEL_EVENTS[event]

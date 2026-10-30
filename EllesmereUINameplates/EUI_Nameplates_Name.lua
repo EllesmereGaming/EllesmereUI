@@ -80,10 +80,15 @@ function NameplateFrame:UpdateName()
     local el = slot and GetTextSlot(slot) or "enemyName"
     local name = EllesmereUI.WithSurname(UnitName(unit))
     if type(name) == "string" then
-        -- WoW Forever: the slot's Name Format (nil function off Forever).
-        if ns.NP_FormatName then name = ns.NP_FormatName(name, slot) end
+        name = ns.NP_FormatName(name, slot)  -- the slot's Name Format
         ns.SetNameElementText(self.name, el, name, unit, slot)
-        if p and p.nameRaidMarkerEnabled == true then self:RefreshNamePosition(true) end
+        -- Debuff coloring's Color Name copies follow the text (RefreshNamePosition
+        -- passes it on too).
+        if p and p.nameRaidMarkerEnabled == true then
+            self:RefreshNamePosition(true)
+        elseif ns.DebuffColors_NameChanged then
+            ns.DebuffColors_NameChanged(self)
+        end
     end
     -- Custom texts: name, level and target follow the unit.
     self:PaintCustomTexts()
@@ -377,6 +382,7 @@ function NameplateFrame:ApplyNameVisibility()
     local shown = hasNameSlot and not self.cast:IsShown()
     self.name:SetShown(shown)
     if self.nameRaidFrame then self.nameRaidFrame:SetShown(shown and self._nameRaidMarkerShown == true) end
+    if ns.DebuffColors_NameChanged then ns.DebuffColors_NameChanged(self, true) end
 end
 -- The full-size cast icon (a cast-bar child) occupies its side-slot space only while a cast is
 -- up, so its push is gated on the cast bar being shown (see ns.NP_FullIconPush). On every cast
@@ -483,6 +489,8 @@ function NameplateFrame:RefreshNamePosition(localOnly)
     elseif nameRaid then
         nameRaid:Hide()
     end
+    -- Debuff coloring's Color Name copies follow the name's host, font and wrapping.
+    if ns.DebuffColors_NameChanged then ns.DebuffColors_NameChanged(self) end
     if localOnly then return end
     self:UpdateClassification()
     if not (p and p.classificationIncludeFaction) then self:UpdateFaction() end

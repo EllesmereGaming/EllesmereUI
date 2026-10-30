@@ -114,9 +114,14 @@ local function GetAnchorDB()
     return EllesmereUIDB.unlockAnchors
 end
 
+-- A link saved on an element that places itself (ownsPosition: main chat) is
+-- inert, so it reads as none: no anchor rows in its cog, and no false circle
+-- when another element links to it. The record stays in the store.
 local function GetAnchorInfo(barKey)
     local db = GetAnchorDB()
     if not db then return nil end
+    local elem = registeredElements[barKey]
+    if elem and elem.ownsPosition then return nil end
     return db[barKey]
 end
 
@@ -1567,7 +1572,9 @@ local function HookFrameSizeChanged(key)
     -- No hooks on chat frames: ChatFrame1 is docked inside Blizzard's secure
     -- FCF_OpenTemporaryWindow chain and any addon code in OnSizeChanged/SetPoint
     -- hooks taints the execution context. Chat persists its own position/size.
-    if key and key:find("^ECHAT_") then return end
+    -- The quest tracker is laid out by Blizzard's managed frame container, in
+    -- combat too, and places itself from its Edit Mode layout entry.
+    if key and (key:find("^ECHAT_") or key == "EQT_Tracker") then return end
     local bar = UM.GetBarFrame(key)
     if not bar then return end
     if not _sizeHookedFrames[bar] then

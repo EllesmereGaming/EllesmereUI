@@ -1371,7 +1371,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                 { type="slider", label="Offset Y", min=-100, max=100, step=1,
                   get=function() return SValSupported("buffCooldownTextOffsetY", 0) end,
                   set=function(v) SSetSupported("buffCooldownTextOffsetY", v) end },
-                { type="slider", label="Precise Below (minutes, 0 = off)", min=0, max=60, step=1,
+                { type="slider", label="Precise Below (minutes, 0 = off)", min=0, max=90, step=1,
                   get=function() local v=SValSupported("buffCooldownTextPrecision", nil); return v and v/60 or 0 end,
                   set=function(v) SSetSupported("buffCooldownTextPrecision", v > 0 and v*60 or nil) end },
             },
@@ -1515,7 +1515,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                 { type="slider", label="Offset Y", min=-100, max=100, step=1,
                   get=function() return SValSupported("debuffCooldownTextOffsetY", 0) end,
                   set=function(v) SSetSupported("debuffCooldownTextOffsetY", v) end },
-                { type="slider", label="Precise Below (minutes, 0 = off)", min=0, max=60, step=1,
+                { type="slider", label="Precise Below (minutes, 0 = off)", min=0, max=90, step=1,
                   get=function() local v=SValSupported("debuffCooldownTextPrecision", nil); return v and v/60 or 0 end,
                   set=function(v) SSetSupported("debuffCooldownTextPrecision", v > 0 and v*60 or nil) end },
             },
@@ -2262,9 +2262,10 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
             rgn._lastInline = eyeBtn
             local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+            EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
             eyeTex:SetAllPoints()
             local function RefreshDispelEye()
                 eyeTex:SetTexture(optState.showDispelOverlayPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2276,11 +2277,11 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                 UpdatePreview()
             end)
             eyeBtn:SetScript("OnEnter", function(self)
-                self:SetAlpha(0.7)
+                EllesmereUI.SetGlyphAlpha(self, 0.7)
                 EllesmereUI.ShowWidgetTooltip(self, optState.showDispelOverlayPreview and "Hide dispel overlay preview" or "Show dispel overlay preview")
             end)
             eyeBtn:SetScript("OnLeave", function(self)
-                self:SetAlpha(0.4)
+                EllesmereUI.SetGlyphAlpha(self, 0.4)
                 EllesmereUI.HideWidgetTooltip()
             end)
         end

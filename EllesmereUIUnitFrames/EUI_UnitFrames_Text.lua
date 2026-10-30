@@ -597,7 +597,7 @@ ns.NICK_ADDON = addonName:find("Standalone") and addonName or "EllesmereUI"
 
 -- Resolve a unit's display name through MethodInternal's authoritative surface
 -- choice for known Method players, then the normal provider order: NSAPI ->
--- TimelineReminders -> LiquidAPI, then the raw unit name. Each
+-- TimelineReminders -> LiquidAPI -> CustomNames, then the raw unit name. Each
 -- external call is pcall-wrapped so a misbehaving API can never break names.
 --
 -- SECRET-SAFE: an enemy unit's UnitName is secret in protected content and any Lua op
@@ -663,6 +663,15 @@ function ns.ResolveUnitNickname(unit)
             display = dn
         end
     end
+    -- CustomNames (LibStub library): UnitName returns the custom name, or the raw
+    -- name when none is set, so dn ~= name keeps the WithSurname path.
+    if not display and not nameSecret and ns._customNames then
+        local ok, dn = pcall(ns._customNames.UnitName, unit)
+        if ok and type(dn) == "string"
+           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+            display = dn
+        end
+    end
     if display then return display end
     return EllesmereUI.WithSurname(name, surname)
 end
@@ -722,7 +731,7 @@ do
     end)
 end
 
--- Provider callbacks. MethodInternal uses the addon-loaded callback; NSAPI and
+-- Provider callbacks. MethodInternal and CustomNames use the addon-loaded callback; NSAPI and
 -- TimelineReminders retry on PLAYER_LOGIN/PLAYER_ENTERING_WORLD. Registrant key MUST
 -- be "EllesmereUIUnitFrames", not "EllesmereUI": Raid Frames owns that key and
 -- CallbackHandler keys registrations by it, so reuse would clobber one module. The
@@ -773,6 +782,27 @@ do
         end)
     end
     EventUtil.ContinueOnAddOnLoaded("MethodInternal", RegisterMethodInternal)
+    -- CustomNames fires one callback per character, so a BattleTag rename or an
+    -- import arrives as a burst: repaint once on the next frame. Nothing waits for
+    -- it unless it is installed and enabled for this character.
+    if C_AddOns.IsAddOnLoaded("CustomNames") or C_AddOns.IsAddOnLoadable("CustomNames") then
+        EventUtil.ContinueOnAddOnLoaded("CustomNames", function()
+            local CN = LibStub("CustomNames", true)
+            if not (CN and CN.UnitName and CN.RegisterCallback) or ns._customNames then return end
+            ns._customNames = CN
+            local pending
+            local function Flush() pending = nil; RefreshNames() end
+            local function QueueRefresh()
+                if pending then return end
+                pending = true
+                C_Timer.After(0, Flush)
+            end
+            CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Added", QueueRefresh)
+            CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Update", QueueRefresh)
+            CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Removed", QueueRefresh)
+            RefreshNames()
+        end)
+    end
 end
 
 -- "Name > Target" is built from FOUR tags so the (possibly SECRET) target name is never
@@ -1040,7 +1070,7 @@ do
     -- What each piece reads: "hp" health, "pp" power, "abs" / "habs" the two
     -- absorb amounts, "id" name or level only (identity events repaint those).
     -- A piece not listed (the target pieces and separators, the group number,
-    -- the WoW Forever name twins) makes its zone repaint on every value event.
+    -- the Name Format twins) makes its zone repaint on every value event.
     local PIECE_READS = {
         [P.perhp] = "hp", [P.perhpnosign] = "hp", [P.curhpshort] = "hp",
         [P.healthshort] = "hp", [P.maxhpshort] = "hp", [P.curhp] = "hp", [P.maxhp] = "hp",
@@ -1049,6 +1079,18 @@ do
         [P.healabsorb] = "habs", [P.healabsorbshort] = "habs",
         [P.name] = "id", [P.level] = "id", [P.levelcol] = "id", [P.levelcolall] = "id",
     }
+    -- The tags' Name Format modifiers ([name:abbr]): they shape the plain name,
+    -- whatever the slot's own Name Format says.
+    local function Shaped(piece, mode)
+        return function(unit)
+            return EllesmereUI.ShortName(piece(unit), mode)
+        end
+    end
+    for _, mode in ipairs({ "first", "last", "abbr" }) do
+        P["name" .. mode] = Shaped(P.name, mode)
+        P["tgt" .. mode] = Shaped(P.tgtname, mode)
+        PIECE_READS[P["name" .. mode]] = "id"
+    end
 
     -- Custom content: the slot's own format string (<prefix>CustomFormat),
     -- parsed by EllesmereUI.TextTags against this binding of the unit schema.
@@ -1060,7 +1102,9 @@ do
         ["pp:max:abr"] = P.maxpp, ["pp:pct"] = P.perpp,
         ["absorb"] = P.absorb, ["absorb:abr"] = P.absorbshort,
         ["healabsorb"] = P.healabsorb, ["healabsorb:abr"] = P.healabsorbshort,
-        ["name"] = P.name, ["target"] = P.tgtname, ["level"] = P.level, ["group"] = P.group,
+        ["name"] = P.name, ["name:first"] = P.namefirst, ["name:last"] = P.namelast, ["name:abbr"] = P.nameabbr,
+        ["target"] = P.tgtname, ["target:first"] = P.tgtfirst, ["target:last"] = P.tgtlast, ["target:abbr"] = P.tgtabbr,
+        ["level"] = P.level, ["group"] = P.group,
     })
     ns.UF_TextTags = TAG_CATALOG
 
@@ -1117,27 +1161,28 @@ do
         return def[1], pieces, ZONE_IDENTITY[content] or nil
     end
 
-    -- Name Format (WoW Forever only): a slot set to First Name or Last Name
-    -- (<prefix>NameFormat) gets short-name twins of its name pieces when the
-    -- zone is applied, so the painter and every unset slot run as before.
-    -- Level, separator and colour pieces stay; Name > Target shortens both
-    -- names. ForeverShortName passes a secret name through whole and caches
-    -- the short forms, so a zone repainted on every health tick builds no
-    -- strings.
-    if EllesmereUI.IS_FOREVER == true then
-        local short, nameFn, tgtFn = EllesmereUI.ForeverShortName, P.name, P.tgtname
-        local function Twins(mode)
-            return {
-                [nameFn] = function(u) return short(nameFn(u), mode) end,
-                [tgtFn]  = function(u) return short(tgtFn(u), mode) end,
-            }
-        end
-        local twinsByMode = { first = Twins("first"), last = Twins("last") }
+    -- Name Format: a slot set to one (<prefix>NameFormat) gets short-name twins
+    -- of its name pieces when the zone is applied, so the painter and every
+    -- unset slot run as before. Level, separator and colour pieces stay; Name >
+    -- Target shortens both names. ShortName passes a secret name through whole
+    -- and caches the short forms, so a zone repainted on every health tick
+    -- builds no strings. A mode's twins are made the first time a slot uses it.
+    do
+        local short, nameFn, tgtFn = EllesmereUI.ShortName, P.name, P.tgtname
+        local twinsByMode = {}
         local base = ns.ContentToZone
         function ns.ContentToZone(content, prefix, settings)
             local fmt, pieces, static = base(content, prefix, settings)
-            local twins = fmt and settings and twinsByMode[settings[prefix .. "NameFormat"]]
-            if twins then
+            local mode = fmt and settings and settings[prefix .. "NameFormat"]
+            if mode and EllesmereUI.IsNameFormat(mode) then
+                local twins = twinsByMode[mode]
+                if not twins then
+                    twins = {
+                        [nameFn] = function(u) return short(nameFn(u), mode) end,
+                        [tgtFn]  = function(u) return short(tgtFn(u), mode) end,
+                    }
+                    twinsByMode[mode] = twins
+                end
                 for i = 1, #pieces do pieces[i] = twins[pieces[i]] or pieces[i] end
             end
             return fmt, pieces, static

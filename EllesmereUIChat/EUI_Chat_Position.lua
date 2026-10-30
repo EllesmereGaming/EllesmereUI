@@ -336,6 +336,16 @@ local function SetChatTarget(i, point, relPoint, x, y)
     t.point, t.relPoint, t.x, t.y = point, relPoint, x, y
 end
 
+-- The corner opposite each corner anchor, and the signs of the saved size
+-- that reach it from there (y grows upward): a corner position's second
+-- anchor, against the same point of UIParent.
+local SIZE_CORNER = {
+    BOTTOMLEFT  = { "TOPRIGHT",     1,  1 },
+    TOPLEFT     = { "BOTTOMRIGHT",  1, -1 },
+    TOPRIGHT    = { "BOTTOMLEFT",  -1, -1 },
+    BOTTOMRIGHT = { "TOPLEFT",     -1,  1 },
+}
+
 -- ChatFrame1 already carries exactly the first n target anchors (GetPoint
 -- returns the anchor definitions, never a lagging rect), within Edit Mode's
 -- own anchor tolerance. A secret read counts as a mismatch.
@@ -394,7 +404,7 @@ local function ApplyChatPosition()
     local sizeLane = size and size.w and size.h and EMChatSizeDelta()
     local point, relPoint, px, py = ChatAnchorTarget(cfg, cf1)
     if not point then return end
-    local n, composed = 1, false
+    local n = 1
     if sizeLane and point == "CENTER" and relPoint == "CENTER" then
         -- CENTER-form saves (unlock mode Save & Exit) compose the rect around
         -- the centre outright. A lone CENTER anchor would resolve on the
@@ -403,22 +413,19 @@ local function ApplyChatPosition()
         -- away from where it was dropped.
         SetChatTarget(1, "TOPLEFT", "CENTER", px - size.w / 2, py + size.h / 2)
         SetChatTarget(2, "BOTTOMRIGHT", "CENTER", px + size.w / 2, py - size.h / 2)
-        n, composed = 2, true
+        n = 2
     else
         SetChatTarget(1, point, relPoint, px, py)
-        if sizeLane then
-            if point == "BOTTOMLEFT" and relPoint == "BOTTOMLEFT" then
-                SetChatTarget(2, "TOPRIGHT", "BOTTOMLEFT", px + size.w, py + size.h)
-                n, composed = 2, true
-            elseif point == "TOPLEFT" and relPoint == "TOPLEFT" then
-                -- TOPLEFT-form positions compose the size anchor directly. A
-                -- single-anchor apply would leave the rect on the frame's
-                -- explicit (Edit Mode, stale) size until the deferred normalize
-                -- below lands -- a window where a late Edit Mode pass baked the
-                -- old size in.
-                SetChatTarget(2, "BOTTOMRIGHT", "TOPLEFT", px + size.w, py - size.h)
-                n, composed = 2, true
-            end
+        -- Corner positions compose the size anchor at the opposite corner. A
+        -- single-anchor apply would leave the rect on the frame's explicit
+        -- (Edit Mode, stale) size until the deferred normalize below lands --
+        -- a window where a late Edit Mode pass baked the old size in, and the
+        -- normalize would save the corner of THAT rect. Any corner can arrive:
+        -- an unlock mode nudge saves whichever anchor GetPoint lists first.
+        local opp = sizeLane and SIZE_CORNER[point]
+        if opp then
+            SetChatTarget(2, opp[1], relPoint, px + opp[2] * size.w, py + opp[3] * size.h)
+            n = 2
         end
     end
     -- Compare-gated: once Edit Mode's own apply lands on our anchors (the
@@ -433,7 +440,7 @@ local function ApplyChatPosition()
             SetFramePoint(cf1, t.point, UIParent, t.relPoint, t.x, t.y)
         end
     end
-    if sizeLane and (not composed or point ~= "BOTTOMLEFT") and not ns._chatCanonPending then
+    if sizeLane and (point ~= "BOTTOMLEFT" or relPoint ~= "BOTTOMLEFT") and not ns._chatCanonPending then
         -- Canonicalize foreign forms to BOTTOMLEFT once the rect resolves,
         -- so every later apply composes on the fast path. One pass pending at
         -- a time: every apply in between lands in the same pass.
@@ -642,22 +649,11 @@ end
 -- Button child Edit Mode shows on enter and hides on exit) gets the same
 -- in-place treatment: sizing belongs to our grip, and a live handle here
 -- would write Edit Mode's size store behind the size lane's back.
-local function SuppressEditModeChild(f)
-    if not f then return end
-    -- GetAlpha reads secret on chat-roleset widgets in lockdown; a secret
-    -- skips the compare and re-asserts.
-    local a = f:GetAlpha()
-    if (issecretvalue and issecretvalue(a)) or a ~= 0 then f:SetAlpha(0) end
-    if f.SetMouseClickEnabled then
-        if f:IsMouseClickEnabled() then f:SetMouseClickEnabled(false) end
-        if f:IsMouseMotionEnabled() then f:SetMouseMotionEnabled(false) end
-    end
-end
 function ECHAT.SuppressChatEditModeSelection()
     local cf1 = _G.ChatFrame1
     if not cf1 then return end
-    SuppressEditModeChild(cf1.Selection)
-    SuppressEditModeChild(cf1.EditModeResizeButton)
+    EllesmereUI.SetEditModeChildInert(cf1.Selection, true)
+    EllesmereUI.SetEditModeChildInert(cf1.EditModeResizeButton, true)
 end
 ns._CaptureChatPositionGenesis = CaptureChatPositionGenesis
 ns._GenesisSettle = GenesisSettle
@@ -858,6 +854,8 @@ ns._BuildMainChatResizeGrip = BuildMainChatResizeGrip
 -- element's onLiveMove after each placement: re-add the opposite corner
 -- from the anchor DEFINITION (GetPoint returns the SetPoint arguments, never
 -- a lagging rect) so the frame keeps its size through the whole session.
+-- The placed anchor can be any corner: a nudge re-places whichever anchor
+-- GetPoint lists first, the size corner included.
 -- Idempotent -- a frame already carrying two points is left alone.
 local function KeepMainChatSizeCorner()
     local cfg = ECHAT.DB()
@@ -872,14 +870,9 @@ local function KeepMainChatSizeCorner()
     if type(x) ~= "number" or type(y) ~= "number" then return end
     relPoint = relPoint or point
     local w, h = size.w, size.h
-    if point == "TOPLEFT" then
-        SetFramePoint(cf1, "BOTTOMRIGHT", UIParent, relPoint, x + w, y - h)
-    elseif point == "BOTTOMLEFT" then
-        SetFramePoint(cf1, "TOPRIGHT", UIParent, relPoint, x + w, y + h)
-    elseif point == "TOPRIGHT" then
-        SetFramePoint(cf1, "BOTTOMLEFT", UIParent, relPoint, x - w, y + h)
-    elseif point == "BOTTOMRIGHT" then
-        SetFramePoint(cf1, "TOPLEFT", UIParent, relPoint, x - w, y - h)
+    local opp = SIZE_CORNER[point]
+    if opp then
+        SetFramePoint(cf1, opp[1], UIParent, relPoint, x + opp[2] * w, y + opp[3] * h)
     elseif point == "CENTER" then
         ClearFramePoints(cf1)
         SetFramePoint(cf1, "TOPLEFT", UIParent, relPoint, x - w / 2, y + h / 2)

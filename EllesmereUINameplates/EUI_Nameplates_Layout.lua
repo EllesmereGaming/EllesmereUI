@@ -743,18 +743,17 @@ do
             fs:SetText(name)
         end
     end
-    -- WoW Forever: the name slot's Name Format (text-slot cog), the first or last word
-    -- of the name; unset shows it whole. Defined only on Forever, so retail's name
-    -- write pays one nil check. Keys prebuilt (no per-update string building); the
-    -- split, its secret pass-through and its bounded cache live in ForeverShortName.
-    if EllesmereUI.IS_FOREVER then
+    -- Name Format (text-slot cog): one word, initials or a Character Count;
+    -- unset shows the name whole. Keys are prebuilt; the split and its cache
+    -- live in EllesmereUI.ShortName.
+    do
         local NAME_FORMAT_KEYS = {
             textSlotTop  = "textSlotTopNameFormat",  textSlotRight  = "textSlotRightNameFormat",
             textSlotLeft = "textSlotLeftNameFormat", textSlotCenter = "textSlotCenterNameFormat",
             textSlotBottomLeft  = "textSlotBottomLeftNameFormat",
             textSlotBottomRight = "textSlotBottomRightNameFormat",
         }
-        local short = EllesmereUI.ForeverShortName
+        local short = EllesmereUI.ShortName
         function ns.NP_FormatName(name, slotKey)
             local key = slotKey and NAME_FORMAT_KEYS[slotKey]
             local mode = key and p and p[key]
@@ -798,12 +797,28 @@ do
         FORMAT_KEY[s] = s .. "CustomFormat"
     end
     ns.NP_CustomFSKey = FS_KEY
-    -- The unit's name as the name slot writes it (WoW Forever: the slot's Name Format).
+    -- The unit's name as the name slot writes it (the slot's Name Format).
     local function Name(u, slotKey)
         local name = EllesmereUI.WithSurname(UnitName(u))
         if type(name) == "nil" then return "" end
-        if ns.NP_FormatName then name = ns.NP_FormatName(name, slotKey) end
-        return name
+        return ns.NP_FormatName(name, slotKey)
+    end
+    -- Tag modifiers shape the plain name. They do not also apply the slot's Name Format.
+    local function Shaped(mode)
+        return function(u)
+            local name = EllesmereUI.WithSurname(UnitName(u))
+            if type(name) == "nil" then return "" end
+            return EllesmereUI.ShortName(name, mode)
+        end
+    end
+    local function TargetShaped(mode)
+        local piece = Shaped(mode)
+        return function(u)
+            local tu = ns._npToTUnits[u]
+            if not tu then tu = u .. "target"; ns._npToTUnits[u] = tu end
+            if not UnitExists(tu) then return "" end
+            return piece(tu)
+        end
     end
     local P = {
         ["hp"] = function(u)
@@ -823,12 +838,15 @@ do
         ["absorb"] = function(u) return C_StringUtil.TruncateWhenZero(UnitGetTotalAbsorbs(u) or 0) end,
         ["absorb:abr"] = function(u) return ns.AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0) end,
         ["name"] = Name,
+        ["name:first"] = Shaped("first"), ["name:last"] = Shaped("last"), ["name:abbr"] = Shaped("abbr"),
         ["target"] = function(u, slotKey)
             local tu = ns._npToTUnits[u]
             if not tu then tu = u .. "target"; ns._npToTUnits[u] = tu end
             if not UnitExists(tu) then return "" end
             return Name(tu, slotKey)
         end,
+        ["target:first"] = TargetShaped("first"), ["target:last"] = TargetShaped("last"),
+        ["target:abbr"] = TargetShaped("abbr"),
         ["level"] = function(u) return ns.GetUnitLevelText(u) end,
     }
     local CAT = TT.Bind(TT.UNIT, P)
@@ -1537,8 +1555,8 @@ end
 -- slots share healthTextFrame. A non-default strata on a non-top slot gets
 -- a lazily-created host so the four slots layer independently; hosts carry
 -- only font strings (no child frames), so SetFrameStrata propagation is not
--- a concern -- except the name raid marker frame, whose caller re-asserts
--- its own strata after parenting.
+-- a concern -- except the name raid marker frame and debuff coloring's Color
+-- Name copies, whose callers re-assert their strata and levels after parenting.
 ns.SlotTextHost = function(self, slotKey, strata)
     if slotKey == "textSlotTop" then
         local f = self.topTextFrame

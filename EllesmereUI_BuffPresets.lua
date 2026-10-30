@@ -10,7 +10,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --      flattening alts into their own rows (PAB has no primary/alt tiers).
 --  Also the WoW Forever buff families (EllesmereUI.FOREVER_BUFF_FAMILIES, at
 --  the end): every spell that gives each group buff there; and the combat
---  consumables (EllesmereUI.CONSUMABLES, last): healthstones and potions.
+--  consumables (EllesmereUI.CONSUMABLES): healthstones and potions; and the
+--  raid preparation buffs (EllesmereUI.RAID_PREP_IDS): flasks, runes, raid buffs.
 --  ADD OR EDIT CURATED IDS HERE ONLY -- never in the consumer files.
 --------------------------------------------------------------------------------
 
@@ -620,6 +621,7 @@ if EllesmereUI.IS_FOREVER == true then
     }
 end
 
+-- SEASON UPDATE: a potion tier a new season adds joins its family below.
 -- Combat consumables: healthstones and potions, one family per Cooldown
 -- Manager preset key, in that module's preset fields. itemID: the family's
 -- identity id (saved preset frames key on it). displayOrder: the dynamic
@@ -679,6 +681,41 @@ EllesmereUI.CONSUMABLES = {
     healthstone = { itemID = 5512, altItemIDs = { 224464 }, spellIDs = { 6262 } },
     demonic_healthstone = { itemID = 224464, spellIDs = { 452930 } },
 }
+-- Raid preparation buffs (retail): the flask, augment rune and vantus rune
+-- buffs, and the raid buffs by the class that casts them. Read by AuraBuff
+-- Reminders and Quality of Life's Raid Buff Check.
+EllesmereUI.RAID_PREP_IDS = {
+    flask = {
+        1235110, 1235108, 1235111, 1235057, 1239355,     -- Midnight
+        1235113, 1235114, 1235115, 1235116,              -- Midnight, PvP variants
+        432473, 432021, 431974, 431973, 431972, 431971,  -- The War Within
+    },
+    -- SEASON UPDATE: current augment runes: Tidesworn (12.1), Void-Touched (12.0);
+    -- a rune the new season replaces moves to oldRune.
+    rune = { 1295329, 1264426 },
+    -- Older runes: Ethereal, Soulgorged, Crystallization (TWW), Draconic (DF), Veiled (SL).
+    oldRune = { 1234969, 1242347, 453250, 393438, 347901 },
+    -- SEASON UPDATE: add the new raid's Vantus Rune boss buffs.
+    -- Midnight boss buffs of Vantus Runes (Season 1 and 2, both IDs of each boss).
+    vantus = {
+        1276666, 1276669, 1276682, 1276683, 1276685, 1276686, 1276687, 1276688,
+        1276691, 1276698, 1276704, 1276705, 1276708, 1276709, 1276711, 1276712,
+        1276714, 1276715,
+        1300173, 1300174, 1303172, 1303173, 1303174, 1303175, 1303176, 1303177,
+        1303178, 1303179, 1303180, 1303181, 1303182, 1303183, 1303184, 1303185,
+        1303186, 1303187, 1310437, 1310439, 1319284, 1319286,
+    },
+    raidBuffs = {
+        { key = "motw",   class = "DRUID",   castSpell = 1126,   buffIDs = { 1126, 432661 } },
+        { key = "bshout", class = "WARRIOR", castSpell = 6673,   buffIDs = { 6673 } },
+        { key = "fort",   class = "PRIEST",  castSpell = 21562,  buffIDs = { 21562 } },
+        { key = "ai",     class = "MAGE",    castSpell = 1459,   buffIDs = { 1459, 432778 } },
+        { key = "bronze", class = "EVOKER",  castSpell = 364342, buffIDs = { 381732, 381741, 381746,
+            381748, 381749, 381750, 381751, 381752, 381753, 381754, 381756, 381757, 381758 } },
+        { key = "sky",    class = "SHAMAN",  castSpell = 462854, buffIDs = { 462854 } },
+    },
+}
+
 -- WoW Forever's healthstones after the Minor stone (5512, still the family's
 -- identity): the Major, Greater, Healthstone and Lesser tiers, each a base
 -- stone and two improved-talent stones, then the improved Minor stones.

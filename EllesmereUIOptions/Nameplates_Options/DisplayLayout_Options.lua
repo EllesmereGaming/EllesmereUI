@@ -734,8 +734,9 @@ local function BuildDisplayLayout(parent, y, ctx)
         eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = eyeBtn
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshAbsorbEye()
             if optState.showAbsorbPreview then
@@ -750,8 +751,8 @@ local function BuildDisplayLayout(parent, y, ctx)
             RefreshAbsorbEye()
             UpdatePreview()
         end)
-        eyeBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        eyeBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+        eyeBtn:SetScript("OnEnter", function(self) EllesmereUI.SetGlyphAlpha(self, 0.7) end)
+        eyeBtn:SetScript("OnLeave", function(self) EllesmereUI.SetGlyphAlpha(self, 0.4) end)
     end
 
     -- Row 3: Bar Texture | Cast Bar Texture -- share the same texture set (EUI built-ins + SharedMedia) and resolve identically; Bar Texture drives the health bar, Cast Bar Texture drives the cast bar.
@@ -1353,6 +1354,26 @@ local function BuildDisplayLayout(parent, y, ctx)
                 end
                 return dd
             end
+            -- The Name Format list: one control per row kind for every text slot,
+            -- built on first need. Its Character Count entry saves through the
+            -- per-show setter, as a pick does. Enemy names show here, so retail
+            -- warns that the game keeps them whole in restricted content.
+            local nameFormatDDs = {}
+            pf._NameFormatDD = function(kind)
+                local dd = nameFormatDDs[kind]
+                if not dd then
+                    local values, order, getValue, setValue = EllesmereUI.NameFormatMenu(listGet[kind], listSet[kind], {
+                        onSaved = function() nameFormatDDs[kind]._refreshLabel() end,
+                        enemies = true,
+                    })
+                    dd = EllesmereUI.BuildDropdownControl(pf, EllesmereUI.NAME_FORMAT_MENU_W, pf:GetFrameLevel() + 6,
+                        values, order, getValue, setValue)
+                    dd:SetScale(GROW_DD_SCALE)
+                    dd:Hide()
+                    nameFormatDDs[kind] = dd
+                end
+                return dd
+            end
 
             -- Optional toggle row, anchored at layout time: takes the 4th-row slot (G_ROW_Y) with no Grow row, stacks BELOW Grow when both present (e.g. Rare/Quest Indicator on topleft/topright: Grow + Show In Instances). Wired via pf._toggleGet/Set.
             local tLabel = MakeFont(pf, 12, nil, 1, 1, 1)
@@ -1597,7 +1618,7 @@ local function BuildDisplayLayout(parent, y, ctx)
                 cogPopupOwner, cogPopupOwnerGen = nil, nil
                 -- MakeCogIcon/MakeTextCogIcon buttons have no _euiCogState.
                 if owner and owner._euiCogState then owner._euiCogState()
-                elseif owner then owner:SetAlpha(0.4) end
+                elseif owner then EllesmereUI.SetGlyphAlpha(owner, 0.4) end
             end)
 
             if EllesmereUI._mainFrame then
@@ -1870,11 +1891,13 @@ local function BuildDisplayLayout(parent, y, ctx)
             cogPopup._t3Toggle:Hide()
         end
 
-        -- Show/hide the second dropdown row ({ { value, label }, ... } like Grow)
+        -- Show/hide the second dropdown row ({ { value, label }, ... } like Grow,
+        -- or the Name Format list with dropdown2NameFormat)
         if hasDropdown2 then
             cogPopup._dd2Get = opts.dropdown2Get
             cogPopup._dd2Set = opts.dropdown2Set
-            local d2DD = cogPopup._ListDD("dd2", opts.dropdown2Values or {})
+            local d2DD = opts.dropdown2NameFormat and cogPopup._NameFormatDD("dd2")
+                or cogPopup._ListDD("dd2", opts.dropdown2Values or {})
             if cogPopup._d2DD and cogPopup._d2DD ~= d2DD then cogPopup._d2DD:Hide() end
             cogPopup._d2DD = d2DD
             d2DD._refreshLabel()
@@ -2331,20 +2354,21 @@ local function BuildDisplayLayout(parent, y, ctx)
         -- the eye far from the cog.
         rgn._coreCogBtn = btn
         btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        btn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(btn, 0.4)
         local tex = btn:CreateTexture(nil, "OVERLAY")
         tex:SetAllPoints()
         tex:SetTexture(EllesmereUI.RESIZE_ICON)
+        EllesmereUI.AccentGlyph(btn, tex, "cog")
         btn:SetScript("OnEnter", function(self)
             if CorePosOffDisabled(posKey) then
                 EllesmereUI.ShowWidgetTooltip(self, DISABLED_TIP)
             else
-                self:SetAlpha(0.7)
+                EllesmereUI.SetGlyphAlpha(self, 0.7)
             end
         end)
         btn:SetScript("OnLeave", function(self)
             EllesmereUI.HideWidgetTooltip()
-            if LiveCogOwner() ~= self then self:SetAlpha(CorePosOffDisabled(posKey) and 0.15 or 0.4) end
+            if LiveCogOwner() ~= self then EllesmereUI.SetGlyphAlpha(self, CorePosOffDisabled(posKey) and 0.15 or 0.4) end
         end)
         btn:SetScript("OnClick", function(self)
             if CorePosOffDisabled(posKey) then return end
@@ -2533,9 +2557,9 @@ local function BuildDisplayLayout(parent, y, ctx)
         end)
         EllesmereUI.RegisterWidgetRefresh(function()
             local off = CorePosOffDisabled(posKey)
-            btn:SetAlpha(off and 0.15 or (LiveCogOwner() == btn and 0.7 or 0.4))
+            EllesmereUI.SetGlyphAlpha(btn, off and 0.15 or (LiveCogOwner() == btn and 0.7 or 0.4))
         end)
-        if CorePosOffDisabled(posKey) then btn:SetAlpha(0.15) end
+        if CorePosOffDisabled(posKey) then EllesmereUI.SetGlyphAlpha(btn, 0.15) end
 
         -- Edit Tracked Auras (slot filters): accent link left of the cog when this row holds a debuff-side aura element, opens the per-kind filter popup; refreshes on the same widget-refresh channel as the cog alpha.
             local link = CreateFrame("Button", nil, rgn)
@@ -2543,9 +2567,9 @@ local function BuildDisplayLayout(parent, y, ctx)
             local lfp = (EllesmereUI.GetFontPath("nameplates")) or DBVal("font")
             local lfs = link:CreateFontString(nil, "OVERLAY")
             lfs:SetFont(lfp, 12, "")
-            local ar, ag, ab = 1, 0.82, 0.30
-            if EllesmereUI.GetAccentColor then ar, ag, ab = EllesmereUI.GetAccentColor() end
-            lfs:SetTextColor(ar, ag, ab)
+            lfs:SetTextColor(EllesmereUI.GetAccentColor())
+            -- Keyed by the font string: the page pool forgets the entry when it resets it.
+            EllesmereUI.RegAccent({ type = "callback", obj = lfs, fn = function(r, g, b) lfs:SetTextColor(r, g, b) end })
             lfs:SetAlpha(0.85)
             lfs:SetPoint("CENTER")
             lfs:SetText(EllesmereUI.L("Edit Tracked Auras"))
@@ -2684,8 +2708,9 @@ local function BuildDisplayLayout(parent, y, ctx)
         local eyeBtn = CreateFrame("Button", nil, parent)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetFrameLevel(parent:GetFrameLevel() + 10)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshIcon()
             eyeTex:SetTexture(optState.showRaidMarkerPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2697,11 +2722,11 @@ local function BuildDisplayLayout(parent, y, ctx)
             UpdatePreview()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, "Show/Hide on Preview", { width = 155 })
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
         -- The classification eye hangs past this one on a shared row.
@@ -2730,8 +2755,9 @@ local function BuildDisplayLayout(parent, y, ctx)
         local eyeBtn = CreateFrame("Button", nil, parent)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetFrameLevel(parent:GetFrameLevel() + 10)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshIcon()
             eyeTex:SetTexture(optState.showClassificationPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2743,11 +2769,11 @@ local function BuildDisplayLayout(parent, y, ctx)
             UpdatePreview()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, "Show/Hide on Preview", { width = 155 })
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
         _refreshClassificationEyePos = function()
@@ -2856,20 +2882,21 @@ local function BuildDisplayLayout(parent, y, ctx)
         btn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
         rgn._lastInline = btn
         btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        btn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(btn, 0.4)
         local tex = btn:CreateTexture(nil, "OVERLAY")
         tex:SetAllPoints()
         tex:SetTexture(EllesmereUI.RESIZE_ICON)
+        EllesmereUI.AccentGlyph(btn, tex, "cog")
         btn:SetScript("OnEnter", function(self)
             if TextPosDisabled(slotKey) then
                 EllesmereUI.ShowWidgetTooltip(self, TEXT_DISABLED_TIP)
             else
-                self:SetAlpha(0.7)
+                EllesmereUI.SetGlyphAlpha(self, 0.7)
             end
         end)
         btn:SetScript("OnLeave", function(self)
             EllesmereUI.HideWidgetTooltip()
-            if LiveCogOwner() ~= self then self:SetAlpha(TextPosDisabled(slotKey) and 0.15 or 0.4) end
+            if LiveCogOwner() ~= self then EllesmereUI.SetGlyphAlpha(self, TextPosDisabled(slotKey) and 0.15 or 0.4) end
         end)
         btn:SetScript("OnClick", function(self)
             if TextPosDisabled(slotKey) then return end
@@ -2918,18 +2945,15 @@ local function BuildDisplayLayout(parent, y, ctx)
             if slotEl == "targetOfTarget" or slotEl == "level" or slotEl == "custom" then
                 cogOpts.toggleLabel, cogOpts.toggleGet, cogOpts.toggleSet = nil, nil, nil
             end
-            -- WoW Forever: the name's format, while this slot shows a name or the
-            -- Target of Target name. First and Last is stored as nil (the
-            -- runtime's full-name path).
+            -- Name Format, while this slot shows a name, the Target of Target
+            -- name, or a custom template that reads one. Full name is stored as
+            -- nil (the runtime's unchanged path).
             local parsed = slotEl == "custom" and ns.NP_CustomParse(slotKey, DB())
-            if EllesmereUI.IS_FOREVER and (ns.IsNameElement(slotEl) or slotEl == "targetOfTarget"
-                or (parsed and (parsed.has.name or parsed.has.target))) then
+            if ns.IsNameElement(slotEl) or slotEl == "targetOfTarget"
+                or (parsed and (parsed.has.name or parsed.has.target)) then
                 local nfKey = slotKey .. "NameFormat"
                 cogOpts.dropdown2Label = "Name Format"
-                cogOpts.dropdown2Values = {}
-                for _, k in ipairs(EllesmereUI.NAME_FORMAT_ORDER) do
-                    cogOpts.dropdown2Values[#cogOpts.dropdown2Values + 1] = { value = k, label = EllesmereUI.NAME_FORMAT_VALUES[k] }
-                end
+                cogOpts.dropdown2NameFormat = true
                 cogOpts.dropdown2Get = function() return DBVal(nfKey) or "full" end
                 cogOpts.dropdown2Set = function(v)
                     DB()[nfKey] = (v ~= "full") and v or nil
@@ -2947,9 +2971,9 @@ local function BuildDisplayLayout(parent, y, ctx)
         end)
         EllesmereUI.RegisterWidgetRefresh(function()
             local off = TextPosDisabled(slotKey)
-            btn:SetAlpha(off and 0.15 or (LiveCogOwner() == btn and 0.7 or 0.4))
+            EllesmereUI.SetGlyphAlpha(btn, off and 0.15 or (LiveCogOwner() == btn and 0.7 or 0.4))
         end)
-        if TextPosDisabled(slotKey) then btn:SetAlpha(0.15) end
+        if TextPosDisabled(slotKey) then EllesmereUI.SetGlyphAlpha(btn, 0.15) end
         return btn
     end
 

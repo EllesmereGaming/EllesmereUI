@@ -310,46 +310,34 @@ local function BuildGeneralPage(pageName, parent, yOffset)
           rawTooltip=function() return not friendlyPlayersOff() end,
           swatches = MakeGuildColorSwatches() });  y = y - h
 
-    -- Subtitle Text inline cog (guild bracket toggle). WoW Forever retitles it
-    -- Name Text Settings and heads it with the friendly Name Format (a friendly
-    -- player's first or last name, in both modes), so there the cog opens
+    -- Subtitle Text inline cog: Name Text Settings, headed by the friendly Name
+    -- Format (a friendly player's name, in both modes), so the cog opens
     -- whenever friendly players show and the guild row carries the guild
     -- requirement itself.
     if not EllesmereUI._prebuilding then
-        local guildRow = { type = "toggle", label = "Show <> Around Guild",
-            get = function() return DBVal("friendlyBelowNameGuildBrackets") ~= false end,
-            set = function(v)
-              DB().friendlyBelowNameGuildBrackets = v and true or false
-              if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
-            end }
-        local cog = {
+        EllesmereUI.BuildInlineCog(subtitleRow._leftRegion, {
             chain = false,
-            disabled = subtitleGuildOff,
-            -- Same requirement as the Guild Text Color swatch beside it; the
-            -- guild sentence is already whole, so it goes raw.
-            disabledTooltip = function()
-                if friendlyPlayersOff() then return "Show EUI Friendly Player Nameplates" end
-                return EllesmereUI.L("This option requires Subtitle Text to include the Guild Name")
-            end,
-            rawTooltip = function() return not friendlyPlayersOff() end,
-            title = "Subtitle Text Settings",
-            rows = { guildRow },
-        }
-        if EllesmereUI.IS_FOREVER then
-            cog.title = "Name Text Settings"
-            cog.disabled, cog.disabledTooltip, cog.rawTooltip =
-                friendlyPlayersOff, "Show EUI Friendly Player Nameplates", nil
-            guildRow.disabled = subtitleGuildOff
-            guildRow.disabledTooltip = "This option requires Subtitle Text to include the Guild Name"
-            guildRow.rawTooltip = true
-            table.insert(cog.rows, 1, EllesmereUI.NameFormatCogRow(
-                function() return DBVal("friendlyNameFormat") end,
-                function(v)
-                    DB().friendlyNameFormat = v
-                    ns.NP_SyncFriendlyNameFormat()
-                end))
-        end
-        EllesmereUI.BuildInlineCog(subtitleRow._leftRegion, cog)
+            disabled = friendlyPlayersOff,
+            disabledTooltip = "Show EUI Friendly Player Nameplates",
+            title = "Name Text Settings",
+            rows = {
+                EllesmereUI.NameFormatCogRow(
+                    function() return DBVal("friendlyNameFormat") end,
+                    function(v)
+                        DB().friendlyNameFormat = v
+                        ns.NP_SyncFriendlyNameFormat()
+                    end),
+                { type = "toggle", label = "Show <> Around Guild",
+                  disabled = subtitleGuildOff,
+                  disabledTooltip = "This option requires Subtitle Text to include the Guild Name",
+                  rawTooltip = true,
+                  get = function() return DBVal("friendlyBelowNameGuildBrackets") ~= false end,
+                  set = function(v)
+                    DB().friendlyBelowNameGuildBrackets = v and true or false
+                    if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                  end },
+            },
+        })
     end
 
     local npcRow
@@ -392,6 +380,12 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             rawTooltip = true,
             title = "Friendly NPC Settings",
             rows = {
+                EllesmereUI.NameFormatCogRow(
+                    function() return DBVal("friendlyNPCNameFormat") end,
+                    function(v)
+                        DB().friendlyNPCNameFormat = v
+                        if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
+                    end),
                 { type = "toggle", label = "Show NPC Titles",
                   get = function() return DBVal("showNPCTitles") ~= false end,
                   set = function(v)
@@ -585,9 +579,10 @@ local function BuildGeneralPage(pageName, parent, yOffset)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
         eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         leftRgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshEyeIcon()
             eyeTex:SetTexture(ns._hitboxOverlayShown and EYE_INVISIBLE or EYE_VISIBLE)
@@ -598,11 +593,11 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             RefreshEyeIcon()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, "Show/Hide Hitbox Overlay", { width = 175 })
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
         -- Auto-hide the overlay when the options panel closes (hook once).
@@ -915,17 +910,20 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             suffixFS:SetText(EllesmereUI.L("(Percent)"))
         end
     end
-    -- Inline cog on Non-Target Opacity: focus exclusion toggle.
+    -- Inline cog on Non-Target Opacity: focus exclusion toggle, which Out of
+    -- Combat Opacity (Extras) reads too.
     if not EllesmereUI._prebuilding then
-        local function ntOff() return (DBVal("nonTargetAlpha") or 100) >= 100 end
+        local function ntOff()
+            return (DBVal("nonTargetAlpha") or 100) >= 100 and (DBVal("outOfCombatAlpha") or 100) >= 100
+        end
         local rgn = tfScaleRow._rightRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = ntOff,
-            disabledTooltip = "This option requires Non-Target Opacity to be below 100",
+            disabledTooltip = "This option requires Non-Target Opacity or Out of Combat Opacity to be below 100",
             title = "Non-Target Opacity",
             rows = {
                 { type="toggle", label="Keep Focus Full Opacity",
-                  tooltip="Your focus target's nameplate never fades with the non-target opacity.",
+                  tooltip="Your focus target's nameplate never fades with Non-Target Opacity or Out of Combat Opacity.",
                   get=function() return DBVal("nonTargetKeepFocus") ~= false end,
                   set=function(v)
                     DB().nonTargetKeepFocus = v
@@ -1327,6 +1325,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
           setValue=function(v)
             DB().outOfCombatAlpha = v
             if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
+            EllesmereUI:RefreshPage()  -- the Keep Focus cog's disabled state
           end },
         classCfg or EllesmereUI.BlankRowCfg());  y = y - h
 

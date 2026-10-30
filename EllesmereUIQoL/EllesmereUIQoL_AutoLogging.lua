@@ -9,7 +9,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local RETAIL_RAID_THRESHOLD    = 2657
 local RETAIL_DUNGEON_THRESHOLD = 959
 
--- Older dungeons still used as M+ maps.
+-- SEASON UPDATE: older dungeons still used as M+ maps (a returning dungeon
+-- whose instance ID is below RETAIL_DUNGEON_THRESHOLD goes here).
 local LEGACY_DUNGEON_IDS = {
     [1594] = true,  -- MOTHERLODE!!
     [1208] = true,  -- Grimrail Depot
@@ -21,7 +22,7 @@ local LEGACY_DUNGEON_IDS = {
     [658]  = true,  -- Pit of Saron
 }
 
--- Current-tier raids whose instance ID falls BELOW the retail threshold.
+-- SEASON UPDATE: current-tier raids whose instance ID falls BELOW the retail threshold.
 -- Instance map IDs are NOT chronological: some current raids reuse a low ID
 -- (e.g. Sporefall is 1592, lower than legacy raids), so the threshold alone
 -- would wrongly exclude them. Whitelist those explicitly.

@@ -599,10 +599,8 @@ function NameplateFrame:UpdateToT()
     -- No target: a space, so the text keeps its line (top auras and the range
     -- text anchor to it).
     if not UnitExists(tu) then fs:SetText(" "); return end
-    -- WoW Forever joins the surname and applies the slot's Name Format (retail:
-    -- the name as is; NP_FormatName is nil there).
-    local name = EllesmereUI.WithSurname(UnitName(tu))
-    if ns.NP_FormatName then name = ns.NP_FormatName(name, slotKey) end
+    -- WoW Forever joins the surname; then the slot's Name Format.
+    local name = ns.NP_FormatName(EllesmereUI.WithSurname(UnitName(tu)), slotKey)
     fs:SetText(name)
     if not ns._npToTClass then return end
     local tok

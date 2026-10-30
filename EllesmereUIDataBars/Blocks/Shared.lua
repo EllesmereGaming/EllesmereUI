@@ -206,7 +206,7 @@ end
 -- the item level block's "Band" text swatch, which tints the number with the
 -- crest color of the track its gear sits in.
 local ILVL_BANDS = {
-    { 272, 5 }, { 259, 4 }, { 246, 3 }, { 233, 2 }, { 220, 1 },
+    { 318, 5 }, { 305, 4 }, { 292, 3 }, { 279, 2 }, { 266, 1 },
 }
 -- Equipped item level, written by the ilvl block's Refresh; read by the band
 -- tint below (and its swatch preview) exactly like K.lastDurabilityPct.

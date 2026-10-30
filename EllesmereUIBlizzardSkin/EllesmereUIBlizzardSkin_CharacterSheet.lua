@@ -1944,8 +1944,9 @@ local function SkinCharacterSheet()
         return 0
     end
 
-    -- Crest maximum values (per season) -- season 2 Mistcrests. Fallback only:
-    -- GetCrestMaxValue prefers the API's live seasonal max.
+    -- SEASON UPDATE: the crest currency ids and their caps (season 2 Mistcrests),
+    -- with the Crests stat rows below. Fallback only: GetCrestMaxValue prefers
+    -- the API's live seasonal max.
     local crestMaxValues = {
         [3446] = 400,  -- Myth
         [3445] = 400,  -- Hero
@@ -2115,6 +2116,7 @@ local function SkinCharacterSheet()
                 title = "Crests",
                 colorKey = "Crests",
                 color = GetCategoryColor("Crests"),
+                -- SEASON UPDATE: the season's crest currency ids, highest tier first.
                 stats = {
                     { name = "Myth", showCrestKey = "Myth", func = function() return GetCrestValue(3446) end, format = "%d", currencyID = 3446 },
                     { name = "Hero", showCrestKey = "Hero", func = function() return GetCrestValue(3445) end, format = "%d", currencyID = 3445 },

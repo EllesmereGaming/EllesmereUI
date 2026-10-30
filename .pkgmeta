@@ -1,5 +1,9 @@
 package-as: EllesmereUI
 
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
 move-folders:
   EllesmereUI/EllesmereUIActionBars: EllesmereUIActionBars
   EllesmereUI/EllesmereUIQuickdraw: EllesmereUIQuickdraw

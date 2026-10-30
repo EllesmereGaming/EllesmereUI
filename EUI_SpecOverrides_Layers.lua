@@ -65,7 +65,11 @@ local function LayerSkipsKey(key)
         return true
     end
     local abk = EllesmereUI._abBarKeys
-    return (abk and abk[key]) and true or false
+    if abk and abk[key] then return true end
+    -- One spot for every spec (MakeUnlockElement's noSpecLayout).
+    local elems = EllesmereUI._unlockRegisteredElements
+    local elem = elems and elems[key]
+    return (elem and elem.noSpecLayout) and true or false
 end
 
 -- Tracking Bar CHILD-role link entries (key "TBB_<idx>") are per-spec data
@@ -742,7 +746,9 @@ function EllesmereUI.SpecOverrides_FlushUnlock()
                 keep = keep or {}
                 keep[key] = e
             end
-            if elem then
+            -- A layer saved before its element took noSpecLayout keeps an
+            -- entry nothing restores.
+            if elem and not elem.noSpecLayout then
                 -- Value-equal guards throughout: the arriving layer matches
                 -- live for most elements; only real deltas write and settle.
                 -- Anchor-owned keys never take elem positions (see
@@ -803,6 +809,8 @@ function EllesmereUI.SpecOverrides_FlushUnlock()
         for key, e in pairs(fb) do
             if (pend and pend[key] ~= nil) or (keep and keep[key] ~= nil) then
                 fb[key] = nil   -- the layer owns this key
+            elseif elems and elems[key] and elems[key].noSpecLayout then
+                fb[key] = nil   -- no layer restores it (see the pend path)
             elseif elems and elems[key] then
                 local elem = elems[key]
                 -- Same anchor-owned skip as the pend path above.

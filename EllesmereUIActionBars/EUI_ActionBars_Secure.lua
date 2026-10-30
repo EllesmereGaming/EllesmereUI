@@ -421,8 +421,11 @@ local BUTTON_EVENT_LISTS = {
         "SPELL_UPDATE_CHARGES",
         "UPDATE_INVENTORY_ALERTS",
         "PLAYER_EQUIPMENT_CHANGED",
-        "LOSS_OF_CONTROL_ADDED",
-        "LOSS_OF_CONTROL_UPDATE",
+        -- LOSS_OF_CONTROL_ADDED / _UPDATE are deliberately NOT registered per button
+        -- either: they run the mixin's ActionButton_UpdateCooldown, which under our
+        -- taint cannot hand the restricted loss-of-control times to SetCooldown, so
+        -- the overlay never drew in PvP matches. The dispatcher paints it
+        -- (ns._abLoCPass in EUI_ActionBars_Events.lua).
         "PLAYER_TARGET_CHANGED", -- native per-button usability via Blizzard's C-side dispatcher
     },
     stance = {

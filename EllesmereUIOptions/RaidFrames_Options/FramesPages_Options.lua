@@ -458,6 +458,7 @@ local function BuildMainPage(pageName, parent, yOffset)
                     eyeBtn:SetPoint("RIGHT", sizeRow, "LEFT", -5, 0)
                     eyeBtn:SetFrameLevel(sizeRow:GetFrameLevel() + 5)
                     local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+                    EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
                     eyeTex:SetAllPoints()
 
                     -- Kept on ns until this tier's next build, which may never come
@@ -468,13 +469,13 @@ local function BuildMainPage(pageName, parent, yOffset)
                         if PoolGen(eyeBtn) ~= eyeGen then return end
                         local active = ns._sizePreviewTier == tier
                         eyeTex:SetTexture(active and EYE_INVISIBLE or EYE_VISIBLE)
-                        eyeBtn:SetAlpha(active and 0.6 or 0.4)
+                        EllesmereUI.SetGlyphAlpha(eyeBtn, active and 0.6 or 0.4)
                     end
                     RefreshSizeEye()
                     ns["_refreshSizeEye" .. tier] = RefreshSizeEye
 
                     eyeBtn:SetScript("OnEnter", function(self)
-                        self:SetAlpha(0.7)
+                        EllesmereUI.SetGlyphAlpha(self, 0.7)
                         local active = ns._sizePreviewTier == tier
                         EllesmereUI.ShowWidgetTooltip(self, active and "Hide " .. tierLabel .. " preview" or "Preview " .. tierLabel .. " frame size")
                     end)

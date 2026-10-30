@@ -471,9 +471,9 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             -- The player's name as the live frame shows it (Forever surname).
             local n = (unitKey == "player") and (EllesmereUI.WithSurname(UnitName("player")) or "Player")
                 or (_previewCreatureNames[unitKey] or unitKey)
-            -- Name Format (WoW Forever only; nil on retail).
-            if EllesmereUI.ForeverShortName and prefix and s then
-                n = EllesmereUI.ForeverShortName(n, s[prefix .. "NameFormat"])
+            -- The slot's Name Format.
+            if prefix and s then
+                n = EllesmereUI.ShortName(n, s[prefix .. "NameFormat"])
             end
             return n
         end
@@ -1247,7 +1247,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
     if bdrSize == 0 and bdrTexKey == "solid" then border:Hide() end
 
     -- Position an absorb StatusBar per edge mode (mirrors UpdateAbsorbBarReverseFill
-    -- in EllesmereUIUnitFrames.lua): overlay = fills missing-health from the
+    -- in EUI_UnitFrames_Absorb.lua): overlay = fills missing-health from the
     -- current-HP edge (backfills over filled health only for overshields);
     -- right/left = pinned to that edge, fills toward center, ignoring reverse fill.
     local function PositionPreviewAbsorb(bar, mode, isRev, isVert)
@@ -1355,7 +1355,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         local PREV_ABS_ALPHA = { striped = 0.8, stripedReversed = 0.8, clean = (settings.absorbCleanAlpha or 30) / 100, blizzard = 0.8 }
         -- SharedMedia keys fall through to the health-bar texture lookup.
         local tex   = ns.ResolveAbsorbStyleTex(absStyle, PREV_ABS_TEX.striped)
-        -- Effective opacity/color: mirrors GetAbsorbOpacity in EllesmereUIUnitFrames.lua
+        -- Effective opacity/color: mirrors GetAbsorbOpacity in EUI_UnitFrames_Absorb.lua
         local alpha = settings.absorbOpacity and (settings.absorbOpacity / 100) or PREV_ABS_ALPHA[absStyle] or 0.8
         local ac = settings.absorbColor or { r = 1, g = 1, b = 1 }
         absorbBar = CreateFrame("StatusBar", nil, absClip)
@@ -3147,7 +3147,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                     largeStripesR         = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\large-absorb-right.png",
                 }
                 local _paAlpha = { striped = 0.8, stripedReversed = 0.8, clean = (s.absorbCleanAlpha or 30) / 100, blizzard = 0.8 }
-                -- Effective opacity/color: mirrors GetAbsorbOpacity in EllesmereUIUnitFrames.lua
+                -- Effective opacity/color: mirrors GetAbsorbOpacity in EUI_UnitFrames_Absorb.lua
                 local _paA = s.absorbOpacity and (s.absorbOpacity / 100) or _paAlpha[absS] or 0.8
                 local _paC = s.absorbColor or { r = 1, g = 1, b = 1 }
                 absorbBar:SetStatusBarTexture(ns.ResolveAbsorbStyleTex(absS, _paTex.striped))

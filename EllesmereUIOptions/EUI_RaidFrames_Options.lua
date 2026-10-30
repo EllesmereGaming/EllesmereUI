@@ -1554,9 +1554,33 @@ initFrame:SetScript("OnEvent", function(self)
         end)
     end
 
+    -- Textured Background: the Health Bar Fill cog's row, shared with Global
+    -- Settings > Textures. read(key, default) / write(key, value): the page's own
+    -- settings access (the Textures card reads and writes the raid keys).
+    local function TexBgRowCfg(read, write)
+        local function Dark() return read("healthColorMode", "class") == "dark" end
+        return { type="toggle", label="Textured Background",
+            tooltip="Draws the bar texture on the health and power backgrounds too.",
+            disabled=function()
+                if read("healthBarTexture", "atrocity") == "none" then return true end
+                if Dark() then return not ns.RF_TexBgOpaque(nil, true) end
+                return read("healthBarOpacity", 100) < 100
+            end,
+            disabledTooltip=function()
+                if read("healthBarTexture", "atrocity") == "none" then
+                    return "This option requires a Health Bar Texture other than None."
+                end
+                if Dark() then return "This option requires a Dark Mode Fill of 100 (Global Settings > Colors)." end
+                return "This option requires a Fill Opacity of 100."
+            end,
+            get=function() return read("textureBg", false) == true end,
+            set=function(v) write("textureBg", v and true or false) end }
+    end
+
     -- Shared with the page builders under RaidFrames_Options\ (read in their
     -- prologs). Every field is final here: optState holds the mutable state.
     ns._RFO_OptEnv = {
+        TexBgRowCfg = TexBgRowCfg,
         AbbreviateNumbers = AbbreviateNumbers, absorbStyleOrder = absorbStyleOrder,
         absorbStyleValues = absorbStyleValues, allGrowthOrder = allGrowthOrder,
         BuildPreviewModeRow = BuildPreviewModeRow, BuildVisualSections = BuildVisualSections,

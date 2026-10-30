@@ -329,12 +329,13 @@ initFrame:SetScript("OnEvent", function(self)
             eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
             rgn._lastInline = eyeBtn
             local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+            EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
             eyeTex:SetAllPoints()
             local function Off() return Cfg("enabled") == false end
             local function RefreshEye()
                 -- The art is named the other way round: the "invisible" file is the open eye.
                 eyeTex:SetTexture(Cfg("showPreview") == true and EYE_INVISIBLE or EYE_VISIBLE)
-                eyeBtn:SetAlpha(Off() and 0.15 or 0.4)
+                EllesmereUI.SetGlyphAlpha(eyeBtn, Off() and 0.15 or 0.4)
             end
             RefreshEye()
             EllesmereUI.RegisterWidgetRefresh(RefreshEye)
@@ -348,11 +349,11 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.DisabledTooltip("Enable Mythic+ Timer"), { width = 175 })
                     return
                 end
-                self:SetAlpha(0.7)
+                EllesmereUI.SetGlyphAlpha(self, 0.7)
                 EllesmereUI.ShowWidgetTooltip(self, "Show/Hide Preview", { width = 175 })
             end)
             eyeBtn:SetScript("OnLeave", function(self)
-                self:SetAlpha(Off() and 0.15 or 0.4)
+                EllesmereUI.SetGlyphAlpha(self, Off() and 0.15 or 0.4)
                 EllesmereUI.HideWidgetTooltip()
             end)
         end

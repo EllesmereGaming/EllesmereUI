@@ -12466,7 +12466,20 @@ function LP.FitReadyCheck()
     -- in the wrap box either -- the full width is usable now.
     local pad  = LP.RC_PAD * 2
     local want = math.max(d.rcBaseW, math.min(need + pad, d.rcBaseW * LP.RC_MAX_GROW))
-    fr:SetWidth(want)
+    -- A protected frame anchored to the popup makes it protected too, and in
+    -- combat its SetWidth is then blocked: it keeps the width it has, and the
+    -- message wraps inside that.
+    local locked = InCombatLockdown()
+    if locked then
+        local p = fr:IsProtected()
+        locked = issecretvalue(p) or p
+    end
+    if locked then
+        local w = fr:GetWidth()
+        want = (w and not issecretvalue(w) and w > 0) and w or d.rcBaseW
+    else
+        fr:SetWidth(want)
+    end
     fs:SetWidth(want - pad)
     fs:ClearAllPoints()
     -- RC_TEXT_Y, not Blizzard's -37: a long "<Name>-<Realm> has initiated a
@@ -14026,86 +14039,202 @@ end
 --  right-side MANAGED column, so this pack is visual-only: no script hook on
 --  the buttons or their container (code run in their show path would leave
 --  the managed-layout pass under our taint), and never a Show, Hide, SetPoint
---  or SetSize on a frame of theirs. Built once at login. Blizzard's updates
---  set the portraits' textures and the bars' values and colors, never the art
---  alphas or the fonts; the one thing it puts back is the mana bars' texture
---  (FC.ManaType below).
+--  or SetSize on a frame of theirs. Built once at login. Moving the column is
+--  the Shifter's (an Unlock Mode mover written in the restricted environment).
 --
---  Kept as Blizzard draws them: the class circle, the faction icon, the cast
---  bar's fill (its atlas carries the cast type, uninterruptible included, and
---  that type is secret in combat) and the heal prediction segments.
+--  Dressed as the house unit frames are: the bar pair flat inside one 1px
+--  black border with a 1px line at the bars' seam, health in the carrier's
+--  class colour and power in its power colour (both from the Colors page),
+--  and the spec icon square at the bars' end in place of Blizzard's class
+--  circle and round badge (both at alpha 0). Blizzard paints the health bar
+--  its default green on every value change and update and the power bar its
+--  type's colour on every power update; ours goes back on after those writes
+--  only, so the grey of a carrier out of sight or offline stays. In instanced
+--  PvP the class token is secret: it goes to C_ClassColor and the colour to
+--  SetStatusBarColor, both of which take secrets, and is never compared.
+--
+--  Kept as Blizzard draws them: the faction icon, the cast bar's fill (its
+--  atlas carries the cast type, uninterruptible included, and that type is
+--  secret in combat) and the heal prediction segments.
 -------------------------------------------------------------------------------
 do
 local FC = {
     FLAT = "Interface\\Buttons\\WHITE8X8",
-    CIRCLE = "Interface\\CharacterFrame\\TempPortraitAlphaMask",
+    -- Blizzard's frame art, the black wash behind its bars, the class circle
+    -- and the spec icon's badge and ring.
+    ART = { "Texture", "Background", "ClassPortrait", "SpecPortrait", "SpecBorder" },
     BAR_TEXTS = {
         "HealthBarText", "HealthBarTextLeft", "HealthBarTextRight",
         "ManaBarText", "ManaBarTextLeft", "ManaBarTextRight",
     },
 }
 
+-- ok, r, g, b: unit's class colour from the Colors page, or Blizzard's shade
+-- of it while the class token is secret. ok is plain; r, g, b may be secret,
+-- so they only ever go to a setter.
+function FC.ClassRGB(unit)
+    local _, token = UnitClass(unit)
+    if type(token) ~= "string" then return false end
+    if not issecretvalue(token) then
+        local c = EllesmereUI.GetClassColor(token)
+        return true, c.r, c.g, c.b
+    end
+    local ok, r, g, b = EllesmereUI.GetClassColorForRestrictedUnit(unit, token)
+    if ok then return true, r, g, b end
+    local c = C_ClassColor.GetClassColor(token)
+    if c then return true, c.r, c.g, c.b end
+    return false
+end
+
+-- Every colour write on a health bar of ours: Blizzard's default green is
+-- taken over by the class colour, any other write is kept.
+function FC.HealthColor(bar, r, g, b)
+    local d = FFD[bar]
+    if not d or d.fcPaint then return end
+    if issecretvalue(r) or issecretvalue(g) or issecretvalue(b) then return end
+    if r ~= 0 or g ~= 1 or b ~= 0 then return end
+    local ok, cr, cg, cb = FC.ClassRGB(d.fcUnit)
+    if not ok then return end
+    d.fcPaint = true
+    bar:SetStatusBarColor(cr, cg, cb)
+    d.fcPaint = false
+end
+
 -- The pre-10.0 power-type update these frames still use puts Blizzard's bar
--- texture back on every call: the plain one, or for the power types with art
--- of their own an atlas that carries the color. A mana bar of ours goes flat
--- again after it, in the power type's own color where the art carried it.
+-- texture back on every call, and the type's colour (white under the atlas
+-- some types draw with). A power bar of ours goes flat again after it, in the
+-- power colour from the Colors page, or the colour the atlas carried for a
+-- type the page has none for.
 function FC.ManaType(bar)
     local d = bar and FFD[bar]
     if not (d and d.fcMana) then return end
     bar:SetStatusBarTexture(FC.FLAT)
     if bar.lockColor then return end
     local token = bar.powerToken
-    if token == nil or issecretvalue(token) then return end
-    local info = PowerBarColor and PowerBarColor[token]
-    if info and info.atlas then bar:SetStatusBarColor(info.r, info.g, info.b) end
+    if type(token) ~= "string" or issecretvalue(token) then return end
+    local c = EllesmereUI.GetPowerColor(token)
+    if not c then
+        c = PowerBarColor and PowerBarColor[token]
+        if not (c and c.atlas) then return end
+    end
+    bar:SetStatusBarColor(c.r, c.g, c.b)
 end
 
--- Flat fill over a dark trough, in the color Blizzard gives the bar (health
--- green, mana blue, the grey of a carrier out of sight).
-function FC.Bar(bar, mana)
+-- A bar of ours: flat fill. unit is the class colour's source for a health
+-- bar (a pet's is its owner); nil marks the power bar.
+function FC.Bar(bar, unit)
     if not bar or bar:IsForbidden() then return end
     local d = GetFFD(bar)
-    if d.fcTrough then return end
-    local trough = SolidTex(bar, "BACKGROUND", 0, 0, 0, 0.55)
-    trough:SetAllPoints(bar)
-    d.fcTrough = trough
-    if mana then
+    if d.fcBar then return end
+    d.fcBar = true
+    if not unit then
         d.fcMana = true
         FC.ManaType(bar)
-    else
-        bar:SetStatusBarTexture(FC.FLAT)
+        return
     end
+    d.fcUnit = unit
+    bar:SetStatusBarTexture(FC.FLAT)
+    hooksecurefunc(bar, "SetStatusBarColor", FC.HealthColor)
+    FC.HealthColor(bar, bar:GetStatusBarColor())
 end
 
--- Panel behind a button's bar pair: a frame of ours at the button's own
--- level, where its regions and the button's interleave by draw layer, so the
--- class circle (the button's BACKGROUND) stays over the panel's edge. The
--- house fill for the EllesmereUI style, the Modern color for Modern (the
--- shell registry swaps them live), and the house border below the circle too.
-function FC.Panel(owner, top, bottom, pad)
+-- The frame round a bar pair: a backing of ours under the bars at the
+-- button's own level (the house fill for the EllesmereUI style, the Modern
+-- colour for Modern; the shell registry swaps them live), and on a frame of
+-- ours above the bars a 1px black border over their outer pixel. seam: the
+-- bars touch, so a 1px line marks where.
+function FC.Frame(owner, top, bottom, seam)
     local d = GetFFD(owner)
-    if d.fcPanel then return end
-    local panel = CreateFrame("Frame", nil, owner)
-    panel:SetPoint("TOPLEFT", top, "TOPLEFT", -pad, pad)
-    panel:SetPoint("BOTTOMRIGHT", bottom, "BOTTOMRIGHT", pad, -pad)
-    panel:SetFrameLevel(owner:GetFrameLevel())
-    d.fcPanel = panel
-    local bg = SolidTex(panel, "BACKGROUND", Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA, -8)
-    bg:SetAllPoints(panel)
-    WSkin.AdoptShell("flagcarrier", panel, bg)
-    WSkin.AddBorder(panel, nil, nil, nil, nil, "BACKGROUND", -5)
+    if d.fcEdge then return d.fcEdge end
+    local PP = EllesmereUI.PP
+    local back = CreateFrame("Frame", nil, owner)
+    back:SetPoint("TOPLEFT", top, "TOPLEFT")
+    back:SetPoint("BOTTOMRIGHT", bottom, "BOTTOMRIGHT")
+    back:SetFrameLevel(owner:GetFrameLevel())
+    local bg = SolidTex(back, "BACKGROUND", Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA, -8)
+    bg:SetAllPoints(back)
+    WSkin.AdoptShell("flagcarrier", back, bg)
+    local edge = CreateFrame("Frame", nil, owner)
+    edge:SetAllPoints(back)
+    edge:SetFrameLevel(math.max(top:GetFrameLevel(), bottom:GetFrameLevel()) + 1)
+    PP.CreateBorder(edge, 0, 0, 0, 1, 1, "OVERLAY", 7)
+    if seam then
+        local line = CreateFrame("Frame", nil, edge)
+        line:SetAllPoints(bottom)
+        PP.CreateBorder(line, 0, 0, 0, 1, 1, "OVERLAY", 7)
+        local c = PP.GetBorders(line)
+        if c then
+            c._hideBottom, c._hideLeft, c._hideRight = true, true, true
+            PP.SetBorderSize(line, 1)
+        end
+    end
+    d.fcEdge = edge
+    return edge
 end
 
-function FC.SkinPet(pet)
+-- The spec icon, square and joined to the bar pair's right edge, following
+-- Blizzard's spec texture (now at alpha 0) whatever writes it: a carrier with
+-- no spec shows none.
+function FC.PaintSpec(box, tex, file)
+    if type(file) == "nil" then
+        box:Hide()
+        return
+    end
+    tex:SetTexture(file)
+    box:Show()
+end
+
+function FC.SpecIcon(owner, edge, spec, size)
+    local d = GetFFD(owner)
+    if d.fcSpec then return end
+    local PP = EllesmereUI.PP
+    local box = CreateFrame("Frame", nil, owner)
+    box:SetSize(size, size)
+    box:SetPoint("TOPLEFT", edge, "TOPRIGHT")
+    box:SetFrameLevel(edge:GetFrameLevel())
+    local tex = box:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints(box)
+    tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    -- The bar pair's right edge is the icon's left one.
+    PP.CreateBorder(box, 0, 0, 0, 1, 1, "OVERLAY", 7)
+    local c = PP.GetBorders(box)
+    if c then
+        c._hideLeft = true
+        PP.SetBorderSize(box, 1)
+    end
+    d.fcSpec = box
+    hooksecurefunc(spec, "SetTexture", function(_, file) FC.PaintSpec(box, tex, file) end)
+    FC.PaintSpec(box, tex, spec:GetTexture())
+end
+
+-- The trinket slot shows all the time, often empty: its icon is cropped
+-- square, and its border shows only while Blizzard has an icon in it. The
+-- border sits over the slot's cooldown swipe.
+function FC.Trinket(cc)
+    if not (cc and cc.Icon) then return end
+    local d = GetFFD(cc)
+    if d.fcEdge then return end
+    WSkin.SquareIcon(cc.Icon)
+    local edge = CreateFrame("Frame", nil, cc)
+    edge:SetAllPoints(cc)
+    edge:SetFrameLevel(cc:GetFrameLevel() + 3)
+    EllesmereUI.PP.CreateBorder(edge, 0, 0, 0, 1, 1, "OVERLAY", 7)
+    d.fcEdge = edge
+    hooksecurefunc(cc.Icon, "SetTexture", function(_, file) edge:SetShown(type(file) ~= "nil") end)
+    edge:SetShown(type(cc.Icon:GetTexture()) ~= "nil")
+end
+
+function FC.SkinPet(pet, unit)
     if not pet or pet:IsForbidden() then return end
     local name = pet:GetName()
     if not name then return end
     local art = _G[name .. "Texture"]
     if art then art:SetAlpha(0) end
     local hb, mb = _G[name .. "HealthBar"], _G[name .. "ManaBar"]
-    FC.Bar(hb)
-    FC.Bar(mb, true)
-    if hb and mb then FC.Panel(pet, hb, mb, 1) end
+    FC.Bar(hb, unit)
+    FC.Bar(mb)
+    -- A gap parts the pet's bars already.
+    if hb and mb then FC.Frame(pet, hb, mb) end
 end
 
 function FC.SkinFrame(f)
@@ -14114,27 +14243,19 @@ function FC.SkinFrame(f)
     local d = GetFFD(f)
     if not name or d.fcSkinned then return end
     d.fcSkinned = true
+    local unit = "arena" .. f:GetID()
 
-    -- Blizzard's frame art and the black wash behind its bars.
-    for _, suffix in ipairs({ "Texture", "Background" }) do
+    for _, suffix in ipairs(FC.ART) do
         local t = _G[name .. suffix]
         if t then t:SetAlpha(0) end
     end
     local hb, mb = _G[name .. "HealthBar"], _G[name .. "ManaBar"]
-    FC.Bar(hb)
-    FC.Bar(mb, true)
-    if hb and mb then FC.Panel(f, hb, mb, 2) end
-
-    -- Spec icon: Blizzard's gold ring off, the icon itself a round badge on
-    -- the class circle. The mask is made on the frame that owns the icon.
-    local ring = _G[name .. "SpecBorder"]
-    if ring then ring:SetAlpha(0) end
-    local spec = _G[name .. "SpecPortrait"]
-    if spec and spec.AddMaskTexture then
-        local mask = spec:GetParent():CreateMaskTexture()
-        mask:SetTexture(FC.CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-        mask:SetAllPoints(spec)
-        spec:AddMaskTexture(mask)
+    FC.Bar(hb, unit)
+    FC.Bar(mb)
+    if hb and mb then
+        local edge = FC.Frame(f, hb, mb, true)
+        local spec = _G[name .. "SpecPortrait"]
+        if spec then FC.SpecIcon(f, edge, spec, hb:GetHeight() + mb:GetHeight()) end
     end
 
     -- Name white like the windows' titles; the bar texts keep their color.
@@ -14145,17 +14266,15 @@ function FC.SkinFrame(f)
     end
     for _, suffix in ipairs(FC.BAR_TEXTS) do WSkin.Font(_G[name .. suffix]) end
 
-    -- The trinket slot shows all the time, often empty: its icon is cropped
-    -- square with no edge, so an empty slot draws nothing.
-    local cc = f.CC
-    if cc and cc.Icon then WSkin.SquareIcon(cc.Icon) end
+    FC.Trinket(f.CC)
     local cast = f.CastingBar
     if cast and not cast:IsForbidden() then
+        EllesmereUI.PP.CreateBorder(cast, 0, 0, 0, 1, 1, "OVERLAY", 7)
         if cast.Icon then WSkin.SquareIcon(cast.Icon, cast) end
         if cast.Text then WSkin.Font(cast.Text) end
     end
 
-    FC.SkinPet(f.petFrame)
+    FC.SkinPet(f.petFrame, unit)
 end
 
 function FC.Apply()

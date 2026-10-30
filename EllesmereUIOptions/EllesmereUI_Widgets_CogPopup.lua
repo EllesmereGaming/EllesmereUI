@@ -1259,8 +1259,11 @@ local function BuildCogPopup(opts)
             local owner = popupOwner
             popupOwner = nil; pf._owner = nil
             -- Dim the anchor back to cog idle alpha; skipped via noOwnerDim when the anchor isn't a cog (e.g. a preview icon) and must not fade.
+            -- A hand-built glyph button (SetGlyphAlpha) goes back through its own painter.
             if owner and owner._euiCogState then owner._euiCogState()
-            elseif owner and not opts.noOwnerDim then owner:SetAlpha(0.4) end
+            elseif owner and not opts.noOwnerDim then
+                if owner._glyphA then EllesmereUI.SetGlyphAlpha(owner, 0.4) else owner:SetAlpha(0.4) end
+            end
             -- Controller cursor: back onto the cog (not for the hover-opened popups,
             -- where it stays free; a no-op once the cog is hidden).
             if owner and not opts.noOwnerDim and EllesmereUI.PadCursorShown() then

@@ -666,6 +666,16 @@ local function RelayLayers(cfg)
     end
 end
 
+-- The group's frame: fixed at the preview's rows, the size the player places.
+-- Rows stack from its top or bottom edge and may run past it, so the edge they
+-- grow from stays put whatever the live count.
+local function GroupSize(cfg)
+    local h = cfg and cfg.barHeight or 22
+    local sp = cfg and cfg.barSpacing or 2
+    local n = #PREVIEW
+    return (cfg and cfg.barWidth) or 200, n * h + (n - 1) * sp
+end
+
 local function Layout()
     local cfg = Cfg()
     if not cfg then return end
@@ -708,10 +718,7 @@ local function Layout()
     end
     shown = n
     RelayLayers(cfg)
-    local h = cfg.barHeight or 22
-    local sp = cfg.barSpacing or 2
-    local rowsN = n > 0 and n or 1
-    container:SetSize(cfg.barWidth or 200, rowsN * h + (rowsN - 1) * sp)
+    container:SetSize(GroupSize(cfg))
     container:SetShown(n > 0 or curMode == MODE_PREVIEW)
 end
 
@@ -871,13 +878,6 @@ end
 --  Unlock mode: one group element. Registered once at init; the mover is
 --  hidden while the bars are off.
 --------------------------------------------------------------------------------
-local function GroupSize(cfg)
-    local h = cfg and cfg.barHeight or 22
-    local sp = cfg and cfg.barSpacing or 2
-    local n = shown > 0 and shown or 1
-    return (cfg and cfg.barWidth) or 200, n * h + (n - 1) * sp
-end
-
 local function RegisterUnlock()
     if unlockDone then return end
     unlockDone = true
@@ -911,7 +911,7 @@ local function RegisterUnlock()
                 local cfg = Cfg()
                 if not cfg then return end
                 -- The group's height: a row's share of it.
-                local n = shown > 0 and shown or 1
+                local n = #PREVIEW
                 local sp = cfg.barSpacing or 2
                 cfg.barHeight = floor((h - (n - 1) * sp) / n + 0.5)
                 if cfg.barHeight < 6 then cfg.barHeight = 6 end

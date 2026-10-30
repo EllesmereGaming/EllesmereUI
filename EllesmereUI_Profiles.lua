@@ -178,6 +178,7 @@ local KEY_PREFIX_FOLDER = {
     ["ERB_"]   = "EllesmereUIResourceBars",
     ["ECHAT_"] = "EllesmereUIChat",
     ["EBS_"]   = "EllesmereUIMinimap",
+    ["EQT_"]   = "EllesmereUIQuestTracker",
     ["EDR_"]   = "EllesmereUIBlizzardSkin",
     ["EMT_"]   = "EllesmereUIMythicTimer",
     ["EABR_"]  = "EllesmereUIAuraBuffReminders",
@@ -2145,6 +2146,7 @@ do
         "lfgRememberRoles",
         "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel", "merchantBulkBuy",
         "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
+        "mailCloseBags",
         -- Friends List card (WoW Forever: the friend tiles and auto-accept)
         "friendsListCard",
     })

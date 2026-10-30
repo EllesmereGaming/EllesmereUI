@@ -166,6 +166,9 @@ local function ApplyPreviewData(f, index, roles, classTokens)
                 end
             end
         end
+        -- Textured Background, as on the live frames.
+        ns.RF_TexBgLayer(f._health, f._bg, not f.kit
+            and ns.RF_TexBgOpaque(s, s.healthColorMode == "dark") and ns.RF_TexBgPath(s) or nil)
         if s.healthColorMode == "dark" then
             AnchorPreviewBg()
             f._bg:SetColorTexture(EllesmereUI.GetDarkModeBg())
@@ -761,6 +764,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
                 and EllesmereUI.GetPowerColor(EllesmereUI.CLASS_POWER_MAP[classToken] or "MANA")
             local pf = bgc and EllesmereUI.GetPowerBgDarkenFactor() or 1
             bgc = bgc or s.powerBgColor
+            ns.RF_TexBgTint(f._powerBg, ns.RF_TexBgPath(s))
             f._powerBg:SetColorTexture(((bgc or {}).r or 0) * pf, ((bgc or {}).g or 0) * pf, ((bgc or {}).b or 0) * pf, (s.powerBgDarkness or 70) / 100)
             f._powerBg:Show()
         end
@@ -1185,7 +1189,8 @@ local function ApplyPreviewData(f, index, roles, classTokens)
         pv.hpPct, pv.hpPer = healthPct, 12000
         pv.ppPct, pv.ppPer = f._powerPct or 100, (pTok == "MANA") and 2500 or 1
         pv.ha = math.floor(healthPct * 3000)
-        pv.name = ns.CapName(ns.RF_FormatName and ns.RF_FormatName(name, s) or name, s)
+        -- rawName: for a custom text tag's own Name Format ([name:abbr]).
+        pv.rawName, pv.name = name, ns.CapName(ns.RF_FormatName(name, s), s)
         pv.dead, pv.offline = isDead or nil, isOffline or nil
         pv.power = not hidePower or nil
         pv.class, pv.pToken = classToken, pTok

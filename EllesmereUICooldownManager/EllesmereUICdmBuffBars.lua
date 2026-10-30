@@ -360,6 +360,12 @@ function ns.GetTrackedBuffBars()
     return tbb
 end
 
+-- The name the player gave a bar (Name Text Settings), or nil when it has none.
+function ns.TBBCustomName(cfg)
+    local n = cfg.customName
+    if n and n ~= "" then return n end
+end
+
 function ns.GetTBBPositions()
     -- Spec-specific, stored alongside trackedBuffBars in the active profile's per-spec bucket.
     local specKey = ns.GetActiveSpecKey and ns.GetActiveSpecKey()

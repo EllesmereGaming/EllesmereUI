@@ -101,6 +101,27 @@ function EllesmereUI.SetElementVisibility(frame, visible)
 end
 
 -------------------------------------------------------------------------------
+--  An Edit Mode system's own child (its Selection box, a resize button) made
+--  inert in place while a module of ours owns that frame's spot or size, so
+--  Edit Mode cannot pick it up: alpha and mouse only, never reparented (a
+--  region its owner still writes stays in its tree). inert = false turns it
+--  back on; a caller does that only for a child it turned off itself.
+--  GetAlpha can read secret on some widgets in lockdown; a secret skips the
+--  compare and re-asserts.
+-------------------------------------------------------------------------------
+function EllesmereUI.SetEditModeChildInert(f, inert)
+    if not f then return end
+    local alpha = inert and 0 or 1
+    local a = f:GetAlpha()
+    if issecretvalue(a) or a ~= alpha then f:SetAlpha(alpha) end
+    if f.SetMouseClickEnabled then
+        local on = not inert
+        if f:IsMouseClickEnabled() ~= on then f:SetMouseClickEnabled(on) end
+        if f:IsMouseMotionEnabled() ~= on then f:SetMouseMotionEnabled(on) end
+    end
+end
+
+-------------------------------------------------------------------------------
 --  Anchoring a frame that may be a Blizzard Edit Mode system (ChatFrame1, the
 --  action bars, the quest tracker, ...). Edit Mode replaces those frames'
 --  SetPoint and ClearAllPoints with Lua overrides that, called from our code,

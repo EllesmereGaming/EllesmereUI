@@ -206,6 +206,43 @@ local function SecureSetPoint(frame, point, relPoint, x, y)
     return true
 end
 
+-- The same write, anchored to the frame's own parent instead of UIParent.
+-- "$parent" and not a frame ref: a relative frame handed in by ref must be
+-- explicitly protected (RestrictedFrames.lua), and a parent that is only
+-- protected through its children is not.
+local function SecureSetPointParent(frame, point, relPoint, x, y)
+    if InCombatLockdown() then return false end
+    securePositioner:SetFrameRef("f", frame)
+    securePositioner:SetAttribute("p", point)
+    securePositioner:SetAttribute("rp", relPoint)
+    securePositioner:SetAttribute("x", x)
+    securePositioner:SetAttribute("y", y)
+    securePositioner:Execute([[
+        local f = self:GetFrameRef("f")
+        if not f then return end
+        f:ClearAllPoints()
+        f:SetPoint(self:GetAttribute("p"), "$parent", self:GetAttribute("rp"), self:GetAttribute("x"), self:GetAttribute("y"))
+    ]])
+    return true
+end
+
+-- Where a point sits in a box, as fractions of its width and height from the
+-- bottom left corner.
+local function PointFrac(p)
+    local x = p:find("LEFT") and 0 or (p:find("RIGHT") and 1 or 0.5)
+    local y = p:find("TOP") and 1 or (p:find("BOTTOM") and 0 or 0.5)
+    return x, y
+end
+
+-- Offset from one point of a w x h box to another: a mover saves where one
+-- point of its box is, and the frame it places may hang from another (so a
+-- frame that grows keeps that edge where the player put it).
+local function AnchorShift(point, anchor, w, h)
+    local px, py = PointFrac(point)
+    local ax, ay = PointFrac(anchor)
+    return (ax - px) * w, (ay - py) * h
+end
+
 local function ApplyPosition(frame, name)
     if InCombatLockdown() and frame:IsProtected() then return end
     local pos = tempPos[frame] or GetSavedPos(name)
@@ -827,19 +864,32 @@ end
 --  Blizzard anchors it once in XML and never again, so the placement made
 --  when it is claimed is what moves it. Its own rect is a bare anchor rather
 --  than a toast-sized box, so its mover uses a fixed size (fixedSize).
+--
+--  The capture bars ride the same recipe under the battleground switch and
+--  overlay toggle they share with the flag carriers below (switch, hideKey):
+--  UIWidgetBelowMinimapContainerFrame, the
+--  first frame of the right managed column, holds the bars Blizzard shows
+--  under the minimap (battleground capture bars, other objective bars). The
+--  column grows as bars come and go, so it hangs from its mover's top edge
+--  (anchor), with a fixed mover box to measure from.
 -------------------------------------------------------------------------------
 local LOOT_WINDOWS = {
     { name = "BonusRollFrame",     key = "EUI_BonusRoll",   label = "Bonus Roll",   order = 640, defW = 330, defH = 120, defY = 240 },
     { name = "GroupLootContainer", key = "EUI_GroupLoot",   label = "Group Loot",   order = 641, defW = 300, defH = 80,  defY = 340 },
     { name = "AlertFrame",         key = "EUI_AlertToasts", label = "Alert Toasts", order = 642, defW = 300, defH = 100, defY = 160, fixedSize = true },
+    { name = "UIWidgetBelowMinimapContainerFrame", key = "EUI_CaptureBars", label = "Capture Bars", order = 644,
+      defW = 230, defH = 60, defPos = { "TOPRIGHT", "TOPRIGHT", -20, -260 }, fixedSize = true, anchor = "TOP",
+      switch = "shifterBattlegroundUnlock", hideKey = "shifterBattlegroundHideOverlays",
+      subtitle = "Disable the Battleground Frames overlays in Shifter once done positioning" },
 }
 
 local lootProxies = {}
 local lootPlacers = {}  -- name -> placement callback, built once per window
 local lootClaimed = {}  -- name -> true while our placement claim is registered
 
-local function LootEnabled()
-    return EllesmereUIDB and EllesmereUIDB.shifterLootUnlock or false
+local function LootEnabled(info)
+    local db = EllesmereUIDB
+    return db and db[info.switch or "shifterLootUnlock"] or false
 end
 
 local function GetLootPos(name)
@@ -867,13 +917,19 @@ end
 
 -- The saved spot while the feature is on; nil leaves the window to the next
 -- placement owner, or to Blizzard's own anchor.
-local function LootPlacer(name)
+local function LootPlacer(info)
+    local name = info.name
     local fn = lootPlacers[name]
     if not fn then
         fn = function()
-            if not LootEnabled() then return nil end
+            if not LootEnabled(info) then return nil end
             local pos = GetLootPos(name)
             if not pos then return nil end
+            local anchor = info.anchor
+            if anchor then
+                local dx, dy = AnchorShift(pos.point, anchor, info.defW, info.defH)
+                return anchor, UIParent, pos.relPoint, pos.x + dx, pos.y + dy
+            end
             return pos.point, UIParent, pos.relPoint, pos.x, pos.y
         end
         lootPlacers[name] = fn
@@ -892,15 +948,16 @@ end
 
 -- Claims the window while the feature is on and a position is saved, and
 -- places it this frame; releases it otherwise.
-local function SyncLootWindow(name)
-    if not (LootEnabled() and GetLootPos(name)) then
+local function SyncLootWindow(info)
+    local name = info.name
+    if not (LootEnabled(info) and GetLootPos(name)) then
         ReleaseLootWindow(name)
         return
     end
     local frame = LootFrame(name)
     if not frame then return end
     if not lootClaimed[name] then
-        if not EllesmereUI.SetFramePlacer(frame, "shifter", LootPlacer(name)) then return end
+        if not EllesmereUI.SetFramePlacer(frame, "shifter", LootPlacer(info)) then return end
         lootClaimed[name] = true
     end
     EllesmereUI.RequestFramePlacement(frame)
@@ -912,6 +969,9 @@ local function PlaceLootProxy(proxy, info)
     proxy:ClearAllPoints()
     if pos then
         proxy:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+    elseif info.defPos then
+        local d = info.defPos
+        proxy:SetPoint(d[1], UIParent, d[2], d[3], d[4])
     else
         proxy:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, info.defY)
     end
@@ -929,9 +989,11 @@ local function EnsureLootProxy(info)
     return proxy
 end
 
+-- Each window by its own switch: claimed while it is on with a saved spot,
+-- released otherwise.
 local function InitLootWindows()
     for i = 1, #LOOT_WINDOWS do
-        SyncLootWindow(LOOT_WINDOWS[i].name)
+        SyncLootWindow(LOOT_WINDOWS[i])
     end
 end
 
@@ -954,13 +1016,13 @@ local function RegisterLootUnlockElements()
             -- until the user turns them off: brown tint + reminder subtitle
             -- to tell them apart from live-frame movers.
             moverBg  = { r = 0.165, g = 0.11, b = 0.055 },
-            subtitle = "Disable Loot unlock mode overlays in Shifter once done positioning",
+            subtitle = info.subtitle or "Disable Loot unlock mode overlays in Shifter once done positioning",
             isHidden = function()
-                if not LootEnabled() or not _G[info.name] then return true end
+                if not LootEnabled(info) or not _G[info.name] then return true end
                 -- "Hide Unlock Mode Overlays": the movers stay out of unlock
                 -- mode but saved positions keep applying (the placer claim
                 -- never depends on the movers existing).
-                return EllesmereUIDB and EllesmereUIDB.shifterLootHideOverlays or false
+                return EllesmereUIDB and EllesmereUIDB[info.hideKey or "shifterLootHideOverlays"] or false
             end,
             getFrame = function()
                 return EnsureLootProxy(info)
@@ -977,7 +1039,7 @@ local function RegisterLootUnlockElements()
             savePos = function(_, point, relPoint, x, y)
                 SaveLootPos(info.name, point, relPoint, x, y)
                 PlaceLootProxy(EnsureLootProxy(info), info)
-                SyncLootWindow(info.name)
+                SyncLootWindow(info)
             end,
             loadPos = function()
                 local pos = GetLootPos(info.name)
@@ -996,7 +1058,7 @@ local function RegisterLootUnlockElements()
             end,
             applyPos = function()
                 PlaceLootProxy(EnsureLootProxy(info), info)
-                SyncLootWindow(info.name)
+                SyncLootWindow(info)
             end,
         })
     end
@@ -1195,6 +1257,145 @@ function EllesmereUI._DisableShifterTopBar()
 end
 
 -------------------------------------------------------------------------------
+--  Battleground flag carriers (ArenaEnemyMatchFramesContainer, the column of
+--  Blizzard's carrier frames) via an Unlock Mode mover. The carriers are
+--  SECURE unit buttons, so the column is protected and the frame placer
+--  refuses it: every write on it runs through the restricted environment, out
+--  of combat (one asked for in combat waits for the module's combat queue).
+--  That is enough, because Blizzard anchors the column once in XML (TOPRIGHT
+--  of its parent, -10, 0) and never again: the right managed column lays out
+--  that parent, not the column. The parent keeps the column's height, so the
+--  managed column still leaves the room the carriers took. The column hangs
+--  from its mover's top-right corner, as from Blizzard's own anchor, so a
+--  carrier who comes or goes never moves the others. Hidden proxy + mover, no
+--  script hook, no mouse state ever touched.
+-------------------------------------------------------------------------------
+local CARRIER = {
+    name = "ArenaEnemyMatchFramesContainer",
+    w = 150, h = 160,                              -- the mover box, about four carriers
+    defPos = { "TOPRIGHT", "TOPRIGHT", -40, -320 }, -- the mover before a first save
+    moved = false,                                 -- our anchor is on the column
+}
+
+-- The battleground switch, shared with the capture bars.
+function CARRIER.On()
+    return EllesmereUIDB and EllesmereUIDB.shifterBattlegroundUnlock or false
+end
+
+function CARRIER.Pos()
+    return EllesmereUIDB and EllesmereUIDB.shifterCarrierPos
+end
+
+-- The live column, unless forbidden (a secret answer counts as forbidden).
+function CARRIER.Frame()
+    local frame = _G[CARRIER.name]
+    if type(frame) ~= "table" or not frame.IsForbidden then return nil end
+    local v = frame:IsForbidden()
+    if issecretvalue(v) or v then return nil end
+    return frame
+end
+
+-- Our spot while the feature is on; otherwise Blizzard's own anchor, and only
+-- while ours is still on the column.
+function CARRIER.Sync()
+    local frame = CARRIER.Frame()
+    if not frame then return end
+    local pos = CARRIER.On() and CARRIER.Pos()
+    if not pos and not CARRIER.moved then return end
+    local ok
+    if pos then
+        local dx, dy = AnchorShift(pos.point, "TOPRIGHT", CARRIER.w, CARRIER.h)
+        ok = SecureSetPoint(frame, "TOPRIGHT", pos.relPoint, pos.x + dx, pos.y + dy)
+    else
+        ok = SecureSetPointParent(frame, "TOPRIGHT", "TOPRIGHT", -10, 0)
+    end
+    if ok then
+        CARRIER.moved = pos and true or false
+    else
+        ns.CombatQueue.Defer("ShifterCarriers", CARRIER.Sync)
+    end
+end
+
+-- Hidden rect-only ghost the unlock mover attaches to; never visible. It sits
+-- at the saved spot, or at the default one.
+function CARRIER.PlaceProxy()
+    local proxy = CARRIER.proxy
+    if not proxy then
+        proxy = CreateFrame("Frame", nil, UIParent)
+        proxy:Hide()
+        proxy:SetSize(CARRIER.w, CARRIER.h)
+        CARRIER.proxy = proxy
+    end
+    local pos = CARRIER.Pos()
+    local d = CARRIER.defPos
+    proxy:ClearAllPoints()
+    if pos then
+        proxy:SetPoint(pos.point, UIParent, pos.relPoint, pos.x, pos.y)
+    else
+        proxy:SetPoint(d[1], UIParent, d[2], d[3], d[4])
+    end
+    return proxy
+end
+
+function CARRIER.Register()
+    local MK = EllesmereUI.MakeUnlockElement
+    if not MK or not EllesmereUI.RegisterUnlockElements then return end
+    EllesmereUI:RegisterUnlockElements({
+        MK({
+            key   = "EUI_FlagCarriers",
+            label = "Flag Carriers",
+            group = "Quality of Life",
+            order = 645,
+            noResize          = true,
+            noAnchorTarget    = true,
+            noAnchorTo        = true,
+            noSizeMatchTarget = true,
+            moverBg  = { r = 0.165, g = 0.11, b = 0.055 },
+            subtitle = "Disable the Battleground Frames overlays in Shifter once done positioning",
+            isHidden = function()
+                if not CARRIER.On() or not _G[CARRIER.name] then return true end
+                return EllesmereUIDB and EllesmereUIDB.shifterBattlegroundHideOverlays or false
+            end,
+            getFrame = function()
+                return CARRIER.proxy or CARRIER.PlaceProxy()
+            end,
+            -- The column's own rect changes with every carrier: fixed box.
+            getSize = function()
+                return CARRIER.w, CARRIER.h
+            end,
+            savePos = function(_, point, relPoint, x, y)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.shifterCarrierPos = { point = point, relPoint = relPoint, x = x, y = y }
+                CARRIER.PlaceProxy()
+                CARRIER.Sync()
+            end,
+            loadPos = function()
+                local pos = CARRIER.Pos()
+                if pos then
+                    return { point = pos.point, relPoint = pos.relPoint, x = pos.x, y = pos.y }
+                end
+                return nil
+            end,
+            clearPos = function()
+                if EllesmereUIDB then EllesmereUIDB.shifterCarrierPos = nil end
+                CARRIER.PlaceProxy()
+                CARRIER.Sync()
+            end,
+            applyPos = function()
+                CARRIER.PlaceProxy()
+                CARRIER.Sync()
+            end,
+        }),
+    }, "EllesmereUIQoL")
+end
+
+-- Exposed for the options toggle: on, the column takes the saved spot; off,
+-- Blizzard's own anchor comes back (after combat if need be).
+function EllesmereUI._SyncShifterCarriers()
+    CARRIER.Sync()
+end
+
+-------------------------------------------------------------------------------
 --  Event-driven initialization
 -------------------------------------------------------------------------------
 local pendingAddons = {}
@@ -1234,9 +1435,11 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         self:UnregisterEvent("PLAYER_LOGIN")
         if IsEnabled() then InitShifter() end
         RegisterLootUnlockElements()
-        if LootEnabled() then InitLootWindows() end
+        InitLootWindows()
         RegisterTopBarUnlockElement()
         if TopBarEnabled() then EllesmereUI._InitShifterTopBar() end
+        CARRIER.Register()
+        if CARRIER.On() then CARRIER.Sync() end
     elseif event == "ADDON_LOADED" then
         local frames = pendingAddons[arg1]
         if frames then
@@ -1271,16 +1474,18 @@ function EllesmereUI._ResetShifterPositions()
         EllesmereUIDB.shifterPositions = nil
         EllesmereUIDB.shifterLootPositions = nil
         EllesmereUIDB.shifterTopBarPos = nil
+        EllesmereUIDB.shifterCarrierPos = nil
         EllesmereUIDB.shifterScales = nil
     end
     wipe(tempPos)
     wipe(tempScale)
-    -- No saved spots remain: the loot windows and the top bar take Blizzard's
-    -- own anchors back.
+    -- No saved spots remain: the loot windows, the capture bars, the top bar
+    -- and the flag carriers take Blizzard's own anchors back.
     for i = 1, #LOOT_WINDOWS do
         ReleaseLootWindow(LOOT_WINDOWS[i].name)
     end
     SyncTopBar()
+    CARRIER.Sync()
 end
 
 -- Exposed for the options toggle (mid-session enable without /reload)
@@ -1288,10 +1493,9 @@ function EllesmereUI._InitShifterLootWindows()
     InitLootWindows()
 end
 
--- Exposed for the options toggle. Releases the loot windows to the next
--- placement owner, or back to Blizzard's own anchors.
+-- Exposed for the options toggle, which turns its setting off first. The
+-- windows it governs go to the next placement owner, or back to Blizzard's
+-- own anchors; the capture bars follow the battleground switch.
 function EllesmereUI._DisableShifterLootWindows()
-    for i = 1, #LOOT_WINDOWS do
-        ReleaseLootWindow(LOOT_WINDOWS[i].name)
-    end
+    InitLootWindows()
 end

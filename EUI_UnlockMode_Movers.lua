@@ -546,9 +546,11 @@ local function CreateMover(barKey)
     -- width calc all read this so they never drift apart. `fb` = fallback width.
     local function ActiveLinks()
         local t = {}
+        -- A match resizes this element through its own setter, so each match
+        -- button shows only when that setter exists.
         if canMatchSource then
-            t[#t + 1] = { btn = wmBtn, fs = wmFS, fb = 50 }
-            t[#t + 1] = { btn = hmBtn, fs = hmFS, fb = 55 }
+            if not elem or elem.setWidth then t[#t + 1] = { btn = wmBtn, fs = wmFS, fb = 50 } end
+            if not elem or elem.setHeight then t[#t + 1] = { btn = hmBtn, fs = hmFS, fb = 55 } end
         end
         if canAnchorTo and not ns.IsMoverPosLocked(barKey) then
             t[#t + 1] = { btn = atBtn, fs = atFS, fb = 45 }
@@ -3490,8 +3492,9 @@ local function CreateMover(barKey)
             -- so a resize here would write the SHARED module setting mid-session
             -- while looking like a per-group edit. Users resize from the options panel instead.
             if not isCDMBar and not EllesmereUI._specialUnlockGroup then
-                wBox = MakeSizeRow("Width",  curW)
-                hBox = MakeSizeRow("Height", curH)
+                -- A size row shows only when the element has its setter.
+                wBox = elem.setWidth and MakeSizeRow("Width", curW) or nil
+                hBox = elem.setHeight and MakeSizeRow("Height", curH) or nil
                 -- Re-read both boxes after an Extra Width / Height commit.
                 mover._syncCogSize = function()
                     if not elem.getSize then return end

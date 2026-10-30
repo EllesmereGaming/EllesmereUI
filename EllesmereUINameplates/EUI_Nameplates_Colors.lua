@@ -35,8 +35,9 @@ local _isTankRole      = false
 -- UnitDetailedThreatSituation(tankToken, mob) (plain tokens in; isTanking
 -- boolean out, plain or secret; field-probed real boolean in keys) folded
 -- through C_CurveUtil.EvaluateColorValueFromBoolean so no secret is ever read
--- in Lua. Returns ok plus possibly-SECRET r,g,b: the caller must hand them to
--- SETTERS ONLY -- never compare, cache, multiply or format them. Tank tokens
+-- in Lua. Returns ok plus possibly-SECRET r,g,b, and a: 1 while another tank
+-- holds the mob, else 0 (the debuff colors' bad-threat alpha). The caller must
+-- hand them to SETTERS ONLY -- never compare, cache, multiply or format them. Tank tokens
 -- rebuild lazily off ns._otherTanksDirty (set by RefreshThreatCache's existing
 -- roster/role/zone events -- zero new registrations; own-group role reads are
 -- plain). On ns (file is at the 200-local cap).
@@ -66,7 +67,7 @@ function ns.ComputeOffTankFold(unit, br, bg, bb, otr, otg, otb)
     if not toks[1] then return false end
     -- All colors arrive from the caller: the _C accessor is declared far BELOW
     -- this function, so resolving colors here read a nil global (field crash).
-    local r, g, b = br, bg, bb
+    local r, g, b, a = br, bg, bb, 0
     if not (r and otr) then return false end
     for i = 1, #toks do
         local isTanking = UnitDetailedThreatSituation(toks[i], unit)
@@ -77,9 +78,10 @@ function ns.ComputeOffTankFold(unit, br, bg, bb, otr, otg, otb)
             r = eval(isTanking, otr, r)
             g = eval(isTanking, otg, g)
             b = eval(isTanking, otb, b)
+            a = eval(isTanking, 1, a)
         end
     end
-    return true, r, g, b
+    return true, r, g, b, a
 end
 
 -- A damage dealer's or healer's threat colors mean something only while someone else can
@@ -683,7 +685,11 @@ end
 -- must hand them to setters only and never cache or compare them. status: the threat
 -- situation this pass already read (false = no threat data), or nil to read it here; the
 -- nil test reads the type tag only, since the situation read can be secret.
+-- ns._threatOkA: 1 while nothing is wrong, 0 on bad threat (a non-tank with or
+-- near aggro, a tank without or losing it), or the off-tank fold's secret answer;
+-- the debuff colors give way on the border and name channels by it.
 function ns.ResolveThreatColor(unit, status)
+    ns._threatOkA = 1
     if not ns._npThreatColorsOn then return end
     if type(status) == "nil" then status = UnitThreatSituation("player", unit) end
     if not status then return end
@@ -692,9 +698,11 @@ function ns.ResolveThreatColor(unit, status)
         -- Solo with no pet out the player always has aggro: no signal (ThreatShared).
         if not ThreatShared() then return end
         if status >= 3 then
+            ns._threatOkA = 0
             local c = _C("dpsHasAggro")
             return c.r, c.g, c.b, false
         elseif status >= 2 then
+            ns._threatOkA = 0
             local c = _C("dpsNearAggro")
             return c.r, c.g, c.b, false
         end
@@ -724,6 +732,7 @@ function ns.ResolveThreatColor(unit, status)
         return
     end
     if status >= 2 then
+        ns._threatOkA = 0
         local c = _C("tankLosingAggro")
         return c.r, c.g, c.b, false
     end
@@ -744,12 +753,14 @@ function ns.ResolveThreatColor(unit, status)
     end
     if otE and roleSecret then
         local otc = _C("offTankAggro")
-        local folded, fr, fg, fb = ns.ComputeOffTankFold(unit, base.r, base.g, base.b, otc.r, otc.g, otc.b)
+        local folded, fr, fg, fb, fa = ns.ComputeOffTankFold(unit, base.r, base.g, base.b, otc.r, otc.g, otc.b)
         -- Secret when an isTanking read was: those components reach setters only. A
         -- plain fold goes through the caller's memos like any other colour.
         if folded then
+            ns._threatOkA = fa
             return fr, fg, fb, (issecretvalue(fr) or issecretvalue(fg) or issecretvalue(fb))
         end
+        ns._threatOkA = 0
         return base.r, base.g, base.b, false
     end
     if targetRole == "TANK" then
@@ -759,6 +770,7 @@ function ns.ResolveThreatColor(unit, status)
         local c = _C("offTankAggro")
         return c.r, c.g, c.b, false
     end
+    ns._threatOkA = 0
     return base.r, base.g, base.b, false
 end
 local function GetReactionColor(unit)
@@ -779,6 +791,9 @@ local function GetReactionColor(unit)
     -- (false = no threat data), which UpdateHealthColor hands to ns.ResolveThreatColor
     -- instead of a second UnitThreatSituation read.
     ns._reactionThreatStatus = nil
+    -- Same idiom: true when this resolution landed on bad threat (a non-tank with or
+    -- near aggro, a tank without or losing it), where the debuff colors give way.
+    ns._reactionBadThreat = false
     local db = p or defaults
     -- 1. Tapped always highest
     if UnitIsTapDenied(unit) then
@@ -822,10 +837,12 @@ local function GetReactionColor(unit)
                 -- Only in a group or with a pet out (solo without one, the player always has aggro)
                 if threatShared then
                 if status >= 3 then
+                    ns._reactionBadThreat = true
                     local c = _C("dpsHasAggro")
                     return c.r, c.g, c.b
                 elseif status >= 2 then
                     ns._reactionNearAggro = true
+                    ns._reactionBadThreat = true
                     local c = _C("dpsNearAggro")
                     return c.r, c.g, c.b
                 end
@@ -844,6 +861,7 @@ local function GetReactionColor(unit)
                 if otE == nil then otE = defaults.offTankAggroEnabled end
                 if otE then ns._reactionOffTankFold = true end
                 if status < 3 and status >= 2 then
+                    ns._reactionBadThreat = true
                     local c = _C("tankLosingAggro")
                     return c.r, c.g, c.b
                 elseif status < 3 then
@@ -871,6 +889,7 @@ local function GetReactionColor(unit)
                         if otE then ns._reactionOffTankFold = true end
                     end
                     if targetRole ~= "TANK" then
+                        ns._reactionBadThreat = true
                         local c = _C("tankNoAggro")
                         return c.r, c.g, c.b
                     end

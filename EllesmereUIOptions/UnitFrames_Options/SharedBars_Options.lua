@@ -2248,9 +2248,10 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
             rgn._lastInline = eyeBtn
             local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+            EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
             eyeTex:SetAllPoints()
             local function RefreshCostEye()
                 eyeTex:SetTexture(ns._ufShowPowerCostPreview and EllesmereUI.EYE_INVISIBLE_ICON or EllesmereUI.EYE_VISIBLE_ICON)
@@ -2262,11 +2263,11 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                 UpdatePreview()
             end)
             eyeBtn:SetScript("OnEnter", function(self)
-                self:SetAlpha(0.7)
+                EllesmereUI.SetGlyphAlpha(self, 0.7)
                 EllesmereUI.ShowWidgetTooltip(self, ns._ufShowPowerCostPreview and "Hide spell cost preview" or "Show spell cost preview")
             end)
             eyeBtn:SetScript("OnLeave", function(self)
-                self:SetAlpha(0.4)
+                EllesmereUI.SetGlyphAlpha(self, 0.4)
                 EllesmereUI.HideWidgetTooltip()
             end)
         end
@@ -3100,7 +3101,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
     if _supportsAbsorbs then
     sharedAbsorbsHeader, h = W:SectionHeader(parent, "ABSORBS AND HEALS", y); y = y - h
 
-    -- Names and orders live on ns (EllesmereUIUnitFrames.lua, shared with the
+    -- Names and orders live on ns (EUI_UnitFrames_Absorb.lua, shared with the
     -- Textures page tile); fresh copies here because the SharedMedia tail
     -- below is appended into them. Shield (regular) absorb order; heal absorb
     -- uses its own (it adds the two "Outlined" variants on top).
@@ -3142,7 +3143,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
 
     -- Effective absorb opacity: absorbOpacity once set, otherwise the
     -- pre-split behavior (clean -> absorbCleanAlpha, other styles 80).
-    -- Must match GetAbsorbOpacity in EllesmereUIUnitFrames.lua.
+    -- Must match GetAbsorbOpacity in EUI_UnitFrames_Absorb.lua.
     local function EffAbsorbOpacity()
         local v = SValSupported("absorbOpacity", nil)
         if v then return v end
@@ -3417,9 +3418,10 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         rgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshHealEye()
             eyeTex:SetTexture(optState.showHealAbsorbPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -3431,11 +3433,11 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             UpdatePreview()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, optState.showHealAbsorbPreview and "Hide heal absorb preview" or "Show heal absorb preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
     end
@@ -3640,9 +3642,10 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         rgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshPredEye()
             eyeTex:SetTexture(ns._ufShowHealPredPreview and EllesmereUI.EYE_INVISIBLE_ICON or EllesmereUI.EYE_VISIBLE_ICON)
@@ -3654,11 +3657,11 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             UpdatePreview()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, ns._ufShowHealPredPreview and "Hide heal prediction preview" or "Show heal prediction preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
     end

@@ -609,6 +609,7 @@ end
 
 -- Texture, fonts, text anchors and border of one button at w x h. Shared with the pet frames.
 FB.StyleVisuals = function(b, s, w, h, texPath, bgc)
+    ns.RF_TexBgTint(b._bg, ns.RF_TexBgPath(s), ns.RF_IsVerticalFill(s))
     b._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
     b._health:SetStatusBarTexture(texPath)
     local ft = b._health:GetStatusBarTexture()
@@ -647,7 +648,7 @@ end
 FB.FreePin = function(c, point, x, y)
     local P = EllesmereUI.PP
     local ux, uy = UIParent:GetCenter()
-    if P and P.SnapForES and ux then
+    if ux then
         local es = c:GetEffectiveScale()
         if point == "CENTER" then
             -- A secret size falls back to the even (whole-pixel) centre.

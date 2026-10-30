@@ -16,6 +16,14 @@ local movers, pendingPositions, GetBarGrowDirActual, GetAnchorDB = UM.movers, UM
 local GetAnchorInfo, MatchH, ScheduleAnchorBatch, ApplyAllWidthHeightMatches = UM.GetAnchorInfo, UM.MatchH, UM.ScheduleAnchorBatch, UM.ApplyAllWidthHeightMatches
 local HookFrameSizeChanged, FadeOverlayForSelectElement, CancelPickMode = UM.HookFrameSizeChanged, UM.FadeOverlayForSelectElement, UM.CancelPickMode
 
+-- isPositionHeld: something else places the frame for now (the quest tracker
+-- inside Blizzard's managed container), so only a live unlock session moves it.
+local function PositionHeld(key)
+    if UM.isUnlocked then return false end
+    local elem = registeredElements[key]
+    return elem and elem.isPositionHeld and elem.isPositionHeld(key) or false
+end
+
 -------------------------------------------------------------------------------
 --  Ghost overlay set (unlock mode only), shared by fallback and override  -- eui-style: allow comment-budget
 --  anchors: draggable 1:1 mover-overlay copies at 75% opacity sitting where
@@ -1065,6 +1073,7 @@ UM.ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fro
     -- The module alone places this frame from its saved spot (ownsPosition: main
     -- chat): a link would be a third owner beside it and Blizzard's Edit Mode.
     if cElem and cElem.ownsPosition then return end
+    if PositionHeld(childKey) then return end
     -- Override anchor (opt-in, Resource Bars): while a spec-override group's
     -- stored position is engaged it owns this element outright -- it wins over
     -- the anchor link exactly like it wins over the saved position.
@@ -2106,7 +2115,8 @@ EllesmereUI.ReapplyAllUnlockAnchorsForced = function()
             if childBar and (targetBar or info.fallback ~= nil)
                and not (inCombat and childBar:IsProtected())
                and not (rcElem and rcElem.isAnchored and rcElem.isAnchored(childKey))
-               and not (rcElem and rcElem.ownsPosition) then
+               and not (rcElem and rcElem.ownsPosition)
+               and not PositionHeld(childKey) then
                 -- AB growth bars: skip entirely -- applyPos from barPositions is
                 -- authoritative (edge format, width-independent, per LayoutBar).
                 local isABGrow = false
@@ -2283,6 +2293,7 @@ UM.ApplyCenterPosition = function(barKey, pos)
     if elem and elem.isAnchored and elem.isAnchored(barKey) then return true end
     local frame = UM.GetBarFrame(barKey)
     if not frame then return false end
+    if PositionHeld(barKey) then return true end
 
     -- Skip elements anchored via the unlock anchor system -- their position
     -- is owned by ApplyAnchorPosition, not by the grow-direction logic here.
@@ -2523,6 +2534,7 @@ end
 -------------------------------------------------------------------------------
 local function MigrateAndApplyPosition(barKey, pos, frame)
     if not pos or not pos.point then return false end
+    if PositionHeld(barKey) then return true end
     -- CENTER/CENTER: apply with grow-direction-aware positioning
     if pos.point == "CENTER" and pos.relPoint == "CENTER" then
         return UM.ApplyCenterPosition(barKey, pos)

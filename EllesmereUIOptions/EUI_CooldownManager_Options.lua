@@ -1489,8 +1489,9 @@ initFrame:SetScript("OnEvent", function(self)
                                 eyeBtn:SetSize(26, 26)
                                 eyeBtn:SetPoint("RIGHT", leftRgn._control, "LEFT", -8, 0)
                                 eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-                                eyeBtn:SetAlpha(0.4)
+                                EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
                                 local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+                                EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
                                 eyeTex:SetAllPoints()
                                 local function RefreshEye()
                                     eyeTex:SetTexture(_bgPreviewGlowActive[pvKey] and EYE_INVIS or EYE_VIS)
@@ -1529,8 +1530,8 @@ initFrame:SetScript("OnEvent", function(self)
                                     end
                                     RefreshEye()
                                 end)
-                                eyeBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-                                eyeBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+                                eyeBtn:SetScript("OnEnter", function(self) EllesmereUI.SetGlyphAlpha(self, 0.7) end)
+                                eyeBtn:SetScript("OnLeave", function(self) EllesmereUI.SetGlyphAlpha(self, 0.4) end)
 
                                 -- Blackout fill opacity, in a cog chained left of the eye. Locked
                                 -- unless the entry renders Blackout (custom-shaped bars always

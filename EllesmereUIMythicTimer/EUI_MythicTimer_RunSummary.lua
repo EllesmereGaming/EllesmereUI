@@ -82,6 +82,18 @@ local function HistorySize()
     return n
 end
 
+-- The run history other modules read (the data bar's M+ Summary block): Get,
+-- Clear, and OnChanged, which a reader sets to hear of a stored or cleared
+-- run. Internal, not a public API.
+EllesmereUI._MythicRuns = {}
+
+-- A reader's error is reported, never passed on: StoreRun's caller still sets
+-- up the meter retries after it.
+local function NotifyRunsChanged()
+    local fn = EllesmereUI._MythicRuns.OnChanged
+    if fn then xpcall(fn, geterrorhandler()) end
+end
+
 local function StoreRun(record)
     if type(record) ~= "table" then return end
     local sv = GetSV()
@@ -90,17 +102,27 @@ local function StoreRun(record)
     for i = #sv.runs, cap + 1, -1 do
         sv.runs[i] = nil
     end
+    NotifyRunsChanged()
 end
 
 function ns.RS_GetRuns()
     return GetSV().runs
 end
 
+-- Stored runs, newest first, or nil. Read only: never creates the SavedVariable.
+function EllesmereUI._MythicRuns.Get()
+    local sv = _G[SV_NAME]
+    local runs = type(sv) == "table" and sv.runs
+    return type(runs) == "table" and runs or nil
+end
+
 function ns.RS_ClearHistory()
     local sv = GetSV()
     wipe(sv.runs)
     if RefreshWindowIfOpen then RefreshWindowIfOpen() end
+    NotifyRunsChanged()
 end
+EllesmereUI._MythicRuns.Clear = ns.RS_ClearHistory
 
 -- Season purge: drop records for dungeons that are no longer in the pool, the
 -- same shape EMT:OnInitialize already uses for bestObjectiveSplits.
@@ -1839,7 +1861,7 @@ local function RenderHeader(record)
     local kcol = C_ChallengeMode and C_ChallengeMode.GetKeystoneLevelRarityColor
         and C_ChallengeMode.GetKeystoneLevelRarityColor(record.level or 0)
     if type(kcol) == "table" and kcol.r then lvlHex = Hex(kcol.r, kcol.g, kcol.b) end
-    -- One string, keystone-rarity colour on the level only: "+12 The Rookery".
+    -- One string, keystone-rarity colour on the level only: "+12 Voidscar Arena".
     titleFS:SetText(format("|cff%s+%d|r %s", lvlHex, record.level or 0, record.mapName or "?"))
 
     local timeHex = record.onTime and "40ff40" or "ff6060"
@@ -2053,7 +2075,7 @@ function ns.RS_ShowPreview()
             class       = PREVIEW_CLASSES[i],
             role        = R and ((i == 1 and R.Tank) or (i == 2 and R.Healer) or R.Damage),
             specIcon    = PREVIEW_SPEC_ICON(i),
-            ilvl        = 668 + i * 3,
+            ilvl        = 316 + i * 3,
             score       = 2950 + i * 90,
             scoreGain   = (i ~= 3) and (6 + i * 3) or nil,
             damage      = 30000000 + i * 8000000,
@@ -2065,17 +2087,19 @@ function ns.RS_ShowPreview()
     end
     -- Same order the live panel gets from BuildMembers.
     SortMembers(members)
-    -- Resolve the dungeon name from its ID so the preview is localized by the
-    -- client. Out of season the API returns nothing and the English name shows;
-    -- it is not a translator key, so it is not wrapped in L().
+    -- SEASON UPDATE (cosmetic): the preview dungeon and its timer, as in the
+    -- Mythic+ Timer's PREVIEW_RUN, and the members' item levels above. Resolve
+    -- the dungeon name from its ID so the preview is localized by the client.
+    -- Out of season the API returns nothing and the English name shows; it is
+    -- not a translator key, so it is not wrapped in L().
     local mapName = C_ChallengeMode and C_ChallengeMode.GetMapUIInfo
-        and C_ChallengeMode.GetMapUIInfo(2648)
+        and C_ChallengeMode.GetMapUIInfo(585)
     ShowWindow({
-        mapID     = 2648,
-        mapName   = PlainString(mapName) or "The Rookery",
+        mapID     = 585,
+        mapName   = PlainString(mapName) or "Voidscar Arena",
         level     = 12,
         timeMS    = 1380000,
-        timeLimit = 1920,
+        timeLimit = 1800,
         onTime    = true,
         upgrades  = 2,
         deaths    = 3,

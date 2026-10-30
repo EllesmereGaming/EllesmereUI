@@ -3323,7 +3323,7 @@ end
 -- watch a pile of game events, Resource Bars ARMS this one-shot throttle at the end of
 -- BuildBars via EllesmereUI.UF_RequestResourceReanchor(). Arming reads no geometry; the
 -- throttle's OnUpdate re-anchors once on the next frame, after the build has settled,
--- then disarms. Mirrors the reloadThrottle pattern in EllesmereUIUnitFrames.lua. Zero cost when idle:
+-- then disarms. Mirrors the reloadThrottle pattern in EUI_UnitFrames_OptionsSetup.lua. Zero cost when idle:
 -- no registered events, and non-bottom-anchored players never arm anything. Per-bar
 -- VISIBILITY modes (combat/target/group alpha) are intentionally NOT handled -- the
 -- footprint (ERB_PlayerStackBars) is predicate-based, so alpha toggles do not move it.

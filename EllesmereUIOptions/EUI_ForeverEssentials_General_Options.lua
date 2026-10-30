@@ -10,16 +10,17 @@ if not EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"] then return end  --
 -------------------------------------------------------------------------------
 --  NAME FORMAT: one place for every Name Format in the suite, as two checkbox
 --  dropdowns over the same module rows: a box shows that part of the name, so
---  First Name alone = first names, Last Name alone = last names, both = First
---  and Last. A name always shows, so a row's last checked box stays checked.
+--  First Name alone = first names, Last Name alone = last names, both = Full
+--  Name. A name always shows, so a row's last checked box stays checked.
 --  Each row is a WRITE-THROUGH MIRROR, as on Global Settings > Textures: it
 --  reads and writes the module's OWN keys and calls the module's own apply, so
 --  nothing is stored here and each module's page shows the same setting. A row
 --  over several keys (every unit frame text; raid and party) reads checked in
---  neither while they differ, and a click sets them all. A module that is off
---  has no row.
+--  neither while they differ, as does a module set to Abbreviated or a
+--  Character Count (its own page sets those), and a click sets them all. A
+--  module that is off has no row.
 -------------------------------------------------------------------------------
--- A saved Name Format as a row value ("full" = First and Last), and back (nil).
+-- A saved Name Format as a row value ("full" = Full Name), and back (nil).
 local function ModeOf(v) return (v == nil or v == "full") and "full" or v end
 local function Stored(v) return (v ~= "full") and v or nil end
 -- One value while every input agrees, "mixed" once two differ (nil: none yet).

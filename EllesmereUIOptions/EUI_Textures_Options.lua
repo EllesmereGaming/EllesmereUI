@@ -328,7 +328,7 @@ local function TileUnitFrames(parent, y, W, tile)
     -- UF's own dropdown copy drops the separator.
     local hbtValues, hbtOrder = CopyBarDD(ns.healthBarTextureNames, ns.healthBarTextureOrder, ns.healthBarTextures, true)
 
-    -- The module's own lists (ns, EllesmereUIUnitFrames.lua), copied: the
+    -- The module's own lists (ns, EUI_UnitFrames_Absorb.lua), copied: the
     -- SharedMedia tail is appended into them.
     local absorbStyleValues = CopyTable(ns.ABSORB_STYLE_NAMES)
     local absorbStyleOrder = CopyTable(ns.ABSORB_STYLE_ORDER)
@@ -485,7 +485,8 @@ local function TileRaidFrames(parent, y, W, tile)
 
     -- Mirrors write the RAID keys (same as the Raid tab); the Party tab's
     -- unsynced party_ variants stay in the module and are linked below.
-    local _, h = W:DualRow(parent, y,
+    local _, texRow, h
+    texRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Health Bar Texture", values = hbtValues, order = hbtOrder,
           getValue = function()
               local p = db()
@@ -518,6 +519,23 @@ local function TileRaidFrames(parent, y, W, tile)
               end
               RFReload()
           end });  y = y - h
+    -- Textured Background cog: the Raid tab's row on the raid keys, as this card writes.
+    local function RaidRead(key, default)
+        local p = db()
+        local v = p and p[key]
+        if v == nil then return default end
+        return v
+    end
+    local function RaidWrite(key, v)
+        local p = db(); if not p then return end
+        p[key] = v
+        if ns._BumpAbsorbGen then ns._BumpAbsorbGen() end
+        RFReload()
+    end
+    TexBgCog(texRow._leftRegion, function()
+        local env = ns._RFO_OptEnv
+        return env and env.TexBgRowCfg(RaidRead, RaidWrite)
+    end)
     _, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Heal Absorb Style", values = absorbStyleValues, order = healAbsorbStyleOrder,
           getValue = function()

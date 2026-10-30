@@ -367,10 +367,10 @@ function NameplateFrame:UpdateHealthColor()
     -- Off-tank fold: same shape as mirror -- the folded components can be
     -- SECRET, so they bypass the value compare, never enter the caches, and
     -- reach setters only. hr/hg/hb stay the plain tankNoAggro fallback.
-    local folded, fr, fg, fb = false
+    local folded, fr, fg, fb, fa = false
     if not mirrored and ns._reactionOffTankFold and ns.ComputeOffTankFold then
         local otc = _C("offTankAggro")
-        folded, fr, fg, fb = ns.ComputeOffTankFold(unit, hr, hg, hb, otc.r, otc.g, otc.b)
+        folded, fr, fg, fb, fa = ns.ComputeOffTankFold(unit, hr, hg, hb, otc.r, otc.g, otc.b)
     end
     if mirrored then
         -- Cache invalidated, never written with a secret: the next plain colour must reapply.
@@ -458,6 +458,21 @@ function NameplateFrame:UpdateHealthColor()
             local nr, ng, nb = GetTextSlotColor(nameSlotKey)
             self.name:SetTextColor(nr, ng, nb, 1)
         end
+    end
+    -- Debuff coloring gives way to bad threat (set while it shows on the plates): per
+    -- channel 1 while nothing is wrong, 0 on bad threat, or, where only another tank's
+    -- hold decides, the off-tank fold's secret answer (setters only, never tested).
+    if ns.DebuffColors_Threat then
+        local healthA, borderA, nameA = 1, 1, 1
+        if ns._reactionBadThreat then
+            if folded then healthA = fa else healthA = 0 end
+        end
+        if tcBorder or tcName then
+            local okA = ns._threatOkA
+            if tcBorder then borderA = okA end
+            if tcName then nameA = okA end
+        end
+        ns.DebuffColors_Threat(self, healthA, borderA, nameA)
     end
     -- Near-aggro glow (Non-Tank Threat cog): ns._reactionNearAggro was written
     -- by the GetReactionColor call ABOVE (same decision that picked the color).

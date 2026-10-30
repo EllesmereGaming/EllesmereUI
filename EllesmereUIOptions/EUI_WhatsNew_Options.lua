@@ -7,6 +7,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local CreateFrame = EllesmereUI._Pool.CreateFrame
 local PoolKeep, PoolGen = EllesmereUI._Pool.Keep, EllesmereUI._Pool.Gen
 
+-- An accent-coloured piece repaints itself (paint(r, g, b)) when the accent
+-- changes. Keyed by the piece: the page pool forgets the entry when it resets
+-- it, and the kept Legends page registers each piece once.
+local function OnAccent(obj, paint)
+    EllesmereUI.RegAccent({ type = "callback", obj = obj, fn = paint })
+end
+
 -------------------------------------------------------------------------------
 --  What's New page -- one expandable card per patch (the shared module card),
 --  newest first. A card's header counts the patch's major features,
@@ -100,12 +107,14 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
 
         local accent = card:CreateTexture(nil, "ARTWORK", nil, 7)
         accent:SetColorTexture(EG.r, EG.g, EG.b, 0.6)
+        OnAccent(accent, function(r, g, b) accent:SetColorTexture(r, g, b, 0.6) end)
         PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
         PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
         accent:SetHeight(2)
         if PP.DisablePixelSnap then PP.DisablePixelSnap(accent) end
 
         local titleFs = MakeFont(card, 14, nil, EG.r, EG.g, EG.b, 0.9)
+        OnAccent(titleFs, function(r, g, b) titleFs:SetTextColor(r, g, b, 0.9) end)
         PP.Point(titleFs, "TOPLEFT", card, "TOPLEFT", 16, -14)
         PP.Point(titleFs, "RIGHT", card, "RIGHT", -16, 0)
         titleFs:SetJustifyH("LEFT"); titleFs:SetWordWrap(false)
@@ -154,8 +163,13 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
 
         -- Per-entry accent (entry.accent = {r,g,b}); the theme accent otherwise.
         local ac = entry.accent or EG
+        -- Only the theme accent follows accent changes; a per-entry one is fixed.
+        local function OnBannerAccent(obj, paint)
+            if not entry.accent then OnAccent(obj, paint) end
+        end
         local accent = card:CreateTexture(nil, "ARTWORK", nil, 7)
         accent:SetColorTexture(ac.r, ac.g, ac.b, 0.9)
+        OnBannerAccent(accent, function(r, g, b) accent:SetColorTexture(r, g, b, 0.9) end)
         PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
         PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
         accent:SetHeight(2)
@@ -181,6 +195,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
                 local a = alphas[i]
                 if a == "green" then
                     bar:SetColorTexture(ac.r, ac.g, ac.b, 0.9)
+                    OnBannerAccent(bar, function(r, g, b) bar:SetColorTexture(r, g, b, 0.9) end)
                 else
                     bar:SetColorTexture(1, 1, 1, a)
                 end
@@ -196,6 +211,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         end
 
         local eyebrow = MakeFont(card, 11, nil, ac.r, ac.g, ac.b, 0.9)
+        OnBannerAccent(eyebrow, function(r, g, b) eyebrow:SetTextColor(r, g, b, 0.9) end)
         PP.Point(eyebrow, "TOP", card, "TOP", 0, -18)
         eyebrow:SetJustifyH("CENTER"); eyebrow:SetWordWrap(false)
         eyebrow:SetText(EllesmereUI.L(entry.eyebrow or "SPECIAL UPDATE"))
@@ -270,6 +286,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
 
         local accent = card:CreateTexture(nil, "ARTWORK", nil, 7)
         accent:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+        OnAccent(accent, function(r, g, b) accent:SetColorTexture(r, g, b, 0.9) end)
         PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
         PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
         accent:SetHeight(3)
@@ -293,6 +310,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
             for i = 1, 3 do
                 local sz, a = defs[i][1], defs[i][2]
                 local t = Tri(card, math.floor(sz * 0.8), sz, EG.r, EG.g, EG.b, a)
+                OnAccent(t, function(r, g, b) t:SetColorTexture(r, g, b, a) end)
                 if side == "LEFT" then
                     PP.Point(t, "LEFT", card, "LEFT", off, 0)
                 else
@@ -303,6 +321,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         end
 
         local eyebrow = MakeFont(card, 12, nil, EG.r, EG.g, EG.b, 0.95)
+        OnAccent(eyebrow, function(r, g, b) eyebrow:SetTextColor(r, g, b, 0.95) end)
         PP.Point(eyebrow, "TOP", card, "TOP", 0, -22)
         eyebrow:SetJustifyH("CENTER"); eyebrow:SetWordWrap(false)
         eyebrow:SetText(EllesmereUI.L(entry.eyebrow or "WATCH FIRST"))
@@ -340,7 +359,8 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         local chip = badge:CreateTexture(nil, "BACKGROUND")
         chip:SetAllPoints()
         chip:SetColorTexture(0.062, 0.050, 0.039, 0.95)
-        MakeBorder(badge, EG.r, EG.g, EG.b, 0.85, PP)
+        local badgeBrd = MakeBorder(badge, EG.r, EG.g, EG.b, 0.85, PP)
+        OnAccent(badge, function(r, g, b) badgeBrd:SetColor(r, g, b, 0.85) end)
         local btri = Tri(badge, 16, 18, 1, 1, 1, 0.95)
         PP.Point(btri, "CENTER", badge, "CENTER", 2, 0)
 
@@ -385,6 +405,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
             if key == "C" and IsControlKeyDown() then
                 hintFs:SetText(EllesmereUI.L("Link copied - paste it into your browser"))
                 hintFs:SetTextColor(EG.r, EG.g, EG.b, 0.9)
+                OnAccent(hintFs, function(r, g, b) hintFs:SetTextColor(r, g, b, 0.9) end)
             end
         end)
 
@@ -439,6 +460,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
     -- drawn on `host` (above the patch card's fill) from x to the card's inset.
     local function MakeFixLine(host, x, rightInset, cy, text)
         local dot = MakeFont(host, 12, nil, EG.r, EG.g, EG.b, 0.55)
+        OnAccent(dot, function(r, g, b) dot:SetTextColor(r, g, b, 0.55) end)
         PP.Point(dot, "TOPLEFT", parent, "TOPLEFT", x + 2, cy - 1)
         dot:SetText("\226\128\162")  -- bullet glyph (ASCII-safe UTF-8 escape)
         local fs = MakeFont(host, 12, nil, 1, 1, 1, 0.5)
@@ -462,6 +484,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         preFs:SetText(pre)
         local link = CreateFrame("Button", nil, host)
         local linkFs = MakeFont(link, 12, nil, EG.r, EG.g, EG.b, 0.9)
+        OnAccent(linkFs, function(r, g, b) linkFs:SetTextColor(r, g, b, 0.9) end)
         linkFs:SetPoint("LEFT", link, "LEFT", 0, 0)
         linkFs:SetText(EllesmereUI.L("contributors"))
         link:SetSize(math.ceil(linkFs:GetStringWidth() or 60) + 1, 18)
@@ -533,7 +556,6 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         local check = box:CreateTexture(nil, "ARTWORK")
         PP.Point(check, "TOPLEFT", box, "TOPLEFT", 3, -3)
         PP.Point(check, "BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
-        check:SetColorTexture(EG.r, EG.g, EG.b, 1)
         local lbl = MakeFont(row, 12, nil, 1, 1, 1, 0.5)
         PP.Point(lbl, "LEFT", box, "RIGHT", 7, 0)
         lbl:SetText(EllesmereUI.L("New Patch Reminder Dot"))
@@ -542,6 +564,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         local function Paint()
             local on = not (EllesmereUIDB and EllesmereUIDB.patchDotDisabled)
             check:SetShown(on)
+            check:SetColorTexture(EG.r, EG.g, EG.b, 1)
             if on then
                 boxBrd:SetColor(EG.r, EG.g, EG.b, 0.85)
             else
@@ -549,6 +572,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
             end
         end
         Paint()
+        OnAccent(check, function() Paint() end)
         row:SetScript("OnClick", function()
             if not EllesmereUIDB then EllesmereUIDB = {} end
             EllesmereUIDB.patchDotDisabled = (not EllesmereUIDB.patchDotDisabled) and true or nil
@@ -670,6 +694,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
                 if PP.DisablePixelSnap then PP.DisablePixelSnap(icon) end
                 if newest then
                     icon:SetVertexColor(EG.r, EG.g, EG.b, 0.9)
+                    OnAccent(icon, function(r, g, b) icon:SetVertexColor(r, g, b, 0.9) end)
                 else
                     icon:SetVertexColor(1, 1, 1, 0.45)
                 end
@@ -679,6 +704,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
             local _, title = tile._descFS:GetPoint(1)
             if title then
                 local tag = MakeFont(tile._hdr, 11, nil, EG.r, EG.g, EG.b, 0.9)
+                OnAccent(tag, function(r, g, b) tag:SetTextColor(r, g, b, 0.9) end)
                 PP.Point(tag, "LEFT", title, "RIGHT", 10, 0)
                 tag:SetText(EllesmereUI.L("Latest"))
             end
@@ -875,6 +901,7 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
     preFs:SetText(pre)
     local link = CreateFrame("Button", nil, root)
     local linkFs = MakeFont(link, 14, nil, EG.r, EG.g, EG.b, 0.9)
+    OnAccent(linkFs, function(r, g, b) linkFs:SetTextColor(r, g, b, 0.9) end)
     linkFs:SetPoint("LEFT", link, "LEFT", 0, 0)
     linkFs:SetText(EllesmereUI.L("Ellesmere's Twitch stream"))
     link:SetSize(math.ceil(linkFs:GetStringWidth() or 120) + 1, 18)
@@ -948,8 +975,10 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
         PP.Point(eyebrow, "TOP", band, "TOPLEFT", cx, -46)
         eyebrow:SetText(eyebrowText)
         local near, far = CreateColor(c.r, c.g, c.b, 0.55), CreateColor(c.r, c.g, c.b, 0)
+        local rules = {}
         for side = -1, 1, 2 do
             local rule = band:CreateTexture(nil, "ARTWORK")
+            rules[#rules + 1] = rule
             rule:SetColorTexture(1, 1, 1, 1)
             if side < 0 then
                 rule:SetGradient("HORIZONTAL", far, near)
@@ -978,6 +1007,21 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
         local lineL, lineR = CenterBand(band, "ARTWORK", math.min(colW - 40, nameW + 140), 1, c, 0.6)
         PP.Point(lineL, "RIGHT", band, "TOPLEFT", cx, -122)
         PP.Point(lineR, "LEFT", band, "TOPLEFT", cx, -122)
+
+        -- A column in the accent (the Seasonal Legend with no season set)
+        -- repaints its glow, eyebrow, rules and underline when it changes.
+        if c == EG then
+            OnAccent(glow, function(r, g, b)
+                glow:SetVertexColor(r, g, b, 1)
+                eyebrow:SetTextColor(r, g, b, 0.95)
+                local rNear, rFar = CreateColor(r, g, b, 0.55), CreateColor(r, g, b, 0)
+                rules[1]:SetGradient("HORIZONTAL", rFar, rNear)
+                rules[2]:SetGradient("HORIZONTAL", rNear, rFar)
+                local lEdge, lMid = CreateColor(r, g, b, 0), CreateColor(r, g, b, 0.6)
+                lineL:SetGradient("HORIZONTAL", lEdge, lMid)
+                lineR:SetGradient("HORIZONTAL", lMid, lEdge)
+            end)
+        end
 
         -- The #2 and #3, tagged in their metals.
         local function Runner(rank)
@@ -1016,6 +1060,7 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
     PP.DisablePixelSnap(lower)
     local gem = band:CreateTexture(nil, "ARTWORK")
     gem:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
+    OnAccent(gem, function(r, g, b) gem:SetColorTexture(r, g, b, 0.85) end)
     PP.Size(gem, 6, 6)
     PP.Point(gem, "CENTER", band, "TOPLEFT", midX, -NAME_Y)
     local gemMask = band:CreateMaskTexture()
@@ -1062,12 +1107,14 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
         MakeBorder(card, 1, 1, 1, 0.12, PP)
         local accent = card:CreateTexture(nil, "ARTWORK", nil, 7)
         accent:SetColorTexture(EG.r, EG.g, EG.b, 0.6)
+        OnAccent(accent, function(r, g, b) accent:SetColorTexture(r, g, b, 0.6) end)
         PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
         PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
         accent:SetHeight(2)
         PP.DisablePixelSnap(accent)
 
         local header = MakeFont(card, 13, nil, EG.r, EG.g, EG.b, 0.9)
+        OnAccent(header, function(r, g, b) header:SetTextColor(r, g, b, 0.9) end)
         PP.Point(header, "TOPLEFT", card, "TOPLEFT", 16, -16)
         header:SetText(headerText)
         -- Optional small grey qualifier after the header on its baseline.
@@ -1209,6 +1256,7 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
         nameFs:SetJustifyH("LEFT")
         nameFs:SetText(donors[i])
         local numFs = MakeFont(rowF, 12, nil, m and m.r or EG.r, m and m.g or EG.g, m and m.b or EG.b, m and 0.95 or 0.8)
+        if not m then OnAccent(numFs, function(r, g, b) numFs:SetTextColor(r, g, b, 0.8) end) end
         PP.Point(numFs, "RIGHT", nameFs, "LEFT", -8, 0)
         numFs:SetJustifyH("RIGHT")
         numFs:SetText(i .. ".")
@@ -1227,6 +1275,7 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
         if gi > 1 then sy = sy - 10 end
         if not contribY and grp.group and grp.group:find("Contributors", 1, true) then contribY = -sy end
         local hdr = MakeFont(staffList, 12, nil, EG.r, EG.g, EG.b, 0.9)
+        OnAccent(hdr, function(r, g, b) hdr:SetTextColor(r, g, b, 0.9) end)
         PP.Point(hdr, "TOPLEFT", staffList, "TOPLEFT", 16, sy - 8)
         hdr:SetJustifyH("LEFT")
         hdr:SetText(L(grp.group or ""))
@@ -1245,6 +1294,7 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
             nameFs:SetText(members[i])
             local bdot = rowF:CreateTexture(nil, "OVERLAY")
             bdot:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+            OnAccent(bdot, function(r, g, b) bdot:SetColorTexture(r, g, b, 0.9) end)
             PP.Size(bdot, 4, 4)
             PP.Point(bdot, "RIGHT", nameFs, "LEFT", -10, 0)
             sy = sy - STAFF_ROW_H

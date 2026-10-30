@@ -1279,7 +1279,7 @@ local function DoClose(closeAction)
         local objTracker = _G.ObjectiveTrackerFrame
         if objTracker then
             objTracker:SetAlpha(1)
-            local wasEnabled = objTracker._eabMouseWasEnabled
+            local wasEnabled = EllesmereUI._GetFFD(objTracker).unlockMouseWasEnabled
             if objTracker.EnableMouse then
                 pcall(objTracker.EnableMouse, objTracker, wasEnabled and true or false)
             end
@@ -1980,11 +1980,14 @@ function ns.OpenUnlockMode()
     local objTracker = _G.ObjectiveTrackerFrame
     if objTracker and objTracker:IsShown() then
         UM.objTrackerWasVisible = true
-        objTracker._eabMouseWasEnabled = objTracker:IsMouseEnabled()
+        -- Our state for Blizzard's tracker lives in the frame data table,
+        -- never on the frame itself.
+        local otfd = EllesmereUI._GetFFD(objTracker)
+        otfd.unlockMouseWasEnabled = objTracker:IsMouseEnabled()
         objTracker:SetAlpha(0)
         if objTracker.EnableMouse then pcall(objTracker.EnableMouse, objTracker, false) end
-        if not objTracker._eabUnlockAlphaHooked then
-            objTracker._eabUnlockAlphaHooked = true
+        if not otfd.unlockAlphaHooked then
+            otfd.unlockAlphaHooked = true
             hooksecurefunc(objTracker, "SetAlpha", function(self, a)
                 if UM.isUnlocked and a > 0 then
                     self:SetAlpha(0)

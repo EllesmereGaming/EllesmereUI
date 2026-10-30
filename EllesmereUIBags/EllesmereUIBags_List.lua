@@ -625,6 +625,9 @@ local function GetOrCreateHeaderBtn(bar, id)
     return b
 end
 
+-- the column bar for a window, nil before its first list refresh
+function ns.ListHeaderBar(host) return _hdrBars[host] end
+
 -- One column header bar per host frame (bags, bank). Returns its height.
 function ns.UpdateListHeaderBar(host, cols, leftX, topY, startX, noSort)
     local bar = _hdrBars[host]

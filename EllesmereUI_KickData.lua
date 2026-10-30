@@ -10,6 +10,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  player's own kick lookup (EllesmereUI_Kick.lua) and the Mythic+ Tools Kick
 --  Tracker both read it.
 --
+--  SEASON UPDATE: check it against each new season's patch (interrupts, their
+--  cooldowns, and the talents that change them).
+--
 --  Healers keep no interrupt in 12.1 except Restoration Shaman, whose Wind
 --  Shear is 30 seconds. Talents found: Quick Witted (Counterspell 20 s), Honed
 --  Reflexes (Pummel 13.5 s), Coldthirst (Mind Freeze 3 s shorter after a

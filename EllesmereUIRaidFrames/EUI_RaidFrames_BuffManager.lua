@@ -1279,6 +1279,7 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                 f._bmHCOverlay:Show()
                             elseif indType == "bgcolor" and f._bmBGOverlay then
                                 local c = ind.color or { r=0, g=1, b=0 }
+                                ns.RF_TexBgTint(f._bmBGOverlay, ns.RF_TexBgPath(s), ns.RF_IsVerticalFill(s))
                                 f._bmBGOverlay:SetColorTexture(c.r, c.g, c.b, (ind.opacity or 100) / 100)
                                 f._bmBGOverlay:Show()
                             elseif indType == "border" and f._bmEffectBorder and PP then
@@ -1764,6 +1765,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
     local cc = EllesmereUI.GetClassColor(previewClass)
     local mode = s.healthColorMode or "class"
     local fillTex = health:GetStatusBarTexture()
+    -- Textured Background, as on the live frames.
+    ns.RF_TexBgLayer(health, bg, ns.RF_TexBgOpaque(s, mode == "dark") and ns.RF_TexBgPath(s) or nil)
     if mode == "dark" then
         local dfr, dfg, dfb, dfa = EllesmereUI.GetDarkModeFill()
         health:SetStatusBarColor(dfr, dfg, dfb, 1)
@@ -1812,6 +1815,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         pwBg:SetAllPoints()
         local pbc = (s.powerBgPowerColored and pInfo) or s.powerBgColor or { r=0, g=0, b=0 }
         local pbF = (s.powerBgPowerColored and pInfo) and EllesmereUI.GetPowerBgDarkenFactor() or 1
+        ns.RF_TexBgTint(pwBg, ns.RF_TexBgPath(s))
         pwBg:SetColorTexture(pbc.r * pbF, pbc.g * pbF, pbc.b * pbF, (s.powerBgDarkness or 70) / 100)
         -- Classic WoW UI: the stock edge and divider stand in (as live).
         if PP and ns.RF_Classic and ns.RF_Classic() then
@@ -1868,7 +1872,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
     local outline = (EllesmereUI.GetFontOutlineFlag("raidFrames")) or ""
     local playerName = UnitName("player") or "Player"
     if Ambiguate then playerName = Ambiguate(playerName, "short") end
-    if ns.RF_FormatName then playerName = ns.RF_FormatName(playerName, s) end
+    playerName = ns.RF_FormatName(playerName, s)
     -- Level Position "Attach to Name" (either format): the Top Name Bar shows the level too.
     local lvlAttach = ns.RF_TextNameAttach(s)
 

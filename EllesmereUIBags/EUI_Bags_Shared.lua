@@ -16,7 +16,7 @@ I.broken = true
 local GetItemInfoInstant = C_Item.GetItemInfoInstant
 local EUI = EllesmereUI
 
-local BP, GetFont, SetBagFont, SLOT_SIZE = I.BP, I.GetFont, I.SetBagFont, I.SLOT_SIZE
+local BP, GetFont, SetBagFont = I.BP, I.GetFont, I.SetBagFont
 
 -- Shared state: one copy per file. A write goes through the Set<Name>
 -- function of ns._bagsInternals, which hands the value to every copy.
@@ -87,6 +87,42 @@ local function PinItemButtonLevel(btn, level)
     if btn._warbankDim then btn._warbankDim:SetFrameLevel(level + 6) end
 end
 
+-- background color/opacity for bags and bank: the texture fades with the
+-- opacity, the tint on top takes the color
+function ns.ApplyWindowBackground(bg, overlay)
+    if not (bg and overlay) then return end
+    local p = BP()
+    local o = (p.bagBgOpacity or 100) / 100
+    local c = p.bagBgColor
+    bg:SetAlpha(o)
+    overlay:SetColorTexture(c and c.r or 0, c and c.g or 0, c and c.b or 0, c and c.a or 0.25)
+    overlay:SetAlpha(o)
+end
+
+-- slot background: tint over an empty slot's backdrop, alpha is the slot's
+-- own base opacity. each painted one is kept (weakly) so a color change can
+-- retint them without a relayout
+local slotBgs = setmetatable({}, { __mode = "k" })
+function ns.PaintSlotBackground(tex, alpha)
+    tex._slotBgAlpha = alpha
+    slotBgs[tex] = true
+    local c = BP().bagSlotBgColor
+    if c then
+        tex:SetVertexColor(c.r, c.g, c.b)
+        tex:SetAlpha(alpha * (c.a or 1))
+    else
+        tex:SetVertexColor(1, 1, 1)
+        tex:SetAlpha(alpha)
+    end
+end
+
+-- the slot background picker: just the shown ones (hidden ones get painted when they show)
+function ns.RetintSlotBackgrounds()
+    for tex in pairs(slotBgs) do
+        if tex:IsVisible() then ns.PaintSlotBackground(tex, tex._slotBgAlpha) end
+    end
+end
+
 function ns.PinItemButton(btn, window)
     PinItemButtonLevel(btn, window:GetFrameLevel() + 9)
 end
@@ -113,7 +149,7 @@ function ns.SkinItemButton(btn, opts)
     if btn.flash then btn.flash:Hide(); btn.flash:SetAlpha(0) end
     if btn.newitemglowAnim then btn.newitemglowAnim:Stop() end
 
-    btn:SetSize(SLOT_SIZE, SLOT_SIZE)
+    ns.SizeSlot(btn)
     if btn.icon then
         local z = BP().bagItemIconZoom or 0.08
         btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)

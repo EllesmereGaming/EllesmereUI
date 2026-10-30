@@ -101,7 +101,7 @@ initFrame:SetScript("OnEvent", function(self)
         profession = 120, travel = 40, micromenu = 340, currency = 90, spacer = 40,
         durability = 70, combat = 105, profession2 = 120, greatvault = 100,
         location = 140, coords = 70, crests = 160, ilvl = 70, supplies = 70,
-        bags = 50,
+        bags = 50, mplussummary = 150,
     }
 
     ---------------------------------------------------------------------------
@@ -1476,7 +1476,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
                 menu._rows = {}
                 local mH = 4
-                for _, t in ipairs(ns.BLOCK_TYPES) do
+                for _, t in ipairs(ns.OfferedBlockTypes()) do
                     local item = CreateFrame("Button", nil, menu)
                     item:SetHeight(ITEM_H)
                     item:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -mH)
@@ -3266,6 +3266,11 @@ initFrame:SetScript("OnEvent", function(self)
                           -- Swatch enable state flips only when crossing zero.
                           if wasOn ~= (v > 0) then EllesmereUI:RefreshPage() end
                       end },
+                }
+            elseif b.type == "mplussummary" then
+                typeRows = {
+                    MkToggle("Hide When Empty", "hideWhenEmpty",
+                        "Removes the block from the bar until a Mythic+ run has been recorded."),
                 }
             elseif b.type == "ilvl" then
                 -- Prefix rides the Icon Color row's right slot above.

@@ -432,6 +432,14 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 -- Effective-read view: the entry (or a not-yet-persisted fresh table)
                 -- chained to the bar tiers, so the menu shows the values the icon actually renders with; EnsureSS() persists the entry on first WRITE.
                 local ss = store and store[spellID]
+                -- An entry saved under another form of this spell (its base or
+                -- its talent override: the spell was added to this bar in
+                -- another form than the one its settings were made on) is the
+                -- one the icon renders with: show and edit that one.
+                if not ss and store then
+                    ss = ns.ResolveVariantValue(store, spellID)
+                    if type(ss) ~= "table" then ss = nil end
+                end
                 if not ss then
                     -- A cooldownID-keyed slot with no entry yet renders its spell's entry
                     -- (the runtime falls back to it): start from a copy, so the first
@@ -442,7 +450,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 end
                 ns.ChainSettings(ss, (not isHostedBuff) and ns.GetBarTierSettings(sd, barKey) or nil)
                 local function EnsureSS()
-                    if store and not store[spellID] then
+                    -- An entry found under another form of the spell is stored already.
+                    if store and not store[spellID] and ns.ResolveVariantValue(store, spellID) ~= ss then
                         store[spellID] = ss
                         -- New per-spell entry: retire memoized resolution results so every icon re-resolves against it.
                         ns._cdmResGen = (ns._cdmResGen or 0) + 1

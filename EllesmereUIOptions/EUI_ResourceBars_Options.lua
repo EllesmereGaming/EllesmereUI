@@ -2521,10 +2521,10 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Threshold notice badge: an info bubble in the Settings button's top-left corner
     -- naming every spec that has a threshold configured, so a spec's setup stays visible
-    -- from a page that doesn't list it. Green while none of them applies to the spec being
-    -- played, orange while one does. Motion-only and click-through (same recipe as the
+    -- from a page that doesn't list it. The accent while none of them applies to the spec
+    -- being played, orange while one does. Motion-only and click-through (same recipe as the
     -- Spec Overrides badge) so the button keeps its own hover and click.
-    local THR_NOTE_IDLE   = { 0x0c/255, 0xd2/255, 0x9d/255, "0cd29d" }
+    local THR_NOTE_IDLE   = {}  -- the accent, filled in place by each Update
     local THR_NOTE_ACTIVE = { 1, 0x8c/255, 0x26/255, "ff8c26" }
     -- getBarData: fn() -> bar table. Returns the updater so callers can re-run it after an edit.
     local function AttachThresholdNotice(anchorBtn, getBarData)
@@ -2567,6 +2567,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         local function Update()
+            local ar, ag, ab = EllesmereUI.GetAccentColor()
+            THR_NOTE_IDLE[1], THR_NOTE_IDLE[2], THR_NOTE_IDLE[3] = ar, ag, ab
+            THR_NOTE_IDLE[4] = EllesmereUI.HexColor(ar, ag, ab):sub(5)
             local list, active = ns.ThresholdNoticeInfo(getBarData())
             if not list then
                 if EllesmereUI.HideWidgetTooltip and badge:IsMouseOver() then EllesmereUI.HideWidgetTooltip() end
@@ -2586,6 +2589,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
         anchorBtn:HookScript("OnShow", Update)
         EllesmereUI.RegisterWidgetRefresh(Update)
+        -- Keyed by the badge: the page pool forgets the entry when it resets it.
+        EllesmereUI.RegAccent({ type = "callback", obj = badge, fn = function() Update() end })
         Update()
         return Update
     end

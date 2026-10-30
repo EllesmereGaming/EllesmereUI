@@ -53,6 +53,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
         end
         eyeBtn:SetFrameLevel(hdr:GetFrameLevel() + 5)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function Blocked()
             local p = DB()
@@ -66,7 +67,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
             local shown = not blocked and not hidden[key]
             -- The art is named the other way round: EYE_INVISIBLE_ICON is the open eye.
             eyeTex:SetTexture(shown and EllesmereUI.EYE_INVISIBLE_ICON or EllesmereUI.EYE_VISIBLE_ICON)
-            eyeBtn:SetAlpha(blocked and 0.15 or 0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, blocked and 0.15 or 0.4)
         end
         ns._erbPvEyes[key] = RefreshEye
         RefreshEye()
@@ -81,7 +82,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                 EllesmereUI.ShowWidgetTooltip(self, blocked)
                 return
             end
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, hidden[key] and EllesmereUI.L("Show in preview") or EllesmereUI.L("Hide in preview"))
         end)
         eyeBtn:SetScript("OnLeave", function()

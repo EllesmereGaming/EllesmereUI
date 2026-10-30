@@ -2346,20 +2346,21 @@ initFrame:SetScript("OnEvent", function(self)
             eyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
             leftRgn._lastInline = eyeBtn
             eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
             local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+            EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
             eyeTex:SetAllPoints()
             RefreshRcwEye = function()
                 eyeTex:SetTexture(rcwPreviewShown and EYE_INVISIBLE or EYE_VISIBLE)
             end
             RefreshRcwEye()
             eyeBtn:SetScript("OnEnter", function(self)
-                self:SetAlpha(0.7)
+                EllesmereUI.SetGlyphAlpha(self, 0.7)
                 EllesmereUI.ShowWidgetTooltip(self, "Preview mana warning")
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 EllesmereUI.HideWidgetTooltip()
-                self:SetAlpha(0.4)
+                EllesmereUI.SetGlyphAlpha(self, 0.4)
             end)
             eyeBtn:SetScript("OnClick", function()
                 rcwPreviewShown = not rcwPreviewShown
@@ -2387,11 +2388,11 @@ initFrame:SetScript("OnEvent", function(self)
                     rcwPreviewShown = false
                     RefreshRcwEye()
                     swatch:SetAlpha(0.3);  swatchBlock:Show()
-                    eyeBtn:SetAlpha(0.15); eyeBlock:Show()
+                    EllesmereUI.SetGlyphAlpha(eyeBtn, 0.15); eyeBlock:Show()
                 else
                     swatch:SetAlpha(1)
                     swatchBlock:Hide()
-                    eyeBtn:SetAlpha(0.4); eyeBlock:Hide()
+                    EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4); eyeBlock:Hide()
                 end
             end
             UpdateRcwInlinesDisabled()

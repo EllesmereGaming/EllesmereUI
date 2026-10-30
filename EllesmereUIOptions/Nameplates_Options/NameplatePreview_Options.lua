@@ -594,9 +594,7 @@ local function BuildNameplatePreview(parent, parentW)
         return c and c.has.name
     end
     pf._totSample = function(slotKey)
-        local name = EllesmereUI.WithSurname(UnitName("player")) or ""
-        if ns.NP_FormatName then name = ns.NP_FormatName(name, slotKey) end
-        return name
+        return ns.NP_FormatName(EllesmereUI.WithSurname(UnitName("player")) or "", slotKey)
     end
     -- Its colour: in Class mode the player's class colour (the sample target),
     -- else the slot colour passed in.
@@ -2070,9 +2068,8 @@ local function BuildNameplatePreview(parent, parentW)
             or (ns.IsNameElement(slotBL) and slotBL)
             or (ns.IsNameElement(slotBR) and slotBR)
             or "enemyName",
-            -- WoW Forever: the slot's Name Format, as live (nil function off Forever).
-            ns.NP_FormatName and ns.NP_FormatName(EllesmereUI.L("Enemy Name Text"), pvNameSlotKey)
-                or EllesmereUI.L("Enemy Name Text"), "player", pvNameSlotKey)
+            -- The slot's Name Format, as live.
+            ns.NP_FormatName(EllesmereUI.L("Enemy Name Text"), pvNameSlotKey), "player", pvNameSlotKey)
         ns.ReflowFontString(nameFS)
         if DBVal("hideEnemyNameWhileCasting") == true then nameFS:Hide() end
         LayoutPreviewNameRaidMarker()

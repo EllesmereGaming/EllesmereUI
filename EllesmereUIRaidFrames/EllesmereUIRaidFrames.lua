@@ -415,6 +415,7 @@ local defaults = {
         -- Health bar
         healthBarTexture = "atrocity",
         healthBarOpacity = 100,
+        textureBg = false,  -- Textured Background (Health Bar Fill cog)
         healthColorMode  = "class",  -- "class", "dark", "classic", "custom", "customDynamic", "classReactive"
         customFillColor  = { r = 37/255, g = 193/255, b = 29/255 },
         -- Custom Dynamic Colors: health-percent gradient stops; defaults match

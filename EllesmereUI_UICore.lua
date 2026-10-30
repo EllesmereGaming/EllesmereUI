@@ -897,6 +897,48 @@ local function CtxBox(row, fontPath, outline)
     return box
 end
 
+-- the x on a row with onRemove: its own button, so the row's click still picks
+local function CtxRemove(row)
+    local rm = row._rm
+    if not rm then
+        rm = CreateFrame("Button", nil, row)
+        rm:SetSize(16, 16)
+        rm:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        rm:SetFrameLevel(row:GetFrameLevel() + 2)
+        rm.icon = rm:CreateTexture(nil, "OVERLAY")
+        rm.icon:SetAllPoints()
+        rm.icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png")
+        rm.icon:SetAlpha(0.45)
+        -- the row stays lit under its x, and the menu closing takes the x's tip with it
+        rm:SetScript("OnEnter", function(self)
+            self.icon:SetAlpha(1)
+            local r = self:GetParent()
+            CtxPaint(r, true)
+            local tip = r._item.removeTip
+            if tip then
+                CtxRoot(r._panel)._tip = true
+                EllesmereUI.ShowWidgetTooltip(self, tip)
+            end
+        end)
+        rm:SetScript("OnLeave", function(self)
+            self.icon:SetAlpha(0.45)
+            local r = self:GetParent()
+            CtxRoot(r._panel)._tip = nil
+            EllesmereUI.HideWidgetTooltip()
+            CtxPaint(r, r._item.isActive)
+        end)
+        rm:SetScript("OnClick", function(self)
+            local r = self:GetParent()
+            local fn = r._item.onRemove
+            EllesmereUI.HideWidgetTooltip()
+            CtxRoot(r._panel):Hide()
+            fn()
+        end)
+        row._rm = rm
+    end
+    return rm
+end
+
 local function CtxIcon(row)
     local icon = row._icon
     if not icon then
@@ -939,6 +981,7 @@ local function CtxLayout(panel, items, minW, fontKey)
         if type(item) == "table" then
             mfs:SetText(item.noLoc and item.text or L(item.text or ""))
             local w = mfs:GetStringWidth() or 0
+            if item.onRemove then w = w + 20 end
             if w > widest then widest = w end
             if item.icon then iconW = 22 end
         end
@@ -969,6 +1012,7 @@ local function CtxLayout(panel, items, minW, fontKey)
         if row._arrow then row._arrow:Hide() end
         if row._box then row._box:Hide() end
         if row._icon then row._icon:Hide() end
+        if row._rm then row._rm:Hide() end
         -- The label starts past the item's icon.
         lbl:SetPoint("LEFT", row, "LEFT", look.left + ((type(item) == "table" and item.icon) and 22 or 0), 0)
         local h = look.rowH
@@ -1008,6 +1052,7 @@ local function CtxLayout(panel, items, minW, fontKey)
                 else
                     CtxPaint(row, item.isActive)
                 end
+                if item.onRemove and not disabled then CtxRemove(row):Show() end
             end
         end
         row:SetSize(width - pad * 2, h)
@@ -1146,28 +1191,73 @@ do
         return full
     end
 
-    -- Name Format (WoW Forever only; nil on retail, where no caller runs):
-    --     EllesmereUI.ForeverShortName(name, mode)
-    -- mode "first" keeps the name's first word, "last" its last; any other
-    -- mode (nil = First and Last) returns it unchanged, as does a one-word,
-    -- secret or non-string name. Words split at spaces and at the surname
-    -- separator. Short forms are cached per mode and name, so repaints build
-    -- no strings; a mode's cache is wiped once it holds 256 names.
-    if IS_FOREVER then
-        local short = { first = {}, last = {} }   -- [mode][name] = short form
-        local count = { first = 0, last = 0 }
+    -- Name Format, on every client:
+    --     EllesmereUI.ShortName(name, mode)
+    -- "first" / "last" keep one word, "abbr" turns every word but the last into
+    -- an initial ("Illidan Stormrage" -> "I. Stormrage") and a number (a
+    -- Character Count) keeps that many characters. Any other mode, nil and
+    -- "full" included, keeps the whole name, as does a secret or non-string
+    -- name. Words split at spaces and at the surname separator. Each mode caches
+    -- 256 names, so repaints build no strings.
+    --     EllesmereUI.IsNameFormat(mode)
+    -- True for a mode that changes names (a module keys its own per-mode
+    -- tables on these).
+    --     EllesmereUI.Utf8Prefix(text, n)
+    -- The first n characters of a plain string, or the string itself when it
+    -- has n or fewer.
+    do
+        local floor = math.floor
+        local short = { first = {}, last = {}, abbr = {} }   -- [mode][name] = short form
+        local count = { first = 0, last = 0, abbr = 0 }
         local sepPat = (SEP ~= " " and SEP ~= "") and SEP:gsub("%W", "%%%0") or nil
 
-        function EllesmereUI.ForeverShortName(name, mode)
+        local function Utf8Prefix(text, n)
+            local bytes, i, chars = #text, 1, 0
+            while i <= bytes do
+                if chars == n then return text:sub(1, i - 1) end
+                local b = text:byte(i)
+                i = i + ((b < 128 and 1) or (b < 224 and 2) or (b < 240 and 3) or 4)
+                chars = chars + 1
+            end
+            return text
+        end
+        EllesmereUI.Utf8Prefix = Utf8Prefix
+
+        local function IsCount(mode)
+            return type(mode) == "number" and mode >= 1 and mode == floor(mode)
+        end
+        function EllesmereUI.IsNameFormat(mode)
+            return short[mode] ~= nil or IsCount(mode)
+        end
+
+        function EllesmereUI.ShortName(name, mode)
+            if issecretvalue(name) or type(name) ~= "string" then return name end
             local cache = short[mode]
-            if not cache or issecretvalue(name) or type(name) ~= "string" then return name end
+            if not cache then
+                -- A Character Count gets its cache on first use.
+                if not IsCount(mode) then return name end
+                cache = {}
+                short[mode], count[mode] = cache, 0
+            end
             local s = cache[name]
             if s then return s end
             local words = sepPat and name:gsub(sepPat, " ") or name
             if mode == "first" then
                 s = words:match("^%s*(%S+)")
-            else
+            elseif mode == "last" then
                 s = words:match("(%S+)%s*$")
+            elseif mode == "abbr" then
+                local parts = {}
+                for word in words:gmatch("%S+") do parts[#parts + 1] = word end
+                if #parts >= 2 then
+                    for i = 1, #parts - 1 do
+                        parts[i] = Utf8Prefix(parts[i], 1) .. "."
+                    end
+                    s = table.concat(parts, " ")
+                end
+            else
+                -- No trailing space where the cut lands between two words.
+                s = Utf8Prefix(words, mode):match("^(.-)%s*$")
             end
             s = s or name
             if count[mode] >= 256 then wipe(cache); count[mode] = 0 end
@@ -1176,21 +1266,79 @@ do
             return s
         end
 
-        -- The Name Format choices of every options row that sets one:
-        --     EllesmereUI.NAME_FORMAT_VALUES / EllesmereUI.NAME_FORMAT_ORDER
-        -- "full" (First and Last) is the unset default, saved as nil (Raid
-        -- Frames saves "full"). "mixed" is display-only, for a row over several
-        -- settings that differ: the order leaves it out, so it is never offered.
-        --     EllesmereUI.NameFormatCogRow(get, set)
-        -- A settings-cog dropdown row for one Name Format: get() returns the
-        -- saved value ("first", "last" or nil) and set(v) receives the same.
-        local VALUES = { first = "First Name", last = "Last Name", full = "First and Last", mixed = "Mixed" }
-        local ORDER = { "first", "last", "full" }
-        EllesmereUI.NAME_FORMAT_VALUES, EllesmereUI.NAME_FORMAT_ORDER = VALUES, ORDER
-        function EllesmereUI.NameFormatCogRow(get, set)
-            return { type = "dropdown", label = "Name Format", values = VALUES, order = ORDER,
-                get = function() return get() or "full" end,
-                set = function(v) set((v ~= "full") and v or nil) end }
+        -- The Name Format choices, for every dropdown that sets one:
+        --     values, order, getValue, setValue = EllesmereUI.NameFormatMenu(get, set, opts)
+        -- get() returns the saved value; set(v) receives "first", "last",
+        -- "full", "abbr" or a number. The Character Count entry opens a number
+        -- popup and saves the number, which the dropdown then reads as "N
+        -- Characters". A pick goes through setValue. opts (optional): onSaved
+        -- runs after a count is saved, for a control the page refresh does not
+        -- reach; enemies, for a text that can show enemy names, warns on retail
+        -- that the game keeps those whole in restricted content (a popup after
+        -- a pick, a red line in the count popup). Options pages only.
+        --     EllesmereUI.NameFormatCogRow(get, set, opts)
+        -- A settings-cog dropdown row over the same; "full" arrives as nil.
+        local LABELS = { first = "First Name", last = "Last Name", full = "Full Name", abbr = "Abbreviated" }
+        local ORDER = { "full", "first", "last", "abbr", "custom" }
+        local MAX_COUNT = 99
+        -- Wide enough for "Character Count" and its pencil on one line.
+        local MENU_W = 160
+        -- A saved count's label, made when a dropdown reads it.
+        local COUNT_LABEL = { __index = function(_, k)
+            if IsCount(k) then return EllesmereUI.Lf("%1$d Characters", k) end
+        end }
+        local function ParseCount(text)
+            local n = tonumber(text)
+            if n and n <= MAX_COUNT and IsCount(n) then return n end
+        end
+        local function EnemyNote()
+            return EllesmereUI.L("Enemies' names will still show their full names in restricted content (M+/Raid).")
+        end
+        function EllesmereUI.NameFormatMenu(get, set, opts)
+            local onSaved = opts and opts.onSaved
+            local warn = opts and opts.enemies and not EllesmereUI.IS_FOREVER
+            local function Edit()
+                local cur = get()
+                EllesmereUI:ShowInputPopup({
+                    title = EllesmereUI.L("Character Count"),
+                    message = EllesmereUI.L("Names show at most this many characters."),
+                    redWarning = warn and EnemyNote() or nil,
+                    placeholder = "1 - " .. MAX_COUNT,
+                    initialText = IsCount(cur) and tostring(cur) or "",
+                    numeric = true,
+                    maxLetters = #tostring(MAX_COUNT),
+                    validate = function(text)
+                        if not ParseCount(text) then
+                            return EllesmereUI.Lf("Enter a number from %1$d to %2$d.", 1, MAX_COUNT)
+                        end
+                    end,
+                    onConfirm = function(text)
+                        local n = ParseCount(text)
+                        if not n then return end
+                        set(n)
+                        if onSaved then onSaved() end
+                        EllesmereUI:RefreshPage()
+                    end,
+                })
+            end
+            local function SetValue(v)
+                local old = get()
+                set(v)
+                if warn and v ~= "full" and v ~= old then
+                    EllesmereUI:ShowConfirmPopup({ title = "Name Format", message = EnemyNote(),
+                        confirmText = "Okay", hideCancel = true })
+                end
+            end
+            local values = EllesmereUI.TextTags.MenuValues(LABELS, Edit,
+                { text = "Character Count", selected = function() return IsCount(get()) end })
+            return setmetatable(values, COUNT_LABEL), ORDER, function() return get() or "full" end, SetValue
+        end
+        EllesmereUI.NAME_FORMAT_MENU_W = MENU_W
+        function EllesmereUI.NameFormatCogRow(get, set, opts)
+            local values, order, getValue, setValue = EllesmereUI.NameFormatMenu(get,
+                function(v) set((v ~= "full") and v or nil) end, opts)
+            return { type = "dropdown", label = "Name Format", values = values, order = order,
+                ddWidth = MENU_W, get = getValue, set = setValue }
         end
     end
 end
