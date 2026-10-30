@@ -375,6 +375,7 @@ function ns.UpdateLustListener()
     if ns.UpdateTimeSpiralListener then ns.UpdateTimeSpiralListener() end
     if ns.UpdatePotionCastListener then ns.UpdatePotionCastListener() end
     if ns.UpdateCooldownCastListener then ns.UpdateCooldownCastListener() end
+    if ns.UpdateSealListener then ns.UpdateSealListener() end  -- Paladin Seals (EUI_CDM_Seals.lua, WoW Forever)
 end
 
 -- Profile-wide smooth-fill switches (Bar Layout > Smooth Bars), resolved ONCE per tick by
