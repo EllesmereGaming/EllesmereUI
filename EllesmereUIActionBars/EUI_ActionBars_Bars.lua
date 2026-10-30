@@ -13,6 +13,7 @@ local ipairs, pairs, type, pcall = ipairs, pairs, type, pcall
 local min, max = math.min, math.max
 local InCombatLockdown = InCombatLockdown
 local RegisterStateDriver = RegisterStateDriver
+local EFD = ns.EFD
 
 local EAB, EAB_VTABLE, barButtons = ns.EAB, ns.EAB_VTABLE, ns.barButtons
 local I = ns._internals
@@ -300,13 +301,15 @@ ns.BuildBarButtons = function(info, frame, skipProtected)
     local buttons = {}
     -- The layout shape: stock styles draw no custom shape, so their hit rects stay full.
     local buttonShape = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars[key]
-        and ns.AB_LayoutShape(EAB.db.profile.bars[key]) or "none"
+        and ns.AB_LayoutShape(EAB.db.profile.bars[key], key) or "none"
 
     if info.isStance then
         -- Stance bar: reuse StanceButton1-N
         for i = 1, info.count do
             local btn = _G["StanceButton" .. i]
             if btn then
+                -- Stance buttons skip GetOrCreateButton, so set the Masque flag here.
+                EFD(btn).masqueOwned = ns.MasqueOwnsBar(key) or nil
                 if not skipProtected then
                     ApplyShapeHitRects(btn, buttonShape)
                     btn:SetAttributeNoHandler("statehidden", nil)
@@ -321,6 +324,8 @@ ns.BuildBarButtons = function(info, frame, skipProtected)
         for i = 1, info.count do
             local btn = _G["PetActionButton" .. i]
             if btn then
+                -- Pet buttons skip GetOrCreateButton, so set the Masque flag before laying them out and styling them.
+                EFD(btn).masqueOwned = ns.MasqueOwnsBar(key) or nil
                 if not skipProtected then
                     ApplyShapeHitRects(btn, buttonShape)
                     btn:SetAttributeNoHandler("statehidden", nil)

@@ -34,6 +34,10 @@ function EAB:OnInitialize()
         or (rawDB.profiles and not next(rawDB.profiles))
 
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIActionBarsDB", defaults, true)
+
+    -- Copy the main bar's Masque setting to the stance bar for older profiles.
+    self.db.profile.bars.StanceBar.masqueEnabled = self.db.profile.bars.MainBar.masqueEnabled == true
+
     -- Expose for ApplyAnchorPosition's growth-direction edge read.
     EllesmereUI._abBarPositions = self.db.profile.barPositions
 
