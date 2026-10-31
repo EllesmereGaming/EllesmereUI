@@ -679,6 +679,66 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         _ttBuffs:Show()
     end
 
+    -- Tooltip Extras line colors: level number by difficulty, spec/class line in class
+    -- color, Alliance/Horde line in faction color, a guildmate's guild line in guild chat
+    -- color. Recolor only; secret text keeps Blizzard's color.
+    local _FACTION_CC = {
+        [FACTION_HORDE] = PLAYER_FACTION_COLORS[0],
+        [FACTION_ALLIANCE] = PLAYER_FACTION_COLORS[1],
+    }
+    local function _ttLineColors(tt, data, unit, cc)
+        local db = EllesmereUIDB
+        if not (db and (db.tooltipLevelColor or db.tooltipClassLineColor or db.tooltipFactionColor
+            or db.tooltipGuildmateColor)) then return end
+        -- The level line is tagged in the tooltip data, so no locale text matching.
+        local levelIdx
+        for _, ld in ipairs(data and data.lines or {}) do
+            local t = ld.type
+            if not (_isSecret and _isSecret(t)) and t == Enum.TooltipDataLineType.UnitLevel then
+                levelIdx = ld.lineIndex
+                break
+            end
+        end
+        -- Difficulty color on every unit, friendly included; battle pet levels aren't
+        -- comparable to the player's.
+        local hex
+        if levelIdx and unit and db.tooltipLevelColor
+            and not (UnitIsWildBattlePet(unit) or UnitIsBattlePetCompanion(unit)) then
+            local r, g, b = EllesmereUI.GetLevelColor(unit, UnitEffectiveLevel(unit), true)
+            if r then hex = EllesmereUI.ColorText("%0", r, g, b) end
+        end
+        local doClass = levelIdx and unit and cc and db.tooltipClassLineColor
+        local guildName = unit and db.tooltipGuildmateColor and UnitIsInMyGuild(unit) and GetGuildInfo(unit)
+        if guildName and _isSecret and _isSecret(guildName) then guildName = nil end
+        if not (hex or doClass or guildName or db.tooltipFactionColor) then return end
+        for i = 2, (tt.NumLines and tt:NumLines() or 0) do
+            local line = _G["GameTooltipTextLeft" .. i]
+            local text = line and line:GetText()
+            if text and not (_isSecret and _isSecret(text)) then
+                if i == levelIdx then
+                    -- Number (or "??") only; leave text another addon already colored.
+                    if hex and not string.find(text, "|c", 1, true) then
+                        local newText, n = text:gsub("%d+", hex, 1)
+                        if n == 0 then newText, n = text:gsub("%?%?", hex, 1) end
+                        if n > 0 then line:SetText(newText) end
+                    end
+                elseif guildName and (not levelIdx or i < levelIdx) and string.find(text, guildName, 1, true) then
+                    local gc = ChatTypeInfo.GUILD
+                    line:SetTextColor(gc.r, gc.g, gc.b)
+                    guildName = nil
+                elseif _FACTION_CC[text] then
+                    if db.tooltipFactionColor then
+                        local fc = _FACTION_CC[text]
+                        line:SetTextColor(fc.r, fc.g, fc.b)
+                    end
+                -- The spec/class line directly follows the level line on player tooltips.
+                elseif doClass and i == levelIdx + 1 and text ~= PVP_ENABLED then
+                    line:SetTextColor(cc.r, cc.g, cc.b)
+                end
+            end
+        end
+    end
+
     local function _ttUnitColor(tt, data)
         if tt ~= _GameTooltip or tt:IsForbidden() then return end
         local nLinesBefore = tt.NumLines and tt:NumLines() or 0
@@ -700,6 +760,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         if not classFile and unit then
             if not UnitIsPlayer(unit) then
                 -- No class additions on non-players, but Targeting still applies (checking a boss's target is the core case).
+                _ttLineColors(tt, data, unit)
                 _ttTargetLine(tt, unit)
                 _ttFonts(tt, nLinesBefore)
                 return
@@ -740,6 +801,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
                 GameTooltipStatusBar:SetStatusBarColor(cc.r, cc.g, cc.b)
             end
         end
+        _ttLineColors(tt, data, unit, cc)
         -- Guild rank next to guild name: Name-Realm [Rank]. Re-found every call (index varies
         -- per unit; titles shift it, so a cached index would decorate the wrong row). Deduped like the M+ line against refresh re-runs.
         if unit and db and db.tooltipShowGuildRank then

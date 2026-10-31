@@ -2068,6 +2068,8 @@ do
         "customTooltips", "tooltipFontScale", "tooltipPlayerTitles",
         "tooltipItemLevel", "tooltipMythicScore", "tooltipShowMount",
         "tooltipShowGuildRank", "tooltipShowTarget", "tooltipShowMode",
+        "tooltipLevelColor", "tooltipClassLineColor", "tooltipFactionColor",
+        "tooltipGuildmateColor",
         "tooltipShowModifier", "tooltipGrowthDirection",
         "uberTooltips", "uberTooltipsManual", "tooltipHideHealthStrip",
         "tooltipHealthStripTexture", "tooltipHealthStripHeight",
