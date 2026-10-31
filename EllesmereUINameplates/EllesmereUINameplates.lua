@@ -528,6 +528,14 @@ local defaults = {
     importantCastGlowSpeed = 4,
     importantCastGlowBackground = false,
     importantCastGlowBackgroundColor = { r = 0, g = 0, b = 0 },
+    castTargetGlow = false,  -- glow the cast bar while the cast targets the player
+    castTargetGlowStyle = 1,
+    castTargetGlowColor = { r = 1, g = 1, b = 1 },
+    castTargetGlowLines = 8,
+    castTargetGlowThickness = 2,
+    castTargetGlowSpeed = 4,
+    castTargetGlowBackground = false,
+    castTargetGlowBackgroundColor = { r = 0, g = 0, b = 0 },
     -- Core Positions: slot-based size + XY offsets
     topSlotSize = 26,        topSlotXOffset = 0,      topSlotYOffset = 0,      topSlotRaiseStrata = false,
     rightSlotSize = 24,      rightSlotXOffset = 0,    rightSlotYOffset = 0,    rightSlotRaiseStrata = false,

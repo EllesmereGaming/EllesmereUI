@@ -33,6 +33,42 @@ I.classPowerTypeSetters[#I.classPowerTypeSetters + 1] = function(v) classPowerTy
 local p
 I.profileSetters[#I.profileSetters + 1] = function(v) p = v end
 
+local function EnsureCastGlowOverlay(self, field, levelOffset)
+    local ov = self[field]
+    if not ov then
+        ov = CreateFrame("Frame", nil, self.cast)
+        ov:SetAllPoints(self.cast)
+        ov:SetFrameLevel(self.cast:GetFrameLevel() + levelOffset)
+        ov:EnableMouse(false)
+        self[field] = ov
+    end
+    return ov
+end
+
+-- Starts the glow on a cast bar overlay from a flat-key glow setting (prefix .. "Style",
+-- "Color", "Lines", ...). One scratch spec for every plate: StartSpecGlow reads it
+-- synchronously. Restarts only when the setting or the bar size changed.
+local function StartCastGlow(self, ov, cfg, prefix, defColor)
+    local Glows = EllesmereUI.Glows
+    local style = cfg[prefix .. "Style"] or defaults[prefix .. "Style"] or 1
+    if type(style) ~= "number" or style < 1 or style > #PANDEMIC_GLOW_STYLES then style = 1 end
+    local c = cfg[prefix .. "Color"] or defaults[prefix .. "Color"] or defColor
+    local bgColor = cfg[prefix .. "BackgroundColor"] or defaults[prefix .. "BackgroundColor"] or { r = 0, g = 0, b = 0 }
+    local spec = ns._impCastGlowSpec
+    if not spec then spec = {}; ns._impCastGlowSpec = spec end
+    spec.style = ns.NP_TO_SHARED_GLOW[style] or 1
+    spec.r, spec.g, spec.b = Glows.ResolveColor(cfg[prefix .. "ColorMode"] or "custom", c.r, c.g, c.b)
+    spec.lines = cfg[prefix .. "Lines"] or defaults[prefix .. "Lines"]
+    spec.thickness = cfg[prefix .. "Thickness"] or defaults[prefix .. "Thickness"]
+    spec.speed = cfg[prefix .. "Speed"] or defaults[prefix .. "Speed"]
+    spec.bg = (cfg[prefix .. "Background"] == true) or nil
+    spec.bgR, spec.bgG, spec.bgB = bgColor.r, bgColor.g, bgColor.b
+    local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
+    if pW < 5 then pW = 100 end
+    if pH < 5 then pH = 14 end
+    Glows.StartSpecGlow(ov, spec, pW, pH, "bar")
+end
+
 function NameplateFrame:UpdateImportantCastGlow(spellID)
     local cfg = p or defaults
     local enabled = cfg.importantCastGlow
@@ -43,45 +79,42 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
         self:ClearImportantCastGlow(); return
     end
 
-    if not self._importantCastOverlay then
-        local ov = CreateFrame("Frame", nil, self.cast)
-        ov:SetAllPoints(self.cast)
-        ov:SetFrameLevel(self.cast:GetFrameLevel() + 5)
-        ov:EnableMouse(false)
-        self._importantCastOverlay = ov
-    end
-
-    local Glows = EllesmereUI.Glows
-
-    local style = cfg.importantCastGlowStyle or defaults.importantCastGlowStyle or 1
-    if type(style) ~= "number" or style < 1 or style > #PANDEMIC_GLOW_STYLES then style = 1 end
-    local c = cfg.importantCastGlowColor or defaults.importantCastGlowColor or { r = 1, g = 0.2, b = 0.2 }
-    local bgColor = cfg.importantCastGlowBackgroundColor or defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
-    -- One scratch spec for every plate: StartSpecGlow reads it synchronously.
-    local spec = ns._impCastGlowSpec
-    if not spec then spec = {}; ns._impCastGlowSpec = spec end
-    spec.style = ns.NP_TO_SHARED_GLOW[style] or 1
-    spec.r, spec.g, spec.b = Glows.ResolveColor(cfg.importantCastGlowColorMode or "custom", c.r, c.g, c.b)
-    spec.lines = cfg.importantCastGlowLines or defaults.importantCastGlowLines
-    spec.thickness = cfg.importantCastGlowThickness or defaults.importantCastGlowThickness
-    spec.speed = cfg.importantCastGlowSpeed or defaults.importantCastGlowSpeed
-    spec.bg = (cfg.importantCastGlowBackground == true) or nil
-    spec.bgR, spec.bgG, spec.bgB = bgColor.r, bgColor.g, bgColor.b
-    local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
-    if pW < 5 then pW = 100 end
-    if pH < 5 then pH = 14 end
-    -- Restarts only when the setting or the bar size changed.
-    Glows.StartSpecGlow(self._importantCastOverlay, spec, pW, pH, "bar")
+    local ov = EnsureCastGlowOverlay(self, "_importantCastOverlay", 5)
+    StartCastGlow(self, ov, cfg, "importantCastGlow", { r = 1, g = 0.2, b = 0.2 })
     self._importantGlowActive = true
 
     -- SetAlphaFromBoolean handles the secret boolean taint-free.
     -- Important = alpha 1 (glow visible), not important = alpha 0 (glow hidden).
-    self._importantCastOverlay:Show()
+    ov:Show()
     local ok, isImportant = pcall(C_Spell.IsSpellImportant, spellID or 0)
     if ok then
-        self._importantCastOverlay:SetAlphaFromBoolean(isImportant)
+        ov:SetAlphaFromBoolean(isImportant)
     else
-        self._importantCastOverlay:SetAlpha(0)
+        ov:SetAlpha(0)
+    end
+end
+
+-- Cast Targets You Glow (opt-in): the cast bar glows while the cast's target is the player.
+-- PlayerIsSpellTarget is SECRET, so it only drives the overlay's alpha. Read at cast start,
+-- as Blizzard's own nameplate cast bar does.
+function NameplateFrame:UpdateCastTargetGlow()
+    local cfg = p or defaults
+    if not cfg.castTargetGlow or not PlayerIsSpellTarget then
+        self:ClearCastTargetGlow(); return
+    end
+    local ov = EnsureCastGlowOverlay(self, "_castTargetOverlay", 6)
+    StartCastGlow(self, ov, cfg, "castTargetGlow", { r = 1, g = 1, b = 1 })
+    self._castTargetGlowActive = true
+    ov:Show()
+    ov:SetAlphaFromBoolean(PlayerIsSpellTarget(self.unit))
+end
+
+function NameplateFrame:ClearCastTargetGlow()
+    if self._castTargetGlowActive and self._castTargetOverlay then
+        EllesmereUI.Glows.StopAllGlows(self._castTargetOverlay)
+        self._castTargetOverlay:SetAlpha(0)
+        self._castTargetOverlay:Hide()
+        self._castTargetGlowActive = false
     end
 end
 
@@ -127,6 +160,7 @@ function NameplateFrame:UpdateCast()
         self._castDirtyFull = nil
         self:HideKickTick()
         self:ClearImportantCastGlow()
+        self:ClearCastTargetGlow()
         self:ApplyScale()
         if GetShowClassPower() and classPowerType and self._cpPips and self.unit and UnitIsUnit(self.unit, "target") then
             UpdateClassPowerOnPlate(self)
@@ -253,6 +287,7 @@ function NameplateFrame:UpdateCast()
         self:ApplyScale()
         self:UpdateKickTick(kickProtected, isChannel, isEmpowered)
         self:UpdateImportantCastGlow(castSpellID)
+        self:UpdateCastTargetGlow()
         if GetShowClassPower() and classPowerType and self._cpPips and self.unit and UnitIsUnit(self.unit, "target") then
             UpdateClassPowerOnPlate(self)
         end
@@ -861,6 +896,7 @@ function NameplateFrame:UNIT_SPELLCAST_STOP()
         self.isCasting = false
         self:HideKickTick()
         self:ClearImportantCastGlow()
+        self:ClearCastTargetGlow()
         self:ApplyScale()
         if not self._interrupted then
             self.cast:Hide()
@@ -895,6 +931,7 @@ function NameplateFrame:UNIT_SPELLCAST_CHANNEL_STOP(_, _, _, interrupterGUID)
     self.isCasting = false
     self:HideKickTick()
     self:ClearImportantCastGlow()
+    self:ClearCastTargetGlow()
     self:ApplyScale()
     if not self._interrupted then
         self.cast:Hide()
@@ -966,6 +1003,7 @@ function NameplateFrame:UNIT_SPELLCAST_EMPOWER_STOP(_, _, _, _, interrupterGUID)
     self.isCasting = false
     self:HideKickTick()
     self:ClearImportantCastGlow()
+    self:ClearCastTargetGlow()
     self:ApplyScale()
     if not self._interrupted then
         self.cast:Hide()

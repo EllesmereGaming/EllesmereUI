@@ -21,7 +21,7 @@ local function BuildDisplayBars(parent, y, ctx)
     local defaults, displayCastIcons, hbtOrder, hbtValues = env.defaults, env.displayCastIcons, env.hbtOrder, env.hbtValues
     local LazyColorPreviewBar, npImpCastGlowDesc, optState, pairs = env.LazyColorPreviewBar, env.npImpCastGlowDesc, env.optState, env.pairs
     local plates, PP, RefreshAllPlates, SECTION_CASTBAR = env.plates, env.PP, env.RefreshAllPlates, env.SECTION_CASTBAR
-    local UpdatePreview = env.UpdatePreview
+    local UpdatePreview, npCastTargetGlowDesc = env.UpdatePreview, env.npCastTargetGlowDesc
     local asFallback, atFallback, AuraDurationVal, CogPopupOpen = ctx.asFallback, ctx.atFallback, ctx.AuraDurationVal, ctx.CogPopupOpen
     local LiveApplyAuraText, RefreshAllTextures, ShowCogPopup = ctx.LiveApplyAuraText, ctx.RefreshAllTextures, ctx.ShowCogPopup
     local timerPosOrder, timerPosValues = ctx.timerPosOrder, ctx.timerPosValues
@@ -586,7 +586,12 @@ local function BuildDisplayBars(parent, y, ctx)
     end
 
     -- Row 3: Focus Text Reminders (CDM only, left) | Show Interrupted Flash Effect (always present, a core cast bar setting): when CDM is loaded, Focus Text Reminders fills the left slot and flash takes the right; otherwise flash takes the left slot itself.
+    -- Cast Targets You Glow follows in the next free slot.
     do
+        local GO = EllesmereUI.GlowOptions
+        local ctGlowCfg = GO.DropdownSpec(npCastTargetGlowDesc, "Cast Targets You Glow",
+            "Show a glow on the cast bar when the enemy's cast is targeting you.")
+        local ctGlowRow, ctGlowRegion
         local function flashOff()
             local db = DB()
             local on = db and db.interruptedFlashEnabled
@@ -640,12 +645,28 @@ local function BuildDisplayBars(parent, y, ctx)
                 flashCfg
             );  y = y - h
             swatchRegion = row3._rightRegion
+            ctGlowRow, h = W:DualRow(parent, y, ctGlowCfg, EllesmereUI.BlankRowCfg());  y = y - h
+            ctGlowRegion = ctGlowRow._leftRegion
         else
             row3, h = W:DualRow(parent, y,
                 flashCfg,
-                { type = "label", text = "" }
+                ctGlowCfg
             );  y = y - h
             swatchRegion = row3._leftRegion
+            ctGlowRegion = row3._rightRegion
+        end
+
+        if not EllesmereUI._prebuilding then
+            GO.AttachInline(ctGlowRegion, npCastTargetGlowDesc)
+            local pv = GO.BuildPreview(ctGlowRegion, npCastTargetGlowDesc, {
+                bar = false, width = 26, height = 26,
+                icon = function() return displayCastIcons[optState._previewCastIconIdx or 1] end,
+                anchor = ctGlowRegion._lastInline, x = -12,
+            })
+            if pv then
+                pv:SetFrameLevel(ctGlowRegion:GetFrameLevel() + 5)
+                ctGlowRegion._lastInline = pv
+            end
         end
 
         -- Inline flash colour swatch on the Show Interrupted Flash Effect toggle; greys out when disabled.
