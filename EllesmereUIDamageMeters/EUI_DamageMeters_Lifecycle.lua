@@ -448,8 +448,6 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     EnsureDB()
-    -- DB is now available; rebuild number format so a saved forceEnglishUnits preference applies at login (load-time build ran before the DB existed)
-    if ns.RebuildNumberFormat then ns.RebuildNumberFormat() end
     -- A profile already on Classic WoW UI gets its one-time seed here (the
     -- Style page seeds on the switch; flags make both idempotent).
     if ns.DMClassic() then ns.DMSeedClassic(DB()) end
@@ -509,8 +507,6 @@ initFrame:SetScript("OnEvent", function(self)
         -- cause is no longer visible, then re-apply both keybinds from the new profile
         ns._toggleHidden = false
         ns.ApplyDMKeybinds()
-        -- Force English Units from the new profile
-        ns.RebuildNumberFormat()
         if not c.windows then c.windows = {} end
         local wc = math.max(1, c.windowCount or 1)
         c.windowCount = wc

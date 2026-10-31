@@ -4532,6 +4532,49 @@ do
     })
 end
 
+-- Number Format's Unit Style replaced the two "Force English Units" toggles
+-- (Damage Meters, gold blocks). Either one on makes the profile's Unit Style
+-- Western; the old keys go. PROFILE scope so an older export string is folded
+-- at its next load. Unit Style is global, so on a CJK client this now also
+-- reaches health text; on any other client Western changes nothing.
+EllesmereUI.RegisterMigration({
+    id          = "number_format_force_english_units_v1",
+    scope       = "profile",
+    description = "Fold the Damage Meters and gold block Force English Units toggles into the profile's Number Format Unit Style.",
+    body = function(ctx)
+        local prof = ctx.profile
+        local addons = prof.addons
+        if type(addons) ~= "table" then return end
+        local western = false
+        local edm = addons.EllesmereUIDamageMeters
+        local dm = type(edm) == "table" and edm.dm or nil
+        if type(dm) == "table" and dm.forceEnglishUnits ~= nil then
+            if dm.forceEnglishUnits == true then western = true end
+            dm.forceEnglishUnits = nil
+        end
+        local edb = addons.EllesmereUIDataBars
+        local bars = type(edb) == "table" and edb.bars or nil
+        if type(bars) == "table" then
+            for _, bar in ipairs(bars) do
+                local blocks = type(bar) == "table" and bar.blocks or nil
+                if type(blocks) == "table" then
+                    for _, b in ipairs(blocks) do
+                        local s = type(b) == "table" and b.settings or nil
+                        if type(s) == "table" and s.forceEnglishUnits ~= nil then
+                            if s.forceEnglishUnits == true then western = true end
+                            s.forceEnglishUnits = nil
+                        end
+                    end
+                end
+            end
+        end
+        if western then
+            prof.numberFormat = prof.numberFormat or {}
+            prof.numberFormat.units = "western"
+        end
+    end,
+})
+
 --------------------------------------------------------------------------------
 --  WOW FOREVER: ONE-TIME BUFF CLEAR
 --

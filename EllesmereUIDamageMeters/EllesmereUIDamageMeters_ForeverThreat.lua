@@ -36,9 +36,7 @@ function ns.DMThreatSession()
     local feed = EllesmereUI._ThreatFeed
     if not feed then return nil end
     if not feed.IsActive() then feed.Start(ns.DMThreatNotify) end
-    -- The value text follows the meter's Force English Units, as every type's does.
-    local db = ns.EDM.DB()
-    return feed.Session(db and db.forceEnglishUnits == true)
+    return feed.Session()
 end
 
 -- Stops the feed once no Threat window is on screen; `except` is a window in

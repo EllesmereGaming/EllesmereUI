@@ -1355,6 +1355,10 @@ function ns.ApplyStyle()
     RefreshSettingsPreview()
 end
 
+-- The value column is sized from a formatted sample (Style), so a Number Format
+-- change restyles.
+EUI.RegisterNumberFormatCallback(function() ns.ApplyStyle() end)
+
 -- Ten seconds of preview rows on the live meter.
 function ns.Preview()
     if not (frame and Get("enabled")) then return false end

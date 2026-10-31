@@ -24,6 +24,7 @@ local PAGE_GLOWS       = "Glows"     -- centralized glow page; body lives in EUI
 local PAGE_GAMEPAD     = "Gamepad"   -- controller settings page; body lives in EUI_Gamepad_Options.lua
 local PAGE_STYLE       = "Style"     -- per-module EllesmereUI / Blizzard Style page; body lives in EUI_Style_Options.lua
 local PAGE_COLORS      = "Colors"    -- the color half of the old "Fonts & Colors" page
+local PAGE_NUMBERS     = "Number Format" -- body lives in EUI_NumberFormat_Options.lua
 local PAGE_PROFILES    = "Profiles"
 local PAGE_PRESETS     = "Presets"   -- navigation tab over the presets subpage of the profiles page
 local PAGE_WHATSNEW    = "Patch Notes"
@@ -2840,8 +2841,8 @@ initFrame:SetScript("OnEvent", function(self)
         EllesmereUI._EndRootRender("profilesRoot")
     end
 
-    -- Profiles and Patch Notes are their own sidebar pages (registered below), so Global Settings owns General + Style + Fonts + Textures + Glows + Colors (Style second, beside General), plus Gamepad while a module it configures is loaded.
-    local globalPages = { PAGE_GENERAL, PAGE_STYLE, PAGE_FONTS, PAGE_TEXTURES, PAGE_GLOWS, PAGE_COLORS }
+    -- Profiles and Patch Notes are their own sidebar pages (registered below), so Global Settings owns General + Style + Fonts + Textures + Glows + Colors + Number Format (Style second, beside General), plus Gamepad while a module it configures is loaded.
+    local globalPages = { PAGE_GENERAL, PAGE_STYLE, PAGE_FONTS, PAGE_TEXTURES, PAGE_GLOWS, PAGE_COLORS, PAGE_NUMBERS }
     if EllesmereUI.ModuleNS("EllesmereUIActionBars") or EllesmereUI.ModuleNS("EllesmereUIUnitFrames")
        or EllesmereUI.ModuleNS("EllesmereUIResourceBars") then
         globalPages[#globalPages + 1] = PAGE_GAMEPAD
@@ -2866,6 +2867,8 @@ initFrame:SetScript("OnEvent", function(self)
                     return _G._EUI_BuildGlowsPage and _G._EUI_BuildGlowsPage(pageName, parent, yOffset)
                 elseif pageName == PAGE_GAMEPAD then
                     return _G._EUI_BuildGamepadPage and _G._EUI_BuildGamepadPage(pageName, parent, yOffset)
+                elseif pageName == PAGE_NUMBERS then
+                    return _G._EUI_BuildNumberFormatPage and _G._EUI_BuildNumberFormatPage(pageName, parent, yOffset)
                 elseif pageName == PAGE_STYLE then
                     return _G._EUI_BuildStylePage and _G._EUI_BuildStylePage(pageName, parent, yOffset)
                 elseif pageName == PAGE_COLORS then
@@ -2889,6 +2892,8 @@ initFrame:SetScript("OnEvent", function(self)
                 return _G._EUI_BuildGlowsPage and _G._EUI_BuildGlowsPage(pageName, parent, yOffset)
             elseif pageName == PAGE_GAMEPAD then
                 return _G._EUI_BuildGamepadPage and _G._EUI_BuildGamepadPage(pageName, parent, yOffset)
+            elseif pageName == PAGE_NUMBERS then
+                return _G._EUI_BuildNumberFormatPage and _G._EUI_BuildNumberFormatPage(pageName, parent, yOffset)
             elseif pageName == PAGE_STYLE then
                 return _G._EUI_BuildStylePage and _G._EUI_BuildStylePage(pageName, parent, yOffset)
             elseif pageName == PAGE_COLORS then

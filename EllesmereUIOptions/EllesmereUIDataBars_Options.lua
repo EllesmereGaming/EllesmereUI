@@ -3027,15 +3027,6 @@ initFrame:SetScript("OnEvent", function(self)
                       getValue = function() return EllesmereUI.GetGoldLedger().IsTracking() end,
                       setValue = function(v) EllesmereUI.GetGoldLedger().SetTracking(v) end },
                 }
-                -- Force English Units: only where the effective locale actually
-                -- has its own abbreviation algorithm (currently the CJK wan/yi
-                -- grouping tables in EllesmereUI_NumberFormat.lua); every other
-                -- locale already gets K/M/B, so the toggle would be a no-op.
-                -- Mirrors the Damage Meters options row (EUI_DamageMeters_Options.lua).
-                if EllesmereUI.LocaleHasNumberAbbreviation() then
-                    typeRows[#typeRows + 1] = MkToggle("Force English Units (K/M/B)", "forceEnglishUnits",
-                        "Always use K/M/B instead of localized units.")
-                end
             elseif b.type == "profession" or b.type == "profession2" then
                 typeRows = {
                     { type = "dropdown", text = "Text Display",

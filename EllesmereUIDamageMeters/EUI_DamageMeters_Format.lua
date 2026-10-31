@@ -193,26 +193,15 @@ end
 ns._RowMetrics = RowMetrics
 
 -- Number formatting: delegates to the shared EllesmereUI_NumberFormat.lua engine
--- (breakpoint tables, the CJK wan/yi grouping tables and the
--- AbbreviateNumbers/CreateAbbreviateConfig plumbing all live there now,
--- shared with EllesmereUIDataBars' gold abbreviation).
-local _forceEnglishUnits = false
-
--- Re-read the saved setting: once at load (DB not ready yet -> reads false),
--- once after DB creation, and on every options toggle flip.
-local function RebuildAbbrevCfg()
-    _forceEnglishUnits = false
-    if ns.EDM and ns.EDM.DB then
-        local db = ns.EDM.DB()
-        if db and db.forceEnglishUnits then _forceEnglishUnits = true end
-    end
-end
-RebuildAbbrevCfg()
-ns.RebuildNumberFormat = RebuildAbbrevCfg
+-- (the profile's Number Format, "meter" value type). A format change repaints
+-- every window; before the DB exists there is nothing to repaint.
+EllesmereUI.RegisterNumberFormatCallback(function()
+    if _G._EDM_DB and ns.RefreshMeter then ns.RefreshMeter() end
+end)
 
 local function AbbrevNumber(n)
     if n == nil then return "0" end
-    return EllesmereUI.AbbreviateNumber(n, _forceEnglishUnits)
+    return EllesmereUI.AbbreviateNumber(n)
 end
 
 local function FormatBarValue(amt, perSec, numFmt)

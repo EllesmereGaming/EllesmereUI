@@ -76,7 +76,6 @@ local DM_DEFAULTS = {
             barHeight       = 18,
             barSpacing      = 2,
             numberFormat    = 2,
-            forceEnglishUnits = false, -- force K/M/B units, ignoring CJK locale's 萬/億 (opt-in; default keeps localized units)
             iconStyle       = "spec",
             classIconZoom = 0.06,
             spriteIconZoom = 0,

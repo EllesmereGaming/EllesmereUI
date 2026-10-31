@@ -1402,25 +1402,6 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
-        -- Force English Number Units (K/M/B) | (spacer)
-        -- Only where the effective locale actually has its own abbreviation
-        -- algorithm (currently the CJK wan/yi grouping tables in
-        -- EllesmereUI_NumberFormat.lua): every other locale already gets
-        -- K/M/B and the toggle would be a no-op, so the row is skipped for them.
-        if EllesmereUI.LocaleHasNumberAbbreviation() then
-            _, h = W:DualRow(parent, y,
-                { type="toggle", text="Force English Units (K/M/B)",
-                  tooltip = "Always use K/M/B instead of localized units.",
-                  getValue = function() return Cfg("forceEnglishUnits") or false end,
-                  setValue = function(v)
-                      Set("forceEnglishUnits", v)
-                      if ns.RebuildNumberFormat then ns.RebuildNumberFormat() end
-                      Refresh()
-                  end },
-                { type="spacer" })
-            y = y - h
-        end
-
         -- ── STANDALONE COMBAT TIMER ──────────────────────────────────
         hdr, h = W:SectionHeader(parent, "STANDALONE COMBAT TIMER", y); y = y - h
         EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EDM_CombatTimer",
