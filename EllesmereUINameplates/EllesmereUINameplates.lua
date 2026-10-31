@@ -202,6 +202,7 @@ local defaults = {
     -- Enemies/Casters/Mini-Bosses/Bosses) collapse to owBasicColor; Neutral stays own color.
     owBasicColoring = false,
     owBasicColor = { r = 0.800, g = 0.137, b = 0.137 },
+    casterFromCasts = false,  -- a mob seen casting keeps the Spell Casters color
     darkenEnemiesOOC = true,
     darkenOOCRecolor = false,  -- Modify Out of Combat "Change Color": recolor OOC enemies rather than dimming
     darkenOOCColor   = { r = 0.5, g = 0.5, b = 0.5 },

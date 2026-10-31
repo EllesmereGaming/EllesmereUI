@@ -361,6 +361,10 @@ function NameplateFrame:UpdateCast()
         self:UpdateKickTick(kickProtected, isChannel, isEmpowered)
         self:UpdateImportantCastGlow()
         self:UpdateCastTargetGlow()
+        if not self._seenCasting and p and p.casterFromCasts then
+            self._seenCasting = true
+            self:UpdateHealthColor()
+        end
         if GetShowClassPower() and classPowerType and self._cpPips and self.unit and UnitIsUnit(self.unit, "target") then
             UpdateClassPowerOnPlate(self)
         end
