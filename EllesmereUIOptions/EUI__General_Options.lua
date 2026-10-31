@@ -2904,7 +2904,25 @@ initFrame:SetScript("OnEvent", function(self)
                 return EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
             end
         end,
+        -- Number Format: the value type picker and preview header, and one search
+        -- pre-build per value type (each type's Precision row exists only under it).
+        getHeaderBuilder = function(pageName)
+            if pageName == PAGE_NUMBERS and _G._EUI_NumberFormatHeaderBuilder then
+                return _G._EUI_NumberFormatHeaderBuilder()
+            end
+            return nil
+        end,
+        getPrebuildVariants = function(pageName)
+            if pageName == PAGE_NUMBERS and _G._EUI_NumberFormatVariants then
+                return _G._EUI_NumberFormatVariants()
+            end
+            return nil
+        end,
         onPageCacheRestore = function(pageName)
+            -- The cached header's preview may predate a profile switch.
+            if pageName == PAGE_NUMBERS and _G._EUI_NumberFormatRefreshHeader then
+                _G._EUI_NumberFormatRefreshHeader()
+            end
             if pageName == PAGE_GLOWS then
                 -- Glow sites bind per-bar and per-spec tables at build time (CDM bars,
                 -- tracking bars); a spec swap or bar change behind a cached page would

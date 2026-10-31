@@ -576,11 +576,11 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local txt
         if isHealth then
-            local curStr = ns.AbbreviateNumbers(math.floor(mx * pct / 100))
+            local curStr = ns.AbbreviateValue(math.floor(mx * pct / 100), "health")
             local pctStr = tostring(pct)
             if fmt == "both" then txt = curStr .. " | " .. pctStr .. "%"
             elseif fmt == "curhpshort" then txt = curStr
-            elseif fmt == "curmaxhp" then txt = curStr .. " / " .. ns.AbbreviateNumbers(mx)
+            elseif fmt == "curmaxhp" then txt = curStr .. " / " .. ns.AbbreviateValue(mx, "maxHealth")
             elseif fmt == "perhpnosign" then txt = pctStr
             elseif fmt == "perhpnum" then txt = pctStr .. "% | " .. curStr
             else txt = pctStr .. "%" end

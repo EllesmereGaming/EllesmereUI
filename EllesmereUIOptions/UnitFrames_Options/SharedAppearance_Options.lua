@@ -831,12 +831,12 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
         })
     end
 
-    -- Show Decimal on Health Text (global): one decimal on health value (240.5k)
-    -- and health percent (77.3%) for every unit. Default off.
+    -- Show Decimal on Health Percent (global): one decimal on health percent
+    -- (77.3%) for every unit. Values follow the Number Format tab. Default off.
     local decRow
     decRow, h = W:DualRow(parent, y,
-        { type="toggle", text="Show Decimal on Health Text",
-          tooltip="Show one decimal place on health text: health values like 240.5k and health percent like 77.3%. Power text is unaffected. Off by default.",
+        { type="toggle", text="Show Decimal on Health Percent",
+          tooltip="Show one decimal place on health percent, like 77.3%. Health values follow the Number Format tab in the global settings. Off by default.",
           getValue=function() return db.profile.showDecimalOnText end,
           setValue=function(v)
               db.profile.showDecimalOnText = v
@@ -858,7 +858,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
         local regions = { decRow._leftRegion:GetRegions() }
         for i = 1, #regions do
             local reg = regions[i]
-            if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Show Decimal on Health Text" then
+            if reg and reg.GetText and EllesmereUI.EnKey(reg:GetText()) == "Show Decimal on Health Percent" then
                 lbl = reg; break
             end
         end
@@ -869,22 +869,15 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
         end
     end
 
-    -- Inline cog: extra decimal options. "Show 2 for Boss" (default on) gives boss
-    -- frames a second decimal. Greyed out while the master decimal toggle is off.
+    -- Inline cog: extra percent decimal options. "Show 2 Decimals for Boss Units" (default on) gives
+    -- boss frames a second decimal. Greyed out while the master decimal toggle is off.
     if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(decRow._leftRegion, {
             disabled = function() return not db.profile.showDecimalOnText end,
-            disabledTooltip = "Show Decimal on Health Text",
-            title = "Health Text Decimals",
+            disabledTooltip = "Show Decimal on Health Percent",
+            title = "Health Percent Decimals",
             rows = {
-                { type="toggle", label="Only Show for % Health",
-                  get=function() return db.profile.showDecimalPercentOnly == true end,
-                  set=function(v)
-                      db.profile.showDecimalPercentOnly = v
-                      if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
-                      ReloadAndUpdate(); UpdatePreview()
-                  end },
-                { type="toggle", label="Show 2 for Boss",
+                { type="toggle", label="Show 2 Decimals for Boss Units",
                   get=function() return db.profile.showDecimalBoss2 ~= false end,
                   set=function(v)
                       db.profile.showDecimalBoss2 = v

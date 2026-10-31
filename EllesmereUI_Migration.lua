@@ -4575,6 +4575,41 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- Unit Frames' "Show Decimal on Health Text" put one decimal and a lowercase
+-- k/m/b on health and absorb values (two on boss frames with "Show 2 for
+-- Boss"). Values now follow the Number Format, so an enabled toggle becomes
+-- Precision 1 for Health / Max Health / Absorb (Unit Frames win, so Raid
+-- Frames, Nameplates and Resource Bars follow), 1 or 2 for Boss Health, and a
+-- lowercase Letter Case. "Only Show for % Health" kept values whole: no value
+-- precision then, and the key goes. The toggle itself stays for the percent.
+-- A type the profile already set is left alone.
+EllesmereUI.RegisterMigration({
+    id          = "number_format_uf_value_decimals_v1",
+    scope       = "profile",
+    description = "Fold Unit Frames' value decimals into the profile's Number Format.",
+    body = function(ctx)
+        local prof = ctx.profile
+        local uf = type(prof.addons) == "table" and prof.addons.EllesmereUIUnitFrames or nil
+        if type(uf) ~= "table" then return end
+        local percentOnly = uf.showDecimalPercentOnly == true
+        uf.showDecimalPercentOnly = nil
+        if uf.showDecimalOnText ~= true or percentOnly then return end
+        local nf = prof.numberFormat or {}
+        prof.numberFormat = nf
+        if type(nf.types) ~= "table" then nf.types = {} end
+        local function SetPrecision(valueType, precision)
+            local t = nf.types[valueType]
+            if type(t) ~= "table" then t = {}; nf.types[valueType] = t end
+            if t.precision == nil then t.precision = precision end
+        end
+        SetPrecision("health", 1)
+        SetPrecision("maxHealth", 1)
+        SetPrecision("absorb", 1)
+        SetPrecision("bossHealth", uf.showDecimalBoss2 == false and 1 or 2)
+        if nf.case == nil then nf.case = "lower" end
+    end,
+})
+
 --------------------------------------------------------------------------------
 --  WOW FOREVER: ONE-TIME BUFF CLEAR
 --
