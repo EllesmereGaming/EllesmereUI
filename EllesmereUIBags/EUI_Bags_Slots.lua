@@ -613,7 +613,7 @@ do
     end
     -- One location reused for every slot: a keyword pass visits every item on
     -- each refresh, and CreateFromBagAndSlot builds a new mixin table per call.
-    local loc = ItemLocation:CreateEmpty()
+    loc = ItemLocation:CreateEmpty()
 
     -- The game applies a search after SetItemSearch returns and reports the
     -- result with INVENTORY_SEARCH_UPDATE, the event Blizzard's own bags repaint
