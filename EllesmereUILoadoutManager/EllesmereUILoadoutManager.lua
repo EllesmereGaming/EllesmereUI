@@ -55,6 +55,7 @@ local DEFAULTS = {
     specDefaults = {},
     specSwap = true,     -- re-run swaps when your specialization changes inside an instance
     specWarning = true,  -- the DON'T MOVE panel while a talent loadout loads
+    askBeforeSwap = false, -- in a dungeon or raid, a Yes/No prompt before an automatic swap
 }
 
 -- Labels are the settings page's English row text; its widgets translate them.
@@ -92,6 +93,8 @@ local autoCheckSerial = 0
 -- The place (an instance on a difficulty, or the open world) and the spec
 -- automation last saw: a new place is an entry, a new spec a spec change.
 local lastPlaceKey, lastSpecID
+-- The open Ask Before Swapping prompt's handle (ShowConfirmPopup), if any.
+local swapPrompt
 -- True while the settings page is on screen (ns.SetPageShown).
 local pageShown = false
 -- Bumped by every assignment write and scope change (the page's list memo).
@@ -530,6 +533,12 @@ end
 
 CancelRequests = function(automaticOnly)
     autoCheckSerial = autoCheckSerial + 1
+    -- New intent also ends an open swap prompt: its answer would be stale.
+    if swapPrompt then
+        local handle = swapPrompt
+        swapPrompt = nil
+        EllesmereUI:CloseConfirmPopup(handle)
+    end
     for _, kind in ipairs(REQUEST_KINDS) do
         local request = requests[kind]
         if request and (not automaticOnly or not request.manual) then FinishRequest(request) end
@@ -1186,7 +1195,65 @@ local function SourceLabel(ctx, source, key)
     return ctx.name
 end
 
-local function CheckAndSwap(manual)
+-- Ask Before Swapping: whether an automatic swap here would change anything,
+-- so the prompt never asks about gear and talents already in place. Gear reads
+-- the worn flag. Talents compare the applied tree with the loadout's when
+-- nothing blocks reading it, and trust the selected loadout otherwise.
+-- Anything unknown counts as a change: the prompt errs toward asking.
+local ASK_INSTANCE_TYPES = { party = true, raid = true }
+
+local function GearNeedsSwap(setName)
+    if not setName then return false end
+    local setID, _, isEquipped = GetSetInfoByName(strtrim(tostring(setName)))
+    return not (setID and isEquipped)
+end
+
+local function TalentNeedsSwap(stored)
+    if not stored then return false end
+    local loadout = GetTalentLoadoutFromStored(stored)
+    if not loadout then return true end
+    if TalentLoadBlocker() then
+        return C_ClassTalents.GetLastSelectedSavedConfigID(loadout.specID) ~= loadout.configID
+    end
+    local activeID = C_ClassTalents.GetActiveConfigID()
+    if HasStagedTalentChanges(activeID) ~= false then return true end
+    local target, active = GetTalentSelection(loadout.configID), GetTalentSelection(activeID)
+    return not (target and active and target == active)
+end
+
+local CheckAndSwap
+
+-- Yes runs the swap (if you are still where you were asked); No, Escape or
+-- a click outside skips it until the next entry, and Check Now still applies it.
+local function ShowSwapPrompt(ctx, setName, talentStored)
+    local key, place = BuildAutoInstanceKey(ctx), ctx.name
+    local lines = {}
+    if setName then lines[#lines + 1] = EllesmereUI.Lf("Gear: %s", Hi(setName)) end
+    if talentStored then
+        lines[#lines + 1] = EllesmereUI.Lf("Talents: %s", Hi(TalentDisplayName(talentStored) or "?"))
+    end
+    local handle
+    handle = EllesmereUI:ShowConfirmPopup({
+        title       = "Loadout Manager",
+        message     = EllesmereUI.Lf("Swap your loadout for %s?", place) .. "\n\n" .. table.concat(lines, "\n"),
+        confirmText = "Yes",
+        cancelText  = "No",
+        onConfirm   = function()
+            if swapPrompt ~= handle then return end
+            swapPrompt = nil
+            if key and key == BuildAutoInstanceKey(GetCurrentInstanceContext()) then CheckAndSwap(false, true) end
+        end,
+        onCancel    = function()
+            if swapPrompt ~= handle then return end
+            swapPrompt = nil
+            Announce(EllesmereUI.Lf("Swap skipped for %s. Check Now applies it.", place))
+        end,
+    })
+    swapPrompt = handle
+end
+
+-- confirmed: the Ask Before Swapping prompt was answered Yes.
+CheckAndSwap = function(manual, confirmed)
     local db = ReadDB()
     if not manual and not db.enabled then return end
     if KeystoneRunning() then return end -- gear and talents are locked mid-key
@@ -1208,6 +1275,15 @@ local function CheckAndSwap(manual)
                 Print(EllesmereUI.L("Nothing is assigned for the open world."))
             end
         end
+        return
+    end
+
+    -- Ask Before Swapping: in a dungeon or raid an automatic swap that would
+    -- change something waits for a Yes. A button press never asks.
+    if not manual and not confirmed and db.askBeforeSwap and ctx.inInstance
+        and ASK_INSTANCE_TYPES[ctx.instanceType]
+        and (GearNeedsSwap(setName) or TalentNeedsSwap(talentStored)) then
+        ShowSwapPrompt(ctx, setName, talentStored)
         return
     end
 
@@ -1789,6 +1865,17 @@ function ns.SetQueueInCombat(value)
             local request = requests[kind]
             if request and request.waitReason == "combat" then FinishRequest(request) end
         end
+    end
+end
+
+-- Switched off, an open prompt closes without swapping; the next entry swaps
+-- on its own.
+function ns.SetAskBeforeSwap(value)
+    EnsureDB().askBeforeSwap = value and true or false
+    if not value and swapPrompt then
+        local handle = swapPrompt
+        swapPrompt = nil
+        EllesmereUI:CloseConfirmPopup(handle)
     end
 end
 
