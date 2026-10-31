@@ -2415,11 +2415,15 @@ do
             return "spell", SHAMAN_ASTRAL_RECALL, info and info.iconID or 136010
         end
 
+        -- Draenic Hologem is account-wide but only usable by these races.
+        local _, race = UnitRace("player")
+        local canUseHologem = race == "Draenei" or race == "LightforgedDraenei"
+
         -- Collect owned hearthstone toys (6948 is always in bags, not a toy)
         local owned = {}
         for _, id in ipairs(HEARTH_TOYS) do
             local hasToy = PlayerHasToy and PlayerHasToy(id)
-            if hasToy then
+            if hasToy and (id ~= 210455 or canUseHologem) then
                 owned[#owned + 1] = id
             end
         end
