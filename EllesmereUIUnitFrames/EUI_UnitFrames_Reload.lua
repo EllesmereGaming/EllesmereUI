@@ -1898,6 +1898,16 @@ ReloadFramesBody = function()
     -- on the geometry the sweep just settled (returns at once everywhere else).
     ns.UF_ApplyForeverComboArc()
 
+    -- Detached portrait click overlays, measured on the settled geometry (and
+    -- once more next frame, after any anchors still resolving).
+    local function SyncPortraitClicks()
+        for _, frame in pairs(frames) do
+            if type(frame) == "table" and frame.Portrait then ns.UF_SyncPortraitClick(frame) end
+        end
+    end
+    SyncPortraitClicks()
+    C_Timer.After(0, SyncPortraitClicks)
+
     -- Rounded corners (EllesmereUI_RoundedCorners.lua), on the settled
     -- geometry. The radius rides with the border source, like the border; a
     -- detached power bar rounds on its own with the same radius. An attached

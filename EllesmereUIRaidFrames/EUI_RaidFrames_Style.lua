@@ -451,6 +451,62 @@ function ns.RF_ApplyTopNameDivider(tnb, s, preview)
     ns.RF_ApplyPowerBorderArt(host, s, true, preview, true)
 end
 
+-- Unit tooltip and hover border for a raid/party button; the detached
+-- portrait's click button replays them (EUI_RaidFrames_Portrait.lua).
+local function ButtonOnEnter(self)
+    local fd = GetFFD(self)
+    fd._hovered = true
+    if fd.ApplyBorderColor then fd.ApplyBorderColor() end
+    -- Aura icons enable mouse and propagate motion up to this button, so entering an icon fires
+    -- its OnEnter (aura tooltip) then bubbles here, clobbering it with the unit tooltip. Bail
+    -- when the cursor is over one of our aura icons (stashed _tipIID).
+    local foci = GetMouseFoci()
+    if foci then
+        for _, mf in ipairs(foci) do
+            if mf ~= self and mf._tipIID ~= nil then return end
+        end
+    end
+    -- Unit-tooltip gating: see ns.RaidFrameTooltipAllowed. It reads through the party-aware
+    -- proxy, NOT raw db.profile -- else party_<key> overrides from a custom party
+    -- "Range & Tooltip" section are never seen.
+    if not ns.RaidFrameTooltipAllowed(self) then return end
+    local u = self:GetAttribute("unit")
+    if u and UnitExists(u) then
+        GameTooltip_SetDefaultAnchor(GameTooltip, self)
+        -- Populate with a freshly-built clean literal token (GUID-matched) rather than the
+        -- secure unit attribute: a literal "raidN"/"partyN"/"player" string lacks the
+        -- secure-frame origin that makes GameTooltip:GetUnit() return a secret, so external
+        -- tooltip addons can resolve the unit. Falls back to the attribute if no clean token.
+        local tip, g = u, UnitGUID(u)
+        if g and not (issecretvalue and issecretvalue(g)) then
+            if UnitGUID("player") == g then
+                tip = "player"
+            elseif IsInRaid() then
+                for i = 1, GetNumGroupMembers() do
+                    local tk = "raid" .. i
+                    local tg = UnitGUID(tk)
+                    if tg and not (issecretvalue and issecretvalue(tg)) and tg == g then tip = tk; break end
+                end
+            else
+                for i = 1, GetNumSubgroupMembers() do
+                    local tk = "party" .. i
+                    local tg = UnitGUID(tk)
+                    if tg and not (issecretvalue and issecretvalue(tg)) and tg == g then tip = tk; break end
+                end
+            end
+        end
+        GameTooltip:SetUnit(tip)
+        GameTooltip:Show()
+    end
+end
+local function ButtonOnLeave(self)
+    local fd = GetFFD(self)
+    fd._hovered = false
+    if fd.ApplyBorderColor then fd.ApplyBorderColor() end
+    GameTooltip:Hide()
+end
+ns.RF_ButtonOnEnter, ns.RF_ButtonOnLeave = ButtonOnEnter, ButtonOnLeave
+
 -------------------------------------------------------------------------------
 --  Style a single button (called once per button at creation time)
 -------------------------------------------------------------------------------
@@ -1053,58 +1109,8 @@ local function StyleButton(button)
     d.UpdatePowerBorder = UpdatePowerBorder
 
     -- Tooltip handlers
-    button:HookScript("OnEnter", function(self)
-        local fd = GetFFD(self)
-        fd._hovered = true
-        if fd.ApplyBorderColor then fd.ApplyBorderColor() end
-        -- Aura icons enable mouse and propagate motion up to this button, so entering an icon fires
-        -- its OnEnter (aura tooltip) then bubbles here, clobbering it with the unit tooltip. Bail
-        -- when the cursor is over one of our aura icons (stashed _tipIID).
-        local foci = GetMouseFoci()
-        if foci then
-            for _, mf in ipairs(foci) do
-                if mf ~= self and mf._tipIID ~= nil then return end
-            end
-        end
-        -- Unit-tooltip gating: see ns.RaidFrameTooltipAllowed. It reads through the party-aware
-        -- proxy, NOT raw db.profile -- else party_<key> overrides from a custom party
-        -- "Range & Tooltip" section are never seen.
-        if not ns.RaidFrameTooltipAllowed(self) then return end
-        local u = self:GetAttribute("unit")
-        if u and UnitExists(u) then
-            GameTooltip_SetDefaultAnchor(GameTooltip, self)
-            -- Populate with a freshly-built clean literal token (GUID-matched) rather than the
-            -- secure unit attribute: a literal "raidN"/"partyN"/"player" string lacks the
-            -- secure-frame origin that makes GameTooltip:GetUnit() return a secret, so external
-            -- tooltip addons can resolve the unit. Falls back to the attribute if no clean token.
-            local tip, g = u, UnitGUID(u)
-            if g and not (issecretvalue and issecretvalue(g)) then
-                if UnitGUID("player") == g then
-                    tip = "player"
-                elseif IsInRaid() then
-                    for i = 1, GetNumGroupMembers() do
-                        local tk = "raid" .. i
-                        local tg = UnitGUID(tk)
-                        if tg and not (issecretvalue and issecretvalue(tg)) and tg == g then tip = tk; break end
-                    end
-                else
-                    for i = 1, GetNumSubgroupMembers() do
-                        local tk = "party" .. i
-                        local tg = UnitGUID(tk)
-                        if tg and not (issecretvalue and issecretvalue(tg)) and tg == g then tip = tk; break end
-                    end
-                end
-            end
-            GameTooltip:SetUnit(tip)
-            GameTooltip:Show()
-        end
-    end)
-    button:HookScript("OnLeave", function(self)
-        local fd = GetFFD(self)
-        fd._hovered = false
-        if fd.ApplyBorderColor then fd.ApplyBorderColor() end
-        GameTooltip:Hide()
-    end)
+    button:HookScript("OnEnter", ButtonOnEnter)
+    button:HookScript("OnLeave", ButtonOnLeave)
 
     -- Private auras: re-anchor whenever the secure header reassigns this button's unit. The engine
     -- drops private-aura anchors on unit reassignment (join/leave, sort, zone-in) even when the

@@ -340,6 +340,8 @@ local function InitializeFrames()
             if frame:IsElementEnabled("Portrait") and frame.Portrait.ForceUpdate then
                 frame.Portrait:ForceUpdate()
             end
+            -- The detached portrait moved: move its click overlay with it.
+            ns.UF_SyncPortraitClick(frame)
         end
     end
 

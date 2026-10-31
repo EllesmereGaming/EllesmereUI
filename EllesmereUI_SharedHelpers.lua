@@ -972,3 +972,99 @@ do
     EUI_NS.NewInternals = NewInternals
     EllesmereUI.NewInternals = NewInternals
 end
+
+-------------------------------------------------------------------------------
+--  Detached portrait click buttons (Unit Frames and Party Frames)
+--  A detached portrait floats outside its unit button, so clicks on it fall
+--  through to the world. While a module's Clickable Portrait is on, a second
+--  secure unit button for the same unit covers the portrait, set up like the
+--  owner's own: target on left-click, the secure menu on right-click, and
+--  handed to click-casting, so Blizzard's native click casting, EUI's engine
+--  and Clique bind it as they bind the owner. Hover replays the owner's own
+--  hover work through the module's callbacks.
+--  The overlay is parented to the owner and anchored to it by measured
+--  offsets, never to the backdrop: a protected frame anchored to the backdrop
+--  would lock the backdrop's anchors in combat. Built on the first wanted
+--  sync; out of combat only (in combat it re-runs at combat end).
+--    owner : the unit button the portrait belongs to
+--    cfg   : one static table per module:
+--      wanted(owner)   -> true while the overlay should cover the portrait
+--      backdrop(owner) -> the portrait backdrop frame
+--      onEnter(owner), onLeave(owner) -> the owner's own hover work
+--      register(btn)   -> hands the overlay to click-casting
+--      parentUnit      -> true: the unit resolves through the owner (header
+--                         buttons, whose unit moves in combat); else the
+--                         owner's unit attribute is copied once
+-------------------------------------------------------------------------------
+do
+    local overlays = setmetatable({}, { __mode = "k" })  -- owner -> overlay
+    local pending = setmetatable({}, { __mode = "k" })   -- owner -> cfg, awaiting a rect
+
+    local function OverlayEnter(self)
+        local cfg = self._euiPtCfg
+        if cfg and cfg.onEnter then cfg.onEnter(self:GetParent()) end
+    end
+    local function OverlayLeave(self)
+        local cfg = self._euiPtCfg
+        if cfg and cfg.onLeave then cfg.onLeave(self:GetParent()) end
+    end
+
+    local Sync
+    Sync = function(owner, cfg)
+        local btn = overlays[owner]
+        if not btn and not cfg.wanted(owner) then return end
+        if InCombatLockdown() then
+            EllesmereUI.CombatQueue.Defer(owner, function() Sync(owner, cfg) end)
+            return
+        end
+        if not cfg.wanted(owner) then
+            pending[owner] = nil
+            btn:Hide()
+            return
+        end
+        if not btn then
+            local name = owner:GetName()
+            btn = CreateFrame("Button", name and (name .. "PortraitClick"), owner, "SecureUnitButtonTemplate")
+            if cfg.parentUnit then
+                btn:SetAttribute("useparent-unit", true)
+            else
+                btn:SetAttribute("unit", owner:GetAttribute("unit"))
+            end
+            btn:SetAttribute("*type1", "target")
+            btn:SetAttribute("toggleForVehicle", true)
+            btn:RegisterForClicks("AnyUp")
+            if EllesmereUI.AttachSecureUnitMenu then
+                EllesmereUI.AttachSecureUnitMenu(btn)
+            else
+                btn:SetAttribute("*type2", "togglemenu")
+            end
+            btn._euiPtCfg = cfg
+            btn:HookScript("OnEnter", OverlayEnter)
+            btn:HookScript("OnLeave", OverlayLeave)
+            overlays[owner] = btn
+            if cfg.register then cfg.register(btn) end
+            -- An owner never shown yet has no rect to measure: measure on its first show.
+            owner:HookScript("OnShow", function(o)
+                local c = pending[o]
+                if c then Sync(o, c) end
+            end)
+        end
+        local bd = cfg.backdrop(owner)
+        local fl, ft = owner:GetLeft(), owner:GetTop()
+        local bl, bt = bd:GetLeft(), bd:GetTop()
+        if not (fl and ft and bl and bt) then
+            pending[owner] = cfg
+            btn:Hide()
+            return
+        end
+        pending[owner] = nil
+        local k = bd:GetEffectiveScale() / owner:GetEffectiveScale()
+        btn:ClearAllPoints()
+        btn:SetPoint("TOPLEFT", owner, "TOPLEFT", bl * k - fl, bt * k - ft)
+        btn:SetSize(bd:GetWidth() * k, bd:GetHeight() * k)
+        btn:SetFrameStrata(bd:GetFrameStrata())
+        btn:SetFrameLevel(bd:GetFrameLevel() + 1)
+        btn:Show()
+    end
+    EllesmereUI.SyncPortraitClick = Sync
+end

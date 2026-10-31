@@ -505,6 +505,34 @@ function ns.RF_PtOffline(st, unit, connected)
     if bd._mode == "3d" and unit then ns.RF_PtPaint(st, unit, "Conn") end
 end
 
+-- Clickable Portrait (party, default off): a detached portrait covered by a
+-- second unit button for the same occupant (EllesmereUI.SyncPortraitClick,
+-- EllesmereUI_SharedHelpers.lua). The unit resolves through the header
+-- button, which the header re-assigns in combat; hover replays the button's
+-- own tooltip and hover border.
+local PORTRAIT_CLICK = {
+    wanted = function(owner)
+        local d = ns.GetFFD(owner)
+        local bd = d.pt
+        local s = ns._scaledPartyProxy
+        return bd and bd._on and not d.kitPortrait and s.partyPortraitClickable
+            and (s.partyPortraitStyle or "none") == "detached" or false
+    end,
+    backdrop = function(owner) return ns.GetFFD(owner).pt end,
+    onEnter = function(owner) if ns.RF_ButtonOnEnter then ns.RF_ButtonOnEnter(owner) end end,
+    onLeave = function(owner) if ns.RF_ButtonOnLeave then ns.RF_ButtonOnLeave(owner) end end,
+    -- Same registration as the party button itself (_StyleButtonSecure).
+    register = function(btn)
+        if ns.CC_RegisterFrame then
+            ns.CC_RegisterFrame(btn)
+        else
+            if type(ClickCastFrames) ~= "table" then ClickCastFrames = {} end
+            ClickCastFrames[btn] = true
+        end
+    end,
+    parentUnit = true,
+}
+
 -- The whole pass for one party button or preview frame: build on first
 -- enable, seat (deferred to the regen party pass only while a frame it
 -- moves is protected: the aura containers protect the bars once anchored;
@@ -547,6 +575,7 @@ function ns.RF_PtApply(owner, st, s, bw, bh, unit)
             -- Off drops the Character Size script with the model.
             if (bd._charK or 1) ~= 1 then bd._charK = 1; SeatModel(bd) end
         end
+        if not bd._preview then EllesmereUI.SyncPortraitClick(owner, PORTRAIT_CLICK) end
         return
     end
     -- Levels re-asserted every pass (a strata change rebuilds child levels).
@@ -565,6 +594,13 @@ function ns.RF_PtApply(owner, st, s, bw, bh, unit)
     -- Background under square and shaped art; none under a bare model.
     local shaped = style == "detached" and (s.partyPortraitShape or "portrait") ~= "none"
     bd._bg:SetShown(not inside and (style == "attached" or shaped))
+    -- Detached: the Background Color (unset = the stock grey).
+    local bgc = style == "detached" and s.partyPortraitBgColor
+    if bgc then
+        bd._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bgc.a or 1)
+    else
+        bd._bg:SetColorTexture(0.1, 0.1, 0.1, 1)
+    end
     local reshaped = Shape(bd, s, shaped, bd._w, bd._h)
     local wasOn = bd._on
     bd._on = true
@@ -596,6 +632,7 @@ function ns.RF_PtApply(owner, st, s, bw, bh, unit)
         local u = owner:GetAttribute("unit")
         TintBorder(bd, (u and UnitExists(u)) and u or nil)
     end
+    if not bd._preview then EllesmereUI.SyncPortraitClick(owner, PORTRAIT_CLICK) end
 end
 
 -- Portrait events the current settings need (RF_KitPortraitEvents): "2d",
@@ -643,6 +680,8 @@ function ns.RF_PtRefreshAll()
             if u and not UnitExists(u) then u = nil end
             if d.kitPortrait then
                 if u then ns.RF_KitPortrait(d, u) end
+                -- A click button from before the kit stands down.
+                if d.pt then EllesmereUI.SyncPortraitClick(b, PORTRAIT_CLICK) end
             else
                 ns.RF_PtApply(b, d, s, bw, bh, u)
             end
