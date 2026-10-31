@@ -159,6 +159,45 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI.BlankRowCfg()
                 ); y = y - h
 
+                -- auto deposit/withdraw (not on wow forever: no warband bank there)
+                local AutoGold = BagsNS and BagsNS.AutoGold
+                if AutoGold then
+                    _, h = W:SectionHeader(parent, "WARBAND GOLD", y); y = y - h
+                    _, h = W:DualRow(parent, y,
+                        { type="toggle", text="Auto Deposit/Withdraw",
+                          tooltip="When you open the bank, gold moves between this character and your warband bank so the character keeps the amount set below. Gold above it is deposited, and gold missing is withdrawn, as far as the warband bank holds it.",
+                          getValue=function() return AutoGold.Enabled() end,
+                          setValue=function(v)
+                              db.profile.bankAutoGold = v and true or nil
+                              AutoGold.Sync()
+                              EllesmereUI:RefreshPage()
+                          end },
+                        { type="toggle", text="Post result to Chat",
+                          tooltip="Posts a chat line with the amount each time gold is deposited or withdrawn. Off by default, since chat output can cause blocked-action errors in some situations.",
+                          disabled=function() return not AutoGold.Enabled() end,
+                          disabledTooltip="Turn on Auto Deposit/Withdraw first.",
+                          getValue=function() return AutoGold.ChatEnabled() end,
+                          setValue=function(v) db.profile.bankAutoGoldChat = v and true or nil end }
+                    ); y = y - h
+                    _, h = W:DualRow(parent, y,
+                        { type="input", text="Amount", inputStyle="popup", inputJustify="CENTER", placeholder="Amount", inputWidth=110,
+                          tooltip="The gold this character keeps on hand when the bank opens. Leave it empty to move nothing.",
+                          disabled=function() return not AutoGold.Enabled() end,
+                          disabledTooltip="Turn on Auto Deposit/Withdraw first.",
+                          getValue=function()
+                              local g = AutoGold.Target()
+                              return g and tostring(g) or ""
+                          end,
+                          setValue=function(text)
+                              -- Digits only, so 5,000 and 5000g read as 5000; empty clears it.
+                              local g = tonumber((text or ""):gsub("%D", ""), 10)
+                              db.profile.bankAutoGoldAmount = g and math.min(g, 9999999) or nil
+                              AutoGold.Sync()
+                          end },
+                        EllesmereUI.BlankRowCfg()
+                    ); y = y - h
+                end
+
                 -- offline bank (not on wow forever). account-wide, like the data it saves
                 local Offline = BagsNS and BagsNS.Offline
                 if Offline then
