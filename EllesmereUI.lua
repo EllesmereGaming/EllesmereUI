@@ -2795,6 +2795,9 @@ function EllesmereUI.MakeUnlockElement(opts)
         linkedKeys    = opts.linkedKeys,
         noResize          = opts.noResize,
         linkedDimensions  = opts.linkedDimensions,
+        -- singleSize: a linkedDimensions element edited by one Size box in the cog,
+        -- with no width/height MATCH buttons of its own.
+        singleSize        = opts.singleSize,
         -- noInitHook: self-positioning element; ApplySavedPositions /
         -- NotifyElementResized (EUI_UnlockMode) must not re-apply its stored position.
         noInitHook        = opts.noInitHook,
