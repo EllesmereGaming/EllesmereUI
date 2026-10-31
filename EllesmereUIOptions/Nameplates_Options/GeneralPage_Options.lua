@@ -1290,10 +1290,10 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             if ns.ApplyOOCPlates then ns.ApplyOOCPlates() end
           end });  y = y - h
 
-    -- Row 6: Out of Combat Opacity | the class option, if any. Hide Copies of Blood
-    -- Plague (Blood Death Knight only) and Show Sunder Armor (WoW Forever warriors
-    -- only) are not built at all for anyone else -- each only affects that class's
-    -- debuff.
+    -- Row 6: Out of Combat Opacity | Minor Enemy Scale. Row 7: the class option, if any.
+    -- Hide Copies of Blood Plague (Blood Death Knight only) and Show Sunder Armor (WoW
+    -- Forever warriors only) are not built at all for anyone else -- each only affects
+    -- that class's debuff.
     local classCfg
     do
         local _, classFile = UnitClass("player")
@@ -1327,7 +1327,20 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
             EllesmereUI:RefreshPage()  -- the Keep Focus cog's disabled state
           end },
-        classCfg or EllesmereUI.BlankRowCfg());  y = y - h
+        { type="slider", text="Minor Enemy Scale",
+          tooltip="Scales the nameplates of minor and trivial enemies, such as the small adds in big pulls. Your target keeps Scale Target Nameplate. 100% = no change.",
+          trackWidth=110,
+          min=25, max=125, step=5,
+          getValue=function() return DBVal("minorEnemyScale") or defaults.minorEnemyScale end,
+          setValue=function(v)
+            DB().minorEnemyScale = v
+            for _, plate in pairs(plates) do
+                plate:ApplyScale()
+            end
+          end });  y = y - h
+    if classCfg then
+        _, h = W:DualRow(parent, y, classCfg, EllesmereUI.BlankRowCfg());  y = y - h
+    end
 
     return math.abs(y)
 end
