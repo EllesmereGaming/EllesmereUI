@@ -1075,14 +1075,6 @@ function NameplateFrame:ClearUnit()
     -- WoW Forever: the level box waits for the next unit's level.
     if self._fvLevelBox then self._fvLevelBox:Hide() end
 
-    -- Non-Target Opacity: released pool frames always go back at full
-    -- alpha (nil _ntCurAlpha = never faded, keeps this a no-op).
-    if self._ntCurAlpha and self._ntCurAlpha < 1 then
-        self:SetAlpha(1)
-    end
-    self._ntCurAlpha = nil
-    self._oorCurAlpha = nil
-
     if self.isCasting then
         self.isCasting = false
         if self._castFallback then
@@ -1093,6 +1085,15 @@ function NameplateFrame:ClearUnit()
         end
         NotifyCastEnded(self)
     end
+
+    -- Non-Target Opacity: released pool frames always go back at full alpha (nil
+    -- _ntCurAlpha = never faded, keeps this a no-op). After the cast end above, which
+    -- reapplies opacity for Full Opacity While Casting.
+    if self._ntCurAlpha and self._ntCurAlpha < 1 then
+        self:SetAlpha(1)
+    end
+    self._ntCurAlpha = nil
+    self._oorCurAlpha = nil
 
     self.name:SetText("")
     -- The Custom texts too: a recycled plate never shows the last unit's for a frame.
