@@ -67,9 +67,18 @@ local TRAVEL_EXTRAS = {
 -- Engine-level cache: the underlying cooldown is shared game-wide.
 local travelPrimaryHearthId
 
+-- Draenic Hologem is account-wide but only usable by these races; the client
+-- reports it owned and usable everywhere, so the cast fails on other races.
+local HOLOGEM_ID = 210455
+local HOLOGEM_RACES = { Draenei = true, LightforgedDraenei = true }
+
 local function TravelIsUsable(id)
     if not id then return false end
-    if PlayerHasToy(id) then return true end
+    if PlayerHasToy(id) then
+        if id ~= HOLOGEM_ID then return true end
+        local _, race = UnitRace("player")
+        return not issecretvalue(race) and HOLOGEM_RACES[race] == true
+    end
     if IsPlayerSpell(id) then return true end
     return (C_Item and C_Item.GetItemCount and C_Item.GetItemCount(id) or 0) > 0
 end
