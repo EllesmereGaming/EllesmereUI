@@ -1461,6 +1461,13 @@ local function BuildColorsPage(pageName, parent, yOffset)
                   end,
                   disabled=isOWOff,
                   disabledTooltip="Simple Coloring When Not In M+" },
+                { type="toggle", label="Color Casting Enemies as Casters",
+                  tooltip="An enemy that casts a spell takes the Spell Casters color once it starts casting a spell.",
+                  get=function() return DBVal("casterFromCasts") == true end,
+                  set=function(v)
+                    DB().casterFromCasts = v
+                    RefreshAllPlates()
+                  end },
             },
         })
     end

@@ -1082,6 +1082,7 @@ function NameplateFrame:ClearUnit()
     end
     self._ntCurAlpha = nil
     self._oorCurAlpha = nil
+    self._seenCasting = nil
 
     if self.isCasting then
         self.isCasting = false
