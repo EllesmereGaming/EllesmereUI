@@ -705,8 +705,10 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
             local boxBg = box:CreateTexture(nil, "BACKGROUND")
             boxBg:SetAllPoints()
             if isPopupStyle then
+                -- cfg.inputJustify == "CENTER" centers the text and placeholder (default left).
+                local centered = cfg.inputJustify == "CENTER"
                 box:SetFont(EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 11, "")
-                box:SetJustifyH("LEFT")
+                box:SetJustifyH(centered and "CENTER" or "LEFT")
                 box:SetTextInsets(10, 10, 0, 0)
                 boxBg:SetColorTexture(0, 0, 0, 0.5)
                 MakeBorder(box, 1, 1, 1, 0.2)
@@ -714,7 +716,11 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                     local ph = box:CreateFontString(nil, "ARTWORK")
                     ph:SetFont(EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 11, "")
                     ph:SetTextColor(0.7, 0.7, 0.7, 0.45)
-                    ph:SetPoint("LEFT", box, "LEFT", 10, 0)
+                    if centered then
+                        ph:SetPoint("CENTER", box, "CENTER", 0, 0)
+                    else
+                        ph:SetPoint("LEFT", box, "LEFT", 10, 0)
+                    end
                     ph:SetText(EllesmereUI.L(cfg.placeholder))
                     box:SetScript("OnTextChanged", function(self)
                         ph:SetShown((self:GetText() or "") == "")

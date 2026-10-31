@@ -31,3 +31,4 @@ EllesmereUIBags_Bank.lua
 EllesmereUIBags_QuickActions.lua
 EllesmereUIBags_Offline.lua
 EllesmereUIBags_OfflineView.lua
+EllesmereUIBags_AutoGold.lua
