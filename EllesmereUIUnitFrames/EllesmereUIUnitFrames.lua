@@ -245,6 +245,7 @@ local defaults = {
             powerBgPowerColored = false,
             powerPercentTextPowerColor = false,
             manaRegenSpark = false,  -- WoW Forever: mana regen spark while the bar shows mana; manaRegenSparkMode "ticks" = Regen Ticks, nil = 5-Second Rule
+            bossPacingEnabled = false,
             healthClassColored = true,
             customBgColor = { r = 0.067, g = 0.067, b = 0.067 },
             bgClassColored = false,

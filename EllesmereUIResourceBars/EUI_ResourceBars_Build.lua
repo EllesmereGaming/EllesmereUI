@@ -1435,6 +1435,10 @@ local function BuildBars()
         end
     end
 
+    if ns.UpdateBossPacingEventRegistration then
+        ns.UpdateBossPacingEventRegistration()
+    end
+
     ReapplyInternalBarAnchors()
 
     -- "Shift Elements if No Resource": re-cascade the class resource bar so

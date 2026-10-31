@@ -1687,6 +1687,9 @@ ReloadFramesBody = function()
                         frame.Power._manaRegenSpark = nil
                     end
                 end
+                if unit == "player" and ns.UpdatePlayerBossPacingEventRegistration then
+                    ns.UpdatePlayerBossPacingEventRegistration()
+                end
             end
 
             -- Apply castbar reverse fill
