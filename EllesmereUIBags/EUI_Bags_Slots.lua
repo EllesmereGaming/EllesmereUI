@@ -428,30 +428,138 @@ end
 do
     local BIND_KEYWORDS = { bop = true, boe = true, wue = true, boa = true, soulbound = true }
 
-    -- "<keyword>", "<keyword> <op><ilvl>" (op: = == > >= < <=) or
-    -- "<keyword> <ilvl>-<ilvl>" (also "bop=300", "wue 290-300"). Returns nil
-    -- for anything else, which then goes to the native search untouched.
+    -- Bind expressions: terms joined with and / or / not (also & | !) and
+    -- parentheses, not > and > or. A term is a keyword with an optional item
+    -- level: "<keyword>", "<keyword> <op><ilvl>" (op: = == > >= < <=) or
+    -- "<keyword> <ilvl>-<ilvl>", e.g. "bop=300", "wue 290-300",
+    -- "boe and not wue", "wue290-300 not warbound" (side by side means and;
+    -- warbound is boa), "(bop or boe) and soulbound". Each term names its own
+    -- keyword. Returns nil for anything else, which then goes to the native
+    -- search untouched.
+    local OPS = { ["="] = "=", ["=="] = "=", [">"] = ">", [">="] = ">=", ["=>"] = ">=",
+                  ["<"] = "<", ["<="] = "<=", ["=<"] = "<=" }
+    local MAX_DEPTH = 12
+
+    local function Tokenize(s)
+        local toks, i, n = {}, 1, #s
+        while i <= n do
+            local c = s:sub(i, i)
+            if c:find("^%s") then
+                i = i + 1
+            elseif c == "(" then toks[#toks + 1] = { k = "lp" }; i = i + 1
+            elseif c == ")" then toks[#toks + 1] = { k = "rp" }; i = i + 1
+            elseif c == "!" then toks[#toks + 1] = { k = "not" }; i = i + 1
+            elseif c == "&" then toks[#toks + 1] = { k = "and" }; i = i + #s:match("^&&?", i)
+            elseif c == "|" then toks[#toks + 1] = { k = "or" }; i = i + #s:match("^||?", i)
+            elseif c:find("^[<>=]") then
+                local op = s:match("^[<>=]=?", i)
+                if not OPS[op] then return nil end
+                toks[#toks + 1] = { k = "op", v = OPS[op] }; i = i + #op
+            elseif c:find("^%d") then
+                local a, b, e = s:match("^(%d+)%s*%-%s*(%d+)()", i)
+                if a then
+                    toks[#toks + 1] = { k = "range", lo = tonumber(a), hi = tonumber(b) }; i = e
+                else
+                    local d = s:match("^%d+", i)
+                    toks[#toks + 1] = { k = "num", v = tonumber(d) }; i = i + #d
+                end
+            elseif c:find("^%a") then
+                local w = s:match("^%a+", i)
+                i = i + #w
+                if w == "warbound" then w = "boa" end
+                if w == "and" or w == "or" or w == "not" then toks[#toks + 1] = { k = w }
+                elseif BIND_KEYWORDS[w] then toks[#toks + 1] = { k = "kw", v = w }
+                else return nil end
+            else
+                return nil
+            end
+        end
+        return toks
+    end
+
     local function ParseBindQuery(text)
-        local kw, rest = strtrim(text or ""):lower():match("^(%a+)%s*(.-)$")
-        if not kw or not BIND_KEYWORDS[kw] then return nil end
-        if rest == "" then return { kw = kw } end
-        local op, n = rest:match("^([<>=]=?)%s*(%d+)$")
-        if op then
-            if op == "==" then op = "=" end
-            return { kw = kw, op = op, lo = tonumber(n) }
+        local toks = Tokenize(strtrim(text or ""):lower())
+        if not toks or #toks == 0 then return nil end
+        local p = 1
+        local ParseOr
+
+        local function ParsePrimary(depth)
+            local t = toks[p]
+            if not t then return nil end
+            if t.k == "lp" then
+                if depth >= MAX_DEPTH then return nil end
+                p = p + 1
+                local e = ParseOr(depth + 1)
+                if not e or not toks[p] or toks[p].k ~= "rp" then return nil end
+                p = p + 1
+                return e
+            end
+            if t.k ~= "kw" then return nil end
+            p = p + 1
+            local node = { t = "term", kw = t.v }
+            local nx = toks[p]
+            if nx and nx.k == "op" then
+                local num = toks[p + 1]
+                if not num or num.k ~= "num" then return nil end
+                node.op, node.lo = nx.v, num.v
+                p = p + 2
+            elseif nx and nx.k == "range" then
+                node.op, node.lo, node.hi = "-", math.min(nx.lo, nx.hi), math.max(nx.lo, nx.hi)
+                p = p + 1
+            elseif nx and nx.k == "num" then
+                node.op, node.lo = "=", nx.v
+                p = p + 1
+            end
+            return node
         end
-        local a, b = rest:match("^(%d+)%s*%-%s*(%d+)$")
-        if a then
-            a, b = tonumber(a), tonumber(b)
-            if a > b then a, b = b, a end
-            return { kw = kw, op = "-", lo = a, hi = b }
+
+        local function ParseNot(depth)
+            local t = toks[p]
+            if t and t.k == "not" then
+                if depth >= MAX_DEPTH then return nil end
+                p = p + 1
+                local a = ParseNot(depth + 1)
+                return a and { t = "not", a = a }
+            end
+            return ParsePrimary(depth)
         end
-        if rest:match("^%d+$") then return { kw = kw, op = "=", lo = tonumber(rest) } end
+
+        local function ParseAnd(depth)
+            local l = ParseNot(depth)
+            -- Terms side by side ("wue290-300 not warbound") mean and.
+            while l and toks[p] and (toks[p].k == "and" or toks[p].k == "kw"
+                or toks[p].k == "not" or toks[p].k == "lp") do
+                if toks[p].k == "and" then p = p + 1 end
+                local r = ParseNot(depth)
+                l = r and { t = "and", a = l, b = r }
+            end
+            return l
+        end
+
+        ParseOr = function(depth)
+            local l = ParseAnd(depth)
+            while l and toks[p] and toks[p].k == "or" do
+                p = p + 1
+                local r = ParseAnd(depth)
+                l = r and { t = "or", a = l, b = r }
+            end
+            return l
+        end
+
+        local root = ParseOr(0)
+        if root and p == #toks + 1 then return root end
         return nil
     end
 
-    local function ItemLevelMatches(q, link)
-        local ilvl = link and C_Item.GetDetailedItemLevelInfo(link)
+    -- Facts about the item being tested, set by ApplyBindKeyword before each
+    -- Eval; the item level and the WuE check are read only when a term asks.
+    local curLink, curBound, curBindType, curIsAccount, curWue, curIlvl
+
+    local function ItemLevelMatches(q)
+        if curIlvl == nil then
+            curIlvl = curLink and C_Item.GetDetailedItemLevelInfo(curLink) or false
+        end
+        local ilvl = curIlvl
         if not ilvl then return false end
         local op, lo = q.op, q.lo
         if op == "=" then return ilvl == lo end
@@ -460,6 +568,40 @@ do
         if op == "<" then return ilvl < lo end
         if op == "<=" then return ilvl <= lo end
         return ilvl >= lo and ilvl <= q.hi
+    end
+
+    local loc -- the reused ItemLocation, declared below
+
+    local function TermMatches(q)
+        local k = q.kw
+        local match = false
+        if k == "bop" then
+            match = curBindType == Enum.ItemBind.OnAcquire
+        elseif k == "boa" then
+            match = curIsAccount
+        elseif k == "soulbound" then
+            -- Account-bound items are bound too, but are not soulbound.
+            match = curBound and not curIsAccount
+        elseif not curBound then
+            -- BoE and WuE both mean "not bound yet". WuE reads as OnEquip
+            -- from GetItemInfo, so the account check tells the two apart.
+            if curWue == nil then curWue = C_Item.IsBoundToAccountUntilEquip(loc) and true or false end
+            if k == "wue" then
+                match = curWue
+            else
+                match = not curWue and curBindType == Enum.ItemBind.OnEquip
+            end
+        end
+        if match and q.op then match = ItemLevelMatches(q) end
+        return match and true or false
+    end
+
+    local function Eval(n)
+        local t = n.t
+        if t == "term" then return TermMatches(n) end
+        if t == "not" then return not Eval(n.a) end
+        if t == "and" then return Eval(n.a) and Eval(n.b) end
+        return Eval(n.a) or Eval(n.b)
     end
     -- One location reused for every slot: a keyword pass visits every item on
     -- each refresh, and CreateFromBagAndSlot builds a new mixin table per call.
@@ -536,34 +678,18 @@ do
         if EUI_Bags._appliedSearch ~= "" then EUI_Bags.SetSearchText("") end
     end
 
-    -- Overrides info.isFiltered for the active keyword; no-op when none is active.
+    -- Overrides info.isFiltered for the active expression; no-op when none is active.
     function EUI_Bags.ApplyBindKeyword(info, bag, slot)
         local q = EUI_Bags._bindKeyword
         if not q or not info then return end
-        local k = q.kw
         local match = false
         loc:SetBagAndSlot(bag, slot)
         if C_Item.DoesItemExist(loc) then
-            local bindType = info.hyperlink and select(14, GetItemInfo(info.hyperlink))
-            local isAccount = bindType == Enum.ItemBind.ToWoWAccount or bindType == Enum.ItemBind.ToBnetAccount
-            if k == "bop" then
-                match = bindType == Enum.ItemBind.OnAcquire
-            elseif k == "boa" then
-                match = isAccount
-            elseif k == "soulbound" then
-                -- Account-bound items are bound too, but are not soulbound.
-                match = info.isBound and not isAccount
-            elseif not info.isBound then
-                -- BoE and WuE both mean "not bound yet". WuE reads as OnEquip
-                -- from GetItemInfo, so the account check tells the two apart.
-                local isWuE = C_Item.IsBoundToAccountUntilEquip(loc)
-                if k == "wue" then
-                    match = isWuE
-                else
-                    match = not isWuE and bindType == Enum.ItemBind.OnEquip
-                end
-            end
-            if match and q.op then match = ItemLevelMatches(q, info.hyperlink) end
+            curLink, curBound = info.hyperlink, info.isBound
+            curBindType = curLink and select(14, GetItemInfo(curLink))
+            curIsAccount = curBindType == Enum.ItemBind.ToWoWAccount or curBindType == Enum.ItemBind.ToBnetAccount
+            curWue, curIlvl = nil, nil
+            match = Eval(q)
         end
         info.isFiltered = not match
     end
