@@ -121,7 +121,7 @@ function ns._appendDisplayPresetKeys(t)
         "classificationHideRare", "classificationHideQuest",
         "castNameSize", "castNameColor", "castCombineNameTarget",
         "castTargetSize", "castTargetClassColor", "castTargetColor",
-        "showCastTimer", "castTimerSize", "castTimerColor", "targetScale",
+        "showCastTimer", "castTimerSize", "castTimerColor", "targetScale", "minorEnemyScale",
         "castNameSide", "castTargetSide", "castTimerSide",
         "castNameWidthPct", "castNameWrap", "castTargetWidthPct", "castTargetWrap",
         "enemyNameWidthPct", "enemyNameWrap", "wrapBorderCastbar", "wrapBorderSeam",
@@ -427,6 +427,7 @@ local defaults = {
     enemyNameWidthPct = 100,
     enemyNameWrap = false,
     targetScale = 100,
+    minorEnemyScale = 100,  -- minor/trivial mob plates; 100 = off
     nonTargetKeepFocus = true,
     outOfRangeAlpha = 50,
     outOfRangeMode = "disabled",

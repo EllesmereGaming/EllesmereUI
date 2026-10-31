@@ -15,6 +15,7 @@ local pairs, type = pairs, type
 local UnitName = UnitName
 local UnitIsUnit = UnitIsUnit
 local UnitIsDeadOrGhost = UnitIsDeadOrGhost
+local UnitClassification = UnitClassification
 local UnitCastingInfo, UnitChannelInfo = UnitCastingInfo, UnitChannelInfo
 local GetTime = GetTime
 local Enum = Enum
@@ -32,6 +33,13 @@ local classPowerType
 I.classPowerTypeSetters[#I.classPowerTypeSetters + 1] = function(v) classPowerType = v end
 local p
 I.profileSetters[#I.profileSetters + 1] = function(v) p = v end
+
+local function GetMinorEnemyScale()
+    return (p and p.minorEnemyScale) or defaults.minorEnemyScale
+end
+local function IsMinorScaleOn()
+    return GetMinorEnemyScale() ~= 100
+end
 
 function NameplateFrame:UpdateImportantCastGlow(spellID)
     local cfg = p or defaults
@@ -299,6 +307,10 @@ function NameplateFrame:ApplyScale()
     if self.unit and UnitIsUnit(self.unit, "target") then
         local ts = GetTargetScale() / 100
         if ts ~= 1 then base = ts end
+    elseif self.unit and IsMinorScaleOn() then
+        -- Minor Enemy Scale: minor (minus) and trivial mobs; the target keeps Target Scale.
+        local c = UnitClassification(self.unit)
+        if c == "minus" or c == "trivial" then base = GetMinorEnemyScale() / 100 end
     end
     local cs = GetCastScale() / 100
     local dest = base
@@ -805,9 +817,11 @@ function NameplateFrame:UNIT_NAME_UPDATE()
     -- A unit first seen this session reads "normal" until its data arrives, the
     -- same moment its name resolves: re-read the elite/rare badge with the name.
     self:UpdateClassification()
+    if IsMinorScaleOn() then self:ApplyScale() end
 end
 function NameplateFrame:UNIT_CLASSIFICATION_CHANGED()
     self:UpdateClassification()
+    if IsMinorScaleOn() then self:ApplyScale() end
 end
 function NameplateFrame:UNIT_THREAT_LIST_UPDATE()
     self:UpdateHealthColor()
