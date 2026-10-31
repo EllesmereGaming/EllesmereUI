@@ -426,14 +426,15 @@ end
 -------------------------------------------------------------------------------
 -- In a block so the main chunk's local count (close to the 200 cap) stays put.
 do
-    local BIND_KEYWORDS = { bop = true, boe = true, wue = true, boa = true, soulbound = true }
+    local BIND_KEYWORDS = { bop = true, boe = true, wue = true, boa = true, soulbound = true,
+                           warbound = true }
 
     -- Bind expressions: terms joined with and / or / not (also & | !) and
     -- parentheses, not > and > or. A term is a keyword with an optional item
     -- level: "<keyword>", "<keyword> <op><ilvl>" (op: = == > >= < <=) or
     -- "<keyword> <ilvl>-<ilvl>", e.g. "bop=300", "wue 290-300",
     -- "boe and not wue", "wue290-300 not warbound" (side by side means and;
-    -- warbound is boa), "(bop or boe) and soulbound". Each term names its own
+    -- warbound is a WuE item that has been bound), "(bop or boe) and soulbound". Each term names its own
     -- keyword. Returns nil for anything else, which then goes to the native
     -- search untouched.
     local OPS = { ["="] = "=", ["=="] = "=", [">"] = ">", [">="] = ">=", ["=>"] = ">=",
@@ -466,7 +467,6 @@ do
             elseif c:find("^%a") then
                 local w = s:match("^%a+", i)
                 i = i + #w
-                if w == "warbound" then w = "boa" end
                 if w == "and" or w == "or" or w == "not" then toks[#toks + 1] = { k = w }
                 elseif BIND_KEYWORDS[w] then toks[#toks + 1] = { k = "kw", v = w }
                 else return nil end
@@ -582,6 +582,10 @@ do
         elseif k == "soulbound" then
             -- Account-bound items are bound too, but are not soulbound.
             match = curBound and not curIsAccount
+        elseif k == "warbound" then
+            -- A WuE item that has been bound (equipped, so no longer free to move).
+            if curBound and curWue == nil then curWue = C_Item.IsBoundToAccountUntilEquip(loc) and true or false end
+            match = curBound and curWue
         elseif not curBound then
             -- BoE and WuE both mean "not bound yet". WuE reads as OnEquip
             -- from GetItemInfo, so the account check tells the two apart.
