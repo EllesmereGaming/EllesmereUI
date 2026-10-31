@@ -434,7 +434,8 @@ do
     -- level: "<keyword>", "<keyword> <op><ilvl>" (op: = == > >= < <=) or
     -- "<keyword> <ilvl>-<ilvl>", e.g. "bop=300", "wue 290-300",
     -- "boe and not wue", "wue290-300 not warbound" (side by side means and;
-    -- warbound is a WuE item that has been bound), "(bop or boe) and soulbound". Each term names its own
+    -- warbound is an account bind type
+    -- already bound to the character), "(bop or boe) and soulbound". Each term names its own
     -- keyword. Returns nil for anything else, which then goes to the native
     -- search untouched.
     local OPS = { ["="] = "=", ["=="] = "=", [">"] = ">", [">="] = ">=", ["=>"] = ">=",
@@ -578,18 +579,21 @@ do
         if k == "bop" then
             match = curBindType == Enum.ItemBind.OnAcquire
         elseif k == "boa" then
-            match = curIsAccount
+            match = curBindType == Enum.ItemBind.ToWoWAccount
         elseif k == "soulbound" then
             -- Account-bound items are bound too, but are not soulbound.
             match = curBound and not curIsAccount
         elseif k == "warbound" then
-            -- A WuE item that has been bound (equipped, so no longer free to move).
-            if curBound and curWue == nil then curWue = C_Item.IsBoundToAccountUntilEquip(loc) and true or false end
-            match = curBound and curWue
+            -- Either account bind type, once it is bound to the character.
+            match = curBound and curIsAccount
         elseif not curBound then
-            -- BoE and WuE both mean "not bound yet". WuE reads as OnEquip
-            -- from GetItemInfo, so the account check tells the two apart.
-            if curWue == nil then curWue = C_Item.IsBoundToAccountUntilEquip(loc) and true or false end
+            -- BoE and WuE both mean "not bound yet". WuE is ToBnetAccount, but
+            -- may still read as OnEquip from GetItemInfo, so the account check
+            -- tells the two apart too.
+            if curWue == nil then
+                curWue = curBindType == Enum.ItemBind.ToBnetAccount
+                    or C_Item.IsBoundToAccountUntilEquip(loc) and true or false
+            end
             if k == "wue" then
                 match = curWue
             else
