@@ -1069,7 +1069,15 @@ local function BuildBaseMacroText(binding)
             -- /cast resolves by localized name; hardcoded English sp.name would
             -- silently fail on non-English clients. Fall back to sp.name only if
             -- the API is unavailable/empty.
-            local castName = (C_Spell.GetSpellName and C_Spell.GetSpellName(sp.id)) or sp.name
+            local castID = sp.id
+            -- A sacrificed Imp's Singe Magic is reachable only through Command Demon's override.
+            if sp.pet and C_Spell.GetOverrideSpell and C_Spell.GetSpellName then
+                local commandName = C_Spell.GetSpellName(C_Spell.GetOverrideSpell(119898) or 119898)
+                if commandName and commandName == C_Spell.GetSpellName(sp.id) then
+                    castID = 119898
+                end
+            end
+            local castName = (C_Spell.GetSpellName and C_Spell.GetSpellName(castID)) or sp.name
             lines[#lines + 1] = "/cast [@mouseover,exists,nodead" .. guard .. "] " .. castName
         end
         if #lines == 0 then return nil end
