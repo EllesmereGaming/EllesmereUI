@@ -420,12 +420,47 @@ function EUI_Bags.SetBindTypeText(fs, isWuE, bindType, quality)
 end
 
 -------------------------------------------------------------------------------
---  Bind keyword search (shared by bags and bank): typing exactly BoP / BoE /
---  WuE (any case) filters by bind type instead of the native tooltip search.
+--  Bind keyword search (shared by bags and bank): typing BoP / BoE / WuE / BoA /
+--  Soulbound (any case), optionally with an item level (bop=300, wue 290-300,
+--  boe>=280), filters by bind type instead of the native tooltip search.
 -------------------------------------------------------------------------------
 -- In a block so the main chunk's local count (close to the 200 cap) stays put.
 do
-    local BIND_KEYWORDS = { bop = true, boe = true, wue = true }
+    local BIND_KEYWORDS = { bop = true, boe = true, wue = true, boa = true, soulbound = true }
+
+    -- "<keyword>", "<keyword> <op><ilvl>" (op: = == > >= < <=) or
+    -- "<keyword> <ilvl>-<ilvl>" (also "bop=300", "wue 290-300"). Returns nil
+    -- for anything else, which then goes to the native search untouched.
+    local function ParseBindQuery(text)
+        local kw, rest = strtrim(text or ""):lower():match("^(%a+)%s*(.-)$")
+        if not kw or not BIND_KEYWORDS[kw] then return nil end
+        if rest == "" then return { kw = kw } end
+        local op, n = rest:match("^([<>=]=?)%s*(%d+)$")
+        if op then
+            if op == "==" then op = "=" end
+            return { kw = kw, op = op, lo = tonumber(n) }
+        end
+        local a, b = rest:match("^(%d+)%s*%-%s*(%d+)$")
+        if a then
+            a, b = tonumber(a), tonumber(b)
+            if a > b then a, b = b, a end
+            return { kw = kw, op = "-", lo = a, hi = b }
+        end
+        if rest:match("^%d+$") then return { kw = kw, op = "=", lo = tonumber(rest) } end
+        return nil
+    end
+
+    local function ItemLevelMatches(q, link)
+        local ilvl = link and C_Item.GetDetailedItemLevelInfo(link)
+        if not ilvl then return false end
+        local op, lo = q.op, q.lo
+        if op == "=" then return ilvl == lo end
+        if op == ">" then return ilvl > lo end
+        if op == ">=" then return ilvl >= lo end
+        if op == "<" then return ilvl < lo end
+        if op == "<=" then return ilvl <= lo end
+        return ilvl >= lo and ilvl <= q.hi
+    end
     -- One location reused for every slot: a keyword pass visits every item on
     -- each refresh, and CreateFromBagAndSlot builds a new mixin table per call.
     local loc = ItemLocation:CreateEmpty()
@@ -451,8 +486,7 @@ do
     -- one writer and keeps the text it last applied: a search box asking for
     -- that same text has nothing to change or repaint.
     function EUI_Bags.SetSearchText(text)
-        local k = strtrim(text or ""):lower()
-        EUI_Bags._bindKeyword = BIND_KEYWORDS[k] and k or nil
+        EUI_Bags._bindKeyword = ParseBindQuery(text)
         EUI_Bags._appliedSearch = text
         if not searchWatch then
             searchWatch = CreateFrame("Frame")
@@ -504,13 +538,21 @@ do
 
     -- Overrides info.isFiltered for the active keyword; no-op when none is active.
     function EUI_Bags.ApplyBindKeyword(info, bag, slot)
-        local k = EUI_Bags._bindKeyword
-        if not k or not info then return end
+        local q = EUI_Bags._bindKeyword
+        if not q or not info then return end
+        local k = q.kw
         local match = false
         loc:SetBagAndSlot(bag, slot)
         if C_Item.DoesItemExist(loc) then
+            local bindType = info.hyperlink and select(14, GetItemInfo(info.hyperlink))
+            local isAccount = bindType == Enum.ItemBind.ToWoWAccount or bindType == Enum.ItemBind.ToBnetAccount
             if k == "bop" then
-                match = info.hyperlink and select(14, GetItemInfo(info.hyperlink)) == Enum.ItemBind.OnAcquire
+                match = bindType == Enum.ItemBind.OnAcquire
+            elseif k == "boa" then
+                match = isAccount
+            elseif k == "soulbound" then
+                -- Account-bound items are bound too, but are not soulbound.
+                match = info.isBound and not isAccount
             elseif not info.isBound then
                 -- BoE and WuE both mean "not bound yet". WuE reads as OnEquip
                 -- from GetItemInfo, so the account check tells the two apart.
@@ -518,10 +560,10 @@ do
                 if k == "wue" then
                     match = isWuE
                 else
-                    match = not isWuE and info.hyperlink
-                        and select(14, GetItemInfo(info.hyperlink)) == Enum.ItemBind.OnEquip
+                    match = not isWuE and bindType == Enum.ItemBind.OnEquip
                 end
             end
+            if match and q.op then match = ItemLevelMatches(q, info.hyperlink) end
         end
         info.isFiltered = not match
     end
