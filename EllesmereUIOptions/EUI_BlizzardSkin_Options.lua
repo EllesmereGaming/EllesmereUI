@@ -440,6 +440,8 @@ initFrame:SetScript("OnEvent", function(self)
             local EXTRA_DEFAULTS = {
                 tooltipPlayerTitles = false, tooltipItemLevel = true, tooltipMythicScore = true,
                 tooltipShowMount = false, tooltipShowGuildRank = false, tooltipShowTarget = false,
+                tooltipLevelColor = false, tooltipClassLineColor = false, tooltipFactionColor = false,
+                tooltipGuildmateColor = false,
             }
             local lockTip = EllesmereUI.DisabledTooltip("Reskin Tooltip")
             local extrasDD, extrasRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -453,6 +455,14 @@ initFrame:SetScript("OnEvent", function(self)
                     { key="tooltipShowGuildRank", label="Guild Rank", lockedFn=ttReskinOff, lockedTooltip=lockTip },
                     { key="tooltipShowTarget", label="Unit Target", lockedFn=ttReskinOff, lockedTooltip=lockTip,
                       tooltip="Adds a Targeting line showing who the hovered player or NPC is targeting, in green when it's you." },
+                    { key="tooltipLevelColor", label="Level Difficulty Color", lockedFn=ttReskinOff, lockedTooltip=lockTip,
+                      tooltip="Colors the level number from gray (trivial) to red (much higher than you)." },
+                    { key="tooltipClassLineColor", label="Class Colored Spec", lockedFn=ttReskinOff, lockedTooltip=lockTip,
+                      tooltip="Colors a player's spec and class line in their class color." },
+                    { key="tooltipFactionColor", label="Faction Color", lockedFn=ttReskinOff, lockedTooltip=lockTip,
+                      tooltip="Colors the Alliance and Horde line in blue and red." },
+                    { key="tooltipGuildmateColor", label="Highlight Guildmates", lockedFn=ttReskinOff, lockedTooltip=lockTip,
+                      tooltip="Colors the guild name (and rank, if shown) of members of your own guild in your guild chat color." },
                     { key="uber", label="Detailed Tooltips" },
                 },
                 function(k)
@@ -4161,6 +4171,10 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.tooltipShowGuildRank = nil
                 EllesmereUIDB.tooltipShowMount = nil
                 EllesmereUIDB.tooltipShowTarget = nil
+                EllesmereUIDB.tooltipLevelColor = nil
+                EllesmereUIDB.tooltipClassLineColor = nil
+                EllesmereUIDB.tooltipFactionColor = nil
+                EllesmereUIDB.tooltipGuildmateColor = nil
                 EllesmereUIDB.tooltipShowBuffs = nil
                 EllesmereUIDB.tooltipBuffPosition = nil
                 EllesmereUIDB.tooltipBuffSize = nil
