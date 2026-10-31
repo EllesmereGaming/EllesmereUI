@@ -1456,8 +1456,7 @@ local function EvalCdStateRule(rule, icons, FCt)
     -- The hide and the glow (ns.CdStateOf reads a blocking-false, a per-trinket
     -- "None" over a slot-level bar apply, as none); the sound may still be set.
     local hide, glow = ns.CdStateOf(cas)
-    local soundKey = cas and cas.cdReadySoundKey
-    if soundKey == "none" then soundKey = nil end
+    local soundKey = ns.EffectiveAudioKey(cas, "cdReadySoundKey")
     local stance = ns.CdmStanceBarOf(cas)
     if hide or glow or soundKey or stance then
         local onCD = PresetOnCD(rule.spellID)
@@ -1517,12 +1516,13 @@ local function EvalCdStateRule(rule, icons, FCt)
         if soundKey then
             local akey = rule.srcKey or sid
             if onCD then
-                if hasIcon then _cdrArmedByKey[akey] = true end
+                if hasIcon then
+                    _cdrArmedByKey[akey] = true
+                end
             elseif hasIcon and _cdrArmedByKey[akey] then
                 _cdrArmedByKey[akey] = nil
                 if not (ns._cdmSoundSuppressed and ns._cdmSoundSuppressed()) then
-                    local path = ns.FOCUSKICK_SOUND_PATHS and ns.FOCUSKICK_SOUND_PATHS[soundKey]
-                    if path then PlaySoundFile(path, "Master") end
+                    ns.PlayAudioCue(soundKey, cas and cas.cdReadyTtsText, sid, "ready")
                 end
             end
         end
@@ -1731,7 +1731,7 @@ function ns.FakeActive_Rearm()
             local hide, glow = ns.CdStateOf(cas)
             local stance = ns.CdmStanceBarOf(cas)
             local hasCd = hide ~= nil or glow ~= nil or stance ~= nil
-            local hasSound = cas.cdReadySoundKey ~= nil and cas.cdReadySoundKey ~= "none"
+            local hasSound = ns.EffectiveAudioKey(cas, "cdReadySoundKey") ~= nil
             -- Keep Colored (On CD) and Ignore Resource Cost need no rule of their
             -- own -- preset frames read them directly (PresetKeepsColor,
             -- PresetIgnoresResourceTint). Gates flipped BEFORE the early return:

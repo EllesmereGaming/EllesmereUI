@@ -1424,6 +1424,17 @@ function EllesmereUI.PlaySoundPath(path, isFile)
     end
 end
 
+-- C_VoiceChat.SpeakText uses (voiceID, text, rate, volume, overlap) on 12.x.
+-- Keep Movement Alert's established rate, volume, and overlap values.
+function EllesmereUI.SpeakText(text, voiceID, volume)
+    local voiceChat = C_VoiceChat
+    if not (voiceChat and voiceChat.SpeakText) or type(text) ~= "string" or text == "" then
+        return false
+    end
+    local ok = pcall(voiceChat.SpeakText, voiceID or 0, text, 1, volume or 100, true)
+    return ok
+end
+
 -- Statusbar texture catalogue: same contract as the sound catalogue above.
 EllesmereUI.BAR_TEXTURE_FILES = {
     melli = "melli.tga", beautiful = "beautiful.tga", plating = "plating.tga",

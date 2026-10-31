@@ -857,8 +857,8 @@ BuildAllCDMBars = function()
     ns.RescanHideChargeTextFlag() -- set the Hide Charge Text gate (once) before refresh
     ns.RescanSuppressGcdFlag()    -- set the per-spell Suppress GCD gate (once) before refresh
     ns.RescanChargeStyleFlag()    -- set the Hide Swipe (Charges) gate (once) before refresh
-    ns.RescanBuffSoundFlag()      -- set the Audio on Buff Gain/Loss gate (once) before refresh
-    ns.RescanCdReadySoundFlag()   -- set the Audio Effect on CD Ready gate (once) before refresh
+    ns.RescanBuffSoundFlag()  -- set the Audio on Buff Gain/Loss gate before refresh
+    ns.RescanCdReadySoundFlag() -- set the Audio Effect on CD Ready gate before refresh
     ns.RescanBuffReplaceFlag()    -- set the Replace with Buff gate (once) before the route map
     ns.RescanCustomItemFlag()     -- set the custom-item buff-injection gate (once)
     ns.RescanCustomForceCountFlag() -- set the "Show Charges" custom-spell gate (once)

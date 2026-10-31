@@ -41,8 +41,7 @@ local _pendingCastIDs, QueueCustomBuffUpdate = I._pendingCastIDs, I.QueueCustomB
 -- (re)starts the icon's timer. No loss sound: the real aura is secret/other-cast,
 -- so only the gain edge is knowable. The id comes straight from the bar's
 -- assignedSpells (clean, never secret), so the lookup is a direct spellSettings
--- hit, no GetCanonicalSpellIDForFrame dance. Gated 0-cost on ns._cdmAnyBuffSound
--- (same flag RescanBuffSoundFlag sets from these spellSettings) and throttled.
+-- hit, no GetCanonicalSpellIDForFrame dance. Each edge has its own enabled gate and throttle.
 local _presetGainSoundAt = {}
 local _presetLossSoundAt = {}
 local PRESET_GAIN_SOUND_GAP = 0.3
@@ -53,14 +52,12 @@ local function PlayPresetBuffGainSound(sd, barKey, sid, now)
     if ns._cdmSoundSuppressed and ns._cdmSoundSuppressed() then return end
     -- Family store direct hit + bar-tier fallback (no frame: id from assignedSpells).
     local ss = ResolveSpellSettings(nil, sid, sd, barKey)
-    local key = ss and ss.buffActiveSoundKey
-    if not key or key == "none" then return end
+    local key = ns.EffectiveAudioKey(ss, "buffActiveSoundKey")
+    if not key then return end
     local last = _presetGainSoundAt[sid]
     if last and (now - last) < PRESET_GAIN_SOUND_GAP then return end
     _presetGainSoundAt[sid] = now
-    local paths = ns.FOCUSKICK_SOUND_PATHS
-    local path = paths and paths[key]
-    if path then PlaySoundFile(path, "Master") end
+    ns.PlayAudioCue(key, ss and ss.buffActiveTtsText, sid, "gain")
 end
 -- Loss counterpart to PlayPresetBuffGainSound for self-timed preset/custom buffs
 -- (no real aura-removed alert): fired when the displayed timer runs out. Separate
@@ -69,14 +66,12 @@ local function PlayPresetBuffLossSound(sd, sid, now)
     if not ns._cdmAnyBuffSound then return end
     if ns._cdmSoundSuppressed and ns._cdmSoundSuppressed() then return end
     local ss = sd and sd.spellSettings and sd.spellSettings[sid]
-    local key = ss and ss.buffLostSoundKey
-    if not key or key == "none" then return end
+    local key = ns.EffectiveAudioKey(ss, "buffLostSoundKey")
+    if not key then return end
     local last = _presetLossSoundAt[sid]
     if last and (now - last) < PRESET_GAIN_SOUND_GAP then return end
     _presetLossSoundAt[sid] = now
-    local paths = ns.FOCUSKICK_SOUND_PATHS
-    local path = paths and paths[key]
-    if path then PlaySoundFile(path, "Master") end
+    ns.PlayAudioCue(key, ss and ss.buffLostTtsText, sid, "loss")
 end
 
 -------------------------------------------------------------------------------

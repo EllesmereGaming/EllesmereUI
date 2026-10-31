@@ -615,6 +615,10 @@ end
 local DEFAULTS = {
     global = {},
     profile = {
+        -- TTS preferences apply to this Cooldown Manager profile. Existing
+        -- users keep the previous default voice and volume.
+        ttsVoiceID           = 0,
+        ttsVolume            = 100,
         -- Style flags (Global Settings > Style). All default OFF and are
         -- reload-gated. Blizzard Style: icons keep Blizzard's rounded mask,
         -- overlay ring and swipe art; tracked buff bars use Blizzard's bar

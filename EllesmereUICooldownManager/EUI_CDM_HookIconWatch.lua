@@ -131,14 +131,13 @@ local function CdReadyIsChargeSpell(liveSid)
 end
 
 -- Single play point for both drivers: throttled, always disarms.
-local function PlayCdReadySound(fd, key, liveSid, sid, bk, src)
+local function PlayCdReadySound(fd, key, sid, text)
     fd._cdReadyArmed = false
     local now = GetTime()
     local last = fd._cdReadySoundAt
     if last and (now - last) < CD_READY_SOUND_GAP then return end
     fd._cdReadySoundAt = now
-    local path = ns.FOCUSKICK_SOUND_PATHS and ns.FOCUSKICK_SOUND_PATHS[key]
-    if path then PlaySoundFile(path, "Master") end
+    ns.PlayAudioCue(key, text, sid, "ready")
 end
 
 -- Shared evaluator (SPELL_UPDATE_COOLDOWN + SPELL_UPDATE_CHARGES via the
@@ -148,6 +147,7 @@ end
 local function EvalCdReadySound(frame, fd, primeOnly)
     if not ns._cdmAnyCdReadySound then return end
     if not fd then return end
+    if ns._cdReadySoundWatch[frame] ~= fd then return end
     if fd._isProcessingOverride then return end
     -- Buff-family frames never play (see WatchCdReadySoundIfEnabled); held here too so
     -- a frame watched before its decoration flagged it stays silent.
@@ -157,15 +157,21 @@ local function EvalCdReadySound(frame, fd, primeOnly)
     end
     local fc2 = _ecmeFC[frame]
     -- Hidden by its Talent Conditions (TalentCondFilterPass): stays silent.
-    if fc2 and fc2.tcHidden then fd._cdReadyArmed = false; return end
+    if fc2 and fc2.tcHidden then
+        fd._cdReadyArmed = false
+        return
+    end
     local sid2 = fc2 and fc2.spellID
     local bk2 = fc2 and fc2.barKey
     if not sid2 or not bk2 then return end
     if bk2 == ns.FOCUSKICK_BAR_KEY then return end
     if bk2:sub(1, 7) == "__ghost" then return end
     local ss2 = ResolveSpellSettings(frame, sid2, ns.GetBarSpellData(bk2))
-    local key = ss2 and ss2.cdReadySoundKey
-    if not key or key == "none" then fd._cdReadyArmed = false; return end
+    local key = ns.EffectiveAudioKey(ss2, "cdReadySoundKey")
+    if not key then
+        fd._cdReadyArmed = false
+        return
+    end
     if ns._cdmSoundSuppressed() then
         -- Settle window: cooldown reads are transient, so gate the ARM (not just
         -- the fire) and clear stale arms. A spell genuinely on cooldown re-arms
@@ -179,10 +185,13 @@ local function EvalCdReadySound(frame, fd, primeOnly)
     end
     if not CdReadyIsReady(liveSid) then
         -- On cooldown (or a charge spell below max): arm.
-        if not fd._cdReadyArmed then fd._cdReadyArmedAt = GetTime() end
+        if not fd._cdReadyArmed then
+            fd._cdReadyArmedAt = GetTime()
+        end
         fd._cdReadyArmed = true
         fd._cdReadyArmedSid = sid2
-    elseif fd._cdReadyArmed and not primeOnly and CdReadyIsReady(liveSid, true) then
+    elseif fd._cdReadyArmed and not primeOnly then
+        if not CdReadyIsReady(liveSid, true) then return end
         if fd._cdReadyArmedSid ~= sid2 then
             -- Spell on this frame changed since arming (spec/talent swap); stale arm.
             fd._cdReadyArmed = false
@@ -194,28 +203,37 @@ local function EvalCdReadySound(frame, fd, primeOnly)
             fd._cdReadyPending:Hide()
             fd._cdReadyPending:SetScript("OnUpdate", function(self)
                 self:Hide()
-                if not fd._cdReadyArmed then return end
+                if not fd._cdReadyArmed or ns._cdReadySoundWatch[frame] ~= fd then return end
                 local fcp = _ecmeFC[frame]
                 local sidp = fcp and fcp.spellID
                 local bkp = fcp and fcp.barKey
                 if not sidp or not bkp then return end
-                if fd._cdReadyArmedSid ~= sidp then fd._cdReadyArmed = false; return end
+                if fd._cdReadyArmedSid ~= sidp then
+                    fd._cdReadyArmed = false
+                    return
+                end
                 local ssp = ResolveSpellSettings(frame, sidp, ns.GetBarSpellData(bkp))
-                local kp = ssp and ssp.cdReadySoundKey
-                if not kp or kp == "none" then fd._cdReadyArmed = false; return end
+                local kp = ns.EffectiveAudioKey(ssp, "cdReadySoundKey")
+                if not kp then
+                    fd._cdReadyArmed = false
+                    return
+                end
                 local livep = sidp
                 if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
                     livep = C_SpellBook.FindSpellOverrideByID(sidp) or sidp
                 end
-                if not CdReadyIsReady(livep, true) then return end  -- not ready (race/GCD) -> stay armed
-                if ns._cdmSoundSuppressed() then fd._cdReadyArmed = false; return end  -- a load began mid-defer
+                if not CdReadyIsReady(livep, true) then return end -- not ready (race/GCD) -> stay armed
+                if ns._cdmSoundSuppressed() then
+                    fd._cdReadyArmed = false
+                    return
+                end
                 -- Sub-GCD arm span = transient misread, not a real cooldown ending.
                 local armedAt = fd._cdReadyArmedAt
                 if not armedAt or (GetTime() - armedAt) < CD_READY_MIN_ARM then
                     fd._cdReadyArmed = false
                     return
                 end
-                PlayCdReadySound(fd, kp, livep, sidp, bkp, "event")
+                PlayCdReadySound(fd, kp, sidp, ssp and ssp.cdReadyTtsText)
             end)
         end
         fd._cdReadyPending:Show()
@@ -239,28 +257,87 @@ local function HookCdReadyAvailableAlert(frame, fd)
     end
     _cdReadyAlertHooked[frame] = true
     hooksecurefunc(frame, "TriggerAvailableAlert", function(f)
-        if not ns._cdmAnyCdReadySound then return end
-        if fd._isProcessingOverride then return end
-        -- A buff frame's alert fires on AURA gain, not readiness (see the watch below).
-        if fd._isBuffViewerFrame or f._isCustomBuffFrame or f._isPlaceholderFrame then return end
+        if not ns._cdmAnyCdReadySound or ns._cdReadySoundWatch[f] ~= fd then return end
         local fca = _ecmeFC[f]
         local sida = fca and fca.spellID
         local bka = fca and fca.barKey
+        if fd._isProcessingOverride then return end
+        -- A buff frame's alert fires on AURA gain, not readiness (see the watch below).
+        if fd._isBuffViewerFrame or f._isCustomBuffFrame or f._isPlaceholderFrame then return end
         if not sida or not bka then return end
-        if fca.tcHidden then return end  -- hidden by its Talent Conditions
+        if fca.tcHidden then return end
         if bka == ns.FOCUSKICK_BAR_KEY then return end
         if bka:sub(1, 7) == "__ghost" then return end
         local ssa = ResolveSpellSettings(f, sida, ns.GetBarSpellData(bka))
-        local keya = ssa and ssa.cdReadySoundKey
-        if not keya or keya == "none" then return end
-        if ns._cdmSoundSuppressed() then fd._cdReadyArmed = false; return end
+        local keya = ns.EffectiveAudioKey(ssa, "cdReadySoundKey")
+        if not keya then return end
+        if ns._cdmSoundSuppressed() then
+            fd._cdReadyArmed = false
+            return
+        end
         local livea = sida
         if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
             livea = C_SpellBook.FindSpellOverrideByID(sida) or sida
         end
-        if CdReadyIsChargeSpell(livea) then return end
-        PlayCdReadySound(fd, keya, livea, sida, bka, "alert")
+        if CdReadyIsChargeSpell(livea) then
+            return
+        end
+        PlayCdReadySound(fd, keya, sida, ssa and ssa.cdReadyTtsText)
     end)
+end
+
+-- Blizzard's available-alert hook only runs while its own item OnUpdate driver
+-- is registered (for Blizzard alert entries or pandemic timing). This widget
+-- edge provides a per-icon expiry wake-up even when the user has no Blizzard
+-- alert configured, without polling or reading cooldown duration fields.
+local function HookCdReadyCooldownDone(frame, fd)
+    if fd._cdReadyCooldownDoneHooked then return end
+    local cd = fd.cooldown or frame.Cooldown
+    if not (cd and cd.HookScript) then return end
+    fd._cdReadyCooldownDoneHooked = true
+    cd:HookScript("OnCooldownDone", function()
+        if not ns._cdmAnyCdReadySound or ns._cdReadySoundWatch[frame] ~= fd then return end
+        EvalCdReadySound(frame, fd, false)
+    end)
+end
+
+local function SyncCdReadySoundEvents()
+    local active = next(ns._cdReadySoundWatch) ~= nil
+    local ef = ns._cdReadySoundEventFrame
+    if active and not ef then
+        ef = ns.TakeShell()
+        ef:SetScript("OnEvent", function()
+            if not ns._cdmAnyCdReadySound then return end
+            for f, d in pairs(ns._cdReadySoundWatch) do
+                EvalCdReadySound(f, d, false)
+            end
+            if next(ns._cdReadySoundWatch) == nil then
+                SyncCdReadySoundEvents()
+            end
+        end)
+        ns._cdReadySoundEventFrame = ef
+    end
+    if not ef then return end
+    if active and not ns._cdReadySoundEventsRegistered then
+        ef:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+        ef:RegisterEvent("SPELL_UPDATE_CHARGES")
+        ns._cdReadySoundEventsRegistered = true
+    elseif not active and ns._cdReadySoundEventsRegistered then
+        ef:UnregisterEvent("SPELL_UPDATE_COOLDOWN")
+        ef:UnregisterEvent("SPELL_UPDATE_CHARGES")
+        ns._cdReadySoundEventsRegistered = false
+    end
+end
+
+function ns.RefreshCdReadyAudioWatchState()
+    if not ns._cdmAnyCdReadySound then
+        for frame, fd in pairs(ns._cdReadySoundWatch) do
+            ns._cdReadySoundWatch[frame] = nil
+            fd._cdReadyArmed = false
+            if fd._cdReadyPending then fd._cdReadyPending:Hide() end
+        end
+    end
+    SyncCdReadySoundEvents()
 end
 
 -- Register a spell with a CD-ready sound into the event-driven watch set,
@@ -272,37 +349,52 @@ function ns.WatchCdReadySoundIfEnabled(frame)
     if not frame then return end
     local fd = hookFrameData[frame]
     if not fd then return end
+    if not ns._cdmAnyCdReadySound then
+        if ns._cdReadySoundWatch[frame] then
+            ns._cdReadySoundWatch[frame] = nil
+            fd._cdReadyArmed = false
+            if fd._cdReadyPending then fd._cdReadyPending:Hide() end
+            SyncCdReadySoundEvents()
+        end
+        return
+    end
     -- Buff-family frames never watch: a hosted or custom buff frame resolves the
     -- ABILITY's per-spell entry through the linked-id union, and its
     -- TriggerAvailableAlert fires on aura gain (no readiness check in the hook), so
     -- the cd-ready cue played at buff gain. Same exclusion as the charge hooks.
     if fd._isBuffViewerFrame or frame._isCustomBuffFrame or frame._isPlaceholderFrame then
-        if ns._cdReadySoundWatch[frame] then ns._cdReadySoundWatch[frame] = nil end
+        if ns._cdReadySoundWatch[frame] then
+            ns._cdReadySoundWatch[frame] = nil
+            fd._cdReadyArmed = false
+            if fd._cdReadyPending then fd._cdReadyPending:Hide() end
+            SyncCdReadySoundEvents()
+        end
         return
     end
     local fcw = _ecmeFC[frame]
     local sidw = fcw and fcw.spellID
     local bkw = fcw and fcw.barKey
-    if not (sidw and bkw) then return end
-    local ssw = ResolveSpellSettings(frame, sidw, ns.GetBarSpellData(bkw))
-    if ssw and ssw.cdReadySoundKey and ssw.cdReadySoundKey ~= "none" then
-        ns._cdmAnyCdReadySound = true
-        ns._cdReadySoundWatch[frame] = fd
-        if not ns._cdReadySoundEventFrame then
-            local ef = ns.TakeShell()
-            ef:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-            ef:RegisterEvent("SPELL_UPDATE_CHARGES")
-            ef:SetScript("OnEvent", function()
-                for f, d in pairs(ns._cdReadySoundWatch) do
-                    EvalCdReadySound(f, d)
-                end
-            end)
-            ns._cdReadySoundEventFrame = ef
+    if not (sidw and bkw) then
+        if ns._cdReadySoundWatch[frame] then
+            ns._cdReadySoundWatch[frame] = nil
+            fd._cdReadyArmed = false
+            if fd._cdReadyPending then fd._cdReadyPending:Hide() end
+            SyncCdReadySoundEvents()
         end
+        return
+    end
+    local ssw = ResolveSpellSettings(frame, sidw, ns.GetBarSpellData(bkw))
+    if ns.EffectiveAudioKey(ssw, "cdReadySoundKey") then
+        ns._cdReadySoundWatch[frame] = fd
+        SyncCdReadySoundEvents()
+        HookCdReadyCooldownDone(frame, fd)
         HookCdReadyAvailableAlert(frame, fd)
         EvalCdReadySound(frame, fd, true)  -- prime the arm state only; never plays here
     elseif ns._cdReadySoundWatch[frame] then
         ns._cdReadySoundWatch[frame] = nil
+        fd._cdReadyArmed = false
+        if fd._cdReadyPending then fd._cdReadyPending:Hide() end
+        SyncCdReadySoundEvents()
     end
 end
 

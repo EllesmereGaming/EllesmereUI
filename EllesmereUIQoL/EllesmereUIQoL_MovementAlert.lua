@@ -360,17 +360,9 @@ local function PlayAlertSound(key)
     if value then PlayLSMSound(value) end
 end
 
--- Text-to-speech: local-only playback via C_VoiceChat. The live-client
--- argument order is (voiceID, text, destination, volume, interrupt), NOT
--- (voiceID, text, destination, rate, volume) as older API docs suggest.
--- Enum.VoiceTtsDestination doesn't exist on live clients either, so
--- destination is the literal 1 (local playback). Silently no-ops if TTS
--- isn't available instead of erroring.
-local function SpeakAlertText(voiceId, text, volume)
-    if not (C_VoiceChat and C_VoiceChat.SpeakText) then return end
-    if not text or text == "" then return end
-    pcall(C_VoiceChat.SpeakText, voiceId or 0, text, 1, volume or 100, true)
-end
+-- Uses the current (voiceID, text, rate, volume, overlap) SpeakText signature.
+-- Silently no-ops if TTS isn't available instead of erroring.
+local SpeakAlertText = EllesmereUI.SpeakText
 
 -- Fires TTS if enabled for this tracker (prefix "ts"/"gw"/"ma"), otherwise
 -- falls back to the tracker's configured sound. TTS always wins when both
@@ -384,7 +376,7 @@ local function FireTrackerAlert(prefix, abilityName)
         -- per-spell Custom Text) -- there is no message setting for it. The
         -- other trackers speak their fixed configured message.
         local msg = abilityName or ma[prefix .. "TtsMessage"]
-        SpeakAlertText(ma[prefix .. "TtsVoiceID"], msg, ma[prefix .. "TtsVolume"])
+        SpeakAlertText(msg, ma[prefix .. "TtsVoiceID"], ma[prefix .. "TtsVolume"])
     else
         PlayAlertSound(ma[prefix .. "SoundKey"])
     end

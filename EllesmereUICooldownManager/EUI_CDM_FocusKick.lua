@@ -283,6 +283,87 @@ ns.FOCUSKICK_SOUND_PATHS = FOCUSKICK_SOUND_PATHS
 ns.FOCUSKICK_SOUND_NAMES = FOCUSKICK_SOUND_NAMES
 ns.FOCUSKICK_SOUND_ORDER = FOCUSKICK_SOUND_ORDER
 
+-- TTS uses a reserved value in the existing sound key fields.
+function ns.AudioTextField(soundField)
+    if soundField == "buffActiveSoundKey" then return "buffActiveTtsText" end
+    if soundField == "buffLostSoundKey" then return "buffLostTtsText" end
+    if soundField == "cdReadySoundKey" then return "cdReadyTtsText" end
+end
+
+function ns.EffectiveAudioKey(settings, soundField)
+    if not settings then return nil end
+    local key = settings[soundField]
+    if not key or key == "none" then return nil end
+    if key == "__tts" then return "__tts" end
+    return key
+end
+
+function ns.AudioSelectionChoice(settings, soundField)
+    local key = ns.EffectiveAudioKey(settings, soundField)
+    return key == "__tts" and "tts" or key or "none"
+end
+
+function ns.SetAudioSelectionChoice(settings, soundField, value, noneValue)
+    local stored = value
+    if value == "tts" then stored = "__tts"
+    elseif value == "none" then stored = noneValue end
+    if settings[soundField] ~= stored then
+        settings[soundField] = stored
+        ns._cdmAudioRevision = (ns._cdmAudioRevision or 0) + 1
+    end
+    if value and value ~= "none" then
+        if soundField == "cdReadySoundKey" then
+            ns._cdmAnyCdReadySound = true
+        else
+            ns._cdmAnyBuffSound = true
+        end
+    end
+end
+
+function ns.PlayAudioCue(key, text, spellID, event, voiceOverride, volumeOverride)
+    if key == "__tts" then
+        local speech = EllesmereUI.ResolveCDMAudioText(text, spellID, event)
+        return ns.SpeakTTS(speech, voiceOverride, volumeOverride)
+    end
+    local path = FOCUSKICK_SOUND_PATHS[key]
+    if path then return PlaySoundFile(path, "Master") end
+    return false
+end
+
+-- Read the active profile on each playback so profile switches take effect
+-- immediately without caching settings in the event path.
+function ns.GetTTSSettings()
+    local profile = ns.ECME and ns.ECME.db and ns.ECME.db.profile
+    return (profile and profile.ttsVoiceID) or 0,
+        (profile and profile.ttsVolume) or 100
+end
+
+function ns.SpeakTTS(text, voiceOverride, volumeOverride)
+    local voiceID, volume = ns.GetTTSSettings()
+    return EllesmereUI.SpeakText(text, voiceOverride or voiceID, volumeOverride or volume)
+end
+
+function EllesmereUI.ResolveCDMAudioText(text, spellID, event)
+    if type(text) == "string" and not text:match("^%s*$") then return text end
+    return EllesmereUI.DefaultCDMAudioText(spellID, event)
+end
+
+function EllesmereUI.DefaultCDMAudioText(spellID, event)
+    local info
+    if type(spellID) == "number" and spellID > 0
+       and C_Spell and C_Spell.GetSpellInfo then
+        local ok, value = pcall(C_Spell.GetSpellInfo, spellID)
+        if ok then info = value end
+    end
+    local name = info and info.name
+    local suffix = event == "ready" and EllesmereUI.L("ready")
+        or event == "gain" and EllesmereUI.L("active")
+        or event == "loss" and EllesmereUI.L("expired") or ""
+    return name and (name .. " " .. suffix) or (event == "ready"
+        and EllesmereUI.L("Cooldown ready") or event == "loss"
+        and EllesmereUI.L("Buff expired") or EllesmereUI.L("Buff active"))
+end
+
 -- Focus-cast sound trigger. When the focus target starts a cast and the user's selected interrupt
 -- is off cooldown, play the configured sound. One single proxy registered with RegisterUnitEvent on "focus" -- the token follows focus changes automatically.
 local _focusCastProxy
@@ -435,12 +516,9 @@ ns.EnsureFocusCastProxy = EnsureFocusCastProxy
 -- the end of the frame rather than played on the spot: some auras are reapplied by REPLACING
 -- the instance instead of refreshing it, and Blizzard checks its removed-alert triggers before
 -- the item frames adopt the new instance, so the drop edge fires while the buff is still up.
--- Death and Decay does this on every entry into the circle, cueing a loss at the moment the
--- buff was GAINED. Both alerts for a replacement fire inside the SAME CooldownViewerMixin
--- :OnUnitAura call -- confirmed live to be indistinguishable from a genuine same-tick
--- drop+reproc (e.g. Prismatic Bolt consumed by a cast and reprocced by Salvo), so only the
--- loss cue is cancelled on a pair. A real gain always plays, even on a replacement, rather
--- than silently eating the reported case with no way to tell the two apart.
+-- A loss and gain with the same canonical spell id are paired only when both arrive
+-- before the same pending-edge flush. A later-frame gain cannot cancel a loss already
+-- flushed; this preserves genuine loss alerts without delaying every loss.
 do
     local _soundHooked = setmetatable({}, { __mode = "k" })
     -- Edges seen this frame: [spellID] = sound key, or false for "edge happened,
@@ -448,6 +526,10 @@ do
     -- whose gain has no sound (the usual setup -- loss cue only) never pairs.
     local _pendGain = {}
     local _pendLoss = {}
+    local _pendGainText = {}
+    local _pendLossText = {}
+    local _pendGainRevision = {}
+    local _pendLossRevision = {}
     local _flushQueued = false
     local _pendStamp = 0                 -- GetTime() of the frame the pending edges belong to
     -- Overlap guard, NOT an edge filter: two cues for the same spell and edge closer
@@ -456,7 +538,6 @@ do
     local _soundThrottle = {}            -- [spellID] = last GetTime() (gain)
     local _soundThrottleLost = {}        -- [spellID] = last GetTime() (loss)
     local SOUND_MIN_GAP = 0.3
-
     -- Setting key for one edge, nil = silent. A frame the CDM decorates answers
     -- from its own settings first. A Tracked Bars frame then asks its tracking
     -- bar before FindBuffSoundKey, whose bar tier answers for every spell no
@@ -466,40 +547,49 @@ do
     -- icon frame asks the tracking bars last.
     local function PickBuffSoundKey(ss, sid, field, f)
         local k = ss and ss[field]
+        local textField = ns.AudioTextField(field)
+        local text = k == "__tts" and ss and textField and ss[textField]
         if not k then
             local tbbOn = ns._tbbAnyBuffSound
             local bv = tbbOn and f and _G.BuffBarCooldownViewer
             local barFrame = bv and f.viewerFrame == bv
             local owned
             if barFrame then
-                k = ns.FindTBBSoundKey(f, sid, field)
+                k, text = ns.FindTBBSoundKey(f, sid, field)
                 owned = k == false
             end
-            if not k and not owned then k = ns.FindBuffSoundKey(sid, field) end
-            if not k and tbbOn and not barFrame then k = ns.FindTBBSoundKey(f, sid, field) end
+            if not k and not owned then
+                k, text = ns.FindBuffSoundKey(sid, field)
+            end
+            if k == false then return nil end
+            if not k and tbbOn and not barFrame then
+                k, text = ns.FindTBBSoundKey(f, sid, field)
+            end
+            if k == false then return nil end
         end
         if not k or k == "none" then return nil end
-        return k
+        return k, text
     end
 
-    local function PlayThrottled(key, sid, throttle)
+    local function PlayThrottled(key, sid, throttle, text, gainEdge, spellID)
         if not key then return end
         local now = GetTime()
         local last = throttle[sid]
         if last and (now - last) < SOUND_MIN_GAP then return end
         throttle[sid] = now
-        local path = FOCUSKICK_SOUND_PATHS[key]
-        if path then PlaySoundFile(path, "Master") end
+        ns.PlayAudioCue(key, text, spellID or (type(sid) == "number" and sid or nil),
+            gainEdge and "gain" or "loss")
     end
 
     -- Edge entry point for Tracking Bars' self-timed presets (Bloodlust, Time
     -- Spiral, potions). They never fire a Blizzard aura alert, so their own timer
     -- start/stop hands the cue here: same loading-screen suppression, same 0.3s
     -- overlap guard (id is a "tbb:<preset>" string, clear of spell ids).
-    function ns.PlayBuffSoundEdge(key, id, gainEdge)
+    function ns.PlayBuffSoundEdge(key, id, gainEdge, text, spellID)
         if not key or key == "none" then return end
         if ns._cdmSoundSuppressed and ns._cdmSoundSuppressed() then return end
-        PlayThrottled(key, id, gainEdge and _soundThrottle or _soundThrottleLost)
+        PlayThrottled(key, id, gainEdge and _soundThrottle or _soundThrottleLost,
+            text, gainEdge, spellID)
     end
 
     local function FlushBuffEdges()
@@ -521,11 +611,23 @@ do
             -- the gain loop below instead of being cancelled here too.
             local paired = _pendGain[sid] ~= nil
             _pendLoss[sid] = nil
-            if not paired then PlayThrottled(key, sid, _soundThrottleLost) end
+            local text = _pendLossText[sid]
+            _pendLossText[sid] = nil
+            local revision = _pendLossRevision[sid]
+            _pendLossRevision[sid] = nil
+            if not paired and revision == ns._cdmAudioRevision then
+                PlayThrottled(key, sid, _soundThrottleLost, text, false)
+            end
         end
         for sid, key in pairs(_pendGain) do
             _pendGain[sid] = nil
-            PlayThrottled(key, sid, _soundThrottle)
+            local text = _pendGainText[sid]
+            _pendGainText[sid] = nil
+            local revision = _pendGainRevision[sid]
+            _pendGainRevision[sid] = nil
+            if revision == ns._cdmAudioRevision then
+                PlayThrottled(key, sid, _soundThrottle, text, true)
+            end
         end
     end
 
@@ -549,8 +651,14 @@ do
         end
         -- A silent edge still has to be recorded so it can cancel its partner, but only
         -- when the OTHER edge has a cue -- so the second lookup runs only on that path.
-        local key = PickBuffSoundKey(ss, sid, gainEdge and "buffActiveSoundKey" or "buffLostSoundKey", f)
-        if not key and not PickBuffSoundKey(ss, sid, gainEdge and "buffLostSoundKey" or "buffActiveSoundKey", f) then
+        local field = gainEdge and "buffActiveSoundKey" or "buffLostSoundKey"
+        local key, text = PickBuffSoundKey(ss, sid, field, f)
+        local otherKey
+        if not key then
+            otherKey = PickBuffSoundKey(ss, sid,
+                gainEdge and "buffLostSoundKey" or "buffActiveSoundKey", f)
+        end
+        if not key and not otherKey then
             return
         end
         -- A new frame closes the previous batch: pairing must never reach across the
@@ -562,8 +670,12 @@ do
         end
         if gainEdge then
             _pendGain[sid] = key or false
+            _pendGainText[sid] = text
+            _pendGainRevision[sid] = ns._cdmAudioRevision
         else
             _pendLoss[sid] = key or false
+            _pendLossText[sid] = text
+            _pendLossRevision[sid] = ns._cdmAudioRevision
         end
         if not _flushQueued then
             _flushQueued = true

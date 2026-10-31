@@ -918,32 +918,29 @@ function ns.RescanMaxStacksGlowFlag()
     end)
 end
 
--- Audio on Buff Gain/Loss gate: set ns._cdmAnyBuffSound once if any saved buff icon or
--- tracking bar (any spec) has a gain OR loss sound chosen, so DecorateFrame/RefreshCDMIconAppearance
--- skip attaching the apply-edge sound hook for non-users. The icon half keeps the scanned-once +
--- runtime-enable contract of RescanMaxStacksGlowFlag. ns._tbbAnyBuffSound is the tracking-bar
--- half on its own, so icon-only users skip the tracking-bar lookup on every buff alert. Its scan
--- is O(specs x bars) with no allocation, so it repeats on every rebuild until it finds a sound,
--- which also picks up bar sounds a live profile switch brings in.
 function ns.RescanBuffSoundFlag()
     if not EllesmereUIDB then return end
     if not ns._buffSoundFlagScanned then
         ns._buffSoundFlagScanned = true
-        if not ns._cdmAnyBuffSound then
-            ns.ForEachSavedSettingsBlock(function(ss)
-                if (ss.buffActiveSoundKey and ss.buffActiveSoundKey ~= "none")
-                    or (ss.buffLostSoundKey and ss.buffLostSoundKey ~= "none") then
-                    ns._cdmAnyBuffSound = true
-                    return true
-                end
-            end)
-        end
+        ns.ForEachSavedSettingsBlock(function(ss)
+            if (ss.buffActiveSoundKey and ss.buffActiveSoundKey ~= "none")
+                or (ss.buffLostSoundKey and ss.buffLostSoundKey ~= "none") then
+                ns._cdmAnyBuffSound = true
+                return true
+            end
+        end)
     end
-    -- Tracking Bars keep the same two keys on their bar configs, which the
-    -- settings-block walk above never visits. EnsureTBBSoundHooks flips both
-    -- gates and hooks the frames already out of the buff viewer pools.
-    if not ns._tbbAnyBuffSound and ns.TBBAnyBuffSound and ns.TBBAnyBuffSound() then
-        ns.EnsureTBBSoundHooks()
+    local profiles = ns.GetActiveSpecProfiles and ns.GetActiveSpecProfiles()
+    local revision = ns._cdmAudioRevision or 0
+    if profiles and (not ns._tbbBuffSoundFlagScanned
+        or ns._tbbBuffSoundScanRoot ~= profiles
+        or ns._tbbBuffSoundScanRevision ~= revision) then
+        ns._tbbBuffSoundFlagScanned = true
+        ns._tbbBuffSoundScanRoot = profiles
+        ns._tbbBuffSoundScanRevision = revision
+        if not ns._tbbAnyBuffSound and ns.TBBAnyBuffSound and ns.TBBAnyBuffSound() then
+            ns.EnsureTBBSoundHooks()
+        end
     end
 end
 
@@ -959,42 +956,64 @@ function ns.FindBuffSoundKey(sid, field)
     local sp = SpellStore and SpellStore.GetSpecProfiles and SpellStore.GetSpecProfiles()
     local prof = sp and sp[specKey]
     if not prof then return nil end
+    local tier, tierResolved
+    local function GetTier()
+        if tierResolved then return tier end
+        tierResolved = true
+        local homeKey = "buffs"
+        local barSpells = prof.barSpells
+        if barSpells then
+            for barKey, bs in pairs(barSpells) do
+                if barKey ~= "buffs" and ns.IsBarBuffFamily and ns.IsBarBuffFamily(barKey)
+                   and type(bs.assignedSpells) == "table" then
+                    for _, asid in ipairs(bs.assignedSpells) do
+                        if asid == sid then homeKey = barKey; break end
+                    end
+                end
+            end
+        end
+        local bsHome = barSpells and barSpells[homeKey]
+        tier = ns.GetBarTierSettings(bsHome, homeKey)
+        return tier
+    end
     -- Per-spell tier: buff family store (explicit false = inherited bar-level
     -- sound turned OFF for this one buff -- treat as silent).
+    local textField
+    if field == "buffActiveSoundKey" then textField = "buffActiveTtsText"
+    elseif field == "buffLostSoundKey" then textField = "buffLostTtsText" end
     local st = prof.spellSettingsBuff
     local own = st and st[sid]
     if own then
         local v = rawget(own, field)
         if v ~= nil then
-            if v and v ~= "none" then return v end
+            if v == "__tts" then
+                local text = textField and rawget(own, textField)
+                if text == nil and textField then text = own[textField] end
+                if text == nil and textField then
+                    local ownTier = GetTier()
+                    if ownTier then text = ownTier[textField] end
+                end
+                return "__tts", text
+            end
+            if v and v ~= "none" then return v, textField and rawget(own, textField) end
             return nil
         end
     end
     -- Bar tier: the buff bar this spell renders on. Extra buff bars claim
     -- their spells via assignedSpells; everything else lives on "buffs".
-    local homeKey = "buffs"
-    local barSpells = prof.barSpells
-    if barSpells then
-        for barKey, bs in pairs(barSpells) do
-            if barKey ~= "buffs" and ns.IsBarBuffFamily and ns.IsBarBuffFamily(barKey)
-               and type(bs.assignedSpells) == "table" then
-                for _, asid in ipairs(bs.assignedSpells) do
-                    if asid == sid then homeKey = barKey; break end
-                end
-            end
-        end
-    end
-    local bsHome = barSpells and barSpells[homeKey]
-    local tier = ns.GetBarTierSettings(bsHome, homeKey)
+    tier = GetTier()
     local key = tier and tier[field]
-    if key and key ~= "none" then return key end
+    if key and key ~= "none" then
+        if key == "__tts" then
+            local text = textField and tier[textField]
+            return "__tts", text
+        end
+        return key
+    end
     return nil
 end
 
--- Audio Effect on CD Ready gate: set ns._cdmAnyCdReadySound once if any saved
--- cd/utility icon (any spec) has a CD-ready sound chosen, so the per-frame
--- SetDesaturated edge hook no-ops entirely for non-users. Same monotonic,
--- scanned-once contract as RescanBuffSoundFlag.
+-- Compatibility entry point for callers that refresh the audio gates.
 function ns.RescanCdReadySoundFlag()
     if ns._cdmAnyCdReadySound or ns._cdReadySoundFlagScanned then return end
     if not EllesmereUIDB then return end

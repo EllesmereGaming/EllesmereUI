@@ -647,9 +647,12 @@ function ns.FindTBBSoundKey(frame, sid, field)
     end
     if not cfg then return nil end
     local key = cfg[field]
+    local textField = ns.AudioTextField(field)
+    if key == "__tts" then return "__tts", textField and cfg[textField] end
     if key and key ~= "none" then return key end
-    local g, l = cfg.buffActiveSoundKey, cfg.buffLostSoundKey
-    if (g and g ~= "none") or (l and l ~= "none") then return false end
+    local g = ns.EffectiveAudioKey(cfg, "buffActiveSoundKey")
+    local l = ns.EffectiveAudioKey(cfg, "buffLostSoundKey")
+    if g or l then return false end
     return nil
 end
 
@@ -663,8 +666,8 @@ function ns.TBBAnyBuffSound()
         if type(tbb) == "table" and type(tbb.bars) == "table" then
             for _, c in ipairs(tbb.bars) do
                 if c.trackType ~= "cooldown" then
-                    local g, l = c.buffActiveSoundKey, c.buffLostSoundKey
-                    if (g and g ~= "none") or (l and l ~= "none") then return true end
+                    if ns.EffectiveAudioKey(c, "buffActiveSoundKey")
+                       or ns.EffectiveAudioKey(c, "buffLostSoundKey") then return true end
                 end
             end
         end
@@ -672,10 +675,8 @@ function ns.TBBAnyBuffSound()
     return false
 end
 
--- Tracking-bar sound enable (a bar's sound set in options, or the rescan
--- finding one): flips both gates live and hooks the buff viewer frames already
--- out of their pools, since pool Acquire only hooks while the gate is on. Both
--- viewers: a bar's spell can live in either one.
+-- Attach tracking-bar buff hooks to frames already out of the pools. New pool
+-- acquisitions are handled by the viewer hook; both viewers can host a bar's spell.
 function ns.EnsureTBBSoundHooks()
     ns._cdmAnyBuffSound = true
     ns._tbbAnyBuffSound = true
@@ -719,10 +720,14 @@ function ns.TBBPresetSoundEdge(popularKey, gainEdge, expiry)
     for _, cfg in ipairs(bars) do
         if cfg.enabled ~= false and cfg.popularKey == popularKey
            and cfg.trackType ~= "cooldown" then
-            local key = cfg[field]
-            if key and key ~= "none" then ns.PlayBuffSoundEdge(key, "tbb:" .. popularKey, gainEdge) end
-            local lost = cfg.buffLostSoundKey
-            if gainEdge and expiry and lost and lost ~= "none" then latch[popularKey] = expiry end
+            local key = ns.EffectiveAudioKey(cfg, field)
+            if key then
+                local textField = ns.AudioTextField(field)
+                ns.PlayBuffSoundEdge(key, "tbb:" .. popularKey, gainEdge,
+                    textField and cfg[textField], cfg.spellID)
+            end
+            local lost = ns.EffectiveAudioKey(cfg, "buffLostSoundKey")
+            if gainEdge and expiry and lost then latch[popularKey] = expiry end
         end
     end
 end
