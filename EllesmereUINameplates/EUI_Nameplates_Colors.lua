@@ -1014,7 +1014,11 @@ local function GetReactionColor(unit)
     -- caster-type raid boss) hit step 8's return before step 10b was ever reached, showing the
     -- Spell Caster color instead of Bosses. Mirrors the mutual exclusivity boss/mini-boss
     -- already have with each other.
-    local _isCaster = not owBasic and not _isBossUnit and UnitHasPowerType(unit, Enum.PowerType.Mana)
+    -- Casters From Casts (opt-in): a mob seen casting keeps the Caster color for the rest of
+    -- its plate's life, for the casters the game gives no mana pool.
+    local _isCaster = not owBasic and not _isBossUnit
+        and (UnitHasPowerType(unit, Enum.PowerType.Mana)
+             or (db.casterFromCasts and ns.plates[unit] and ns.plates[unit]._seenCasting))
     -- DPS/healer No Aggro override state (mirrors tank has-aggro overrides at 6b). Each
     -- override independently promotes the No Aggro color above one mob-type step (mini-boss 7,
     -- caster 8). Active only for a non-tank without aggro in a group or with a pet out
