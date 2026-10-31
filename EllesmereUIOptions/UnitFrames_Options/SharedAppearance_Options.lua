@@ -1269,6 +1269,28 @@ function ns.UFO_BuildPortraitSection(parent, y, ctx)
                 set=function(v) SSet("portraitSeparator", v or nil) end,
             }
         end
+        if SVal("portraitStyle", "attached") == "detached" then
+            rows[#rows + 1] = { type="toggle", label="Clickable Portrait",
+                tooltip="Clicking or hovering the detached portrait acts like clicking or hovering the frame's bars.",
+                get=function() return SVal("detachedPortraitClickable", false) end,
+                set=function(v) SSet("detachedPortraitClickable", v or nil) end,
+            }
+            rows[#rows + 1] = { type="colorpicker", label="Background Color", hasAlpha=true,
+                tooltip="Fill color behind the detached portrait.",
+                disabled=function() return SVal("detachedPortraitShape", "portrait") == "none" end,
+                disabledTooltip="This option requires a Shape other than None.",
+                rawTooltip=true,
+                get=function()
+                    local c = SGet("detachedPortraitBgColor")
+                    if c then return c.r, c.g, c.b, c.a or 1 end
+                    return 0.1, 0.1, 0.1, 1
+                end,
+                set=function(r, g, b, a)
+                    SSet("detachedPortraitBgColor", { r=r, g=g, b=b, a=a or 1 })
+                    UpdatePreview()
+                end,
+            }
+        end
         EllesmereUI.BuildInlineCog(sharedPortraitModeRow._leftRegion, {
             title = "Portrait Settings",
             disabled = function()

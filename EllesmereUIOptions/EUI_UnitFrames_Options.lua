@@ -1461,6 +1461,15 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        if pFrame._previewBg then
+            local bgc = isDetached and s.detachedPortraitBgColor
+            if bgc then
+                pFrame._previewBg:SetColorTexture(bgc.r, bgc.g, bgc.b, bgc.a or 1)
+            else
+                pFrame._previewBg:SetColorTexture(0.082, 0.082, 0.082, 1)
+            end
+        end
+
         local texList = {}
         if pFrame._previewTex then table.insert(texList, pFrame._previewTex) end
         if pFrame._previewBg then table.insert(texList, pFrame._previewBg) end

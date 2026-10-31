@@ -108,6 +108,8 @@ local function FrameBorderLeave(self)
     local portraitSeam = self._portraitSeparator
     if portraitSeam and portraitSeam:IsShown() then portraitSeam._tex:SetVertexColor(bc.r, bc.g, bc.b, ba) end
 end
+-- The detached portrait's click overlay replays these on hover (Portrait.lua).
+I.FrameBorderEnter, I.FrameBorderLeave = FrameBorderEnter, FrameBorderLeave
 
 -- Unified border for unit frames using the PP border system
 local function CreateUnifiedBorder(frame, unit)
