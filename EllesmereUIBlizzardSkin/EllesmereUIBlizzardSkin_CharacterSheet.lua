@@ -2096,6 +2096,7 @@ local function SkinCharacterSheet()
                 colorKey = "Attack",
                 color = GetCategoryColor("Attack"),
                 stats = {
+                    { name = "Attack Power", func = function() return UnitAttackPower("player") end, tooltip = L("Increases the power of your spells and abilities") },
                     { name = "Spell Power", func = function() return GetSpellBonusDamage(7) end, tooltip = L("Increases the power of your spells and abilities") },
                     { name = "Attack Speed", func = function() return UnitAttackSpeed("player") or 0 end, format = "%.2f", tooltip = L("Attacks per second") },
                 }
