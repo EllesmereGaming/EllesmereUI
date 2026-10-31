@@ -92,7 +92,7 @@ local squares = {}
 local dungeons  -- this season's dungeons
 local delves  -- Delves category
 local delveByActivity  -- activityID -> groupID, tier
-local bountiful = {}  -- delve name -> bountiful this week
+local bountiful = {}  -- delve name -> bountiful today
 local delveSquares = {}
 local tierBtn, tierMenu
 local bosses  -- current raid bosses
@@ -384,7 +384,7 @@ local function BuildDelves()
     return list, byAct
 end
 
--- Bountiful delves this week: check the delve pins for the bountiful art. Only
+-- Bountiful delves today: check the delve pins for the bountiful art. Only
 -- this season's delves count. At most once a minute. The first scan walks
 -- every zone under the world map and remembers the zones that hold delves;
 -- later scans check only those.
@@ -2434,7 +2434,7 @@ end
 local function DelveEnter(self)
     local d = self.delve
     if not d then return end
-    XF.Tip(self, d.name or "?", bountiful[d.name] and (XF.GOLD_HEX .. EllesmereUI.L("Bountiful this week") .. "|r") or nil,
+    XF.Tip(self, d.name or "?", bountiful[d.name] and (XF.GOLD_HEX .. EllesmereUI.L("Bountiful today") .. "|r") or nil,
         EllesmereUI.L("Click to toggle"))
 end
 
