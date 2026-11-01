@@ -5,6 +5,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Pages: Class, Power and Health Bars | Cast Bar | Unlock Mode
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place), read through this local and never through
+-- the public slot.
+local POOL = EllesmereUI._Pool
 
 local function DB()
 	local db = _G._ERB_AceDB
@@ -60,7 +64,11 @@ ns.ERB_OverlayHealOnShow = function(ov, obg, olbl, bgAlpha)
 	for p = 1, ov:GetNumPoints() do pts[p] = { ov:GetPoint(p) } end
 	local ovH = ov:GetHeight()
 	ov:SetScript("OnShow", function()
+		-- An overlay of the options page pool dressed again before the next
+		-- frame belongs to another build by then: the heal leaves it alone.
+		local gen = POOL.Gen and POOL.Gen(ov)
 		C_Timer.After(0, function()
+			if POOL.Gen and POOL.Gen(ov) ~= gen then return end
 			if not ov:IsVisible() then return end
 			if #pts > 0 then
 				ov:ClearAllPoints()
@@ -88,7 +96,9 @@ ns.ERB_SimpleOverrideOverlay = function(parent, topY, botY, sectionKey)
 	local EGc  = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
 	local CPAD = EllesmereUI.CONTENT_PAD or 45
 	local PP   = EllesmereUI.PanelPP or EllesmereUI.PP
-	local ov   = CreateFrame("Button", nil, parent)
+	-- On an options page (an options page pool host) the overlay is pooled
+	-- with the page.
+	local ov   = POOL.CreateFrame("Button", nil, parent)
 	-- Anchor via PP so it lines up with the section header/rows.
 	PP.Point(ov, "TOPLEFT", parent, "TOPLEFT", CPAD, topY)
 	PP.Point(ov, "TOPRIGHT", parent, "TOPRIGHT", -CPAD, topY)

@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 
@@ -8,16 +9,9 @@ local addon = SimpleLootCouncil
 local MasterLoot = {}
 addon.MasterLoot = MasterLoot
 
-local issecretvalue = issecretvalue
 local MAX_CANDIDATES = 40
 
-local function IsSecret(...)
-    if not issecretvalue then return false end
-    for i = 1, select("#", ...) do
-        if issecretvalue((select(i, ...))) then return true end
-    end
-    return false
-end
+local IsSecret = addon.IsSecret
 
 
 function MasterLoot:IsActive()
@@ -47,7 +41,7 @@ function MasterLoot.SelfCandidate(slot)
     local listed = false
     for index = 1, MAX_CANDIDATES do
         local ok, name, second = pcall(GetMasterLootCandidate, slot, index)
-        if ok and type(name) == "string" and name ~= "" and not IsSecret(name, second) then
+        if ok and not IsSecret(name, second) and type(name) == "string" and name ~= "" then
             listed = true
             if addon.Player:IsSelf((addon.Player.UnitNameParts(name, second))) then
                 return index, true
@@ -118,7 +112,7 @@ function MasterLoot:AutoLoot()
     addon.Log:I("MasterLoot", "auto-looted", boss and "boss" or "trash", given, "master-looted and",
         looted, "other slot(s);", refused, "not offered to us")
     if refused > 0 then
-        print(addon.Log.CHAT_PREFIX.error .. addon.Locale.Format(addon.Locale.Plural{
+        addon.Chat.Error(addon.Locale.Format(addon.Locale.Plural{
             one = "%d item on this corpse was left in the loot window - the game does not offer it to you.",
             other = "%d items on this corpse were left in the loot window - the game does not offer them to you.",
         }, refused, refused))

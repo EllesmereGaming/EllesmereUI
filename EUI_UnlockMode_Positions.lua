@@ -16,6 +16,14 @@ local movers, pendingPositions, GetBarGrowDirActual, GetAnchorDB = UM.movers, UM
 local GetAnchorInfo, MatchH, ScheduleAnchorBatch, ApplyAllWidthHeightMatches = UM.GetAnchorInfo, UM.MatchH, UM.ScheduleAnchorBatch, UM.ApplyAllWidthHeightMatches
 local HookFrameSizeChanged, FadeOverlayForSelectElement, CancelPickMode = UM.HookFrameSizeChanged, UM.FadeOverlayForSelectElement, UM.CancelPickMode
 
+-- isPositionHeld: something else places the frame for now (the quest tracker
+-- inside Blizzard's managed container), so only a live unlock session moves it.
+local function PositionHeld(key)
+    if UM.isUnlocked then return false end
+    local elem = registeredElements[key]
+    return elem and elem.isPositionHeld and elem.isPositionHeld(key) or false
+end
+
 -------------------------------------------------------------------------------
 --  Ghost overlay set (unlock mode only), shared by fallback and override  -- eui-style: allow comment-budget
 --  anchors: draggable 1:1 mover-overlay copies at 75% opacity sitting where
@@ -85,6 +93,7 @@ local function MakeGhostSet(opts)
         -- gesture parity). Every refresh path funnels here, so the ghost stays
         -- hidden until the next unlock entry clears the flag.
         if g._tempHidden then g:Hide(); return end
+        if UM.FilterHides and UM.FilterHides(g._childKey) then HideGhost(g); return end  -- element filter
         if g._dragging then return end
         local childKey = g._childKey
         local link = getLink(g)
@@ -135,7 +144,7 @@ local function MakeGhostSet(opts)
     local function CreateGhost(...)
         local g = CreateFrame("Frame", nil, UM.unlockFrame)
         local wr, wg, wb, mr, mg, mb = opts.init(g, ...)
-        g:SetFrameLevel(300)
+        UM.SetMoverOverlayLevel(g, 50)
         g:SetClampedToScreen(true)
         g:EnableMouse(true)
         g:SetAlpha(GHOST_ALPHA)
@@ -819,6 +828,7 @@ end
 -- edge sits in, so runtime straddling can never flip it.
 EllesmereUI._unlockCaptureGrowPin = function(childKey, ai, side)
     if not ai or not ai.target then return false end
+    if ai.mode == "POINT" then return false end
     local childBar = UM.GetBarFrame(childKey)
     local targetBar = UM.GetBarFrame(ai.target)
     if not childBar or not targetBar then return false end
@@ -907,6 +917,10 @@ end
 -- raid container's per-tier offset) comes out, because every anchored apply folds
 -- it back in. Returns nil when either rect is missing.
 EllesmereUI._CaptureAnchorOffsets = function(childKey, targetKey, side)
+    local info = GetAnchorInfo(childKey)
+    if info and info.mode == "POINT" and info.target == targetKey then
+        return ns.PointAnchors.Capture(childKey, info)
+    end
     local child, tgt = UM.GetBarFrame(childKey), UM.GetBarFrame(targetKey)
     if not (child and child:GetLeft() and tgt and tgt:GetLeft()) then return nil end
     local uiS = UIParent:GetEffectiveScale()
@@ -1059,6 +1073,7 @@ UM.ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fro
     -- The module alone places this frame from its saved spot (ownsPosition: main
     -- chat): a link would be a third owner beside it and Blizzard's Edit Mode.
     if cElem and cElem.ownsPosition then return end
+    if PositionHeld(childKey) then return end
     -- Override anchor (opt-in, Resource Bars): while a spec-override group's
     -- stored position is engaged it owns this element outright -- it wins over
     -- the anchor link exactly like it wins over the saved position.
@@ -1159,7 +1174,10 @@ UM.ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fro
     -- Compute child center
     local cx, cy
     local ai = GetAnchorInfo(childKey)
-    if ai and ai.offsetX ~= nil and ai.offsetY ~= nil then
+    if ai and ai.mode == "POINT" then
+        cx, cy = ns.PointAnchors.Center(childKey, childBar, ai, targetBar, cW, cH)
+        if not cx then return end
+    elseif ai and ai.offsetX ~= nil and ai.offsetY ~= nil then
         -- Edge-to-edge offset mode: the offset runs from the child's near edge to
         -- the target's anchor edge, so a resized child keeps that near edge fixed.
         local edgeX, edgeY
@@ -1237,8 +1255,8 @@ UM.ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fro
     -- anchored bars always use the target-computed cx/cy (target bounds + offsets
     -- are authoritative; saved-edge data may be stale).
     local cdmEdgeAnchor
-    local isCdmOrAB = childKey:sub(1, 4) == "CDM_"
-        or (EllesmereUI._abBarKeys and EllesmereUI._abBarKeys[childKey])
+    local isCdmOrAB = not (ai and ai.mode == "POINT") and (childKey:sub(1, 4) == "CDM_"
+        or (EllesmereUI._abBarKeys and EllesmereUI._abBarKeys[childKey]))
     local isCDM = childKey:sub(1, 4) == "CDM_"
 
     -- Unified growth-edge pin (anchored custom-growth bars): the bar's fixed  -- eui-style: allow comment-budget
@@ -1589,7 +1607,15 @@ UM.ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fro
     if not noMove then
         local acRatio = uiS / cS
 
-        if cdmEdgeAnchor then
+        if ai and ai.mode == "POINT" then
+            local changed
+            bCenterX, bCenterY, changed = ns.PointAnchors.Place(childKey, childBar, ai, centerX, centerY, cW0, cH0)
+            if not bCenterX then return end
+            if changed then
+                UM._pendingAnchorKeys[childKey] = "all"
+                ScheduleAnchorBatch()
+            end
+        elseif cdmEdgeAnchor then
             -- Non-CENTER-grow bar: position at the growth edge directly so
             -- SetSize grows naturally without any post-resize re-anchoring.
             local bEdgeX, bEdgeY
@@ -1764,7 +1790,9 @@ UM.ApplyAnchorPosition = function(childKey, targetKey, side, noMark, noMove, fro
         local actualCX = (bL + bR) / 2
         local actualCY = (bT + bB) / 2
         -- Skip offset recomputation if valid offsets already exist -- recomputing from live bounds introduces floating point drift.
-        if ai and (ai.offsetX == nil or ai.offsetY == nil) then
+        if ai and ai.mode == "POINT" and (ai.offsetX == nil or ai.offsetY == nil) then
+            ai.offsetX, ai.offsetY = ns.PointAnchors.Capture(childKey, ai, childBar, targetBar)
+        elseif ai and (ai.offsetX == nil or ai.offsetY == nil) then
             local actualHW = (bR - bL) / 2
             local actualHH = (bT - bB) / 2
             local snap = (EllesmereUI and EllesmereUI.PP and EllesmereUI.PP.Snap) or function(v) return math.floor(v + 0.5) end
@@ -1895,7 +1923,7 @@ UM.PropagateAnchorChain = function(parentKey, visited, changedAxis)
             -- original gate. fallbackMatch skips this entirely: info.side describes the
             -- PRIMARY anchor's geometry, meaningless for the fallback's own math.
             local dominated = false
-            if primaryMatch and changedAxis == "width" then
+            if primaryMatch and info.mode ~= "POINT" and changedAxis == "width" then
                 dominated = (info.side == "TOP" or info.side == "BOTTOM")
                 if dominated then
                     if parentKey:sub(1, 4) == "CDM_"
@@ -1913,7 +1941,7 @@ UM.PropagateAnchorChain = function(parentKey, visited, changedAxis)
                         dominated = false
                     end
                 end
-            elseif primaryMatch and changedAxis == "height" then
+            elseif primaryMatch and info.mode ~= "POINT" and changedAxis == "height" then
                 dominated = (info.side == "LEFT" or info.side == "RIGHT")
                 if dominated then
                     if parentKey:sub(1, 4) == "CDM_"
@@ -2087,12 +2115,13 @@ EllesmereUI.ReapplyAllUnlockAnchorsForced = function()
             if childBar and (targetBar or info.fallback ~= nil)
                and not (inCombat and childBar:IsProtected())
                and not (rcElem and rcElem.isAnchored and rcElem.isAnchored(childKey))
-               and not (rcElem and rcElem.ownsPosition) then
+               and not (rcElem and rcElem.ownsPosition)
+               and not PositionHeld(childKey) then
                 -- AB growth bars: skip entirely -- applyPos from barPositions is
                 -- authoritative (edge format, width-independent, per LayoutBar).
                 local isABGrow = false
                 if EllesmereUI._abBarKeys and EllesmereUI._abBarKeys[childKey]
-                   and childKey ~= "StanceBar" then
+                   and childKey ~= "StanceBar" and info.mode ~= "POINT" then
                     local gd = GetBarGrowDirActual(childKey)
                     isABGrow = gd and gd ~= "CENTER"
                 end
@@ -2259,8 +2288,12 @@ end
 -- resize), anchored uses the edge opposite its anchor side (grows away from it).
 UM.ApplyCenterPosition = function(barKey, pos)
     if not pos or pos.point ~= "CENTER" or pos.relPoint ~= "CENTER" then return false end
+    -- Grouped bars and other addon-owned elements keep their relative anchors.
+    local elem = registeredElements[barKey]
+    if elem and elem.isAnchored and elem.isAnchored(barKey) then return true end
     local frame = UM.GetBarFrame(barKey)
     if not frame then return false end
+    if PositionHeld(barKey) then return true end
 
     -- Skip elements anchored via the unlock anchor system -- their position
     -- is owned by ApplyAnchorPosition, not by the grow-direction logic here.
@@ -2501,6 +2534,7 @@ end
 -------------------------------------------------------------------------------
 local function MigrateAndApplyPosition(barKey, pos, frame)
     if not pos or not pos.point then return false end
+    if PositionHeld(barKey) then return true end
     -- CENTER/CENTER: apply with grow-direction-aware positioning
     if pos.point == "CENTER" and pos.relPoint == "CENTER" then
         return UM.ApplyCenterPosition(barKey, pos)

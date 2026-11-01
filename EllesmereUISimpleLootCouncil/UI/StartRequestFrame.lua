@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
@@ -48,7 +49,7 @@ local function Build()
     list.onLeave = function() GameTooltip:Hide() end
     list.onClick = function(_, item) S.ItemModifiedClick(item.link) end
     y = y + list.headerHeight + VISIBLE_ROWS * ROW_HEIGHT + S.size.GAP
-    local hint = S.Label(content, S.fontSmall, "LEFT")
+    local hint = S.Label(content, S.fontHint, "LEFT", 2)
     P.Point(hint, "TOPLEFT", 0, -y)
     P.Point(hint, "TOPRIGHT", 0, -y)
     P.Size(hint, nil, ROW_HEIGHT)
@@ -61,7 +62,7 @@ local function Build()
     P.Point(yes, "RIGHT", no, "LEFT", -S.size.GAP, 0)
     yes:SetScript("OnClick", function() addon.StartRequest:Resolve(shownRequest, true) end)
     y = y + S.size.BTN_H
-    P.Size(frame, WIDTH, frame.HeaderHeight + S.size.PAD * 2 + y)
+    frame:SetHeightFromTop(frame.HeaderHeight + S.size.PAD * 2 + y)
     frame:HookScript("OnHide", function()
         GameTooltip:Hide()
         local request = shownRequest
@@ -98,7 +99,8 @@ function Panel:Refresh()
         or addon.Locale.Format(T["%s requests a loot session on your queued items."],
             who))
     addon.UI.Table.SetData(list, request.items, not newRequest)
-    if newRequest then frame:RestorePosition() end
+
+    if newRequest and not frame:IsShown() then frame:RestorePosition() end
     frame:Show()
 end
 

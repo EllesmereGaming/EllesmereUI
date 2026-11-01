@@ -1,0 +1,137 @@
+name: Discord activity
+
+# Posts the repo's activity to Discord in the GitHub feed's embed style, but only
+# what the owner wants to see: a push to main (save.ps1; release.ps1's commit and
+# PR merges are skipped, their own posts cover them), a pull request opened (not a
+# draft) or marked ready for review, a pull request merged, and a release published.
+# Needs the repository secret DISCORD_WEBHOOK_URL: the Discord webhook URL WITHOUT
+# /github. Until it is set, nothing is posted and the job still passes. No
+# third-party action and no checkout: the PR trigger never runs PR code, so it can
+# hold the secret safely.
+
+on:
+  push:
+    branches: [main]
+  pull_request_target:
+    types: [opened, ready_for_review, closed]
+    branches: [main]
+  # The packager publishes the GitHub release with GITHUB_TOKEN, and events that
+  # token causes start no workflow: the release post follows the release workflow.
+  workflow_run:
+    workflows: ["Package and Release EllesmereUI"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node <<'EOF'
+          const fs = require("fs");
+          const event = process.env.GITHUB_EVENT_NAME;
+          const ev = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+          const repo = process.env.GITHUB_REPOSITORY;
+          const repoName = repo.split("/")[1];
+          const hook = process.env.DISCORD_WEBHOOK_URL;
+
+          // Left strip colours: pushes and new pull requests as the GitHub feed draws them,
+          // merges in GitHub's merged purple.
+          const COLOR = { push: 0x7289da, opened: 0x009800, merged: 0x8250df, release: 0xe3b341 };
+
+          const skip = (why) => console.log("Nothing to post: " + why);
+          const cut = (s, n) => (s.length > n ? s.slice(0, n - 3) + "..." : s);
+          const esc = (s) => s.replace(/([\\*_~`|])/g, "\\$1");
+          const author = (u) => u && { name: u.login, url: u.html_url, icon_url: u.avatar_url };
+
+          async function gh(path) {
+            const r = await fetch("https://api.github.com" + path, {
+              headers: { Authorization: "Bearer " + process.env.GITHUB_TOKEN, Accept: "application/vnd.github+json" },
+            });
+            return r.ok ? r.json() : null;
+          }
+
+          async function build() {
+            if (event === "push") {
+              const head = ev.head_commit;
+              if (!head || !ev.commits || ev.commits.length === 0) return skip("no commits");
+              const first = head.message.split("\n")[0];
+              if (/^Release v\S+$/.test(first)) return skip("release.ps1's commit (the release post covers it)");
+              if (/^Merge pull request #\d+/.test(first)) return skip("a pull request merge (its own post covers it)");
+              // Squash and rebase merges carry no merge message: ask GitHub.
+              const prs = await gh(`/repos/${repo}/commits/${ev.after}/pulls`);
+              if (Array.isArray(prs) && prs.some((p) => p.merged_at && p.merge_commit_sha === ev.after)) {
+                return skip("a pull request merge (its own post covers it)");
+              }
+              const n = ev.commits.length;
+              const lines = ev.commits.slice(0, 5).map((c) =>
+                `[\`${c.id.slice(0, 7)}\`](${c.url}) ${esc(cut(c.message.split("\n")[0], 50))} - ${esc(c.author.username || c.author.name)}`);
+              return {
+                author: author(ev.sender),
+                title: `[${repoName}:main] ${n} new commit${n === 1 ? "" : "s"}`,
+                url: ev.compare,
+                description: lines.join("\n"),
+                color: COLOR.push,
+              };
+            }
+            if (event === "pull_request_target") {
+              const pr = ev.pull_request;
+              let label, color;
+              if (ev.action === "opened" && !pr.draft) { label = "Pull request opened"; color = COLOR.opened; }
+              else if (ev.action === "ready_for_review") { label = "Pull request ready for review"; color = COLOR.opened; }
+              else if (ev.action === "closed" && pr.merged) { label = "Pull request merged"; color = COLOR.merged; }
+              else return skip(`pull request ${ev.action}${pr.draft ? " (draft)" : ""}${ev.action === "closed" ? " without a merge" : ""}`);
+              // A new pull request shows the start of its description, as the GitHub feed
+              // does (the template's hidden comments dropped); a merge shows only its title.
+              const body = color === COLOR.opened ? (pr.body || "").replace(/\r\n/g, "\n")
+                .replace(/<!--[\s\S]*?-->/g, "").replace(/\n{3,}/g, "\n\n").trim() : "";
+              return {
+                author: author(ev.sender),
+                title: cut(`[${repo}] ${label}: #${pr.number} ${pr.title}`, 256),
+                url: pr.html_url,
+                description: body ? cut(body, 500) : undefined,
+                color,
+              };
+            }
+            if (event === "workflow_run") {
+              const run = ev.workflow_run;
+              if (run.conclusion !== "success") return skip("the release workflow ended " + run.conclusion);
+              const tag = run.head_branch;
+              const rel = await gh(tag ? `/repos/${repo}/releases/tags/${encodeURIComponent(tag)}` : `/repos/${repo}/releases/latest`);
+              const name = (rel && rel.tag_name) || tag;
+              if (!name) return skip("no release tag found");
+              return {
+                author: author(ev.sender),
+                title: cut(`[${repo}] New release published: ${name}`, 256),
+                url: (rel && rel.html_url) || `https://github.com/${repo}/releases/tag/${encodeURIComponent(name)}`,
+                color: COLOR.release,
+              };
+            }
+            return skip("event " + event);
+          }
+
+          (async () => {
+            try {
+              const embed = await build();
+              if (!embed) return;
+              if (!hook) return console.log("::notice::DISCORD_WEBHOOK_URL is not set: nothing posted.");
+              if (/\/github\/?$/.test(hook)) return console.log("::warning::DISCORD_WEBHOOK_URL must not end in /github.");
+              const r = await fetch(hook, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } }),
+              });
+              if (!r.ok) console.log(`::warning::Discord answered HTTP ${r.status}: ${await r.text()}`);
+              else console.log("Posted: " + embed.title);
+            } catch (e) {
+              console.log("::warning::Discord post failed: " + e.message);
+            }
+          })();
+          EOF

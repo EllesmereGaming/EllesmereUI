@@ -161,14 +161,7 @@ function EllesmereUI.BuildSoundDropdownValues(paths, names, order)
             if key == "none" or not paths[key] then return nil end
             return EllesmereUI.SOUND_ICON_PRESSED_ATLAS
         end,
-        iconOnClick = function(key)
-            local path = paths[key]
-            if type(path) == "number" then
-                if path ~= 1 then PlaySound(path, "Master") end
-            elseif path then
-                PlaySoundFile(path, "Master")
-            end
-        end,
+        iconOnClick = function(key) EllesmereUI.PlaySoundPath(paths[key]) end,
         iconTooltip = function() return "Preview Sound" end,
     }
     return values, order
@@ -212,7 +205,7 @@ end
 
 -- A row of action cards across the page (icon, title, a short description;
 -- the whole card is the click). cards[i] = { icon, title, desc, onClick,
--- accent, hero, iconSize, sizeAlso } -- accent { r, g, b } tints the icon
+-- accent, hero, iconSize, sizeAlso, pulse } -- accent { r, g, b } tints the icon
 -- (and a box's top edge), the theme accent when nil; iconSize (px) draws art
 -- that fills more of its canvas smaller, centred in the same slot (the text
 -- never moves). By default the cards are equal boxes side by side across
@@ -224,7 +217,9 @@ end
 -- the equal cards' boxed look. opts.footer (px, inline) leaves that much free
 -- under the line for the caller (a link). Returns the new y and the card
 -- buttons (in cards order); card:SetCardContent(icon, title, desc) swaps all
--- three in place.
+-- three in place. An equal card built with pulse = true also takes
+-- card:SetPulse(on): a breathing accent outline for an action that wants
+-- attention now, animated only while the card shows.
 local function BuildInlineRow(parent, y, cards, availW, fullW, footer)
     local PP = EllesmereUI.PanelPP
     local L  = EllesmereUI.L
@@ -345,17 +340,20 @@ local function BuildInlineRow(parent, y, cards, availW, fullW, footer)
         if not spec.accent then
             EllesmereUI.RegisterWidgetRefresh(function() Paint(card:IsMouseOver()) end)
         end
+        -- The labels' resting alpha is their text colour's (MakeFont), so the
+        -- hover moves that alpha, never the region's: a leave puts back exactly
+        -- the look a new card has.
         card:SetScript("OnEnter", function()
             Paint(true)
             icon:SetAlpha(boxed and (BOX_ICON_A + 0.25) or 1)
-            titleFs:SetAlpha(1)
-            if not boxed then descFs:SetAlpha(DESC_A + 0.15) end
+            titleFs:SetTextColor(1, 1, 1, 1)
+            if not boxed then descFs:SetTextColor(1, 1, 1, DESC_A + 0.15) end
         end)
         card:SetScript("OnLeave", function()
             Paint(false)
             icon:SetAlpha(p.iconA)
-            titleFs:SetAlpha(TITLE_A)
-            descFs:SetAlpha(p.descA)
+            titleFs:SetTextColor(1, 1, 1, TITLE_A)
+            descFs:SetTextColor(1, 1, 1, p.descA)
         end)
         if spec.onClick then card:SetScript("OnClick", spec.onClick) end
     end
@@ -436,16 +434,47 @@ function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
         end
         card:SetCardContent(spec.icon, spec.title, spec.desc)
 
+        -- The pulse outline is built with the card whenever it is asked for,
+        -- so a kept page hands it back in order; it stays hidden until
+        -- SetPulse turns it on, and its fade plays only while it shows.
+        local pulse
+        if spec.pulse then
+            pulse = CreateFrame("Frame", nil, card)
+            pulse:SetAllPoints(card)
+            pulse:SetFrameLevel(card:GetFrameLevel() + 3)
+            pulse:EnableMouse(false)
+            pulse:Hide()
+            PP.CreateBorder(pulse, ac.r, ac.g, ac.b, 1, 2, "OVERLAY", 7)
+            local breathe = pulse:CreateAnimationGroup()
+            breathe:SetLooping("BOUNCE")
+            local fade = breathe:CreateAnimation("Alpha")
+            fade:SetFromAlpha(1)
+            fade:SetToAlpha(0.2)
+            fade:SetDuration(0.9)
+            fade:SetSmoothing("IN_OUT")
+            pulse:SetScript("OnShow", function() breathe:Play() end)
+            pulse:SetScript("OnHide", function() breathe:Stop() end)
+        end
+        function card:SetPulse(on)
+            if not pulse then return end
+            if on then
+                local live = spec.accent or EllesmereUI.ELLESMERE_GREEN
+                PP.SetBorderColor(pulse, live.r, live.g, live.b, 1)
+            end
+            pulse:SetShown(on and true or false)
+        end
+
+        -- The title's resting alpha is its text colour's (as BuildInlineRow's).
         card:SetScript("OnEnter", function()
             bg:SetColorTexture(0.119, 0.111, 0.104, 0.50)
             brd:SetColor(1, 1, 1, BRD_A + 0.10)
-            titleFs:SetAlpha(1)
+            titleFs:SetTextColor(1, 1, 1, 1)
             icon:SetAlpha(ICON_A + 0.25)
         end)
         card:SetScript("OnLeave", function()
             bg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
             brd:SetColor(1, 1, 1, BRD_A)
-            titleFs:SetAlpha(TITLE_A)
+            titleFs:SetTextColor(1, 1, 1, TITLE_A)
             icon:SetAlpha(ICON_A)
         end)
         if spec.onClick then card:SetScript("OnClick", spec.onClick) end
@@ -454,17 +483,29 @@ function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
     return y - CARD_H, built
 end
 
--- Dim note row shown inside a card when its module is disabled.
-function EllesmereUI.BuildNoteRow(parent, y, text)
+-- Note row: a dim aside (inside a card when its module is disabled, under a
+-- row). opts.banner: the section banner look (row background, brighter text,
+-- up to two lines), for a note the player must read before the rows below.
+function EllesmereUI.BuildNoteRow(parent, y, text, opts)
+    local banner = opts and opts.banner
+    local ROW_H = banner and 40 or 34
+    -- The search prebuild only indexes rows: same y advance, no frames.
+    if EllesmereUI._prebuilding then return y - ROW_H end
     local PP = EllesmereUI.PanelPP
-    local ROW_H = 34
     local row = CreateFrame("Frame", nil, parent)
     PP.Size(row, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, ROW_H)
     PP.Point(row, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
     row._skipRowDivider = true
+    if banner then EllesmereUI.RowBg(row, parent) end
     local lbl = EllesmereUI.MakeFont(row, 12, nil, 1, 1, 1)
-    lbl:SetAlpha(0.45)
+    lbl:SetAlpha(banner and 0.6 or 0.45)
     lbl:SetPoint("LEFT", row, "LEFT", 20, 0)
+    if banner then
+        lbl:SetPoint("RIGHT", row, "RIGHT", -20, 0)
+        lbl:SetJustifyH("LEFT")
+        lbl:SetWordWrap(true)
+        lbl:SetMaxLines(2)
+    end
     lbl:SetText(EllesmereUI.L(text))
     return y - ROW_H
 end
@@ -558,16 +599,18 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
     local dd = enabled and opts.headerDD and opts.headerDD(hdr)
 
     local strip
+    -- The title's resting alpha is its text colour's (MakeFont), so the hover
+    -- moves that alpha: a leave puts back exactly the look a new card has.
     local function ApplyHeaderHover()
         hbg:SetColorTexture(1, 1, 1, 0.05)
-        title:SetAlpha(1)
+        title:SetTextColor(1, 1, 1, 1)
         if chev then chev:SetAlpha(0.85) end
         if brd then brd:SetColor(1, 1, 1, 0.22) end
     end
     local function ClearHeaderHover()
         if hdr:IsMouseOver() then return end
         hbg:SetColorTexture(0, 0, 0, 0)
-        title:SetAlpha(0.9)
+        title:SetTextColor(1, 1, 1, 0.9)
         if chev then chev:SetAlpha(0.45) end
         if brd then brd:SetColor(1, 1, 1, expanded and 0.16 or 0.12) end
     end
@@ -628,6 +671,13 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
     PP.Point(strip, "TOPLEFT", hdr, "TOPLEFT", 1, -1)
     PP.Point(strip, "BOTTOMLEFT", hdr, "BOTTOMLEFT", 1, 1)
     if strip.SetSnapToPixelGrid then strip:SetSnapToPixelGrid(false); strip:SetTexelSnappingBias(0) end
+    -- The accent parts follow a live accent change (it refreshes the shown page).
+    if enabled then
+        EllesmereUI.RegisterWidgetRefresh(function()
+            strip:SetColorTexture(EG.r, EG.g, EG.b, 0.7)
+            if chev and expanded then chev:SetVertexColor(EG.r, EG.g, EG.b) end
+        end)
+    end
 
     return y - MC_CARD_GAP
 end
@@ -636,7 +686,9 @@ end
 --  Manager-page parts (Buff Manager, Debuff Manager, Player Aura Bars)
 -------------------------------------------------------------------------------
 -- Sidebar tile. opts: width, fontPath, title, subtitle | subtitleFn, icon | iconFn
--- (the Fn forms re-read on every page widget refresh), posText, selected,
+-- (the Fn forms re-read on every page widget refresh) | iconApply(tex) (paints
+-- the icon itself, no crop), statusDot ({ r, g, b }: 8px dot, top right, left of
+-- the toggle pill when shown), posText, selected,
 -- enabled, showToggle, dimmed, inheritedTooltip,
 -- onSelect(), onToggle(newState), onDelete(), onEdit(), onContext(tile),
 -- height (66), textRight (-52), titleUnclamped, editSize (16), editTooltip,
@@ -674,9 +726,10 @@ function EllesmereUI.BuildManagerTile(parentFrame, y, opts)
 
     local textX = 12
     local titleY = -10
-    local textRight = opts.textRight or -52
+    -- A status dot beside the toggle pill pushes the text further in.
+    local textRight = opts.textRight or ((opts.showToggle and opts.statusDot) and -60 or -52)
 
-    if opts.icon or opts.iconFn then
+    if opts.icon or opts.iconFn or opts.iconApply then
         local ICON_SZ = 36
         local iconFrame = CreateFrame("Frame", nil, tile)
         iconFrame:SetSize(ICON_SZ, ICON_SZ)
@@ -684,8 +737,12 @@ function EllesmereUI.BuildManagerTile(parentFrame, y, opts)
         iconFrame:SetFrameLevel(tile:GetFrameLevel() + 1)
         local iconTex = iconFrame:CreateTexture(nil, "ARTWORK")
         iconTex:SetAllPoints()
-        iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        iconTex:SetTexture(opts.iconFn and opts.iconFn() or opts.icon)
+        if opts.iconApply then
+            opts.iconApply(iconTex)
+        else
+            iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            iconTex:SetTexture(opts.iconFn and opts.iconFn() or opts.icon)
+        end
         if opts.iconFn then
             EllesmereUI.RegisterWidgetRefresh(function() iconTex:SetTexture(opts.iconFn()) end)
         end
@@ -846,6 +903,15 @@ function EllesmereUI.BuildManagerTile(parentFrame, y, opts)
     sep:SetPoint("BOTTOMLEFT", tile, "BOTTOMLEFT", 0, 0)
     sep:SetPoint("BOTTOMRIGHT", tile, "BOTTOMRIGHT", 0, 0)
     sep:SetColorTexture(1, 1, 1, 0.04)
+
+    if opts.statusDot then
+        local dot = tile:CreateTexture(nil, "ARTWORK")
+        PP.Size(dot, 8, 8)
+        -- Left of the toggle pill when the tile has one.
+        PP.Point(dot, "TOPRIGHT", tile, "TOPRIGHT", opts.showToggle and -46 or -12, -14)
+        dot:SetTexture("Interface\\Common\\CommonMaskCircle")
+        dot:SetVertexColor(opts.statusDot[1], opts.statusDot[2], opts.statusDot[3], 1)
+    end
 
     if opts.dimmed then tile:SetAlpha(0.55) end
 

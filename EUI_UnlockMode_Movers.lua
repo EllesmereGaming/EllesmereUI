@@ -22,6 +22,94 @@ local DeselectMover, GetActionBarVisualSize, SortMoverFrameLevels = UM.DeselectM
 
 local _mouseHeld = false       -- true while left mouse button is held down anywhere
 
+local function OverlapUsesScroll(method)
+    return method == "scroll" or method == "shiftscroll" or method == "controlscroll" or method == "altscroll"
+end
+
+local function OverlapModifierDown(method)
+    if method == "scroll" then return true end
+    if method == "shiftscroll" then return IsShiftKeyDown() end
+    if method == "controlscroll" then return IsControlKeyDown() end
+    if method == "altscroll" then return IsAltKeyDown() end
+    return false
+end
+
+local function OverlapScrollDown()
+    local method = EllesmereUI.GetUnlockOverlapMethod()
+    return OverlapUsesScroll(method) and OverlapModifierDown(method)
+end
+
+function UM.UpdateMoverMouseWheel()
+    local method = EllesmereUI.GetUnlockOverlapMethod()
+    local active = UM.isUnlocked and UM.arrowKeyFrame and UM.arrowKeyFrame:IsShown()
+        and OverlapUsesScroll(method)
+    if UM.arrowKeyFrame then
+        if active and method ~= "scroll" then
+            UM.arrowKeyFrame:RegisterEvent("MODIFIER_STATE_CHANGED")
+        else
+            UM.arrowKeyFrame:UnregisterEvent("MODIFIER_STATE_CHANGED")
+        end
+    end
+    local enabled = active and OverlapModifierDown(method) or false
+    for _, m in pairs(movers) do
+        m:EnableMouseWheel(enabled)
+        if m._linkBtns then
+            for _, btn in ipairs(m._linkBtns) do btn:EnableMouseWheel(enabled) end
+        end
+        if m._cogBtn then m._cogBtn:EnableMouseWheel(enabled) end
+    end
+end
+EllesmereUI.RefreshUnlockOverlapMethod = UM.UpdateMoverMouseWheel
+
+-- Rotate only the overlay levels; the real elements and saved layout stay put.
+local function CycleOverlappingMovers(current, delta)
+    if not UM.isUnlocked or InCombatLockdown() or _mouseHeld or delta == 0
+        or not OverlapScrollDown() then return end
+    local hits = {}
+    for _, m in pairs(movers) do
+        if m._dragging then return end
+        if m:IsShown() and m:IsMouseOver() then
+            hits[#hits + 1] = { mover = m, base = m._baseLevel, raised = m._raisedLevel }
+        end
+    end
+    if #hits < 2 then return end
+    table.sort(hits, function(a, b)
+        if a.base == b.base then return a.mover._barKey < b.mover._barKey end
+        return a.base > b.base
+    end)
+    local index
+    for i, hit in ipairs(hits) do
+        if hit.mover == current then index = i; break end
+    end
+    if not index then return end
+    index = (index - 1 + (delta > 0 and -1 or 1)) % #hits + 1
+    local target = hits[index].mover
+    for i = 1, #hits do
+        local m = hits[(index + i - 2) % #hits + 1].mover
+        m._baseLevel = hits[i].base
+        m._raisedLevel = hits[i].raised
+        m._cycleLowered = m ~= target
+        m._hoverPending = false
+    end
+    -- Raise first so none of the lowered overlays can take mouse focus midway.
+    target:SetFrameLevel(target._raisedLevel + 100)
+    local ar, ag, ab = GetAccent()
+    EllesmereUI.HideWidgetTooltip()
+    for _, hit in ipairs(hits) do
+        local m = hit.mover
+        if m ~= target then
+            if m._forceCollapse then m._forceCollapse() end
+            m:SetFrameLevel(m._baseLevel)
+            if m._cogBtn then m._cogBtn:SetFrameLevel(m._baseLevel + 10) end
+            if not m._selected then
+                if not UM.darkOverlaysEnabled then m:SetAlpha(MOVER_ALPHA) end
+                m._brd:SetColor(ar, ag, ab, 0.6)
+            end
+        end
+    end
+    target:GetScript("OnEnter")(target)
+end
+
 -- True while any part of a frame's rect reads secret: all of it when the frame
 -- rides an engine aura container, its size alone when only one edge does (a
 -- Blizzard Style unit frame's box around its aura stack). Nothing measures it then.
@@ -87,7 +175,7 @@ end
 
 -- Clickable row: a highlight texture and a left label. Comes back with no
 -- scripts, the highlight clear, the label idle grey, anchored on its left only
--- and wrapping, and the arrow and flyout of an earlier use hidden.
+-- and wrapping, and the arrow, check box and flyout of an earlier use hidden.
 function MenuPool.Item(menu, y, h)
     local p = menu._pool
     local n = p.nItems + 1
@@ -120,9 +208,40 @@ function MenuPool.Item(menu, y, h)
     lbl:SetWordWrap(true)
     lbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
     if it._arrow then it._arrow:Hide() end
+    if it._check then it._check:Hide() end
     if it._sub then it._sub:Hide() end
     it:Show()
     return it, hl, lbl
+end
+
+-- Check box on a pooled row's left (the suite's checkbox look, filled in the
+-- menu's linked orange while checked); the label moves to its right. dim
+-- greys the box on a row that cannot be picked.
+function MenuPool.Check(it, checked, dim)
+    local box = it._check
+    if not box then
+        box = CreateFrame("Frame", nil, it)
+        box:SetSize(12, 12)
+        box:SetPoint("LEFT", it, "LEFT", 10, 0)
+        local bg = box:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.114, 0.106, 0.099, 1)
+        box._brd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6)
+        local fill = box:CreateTexture(nil, "ARTWORK")
+        EllesmereUI.PP.SetInside(fill, box, 2, 2)
+        fill:SetColorTexture(1, 0.7, 0.3, 1)
+        box._fill = fill
+        it._check = box
+    end
+    box._fill:SetShown(checked and true or false)
+    if checked then box._brd:SetColor(1, 0.7, 0.3, 0.8)
+    else box._brd:SetColor(0.4, 0.4, 0.4, 0.6) end
+    box:SetAlpha(dim and 0.3 or 1)
+    box:Show()
+    local lbl = it._lbl
+    lbl:ClearAllPoints()
+    lbl:SetPoint("LEFT", box, "RIGHT", 6, 0)
+    return box
 end
 
 -- Right-pointing arrow on a pooled row (a row that opens a flyout).
@@ -265,6 +384,9 @@ local function CreateMover(barKey)
     mover:SetMovable(true)
     mover:RegisterForDrag("LeftButton")
     mover:EnableMouse(true)
+    local function OnMoverWheel(_, delta) CycleOverlappingMovers(mover, delta) end
+    mover:EnableMouseWheel(OverlapScrollDown())
+    mover:SetScript("OnMouseWheel", OnMoverWheel)
     mover:SetScript("OnMouseDown", function(self, button)
         if button == "LeftButton" then _mouseHeld = true end
     end)
@@ -370,6 +492,10 @@ local function CreateMover(barKey)
 
     -- Store link buttons on mover so OnLeave can check if any are hovered
     mover._linkBtns = { wmBtn, hmBtn, atBtn, gdBtn }
+    for _, btn in ipairs(mover._linkBtns) do
+        btn:EnableMouseWheel(OverlapScrollDown())
+        btn:SetScript("OnMouseWheel", OnMoverWheel)
+    end
 
     -- Font strings inside each button (accent colored, drop shadow)
     local wmFS = wmBtn:CreateFontString(nil, "OVERLAY")
@@ -451,9 +577,11 @@ local function CreateMover(barKey)
     -- width calc all read this so they never drift apart. `fb` = fallback width.
     local function ActiveLinks()
         local t = {}
+        -- A match resizes this element through its own setter, so each match
+        -- button shows only when that setter exists.
         if canMatchSource then
-            t[#t + 1] = { btn = wmBtn, fs = wmFS, fb = 50 }
-            t[#t + 1] = { btn = hmBtn, fs = hmFS, fb = 55 }
+            if not elem or elem.setWidth then t[#t + 1] = { btn = wmBtn, fs = wmFS, fb = 50 } end
+            if not elem or elem.setHeight then t[#t + 1] = { btn = hmBtn, fs = hmFS, fb = 55 } end
         end
         if canAnchorTo and not ns.IsMoverPosLocked(barKey) then
             t[#t + 1] = { btn = atBtn, fs = atFS, fb = 45 }
@@ -571,6 +699,7 @@ local function CreateMover(barKey)
             end
             -- Anchor mover to bar TOPLEFT for pixel-perfect overlay
             EllesmereUI._unlockAttachMover(self2, b, bk, il, it)
+            UM.PointPicker.Refresh(self2)
         end)
     end
 
@@ -1079,6 +1208,7 @@ local function CreateMover(barKey)
         UM.pickModeMover = mover
         ShowPickText("Click any element\nto anchor to it")
         FadeOverlayForSelectElement(true)
+        UM.PointPicker.Begin(mover)
     end)
 
     gdBtn:SetScript("OnClick", function()
@@ -1087,7 +1217,7 @@ local function CreateMover(barKey)
         if not UM.growDropdownFrame then
             UM.growDropdownFrame = CreateFrame("Frame", nil, UM.unlockFrame)
             UM.growDropdownFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-            UM.growDropdownFrame:SetFrameLevel(260)
+            UM.SetMoverOverlayLevel(UM.growDropdownFrame, 10)
             UM.growDropdownFrame:SetClampedToScreen(true)
             UM.growDropdownFrame:EnableMouse(true)
             -- Built once: background, border, the title and the divider under it.
@@ -1108,7 +1238,7 @@ local function CreateMover(barKey)
         if not UM.growDropdownCatcher then
             UM.growDropdownCatcher = CreateFrame("Button", nil, UM.unlockFrame)
             UM.growDropdownCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
-            UM.growDropdownCatcher:SetFrameLevel(259)
+            UM.SetMoverOverlayLevel(UM.growDropdownCatcher, 9)
             UM.growDropdownCatcher:SetAllPoints(UIParent)
             UM.growDropdownCatcher:RegisterForClicks("AnyUp")
             UM.growDropdownCatcher:SetScript("OnClick", function()
@@ -1567,6 +1697,8 @@ local function CreateMover(barKey)
     -- Drag handlers: manual cursor-based positioning for live snap + live bar movement
     mover:SetScript("OnDragStart", function(self)
         if InCombatLockdown() then return end
+        if UM.pickMode == "pointAnchor" then return end
+        if UM.PointPicker.Active() then CancelPickMode() end
         -- Position-locked: the module's anchor option owns this bar's position
         if ns.IsMoverPosLocked(self._barKey) then SelectMover(self); return end
         -- Anchored bars can be dragged -- the offset from parent is updated on drop
@@ -1875,7 +2007,13 @@ local function CreateMover(barKey)
         -- moves don't snap this child back. Read actual child edges directly
         -- instead of computing from center+half to avoid float dust from (top+bottom)/2 - height/2 != bottom.
         local ai = GetAnchorInfo(self._barKey)
-        if ai then
+        if ai and ai.mode == "POINT" then
+            local ox, oy = ns.PointAnchors.Capture(self._barKey, ai)
+            if ox then
+                ai.offsetX, ai.offsetY = ox, oy
+                UM.ApplyAnchorPosition(self._barKey, ai.target, nil, true)
+            end
+        elseif ai then
             local targetBar = UM.GetBarFrame(ai.target)
             if targetBar then
                 local tS = targetBar:GetEffectiveScale()
@@ -1993,6 +2131,7 @@ local function CreateMover(barKey)
     mover:SetScript("OnEnter", function(self)
         if not self._dragging then
             if _mouseHeld and not self._dragging then return end
+            self._cycleLowered = nil
             -- Collapse any other expanded mover before expanding this one
             if UM.hoveredMover and UM.hoveredMover ~= self and not UM.hoveredMover._dragging then
                 if UM.hoveredMover._hideOverlayText then UM.hoveredMover._hideOverlayText() end
@@ -2006,6 +2145,7 @@ local function CreateMover(barKey)
             -- Raise above all other movers
             self:SetFrameLevel(self._raisedLevel + 100)
             if self._cogBtn then self._cogBtn:SetFrameLevel(self:GetFrameLevel() + 10) end
+            UM.PointPicker.Enter(self)
             -- Select Element mode: white border highlight on hover targets
             if UM.selectElementPicker and UM.selectElementPicker ~= self then
                 self._brd:SetColor(1, 1, 1, 0.9)
@@ -2062,11 +2202,12 @@ local function CreateMover(barKey)
         end
     end)
     mover:SetScript("OnLeave", function(self)
+        UM.PointPicker.Leave(self)
         if not self._dragging then
             -- Delay so hovering child buttons (cog, link buttons) doesn't flicker
             C_Timer.After(0.12, function()
-                if self._dragging then return end
-                if self:IsMouseOver() then
+                if self._dragging or self._cycleLowered then return end
+                if self:IsMouseOver() or self._pointHandleHovered then
                     self:SetFrameLevel(self._raisedLevel + 100)
                     self._brd:SetColor(1, 1, 1, 0.9)
                     if not UM.darkOverlaysEnabled then self:SetAlpha(MOVER_HOVER) end
@@ -2104,6 +2245,7 @@ local function CreateMover(barKey)
 
     -- Left-click to select
     mover:SetScript("OnClick", function(self, button)
+        if UM.PointPicker.BodyClick(self, button) then return end
         if button == "LeftButton" then
             -- Width Match / Height Match / Anchor To pick mode handling
             -- Clicking the source mover itself cancels the pick mode
@@ -2312,7 +2454,7 @@ local function CreateMover(barKey)
                     if not UM.anchorDropdownFrame then
                         UM.anchorDropdownFrame = CreateFrame("Frame", nil, UM.unlockFrame)
                         UM.anchorDropdownFrame:SetFrameStrata("FULLSCREEN_DIALOG")
-                        UM.anchorDropdownFrame:SetFrameLevel(260)
+                        UM.SetMoverOverlayLevel(UM.anchorDropdownFrame, 10)
                         UM.anchorDropdownFrame:SetClampedToScreen(true)
                         UM.anchorDropdownFrame:EnableMouse(true)
                         -- Built once: background, border and both title styles (the
@@ -2337,7 +2479,7 @@ local function CreateMover(barKey)
                     if not UM.anchorDropdownCatcher then
                         UM.anchorDropdownCatcher = CreateFrame("Button", nil, UM.unlockFrame)
                         UM.anchorDropdownCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
-                        UM.anchorDropdownCatcher:SetFrameLevel(259)
+                        UM.SetMoverOverlayLevel(UM.anchorDropdownCatcher, 9)
                         UM.anchorDropdownCatcher:SetAllPoints(UIParent)
                         UM.anchorDropdownCatcher:RegisterForClicks("AnyUp")
                         UM.anchorDropdownCatcher:SetScript("OnClick", function()
@@ -2652,6 +2794,7 @@ local function CreateMover(barKey)
             -- mode is next entered, so the overlay reappears then. Purely a visual
             -- toggle on the overlay -- it never touches the underlying element.
             if IsShiftKeyDown() then
+                if UM.pickModeMover == self and UM.PointPicker.Active() then CancelPickMode() end
                 self._tempHidden = true
                 self._hoverPending = false
                 if UM.selectedMover == self then DeselectMover() end
@@ -2685,6 +2828,8 @@ local function CreateMover(barKey)
     cogBtn:SetFrameLevel(mover:GetFrameLevel() + 10)
     cogBtn:RegisterForClicks("AnyUp")
     cogBtn:EnableMouse(true)
+    cogBtn:EnableMouseWheel(OverlapScrollDown())
+    cogBtn:SetScript("OnMouseWheel", OnMoverWheel)
     cogBtn:SetSize(ACT_SZ, ACT_SZ)
     do
         local bg = cogBtn:CreateTexture(nil, "BACKGROUND")
@@ -2841,7 +2986,7 @@ local function CreateMover(barKey)
         end
         snapMenu = snapMenu or CreateFrame("Frame", nil, UM.unlockFrame)
         snapMenu:SetFrameStrata("FULLSCREEN_DIALOG")
-        snapMenu:SetFrameLevel(250)
+        UM.SetMoverOverlayLevel(snapMenu)
         snapMenu:SetClampedToScreen(true)
         snapMenu:SetSize(DD_W, 10)
         snapMenu:SetPoint("TOPLEFT", mover, "TOPRIGHT", 4, 0)
@@ -2996,7 +3141,7 @@ local function CreateMover(barKey)
                 end
                 regSub = regSub or CreateFrame("Frame", nil, UM.unlockFrame)
                 regSub:SetFrameStrata("FULLSCREEN_DIALOG")
-                regSub:SetFrameLevel(260)
+                UM.SetMoverOverlayLevel(regSub, 10)
                 regSub:SetClampedToScreen(true)
                 regSub:SetSize(DD_W, 10)
                 regSub:SetPoint("TOPLEFT", rgItem, "TOPRIGHT", 2, 0)
@@ -3089,7 +3234,7 @@ local function CreateMover(barKey)
         if not snapClickCatcher then
             snapClickCatcher = CreateFrame("Button", nil, UM.unlockFrame)
             snapClickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
-            snapClickCatcher:SetFrameLevel(249)  -- just below snapMenu (250)
+            UM.SetMoverOverlayLevel(snapClickCatcher, -1)
             snapClickCatcher:SetAllPoints(UIParent)
             snapClickCatcher:RegisterForClicks("AnyUp")
             snapClickCatcher:SetScript("OnClick", function()
@@ -3181,6 +3326,8 @@ local function CreateMover(barKey)
 
     local function BuildCogMenu()
         if mover._cogEdgeSub then mover._cogEdgeSub:Hide() end
+        -- A fresh build shows the links as they stand (see CloseEdgeSub).
+        mover._cogEdgeDirty = nil
         -- Cleared up front: the rows below point these at this open's boxes, and
         -- a box from an earlier open may now serve another row.
         mover._syncCogPos = nil
@@ -3188,7 +3335,7 @@ local function CreateMover(barKey)
         if not cogMenu then
             cogMenu = CreateFrame("Frame", nil, UM.unlockFrame)
             cogMenu:SetFrameStrata("FULLSCREEN_DIALOG")
-            cogMenu:SetFrameLevel(250)
+            UM.SetMoverOverlayLevel(cogMenu)
             -- Built once: background, border and the arrow-key hint at the top.
             MenuPool.Chrome(cogMenu)
             local hintFS = cogMenu:CreateFontString(nil, "OVERLAY")
@@ -3202,7 +3349,7 @@ local function CreateMover(barKey)
             cogMenu._hintFS = hintFS
         end
         cogMenu:SetFrameStrata("FULLSCREEN_DIALOG")
-        cogMenu:SetFrameLevel(250)
+        UM.SetMoverOverlayLevel(cogMenu)
         cogMenu:SetClampedToScreen(true)
         cogMenu:SetSize(DD_W + 60, 10)
         cogMenu:SetPoint("TOPLEFT", cogBtn, "BOTTOMLEFT", 0, -2)
@@ -3378,8 +3525,9 @@ local function CreateMover(barKey)
             -- so a resize here would write the SHARED module setting mid-session
             -- while looking like a per-group edit. Users resize from the options panel instead.
             if not isCDMBar and not EllesmereUI._specialUnlockGroup then
-                wBox = MakeSizeRow("Width",  curW)
-                hBox = MakeSizeRow("Height", curH)
+                -- A size row shows only when the element has its setter.
+                wBox = elem.setWidth and MakeSizeRow("Width", curW) or nil
+                hBox = elem.setHeight and MakeSizeRow("Height", curH) or nil
                 -- Re-read both boxes after an Extra Width / Height commit.
                 mover._syncCogSize = function()
                     if not elem.getSize then return end
@@ -3577,6 +3725,10 @@ local function CreateMover(barKey)
                 do
                     local _, lbl = MakeAnchorRow(EllesmereUI.Lf("Anchored to: %1$s", tgtName))
                     lbl:SetTextColor(0.55, 0.55, 0.55, 0.9)
+                end
+                if aiM.mode == "POINT" then
+                    local _, lbl = MakeAnchorRow(ns.PointAnchors.Description(aiM))
+                    lbl:SetTextColor(1, 0.35, 0.35, 0.9)
                 end
                 -- Offset X / Offset Y: typed values, Enter applies, Escape reverts.
                 -- Physical pixels in the box, units in the record, like the X/Y
@@ -3787,8 +3939,14 @@ local function CreateMover(barKey)
         -- The minimap and kin carry it while EllesmereUI owns their position. Only a
         -- Blizzard-owned position must stay out, or the two fight over the frame.
         local NO_SCREEN_ANCHOR = { QueueStatus = true }   -- Blizzard Edit Mode owns it
+        -- An element that places itself (ownsPosition: main chat) takes no
+        -- screen-edge link either; one that keeps its own screen relation
+        -- (getScreenPoint / setScreenPoint) gets the same menu through those.
+        local seElem = registeredElements[barKey]
+        local ownScreen = seElem and seElem.ownsPosition and seElem.getScreenPoint
+            and seElem.setScreenPoint and seElem or nil
         if not NO_SCREEN_ANCHOR[barKey] and not ns.IsMoverPosLocked(barKey)
-           and not (registeredElements[barKey] and registeredElements[barKey].ownsPosition) then
+           and (ownScreen or not (seElem and seElem.ownsPosition)) then
             -- Primary link to a screen edge. The capture comes first: on an
             -- offset-less link ApplyAnchorPosition's side-snap branch stores the FLUSH
             -- offsets (0/0) before its no-move capture runs, and the next apply would
@@ -3837,16 +3995,49 @@ local function CreateMover(barKey)
                 if mover.RefreshAnchoredText then mover:RefreshAnchoredText() end
             end
             -- The side says where the element sits relative to the strip, so it is
-            -- the opposite of the edge it hugs. The last row carries no key: it
-            -- clears the link, which is what centered means here -- the element
+            -- the opposite of the edge it hugs; opp is the edge across the screen,
+            -- which a checked edge greys out. The last row carries no key: it
+            -- clears the links, which is what centered means here -- the element
             -- follows the screen center again, like every unanchored element.
             local EDGE_ITEMS = {
-                { key = "SCREEN_LEFT",   side = "RIGHT",  text = "Left" },
-                { key = "SCREEN_RIGHT",  side = "LEFT",   text = "Right" },
-                { key = "SCREEN_TOP",    side = "BOTTOM", text = "Top" },
-                { key = "SCREEN_BOTTOM", side = "TOP",    text = "Bottom" },
+                { key = "SCREEN_LEFT",   side = "RIGHT",  opp = "SCREEN_RIGHT",  text = "Left" },
+                { key = "SCREEN_RIGHT",  side = "LEFT",   opp = "SCREEN_LEFT",   text = "Right" },
+                { key = "SCREEN_TOP",    side = "BOTTOM", opp = "SCREEN_BOTTOM", text = "Top" },
+                { key = "SCREEN_BOTTOM", side = "TOP",    opp = "SCREEN_TOP",    text = "Bottom" },
                 { text = "Center" },
             }
+
+            -- The point an element with its own screen relation is left with when
+            -- an edge is checked (on) or unchecked: Left and Right set or clear its
+            -- horizontal half, Top and Bottom its vertical one. No edge is Center.
+            local function ScreenPointWith(cur, edgeKey, on)
+                if not edgeKey then return "CENTER" end
+                cur = cur or "CENTER"
+                local v = cur:match("TOP") or cur:match("BOTTOM") or ""
+                local h = cur:match("LEFT") or cur:match("RIGHT") or ""
+                if edgeKey == "SCREEN_LEFT" then h = on and "LEFT" or ""
+                elseif edgeKey == "SCREEN_RIGHT" then h = on and "RIGHT" or ""
+                elseif edgeKey == "SCREEN_TOP" then v = on and "TOP" or ""
+                else v = on and "BOTTOM" or "" end
+                local p = v .. h
+                return p ~= "" and p or "CENTER"
+            end
+
+            -- The cross-axis edge goes and the primary link takes its axis back.
+            -- Rebase the link's offsets from the live rect first, or the element
+            -- jumps to wherever that axis pointed before the edge took over.
+            local function DropCrossEdge(ai)
+                ai.edge = nil
+                EllesmereUI._anchorLinksStamp = (EllesmereUI._anchorLinksStamp or 0) + 1
+                local offX, offY = EllesmereUI._CaptureAnchorOffsets(barKey, ai.target, ai.side)
+                if offX ~= nil then ai.offsetX, ai.offsetY = offX, offY end
+                -- Growth bars: the pin outranks the offsets on its axis, so recapture
+                -- it from the current position too, the way the drag-stop path does.
+                if EllesmereUI._unlockCaptureGrowPin then
+                    EllesmereUI._unlockCaptureGrowPin(barKey, ai, ai.side)
+                end
+                UM.ApplyAnchorPosition(barKey, ai.target, ai.side, nil, true)
+            end
 
             -- Center: drop the SCREEN anchors only. A link to another element stays,
             -- that one belongs to the link button.
@@ -3869,22 +4060,31 @@ local function CreateMover(barKey)
                         end
                     end
                 else
-                    -- The element link takes its axis back. Rebase its offsets from the
-                    -- live rect first, or the element jumps to wherever that axis
-                    -- pointed before the edge took over.
-                    ai.edge = nil
-                    EllesmereUI._anchorLinksStamp = (EllesmereUI._anchorLinksStamp or 0) + 1
-                    local offX, offY = EllesmereUI._CaptureAnchorOffsets(barKey, ai.target, ai.side)
-                    if offX ~= nil then ai.offsetX, ai.offsetY = offX, offY end
-                    -- Growth bars: the pin outranks the offsets on its axis, so recapture
-                    -- it from the current position too, the way the drag-stop path does.
-                    if EllesmereUI._unlockCaptureGrowPin then
-                        EllesmereUI._unlockCaptureGrowPin(barKey, ai, ai.side)
-                    end
-                    UM.ApplyAnchorPosition(barKey, ai.target, ai.side, nil, true)
+                    DropCrossEdge(ai)
                 end
                 UM.hasChanges = true
                 if mover.RefreshAnchoredText then mover:RefreshAnchoredText() end
+            end
+
+            -- Unchecking an edge drops that edge alone. A primary edge hands its
+            -- slot to the cross-axis edge when there is one (the link a pick of
+            -- that edge makes); a lone primary edge goes the way Center takes it.
+            local function DropScreenEdge(edgeKey)
+                if InCombatLockdown() then return end
+                local ai = GetAnchorInfo(barKey)
+                if not ai then return end
+                local cross = ai.edge
+                if cross and cross.key == edgeKey then
+                    DropCrossEdge(ai)
+                    UM.hasChanges = true
+                    if mover.RefreshAnchoredText then mover:RefreshAnchoredText() end
+                elseif ai.target == edgeKey then
+                    if cross and cross.key then
+                        LinkToScreenEdge(cross.key, cross.side)
+                    else
+                        ClearScreenAnchor()
+                    end
+                end
             end
 
             -- Divider: the screen anchor is a state, not another one-shot action.
@@ -3894,10 +4094,29 @@ local function CreateMover(barKey)
             local seItem, seLbl, seHl = MakeActionItem("Relative to Screen", function() end)
             local seArrow = MenuPool.Arrow(seItem, ARROW_RIGHT_ICON, 0.7)
             -- Linked to an edge: the row wears the same orange as an anchored mover.
-            local aiSE = GetAnchorInfo(barKey)
-            local seLinked = aiSE and ((aiSE.target and EllesmereUI.IsScreenEdgeKey(aiSE.target))
-                or (aiSE.edge and aiSE.edge.key ~= nil))
-            if seLinked then seLbl:SetTextColor(1, 0.7, 0.3, 1) end
+            local function SERestColor()
+                local linked
+                if ownScreen then
+                    linked = ownScreen.getScreenPoint(barKey) ~= "CENTER"
+                else
+                    local ai = GetAnchorInfo(barKey)
+                    linked = ai and ((ai.target and EllesmereUI.IsScreenEdgeKey(ai.target))
+                        or (ai.edge and ai.edge.key ~= nil))
+                end
+                if linked then seLbl:SetTextColor(1, 0.7, 0.3, 1)
+                else seLbl:SetTextColor(0.75, 0.75, 0.75, 0.9) end
+            end
+            SERestColor()
+
+            -- Leaving the flyout closes it. A check made in it changed the links
+            -- the cog menu's anchor rows show, so the menu is built again then:
+            -- built under the cursor, it would push the flyout away mid-pick.
+            local function CloseEdgeSub(sub)
+                sub:Hide()
+                if mover._cogEdgeDirty and cogMenu and cogMenu:IsShown() then
+                    BuildCogMenu()
+                end
+            end
 
             local function ShowEdgeSub()
                 -- Built once per mover and kept on it, parented to unlockFrame;
@@ -3907,58 +4126,94 @@ local function CreateMover(barKey)
                     seSub = CreateFrame("Frame", nil, UM.unlockFrame)
                     mover._cogEdgeSub = seSub
                     seSub:SetFrameStrata("FULLSCREEN_DIALOG")
-                    seSub:SetFrameLevel(cogMenu:GetFrameLevel() + 4)
+                    UM.SetMoverOverlayLevel(seSub, 4)
                     MenuPool.Chrome(seSub)
                 end
                 seSub:SetFrameStrata("FULLSCREEN_DIALOG")
-                seSub:SetFrameLevel(cogMenu:GetFrameLevel() + 4)
+                UM.SetMoverOverlayLevel(seSub, 4)
                 seSub:SetClampedToScreen(true)
                 seSub:ClearAllPoints()
                 seSub:SetPoint("TOPLEFT", seItem, "TOPRIGHT", 2, 0)
                 MenuPool.Begin(seSub, false)
-                -- Two rows can be active at once: a primary edge plus the cross-axis
-                -- one. Center is active exactly while neither exists.
+                -- Two rows can be checked at once: a primary edge plus the cross-axis
+                -- one. Center is checked exactly while neither exists.
                 local curAi = GetAnchorInfo(barKey)
                 local curT = curAi and curAi.target
                 curT = (curT and EllesmereUI.IsScreenEdgeKey(curT)) and curT or nil
                 local curEdge = curAi and curAi.edge and curAi.edge.key or nil
+                local centered = curAi == nil
+                if ownScreen then
+                    -- Its point gives both rows: the horizontal half and the
+                    -- vertical one.
+                    local p = ownScreen.getScreenPoint(barKey) or "CENTER"
+                    curT = (p:find("LEFT", 1, true) and "SCREEN_LEFT")
+                        or (p:find("RIGHT", 1, true) and "SCREEN_RIGHT") or nil
+                    curEdge = (p:find("TOP", 1, true) and "SCREEN_TOP")
+                        or (p:find("BOTTOM", 1, true) and "SCREEN_BOTTOM") or nil
+                    centered = p == "CENTER"
+                end
+                -- A check box per row, and the flyout stays open: a click checks or
+                -- unchecks a row and the rows are drawn again in place.
+                local foci = GetMouseFoci()
                 local seY = -4
                 for i = 1, #EDGE_ITEMS do
                     local e = EDGE_ITEMS[i]
-                    -- Center is the active row exactly while nothing is linked.
-                    local isCur = (e.key ~= nil and (e.key == curT or e.key == curEdge))
-                        or (e.key == nil and curAi == nil)
+                    local checked = (e.key ~= nil and (e.key == curT or e.key == curEdge))
+                        or (e.key == nil and centered)
+                    -- An edge cannot join the one across the screen from it, and
+                    -- Center has nothing to clear while no screen edge is checked
+                    -- (an element linked to another element only).
+                    local disabled
+                    if e.key then
+                        disabled = e.opp == curT or e.opp == curEdge
+                    else
+                        disabled = not centered and curT == nil and curEdge == nil
+                    end
                     local r, g, b, a = 0.75, 0.75, 0.75, 0.9
-                    if isCur then r, g, b, a = 1, 0.7, 0.3, 1 end
+                    if checked then r, g, b, a = 1, 0.7, 0.3, 1 end
+                    if disabled then a = 0.3 end
                     local si, sHl, sLbl = MenuPool.Item(seSub, seY, ITEM_H)
-                    sHl:SetColorTexture(1, 1, 1, isCur and 0.04 or 0)
+                    MenuPool.Check(si, checked, disabled)
+                    sHl:SetColorTexture(1, 1, 1, checked and 0.04 or 0)
                     sLbl:SetTextColor(r, g, b, a)
                     sLbl:SetPoint("RIGHT", si, "RIGHT", -8, 0)
                     sLbl:SetWordWrap(false)
                     sLbl:SetText(EllesmereUI.L(e.text))
-                    si:SetScript("OnEnter", function()
-                        sHl:SetColorTexture(1, 1, 1, 0.08)
-                        if isCur then sLbl:SetTextColor(1, 0.8, 0.5, 1)
-                        else sLbl:SetTextColor(1, 1, 1, 1) end
-                        -- Preview: show the line the element would hold on to.
-                        if e.key then EllesmereUI._ShowScreenEdgeMarker(e.key) end
-                    end)
-                    si:SetScript("OnLeave", function()
-                        sHl:SetColorTexture(1, 1, 1, isCur and 0.04 or 0)
-                        sLbl:SetTextColor(r, g, b, a)
-                        if e.key then EllesmereUI._HideScreenEdgeMarker(e.key) end
-                    end)
-                    si:SetScript("OnClick", function()
-                        CloseCogMenu()
-                        if e.key then
-                            SetScreenAnchor(e.key, e.side)
-                            -- Confirmation: the menu is gone, so the line is the only
-                            -- feedback that the pick landed on that edge.
-                            EllesmereUI._ShowScreenEdgeMarker(e.key, true)
-                        else
-                            ClearScreenAnchor()
+                    if not disabled then
+                        local function OnEnter()
+                            sHl:SetColorTexture(1, 1, 1, 0.08)
+                            if checked then sLbl:SetTextColor(1, 0.8, 0.5, 1)
+                            else sLbl:SetTextColor(1, 1, 1, 1) end
+                            -- Preview: show the line the element would hold on to.
+                            if e.key then EllesmereUI._ShowScreenEdgeMarker(e.key) end
                         end
-                    end)
+                        si:SetScript("OnEnter", OnEnter)
+                        si:SetScript("OnLeave", function()
+                            sHl:SetColorTexture(1, 1, 1, checked and 0.04 or 0)
+                            sLbl:SetTextColor(r, g, b, a)
+                            if e.key then EllesmereUI._HideScreenEdgeMarker(e.key) end
+                        end)
+                        si:SetScript("OnClick", function()
+                            if InCombatLockdown() or (checked and not e.key) then return end
+                            if ownScreen then
+                                ownScreen.setScreenPoint(barKey,
+                                    ScreenPointWith(ownScreen.getScreenPoint(barKey), e.key, not checked))
+                            elseif not e.key then
+                                ClearScreenAnchor()
+                            elseif checked then
+                                DropScreenEdge(e.key)
+                            else
+                                SetScreenAnchor(e.key, e.side)
+                            end
+                            mover._cogEdgeDirty = true
+                            -- The anchor rows' offset boxes read the links live.
+                            if mover._syncCogPos then mover._syncCogPos() end
+                            SERestColor()
+                            ShowEdgeSub()
+                        end)
+                        -- The row just clicked is still under the cursor.
+                        if foci and foci[1] == si then OnEnter() end
+                    end
                     seY = seY - ITEM_H
                 end
                 MenuPool.End(seSub)
@@ -3971,7 +4226,7 @@ local function CreateMover(barKey)
                 seSub:SetScript("OnLeave", function(self)
                     C_Timer.After(0.05, function()
                         if self:IsShown() and not self:IsMouseOver() and not seItem:IsMouseOver() then
-                            self:Hide()
+                            CloseEdgeSub(self)
                         end
                     end)
                 end)
@@ -3989,13 +4244,12 @@ local function CreateMover(barKey)
             end)
             seItem:SetScript("OnLeave", function()
                 seHl:SetColorTexture(1, 1, 1, 0)
-                seLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
                 seArrow:SetAlpha(0.7)
-                if seLinked then seLbl:SetTextColor(1, 0.7, 0.3, 1) end
+                SERestColor()
                 C_Timer.After(0.05, function()
                     local sub = mover._cogEdgeSub
                     if sub and sub:IsShown() and not sub:IsMouseOver() and not seItem:IsMouseOver() then
-                        sub:Hide()
+                        CloseEdgeSub(sub)
                     end
                 end)
             end)
@@ -4095,11 +4349,11 @@ local function CreateMover(barKey)
                             sub = CreateFrame("Frame", nil, cogMenu)
                             item._sub = sub
                             sub:SetFrameStrata("FULLSCREEN_DIALOG")
-                            sub:SetFrameLevel(cogMenu:GetFrameLevel() + 4)
+                            UM.SetMoverOverlayLevel(sub, 4)
                             MenuPool.Chrome(sub)
                         end
                         sub:SetFrameStrata("FULLSCREEN_DIALOG")
-                        sub:SetFrameLevel(cogMenu:GetFrameLevel() + 4)
+                        UM.SetMoverOverlayLevel(sub, 4)
                         sub:SetClampedToScreen(true)
                         -- Build UPWARD: the subnav's bottom is pinned level
                         -- with the row, so added rows extend toward the top.
@@ -4219,7 +4473,7 @@ local function CreateMover(barKey)
         if not cogClickCatcher then
             cogClickCatcher = CreateFrame("Button", nil, UM.unlockFrame)
             cogClickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
-            cogClickCatcher:SetFrameLevel(249)
+            UM.SetMoverOverlayLevel(cogClickCatcher, -1)
             cogClickCatcher:SetAllPoints(UIParent)
             cogClickCatcher:RegisterForClicks("AnyUp")
             cogClickCatcher:SetScript("OnClick", function()
@@ -4290,6 +4544,8 @@ local function CreateMover(barKey)
     mover:HookScript("OnDragStart", function()
         EllesmereUI.HideWidgetTooltip()
     end)
+    -- Element filter (EUI_UnlockMode_Filter.lua): a new or re-shown mover stays hidden while filtered.
+    if UM.FilterOnShow then mover:HookScript("OnShow", UM.FilterOnShow); UM.FilterOnShow(mover) end
 
     movers[barKey] = mover
     return mover

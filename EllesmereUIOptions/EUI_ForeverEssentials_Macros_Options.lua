@@ -24,6 +24,15 @@ local MakeFont   = EllesmereUI.MakeFont
 local MakeBorder = EllesmereUI.MakeBorder
 local MODEL      = EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"]._MacroModel
 local B, S, MM   = MODEL.B, MODEL.S, MODEL.MM
+-- Page reuse: the frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua, the options addon's first file), which hands a
+-- kept page its previous build's frames back reset to new; on any other
+-- parent it is the plain CreateFrame. The page's event frame, kept across
+-- builds, leaves the pool once made (Pool.Keep); the header's icon grid is
+-- never pooled (LayoutGrid); deferred work on a pooled frame checks its
+-- dress (Pool.Gen).
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolKeep, PoolGen = EllesmereUI._Pool.Keep, EllesmereUI._Pool.Gen
 
 local function L(s) return EllesmereUI.L(s) end
 
@@ -284,7 +293,11 @@ local function AttachSuggest(box, onPick, list)
     -- A plain mouse down drops the box's focus before a row of the list gets
     -- that press (a modified click keeps the focus), so the list closes a frame
     -- later: a pick on it still lands, a press anywhere else still closes it.
+    -- A page rebuild in between may dress the box again: the close then
+    -- belongs to the old dress and does nothing.
+    local dressGen = PoolGen(box)
     local function CloseIfUnfocused()
+        if PoolGen(box) ~= dressGen then return end
         if suggestOwner == box and not box:HasFocus() then HideSuggest() end
     end
     box:HookScript("OnEditFocusLost", function()
@@ -953,7 +966,11 @@ end
 -- Returns the grid's height.
 local function LayoutGrid(g, hdr, y, w, count, bind)
     if not g.frame then
-        local f = CreateFrame("Frame", nil, hdr)
+        -- Kept for the session and never pooled (the global CreateFrame): the
+        -- panel detaches it before each header build (a kept header root's
+        -- EUI_NS.DropRootForeign, the plain header's clear) and it is
+        -- re-parented below.
+        local f = _G.CreateFrame("Frame", nil, hdr)
         local scroll = CreateFrame("ScrollFrame", nil, f)
         scroll:SetAllPoints()
         scroll:SetClipsChildren(true)
@@ -1241,9 +1258,11 @@ end
 
 -- One event frame, re-parented into each build of the page: its show and hide
 -- are the page's, so the events are registered only while the page is shown.
+-- Made under the page and kept out of its pool (Pool.Keep): a later build of
+-- the page hides it with the page instead of handing it out again.
 local function WatchEvents(parent)
     if not evf then
-        evf = CreateFrame("Frame")
+        evf = PoolKeep(CreateFrame("Frame", nil, parent))
         evf._searchIgnore = true  -- the inline search never hides it
         evf:SetScript("OnEvent", OnEvent)
         evf:SetScript("OnShow", function(self)

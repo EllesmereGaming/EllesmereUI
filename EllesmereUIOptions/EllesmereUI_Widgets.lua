@@ -626,7 +626,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                         flyoutTimer = nil
                     end)
                 end
-                local fH = 4
+                local fH, fW = 4, menuW
                 -- This populate's rows (the flyout also keeps idle rows an earlier populate parked).
                 local flyRows = {}
                 item._flyoutRows = flyRows
@@ -644,6 +644,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                         cLbl:SetPoint('LEFT', ci, 'LEFT', 10, 0)
                         cLbl:SetText(TR(childText))
                         cLbl:SetJustifyH('LEFT')
+                        local rowW = cLbl:GetStringWidth() + 22
                         if sn.icon then
                             local iconPath, l, r, t, b = sn.icon(childKey)
                             if iconPath then
@@ -653,8 +654,10 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                                 ico:SetTexture(iconPath)
                                 if l then ico:SetTexCoord(l, r, t, b) end
                                 cLbl:SetPoint('RIGHT', ico, 'LEFT', -4, 0)
+                                rowW = rowW + icoSz + 4
                             end
                         end
+                        if rowW > fW then fW = rowW end
                         local cHl = SolidTex(ci, 'ARTWORK', 1, 1, 1, 1); cHl:SetAlpha(0)
                         cHl:SetAllPoints()
                         ci._key = childKey
@@ -696,13 +699,17 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                         fH = fH + (sn.itemHeight or 26)
                     end
                 end
-                flyout:SetHeight(fH + 4)
+                flyout:SetSize(fW, fH + 4)
 
                 item:SetScript('OnEnter', function()
                     iLbl:SetTextColor(1, 1, 1, 1)
                     arrowTex:SetAlpha(1)
                     iHl:SetAlpha(DD_ITEM_HL_A)
                     if flyoutTimer then flyoutTimer:Cancel(); flyoutTimer = nil end
+                    -- Close the previous flyout now; its delayed close would leave it under this one.
+                    for _, fo in ipairs(menu._flyouts) do
+                        if fo ~= flyout then fo:Hide() end
+                    end
                     flyout:ClearAllPoints()
                     flyout:SetPoint('TOPLEFT', item, 'TOPRIGHT', 2, 0)
                     flyout:Show()
@@ -790,6 +797,14 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 local EG = EllesmereUI.ELLESMERE_GREEN
                 iLbl:SetTextColor(EG.r, EG.g, EG.b, 0.8)
                 item._isAction = true  -- Refresh keeps the accent across menu opens
+            elseif _menuOpts and _menuOpts.labelColor then
+                -- Optional .labelColor(key) -> r, g, b[, a]: the label's idle colour;
+                -- hover shows the same hue at full alpha, Refresh restores it.
+                local lr, lg, lb, la = _menuOpts.labelColor(key)
+                if lr then
+                    item._lblColor = { lr, lg, lb, la or 1 }
+                    iLbl:SetTextColor(lr, lg, lb, la or 1)
+                end
             end
             -- Optional icon, three sources: _menuOpts.icon(key) -> texture path (+ texcoord); .iconAtlas(key) -> atlas name; .iconPressedAtlas(key) -> pressed-state atlas. With .iconOnClick the icon becomes a clickable Button on its own frame level so clicks don't reach the item's OnClick.
             local _haveAtlas = _moIconAtlas and _moIconAtlas(key) or nil
@@ -798,11 +813,25 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 _iconPath, _il, _ir, _it, _ib = _moIcon(key)
             end
             if _haveAtlas or _iconPath then
-                local icoSz = _moItemH - 8
+                -- Optional, both icon kinds: .iconSize(key) -> edge length (default row
+                -- height - 8), .iconColor(key) -> r, g, b[, a] idle tint (hover: alpha 1),
+                -- .iconInset -> right inset, number or fn(key). Unset, the inset is 6;
+                -- with .iconClearScroll it moves clear of the scrollbar when the menu scrolls.
+                local icoSz = (_menuOpts and _menuOpts.iconSize and _menuOpts.iconSize(key)) or (_moItemH - 8)
+                local icoInset = _menuOpts and _menuOpts.iconInset
+                if type(icoInset) == "function" then icoInset = icoInset(key) end
+                item._icoClearScroll = icoInset == nil and _menuOpts and _menuOpts.iconClearScroll or nil
+                icoInset = icoInset or 6
+                if _menuOpts and _menuOpts.iconColor then
+                    local cr, cg, cb, ca = _menuOpts.iconColor(key)
+                    if cr then item._icoColor = { cr, cg, cb, ca or 1 } end
+                end
+                local icoC = item._icoColor
                 if _moIconOnClick then
                     local iconBtn = CreateFrame("Button", nil, item)
                     iconBtn:SetSize(icoSz, icoSz)
-                    iconBtn:SetPoint("RIGHT", item, "RIGHT", -6, 0)
+                    iconBtn:SetPoint("RIGHT", item, "RIGHT", -icoInset, 0)
+                    item._icon = iconBtn
                     iconBtn:SetFrameLevel(item:GetFrameLevel() + 2)
                     if _haveAtlas then
                         iconBtn:SetNormalAtlas(_haveAtlas)
@@ -819,17 +848,20 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                             if nrmTex.SetDesaturated then nrmTex:SetDesaturated(true) end
                             nrmTex:SetVertexColor(_nr, _ng, _nb, 1)
                         end
+                        if nrmTex and icoC then nrmTex:SetVertexColor(icoC[1], icoC[2], icoC[3], icoC[4]) end
                         local psdTex = iconBtn:GetPushedTexture()
                         if psdTex and not _moIconNative then
                             if psdTex.SetDesaturated then psdTex:SetDesaturated(true) end
                             psdTex:SetVertexColor(_nr, _ng, _nb, 1)
                         end
+                        if psdTex and icoC then psdTex:SetVertexColor(icoC[1], icoC[2], icoC[3], 1) end
                         local hlTex = iconBtn:GetHighlightTexture()
                         if hlTex then
                             if not _moIconNative then
                                 if hlTex.SetDesaturated then hlTex:SetDesaturated(true) end
                                 hlTex:SetVertexColor(_nr, _ng, _nb, 1)
                             end
+                            if icoC then hlTex:SetVertexColor(icoC[1], icoC[2], icoC[3], 1) end
                             hlTex:SetAlpha(0.4)
                         end
                     else
@@ -837,17 +869,27 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                         ico:SetAllPoints()
                         ico:SetTexture(_iconPath)
                         if _il then ico:SetTexCoord(_il, _ir, _it, _ib) end
-                        ico:SetVertexColor(0.8, 0.8, 0.8, 1)
+                        if icoC then
+                            ico:SetVertexColor(icoC[1], icoC[2], icoC[3], icoC[4])
+                        else
+                            ico:SetVertexColor(0.8, 0.8, 0.8, 1)
+                        end
                         iconBtn._ico = ico
                     end
                     iconBtn:SetScript("OnEnter", function()
-                        if iconBtn._ico then iconBtn._ico:SetVertexColor(1, 1, 1, 1) end
+                        if iconBtn._ico then
+                            if icoC then iconBtn._ico:SetVertexColor(icoC[1], icoC[2], icoC[3], 1)
+                            else iconBtn._ico:SetVertexColor(1, 1, 1, 1) end
+                        end
                         if _moIconTooltip then
                             ShowWidgetTooltip(iconBtn, _moIconTooltip(key))
                         end
                     end)
                     iconBtn:SetScript("OnLeave", function()
-                        if iconBtn._ico then iconBtn._ico:SetVertexColor(0.8, 0.8, 0.8, 1) end
+                        if iconBtn._ico then
+                            if icoC then iconBtn._ico:SetVertexColor(icoC[1], icoC[2], icoC[3], icoC[4])
+                            else iconBtn._ico:SetVertexColor(0.8, 0.8, 0.8, 1) end
+                        end
                         if _moIconTooltip then HideWidgetTooltip() end
                     end)
                     iconBtn:SetScript("OnClick", function()
@@ -858,13 +900,15 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                     local ico = item:CreateTexture(nil, "ARTWORK")
                     -- _menuOpts.iconWidth(key) allows non-square icons; default square.
                     ico:SetSize((_menuOpts and _menuOpts.iconWidth and _menuOpts.iconWidth(key)) or icoSz, icoSz)
-                    ico:SetPoint("RIGHT", item, "RIGHT", -6, 0)
+                    ico:SetPoint("RIGHT", item, "RIGHT", -icoInset, 0)
+                    item._icon, item._icoTex = ico, ico
                     if _haveAtlas then
                         ico:SetAtlas(_haveAtlas)
                     else
                         ico:SetTexture(_iconPath)
                         if _il then ico:SetTexCoord(_il, _ir, _it, _ib) end
                     end
+                    if icoC then ico:SetVertexColor(icoC[1], icoC[2], icoC[3], icoC[4]) end
                     iLbl:SetPoint("RIGHT", ico, "LEFT", -4, 0)
                 end
             end
@@ -890,7 +934,10 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                         return
                     end
                 end
-                iLbl:SetTextColor(1, 1, 1, 1)
+                local lc = item._lblColor
+                if lc then iLbl:SetTextColor(lc[1], lc[2], lc[3], 1) else iLbl:SetTextColor(1, 1, 1, 1) end
+                local ic = item._icoColor
+                if ic and item._icoTex then item._icoTex:SetVertexColor(ic[1], ic[2], ic[3], 1) end
                 if iNote then iNote:SetTextColor(1, 1, 1, 1) end
                 iHl:SetAlpha(DD_ITEM_HL_A)
                 -- Second arg (item frame) is additive: (key)-only handlers ignore it; others use it to anchor tooltips.
@@ -901,9 +948,14 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 if dnAction then
                     local EG = EllesmereUI.ELLESMERE_GREEN
                     iLbl:SetTextColor(EG.r, EG.g, EG.b, 0.8)
+                elseif item._lblColor then
+                    local lc = item._lblColor
+                    iLbl:SetTextColor(lc[1], lc[2], lc[3], lc[4])
                 else
                     iLbl:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, TEXT_DIM_A)
                 end
+                local ic = item._icoColor
+                if ic and item._icoTex then item._icoTex:SetVertexColor(ic[1], ic[2], ic[3], ic[4]) end
                 if iNote then iNote:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, TEXT_DIM_A) end
                 iHl:SetAlpha((item._key == getValue()) and DD_ITEM_SEL_A or 0)
                 if _moOnItemLeave then _moOnItemLeave(key, item) end
@@ -949,6 +1001,15 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         sf:EnableMouseWheel(true)
         sf:SetScrollChild(innerContainer)
         innerContainer:SetWidth(menuW)
+        -- The track below sits 4-8px in from the right: icons of a menu with
+        -- .iconClearScroll move to 10 so they clear it; an explicit .iconInset stays.
+        for i = 1, #menuItems do
+            local it = menuItems[i]
+            if it._icon and it._icoClearScroll then
+                it._icon:ClearAllPoints()
+                it._icon:SetPoint("RIGHT", it, "RIGHT", -10, 0)
+            end
+        end
 
         -- Thin scrollbar track (4px, right side; matches main panel style)
         local ddTrack = CreateFrame("Frame", nil, sf)
@@ -1226,6 +1287,9 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 if item._isAction then
                     local EG = EllesmereUI.ELLESMERE_GREEN
                     item._label:SetTextColor(EG.r, EG.g, EG.b, 0.8)
+                elseif item._lblColor then
+                    local lc = item._lblColor
+                    item._label:SetTextColor(lc[1], lc[2], lc[3], off and 0.18 or lc[4])
                 else
                     item._label:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, off and 0.18 or TEXT_DIM_A)
                 end
@@ -1433,7 +1497,7 @@ local function QueueDragFinish(fn)
 end
 
 -- Slider core (track + fill + thumb + input + drag logic). Returns: trackFrame, valBox, RefreshSlider, thumb
-local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, inputFontSz, inputAlpha, minVal, maxVal, step, getValue, setValue, isMultiWidget, snapPoints)
+local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, inputFontSz, inputAlpha, minVal, maxVal, step, getValue, setValue, isMultiWidget, snapPoints, valueSnap)
     -- Spec Overrides auto-capture: see BuildToggleControl (slot read before the setter runs).
     do
         local _s = setValue
@@ -1502,10 +1566,15 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
     -- min is itself a multiple of the step, and a slider whose min is not --
     -- an odd-count one like min 1, step 2 -- landed on the evens with its own
     -- minimum unreachable. Identical for every slider whose min IS a multiple
-    -- of its step, which is all the rest of them.
+    -- of its step, which is all the rest of them. valueSnap (optional) then maps
+    -- a grid value onto the values the setting allows (a range with a gap, such
+    -- as 0 then 30 to 180): the drag, a typed value and the shown number all land
+    -- on an allowed value.
     local function SnapStep(v)
         local snapped = minVal + math.floor((v - minVal) / step + 0.5) * step
-        return math.max(minVal, math.min(maxVal, snapped))
+        snapped = math.max(minVal, math.min(maxVal, snapped))
+        if valueSnap then snapped = valueSnap(snapped) end
+        return snapped
     end
 
     local currentVal = getValue()
@@ -1732,7 +1801,15 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
         -- is swallowed.
         if EllesmereUI.PadCursorShown() and not IsMouseButtonDown(button) then
             padNudged = true
-            local v = SnapStep(currentVal + (button == "RightButton" and -step or step))
+            -- One step, or on through values a valueSnap maps back onto the
+            -- current one, to the next allowed value that way.
+            local dir = button == "RightButton" and -step or step
+            local probe, v = currentVal, currentVal
+            for _ = 1, 1000 do
+                probe = probe + dir
+                v = SnapStep(probe)
+                if v ~= currentVal or probe <= minVal or probe >= maxVal then break end
+            end
             if v ~= currentVal then
                 local g = PoolGen(trackFrame)
                 setValue(v)
@@ -1951,6 +2028,18 @@ function EllesmereUI.BorderOffsetRowCfgs(spec)
            Make("Border Height Offset", spec.getY, spec.setY, function(_, y) return y end)
 end
 
+-- The same two offsets as rows of an inline cog's popup (BuildInlineCog rows);
+-- spec as above, its disabled / disabledTooltip carried onto both rows.
+function EllesmereUI.BorderOffsetCogRows(spec)
+    local function Row(cfg)
+        return { type = "slider", label = cfg.text, min = cfg.min, max = cfg.max, step = cfg.step,
+            get = cfg.getValue, set = cfg.setValue,
+            disabled = cfg.disabled, disabledTooltip = cfg.disabledTooltip }
+    end
+    local x, y = EllesmereUI.BorderOffsetRowCfgs(spec)
+    return Row(x), Row(y)
+end
+
 -------------------------------------------------------------------------------
 --  WIDGET FACTORY
 -------------------------------------------------------------------------------
@@ -1966,8 +2055,9 @@ EllesmereUI.DD_STYLE = {
     ITEM_HL_A = DD_ITEM_HL_A, ITEM_SEL_A = DD_ITEM_SEL_A,
 }
 
--- Section header  (e.g. "APPEARANCE", "KEY BINDING TEXT")
-function WidgetFactory:SectionHeader(parent, text, yOffset)
+-- Section header  (e.g. "APPEARANCE", "KEY BINDING TEXT"). tooltip (optional):
+-- shown while the title is hovered.
+function WidgetFactory:SectionHeader(parent, text, yOffset, tooltip)
     local splitParent = parent._splitParent
     local fullW = (splitParent or parent):GetWidth() - CONTENT_PAD * 2
     local frame = CreateFrame("Frame", nil, parent)
@@ -1978,6 +2068,17 @@ function WidgetFactory:SectionHeader(parent, text, yOffset)
     PP.Point(label, "BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 8)
     label:SetText(EllesmereUI.L(text))
     frame._label = label
+
+    -- Title tooltip: a hit frame round the title, as a row label's; clicks
+    -- pass through.
+    if tooltip then
+        local hit = CreateFrame("Frame", nil, frame)
+        hit:SetPoint("TOPLEFT", label, "TOPLEFT", -5, 5)
+        hit:SetPoint("BOTTOMRIGHT", label, "BOTTOMRIGHT", 5, -5)
+        hit:SetScript("OnEnter", function() ShowWidgetTooltip(label, tooltip) end)
+        hit:SetScript("OnLeave", function() HideWidgetTooltip() end)
+        hit:SetMouseClickEnabled(false)
+    end
 
     -- Separator spans full width when in split mode
     local sepParent = splitParent or frame
@@ -2162,12 +2263,20 @@ local function _FlushLabelClamps()
         if label and bound and label:IsShown() then
             local truncated = false
             local ll, bl, sw = label:GetLeft(), bound:GetLeft(), label:GetStringWidth()
+            -- A row label menu's arrow (BuildRowLabelMenu) sits right after the text: keep its room too.
+            local arrow = region._labelArrow
+            local reserve = arrow and (6 + arrow:GetWidth()) or 0
             if ll and bl and sw and not (issecretvalue and (issecretvalue(ll) or issecretvalue(bl) or issecretvalue(sw))) then
-                truncated = sw > (bl - 12 - ll) + 0.5
+                truncated = sw + reserve > (bl - 12 - ll) + 0.5
             end
             -- Bound ONLY when overflowing: a right anchor stretches the rect and displaces label-edge-anchored subtitles on short labels.
             if truncated then
-                label:SetPoint("RIGHT", bound, "LEFT", -12, 0)
+                label:SetPoint("RIGHT", bound, "LEFT", -12 - reserve, 0)
+                -- The arrow was placed at the full text width: follow the cut label instead.
+                if arrow then
+                    arrow:ClearAllPoints()
+                    arrow:SetPoint("LEFT", label, "RIGHT", 6, -1)
+                end
             end
             region._labelTruncated = truncated
             if truncated and not region._labelHasHit and not region._labelRevealHit then
@@ -2577,18 +2686,23 @@ EllesmereUI.DismissPreviewHint = function(hint, headerBaseH, hintH, startY)
     local g = PoolGen(hint)
     ticker = C_Timer.NewTicker(0.016, function()
         if PoolGen(hint) ~= g then ticker:Cancel(); return end
+        -- The hint's page was left mid-fade (the panel is up and the hint is not
+        -- visible): the hint still fades out, but the header showing now is
+        -- another page's and keeps its height (the hint's page sets its own on
+        -- return). A closed or folded panel shows no other page meanwhile.
+        local ownHeader = hint:IsVisible() or not EllesmereUI:IsShown() or EllesmereUI._panelCollapsed
         steps = steps + 1
         local progress = steps * 0.016 / 0.3
         if progress >= 1 then
             hint:Hide(); ticker:Cancel()
-            if headerBaseH > 0 then EllesmereUI:SetContentHeaderHeightSilent(headerBaseH) end
+            if ownHeader and headerBaseH > 0 then EllesmereUI:SetContentHeaderHeightSilent(headerBaseH) end
             return
         end
         hint:SetAlpha(0.45 * (1 - progress))
         hint:ClearAllPoints()
         hint:SetPoint("BOTTOM", anchorTo, "BOTTOM", 0, y0 + progress * 12)
         local hh = startHeaderH - hintH * progress
-        if hh > 0 then EllesmereUI:SetContentHeaderHeightSilent(hh) end
+        if ownHeader and hh > 0 then EllesmereUI:SetContentHeaderHeightSilent(hh) end
     end)
 end
 

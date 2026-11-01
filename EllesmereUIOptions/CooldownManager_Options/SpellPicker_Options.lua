@@ -8,6 +8,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUICooldownManager"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page pool (EllesmereUI_FramePool.lua): a frame made under a pool
+-- host (a kept menu) is handed out again reset to fresh; anywhere else this is
+-- the plain CreateFrame. The picker and the per-icon settings menu are one kept
+-- frame each for the session (PoolKept), dressed again on every open: their
+-- rows, flyouts, apply strip and scroll parts are pooled under them. A menu
+-- remembers its anchor with the anchor's dress generation (PoolGen): an anchor
+-- a rebuild dressed again for a new build is another anchor, as a new frame was.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolKept, PoolGen = EllesmereUI._Pool.Kept, EllesmereUI._Pool.Gen
+
 local function ShowWrongBarTypePopup(spellName, isSpellBuff)
     if not EllesmereUI or not EllesmereUI.ShowConfirmPopup then return end
     local correctBar = isSpellBuff and "a Buff bar" or "a Cooldown or Utility bar"
@@ -67,8 +77,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
     local EnsureAssignedSpells, ShowAlphaPopup, ShowBuffToCDPicker, ShowCustomItemIDPopup = ns.CDMO_EnsureAssignedSpells, ns.CDMO_ShowAlphaPopup, ns.CDMO_ShowBuffToCDPicker, ns.CDMO_ShowCustomItemIDPopup
     local ShowDurationPopup, ShowEquipmentSlotPopup, ShowThresholdSecondsPopup = ns.CDMO_ShowDurationPopup, ns.CDMO_ShowEquipmentSlotPopup, ns.CDMO_ShowThresholdSecondsPopup
     -- Toggle: if the picker is already open for this same icon, close it
-    if optState._spellPickerMenu and optState._spellPickerMenu:IsShown() and optState._spellPickerMenu._anchorFrame == anchorFrame then
-        optState._spellPickerMenu:Hide()
+    local open = optState._spellPickerMenu
+    if open and open:IsShown() and open._anchorFrame == anchorFrame and open._anchorGen == PoolGen(anchorFrame) then
+        open:Hide()
         return
     end
     -- Close existing
@@ -133,7 +144,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
     local ITEM_H = 26
     local MAX_H = 400  -- full picker scrolls past this; the per-spell menu has no scroll and sizes to its rows
 
-    local menu = CreateFrame("Frame", nil, UIParent)
+    local menu = PoolKept(optState, removeOnly and "spSettings" or "spPicker", "Frame", UIParent)
+    -- Per-build state of the kept frame: the row a rebuild reopens, and a rebuild request.
+    menu._cseRow, menu._rebuildPending = nil, nil
     menu:SetFrameStrata("FULLSCREEN_DIALOG")
     menu:SetFrameLevel(300)
     menu:SetClampedToScreen(true)
@@ -358,7 +371,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
     if removeOnly then
         -- Per-icon settings: CD/utility bars get the full menu; buff-family bars get a
         -- buff-specific subset. custom_buff (Auras) bars excluded here (separate system).
-        if slotIndex and not isCustomBuff then
+        -- Override editing sessions: settings would leak outside the override, so Remove only.
+        if slotIndex and not isCustomBuff and not EllesmereUI.SpecOverrides_EditSessionActive() then
             local sd = ns.GetBarSpellData(barKey)
             -- Buff bars: the preview slot's own _previewSpellID is authoritative. The
             -- default buffs bar's preview maps to a MIXED list (Blizzard buffs +
@@ -418,6 +432,14 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 -- Effective-read view: the entry (or a not-yet-persisted fresh table)
                 -- chained to the bar tiers, so the menu shows the values the icon actually renders with; EnsureSS() persists the entry on first WRITE.
                 local ss = store and store[spellID]
+                -- An entry saved under another form of this spell (its base or
+                -- its talent override: the spell was added to this bar in
+                -- another form than the one its settings were made on) is the
+                -- one the icon renders with: show and edit that one.
+                if not ss and store then
+                    ss = ns.ResolveVariantValue(store, spellID)
+                    if type(ss) ~= "table" then ss = nil end
+                end
                 if not ss then
                     -- A cooldownID-keyed slot with no entry yet renders its spell's entry
                     -- (the runtime falls back to it): start from a copy, so the first
@@ -428,7 +450,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 end
                 ns.ChainSettings(ss, (not isHostedBuff) and ns.GetBarTierSettings(sd, barKey) or nil)
                 local function EnsureSS()
-                    if store and not store[spellID] then
+                    -- An entry found under another form of the spell is stored already.
+                    if store and not store[spellID] and ns.ResolveVariantValue(store, spellID) ~= ss then
                         store[spellID] = ss
                         -- New per-spell entry: retire memoized resolution results so every icon re-resolves against it.
                         ns._cdmResGen = (ns._cdmResGen or 0) + 1
@@ -592,7 +615,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     glowColorR = true, glowColorG = true, glowColorB = true,
                     cdStateEffect = true, cdStateLowerAlpha = true, cdStateGlow = true,
                     cdStateGlowStyle = true, cdStateGlowAlpha = true,
-                    reverseSwipe = true, hideCDSwipe = true,
+                    reverseSwipe = true, hideCDSwipe = true, stanceBarHide = true,
                     thresholdSeconds = true, thresholdDecimals = true,
                     thresholdColorEnabled = true, thresholdColorR = true,
                     thresholdColorG = true, thresholdColorB = true,
@@ -1783,6 +1806,36 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     { val = "reverse", label = "Reverse Swipe" },
                     { val = "hide",    label = "Hide CD Swipe" },
                 }
+                -- Stance Bar single-select, shared by the regular-spell (ss) and
+                -- preset/custom (cas) menus: hidden in / outside each of the class's
+                -- stance bar pages (EllesmereUI.CLASS_PAGING_STATES), stored as
+                -- "<mode>:<state id>". nil for a class with no stance bar.
+                local stanceStates = EllesmereUI.CLASS_PAGING_STATES[select(2, UnitClass("player"))]
+                if stanceStates then
+                    local STANCE_LABELS = {
+                        inShift  = { "Hidden in %s (Shift Icons)", function(s) return EllesmereUI.Lf("Hidden in %1$s (Shift Icons)", s) end },
+                        outShift = { "Hidden outside %s (Shift Icons)", function(s) return EllesmereUI.Lf("Hidden outside %1$s (Shift Icons)", s) end },
+                        ["in"]   = { "Hidden in %s", function(s) return EllesmereUI.Lf("Hidden in %1$s", s) end },
+                        out      = { "Hidden outside %s", function(s) return EllesmereUI.Lf("Hidden outside %1$s", s) end },
+                    }
+                    local items = { { val = nil, label = "None" } }
+                    local function AddStanceItem(mode, st)
+                        local fmt = STANCE_LABELS[mode]
+                        items[#items + 1] = { val = mode .. ":" .. st.id,
+                            label = fmt[1]:format(st.label),
+                            dynamicLabel = function() return fmt[2](EllesmereUI.L(st.label)) end }
+                    end
+                    -- Shift Icons variants first, like the Cooldown State Effect list.
+                    for _, st in ipairs(stanceStates) do
+                        AddStanceItem("inShift", st)
+                        AddStanceItem("outShift", st)
+                    end
+                    for _, st in ipairs(stanceStates) do
+                        AddStanceItem("in", st)
+                        AddStanceItem("out", st)
+                    end
+                    AB.STANCE_BAR_ITEMS = items
+                end
 
                 -- Track open subnavs on the menu frame so OnUpdate can see them
 
@@ -1831,6 +1884,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         else
                             lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
                         end
+                        -- opts.onRefresh: runs whenever the row repaints (build, every pick, a bar apply, hover-out)
+                        if opts and opts.onRefresh then opts.onRefresh() end
                     end
                     UpdateLabelColor()
 
@@ -2104,8 +2159,11 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                         -- carries a per-spell colour payload (an R/G/B triple in applyKeys),
                                         -- or an item the row flags as carrying another payload (apply.payload(item): the Blackout opacity).
                                         -- For those, equality must be judged by valuesMatch, not the identifier, or the rejoin/toggle-off shortcuts discard the payload (see the two branches in the apply handler above).
+                                        -- A scalar item (Threshold Seconds, Also Show Below) is a payload too:
+                                        -- a different number is pushed, the same one toggles off.
                                         payloadValue = hasColourPayload(applyKeys)
-                                            or (rowApply and rowApply.payload and rowApply.payload(item)) or false,
+                                            or (rowApply and rowApply.payload and rowApply.payload(item))
+                                            or item.scalarApply or false,
                                         -- Toggles: "Apply to Bar" ENABLES the feature (apply true);
                                         -- disabling is the toggle-off press (ctx.isToggle un-applies when
                                         -- the scope already holds the value). Never key this off isSelected: that flips an already-ON toggle OFF when switching scopes (e.g. All Specs -> Apply to Bar). Value items apply their value.
@@ -2463,6 +2521,8 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         menu._openSub = sub
                     end
 
+                    -- Opens this row's flyout from code (a rebuilt menu reopens the one it had open).
+                    row._showSub = ShowSub
                     row:SetScript("OnEnter", function()
                         if RowDisabled() then
                             if opts.disabledTooltip then
@@ -2516,9 +2576,10 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                           tooltip = "Seconds remaining below which Threshold Color and Threshold Decimals apply (0 = off).",
                           toggleGet = function() return armedSeconds() > 0 end,
                           applyKeys = { "thresholdSeconds" },
-                          applyWrite = function(t)
-                              -- Push this spell's current seconds; "off" applied bar-wide blocks the tier below.
-                              local s = armedSeconds()
+                          applyWrite = function(t, v)
+                              -- Push this spell's current seconds; "off" (0, or Exclude This
+                              -- Spell's false) blocks the tier below.
+                              local s = (v ~= false) and armedSeconds() or 0
                               t.thresholdSeconds = (s > 0) and s or false
                           end },
                         { val = "color", label = "Threshold Color",
@@ -2664,16 +2725,49 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             -- buff is MISSING, and the ACTIVE buff renders hidden
                             -- (layout gap closes).
                             { val = "missing", label = "Show When Missing" },
+                            -- Independent of the choice above, used with Show When Missing: the
+                            -- active buff also shows for its last N seconds (0 = off). Scalar popup
+                            -- value, same shape as Threshold Seconds.
+                            { val = "below", label = "Also Show Below",
+                              scalarApply = true,
+                              dynamicLabel = function()
+                                  local base = EllesmereUI.L("Also Show Below")
+                                  local s = tonumber(ss.missingShowBelow) or 0
+                                  if s > 0 then return base .. " (" .. s .. "s)" end
+                                  return base
+                              end,
+                              tooltip = "With Show When Missing, also show the buff for its last seconds. Buffs whose timers are hidden from addons in instances stay hidden there.",
+                              toggleGet = function() return (tonumber(ss.missingShowBelow) or 0) > 0 end,
+                              applyKeys = { "missingShowBelow" },
+                              applyWrite = function(t, v)
+                                  local s = (v ~= false) and tonumber(ss.missingShowBelow) or 0
+                                  t.missingShowBelow = (s > 0) and s or false
+                              end },
                         }
                         MakeSubnavRow("Always Show Buff", ALWAYS_SHOW_ITEMS,
                             function() return ss.alwaysShow end,
                             function(v)
+                                -- Also Show Below opens its own popup; any other value is not this row's.
+                                if v ~= nil and v ~= "on" and v ~= "off" and v ~= "missing" then return end
                                 EnsureSS(); SetOwn("alwaysShow", v)
                                 -- Refresh the page so "Keep Buffs in Same Place" grays/ungrays as this per-icon override flips.
                                 EllesmereUI:RefreshPage()
                             end,
                             function() return ss.alwaysShow == nil end,
-                            nil,
+                            function(si, item)
+                                if item.val ~= "below" then return end
+                                -- Popup flow (mirrors Threshold Seconds): 0 turns it off.
+                                si:SetScript("OnClick", function()
+                                    local cur = tonumber(ss.missingShowBelow) or 0
+                                    menu:Hide()
+                                    ShowThresholdSecondsPopup(cur > 0 and cur or nil, function(v)
+                                        EnsureSS()
+                                        SetOwn("missingShowBelow", (v and v > 0) and v or nil)
+                                        ns.QueueReanchor()
+                                    end, EllesmereUI.L("Also Show Below"),
+                                        EllesmereUI.L("Seconds left when the buff shows again (0 = off)"))
+                                end)
+                            end,
                             -- Mutually exclusive with the bar's "Keep Buffs in Same Place": that
                             -- mode reserves every buff's slot and ignores per-icon overrides, so
                             -- disable this row while it's on. Escape hatch: if THIS icon is the one
@@ -2684,6 +2778,13 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                       and ss.alwaysShow ~= "on" or false
                               end,
                               disabledTooltip = "Disabled while Keep Buffs in Same Place is enabled",
+                              -- Also Show Below acts only with Show When Missing: locked
+                              -- otherwise, unless it holds a value (clickable to clear it).
+                              itemState = function(si, item)
+                                  if item.val ~= "below" then return end
+                                  SetFlyoutItemLocked(si, ss.alwaysShow ~= "missing"
+                                      and (tonumber(ss.missingShowBelow) or 0) <= 0, "Requires Show When Missing")
+                              end,
                               apply = { keys = { "alwaysShow" },
                                         write = function(t, v) t.alwaysShow = v end } })
                     end
@@ -2865,7 +2966,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0); hl:SetAlpha(0)
                         -- Show on hover, anchored to the side, like the other subnav flyouts.
                         -- Reuse BuildCogPopup but drop its slide animation + click-outside dismiss so the menu's _openSub machinery (hover-to-switch, close-with-menu) controls it.
-                        local showFn, pf
+                        local _, showFn, pf
                         local function ShowCog()
                             if not showFn then _, showFn = buildCog(row) end
                             if not pf then
@@ -3318,11 +3419,237 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         si._refreshSwatch = refreshSwatch
                     end
 
+                    -- Combat Potion Icon (the three combat potion presets): the order the
+                    -- icon tracks the families in and whether a family out of bags swaps
+                    -- to the next (EUI_CDM_HookPresetCooldowns.lua, PotSwap). A flyout of
+                    -- its own: the swap toggle, then one row per family, dragged into the
+                    -- icon's priority order through the shared row reorder. Both settings
+                    -- sit on the icon's customActiveStates entry (potSwap, potOrder), so
+                    -- they travel with the entry across bars and specs; an unset toggle
+                    -- reads the old profile-wide switch.
+                    local potPreset = ns.ItemPresetForKey and ns.ItemPresetForKey(spellID)
+                    if potPreset and potPreset.potFamily and ns.COMBAT_POTION_FAMILIES
+                       and #ns.COMBAT_POTION_FAMILIES > 0 then
+                        local function PotSwapOn()
+                            if cas.potSwap == nil then return ns.PotSwapLegacyDefault() end
+                            return cas.potSwap == true
+                        end
+                        local function PotIsDefault()
+                            return cas.potSwap == nil and cas.potOrder == nil
+                        end
+                        local function PotChanged()
+                            if ns._BumpPotResolveGen then ns._BumpPotResolveGen() end
+                            if ns._MarkPresetCdDirty then ns._MarkPresetCdDirty() end
+                            if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
+                            if ns.QueueReanchor then ns.QueueReanchor() end
+                        end
+
+                        local row = CreateFrame("Button", nil, inner)
+                        row:SetHeight(ITEM_H)
+                        row:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                        row:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                        row:SetFrameLevel(menu:GetFrameLevel() + 2)
+                        local acR, acG, acB = EllesmereUI.GetAccentColor()
+                        local lbl = row:CreateFontString(nil, "OVERLAY")
+                        lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                        lbl:SetPoint("LEFT", 10, 0)
+                        lbl:SetJustifyH("LEFT")
+                        lbl:SetText(EllesmereUI.L("Combat Potion Icon"))
+                        local function PaintRow()
+                            if PotIsDefault() then
+                                lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                            else
+                                lbl:SetTextColor(acR, acG, acB, 1)
+                            end
+                        end
+                        PaintRow()
+                        local arrow = row:CreateTexture(nil, "ARTWORK")
+                        arrow:SetSize(10, 10)
+                        arrow:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+                        arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.png")
+                        arrow:SetAlpha(0.7)
+                        local hl = row:CreateTexture(nil, "ARTWORK")
+                        hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0); hl:SetAlpha(0)
+
+                        local sub
+                        local function ShowPotSub()
+                            if menu._openSub and menu._openSub ~= sub and menu._openSub.Hide then menu._openSub:Hide() end
+                            if sub then
+                                if not sub:IsShown() then sub:Show() end
+                                menu._openSub = sub
+                                return
+                            end
+                            sub = CreateFrame("Frame", nil, menu)
+                            sub:SetFrameStrata("FULLSCREEN_DIALOG")
+                            sub:SetFrameLevel(menu:GetFrameLevel() + 5)
+                            sub:SetClampedToScreen(true)
+                            sub:EnableMouse(true)
+                            sub:SetPoint("TOPLEFT", row, "TOPRIGHT", 2, 0)
+                            local subBg = sub:CreateTexture(nil, "BACKGROUND")
+                            subBg:SetAllPoints()
+                            subBg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
+                            EllesmereUI.MakeBorder(sub, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                            local labels = {}
+                            local subH = 4
+
+                            -- Swap Combat Pots When Missing: an independent toggle with
+                            -- the "+" look (accent text while on).
+                            local tg = CreateFrame("Button", nil, sub)
+                            tg:SetHeight(ITEM_H)
+                            tg:SetPoint("TOPLEFT", sub, "TOPLEFT", 1, -subH)
+                            tg:SetPoint("TOPRIGHT", sub, "TOPRIGHT", -1, -subH)
+                            tg:SetFrameLevel(sub:GetFrameLevel() + 2)
+                            local tgLbl = tg:CreateFontString(nil, "OVERLAY")
+                            tgLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                            tgLbl:SetPoint("LEFT", 10, 0)
+                            tgLbl:SetJustifyH("LEFT")
+                            tgLbl:SetText(EllesmereUI.L("Swap Combat Pots When Missing"))
+                            labels[#labels + 1] = tgLbl
+                            local tgHl = tg:CreateTexture(nil, "ARTWORK")
+                            tgHl:SetAllPoints(); tgHl:SetColorTexture(1, 1, 1, hlA); tgHl:SetAlpha(0)
+                            local function PaintToggle()
+                                if PotSwapOn() then
+                                    tgLbl:SetTextColor(acR, acG, acB, 1)
+                                else
+                                    tgLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                                end
+                            end
+                            PaintToggle()
+                            tg:SetScript("OnEnter", function()
+                                tgLbl:SetTextColor(1, 1, 1, 1); tgHl:SetAlpha(1)
+                                EllesmereUI.ShowWidgetTooltip(tg, EllesmereUI.L("When your bags hold none of the potion the icon tracks, it tracks the next potion in the priority order that you own."))
+                            end)
+                            tg:SetScript("OnLeave", function()
+                                PaintToggle(); tgHl:SetAlpha(0)
+                                EllesmereUI.HideWidgetTooltip()
+                            end)
+                            tg:SetScript("OnClick", function()
+                                EnsureCAS().potSwap = not PotSwapOn()
+                                PaintToggle(); PaintRow(); PotChanged()
+                            end)
+                            subH = subH + ITEM_H
+
+                            -- Priority Order: one row per family at a fixed slot, the top
+                            -- one the potion the icon tracks; a drop shuffles the rows'
+                            -- contents (EllesmereUI.AttachRowReorder).
+                            local head = sub:CreateFontString(nil, "OVERLAY")
+                            head:SetFont(FONT_PATH, 10, GetCDMOptOutline())
+                            head:SetTextColor(1, 1, 1, 0.35)
+                            head:SetPoint("TOPLEFT", sub, "TOPLEFT", 10, -subH - 6)
+                            head:SetText(EllesmereUI.L("Priority Order"))
+                            labels[#labels + 1] = head
+                            local hint = sub:CreateFontString(nil, "OVERLAY")
+                            hint:SetFont(FONT_PATH, 9, GetCDMOptOutline())
+                            hint:SetTextColor(1, 1, 1, 0.25)
+                            hint:SetPoint("RIGHT", sub, "TOPRIGHT", -10, -subH - 11)
+                            hint:SetText(EllesmereUI.L("Drag to Reorder"))
+                            subH = subH + 20
+                            local rowsTop = subH
+                            local famByKey = {}
+                            for _, fam in ipairs(ns.COMBAT_POTION_FAMILIES) do famByKey[fam.key] = fam end
+                            local movable = {}
+                            for _, k in ipairs(ns.PotOrderFor(potPreset, cas.potOrder)) do
+                                local fam = famByKey[k]
+                                if fam then
+                                    movable[#movable + 1] = { key = k, label = fam.name,
+                                        icon = fam.preset.icon or (fam.preset.itemID and C_Item.GetItemIconByID(fam.preset.itemID)) }
+                                end
+                            end
+                            local function SlotY(i) return -(rowsTop + (i - 1) * ITEM_H) end
+                            local rows = {}
+                            local dragState = { dragging = false }
+                            for i = 1, #movable do
+                                local r = CreateFrame("Button", nil, sub)
+                                r:SetHeight(ITEM_H)
+                                r:SetPoint("TOPLEFT", sub, "TOPLEFT", 1, SlotY(i))
+                                r:SetPoint("TOPRIGHT", sub, "TOPRIGHT", -1, SlotY(i))
+                                r:SetFrameLevel(sub:GetFrameLevel() + 2)
+                                r._item = movable[i]
+                                r._slotY = SlotY(i)
+                                local rIco = r:CreateTexture(nil, "ARTWORK")
+                                rIco:SetSize(ITEM_H - 6, ITEM_H - 6)
+                                rIco:SetPoint("RIGHT", r, "RIGHT", -26, 0)
+                                rIco:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                                local rLbl = r:CreateFontString(nil, "OVERLAY")
+                                rLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                                rLbl:SetPoint("LEFT", 10, 0)
+                                rLbl:SetPoint("RIGHT", rIco, "LEFT", -5, 0)
+                                rLbl:SetJustifyH("LEFT")
+                                rLbl:SetWordWrap(false)
+                                rLbl:SetMaxLines(1)
+                                labels[#labels + 1] = rLbl
+                                -- The three-dash drag handle of the reorder dropdowns.
+                                for g = 1, 3 do
+                                    local bar = r:CreateTexture(nil, "ARTWORK")
+                                    bar:SetSize(10, 1)
+                                    bar:SetPoint("RIGHT", r, "RIGHT", -10, (2 - g) * 3)
+                                    bar:SetColorTexture(1, 1, 1, 0.35)
+                                end
+                                local rHl = r:CreateTexture(nil, "ARTWORK")
+                                rHl:SetAllPoints(); rHl:SetColorTexture(1, 1, 1, hlA); rHl:SetAlpha(0)
+                                local function Paint()
+                                    rLbl:SetText(EllesmereUI.L(r._item.label))
+                                    rLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                                    rIco:SetTexture(EllesmereUI.ClientIcon(r._item.icon))
+                                end
+                                Paint()
+                                r._paint = Paint
+                                r:SetScript("OnEnter", function()
+                                    if dragState.dragging then return end
+                                    rLbl:SetTextColor(1, 1, 1, 1); rHl:SetAlpha(1)
+                                end)
+                                r:SetScript("OnLeave", function()
+                                    if dragState.dragging then return end
+                                    rLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); rHl:SetAlpha(0)
+                                end)
+                                rows[i] = r
+                            end
+                            local insLine = sub:CreateTexture(nil, "OVERLAY", nil, 7)
+                            insLine:SetHeight(2)
+                            local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+                            insLine:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+                            insLine:Hide()
+                            EllesmereUI.AttachRowReorder(sub, {
+                                rows = rows, items = movable, itemH = ITEM_H, slotY = SlotY,
+                                insLine = insLine, state = dragState,
+                                refresh = function()
+                                    for i = 1, #rows do
+                                        rows[i]._item = movable[i]
+                                        rows[i]._paint()
+                                    end
+                                end,
+                                onDragStart = function()
+                                    for i = 1, #rows do rows[i]._paint() end
+                                end,
+                                onDrop = function(keys)
+                                    EnsureCAS().potOrder = table.concat(keys, ",")
+                                    PaintRow(); PotChanged()
+                                end,
+                            })
+                            subH = rowsTop + #movable * ITEM_H
+                            sub:SetSize(FitMenuWidth(labels, 200, 64), subH + 4)
+                            sub:Show()
+                            menu._openSub = sub
+                        end
+                        row:SetScript("OnEnter", function()
+                            lbl:SetTextColor(1, 1, 1, 1)
+                            hl:SetColorTexture(1, 1, 1, hlA); hl:SetAlpha(1)
+                            ShowPotSub()
+                        end)
+                        row:SetScript("OnLeave", function()
+                            PaintRow(); hl:SetAlpha(0)
+                        end)
+                        mH = mH + ITEM_H
+                    end
+
                     -- Cooldown State Effect (always available for presets; driven by the live
                     -- cooldown, independent of the active overlay): the hide single-select
                     -- plus the "+ Glow" choices beside it (see the regular-spell row). The
                     -- strip's own-entry writes keep the spell entry, as every preset row's do.
-                    MakeSubnavRow("Cooldown State Effect", CD_STATE_ITEMS,
+                    -- Picking or clearing a glow (or a bar apply doing so) rebuilds the menu,
+                    -- which adds or drops the Glow Style row below.
+                    local hadGlowC = ns.CdStateGlowOf(cas) ~= nil
+                    menu._cseRow = MakeSubnavRow("Cooldown State Effect", CD_STATE_ITEMS,
                         function() return ns.CdStateHideOf(cas) end,
                         function(v)
                             ns.CdStateWriteHide(EnsureCAS(), v)
@@ -3347,11 +3674,16 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             end
                         end,
                         { itemState = AB.CdStateItemState(cas, nil, true),
+                          onRefresh = function()
+                              if (ns.CdStateGlowOf(cas) ~= nil) ~= hadGlowC then menu._rebuildPending = true end
+                          end,
                           apply = { keys = { "cdStateEffect", "cdStateLowerAlpha" },
                                     write = AB.CdHideWrite(cas),
                                     view = ns.CdStateHideOf } })
 
-                    -- Glow Style (preset/custom): mirror of the regular-spell row.
+                    -- Glow Style (preset/custom): mirror of the regular-spell row, shown only
+                    -- while a glow is picked in Cooldown State Effect.
+                    if hadGlowC then
                     MakeSubnavRow("Glow Style", CD_READY_STYLE_ITEMS,
                         function() return ns.CdReadyGlowStyle(ns.CdStateGlowOf(cas), cas) end,
                         function(v)
@@ -3383,12 +3715,12 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                 end)
                             end
                         end,
-                        { disabled = function() return ns.CdStateGlowOf(cas) == nil end,
-                          apply = { keys = { "cdStateGlowStyle", "cdStateGlowAlpha" },
+                        { apply = { keys = { "cdStateGlowStyle", "cdStateGlowAlpha" },
                                     write = function(t, v)
                                         t.cdStateGlowStyle = v
                                         t.cdStateGlowAlpha = (v == 8) and cas and cas.cdStateGlowAlpha or nil
                                     end } })
+                    end -- hadGlowC
 
                     -- Cooldown Saturation (preset/custom): mirror of the regular-spell row.
                     -- These icons are greyed by the Fake-Active engine rather than by Blizzard, so the runtime reads this key in PresetKeepsColor instead of the SetDesaturated hook -- same setting, same key name.
@@ -3471,6 +3803,26 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                         t.reverseSwipe = (v == "reverse") or false
                                         t.hideCDSwipe = (v == "hide") or false
                                     end } })
+
+                    -- Stance Bar (preset/custom): as on the regular-spell menu, stored in
+                    -- customActiveStates; the Fake-Active engine runs it.
+                    if AB.STANCE_BAR_ITEMS then
+                        MakeSubnavRow("Stance Bar", AB.STANCE_BAR_ITEMS,
+                            function() return cas.stanceBarHide or nil end,
+                            function(v)
+                                SetCasOwn("stanceBarHide", v)
+                                if v then ns._cdmAnyStanceBar = true end
+                                if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                                if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
+                            end,
+                            function() return not cas.stanceBarHide end,
+                            nil,
+                            { apply = { keys = { "stanceBarHide" },
+                                        write = function(t, v)
+                                            t.stanceBarHide = v or false
+                                            if v then ns._cdmAnyStanceBar = true end
+                                        end } })
+                    end
 
                     -- Out of Range Coloring (spells added by Spell ID only): they have no
                     -- Blizzard viewer frame, so nothing tinted them out of range. Default off;
@@ -3984,6 +4336,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 -- (cdStateEffect) plus the "+ Glow" choices beside it (cdStateGlow, see
                 -- CD_STATE_ITEMS); each pick keeps the other half. Pairs that can never
                 -- show both grey out, and the glows lock while a Proc Glow is set.
+                -- Picking or clearing a glow (or a bar apply doing so) rebuilds the menu,
+                -- which adds or drops the Glow Style row below.
+                local hadGlow = ns.CdStateGlowOf(ss) ~= nil
                 local cdStateRow = MakeSubnavRow("Cooldown State Effect", CD_STATE_ITEMS,
                     function() return ns.CdStateHideOf(ss) end,
                     function(v)
@@ -4015,6 +4370,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     { itemState = AB.CdStateItemState(ss, function()
                           return (ss.procGlow and ss.procGlow > 0) and true or false
                       end),
+                      onRefresh = function()
+                          if (ns.CdStateGlowOf(ss) ~= nil) ~= hadGlow then menu._rebuildPending = true end
+                      end,
                       apply = { confirmRA = true,
                                 keys = { "cdStateEffect", "cdStateLowerAlpha" },
                                 write = AB.CdHideWrite(ss),
@@ -4039,6 +4397,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                     e.cdStateLowerAlpha = nil
                                 end,
                                 view = ns.CdStateHideOf } })
+                menu._cseRow = cdStateRow
                 if isCustomInjected and cdStateRow then
                     cdStateRow:SetAlpha(0.35)
                     cdStateRow:SetScript("OnEnter", function()
@@ -4049,8 +4408,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     end)
                 end
 
-                -- 4b. Glow Style: the style the CD Ready and On CD glows use.
-                if not isCustomInjected then
+                -- 4b. Glow Style: the style the CD Ready and On CD glows use, shown only
+                -- while a glow is picked in Cooldown State Effect.
+                if not isCustomInjected and hadGlow then
                     MakeSubnavRow("Glow Style", CD_READY_STYLE_ITEMS,
                         function() return ns.CdReadyGlowStyle(ns.CdStateGlowOf(ss), ss) end,
                         function(v)
@@ -4082,8 +4442,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                 end)
                             end
                         end,
-                        { disabled = function() return ns.CdStateGlowOf(ss) == nil end,
-                          apply = { keys = { "cdStateGlowStyle", "cdStateGlowAlpha" },
+                        { apply = { keys = { "cdStateGlowStyle", "cdStateGlowAlpha" },
                                     -- The Blackout opacity rides along with the Blackout value
                                     -- only: a spell that set its own opacity pushes it to the bar
                                     -- instead of rejoining the bar's (see payloadValue).
@@ -4133,6 +4492,28 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                                     t.reverseSwipe = (v == "reverse") or false
                                     t.hideCDSwipe = (v == "hide") or false
                                 end } })
+
+                -- 4b2. Stance Bar (per-spell, classes with stance bar pages): hidden in or
+                -- outside one of the class's paging stances, for keys that cast something
+                -- else on that page. Runtime in EllesmereUICdmStanceBar.lua, gated by
+                -- ns._cdmAnyStanceBar.
+                if AB.STANCE_BAR_ITEMS then
+                    MakeSubnavRow("Stance Bar", AB.STANCE_BAR_ITEMS,
+                        function() return ss.stanceBarHide or nil end,
+                        function(v)
+                            EnsureSS()
+                            SetOwn("stanceBarHide", v)
+                            if v then ns._cdmAnyStanceBar = true end
+                            if ns.RefreshCDMIconAppearance then ns.RefreshCDMIconAppearance(barKey) end
+                        end,
+                        function() return not ss.stanceBarHide end,
+                        nil,
+                        { apply = { keys = { "stanceBarHide" },
+                                    write = function(t, v)
+                                        t.stanceBarHide = v or false
+                                        if v then ns._cdmAnyStanceBar = true end
+                                    end } })
+                end
 
                 -- 4c. Audio Effect on CD Ready (cd/utility per-icon): play a sound the moment
                 -- the spell's real cooldown finishes. Same sound list + speaker preview as the
@@ -4456,9 +4837,21 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
         menu:ClearAllPoints()
         menu:SetPoint("TOP", anchorFrame, "BOTTOM", 0, -4)
         menu._anchorFrame = anchorFrame
+        menu._anchorGen = PoolGen(anchorFrame)
         optState._spellPickerMenu = menu
         menu._openSub = nil  -- track open subnav for close checks
         menu:SetScript("OnUpdate", function(m)
+            -- A glow picked or cleared in Cooldown State Effect adds or drops the
+            -- Glow Style row: rebuild the menu here, outside the click that asked
+            -- for it, and reopen the Cooldown State Effect flyout where it was.
+            if m._rebuildPending then
+                m._rebuildPending = nil
+                m:Hide()
+                ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSelect, removeOnly)
+                local r = m._cseRow
+                if m:IsShown() and r and r._showSub then r._showSub() end
+                return
+            end
             local overMenu = m:IsMouseOver() or anchorFrame:IsMouseOver()
             -- A cog flyout (Duration/Charge-Stack) drives itself through this menu, so also
             -- treat "mouse over the flyout's open dropdown menu" as over-the-sub. Without this, picking a Position option whose list extends below the flyout reads as an outside click and closes the whole menu.
@@ -4530,270 +4923,11 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
         end)
         csItem:SetScript("OnClick", function()
             menu:Hide()
-            -- Own frame, not ShowCustomSpellIDPopup's: only this build adds Show Charges,
-            -- and sharing one lazily built frame let whichever opened first win.
-            local popupName = "EUI_CDM_CDSpellIDPopup"
-            local popup = _G[popupName]
-            if not popup then
-                local POPUP_W, POPUP_H = 320, 160
-                local dimmer = CreateFrame("Frame", popupName .. "Dimmer", UIParent)
-                dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
-                dimmer:SetAllPoints(UIParent)
-                dimmer:EnableMouse(true)
-                dimmer:Hide()
-                local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
-                dimTex:SetAllPoints(); dimTex:SetColorTexture(0, 0, 0, 0.25)
-                dimmer:SetScript("OnMouseDown", function(self) self:Hide() end)
-
-                popup = CreateFrame("Frame", popupName, dimmer)
-                popup:SetSize(POPUP_W, POPUP_H)
-                popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
-                popup:SetFrameStrata("FULLSCREEN_DIALOG")
-                popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
-                popup:EnableMouse(true)
-                local popBg = popup:CreateTexture(nil, "BACKGROUND")
-                popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
-                EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
-
-                local title = popup:CreateFontString(nil, "OVERLAY")
-                title:SetFont(FONT_PATH, 14, GetCDMOptOutline())
-                title:SetPoint("TOP", popup, "TOP", 0, -18)
-                title:SetTextColor(1, 1, 1, 1)
-                title:SetText(EllesmereUI.L("Add Custom Spell"))
-                popup._title = title
-
-                local editBox = CreateFrame("EditBox", nil, popup)
-                editBox:SetSize(180, 28)
-                editBox:SetPoint("TOP", title, "BOTTOM", 0, -16)
-                editBox:SetAutoFocus(true)
-                editBox:SetNumeric(true)
-                editBox:SetMaxLetters(7)
-                editBox:SetFont(FONT_PATH, 13, GetCDMOptOutline())
-                editBox:SetTextColor(1, 1, 1, 0.9)
-                editBox:SetJustifyH("CENTER")
-                local ebBg = editBox:CreateTexture(nil, "BACKGROUND")
-                ebBg:SetAllPoints(); ebBg:SetColorTexture(0.060, 0.049, 0.037, 1)
-                EllesmereUI.MakeBorder(editBox, 1, 1, 1, 0.12, EllesmereUI.PP)
-
-                local placeholder = editBox:CreateFontString(nil, "ARTWORK")
-                placeholder:SetFont(FONT_PATH, 12, GetCDMOptOutline())
-                placeholder:SetPoint("CENTER")
-                placeholder:SetTextColor(0.5, 0.5, 0.5, 0.5)
-                placeholder:SetText(EllesmereUI.L("Spell ID"))
-                editBox:SetScript("OnTextChanged", function(self)
-                    if self:GetText() == "" then placeholder:Show() else placeholder:Hide() end
-                end)
-                popup._editBox = editBox
-
-                local status = popup:CreateFontString(nil, "OVERLAY")
-                status:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-                status:SetPoint("TOP", editBox, "BOTTOM", 0, -6)
-                status:SetTextColor(1, 0.3, 0.3, 1)
-                status:SetText("")
-                popup._status = status
-                popup._statusTimer = nil
-
-                local ar, ag, ab = EllesmereUI.GetAccentColor()
-                local addBtn = CreateFrame("Button", nil, popup)
-                addBtn:SetSize(80, 28)
-                addBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 16)
-                local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
-                addBg:SetAllPoints(); addBg:SetColorTexture(ar, ag, ab, 0.15)
-                EllesmereUI.MakeBorder(addBtn, ar, ag, ab, 0.3, EllesmereUI.PP)
-                local addLbl = addBtn:CreateFontString(nil, "OVERLAY")
-                addLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
-                addLbl:SetPoint("CENTER"); addLbl:SetText(EllesmereUI.L("Add"))
-                addLbl:SetTextColor(ar, ag, ab, 0.9)
-                addBtn:SetScript("OnEnter", function() addLbl:SetTextColor(1, 1, 1, 1) end)
-                addBtn:SetScript("OnLeave", function() addLbl:SetTextColor(ar, ag, ab, 0.9) end)
-                popup._addBtn = addBtn
-
-                -- Permanent red note: a manually-entered custom spell has no live cooldown
-                -- frame, so charge counts cannot be tracked. Shown only for CD/utility bars (not custom aura bars).
-                local chargeWarn = popup:CreateFontString(nil, "OVERLAY")
-                chargeWarn:SetFont(FONT_PATH, 10, GetCDMOptOutline())
-                chargeWarn:SetPoint("LEFT", popup, "LEFT", 16, 0)
-                chargeWarn:SetPoint("RIGHT", popup, "RIGHT", -16, 0)
-                chargeWarn:SetPoint("BOTTOM", addBtn, "TOP", 0, 17)
-                chargeWarn:SetJustifyH("CENTER")
-                chargeWarn:SetTextColor(0.9, 0.3, 0.3, 1)
-                chargeWarn:SetText(EllesmereUI.L("Custom spells cannot track charges."))
-                popup._chargeWarn = chargeWarn
-
-                -- "Show Charges" opt-in (CD/utility custom spells): a manually entered spell
-                -- has no Blizzard charge frame, but its cast count can still be shown on
-                -- request. Replaces the old red "cannot track charges" note for CD/utility;
-                -- hidden for custom auras. do-block so the build-time locals are released (this file has a function at the Lua 5.1 200-local cap).
-                do
-                    local wrap = CreateFrame("Button", nil, popup)
-                    wrap:SetSize(16, 16)
-                    wrap:SetPoint("BOTTOM", popup, "BOTTOM", -46, 60)
-                    wrap:Hide()
-                    local bg = wrap:CreateTexture(nil, "BACKGROUND")
-                    bg:SetAllPoints(); bg:SetColorTexture(0.060, 0.049, 0.037, 1)
-                    EllesmereUI.MakeBorder(wrap, 1, 1, 1, 0.15, EllesmereUI.PP)
-                    local mark = wrap:CreateTexture(nil, "ARTWORK")
-                    mark:SetPoint("CENTER"); mark:SetSize(9, 9)
-                    mark:SetColorTexture(ar, ag, ab, 1); mark:Hide()
-                    local lbl = wrap:CreateFontString(nil, "OVERLAY")
-                    lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-                    lbl:SetPoint("LEFT", wrap, "RIGHT", 6, 0)
-                    lbl:SetText(EllesmereUI.L("Show Charges"))
-                    lbl:SetTextColor(0.8, 0.8, 0.8, 0.9)
-                    wrap:SetScript("OnClick", function()
-                        popup._forceCountChecked = not popup._forceCountChecked
-                        if popup._forceCountChecked then mark:Show() else mark:Hide() end
-                    end)
-                    popup._forceCountCheck = wrap
-                    popup._forceCountMark = mark
-                end
-                popup._forceCountChecked = false
-
-                local cancelBtn = CreateFrame("Button", nil, popup)
-                cancelBtn:SetSize(80, 28)
-                cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
-                local cBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
-                cBg:SetAllPoints(); cBg:SetColorTexture(0.12, 0.12, 0.12, 0.5)
-                EllesmereUI.MakeBorder(cancelBtn, 1, 1, 1, 0.10, EllesmereUI.PP)
-                local cLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
-                cLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
-                cLbl:SetPoint("CENTER"); cLbl:SetText(EllesmereUI.L("Cancel"))
-                cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8)
-                cancelBtn:SetScript("OnEnter", function() cLbl:SetTextColor(1, 1, 1, 1) end)
-                cancelBtn:SetScript("OnLeave", function() cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8) end)
-                cancelBtn:SetScript("OnClick", function() dimmer:Hide() end)
-                popup._cancelBtn = cancelBtn
-
-                editBox:SetScript("OnEscapePressed", function() dimmer:Hide() end)
-
-                local durLabel = popup:CreateFontString(nil, "OVERLAY")
-                durLabel:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-                durLabel:SetPoint("TOP", editBox, "BOTTOM", 0, -32)
-                durLabel:SetTextColor(0.7, 0.7, 0.7, 0.85)
-                durLabel:SetText(EllesmereUI.L("Duration (seconds)"))
-                popup._durLabel = durLabel
-
-                local durBox = CreateFrame("EditBox", nil, popup)
-                durBox:SetSize(180, 28)
-                durBox:SetPoint("TOP", durLabel, "BOTTOM", 0, -6)
-                durBox:SetNumeric(true)
-                durBox:SetMaxLetters(5)
-                durBox:SetFont(FONT_PATH, 13, GetCDMOptOutline())
-                durBox:SetTextColor(1, 1, 1, 0.9)
-                durBox:SetJustifyH("CENTER")
-                local durBg = durBox:CreateTexture(nil, "BACKGROUND")
-                durBg:SetAllPoints(); durBg:SetColorTexture(0.060, 0.049, 0.037, 1)
-                EllesmereUI.MakeBorder(durBox, 1, 1, 1, 0.12, EllesmereUI.PP)
-                local durPlaceholder = durBox:CreateFontString(nil, "ARTWORK")
-                durPlaceholder:SetFont(FONT_PATH, 12, GetCDMOptOutline())
-                durPlaceholder:SetPoint("CENTER")
-                durPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.5)
-                durPlaceholder:SetText(EllesmereUI.L("Required"))
-                durBox:SetScript("OnTextChanged", function(self)
-                    if self:GetText() == "" then durPlaceholder:Show() else durPlaceholder:Hide() end
-                end)
-                durBox:SetScript("OnEscapePressed", function() dimmer:Hide() end)
-                popup._durBox = durBox
-
-                popup._dimmer = dimmer
-                _G[popupName] = popup
-            end
-
-            local function SetStatus(text, r, g, b)
-                popup._status:SetText(EllesmereUI.L(text))
-                popup._status:SetTextColor(r or 1, g or 0.3, b or 0.3, 1)
-                if popup._statusTimer then popup._statusTimer:Cancel() end
-                if text ~= "" then
-                    popup._statusTimer = C_Timer.NewTimer(2.5, function()
-                        popup._status:SetText("")
-                    end)
-                end
-            end
-
-            local isCustomBuffPopup = isCustomBuff
-
-            local function DoAdd()
-                local text = popup._editBox:GetText()
-                local sid = tonumber(text)
-                if not sid or sid <= 0 then
-                    SetStatus("Enter a valid spell ID")
-                    return
-                end
-                sid = math.floor(sid)
-                local spellName = C_Spell.GetSpellName(sid)
-                if not spellName then
-                    SetStatus("Unknown spell ID")
-                    return
-                end
-                -- 12.1: custom buffs are tracked as real auras -- no
-                -- duration is asked or stored. Entries that already
-                -- carry a stored duration are legacy cast-timer customs
-                -- and keep that path untouched.
-                -- Check if already tracked. Variant-aware, mirroring AddTrackedSpell's own
-                -- dedup: an exact-only check lets a variant-duplicate through, which
-                -- AddTrackedSpell then silently refuses AFTER the custom tag below is written (orphaned tag, nothing rendered).
-                local sdChk = bd and ns.GetBarSpellData(bd.key)
-                if sdChk and sdChk.assignedSpells then
-                    local dup
-                    if ns.FindVariantIndexInList then
-                        dup = ns.FindVariantIndexInList(sdChk.assignedSpells, sid)
-                    else
-                        for _, existing in ipairs(sdChk.assignedSpells) do
-                            if existing == sid then dup = true; break end
-                        end
-                    end
-                    if dup then
-                        SetStatus("Already tracked")
-                        return
-                    end
-                end
-                popup._dimmer:Hide()
-                -- Tag as custom spell so ghost bar routing can skip it
-                local sdTag = bd and ns.GetBarSpellData(bd.key)
-                if sdTag then
-                    if not sdTag.customSpellIDs then sdTag.customSpellIDs = {} end
-                    sdTag.customSpellIDs[sid] = true
-                    -- "Show Charges" opt-in (CD/utility only; custom auras skip it). Set/clear
-                    -- explicitly so a re-add with the box unchecked can't leave a stale flag behind, and flip the runtime gate live.
-                    if not isCustomBuffPopup then
-                        if popup._forceCountChecked then
-                            if not sdTag.customSpellForceCount then sdTag.customSpellForceCount = {} end
-                            sdTag.customSpellForceCount[sid] = true
-                            ns._cdmAnyCustomForceCount = true
-                        elseif sdTag.customSpellForceCount then
-                            sdTag.customSpellForceCount[sid] = nil
-                        end
-                    end
-                end
+            -- Only this caller offers Show Charges (CD/utility bars).
+            ns.CDMO_ShowCustomSpellIDPopup(bd and bd.key, function(sid)
                 if ns.UpdateCustomBuffAuraTracking then ns.UpdateCustomBuffAuraTracking() end
                 if onSelect then onSelect(sid, true) end
-            end
-
-            popup._addBtn:SetScript("OnClick", DoAdd)
-            popup._editBox:SetScript("OnEnterPressed", DoAdd)
-            popup._editBox:SetText("")
-            popup._status:SetText("")
-            if isCustomBuffPopup then
-                -- Aura-tracked (12.1): same compact shape as CD/utility --
-                -- no duration fields, no charges chrome.
-                popup:SetHeight(164)
-                popup._durLabel:Hide()
-                popup._durBox:Hide()
-                if popup._chargeWarn then popup._chargeWarn:Hide() end
-                if popup._forceCountCheck then popup._forceCountCheck:Hide() end
-            else
-                popup:SetHeight(164)
-                popup._durLabel:Hide()
-                popup._durBox:Hide()
-                -- CD/utility: the old "cannot track charges" note is replaced by the opt-in "Show Charges" toggle, reset unchecked each open.
-                if popup._chargeWarn then popup._chargeWarn:Hide() end
-                popup._forceCountChecked = false
-                if popup._forceCountMark then popup._forceCountMark:Hide() end
-                if popup._forceCountCheck then popup._forceCountCheck:Show() end
-            end
-            ns.PadPopupOpen(popup._dimmer, popup, popup._cancelBtn)  -- controller cursor
-            popup._dimmer:Show()
-            popup._editBox:SetFocus()
+            end, not isCustomBuff)
         end)
 
         allItems[#allItems + 1] = csItem
@@ -5434,10 +5568,32 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 subInner:SetPoint("TOPLEFT")
 
                 local subH = 4
+                local nativeOnly = sdTrk and sdTrk.nativeItems
                 for _, preset in ipairs(itemPresets) do
-                    do
+                    -- The two legacy combat potion entries resolve bars saved with
+                    -- their keys but are not offered: Combat Potion is the one entry.
+                    if not preset.legacy then
                     local pID = -(preset.itemID)
-                    local isAdded = alreadyOnBar[pID]
+                    -- Combat Potion counts as on this bar under any of its family keys.
+                    -- An entry the reseed listed for Blizzard's own row of the item
+                    -- (nativeItems) is not the preset's yet: the pick adopts it.
+                    local famKeys = preset.potFamily and ns.CDM_NATIVE_ITEM_KEYS
+                        and ns.CDM_NATIVE_ITEM_KEYS[preset.nativeCategory] or nil
+                    local isAdded = false
+                    if famKeys then
+                        for _, k in ipairs(famKeys) do
+                            if alreadyOnBar[k] and not (nativeOnly and nativeOnly[k]) then isAdded = true; break end
+                        end
+                        if not isAdded then
+                            -- Its own key here (to adopt), else the family key another
+                            -- bar lists (the add moves it, as any preset auto-moves).
+                            for _, k in ipairs(famKeys) do
+                                if alreadyOnBar[k] or usedOnOtherBar[k] then pID = k; break end
+                            end
+                        end
+                    else
+                        isAdded = alreadyOnBar[pID] and not (nativeOnly and nativeOnly[pID]) or false
+                    end
                     local pOtherBar = not isAdded and usedOnOtherBar[pID]
                     local pIsDisabled = isAdded  -- other bars stay claimable (auto-move)
 
@@ -5492,12 +5648,16 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             _potionsSub:Hide()
                             menu:Hide()
                             EnsureAssignedSpells(barKey)
-                            ns.AddTrackedSpell(barKey, pID)
+                            -- Already listed for Blizzard's own row: the entry becomes
+                            -- the preset's (the add refuses a key the bar holds).
+                            if not ns.AddTrackedSpell(barKey, pID) then
+                                ns.AdoptNativeItemEntry(barKey, pID)
+                            end
                             RefreshCDPreview()
                         end)
                     end
                     subH = subH + SUB_ITEM_H
-                    end -- healthstone filter
+                    end -- not preset.legacy
                 end
 
                 -- Widen to the longest preset name (pad leaves room for the text
@@ -5521,7 +5681,11 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
             potItem:SetScript("OnLeave", function()
                 potLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
                 potHl:SetAlpha(0)
+                -- Stands down once the menu was dressed again for another open:
+                -- this flyout and its row belong to the dress that left them.
+                local menuGen = PoolGen(menu)
                 C_Timer.After(0.3, function()
+                    if PoolGen(menu) ~= menuGen then return end
                     if _potionsSub and _potionsSub:IsShown() and not _potionsSub:IsMouseOver() and not potItem:IsMouseOver() then
                         _potionsSub:Hide()
                     end
@@ -5853,6 +6017,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
     menu:Show()
     optState._spellPickerMenu = menu
     menu._anchorFrame = anchorFrame
+    menu._anchorGen = PoolGen(anchorFrame)
 end
 
 -- Used by EUI_CooldownManager_Options.lua

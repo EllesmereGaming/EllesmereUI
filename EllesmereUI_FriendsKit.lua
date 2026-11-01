@@ -755,7 +755,7 @@ Kit.ICON_STYLE_VALUES = {
     blizzard = "Blizzard",
     modern   = "Modern",
     pixel    = "Pixel",
-    pixelsComic = "Pixels Comic",
+    pixelsComic = "Comic",
     glyph    = "Glyph",
     arcade   = "Arcade",
     legend   = "Legend",
@@ -792,12 +792,7 @@ Kit.ICON_STYLE_ORDER = {
 --  Kit.RedecorateTiles.
 -------------------------------------------------------------------------------
 -- External weak-keyed state. Never write custom keys onto a Blizzard frame.
-local FFD = setmetatable({}, { __mode = "k" })
-local function GetFFD(frame)
-    local d = FFD[frame]
-    if not d then d = {}; FFD[frame] = d end
-    return d
-end
+local FFD, GetFFD = EllesmereUI.NewFrameData()
 
 -------------------------------------------------------------------------------
 --  Tuning

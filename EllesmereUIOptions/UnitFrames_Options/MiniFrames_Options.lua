@@ -8,6 +8,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
 if not ns then return end  -- module disabled: no options page
 
+-- Page reuse: the frames this file builds under a kept page go through the
+-- options frame pool (EllesmereUI_FramePool.lua), which hands the next build
+-- the previous build's frames reset to new; on any other parent it is the
+-- plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+-- The pool's other calls this file makes, read once here as CreateFrame is:
+-- the page path never calls the pool through its public slot, which
+-- another addon could replace.
+local PoolIsIdle = EllesmereUI._Pool.IsIdle
+
 ---------------------------------------------------------------------------
 --  Mini frame donor settings helper
 --  Returns the settings table unitKey copies its look from (its Copy Look
@@ -21,6 +31,14 @@ local function GetMiniDonorSettings(unitKey)
     return ns.GetMiniDonorSettings and ns.GetMiniDonorSettings(unitKey) or db.profile.player
 end
 
+-- The label of each mini frame's enable toggle (the row that opens its DISPLAY
+-- section): the requirement its Move in Unlock Mode button names while that
+-- toggle is off.
+local MINI_ENABLE_LABELS = {
+    targettarget = "Enable Target of Target", focustarget = "Enable Focus Target",
+    pet = "Enable Pet Frame", boss = "Enable Boss Frames",
+}
+
 ---------------------------------------------------------------------------
 --  Shared mini frame settings builder
 ---------------------------------------------------------------------------
@@ -29,6 +47,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
     local AddDarkModeBlock, BuildBarTexDropdown, BuildInactiveNotice, PP = env.AddDarkModeBlock, env.BuildBarTexDropdown, env.BuildInactiveNotice, env.PP
     local RegisterWidgetRefresh, ReloadAndUpdate, db, healthTextOrder = env.RegisterWidgetRefresh, env.ReloadAndUpdate, env.db, env.healthTextOrder
     local healthTextOrderBoss, healthTextValues = env.healthTextOrderBoss, env.healthTextValues
+    local TexBgRowCfg = env.TexBgRowCfg
     local _, h
     opts = opts or {}
 
@@ -45,6 +64,16 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
     -- DISPLAY
     local displayHeader
     displayHeader, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
+    -- The Move in Unlock Mode button on the frame's first section: its mover
+    -- exists only for the EllesmereUI frame source, so the button explains
+    -- itself while the frame is hidden (its enable toggle) or on Blizzard's frame.
+    EllesmereUI.BuildSectionUnlockJump(displayHeader, {
+        key = unitKey,
+        disabled = function() return ns.GetUnitFrameSource(unitKey) ~= "eui" end,
+        disabledTooltip = function()
+            if ns.VisUnitDisabled(db.profile, unitKey) then return MINI_ENABLE_LABELS[unitKey] end
+            return "This option requires the EllesmereUI Frame Source."
+        end })
     y = EllesmereUI.BlizzStyle.Note(parent, y, "unitframes")
 
     -- Enable row (passed in from each builder)
@@ -124,6 +153,14 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                   ReloadAndUpdate()
               end },
             rightSlot);  y = y - h
+        -- Textured Background cog: while Bar Texture is Inherit the toggle
+        -- follows the main frame and shows its value, greyed.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(barTexRow._leftRegion, {
+                title = "Texture Settings",
+                rows = { TexBgRowCfg(function() return settingsTable end, ReloadAndUpdate, unitKey) },
+            })
+        end
 
         -- Boss Hover Borders: checkbox dropdown (Hover Border / Target Border,
         -- both default off) with inline color swatches. Enabling one recolors
@@ -198,10 +235,28 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
 
     -- Boss Border Style | Border Size (+ Width Offset | Height Offset for a
     -- textured style): the boss frames' own border, or the main frames'
-    -- while the style reads Inherit. Full pairs, so Strata below stays
-    -- the section's odd last slot.
+    -- while the style reads Inherit. Full pairs, so Strata | Dark Mode below
+    -- stays the section's last row.
     if unitKey == "boss" then
         y = y - ns.UF_BossFrameBorderRows(W, parent, y, settingsTable, ReloadAndUpdate)
+    end
+
+    -- Dark Mode for this frame alone, as on the Main Frames page (unset follows the
+    -- profile's). It feeds the Dark Mode override condition, so it rechecks it and is
+    -- locked while such an override is edited.
+    local darkCfg = { type="toggle", text="Dark Mode",
+        tooltip="Dark Mode for this frame. Global Settings > Colors switches every frame.",
+        getValue=function() return ns.UF_DarkThemeOn(settingsTable) end,
+        setValue=function(v)
+            MSet("darkTheme", v)
+            EllesmereUI.Conditions_Recheck()
+            EllesmereUI:RefreshPage()
+        end }
+    local function LockDark(rgn)
+        if EllesmereUI._prebuilding then return end
+        EllesmereUI.SpecOverrides_AttachEditLock(rgn,
+            "Dark Mode drives a Dark Mode override condition and can't be changed while editing an override",
+            EllesmereUI.SpecOverrides_DarkCondEditActive)
     end
 
     -- DISPLAY bottom row for boss: the mini frames carry their Strata
@@ -212,7 +267,8 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
     if unitKey == "boss" then
         local bossStrataValues = EllesmereUI.FRAME_STRATA_LABELS
         local bossStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
-        _, h = W:DualRow(parent, y,
+        local strataRow
+        strataRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Strata",
               tooltip="Overrides the Frame Strata set in the main frames for this frame only. Controls the order that overlapping frames display in; set higher to show above other frames.",
               values = bossStrataValues, order = bossStrataOrder,
@@ -221,10 +277,11 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                   settingsTable.frameStrata = v
                   ReloadAndUpdate()
               end },
-            { type="label", text="" });  y = y - h
+            darkCfg);  y = y - h
+        LockDark(strataRow._rightRegion)
     end
 
-    -- DISPLAY bottom row: per-frame Border Size override for ToT/Focus Target/Pet.
+    -- DISPLAY: per-frame Border Size override for ToT/Focus Target/Pet.
     -- Size only, no color/texture (those still inherit from main frames);
     -- borderSizeOverride nil = inherit donor size until set. Boss frames use
     -- their own Border Style | Border Size row above instead.
@@ -241,6 +298,9 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
               tooltip="Show the main frames' hover highlight border on this frame. Turn off so this frame never recolors on mouseover. No effect when Highlight is off in the main frames' Hover Borders.",
               getValue=function() return settingsTable.showHighlightBorder ~= false end,
               setValue=function(v) settingsTable.showHighlightBorder = v end });  y = y - h
+        local darkRow
+        darkRow, h = W:DualRow(parent, y, darkCfg, EllesmereUI.BlankRowCfg());  y = y - h
+        LockDark(darkRow._leftRegion)
     end
 
     -- Optional extra rows after enable (e.g. portrait, cast icon, indicators)
@@ -290,7 +350,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
             -- Fill Color = the health fill opacity (formerly "Fill Opacity")
             -- with the fill color swatches moved inline below.
             leftSlot2 = { type="slider", text="Fill Color", min=0, max=100, step=1,
-              disabled=function() return db.profile.darkTheme end,
+              disabled=function() return ns.UF_DarkThemeOn(settingsTable) end,
               disabledTooltip="Dark Mode", requireState="disabled",
               getValue=function() return MVal("healthBarOpacity", 90) end,
               setValue=function(v) MSet("healthBarOpacity", v) end }
@@ -346,7 +406,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
             }
             leftSlot2 = { type="multiSwatch", text="Fill Color", swatches = fillSwatches }
             rightSlot2 = { type="slider", text="Fill Opacity", min=0, max=100, step=1,
-              disabled=function() return db.profile.darkTheme end,
+              disabled=function() return ns.UF_DarkThemeOn(settingsTable) end,
               disabledTooltip="Dark Mode", requireState="disabled",
               getValue=function() return MVal("healthBarOpacity", 90) end,
               setValue=function(v) MSet("healthBarOpacity", v) end }
@@ -476,8 +536,8 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
         -- fill/background colors). Boss also blocks Bar Background so its swatches
         -- gray out like Main Frames; other mini units' Bar Opacity has its own disable handler.
         if not EllesmereUI._prebuilding then
-        AddDarkModeBlock(colorRow._leftRegion)
-        if isBoss then AddDarkModeBlock(colorRow._rightRegion) end
+        AddDarkModeBlock(colorRow._leftRegion, function() return settingsTable end)
+        if isBoss then AddDarkModeBlock(colorRow._rightRegion, function() return settingsTable end) end
         end
     end
 
@@ -599,7 +659,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
           getValue=function() return MVal("leftTextContent", "name") end,
           setValue=function(v)
             settingsTable.leftTextContent = v
-            if v ~= "none" then
+            if ns.UF_IsUniqueContent(v) then
                 if settingsTable.rightTextContent == v then settingsTable.rightTextContent = "none" end
                 if settingsTable.centerTextContent == v then settingsTable.centerTextContent = "none" end
             end
@@ -726,7 +786,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
           getValue=function() return MVal("rightTextContent", "none") end,
           setValue=function(v)
             settingsTable.rightTextContent = v
-            if v ~= "none" then
+            if ns.UF_IsUniqueContent(v) then
                 if settingsTable.leftTextContent == v then settingsTable.leftTextContent = "none" end
                 if settingsTable.centerTextContent == v then settingsTable.centerTextContent = "none" end
             end
@@ -1269,19 +1329,28 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
         -- Reads/writes the same per-unit keys; MSet -> ReloadAndUpdate live-updates
         -- the real boss frames AND the preview (runtime already supports boss).
         local pwrTextRow
+        local function SetPowerTextFormat(v)
+            settingsTable.powerTextFormat = v
+            if v ~= "none" and MVal("powerPercentText", "none") == "none" then
+                settingsTable.powerPercentText = "center"
+            end
+            if v == "none" then settingsTable.powerPercentText = "none" end
+            ReloadAndUpdate(); EllesmereUI:RefreshPage()
+            -- The page stays, so the menu is rebuilt for Custom's pencil.
+            ns.UFO_RefreshMenus(pwrTextRow and pwrTextRow._leftRegion)
+        end
         pwrTextRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Power Text",
-              values = { ["none"]="None", ["smart"]="Smart Text", ["curpp"]="Power Value", ["perpp"]="Power %", ["both"]="Value | %" },
-              order  = { "none", "smart", "curpp", "perpp", "both" },
+              values = ns.UFO_CustomTextValues(
+                  { ["none"]="None", ["smart"]="Smart Text", ["curpp"]="Power Value", ["perpp"]="Power %", ["both"]="Value | %" },
+                  function() return MVal("powerTextFormat", "perpp") end,
+                  function()
+                      ns.UFO_EditCustomText("powerText", settingsTable, unitKey,
+                          function() SetPowerTextFormat("custom") end)
+                  end),
+              order  = { "none", "---", "custom", "---", "smart", "curpp", "perpp", "both" },
               getValue=function() return MVal("powerTextFormat", "perpp") end,
-              setValue=function(v)
-                  settingsTable.powerTextFormat = v
-                  if v ~= "none" and MVal("powerPercentText", "none") == "none" then
-                      settingsTable.powerPercentText = "center"
-                  end
-                  if v == "none" then settingsTable.powerPercentText = "none" end
-                  ReloadAndUpdate(); EllesmereUI:RefreshPage()
-              end },
+              setValue=SetPowerTextFormat },
             { type="dropdown", text="Text Position",
               values = { ["none"]="None", ["left"]="Left", ["right"]="Right", ["center"]="Center" },
               order  = { "none", "---", "left", "right", "center" },
@@ -1290,6 +1359,10 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
         -- Expose the power-text row so the preview's power-text click overlay
         -- can scroll here (mirrors parent._powerHeightRow / _powerHeaderFrame).
         parent._powerTextRow = pwrTextRow
+        if not EllesmereUI._prebuilding then
+            ns.UFO_AddCustomFormatAccessor(pwrTextRow._leftRegion, "Power Text", "powerText",
+                MVal("powerTextFormat", "perpp"), function() return settingsTable end, ReloadAndUpdate)
+        end
         -- Inline Text Color swatches on Power Text (left): Custom + Power Colored,
         -- mutually exclusive (mirrors Main Frames' Text Color multiSwatch). Custom
         -- click: first clears power-colored (selecting custom), second opens the
@@ -1346,16 +1419,9 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
         -- Show % cog on Power Text (left)
         if not EllesmereUI._prebuilding then
             local rgn = pwrTextRow._leftRegion
-            EllesmereUI.BuildInlineCog(rgn, {
-                disabled = function() local fmt = MVal("powerTextFormat", "perpp"); return fmt == "none" or fmt == "curpp" end,
-                disabledTooltip = "This option is only available for formats that display a percentage.",
-                title = "Power Text",
-                rows = {
-                    { type="toggle", label="Show %",
-                      get=function() return MVal("powerShowPercent", true) ~= false end,
-                      set=function(v) MSet("powerShowPercent", v) end },
-                },
-            })
+            EllesmereUI.BuildInlineCog(rgn, ns.UFO_PowerTextCog(MVal, MSet,
+                { none = true, curpp = true },
+                function(v) MSet("powerShowPercent", v) end))
         end
         -- Size + X/Y offsets cog on Text Position (right)
         if not EllesmereUI._prebuilding then
@@ -1865,13 +1931,23 @@ function ns.UFO_BuildBossOptions(W, parent, y)
         if activateBtnLbl then activateBtnLbl:SetText(PreviewLabel()) end
     end);  y = y - h
     do
-        activateBtn = select(1, activateBtnFrame:GetChildren())
+        -- The row's button and its label, picked by kind and use rather than by
+        -- position: on a kept page the row frame may still hold idle children
+        -- and regions of an earlier dress (page reuse).
+        local kids = { activateBtnFrame:GetChildren() }
+        for i = 1, #kids do
+            local c = kids[i]
+            if c:GetObjectType() == "Button" and not PoolIsIdle(c) then
+                activateBtn = c; break
+            end
+        end
         if activateBtn then
             local regions = { activateBtn:GetRegions() }
             for i = 1, #regions do
                 local rgn = regions[i]
-                if rgn and rgn.GetText and rgn:GetText() then
-                    activateBtnLbl = rgn; break
+                if rgn and rgn.GetText and not PoolIsIdle(rgn) then
+                    local t = rgn:GetText()
+                    if t and t ~= "" then activateBtnLbl = rgn; break end
                 end
             end
         end

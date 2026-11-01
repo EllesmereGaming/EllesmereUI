@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if (select(2, ...)).slcInert then return end
+
 
 
 
@@ -125,6 +126,60 @@ EUI.RegAccent({ type = "callback", fn = AccentChanged })
 
 
 
+
+
+
+
+
+local SURFACES = {
+
+    { "canvas",       0.025, 0.070 },
+    { "control",      0.035, 0.095 },
+    { "controlHover", 0.055, 0.150 },
+    { "controlDown",  0.020, 0.030 },
+    { "card",         0.030, 0.080 },
+    { "cardRaised",   0.040, 0.090 },
+    { "band",         0.020, 0.065 },
+    { "rail",         0.019, 0.065 },
+    { "headerTop",    0.050, 0.070 },
+}
+
+
+local themedFills = setmetatable({}, { __mode = "k" })
+local themedSet = {}
+for _, s in ipairs(SURFACES) do themedSet[color[s[1]]] = true end
+
+local function ThemeSurfaces(r, g, b)
+
+    if r > 0.95 and g > 0.95 and b > 0.95 then r, g, b = 0.4, 0.4, 0.4 end
+    for _, s in ipairs(SURFACES) do
+        local t = color[s[1]]
+        t[1], t[2], t[3] = s[2] + s[3] * r, s[2] + s[3] * g, s[2] + s[3] * b
+    end
+end
+
+local function ThemeChanged()
+    local theme = EUI.GetActiveTheme()
+    ThemeSurfaces(EUI.ResolveThemeColor(theme))
+    for tex, fill in pairs(themedFills) do
+        tex:SetColorTexture(S.Unpack(fill.c, fill.alpha))
+    end
+    local callbacks = addon.Callbacks
+    if callbacks and callbacks.Invalidate then
+        for i = 1, #VIEWS do callbacks:Invalidate(VIEWS[i]) end
+    end
+end
+ThemeChanged()
+
+
+
+
+for _, name in ipairs({ "_applyThemeBG", "_applyBgTint" }) do
+    if type(EUI[name]) == "function" then hooksecurefunc(EUI, name, ThemeChanged) end
+end
+
+
+
 local size = {
     PAD       = 15,
     ROW_PAD   = 10,
@@ -134,6 +189,7 @@ local size = {
 
     HEADER_H  = 35,
     CLOSE     = 20,
+    TAB_H     = 32,
 
     CTRL_H    = 22,
     BTN_H     = 27,
@@ -166,6 +222,8 @@ size.VPAD     = 5
 size.ROW_H    = size.CTRL_H + size.VPAD * 2
 size.ROW_H_SM = size.BTN_H_SM + size.VPAD
 size.HEADER_LOGO_PAD = 0
+size.LOGO_FIT_PAD = 8
+size.TAB_HEADER_H = size.TAB_H
 size.HEADER_LOGO_H = size.HEADER_H
 
 S.size = size
@@ -173,7 +231,6 @@ S.size = size
 
 S.radius = { CHIP = 0, SM = 0, CTRL = 0, MD = 0, LG = 0, WINDOW = 0 }
 S.rounded = false
-S.usesArt = false
 
 
 
@@ -228,46 +285,67 @@ local function MakeFont(name, fontSize, fontColor)
 end
 
 
-S.fontsLoaded       = true
-S.fontTitle         = MakeFont("EllesmereUISimpleLootCouncilFontTitle",         14,   color.text)
+
+
+S.fontTitle        = MakeFont("EllesmereUISimpleLootCouncilFontTitle",         20.6, color.text)
 S.fontHeading       = MakeFont("EllesmereUISimpleLootCouncilFontHeading",       11,   color.textFaint)
 S.fontMicro         = MakeFont("EllesmereUISimpleLootCouncilFontMicro",         10,   color.textFaint)
-S.fontRaidTeamHeader = MakeFont("EllesmereUISimpleLootCouncilFontRaidTeamHeader", 14, color.textFaint)
 S.fontBody          = MakeFont("EllesmereUISimpleLootCouncilFontBody",          12,   color.text)
 S.fontSetting       = MakeFont("EllesmereUISimpleLootCouncilFontSetting",       13,   color.text)
 S.fontInput         = MakeFont("EllesmereUISimpleLootCouncilFontInput",         12,   color.text)
 S.fontButton        = MakeFont("EllesmereUISimpleLootCouncilFontButton",        12,   color.text)
 S.fontSmall         = MakeFont("EllesmereUISimpleLootCouncilFontSmall",         11,   color.textMuted)
 S.fontBadge         = MakeFont("EllesmereUISimpleLootCouncilFontBadge",         14,   color.textMuted)
-S.fontTag           = MakeFont("EllesmereUISimpleLootCouncilFontTag",           11,   color.textFaint)
+S.fontTag           = MakeFont("EllesmereUISimpleLootCouncilFontTag",           15,   color.textFaint)
 S.fontHint          = MakeFont("EllesmereUISimpleLootCouncilFontHint",          11,   color.textFaint)
+S.fontTab           = MakeFont("EllesmereUISimpleLootCouncilFontTab",           14,   color.textMuted)
+
+S.fontRaidTeamHeader = MakeFont("EllesmereUISimpleLootCouncilFontRaidTeamHeader",   14.25, color.textFaint)
+S.fontColumnHeader  = S.fontRaidTeamHeader
 
 S.fontNotice        = MakeFont("EllesmereUISimpleLootCouncilFontNotice",        16,   color.bad)
-S.fontConfirm       = MakeFont("EllesmereUISimpleLootCouncilFontConfirm",       12,   color.text)
-S.fontConfirmDetail = MakeFont("EllesmereUISimpleLootCouncilFontConfirmDetail", 11,   color.textFaint)
-S.fontNum           = MakeFont("EllesmereUISimpleLootCouncilFontNum",           12,   color.text)
+S.fontNum          = MakeFont("EllesmereUISimpleLootCouncilFontNum",           12,   color.text)
 S.fontNumSmall      = MakeFont("EllesmereUISimpleLootCouncilFontNumSmall",      11,   color.textMuted)
 S.fontNumLarge      = MakeFont("EllesmereUISimpleLootCouncilFontNumLarge",      14,   color.text)
-S.fontCode          = MakeFont("EllesmereUISimpleLootCouncilFontCode",          11,   color.textFaint)
 S.fontNumHint       = MakeFont("EllesmereUISimpleLootCouncilFontNumHint",       11,   color.textMuted)
 S.fontNumHuge       = MakeFont("EllesmereUISimpleLootCouncilFontNumHuge",       18,   color.text)
 
 
 
 
-local DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
-
-S.CIRCLE         = DISC
-S.CIRCLE_OUTLINE = DISC
-function S.DiscFor() return DISC end
-
-S.TRIANGLE       = ICONS .. "eui-arrow-right.png"
 
 
-S.logo      = { loaded = true }
-S.logoPride = { loaded = true }
-function S.ActiveLogo() return nil, nil end
-function S.LogoLoaded() return true end
+
+
+local ART = "Interface\\AddOns\\EllesmereUISimpleLootCouncil\\art\\"
+S.LOGO = ART .. "logo"
+S.logo = { u = 396 / 512, v = 36 / 64, aspect = 396 / 36, height = 36 }
+S.LOGO_PRIDE = ART .. "logo-pride"
+S.logoPride = { u = 398 / 512, v = 36 / 64, aspect = 398 / 36, height = 36 }
+do
+    local scratch = CreateFrame("Frame")
+    local probe = scratch:CreateTexture(nil, "BACKGROUND")
+    S.logo.loaded = probe:SetTexture(S.LOGO) and true or false
+    S.logoPride.loaded = probe:SetTexture(S.LOGO_PRIDE) and true or false
+    probe:SetTexture(nil)
+    scratch:Hide()
+end
+
+
+
+function S.ActiveLogo()
+    if addon.db and addon.db.pride and S.logoPride.loaded then
+        return S.LOGO_PRIDE, S.logoPride
+    end
+    if S.logo.loaded then return S.LOGO, S.logo end
+    return nil, nil
+end
+
+function S.LogoLoaded()
+    return S.logo.loaded or S.logoPride.loaded
+end
+
+function S.GamepadUI() return EUI.PadGamepadUI() end
 
 
 
@@ -278,6 +356,7 @@ function S.Fill(frame, c, alpha, layer)
     local t = EUI.SolidTex(frame, layer or "BACKGROUND", r, g, b, a)
     t:SetAllPoints(frame)
     P.Crisp(t)
+    if themedSet[c] then themedFills[t] = { c = c, alpha = alpha } end
     return t
 end
 
@@ -285,17 +364,11 @@ function S.CanvasFill(frame, c, alpha, layer)
     return S.Fill(frame, c, alpha, layer), nil
 end
 
-function S.GradientFill(frame, topColor, _, alpha, layer)
-    return S.Fill(frame, topColor, alpha, layer), nil
-end
-
 function S.RoundFill(frame, c, _, layer, subLayer)
     local t = S.Fill(frame, c, nil, layer)
     if subLayer then t:SetDrawLayer(layer or "BACKGROUND", subLayer) end
     return t
 end
-
-function S.RoundMask() return nil end
 
 
 local borders = setmetatable({}, { __mode = "k" })
@@ -343,18 +416,111 @@ end
 
 
 
-local function IconGlyph(button, file, extent)
-    local tex = button:CreateTexture(nil, "OVERLAY")
-    P.Size(tex, extent, extent)
-    tex:SetPoint("CENTER")
-    tex:SetTexture(ICONS .. file)
-    return { SetColor = function(_, c) tex:SetVertexColor(Unpack(c)) end }
+local function IconGlyph(button, file, extent, spread)
+
+    local texs = {}
+    for i = 0, spread and 3 or 0 do
+        local tex = button:CreateTexture(nil, "OVERLAY")
+        P.Size(tex, extent, extent)
+        if spread then
+            tex:SetPoint("CENTER", (i % 2 - 0.5) * spread, (math.floor(i / 2) - 0.5) * spread)
+        else
+            tex:SetPoint("CENTER")
+        end
+        tex:SetTexture(ICONS .. file)
+        texs[#texs + 1] = tex
+    end
+    return { SetColor = function(_, c)
+        for i = 1, #texs do texs[i]:SetVertexColor(Unpack(c)) end
+    end }
 end
 
 
+
+
+
+
+
+
+
+local TOGGLE_CUT = { 14, 28, 2, 16 }
+local TOGGLE_CENTRE = { 21, 9 }
+
+
+
+local TOGGLE_ENDS = { { 17, 20, 11, 13, -1, -1 }, { 18, 20, 5, 6, -1, 0 }, { 24, 25, 10, 12, 0, -1 } }
+
+
+
+
+local TOGGLE_HEADS = { { 3.1, 0, 2.4, 8.6 }, { 0, 3.1, 8.6, 2.4 }, { 2.5, 2.5, 3.6, 3.6 } }
+local TOGGLE_SHAFT = { 16, 22 }
+local TOGGLE_STROKE = 0.6
+
+local function ArrowGlyph(button)
+    local cuts = {}
+    local cx, cy = TOGGLE_CENTRE[1], TOGGLE_CENTRE[2]
+    for _, name in ipairs({ "expand", "compact" }) do
+
+        local s = name == "expand" and 1 or -1
+        local stamps = {}
+
+        local function Piece(x0, x1, y0, y1, px, py)
+            for i = 0, 3 do
+                local tex = button:CreateTexture(nil, "OVERLAY")
+                P.Size(tex, x1 - x0, y1 - y0)
+                tex:SetPoint("CENTER", px + (i % 2 - 0.5) * TOGGLE_STROKE,
+                    py + (math.floor(i / 2) - 0.5) * TOGGLE_STROKE)
+                tex:SetTexture(EUI.RESIZE_ICON)
+                if s == 1 then
+                    tex:SetTexCoord(x0 / 30, x1 / 30, y0 / 30, y1 / 30)
+                else
+                    tex:SetTexCoord(x1 / 30, x0 / 30, y1 / 30, y0 / 30)
+                end
+                stamps[#stamps + 1] = tex
+            end
+        end
+        local function Bar(px, py, width, height)
+            local bar = button:CreateTexture(nil, "OVERLAY")
+            bar:SetColorTexture(1, 1, 1, 1)
+            P.Size(bar, width, height)
+            bar:SetPoint("CENTER", px * s, py * s)
+            stamps[#stamps + 1] = bar
+        end
+
+        Piece(TOGGLE_CUT[1], TOGGLE_CUT[2], TOGGLE_CUT[3], TOGGLE_CUT[4], 0, 0)
+        for _, e in ipairs(TOGGLE_ENDS) do
+            Piece(e[1], e[2], e[3], e[4],
+                ((e[1] + e[2]) / 2 - cx + e[5]) * s, -((e[3] + e[4]) / 2 - cy - e[6]) * s)
+        end
+        for _, h in ipairs(TOGGLE_HEADS) do Bar(h[1], h[2], h[3], h[4]) end
+        for x = TOGGLE_SHAFT[1], TOGGLE_SHAFT[2] do
+            Bar(x + 0.5 - cx, -(29 - x + 0.5 - cy), 2.6, 2.6)
+        end
+        cuts[name] = stamps
+    end
+
+    local function SetCompacted(_, compacted)
+        for name, stamps in pairs(cuts) do
+            local shown = (name == "expand") == (compacted and true or false)
+            for i = 1, #stamps do stamps[i]:SetShown(shown) end
+        end
+    end
+    SetCompacted(nil, false)
+
+    return {
+        SetColor = function(_, c)
+            for _, stamps in pairs(cuts) do
+                for i = 1, #stamps do stamps[i]:SetVertexColor(Unpack(c)) end
+            end
+        end,
+        SetCompacted = SetCompacted,
+    }
+end
+
 local function PlusGlyph(button, extent)
     local bars = {}
-    local thickness = math.max(P.Hairline(), extent / 9)
+    local thickness = math.max(P.Hairline(button), extent / 9)
     for i = 1, 2 do
         local bar = button:CreateTexture(nil, "OVERLAY")
         bar:SetColorTexture(1, 1, 1, 1)
@@ -400,7 +566,7 @@ function S.Button(parent, text, opts)
     label:SetWordWrap(false)
     label:SetMaxLines(1)
 
-    local bare = opts.glyph == "close"
+    local bare = opts.glyph == "close" or opts.glyph == "arrow"
     if bare then
         bg:Hide()
         border:SetColor(0, 0, 0, 0)
@@ -427,6 +593,7 @@ function S.Button(parent, text, opts)
     local pad = opts.labelPad or (w <= 24 and 1 or size.BTN_PAD)
 
     local function placeLabel(dy)
+        dy = dy + (b.slcLabelDy or 0)
         label:SetPoint("LEFT", b, "LEFT", Snap(pad), dy)
         label:SetPoint("RIGHT", b, "RIGHT", Snap(-pad), dy)
     end
@@ -436,25 +603,84 @@ function S.Button(parent, text, opts)
     b.Label = label
 
 
+    local basePad, squeeze = pad, nil
     local function fitLabel()
         if fixedWidth then return end
         local current = label:GetText()
         if not current or current == "" then return end
         local textWidth = label:GetUnboundedStringWidth()
         if type(textWidth) ~= "number" or textWidth <= 0 then return end
-        P.Size(b, math.max(h, Snap(math.ceil(textWidth)) + 2 * Snap(pad)), nil)
+        b.slcNatural = math.max(h, Snap(math.ceil(textWidth)) + 2 * Snap(basePad))
+        if squeeze then
+            P.Size(b, squeeze.w, squeeze.h)
+        else
+            P.Size(b, b.slcNatural, nil)
+        end
     end
     fitLabel()
     P.AfterLayout(fitLabel)
     P.OnRescale(fitLabel)
 
+
+    if opts.share and not fixedWidth then
+        b.slcShare = true
+        local probe = S.Label(b, opts.font or S.fontBody, "LEFT")
+        probe:Hide()
+        local function lines(words, inner)
+            local count, line = 1, nil
+            for _, word in ipairs(words) do
+                local try = line and (line .. " " .. word) or word
+                probe:SetText(try)
+                if not line or probe:GetUnboundedStringWidth() <= inner then
+                    line = try
+                else
+                    count, line = count + 1, word
+                end
+            end
+            return count
+        end
+        function b:MinSqueezeWidth()
+            local current = label:GetText() or ""
+            if b.slcMinFor == current then return b.slcMin end
+            local words = {}
+            for word in current:gmatch("%S+") do words[#words + 1] = word end
+            local longest = 0
+            for _, word in ipairs(words) do
+                probe:SetText(word)
+                longest = math.max(longest, math.ceil(probe:GetUnboundedStringWidth() or 0))
+            end
+            probe:SetText(current)
+            local inner = math.max(longest, math.ceil((probe:GetUnboundedStringWidth() or 0) / 2))
+            local limit = inner + math.ceil((probe:GetUnboundedStringWidth() or 0))
+            while #words > 1 and inner < limit and lines(words, inner) > 2 do inner = inner + 2 end
+            b.slcMinFor = current
+            b.slcMin = math.min(b.slcNatural or inner, inner + 2 * 8 + 2)
+            return b.slcMin
+        end
+        function b:SetSqueeze(width)
+            local same = (width == nil and squeeze == nil) or (squeeze and squeeze.w == width)
+            if same then return end
+            squeeze = width and { w = width, h = math.ceil(fontHeight * 2.5) + 8 } or nil
+            pad = squeeze and 8 or basePad
+            placeLabel(0)
+            label:SetWordWrap(squeeze ~= nil)
+            label:SetMaxLines(squeeze and 2 or 1)
+            if squeeze then P.Size(b, squeeze.w, squeeze.h) else P.Size(b, b.slcNatural or w, h) end
+        end
+    end
+
     local glyph
     if opts.glyph == "close" then
         label:Hide()
-        glyph = IconGlyph(b, "eui-close.png", 12)
+
+
+        glyph = IconGlyph(b, "eui-close.png", 15, 0.35)
     elseif opts.glyph == "plus" then
         label:Hide()
         glyph = PlusGlyph(b, math.floor(math.min(w, h) * 0.46))
+    elseif opts.glyph == "arrow" then
+        label:Hide()
+        glyph = ArrowGlyph(b)
     elseif opts.glyph == "chat" then
         label:Hide()
         glyph = IconGlyph(b, "eui-edit.png", math.floor(math.min(w, h) * 0.6))
@@ -520,6 +746,13 @@ function S.Button(parent, text, opts)
         fitLabel()
     end
 
+
+    function b:SetLabelOffset(dy)
+        b.slcLabelDy = dy
+        label:ClearAllPoints()
+        placeLabel(0)
+    end
+
     function b:SetSelected(on)
         selected = on and true or false
         if enabled then if hovered then over() else rest() end end
@@ -537,9 +770,17 @@ function S.Button(parent, text, opts)
         if enabled then if hovered then over() else rest() end end
     end
 
+    local reasonShown = false
+    local function hideReason()
+        if not reasonShown then return end
+        reasonShown = false
+        EUI.HideWidgetTooltip()
+    end
+
     function b:SetEnabled(on)
         enabled = on and true or false
         if enabled then
+            hideReason()
             if hovered then over() else rest() end
             b:EnableMouse(true)
         else
@@ -553,15 +794,18 @@ function S.Button(parent, text, opts)
 
     b:HookScript("OnEnter", function(self)
         if enabled or not self.slcReason then return end
-        EUI.ShowWidgetTooltip(self, self.slcReason, { force = true })
+        reasonShown = true
+        if self.slcTipUnder then
+            S.TextTooltip(self, self.slcReason, self.slcTipUnder, true)
+        else
+            EUI.ShowWidgetTooltip(self, self.slcReason, { force = true })
+        end
     end)
-    b:HookScript("OnLeave", function(self)
-        if not self.slcReason then return end
-        EUI.HideWidgetTooltip()
-    end)
+    b:HookScript("OnLeave", hideReason)
 
     function b:SetDisabledReason(reason)
         b.slcReason = reason
+        if reason == nil then hideReason() end
         if not enabled then b:EnableMouse(reason ~= nil) end
     end
 
@@ -605,32 +849,6 @@ function S.EditBox(parent, width, height)
 
     holder.EditBox = e
     return holder, e
-end
-
-
-function S.Mark(parent, asset, markSize, c, layer)
-    local tex = parent:CreateTexture(nil, layer or "OVERLAY")
-    P.Size(tex, markSize, markSize)
-    tex:SetTexture(asset)
-    P.Crisp(tex)
-    tex:SetVertexColor(Unpack(c or color.textMuted))
-
-    return {
-        Texture   = tex,
-        SetColor  = function(_, nc) tex:SetVertexColor(Unpack(nc)) end,
-        SetShown  = function(_, on) tex:SetShown(on and true or false) end,
-        SetRotation = function(_, radians) tex:SetRotation(radians or 0) end,
-        SetPoint  = function(_, ...) P.Point(tex, ...) end,
-    }
-end
-
-function S.Dot(parent, dotSize, c, layer)
-    local tex = parent:CreateTexture(nil, layer or "ARTWORK")
-    P.Size(tex, dotSize, dotSize)
-    tex:SetTexture(DISC)
-    P.Crisp(tex)
-    tex:SetVertexColor(Unpack(c or color.textMuted))
-    return tex
 end
 
 
@@ -737,31 +955,64 @@ function S.Chip(parent, text, c, opts)
     local chip = CreateFrame("Frame", nil, parent)
 
     local label = S.Label(chip, opts.font or S.fontMicro, "CENTER")
-    label:SetText(text or "")
-    P.Point(label, "CENTER", chip, "CENTER", 0, 0)
+
+    P.Point(label, "CENTER", chip, "CENTER", 0, opts.plain and -1 or 0)
 
     local fill = chip:CreateTexture(nil, "BACKGROUND")
     fill:SetAllPoints(chip)
     P.Crisp(fill)
     local border = S.Border(chip, c or color.textMuted, "BORDER")
 
+
+    local wash = chip:CreateTexture(nil, "BACKGROUND", nil, 1)
+    wash:SetAllPoints(chip)
+    wash:SetColorTexture(1, 1, 1, 0.06)
+    P.Crisp(wash)
+    wash:Hide()
+    local current, lit = c or color.textMuted, false
+    local function bright(v) return { v[1] + (1 - v[1]) * 0.4, v[2] + (1 - v[2]) * 0.4, v[3] + (1 - v[3]) * 0.4 } end
+    function chip:SetHighlight(on)
+        lit = on and true or false
+        wash:SetShown(lit)
+        border:SetColor(lit and bright(current) or current)
+    end
+
     function chip:SetChipColor(nc)
         nc = nc or color.textMuted
-        fill:SetColorTexture(Unpack(nc, 0.12))
-        border:SetColor(nc)
+        current = nc
+        fill:SetColorTexture(Unpack(nc, opts.plain and 0 or 0.12))
+        border:SetColor(lit and bright(nc) or nc)
         label:SetTextColor(Unpack(opts.textColor or nc))
     end
 
+
+    local function Plain(value)
+        local first, rest = value:match("^([%z\1-\127\194-\244][\128-\191]*)(.*)$")
+        if first then value = addon.Locale.Upper(first) .. addon.Locale.Lower(rest) end
+        local num, word, tail = value:match("^(%d+%s+)([%z\1-\127\194-\244][\128-\191]*)(.*)$")
+        if num and not tail:find("%d") then value = num .. addon.Locale.Upper(word) .. tail end
+        return value
+    end
+
     function chip:SetText(value)
-        label:SetText(value or "")
+        value = value or ""
+        if opts.plain and value ~= "" then value = Plain(value) end
+        label:SetText(value)
         chip:Fit()
     end
 
 
     function chip:Fit()
         local padding = opts.padding or 7
+        local minWidth = opts.minWidth or 0
+
+
+        if opts.plain or opts.font == S.fontTag then
+            padding = math.max(0, padding - 2)
+            minWidth = math.max(0, minWidth - 4)
+        end
         if opts.maxWidth then label:SetWidth(0) end
-        local desired = math.max(opts.minWidth or 0,
+        local desired = math.max(minWidth,
             label:GetStringWidth() + padding * 2)
         local width = opts.maxWidth and math.min(opts.maxWidth, desired) or desired
         if opts.maxWidth then
@@ -771,7 +1022,7 @@ function S.Chip(parent, text, c, opts)
     end
 
     chip:SetChipColor(c)
-    chip:Fit()
+    chip:SetText(text)
     chip.Label = label
     return chip
 end
@@ -964,9 +1215,73 @@ function S.FooterBar(window)
         return offset
     end
 
+    local function RunWidth(run)
+        local total, n = 0, 0
+        for _, button in ipairs(run) do
+            if button:IsShown() then
+                n = n + 1
+                total = total + (button.slcNatural or button:GetWidth())
+            end
+        end
+        return total + math.max(n - 1, 0) * size.GAP, n
+    end
+
+    local function Share(run, avail)
+        local pool, budget = {}, avail
+        for _, button in ipairs(run) do
+            if button:IsShown() then
+                budget = budget - size.GAP
+                if button.SetSqueeze then
+                    pool[#pool + 1] = button
+                else
+                    budget = budget - button:GetWidth()
+                end
+            end
+        end
+        budget = budget + size.GAP
+        local natural = 0
+        for _, button in ipairs(pool) do natural = natural + (button.slcNatural or 0) end
+        if natural <= budget then
+            for _, button in ipairs(pool) do button:SetSqueeze(nil) end
+            return
+        end
+        local width, minTotal, wants = {}, 0, {}
+        for _, button in ipairs(pool) do
+            width[button] = button:MinSqueezeWidth()
+            minTotal = minTotal + width[button]
+            wants[button] = button.slcNatural or width[button]
+        end
+        if minTotal > budget then
+            local scale = budget / minTotal
+            for _, button in ipairs(pool) do width[button] = math.floor(width[button] * scale) end
+        else
+            local extra = budget - minTotal
+            table.sort(pool, function(a, c)
+                return (wants[a] - width[a]) < (wants[c] - width[c])
+            end)
+            for i, button in ipairs(pool) do
+                local give = math.min(wants[button] - width[button],
+                    math.floor(extra / (#pool - i + 1)))
+                width[button] = width[button] + give
+                extra = extra - give
+            end
+        end
+        for _, button in ipairs(pool) do button:SetSqueeze(width[button]) end
+    end
+
+    local reflowing
     function bar:Reflow()
+        if reflowing then return end
+        reflowing = true
+        local windowW = window:GetWidth()
+        if type(windowW) == "number" and windowW > 0 then
+            local avail = windowW - 2 * size.PAD
+            Share(leftRun, avail - RunWidth(rightRun) - size.GAP)
+            Share(rightRun, avail - RunWidth(leftRun) - size.GAP)
+        end
         bar.slcLeft = Place(leftRun, "LEFT", 1, size.PAD)
         bar.slcRight = Place(rightRun, "RIGHT", -1, size.PAD)
+        reflowing = false
         if leftText then
             leftText:ClearAllPoints()
             P.Point(leftText, "LEFT", bar, "LEFT", bar.slcLeft, 0)
@@ -974,8 +1289,9 @@ function S.FooterBar(window)
         end
     end
 
-    function bar:Add(button, rightAlign)
-        table.insert(rightAlign and rightRun or leftRun, button)
+
+    function bar:Add(button, rightAlign, atEdge)
+        table.insert(rightAlign and rightRun or leftRun, atEdge and 1 or (#(rightAlign and rightRun or leftRun) + 1), button)
         button:HookScript("OnSizeChanged", function() bar:Reflow() end)
         bar:Reflow()
         return button
@@ -989,32 +1305,6 @@ function S.FooterBar(window)
     end
 
     return bar
-end
-
-
-function S.InfoBlock(parent, text, width)
-    local block = CreateFrame("Frame", nil, parent)
-    S.Fill(block, color.cardLift)
-
-    local icon = block:CreateTexture(nil, "ARTWORK")
-    P.Size(icon, 16, 16)
-    P.Point(icon, "TOPLEFT", block, "TOPLEFT", 10, -9)
-    icon:SetTexture(ICONS .. "eui-info.png")
-    icon:SetVertexColor(Unpack(color.textMuted))
-
-    local body = S.Label(block, S.fontSmall, "LEFT", "wrap")
-    body:SetText(text or "")
-    P.Point(body, "TOPLEFT", block, "TOPLEFT", 10 + 16 + 8, -9)
-    P.Point(body, "TOPRIGHT", block, "TOPRIGHT", -10, -9)
-
-
-    P.Size(block, width, 40)
-    P.AfterLayout(function()
-        P.Size(block, nil, math.max(34, math.ceil(body:GetStringHeight()) + 18))
-    end)
-
-    block.Text = body
-    return block
 end
 
 
@@ -1051,6 +1341,7 @@ function S.EmptyState(parent, title, body, width)
 
     f.Title = heading
     f.Body = copy
+    f.Box = box
     return f
 end
 
@@ -1059,7 +1350,7 @@ function S.FadeRule(parent)
     local rule = parent:CreateTexture(nil, "ARTWORK")
     rule:SetColorTexture(Unpack(color.rule))
     P.Crisp(rule)
-    local function thickness() rule:SetHeight(P.Hairline()) end
+    local function thickness() rule:SetHeight(P.Hairline(rule)) end
     thickness()
     P.OnRescale(thickness)
     return rule
@@ -1188,6 +1479,11 @@ function S.ScrollRegion(parent, step)
     child:SetSize(1, 1)
     viewport:SetScrollChild(child)
 
+
+    viewport:SetScript("OnSizeChanged", function(_, width)
+        if type(width) == "number" and width > 0 then child:SetWidth(width) end
+    end)
+
     local function Maximum()
         return math.max(0, (child:GetHeight() or 0) - (viewport:GetHeight() or 0))
     end
@@ -1227,19 +1523,25 @@ end
 
 
 
-function S.TextTooltip(owner, text)
-    local edge = S.WindowOf(owner)
-    local ownerRight, edgeRight = owner:GetRight(), edge:GetRight()
+function S.TextTooltip(owner, text, under, force)
+    local anchor = under or owner
+    local edge = S.WindowOf(anchor)
+    local anchorRight, edgeRight = anchor:GetRight(), edge:GetRight()
     local opts
-    if type(ownerRight) == "number" and type(edgeRight) == "number" then
-        local dx = (edgeRight * edge:GetEffectiveScale() - ownerRight * owner:GetEffectiveScale())
+    if type(anchorRight) == "number" and type(edgeRight) == "number" then
+        local dx = (edgeRight * edge:GetEffectiveScale() - anchorRight * anchor:GetEffectiveScale())
             / UIParent:GetEffectiveScale()
-        opts = { anchorPoint = "LEFT", anchorTo = "RIGHT", anchorX = dx + 2 * P.Hairline(),
-            justify = "LEFT" }
+        if under then
+            opts = { anchorPoint = "TOPLEFT", anchorTo = "BOTTOMRIGHT", anchorX = dx + 2 * P.Hairline(),
+                anchorY = -2 * P.Hairline(), justify = "LEFT", force = force }
+        else
+            opts = { anchorPoint = "LEFT", anchorTo = "RIGHT", anchorX = dx + 2 * P.Hairline(),
+                justify = "LEFT", force = force }
+        end
     else
-        opts = { anchor = "right", justify = "LEFT" }
+        opts = { anchor = "right", justify = "LEFT", force = force }
     end
-    EUI.ShowWidgetTooltip(owner, text, opts)
+    EUI.ShowWidgetTooltip(anchor, text, opts)
 end
 
 function S.HideTextTooltip()
@@ -1262,12 +1564,13 @@ local function MenuItems(items)
         if item == "-" then
             out[#out + 1] = "---"
         elseif item.title then
-            out[#out + 1] = { text = item.title, isDisabled = function() return true end }
+            out[#out + 1] = { text = item.title, noLoc = true, isDisabled = function() return true end }
         else
             local checked, disabled = item.checked, item.disabled
             if type(checked) == "function" then checked = checked() end
             out[#out + 1] = {
                 text = item.text,
+                noLoc = true,
                 onClick = item.onClick,
                 isActive = checked and true or nil,
                 isDisabled = disabled and (type(disabled) == "function" and disabled
@@ -1279,8 +1582,54 @@ local function MenuItems(items)
     return out
 end
 
+
+local function MenuOpts(opts)
+
+    local out = { fontKey = FONT_KEY, scaleToAnchor = true }
+    for key, value in pairs(opts or {}) do out[key] = value end
+    return out
+end
+
+local function MenuFlag(value)
+    if type(value) == "function" then value = value() end
+    return value and true or false
+end
+
+local function CheckboxMenu(anchor, items)
+    MenuUtil.CreateContextMenu(anchor, function(_, root)
+        for _, item in ipairs(items) do
+            if item == "-" then
+                root:CreateDivider()
+            elseif item.title then
+                root:CreateTitle(item.title)
+            elseif item.checkbox then
+                root:CreateCheckbox(item.text,
+                    function() return MenuFlag(item.checked) end,
+                    function() if item.onClick then item.onClick() end end)
+            else
+                local button = root:CreateButton(item.text,
+                    function() if item.onClick then item.onClick() end end)
+                if item.disabled then
+                    button:SetEnabled(function() return not MenuFlag(item.disabled) end)
+                end
+            end
+        end
+    end)
+end
+
+local menuOwner
+
 function S.ContextMenu(anchor, items, opts)
-    EUI.ShowContextMenu(anchor, MenuItems(items), opts)
+    for _, item in ipairs(items) do
+        if type(item) == "table" and item.checkbox then return CheckboxMenu(anchor, items) end
+    end
+    menuOwner = anchor
+    EUI.ShowContextMenu(anchor, MenuItems(items), MenuOpts(opts))
+end
+
+
+function S.CloseContextMenu()
+    if menuOwner and EUI.ContextMenuOwner() == menuOwner then EUI.CloseContextMenu() end
 end
 
 
@@ -1324,11 +1673,12 @@ function S.ShowSelectMenu(owner, choices, current, onPick)
     local items = {}
     for i, o in ipairs(choices) do
         local value = o.value
-        items[i] = { text = o.text, isActive = value == current or nil,
+        items[i] = { text = o.text, noLoc = true, isActive = value == current or nil,
             onClick = function() onPick(value) end }
     end
     selectOwner = owner
-    EUI.ShowContextMenu(owner, items, { below = true, minWidth = owner:GetWidth() })
+    EUI.ShowContextMenu(owner, items, { below = true, minWidth = owner:GetWidth(), fontKey = FONT_KEY,
+        scaleToAnchor = true })
 end
 
 function S.HideSelectMenu()
@@ -1396,7 +1746,7 @@ end
 
 
 
-local TAG_H = 20
+local TAG_H = size.CLOSE
 local TAG_SQUARE_H = 18
 local TAG_INSET = 5
 local TITLE_BAND_RATIO = 1.7
@@ -1409,47 +1759,205 @@ function S.HeaderHeight(options)
     local tagH = options.squareTag and TAG_SQUARE_H or TAG_H
     local _, titleFontH = S.fontTitle:GetFont()
     return math.max(size.HEADER_H,
-                    math.ceil((titleFontH or 14) * TITLE_BAND_RATIO),
+                    math.ceil((titleFontH or 20.6) * TITLE_BAND_RATIO),
                     tagH + TAG_INSET * 2)
 end
 
-
-
-local pendingEscape = {}
-
-local function RegisterEscape(f)
-    if EUI.RegisterEscapeClose then
-        EUI.RegisterEscapeClose(f)
-    else
-        pendingEscape[#pendingEscape + 1] = f
-    end
-end
-
-local function FlushEscape(final)
-    if not EUI.RegisterEscapeClose and not final then return false end
-    for i = 1, #pendingEscape do
-        local f = pendingEscape[i]
-        if EUI.RegisterEscapeClose then
-            EUI.RegisterEscapeClose(f)
-        elseif f:GetName() then
-            tinsert(UISpecialFrames, f:GetName())
-        end
-        pendingEscape[i] = nil
-    end
-    return true
-end
-
-do
-    local login = CreateFrame("Frame")
-    login:RegisterEvent("PLAYER_LOGIN")
-    login:SetScript("OnEvent", function(self)
-        self:UnregisterEvent("PLAYER_LOGIN")
-
-        if not FlushEscape(false) then C_Timer.After(0, function() FlushEscape(true) end) end
-    end)
-end
-
 local WINDOW_ALPHA = EUI.RESKIN.CTX_ALPHA
+
+
+
+local TAB_GAP, TAB_PAD, TAB_LINE = 6, 30, 14
+local TAB_HOVER = { 1, 1, 1, 0.86 }
+local TAB_GLOW_RINGS = { { radius = 1, alpha = 1 }, { radius = 2, alpha = 0.8 }, { radius = 3, alpha = 0.4 } }
+
+
+local function PulseChime(tab)
+    if not tab.slcChime then return end
+    tab.slcChime = nil
+    S.PlayNotification("responseTab")
+end
+
+function S.TabBar(window, anchor, height)
+    local bar = CreateFrame("Frame", nil, window)
+    bar:SetFrameLevel(window:GetFrameLevel() + 1)
+    local edge = anchor == window and "TOP" or "BOTTOM"
+    P.Point(bar, "TOPLEFT", anchor, edge .. "LEFT", 0, 0)
+    P.Point(bar, "TOPRIGHT", anchor, edge .. "RIGHT", 0, 0)
+    P.Size(bar, nil, height)
+
+    local rule = S.FadeRule(bar)
+    rule:SetPoint("BOTTOMLEFT")
+    rule:SetPoint("BOTTOMRIGHT")
+
+    local tabs, order, selected = {}, {}, nil
+
+    local function Paint(tab)
+        local on = tab.slcKey == selected
+        tab.Label:SetTextColor(Unpack(on and color.text
+            or tab.slcHover and TAB_HOVER or color.textMuted))
+        tab.Underline:SetShown(on)
+    end
+
+    local function Measure(tab)
+        local width = tab.Label:GetStringWidth()
+        if type(width) ~= "number" or (issecretvalue and issecretvalue(width)) or width <= 0 then
+            width = 60
+        end
+        P.Size(tab, width + TAB_PAD, height)
+        P.Size(tab.Underline, width + TAB_LINE, 2)
+    end
+
+    local function Layout()
+        local x = size.PAD
+        for _, tab in ipairs(order) do
+            if tab:IsShown() then
+                Measure(tab)
+                tab:ClearAllPoints()
+                P.Point(tab, "BOTTOMLEFT", bar, "BOTTOMLEFT", x, 0)
+                x = x + tab:GetWidth() + TAB_GAP
+            end
+        end
+    end
+    P.OnRescale(Layout)
+
+    function bar:AddTab(key, text)
+        local tab = CreateFrame("Button", nil, bar)
+        tab:SetFrameLevel(bar:GetFrameLevel() + 2)
+        tab.slcKey = key
+
+        local label = S.Label(tab, S.fontTab, "CENTER")
+        label:SetPoint("CENTER", 0, 0)
+        label:SetText(text)
+        tab.Label = label
+
+        local underline = tab:CreateTexture(nil, "ARTWORK")
+        underline:SetColorTexture(Unpack(color.accent))
+        P.Point(underline, "BOTTOM", tab, "BOTTOM", 0, 0)
+        tab.Underline = underline
+        OnAccent(underline, function() underline:SetColorTexture(Unpack(color.accent)) end)
+
+        tab:SetScript("OnEnter", function(self)
+            self.slcHover = true
+            Paint(self)
+        end)
+        tab:SetScript("OnLeave", function(self)
+            self.slcHover = false
+            Paint(self)
+        end)
+        tab:SetScript("OnClick", function(self)
+            if self.slcKey ~= selected and bar.onSelect then bar.onSelect(self.slcKey) end
+        end)
+
+        tabs[key] = tab
+        order[#order + 1] = tab
+        Layout()
+        Paint(tab)
+        P.AfterLayout(Layout)
+        return tab
+    end
+
+    function bar:Select(key)
+        selected = key
+        for _, tab in ipairs(order) do Paint(tab) end
+    end
+
+
+    function bar:SetTabText(key, text)
+        local tab = tabs[key]
+        if not tab or tab.Label:GetText() == text then return end
+        tab.Label:SetText(text)
+        if tab.GlowCopies then
+            for _, copy in ipairs(tab.GlowCopies) do copy:SetText(text) end
+        end
+        Layout()
+    end
+
+    function bar:SetTabShown(key, shown)
+        local tab = tabs[key]
+        shown = shown and true or false
+        if not tab or tab:IsShown() == shown then return end
+        tab:SetShown(shown)
+        Layout()
+    end
+
+
+
+    function bar:SetTabPulse(key, on)
+        local tab = tabs[key]
+        on = on and true or false
+        if not tab then return end
+        if on and not tab.Glow then
+
+
+
+            local glow = CreateFrame("Frame", nil, tab)
+            glow:SetFrameLevel(tab:GetFrameLevel() + 1)
+            glow:SetAllPoints(tab)
+            local text = tab.Label:GetText()
+            tab.GlowCopies = {}
+            for _, ring in ipairs(TAB_GLOW_RINGS) do
+                for step = 0, 7 do
+                    local angle = step * math.pi / 4
+                    local copy = glow:CreateFontString(nil, "ARTWORK")
+                    copy:SetFontObject(S.fontTab)
+                    copy:SetText(text)
+                    copy:SetPoint("CENTER", tab.Label, "CENTER",
+                        ring.radius * math.cos(angle), ring.radius * math.sin(angle))
+                    tab.GlowCopies[#tab.GlowCopies + 1] = copy
+                    OnAccent(copy, function()
+                        copy:SetTextColor(color.accentPale[1], color.accentPale[2], color.accentPale[3], ring.alpha)
+                    end)
+                    accentPainters[copy](copy)
+                end
+            end
+            local top = glow:CreateFontString(nil, "OVERLAY")
+            top:SetFontObject(S.fontTab)
+            top:SetText(text)
+            top:SetPoint("CENTER", tab.Label, "CENTER", 0, 0)
+            top:SetTextColor(Unpack(color.text))
+            tab.GlowCopies[#tab.GlowCopies + 1] = top
+            local group = glow:CreateAnimationGroup()
+            group:SetLooping("BOUNCE")
+            local fade = group:CreateAnimation("Alpha")
+            fade:SetFromAlpha(0.35)
+            fade:SetToAlpha(1)
+            fade:SetDuration(0.7)
+            tab.Glow, tab.GlowPulse = glow, group
+            tab:HookScript("OnShow", function(self)
+                if self.slcPulse then
+                    self.GlowPulse:Play()
+                    PulseChime(self)
+                end
+            end)
+        end
+        local started = on and not tab.slcPulse
+        tab.slcPulse = on
+        if not tab.Glow then return end
+        tab.Glow:SetShown(on)
+        if started then tab.slcChime = true end
+        if on then
+            if tab:IsVisible() then
+                tab.GlowPulse:Play()
+                PulseChime(tab)
+            end
+        else
+            tab.slcChime = nil
+            tab.GlowPulse:Stop()
+        end
+    end
+
+    return bar
+end
+
+
+
+
+
+
+function S.RegisterEscape(f)
+    EUI.RegisterEscapeClose(f)
+end
 
 
 
@@ -1457,6 +1965,8 @@ function S.Window(globalName, key, width, height, title, options)
     options = options or {}
     local f = CreateFrame("Frame", globalName, UIParent)
     P.Size(f, width, height)
+
+    S.ScaleNow(f)
     f:SetFrameStrata("DIALOG")
     f:SetToplevel(true)
     f:EnableMouse(true)
@@ -1474,22 +1984,26 @@ function S.Window(globalName, key, width, height, title, options)
     f.Edge = edge
 
     local headerH = S.HeaderHeight(options)
-    f.HeaderHeight = headerH
+    local tabH = options.tabs and size.TAB_H or 0
+    f.HeaderHeight = headerH + tabH
 
     local header = CreateFrame("Frame", nil, f)
     header:SetFrameLevel(f:GetFrameLevel() + 1)
     header:SetPoint("TOPLEFT")
     header:SetPoint("TOPRIGHT")
     P.Size(header, nil, headerH)
-    S.Fill(header, color.headerTop)
     f.Header = header
 
+    if tabH > 0 then f.Tabs = S.TabBar(f, header, tabH) end
+    local strip = header
+
+    S.Fill(header, color.headerTop)
     local separator = S.FadeRule(header)
     separator:SetPoint("BOTTOMLEFT")
     separator:SetPoint("BOTTOMRIGHT")
 
     local close = S.Button(f, "", { width = size.CLOSE, height = size.CLOSE, glyph = "close" })
-    close:SetFrameLevel(header:GetFrameLevel() + 2)
+    close:SetFrameLevel(strip:GetFrameLevel() + 2)
     local closeInset = (headerH - size.CLOSE) * 0.5
     P.Point(close, "TOPRIGHT", f, "TOPRIGHT", -closeInset, -closeInset)
     close:SetScript("OnClick", function() f:Hide() end)
@@ -1500,13 +2014,63 @@ function S.Window(globalName, key, width, height, title, options)
     local badgeFont = options.badgeFont or S.fontSmall
     local _, badgeFontH = badgeFont:GetFont()
     badgeFontH = badgeFontH or 11
-    local badge = S.Label(header, badgeFont, "RIGHT")
+    local badge = S.Label(strip, badgeFont, "RIGHT")
     P.Point(badge, "RIGHT", close, "LEFT", -size.GAP, 0)
+
+
+
+    local slot = key == "ml" and 73 or 90
     P.Size(badge,
-        math.max(90, math.ceil(90 * badgeFontH / 11)),
+        math.max(slot, math.ceil(slot * badgeFontH / 11)),
         math.max(size.CLOSE, math.ceil(size.CLOSE * badgeFontH / 11)))
     f.Badge = badge
+    f.CloseInset = closeInset
 
+
+
+    function f:AddToggle(onClick)
+        local toggle = S.Button(f, "", { width = size.CLOSE, height = size.CLOSE, glyph = "arrow" })
+        toggle:SetFrameLevel(close:GetFrameLevel())
+        P.Point(toggle, "RIGHT", close, "LEFT", -closeInset, 0)
+        toggle:SetScript("OnClick", onClick)
+        badge:ClearAllPoints()
+        P.Point(badge, "RIGHT", toggle, "LEFT", -size.GAP, 0)
+
+        local tip = T["Compact"]
+        toggle:HookScript("OnEnter", function(self)
+            S.AboveTooltip(self)
+            GameTooltip:AddLine(tip, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        toggle:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        function f:SetToggleState(compacted)
+            toggle.Glyph:SetCompacted(compacted)
+            tip = compacted and T["Expand"] or T["Compact"]
+        end
+        f.Toggle = toggle
+        return toggle
+    end
+
+
+
+    local logo
+    if options.logo and S.LogoLoaded() then
+        logo = header:CreateTexture(nil, "ARTWORK")
+        P.Point(logo, "LEFT", header, "LEFT", size.PAD, 0)
+        function f:ApplyLogo()
+            local path, info = S.ActiveLogo()
+            if not path then return end
+            self.Logo:SetTexture(path)
+            self.Logo:SetTexCoord(0, info.u, 0, info.v)
+            local h = info.height
+            if options.logoFit then h = math.min(h, math.floor(headerH - size.LOGO_FIT_PAD * 2)) end
+            P.Size(self.Logo, h * info.aspect, h)
+            P.Crisp(self.Logo)
+        end
+        f.Logo = logo
+        f:ApplyLogo()
+        S.logoWindows[#S.logoWindows + 1] = f
+    end
 
     local mark = header:CreateTexture(nil, "ARTWORK")
     P.Size(mark, 1, 1)
@@ -1514,8 +2078,9 @@ function S.Window(globalName, key, width, height, title, options)
     P.Point(mark, "LEFT", header, "LEFT", TITLE_INSET - 1, 0)
     f.Tick = mark
 
+    local anchor = logo or mark
     local titleText = S.Label(header, S.fontTitle, "LEFT")
-    P.Point(titleText, "LEFT", mark, "RIGHT", size.TITLE_GAP, 0)
+    P.Point(titleText, "LEFT", anchor, "RIGHT", size.TITLE_GAP, 0)
     f.Title = titleText
 
     local tag
@@ -1527,16 +2092,17 @@ function S.Window(globalName, key, width, height, title, options)
         tag:EnableMouse(false)
     else
         tag = S.Chip(header, "", color.textMuted,
-            { height = TAG_H, font = S.fontTag, padding = 8, square = true })
+            { height = TAG_H, font = S.fontBody, padding = 8, square = true, plain = true })
+        f.TagPadding = 8
     end
     P.Point(tag, "LEFT", titleText, "RIGHT", size.TAG_GAP, 0)
     tag:Hide()
     f.Tag = tag
 
 
-    local wordmark = options.logo and T["Simple Loot Council"] or nil
-    S.InstallWindowTitle(f, key, titleText, mark, badge, tag, options.squareTag,
-        wordmark or title)
+    local wordmark = options.logo and not logo and T["Simple Loot Council"] or nil
+    S.InstallWindowTitle(f, key, titleText, anchor, badge, tag, options.squareTag,
+        logo and "" or wordmark or title)
     if wordmark then
         function f:ApplyLogo()
             local text = T["Simple Loot Council"]
@@ -1550,14 +2116,15 @@ function S.Window(globalName, key, width, height, title, options)
 
     local content = CreateFrame("Frame", nil, f)
     content:SetFrameLevel(f:GetFrameLevel() + 1)
-    P.Point(content, "TOPLEFT", f, "TOPLEFT", size.PAD, -(headerH + size.PAD))
+    P.Point(content, "TOPLEFT", f, "TOPLEFT", size.PAD, -(headerH + tabH + size.PAD))
     P.Point(content, "BOTTOMRIGHT", f, "BOTTOMRIGHT", -size.PAD, size.PAD)
     content.slcWidth = width - size.PAD * 2
     f.Content = content
 
-    S.InstallWindowGeometry(f, key, header, close)
+    S.InstallWindowGeometry(f, key, strip, close)
 
-    if globalName then RegisterEscape(f) end
+    if globalName then S.RegisterEscape(f) end
+
     return f
 end
 
@@ -1566,9 +2133,39 @@ end
 
 
 
+local confirmOpen
+local dimmerHooked
+
+local function ConfirmClosed(entry, how)
+    if entry.done then return end
+    entry.done = true
+    if confirmOpen == entry then confirmOpen = nil end
+    if entry.onClose then entry.onClose(how) end
+end
+
+
+function S.ConfirmBusy()
+    return EUIConfirmDimmer ~= nil and EUIConfirmDimmer:IsShown() and true or false
+end
+
+
+local function HookDimmer()
+    if dimmerHooked or not EUIConfirmDimmer then return end
+    dimmerHooked = true
+    EUIConfirmDimmer:HookScript("OnHide", function()
+        local entry = confirmOpen
+        if entry then C_Timer.After(0, function() ConfirmClosed(entry, "replaced") end) end
+    end)
+end
+
+
+
 
 function S.Confirm(options)
     options = options or {}
+    if confirmOpen then ConfirmClosed(confirmOpen, "replaced") end
+    local entry = { onClose = options.onClose }
+    confirmOpen = entry
 
     local body = options.body or ""
     local prompt, detail = body:match("^(.-)\n\n(.*)$")
@@ -1580,21 +2177,28 @@ function S.Confirm(options)
     local acknowledge = options.acknowledge and true or false
     local alternate = not acknowledge and options.alternate or nil
 
-    return EUI:ShowConfirmPopup({
+
+    local handle = EUI:ShowConfirmPopup({
         title       = options.title or T["Are you sure?"],
         message     = prompt,
         disclaimer  = detail,
         checkbox    = alternate,
         confirmText = acknowledge and T["OK"] or (options.accept or T["Confirm"]),
-        cancelText  = T["Cancel"],
+        cancelText  = options.cancel or T["Cancel"],
         hideCancel  = acknowledge or nil,
         onConfirm   = function(checked)
-            if acknowledge then return end
-            if checked and alternate then
+
+            if acknowledge then return ConfirmClosed(entry, "cancel") end
+            local take = checked and alternate
+            ConfirmClosed(entry, take and "alternate" or "accept")
+            if take then
                 if options.onAlternate then options.onAlternate() end
             elseif options.onAccept then
                 options.onAccept()
             end
         end,
+        onCancel    = function() ConfirmClosed(entry, "cancel") end,
     })
+    HookDimmer()
+    return handle
 end

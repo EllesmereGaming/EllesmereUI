@@ -7,6 +7,11 @@ local ADDON_NAME = "EllesmereUINameplates"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
+-- The options page frame pool (EllesmereUI_FramePool.lua): frames made under a
+-- pooled page or header part are handed back to its next build.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolGen, PoolKeep = EllesmereUI._Pool.Gen, EllesmereUI._Pool.Keep
+
 -- Body-text preview flag, already slug-gated at the source (GetFontOutlineFlag).
 local function GetNPOptOutline() return EllesmereUI.GetFontOutlineFlag("nameplates") end
 
@@ -197,9 +202,13 @@ initFrame:SetScript("OnEvent", function(self)
         optState._previewCastIconIdx = math.random(#displayCastIcons)
     end
 
+    -- Only while the preview is on screen: setters of other pages and the panel's
+    -- show callback reach it from any page, and the Display page's cache restore
+    -- updates it when it shows again.
     local function UpdatePreview()
-        if optState.activePreview and optState.activePreview.Update then
-            optState.activePreview:Update()
+        local pv = optState.activePreview
+        if pv and pv.Update and pv:IsVisible() then
+            pv:Update()
         end
     end
 
@@ -213,6 +222,57 @@ initFrame:SetScript("OnEvent", function(self)
     local npDispelGlowDesc, npImpCastGlowDesc, npPandemicGlowDesc
     do
         local GO = EllesmereUI.GlowOptions
+        -- The aura glows (Dispel, Pandemic) share one refresh, so the Glows
+        -- page runs it once per Apply.
+        local function RefreshAuraGlows() RefreshAllAuras(); UpdatePreview() end
+        -- Engine aura buttons (no Auto-Cast/Shape); an unset color is the
+        -- suite default (gold).
+        -- Blizzard Border: Blizzard's static stealable art, outside the view.
+        local BLIZZ_BORDER = EllesmereUI.Glows.STEALABLE_BORDER
+        -- Blizzard Pandemic Border: the Cooldown Manager's static pandemic
+        -- art, outside the view, never tinted (noColor locks the swatches);
+        -- the default of both aura glows.
+        local PAN_BORDER = EllesmereUI.Glows.PANDEMIC_BORDER
+        npDispelGlowDesc = {
+            view = ns.NP_GLOW_VIEW, host = "engine",
+            extras = {
+                { value = PAN_BORDER, label = "Blizzard Pandemic Border", style = PAN_BORDER, noColor = true },
+                { value = BLIZZ_BORDER, label = "Blizzard Border", style = BLIZZ_BORDER },
+            },
+            caps = { mode = true, params = true, bg = true },
+            defaultColor = EllesmereUI.Glows.DEFAULT_COLOR,
+            isOff = function() return DBVal("dispelGlow") ~= true end,
+            -- Color by Type replaces the swatch color on every group.
+            colorDisabled = function() return DBVal("dispelGlowUseTypeColor") == true end,
+            colorDisabledTooltip = "Color by Type (Magic/Enrage)",
+            onChange = RefreshAuraGlows,
+            get = function(f)
+                local d = DB()
+                if f == "style" then return ns.GetDispelGlowStyle and ns.GetDispelGlowStyle() or defaults.dispelGlowStyle
+                elseif f == "mode" then return d.dispelGlowColorMode or (d.dispelGlowColor and "custom" or "default")
+                end
+                return EllesmereUI.GlowOptions.FlatGet(d, "dispelGlow", f)
+            end,
+            set = function(f, a, b2, c2)
+                local d = DB()
+                if f == "style" then
+                    if a == 0 then d.dispelGlow = false else d.dispelGlow = true; d.dispelGlowPick = a end
+                elseif f == "mode" then d.dispelGlowColorMode = a
+                else EllesmereUI.GlowOptions.FlatSet(d, "dispelGlow", f, a, b2, c2)
+                end
+            end,
+            -- Magic buffs and enrages are separate groups in the buff row, so the
+            -- color can follow the type; it overrides the color above per group.
+            cogRows = {
+                { type="toggle", label="Color by Type (Magic/Enrage)",
+                  get=function() return DBVal("dispelGlowUseTypeColor") or false end,
+                  set=function(v)
+                      DB().dispelGlowUseTypeColor = v
+                      RefreshAuraGlows()
+                      EllesmereUI:RefreshPage()
+                  end },
+            },
+        }
         -- The cast bar is a bar host (no Shape).
         npImpCastGlowDesc = {
             view = ns.NP_GLOW_VIEW, host = "bar",
@@ -242,6 +302,41 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end,
         }
+        -- Debuffs in their pandemic window (pandemicGlow* keys; the same mode
+        -- key the CDM pandemic sync writes). An unset color mode is Custom:
+        -- the swatch color this glow always drew (the profile merge fills it
+        -- with the default gold).
+        npPandemicGlowDesc = {
+            view = ns.NP_GLOW_VIEW, host = "engine",
+            extras = {
+                { value = PAN_BORDER, label = "Blizzard Pandemic Border", style = PAN_BORDER, noColor = true },
+            },
+            caps = { mode = true, params = true, bg = true },
+            defaultColor = defaults.pandemicGlowColor,
+            isOff = function() return DBVal("pandemicGlow") ~= true end,
+            onChange = RefreshAuraGlows,
+            get = function(f)
+                local d = DB()
+                if f == "style" then return ns.GetPandemicGlowStyle()
+                elseif f == "mode" then return d.pandemicGlowMode or "custom"
+                end
+                return EllesmereUI.GlowOptions.FlatGet(d, "pandemicGlow", f, defaults)
+            end,
+            set = function(f, a, b2, c2)
+                local d = DB()
+                if f == "style" then
+                    if a == 0 then d.pandemicGlow = false else d.pandemicGlow = true; d.pandemicGlowPick = a end
+                elseif f == "mode" then d.pandemicGlowMode = a
+                else EllesmereUI.GlowOptions.FlatSet(d, "pandemicGlow", f, a, b2, c2)
+                end
+            end,
+        }
+        GO.RegisterSite({ id = "np_dispel", label = "Dispel Glow", group = "module",
+            module = "EllesmereUINameplates", page = PAGE_GENERAL, section = SECTION_AURA,
+            highlight = "Dispel Glow Style", desc = npDispelGlowDesc })
+        GO.RegisterSite({ id = "np_pandemic", label = "Pandemic Glow", group = "module",
+            module = "EllesmereUINameplates", page = PAGE_GENERAL, section = SECTION_AURA,
+            highlight = "Pandemic Glow Style", desc = npPandemicGlowDesc })
         GO.RegisterSite({ id = "np_importantcast", label = "Important Cast Glow", group = "module",
             module = "EllesmereUINameplates", page = PAGE_DISPLAY, section = SECTION_CASTBAR,
             highlight = "Important Cast Glow", desc = npImpCastGlowDesc })
@@ -261,7 +356,7 @@ initFrame:SetScript("OnEvent", function(self)
         _displayHeaderBuilder = function(headerParent, headerW)
 
             local PRESET_HEADER_H = 0
-            local PREVIEW_TOP_PAD = 10
+            local PREVIEW_TOP_PAD = 5
             local PREVIEW_BOTTOM_PAD = 5
             local previewH = ns.NPO_BuildNameplatePreview(headerParent, headerW)
             -- Position the preview at the top of the header area. pf's SetScale matches the UIParent/panel ratio, so SetPoint offsets (in that scaled space) must divide by the same ratio for the correct visual offset.
@@ -279,7 +374,9 @@ initFrame:SetScript("OnEvent", function(self)
             local hintShown = not IsPreviewHintDismissed()
             if hintShown then
                 if not optState._previewHintFS then
-                    optState._previewHintFS = EllesmereUI.MakeFont(optState.activePreview or headerParent, 11, nil, 1, 1, 1)
+                    -- Held across builds: out of the preview's frame pool for good
+                    -- (its later builds only hide it with the preview).
+                    optState._previewHintFS = PoolKeep(EllesmereUI.MakeFont(optState.activePreview or headerParent, 11, nil, 1, 1, 1))
                     optState._previewHintFS:SetAlpha(0.45)
                     optState._previewHintFS:SetText(EllesmereUI.L("Click elements to scroll to and highlight their options"))
                 end
@@ -391,26 +488,6 @@ initFrame:SetScript("OnEvent", function(self)
         local function RefreshAllSlots()
             RefreshAllAuras()
             for _, plate in pairs(plates) do
-                local ds, bs, cs = ns.GetAuraSlots()
-                if bs ~= "none" then
-                    local buffSz = ns.GetBuffIconSize()
-                    local buffH = ns.GetAuraCropHeight(ns.GetAuraCrop("buffs"), buffSz)
-                    local bxOff, byOff = ns.GetSlotOffsets(bs)
-                    ns.PositionAuraSlot(plate.buffs, 4, bs, plate, buffSz, buffH, ns.GetAuraSpacing("buffs"), bxOff, byOff)
-                else
-                    for i = 1, 4 do plate.buffs[i]:Hide() end
-                end
-                if cs ~= "none" then
-                    local ccSz = ns.GetCCIconSize()
-                    local ccH = ns.GetAuraCropHeight(ns.GetAuraCrop("ccs"), ccSz)
-                    local cxOff, cyOff = ns.GetSlotOffsets(cs)
-                    ns.PositionAuraSlot(plate.cc, 2, cs, plate, ccSz, ccH, ns.GetAuraSpacing("ccs"), cxOff, cyOff)
-                else
-                    for i = 1, 2 do plate.cc[i]:Hide() end
-                end
-                if ds == "none" then
-                    for i = 1, 4 do plate.debuffs[i]:Hide() end
-                end
                 plate:UpdateRaidIcon()
                 plate:UpdateClassification()
                 -- Rare/Quest + Faction: the classification pass already ran it.
@@ -430,7 +507,8 @@ initFrame:SetScript("OnEvent", function(self)
         local textSlotKeys = ns.textSlotKeys
         local function SetTextElementAtSlot(slotKey, element)
             local db = DB()
-            if element ~= "none" then
+            -- Custom keeps its template per slot: any number of slots may show it.
+            if element ~= "none" and element ~= "custom" then
                 for _, key in ipairs(textSlotKeys) do
                     if key ~= slotKey then
                         local cur = db[key] or defaults[key]
@@ -465,91 +543,9 @@ initFrame:SetScript("OnEvent", function(self)
             return defaults[oldKey]
         end
 
-        -- Shared helper: apply a timer position to live plates for one aura type
-        local function LiveApplyTimerPos(auraFrames, count, v, kind)
-            local durC = AuraDurationVal(kind, "Color")
-            local durSz = AuraDurationVal(kind, "Size")
-            local durX = AuraDurationVal(kind, "X")
-            local durY = AuraDurationVal(kind, "Y")
-            for _, plate in pairs(plates) do
-                for i = 1, count do
-                    local af = auraFrames(plate, i)
-                    if af and af.cd then
-                        if v == "none" then
-                            if af.cd.SetHideCountdownNumbers then
-                                af.cd:SetHideCountdownNumbers(true)
-                            end
-                        else
-                            if af.cd.SetHideCountdownNumbers then
-                                af.cd:SetHideCountdownNumbers(false)
-                            end
-                            if af.cd.text then
-                                SetFSFont(af.cd.text, durSz, "OUTLINE, SLUG")
-                                af.cd.text:SetTextColor(durC.r, durC.g, durC.b, 1)
-                                af.cd.text:ClearAllPoints()
-                                if v == "center" then
-                                    af.cd.text:SetPoint("CENTER", af, "CENTER", durX, durY)
-                                    af.cd.text:SetJustifyH("CENTER")
-                                elseif v == "topright" then
-                                    PP.Point(af.cd.text, "TOPRIGHT", af, "TOPRIGHT", 3 + durX, 4 + durY)
-                                    af.cd.text:SetJustifyH("RIGHT")
-                                elseif v == "bottomleft" then
-                                    PP.Point(af.cd.text, "BOTTOMLEFT", af, "BOTTOMLEFT", -3 + durX, -4 + durY)
-                                    af.cd.text:SetJustifyH("LEFT")
-                                elseif v == "bottomright" then
-                                    PP.Point(af.cd.text, "BOTTOMRIGHT", af, "BOTTOMRIGHT", 3 + durX, -4 + durY)
-                                    af.cd.text:SetJustifyH("RIGHT")
-                                else
-                                    PP.Point(af.cd.text, "TOPLEFT", af, "TOPLEFT", -3 + durX, 4 + durY)
-                                    af.cd.text:SetJustifyH("LEFT")
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-            -- 12.1 aura containers render the text through the style pass instead of the legacy frames above (fingerprint-guarded; nil on 12.0).
-            if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
-        end
-
-        -- Shared helper: apply a stack-count position to live plates for one aura type
-        local function LiveApplyStackPos(auraFrames, count, v)
-            local stkC = (DB() and DB().auraStackTextColor) or defaults.auraStackTextColor
-            local stkSz = DBVal("auraStackTextSize") or defaults.auraStackTextSize
-            local stkX = DBVal("auraStackTextX") or defaults.auraStackTextX
-            local stkY = DBVal("auraStackTextY") or defaults.auraStackTextY
-            for _, plate in pairs(plates) do
-                for i = 1, count do
-                    local af = auraFrames(plate, i)
-                    if af and af.count then
-                        if v == "none" then
-                            af.count:Hide()
-                        else
-                            af.count:Show()
-                            SetFSFont(af.count, stkSz, "OUTLINE, SLUG")
-                            af.count:SetTextColor(stkC.r, stkC.g, stkC.b, 1)
-                            af.count:ClearAllPoints()
-                            if v == "center" then
-                                af.count:SetPoint("CENTER", af, "CENTER", stkX, stkY)
-                                af.count:SetJustifyH("CENTER")
-                            elseif v == "topright" then
-                                PP.Point(af.count, "TOPRIGHT", af, "TOPRIGHT", 3 + stkX, 4 + stkY)
-                                af.count:SetJustifyH("RIGHT")
-                            elseif v == "bottomleft" then
-                                PP.Point(af.count, "BOTTOMLEFT", af, "BOTTOMLEFT", -3 + stkX, -4 + stkY)
-                                af.count:SetJustifyH("LEFT")
-                            elseif v == "topleft" then
-                                PP.Point(af.count, "TOPLEFT", af, "TOPLEFT", -3 + stkX, 4 + stkY)
-                                af.count:SetJustifyH("LEFT")
-                            else
-                                PP.Point(af.count, "BOTTOMRIGHT", af, "BOTTOMRIGHT", 3 + stkX, -4 + stkY)
-                                af.count:SetJustifyH("RIGHT")
-                            end
-                        end
-                    end
-                end
-            end
-            -- 12.1 aura containers: stacks render through the style pass (fingerprint-guarded; nil on 12.0).
+        -- Aura duration and stack text draw through the aura containers' style
+        -- pass, which a settings edit re-runs (fingerprint-guarded).
+        local function LiveApplyAuraText()
             if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
         end
 
@@ -564,7 +560,7 @@ initFrame:SetScript("OnEvent", function(self)
             SetElementAtPosition = SetElementAtPosition,
             SetTextElementAtSlot = SetTextElementAtSlot, asFallback = asFallback,
             atFallback = atFallback, AuraDurationVal = AuraDurationVal,
-            LiveApplyStackPos = LiveApplyStackPos, LiveApplyTimerPos = LiveApplyTimerPos,
+            LiveApplyAuraText = LiveApplyAuraText,
             timerPosOrder = timerPosOrder, timerPosValues = timerPosValues,
         }
         local styleHeader, coreHeader, coreRow1, coreRow2, coreRow3, coreTextHeader, textSlotCells
@@ -678,6 +674,14 @@ initFrame:SetScript("OnEvent", function(self)
                 return { section = coreTextHeader, target = info.row, slotSide = (info.side == "_leftRegion") and "left" or "right" }
             end,
         }
+        -- Custom texts: each position's own font string, that position's row.
+        for _, slotKey in ipairs(ns.textSlotKeys) do
+            dynamicMappings["custom_" .. slotKey] = function()
+                local info = textSlotToRow[slotKey]
+                if not info then return { section = coreTextHeader, target = textFirstRow } end
+                return { section = coreTextHeader, target = info.row, slotSide = (info.side == "_leftRegion") and "left" or "right" }
+            end
+        end
         -- The font strings a single element owns: the row of the slot showing it.
         for mapKey, element in pairs({ healthNumber = "healthNumber", levelText = "level", targetOfTarget = "targetOfTarget" }) do
             dynamicMappings[mapKey] = function()
@@ -710,7 +714,12 @@ initFrame:SetScript("OnEvent", function(self)
                 local region = (m.slotSide == "left") and m.target._leftRegion or m.target._rightRegion
                 if region then glowTarget = region end
             end
-            C_Timer.After(0.15, function() PlaySettingGlow(glowTarget) end)
+            -- A page built again before the glow plays dressed the row anew: no glow.
+            local glowGen = PoolGen(glowTarget)
+            C_Timer.After(0.15, function()
+                if PoolGen(glowTarget) ~= glowGen then return end
+                PlaySettingGlow(glowTarget)
+            end)
         end
 
         -- Hit overlay factory for preview elements. opts (optional): hlAnchor = frame to draw the highlight around (instead of btn); hlBehindText = true draws it on a child frame at icon level+1 (text lives at icon level+2).
@@ -719,25 +728,13 @@ initFrame:SetScript("OnEvent", function(self)
             if s <= 0 then s = 1 end
             return math.floor(val * s + 0.5) / s
         end
-        -- Destroy any stale hit overlays from a previous BuildDisplayPage call (RefreshPage can re-call buildPage without cleaning the preview).
-        if optState.activePreview and optState.activePreview._hitOverlays then
-            for i = 1, #optState.activePreview._hitOverlays do
-                local ov = optState.activePreview._hitOverlays[i]
-                ov:EnableMouse(false)
-                ov:Hide()
-                ov:SetParent(nil)
-            end
-            wipe(optState.activePreview._hitOverlays)
-        end
-
-        local allOverlays = {}
-
+        -- Every build of this page runs right after its header built the preview
+        -- again (the SetContentHeader call above), so the overlays below go on a
+        -- preview that has none: a new one, or (page reuse) the same frames dressed
+        -- again with their overlays parked by the preview's pool.
         local hitStyle = { container = true }
         local function CreateHitOverlay(element, mappingKey, isText, frameLevelOverride, opts)
-            local btn, hlBase, hlCont = EllesmereUI.CreatePreviewHitOverlay(element, NavigateToSetting, mappingKey, isText, frameLevelOverride, opts, hitStyle)
-            allOverlays[#allOverlays + 1] = btn
-            if hlBase ~= btn then allOverlays[#allOverlays + 1] = hlBase end
-            allOverlays[#allOverlays + 1] = hlCont
+            local btn = EllesmereUI.CreatePreviewHitOverlay(element, NavigateToSetting, mappingKey, isText, frameLevelOverride, opts, hitStyle)
             return btn
         end
 
@@ -804,7 +801,6 @@ initFrame:SetScript("OnEvent", function(self)
                     iconOv:SetScript("OnEnter", function() ioBrd:Show() end)
                     iconOv:SetScript("OnLeave", function() ioBrd:Hide() end)
                     iconOv:SetScript("OnMouseDown", function() NavigateToSetting("castIcon") end)
-                    allOverlays[#allOverlays + 1] = iconOv
                 end
                 -- Cast bar overlay (bar only, not icon)
                 local castOverlay = CreateFrame("Button", nil, pv._cast:GetParent())
@@ -816,7 +812,6 @@ initFrame:SetScript("OnEvent", function(self)
                 castOverlay:SetScript("OnEnter", function() coBrd:Show() end)
                 castOverlay:SetScript("OnLeave", function() coBrd:Hide() end)
                 castOverlay:SetScript("OnMouseDown", function() NavigateToSetting("castBar") end)
-                allOverlays[#allOverlays + 1] = castOverlay
             end
             -- Cast spell name and target text (above the cast bar overlay)
             local castTextLevel = (castOverlayLevel or 30) + 5
@@ -849,6 +844,15 @@ initFrame:SetScript("OnEvent", function(self)
                 local fs = pv[fsKey]
                 if fs then
                     local ov = CreateHitOverlay(fs, mapKey, true)
+                    ov._syncFS = fs
+                    ov:SetShown(fs:IsShown())
+                    textOverlays[#textOverlays + 1] = ov
+                end
+            end
+            -- Custom texts: one font string per position, shown while it holds one.
+            if pv._customFS then
+                for slotKey, fs in pairs(pv._customFS) do
+                    local ov = CreateHitOverlay(fs, "custom_" .. slotKey, true)
                     ov._syncFS = fs
                     ov:SetShown(fs:IsShown())
                     textOverlays[#textOverlays + 1] = ov
@@ -924,7 +928,6 @@ initFrame:SetScript("OnEvent", function(self)
                     cpBtn:SetScript("OnLeave", function() HideCPHL() end)
                     cpBtn:SetScript("OnMouseDown", function() NavigateToSetting("classResource") end)
                     cpOverlay = cpBtn
-                    allOverlays[#allOverlays + 1] = cpBtn
                     -- Disable hover/click when class resource setting is off
                     local function UpdateCPOverlay()
                         local off = DBVal("showClassPower") ~= true
@@ -974,13 +977,10 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Only show when arrows are visible
                 if not pv._arrows.left:IsShown() then arrowBtn:Hide() end
                 arrowOverlay = arrowBtn
-                allOverlays[#allOverlays + 1] = arrowBtn
             end
             pv._arrowOverlay = arrowOverlay
             -- Store text overlays for size refresh on preview update
             pv._textOverlays = textOverlays
-            -- Store all overlays for cleanup on next rebuild
-            pv._hitOverlays = allOverlays
         end
 
         return math.abs(y)
@@ -1019,15 +1019,25 @@ initFrame:SetScript("OnEvent", function(self)
         return v
     end
 
-    -- Shared preview bar list and lazy builder (used by both Display and Colors pages)
+    -- Shared preview bar list and lazy builder (used by both Display and Colors pages).
+    -- One entry per bar (colorType and colorKey): each build of the row that shows a
+    -- bar replaces that bar's entry, so the list keeps the latest build's bars only.
     local _colorPagePreviews = {}
+    local _colorPreviewSlot = {}   -- "colorType:colorKey" -> index in _colorPagePreviews
 
     LazyColorPreviewBar = function(parentRow, colorType, colorKey, anchorFrame)
         local real = nil
         local proxy = {}
         local _disabled = false
         local _colorOverrideFn = nil
+        -- The row's dress this bar belongs to (page reuse): once the row is dressed
+        -- again for a later build, this proxy and its bar are that build's no more.
+        local rowGen = PoolGen(parentRow)
+        local function Built()
+            if real and PoolGen(parentRow) == rowGen then return real end
+        end
         local function EnsureBuilt()
+            if PoolGen(parentRow) ~= rowGen then return nil end
             if real then return real end
             real = ns.NPO_MakeColorPreviewBar(parentRow, colorType, colorKey, anchorFrame)
             if _disabled and real._health then real._health:SetAlpha(0.3) end
@@ -1052,21 +1062,26 @@ initFrame:SetScript("OnEvent", function(self)
             if r and r.UpdateOverlay then r.UpdateOverlay() end
         end
         proxy.RefreshBorderStyle = function()
-            if real and real.RefreshBorderStyle then real.RefreshBorderStyle() end
+            local r = Built()
+            if r and r.RefreshBorderStyle then r.RefreshBorderStyle() end
         end
         proxy.RefreshBorderColor = function()
-            if real and real.RefreshBorderColor then real.RefreshBorderColor() end
+            local r = Built()
+            if r and r.RefreshBorderColor then r.RefreshBorderColor() end
         end
         proxy.Randomize = function()
-            if real and real.Randomize then real.Randomize() end
+            local r = Built()
+            if r and r.Randomize then r.Randomize() end
         end
         proxy.RefreshHealthText = function()
-            if real and real.RefreshHealthText then real.RefreshHealthText() end
+            local r = Built()
+            if r and r.RefreshHealthText then r.RefreshHealthText() end
         end
         proxy.SetDisabled = function(off)
             _disabled = off
-            if real and real._health then
-                real._health:SetAlpha(off and 0.3 or 1)
+            local r = Built()
+            if r and r._health then
+                r._health:SetAlpha(off and 0.3 or 1)
             end
         end
         proxy.SetColorOverride = function(fn)
@@ -1075,7 +1090,13 @@ initFrame:SetScript("OnEvent", function(self)
         parentRow:HookScript("OnShow", function()
             if not real then
                 EnsureBuilt()
-                _G._EUI_ColorPreviews[#_G._EUI_ColorPreviews + 1] = real
+                -- Listed once: page reuse can hand the same bar frame to a later build.
+                local list = _G._EUI_ColorPreviews
+                local listed = false
+                for i = 1, #list do
+                    if list[i] == real then listed = true; break end
+                end
+                if not listed then list[#list + 1] = real end
             end
             if real and real._health then
                 real._health:SetAlpha(_disabled and 0.3 or 1)
@@ -1084,13 +1105,36 @@ initFrame:SetScript("OnEvent", function(self)
         if parentRow:IsVisible() then
             EnsureBuilt()
         end
-        _colorPagePreviews[#_colorPagePreviews + 1] = proxy
+        local slot = colorType .. ":" .. tostring(colorKey)
+        local idx = _colorPreviewSlot[slot]
+        if not idx then
+            idx = #_colorPagePreviews + 1
+            _colorPreviewSlot[slot] = idx
+        end
+        _colorPagePreviews[idx] = proxy
         return proxy
     end
 
+    -- Textured Background: the Texture Settings cog row, shared by the Display
+    -- page and Global Settings > Textures. kind: "health" or "cast"; apply: the
+    -- page's own refresh after a write.
+    local function TexBgRowCfg(kind, apply)
+        local cast = kind == "cast"
+        local key = cast and "castTextureBg" or "healthTextureBg"
+        local texKey = cast and "castBarTexture" or "healthBarTexture"
+        return ns.NP_BlizzOnlyGate({ type = "toggle", label = "Textured Background",
+            tooltip = cast and "Draws the bar texture on the cast bar background too."
+                or "Draws the bar texture on the health bar background too.",
+            disabled = function() return (DBVal(texKey) or "none") == "none" end,
+            disabledTooltip = cast and "This option requires a Cast Bar Texture other than None."
+                or "This option requires a Bar Texture other than None.",
+            get = function() return DBVal(key) == true end,
+            set = function(v) DB()[key] = v and true or false; apply() end })
+    end
     -- Shared with the page builders under Nameplates_Options\ (read in their
     -- prologs). Every field is final here: optState holds the mutable state.
     ns._NPO_OptEnv = {
+        TexBgRowCfg = TexBgRowCfg,
         _colorPagePreviews = _colorPagePreviews, ADDON_NAME = ADDON_NAME, BAR_W = BAR_W, DB = DB,
         DBColor = DBColor, DBVal = DBVal, defaults = defaults, displayCastIcons = displayCastIcons,
         FOCUS_LETTER_ANCHOR_ORDER = FOCUS_LETTER_ANCHOR_ORDER,
@@ -1233,6 +1277,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         if msg == "reset" then
+            -- The reload first (RequestReload); the reset below lands before it.
+            EllesmereUI.RequestReload()
             local _db = DB()
             if _db then
                 local pD = _db._presets
@@ -1255,7 +1301,6 @@ initFrame:SetScript("OnEvent", function(self)
                 _db._activePreset = "ellesmereui"
                 _db._color_activePreset = "ellesmereui"
             end
-            EllesmereUI.RequestReload()
             return
         end
 

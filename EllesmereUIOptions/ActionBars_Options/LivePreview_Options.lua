@@ -7,6 +7,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUIActionBars"]
 if not ns then return end  -- module disabled: no options page
+-- Options page pool (EllesmereUI_FramePool.lua, first in this addon): the
+-- preview is built on the header's kept root, so its frames are reset and
+-- dressed again by the next build instead of made anew; on any other parent
+-- this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 --- Build (or rebuild for a different bar) the live preview frame. Shows only
 --- Edit-Mode-enabled buttons (numButtonsShowable) at the first real button's
@@ -944,7 +949,9 @@ local function BuildLivePreview(parent, yOff)
 
     -- Return the actual computed height (converted to parent-space)
     optState.activePreview = pf
-    EllesmereUI._contentHeaderPreview = pf
+    -- This module's own header preview slot: other modules' header previews
+    -- stay alive beside it and never answer for it.
+    EllesmereUI._abHeaderPreview = pf
     return pf._wrapper:GetHeight()
 end
 

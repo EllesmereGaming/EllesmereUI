@@ -24,8 +24,6 @@ local SetContainerFrame = I.SetContainerFrame
 
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
-local PP
-I.PPSetters[#I.PPSetters + 1] = function(v) PP = v end
 local containerFrame
 I.containerFrameSetters[#I.containerFrameSetters + 1] = function(v) containerFrame = v end
 
@@ -170,7 +168,6 @@ local function CreateHeaders()
 
     -- Container frame for positioning (not secure, just holds headers)
     SetContainerFrame(CreateFrame("Frame", "EllesmereUIRaidFrameContainer", UIParent))
-    ns._PreviewBind(db, PP, containerFrame)
     containerFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     containerFrame:SetSize(1, 1)
     containerFrame:SetFrameStrata(ns._ResolveFrameStrata(false))
@@ -551,7 +548,7 @@ local function LayoutGroups()
     -- so it stays diagnosable instead of silently masking a real bug.
     if ns._layoutGroupsDirty and not ns._layoutLoopWarned and not InCombatLockdown() then
         ns._layoutLoopWarned = true
-        print("|cffff5555EllesmereUI Raid Frames:|r layout did not settle after 3 passes; " ..
+        print("|cffff5555EllesmereUI Raid & Party Frames:|r layout did not settle after 3 passes; " ..
             "a re-entrant loop was bounded. Please report this if frames look wrong.")
     end
 end

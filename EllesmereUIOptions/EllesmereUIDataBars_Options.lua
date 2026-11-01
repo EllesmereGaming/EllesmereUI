@@ -35,6 +35,11 @@ initFrame:SetScript("OnEvent", function(self)
     local Lf     = EllesmereUI.Lf
     local format = string.format
     local floor  = math.floor
+    -- Page reuse (EllesmereUI_FramePool.lua): a frame made under a page pool
+    -- host comes from the pool and is dressed again by every later build; under
+    -- any other parent it is a plain new frame.
+    local Pool        = EllesmereUI._Pool
+    local CreateFrame = Pool.CreateFrame
 
     ---------------------------------------------------------------------------
     --  Module upvalues (survive page rebuilds; closures re-target each build)
@@ -63,6 +68,9 @@ initFrame:SetScript("OnEvent", function(self)
     -- The header's menus (bar selector, segment, add block): each built on its
     -- first open and kept across header builds.
     local _edbMenus = {}
+    -- Owner of the header's kept frames (Pool.Kept): the vertical preview's
+    -- strip and add tile in the docked popout, and the drag ghost.
+    local _edbKeep = {}
     local _cardsExpanded = false -- template card strip open/closed
     local _dividerDragging = false
 
@@ -93,7 +101,7 @@ initFrame:SetScript("OnEvent", function(self)
         profession = 120, travel = 40, micromenu = 340, currency = 90, spacer = 40,
         durability = 70, combat = 105, profession2 = 120, greatvault = 100,
         location = 140, coords = 70, crests = 160, ilvl = 70, supplies = 70,
-        bags = 50,
+        bags = 50, mplussummary = 150,
     }
 
     ---------------------------------------------------------------------------
@@ -126,22 +134,17 @@ initFrame:SetScript("OnEvent", function(self)
         return 400
     end
 
-    -- Structural change: rebuild the content header AND the page body.
-    -- Zero bars = NO content header at all: the page falls back to the
-    -- full-body starting screen (template cards), same as first open.
+    -- Structural change: rebuild the content header AND the page body. The
+    -- page build sets the header itself (zero bars = NO content header at
+    -- all: the page falls back to the full-body starting screen, template
+    -- cards, same as first open), so one forced refresh builds both.
     local function HardRefresh()
-        EllesmereUI:InvalidateContentHeaderCache()
-        if SelectedBar() then
-            EllesmereUI:SetContentHeader(_edbHeaderBuilder)
-        else
-            EllesmereUI:ClearContentHeader()
-        end
         EllesmereUI:RefreshPage(true)
     end
 
-    -- Header-only change (template card strip open/close).
+    -- Header-only change (template card strip open/close): the header is
+    -- built again in place (under page reuse, on its kept root).
     local function HeaderOnly()
-        EllesmereUI:InvalidateContentHeaderCache()
         if SelectedBar() then
             EllesmereUI:SetContentHeader(_edbHeaderBuilder)
         else
@@ -704,15 +707,12 @@ initFrame:SetScript("OnEvent", function(self)
         local stripLen, stripThick
         local stripParent = hdr
         if vertical then
-            -- Vertical: the strip lives in the docked overlay popout. Drop the previous
-            -- build's strip first (the popout persists across header rebuilds; header
-            -- children are framework-managed but this one is ours).
+            -- Vertical: the strip lives in the docked overlay popout, which persists
+            -- across header rebuilds. The strip and its add tile (parented to the
+            -- popout too, not to the strip) are kept frames there (Pool.Kept, below):
+            -- every header build dresses the same two again, so a rebuild never
+            -- strands an old one beside the new.
             local oc = GetPreviewPopout()
-            if oc._strip then oc._strip:Hide(); oc._strip:SetParent(nil); oc._strip = nil end
-            -- The add tile is parented to the popout too (not to the strip), so it
-            -- needs the same drop or every rebuild strands another one anchored to a
-            -- dead strip (the "two + buttons, one outside the window" report).
-            if oc._addBtn then oc._addBtn:Hide(); oc._addBtn:SetParent(nil); oc._addBtn = nil end
             stripParent = oc
             stripThick = STRIP_V_THICK
             stripLen = STRIP_V_LEN
@@ -725,7 +725,12 @@ initFrame:SetScript("OnEvent", function(self)
             stripThick = STRIP_H_THICK
         end
 
-        local strip = CreateFrame("Frame", nil, stripParent)
+        local strip
+        if vertical then
+            strip = Pool.Kept(_edbKeep, "popStrip", "Frame", stripParent)
+        else
+            strip = CreateFrame("Frame", nil, stripParent)
+        end
         if vertical then
             PP.Size(strip, stripThick, stripLen)
         else
@@ -1114,7 +1119,15 @@ initFrame:SetScript("OnEvent", function(self)
         local animTicker
         local function EnsureAnimTicker()
             if animTicker then return end
+            -- A strip of the page pool that a newer header build dressed again
+            -- holds that build's segments: the ticker ends with this build.
+            local gen = Pool.Gen(strip)
             animTicker = C_Timer.NewTicker(0.016, function()
+                if Pool.Gen(strip) ~= gen or Pool.IsIdle(strip) then
+                    animTicker:Cancel()
+                    animTicker = nil
+                    return
+                end
                 local moving = false
                 for k = 1, #segBtns do
                     local sb = segBtns[k]
@@ -1228,7 +1241,9 @@ initFrame:SetScript("OnEvent", function(self)
         local dragGhost
         local function EnsureDragGhost()
             if dragGhost then return dragGhost end
-            dragGhost = CreateFrame("Frame", nil, UIParent)
+            -- One kept ghost for the session (Pool.Kept on UIParent): the first
+            -- drag of each header build dresses it again.
+            dragGhost = Pool.Kept(_edbKeep, "dragGhost", "Frame", UIParent)
             dragGhost:SetFrameStrata("TOOLTIP")
             dragGhost:SetFrameLevel(500)
             local gBg = dragGhost:CreateTexture(nil, "BACKGROUND")
@@ -1409,13 +1424,16 @@ initFrame:SetScript("OnEvent", function(self)
         -- "+" add-block tile (CDM preview add-button look): bar-height
         -- square, 4px off the strip, dark fill, colored "+" glyph that
         -- lights up with an accent border on hover.
-        local addBtn = CreateFrame("Button", nil, stripParent)
+        local addBtn
+        if vertical then
+            -- Kept in the popout with the strip (see the vertical branch above).
+            addBtn = Pool.Kept(_edbKeep, "popAddBtn", "Button", stripParent)
+        else
+            addBtn = CreateFrame("Button", nil, stripParent)
+        end
         PP.Size(addBtn, stripThick, stripThick)
         if vertical then
             PP.Point(addBtn, "TOP", strip, "BOTTOM", 0, -4)
-            -- Tracked on the popout so the next rebuild drops it with the
-            -- strip (see the vertical branch above).
-            stripParent._addBtn = addBtn
         else
             PP.Point(addBtn, "LEFT", strip, "RIGHT", 4, 0)
         end
@@ -1458,7 +1476,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
                 menu._rows = {}
                 local mH = 4
-                for _, t in ipairs(ns.BLOCK_TYPES) do
+                for _, t in ipairs(ns.OfferedBlockTypes()) do
                     local item = CreateFrame("Button", nil, menu)
                     item:SetHeight(ITEM_H)
                     item:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -mH)
@@ -1583,7 +1601,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function BuildDataBarsPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
-        local _, h
+        local _, h, hdr
         local row
 
         parent._showRowDivider = true
@@ -1616,7 +1634,13 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.SmoothScrollTo(math.max(0, math.abs(headerY) - 40))
             local glowTarget = GlowTargetOf(m)
             if m.holdWhile then _edbHeldGlowKey, _edbHeldGlowY = key, headerY end
-            C_Timer.After(0.15, function() PlaySettingGlow(glowTarget, m.holdWhile) end)
+            -- A target of the page pool that is dressed again for another row by
+            -- then belongs to a newer build (which re-arms its own glow).
+            local gen = Pool.Gen(glowTarget)
+            C_Timer.After(0.15, function()
+                if Pool.Gen(glowTarget) ~= gen or Pool.IsIdle(glowTarget) then return end
+                PlaySettingGlow(glowTarget, m.holdWhile)
+            end)
         end
 
         -- A held glow belongs to the SETTING, not to the navigation that first
@@ -1726,7 +1750,17 @@ initFrame:SetScript("OnEvent", function(self)
         do
             local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
             local BTN_W, BTN_H = 150, 26
-            local wrap = CreateFrame("Frame", nil, parent)
+            -- On a kept page wrapper the toggle is the page's own frame
+            -- (Pool.Owned: the same one every build, hidden by a build with no
+            -- bar), never a frame an earlier build used for something else:
+            -- one of those keeps its old children in their old order, which
+            -- would put the border over the two buttons instead of under them.
+            local wrap
+            if Pool.Gen(parent) then
+                wrap = Pool.Owned(parent, "edbSizingToggle", "Frame", parent)
+            else
+                wrap = CreateFrame("Frame", nil, parent)
+            end
             wrap:SetSize(BTN_W * 2, BTN_H)
             wrap:SetPoint("TOP", parent, "TOP", 0, y)
             PP.CreateBorder(wrap, 1, 1, 1, 0.10, 1)
@@ -1770,7 +1804,13 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
         --  BAR SETTINGS
         -------------------------------------------------------------------
-        _, h = W:SectionHeader(parent, "BAR SETTINGS", y);  y = y - h
+        hdr, h = W:SectionHeader(parent, "BAR SETTINGS", y);  y = y - h
+        -- The Move in Unlock Mode button on the selected bar's first section:
+        -- the key is read at the click, so it highlights the bar the selector shows.
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = function()
+            local c = SelectedBar()
+            return c and ("EDB_" .. c.id) or nil
+        end })
 
         -- Visibility | Visibility Options (renaming lives in the selector's
         -- inline edit; "Never" visibility fully disables the bar's work).
@@ -1979,7 +2019,7 @@ initFrame:SetScript("OnEvent", function(self)
                   RefreshPreviewTheme()
               end },
             barTexCfg);  y = y - h
-        do
+        if not EllesmereUI._prebuilding then
             -- Inline Modern-background swatch: always present, disabled
             -- (house pattern) while the EllesmereUI style is active. Style
             -- changes HardRefresh, so the state re-evaluates on switch.
@@ -2520,7 +2560,7 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI:RefreshPage()
                   end },
                 bgRightCfg);  y = y - h
-            do
+            if not EllesmereUI._prebuilding then
                 local rgn = bgRow._leftRegion
                 local ctrl = rgn._control
                 local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
@@ -3227,6 +3267,11 @@ initFrame:SetScript("OnEvent", function(self)
                           if wasOn ~= (v > 0) then EllesmereUI:RefreshPage() end
                       end },
                 }
+            elseif b.type == "mplussummary" then
+                typeRows = {
+                    MkToggle("Hide When Empty", "hideWhenEmpty",
+                        "Removes the block from the bar until a Mythic+ run has been recorded."),
+                }
             elseif b.type == "ilvl" then
                 -- Prefix rides the Icon Color row's right slot above.
                 typeRows = {
@@ -3394,7 +3439,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Stores on the shared per-block icon keys that IconColorOf already
             -- reads, so nothing stored = Custom white, matching the block's
             -- untinted default -- no migration and no new default key.
-            if msIconRow then
+            if msIconRow and not EllesmereUI._prebuilding then
                 local rgn = msIconRow._rightRegion
                 local anchor = rgn._control
                 local function IconOn() return s.showIcon == true end
@@ -3497,7 +3542,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Bags low space color: inline on the threshold slider, disabled
             -- (house pattern) while the threshold is zero.
-            if bagsLowRow then
+            if bagsLowRow and not EllesmereUI._prebuilding then
                 local rgn = bagsLowRow._leftRegion
                 local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
                     rgn, bagsLowRow:GetFrameLevel() + 3,
@@ -3680,7 +3725,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- (just that control, not the whole section), wash that block 8 percent white
         -- on BOTH the preview segment and the live bar slot. Poll watcher is parented
         -- to the page wrapper, so it stops (and clears) when the page hides.
-        if #blockHoverRegions > 0 then
+        if #blockHoverRegions > 0 and not EllesmereUI._prebuilding then
             local watcher = CreateFrame("Frame", nil, parent)
             watcher:SetSize(1, 1)
             local acc = 0
@@ -3736,7 +3781,13 @@ initFrame:SetScript("OnEvent", function(self)
         -- navigation paths use, and the same pre-build guard: a hidden search pre-build
         -- would steal the shared glow frame for rows nobody can see.
         if not EllesmereUI._prebuilding then
-            C_Timer.After(0.05, RearmHeldGlow)
+            -- A kept page wrapper dressed again by a newer build by then holds
+            -- that build's rows, and that build re-arms on its own.
+            local gen = Pool.Gen(parent)
+            C_Timer.After(0.05, function()
+                if Pool.Gen(parent) ~= gen then return end
+                RearmHeldGlow()
+            end)
         end
 
         return math.abs(y)
@@ -3749,6 +3800,11 @@ initFrame:SetScript("OnEvent", function(self)
     --  preview strip navigates through _edbNavigateFn directly.
     ---------------------------------------------------------------------------
     function ns.OpenBlockSettings(barId, blockId, settingKey)
+        -- The options never open in combat; nor does the scroll below run then.
+        if InCombatLockdown() then
+            EllesmereUI.PrintError("Cannot open options during combat.")
+            return
+        end
         local key = "block:" .. blockId .. ":" .. settingKey
         EllesmereUI:NavigateToElementSettings("EllesmereUIDataBars", PAGE_DATABARS, nil,
             function()

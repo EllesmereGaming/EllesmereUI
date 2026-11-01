@@ -13,6 +13,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local PAGE_GLOWS = "Glows"
 local GLOBAL_KEY = "_EUIGlobal"
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 -- Session-only view state (never saved): expanded cards, cards hiding
 -- their inactive glows, and a pending rebuild (see RefreshCardState).
 local _glExpanded, _glHideInactive = {}, {}
@@ -747,6 +752,10 @@ end
 do
     local origNav = EllesmereUI.NavigateToElementSettings
     function EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName, preSelectFn, highlightText)
+        -- The original refuses in combat: no page state changes then.
+        if InCombatLockdown() then
+            return origNav(self, moduleName, pageName, sectionName, preSelectFn, highlightText)
+        end
         if moduleName == GLOBAL_KEY and pageName == PAGE_GLOWS and (sectionName or highlightText) then
             local changed = false
             for _, entry in ipairs(GO.sites) do

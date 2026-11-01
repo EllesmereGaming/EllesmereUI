@@ -14,6 +14,11 @@ local AB_FOLDER = "EllesmereUIActionBars"
 local UF_FOLDER = "EllesmereUIUnitFrames"
 local RB_FOLDER = "EllesmereUIResourceBars"
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 -------------------------------------------------------------------------------
 --  Module access (nil while a module is not loaded)
 -------------------------------------------------------------------------------

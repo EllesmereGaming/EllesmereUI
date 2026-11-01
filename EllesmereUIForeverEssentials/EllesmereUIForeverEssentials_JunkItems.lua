@@ -30,6 +30,8 @@ local DEFAULTS = {
     iconSpacing      = 20,        -- gap between icons, px
     priceSide        = "bottom",  -- bottom | top
     showFreeSlots    = false,     -- title reads "Bag Slots - free/total"; off hides the title
+    onlyLowBagSpace  = false,     -- also hidden until fewer bag slots are free than the threshold
+    freeSlotThreshold = 5,        -- free regular bag slots, 1..100
     includeWhite     = false,     -- list white (Common) stacks too
     skipWhiteConfirm = false,     -- white stacks delete without asking first
 }
@@ -52,6 +54,11 @@ local cells = {}
 -- the window on (a login or the options page). Neither holds an event while
 -- the window is off or hidden.
 local eventFrame = CreateFrame("Frame")
+-- Only Show When Bag Space Is Low: a bag watcher of its own, listening while
+-- the option is on and the visibility setting lets the window show (shown or
+-- not, any bag change can cross the threshold).
+local bagSpaceWatch = CreateFrame("Frame")
+local bagWatching = false
 local ctrlWatch  = CreateFrame("Frame")  -- MODIFIER_STATE_CHANGED while a cell is flagged
 local active = false         -- shown, with its events registered
 local visRegistered = false  -- on the shared visibility dispatcher
@@ -621,11 +628,7 @@ local function Layout(limit)
     if not EllesmereUI._unlockActive then ApplyPosition() end
 end
 
-local function UpdateTitle()
-    if not Get("showFreeSlots") then
-        titleFS:Hide()
-        return
-    end
+local function CountBagSlots()
     -- Same bags the list reads: regular bags only.
     local free, total = 0, 0
     for bag = 0, NUM_BAG_SLOTS do
@@ -635,6 +638,15 @@ local function UpdateTitle()
             total = total + GetContainerNumSlots(bag)
         end
     end
+    return free, total
+end
+
+local function UpdateTitle()
+    if not Get("showFreeSlots") then
+        titleFS:Hide()
+        return
+    end
+    local free, total = CountBagSlots()
     if free ~= lastFree or total ~= lastTotal then
         lastFree, lastTotal = free, total
         titleFS:SetFormattedText(EllesmereUI.L("Bag Slots - %d/%d"), free, total)
@@ -760,8 +772,21 @@ end
 -- The shared visibility setting: re-checked by the visibility dispatcher on its
 -- own edges (combat, group, zone...) and after every settings change.
 local function UpdateVisibility()
-    SetActive((frame and Enabled() and EllesmereUI.EvalVisibility(Read()) == true) and true or false)
+    local show = (frame and Enabled() and EllesmereUI.EvalVisibility(Read()) == true) and true or false
+    local watch = show and Get("onlyLowBagSpace") == true
+    if watch ~= bagWatching then
+        bagWatching = watch
+        if watch then
+            bagSpaceWatch:RegisterEvent("BAG_UPDATE_DELAYED")
+            bagSpaceWatch:RegisterEvent("BAG_CONTAINER_UPDATE")
+        else
+            bagSpaceWatch:UnregisterAllEvents()
+        end
+    end
+    if watch then show = CountBagSlots() < Get("freeSlotThreshold") end
+    SetActive(show)
 end
+bagSpaceWatch:SetScript("OnEvent", UpdateVisibility)
 
 local function Apply()
     if Enabled() then

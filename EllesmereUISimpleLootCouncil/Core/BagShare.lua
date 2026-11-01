@@ -1,9 +1,11 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 
 SimpleLootCouncil = SimpleLootCouncil or {}
 local addon = SimpleLootCouncil
+local T = addon.Locale.Text
 
 local BagShare = {}
 addon.BagShare = BagShare
@@ -19,6 +21,14 @@ local pushPending = false
 
 function BagShare.ItemKey(link)
     return type(link) == "string" and (link:match("|H(item:[^|]*)") or link) or nil
+end
+
+
+
+local function StageKey(link)
+    local key = BagShare.ItemKey(link)
+    if key and key:sub(1, 5) == "item:" then return addon.Storage.CanonicalItemString(key) end
+    return key
 end
 
 
@@ -40,7 +50,7 @@ function BagShare:Reconcile(items, owner)
     if addon.Session:IsRunning() then return end
     local budget = {}
     for _, entry in ipairs(items) do
-        local key = BagShare.ItemKey(entry.link)
+        local key = StageKey(entry.link)
         if key then budget[key] = (budget[key] or 0) + 1 end
     end
     local queue = addon.Session:GetItems()
@@ -48,7 +58,7 @@ function BagShare:Reconcile(items, owner)
     local index = 1
     while index <= #queue do
         local item = queue[index]
-        local key = BagShare.ItemKey(item.link)
+        local key = StageKey(item.link)
         if not item.simulated and addon.Player:IsSame(item.owner, owner) then
             local available = budget[key] or 0
             if item.bagItem and available == 0 then
@@ -94,6 +104,21 @@ local function MayShow(owner)
 end
 
 
+local QUEUE_REFUSED = addon.Locale.Texts{
+    active = T["could not queue %s - a run is in progress, and only the Loot Master can add to it."],
+    council = T["could not queue %s - only the Loot Master and council members can queue items."],
+    mode = T["could not queue %s - the group leader has not let council members manage the loot queue."],
+    lootmaster = T["could not queue %s - only the Loot Master can queue items."],
+    queued = T["could not queue %s - every copy is already queued."],
+    gone = T["could not queue %s - it is no longer in the holder's bags with an active trade timer."],
+}
+
+function BagShare.RefusalText(why, link)
+    return addon.Locale.Format(QUEUE_REFUSED[why] or QUEUE_REFUSED.gone, link)
+end
+
+
+
 
 
 
@@ -101,6 +126,8 @@ function BagShare:AddToQueue(link, owner)
     if addon.Session:IsRunning() and not addon.PlayerIsMasterLooter() then
         return nil, "active"
     end
+    local refusal = addon.Session:StageRefusal()
+    if refusal then return nil, refusal end
 
     local me = addon.Player:GetFullName("player")
     if not owner then
@@ -120,17 +147,17 @@ function BagShare:AddToQueue(link, owner)
     end
     BagShare:Reconcile(items, owner)
 
-    local key = BagShare.ItemKey(link)
+    local key = StageKey(link)
     local queued = 0
     for _, item in ipairs(addon.Session:GetItems()) do
         if not item.simulated and addon.Player:IsSame(item.owner, owner)
-            and BagShare.ItemKey(item.link) == key then
+            and StageKey(item.link) == key then
             queued = queued + 1
         end
     end
     local held = 0
     for _, entry in ipairs(items) do
-        if BagShare.ItemKey(entry.link) == key then
+        if StageKey(entry.link) == key then
             held = held + 1
             if held > queued then
                 local boss, encounterID =
@@ -139,6 +166,7 @@ function BagShare:AddToQueue(link, owner)
 
                 local link = BagShare.LinkFromItemString(entry.link) or entry.link
                 local index = addon.Session:AddItem(link, owner, boss, encounterID)
+                if not index then return nil, "council" end
                 local item = addon.Session:GetItems()[index]
                 item.bagItem = true
                 addon.Callbacks:Fire("SessionChanged", index, "item")
@@ -156,7 +184,7 @@ end
 local function StagedCounts(owner)
     local staged = {}
     for _, item in ipairs(addon.Session:GetItems()) do
-        local key = BagShare.ItemKey(item.link)
+        local key = StageKey(item.link)
         if key and not item.simulated and addon.Player:IsSame(item.owner, owner) then
             staged[key] = (staged[key] or 0) + 1
         end
@@ -169,10 +197,10 @@ end
 function BagShare.Unstaged(items, owner)
     local staged = StagedCounts(owner)
     local hidden = {}
-    for _, owedPass in ipairs({ false, true }) do
+    for _, markedPass in ipairs({ false, true }) do
         for _, entry in ipairs(items) do
-            local key = BagShare.ItemKey(entry.link)
-            if key and (entry.owed and true or false) == owedPass
+            local key = StageKey(entry.link)
+            if key and ((entry.owed or entry.won) and true or false) == markedPass
                 and (staged[key] or 0) > 0 then
                 staged[key] = staged[key] - 1
                 hidden[entry] = true
@@ -189,17 +217,19 @@ end
 
 
 function BagShare.FreeToStage(items, owner)
-    local picks, skipped = {}, 0
+    local picks, skipped, won = {}, 0, 0
     for _, entry in ipairs(BagShare.Unstaged(items, owner)) do
-        if entry.eligible then
+        if entry.eligible and not entry.kept then
             if entry.owed then
                 skipped = skipped + 1
+            elseif entry.won then
+                won = won + 1
             else
                 picks[#picks + 1] = entry
             end
         end
     end
-    return picks, skipped
+    return picks, skipped, won
 end
 
 
@@ -332,12 +362,30 @@ end
 
 
 
+local MAX_SHARED_ITEMS = 200
+local MAX_TRADE_SECONDS = 4 * 60 * 60 + 60
+
+local function ValidSeconds(value)
+    if type(value) ~= "number" or value ~= value then return nil end
+    if value < 0 or value > MAX_TRADE_SECONDS then return nil end
+    return value
+end
+
+local function ValidItemText(value)
+    if type(value) ~= "string" then return false end
+    return value:match("^item:[^|]*$") ~= nil or value:find("|Hitem:", 1, true) ~= nil
+end
+
 function BagShare:Apply(payload, sender)
     if type(payload) ~= "table" or type(payload.items) ~= "table" then return end
 
     local items, loading = {}, nil
-    for _, entry in ipairs(payload.items) do
-        if type(entry.l) == "string" then
+    for index, entry in ipairs(payload.items) do
+        if index > MAX_SHARED_ITEMS then
+            addon.Log:W("BagShare", "list from", tostring(sender), "is too long, rest ignored")
+            break
+        end
+        if type(entry) == "table" and ValidItemText(entry.l) then
 
             local link = BagShare.LinkFromItemString(entry.l)
             if not link then
@@ -347,7 +395,7 @@ function BagShare:Apply(payload, sender)
             local owed = type(entry.o) == "string"
             items[#items + 1] = {
                 link = link or entry.l,
-                secondsLeft = entry.s,
+                secondsLeft = ValidSeconds(entry.s),
                 eligible = entry.e and true or false,
                 owed = owed or nil,
                 owedTo = owed and entry.o ~= "" and entry.o or nil,
@@ -426,7 +474,7 @@ end
 
 
 
-function BagShare:Holders()
+function BagShare:Holders(readOwn)
     local me = addon.Player:GetFullName("player")
     local ml = addon.PlayerIsMasterLooter() and me
         or (addon.GetMasterLooter and addon.GetMasterLooter())
@@ -434,7 +482,8 @@ function BagShare:Holders()
 
     local function Add(owner, isML)
         if addon.Player:IsSame(owner, me) then
-            out[#out + 1] = { owner = me, items = addon.Storage:GetTradeableItems(),
+            out[#out + 1] = { owner = me,
+                items = readOwn and readOwn() or addon.Storage:GetTradeableItems(),
                 mine = true, lootMaster = isML }
         else
             local shared = BagShare:Get(owner)
@@ -480,6 +529,45 @@ end
 
 
 
+local MISSING_SETTLE = 5
+local MISSING_COOLDOWN = 30
+local missingDue, missingAskedAt = nil, {}
+
+local function NoOwnScan() return {} end
+
+local function AskMissingNow()
+    if not IsInGroup() then return end
+    local now = GetTime()
+    for _, holder in ipairs(BagShare:Holders(NoOwnScan)) do
+        local owner = holder.owner
+        local at = missingAskedAt[owner]
+        if not holder.mine and not holder.known and (not at or now - at >= MISSING_COOLDOWN) then
+            missingAskedAt[owner] = now
+            addon.Log:D("BagShare", "no list from", tostring(owner), "- asking for it")
+            addon.Comms:Send("bags_request", {}, owner)
+        end
+    end
+end
+
+function BagShare:AskMissing()
+    local armed = missingDue ~= nil
+    missingDue = GetTime() + MISSING_SETTLE
+    if armed then return end
+    local function Due()
+        local wait = missingDue - GetTime()
+        if wait > 0 then
+            C_Timer.After(wait, Due)
+            return
+        end
+        missingDue = nil
+        AskMissingNow()
+    end
+    C_Timer.After(MISSING_SETTLE, Due)
+end
+
+
+
+
 local seenMembers = nil
 
 local function Joined()
@@ -502,12 +590,32 @@ end
 
 local UpdateWatch = function() end
 
-function BagShare:OnRosterChanged(_, gained)
+
+
+local MOST_WHISPERED = 2
+
+local function WhisperTo(names)
+    if InCombatLockdown() then
+        BagShare:PushSoon(true)
+        return
+    end
+    local wire = BagShare.WirePayload(BuildPayload())
+    for _, name in ipairs(names) do
+        addon.Log:D("BagShare", "sharing", #wire.items, "items with", tostring(name))
+        addon.Comms:Send("bags", wire, name)
+    end
+end
+
+function BagShare:OnRosterChanged(_, gained, newly, joiners)
     UpdateWatch()
 
 
     local joined = Joined()
     if not (gained or joined) or not BagShare:IsSharing() then return end
+    if not newly and joiners and #joiners > 0 and #joiners <= MOST_WHISPERED then
+        WhisperTo(joiners)
+        return
+    end
     lastDigest = nil
     BagShare:PushSoon()
 end
@@ -548,6 +656,8 @@ function BagShare:Init()
 
 
     addon.Comms:Register("bags", "council", function(args, sender)
+
+        if addon.Player:IsSame(sender, addon.Player:GetFullName("player")) then return end
         local record = addon.Player:Get(sender)
         local owner = record.fullName or sender
         if not MayShow(owner) then

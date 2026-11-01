@@ -10,15 +10,20 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUINameplates"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page frame pool (EllesmereUI_FramePool.lua): frames made under a
+-- pooled page part are handed back to the page's next build.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolGen, PoolIsIdle = EllesmereUI._Pool.Gen, EllesmereUI._Pool.IsIdle
+
 local function BuildDisplayBars(parent, y, ctx)
     local env = ns._NPO_OptEnv
     local BAR_W, DB, DBColor, DBVal = env.BAR_W, env.DB, env.DBColor, env.DBVal
     local defaults, displayCastIcons, hbtOrder, hbtValues = env.defaults, env.displayCastIcons, env.hbtOrder, env.hbtValues
     local LazyColorPreviewBar, npImpCastGlowDesc, optState, pairs = env.LazyColorPreviewBar, env.npImpCastGlowDesc, env.optState, env.pairs
     local plates, PP, RefreshAllPlates, SECTION_CASTBAR = env.plates, env.PP, env.RefreshAllPlates, env.SECTION_CASTBAR
-    local SetFSFont, UpdatePreview = env.SetFSFont, env.UpdatePreview
+    local UpdatePreview = env.UpdatePreview
     local asFallback, atFallback, AuraDurationVal, CogPopupOpen = ctx.asFallback, ctx.atFallback, ctx.AuraDurationVal, ctx.CogPopupOpen
-    local LiveApplyStackPos, LiveApplyTimerPos, RefreshAllTextures, ShowCogPopup = ctx.LiveApplyStackPos, ctx.LiveApplyTimerPos, ctx.RefreshAllTextures, ctx.ShowCogPopup
+    local LiveApplyAuraText, RefreshAllTextures, ShowCogPopup = ctx.LiveApplyAuraText, ctx.RefreshAllTextures, ctx.ShowCogPopup
     local timerPosOrder, timerPosValues = ctx.timerPosOrder, ctx.timerPosValues
     local W = ctx.W
     local _, h
@@ -513,7 +518,7 @@ local function BuildDisplayBars(parent, y, ctx)
                     UpdatePreview()
                   end },
                 { type = "toggle", label = "Important Cast Color",
-                  tooltip = "Tint the cast bar with the Important colour when the enemy casts a spell the game flags as important. Overrides the Interruptible Cast colour; your interrupt being on cooldown still takes priority.",
+                  tooltip = "Tint the cast bar with the Important colour when the enemy casts a spell the game flags as important.",
                   get = function()
                     local db = DB()
                     if db and db.importantCastColorEnabled ~= nil then return db.importantCastColorEnabled end
@@ -524,6 +529,24 @@ local function BuildDisplayBars(parent, y, ctx)
                     RefreshAllPlates()
                     EllesmereUI:RefreshPage()
                   end },
+                { type = "toggle", label = "Interruptible While Kick Ready",
+                  tooltip = "While your interrupt is ready, important casts keep the Interruptible color.",
+                  get = function()
+                    local db = DB()
+                    if db and db.importantCastKickReadyAsInterruptible ~= nil then return db.importantCastKickReadyAsInterruptible end
+                    return defaults.importantCastKickReadyAsInterruptible
+                  end,
+                  set = function(v)
+                    DB().importantCastKickReadyAsInterruptible = v
+                    RefreshAllPlates()
+                  end,
+                  disabled = function()
+                    local db = DB()
+                    local on = db and db.importantCastColorEnabled
+                    if on == nil then on = defaults.importantCastColorEnabled end
+                    return not on
+                  end,
+                  disabledTooltip = "Important Cast Color" },
             },
         })
     end
@@ -644,15 +667,18 @@ local function BuildDisplayBars(parent, y, ctx)
                 rgn._lastInline = swatch
                 swatch:SetScript("OnEnter", function(s) EllesmereUI.ShowWidgetTooltip(s, "Interrupted Flash Colour") end)
                 swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                -- Blizzard Style uses the stock interrupted fill art, so the flash colour is inert there.
-                EllesmereUI.RegisterWidgetRefresh(function()
+                -- Blizzard Style uses the stock interrupted fill art, so the flash colour is
+                -- inert there: the build and every refresh grey the swatch out alike.
+                local function ApplyFlashSwatchState()
                     local off = flashOff() or ns.NP_BlizzOnly()
                     swatch:SetAlpha(off and 0.15 or 1)
                     swatch:EnableMouse(not off)
+                end
+                EllesmereUI.RegisterWidgetRefresh(function()
+                    ApplyFlashSwatchState()
                     updateSwatch()
                 end)
-                swatch:SetAlpha(flashOff() and 0.15 or 1)
-                swatch:EnableMouse(not flashOff())
+                ApplyFlashSwatchState()
             end
         end
     end
@@ -957,8 +983,9 @@ local function BuildDisplayBars(parent, y, ctx)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
         eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshTargetGlowEye()
             if optState.showTargetGlowPreview then
@@ -973,8 +1000,8 @@ local function BuildDisplayBars(parent, y, ctx)
             RefreshTargetGlowEye()
             UpdatePreview()
         end)
-        eyeBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        eyeBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+        eyeBtn:SetScript("OnEnter", function(self) EllesmereUI.SetGlyphAlpha(self, 0.7) end)
+        eyeBtn:SetScript("OnLeave", function(self) EllesmereUI.SetGlyphAlpha(self, 0.4) end)
     end
 
     -- Enable Target Color ---- Target Texture
@@ -1281,13 +1308,18 @@ local function BuildDisplayBars(parent, y, ctx)
         { type="label", text="Target Preview" },
         { type="label", text="Focus Preview" });  y = y - h
 
+    -- The two bars sit at their half's right edge: the row's child anchored to that
+    -- half, moved. Page reuse: the row's children of its earlier dresses stay among
+    -- them, idle, and the deferred pass stops once the row was dressed again.
+    local previewRowGen = PoolGen(previewDualRow)
     if not EllesmereUI._prebuilding then
     targetPrev = LazyColorPreviewBar(previewDualRow, "health", "target", previewDualRow._leftRegion)
     do
         local function RepositionTargetBar()
+            if PoolGen(previewDualRow) ~= previewRowGen then return end
             local rgn = previewDualRow._leftRegion
             for _, child in ipairs({ previewDualRow:GetChildren() }) do
-                if child.GetNumPoints and child:GetNumPoints() > 0 then
+                if child.GetNumPoints and child:GetNumPoints() > 0 and not PoolIsIdle(child) then
                     local _, rel = child:GetPoint(1)
                     if rel == rgn then
                         child:ClearAllPoints()
@@ -1311,9 +1343,10 @@ local function BuildDisplayBars(parent, y, ctx)
     focusPrev = LazyColorPreviewBar(previewDualRow, "health", "focus", previewDualRow._rightRegion)
     do
         local function RepositionFocusBar()
+            if PoolGen(previewDualRow) ~= previewRowGen then return end
             local rgn = previewDualRow._rightRegion
             for _, child in ipairs({ previewDualRow:GetChildren() }) do
-                if child.GetNumPoints and child:GetNumPoints() > 0 then
+                if child.GetNumPoints and child:GetNumPoints() > 0 and not PoolIsIdle(child) then
                     local _, rel = child:GetPoint(1)
                     if rel == rgn then
                         child:ClearAllPoints()
@@ -1786,9 +1819,9 @@ local function BuildDisplayBars(parent, y, ctx)
     local auraTimerStackRow
     do
         local durationTypes = {
-            debuff = { text = "Debuff Duration", title = "Debuff Duration Settings", key = "debuffTimerPosition", count = 4, frames = function(p, i) return p.debuffs[i] end },
-            buff = { text = "Buff Duration", title = "Buff Duration Settings", key = "buffTimerPosition", count = 4, frames = function(p, i) return p.buffs[i] end },
-            cc = { text = "CC Duration", title = "CC Duration Settings", key = "ccTimerPosition", count = 2, frames = function(p, i) return p.cc[i] end },
+            debuff = { text = "Debuff Duration", title = "Debuff Duration Settings", key = "debuffTimerPosition" },
+            buff = { text = "Buff Duration", title = "Buff Duration Settings", key = "buffTimerPosition" },
+            cc = { text = "CC Duration", title = "CC Duration Settings", key = "ccTimerPosition" },
         }
         local function DurationDropdown(kind)
             local cfg = durationTypes[kind]
@@ -1796,16 +1829,12 @@ local function BuildDisplayBars(parent, y, ctx)
               getValue=function() return DBVal(cfg.key) or atFallback end,
               setValue=function(v)
                 DB()[cfg.key] = v
-                LiveApplyTimerPos(cfg.frames, cfg.count, v, kind)
+                LiveApplyAuraText()
                 UpdatePreview()
               end, order=timerPosOrder }
         end
-        local function CurrentDurationPos(cfg)
-            return DBVal(cfg.key) or atFallback
-        end
-        local function RefreshDuration(kind)
-            local cfg = durationTypes[kind]
-            LiveApplyTimerPos(cfg.frames, cfg.count, CurrentDurationPos(cfg), kind)
+        local function RefreshDuration()
+            LiveApplyAuraText()
             UpdatePreview()
         end
         local function AttachDurationTools(region, kind)
@@ -1816,7 +1845,7 @@ local function BuildDisplayBars(parent, y, ctx)
             end
             local colorSet = function(r, g, b)
                 DB()[kind .. "DurationTextColor"] = { r = r, g = g, b = b }
-                RefreshDuration(kind)
+                RefreshDuration()
             end
             local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(region, region:GetFrameLevel() + 5, colorGet, colorSet, nil, 20)
             PP.Point(swatch, "RIGHT", region._control, "LEFT", -12, 0)
@@ -1829,13 +1858,13 @@ local function BuildDisplayBars(parent, y, ctx)
                 rows = {
                     { type="slider", label="Size", min=6, max=20, step=1,
                       get=function() return AuraDurationVal(kind, "Size") end,
-                      set=function(v) DB()[kind .. "DurationTextSize"] = v; RefreshDuration(kind) end },
+                      set=function(v) DB()[kind .. "DurationTextSize"] = v; RefreshDuration() end },
                     { type="slider", label="X", min=-50, max=50, step=1,
                       get=function() return AuraDurationVal(kind, "X") end,
-                      set=function(v) DB()[kind .. "DurationTextX"] = v; RefreshDuration(kind) end },
+                      set=function(v) DB()[kind .. "DurationTextX"] = v; RefreshDuration() end },
                     { type="slider", label="Y", min=-50, max=50, step=1,
                       get=function() return AuraDurationVal(kind, "Y") end,
-                      set=function(v) DB()[kind .. "DurationTextY"] = v; RefreshDuration(kind) end },
+                      set=function(v) DB()[kind .. "DurationTextY"] = v; RefreshDuration() end },
                 },
             })
         end
@@ -1855,8 +1884,7 @@ local function BuildDisplayBars(parent, y, ctx)
               getValue=function() return DBVal("auraStackTextPosition") or asFallback end,
               setValue=function(v)
                 DB().auraStackTextPosition = v
-                LiveApplyStackPos(function(p, i) return p.debuffs[i] end, 4, v)
-                LiveApplyStackPos(function(p, i) return p.buffs[i] end, 4, v)
+                LiveApplyAuraText()
                 UpdatePreview()
               end, order=timerPosOrder }); y = y - h
         auraTimerStackRow = durationRow2
@@ -1873,17 +1901,7 @@ local function BuildDisplayBars(parent, y, ctx)
         end
         local asColorSet = function(r, g, b)
             DB().auraStackTextColor = { r = r, g = g, b = b }
-            for _, plate in pairs(plates) do
-                for i = 1, 4 do
-                    if plate.debuffs[i] and plate.debuffs[i].count then
-                        plate.debuffs[i].count:SetTextColor(r, g, b, 1)
-                    end
-                    if plate.buffs[i] and plate.buffs[i].count then
-                        plate.buffs[i].count:SetTextColor(r, g, b, 1)
-                    end
-                end
-            end
-            if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end -- 12.1 containers
+            LiveApplyAuraText()
             UpdatePreview()
         end
         local asSwatch, asUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, asColorGet, asColorSet, nil, 20)
@@ -1900,33 +1918,21 @@ local function BuildDisplayBars(parent, y, ctx)
                   get=function() return DBVal("auraStackTextSize") or defaults.auraStackTextSize end,
                   set=function(v)
                     DB().auraStackTextSize = v
-                    for _, plate in pairs(plates) do
-                        for i = 1, 4 do
-                            if plate.debuffs[i] and plate.debuffs[i].count then
-                                SetFSFont(plate.debuffs[i].count, v, "OUTLINE, SLUG")
-                            end
-                            if plate.buffs[i] and plate.buffs[i].count then
-                                SetFSFont(plate.buffs[i].count, v, "OUTLINE, SLUG")
-                            end
-                        end
-                    end
-                    if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end -- 12.1 containers
+                    LiveApplyAuraText()
                     UpdatePreview()
                   end },
                 { type="slider", label="X", min=-50, max=50, step=1,
                   get=function() return DBVal("auraStackTextX") or defaults.auraStackTextX end,
                   set=function(v)
                     DB().auraStackTextX = v
-                    LiveApplyStackPos(function(p, i) return p.debuffs[i] end, 4, DBVal("auraStackTextPosition") or asFallback)
-                    LiveApplyStackPos(function(p, i) return p.buffs[i] end, 4, DBVal("auraStackTextPosition") or asFallback)
+                    LiveApplyAuraText()
                     UpdatePreview()
                   end },
                 { type="slider", label="Y", min=-50, max=50, step=1,
                   get=function() return DBVal("auraStackTextY") or defaults.auraStackTextY end,
                   set=function(v)
                     DB().auraStackTextY = v
-                    LiveApplyStackPos(function(p, i) return p.debuffs[i] end, 4, DBVal("auraStackTextPosition") or asFallback)
-                    LiveApplyStackPos(function(p, i) return p.buffs[i] end, 4, DBVal("auraStackTextPosition") or asFallback)
+                    LiveApplyAuraText()
                     UpdatePreview()
                   end },
             },

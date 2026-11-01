@@ -7,6 +7,11 @@ if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- no item upgrade sys
 
 if not EllesmereUI._ModuleNS["EllesmereUIQoL"] then return end  -- module disabled: no options page
 
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local function GetAddonDB()
     -- Always delegate to the main module so we read from the same profile
     -- slice that persists via EllesmereUIDB (not the wiped EllesmereUIQoLDB).
@@ -233,6 +238,18 @@ local function BuildUpgradeCalcPage(pageName, parent, yOffset)
           setValue = function(v) GetAddonDB().openWithUpgrader = v end }
     ); y = y - h
 
+    _, h = W:SectionHeader(parent, "TOOLTIPS", y); y = y - h
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Enhanced Upgrade Tooltips",
+          tooltip = "Replaces the Upgrade Level line with a colored rank, track and potential item-level range, including Ascension for eligible weapons, trinkets and necklaces. Shows the upgrade currency beside it while upgrades remain. Unmatched tracks keep Blizzard's text.",
+          getValue = function() return EllesmereUI.QoLExtrasGet("upgradeTooltips") == true end,
+          setValue = function(v)
+              EllesmereUI.QoLExtrasSet("upgradeTooltips", v)
+              EllesmereUI._applyUpgradeTooltips()
+          end },
+        EllesmereUI.BlankRowCfg()
+    ); y = y - h
+
     _, h = W:Spacer(parent, y, 20); y = y - h
 
     parent:SetHeight(math.abs(y - yOffset))
@@ -248,6 +265,8 @@ _G._EUI_BuildUpgradeCalcPage = BuildUpgradeCalcPage
 
 -- Expose reset helper for QoL onReset
 _G._EUI_ResetUpgradeCalc = function()
+    EllesmereUI.QoLExtrasSet("upgradeTooltips", false)
+    EllesmereUI._applyUpgradeTooltips()
     if EUIUpgCalc and EUIUpgCalc.GetOptsDB then
         local opts = EUIUpgCalc.GetOptsDB()
         for k in pairs(opts) do opts[k] = nil end

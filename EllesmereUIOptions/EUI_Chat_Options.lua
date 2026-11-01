@@ -9,6 +9,12 @@ local ns = EllesmereUI._ModuleNS["EllesmereUIChat"]  -- module namespace (publis
 if not ns then return end  -- module disabled: no options page
 local ECHAT = ns.ECHAT
 
+-- Page reuse: the frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua, the options addon's first file), which hands a
+-- kept page its previous build's frames back reset to new; on any other
+-- parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -36,7 +42,7 @@ initFrame:SetScript("OnEvent", function(self)
         local W  = EllesmereUI.Widgets
         local PP = EllesmereUI.PP
         local y  = yOffset
-        local h
+        local _, h
 
         if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
         parent._showRowDivider = true
@@ -67,7 +73,9 @@ initFrame:SetScript("OnEvent", function(self)
         -- reposition banner and its Force Chat on Screen link are gone.
 
         -- -- DISPLAY -----------------------------------------------------------
-        _, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
+        local hdr
+        hdr, h = W:SectionHeader(parent, "DISPLAY", y); y = y - h
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ECHAT_MainChat" })
         if BS then y = BS.Note(parent, y, "chat") end
 
         -- Row 1: Visibility (one control; no mouseover for chat frames) | Lock Main Chat Size
@@ -1109,7 +1117,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- (No tab idle-fade section: the per-tab fade layer was removed
             -- 2026-07-20 -- Blizzard's own tab alpha machinery always won and
             -- the setting visibly did nothing. Tabs fade with the chat panel
-            -- via the dock; see the tab-alpha note in EllesmereUIChat.lua.)
+            -- via the dock; see _ApplyAlpha in EUI_Chat_Visibility.lua.)
 
             _, h = W:SectionHeader(parent, "BORDER", y); y = y - h
             _, h = W:DualRow(parent, y,

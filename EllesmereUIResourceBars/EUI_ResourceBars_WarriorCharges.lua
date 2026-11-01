@@ -94,7 +94,7 @@ function ns.WC_Sync(frame, sp, powerKey, gen)
     end
     local wantText = sp.showText and true or false
     if wantText and _G._ERB_TextHiddenByForm and ns.ERB and ns.ERB.db
-       and _G._ERB_TextHiddenByForm(ns.ERB.db.profile.secondary, true) then
+       and _G._ERB_TextHiddenByForm(ns.ERB.db.profile.secondary) then
         wantText = false
     end
     ewc.Sync("erb", frame, powerKey, {

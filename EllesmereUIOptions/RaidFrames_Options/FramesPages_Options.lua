@@ -1,12 +1,21 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  RaidFrames_Options\FramesPages_Options.lua
---  Raid Frames options: the raid Frames page (BuildMainPage), the Party page
+--  Raid & Party Frames options: the Frames page (Raid tab, BuildMainPage), the Party page
 --  (BuildPartyPage) and the Sort By control both use. Definitions only; the
 --  shared helpers come from ns._RFO_OptEnv (filled by EUI_RaidFrames_Options.lua).
 -------------------------------------------------------------------------------
 local ns = EllesmereUI._ModuleNS["EllesmereUIRaidFrames"]
 if not ns then return end  -- module disabled: no options page
+
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host (a kept page wrapper or menu and every frame it hands out) are reset
+-- and dressed again by the next build instead of made anew; elsewhere this is
+-- CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolKept = EllesmereUI._Pool.Kept
+-- Deferred work on a pooled frame stops once the frame was dressed again.
+local PoolGen = EllesmereUI._Pool.Gen
 
 ---------------------------------------------------------------------------
 --  Shared "Sort By" control: Group/Role radio + drag-to-reorder role rows, installed into a DualRow half-region
@@ -65,7 +74,9 @@ local function BuildSortByControl(rgn, opts)
     local DH = 16       -- divider height
     local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
 
-    local menuFrame = CreateFrame("Frame", nil, UIParent)
+    -- Kept per Sort By button (the options page pool): a page build that
+    -- dresses the same button again dresses the same menu again.
+    local menuFrame = PoolKept(sortBtn, "rfSortMenu", "Frame", UIParent)
     menuFrame:SetFrameStrata("FULLSCREEN_DIALOG")
     menuFrame:SetFrameLevel(200)
     menuFrame:SetClampedToScreen(true)
@@ -343,7 +354,7 @@ local function BuildMainPage(pageName, parent, yOffset)
     local SGet, SGetPx, SSet, SVal = env.SGet, env.SGetPx, env.SSet, env.SVal
     local SWrite, optState = env.SWrite, env.optState
     local W = EllesmereUI.Widgets
-    local _, h
+    local _, h, hdr
     local row
 
     -- Both Group Growth menus grey out the grid flow while groups are merged,
@@ -362,7 +373,8 @@ local function BuildMainPage(pageName, parent, yOffset)
     -------------------------------------------------------------------
     --  FRAME SIZES
     -------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "FRAME SIZES", y); y = y - h
+    hdr, h = W:SectionHeader(parent, "FRAME SIZES", y); y = y - h
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "RF_RaidFrames" })
 
     _, h = W:DualRow(parent, y,
         { type="slider", text="20 Man Frame Width", min=40, max=300, step=1,
@@ -446,18 +458,24 @@ local function BuildMainPage(pageName, parent, yOffset)
                     eyeBtn:SetPoint("RIGHT", sizeRow, "LEFT", -5, 0)
                     eyeBtn:SetFrameLevel(sizeRow:GetFrameLevel() + 5)
                     local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+                    EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
                     eyeTex:SetAllPoints()
 
+                    -- Kept on ns until this tier's next build, which may never come
+                    -- (the tier was removed): once a rebuild dresses this eye again,
+                    -- maybe as another row's, this refresher leaves it alone.
+                    local eyeGen = PoolGen(eyeBtn)
                     local function RefreshSizeEye()
+                        if PoolGen(eyeBtn) ~= eyeGen then return end
                         local active = ns._sizePreviewTier == tier
                         eyeTex:SetTexture(active and EYE_INVISIBLE or EYE_VISIBLE)
-                        eyeBtn:SetAlpha(active and 0.6 or 0.4)
+                        EllesmereUI.SetGlyphAlpha(eyeBtn, active and 0.6 or 0.4)
                     end
                     RefreshSizeEye()
                     ns["_refreshSizeEye" .. tier] = RefreshSizeEye
 
                     eyeBtn:SetScript("OnEnter", function(self)
-                        self:SetAlpha(0.7)
+                        EllesmereUI.SetGlyphAlpha(self, 0.7)
                         local active = ns._sizePreviewTier == tier
                         EllesmereUI.ShowWidgetTooltip(self, active and "Hide " .. tierLabel .. " preview" or "Preview " .. tierLabel .. " frame size")
                     end)
@@ -1361,8 +1379,12 @@ local function BuildPartyPage(pageName, parent, yOffset)
     local BuildPreviewModeRow, BuildVisualSections, db, optState = env.BuildPreviewModeRow, env.BuildVisualSections, env.db, env.optState
     local PP, SVal = env.PP, env.SVal
     local W = EllesmereUI.Widgets
-    local _, h
+    local _, h, hdr
     local row
+    -- The Party Frames' Move in Unlock Mode button goes on the page's first
+    -- section: FRAME STYLE where the stock-style block builds, else RAID
+    -- SYNC AND SOLO.
+    local jumped
 
     parent._showRowDivider = true
     local y = yOffset
@@ -1376,7 +1398,9 @@ local function BuildPartyPage(pageName, parent, yOffset)
     -------------------------------------------------------------------
     local p0 = db.profile
     if ns.RF_Stock and ns.RF_Stock() and (p0.useBlizzardStyle or p0.useClassicStyle) then
-        _, h = W:SectionHeader(parent, "FRAME STYLE", y); y = y - h
+        hdr, h = W:SectionHeader(parent, "FRAME STYLE", y); y = y - h
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "RF_PartyFrames" })
+        jumped = true
         local kitOn = ns.RF_PartyKit and ns.RF_PartyKit()
         -- Frame Scale default (nil = this, 120%).
         local scaleDef = math.floor((ns.RF_KIT_SCALE or 1.2) * 100 + 0.5)
@@ -1467,7 +1491,10 @@ local function BuildPartyPage(pageName, parent, yOffset)
     -------------------------------------------------------------------
     --  RAID SYNC AND SOLO
     -------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "RAID SYNC AND SOLO", y); y = y - h
+    hdr, h = W:SectionHeader(parent, "RAID SYNC AND SOLO", y); y = y - h
+    if not jumped then
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "RF_PartyFrames" })
+    end
 
     -- Row 1: Use Raid Settings For (checkbox dropdown) | Show When Solo
     local SECTION_ORDER = ns._PARTY_SECTION_ORDER or {}

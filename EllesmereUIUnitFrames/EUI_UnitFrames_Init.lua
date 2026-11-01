@@ -28,8 +28,10 @@ local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
 local function InitializeFrames()
-    -- Sync EUI global power colors into oUF at init
-    EllesmereUI.ApplyColorsToOUF()
+    -- The engine's shared class and power colors from the suite palette, before any
+    -- frame spawns. Only the sync: a full colors pass here would repaint every module
+    -- at login while nothing changed.
+    EllesmereUI.SyncUFColors()
 
     local classPowerStyle = db.profile.player.classPowerStyle or "none"
     -- Forever has no Blizzard class resource bar to adopt (see the ComboFrame
@@ -309,12 +311,27 @@ local function InitializeFrames()
 
         if frame.Portrait and frame.Portrait.backdrop and showPortrait and not frame.Portrait.backdrop._isInside then
             PP.Size(frame.Portrait.backdrop, adjPortraitH, adjPortraitH)
+            -- The same anchors the reload pass gives the backdrop (a top text bar
+            -- pushes an attached one down; a detached one floats off the health
+            -- bar's edge): a backdrop cleared and left with no anchor renders
+            -- nowhere until the next reload pass.
             frame.Portrait.backdrop:ClearAllPoints()
+            local pBtbTopOff = (btbPos2 == "top" and settings.bottomTextBar) and (settings.bottomTextBarHeight or 16) or 0
             if isAttached then
                 if effectiveSide == "left" then
-                    PP.Point(frame.Portrait.backdrop, "TOPLEFT", frame, "TOPLEFT", 0, 0)
+                    PP.Point(frame.Portrait.backdrop, "TOPLEFT", frame, "TOPLEFT", 0, -pBtbTopOff)
                 else
-                    PP.Point(frame.Portrait.backdrop, "TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+                    PP.Point(frame.Portrait.backdrop, "TOPRIGHT", frame, "TOPRIGHT", 0, -pBtbTopOff)
+                end
+            else
+                local pXOff = settings.portraitX or 0
+                local pYOff = (settings.portraitY or 0) + 5
+                if effectiveSide == "top" then
+                    frame.Portrait.backdrop:SetPoint("BOTTOM", frame.Health or frame, "TOP", pXOff, 15 + pYOff)
+                elseif effectiveSide == "left" then
+                    frame.Portrait.backdrop:SetPoint("TOPRIGHT", frame.Health or frame, "TOPLEFT", -15 + pXOff, pYOff)
+                else
+                    frame.Portrait.backdrop:SetPoint("TOPLEFT", frame.Health or frame, "TOPRIGHT", 15 + pXOff, pYOff)
                 end
             end
             if frame.Portrait.backdrop._2d then
@@ -1278,12 +1295,14 @@ local function InitializeFrames()
                 end
             end
             if atlas then
-                -- Paint only on a real change: faction, style and dim are the
-                -- paint's only inputs (the texture is ours, so the memo lives on it).
+                -- Paint only on a real change: faction, style, dim and the honor
+                -- badge are the paint's only inputs (the texture is ours, so the
+                -- memo lives on it).
                 local style = s.factionIndicatorStyle or "pvp"
-                if tex._facFac ~= fac or tex._facStyle ~= style or tex._facDim ~= dim then
-                    tex._facFac, tex._facStyle, tex._facDim = fac, style, dim
-                    EllesmereUI.SetFactionArt(tex, style, fac)
+                local badge = EllesmereUI.FactionBadgeFor(style, unit)
+                if tex._facFac ~= fac or tex._facStyle ~= style or tex._facDim ~= dim or tex._facBadge ~= badge then
+                    tex._facFac, tex._facStyle, tex._facDim, tex._facBadge = fac, style, dim, badge
+                    EllesmereUI.SetFactionArt(tex, style, fac, badge)
                     tex:SetDesaturated(dim)
                     tex:SetAlpha(dim and 0.6 or 1)
                 end
@@ -1506,7 +1525,7 @@ local function InitializeFrames()
             -- in the other frameStrata-apply pass above for why this is needed.
             if frame.Power then
                 local us2 = GetSettingsForUnit(unitKey)
-                local ppPos = us2 and us2.powerPosition or "below"
+                local ppPos = ns.UF_PowerPos(us2)
                 if ppPos == "detached_top" or ppPos == "detached_bottom" then
                     if db.profile.enableCustomBarStratas then
                         frame.Power:SetFrameStrata(db.profile.detachedPowerStrata or "HIGH")
@@ -2198,6 +2217,12 @@ local function InitializeFrames()
     -- Apply all settings (cast bar colors, text, sizes, etc.) now that
     -- frames are spawned and anchored.
     ReloadFrames()
+    -- A /reload in combat lands here under lockdown, where ReloadFrames holds
+    -- back its frame work: the throttle pass at combat end applies it
+    -- (ns.ReloadFrames exists by then, set a frame later by SetupOptionsPanel).
+    if InCombatLockdown() then
+        ns.CombatQueue.Defer("ReloadFrames", function() ns.ReloadFrames() end)
+    end
 end
 
 I.InitializeFrames = InitializeFrames

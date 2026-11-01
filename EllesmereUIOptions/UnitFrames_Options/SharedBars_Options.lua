@@ -9,6 +9,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
 if not ns then return end  -- module disabled: no options page
 
+-- Page reuse: the frames this file builds under a kept page go through the
+-- options frame pool (EllesmereUI_FramePool.lua), which hands the next build
+-- the previous build's frames reset to new; on any other parent it is the
+-- plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+-- The pool's other calls this file makes, read once here as CreateFrame is:
+-- the page path never calls the pool through its public slot, which
+-- another addon could replace.
+local PoolIsIdle = EllesmereUI._Pool.IsIdle
+
 function ns.UFO_BuildHealthBarSection(parent, y, ctx)
     local env = ns._UFO_OptEnv
     local AddDarkModeBlock, GROUP_UNIT_ORDER, PP, RegisterWidgetRefresh = env.AddDarkModeBlock, env.GROUP_UNIT_ORDER, env.PP, env.RegisterWidgetRefresh
@@ -481,8 +491,8 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
     -- Dark Mode: disable all Bar Color + Bar Background controls (the flat dark
     -- health bar ignores fill/background colors).
     if not EllesmereUI._prebuilding then
-    AddDarkModeBlock(sharedHealthColorRow._leftRegion)
-    AddDarkModeBlock(sharedHealthColorRow._rightRegion)
+    AddDarkModeBlock(sharedHealthColorRow._leftRegion, SDB)
+    AddDarkModeBlock(sharedHealthColorRow._rightRegion, SDB)
     end
 
     -- Row 3: Smooth Health Bars + Bar Opacity
@@ -492,7 +502,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
           getValue=function() return SVal("smoothBars", false) end,
           setValue=function(v) SSet("smoothBars", v) end },
         { type="slider", text="Fill Opacity", min=0, max=100, step=1,
-          disabled=function() return db.profile.darkTheme end,
+          disabled=function() return ns.UF_DarkThemeOn(SDB()) end,
           disabledTooltip="Dark Mode", requireState="disabled",
           getValue=function() return SVal("healthBarOpacity", 90) end,
           setValue=function(v)
@@ -580,7 +590,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
           getValue=function() return SVal("leftTextContent", "name") end,
           setValue=function(v)
               SSet("leftTextContent", v)
-              if v ~= "none" then
+              if ns.UF_IsUniqueContent(v) then
                   if SGet("rightTextContent") == v then SSet("rightTextContent", "none") end
                   if SGet("centerTextContent") == v then SSet("centerTextContent", "none") end
               end
@@ -602,6 +612,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             d.leftTextSize = src.leftTextSize
                             d.leftTextX, d.leftTextY = src.leftTextX, src.leftTextY
                             d.leftTextWidthPct = src.leftTextWidthPct
+                            if v == "custom" then d.leftTextCustomFormat = src.leftTextCustomFormat end
                         end
                     end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
@@ -625,6 +636,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             if (d.leftTextX or 0) ~= (src.leftTextX or 0) then return false end
                             if (d.leftTextY or 0) ~= (src.leftTextY or 0) then return false end
                             if (d.leftTextWidthPct or 100) ~= (src.leftTextWidthPct or 100) then return false end
+                            if v == "custom" and (d.leftTextCustomFormat or "") ~= (src.leftTextCustomFormat or "") then return false end
                         end
                         return true
                     end,
@@ -655,10 +667,13 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                 PP.Point(ltClassSwatch, "RIGHT", ltAnchor, "LEFT", -8, 0)
                 ltClassSwatch:SetScript("OnClick", function()
                     if SVal("leftTextContent", "name") == "none" then return end
+                    -- Attribution read before the write: a setter that rebuilds the page
+                    -- may dress this swatch again for another slot.
+                    local snap = EllesmereUI._SOAttribution(ltClassSwatch)
                     SSet("leftTextClassColor", true)
                     -- Bespoke write: notify for exact Spec Overrides attribution (the
                     -- forced RefreshPage below would otherwise resync-absorb it).
-                    EllesmereUI._NotifySettingWrite(ltClassSwatch)
+                    EllesmereUI._NotifySettingWrite(ltClassSwatch, snap)
                     UpdatePreview(); EllesmereUI:RefreshPage()
                 end)
                 ltClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltClassSwatch, "Class Colored") end)
@@ -678,8 +693,9 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                 ltSwatch:SetScript("OnClick", function(self, ...)
                     if SVal("leftTextContent", "name") == "none" then return end
                     if SVal("leftTextClassColor", false) then
+                        local snap = EllesmereUI._SOAttribution(self)
                         SSet("leftTextClassColor", false)
-                        EllesmereUI._NotifySettingWrite(self)
+                        EllesmereUI._NotifySettingWrite(self, snap)
                         UpdatePreview(); EllesmereUI:RefreshPage(); return
                     end
                     if ltOrigClick then ltOrigClick(self, ...) end
@@ -780,7 +796,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
           getValue=function() return SVal("rightTextContent", "both") end,
           setValue=function(v)
               SSet("rightTextContent", v)
-              if v ~= "none" then
+              if ns.UF_IsUniqueContent(v) then
                   if SGet("leftTextContent") == v then SSet("leftTextContent", "none") end
                   if SGet("centerTextContent") == v then SSet("centerTextContent", "none") end
               end
@@ -802,6 +818,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             d.rightTextSize = src.rightTextSize
                             d.rightTextX, d.rightTextY = src.rightTextX, src.rightTextY
                             d.rightTextWidthPct = src.rightTextWidthPct
+                            if v == "custom" then d.rightTextCustomFormat = src.rightTextCustomFormat end
                         end
                     end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
@@ -825,6 +842,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             if (d.rightTextX or 0) ~= (src.rightTextX or 0) then return false end
                             if (d.rightTextY or 0) ~= (src.rightTextY or 0) then return false end
                             if (d.rightTextWidthPct or 100) ~= (src.rightTextWidthPct or 100) then return false end
+                            if v == "custom" and (d.rightTextCustomFormat or "") ~= (src.rightTextCustomFormat or "") then return false end
                         end
                         return true
                     end,
@@ -854,10 +872,12 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                 PP.Point(rtClassSwatch, "RIGHT", rtAnchor, "LEFT", -8, 0)
                 rtClassSwatch:SetScript("OnClick", function()
                     if SVal("rightTextContent", "both") == "none" then return end
+                    -- Attribution read before the write (see the Left Text swatch).
+                    local snap = EllesmereUI._SOAttribution(rtClassSwatch)
                     SSet("rightTextClassColor", true)
                     -- Bespoke write: notify for exact Spec Overrides attribution (the
                     -- forced RefreshPage below would otherwise resync-absorb it).
-                    EllesmereUI._NotifySettingWrite(rtClassSwatch)
+                    EllesmereUI._NotifySettingWrite(rtClassSwatch, snap)
                     UpdatePreview(); EllesmereUI:RefreshPage()
                 end)
                 rtClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtClassSwatch, "Class Colored") end)
@@ -876,8 +896,9 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                 rtSwatch:SetScript("OnClick", function(self, ...)
                     if SVal("rightTextContent", "both") == "none" then return end
                     if SVal("rightTextClassColor", false) then
+                        local snap = EllesmereUI._SOAttribution(self)
                         SSet("rightTextClassColor", false)
-                        EllesmereUI._NotifySettingWrite(self)
+                        EllesmereUI._NotifySettingWrite(self, snap)
                         UpdatePreview(); EllesmereUI:RefreshPage(); return
                     end
                     if rtOrigClick then rtOrigClick(self, ...) end
@@ -994,6 +1015,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             d.centerTextSize = src.centerTextSize
                             d.centerTextX, d.centerTextY = src.centerTextX, src.centerTextY
                             d.centerTextWidthPct = src.centerTextWidthPct
+                            if v == "custom" then d.centerTextCustomFormat = src.centerTextCustomFormat end
                         end
                     end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
@@ -1017,6 +1039,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             if (d.centerTextX or 0) ~= (src.centerTextX or 0) then return false end
                             if (d.centerTextY or 0) ~= (src.centerTextY or 0) then return false end
                             if (d.centerTextWidthPct or 100) ~= (src.centerTextWidthPct or 100) then return false end
+                            if v == "custom" and (d.centerTextCustomFormat or "") ~= (src.centerTextCustomFormat or "") then return false end
                         end
                         return true
                     end,
@@ -1173,6 +1196,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             d.extraTextX, d.extraTextY = src.extraTextX, src.extraTextY
                             d.extraTextAlign = src.extraTextAlign
                             d.extraTextWidthPct = src.extraTextWidthPct
+                            if v == "custom" then d.extraTextCustomFormat = src.extraTextCustomFormat end
                         end
                     end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
@@ -1197,6 +1221,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             if (d.extraTextY or 0) ~= (src.extraTextY or 0) then return false end
                             if (d.extraTextAlign or "left") ~= (src.extraTextAlign or "left") then return false end
                             if (d.extraTextWidthPct or 100) ~= (src.extraTextWidthPct or 100) then return false end
+                            if v == "custom" and (d.extraTextCustomFormat or "") ~= (src.extraTextCustomFormat or "") then return false end
                         end
                         return true
                     end,
@@ -1366,31 +1391,54 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     local ppTextOrder = { "none", "---", "left", "right", "center" }
     local ppFmtValues = { ["none"]="None", ["smart"]="Smart Text", ["curpp"]="Power Value", ["curmaxpp"]="Power Value / Max", ["perpp"]="Power %", ["both"]="Value | %" }
     local ppFmtOrder = { "none", "smart", "curpp", "curmaxpp", "perpp", "both" }
+    -- Power Text alone offers Custom; Form Power Text keeps the lists above.
+    local ppTextFmtOrder = { "none", "---", "custom", "---", "smart", "curpp", "curmaxpp", "perpp", "both" }
 
-    -- Row 1: Bar Height + Bar Position
+    -- Row 1: Bar Height + Bar Position. Under a stock style the track fixes
+    -- the bar's height and place: the height slot is Hide Power Bar instead
+    -- (the health bar then takes the track too) and Bar Position shows the
+    -- stock Below Health Bar, locked (ns.UF_PowerPos).
+    local stockPower = EllesmereUI.BlizzStyle.Get("unitframes")
+    local powerLeftCfg
+    if stockPower then
+        powerLeftCfg = { type="toggle", text="Hide Power Bar",
+          tooltip="Hides the power bar and stretches the health bar over its space.",
+          getValue=function() return ns.UF_StockHidesPower(SDB()) end,
+          setValue=function(v)
+              SSet("blizzHidePower", v and true or false)
+              UpdatePreview()
+              EllesmereUI:RefreshPage()
+          end }
+    else
+        powerLeftCfg = { type="slider", text="Power Bar Height", min=0, max=100, step=1,
+          getValue=function() return SValSupported("powerHeight", 6) end,
+          setValue=function(v) SSetSupported("powerHeight", v); ReloadAndUpdate(); UpdatePreview() end }
+    end
     local sharedPowerRow1
     sharedPowerRow1, h = W:DualRow(parent, y,
-        -- Blizzard Style: the stock track fixes the height; the Reverse Fill
-        -- cog on this slot keeps working (keepRow).
-        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Power Bar Height", min=0, max=100, step=1,
-          getValue=function() return SValSupported("powerHeight", 6) end,
-          setValue=function(v) SSetSupported("powerHeight", v); ReloadAndUpdate(); UpdatePreview() end }, true),
-        { type="dropdown", text="Bar Position", values=ppPosValues, order=ppPosOrder,
-          getValue=function() return SVal("powerPosition", "below") end,
+        powerLeftCfg,
+        EllesmereUI.BlizzStyle.Gate("unitframes", { type="dropdown", text="Bar Position", values=ppPosValues, order=ppPosOrder,
+          getValue=function() return stockPower and "below" or SVal("powerPosition", "below") end,
           setValue=function(v)
               SSet("powerPosition", v)
               ReloadAndUpdate(); UpdatePreview()
               -- Attached bars paint a Solid border: the power border's Width /
               -- Height Offset row comes and goes with the detached state.
               EllesmereUI:RefreshPage(true)
-          end });  y = y - h
-    -- Cog on Position for X/Y offsets + Width (disabled unless detached)
+          end }));  y = y - h
+    -- Cog on Position for X/Y offsets + Width (disabled unless detached, and
+    -- under a stock style, which places the bar itself)
     if not EllesmereUI._prebuilding then
         local posRgn = sharedPowerRow1._rightRegion
         EllesmereUI.BuildInlineCog(posRgn, {
             icon = EllesmereUI.RESIZE_ICON,
-            disabled = function() local pos = SVal("powerPosition", "below"); return pos ~= "detached_top" and pos ~= "detached_bottom" end,
-            disabledTooltip = "This option requires a detached position to be active.",
+            disabled = function()
+                if stockPower then return true end
+                local pos = SVal("powerPosition", "below"); return pos ~= "detached_top" and pos ~= "detached_bottom"
+            end,
+            disabledTooltip = stockPower and EllesmereUI.BlizzStyle.Label("unitframes")
+                or "This option requires a detached position to be active.",
+            requireState = stockPower and "disabled" or nil,
             title = "Position Settings",
             rows = {
                 { type="slider", label="Width", min=0, max=400, step=1,
@@ -1405,8 +1453,36 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             },
         })
     end
-    -- Sync icons: Power Height (left) and Power Position (right)
-    if not EllesmereUI._prebuilding then
+    -- Sync icons: Power Height, or Hide Power Bar under a stock style (left),
+    -- and Power Position (right; a stock style places the bar itself)
+    if not EllesmereUI._prebuilding and stockPower then
+        local rgn = sharedPowerRow1._leftRegion
+        local function HiddenOf(key) return ns.UF_StockHidesPower(UNIT_DB_MAP[key]()) end
+        local function ApplyHideTo(keys)
+            local v = HiddenOf(optState.selectedUnit)
+            for _, key in ipairs(keys) do UNIT_DB_MAP[key]().blizzHidePower = v end
+            ReloadAndUpdate(); EllesmereUI:RefreshPage()
+        end
+        EllesmereUI.BuildSyncIcon({
+            region  = rgn,
+            tooltip = "Apply Hide Power Bar to all Frames",
+            onClick = function() ApplyHideTo(GROUP_UNIT_ORDER) end,
+            isSynced = function()
+                local v = HiddenOf(optState.selectedUnit)
+                for _, key in ipairs(GROUP_UNIT_ORDER) do
+                    if HiddenOf(key) ~= v then return false end
+                end
+                return true
+            end,
+            flashTargets = function() return { rgn } end,
+            multiApply = {
+                elementKeys   = GROUP_UNIT_ORDER,
+                elementLabels = SHORT_LABELS,
+                getCurrentKey = function() return optState.selectedUnit end,
+                onApply       = function(checkedKeys) ApplyHideTo(checkedKeys) end,
+            },
+        })
+    elseif not EllesmereUI._prebuilding then
         local rgn = sharedPowerRow1._leftRegion
         EllesmereUI.BuildSyncIcon({
             region  = rgn,
@@ -1436,11 +1512,14 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             },
         })
     end
-    -- Reverse Fill cog on Bar Height (left region)
+    -- Reverse Fill cog on Bar Height or Hide Power Bar (left region)
     if not EllesmereUI._prebuilding then
         local rgn = sharedPowerRow1._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Power Bar Fill",
+            disabled = stockPower and function() return ns.UF_StockHidesPower(SDB()) end or nil,
+            disabledTooltip = stockPower and "Hide Power Bar" or nil,
+            requireState = stockPower and "disabled" or nil,
             rows = {
                 { type="toggle", label="Reverse Fill",
                   get=function() return SVal("powerReverseFill", false) end,
@@ -1448,7 +1527,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             },
         })
     end
-    if not EllesmereUI._prebuilding then
+    if not EllesmereUI._prebuilding and not stockPower then
         local rgn = sharedPowerRow1._rightRegion
         EllesmereUI.BuildSyncIcon({
             region  = rgn,
@@ -1481,42 +1560,45 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
 
     -- Row 2: Power Text (format) + Fill Opacity
     local sharedPowerRow2
+    local function SetPowerTextFormat(v)
+        SSet("powerTextFormat", v)
+        -- Auto-set position to center if user picks a format while position is "none"
+        if v ~= "none" and SVal("powerPercentText", "none") == "none" then
+            SSet("powerPercentText", "center")
+        end
+        -- If format is "none", clear position too
+        if v == "none" then SSet("powerPercentText", "none") end
+        ReloadAndUpdate(); UpdatePreview()
+        EllesmereUI:RefreshPage()
+        -- The page stays, so the menu is rebuilt for Custom's pencil.
+        ns.UFO_RefreshMenus(sharedPowerRow2 and sharedPowerRow2._leftRegion)
+    end
+    local ppTextFmtValues = ns.UFO_CustomTextValues(ppFmtValues,
+        function() return SVal("powerTextFormat", "perpp") end,
+        function()
+            ns.UFO_EditCustomText("powerText", SDB(), optState.selectedUnit,
+                function() SetPowerTextFormat("custom") end)
+        end)
     sharedPowerRow2, h = W:DualRow(parent, y,
-        { type="dropdown", text="Power Text", values=ppFmtValues, order=ppFmtOrder,
+        { type="dropdown", text="Power Text", values=ppTextFmtValues, order=ppTextFmtOrder,
           getValue=function() return SVal("powerTextFormat", "perpp") end,
-          setValue=function(v)
-              SSet("powerTextFormat", v)
-              -- Auto-set position to center if user picks a format while position is "none"
-              if v ~= "none" and SVal("powerPercentText", "none") == "none" then
-                  SSet("powerPercentText", "center")
-              end
-              -- If format is "none", clear position too
-              if v == "none" then SSet("powerPercentText", "none") end
-              ReloadAndUpdate(); UpdatePreview()
-              EllesmereUI:RefreshPage()
-          end },
+          setValue=SetPowerTextFormat },
         { type="slider", text="Fill Opacity", min=0, max=100, step=1,
           getValue=function() return SVal("powerBarOpacity", 100) end,
           setValue=function(v)
               SSet("powerBarOpacity", v)
               UpdatePreview()
           end });  y = y - h
+    if not EllesmereUI._prebuilding then
+        ns.UFO_AddCustomFormatAccessor(sharedPowerRow2._leftRegion, "Power Text", "powerText",
+            SVal("powerTextFormat", "perpp"), SDB, function() ReloadAndUpdate(); UpdatePreview() end)
+    end
     -- Cogwheel on Power Text for Show % toggle
     if not EllesmereUI._prebuilding then
         local fmtRgn = sharedPowerRow2._leftRegion
-        EllesmereUI.BuildInlineCog(fmtRgn, {
-            disabled = function() local fmt = SVal("powerTextFormat", "perpp"); return fmt == "none" or fmt == "curpp" or fmt == "curmaxpp" end,
-            disabledTooltip = "This option is only available for formats that display a percentage.",
-            title = "Power Text",
-            rows = {
-                { type="toggle", label="Show %",
-                  get=function() return SVal("powerShowPercent", true) ~= false end,
-                  set=function(v)
-                      SSet("powerShowPercent", v)
-                      UpdatePreview()
-                  end },
-            },
-        })
+        EllesmereUI.BuildInlineCog(fmtRgn, ns.UFO_PowerTextCog(SVal, SSet,
+            { none = true, curpp = true, curmaxpp = true },
+            function(v) SSet("powerShowPercent", v); UpdatePreview() end))
     end
     -- Sync icon: Power Text Format (left of row 2)
     if not EllesmereUI._prebuilding then
@@ -1525,14 +1607,22 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             region  = rgn,
             tooltip = "Apply Power Text Format to all Frames",
             onClick = function()
-                local v = UNIT_DB_MAP[optState.selectedUnit]().powerTextFormat or "perpp"
-                for _, key in ipairs(GROUP_UNIT_ORDER) do UNIT_DB_MAP[key]().powerTextFormat = v end
+                local src = UNIT_DB_MAP[optState.selectedUnit]()
+                local v, fmt = src.powerTextFormat or "perpp", src.powerTextCustomFormat
+                for _, key in ipairs(GROUP_UNIT_ORDER) do
+                    local d = UNIT_DB_MAP[key]()
+                    d.powerTextFormat = v
+                    if v == "custom" then d.powerTextCustomFormat = fmt end
+                end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
             end,
             isSynced = function()
-                local v = UNIT_DB_MAP[optState.selectedUnit]().powerTextFormat or "perpp"
+                local src = UNIT_DB_MAP[optState.selectedUnit]()
+                local v, fmt = src.powerTextFormat or "perpp", src.powerTextCustomFormat or ""
                 for _, key in ipairs(GROUP_UNIT_ORDER) do
-                    if (UNIT_DB_MAP[key]().powerTextFormat or "perpp") ~= v then return false end
+                    local d = UNIT_DB_MAP[key]()
+                    if (d.powerTextFormat or "perpp") ~= v then return false end
+                    if v == "custom" and (d.powerTextCustomFormat or "") ~= fmt then return false end
                 end
                 return true
             end,
@@ -1542,8 +1632,13 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                 elementLabels = SHORT_LABELS,
                 getCurrentKey = function() return optState.selectedUnit end,
                 onApply       = function(checkedKeys)
-                    local v = UNIT_DB_MAP[optState.selectedUnit]().powerTextFormat or "perpp"
-                    for _, key in ipairs(checkedKeys) do UNIT_DB_MAP[key]().powerTextFormat = v end
+                    local src = UNIT_DB_MAP[optState.selectedUnit]()
+                    local v, fmt = src.powerTextFormat or "perpp", src.powerTextCustomFormat
+                    for _, key in ipairs(checkedKeys) do
+                        local d = UNIT_DB_MAP[key]()
+                        d.powerTextFormat = v
+                        if v == "custom" then d.powerTextCustomFormat = fmt end
+                    end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
                 end,
             },
@@ -1887,26 +1982,6 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
               get=function() return SVal("powerPercentY", 0) end,
               set=function(v) SSet("powerPercentY", v); UpdatePreview() end },
         }
-        -- WoW Forever druids: the Mana + Form Power bar's text has its own
-        -- offsets (EUI_UnitFrames_ForeverFormBar.lua); unset, they follow
-        -- the power text's.
-        local _, cpClass = UnitClass("player")
-        if EllesmereUI.IS_FOREVER == true and optState.selectedUnit == "player" and cpClass == "DRUID" then
-            local function NoFormBar() return not SVal("foreverFormBar", false) end
-            local function FormOffset(key, base)
-                local v = SVal(key, nil)
-                if v == nil then v = SVal(base, 0) end
-                return v
-            end
-            ppRows[#ppRows + 1] = { type="slider", label="Form Text X Offset", min=-50, max=50, step=1,
-                disabled = NoFormBar, disabledTooltip = "Requires Power Type: Mana + Form Power.", rawTooltip = true,
-                get=function() return FormOffset("foreverFormTextX", "powerPercentX") end,
-                set=function(v) SSet("foreverFormTextX", v) end }
-            ppRows[#ppRows + 1] = { type="slider", label="Form Text Y Offset", min=-50, max=50, step=1,
-                disabled = NoFormBar, disabledTooltip = "Requires Power Type: Mana + Form Power.", rawTooltip = true,
-                get=function() return FormOffset("foreverFormTextY", "powerPercentY") end,
-                set=function(v) SSet("foreverFormTextY", v) end }
-        end
         EllesmereUI.BuildInlineCog(ppRgn, {
             icon = EllesmereUI.RESIZE_ICON,
             disabled = function() return SVal("powerPercentText", "none") == "none" end,
@@ -2173,9 +2248,10 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
             rgn._lastInline = eyeBtn
             local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+            EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
             eyeTex:SetAllPoints()
             local function RefreshCostEye()
                 eyeTex:SetTexture(ns._ufShowPowerCostPreview and EllesmereUI.EYE_INVISIBLE_ICON or EllesmereUI.EYE_VISIBLE_ICON)
@@ -2187,11 +2263,11 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                 UpdatePreview()
             end)
             eyeBtn:SetScript("OnEnter", function(self)
-                self:SetAlpha(0.7)
+                EllesmereUI.SetGlyphAlpha(self, 0.7)
                 EllesmereUI.ShowWidgetTooltip(self, ns._ufShowPowerCostPreview and "Hide spell cost preview" or "Show spell cost preview")
             end)
             eyeBtn:SetScript("OnLeave", function(self)
-                self:SetAlpha(0.4)
+                EllesmereUI.SetGlyphAlpha(self, 0.4)
                 EllesmereUI.HideWidgetTooltip()
             end)
         end
@@ -2218,7 +2294,8 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
               end }
         local _, playerClass = UnitClass("player")
         if playerClass == "DRUID" then
-            _, h = W:DualRow(parent, y,
+            local powerTypeRow
+            powerTypeRow, h = W:DualRow(parent, y,
                 -- Mana + Form Power: Mana plus foreverFormBar (a second bar
                 -- with the form's power, EUI_UnitFrames_ForeverFormBar.lua).
                 { type="dropdown", text="Power Type",
@@ -2231,18 +2308,157 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                       if not (ov and ov.foreverDruid) then return "default" end
                       return pdb.foreverFormBar and "both" or "alt"
                   end,
-                  setValue = function(v)
-                      local pdb = UNIT_DB_MAP["player"]()
-                      if v ~= "default" then
-                          if not pdb.powerTypeOverride then pdb.powerTypeOverride = {} end
-                          pdb.powerTypeOverride.foreverDruid = true
-                      elseif pdb.powerTypeOverride then
-                          pdb.powerTypeOverride.foreverDruid = nil
-                      end
-                      pdb.foreverFormBar = (v == "both") or nil
-                      ReloadAndUpdate()
-                  end },
+                  -- The Form rows below exist only with Mana + Form Power: the page
+                  -- rebuilds when that choice comes or goes.
+                  setValue = EllesmereUI.DependentSetValue(
+                      function() return SVal("foreverFormBar", false) == true end,
+                      function(v)
+                          local pdb = UNIT_DB_MAP["player"]()
+                          if v ~= "default" then
+                              if not pdb.powerTypeOverride then pdb.powerTypeOverride = {} end
+                              pdb.powerTypeOverride.foreverDruid = true
+                          elseif pdb.powerTypeOverride then
+                              pdb.powerTypeOverride.foreverDruid = nil
+                          end
+                          pdb.foreverFormBar = (v == "both") or nil
+                          ReloadAndUpdate()
+                          EllesmereUI:RefreshPage()
+                      end) },
                 sparkCfg);  y = y - h
+            -- The Form Power bar's own settings re-apply only that bar
+            -- (EUI_UnitFrames_ForeverFormBar.lua), not the whole frame.
+            local function NoFormBar() return not SVal("foreverFormBar", false) end
+            local function SetForm(key, v)
+                SDB()[key] = v
+                ns.UF_ForeverFormBarRelayout()
+            end
+            -- A Form Power Text setting; unset follows the power bar's.
+            local function FormVal(key, base, def)
+                local v = SVal(key, nil)
+                if v == nil then v = SVal(base, def) end
+                return v
+            end
+            local FORM_TIP = "Requires Power Type: Mana + Form Power."
+            -- Cog: the Form Power bar's offsets.
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(powerTypeRow._leftRegion, {
+                    icon = EllesmereUI.RESIZE_ICON,
+                    disabled = NoFormBar,
+                    disabledTooltip = FORM_TIP, rawTooltip = true,
+                    title = "Form Power Bar",
+                    rows = {
+                        { type="slider", label="X Offset", min=-50, max=50, step=1,
+                          get=function() return SVal("foreverFormBarX", 0) end,
+                          set=function(v) SetForm("foreverFormBarX", v) end },
+                        { type="slider", label="Y Offset", min=-50, max=50, step=1,
+                          get=function() return SVal("foreverFormBarY", 0) end,
+                          set=function(v) SetForm("foreverFormBarY", v) end },
+                    },
+                })
+            end
+            -- Form Power Text (its colour swatches inline) + Form Text Position:
+            -- the form bar's text, apart from the power bar's (Mana) text. Built
+            -- only with Mana + Form Power (Power Type rebuilds the page).
+            if not NoFormBar() then
+                local formTextRow
+                formTextRow, h = W:DualRow(parent, y,
+                    { type="dropdown", text="Form Power Text", values=ppFmtValues, order=ppFmtOrder,
+                      getValue=function()
+                          -- An inherited Custom draws Power % on the form bar.
+                          local v = FormVal("foreverFormTextFormat", "powerTextFormat", "perpp")
+                          return v == "custom" and "perpp" or v
+                      end,
+                      setValue=function(v)
+                          local pos = FormVal("foreverFormTextPos", "powerPercentText", "none")
+                          if v ~= "none" and pos == "none" then SDB().foreverFormTextPos = "center" end
+                          if v == "none" then SDB().foreverFormTextPos = "none" end
+                          SetForm("foreverFormTextFormat", v)
+                          EllesmereUI:RefreshPage()
+                      end },
+                    { type="dropdown", text="Form Text Position", values=ppTextValues, order=ppTextOrder,
+                      getValue=function() return FormVal("foreverFormTextPos", "powerPercentText", "none") end,
+                      setValue=function(v) SetForm("foreverFormTextPos", v) end });  y = y - h
+                if not EllesmereUI._prebuilding then
+                    -- Text colour: custom, or the form power's colour. Neither set
+                    -- follows the power bar's Text Color.
+                    local function FormPowerColored()
+                        local pc = SVal("foreverFormTextPowerColor", nil)
+                        if pc == nil and SVal("foreverFormTextColor", nil) == nil then
+                            pc = SVal("powerPercentTextPowerColor", false)
+                        end
+                        return pc and true or false
+                    end
+                    EllesmereUI.BuildInlineSwatches(formTextRow._leftRegion, {
+                        { tooltip = "Custom Text Color",
+                          hasAlpha = false,
+                          getValue = function()
+                              local c = SVal("foreverFormTextColor", nil)
+                              if c == nil and SVal("foreverFormTextPowerColor", nil) == nil then c = SGet("powerTextColor") end
+                              if c then return c.r, c.g, c.b end
+                              return 1, 1, 1
+                          end,
+                          setValue = function(r, g, b)
+                              SDB().foreverFormTextPowerColor = false
+                              SetForm("foreverFormTextColor", { r=r, g=g, b=b })
+                          end,
+                          onClick = function(self)
+                              if FormPowerColored() then
+                                  SDB().foreverFormTextColor = nil
+                                  SetForm("foreverFormTextPowerColor", false)
+                                  EllesmereUI:RefreshPage()
+                                  return
+                              end
+                              if self._eabOrigClick then self._eabOrigClick(self) end
+                          end,
+                          refreshAlpha = function() return FormPowerColored() and 0.3 or 1 end },
+                        { tooltip = "Power Colored Text",
+                          hasAlpha = false,
+                          getValue = function()
+                              local info = EllesmereUI.GetPowerColor("ENERGY")
+                              return info.r, info.g, info.b
+                          end,
+                          setValue = function() end,
+                          onClick = function()
+                              SDB().foreverFormTextColor = nil
+                              SetForm("foreverFormTextPowerColor", true)
+                              EllesmereUI:RefreshPage()
+                          end,
+                          refreshAlpha = function() return FormPowerColored() and 1 or 0.3 end },
+                    })
+                    EllesmereUI.BuildInlineCog(formTextRow._leftRegion, {
+                        disabled = function()
+                            local fmt = FormVal("foreverFormTextFormat", "powerTextFormat", "perpp")
+                            return fmt == "none" or fmt == "curpp" or fmt == "curmaxpp"
+                        end,
+                        disabledTooltip = "This option is only available for formats that display a percentage.",
+                        title = "Form Power Text",
+                        rows = {
+                            { type="toggle", label="Show %",
+                              get=function() return FormVal("foreverFormShowPercent", "powerShowPercent", true) ~= false end,
+                              set=function(v) SetForm("foreverFormShowPercent", v) end },
+                        },
+                    })
+                    EllesmereUI.BuildInlineCog(formTextRow._rightRegion, {
+                        icon = EllesmereUI.RESIZE_ICON,
+                        disabled = function()
+                            return FormVal("foreverFormTextPos", "powerPercentText", "none") == "none"
+                        end,
+                        disabledTooltip = "This option requires a text position other than none.",
+                        title = "Form Text Position",
+                        rows = {
+                            { type="slider", label="Size", min=6, max=100, step=1,
+                              get=function() return FormVal("foreverFormTextSize", "powerPercentSize", 9) end,
+                              set=function(v) SetForm("foreverFormTextSize", v) end },
+                            { type="slider", label="X Offset", min=-50, max=50, step=1,
+                              get=function() return FormVal("foreverFormTextX", "powerPercentX", 0) end,
+                              set=function(v) SetForm("foreverFormTextX", v) end },
+                            { type="slider", label="Y Offset", min=-50, max=50, step=1,
+                              get=function() return FormVal("foreverFormTextY", "powerPercentY", 0) end,
+                              set=function(v) SetForm("foreverFormTextY", v) end },
+                        },
+                    })
+                end
+            end
         elseif EllesmereUI.ManaRegenSpark then
             _, h = W:DualRow(parent, y, sparkCfg, EllesmereUI.BlankRowCfg());  y = y - h
         end
@@ -2252,13 +2468,17 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     do
         local _, playerClass = UnitClass("player")
         -- Specs that offer an alternative power type on the player power bar.
-        -- { defaultLabel, altLabel, altPowerType (Enum.PowerType value to force) }
+        -- { defaultLabel, altLabel, altPowerType (Enum.PowerType value to force) },
+        -- plus astral = Balance's third choice (Astral Power outside Cat and Bear
+        -- Form), listed between the two; tip = the row's tooltip for the class.
         -- For Shadow Priest the alt is "no override" (nil) so UnitPowerType returns Insanity.
         local SPEC_POWER_ALTS = {
             DRUID  = {
-                [1] = { "Astral Power", "Mana",     0 },   -- Balance
-                [2] = { "Energy",       "Mana",     0 },   -- Feral
-                [3] = { "Rage",         "Mana",     0 },   -- Guardian
+                [1] = { "Match Form",   "Mana",     0, astral = "Astral Power" },   -- Balance
+                [2] = { "Match Form",   "Mana",     0 },   -- Feral
+                [3] = { "Match Form",   "Mana",     0 },   -- Guardian
+                [4] = { "Match Form",   "Mana",     0 },   -- Restoration
+                tip = "The first choice follows your form, with Energy in Cat Form and Rage in Bear Form. Mana stays on Mana in every form, and Astral Power shows Astral Power in every form except Cat and Bear Form.",
             },
             PRIEST = {
                 [3] = { "Mana",         "Insanity", nil },  -- Shadow (default is our Mana override)
@@ -2281,13 +2501,19 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                 local data = s and classAlts[s]
                 ptValues["default"] = data and data[1] or nil
                 ptValues["alt"]     = data and data[2] or nil
+                ptValues["astral"]  = data and data.astral or nil
+                if ptValues["astral"] then
+                    ptOrder[2], ptOrder[3] = "astral", "alt"
+                else
+                    ptOrder[2], ptOrder[3] = "alt", nil
+                end
             end
             local labelSpec = GetSpec()
             FillPowerTypeValues(labelSpec)
 
             local sharedPowerRow5
             sharedPowerRow5, h = W:DualRow(parent, y,
-                { type="dropdown", text="Power Type",
+                { type="dropdown", text="Power Type", tooltip = classAlts.tip,
                   values = ptValues, order = ptOrder,
                   -- Stored by SPEC ID, not the GetSpecialization() index: one
                   -- profile holds one set, so an index key collides across
@@ -2300,6 +2526,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                           and C_SpecializationInfo.GetSpecializationInfo(s)
                       if not sid then return "default" end
                       local ov = UNIT_DB_MAP["player"]().powerTypeOverride
+                      if ov and ov[sid] == "astral" then return "astral" end
                       if ov and ov[sid] then return "alt" end
                       return "default"
                   end,
@@ -2313,6 +2540,9 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                       if v == "alt" then
                           if not pdb.powerTypeOverride then pdb.powerTypeOverride = {} end
                           pdb.powerTypeOverride[sid] = true
+                      elseif v == "astral" then
+                          if not pdb.powerTypeOverride then pdb.powerTypeOverride = {} end
+                          pdb.powerTypeOverride[sid] = "astral"
                       else
                           if pdb.powerTypeOverride then pdb.powerTypeOverride[sid] = nil end
                       end
@@ -2871,7 +3101,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
     if _supportsAbsorbs then
     sharedAbsorbsHeader, h = W:SectionHeader(parent, "ABSORBS AND HEALS", y); y = y - h
 
-    -- Names and orders live on ns (EllesmereUIUnitFrames.lua, shared with the
+    -- Names and orders live on ns (EUI_UnitFrames_Absorb.lua, shared with the
     -- Textures page tile); fresh copies here because the SharedMedia tail
     -- below is appended into them. Shield (regular) absorb order; heal absorb
     -- uses its own (it adds the two "Outlined" variants on top).
@@ -2913,7 +3143,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
 
     -- Effective absorb opacity: absorbOpacity once set, otherwise the
     -- pre-split behavior (clean -> absorbCleanAlpha, other styles 80).
-    -- Must match GetAbsorbOpacity in EllesmereUIUnitFrames.lua.
+    -- Must match GetAbsorbOpacity in EUI_UnitFrames_Absorb.lua.
     local function EffAbsorbOpacity()
         local v = SValSupported("absorbOpacity", nil)
         if v then return v end
@@ -3124,7 +3354,9 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             local pf = cogShow and cogShow._popupFrame
             if pf and pf.GetChildren then
                 for _, child in ipairs({ pf:GetChildren() }) do
-                    if child._invalidateMenu then child._invalidateMenu() end
+                    -- an idle child is a parked control of an earlier dress
+                    -- (page reuse): its menu belongs to no row any more
+                    if child._invalidateMenu and not PoolIsIdle(child) then child._invalidateMenu() end
                 end
             end
         end)
@@ -3186,9 +3418,10 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         rgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshHealEye()
             eyeTex:SetTexture(optState.showHealAbsorbPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -3200,11 +3433,11 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             UpdatePreview()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, optState.showHealAbsorbPreview and "Hide heal absorb preview" or "Show heal absorb preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
     end
@@ -3281,7 +3514,9 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             local pf = cogShow and cogShow._popupFrame
             if pf and pf.GetChildren then
                 for _, child in ipairs({ pf:GetChildren() }) do
-                    if child._invalidateMenu then child._invalidateMenu() end
+                    -- an idle child is a parked control of an earlier dress
+                    -- (page reuse): its menu belongs to no row any more
+                    if child._invalidateMenu and not PoolIsIdle(child) then child._invalidateMenu() end
                 end
             end
         end)
@@ -3407,9 +3642,10 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         rgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshPredEye()
             eyeTex:SetTexture(ns._ufShowHealPredPreview and EllesmereUI.EYE_INVISIBLE_ICON or EllesmereUI.EYE_VISIBLE_ICON)
@@ -3421,11 +3657,11 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             UpdatePreview()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, ns._ufShowHealPredPreview and "Hide heal prediction preview" or "Show heal prediction preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
     end

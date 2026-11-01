@@ -101,6 +101,20 @@ local function ApplyAbsorbStyle(absorbBar, style, settings)
     if absorbBar._glow then ns.UF_AbsorbGlowAnchor(absorbBar) end
 end
 
+-- Read-only stand-ins for unset settings and lookups the absorb painter makes
+-- on every event, so a paint builds no table and runs no pattern match.
+local COLOR_WHITE = { r = 1, g = 1, b = 1 }
+local DEF_HEAL_ABSORB_COLOR = { r = 0.8, g = 0.15, b = 0.15 }
+local DEF_HEAL_ABSORB_BAR_COLOR = { r = 200/255, g = 29/255, b = 29/255 }
+-- Absorb Short text gate zone -> the frame's text field for that zone.
+local GATE_ZONE_TEXT = { left = "LeftText", right = "RightText", center = "CenterText", extra = "ExtraText" }
+-- Unit token -> boss frame unit; each token is matched once.
+local IS_BOSS_UNIT = setmetatable({}, { __index = function(t, unit)
+    local isBoss = unit:match("^boss") ~= nil
+    t[unit] = isBoss
+    return isBoss
+end })
+
 -- Heal absorb styling (mirrors the raid frames Absorbs section). Defaults are
 -- clean white8x8, red, 0.65 alpha.
 local function ApplyHealAbsorbStyle(haBar, style, settings)
@@ -735,15 +749,8 @@ end
 --  the settings pass and after a retexture, never per paint.
 --  On ns: this chunk sits at the Lua 5.1 local ceiling.
 -------------------------------------------------------------------------------
--- Glow Line Texture art: { file, blend mode, width, width in whole pixels }.
-ns.UF_GLOW_LINE_ART = {
-    blizzard         = { "Interface\\AddOns\\EllesmereUI\\media\\cast_spark.tga", "ADD", 16 },
-    pixelsGlow       = { "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\pixels-glowline.tga", "ADD", 16 },
-    pixelsOvershield = { "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\pixels-overshield-line.tga", "BLEND", 2, true },
-}
-function ns.UF_GlowLineWidth(art)
-    return art[4] and PP.Scale(art[3]) or art[3]
-end
+ns.UF_GLOW_LINE_ART = EllesmereUI.AbsorbGlow.art
+ns.UF_GlowLineWidth = EllesmereUI.AbsorbGlow.Width
 
 -- Leader Indicator Icon Style art (leaderIndicatorStyle), shared with the
 -- options preview.
@@ -766,114 +773,10 @@ ns.UF_ELITE_DRAGON_ART = {
 }
 ns.UF_ELITE_DRAGON_SCALE = 512 / 120
 
-function ns.UF_BuildAbsorbGlow(ab)
-    local hp = ab._hpBar
-    -- Own clip host above the shield bars: the health-side half of the line
-    -- would otherwise be cut by the missing-health clip.
-    local host = CreateFrame("Frame", nil, hp)
-    host:SetAllPoints(hp)
-    host:SetClipsChildren(true)
-    host:SetFrameLevel(hp:GetFrameLevel() + 4)
-    -- Each line sits on its own frame: boolean alpha works on frames (on a
-    -- texture it renders nothing on this client).
-    local edgeHost = CreateFrame("Frame", nil, host)
-    edgeHost:SetAllPoints(host)
-    -- Invisible gate bar on the edge: fed the absorb over a 0-1 range, its
-    -- fill is full with ANY shield and empty without one, so the line drawn
-    -- over the fill needs no boolean read of the secret amount.
-    local gate = CreateFrame("StatusBar", nil, edgeHost)
-    gate:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-    gate:SetStatusBarColor(1, 1, 1, 0)
-    gate:SetMinMaxValues(0, 1)
-    gate:SetValue(0)
-    local edge = edgeHost:CreateTexture(nil, "OVERLAY")
-    edge:SetAllPoints(gate:GetStatusBarTexture())
-    local bfHost = CreateFrame("Frame", nil, host)
-    bfHost:SetAllPoints(host)
-    local bf = bfHost:CreateTexture(nil, "OVERLAY")
-    local g = { host = host, edgeHost = edgeHost, gate = gate, edge = edge, bfHost = bfHost, bf = bf }
-    if CreateUnitHealPredictionCalculator and UnitGetDetailedHealPrediction then
-        local calc = CreateUnitHealPredictionCalculator()
-        -- Configured once: the Missing Health clamp makes GetDamageAbsorbs'
-        -- second return the overshield boolean (shield exceeds empty health).
-        if calc.SetMaximumHealthMode and Enum.UnitMaximumHealthMode then
-            calc:SetMaximumHealthMode(Enum.UnitMaximumHealthMode.Default)
-        end
-        if calc.SetDamageAbsorbClampMode and Enum.UnitDamageAbsorbClampMode then
-            calc:SetDamageAbsorbClampMode(Enum.UnitDamageAbsorbClampMode.MissingHealth)
-        end
-        g.calc = calc
-    end
-    ab._glow = g
-    return g
-end
-
--- Seats both lines for the stamped placement and fill direction. Runs from
--- the settings pass and after a retexture (a new shield fill object).
-function ns.UF_AbsorbGlowAnchor(ab)
-    local g = ab._glow
-    if not (g and g.ge) then return end
-    local rev = g.rev
-    local near, far = rev and "RIGHT" or "LEFT", rev and "LEFT" or "RIGHT"
-    local off = rev and 1 or -1
-    local fill = ab:GetStatusBarTexture()
-    local gate, bf = g.gate, g.bf
-    gate:ClearAllPoints()
-    if g.ge >= 3 then
-        gate:SetPoint("CENTER", fill, near, off, 0)
-    else
-        gate:SetPoint("CENTER", ab._forward, near, off, 0)
-    end
-    bf:ClearAllPoints()
-    if g.anc == 1 then
-        bf:SetPoint("CENTER", fill, near, off, 0)
-    elseif g.anc == 2 then
-        bf:SetPoint("CENTER", fill, far, -off, 0)
-    else
-        bf:SetPoint("CENTER", ab, far, off, 0)
-    end
-end
-
--- The overshield flip. Placements 1-2: the seam line hides while
--- overshielding and the overshield line shows only then; 5: the line shows
--- only while the shield reaches current health. The boolean only ever
--- reaches SetAlphaFromBoolean.
-function ns.UF_AbsorbGlowFlip(ab, unit)
-    local g = ab._glow
-    local ge = g.ge
-    if ge == 3 then return end
-    local eh, bh = g.edgeHost, g.bfHost
-    local calc = g.calc
-    if not (calc and eh.SetAlphaFromBoolean) then
-        -- No calculator on this client: the seam line alone.
-        eh:SetAlpha(ge == 5 and 0 or 1)
-        bh:SetAlpha(0)
-        return
-    end
-    UnitGetDetailedHealPrediction(unit, nil, calc)
-    local _, clamped = calc:GetDamageAbsorbs()
-    if ge == 5 then
-        eh:SetAlphaFromBoolean(clamped, 1, 0)
-    else
-        eh:SetAlphaFromBoolean(clamped, 0, 1)
-        bh:SetAlphaFromBoolean(clamped, 1, 0)
-    end
-end
-
--- Value pass, from the absorb painter while the line is on: the gate takes
--- the raw absorb, sizes follow the bar height and the pixel grid (a
--- whole-pixel width moves with it; size-gated), then the flip.
-function ns.UF_PaintAbsorbGlow(ab, unit, absorbAmt, hpH)
-    local g = ab._glow
-    if g.szH ~= hpH or g.szM ~= PP.mult then
-        g.szH, g.szM = hpH, PP.mult
-        local w = ns.UF_GlowLineWidth(g.art)
-        g.gate:SetSize(w, hpH)
-        g.bf:SetSize(w, hpH)
-    end
-    g.gate:SetValue(absorbAmt)
-    ns.UF_AbsorbGlowFlip(ab, unit)
-end
+ns.UF_BuildAbsorbGlow = EllesmereUI.AbsorbGlow.Build
+ns.UF_AbsorbGlowAnchor = EllesmereUI.AbsorbGlow.Anchor
+ns.UF_AbsorbGlowFlip = EllesmereUI.AbsorbGlow.Flip
+ns.UF_PaintAbsorbGlow = EllesmereUI.AbsorbGlow.Paint
 
 -- The absglow channel's painter: the flip alone, and only while a shield is
 -- up (without one there is nothing to flip; the absorb paint that cleared
@@ -1166,8 +1069,8 @@ local function CreateAbsorbBar(frame, unit, settings)
     healAbsorbBar:Hide()
 
     -- Black backing behind the heal-absorb texture (opacity via healAbsorbBgOpacity),
-    -- drawn UNDER the fill (ARTWORK sublevel 1 < fill's 2), masked + SetAllPoints'd to
-    -- the fill rect each update so it tracks the secret heal-absorb amount.
+    -- drawn UNDER the fill (ARTWORK sublevel 1 < fill's 2), masked and anchored to the
+    -- fill texture by the first paint, so it tracks the secret heal-absorb amount.
     local haBg = healAbsorbBar:CreateTexture(nil, "ARTWORK", nil, 1)
     haBg:SetColorTexture(0, 0, 0, 0.15)
     if absorbMask then haBg:AddMaskTexture(absorbMask) end
@@ -1258,7 +1161,6 @@ local function CreateAbsorbBar(frame, unit, settings)
             local shieldAmt, healAmt
             if self._absGate then
                 local syncText = (event ~= "UNIT_MAXHEALTH")
-                local fsZone
                 for zone, g in pairs(self._absGate) do
                     if g:IsShown() then
                         local amt
@@ -1271,8 +1173,8 @@ local function CreateAbsorbBar(frame, unit, settings)
                         end
                         g:SetValue(amt)
                         if syncText then
-                            fsZone = fsZone or { left = self.LeftText, right = self.RightText, center = self.CenterText, extra = self.ExtraText }
-                            local fs = fsZone[zone]
+                            local field = GATE_ZONE_TEXT[zone]
+                            local fs = field and self[field]
                             if fs then
                                 local cfg = _G._EUI_AbbrevDecimalCfg
                                 fs:SetText(cfg and AbbreviateNumbers(amt, cfg) or AbbreviateNumbers(amt))
@@ -1298,7 +1200,7 @@ local function CreateAbsorbBar(frame, unit, settings)
             -- frame's styling (donor convention), behind "Show on Boss Frames" in the
             -- absorb cog (nil = enabled).
             local bossAbsorbOff
-            if updUnit and updUnit:match("^boss") then
+            if updUnit and IS_BOSS_UNIT[updUnit] then
                 bossAbsorbOff = db.profile.boss and db.profile.boss.showAbsorbs == false
                 s = db.profile.target or s
             end
@@ -1317,6 +1219,18 @@ local function CreateAbsorbBar(frame, unit, settings)
                 if ha then ha:Hide() end
                 if topBar then topBar:Hide() end
                 if healTopBar then healTopBar:Hide() end
+                -- Nothing draws a shield here, but the arm/disarm derivation still
+                -- runs (as below): an absorb event armed this frame above, and a
+                -- frame that never disarms keeps the 0.5s belt repainting it for the
+                -- session, its long-form Absorb text never getting the expiry recompose.
+                self._absPaintAt = GetTime()
+                local a = shieldAmt or (UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(updUnit)) or 0
+                local h = healAmt or (UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(updUnit)) or 0
+                if (issecretvalue and (issecretvalue(a) or issecretvalue(h))) or (a or 0) > 0 or (h or 0) > 0 then
+                    if not self._absActive then ns.UF_AbArm(self) end
+                else
+                    ns.UF_AbDisarm(self)
+                end
                 return
             end
 
@@ -1371,7 +1285,7 @@ local function CreateAbsorbBar(frame, unit, settings)
             -- Strip bars (mirrors Raid Frames): independent of the overlay styles.
             if topBar then
                 if barOn then
-                    local bc = (s and s.absorbBarColor) or { r = 1, g = 1, b = 1 }
+                    local bc = (s and s.absorbBarColor) or COLOR_WHITE
                     local bh = (s and s.absorbBarHeight) or 4
                     -- Re-layout only on position/height change (no SetPoint churn).
                     if topBar._lpPos ~= barPos or topBar._lpH ~= bh then
@@ -1388,7 +1302,7 @@ local function CreateAbsorbBar(frame, unit, settings)
             end
             if healTopBar then
                 if healBarOn then
-                    local hbc = (s and s.healAbsorbBarColor) or { r = 200/255, g = 29/255, b = 29/255 }
+                    local hbc = (s and s.healAbsorbBarColor) or DEF_HEAL_ABSORB_BAR_COLOR
                     local hbh = (s and s.healAbsorbBarHeight) or 4
                     local abh = (s and s.absorbBarHeight) or 4
                     -- Re-layout only when its or the Absorb Bar's position/height changes.
@@ -1482,23 +1396,41 @@ local function CreateAbsorbBar(frame, unit, settings)
                 if haStyle == "none" then
                     ha:Hide()
                 else
-                    local hc = (s and s.healAbsorbColor) or { r = 0.8, g = 0.15, b = 0.15 }
+                    -- Re-style only when one of the style's inputs changes
+                    -- (component compares: no key string per paint).
+                    local hc = (s and s.healAbsorbColor) or DEF_HEAL_ABSORB_COLOR
                     local hcR, hcG, hcB = hc.r or 0.8, hc.g or 0.15, hc.b or 0.15
-                    local haKey = haStyle .. ((s and s.healAbsorbOpacity) or 65) .. hcR .. hcG .. hcB
-                    if ha._lastHaKey ~= haKey then
-                        ha._lastHaKey = haKey
-                        ApplyHealAbsorbStyle(ha, haStyle, s)
-                    end
-                    local healAbsorbAmt = UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(updUnit) or 0
-                    ha:SetWidth(hpW); ha:SetHeight(hpH)
-                    ha:SetMinMaxValues(0, maxHealth)
-                    ha:SetValue(healAbsorbAmt)
-                    ha:Show()
-                    -- Black backing tracks the fill rect; opacity from settings.
+                    local haOp = (s and s.healAbsorbOpacity) or 65
                     local hbg = ha._bg
+                    if ha._hsStyle ~= haStyle or ha._hsOp ~= haOp
+                       or ha._hsR ~= hcR or ha._hsG ~= hcG or ha._hsB ~= hcB then
+                        ha._hsStyle, ha._hsOp = haStyle, haOp
+                        ha._hsR, ha._hsG, ha._hsB = hcR, hcG, hcB
+                        ApplyHealAbsorbStyle(ha, haStyle, s)
+                        -- After the retexture, re-seat the backing's fill anchor.
+                        if hbg then hbg._fillAnchored = nil end
+                    end
+                    -- Sized with the health bar, size-gated like the shield bars.
+                    if ha._szW ~= hpW or ha._szH ~= hpH then
+                        ha._szW = hpW; ha._szH = hpH
+                        ha:SetWidth(hpW); ha:SetHeight(hpH)
+                    end
+                    ha:SetMinMaxValues(0, maxHealth)
+                    ha:SetValue(haAmtD)
+                    ha:Show()
+                    -- Black backing under the fill: its opacity is written when it
+                    -- changes, and it anchors to the fill texture once (that region
+                    -- follows the fill through every SetValue).
                     if hbg then
-                        hbg:SetColorTexture(0, 0, 0, ((s and s.healAbsorbBgOpacity) or 15) / 100)
-                        hbg:SetAllPoints(ha:GetStatusBarTexture())
+                        local bgA = ((s and s.healAbsorbBgOpacity) or 15) / 100
+                        if hbg._bgA ~= bgA then
+                            hbg._bgA = bgA
+                            hbg:SetColorTexture(0, 0, 0, bgA)
+                        end
+                        if not hbg._fillAnchored then
+                            hbg._fillAnchored = true
+                            hbg:SetAllPoints(ha:GetStatusBarTexture())
+                        end
                         hbg:Show()
                     end
                 end

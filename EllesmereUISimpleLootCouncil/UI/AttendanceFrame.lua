@@ -1,4 +1,5 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
+
 
 
 
@@ -36,13 +37,13 @@ end
 
 local function WeekLabel(week)
     return addon.Locale.Format(T["%s - %s"],
-        date("%Y/%m/%d", week.start), date("%Y/%m/%d", week.finish - 1))
+        addon.DateText(week.start), addon.DateText(week.finish - 1))
 end
 
 local function NightLabel(night)
     local started, ended = night.startedAt or 0, night.endedAt or night.startedAt or 0
     return addon.Locale.Format(T["%s %s  %s-%s"], Weekday(started),
-        date("%Y/%m/%d", started), date("%H:%M", started), date("%H:%M", ended))
+        addon.DateText(started), date("%H:%M", started), date("%H:%M", ended))
 end
 
 local function CountMembers(night)
@@ -213,16 +214,16 @@ end
 local function BuildColumns()
     return {
 
-        { key = "who", title = T["Week / Night / Player"], width = 421, render = RenderWho },
+        { key = "who", title = T["Week / Night / Player"], width = 351, render = RenderWho },
         {
-            key = "pulls", title = T["Pulls"], width = 80, justify = "RIGHT",
+            key = "pulls", title = T["Pulls"], width = 50, justify = "CENTER",
             text = function(row)
                 if row.kind == "empty" then return "" end
                 return Count(Pulls(row), row.kind == "player" and S.color.textMuted or S.color.text)
             end,
         },
         {
-            key = "kills", title = T["Kills"], width = 80, justify = "RIGHT",
+            key = "kills", title = T["Kills"], width = 50, justify = "CENTER",
             text = function(row)
                 if row.kind == "empty" then return "" end
                 return Count(Kills(row), S.color.accent)
@@ -327,7 +328,7 @@ local function DeleteEntry(data)
         accept = T["Delete"],
         onAccept = function()
             local removedNights, removedEntries = addon.Attendance:ClearNights(nights, match)
-            print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+            addon.Chat.Print(addon.Locale.Format(
                 T["attendance cleared: %d night(s), %d player entries."],
                 removedNights, removedEntries))
         end,
@@ -644,8 +645,9 @@ local function BuildList(parent)
     f:EnableMouse(true)
     f:SetClampedToScreen(true)
     P.Size(f, LIST_W + S.size.SCROLLBAR_W + S.size.SCROLLBAR_GAP + S.size.PAD * 2, 100)
-    S.CanvasFill(f, S.color.canvas, 0.96)
-    S.RoundBorder(f, S.color.border, "OVERLAY")
+
+    S.Fill(f, S.color.card)
+    S.Border(f, S.color.windowEdge)
 
     local scroll = S.ScrollRegion(f, S.size.ROW_H_SM)
     P.Point(scroll, "TOPLEFT", f, "TOPLEFT", S.size.PAD, -S.size.PAD)
@@ -716,7 +718,7 @@ local function DoClear()
         accept = T["Clear"],
         onAccept = function()
             local removedNights, removedEntries = addon.Attendance:ClearNights(nights, match)
-            print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+            addon.Chat.Print(addon.Locale.Format(
                 T["attendance cleared: %d night(s), %d player entries."],
                 removedNights, removedEntries))
             choice.week, choice.night = nil, nil
@@ -737,7 +739,7 @@ local function DoClearAll()
         accept = T["Clear all"],
         onAccept = function()
             local removed = addon.Attendance:ClearAll()
-            print(addon.Log.CHAT_PREFIX.accent .. addon.Locale.Format(
+            addon.Chat.Print(addon.Locale.Format(
                 T["attendance cleared: all %d night(s)."], removed))
             choice.week, choice.night, choice.ranks, choice.players = nil, nil, {}, {}
             RefreshClear()
@@ -807,7 +809,7 @@ end
 
 
 local function Build()
-    frame = S.Window("SimpleLootCouncilAttendanceFrame", "attendance", 620, 560,
+    frame = S.Window("SimpleLootCouncilAttendanceFrame", "attendance", 490, 560,
         T["Attendance"])
     frame:RestorePosition()
 

@@ -17,12 +17,7 @@ local WSkin = ns.WSkin
 if not (WSkin and WSkin.RegisterWindow) then return end
 
 local Theme = WSkin.Theme
-local FFD = setmetatable({}, { __mode = "k" })
-local function GetFFD(frame)
-    local d = FFD[frame]
-    if not d then d = {}; FFD[frame] = d end
-    return d
-end
+local FFD, GetFFD = EllesmereUI.NewFrameData()
 local OURS = setmetatable({}, { __mode = "k" })  -- the frames this pack created
 
 local ICON_CROP = 0.08

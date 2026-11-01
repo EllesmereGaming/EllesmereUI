@@ -12,12 +12,18 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUINameplates"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page frame pool (EllesmereUI_FramePool.lua): frames made under a
+-- pooled page part are handed back to the page's next build.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolGen = EllesmereUI._Pool.Gen
+
 -- Core Text Positions. KNOWN: the elements a text position draws; any other
 -- saved value (None, unset, one this build does not know) shows nothing and
 -- leaves the position free.
 local KNOWN = { enemyName = true, levelName = true, nameLevel = true, level = true, targetOfTarget = true,
     healthPercent = true, healthPercentNoSign = true, healthNumber = true, healthPctNum = true,
-    healthNumPct = true, healthPctNumDash = true, healthNumPctDash = true, healthNumMax = true }
+    healthNumPct = true, healthPctNumDash = true, healthNumPctDash = true, healthNumMax = true,
+    custom = true }
 -- Add Text Slot's text: the first of these whose font string no shown text
 -- uses (one per font string: name, health %, level, health #, Target of
 -- Target).
@@ -26,7 +32,7 @@ local ADD_ORDER = { "enemyName", "healthPercent", "level", "healthNumber", "targ
 -- from each position's default (MOVE_OFFSETS). Its Size and colour mode go
 -- along through MoveText too.
 local MOVE_RAW = { "Strata", "Color", "NameColorOn", "NameColor", "LevelColorOn", "LevelColor", "LevelDiffOn",
-                   "WidthPct", "Wrap", "PctDecimal", "NameFormat" }
+                   "WidthPct", "Wrap", "PctDecimal", "NameFormat", "CustomFormat" }
 local MOVE_OFFSETS = { "XOffset", "YOffset" }
 
 -- The six text positions in ns.textSlotKeys order: the order of the Core Text
@@ -45,6 +51,30 @@ for i = 1, #ns.NPO_TEXT_SLOTS do
     local s = ns.NPO_TEXT_SLOTS[i]
     POS_ORDER[i] = s.key
     POS_VALUES[s.key] = s.menu
+end
+
+-- Custom text popup for a text position: the template is stored in
+-- <slot>CustomFormat, then onSave selects Custom for the position.
+function ns.NPO_EditCustomText(slotKey, onSave)
+    local env = ns._NPO_OptEnv
+    local key = slotKey .. "CustomFormat"
+    -- The slot's colour as the nameplate preview paints it (Text Coloring mode),
+    -- copied: the level colour is a reused table.
+    local c = ns.NPO_PreviewSlotColor(slotKey)
+    EllesmereUI.TextTags.EditPopup({
+        cat = ns.NP_TextTags, color = c and { r = c.r, g = c.g, b = c.b }, onSave = onSave,
+        tagNotes = { hp = EllesmereUI.L("shows DEAD") },
+        get = function() return env.DB()[key] end,
+        set = function(txt) env.DB()[key] = txt end,
+    })
+end
+
+-- A copy of the text dropdown's values whose Custom entry is an action that opens
+-- the popup (edit), its pencil at full alpha while getValue() is "custom" (the menu
+-- reads it when built; a selection rebuilds the page); Remove in the house red.
+function ns.NPO_CustomTextValues(values, getValue, edit)
+    return EllesmereUI.TextTags.MenuValues(values, edit,
+        { removeKey = "none", selected = function() return getValue() == "custom" end })
 end
 
 -- A position shows a text while its element is a KNOWN one.
@@ -68,8 +98,29 @@ function ns.NPO_TextStructureFP()
 end
 
 -- The Display page cog popup and the cog icon that owns it: built on the first
--- cog click and kept across page builds (ShowCogPopup below).
-local cogPopup, cogPopupOwner
+-- cog click and kept across page builds (ShowCogPopup below). cogPopupOwnerGen:
+-- the owner's dress when it opened the popup (page reuse dresses the same button
+-- again for a later build, which then is a new owner).
+local cogPopup, cogPopupOwner, cogPopupOwnerGen
+
+-- The cog that opened the popup, while it is still the dress that opened it.
+local function LiveCogOwner()
+    if cogPopupOwner and PoolGen(cogPopupOwner) == cogPopupOwnerGen then return cogPopupOwner end
+end
+
+-- True once the cog that opened the popup no longer stands for it: a later
+-- page build dressed it again (for its element or another one), left it idle
+-- or dropped the row it sits in. The popup would edit one element from
+-- another one's control, or hang off a hidden frame, so it closes. A cog made
+-- outside the page pool (every page while page reuse is off) has no
+-- generation and never closes here.
+local function CogOwnerGone()
+    local owner = cogPopupOwner
+    if not owner then return false end
+    local g = PoolGen(owner)
+    if g == nil and cogPopupOwnerGen == nil then return false end
+    return g ~= cogPopupOwnerGen or not owner:IsVisible()
+end
 
 local function BuildDisplayLayout(parent, y, ctx)
     local env = ns._NPO_OptEnv
@@ -79,6 +130,9 @@ local function BuildDisplayLayout(parent, y, ctx)
     local GetElementAtPosition, RefreshAllSlots, SetElementAtPosition, SetTextElementAtSlot = ctx.GetElementAtPosition, ctx.RefreshAllSlots, ctx.SetElementAtPosition, ctx.SetTextElementAtSlot
     local W = ctx.W
     local _, h
+    -- This build of the page (the serial moves after every page pass; page reuse
+    -- keeps one wrapper, so the wrapper cannot tell two builds apart).
+    local buildSerial = EllesmereUI._pageBuildSerial or 0
 
     -----------------------------------------------------------------------
     --  STYLE
@@ -680,8 +734,9 @@ local function BuildDisplayLayout(parent, y, ctx)
         eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = eyeBtn
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshAbsorbEye()
             if optState.showAbsorbPreview then
@@ -696,12 +751,13 @@ local function BuildDisplayLayout(parent, y, ctx)
             RefreshAbsorbEye()
             UpdatePreview()
         end)
-        eyeBtn:SetScript("OnEnter", function(self) self:SetAlpha(0.7) end)
-        eyeBtn:SetScript("OnLeave", function(self) self:SetAlpha(0.4) end)
+        eyeBtn:SetScript("OnEnter", function(self) EllesmereUI.SetGlyphAlpha(self, 0.7) end)
+        eyeBtn:SetScript("OnLeave", function(self) EllesmereUI.SetGlyphAlpha(self, 0.4) end)
     end
 
     -- Row 3: Bar Texture | Cast Bar Texture -- share the same texture set (EUI built-ins + SharedMedia) and resolve identically; Bar Texture drives the health bar, Cast Bar Texture drives the cast bar.
-    _, h = W:DualRow(parent, y,
+    local texRow
+    texRow, h = W:DualRow(parent, y,
         -- Bar Texture stays live under Blizzard Style: the health fill is the
         -- user's own texture under the stock background art.
         { type="dropdown", text="Bar Texture", values=hbtValues, order=hbtOrder,
@@ -718,6 +774,21 @@ local function BuildDisplayLayout(parent, y, ctx)
             RefreshAllTextures()
             UpdatePreview()
           end }));  y = y - h
+    -- Textured Background cogs on the two texture dropdowns, greyed while
+    -- Blizzard Style draws its stock backgrounds (as Global Settings > Textures).
+    if not EllesmereUI._prebuilding then
+        local function TexBgApply() RefreshAllTextures(); UpdatePreview() end
+        local blizz = ns.NP_BlizzOnly()
+        local function TexBgCog(rgn, kind)
+            EllesmereUI.BuildInlineCog(rgn, {
+                disabled = blizz and function() return true end or nil,
+                disabledTooltip = blizz and EllesmereUI.BlizzStyle.Label("nameplates") or nil,
+                requireState = blizz and "disabled" or nil,
+                title = "Texture Settings", rows = { env.TexBgRowCfg(kind, TexBgApply) } })
+        end
+        TexBgCog(texRow._leftRegion, "health")
+        TexBgCog(texRow._rightRegion, "cast")
+    end
 
     -- WoW Forever variant only (the Forever client): Show Level Box, the
     -- opt-out for the level box right of the health bar (nil = shown),
@@ -749,18 +820,17 @@ local function BuildDisplayLayout(parent, y, ctx)
     local coreHeader
     coreHeader, h = W:SectionHeader(parent, "CORE POSITIONS", y);  y = y - h
 
-    -- Subtitle hint next to the section header
+    -- Subtitle hint next to the section header's title (the header's own label:
+    -- a page built again keeps its earlier dresses' font strings, idle, among
+    -- the header's regions)
     do
-        local regions = { coreHeader:GetRegions() }
-        for _, rgn in ipairs(regions) do
-            if rgn:IsObjectType("FontString") and EllesmereUI.EnKey(rgn:GetText()) == "CORE POSITIONS" then
-                local sub = coreHeader:CreateFontString(nil, "OVERLAY")
-                sub:SetFont(rgn:GetFont())
-                sub:SetTextColor(1, 1, 1, 0.25)
-                sub:SetText(EllesmereUI.L("(one slot per element)"))
-                sub:SetPoint("LEFT", rgn, "RIGHT", 6, 0)
-                break
-            end
+        local rgn = coreHeader._label
+        if rgn and EllesmereUI.EnKey(rgn:GetText()) == "CORE POSITIONS" then
+            local sub = coreHeader:CreateFontString(nil, "OVERLAY")
+            sub:SetFont(rgn:GetFont())
+            sub:SetTextColor(1, 1, 1, 0.25)
+            sub:SetText(EllesmereUI.L("(one slot per element)"))
+            sub:SetPoint("LEFT", rgn, "RIGHT", 6, 0)
         end
     end
 
@@ -781,19 +851,29 @@ local function BuildDisplayLayout(parent, y, ctx)
     local _refreshRaidMarkerEyePos
     local _refreshClassificationEyePos
 
-    optState.RefreshCoreEyes = function()
-        if _refreshRaidMarkerEyePos then _refreshRaidMarkerEyePos() end
-        if _refreshClassificationEyePos then _refreshClassificationEyePos() end
+    -- Never from the search pre-build: it builds no eyes, and the shown page's
+    -- Core Positions rows call this to move theirs.
+    if not EllesmereUI._prebuilding then
+        optState.RefreshCoreEyes = function()
+            if _refreshRaidMarkerEyePos then _refreshRaidMarkerEyePos() end
+            if _refreshClassificationEyePos then _refreshClassificationEyePos() end
+        end
     end
 
-    -- Each slot's control is a checkbox dropdown, one box per element: a view
-    -- over the same stored keys the single-choice dropdowns wrote (each
-    -- element's slot key, debuffIncludeCC and classificationIncludeFaction for
-    -- the two pairs that can share a slot) plus classificationHideRare /
-    -- classificationHideQuest, the two halves of the Rare/Quest indicator. The
-    -- halves are one frame, so they always share a slot and move together.
-    -- Only elements of one group can share a slot; the rest grey out while the
-    -- slot holds something. The single-choice dropdowns stay built, hidden,
+    -- Each slot's control is a checkbox dropdown with drag-to-reorder rows, one
+    -- row per element: a view over the same stored keys the single-choice
+    -- dropdowns wrote (each element's slot key, debuffIncludeCC and
+    -- classificationIncludeFaction for the two pairs that merge into one
+    -- element) plus classificationHideRare / classificationHideQuest, the two
+    -- halves of the Rare/Quest indicator. The halves are one frame, so they
+    -- always share a slot and move together. Any elements can share a slot:
+    -- they sit one after another in the rows' order, saved per slot as
+    -- <pos>SlotOrder (the row keys joined by commas; unset = the default order)
+    -- and laid out by the Core Positions chain (ns.NP_CoreChain),
+    -- <pos>SlotElementSpacing apart (the Element Spacing row of the slot's cog).
+    -- Debuffs with Crowd Control still merge into one row, and the Elite/Rare
+    -- and Quest Indicators with Faction into one stacked pair, as the old
+    -- combined elements did. The single-choice dropdowns stay built, hidden,
     -- under the checkbox dropdowns (the row label's empty-slot state).
     local CORE_ORDER = { "debuffs", "buffs", "ccs", "raidmarker", "rare", "quest", "faction" }
     local CORE_LABEL = {
@@ -803,11 +883,6 @@ local function BuildDisplayLayout(parent, y, ctx)
     local CORE_TIP = {
         rare  = "Elite and rare marks. Always in the same slot as the Quest Indicator.",
         quest = "Marks mobs for your active quests. Always in the same slot as the Elite/Rare Indicator.",
-    }
-    local CORE_GROUP = {
-        debuffs = "aura", ccs = "aura",
-        rare = "class", quest = "class", faction = "class",
-        buffs = "buffs", raidmarker = "raidmarker",
     }
 
     local function CoreHas(pos, k)
@@ -834,18 +909,34 @@ local function BuildDisplayLayout(parent, y, ctx)
         return false
     end
 
-    -- A checked box can always be unchecked.
-    local function CoreLocked(pos, k)
-        if CoreHas(pos, k) then return false end
-        local g = CORE_GROUP[k]
-        for i = 1, #CORE_ORDER do
-            local o = CORE_ORDER[i]
-            if CORE_GROUP[o] ~= g and CoreHas(pos, o) then return true end
+    -- The slot's row order: its saved order first, then every row it lacks in
+    -- the default order.
+    local function CoreOrderKeys(pos)
+        local keys, seen = {}, {}
+        local src = DBVal(pos .. "SlotOrder")
+        if type(src) == "string" then
+            for k in string.gmatch(src, "[^,]+") do
+                if CORE_LABEL[k] and not seen[k] then
+                    seen[k] = true
+                    keys[#keys + 1] = k
+                end
+            end
         end
-        return false
+        for i = 1, #CORE_ORDER do
+            local k = CORE_ORDER[i]
+            if not seen[k] then
+                seen[k] = true
+                keys[#keys + 1] = k
+            end
+        end
+        return keys
     end
-
-    local CORE_LOCK_TIP = "Only Debuffs with Crowd Control, or the Elite/Rare and Quest Indicators with Faction, can share a slot."
+    -- The default order saves as unset.
+    local function CoreSaveOrder(pos, keys)
+        local s = table.concat(keys, ",")
+        if s == table.concat(CORE_ORDER, ",") then s = nil end
+        DB()[pos .. "SlotOrder"] = s
+    end
 
     local function CoreSet(pos, k, v)
         local db = DB()
@@ -945,23 +1036,30 @@ local function BuildDisplayLayout(parent, y, ctx)
         local ctrl = rgn._control
         local ddW = ctrl and ctrl:GetWidth() or 0
         if ddW < 50 then ddW = 170 end
+        -- The rows in the slot's saved order, so the button's label reads in
+        -- that order before the list is first opened.
         local items = {}
-        for i = 1, #CORE_ORDER do
-            local k = CORE_ORDER[i]
-            items[i] = {
-                key = k, label = CORE_LABEL[k], tooltip = CORE_TIP[k],
-                lockedFn = function() return CoreLocked(pos, k) end,
-                lockedTooltip = CORE_LOCK_TIP,
-            }
+        local keys = CoreOrderKeys(pos)
+        for i = 1, #keys do
+            local k = keys[i]
+            items[i] = { key = k, label = CORE_LABEL[k], tooltip = CORE_TIP[k] }
         end
-        local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+        local cbDD, cbDDRefresh = EllesmereUI.BuildReorderCBDropdown(
             rgn, ddW, rgn:GetFrameLevel() + 2, items,
             function(k) return CoreHas(pos, k) end,
             function(k, v)
                 CoreSet(pos, k, v)
                 RefreshAllSlots()
                 optState.RefreshCoreEyes()
-            end)
+            end,
+            {
+                grip = true,
+                openOrder = function() return CoreOrderKeys(pos) end,
+                setOrder = function(order)
+                    CoreSaveOrder(pos, order)
+                    RefreshAllSlots()
+                end,
+            })
         local p1, rel, p2, ax, ay
         if ctrl then
             p1, rel, p2, ax, ay = ctrl:GetPoint(1)
@@ -997,7 +1095,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     -------------------------------------------------------------------
     --  Combined Settings Popup  (singleton, slide-up, pos + optional size)
     -------------------------------------------------------------------
-    local function CogPopupOpen(btn) return cogPopupOwner == btn and cogPopup:IsShown() end
+    local function CogPopupOpen(btn) return LiveCogOwner() == btn and cogPopup:IsShown() end
 
     -- opts = {title, xGet, xSet, yGet, ySet, sizeGet, sizeSet, sizeMin, sizeMax, sizeStep, sizeLabel}; sizeGet nil = no size row.
     -- questTextGet/Set: the quest objective's Text Size, mirrored as the cog's top row.
@@ -1115,6 +1213,31 @@ local function BuildDisplayLayout(parent, y, ctx)
             spTrack:Hide(); spValBox:Hide()
             pf._spTrack = spTrack; pf._spValBox = spValBox
 
+            -- Element Spacing slider row (hidden unless the slot chains two or more
+            -- elements): the gap between them, following the slot's Spacing until set;
+            -- fixed range built once, placed after Spacing by the seq block. Its label
+            -- is wider than the others, so its track starts further right (Adjust Crop's trick).
+            local esLabel = MakeFont(pf, 12, nil, 1, 1, 1)
+            esLabel:SetAlpha(0.6); esLabel:SetText(EllesmereUI.L("Element Spacing"))
+            esLabel:Hide()
+            pf._esLabel = esLabel
+            local esHover = CreateFrame("Frame", nil, pf)
+            esHover:SetFrameLevel(pf:GetFrameLevel() + 10)
+            esHover:SetAllPoints(esLabel)
+            esHover:EnableMouse(true)
+            esHover:Hide()
+            esHover:SetScript("OnEnter", function(self)
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Space between the elements sharing this slot. Follows the slot's Spacing until you change it."), { width = 230 })
+            end)
+            esHover:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            pf._esHover = esHover
+            local esTrack, esValBox = BuildSliderCore(pf, SLIDER_W - 40, 4, 12, INPUT_W, SLIDER_H, 11, SL_INPUT_A,
+                -5, 20, 1,
+                function() return pf._esGet and pf._esGet() or 0 end,
+                function(v) if pf._esSet then pf._esSet(v) end end, true)
+            esTrack:Hide(); esValBox:Hide()
+            pf._esTrack = esTrack; pf._esValBox = esValBox
+
             -- Width % slider row (hidden unless a width-fit text element: enemy name, cast spell name, cast target); fixed range built once, reordered/repositioned per show via the seq block below.
             local W_ROW_Y = SP_ROW_Y - SLIDER_H - GAP
             local wLabel = MakeFont(pf, 12, nil, 1, 1, 1)
@@ -1202,12 +1325,14 @@ local function BuildDisplayLayout(parent, y, ctx)
             local listGet = {
                 growth = function() return pf._growthGet and pf._growthGet() or "" end,
                 dd2    = function() return pf._dd2Get and pf._dd2Get() or "" end,
+                dd3    = function() return pf._dd3Get and pf._dd3Get() or "" end,
             }
             local listSet = {
                 growth = function(v) if pf._growthSet then pf._growthSet(v) end end,
                 dd2    = function(v) if pf._dd2Set then pf._dd2Set(v) end end,
+                dd3    = function(v) if pf._dd3Set then pf._dd3Set(v) end end,
             }
-            local listDDs = { growth = {}, dd2 = {} }
+            local listDDs = { growth = {}, dd2 = {}, dd3 = {} }
             pf._ListDD = function(kind, entries)
                 local parts = {}
                 for _, entry in ipairs(entries) do
@@ -1226,6 +1351,26 @@ local function BuildDisplayLayout(parent, y, ctx)
                     dd:SetScale(GROW_DD_SCALE)
                     dd:Hide()
                     listDDs[kind][sig] = dd
+                end
+                return dd
+            end
+            -- The Name Format list: one control per row kind for every text slot,
+            -- built on first need. Its Character Count entry saves through the
+            -- per-show setter, as a pick does. Enemy names show here, so retail
+            -- warns that the game keeps them whole in restricted content.
+            local nameFormatDDs = {}
+            pf._NameFormatDD = function(kind)
+                local dd = nameFormatDDs[kind]
+                if not dd then
+                    local values, order, getValue, setValue = EllesmereUI.NameFormatMenu(listGet[kind], listSet[kind], {
+                        onSaved = function() nameFormatDDs[kind]._refreshLabel() end,
+                        enemies = true,
+                    })
+                    dd = EllesmereUI.BuildDropdownControl(pf, EllesmereUI.NAME_FORMAT_MENU_W, pf:GetFrameLevel() + 6,
+                        values, order, getValue, setValue)
+                    dd:SetScale(GROW_DD_SCALE)
+                    dd:Hide()
+                    nameFormatDDs[kind] = dd
                 end
                 return dd
             end
@@ -1401,6 +1546,24 @@ local function BuildDisplayLayout(parent, y, ctx)
             pf._t2Toggle = t2Toggle
             pf._t2ToggleSnap = t2ToggleSnap
 
+            -- A third generic toggle row (own row, below the second), for a Core
+            -- Positions slot that chains elements of several kinds (Hide Border, Show
+            -- In Instances and Opposite Faction Only at once); wired via
+            -- pf._toggle3Get/Set, label per show.
+            local t3Label = MakeFont(pf, 12, nil, 1, 1, 1)
+            t3Label:SetAlpha(0.6)
+            t3Label:SetPoint("LEFT", pf, "TOPLEFT", SIDE_PAD, G_ROW_Y - GROWTH_ROW_H / 2)
+            t3Label:Hide()
+            pf._t3Label = t3Label
+            local t3Toggle, _, t3ToggleSnap = EllesmereUI.BuildToggleControl(pf, pf:GetFrameLevel() + 5,
+                function() return pf._toggle3Get and pf._toggle3Get() or false end,
+                function(v) if pf._toggle3Set then pf._toggle3Set(v) end end,
+                { sizeRatio = 0.8, noAnim = true })
+            t3Toggle:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, G_ROW_Y - GROWTH_ROW_H / 2)
+            t3Toggle:Hide()
+            pf._t3Toggle = t3Toggle
+            pf._t3ToggleSnap = t3ToggleSnap
+
             -- Optional second dropdown row (own row, below the second toggle),
             -- its controls from pf._ListDD like Grow's; values/label per show,
             -- via pf._dd2Get/Set.
@@ -1410,6 +1573,14 @@ local function BuildDisplayLayout(parent, y, ctx)
             d2Label:Hide()
             pf._d2Label = d2Label
 
+            -- A third dropdown row (own row, below the second), for the same chained
+            -- slots (Grow, PvP Flag and Icon Style at once); via pf._dd3Get/Set.
+            local d3Label = MakeFont(pf, 12, nil, 1, 1, 1)
+            d3Label:SetAlpha(0.6)
+            d3Label:SetPoint("LEFT", pf, "TOPLEFT", SIDE_PAD, G_ROW_Y - GROWTH_ROW_H / 2)
+            d3Label:Hide()
+            pf._d3Label = d3Label
+
             -- Layout constants stored for height calc
             pf._TOP_PAD = TOP_PAD; pf._TITLE_H = TITLE_H; pf._TITLE_GAP = TITLE_GAP
             pf._GAP = GAP; pf._SLIDER_H = SLIDER_H; pf._SIDE_PAD = SIDE_PAD
@@ -1418,16 +1589,23 @@ local function BuildDisplayLayout(parent, y, ctx)
             -- Close on click outside
             local wasDown = false
             pf._clickOutside = function(self, dt)
+                if CogOwnerGone() then
+                    self:Hide()
+                    return
+                end
                 local down = IsMouseButtonDown("LeftButton")
                 if down and not wasDown then
                     -- The Grow/Strata/second dropdown menus float outside this popup's rect; a click there must not count as click-outside.
                     local m = self._gDD and self._gDD._ddMenu
                     local m2 = self._stDD and self._stDD._ddMenu
                     local m3 = self._d2DD and self._d2DD._ddMenu
+                    local m4 = self._d3DD and self._d3DD._ddMenu
                     local overMenu = (m and m:IsShown() and m:IsMouseOver())
                         or (m2 and m2:IsShown() and m2:IsMouseOver())
                         or (m3 and m3:IsShown() and m3:IsMouseOver())
-                    if not self:IsMouseOver() and not (cogPopupOwner and cogPopupOwner:IsMouseOver()) and not overMenu then
+                        or (m4 and m4:IsShown() and m4:IsMouseOver())
+                    local owner = LiveCogOwner()
+                    if not self:IsMouseOver() and not (owner and owner:IsMouseOver()) and not overMenu then
                         self:Hide()
                     end
                 end
@@ -1436,11 +1614,11 @@ local function BuildDisplayLayout(parent, y, ctx)
 
             pf:SetScript("OnHide", function(self)
                 self:SetScript("OnUpdate", nil)
-                local owner = cogPopupOwner
-                cogPopupOwner = nil
+                local owner = LiveCogOwner()
+                cogPopupOwner, cogPopupOwnerGen = nil, nil
                 -- MakeCogIcon/MakeTextCogIcon buttons have no _euiCogState.
                 if owner and owner._euiCogState then owner._euiCogState()
-                elseif owner then owner:SetAlpha(0.4) end
+                elseif owner then EllesmereUI.SetGlyphAlpha(owner, 0.4) end
             end)
 
             if EllesmereUI._mainFrame then
@@ -1451,18 +1629,18 @@ local function BuildDisplayLayout(parent, y, ctx)
 
             pf._refreshFns = {}
             for i = firstRefresh, #refreshList do pf._refreshFns[#pf._refreshFns + 1] = refreshList[i] end
-            pf._refreshParent = parent
+            pf._refreshSerial = buildSerial
             cogPopup = pf
         end
         -- Each page build starts a fresh refresh list: the first cog shown from
-        -- a page the popup was not built on registers the popup's sliders there.
-        if cogPopup._refreshParent ~= parent then
+        -- a build the popup was not built on registers the popup's sliders there.
+        if cogPopup._refreshSerial ~= buildSerial then
             for i = 1, #cogPopup._refreshFns do EllesmereUI.RegisterWidgetRefresh(cogPopup._refreshFns[i]) end
-            cogPopup._refreshParent = parent
+            cogPopup._refreshSerial = buildSerial
         end
 
         -- Toggle off if same icon clicked again
-        if cogPopupOwner == anchorBtn and cogPopup:IsShown() then
+        if LiveCogOwner() == anchorBtn and cogPopup:IsShown() then
             cogPopup:Hide()
             return
         end
@@ -1471,8 +1649,8 @@ local function BuildDisplayLayout(parent, y, ctx)
         cogPopup._xGet = opts.xGet; cogPopup._xSet = opts.xSet
         cogPopup._yGet = opts.yGet; cogPopup._ySet = opts.ySet
         cogPopup._titleFS:SetText(EllesmereUI.L(opts.title))
-        local prevOwner = cogPopupOwner
-        cogPopupOwner = anchorBtn
+        local prevOwner = LiveCogOwner()
+        cogPopupOwner, cogPopupOwnerGen = anchorBtn, PoolGen(anchorBtn)
         if prevOwner and prevOwner._euiCogState then prevOwner._euiCogState() end
 
         -- Show/hide size row and adjust height
@@ -1484,7 +1662,10 @@ local function BuildDisplayLayout(parent, y, ctx)
         local hasCrop = opts.cropGet ~= nil
         local hasWrap = opts.wrapGet ~= nil
         local hasToggle2 = opts.toggle2Get ~= nil
+        local hasToggle3 = opts.toggle3Get ~= nil
         local hasDropdown2 = opts.dropdown2Get ~= nil
+        local hasDropdown3 = opts.dropdown3Get ~= nil
+        local hasElemSpacing = opts.elemSpacingGet ~= nil
         local hasRaiseStrata = opts.raiseStrataGet ~= nil
         local hasStrata = opts.strataGet ~= nil
         local hasCropPct = opts.cropPctGet ~= nil
@@ -1556,6 +1737,23 @@ local function BuildDisplayLayout(parent, y, ctx)
             cogPopup._spLabel:Hide()
             cogPopup._spTrack:Hide()
             cogPopup._spValBox:Hide()
+        end
+
+        -- Show/hide the Element Spacing row
+        if hasElemSpacing then
+            cogPopup._esGet = opts.elemSpacingGet
+            cogPopup._esSet = opts.elemSpacingSet
+            cogPopup._esLabel:Show()
+            cogPopup._esTrack:Show()
+            cogPopup._esValBox:Show()
+            cogPopup._esHover:Show()
+        else
+            cogPopup._esGet = nil
+            cogPopup._esSet = nil
+            cogPopup._esLabel:Hide()
+            cogPopup._esTrack:Hide()
+            cogPopup._esValBox:Hide()
+            cogPopup._esHover:Hide()
         end
 
         -- Show/hide width % row
@@ -1678,11 +1876,28 @@ local function BuildDisplayLayout(parent, y, ctx)
             cogPopup._t2Toggle:Hide()
         end
 
-        -- Show/hide the second dropdown row ({ { value, label }, ... } like Grow)
+        -- Show/hide the third toggle row
+        if hasToggle3 then
+            cogPopup._toggle3Get = opts.toggle3Get
+            cogPopup._toggle3Set = opts.toggle3Set
+            cogPopup._t3Label:SetText(EllesmereUI.L(opts.toggle3Label or ""))
+            cogPopup._t3Label:Show()
+            cogPopup._t3Toggle:Show()
+            if cogPopup._t3ToggleSnap then cogPopup._t3ToggleSnap() end
+        else
+            cogPopup._toggle3Get = nil
+            cogPopup._toggle3Set = nil
+            cogPopup._t3Label:Hide()
+            cogPopup._t3Toggle:Hide()
+        end
+
+        -- Show/hide the second dropdown row ({ { value, label }, ... } like Grow,
+        -- or the Name Format list with dropdown2NameFormat)
         if hasDropdown2 then
             cogPopup._dd2Get = opts.dropdown2Get
             cogPopup._dd2Set = opts.dropdown2Set
-            local d2DD = cogPopup._ListDD("dd2", opts.dropdown2Values or {})
+            local d2DD = opts.dropdown2NameFormat and cogPopup._NameFormatDD("dd2")
+                or cogPopup._ListDD("dd2", opts.dropdown2Values or {})
             if cogPopup._d2DD and cogPopup._d2DD ~= d2DD then cogPopup._d2DD:Hide() end
             cogPopup._d2DD = d2DD
             d2DD._refreshLabel()
@@ -1694,6 +1909,24 @@ local function BuildDisplayLayout(parent, y, ctx)
             cogPopup._dd2Set = nil
             cogPopup._d2Label:Hide()
             if cogPopup._d2DD then cogPopup._d2DD:Hide() end
+        end
+
+        -- Show/hide the third dropdown row
+        if hasDropdown3 then
+            cogPopup._dd3Get = opts.dropdown3Get
+            cogPopup._dd3Set = opts.dropdown3Set
+            local d3DD = cogPopup._ListDD("dd3", opts.dropdown3Values or {})
+            if cogPopup._d3DD and cogPopup._d3DD ~= d3DD then cogPopup._d3DD:Hide() end
+            cogPopup._d3DD = d3DD
+            d3DD._refreshLabel()
+            d3DD:Show()
+            cogPopup._d3Label:SetText(EllesmereUI.L(opts.dropdown3Label or ""))
+            cogPopup._d3Label:Show()
+        else
+            cogPopup._dd3Get = nil
+            cogPopup._dd3Set = nil
+            cogPopup._d3Label:Hide()
+            if cogPopup._d3DD then cogPopup._d3DD:Hide() end
         end
 
         -- Show/hide Raise Strata row (its own row, below all other toggles)
@@ -1736,18 +1969,21 @@ local function BuildDisplayLayout(parent, y, ctx)
             local SH, SLEFT, SPAD = p._SLIDER_H, p._SLIDER_LEFT, p._SIDE_PAD
             local GRH = p._GROWTH_ROW_H
             local function rowY(i) return p._ROW0 - (i - 1) * p._ROW_STEP end
-            local function anchorRow(lbl, track, valBox, ry)
+            -- shift: a track that starts further right than the others (a wider label).
+            local function anchorRow(lbl, track, valBox, ry, shift)
                 lbl:ClearAllPoints();  lbl:SetPoint("LEFT", p, "TOPLEFT", SPAD, ry - SH / 2)
-                if track  then track:ClearAllPoints();  track:SetPoint("TOPLEFT", p, "TOPLEFT", SLEFT, ry - 2) end
+                if track  then track:ClearAllPoints();  track:SetPoint("TOPLEFT", p, "TOPLEFT", SLEFT + (shift or 0), ry - 2) end
                 if valBox then valBox:ClearAllPoints(); valBox:SetPoint("TOPRIGHT", p, "TOPRIGHT", -SPAD, ry) end
             end
             -- Width % is intentionally NOT in this data-row sequence -- it's repositioned to the very bottom (below Wrap) further down, so it never sits between Size and X/Y.
             local seq = {}
             -- The mirrored quest objective Text Size heads the cog.
             if hasQuestText then seq[#seq + 1] = { p._qtLabel, p._qtTrack, p._qtValBox } end
+            -- Element Spacing follows Spacing (its track starts 40 further right, as built).
             if hasSize and opts.sizeFirst then
                 seq[#seq + 1] = { p._sLabel, p._sTrack, p._sValBox }
                 if hasSpacing then seq[#seq + 1] = { p._spLabel, p._spTrack, p._spValBox } end
+                if hasElemSpacing then seq[#seq + 1] = { p._esLabel, p._esTrack, p._esValBox, 40 } end
                 seq[#seq + 1] = { p._xLabel, p._xTrack, p._xValBox }
                 seq[#seq + 1] = { p._yLabel, p._yTrack, p._yValBox }
             else
@@ -1755,9 +1991,10 @@ local function BuildDisplayLayout(parent, y, ctx)
                 seq[#seq + 1] = { p._yLabel, p._yTrack, p._yValBox }
                 if hasSize    then seq[#seq + 1] = { p._sLabel, p._sTrack, p._sValBox } end
                 if hasSpacing then seq[#seq + 1] = { p._spLabel, p._spTrack, p._spValBox } end
+                if hasElemSpacing then seq[#seq + 1] = { p._esLabel, p._esTrack, p._esValBox, 40 } end
             end
             for i, r in ipairs(seq) do
-                anchorRow(r[1], r[2], r[3], rowY(i))
+                anchorRow(r[1], r[2], r[3], rowY(i), r[4])
             end
             -- Growth/toggle rows sit directly after the data rows. A cog can pass BOTH (e.g. Rare/Quest Indicator on topleft/right: Grow + Show In Instances) -- the toggle then takes the row BELOW Grow.
             local nextY = rowY(#seq + 1)
@@ -1780,8 +2017,14 @@ local function BuildDisplayLayout(parent, y, ctx)
             p._t2Label:SetPoint("LEFT", p, "TOPLEFT", SPAD, t2Y - GRH / 2)
             p._t2Toggle:ClearAllPoints()
             p._t2Toggle:SetPoint("RIGHT", p, "TOPRIGHT", -SPAD, t2Y - GRH / 2)
+            -- Third toggle: below the second.
+            local t3Y = rowY(#seq + 1 + (hasGrowth and 1 or 0) + (hasToggle and 1 or 0) + (hasToggle2 and 1 or 0))
+            p._t3Label:ClearAllPoints()
+            p._t3Label:SetPoint("LEFT", p, "TOPLEFT", SPAD, t3Y - GRH / 2)
+            p._t3Toggle:ClearAllPoints()
+            p._t3Toggle:SetPoint("RIGHT", p, "TOPRIGHT", -SPAD, t3Y - GRH / 2)
             -- Strata dropdown row: last row of the Grow/toggle band.
-            local strataY = rowY(#seq + 1 + (hasGrowth and 1 or 0) + (hasToggle and 1 or 0) + (hasToggle2 and 1 or 0))
+            local strataY = rowY(#seq + 1 + (hasGrowth and 1 or 0) + (hasToggle and 1 or 0) + (hasToggle2 and 1 or 0) + (hasToggle3 and 1 or 0))
             p._stLabel:ClearAllPoints()
             p._stLabel:SetPoint("LEFT", p, "TOPLEFT", SPAD, strataY - GRH / 2)
             if p._stDD then
@@ -1789,8 +2032,9 @@ local function BuildDisplayLayout(parent, y, ctx)
                 p._stDD:ClearAllPoints()
                 p._stDD:SetPoint("RIGHT", p, "TOPRIGHT", -SPAD / sds, (strataY - GRH / 2) / sds)
             end
-            -- Rows consumed by the Grow/toggle/second toggle/Strata band (0-4).
-            local extraRows = (hasGrowth and 1 or 0) + (hasToggle and 1 or 0) + (hasToggle2 and 1 or 0) + (hasStrata and 1 or 0)
+            -- Rows consumed by the Grow/toggle/second toggle/third toggle/Strata band (0-5).
+            local extraRows = (hasGrowth and 1 or 0) + (hasToggle and 1 or 0) + (hasToggle2 and 1 or 0)
+                + (hasToggle3 and 1 or 0) + (hasStrata and 1 or 0)
             -- Cropped Icons sits in its own row below the Grow/toggle band, else directly after the data rows.
             local cropY = rowY(#seq + 1 + extraRows)
             p._cropLabel:ClearAllPoints()
@@ -1827,12 +2071,22 @@ local function BuildDisplayLayout(parent, y, ctx)
                 p._d2DD:ClearAllPoints()
                 p._d2DD:SetPoint("RIGHT", p, "TOPRIGHT", -SPAD / d2s, (d2Y - GRH / 2) / d2s)
             end
+            -- Third dropdown: below the second.
+            local d3Y = rowY(d2RowIndex + (hasDropdown2 and 1 or 0))
+            p._d3Label:ClearAllPoints()
+            p._d3Label:SetPoint("LEFT", p, "TOPLEFT", SPAD, d3Y - GRH / 2)
+            if p._d3DD then
+                local d3s = p._GROW_DD_SCALE or 1
+                p._d3DD:ClearAllPoints()
+                p._d3DD:SetPoint("RIGHT", p, "TOPRIGHT", -SPAD / d3s, (d3Y - GRH / 2) / d3s)
+            end
             -- Raise Strata sits in its own row, below the Grow/toggle band and Cropped Icons when present; Core Position cogs never use Wrap or Width %, so no collision there.
             if hasRaiseStrata then
                 local rsRowIndex = #seq + 1 + extraRows
                 if hasCrop or hasWrap then rsRowIndex = rsRowIndex + 1 end
                 if hasCropPct then rsRowIndex = rsRowIndex + 1 end
                 if hasDropdown2 then rsRowIndex = rsRowIndex + 1 end
+                if hasDropdown3 then rsRowIndex = rsRowIndex + 1 end
                 local rsY = rowY(rsRowIndex)
                 p._rsLabel:ClearAllPoints()
                 p._rsLabel:SetPoint("LEFT", p, "TOPLEFT", SPAD, rsY - GRH / 2)
@@ -1845,6 +2099,7 @@ local function BuildDisplayLayout(parent, y, ctx)
                 if hasCrop or hasWrap then widthRowIndex = widthRowIndex + 1 end
                 if hasCropPct then widthRowIndex = widthRowIndex + 1 end
                 if hasDropdown2 then widthRowIndex = widthRowIndex + 1 end
+                if hasDropdown3 then widthRowIndex = widthRowIndex + 1 end
                 anchorRow(p._wLabel, p._wTrack, p._wValBox, rowY(widthRowIndex))
             end
         end
@@ -1869,6 +2124,7 @@ local function BuildDisplayLayout(parent, y, ctx)
             if hasSize    then h = h + gap + rowH end
             if hasWidth   then h = h + gap + rowH end
             if hasSpacing then h = h + gap + rowH end
+            if hasElemSpacing then h = h + gap + rowH end
             if hasGrowth then h = h + gap + p._GROWTH_ROW_H end
             -- Toggle gets its own row (stacks below Grow when both present).
             if hasToggle then h = h + gap + p._GROWTH_ROW_H end
@@ -1880,8 +2136,12 @@ local function BuildDisplayLayout(parent, y, ctx)
             if hasWrap then h = h + gap + p._GROWTH_ROW_H end
             -- Second toggle gets its own row (below the first toggle).
             if hasToggle2 then h = h + gap + p._GROWTH_ROW_H end
+            -- Third toggle: its own row below the second.
+            if hasToggle3 then h = h + gap + p._GROWTH_ROW_H end
             -- Second dropdown occupies its own extra row.
             if hasDropdown2 then h = h + gap + p._GROWTH_ROW_H end
+            -- Third dropdown: its own row below the second.
+            if hasDropdown3 then h = h + gap + p._GROWTH_ROW_H end
             -- Raise Strata occupies its own extra row.
             if hasRaiseStrata then h = h + gap + p._GROWTH_ROW_H end
             -- Strata dropdown occupies its own extra row.
@@ -1900,6 +2160,11 @@ local function BuildDisplayLayout(parent, y, ctx)
         local elapsed = 0
         local ANIM_DUR = 0.15
         cogPopup:SetScript("OnUpdate", function(self, dt)
+            -- A build dressed the anchor again mid-slide.
+            if CogOwnerGone() then
+                self:Hide()
+                return
+            end
             elapsed = elapsed + dt
             local t = math.min(elapsed / ANIM_DUR, 1)
             self:SetAlpha(t)
@@ -1959,6 +2224,123 @@ local function BuildDisplayLayout(parent, y, ctx)
         })
     end
 
+    -- The cog of a slot that chains two or more elements: the slot's own rows (Size,
+    -- X, Y, Grow at the corners, Raise Strata) plus Element Spacing and each element's
+    -- rows, the elements' toggles and dropdowns taking the popup's generic rows in turn
+    -- (three of each). The first aura row in the slot's order owns the aura rows
+    -- (Spacing, Cropped Icons, Adjust Crop, Hide Border): a second aura row in the
+    -- slot reaches its own by being dragged above the other.
+    local function CoreChainRows(opts, posKey)
+        local function refresh()
+            RefreshAllSlots()
+            UpdatePreview()
+        end
+        local toggles = { "toggle", "toggle2", "toggle3" }
+        local dropdowns = { "growth", "dropdown2", "dropdown3" }
+        local ti, di = 1, 1
+        -- A corner's Grow holds the first dropdown row.
+        if opts.growthGet then di = 2 end
+        local function Toggle(label, get, set)
+            local name = toggles[ti]
+            if not name then return end
+            ti = ti + 1
+            opts[name .. "Label"], opts[name .. "Get"], opts[name .. "Set"] = label, get, set
+        end
+        local function Dropdown(label, values, get, set)
+            local name = dropdowns[di]
+            if not name then return end
+            di = di + 1
+            opts[name .. "Label"], opts[name .. "Values"] = label, values
+            opts[name .. "Get"], opts[name .. "Set"] = get, set
+        end
+        -- Element Spacing: the gap between the slot's elements, following the slot's
+        -- Spacing (the first aura row's) until set.
+        local esKey = posKey .. "SlotElementSpacing"
+        opts.elemSpacingGet = function() return ns.NP_CoreElementSpacing(posKey) end
+        opts.elemSpacingSet = function(v) DB()[esKey] = v; refresh() end
+        local keys = CoreOrderKeys(posKey)
+        local aura
+        for i = 1, #keys do
+            local k = keys[i]
+            if (k == "debuffs" or k == "buffs" or k == "ccs") and CoreHas(posKey, k) then
+                aura = k
+                break
+            end
+        end
+        if aura then
+            local spacingKey = (aura == "debuffs" and "debuffSpacing") or (aura == "buffs" and "buffSpacing") or "ccSpacing"
+            local cropKey = (aura == "debuffs" and "debuffCropIcons") or (aura == "buffs" and "buffCropIcons") or "ccCropIcons"
+            local cropPctKey = (aura == "debuffs" and "debuffCropPercent") or (aura == "buffs" and "buffCropPercent") or "ccCropPercent"
+            local borderKey = (aura == "debuffs" and "hideDebuffIconBorder") or (aura == "buffs" and "hideBuffIconBorder") or "hideCCIconBorder"
+            opts.spacingGet = function() return DBVal(spacingKey) or defaults[spacingKey] end
+            opts.spacingSet = function(v) DB()[spacingKey] = v; refresh() end
+            opts.cropGet = function() return DBVal(cropKey) or defaults[cropKey] end
+            opts.cropSet = function(v) DB()[cropKey] = v; refresh() end
+            opts.cropPctGet = function() return DBVal(cropPctKey) or 10 end
+            opts.cropPctSet = function(v) DB()[cropPctKey] = v; refresh() end
+            -- Blizzard Style: the stock aura ring replaces the 1px border.
+            if not EllesmereUI.BlizzStyle.Get("nameplates") then
+                Toggle("Hide Border",
+                    function()
+                        local v = DBVal(borderKey)
+                        if v == nil then return false end
+                        return v and true or false
+                    end,
+                    function(v)
+                        DB()[borderKey] = v and true or false
+                        -- The live slot borders only catch up through a full settings pass.
+                        if ns.RefreshAllSettings then ns.RefreshAllSettings() end
+                        refresh()
+                    end)
+            end
+        end
+        -- The Rare/Quest indicator: Show In Instances, and the quest objective's Text
+        -- Size while Replace Quest Icon with Objective is on.
+        if CoreHas(posKey, "rare") or CoreHas(posKey, "quest") then
+            Toggle("Show In Instances",
+                function() return DBVal("classificationShowInInstances") == true end,
+                function(v)
+                    DB().classificationShowInInstances = v and true or false
+                    if ns.RefreshQuestObjective then ns.RefreshQuestObjective() end
+                    UpdatePreview()
+                end)
+            if CoreHas(posKey, "quest") and DBVal("replaceQuestIconWithObjective") == true then
+                opts.questTextGet = function()
+                    return DBVal("questObjectiveTextSize") or defaults.questObjectiveTextSize
+                end
+                opts.questTextSet = function(v)
+                    DB().questObjectiveTextSize = v
+                    if ns.RefreshQuestObjective then ns.RefreshQuestObjective() end
+                end
+            end
+        end
+        -- The faction badge: PvP Flag, Icon Style, Opposite Faction Only and Players
+        -- Only (the Wrap row), as its own cog has them.
+        if CoreHas(posKey, "faction") then
+            Dropdown("PvP Flag", {
+                    { value = "dim",    label = "Dim Unflagged" },
+                    { value = "only",   label = "Flagged Only"  },
+                    { value = "ignore", label = "Ignore"        },
+                },
+                function() return DBVal("factionPvP") or defaults.factionPvP end,
+                function(v) DB().factionPvP = v; refresh() end)
+            local styleValues = {}
+            for _, k in ipairs(EllesmereUI.FACTION_ART_ORDER) do
+                styleValues[#styleValues + 1] = { value = k, label = EllesmereUI.FACTION_ART_LABELS[k] }
+            end
+            Dropdown("Icon Style", styleValues,
+                function() return DBVal("factionStyle") or defaults.factionStyle end,
+                function(v) DB().factionStyle = v; refresh() end)
+            Toggle("Opposite Faction Only",
+                function() return DBVal("factionOppositeOnly") == true end,
+                function(v) DB().factionOppositeOnly = v and true or false; refresh() end)
+            opts.wrapLabel = "Players Only"
+            opts.wrapTooltip = "Hide the faction badge on faction NPCs such as guards."
+            opts.wrapGet = function() return DBVal("factionPlayersOnly") == true end
+            opts.wrapSet = function(v) DB().factionPlayersOnly = v and true or false; refresh() end
+        end
+    end
+
     local function MakeCogIcon(row, regionKey, posKey, slotLabel)
         local rgn = row[regionKey]
         local btn = CreateFrame("Button", nil, rgn)
@@ -1972,20 +2354,21 @@ local function BuildDisplayLayout(parent, y, ctx)
         -- the eye far from the cog.
         rgn._coreCogBtn = btn
         btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        btn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(btn, 0.4)
         local tex = btn:CreateTexture(nil, "OVERLAY")
         tex:SetAllPoints()
         tex:SetTexture(EllesmereUI.RESIZE_ICON)
+        EllesmereUI.AccentGlyph(btn, tex, "cog")
         btn:SetScript("OnEnter", function(self)
             if CorePosOffDisabled(posKey) then
                 EllesmereUI.ShowWidgetTooltip(self, DISABLED_TIP)
             else
-                self:SetAlpha(0.7)
+                EllesmereUI.SetGlyphAlpha(self, 0.7)
             end
         end)
         btn:SetScript("OnLeave", function(self)
             EllesmereUI.HideWidgetTooltip()
-            if cogPopupOwner ~= self then self:SetAlpha(CorePosOffDisabled(posKey) and 0.15 or 0.4) end
+            if LiveCogOwner() ~= self then EllesmereUI.SetGlyphAlpha(self, CorePosOffDisabled(posKey) and 0.15 or 0.4) end
         end)
         btn:SetScript("OnClick", function(self)
             if CorePosOffDisabled(posKey) then return end
@@ -2021,8 +2404,12 @@ local function BuildDisplayLayout(parent, y, ctx)
                 opts.growthSet    = function(v) DB()[growthKey] = v; RefreshAllSlots(); UpdatePreview() end
                 opts.growthValues = growthValues
             end
+            -- A slot chaining two or more elements takes its rows from CoreChainRows;
+            -- the per-element rows below are a single element's.
+            local chained = ns.NP_CoreMemberCount(posKey) >= 2
+            if chained then CoreChainRows(opts, posKey) end
             -- Spacing + Cropped Icons: only for multi-icon aura elements (debuffs/buffs/CCs); both map the slot's assigned element to its per-element key.
-            local element = GetElementAtPosition(posKey)
+            local element = chained and "chain" or GetElementAtPosition(posKey)
             local spacingKey, cropKey
             if element == "debuffs" then
                 spacingKey = "debuffSpacing"; cropKey = "debuffCropIcons"
@@ -2147,7 +2534,7 @@ local function BuildDisplayLayout(parent, y, ctx)
             -- the objective's Text Size (the General page's setting, mirrored)
             -- heads the cog, and the slot's Size goes when the Quest Indicator is
             -- all the slot holds.
-            if CoreHas(posKey, "quest") and DBVal("replaceQuestIconWithObjective") == true then
+            if not chained and CoreHas(posKey, "quest") and DBVal("replaceQuestIconWithObjective") == true then
                 opts.questTextGet = function()
                     return DBVal("questObjectiveTextSize") or defaults.questObjectiveTextSize
                 end
@@ -2170,9 +2557,9 @@ local function BuildDisplayLayout(parent, y, ctx)
         end)
         EllesmereUI.RegisterWidgetRefresh(function()
             local off = CorePosOffDisabled(posKey)
-            btn:SetAlpha(off and 0.15 or (cogPopupOwner == btn and 0.7 or 0.4))
+            EllesmereUI.SetGlyphAlpha(btn, off and 0.15 or (LiveCogOwner() == btn and 0.7 or 0.4))
         end)
-        if CorePosOffDisabled(posKey) then btn:SetAlpha(0.15) end
+        if CorePosOffDisabled(posKey) then EllesmereUI.SetGlyphAlpha(btn, 0.15) end
 
         -- Edit Tracked Auras (slot filters): accent link left of the cog when this row holds a debuff-side aura element, opens the per-kind filter popup; refreshes on the same widget-refresh channel as the cog alpha.
             local link = CreateFrame("Button", nil, rgn)
@@ -2180,20 +2567,25 @@ local function BuildDisplayLayout(parent, y, ctx)
             local lfp = (EllesmereUI.GetFontPath("nameplates")) or DBVal("font")
             local lfs = link:CreateFontString(nil, "OVERLAY")
             lfs:SetFont(lfp, 12, "")
-            local ar, ag, ab = 1, 0.82, 0.30
-            if EllesmereUI.GetAccentColor then ar, ag, ab = EllesmereUI.GetAccentColor() end
-            lfs:SetTextColor(ar, ag, ab)
+            lfs:SetTextColor(EllesmereUI.GetAccentColor())
+            -- Keyed by the font string: the page pool forgets the entry when it resets it.
+            EllesmereUI.RegAccent({ type = "callback", obj = lfs, fn = function(r, g, b) lfs:SetTextColor(r, g, b) end })
             lfs:SetAlpha(0.85)
             lfs:SetPoint("CENTER")
             lfs:SetText(EllesmereUI.L("Edit Tracked Auras"))
             link:SetSize(lfs:GetStringWidth() + 6, 16)
             link:SetPoint("RIGHT", btn, "LEFT", -6, 0)
             rgn._lastInline = link
+            -- The core eyes hang left of this link while it shows.
+            rgn._coreLink = link
+            -- The debuff side's filters whenever the slot holds the debuff row (with
+            -- Crowd Control inside it: both), else Crowd Control's own.
             local function LinkKind()
-                local el = GetElementAtPosition(posKey)
-                if el == "debuffs" then return "debuffs"
-                elseif el == "ccs" then return "cc"
-                elseif el == "debuffsccs" then return "dcc" end
+                if CoreHas(posKey, "debuffs") then
+                    return (DBVal("debuffIncludeCC") == true) and "dcc" or "debuffs"
+                elseif CoreHas(posKey, "ccs") then
+                    return "cc"
+                end
             end
             local function UpdLink()
                 local k = LinkKind()
@@ -2297,6 +2689,18 @@ local function BuildDisplayLayout(parent, y, ctx)
     }
     ctx.corePosToRegion = posToRegion
 
+    -- Where a Core Positions eye hangs: left of the slot's cog, past its Edit
+    -- Tracked Auras link while that shows (never while hidden: the link keeps
+    -- its width, which stranded the eye far left), and past another eye already
+    -- on the row (the raid marker's, when the Rare/Quest indicator shares its slot).
+    local function EyeAnchor(rgn, other)
+        local anchor = rgn._coreCogBtn or rgn._control
+        local link = rgn._coreLink
+        if link and link:IsShown() then anchor = link end
+        if other and other:IsShown() and other:GetParent() == rgn then anchor = other end
+        return anchor
+    end
+
     -- Eye icon that follows whichever Core Positions dropdown has "Raid Marker"
     if not EllesmereUI._prebuilding then
         local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
@@ -2304,8 +2708,9 @@ local function BuildDisplayLayout(parent, y, ctx)
         local eyeBtn = CreateFrame("Button", nil, parent)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetFrameLevel(parent:GetFrameLevel() + 10)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshIcon()
             eyeTex:SetTexture(optState.showRaidMarkerPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2317,13 +2722,15 @@ local function BuildDisplayLayout(parent, y, ctx)
             UpdatePreview()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, "Show/Hide on Preview", { width = 155 })
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
+        -- The classification eye hangs past this one on a shared row.
+        optState._coreRaidEye = eyeBtn
         _refreshRaidMarkerEyePos = function()
             local rmPos = DBVal("raidMarkerPos") or defaults.raidMarkerPos
             local info = posToRegion[rmPos]
@@ -2334,10 +2741,7 @@ local function BuildDisplayLayout(parent, y, ctx)
             local rgn = info[1][info[2]]
             eyeBtn:ClearAllPoints()
             eyeBtn:SetParent(rgn)
-            -- Anchor next to the cog icon (_coreCogBtn), never _lastInline:
-            -- that is the tracked-auras link, hidden-but-still-wide on the
-            -- slots this eye lands on, which stranded the eye far left.
-            eyeBtn:SetPoint("RIGHT", rgn._coreCogBtn or rgn._control, "LEFT", -8, 0)
+            eyeBtn:SetPoint("RIGHT", EyeAnchor(rgn), "LEFT", -8, 0)
             eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
             eyeBtn:Show()
         end
@@ -2351,8 +2755,9 @@ local function BuildDisplayLayout(parent, y, ctx)
         local eyeBtn = CreateFrame("Button", nil, parent)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetFrameLevel(parent:GetFrameLevel() + 10)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshIcon()
             eyeTex:SetTexture(optState.showClassificationPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2364,11 +2769,11 @@ local function BuildDisplayLayout(parent, y, ctx)
             UpdatePreview()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, "Show/Hide on Preview", { width = 155 })
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
         _refreshClassificationEyePos = function()
@@ -2381,10 +2786,7 @@ local function BuildDisplayLayout(parent, y, ctx)
             local rgn = info[1][info[2]]
             eyeBtn:ClearAllPoints()
             eyeBtn:SetParent(rgn)
-            -- Anchor next to the cog icon (_coreCogBtn), never _lastInline:
-            -- that is the tracked-auras link, hidden-but-still-wide on the
-            -- slots this eye lands on, which stranded the eye far left.
-            eyeBtn:SetPoint("RIGHT", rgn._coreCogBtn or rgn._control, "LEFT", -8, 0)
+            eyeBtn:SetPoint("RIGHT", EyeAnchor(rgn, optState._coreRaidEye), "LEFT", -8, 0)
             eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
             eyeBtn:Show()
         end
@@ -2399,18 +2801,15 @@ local function BuildDisplayLayout(parent, y, ctx)
     local coreTextHeader
     coreTextHeader, h = W:SectionHeader(parent, "CORE TEXT POSITIONS", y);  y = y - h
 
-    -- Subtitle hint next to the section header (same style as Core Positions)
+    -- Subtitle hint next to the section header's title (same style as Core Positions)
     do
-        local regions = { coreTextHeader:GetRegions() }
-        for _, rgn in ipairs(regions) do
-            if rgn:IsObjectType("FontString") and EllesmereUI.EnKey(rgn:GetText()) == "CORE TEXT POSITIONS" then
-                local sub = coreTextHeader:CreateFontString(nil, "OVERLAY")
-                sub:SetFont(rgn:GetFont())
-                sub:SetTextColor(1, 1, 1, 0.25)
-                sub:SetText(EllesmereUI.L("(one per slot)"))
-                sub:SetPoint("LEFT", rgn, "RIGHT", 6, 0)
-                break
-            end
+        local rgn = coreTextHeader._label
+        if rgn and EllesmereUI.EnKey(rgn:GetText()) == "CORE TEXT POSITIONS" then
+            local sub = coreTextHeader:CreateFontString(nil, "OVERLAY")
+            sub:SetFont(rgn:GetFont())
+            sub:SetTextColor(1, 1, 1, 0.25)
+            sub:SetText(EllesmereUI.L("(one per slot)"))
+            sub:SetPoint("LEFT", rgn, "RIGHT", 6, 0)
         end
     end
 
@@ -2428,9 +2827,10 @@ local function BuildDisplayLayout(parent, y, ctx)
         healthPctNumDash     = "Health % - #",
         healthNumPctDash     = "Health # - %",
         healthNumMax         = "Health # / Max #",
+        custom               = "Custom",
         none                 = "Remove",
     }
-    local textElementOrder = { "none", "---", "enemyName", "levelName", "nameLevel", "level", "targetOfTarget", "healthPercent", "healthPercentNoSign", "healthNumber", "healthPctNum", "healthNumPct", "healthPctNumDash", "healthNumPctDash", "healthNumMax" }
+    local textElementOrder = { "none", "---", "custom", "---", "enemyName", "levelName", "nameLevel", "level", "targetOfTarget", "healthPercent", "healthPercentNoSign", "healthNumber", "healthPctNum", "healthNumPct", "healthPctNumDash", "healthNumPctDash", "healthNumMax" }
 
     local function TextSlotSetValue(slotKey, v)
         -- Target of Target starts in Class mode whenever a slot newly takes it;
@@ -2482,20 +2882,21 @@ local function BuildDisplayLayout(parent, y, ctx)
         btn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
         rgn._lastInline = btn
         btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        btn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(btn, 0.4)
         local tex = btn:CreateTexture(nil, "OVERLAY")
         tex:SetAllPoints()
         tex:SetTexture(EllesmereUI.RESIZE_ICON)
+        EllesmereUI.AccentGlyph(btn, tex, "cog")
         btn:SetScript("OnEnter", function(self)
             if TextPosDisabled(slotKey) then
                 EllesmereUI.ShowWidgetTooltip(self, TEXT_DISABLED_TIP)
             else
-                self:SetAlpha(0.7)
+                EllesmereUI.SetGlyphAlpha(self, 0.7)
             end
         end)
         btn:SetScript("OnLeave", function(self)
             EllesmereUI.HideWidgetTooltip()
-            if cogPopupOwner ~= self then self:SetAlpha(TextPosDisabled(slotKey) and 0.15 or 0.4) end
+            if LiveCogOwner() ~= self then EllesmereUI.SetGlyphAlpha(self, TextPosDisabled(slotKey) and 0.15 or 0.4) end
         end)
         btn:SetScript("OnClick", function(self)
             if TextPosDisabled(slotKey) then return end
@@ -2538,21 +2939,21 @@ local function BuildDisplayLayout(parent, y, ctx)
                     UpdatePreview()
                 end
             end
-            -- Target of Target and the standalone level have no use for "Show % Decimal".
+            -- Target of Target, the standalone level and Custom (its template writes the
+            -- percent) have no use for "Show % Decimal".
             local slotEl = DBVal(slotKey)
-            if slotEl == "targetOfTarget" or slotEl == "level" then
+            if slotEl == "targetOfTarget" or slotEl == "level" or slotEl == "custom" then
                 cogOpts.toggleLabel, cogOpts.toggleGet, cogOpts.toggleSet = nil, nil, nil
             end
-            -- WoW Forever: the name's format, while this slot shows a name or the
-            -- Target of Target name. First and Last is stored as nil (the
-            -- runtime's full-name path).
-            if EllesmereUI.IS_FOREVER and (ns.IsNameElement(slotEl) or slotEl == "targetOfTarget") then
+            -- Name Format, while this slot shows a name, the Target of Target
+            -- name, or a custom template that reads one. Full name is stored as
+            -- nil (the runtime's unchanged path).
+            local parsed = slotEl == "custom" and ns.NP_CustomParse(slotKey, DB())
+            if ns.IsNameElement(slotEl) or slotEl == "targetOfTarget"
+                or (parsed and (parsed.has.name or parsed.has.target)) then
                 local nfKey = slotKey .. "NameFormat"
                 cogOpts.dropdown2Label = "Name Format"
-                cogOpts.dropdown2Values = {}
-                for _, k in ipairs(EllesmereUI.NAME_FORMAT_ORDER) do
-                    cogOpts.dropdown2Values[#cogOpts.dropdown2Values + 1] = { value = k, label = EllesmereUI.NAME_FORMAT_VALUES[k] }
-                end
+                cogOpts.dropdown2NameFormat = true
                 cogOpts.dropdown2Get = function() return DBVal(nfKey) or "full" end
                 cogOpts.dropdown2Set = function(v)
                     DB()[nfKey] = (v ~= "full") and v or nil
@@ -2570,9 +2971,9 @@ local function BuildDisplayLayout(parent, y, ctx)
         end)
         EllesmereUI.RegisterWidgetRefresh(function()
             local off = TextPosDisabled(slotKey)
-            btn:SetAlpha(off and 0.15 or (cogPopupOwner == btn and 0.7 or 0.4))
+            EllesmereUI.SetGlyphAlpha(btn, off and 0.15 or (LiveCogOwner() == btn and 0.7 or 0.4))
         end)
-        if TextPosDisabled(slotKey) then btn:SetAlpha(0.15) end
+        if TextPosDisabled(slotKey) then EllesmereUI.SetGlyphAlpha(btn, 0.15) end
         return btn
     end
 
@@ -2647,9 +3048,12 @@ local function BuildDisplayLayout(parent, y, ctx)
         end
         for i = 1, #MOVE_RAW do
             local suf = MOVE_RAW[i]
-            local v = db[S .. suf]
-            if type(v) == "table" then v = CopyTable(v) end
-            db[T .. suf] = v
+            -- The template moves only with Custom; otherwise T keeps its own.
+            if suf ~= "CustomFormat" or el == "custom" then
+                local v = db[S .. suf]
+                if type(v) == "table" then v = CopyTable(v) end
+                db[T .. suf] = v
+            end
         end
         if size ~= tSize then db[T .. "Size"] = size end
         db[T] = el
@@ -2681,8 +3085,18 @@ local function BuildDisplayLayout(parent, y, ctx)
     end
 
     local function TextCellCfg(s)
-        return { type="dropdown", text=s.label, values=textElementValues, order=textElementOrder,
-          getValue=function() return DBVal(s.key) end,
+        local function get() return DBVal(s.key) end
+        -- Custom opens its popup; a saved template selects it (the new cell reports
+        -- the write to Spec Overrides, as Add Text Slot does).
+        local values = ns.NPO_CustomTextValues(textElementValues, get, function()
+            ns.NPO_EditCustomText(s.key, function()
+                optState._npNotifySlot = s.key
+                TextSlotSetValue(s.key, "custom")
+                optState._npNotifySlot = nil
+            end)
+        end)
+        return { type="dropdown", text=s.label, values=values, order=textElementOrder,
+          getValue=get,
           setValue=function(v) TextSlotSetValue(s.key, v) end,
           disabledValues = (s.key == "textSlotLeft" or s.key == "textSlotRight") and COMBO_VS_CENTER_NAME or nil }
     end
@@ -2728,9 +3142,20 @@ local function BuildDisplayLayout(parent, y, ctx)
             itemDisabled = MoveDisabled(c.key),
             tooltip = "Choose this text's slot position." })
         MakeTextCogIcon(row, side, c.key, c.label)
+        -- The popup writes the template directly: Spec Overrides reads it through
+        -- an accessor, on a Custom text or one holding a template an override may
+        -- switch back to.
+        local fk = c.key .. "CustomFormat"
+        if DBVal(c.key) == "custom" or type(DBVal(fk)) == "string" then
+            EllesmereUI.TextTags.AddFormatAccessor(rgn, c.label,
+                function() return DBVal(fk) end,
+                function(v) DB()[fk] = v; ns.RefreshAllSettings(); UpdatePreview() end)
+        end
         if optState._npNotifySlot == c.key then
             optState._npNotifySlot = nil
-            EllesmereUI._NotifySettingWrite(rgn)
+            -- The slot read now, while this build's cell is its dress.
+            local snap = EllesmereUI._SOAttribution(rgn)
+            EllesmereUI._NotifySettingWrite(rgn, snap)
         end
     end
     for k = 1, #cells, 2 do

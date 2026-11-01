@@ -4,13 +4,18 @@
 ## Group: EllesmereUI
 ## Notes: Clean and beautiful visual refreshes for Blizzard UI elements.
 ## Author: Ellesmere
-## Version: 9.5.5
+## Version: 9.7.2
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIBlizzardSkinDB, EllesmereUIDragonRidingDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Luas
 EllesmereUIBlizzardSkin.lua
+EUI_BlizzardSkin_TooltipSkin.lua
+EUI_BlizzardSkin_Dialogs.lua
+EUI_BlizzardSkin_TooltipAnchor.lua
+EUI_BlizzardSkin_TooltipVisibility.lua
+EUI_BlizzardSkin_HUD.lua
 EllesmereUIBlizzardSkin_DiminishingReturns.lua
 EllesmereUIBlizzardSkin_CharacterSheet.lua
 EllesmereUIBlizzardSkin_SocketPanel.lua
@@ -25,6 +30,9 @@ EllesmereUIBlizzardSkin_ChatBubbles.lua
 EllesmereUIBlizzardSkin_WindowEngine.lua
 EllesmereUIBlizzardSkin_GroupFinder.lua
 EllesmereUIBlizzardSkin_WindowPacks.lua
+EllesmereUIBlizzardSkin_MerchantBulkBuy.lua
+# Retail only: the Mail card's Alt List beside Send Mail
+EllesmereUIBlizzardSkin_MailAlts.lua
 # WoW Forever only: plain window treatment + stats sidebar for the character sheet
 EllesmereUIBlizzardSkin_CharacterSheetForever.lua
 # WoW Forever only: the stock friends list under the standard window treatment

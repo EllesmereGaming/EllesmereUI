@@ -20,6 +20,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  through the callers' existing edges; nothing here ticks.
 -------------------------------------------------------------------------------
 local _, ns = ...
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot.
+local POOL = EllesmereUI._Pool
 
 local WHITE = "Interface\\Buttons\\WHITE8X8"
 
@@ -84,6 +88,10 @@ function ns.RF_StockBuild(owner, st, power)
     if st.stockEdge or not (ns.RF_Stock and ns.RF_Stock()) then return end
     local PP = EllesmereUI.PP or EllesmereUI.PanelPP
     if not PP then return end
+    -- On the Buff / Debuff Manager preview's replica (a frame of the options
+    -- page pool, EllesmereUI_FramePool.lua) these pieces are pooled with it and
+    -- handed out again by its next build; on every other owner a plain new frame.
+    local CreateFrame = POOL.CreateFrame
     local classic = ns.RF_Classic()
     -- The edge rides the EllesmereUI base border's level (+8): above the
     -- health, absorbs and dispel overlay, under the raised hover border and
@@ -529,7 +537,8 @@ function ns._KitAboveFlush()
         ns._LayoutPartyFrames()
     end
 end
-function ns.RF_KitBmView(inds)
+-- noPublish: the options preview's pass, which must not re-space the live frames.
+function ns.RF_KitBmView(inds, noPublish)
     local out = {}
     local chainMode = ns.RFC_BmChainMode
     local prof = ns.db and ns.db.profile
@@ -567,7 +576,7 @@ function ns.RF_KitBmView(inds)
     end
     -- Publish the lines above the frame (the frame spacing and the Friendly
     -- Boss attach reserve them); a change relays once, above only.
-    if anyIcon ~= ns._kitAboveIcon or maxSq ~= ns._kitAboveSq then
+    if not noPublish and (anyIcon ~= ns._kitAboveIcon or maxSq ~= ns._kitAboveSq) then
         local was = ns.RF_KitAboveUnits(prof)
         ns._kitAboveIcon, ns._kitAboveSq = anyIcon, maxSq
         if mode == "ABOVE" and ns.RF_KitAboveUnits(prof) ~= was and not ns._kitAbovePending then
@@ -800,19 +809,11 @@ local function SetLevel(frame, lvl)
     if frame and frame:GetFrameLevel() ~= lvl then frame:SetFrameLevel(lvl) end
 end
 
--- Preview frames have no anchor closures: the kit pass places their name,
--- role and ready check itself (every refresh re-anchors them first).
+-- Preview frames have no anchor closures: the kit pass places their
+-- texts (with the settings they were painted with), role and ready check
+-- itself (every refresh re-anchors them first).
 local function PreviewSpots(f, s, g)
-    local nm = f._nameText
-    if nm and nm:IsShown() then
-        nm:SetWidth(g.name.w)
-        nm:SetHeight(0)
-        ns.RF_KitSpot(g.name, nm, f, s.nameOffsetX, s.nameOffsetY)
-        nm:SetJustifyH("LEFT"); nm:SetJustifyV(g.name.jv)
-        local txt = nm:GetText()
-        nm:SetText("")
-        nm:SetText(txt or "")
-    end
+    if f._txL then ns.RF_TextLayout(f, f._txS) end
     if f._roleIcon then
         ns.RF_KitSpot(g.role, f._roleIcon, f, s.roleIconOffsetX, s.roleIconOffsetY)
         if f._roleIcon._roleText then
@@ -919,15 +920,16 @@ function ns.RF_KitBuild(owner, st, health, power, bdr)
     st._kitHov, st._kitSel = hov, sel
 
     -- Blizzard: the stock rounded masks and bevel, on the bars themselves
-    -- (the mana mask shapes the bar's own background too).
+    -- (the mana mask shapes the bar's own background too). The retail masks
+    -- on every client, like the art (WoW Forever redrew these names).
     if K.health.mask then
         local hm = health:CreateMaskTexture()
-        hm:SetAtlas(K.health.mask)
+        EllesmereUI.StockMask(hm, K.health.mask)
         st.kitHMask = hm
         if K.bevel then st.kitHShade = MakeBevel(health, hm) end
         if power and K.power.mask then
             local pm = power:CreateMaskTexture()
-            pm:SetAtlas(K.power.mask)
+            EllesmereUI.StockMask(pm, K.power.mask)
             st.kitPMask = pm
             local pbg = st.powerBg or st._powerBg
             if pbg then pbg:AddMaskTexture(pm) end
@@ -962,15 +964,12 @@ function ns.RF_ApplyPartyKit(owner, st, s, unit, force)
             Seat(owner, st, g)
             st.kitG, st.kitPx = g, px
             -- The spots scale with the frame: re-run what reads them.
-            if st.AnchorNameText then st.AnchorNameText() end
+            if st.AnchorTexts then st.AnchorTexts() end
             if st.AnchorRoleIcon then st.AnchorRoleIcon() end
             if st.AnchorReadyCheck then st.AnchorReadyCheck() end
-            if st.AnchorHealthText then st.AnchorHealthText() end
-            if st.AnchorHealAbsorbText then st.AnchorHealAbsorbText() end
-            if st.powerText then ns._RFAnchorPowerText(st) end
-            if st.levelText then ns._RFAnchorLevelText(st) end
             ns.RF_KitLeader(st, s)
-            if st._nameText and s then PreviewSpots(owner, s, g) end
+            -- A preview frame is its own state (RF_KitBuild(f, f, ...)).
+            if owner == st and s then PreviewSpots(owner, s, g) end
         end
     end
     -- Levels follow the owner (a party strata change rebuilds child levels):

@@ -8,6 +8,32 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUICooldownManager"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page pool (EllesmereUI_FramePool.lua): a frame made under a pool
+-- host (a reused page or header, a kept menu) is handed out again reset to
+-- fresh; anywhere else this is the plain CreateFrame. The bar menu is one kept
+-- frame for the session (PoolKept), dressed again on each open; PoolBegin
+-- hands its rows out again in place when the open menu draws itself again.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolKept, PoolBegin = EllesmereUI._Pool.Kept, EllesmereUI._Pool.Begin
+
+-- Live preview on mount and dismount (skyriding swaps the icons the preview
+-- copies). One event frame for the session, registered only while the CDM
+-- Bars page shows (its page frame's OnShow and OnHide), so nothing listens
+-- while the page is hidden. Only the preview is drawn again: the rows below
+-- it do not change with the mount.
+local mountLive = {}
+function mountLive.OnEvent()
+    local env = ns._CDMO_OptEnv
+    local pv = env and (env.optState._cdmPreview or EllesmereUI._cdmHeaderPreview)
+    if pv and pv:IsVisible() then env.UpdateCDMPreviewAndResize() end
+end
+function mountLive.Arm()
+    mountLive.frame:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
+end
+function mountLive.Disarm()
+    mountLive.frame:UnregisterAllEvents()
+end
+
 local function BuildCDMBarsPage(pageName, parent, yOffset)
     local env = ns._CDMO_OptEnv
     local AnyIconAlwaysShowOn, BuildKeybindStyleControls, DB, durationPositionOrder = env.AnyIconAlwaysShowOn, env.BuildKeybindStyleControls, env.DB, env.durationPositionOrder
@@ -17,7 +43,7 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
     local BuildCDMLivePreview = ns.CDMO_BuildCDMLivePreview
     local W = EllesmereUI.Widgets
     local y = yOffset
-    local _, h
+    local _, h, hdr
 
     local p = DB()
     if not p or not p.cdmBars then return math.abs(yOffset) end
@@ -438,9 +464,19 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
 
         -- Custom dropdown menu
         local ddMenu
-        local function BuildDDMenu()
-            if ddMenu then ddMenu:Hide(); ddMenu = nil end
-            local menu = CreateFrame("Frame", nil, UIParent)
+        local function BuildDDMenu(redraw)
+            local menu
+            local inPlace = redraw and ddMenu ~= nil
+            if inPlace then
+                -- Drawn again in place (a reorder drop): the open menu keeps
+                -- its frame and hands its rows out again in creation order.
+                menu = ddMenu
+                PoolBegin(menu)
+            else
+                if ddMenu then ddMenu:Hide(); ddMenu = nil end
+                -- One menu frame for the session, dressed again on every open.
+                menu = PoolKept(optState, "cdmBarMenu", "Frame", UIParent)
+            end
             menu:SetFrameStrata("FULLSCREEN_DIALOG")
             menu:SetFrameLevel(300)
             menu:SetClampedToScreen(true)
@@ -671,8 +707,8 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                                 end
                             end
                             -- Re-render in the new order (also re-anchors the
-                            -- dragged row); the rebuilt menu stays open.
-                            BuildDDMenu()
+                            -- dragged row); the redrawn menu stays open.
+                            BuildDDMenu(true)
                         end)
                     end
 
@@ -724,8 +760,10 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                                     if bb.key == "cooldowns" then optState.selectedCDMBarIndex = bi; break end
                                 end
                                 Refresh()
+                                -- Other pages' saved headers name the bars (Bar Glows'
+                                -- target): built again on their next visit. This
+                                -- page's header is built by its own rebuild below.
                                 EllesmereUI:InvalidateContentHeaderCache()
-                                EllesmereUI:SetContentHeader(optState._cdmHeaderBuilder)
                                 EllesmereUI:RefreshPage(true)
                             end,
                         })
@@ -743,8 +781,9 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                                 newName = newName and strtrim(newName) or ""
                                 if newName == "" or newName == oldName then return end
                                 b.name = newName
+                                -- Other pages' saved headers name the bars; this
+                                -- page's header is built by its own rebuild below.
                                 EllesmereUI:InvalidateContentHeaderCache()
-                                EllesmereUI:SetContentHeader(optState._cdmHeaderBuilder)
                                 EllesmereUI:RefreshPage(true)
                                 if ns.RegisterCDMUnlockElements then
                                     ns.RegisterCDMUnlockElements()
@@ -771,8 +810,8 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                 item:SetScript("OnClick", function()
                     menu:Hide()
                     optState.selectedCDMBarIndex = idx
-                    EllesmereUI:InvalidateContentHeaderCache()
-                    EllesmereUI:SetContentHeader(optState._cdmHeaderBuilder)
+                    -- The rebuild builds this page's header with the page,
+                    -- once (no other page's header shows the selection).
                     EllesmereUI:RefreshPage(true)
                 end)
 
@@ -828,8 +867,9 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                         ns.AddCDMBar(bType)
                         optState.selectedCDMBarIndex = #p.cdmBars.bars
                         Refresh()
+                        -- Other pages' saved headers name the bars; this
+                        -- page's header is built by its own rebuild below.
                         EllesmereUI:InvalidateContentHeaderCache()
-                        EllesmereUI:SetContentHeader(optState._cdmHeaderBuilder)
                         EllesmereUI:RefreshPage(true)
                     end)
                 end
@@ -845,7 +885,10 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                     m:Hide()
                 end
             end)
-            menu:HookScript("OnHide", function(m) m:SetScript("OnUpdate", nil) end)
+            -- Hooked once per dress: an in-place redraw keeps the dress's hook.
+            if not inPlace then
+                menu:HookScript("OnHide", function(m) m:SetScript("OnUpdate", nil) end)
+            end
 
             menu:Show()
             ddMenu = menu
@@ -881,17 +924,17 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
     end
     EllesmereUI:SetContentHeader(optState._cdmHeaderBuilder)
 
-    -- Refresh preview icons on mount/dismount (skyriding swaps action bar icons). Skipped
-    -- during a hidden search pre-build for the same reason as the pageListener in BuildBarGlowsPage: OnHide cleanup may never fire for a never-visible wrapper, leaking the listener all session.
+    -- Refresh preview icons on mount/dismount (mountLive above): listening while this page
+    -- shows, from now on and whenever it shows again. Skipped during a hidden search
+    -- pre-build: nothing to preview while indexing.
     if not EllesmereUI._prebuilding then
-        local mountListener = CreateFrame("Frame")
-        mountListener:RegisterEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
-        mountListener:SetScript("OnEvent", function()
-            EllesmereUI:RefreshPage(true)
-        end)
-        parent:HookScript("OnHide", function()
-            mountListener:UnregisterAllEvents()
-        end)
+        if not mountLive.frame then
+            mountLive.frame = CreateFrame("Frame")
+            mountLive.frame:SetScript("OnEvent", mountLive.OnEvent)
+        end
+        if parent:IsVisible() then mountLive.Arm() end
+        parent:HookScript("OnShow", mountLive.Arm)
+        parent:HookScript("OnHide", mountLive.Disarm)
     end
 
     -------------------------------------------------------------------
@@ -920,7 +963,9 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
     end
 
     if not isFocusKick then
-    _, h = W:SectionHeader(parent, "BAR LAYOUT", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "BAR LAYOUT", y);  y = y - h
+    -- The selected bar's mover (the key is read at the click).
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = function() return "CDM_" .. BD().key end })
 
     -- Row 1: (Sync) Visibility. Mouseover stays structurally absent for CDM bars
     -- (noMouseover), matching the old VIS_VALUES_CDM list.
@@ -1662,27 +1707,55 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
         local function RebuildSpellOptions()
             wipe(spellValues)
             for i = #spellOrder, 1, -1 do spellOrder[i] = nil end
+            -- Interrupts only. The list comes from EllesmereUI.KickData (the suite's
+            -- interrupt table, built from game spell data and shared with the Kick
+            -- Tracker), filtered to what this character can cast right now. Picking
+            -- one keeps the "only when my kick is ready" gate with an EMPTY FocusKick
+            -- bar (no nameplate icon, kick stays on the CDM); the engine already
+            -- honors an explicit pick without bar content.
             local sd = ns.GetBarSpellData and ns.GetBarSpellData("focuskick")
             local list = sd and sd.assignedSpells
+            local barHasSpell = false
             if list then
                 for _, sid in ipairs(list) do
-                    -- Only positive spell IDs (Blizzard cooldownable spells).
-                    -- Skip negative preset markers (trinkets / items).
-                    if type(sid) == "number" and sid > 0 then
-                        local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(sid)
-                        local label = (info and info.name) or ("Spell " .. sid)
-                        local key = tostring(sid)
-                        if not spellValues[key] then
-                            spellValues[key] = label
-                            spellOrder[#spellOrder + 1] = key
+                    if type(sid) == "number" and sid > 0 then barHasSpell = true; break end
+                end
+            end
+            -- No explicit pick: the engine falls back to the bar's first castable
+            -- spell, or stays silent on an empty bar. Name that state honestly.
+            spellValues["__none"] = barHasSpell and "Auto (First on Bar)" or "None"
+            spellOrder[#spellOrder + 1] = "__none"
+
+            local kicks, seenName = {}, {}
+            local KD = EllesmereUI.KickData
+            local resolve = ns.ResolveCastableInterrupt
+            if KD and KD.INTERRUPTS and resolve then
+                for id, k in pairs(KD.INTERRUPTS) do
+                    -- True kicks only: `tracked = false` marks spells that merely
+                    -- also interrupt (Avenger's Shield), same rule as the Kick Tracker.
+                    local castable = k.tracked ~= false and resolve(id)
+                    if castable then
+                        local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(id)
+                        local name = (info and info.name) or ("Spell " .. id)
+                        if not seenName[name] then
+                            seenName[name] = true
+                            kicks[#kicks + 1] = { key = tostring(id), name = name }
                         end
                     end
                 end
             end
-            if #spellOrder == 0 then
-                spellValues["__none"] = "(no spells on bar)"
-                spellOrder[#spellOrder + 1] = "__none"
+            table.sort(kicks, function(a, b) return a.name < b.name end)
+            if #kicks > 0 then
+                spellOrder[#spellOrder + 1] = "---"
+                for _, k in ipairs(kicks) do
+                    spellValues[k.key] = k.name
+                    spellOrder[#spellOrder + 1] = k.key
+                end
             end
+            -- Sound-only mode: fire on every cast, no interrupt or cooldown gate.
+            spellOrder[#spellOrder + 1] = "---"
+            spellValues["__any"] = "Any Cast (Sound Only)"
+            spellOrder[#spellOrder + 1] = "__any"
             -- The stored selection can outlive its spell (removing the kick empties
             -- assignedSpells, focusKickInterruptSpellID keeps pointing at it) and the
             -- dropdown would render the raw spell id. Give it a NAME but do NOT add it
@@ -1710,10 +1783,16 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
             { type = "dropdown", text = "Focus Cast Sound",
               values = soundValues, order = soundOrder,
               getValue = function() return BD().focusCastSoundKey or "none" end,
-              setValue = function(v) BD().focusCastSoundKey = v end },
+              setValue = function(v)
+                  BD().focusCastSoundKey = v
+                  -- Arm/disarm the cast proxy live (it is demand-gated on the sound).
+                  if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
+              end },
             { type = "dropdown", text = "Interrupt Spell",
+              tooltip = "Pick your kick to play the sound only while it is off cooldown, or Any Cast (Sound Only) to play it on every enemy cast.\nLeave the bar above empty for a sound with no nameplate icon.",
               values = spellValues, order = spellOrder,
               getValue = function()
+                  if BD().focusCastSoundAnyCast == true then return "__any" end
                   local sid = BD().focusKickInterruptSpellID
                   if not sid then return spellOrder[1] end
                   -- No label means RebuildSpellOptions rejected it: either
@@ -1725,11 +1804,13 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                   return key
               end,
               setValue = function(v)
-                  if v == "__none" then
+                  BD().focusCastSoundAnyCast = (v == "__any") or nil
+                  if v == "__none" or v == "__any" then
                       BD().focusKickInterruptSpellID = nil
                   else
                       BD().focusKickInterruptSpellID = tonumber(v)
                   end
+                  if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
               end });  y = y - h
 
         -- Live refresh: every click on the Interrupt Spell dropdown
@@ -3350,9 +3431,12 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                     setMode = function(mode)
                         local c = RotationBars()
                         if not c or c.rotationAssistStyle == "blizzard" then return end
+                        -- Spec Overrides: the slot this write belongs to, read
+                        -- before the write (as the widget factory does).
+                        local snap = EllesmereUI._SOAttribution(colorRgn)
                         c.rotationAssistColorMode = mode
                         if ns.UpdateRotationHighlights then ns.UpdateRotationHighlights() end
-                        EllesmereUI._NotifySettingWrite(colorRgn)
+                        EllesmereUI._NotifySettingWrite(colorRgn, snap)
                     end,
                     getCustomRGB = function()
                         local c = RotationBars()
@@ -3510,35 +3594,14 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
               BD().barStrata = v
               ns.BuildAllCDMBars(); Refresh()
           end }
-    -- WoW Forever has no combat potion presets, so the swap toggle is not
-    -- built there and Bar Strata opens the glow rows below instead.
-    if not EllesmereUI.IS_FOREVER then
-    _, h = W:DualRow(parent, y,
-        strataCfg,
-        -- Profile-wide (one switch covers the Light's Potential, Recklessness
-        -- and Liquid Luster presets on every CD/utility bar): a pot preset
-        -- whose own family is fully out of bags swaps its icon/count/cooldown
-        -- to the best pot of the partner families instead of sitting greyed
-        -- (Liquid Luster is the final fallback for the other two).
-        { type = "toggle", text = "Swap Combat Potions When Missing",
-          tooltip = "When your bags have none of one combat potion type, its icon swaps to track the next type you own.",
-          getValue = function()
-              local p = DB(); return p and p.cdmBars and p.cdmBars.swapPotionsWhenMissing == true
-          end,
-          setValue = function(v)
-              local p = DB()
-              if p and p.cdmBars then
-                  p.cdmBars.swapPotionsWhenMissing = v
-                  if ns._BumpPotResolveGen then ns._BumpPotResolveGen() end
-                  if ns.FullCDMRebuild then ns.FullCDMRebuild("pot_swap_toggle") end
-              end
-          end });  y = y - h
-    end -- not IS_FOREVER
+    -- Bar Strata opens the rows below. (Swap Combat Potions When Missing, once
+    -- beside it, is a per-icon setting now: each Combat Potion icon's menu,
+    -- Combat Potion Icon; an icon that never set its own still reads the old
+    -- profile-wide switch.)
 
     -- Global, not per-bar: one gate for every glow the Cooldown Manager
-    -- draws, hence the label. Same hosting trick as Hide Items if Missing
-    -- above -- it takes the cooldown edge row's free slot where that row
-    -- exists, and closes the section on its own for buff-family bars.
+    -- draws, hence the label. Beside Bar Strata on buff-family bars; on
+    -- cooldown/utility bars it leads the row under the cooldown edge row.
     local glowCombatCfg = { type="toggle", text="Show Glows Only in Combat (global)",
           tooltip = "Hide every Cooldown Manager glow out of combat and bring them all back the moment you enter combat.",
           getValue=function()
@@ -3567,9 +3630,10 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
               EllesmereUI:RefreshPage()
           end }
 
-    -- Cooldown/utility bars only: buff bars have no cooldown edge.
-    -- WoW Forever: Bar Strata takes the first slot here and every later
-    -- toggle moves up one, closing with Show Non-On Use Trinkets.
+    -- Cooldown/utility bars only: buff bars have no cooldown edge. Bar Strata
+    -- takes the first slot here and every later toggle moves up one; WoW
+    -- Forever closes with Show Non-On Use Trinkets (retail places it beside
+    -- Show Rotation Helper above).
     if barData.barType == "cooldowns" or barData.barType == "utility" then
     local edgeCfg = { type="toggle", text="Always Show Cooldown Edge",
           tooltip="Show the rotating cooldown edge on every cooldown in this bar, not just while a charge is recharging. Hide Recharge Edge still overrides this for individual charge spells.",
@@ -3578,18 +3642,16 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
               BD().showCooldownEdge = v and true or nil
               ns.BuildAllCDMBars(); Refresh()
           end }
+    _, h = W:DualRow(parent, y, strataCfg, edgeCfg);  y = y - h
     if EllesmereUI.IS_FOREVER then
-        _, h = W:DualRow(parent, y, strataCfg, edgeCfg);  y = y - h
         _, h = W:DualRow(parent, y, glowCombatCfg, trinketCfg);  y = y - h
     else
-        _, h = W:DualRow(parent, y, edgeCfg, glowCombatCfg);  y = y - h
+        _, h = W:DualRow(parent, y, glowCombatCfg, EllesmereUI.BlankRowCfg());  y = y - h
     end
     else
+    _, h = W:DualRow(parent, y, strataCfg, glowCombatCfg);  y = y - h
     if EllesmereUI.IS_FOREVER then
-        _, h = W:DualRow(parent, y, strataCfg, glowCombatCfg);  y = y - h
         _, h = W:DualRow(parent, y, trinketCfg, EllesmereUI.BlankRowCfg());  y = y - h
-    else
-        _, h = W:DualRow(parent, y, glowCombatCfg, EllesmereUI.BlankRowCfg());  y = y - h
     end
     end
 

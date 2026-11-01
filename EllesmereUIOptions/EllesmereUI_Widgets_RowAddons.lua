@@ -47,11 +47,63 @@ local function BuildInlineToggle(opts)
     return toggle
 end
 
+-- Accent Colored Settings Elements (Global Settings > Display, both off by
+-- default): kind "cog" = the cog, directions and resize glyphs, "preview" =
+-- the eye preview toggles. Off, a glyph keeps the plain white look.
+local function AccentGlyphsOn(kind)
+    local db = EllesmereUIDB
+    if not db then return false end
+    if kind == "cog" then return db.accentCogIcons == true end
+    return db.accentPreviewIcons == true
+end
+EllesmereUI.AccentGlyphsOn = AccentGlyphsOn
+
+-- Glyph buttons a page builds itself (the eye preview toggles, the nameplate
+-- slot cogs): it marks the glyph with AccentGlyph(btn, tex, kind) once and
+-- sets the button's alpha through SetGlyphAlpha(btn, a) with the plain glyph
+-- values (0.15 disabled, 0.4 idle, 0.7 hovered). They show as the cogs below
+-- do: white 0.55 idle / 0.75 hovered, accent 0.65 / 0.85, 0.15 disabled, and
+-- linearly between (the Raid & Party Frames eye's 0.6 while its preview is
+-- on). With its kind turned on the glyph wears the accent (white while
+-- disabled), following accent changes.
+local function GlyphAlpha(a, accent)
+    if a <= 0.15 then return a end
+    return math.min(1, (accent and 0.65 or 0.55) + (a - 0.4) * 2 / 3)
+end
+
+local function PaintGlyph(btn)
+    local a, tex = btn._glyphA or 0.4, btn._glyphTex
+    local acc = tex and a > 0.15 and AccentGlyphsOn(btn._glyphKind)
+    btn:SetAlpha(GlyphAlpha(a, acc))
+    if not tex then return end
+    if acc then tex:SetVertexColor(EllesmereUI.GetAccentColor()) else tex:SetVertexColor(1, 1, 1) end
+end
+
+function EllesmereUI.SetGlyphAlpha(btn, a)
+    btn._glyphA = a
+    PaintGlyph(btn)
+end
+
+-- kind: "cog" for a cog-family glyph, else a preview eye.
+function EllesmereUI.AccentGlyph(btn, tex, kind)
+    btn._glyphTex, btn._glyphKind = tex, kind or "preview"
+    PaintGlyph(btn)
+    -- Keyed by the texture: the page pool forgets the entry when it resets it.
+    EllesmereUI.RegAccent({ type = "callback", obj = tex, fn = function() PaintGlyph(btn) end })
+end
+
 -- Inline cog button on a DualRow half-region, left of its control (or of the last inline item). Returns cogBtn, showFn; nil during the search prebuild.
 -- opts: BuildCogPopup's own opts (title, rows, captureRegion, minWidth, ...) or show(btn) + optional isOpen(btn) for a custom popup; icon, size (26), gap (8), anchorTo,
 --   relPoint (the anchor's side the cog's right edge sits on, LEFT; a host that is not a DualRow half passes anchorTo = itself, relPoint = "RIGHT", gap = 0),
 --   chain (default true: anchors to and becomes region._lastInline), tip, disabled + disabledTooltip/rawTooltip/requireState (as ResolveDisabledTip; default: the host control's).
--- Alpha: 0.15 disabled, 0.4 idle, 0.7 hovered or while its popup is open. Disabled blocks the click and shows the requirement tooltip.
+-- Alpha: 0.15 disabled, 0.55 idle, 0.75 hovered or while its popup is open. Disabled blocks the click and shows the requirement tooltip.
+-- With Accent Colored Settings Elements' Cogwheel Icons on, the cog, directions and resize glyphs wear
+-- the accent (white while disabled) at 0.65 idle, 0.85 hovered or open, and follow its changes.
+local ACCENT_COG_ICONS = {
+    [EllesmereUI.COGS_ICON] = true,
+    [EllesmereUI.DIRECTIONS_ICON] = true,
+    [EllesmereUI.RESIZE_ICON] = true,
+}
 local function BuildInlineCog(rgn, opts)
     if EllesmereUI._prebuilding then return end
     -- A disabled cog with no tooltip of its own explains itself with its host control's requirement.
@@ -68,8 +120,10 @@ local function BuildInlineCog(rgn, opts)
     btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
     local tex = btn:CreateTexture(nil, "OVERLAY")
     tex:SetAllPoints()
-    tex:SetTexture(opts.icon or EllesmereUI.COGS_ICON)
+    local iconPath = opts.icon or EllesmereUI.COGS_ICON
+    tex:SetTexture(iconPath)
     btn._icon = tex
+    local accentIcon = not opts.paint and ACCENT_COG_ICONS[iconPath]
 
     local block
     if opts.disabled then
@@ -83,21 +137,40 @@ local function BuildInlineCog(rgn, opts)
         end)
         block:SetScript("OnLeave", function() HideWidgetTooltip() end)
     end
-    local function State()
+    -- hover: the enter / leave scripts say which edge they are (a rect test at
+    -- the moment of the event can disagree with the hit test on an edge);
+    -- a refresh pass asks the rect.
+    local function State(hover)
         local off = opts.disabled and opts.disabled()
         local pf = type(show) == "table" and show._popupFrame
         local open = (opts.isOpen and opts.isOpen(btn)) or (pf and pf:IsShown() and pf._owner == btn)
-        btn:SetAlpha(off and 0.15 or ((open or btn:IsMouseOver()) and 0.7 or 0.4))
+        local hot = open
+        if not hot then
+            if hover == nil then hot = btn:IsMouseOver() else hot = hover end
+        end
+        -- opts.paint(btn, off, hot) paints the states itself (the unlock jump);
+        -- a cog's own look is its alpha.
+        local acc = accentIcon and not off and AccentGlyphsOn("cog")
+        if opts.paint then opts.paint(btn, off, hot)
+        elseif off then btn:SetAlpha(0.15)
+        elseif acc then btn:SetAlpha(hot and 0.85 or 0.65)
+        else btn:SetAlpha(hot and 0.75 or 0.55) end
+        if accentIcon then
+            if acc then tex:SetVertexColor(EllesmereUI.GetAccentColor()) else tex:SetVertexColor(1, 1, 1) end
+        end
         if block then block:SetShown(off and true or false) end
     end
     btn._euiCogState = State
+    -- Repaints on accent changes (opts.paint reads the accent too: the unlock jump).
+    -- Keyed by the texture: the page pool forgets the entry when it resets it.
+    if accentIcon or opts.paint then EllesmereUI.RegAccent({ type = "callback", obj = tex, fn = function() State() end }) end
 
     btn:SetScript("OnEnter", function(self)
-        State()
+        State(true)
         if opts.tip then ShowWidgetTooltip(self, opts.tip) end
     end)
     btn:SetScript("OnLeave", function()
-        State()
+        State(false)
         if opts.tip then HideWidgetTooltip() end
     end)
     btn:SetScript("OnClick", function(self) show(self) end)
@@ -172,6 +245,94 @@ function EllesmereUI.BuildInlineButton(rgn, text, onClick, opts)
     return btn
 end
 
+-- Opens Unlock Mode from an options row with the element `key` selected and
+-- its mover flashed once the movers have faded in: the sidebar entry's path
+-- (the active module and page become the return target the exit reopens; the
+-- panel stays shown, since the open animation reads its size and shrinks and
+-- hides it itself, and Spec Overrides stashes its editing session only while
+-- the panel still shows) plus the auto-select key and the flash flag the end
+-- of the open animation reads. In combat nothing changes and the red chat line
+-- explains. Returns whether the open was requested.
+function EllesmereUI.OpenUnlockModeAt(key)
+    if InCombatLockdown() then
+        EllesmereUI.PrintError("Cannot enter Unlock Mode during combat.")
+        return false
+    end
+    -- Installed by the unlock core's init, so a live check rather than a dead guard.
+    if not EllesmereUI._openUnlockMode then return false end
+    EllesmereUI._unlockReturnModule = EllesmereUI:GetActiveModule()
+    EllesmereUI._unlockReturnPage = EllesmereUI:GetActivePage()
+    EllesmereUI._unlockAutoSelectKey = key
+    EllesmereUI._unlockAutoSelectFlash = true
+    C_Timer.After(0, EllesmereUI._openUnlockMode)
+    return true
+end
+
+-- "Move in Unlock Mode" inline button on a DualRow half-region: an inline cog
+-- (BuildInlineCog's placement, chain, alphas, tooltip and disabled block) that
+-- wears the unlocked-lock glyph and whose click is OpenUnlockModeAt(opts.key).
+-- opts: key (the unlock element to select: a string, or a function returning
+-- it at the click, for a page whose selector picks the element), tooltip
+-- ("Move in Unlock Mode"), disabled + disabledTooltip/rawTooltip/requireState,
+-- size, gap, anchorTo, relPoint, chain (as BuildInlineCog). Returns the
+-- button; nil during the search prebuild.
+-- The glyph in the accent: 70% at rest, full while hovered, 20% while
+-- disabled (owner 2026-10-23).
+local function UnlockJumpPaint(btn, off, hot)
+    btn:SetAlpha(off and 0.2 or (hot and 1 or 0.7))
+    local r, g, b = EllesmereUI.GetAccentColor()
+    btn._icon:SetVertexColor(r, g, b)
+end
+
+function EllesmereUI.BuildUnlockJump(rgn, opts)
+    if EllesmereUI._prebuilding then return end
+    local key = opts.key
+    local btn = BuildInlineCog(rgn, {
+        icon = EllesmereUI.UNLOCK_ICON,
+        tip = opts.tooltip or "Move in Unlock Mode",
+        show = function()
+            local k = key
+            if type(k) == "function" then k = k() end
+            if k then EllesmereUI.OpenUnlockModeAt(k) end
+        end,
+        disabled = opts.disabled, disabledTooltip = opts.disabledTooltip,
+        rawTooltip = opts.rawTooltip, requireState = opts.requireState,
+        size = opts.size, gap = opts.gap, anchorTo = opts.anchorTo,
+        relPoint = opts.relPoint, chain = opts.chain,
+        paint = UnlockJumpPaint,
+    })
+    -- The glyph's art is square (30x30), so the cog icon's own fill of the
+    -- button is its fit; drawn unsnapped, since it lands between texel sizes.
+    local icon = btn._icon
+    if icon.SetSnapToPixelGrid then icon:SetSnapToPixelGrid(false); icon:SetTexelSnappingBias(0) end
+    return btn
+end
+
+-- "Move in Unlock Mode" on a section header (W:SectionHeader's frame): the
+-- same glyph button, right after the title. One per movable element, on the
+-- first section of that element's settings (owner 2026-10-21): a page whose
+-- selector picks the element (an action bar, a unit frame, a CDM bar) passes
+-- a key FUNCTION that reads the selection, so the click highlights that one.
+-- opts: key (string or function), tooltip, disabled + disabledTooltip/
+-- rawTooltip/requireState (the element's own enable, where it has one), size
+-- (20). Returns the button; nil during the search prebuild or without a
+-- titled header.
+function EllesmereUI.BuildSectionUnlockJump(hdr, opts)
+    if EllesmereUI._prebuilding then return end
+    local label = hdr and hdr._label
+    if not label then return end
+    local size = opts.size or 20
+    local btn = EllesmereUI.BuildUnlockJump(hdr, {
+        key = opts.key, tooltip = opts.tooltip,
+        disabled = opts.disabled, disabledTooltip = opts.disabledTooltip,
+        rawTooltip = opts.rawTooltip, requireState = opts.requireState,
+        size = size, chain = false, anchorTo = label, relPoint = "RIGHT", gap = 0,
+    })
+    btn:ClearAllPoints()
+    PP.Point(btn, "LEFT", label, "RIGHT", 3, 0)
+    return btn
+end
+
 -------------------------------------------------------------------------------
 --  Row-Label and Button Menus
 --  The standard dropdown list opened from something that is not a dropdown
@@ -214,6 +375,8 @@ local function BuildRowLabelMenu(rgn, opts)
     arrow:SetTexture(ROW_MENU_ARROW)
     arrow:SetSize(17, 17)
     arrow:SetPoint("LEFT", label, "LEFT", math.ceil(label:GetStringWidth()) + 6, -1)
+    -- The label clamp (QueueLabelClamp) keeps room for it and moves it with a cut label.
+    rgn._labelArrow = arrow
     btn:SetPoint("TOPLEFT", label, "TOPLEFT", -4, 5)
     btn:SetPoint("BOTTOMRIGHT", arrow, "BOTTOMRIGHT", 2, -2)
     local menu
@@ -416,13 +579,31 @@ local function SetLessCommonSearchActive(active)
     end
 end
 
+-- A colour scale across a swatch: stops = { { r, g, b }, ... }, drawn left to
+-- right in equal steps over its fill (for a swatch that picks a scale, such as
+-- the meters' value gradient).
+local function PaintSwatchGradient(swatch, stops)
+    local steps = #stops - 1
+    local w = swatch:GetWidth()
+    for i = 1, steps do
+        local from, to = stops[i], stops[i + 1]
+        local seg = swatch:CreateTexture(nil, "ARTWORK", nil, 1)
+        seg:SetPoint("TOPLEFT", swatch, "TOPLEFT", w * (i - 1) / steps, 0)
+        seg:SetPoint("BOTTOMRIGHT", swatch, "BOTTOMLEFT", w * i / steps, 0)
+        seg:SetColorTexture(1, 1, 1, 1)
+        seg:SetGradient("HORIZONTAL", CreateColor(from[1], from[2], from[3], 1), CreateColor(to[1], to[2], to[3], 1))
+    end
+end
+
 -------------------------------------------------------------------------------
 --  BuildInlineSwatches(region, swatches, opts)
 --  Inline form of the multiSwatch half: builds the same swatch list (tooltip, hasAlpha, getValue/setValue,
---  onClick override, per-swatch disabled+disabledTooltip, refreshAlpha) to the LEFT of the region's control, so a
---  slider (or any control half) can host its color swatches on the same row. Chains region._lastInline, so a cog
---  button built afterwards lands left of the swatches. opts.disabled/opts.disabledTooltip mirror the row-level disabled state of the multiSwatch form.
+--  onClick override, per-swatch disabled+disabledTooltip, refreshAlpha, gradient) to the LEFT of the region's
+--  control, so a slider (or any control half) can host its color swatches on the same row. Chains
+--  region._lastInline, so a cog button built afterwards lands left of the swatches. opts.disabled/opts.disabledTooltip
+--  mirror the row-level disabled state of the multiSwatch form.
 --  opts.size: the swatch size (nil = BuildColorSwatch's default 24).
+--  sc.gradient: colour stops shown across the swatch in place of its colour (PaintSwatchGradient).
 -------------------------------------------------------------------------------
 local function BuildInlineSwatches(region, swatches, opts)
     -- Hidden search pre-build: swatches index nothing and the pre-built page is never shown, so none are built (its regions are stand-ins with no frame to build on).
@@ -436,6 +617,7 @@ local function BuildInlineSwatches(region, swatches, opts)
         PP.Point(swatch, "RIGHT", anchorTo, "LEFT", -8, 0)
         anchorTo = swatch
         region._lastInline = swatch
+        if sc.gradient then PaintSwatchGradient(swatch, sc.gradient) end
         if sc.onClick then
             swatch._eabOrigClick = swatch:GetScript("OnClick")
             swatch:SetScript("OnClick", sc.onClick)

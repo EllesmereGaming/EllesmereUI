@@ -114,8 +114,17 @@ local CORNERS = {
 local STRIPS = { "_top", "_bottom", "_left", "_right" }
 local STYLE_OK = { solid = true, glow = true, shadow = true }
 local EMPTY = {}
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot.
+local POOL = EllesmereUI._Pool
 
 local state = setmetatable({}, { __mode = "k" })       -- owner -> rounding state
+-- border container -> its Solid parts: a container outlives an owner's state
+-- (an options page pool owner dressed again starts a new state, while its PP
+-- border container stays on the same frame), so its parts are found again,
+-- never made twice.
+local solidsByCont = setmetatable({}, { __mode = "k" })
 local byBorder = setmetatable({}, { __mode = "k" })    -- border frame -> state
 local ownTex = setmetatable({}, { __mode = "k" })      -- our pieces, never masked
 local hooked = false
@@ -292,7 +301,7 @@ local function SolidOff(st)
 end
 
 local function SolidParts(st, cont)
-    local sd = st.solids[cont]
+    local sd = solidsByCont[cont]
     if sd then return sd end
     sd = { cont = cont }
     -- The fill and its hole draw their slice corners in their frame's units,
@@ -302,9 +311,15 @@ local function SolidParts(st, cont)
     -- frame, at the body's scale.
     local host = cont
     if cont.IsIgnoringParentScale and cont:IsIgnoringParentScale() then
-        host = CreateFrame("Frame", nil, cont:GetParent())
+        local parent = cont:GetParent()
+        host = CreateFrame("Frame", nil, parent)
         host:SetAllPoints(cont)
         host:EnableMouse(false)
+        -- Kept with its container: on a frame of the options page pool it
+        -- rides that frame as the container does (EllesmereUI_PixelPerfect.lua),
+        -- hidden at its reset and never handed out; SolidOn shows it again.
+        local attach = POOL.Attach
+        if attach then attach(parent, host) end
         sd.layer = host
     end
     local fill = host:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -317,7 +332,7 @@ local function SolidParts(st, cont)
     local hide = cont:CreateMaskTexture()
     hide:SetTexture(MEDIA .. "hide.tga", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
     sd.hide = hide
-    st.solids[cont] = sd
+    solidsByCont[cont] = sd
     return sd
 end
 
@@ -363,6 +378,7 @@ local function SolidOn(st, cont, radius, inner)
     -- The layer draws where the container does.
     local layer = sd.layer
     if layer then
+        if not layer:IsShown() then layer:Show() end
         local lvl = cont:GetFrameLevel()
         if layer:GetFrameLevel() ~= lvl then layer:SetFrameLevel(lvl) end
     end
@@ -384,7 +400,9 @@ end
 local function GlowParts(st, border)
     local gl = st.glow
     if gl then return gl end
-    local f = CreateFrame("Frame", nil, border)
+    -- On a frame of the options page pool the glow frame is pooled with it:
+    -- the state that holds it is dropped once that frame is dressed again.
+    local f = POOL.CreateFrame("Frame", nil, border)
     f:EnableMouse(false)
     gl = { frame = f, corner = {}, edge = {} }
     -- Corner pieces: art, size, place and crop are set per shape by GlowOn.
@@ -598,10 +616,38 @@ local function Paint(st, radius, inner, cont, glow)
     if glow then GlowOn(st, st.border, glow, radius) else GlowOff(st) end
 end
 
+-- The owner's options page pool dress (EllesmereUI_FramePool.lua; nil for a
+-- frame the pool did not make).
+local function PoolDress(owner)
+    local gen = POOL.Gen
+    return gen and gen(owner)
+end
+-- A state made for an earlier pool dress of its owner is over. The pool reset
+-- the regions it holds (body mask, masked textures, glow pieces) and the new
+-- dress may already use them in other roles, so none of them is touched: only
+-- what lives outside the pool is undone (the Solid parts on the PP-kept border
+-- container, a glow backdrop or bar clip the pool does not manage, the recolor
+-- entry and the pixel-grid registration), then the state goes.
+local function DropStale(owner, st)
+    if not st or st.poolGen == PoolDress(owner) then return st end
+    if st.on then
+        SolidOff(st)
+        local managed = POOL.Managed
+        local gl = st.glow
+        if gl and gl.on and gl.bd and not (managed and managed(gl.bd)) then gl.bd:SetAlpha(1) end
+        local clip = st.clip
+        if clip and not (managed and managed(clip)) then clip:SetClipsChildren(true) end
+        EllesmereUI.RegisterPxReapply(owner, nil)
+    end
+    if st.border and byBorder[st.border] == st then byBorder[st.border] = nil end
+    state[owner] = nil
+    return nil
+end
+
 -- The pixel grid moved: the strips and the glow edge took new sizes, the
 -- body textures stay the same.
 Refit = function(owner)
-    local st = state[owner]
+    local st = DropStale(owner, state[owner])
     if not (st and st.on) then return end
     local radius, inner, cont, glow = Fit(st)
     ReseatMask(st, inner, cont)
@@ -610,7 +656,7 @@ end
 
 function EllesmereUI.RoundCorners(owner, radius, opts)
     if not owner then return end
-    local st = state[owner]
+    local st = DropStale(owner, state[owner])
     radius = min(floor(tonumber(radius) or 0), MAX_RADIUS)
     opts = opts or EMPTY
     local style = opts.style or "solid"
@@ -622,7 +668,7 @@ function EllesmereUI.RoundCorners(owner, radius, opts)
         return
     end
     if not st then
-        st = { owner = owner, masked = {}, solids = {}, gen = 0 }
+        st = { owner = owner, masked = {}, gen = 0, poolGen = PoolDress(owner) }
         state[owner] = st
     end
     if not hooked then
@@ -670,7 +716,7 @@ end
 -- textures, so the mask is reshaped in place (Refit) instead of walked again.
 -- A body texture left without the mask needs the walk's retry: full pass.
 function EllesmereUI.RoundedSetCorners(owner, corners)
-    local st = owner and state[owner]
+    local st = owner and DropStale(owner, state[owner])
     if not (st and st.on) or st.missed then return false end
     corners = corners and floor(tonumber(corners) or ALL_CORNERS) % 16 or ALL_CORNERS
     if corners == 0 then return false end

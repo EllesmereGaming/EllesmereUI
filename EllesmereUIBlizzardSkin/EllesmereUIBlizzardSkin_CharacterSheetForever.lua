@@ -59,12 +59,7 @@ local ADDON_NAME, ns = ...
 local EllesmereUI = _G.EllesmereUI
 if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 
-local FFD = setmetatable({}, { __mode = "k" })
-local function GetFFD(frame)
-    local d = FFD[frame]
-    if not d then d = {}; FFD[frame] = d end
-    return d
-end
+local FFD, GetFFD = EllesmereUI.NewFrameData()
 
 -- The Character Sheet card's Off and the window skins kill switch, which
 -- stop both looks (as they stop the retail sheet's).
@@ -111,7 +106,8 @@ end
 --------------------------------------------------------------------------------
 --  Colours: the retail sidebar's category palette, keyed the way the options
 --  page stores overrides (EllesmereUIDB.statCategoryColors[key]). Forever's
---  categories map onto it; General gets its own cyan.
+--  categories map onto it; General gets its own cyan, the pet pane's Combat
+--  takes Attack's.
 --------------------------------------------------------------------------------
 local DEFAULT_COLORS = {
     General            = { r = 0.30,  g = 0.80,  b = 0.95 },
@@ -126,6 +122,7 @@ if STAT_CATEGORY_PRIMARY_ATTRIBUTES then CATEGORY_KEY[STAT_CATEGORY_PRIMARY_ATTR
 if STAT_CATEGORY_WEAPONS then CATEGORY_KEY[STAT_CATEGORY_WEAPONS] = "Attack" end
 if STAT_CATEGORY_MODIFIERS then CATEGORY_KEY[STAT_CATEGORY_MODIFIERS] = "Secondary Stats" end
 if STAT_CATEGORY_DEFENSE then CATEGORY_KEY[STAT_CATEGORY_DEFENSE] = "Defense" end
+if STAT_CATEGORY_COMBAT then CATEGORY_KEY[STAT_CATEGORY_COMBAT] = "Attack" end
 
 local function CategoryColor(categoryName)
     local key = categoryName and CATEGORY_KEY[categoryName]

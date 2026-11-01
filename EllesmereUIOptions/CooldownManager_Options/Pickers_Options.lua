@@ -8,6 +8,15 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUICooldownManager"]
 if not ns then return end  -- module disabled: no options page
 
+-- The options page pool (EllesmereUI_FramePool.lua): a frame made under a pool
+-- host (a kept picker menu) is handed out again reset to fresh; anywhere else
+-- this is the plain CreateFrame. Each picker menu is one kept frame for the
+-- session (PoolKept), dressed again on each open. A picker remembers its
+-- anchor with the anchor's dress generation (PoolGen): an anchor a rebuild
+-- dressed again for a new build is another anchor, as a new frame was.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+local PoolKept, PoolGen = EllesmereUI._Pool.Kept, EllesmereUI._Pool.Gen
+
 -- Ensure assignedSpells is populated from live icons if nil; shared by spell picker, preview, and all add/remove handlers.
 local function EnsureAssignedSpells(barKeyE)
     local env = ns._CDMO_OptEnv
@@ -356,241 +365,72 @@ local function EnsureAssignedSpells(barKeyE)
 end
 
 ---------------------------------------------------------------------------
---  Custom Spell ID popup (shared by ShowBuffBarPicker + ShowBuffToCDPicker). Lazily
---  builds a single global popup; each call re-binds the Add handler to the given bar.
---  withDuration adds the duration field (custom/preset buffs); onAdded(sid) runs after spellDuration/customSpellID storage.
+--  Custom Spell ID popup (ShowBuffBarPicker, ShowBuffToCDPicker, ShowSpellPicker),
+--  on the shared input popup. onAdded(sid) runs after the customSpellIDs tag is
+--  stored. withCharges (CD/utility) adds the Show Charges opt-in and rejects
+--  spells the spell list already offers.
 ---------------------------------------------------------------------------
-local function ShowCustomSpellIDPopup(barKey, withDuration, onAdded, hideChargeWarn)
-    local env = ns._CDMO_OptEnv
-    local FONT_PATH, GetCDMOptOutline = env.FONT_PATH, env.GetCDMOptOutline
-    local popupName = "EUI_CDM_SpellIDPopup"
-    local popup = _G[popupName]
-    if not popup then
-        local POPUP_W, POPUP_H = 320, 160
-        local dimmer = CreateFrame("Frame", popupName .. "Dimmer", UIParent)
-        dimmer:SetFrameStrata("FULLSCREEN_DIALOG")
-        dimmer:SetAllPoints(UIParent)
-        dimmer:EnableMouse(true)
-        dimmer:Hide()
-        local dimTex = dimmer:CreateTexture(nil, "BACKGROUND")
-        dimTex:SetAllPoints(); dimTex:SetColorTexture(0, 0, 0, 0.25)
-        dimmer:SetScript("OnMouseDown", function(self) self:Hide() end)
+local CUSTOM_SPELL_NOTE = { r = 0.9, g = 0.3, b = 0.3 }
 
-        popup = CreateFrame("Frame", popupName, dimmer)
-        popup:SetSize(POPUP_W, POPUP_H)
-        popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
-        popup:SetFrameStrata("FULLSCREEN_DIALOG")
-        popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
-        popup:EnableMouse(true)
-        local popBg = popup:CreateTexture(nil, "BACKGROUND")
-        popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
-
-        local title = popup:CreateFontString(nil, "OVERLAY")
-        title:SetFont(FONT_PATH, 14, GetCDMOptOutline())
-        title:SetPoint("TOP", popup, "TOP", 0, -18)
-        title:SetTextColor(1, 1, 1, 1)
-        title:SetText(EllesmereUI.L("Add Custom Spell"))
-        popup._title = title
-
-        local editBox = CreateFrame("EditBox", nil, popup)
-        editBox:SetSize(180, 28)
-        editBox:SetPoint("TOP", title, "BOTTOM", 0, -16)
-        editBox:SetAutoFocus(true)
-        editBox:SetNumeric(true)
-        editBox:SetMaxLetters(7)
-        editBox:SetFont(FONT_PATH, 13, GetCDMOptOutline())
-        editBox:SetTextColor(1, 1, 1, 0.9)
-        editBox:SetJustifyH("CENTER")
-        local ebBg = editBox:CreateTexture(nil, "BACKGROUND")
-        ebBg:SetAllPoints(); ebBg:SetColorTexture(0.060, 0.049, 0.037, 1)
-        EllesmereUI.MakeBorder(editBox, 1, 1, 1, 0.12, EllesmereUI.PP)
-
-        local placeholder = editBox:CreateFontString(nil, "ARTWORK")
-        placeholder:SetFont(FONT_PATH, 12, GetCDMOptOutline())
-        placeholder:SetPoint("CENTER")
-        placeholder:SetTextColor(0.5, 0.5, 0.5, 0.5)
-        placeholder:SetText(EllesmereUI.L("Spell ID"))
-        editBox:SetScript("OnTextChanged", function(self)
-            if self:GetText() == "" then placeholder:Show() else placeholder:Hide() end
-        end)
-        popup._editBox = editBox
-
-        local status = popup:CreateFontString(nil, "OVERLAY")
-        status:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-        status:SetPoint("TOP", editBox, "BOTTOM", 0, -6)
-        status:SetTextColor(1, 0.3, 0.3, 1)
-        status:SetText("")
-        popup._status = status
-        popup._statusTimer = nil
-
-        local ar, ag, ab = EllesmereUI.GetAccentColor()
-        local addBtn = CreateFrame("Button", nil, popup)
-        addBtn:SetSize(80, 28)
-        addBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 16)
-        local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
-        addBg:SetAllPoints(); addBg:SetColorTexture(ar, ag, ab, 0.15)
-        EllesmereUI.MakeBorder(addBtn, ar, ag, ab, 0.3, EllesmereUI.PP)
-        local addLbl = addBtn:CreateFontString(nil, "OVERLAY")
-        addLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
-        addLbl:SetPoint("CENTER"); addLbl:SetText(EllesmereUI.L("Add"))
-        addLbl:SetTextColor(ar, ag, ab, 0.9)
-        addBtn:SetScript("OnEnter", function() addLbl:SetTextColor(1, 1, 1, 1) end)
-        addBtn:SetScript("OnLeave", function() addLbl:SetTextColor(ar, ag, ab, 0.9) end)
-        popup._addBtn = addBtn
-
-        -- Permanent red note: a manually-entered custom spell has no live
-        -- cooldown frame, so charge counts cannot be tracked for it. Shown
-        -- only for CD/utility bars (charges do not apply to custom auras).
-        local chargeWarn = popup:CreateFontString(nil, "OVERLAY")
-        chargeWarn:SetFont(FONT_PATH, 10, GetCDMOptOutline())
-        chargeWarn:SetPoint("LEFT", popup, "LEFT", 16, 0)
-        chargeWarn:SetPoint("RIGHT", popup, "RIGHT", -16, 0)
-        chargeWarn:SetPoint("BOTTOM", addBtn, "TOP", 0, 17)
-        chargeWarn:SetJustifyH("CENTER")
-        chargeWarn:SetTextColor(0.9, 0.3, 0.3, 1)
-        chargeWarn:SetText(EllesmereUI.L("Custom spells cannot track charges."))
-        popup._chargeWarn = chargeWarn
-
-        local cancelBtn = CreateFrame("Button", nil, popup)
-        cancelBtn:SetSize(80, 28)
-        cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
-        local cBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
-        cBg:SetAllPoints(); cBg:SetColorTexture(0.12, 0.12, 0.12, 0.5)
-        EllesmereUI.MakeBorder(cancelBtn, 1, 1, 1, 0.10, EllesmereUI.PP)
-        local cLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
-        cLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
-        cLbl:SetPoint("CENTER"); cLbl:SetText(EllesmereUI.L("Cancel"))
-        cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8)
-        cancelBtn:SetScript("OnEnter", function() cLbl:SetTextColor(1, 1, 1, 1) end)
-        cancelBtn:SetScript("OnLeave", function() cLbl:SetTextColor(0.7, 0.7, 0.7, 0.8) end)
-        cancelBtn:SetScript("OnClick", function() dimmer:Hide() end)
-        popup._cancelBtn = cancelBtn
-
-        editBox:SetScript("OnEscapePressed", function() dimmer:Hide() end)
-
-        local durLabel = popup:CreateFontString(nil, "OVERLAY")
-        durLabel:SetFont(FONT_PATH, 11, GetCDMOptOutline())
-        durLabel:SetPoint("TOP", editBox, "BOTTOM", 0, -32)
-        durLabel:SetTextColor(0.7, 0.7, 0.7, 0.85)
-        durLabel:SetText(EllesmereUI.L("Duration (seconds)"))
-        popup._durLabel = durLabel
-
-        local durBox = CreateFrame("EditBox", nil, popup)
-        durBox:SetSize(180, 28)
-        durBox:SetPoint("TOP", durLabel, "BOTTOM", 0, -6)
-        durBox:SetNumeric(true)
-        durBox:SetMaxLetters(5)
-        durBox:SetFont(FONT_PATH, 13, GetCDMOptOutline())
-        durBox:SetTextColor(1, 1, 1, 0.9)
-        durBox:SetJustifyH("CENTER")
-        local durBg = durBox:CreateTexture(nil, "BACKGROUND")
-        durBg:SetAllPoints(); durBg:SetColorTexture(0.060, 0.049, 0.037, 1)
-        EllesmereUI.MakeBorder(durBox, 1, 1, 1, 0.12, EllesmereUI.PP)
-        local durPlaceholder = durBox:CreateFontString(nil, "ARTWORK")
-        durPlaceholder:SetFont(FONT_PATH, 12, GetCDMOptOutline())
-        durPlaceholder:SetPoint("CENTER")
-        durPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.5)
-        durPlaceholder:SetText(EllesmereUI.L("Required"))
-        durBox:SetScript("OnTextChanged", function(self)
-            if self:GetText() == "" then durPlaceholder:Show() else durPlaceholder:Hide() end
-        end)
-        durBox:SetScript("OnEscapePressed", function() dimmer:Hide() end)
-        popup._durBox = durBox
-
-        popup._dimmer = dimmer
-        _G[popupName] = popup
-    end
-
-    local function SetStatus(text, r, g, b)
-        popup._status:SetText(EllesmereUI.L(text))
-        popup._status:SetTextColor(r or 1, g or 0.3, b or 0.3, 1)
-        if popup._statusTimer then popup._statusTimer:Cancel() end
-        if text ~= "" then
-            popup._statusTimer = C_Timer.NewTimer(2.5, function()
-                popup._status:SetText("")
-            end)
-        end
-    end
-
-    local function DoAdd()
-        local text = popup._editBox:GetText()
+local function ShowCustomSpellIDPopup(barKey, onAdded, withCharges)
+    local function SpellOf(text)
         local sid = tonumber(text)
-        if not sid or sid <= 0 then
-            SetStatus("Enter a valid spell ID")
-            return
-        end
-        sid = math.floor(sid)
-        local spellName = C_Spell.GetSpellName(sid)
-        if not spellName then
-            SetStatus("Unknown spell ID")
-            return
-        end
-        local dur
-        if withDuration then
-            local durText = popup._durBox:GetText()
-            dur = tonumber(durText)
-            if not dur or dur <= 0 then
-                SetStatus("Enter a duration in seconds")
-                return
+        return sid and sid > 0 and math.floor(sid) or nil
+    end
+    EllesmereUI:ShowInputPopup({
+        title = EllesmereUI.L("Add Custom Spell"),
+        -- Permanent red note (user request 2026-10-23): a custom spell lives
+        -- outside Blizzard's Cooldown Manager, so its restrictions can keep it
+        -- from working fully.
+        message = EllesmereUI.L("Use at your own risk: Blizzard restrictions can keep custom spells from working fully."),
+        messageColor = CUSTOM_SPELL_NOTE,
+        messageSize = 11,
+        placeholder = EllesmereUI.L("Spell ID"),
+        numeric = true,
+        maxLetters = 7,
+        confirmText = EllesmereUI.L("Add"),
+        -- "Show Charges" opt-in: a manually entered spell has no Blizzard charge
+        -- frame, but its cast count can still be shown on request.
+        checkbox = withCharges and EllesmereUI.L("Show Charges") or nil,
+        validate = function(text)
+            local sid = SpellOf(text)
+            if not sid then return EllesmereUI.L("Enter a valid spell ID") end
+            if not C_Spell.GetSpellName(sid) then return EllesmereUI.L("Unknown spell ID") end
+            -- Variant-aware, mirroring AddTrackedSpell's own dedup. An exact-only
+            -- check lets a variant-duplicate through, which AddTrackedSpell then
+            -- silently refuses AFTER the custom tag below is written (orphaned
+            -- tag, nothing rendered).
+            local sd = barKey and ns.GetBarSpellData(barKey)
+            if sd and sd.assignedSpells and ns.FindVariantIndexInList(sd.assignedSpells, sid) then
+                return EllesmereUI.L("Already tracked")
             end
-            dur = math.floor(dur)
-        end
-        local sdChk = ns.GetBarSpellData(barKey)
-        if sdChk and sdChk.assignedSpells then
-            -- Variant-aware, mirroring AddTrackedSpell's own dedup. An
-            -- exact-only check lets a variant-duplicate through, which
-            -- AddTrackedSpell then silently refuses AFTER the custom tag
-            -- below is written (orphaned tag, nothing rendered).
-            local dup
-            if ns.FindVariantIndexInList then
-                dup = ns.FindVariantIndexInList(sdChk.assignedSpells, sid)
-            else
-                for _, existing in ipairs(sdChk.assignedSpells) do
-                    if existing == sid then dup = true; break end
+            -- A spell the spell list offers goes through the list: as a custom
+            -- spell its menu would write settings its icon never reads.
+            if withCharges and ns.IsCDMTrackedCooldown(sid) then
+                return EllesmereUI.L("Pick this spell from the spell list")
+            end
+        end,
+        onConfirm = function(text, showCharges)
+            local sid = SpellOf(text)
+            local sd = barKey and ns.GetBarSpellData(barKey)
+            if sd then
+                if not sd.customSpellIDs then sd.customSpellIDs = {} end
+                sd.customSpellIDs[sid] = true
+                -- Set/clear explicitly so a re-add with the box unchecked can't leave a
+                -- stale flag behind, and flip the runtime gate live.
+                if withCharges then
+                    if showCharges then
+                        if not sd.customSpellForceCount then sd.customSpellForceCount = {} end
+                        sd.customSpellForceCount[sid] = true
+                        ns._cdmAnyCustomForceCount = true
+                    elseif sd.customSpellForceCount then
+                        sd.customSpellForceCount[sid] = nil
+                    end
                 end
             end
-            if dup then
-                SetStatus("Already tracked")
-                return
-            end
-        end
-        if withDuration and dur then
-            local sdStore = ns.GetBarSpellData(barKey)
-            if sdStore then
-                if not sdStore.spellDurations then sdStore.spellDurations = {} end
-                sdStore.spellDurations[sid] = dur
-            end
-        end
-        popup._dimmer:Hide()
-        local sdTag = ns.GetBarSpellData(barKey)
-        if sdTag then
-            if not sdTag.customSpellIDs then sdTag.customSpellIDs = {} end
-            sdTag.customSpellIDs[sid] = true
-        end
-        if onAdded then onAdded(sid) end
-    end
-
-    popup._addBtn:SetScript("OnClick", DoAdd)
-    popup._editBox:SetScript("OnEnterPressed", DoAdd)
-    popup._editBox:SetText("")
-    popup._status:SetText("")
-    if withDuration then
-        popup:SetHeight(220)
-        popup._durLabel:Show()
-        popup._durBox:Show()
-        popup._durBox:SetText("")
-        if popup._chargeWarn then popup._chargeWarn:Hide() end
-    else
-        popup:SetHeight(164)
-        popup._durLabel:Hide()
-        popup._durBox:Hide()
-        -- Buff contexts (aura-tracked) hide the CD-only charges note.
-        if popup._chargeWarn then popup._chargeWarn:SetShown(not hideChargeWarn) end
-    end
-    ns.PadPopupOpen(popup._dimmer, popup, popup._cancelBtn)  -- controller cursor
-    popup._dimmer:Show()
-    popup._editBox:SetFocus()
+            if onAdded then onAdded(sid) end
+        end,
+    })
 end
 
 ---------------------------------------------------------------------------
@@ -926,8 +766,9 @@ local function ShowBuffBarPicker(anchorFrame, targetBarKey, onChanged)
     local env = ns._CDMO_OptEnv
     local FONT_PATH, GetCDMOptOutline, RefreshCDPreview, optState = env.FONT_PATH, env.GetCDMOptOutline, env.RefreshCDPreview, env.optState
     if optState._spellPickerMenu and optState._spellPickerMenu:IsShown() then
-        optState._spellPickerMenu:Hide()
-        if optState._spellPickerMenu._anchorFrame == anchorFrame then return end
+        local open = optState._spellPickerMenu
+        open:Hide()
+        if open._anchorFrame == anchorFrame and open._anchorGen == PoolGen(anchorFrame) then return end
     end
 
     local mBgR  = EllesmereUI.DD_BG_R  or 0.075
@@ -961,8 +802,8 @@ local function ShowBuffBarPicker(anchorFrame, targetBarKey, onChanged)
     -- No early-out on an empty Blizzard buff list: preset buffs (and, later,
     -- a custom spell ID) are always available below.
 
-    -- Build menu
-    local menu = CreateFrame("Frame", nil, UIParent)
+    -- Build menu (one kept frame for the session, dressed again on every open)
+    local menu = PoolKept(optState, "buffBarPicker", "Frame", UIParent)
     menu:SetFrameStrata("FULLSCREEN_DIALOG")
     menu:SetFrameLevel(300)
     menu:SetClampedToScreen(true)
@@ -1059,14 +900,14 @@ local function ShowBuffBarPicker(anchorFrame, targetBarKey, onChanged)
         csItem:SetScript("OnLeave", function() csLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); csHl:SetAlpha(0) end)
         csItem:SetScript("OnClick", function()
             menu:Hide()
-            ShowCustomSpellIDPopup(targetBarKey, false, function(sid)
+            ShowCustomSpellIDPopup(targetBarKey, function(sid)
                 ns.AddTrackedSpell(targetBarKey, sid)
                 if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
                 if ns.UpdateLustListener then ns.UpdateLustListener() end
                 if ns.UpdateCustomBuffAuraTracking then ns.UpdateCustomBuffAuraTracking() end
                 if ns.QueueReanchor then ns.QueueReanchor() end
                 RefreshCDPreview()
-            end, true)
+            end)
         end)
         mH = mH + ITEM_H
     end
@@ -1235,6 +1076,7 @@ local function ShowBuffBarPicker(anchorFrame, targetBarKey, onChanged)
     menu:ClearAllPoints()
     menu:SetPoint("TOP", anchorFrame, "BOTTOM", 0, -4)
     menu._anchorFrame = anchorFrame
+    menu._anchorGen = PoolGen(anchorFrame)
     optState._spellPickerMenu = menu
 
     menu:SetScript("OnUpdate", function(m)
@@ -1260,8 +1102,9 @@ local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged, onPicked
     local env = ns._CDMO_OptEnv
     local FONT_PATH, GetCDMOptOutline, optState = env.FONT_PATH, env.GetCDMOptOutline, env.optState
     if optState._spellPickerMenu and optState._spellPickerMenu:IsShown() then
-        optState._spellPickerMenu:Hide()
-        if optState._spellPickerMenu._anchorFrame == anchorFrame then return end
+        local open = optState._spellPickerMenu
+        open:Hide()
+        if open._anchorFrame == anchorFrame and open._anchorGen == PoolGen(anchorFrame) then return end
     end
 
     local mBgR  = EllesmereUI.DD_BG_R  or 0.075
@@ -1305,7 +1148,8 @@ local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged, onPicked
         end
     end
 
-    local menu = CreateFrame("Frame", nil, UIParent)
+    -- One kept frame for the session, dressed again on every open.
+    local menu = PoolKept(optState, "buffToCDPicker", "Frame", UIParent)
     menu:SetFrameStrata("FULLSCREEN_DIALOG")
     menu:SetFrameLevel(300)
     menu:SetClampedToScreen(true)
@@ -1353,10 +1197,10 @@ local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged, onPicked
                 onPicked(nil, nil)
                 return
             end
-            ShowCustomSpellIDPopup(targetBarKey, false, function(sid)
+            ShowCustomSpellIDPopup(targetBarKey, function(sid)
                 ns.AddBuffToCDUtilBar(targetBarKey, sid)
                 AfterAdd()
-            end, true)
+            end)
         end)
         mH = mH + ITEM_H
     end
@@ -1477,6 +1321,7 @@ local function ShowBuffToCDPicker(anchorFrame, targetBarKey, onChanged, onPicked
     menu:ClearAllPoints()
     menu:SetPoint("TOP", anchorFrame, "BOTTOM", 0, -4)
     menu._anchorFrame = anchorFrame
+    menu._anchorGen = PoolGen(anchorFrame)
     optState._spellPickerMenu = menu
 
     menu:SetScript("OnUpdate", function(m)
@@ -1699,11 +1544,12 @@ local function ShowAlphaPopup(currentPct, onConfirm, title, hint)
     popup._box:HighlightText()
 end
 
--- Numeric popup for the per-spell "Threshold Seconds" (Threshold Text): the
--- user enters the seconds-remaining boundary below which Threshold Color /
--- Threshold Decimals apply. 0 disarms the feature for the spell. Mirrors
--- ShowAlphaPopup's look; onConfirm receives the integer seconds (0-59).
-local function ShowThresholdSecondsPopup(currentVal, onConfirm)
+-- Numeric popup for a per-spell seconds setting (0-59; 0 turns it off):
+-- titled for Threshold Seconds (the boundary below which Threshold Color /
+-- Threshold Decimals apply) unless the caller passes its own title and hint
+-- (already localized), e.g. Also Show Below. Both texts are set on every
+-- show. Mirrors ShowAlphaPopup; onConfirm receives the integer seconds.
+local function ShowThresholdSecondsPopup(currentVal, onConfirm, title, hint)
     local env = ns._CDMO_OptEnv
     local FONT_PATH, GetCDMOptOutline = env.FONT_PATH, env.GetCDMOptOutline
     local popupName = "EUI_CDM_ThresholdSecondsPopup"
@@ -1733,13 +1579,13 @@ local function ShowThresholdSecondsPopup(currentVal, onConfirm)
         title:SetFont(FONT_PATH, 14, GetCDMOptOutline())
         title:SetPoint("TOP", popup, "TOP", 0, -18)
         title:SetTextColor(1, 1, 1, 1)
-        title:SetText(EllesmereUI.L("Threshold Seconds"))
+        popup._title = title
 
         local hint = popup:CreateFontString(nil, "OVERLAY")
         hint:SetFont(FONT_PATH, 11, GetCDMOptOutline())
         hint:SetPoint("TOP", title, "BOTTOM", 0, -6)
         hint:SetTextColor(0.7, 0.7, 0.7, 0.85)
-        hint:SetText(EllesmereUI.L("Seconds left when threshold text starts (0 = off)"))
+        popup._hint = hint
 
         local box = CreateFrame("EditBox", nil, popup)
         box:SetSize(180, 28)
@@ -1796,6 +1642,8 @@ local function ShowThresholdSecondsPopup(currentVal, onConfirm)
         box:SetScript("OnEscapePressed", function() dimmer:Hide() end)
     end
     popup._onConfirm = onConfirm
+    popup._title:SetText(title or EllesmereUI.L("Threshold Seconds"))
+    popup._hint:SetText(hint or EllesmereUI.L("Seconds left when threshold text starts (0 = off)"))
     popup._box:SetText(currentVal and tostring(currentVal) or "")
     ns.PadPopupOpen(popup._dimmer, popup, popup._cancelBtn)  -- controller cursor
     popup._dimmer:Show()
@@ -1932,6 +1780,7 @@ ns.CDMO_ShowAlphaPopup = ShowAlphaPopup
 ns.CDMO_ShowBuffBarPicker = ShowBuffBarPicker
 ns.CDMO_ShowBuffToCDPicker = ShowBuffToCDPicker
 ns.CDMO_ShowCustomItemIDPopup = ShowCustomItemIDPopup
+ns.CDMO_ShowCustomSpellIDPopup = ShowCustomSpellIDPopup
 ns.CDMO_ShowDurationPopup = ShowDurationPopup
 ns.CDMO_ShowEquipmentSlotPopup = ShowEquipmentSlotPopup
 ns.CDMO_ShowThresholdSecondsPopup = ShowThresholdSecondsPopup

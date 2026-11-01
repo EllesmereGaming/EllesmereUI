@@ -247,7 +247,6 @@ local function GhostAuraCheck()
                 if d.rfcUnit == unit and d.ghostUnit == unit then
                     if d.rfcDebuffs then d.rfcDebuffs:UpdateAllAuras() end
                     if d.rfcDispLoc then d.rfcDispLoc:UpdateAllAuras() end
-                    if d.rfcDispel then d.rfcDispel:UpdateAllAuras() end
                     if d.rfcBm then d.rfcBm:UpdateAllAuras() end
                     if d.rfcBmChain then
                         for _, cc in pairs(d.rfcBmChain) do cc:UpdateAllAuras() end
@@ -400,7 +399,7 @@ local function UpdateVisibility()
 
     -- Preview overrides all visibility logic -- real buttons stay suppressed
     -- (alpha), no state changes; the preview close re-runs this.
-    if previewActive then return end
+    if ns._raidPvActive then return end
 
     -- Defensive: re-assert full opacity unless a preview is intentionally
     -- dimming the real frames. The preview system is the only thing that lowers

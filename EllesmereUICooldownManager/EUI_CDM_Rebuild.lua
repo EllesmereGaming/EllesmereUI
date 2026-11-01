@@ -349,7 +349,7 @@ end
 ns.ApplyBarOpacity = ApplyBarOpacity
 
 -- Helper to get barData by key
-function GetBarData(barKey)
+local function GetBarData(barKey)
     return barDataByKey[barKey]
 end
 ns.GetBarData = GetBarData
@@ -771,8 +771,14 @@ local function ApplyCachedKeybinds()
                         key = _cdmKeybindCache[-icon._displayItemID]
                     end
                     -- Item presets: check alt item IDs (user may have a different rank of the same potion on their bar).
-                    if not key and icon._isItemPresetFrame and icon._presetData and icon._presetData.altItemIDs then
-                        for _, altID in ipairs(icon._presetData.altItemIDs) do
+                    -- Blizzard's own row rendering under a preset key (a frame with
+                    -- no preset data of its own) walks that preset's ranks the same way.
+                    local pdK = icon._presetData
+                    if not key and not pdK and type(sid) == "number" and sid < 0 then
+                        pdK = ns.ItemPresetForKey(sid)
+                    end
+                    if not key and pdK and pdK.altItemIDs then
+                        for _, altID in ipairs(pdK.altItemIDs) do
                             key = _cdmKeybindCache[-altID]
                             if key then break end
                         end
@@ -862,6 +868,7 @@ BuildAllCDMBars = function()
     ns.RescanCustomIconFlag()     -- set the per-spell Custom Icon gate (once) before refresh
     ns.RescanActiveGlowFlag()     -- set the Active State Glow gate (once) before refresh
     ns.RescanTalentCondFlag()     -- set the Talent Conditions gate (once) before refresh
+    ns.RescanStanceBarFlag()      -- set the Stance Bar gate (once) before refresh
 
     local p = ECME.db.profile
 

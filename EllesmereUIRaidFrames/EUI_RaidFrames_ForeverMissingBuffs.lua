@@ -5,23 +5,26 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Missing Buffs indicator: on each raid, party and Extra Frames button, the
 --  icon of every buff the member lacks that the PLAYER can cast --
 --  Fortitude and Spirit (priest; Spirit needs the Divine Spirit talent),
---  Mark of the Wild and Thorns (druid), a paladin blessing -- i.e. a trained
---  rank or the group version is in the player's spellbook. On the member
---  every rank and the group version count (looked up by name). A member gets
---  at most one blessing: the first of the priority list their assigned role
---  takes (Tank / Healer / DPS Blessing; empty = no reminder; no role assigned
---  = the DPS list) that the player can cast and the member lacks. Solo, only
---  Kings is reminded, on the player, whatever the role. Thorns Only on Tank
---  keeps Thorns to the group's tanks, and to the player while solo or in a
---  group without one.
+--  Mark of the Wild and Thorns (druid), Salvation and a paladin blessing --
+--  i.e. a trained rank or the group version is in the player's spellbook. On
+--  the member every rank and the group version count (looked up by name). A
+--  member gets at most one blessing: the first of the priority list their
+--  assigned role takes (Tank / Healer / DPS Blessing; empty = no reminder; no
+--  role assigned = the DPS list) that the player can cast and the member
+--  lacks. Solo, only Kings is reminded, on the player, whatever the role.
+--  Salvation stacks with a blessing since build 70425, so it has a switch of
+--  its own and shows on every group member but a tank (never solo). Thorns
+--  Only on Tank keeps Thorns to the group's tanks, and to the player while
+--  solo or in a group without one.
 --  Settings (Indicators section, same shape as the raid marker):
 --  showMissingBuffs, missingBuffsPosition, missingBuffsSize,
 --  missingBuffsOffsetX/Y, one switch per buff (missingBuffsFort/Mark/Spirit/
---  Thorns, the cog's checkbox list, nil = on), missingBuffsThornsTank (nil =
---  off), missingBuffsBlessingTank/Healer/DPS (a list of blessing keys in
+--  Thorns/Salvation, the cog's checkbox list, nil = on), missingBuffsThornsTank
+--  (nil = off), missingBuffsBlessingTank/Healer/DPS (a list of blessing keys in
 --  priority order, or the older single key / "none"; unset = Might / Wisdom /
---  Salvation, or none for all three while the retired single switch
---  missingBuffsBlessing reads false), missingBuffsBlessingExTank/Healer/DPS
+--  Might, or none for all three while the retired single switch
+--  missingBuffsBlessing reads false; a saved "salvation" is skipped),
+--  missingBuffsBlessingExTank/Healer/DPS
 --  (class token -> blessing list, replacing the role's list for members of
 --  that class; no entry = the role's list), and the icons' glow on the
 --  shared prefix schema (missingBuffsGlow*, EllesmereUI.Glows.PrefixKeys);
@@ -68,13 +71,16 @@ local FAMILIES = {
     -- Thorns: six druid ranks (Balance), no group version.
     { key = "thorns", class = "DRUID",  setting = "missingBuffsThorns", icon = 467,   from = { "thorns" },
       tankOnly = true },
+    -- Salvation and Mass Salvation: no longer a blessing (it stacks with one),
+    -- never wanted on a tank.
+    { key = "salvation", class = "PALADIN", setting = "missingBuffsSalvation", icon = 1038, from = { "salvation" },
+      notTank = true },
     -- The paladin blessings, normal and Greater: a member shows at most one,
     -- by role (the role settings, not a switch, pick it). The keys are the
     -- role settings' values.
     { key = "might",     class = "PALADIN", blessing = true, icon = 19740, from = { "might" } },
     { key = "wisdom",    class = "PALADIN", blessing = true, icon = 19742, from = { "wisdom" } },
     { key = "kings",     class = "PALADIN", blessing = true, icon = 20217, from = { "kings" } },
-    { key = "salvation", class = "PALADIN", blessing = true, icon = 1038,  from = { "salvation" } },
     { key = "light",     class = "PALADIN", blessing = true, icon = 19977, from = { "light" } },
 }
 local NUM_FAMILIES = #FAMILIES
@@ -105,7 +111,7 @@ end
 -- The options page reads through the same function.
 local BLESS_KEY = { TANK = "missingBuffsBlessingTank", HEALER = "missingBuffsBlessingHealer",
     DAMAGER = "missingBuffsBlessingDPS" }
-local BLESS_DEFAULT = { TANK = "might", HEALER = "wisdom", DAMAGER = "salvation" }
+local BLESS_DEFAULT = { TANK = "might", HEALER = "wisdom", DAMAGER = "might" }
 -- Class exceptions: per role, a table of class token -> blessing list that
 -- replaces the role's list for members of that class (an empty list = no
 -- blessing for them; no entry = the role's list).
@@ -247,6 +253,15 @@ local function ThornsHere(s, unit)
     if not s.missingBuffsThornsTank then return true end
     if groupTank then return RoleOf(unit) == "TANK" end
     return UnitIsUnit(unit, "player")
+end
+
+-- Salvation: every group member but a tank (no role assigned counts as not a
+-- tank, as for the blessings; a secret role reads unknown: no icon). Never
+-- solo, where threat is no one else's.
+local function SalvationHere(unit)
+    if solo then return false end
+    local role = RoleOf(unit)
+    return role ~= nil and role ~= "TANK"
 end
 
 -- Solo or not, and whether a group member has the tank role (one roster
@@ -507,7 +522,8 @@ local function PaintButton(btn, d)
             -- This frame kind's own switch decides, so a buff turned off for
             -- party but on for raid shows on raid frames only.
             if not fam.blessing and st[key] == false and provider[key] and FamOn(s, fam)
-               and (not fam.tankOnly or ThornsHere(s, unit)) then
+               and (not fam.tankOnly or ThornsHere(s, unit))
+               and (not fam.notTank or SalvationHere(unit)) then
                 n = n + 1
                 paintList[n] = i
             end
@@ -800,14 +816,17 @@ end
 -- preview (the Indicators eye) is on, minus the buffs switched off. "B" is
 -- the blessing slot: the top pick of the first role with any (DPS first).
 local PREVIEW = {
-    [2] = { 1 }, [4] = { 1, 2 }, [7] = { 3, "B" }, [9] = { 1, 2, 3, 4, "B" },
-    [12] = { 2, 4 }, [15] = { 1, 3 }, [18] = { 4, "B" },
+    [2] = { 1 }, [4] = { 1, 2 }, [7] = { 3, "B" }, [9] = { 1, 2, 3, 4, 5, "B" },
+    [12] = { 2, 4 }, [15] = { 1, 3, 5 }, [18] = { 4, "B" },
 }
 local PREVIEW_ROLES = { "DAMAGER", "HEALER", "TANK" }
 local function PreviewBlessing(s)
     for r = 1, #PREVIEW_ROLES do
         local c = Choice(s, PREVIEW_ROLES[r])
-        if c[1] then return BLESS_INDEX[c[1]] end
+        for w = 1, #c do
+            local i = BLESS_INDEX[c[w]]
+            if i then return i end
+        end
     end
 end
 local previewList = {}

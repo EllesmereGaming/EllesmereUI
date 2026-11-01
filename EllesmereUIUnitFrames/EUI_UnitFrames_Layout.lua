@@ -175,8 +175,34 @@ local ufTextWidths = {
     absorb      = 38,  -- "12.3 K"
     level       = 24,  -- "80" / "??"
 }
-local function EstimateUFTextWidth(content)
+-- customFmt: the slot's <prefix>CustomFormat, read for content "custom" only,
+-- estimated from the schema widths. Names count 0 like the Name content, except
+-- on the right slot (isRight), whose estimate cuts the left text: there a name
+-- keeps the schema's width so a long target name is not overlapped.
+local function NoNameWidth(key)
+    if key == "name" or key == "target" then return 0 end
+end
+local function EstimateUFTextWidth(content, customFmt, isRight)
+    if content == "custom" then
+        local TT, cat = EllesmereUI.TextTags, ns.UF_TextTags
+        local parsed = TT.Parse(cat, customFmt)
+        if not parsed then return UF_TEXT_PADDING end
+        return TT.EstimateWidth(cat, parsed, not isRight and NoNameWidth or nil) + UF_TEXT_PADDING
+    end
     return (ufTextWidths[content] or 0) + UF_TEXT_PADDING
+end
+ns.UF_EstimateTextWidth = EstimateUFTextWidth
+
+-- Content that shows a power value, for the text bar's Power Colored mode: the
+-- power presets, or a custom format with a power tag (customFmt, read for
+-- "custom" only). The parse is cached, so the per-update call stays a lookup.
+function ns.UF_IsPowerContent(content, customFmt)
+    if content == "perpp" or content == "curpp" or content == "curmaxpp" or content == "curhp_curpp" or content == "perhp_perpp" then
+        return true
+    end
+    if content ~= "custom" then return false end
+    local parsed = EllesmereUI.TextTags.Parse(ns.UF_TextTags, customFmt)
+    return parsed ~= nil and parsed.reads.pp == true
 end
 
 -- Apply class color to a FontString based on the unit.
@@ -307,9 +333,9 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
     -- continuously from the power element's PostUpdateColor, so the color survives
     -- tag updates and power-type changes. The per-slot early-out (no power-color
     -- flag) keeps it ~free when unused.
-    local function ApplyBTBPowerColor(fs, contentKey, usePowerColor)
+    local function ApplyBTBPowerColor(fs, contentKey, usePowerColor, customFmt)
         if not fs or not usePowerColor then return end
-        if contentKey == "perpp" or contentKey == "curpp" or contentKey == "curmaxpp" or contentKey == "curhp_curpp" or contentKey == "perhp_perpp" then
+        if ns.UF_IsPowerContent(contentKey, customFmt) then
             -- Secret-safe per-unit power color: player resolves via the clean
             -- string token; non-player units recover it from the clean integer
             -- power type instead of falling back to white.
@@ -319,9 +345,9 @@ local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, 
         end
     end
     local function ApplyBTBPowerColors(s)
-        ApplyBTBPowerColor(leftFS, s.btbLeftContent or "none", s.btbLeftPowerColor)
-        ApplyBTBPowerColor(rightFS, s.btbRightContent or "none", s.btbRightPowerColor)
-        ApplyBTBPowerColor(centerFS, s.btbCenterContent or "none", s.btbCenterPowerColor)
+        ApplyBTBPowerColor(leftFS, s.btbLeftContent or "none", s.btbLeftPowerColor, s.btbLeftCustomFormat)
+        ApplyBTBPowerColor(rightFS, s.btbRightContent or "none", s.btbRightPowerColor, s.btbRightCustomFormat)
+        ApplyBTBPowerColor(centerFS, s.btbCenterContent or "none", s.btbCenterPowerColor, s.btbCenterCustomFormat)
     end
 
     local function ApplyBTBTextPositions(s)
@@ -517,7 +543,7 @@ local function UpdateBordersForScale(frame, unit)
     end
 
     -- 2) Gather layout info.
-    local ppPos = settings.powerPosition or "below"
+    local ppPos = ns.UF_PowerPos(settings)
     local ppIsAtt = (ppPos == "below" or ppPos == "above")
     local ppIsDet = (ppPos == "detached_top" or ppPos == "detached_bottom")
     local ph = settings.powerHeight or 6
@@ -761,9 +787,16 @@ local function GetFrameDimensions(unit, settingsOnly)
         local w = (showPortrait and isAttached) and (adjPH + settings.frameWidth) or settings.frameWidth
         return snap(w), snap(barH + btbExtra)
     elseif unit == "pet" or unit == "targettarget" or unit == "focustarget" then
-        -- A WoW Forever pet stacks its attached power bar with the health bar.
+        -- A WoW Forever pet stacks its attached power bar with the health bar,
+        -- and a shown portrait squares that stack off beside the bar
+        -- (StyleSimpleFrame), so it is part of the width here as on the other
+        -- frames: the unlock setter subtracts the same square, and a size this
+        -- reports must come back as itself through it (an override layer
+        -- banks it and hands it to the setter on every apply).
         local miniPowerH = (unit == "pet" and ns.UF_PetHasPower) and powerExtra or 0
-        return snap(settings.frameWidth), snap(settings.healthHeight + miniPowerH)
+        local barH = settings.healthHeight + miniPowerH
+        local w = showPortrait and (barH + settings.frameWidth) or settings.frameWidth
+        return snap(w), snap(barH)
     elseif unit:match("^boss") then
         local pH = powerIsAtt and (settings.powerHeight or 6) or 0
         local barH = settings.healthHeight + pH
@@ -810,7 +843,7 @@ local function CreateHealthBar(frame, unit, height, xOffset, settings, rightInse
     rightInset = rightInset or 0
 
     -- Power bar "above" pushes the health bar down by the power bar height.
-    local ppPos = settings.powerPosition or "below"
+    local ppPos = ns.UF_PowerPos(settings)
     local powerAboveOff = (ppPos == "above") and (settings.powerHeight or 0) or 0
 
     local health = CreateFrame("StatusBar", nil, frame)

@@ -24,17 +24,15 @@ local _activeCache, _activeStacksCache = I._activeCache, I._activeStacksCache
 local _smHookedIcons, SwiftmendEnabled = I._smHookedIcons, I.SwiftmendEnabled
 local ProcessPresetCooldowns = I.ProcessPresetCooldowns
 local CollectAndReanchor, UpdateCustomBuffBars = I.CollectAndReanchor, I.UpdateCustomBuffBars
-local RestoreBuffAnchors = I.RestoreBuffAnchors
+local QueueViewerAnchor, RestoreViewerAnchors = I.QueueViewerAnchor, I.RestoreViewerAnchors
 
 local reanchorDirty = false
 local reanchorFrame = nil
 local viewerHooksInstalled = false
 
 -------------------------------------------------------------------------------
---  Lightweight position re-snap: re-applies stored _cdmAnchor on all claimed
---  icons without re-enumerating viewers or re-categorizing frames.
---  Used by OnActiveStateChanged where Blizzard may move frames but the icon
---  list hasn't changed.
+--  Queue claimed icons after active-state changes without interrupting a
+--  viewer's layout measurement or re-enumerating its pool.
 -------------------------------------------------------------------------------
 local function ReapplyPositions()
     for barKey, icons in pairs(cdmBarIcons) do
@@ -45,8 +43,7 @@ local function ReapplyPositions()
                     local fd = hookFrameData[frame]
                     local anchor = fd and fd._cdmAnchor
                     if anchor then
-                        frame:ClearAllPoints()
-                        frame:SetPoint(anchor[1], anchor[2], anchor[3], anchor[4], anchor[5])
+                        QueueViewerAnchor(frame)
                     end
                 end
             end
@@ -247,6 +244,9 @@ function ns.SetupViewerHooks()
     for vi, vName in ipairs(VIEWER_NAMES) do
         local v = _G[vName]
         if v and v.itemFramePool then
+            if v.RefreshLayout then
+                hooksecurefunc(v, "RefreshLayout", RestoreViewerAnchors)
+            end
             local isBuff = (vi == 3 or vi == 4) -- BuffIcon or BuffBar
             local isBarViewer = (vi == 4) -- BuffBarCooldownViewer
             hooksecurefunc(v.itemFramePool, "Acquire", function()
@@ -328,10 +328,8 @@ function ns.SetupViewerHooks()
     for viewerName, barKey in pairs(SYNC_VIEWERS) do
         local viewer = _G[viewerName]
         if viewer then
-            -- No reanchor from RefreshLayout or Layout on CD/utility viewers.
-            -- CD/utility spell sets are static -- rebuilt by FullCDMRebuild
-            -- on spec/talent/equip events only. SetPoint hook on each icon
-            -- handles positioning when Blizzard calls Layout.
+            -- CD/utility spell sets are rebuilt by FullCDMRebuild, while the
+            -- shared restoration queue handles their icons after each layout.
             -- The viewers are Edit Mode systems: pin them through the saved C
             -- methods so Edit Mode's anchor sweep and snap state stay Blizzard's.
             -- The SetPoint hook below watches Blizzard's own writes only.
@@ -390,9 +388,7 @@ function ns.SetupViewerHooks()
     local _lastDirectReanchor = 0
     local DIRECT_REANCHOR_GUARD = 0.05
     local function DirectBuffReanchor()
-        -- The icons Blizzard just placed go back to our bars now that the
-        -- viewer has measured itself, whatever the throttle below decides.
-        RestoreBuffAnchors()
+        -- The shared RefreshLayout hook restores anchors before this throttle.
         local now = GetTime()
         if now - _lastDirectReanchor < DIRECT_REANCHOR_GUARD then return end
         _lastDirectReanchor = now
@@ -521,6 +517,7 @@ function ns.SetupViewerHooks()
                                 -- below regardless of the hosting bar's family.
                                 local isBuffIcon = isBuff or (fd and fd._isBuffViewerFrame)
                                     or frame._isPlaceholderFrame or false
+                                if fc and fc._missingN then ns.MissingRecheck(frame, fc) end
 
                                 local isActiveBuff = (frame.wasSetFromAura == true
                                     or frame.auraInstanceID ~= nil)
@@ -982,7 +979,7 @@ function ns.SetupViewerHooks()
                 -- indexing it, bind fields to locals (reading a secret is always
                 -- legal), then issecretvalue-gate every test. When unreadable, assume
                 -- churn -- one extra pool rebuild costs far less than a cache still
-                -- holding released frames. Same guard shape as the lust listener in CdmBuffBars.
+                -- holding released frames. Same guard shape as the lust listener in EUI_CDM_BuffBarPresets.lua.
                 if issecretvalue(updateInfo) then
                     ns._acGen = (ns._acGen or 0) + 1
                 else
@@ -1014,8 +1011,6 @@ function ns.SetupViewerHooks()
             if _btTicker then _btTicker.Start() end
         end
     end
-
-    ns.SyncViewerToContainer = function() end
 
     -- CDM settings panel: reanchor when user finishes editing
     if CooldownViewerSettings then

@@ -9,6 +9,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIQoL"]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
@@ -74,6 +79,10 @@ initFrame:SetScript("OnEvent", function(self)
         local mode = ShowAsVal()
         return Disabled() or mode == "compact" or mode == "markers"
     end
+    -- Raid Buff Check is retail only: its rows are not built on WoW Forever.
+    local function BuffCheckOff()
+        return Cfg("buffCheck") ~= true
+    end
     local function PullDisabled()
         return Disabled() or ShowAsVal() == "markers"
     end
@@ -94,7 +103,7 @@ initFrame:SetScript("OnEvent", function(self)
     local function BuildPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
-        local _, h
+        local _, h, hdr
 
         EllesmereUI:ClearContentHeader()
 
@@ -107,7 +116,18 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- GENERAL
-        _, h = W:SectionHeader(parent, "GENERAL", y);  y = y - h
+        hdr, h = W:SectionHeader(parent, "GENERAL", y);  y = y - h
+        -- The Show as choice decides which shell has a mover: the Compact
+        -- Band, the Markers window alone, or the Group & Pull window (which
+        -- is also the One Window shell and the first of Two Windows).
+        EllesmereUI.BuildSectionUnlockJump(hdr, {
+            key = function()
+                local showAs = ShowAsVal()
+                if showAs == "compact" then return "EUI_RaidTools_Compact" end
+                if showAs == "markers" then return "EUI_RaidTools_Markers" end
+                return "EUI_RaidTools_Group"
+            end,
+            disabled = Disabled, disabledTooltip = "Show Raid Tools" })
 
         -- Row 1: Show Raid Tools mode | Toggle Raid Tools keybind.
         -- The mode dropdown IS the on/off switch: Never means nothing is
@@ -139,10 +159,13 @@ initFrame:SetScript("OnEvent", function(self)
             local kbBtn, refresh = EllesmereUI.BuildKeybindButton(rgn, {
                 w = 126, h = 29, level = 4,
                 get = function() return Cfg("toggleKey") end,
+                -- Spec Overrides: the slot is read before the write (a write
+                -- that rebuilds the page dresses this region again).
                 set = function(v)
+                    local snap = EllesmereUI._SOAttribution(rgn)
                     Set("toggleKey", v or false)
                     Refresh()
-                    EllesmereUI._NotifySettingWrite(rgn)
+                    EllesmereUI._NotifySettingWrite(rgn, snap)
                 end,
                 disabled = Disabled, disabledTip = "Show Raid Tools",
                 tooltip = "Toggles the Raid Tools panels, in or out of combat.\n\nLeft-click to set a keybind.\nRight-click to unbind.",
@@ -242,9 +265,10 @@ initFrame:SetScript("OnEvent", function(self)
                     w = 126, h = 29, level = 4, mouse = true,
                     get = function() return Cfg(key) end,
                     set = function(v)
+                        local snap = EllesmereUI._SOAttribution(region)
                         Set(key, v or false)
                         Refresh()
-                        EllesmereUI._NotifySettingWrite(region)
+                        EllesmereUI._NotifySettingWrite(region, snap)
                     end,
                     disabled = QuickFireDisabled,
                     disabledTip = function() return Disabled() and "Show Raid Tools" or "Enable Quick Fire" end,
@@ -297,8 +321,47 @@ initFrame:SetScript("OnEvent", function(self)
             ButtonToggle("showDisband", "Show Disband",
                 "Shows the Disband button. It always asks before disbanding, but hiding it puts it out of misclick range for good.",
                 FullPanelButtonDisabled),
-            { type = "spacer" }
+            EllesmereUI.IS_FOREVER and { type = "spacer" } or
+            { type = "toggle", text = "Show Buff Check",
+              tooltip = "Shows the Buff Check button. On Compact Band it is Shift + Left Click on the ready check button.",
+              disabled = function()
+                  return RoleCheckDisabled() or BuffCheckOff()
+              end,
+              disabledTooltip = function()
+                  if BuffCheckOff() then return "Raid Buff Check" end
+                  if Disabled() then return "Show Raid Tools" end
+                  return "This option requires a Show as layout with the group buttons."
+              end,
+              getValue = function() return Cfg("showBuffCheck") == true end,
+              setValue = function(v)
+                  Set("showBuffCheck", v)
+                  Refresh()
+              end }
         );  y = y - h
+
+        -- RAID BUFF CHECK (retail only)
+        if not EllesmereUI.IS_FOREVER then
+        _, h = W:SectionHeader(parent, "RAID BUFF CHECK", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Raid Buff Check",
+              tooltip = "A window of each group member's flask, food, augment and vantus runes and missing raid buffs.",
+              getValue = function() return Cfg("buffCheck") == true end,
+              setValue = function(v)
+                  Set("buffCheck", v)
+                  Refresh()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type = "toggle", text = "Open on Ready Check",
+              tooltip = "Opens the window on ready checks while you lead the group or assist.",
+              disabled = BuffCheckOff, disabledTooltip = "Raid Buff Check",
+              getValue = function() return Cfg("buffCheckOnReady") ~= false end,
+              setValue = function(v)
+                  Set("buffCheckOnReady", v)
+                  Refresh()
+              end }
+        );  y = y - h
+        end -- not IS_FOREVER
 
         -- PULL TIMER
         _, h = W:SectionHeader(parent, "PULL TIMER", y);  y = y - h

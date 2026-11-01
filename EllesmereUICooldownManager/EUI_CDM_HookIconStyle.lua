@@ -18,6 +18,11 @@ local FC = ns.FC
 
 local hookFrameData, ResolveSpellSettings = I.hookFrameData, I.ResolveSpellSettings
 
+-- The options page pool's table (EllesmereUI_PixelPerfect.lua makes it; the
+-- options addon fills it in place): read through this file local, never the
+-- public slot, so nothing written to that slot later reaches the live icons.
+local POOL = EllesmereUI._Pool
+
 -------------------------------------------------------------------------------
 --  Active aura cache (consumed by bar glow overlays)
 --  Maintained by the 0.1s buff ticker, NOT here: it walks viewer pools cheaply
@@ -130,7 +135,9 @@ function ns.CdmApplyBlizzIconArt(frame)
     local classic = ns.CdmClassicIcons()
     local host = fc.blizzHost
     if not host then
-        host = CreateFrame("Frame", nil, frame)
+        -- Pooled with an options preview slot (an options page pool host);
+        -- the plain CreateFrame on a live icon.
+        host = POOL.CreateFrame("Frame", nil, frame)
         host:SetAllPoints(frame)
         host:EnableMouse(false)
         fc.blizzHost = host

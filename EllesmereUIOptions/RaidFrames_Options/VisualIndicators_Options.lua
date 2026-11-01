@@ -9,12 +9,33 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIRaidFrames"]
 if not ns then return end  -- module disabled: no options page
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host (a kept page wrapper or cog popup and every frame it hands out) are
+-- reset and dressed again by the next build instead of made anew; elsewhere
+-- this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
+-- Panel close turns the Healer Mana preview off and resets the eye of each
+-- tab's latest build (ns._eye[ctx]): registered once for the session, by the
+-- first build that has the eye.
+local hmEyeOnHide
+local function StopHMPreviewOnHide()
+    if not (ns._hmPreview and ns.HM_SetPreview) then return end
+    ns.HM_SetPreview(false)
+    local eyes = ns._eye
+    if eyes then
+        for _, eye in pairs(eyes) do
+            if eye.refreshHMEye then eye.refreshHMEye() end
+        end
+    end
+end
+
 local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderOff, CustomBorderOffTip)
     local env = ns._RFO_OptEnv
     local db, floor, IsPreviewOff, MissingGlowDesc = env.db, env.floor, env.IsPreviewOff, env.MissingGlowDesc
     local optState, PP, ReloadAndUpdate, SGet = env.optState, env.PP, env.ReloadAndUpdate, env.SGet
     local SSet, SVal, SWrite = env.SSet, env.SVal, env.SWrite
-    local _, h
+    local _, h, hdr
     local row
     local _secY = y  -- section start tracker
     -------------------------------------------------------------------
@@ -43,8 +64,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             eyeBtn:SetPoint("LEFT", indicatorHeader, "BOTTOMLEFT", 85, 8)
         end
         eyeBtn:SetFrameLevel(indicatorHeader:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
 
         -- On ns so the preview can read it.
@@ -53,11 +75,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         local function RefreshIndicatorEye()
             if IsPreviewOff() then
                 eyeTex:SetTexture(EYE_VISIBLE)
-                eyeBtn:SetAlpha(0.15)
+                EllesmereUI.SetGlyphAlpha(eyeBtn, 0.15)
                 return
             end
             eyeTex:SetTexture(ns._indicatorsVisible and EYE_INVISIBLE or EYE_VISIBLE)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         end
         EYE.refreshIndicatorEye = RefreshIndicatorEye
         RefreshIndicatorEye()
@@ -87,11 +109,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
                 return
             end
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, ns._indicatorsVisible and "Hide indicators on preview" or "Show indicators on preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            if not IsPreviewOff() then self:SetAlpha(0.4) end
+            if not IsPreviewOff() then EllesmereUI.SetGlyphAlpha(self, 0.4) end
             EllesmereUI.HideWidgetTooltip()
         end)
     end  -- close do (indicators eyeball)
@@ -143,10 +165,10 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             -- if the names are not loaded. Reads go through the runtime's
             -- resolver over the page's raw, party-aware reads, so an unset
             -- role shows what it does.
-            local blessOrder = { "none", "might", "wisdom", "kings", "salvation", "light" }
+            local blessOrder = { "none", "might", "wisdom", "kings", "light" }
             local blessItems = {}
-            local BLESS_ID = { might = 19740, wisdom = 19742, kings = 20217, salvation = 1038, light = 19977 }
-            local BLESS_EN = { might = "Might", wisdom = "Wisdom", kings = "Kings", salvation = "Salvation", light = "Light" }
+            local BLESS_ID = { might = 19740, wisdom = 19742, kings = 20217, light = 19977 }
+            local BLESS_EN = { might = "Might", wisdom = "Wisdom", kings = "Kings", light = "Light" }
             local blessValues = { none = "None" }
             local full, common = {}, nil
             for i = 2, #blessOrder do
@@ -268,14 +290,17 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 -- One switch per buff (all on by default). The list is the
                 -- profile's, shared across classes, so every buff is listed;
                 -- only the ones this character can cast ever show. The
-                -- paladin blessings follow the role rows below instead.
+                -- paladin blessings follow the role rows below instead;
+                -- Salvation, which stacks with them, is a switch here and
+                -- never shows on a tank.
                 { type="reordercheck", label="Buffs", ddWidth=170,  -- the Glow dropdown's width
                   hint="Only buffs you can cast show",
                   items={
-                      { key="missingBuffsFort",   label="Fortitude",        fixed=true },
-                      { key="missingBuffsMark",   label="Mark of the Wild", fixed=true },
-                      { key="missingBuffsSpirit", label="Spirit",           fixed=true },
-                      { key="missingBuffsThorns", label="Thorns",           fixed=true },
+                      { key="missingBuffsFort",      label="Fortitude",        fixed=true },
+                      { key="missingBuffsMark",      label="Mark of the Wild", fixed=true },
+                      { key="missingBuffsSpirit",    label="Spirit",           fixed=true },
+                      { key="missingBuffsThorns",    label="Thorns",           fixed=true },
+                      { key="missingBuffsSalvation", label="Salvation",        fixed=true },
                   },
                   get=function(key) return SVal(key, true) end,
                   set=function(key, on) SSet(key, on) end },
@@ -896,8 +921,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             eyeBtn:SetPoint("LEFT", dispelHeader, "BOTTOMLEFT", 85, 8)
         end
         eyeBtn:SetFrameLevel(dispelHeader:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
 
         if ns._dispelsVisible == nil then ns._dispelsVisible = false end
@@ -905,11 +931,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         local function RefreshDispelEye()
             if IsPreviewOff() then
                 eyeTex:SetTexture(EYE_VISIBLE)
-                eyeBtn:SetAlpha(0.15)
+                EllesmereUI.SetGlyphAlpha(eyeBtn, 0.15)
                 return
             end
             eyeTex:SetTexture(ns._dispelsVisible and EYE_INVISIBLE or EYE_VISIBLE)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         end
         EYE.refreshDispelEye = RefreshDispelEye
         RefreshDispelEye()
@@ -931,11 +957,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
                 return
             end
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, ns._dispelsVisible and "Hide dispels on preview" or "Show dispels on preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            if not IsPreviewOff() then self:SetAlpha(0.4) end
+            if not IsPreviewOff() then EllesmereUI.SetGlyphAlpha(self, 0.4) end
             EllesmereUI.HideWidgetTooltip()
         end)
     end  -- close do (dispels eyeball)
@@ -1710,7 +1736,18 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     -------------------------------------------------------------------
     --  RANGE & TOOLTIP
     -------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
+    hdr, h = W:SectionHeader(parent, "EXTRAS", y); y = y - h
+    -- The Healer Mana Display's Move in Unlock Mode button, on the raid tab
+    -- only: both tabs build this section and the display's settings are
+    -- shared. Greyed while the mode is None, when the display has no mover.
+    if not optState._partyCtx then
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "RF_HealerMana",
+            disabled = function()
+                local hm = db.profile.healerMana
+                return not hm or (hm.mode or "none") == "none"
+            end,
+            disabledTooltip = "Healer Mana Display" })
+    end
 
     -- OOR Alpha | Show Raid Frames Tooltip (dropdown + cog). The dropdown is a pure VIEW over the legacy keys: with tooltipMode unset it derives the shown option from the showTooltip toggle plus the global "show in combat" flag, so behavior only changes once the user picks.
     -- Same derive as the runtime ns._ResolveTooltipMode.
@@ -1730,7 +1767,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
               -- Seed all buttons so the slider takes effect now.
               if ns._RangeSeedAll then ns._RangeSeedAll() end
           end },
-        { type="dropdown", text="Show Raid Frames Tooltip",
+        { type="dropdown", text="Show Raid & Party Frames Tooltip",
           tooltip="Controls when the tooltip appears as you hover a raid or party frame",
           values={ always="Always", outOfCombat="Out of Combat", outOfBossCombat="Out of Boss Combat", never="Never" },
           order={ "always", "outOfCombat", "outOfBossCombat", "never" },
@@ -1894,33 +1931,33 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         eyeBtn:SetPoint("RIGHT", rgn._lastInline, "LEFT", -4, 0)
         rgn._lastInline = eyeBtn
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints(); eyeTex:SetTexture(EYE_VISIBLE)
         local function RefreshHMEye()
             eyeTex:SetTexture(ns._hmPreview and EYE_INVISIBLE or EYE_VISIBLE)
         end
+        EYE.refreshHMEye = RefreshHMEye
         eyeBtn:SetScript("OnClick", function()
             if ns.HM_SetPreview then ns.HM_SetPreview(not ns._hmPreview) end
             RefreshHMEye()
         end)
         eyeBtn:SetScript("OnEnter", function(s)
-            s:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(s, 0.7)
             EllesmereUI.ShowWidgetTooltip(s, ns._hmPreview and "Hide the preview" or "Preview the display at its position")
         end)
         eyeBtn:SetScript("OnLeave", function(s)
-            s:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(s, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
-        EllesmereUI:RegisterOnHide(function()
-            if ns._hmPreview and ns.HM_SetPreview then
-                ns.HM_SetPreview(false)
-                RefreshHMEye()
-            end
-        end)
+        if not hmEyeOnHide then
+            hmEyeOnHide = true
+            EllesmereUI:RegisterOnHide(StopHMPreviewOnHide)
+        end
     end
 
-    -- Hide Blizzard Party Panel shares the exact global setting and apply function as the QoL toggle (EllesmereUIDB.hideBlizzardPartyFrame -> EllesmereUI._applyHideBlizzardPartyFrame); the QoL toggle is disabled while Raid Frames is loaded. Off when unset.
+    -- Hide Blizzard Party Panel shares the exact global setting and apply function as Quality of Life's Hide Blizzard Elements > Party Panel (EllesmereUIDB.hideBlizzardPartyFrame -> EllesmereUI._applyHideBlizzardPartyFrame): one setting, changeable on either page. Off when unset.
     _, h = W:DualRow(parent, y,
         { type="toggle", text="Hide Blizzard Party Panel",
           tooltip="Hides the collapsed Blizzard party/raid sidebar panel on the side of the screen.",
@@ -1943,7 +1980,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     -- Right-click + drag over a raid/party frame turns the camera (mouselook).
     _, h = W:DualRow(parent, y,
         { type="toggle", text="Right Mouse Camera Unlock",
-          tooltip="Allows free camera movement while holding and dragging right mouse button over raid frames. Right-click tap still opens the unit menu.",
+          tooltip="Allows free camera movement while holding and dragging right mouse button over raid and party frames. Right-click tap still opens the unit menu.",
           getValue=function() return SVal("freeRightClickCamera", false) end,
           setValue=function(v) SSet("freeRightClickCamera", v); if ns.FRCM_Refresh then ns.FRCM_Refresh() end end },
         { type="dropdown", text="Frame Strata",

@@ -5,7 +5,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Stock atlas painting for the Blizzard Style kits.
 --    EllesmereUI.StockAtlas(tex, name, ...)  in place of tex:SetAtlas(name, ...)
 --    EllesmereUI.StockAtlasInfo(name)        in place of C_Texture.GetAtlasInfo
---  Retail: exactly those two calls.
+--    EllesmereUI.StockMask(mask, name, useSize)  in place of mask:SetAtlas for
+--        the stock bar and portrait masks (see MASK_FILES below)
+--  Retail: exactly those calls.
 --
 --  WoW Forever swaps many retail atlas names for its own "-c60" art, so
 --  SetAtlas draws Forever art there, but the retail sheets still ship with
@@ -538,6 +540,7 @@ end
 if not EllesmereUI.IS_FOREVER then
     function EllesmereUI.StockAtlas(tex, name, ...) return tex:SetAtlas(name, ...) end
     EllesmereUI.StockAtlasInfo = C_Texture.GetAtlasInfo
+    function EllesmereUI.StockMask(mask, name, useSize) return mask:SetAtlas(name, useSize) end
     return
 end
 
@@ -577,6 +580,7 @@ local ROWS = {
     ["ui-hud-unitframe-target-portraiton"]                  = { UF, 1, 193, 229, 296, UF2, 1, 385, 451, 585 },
     ["ui-hud-unitframe-targetoftarget-portraiton"]          = { UF, 330, 450, 160, 209, UF2, 1113, 1353, 315, 413 },
     ["ui-hud-unitframe-target-rare-portraiton"]             = { UF, 1, 193, 298, 365, UF2, 1, 385, 587, 721 },
+    ["ui-hud-unitframe-target-portraiton-type"]             = { UF, 311, 446, 260, 278, UF2, 887, 1157, 461, 497 },
     ["ui-hud-unitframe-target-highleveltarget_icon"]        = { UF, 1008, 1019, 35, 49, UF2, 2001, 2023, 261, 289 },
     ["ui-hud-unitframe-target-portraiton-boss-gold"]        = { BOSS, 1, 81, 84, 163, BOSS2, 1, 161, 165, 323 },
     ["ui-hud-unitframe-target-portraiton-boss-rare-silver"] = { BOSS, 1, 81, 165, 244, BOSS2, 1, 161, 325, 483 },
@@ -676,4 +680,59 @@ function EllesmereUI.StockAtlasInfo(name)
     if e == nil then e = Resolve(name) end
     if e then return Pick(e) end
     return C_Texture.GetAtlasInfo(name)
+end
+
+-- Bar and portrait masks (MaskTextures, in place of mask:SetAtlas): WoW
+-- Forever redrew these under the retail names (build 70425: thinner rounded
+-- bars, a round player portrait), so the stock looks paint the retail files,
+-- which still ship with that client and fill their whole file: path (the
+-- presence probe) and file id, the 2x pair where retail has one, then the
+-- atlas size. A name the client still draws from the retail file stays an atlas.
+local MASK_FILES = {
+    ["ui-hud-unitframe-player-portraiton-bar-health-mask"] = { "Interface\\HUD\\UIUnitFramePlayerHealthMask", 4697851,
+        "Interface\\HUD\\UIUnitFramePlayerHealthMask2x", 5321215, 128, 32 },
+    ["ui-hud-unitframe-player-portraiton-bar-mana-mask"]   = { "Interface\\HUD\\UIUnitFramePlayerManaMask", 4697854,
+        "Interface\\HUD\\UIUnitFramePlayerManaMask2x", 5321218, 128, 16 },
+    ["ui-hud-unitframe-target-portraiton-bar-health-mask"] = { "Interface\\HUD\\UIUnitFrameTargetHealthMask", 4680792,
+        "Interface\\HUD\\UIUnitFrameTargetHealthMask2x", 5321212, 128, 32 },
+    ["ui-hud-unitframe-target-portraiton-bar-mana-mask"]   = { "Interface\\HUD\\UIUnitFrameTargetManaMask", 4680795,
+        "Interface\\HUD\\UIUnitFrameTargetManaMask2x", 5321221, 256, 16 },
+    ["ui-hud-unitframe-player-portrait-mask"]              = { "Interface\\HUD\\UIUnitFramePlayerPortraitMask", 4682541,
+        "Interface\\HUD\\UIUnitFramePlayerPortraitMask2x", 5321198, 64, 64 },
+    ["ui-hud-unitframe-party-portraiton-bar-health-mask"]  = { "Interface\\HUD\\UIPartyFramePortraitOnHealthMask", 4737301,
+        false, false, 128, 16 },
+    ["ui-hud-unitframe-party-portraiton-bar-mana-mask"]    = { "Interface\\HUD\\UIPartyFramePortraitOnManaMask", 4737298,
+        false, false, 128, 16 },
+}
+
+-- name -> { 1x file id or false, 2x file id or false, width, height } | false.
+local maskResolved = {}
+local function MaskFile(name)
+    local e = maskResolved[name]
+    if e ~= nil then return e end
+    e = false
+    local row = type(name) == "string" and MASK_FILES[strlower(name)]
+    if row then
+        local native = C_Texture.GetAtlasInfo(name)
+        local nf = native and native.file
+        if nf ~= row[2] and not (row[4] and nf == row[4]) then
+            local f1 = GetFileIDFromPath(row[1]) == row[2] and row[2] or false
+            local f2 = row[3] and GetFileIDFromPath(row[3]) == row[4] and row[4] or false
+            if f1 or f2 then e = { f1, f2, row[5], row[6] } end
+        end
+    end
+    maskResolved[name] = e
+    return e
+end
+
+function EllesmereUI.StockMask(mask, name, useSize)
+    local e = MaskFile(name)
+    if e then
+        local file
+        if HiRes() then file = e[2] or e[1] else file = e[1] or e[2] end
+        mask:SetTexture(file, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        if useSize then mask:SetSize(e[3], e[4]) end
+        return
+    end
+    return mask:SetAtlas(name, useSize)
 end

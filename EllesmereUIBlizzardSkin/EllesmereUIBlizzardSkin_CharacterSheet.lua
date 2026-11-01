@@ -8,12 +8,7 @@ local skinned = false
 local issecretvalue = issecretvalue or function() return false end
 
 -- External weak-keyed lookup table for frame state (prevents tainting Blizzard frames)
-local FFD = setmetatable({}, { __mode = "k" })
-local function GetFFD(frame)
-    local d = FFD[frame]
-    if not d then d = {}; FFD[frame] = d end
-    return d
-end
+local FFD, GetFFD = EllesmereUI.NewFrameData()
 
 -- The Character Sheet card's style: "blizzard" for Blizz Default, else "eui"
 -- (EllesmereUI and Modern skin the sheet alike). Account-wide, swapped with
@@ -510,9 +505,12 @@ local function PreSkinCharacterSheet()
     end
 
     -- PlayerModel: SetUnit("player") natively follows shapeshift forms and Dracthyr Visage. Backdrop + hover glow live on a sibling frame (the 3D model draws on top).
+    -- Its level (and the text overlays' after it) comes from CharacterFrame's own, never a fixed
+    -- number: the sheet backdrop is that frame's BACKGROUND layer, its inset shares the level, and
+    -- the window's level at login varies. Children keep the offset when the window is raised.
     if not GetFFD(frame).modelScene then
         local myModel = CreateFrame("PlayerModel", "EUI_CharSheet_ModelScene", frame)
-        myModel:SetFrameLevel(2)
+        myModel:SetFrameLevel(frame:GetFrameLevel() + 3)
         if CharacterHeadSlot then
             myModel:SetPoint("TOPLEFT",  CharacterHeadSlot,  "TOPRIGHT", 0, 0)
         end
@@ -608,6 +606,13 @@ local function PreSkinCharacterSheet()
         mouseOverlay:SetScript("OnHide", function(self)
             dragMode = nil
             self:SetScript("OnUpdate", nil)
+        end)
+
+        -- SetUnit loads asynchronously and the widget drops its camera while hidden; recentre once the model is in.
+        myModel:SetScript("OnModelLoaded", function(self)
+            self:RefreshCamera()
+            self:SetPortraitZoom(zoomLevel)
+            self:SetPosition(0, 0, 0)
         end)
 
         mouseOverlay:SetScript("OnMouseWheel", function(_, delta)
@@ -885,7 +890,7 @@ local function SkinCharacterSheet()
         local modelScene = GetFFD(frame).modelScene or (stock and _G.CharacterModelScene)
         if modelScene and not GetFFD(frame).durabilityModelLabel then
             local durOverlay = CreateFrame("Frame", nil, stock and _G.PaperDollFrame or frame)
-            durOverlay:SetFrameLevel(stock and (modelScene:GetFrameLevel() + 10) or 5)
+            durOverlay:SetFrameLevel(modelScene:GetFrameLevel() + 10)
             durOverlay:EnableMouse(false)
             GetFFD(frame).durabilityOverlay = durOverlay
 
@@ -1939,8 +1944,9 @@ local function SkinCharacterSheet()
         return 0
     end
 
-    -- Crest maximum values (per season) -- season 2 Mistcrests. Fallback only:
-    -- GetCrestMaxValue prefers the API's live seasonal max.
+    -- SEASON UPDATE: the crest currency ids and their caps (season 2 Mistcrests),
+    -- with the Crests stat rows below. Fallback only: GetCrestMaxValue prefers
+    -- the API's live seasonal max.
     local crestMaxValues = {
         [3446] = 400,  -- Myth
         [3445] = 400,  -- Hero
@@ -2110,6 +2116,7 @@ local function SkinCharacterSheet()
                 title = "Crests",
                 colorKey = "Crests",
                 color = GetCategoryColor("Crests"),
+                -- SEASON UPDATE: the season's crest currency ids, highest tier first.
                 stats = {
                     { name = "Myth", showCrestKey = "Myth", func = function() return GetCrestValue(3446) end, format = "%d", currencyID = 3446 },
                     { name = "Hero", showCrestKey = "Hero", func = function() return GetCrestValue(3445) end, format = "%d", currencyID = 3445 },
@@ -3661,7 +3668,9 @@ local function SkinCharacterSheet()
         textOverlayFrame:SetFrameLevel((scene and scene:GetFrameLevel() or 50) + 10)
     else
         textOverlayFrame = CreateFrame("Frame", "EUI_CharSheet_TextOverlay", frame)
-        textOverlayFrame:SetFrameLevel(5)  -- Higher than model (FrameLevel 2)
+        -- Above the model, whose level PreSkin sets from CharacterFrame's.
+        local model = GetFFD(frame).modelScene
+        textOverlayFrame:SetFrameLevel((model and model:GetFrameLevel() or frame:GetFrameLevel()) + 10)
     end
     textOverlayFrame:EnableMouse(false)
     textOverlayFrame:Show()

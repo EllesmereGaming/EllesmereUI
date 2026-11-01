@@ -7,6 +7,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- "CharacterFrame" -> "Character", "AuctionHouseFrame" -> "Auction House", etc.
 if not EllesmereUI._ModuleNS["EllesmereUIQoL"] then return end  -- module disabled: no options page
 
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local function PrettifyName(name)
     local pretty = name:gsub("Frame$", "")
     pretty = pretty:gsub("(%l)(%u)", "%1 %2")
@@ -17,7 +22,7 @@ end
 _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
     local W = EllesmereUI.Widgets
     local y = yOffset
-    local _, h
+    local _, h, hdr
 
     -- Info text (top of page, matching bags pattern)
     do
@@ -153,11 +158,13 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
     ---------------------------------------------------------------------------
     --  LOOT WINDOWS
     ---------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "LOOT WINDOWS", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "LOOT WINDOWS", y);  y = y - h
 
     local function lootUnlockOff()
         return not (EllesmereUIDB and EllesmereUIDB.shifterLootUnlock)
     end
+    -- One toggle adds all three loot movers, so the button takes the first.
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_BonusRoll", disabled = lootUnlockOff, disabledTooltip = "Move Loot Windows in Unlock Mode" })
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Move Loot Windows in Unlock Mode",
@@ -194,11 +201,12 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
     ---------------------------------------------------------------------------
     --  BLIZZARD TOP BAR EVENT TEXT
     ---------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "BLIZZARD TOP BAR EVENT TEXT", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "BLIZZARD TOP BAR EVENT TEXT", y);  y = y - h
 
     local function topBarUnlockOff()
         return not (EllesmereUIDB and EllesmereUIDB.shifterTopBarUnlock)
     end
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_TopBarEventText", disabled = topBarUnlockOff, disabledTooltip = "Move Top Bar Event Text in Unlock Mode" })
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Move Top Bar Event Text in Unlock Mode",
@@ -229,6 +237,46 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
           setValue = function(v)
               if not EllesmereUIDB then EllesmereUIDB = {} end
               EllesmereUIDB.shifterTopBarHideOverlay = v
+          end }
+    );  y = y - h
+
+    ---------------------------------------------------------------------------
+    --  BATTLEGROUND FRAMES
+    ---------------------------------------------------------------------------
+    hdr, h = W:SectionHeader(parent, "BATTLEGROUND FRAMES", y);  y = y - h
+
+    local function battlegroundUnlockOff()
+        return not (EllesmereUIDB and EllesmereUIDB.shifterBattlegroundUnlock)
+    end
+    -- One toggle adds both battleground movers, so the button takes the flag carriers'.
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_FlagCarriers", disabled = battlegroundUnlockOff, disabledTooltip = "Move Battleground Frames in Unlock Mode" })
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Move Battleground Frames in Unlock Mode",
+          tooltip = "Adds movers for the battleground flag carriers and the capture bar to Unlock Mode.",
+          getValue = function()
+              return EllesmereUIDB and EllesmereUIDB.shifterBattlegroundUnlock or false
+          end,
+          setValue = function(v)
+              if not EllesmereUIDB then EllesmereUIDB = {} end
+              EllesmereUIDB.shifterBattlegroundUnlock = v
+              if EllesmereUI._InitShifterLootWindows then
+                  EllesmereUI._InitShifterLootWindows()
+              end
+              if EllesmereUI._SyncShifterCarriers then
+                  EllesmereUI._SyncShifterCarriers()
+              end
+              EllesmereUI:RefreshPage()  -- update the overlay toggle disabled state
+          end },
+        { type = "toggle", text = "Hide Unlock Mode Overlays",
+          tooltip = "Hides the battleground frame movers in Unlock Mode while keeping their saved positions applied.",
+          disabled = battlegroundUnlockOff, disabledTooltip = "Move Battleground Frames in Unlock Mode",
+          getValue = function()
+              return EllesmereUIDB and EllesmereUIDB.shifterBattlegroundHideOverlays or false
+          end,
+          setValue = function(v)
+              if not EllesmereUIDB then EllesmereUIDB = {} end
+              EllesmereUIDB.shifterBattlegroundHideOverlays = v
           end }
     );  y = y - h
 

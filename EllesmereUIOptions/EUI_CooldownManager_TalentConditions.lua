@@ -20,6 +20,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUICooldownManager"]
 if not ns then return end
 
+-- The options page pool (EllesmereUI_FramePool.lua): the corner mark on a
+-- preview slot (a reused header's slot is a pool host) is handed out again
+-- reset to fresh; the popup, built once, takes the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local PP = EllesmereUI.PP
 
 local POPUP_W, POPUP_H = 940, 620

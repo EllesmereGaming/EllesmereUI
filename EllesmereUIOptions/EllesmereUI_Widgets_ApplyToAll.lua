@@ -617,6 +617,13 @@ local function BuildSyncIcon(opts)
         multiBtn:SetScript("OnClick", function()
             BuildMultiApplyDropdown(multiBtn, opts.multiApply, opts.flashTargets)
         end)
+        -- The menu hangs from this link and applies this row's setting: when the link
+        -- goes (a page pass dresses it again or drops it, the values synced, the panel
+        -- closed or folded), the menu it opened closes with it.
+        multiBtn:SetScript("OnHide", function()
+            local menu = ma.menu
+            if menu and ma.anchor == multiBtn and menu:IsShown() then menu:Hide() end
+        end)
     end
 
     -- ----------------------------------------------------------------

@@ -1091,12 +1091,7 @@ local function BuildCogPopup(opts)
             unlockFS:SetPoint("CENTER")
             unlockBtn:SetScript("OnClick", function()
                 pf:Hide()
-                if EllesmereUI._openUnlockMode then
-                    EllesmereUI._unlockAutoSelectKey = opts.footer.unlockKey
-                    local panel = EllesmereUI._mainFrame
-                    if panel and panel:IsShown() then panel:Hide() end
-                    C_Timer.After(0, EllesmereUI._openUnlockMode)
-                end
+                EllesmereUI.OpenUnlockModeAt(opts.footer.unlockKey)
             end)
             unlockBtn:SetScript("OnEnter", function(self)
                 unlockFS:SetTextColor(_uhr, _uhg, _uhb)
@@ -1264,8 +1259,11 @@ local function BuildCogPopup(opts)
             local owner = popupOwner
             popupOwner = nil; pf._owner = nil
             -- Dim the anchor back to cog idle alpha; skipped via noOwnerDim when the anchor isn't a cog (e.g. a preview icon) and must not fade.
+            -- A hand-built glyph button (SetGlyphAlpha) goes back through its own painter.
             if owner and owner._euiCogState then owner._euiCogState()
-            elseif owner and not opts.noOwnerDim then owner:SetAlpha(0.4) end
+            elseif owner and not opts.noOwnerDim then
+                if owner._glyphA then EllesmereUI.SetGlyphAlpha(owner, 0.4) else owner:SetAlpha(0.4) end
+            end
             -- Controller cursor: back onto the cog (not for the hover-opened popups,
             -- where it stays free; a no-op once the cog is hidden).
             if owner and not opts.noOwnerDim and EllesmereUI.PadCursorShown() then

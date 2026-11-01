@@ -6,8 +6,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  to keep enabled. Visual style mirrors the Spec Assign popup (dimmer +
 --  dark panel + white border + Check All / Uncheck All links + Done button).
 --
---  Layout: three columns (Core / QoL / UI Reskin), one checkbox per row,
---  groups build down independently.
+--  Layout: one column per group (the sidebar's groups: Core / Secondary /
+--  Utility / UI Enhancements), one checkbox per row, groups build down
+--  independently.
 --
 --  Fires at PLAYER_LOGIN, BEFORE the conflict-check popup (see EllesmereUI.lua
 --  which now gates its conflict check on EllesmereUIDB.firstInstallPopupShown).
@@ -51,15 +52,22 @@ local GROUPS = {
             { label = "Unit Frames",      addon = "EllesmereUIUnitFrames" },
             { label = "Cooldown Manager", addon = "EllesmereUICooldownManager" },
             { label = "Resource Bars",    addon = "EllesmereUIResourceBars" },
-            { label = "Raid Frames",      addon = "EllesmereUIRaidFrames" },
+            { label = "Raid & Party Frames", addon = "EllesmereUIRaidFrames" },
         },
     },
     {
-        header = "QoL Addons",
+        header = "Secondary Addons",
+        entries = {
+            { label = "Mythic+ Tools",       addon = "EllesmereUIMythicTimer" },
+            { label = "Damage Meters",       addon = "EllesmereUIDamageMeters" },
+            { label = "AuraBuff Reminders",  addon = "EllesmereUIAuraBuffReminders" },
+        },
+    },
+    {
+        header = "Utility Addons",
         entries = {
             { label = "Quality of Life",     addon = "EllesmereUIQoL" },
             { label = "Forever Essentials",  addon = "EllesmereUIForeverEssentials" },
-            { label = "AuraBuff Reminders",  addon = "EllesmereUIAuraBuffReminders" },
             { label = "DataBars",            addon = "EllesmereUIDataBars" },
             { label = "Quickdraw",           addon = "EllesmereUIQuickdraw" },
             -- Cursor Circle is a feature inside the QoL addon (cursor.enabled).
@@ -69,15 +77,13 @@ local GROUPS = {
         },
     },
     {
-        header = "UI Reskin Addons",
+        header = "UI Enhancements",
         entries = {
-            { label = "Blizzard Skins+", addon = "EllesmereUIBlizzardSkin" },
-            { label = "Friends List",      addon = "EllesmereUIFriends" },
-            { label = "Damage Meters",     addon = "EllesmereUIDamageMeters" },
+            { label = "Blizzard Skins+",   addon = "EllesmereUIBlizzardSkin" },
             { label = "Chat",              addon = "EllesmereUIChat" },
             { label = "Bags",              addon = "EllesmereUIBags" },
-            { label = "Mythic+ Tools",     addon = "EllesmereUIMythicTimer" },
             { label = "Quest Tracker",     addon = "EllesmereUIQuestTracker" },
+            { label = "Friends List",      addon = "EllesmereUIFriends" },
         },
     },
 }
@@ -147,7 +153,7 @@ local function ShowFirstInstallPopup()
     })
 
     -- Decorative header visual (announcement-popup style): three mini module
-    -- cards echoing the three picker columns below, each with the green top
+    -- cards in the look of the picker columns below, each with the green top
     -- accent and a checked box beside stand-in text lines. The center card is
     -- slightly taller/brighter, matching the sibling popups' motif.
     do
@@ -263,7 +269,7 @@ local function ShowFirstInstallPopup()
     -- Track all checkbox rows for check-all / uncheck-all
     local allRows = {}
 
-    -- Build the three columns
+    -- One column per group
     for colIdx, group in ipairs(GROUPS) do
         local col = CreateFrame("Frame", nil, popup)
         col:SetFrameLevel(popup:GetFrameLevel() + 1)
@@ -432,9 +438,7 @@ local function ShowFirstInstallPopup()
         RefreshButtonLabel()
     end)
 
-    -- reloading: the click already fired the secure /reload (WoW Forever), so
-    -- the choices are written and no reload prompt follows.
-    local function Close(triggerReload, reloading)
+    local function Close(triggerReload)
         if not EllesmereUIDB then EllesmereUIDB = {} end
         EllesmereUIDB.firstInstallPopupShown = true
         EllesmereUIDB.bagsUserChosen = true
@@ -475,36 +479,24 @@ local function ShowFirstInstallPopup()
         end
 
         if triggerReload then
-            -- Apply addon enable/disable changes then reload
-            for _, row in ipairs(allRows) do
-                if row._entry.addon then
-                    SetAddonEnabled(row._entry.addon, row._checked)
+            -- The reload first in the click, then what it applies as its
+            -- pre-reload work (RequestReload): the addon enable/disable
+            -- changes and, on WoW Forever, the look a fresh install starts
+            -- on, written so the style picker opens on the look in use (its
+            -- card then closes the picker without a second reload). The
+            -- options addon loads for it, never in combat; in combat, or when
+            -- it cannot load, the picker offers the look as its default instead.
+            EllesmereUI.RequestReload(nil, nil, function()
+                for _, row in ipairs(allRows) do
+                    if row._entry.addon then
+                        SetAddonEnabled(row._entry.addon, row._checked)
+                    end
                 end
-            end
-            -- WoW Forever: a fresh install starts on the WoW Forever look,
-            -- written as this reload's pre-reload step so the style picker
-            -- opens on the look in use (its card then closes the picker
-            -- without a second reload), and "Later" writes nothing. The
-            -- options addon loads now, never in combat; in combat, or when it
-            -- cannot load, the picker offers the look as its default instead.
-            local applyLook
-            if EllesmereUI.IS_FOREVER and lookOpen and not InCombatLockdown()
-                and EllesmereUI.EnsureOptionsLoaded() then
-                applyLook = function()
-                    if InCombatLockdown() then return end
+                if EllesmereUI.IS_FOREVER and lookOpen and not InCombatLockdown()
+                    and EllesmereUI.EnsureOptionsLoaded() then
                     EllesmereUI.ApplyFirstInstallLook("forever")
                 end
-            end
-            if reloading then
-                if applyLook then applyLook() end
-            else
-                EllesmereUI.RequestReload(nil, nil, applyLook)
-            end
-            -- The Forever fallback (picker shown in combat) waits on the reload
-            -- popup: close the picker so "Later" leaves the game usable (the
-            -- addon choices are saved and apply at the next reload; the look
-            -- is left to the style picker). Otherwise the UI is reloading.
-            dimmer:Hide()
+            end)
             return
         end
 
@@ -522,10 +514,6 @@ local function ShowFirstInstallPopup()
         -- Always reload so the addon enable/disable selections take effect.
         Close(true)
     end)
-    -- WoW Forever: Done is itself the secure /reload click (one click saves
-    -- the choices and reloads, no reload popup after it). A picker shown in
-    -- combat keeps the plain button and its reload popup.
-    EllesmereUI.AttachReloadClick(doneBtn, function() Close(true, true) end)
 
     dimmer:Show()
     -- Controller cursor: the picker has no other way out, so bring the gamepad pointer up.

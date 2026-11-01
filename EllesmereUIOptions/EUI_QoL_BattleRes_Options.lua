@@ -6,6 +6,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 
 if not EllesmereUI._ModuleNS["EllesmereUIQoL"] then return end  -- module disabled: no options page
 
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local function DB()
     local fn = _G._EUI_BattleRes_DB
     return fn and fn() or nil
@@ -145,7 +150,7 @@ local function BuildBattleResPage(pageName, parent, yOffset)
     if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
     parent._showRowDivider = true
 
-    -- ── BATTLE RES ────────────────────────────────────────────────────
+    -- -- BATTLE RES ----------------------------------------------------
     _, h = W:SectionHeader(parent, "BATTLE RES", y); y = y - h
 
     -- Enable + Icon Size
@@ -246,9 +251,12 @@ _G._EUI_BuildBattleResPage = BuildBattleResPage
 -- Returns total height consumed.
 _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
     local y = yOffset
-    local _, h, row
+    local _, h, row, hdr
 
-    _, h = W:SectionHeader(parent, "BATTLE RES", y); y = y - h
+    hdr, h = W:SectionHeader(parent, "BATTLE RES", y); y = y - h
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_BattleRes",
+        disabled = function() return Cfg("visibility") == "NEVER" end,
+        disabledTooltip = "BattleRes Icon" })
 
     -- Live preview: forces the icon on screen for as long as this page is (mirrors
     -- the Bloodlust Tracker section below). PollCharges falls back to stand-in
@@ -563,9 +571,12 @@ end
 -- below the Battle Res section. Returns total height consumed.
 _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
     local y = yOffset
-    local _, h, row
+    local _, h, row, hdr
 
-    _, h = W:SectionHeader(parent, "BLOODLUST TRACKER", y); y = y - h
+    hdr, h = W:SectionHeader(parent, "BLOODLUST TRACKER", y); y = y - h
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_Bloodlust",
+        disabled = function() return BL_Cfg("visibility") == "NEVER" end,
+        disabledTooltip = "Bloodlust Icon" })
 
     -- Live preview: the icon is forced on screen for as long as this page is, so the
     -- ready label, sizes and offsets can be judged without waiting for a real lust.

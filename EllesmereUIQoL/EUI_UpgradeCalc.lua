@@ -28,31 +28,32 @@ end
 -- ID from Blizzard — check Wowhead or /dump C_CurrencyInfo.GetCurrencyInfo(id)),
 -- ranks (ilvl at each of the 6 upgrade ranks, lowest to highest).
 -- Add or remove tracks from Data.trackOrder to match the season's track list.
+-- Midnight S2: wago.tools ItemBonusListGroupEntry -> ItemBonus -> ItemScalingConfig (12.1.5).
 Data.tracks = {
     Adventurer = {
         crestName = "Adventurer Mistcrest",
         hexColor = "|cff1eff00", currID = 3442, tier = 1,
-        ranks = { 220, 224, 227, 230, 233, 237 },
+        ranks = { 266, 269, 272, 276, 279, 282 },
     },
     Veteran = {
         crestName = "Veteran Mistcrest",
         hexColor = "|cff0070dd", currID = 3443, tier = 2,
-        ranks = { 233, 237, 240, 243, 246, 250 },
+        ranks = { 279, 282, 285, 289, 292, 295 },
     },
     Champion = {
         crestName = "Champion Mistcrest",
         hexColor = "|cffa335ee", currID = 3444, tier = 3,
-        ranks = { 246, 250, 253, 256, 259, 263 },
+        ranks = { 292, 295, 298, 302, 305, 308 },
     },
     Hero = {
-        crestName = "Hero Mistcrest", manualAdds = true,
+        crestName = "Hero Mistcrest", manualAdds = true, ascendantBonus = 12848,
         hexColor = "|cffff8000", currID = 3445, tier = 4,
-        ranks = { 259, 263, 266, 269, 272, 276 },
+        ranks = { 305, 308, 311, 315, 318, 321 },
     },
     Myth = {
-        crestName = "Myth Mistcrest", manualAdds = true,
+        crestName = "Myth Mistcrest", manualAdds = true, ascendantBonus = 12856,
         hexColor = "|cffffd100", currID = 3446, tier = 5,
-        ranks = { 272, 276, 279, 282, 285, 289 },
+        ranks = { 318, 321, 324, 328, 331, 334 },
     },
 }
 
@@ -71,11 +72,61 @@ Data.slotNames = {
     [17] = "Off Hand",
 }
 
--- SEASON UPDATE: if Voidcore (or its equivalent) is removed, set voidcoreBonus=0
--- and clear voidcoreEligibleSlots. If new slots become eligible, add their IDs here.
--- The bonus ilvl value (currently 9) should match the Voidcore item level increase.
-Data.voidcoreEligibleSlots = { 13, 14, 16, 17 }
-Data.voidcoreBonus         = 9
+-- SEASON UPDATE: the season's Ascendant upgrade bonus IDs and their caps.
+-- Bonus IDs: Wago 12.1.5; caps include the October 23 Myth hotfix.
+-- These are terminal upgrades, not a flat bonus applied to every rank or slot.
+Data.ascendantBonuses = {
+    [12848] = { track = "Hero", cap = 328 }, -- Ascendant Venomstone
+    [12856] = { track = "Myth", cap = 341 }, -- Ascendant Venomstone
+    [13848] = { track = "Myth", cap = 344 }, -- existing special Myth upgrade
+    [13852] = { crafted = true, Hero = 325, Myth = 337 }, -- Venomstone: Tidal Crafted
+}
+
+function Calc:GetAscendantBonus(link)
+    if not canaccessallvalues(link) or type(link) ~= "string" then return nil end
+    local payload = link:match("item:([^|]+)")
+    if not payload then return nil end
+    local index, lastBonus = 0, 13
+    for field in (payload .. ":"):gmatch("([^:]*):") do
+        index = index + 1
+        if index == 13 then
+            lastBonus = 13 + (tonumber(field) or 0)
+        elseif index > 13 then
+            if index > lastBonus then break end
+            local bonus = Data.ascendantBonuses[tonumber(field)]
+            if bonus then return bonus end
+        end
+    end
+end
+
+-- Returns min/potential-max item levels, display rank/count and applied Ascendant metadata.
+function Calc:GetItemUpgradeRange(link, track, rank, maxRank, level, cap)
+    if not canaccessallvalues(link, track, rank, maxRank, level, cap) then return end
+    local bonus = self:GetAscendantBonus(link)
+    track = track or (bonus and bonus.track)
+    local td = Data.tracks[track or ""]
+    local ranks = td and td.ranks
+    if not ranks then return end
+    if bonus then
+        if bonus.track ~= track or level ~= bonus.cap then return end
+        if cap and cap ~= 0 and cap ~= ranks[#ranks] and cap ~= bonus.cap then return end
+        return ranks[1], bonus.cap, #ranks, #ranks, bonus
+    end
+    if not rank or maxRank ~= #ranks or rank < 1 or rank > maxRank or level ~= ranks[rank] then return end
+    local maxLevel = ranks[maxRank]
+    local potential = td.ascendantBonus and Data.ascendantBonuses[td.ascendantBonus]
+    if potential then
+        local _, _, _, equipLoc, _, classID = C_Item.GetItemInfoInstant(link)
+        if canaccessallvalues(equipLoc, classID) and (classID == Enum.ItemClass.Weapon
+            or equipLoc == "INVTYPE_NECK" or equipLoc == "INVTYPE_TRINKET"
+            or equipLoc == "INVTYPE_SHIELD" or equipLoc == "INVTYPE_HOLDABLE") then
+            -- Include the one-time Ascension ceiling without marking it as applied.
+            maxLevel = potential.cap
+        end
+    end
+    if cap and cap ~= 0 and cap ~= ranks[maxRank] and cap ~= maxLevel then return end
+    return ranks[1], maxLevel, rank, maxRank
+end
 
 -- Reverse lookup: currencyID → crestName (built after track table is complete).
 local _currIDToCrestName = {}
@@ -85,19 +136,20 @@ for _, td in pairs(Data.tracks) do
     end
 end
 
--- SEASON UPDATE: update these ilvl steps to match the base-crafted tier ilvls
--- for the new season (currently T1–T5 = 246/249/252/255/259).
+-- SEASON UPDATE: update these ilvl steps to match the Spark-crafted tier ilvls
+-- for the new season (Season 2: T1-T5 = 292/296/299/302/305, warcraft.wiki.gg).
 -- Referenced in GetCraftedInfo; hoisted here so it is allocated once, not per call.
-Data.craftedTierSteps = { 246, 249, 252, 255, 259 }
+Data.craftedTierSteps = { 292, 296, 299, 302, 305 }
 
--- SEASON UPDATE: update minIlvl/maxIlvl each new season to match crafted item ilvl caps.
+-- SEASON UPDATE: update minIlvl/maxIlvl each new season to match crafted item ilvl caps
+-- (Season 2: Hero crest crafts 305-318, Myth crest crafts 318-331).
 -- minIlvl: lowest ilvl at which an item belongs to this crafted band (checked highest-first).
 -- maxIlvl: ilvl ceiling for crafted items in this band.
 -- Ordered highest-first so CraftedBandFromIlvl can short-circuit on the first match.
 Data.craftedBands = {
-    { name = "Myth", minIlvl = 272, maxIlvl = 285 },
-    { name = "Hero", minIlvl = 259, maxIlvl = 272 },
-    { name = "None", minIlvl = 0,   maxIlvl = 259 },
+    { name = "Myth", minIlvl = 318, maxIlvl = 331 },
+    { name = "Hero", minIlvl = 305, maxIlvl = 318 },
+    { name = "None", minIlvl = 0,   maxIlvl = 305 },
 }
 -- Reverse lookup: band name → band data (for O(1) access in ScanItemLink).
 Data.craftedBandByName = {}
@@ -206,7 +258,7 @@ function Calc:GetEquippedGear(unit)
     return gear
 end
 
-Calc._tipCache = {}   -- [link] = { track, rank, maxRank, isCrafted, craftBand, craftMaxIlvl, isVoidforged }
+Calc._tipCache = {}   -- [link] = { track, rank, maxRank, isCrafted, craftBand, craftMaxIlvl, isVoidforged, ascendant }
 
 -- "Made by <name>" as a Lua pattern, built from the client's own global string
 -- so it matches on every locale. Colour codes are stripped first because the
@@ -252,11 +304,19 @@ function Calc:ScanItemLink(link)
     result.rank  = foundRank
     result.maxRank = (foundTrack == apiTrack) and apiMax or nil
     result.isVoidforged = foundVoid
+    local ascendant = self:GetAscendantBonus(link)
+    result.ascendant = ascendant
+    if ascendant and ascendant.track then
+        local track = foundTrack or ascendant.track
+        local level = C_Item.GetDetailedItemLevelInfo(link)
+        local _, _, rank, maxRank = self:GetItemUpgradeRange(link, track, foundRank, apiMax, level)
+        if rank then result.track, result.rank, result.maxRank = track, rank, maxRank end
+    end
 
     -- Only scan the crafted tooltip if no upgrade track was found.
     -- Reuse the same lines -- C_TooltipInfo returns all tooltip data in one call.
-    if not foundTrack then
-        local isCrafted, sawHero, sawMyth = false, false, false
+    if not result.track then
+        local isCrafted, sawHero, sawMyth = ascendant and ascendant.crafted or false, false, false
         ForEachTooltipLine(lines, function(raw)
             local t = Plain(raw)
             if t:find(CREATED_BY_PATTERN)
@@ -273,7 +333,7 @@ function Calc:ScanItemLink(link)
             local bname = sawMyth and "Myth" or sawHero and "Hero" or "None"
             local bdata = Data.craftedBandByName[bname]
             result.craftBand    = bname
-            result.craftMaxIlvl = bdata and bdata.maxIlvl or 259
+            result.craftMaxIlvl = bdata and bdata.maxIlvl or Data.craftedBandByName.None.maxIlvl
         end
     end
 
@@ -305,19 +365,26 @@ local function CraftedBandFromIlvl(ilvl)
     end
     -- Fallback: treat as base crafted (should never be reached; ilvl < 0 is impossible).
     local base = Data.craftedBandByName["None"]
-    return "None", math.max(base and base.maxIlvl or 259, ilvl)
+    return "None", math.max(base and base.maxIlvl or 0, ilvl)
 end
 
 -- Returns: isCrafted, band, tier, maxIlvl.
 function Calc:GetCraftedInfo(link, ilvl)
     local r = self:ScanItemLink(link)
     if not r or not r.isCrafted then return false end
-    local band, maxIlvl = r.craftBand or "None", r.craftMaxIlvl or 259
+    local band, maxIlvl = r.craftBand or "None", r.craftMaxIlvl or Data.craftedBandByName.None.maxIlvl
 
     -- If tooltip gave no band keywords, fall back to ilvl thresholds via shared helper.
     -- (See CraftedBandFromIlvl above for the SEASON UPDATE note.)
     if r.craftBand == "None" then
         band, maxIlvl = CraftedBandFromIlvl(ilvl)
+    end
+
+    local ascendant = r.ascendant
+    if ascendant and canaccessallvalues(ilvl) and ilvl and ilvl > 0 then
+        if ilvl == ascendant.Hero then band = "Hero"
+        elseif ilvl == ascendant.Myth then band = "Myth" end
+        maxIlvl = ilvl
     end
 
     local tier
@@ -363,6 +430,7 @@ end
 -- Non-crafted: trackName, rank, crestCost, maxIlvl
 -- Crafted:     "Crafted", nil, nil, maxIlvl, tierLabel, band
 function Calc:GetItemUpgradeCost(item)
+    if not canaccessallvalues(item.ilvl) then return nil end
     local track, rank, maxRank = self:GetItemTrackAndRank(item.link)
 
     if not track then
@@ -382,10 +450,8 @@ function Calc:GetItemUpgradeCost(item)
 
     local db = DB()
 
-    local expectedMax = td.ranks[#td.ranks]
-    for _, vs in ipairs(Data.voidcoreEligibleSlots) do
-        if vs == item.slot then expectedMax = expectedMax + Data.voidcoreBonus; break end
-    end
+    local _, expectedMax = self:GetItemUpgradeRange(item.link, track, rank, maxRank, item.ilvl)
+    expectedMax = expectedMax or math.max(td.ranks[#td.ranks], item.ilvl)
 
     -- Priority 1: exact costs from Upgrader NPC API (calibrated).
     local slotCache = db.calibrated and db.cache.slots[item.slot]
@@ -1781,7 +1847,6 @@ _firstRunEvt:SetScript("OnEvent", function(self)
         -- per-character state moves top-level. The old profile copy is dropped
         -- rather than migrated -- on anyone who imported a profile it holds the
         -- exporter's characters, and this state rebuilds from the next scan.
-        local charKey = UnitName("player") .. " - " .. GetRealmName()
         local store = _euicProfileRef
         store.chars = nil
         -- Throwaway fallback if the parent DB is somehow absent: the session
@@ -1793,6 +1858,7 @@ _firstRunEvt:SetScript("OnEvent", function(self)
             chars = {}
             acct.qolUpgradeCalcChars = chars
         end
+        local charKey = EllesmereUI.CharKey(" - ", chars)
         chars[charKey]          = chars[charKey]        or {}
         local charStore         = chars[charKey]
         charStore.upgradeCalc   = charStore.upgradeCalc or {}

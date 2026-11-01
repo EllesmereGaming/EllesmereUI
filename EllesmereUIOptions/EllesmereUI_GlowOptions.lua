@@ -5,7 +5,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  fromShared/order for its saved style numbering, excludes, noneValue,
 --  extras (Blizzard Default, Solid; one with a style renders, e.g. Blizzard
 --  Border; one marked colored is drawn in the site's color, e.g. Solid
---  Border), caps {mode, params, bg}, defaultColor, get/set on its own keys
+--  Border; one marked noColor always draws its own art untinted, e.g.
+--  Blizzard Pandemic Border, so the color controls lock while it is picked),
+--  caps {mode, params, bg}, defaultColor, get/set on its own keys
 --  ("style", "mode", "color", "lines", "thickness", "speed", "bg", "bgColor"),
 --  plus optional isOff, onChange, confirm, disabled, colorDisabled, cogRows,
 --  and styleDisabled + styleDisabledTooltip (a whole sentence, shown as is):
@@ -167,6 +169,13 @@ function GO.Renders(desc)
     return x ~= nil and x.style ~= nil
 end
 
+-- The current value is an extra that takes no color (x.noColor): its art is
+-- always drawn untinted, so the site's color controls lock.
+local function NoColor(desc)
+    local x = CurrentExtra(desc)
+    return x ~= nil and x.noColor == true
+end
+
 function GO.IsPixel(desc)
     if desc.paramsOnly then return true end
     return GO.IsCustomGlow(desc) and GO.ToShared(desc, desc.get("style")) == 1
@@ -213,6 +222,8 @@ end
 
 -- Lock reason for color controls while no glow is picked (a whole sentence).
 local NO_STYLE_TIP = "This option requires a Glow Style other than None"
+-- Lock reason for color controls while a noColor extra is picked.
+local NO_COLOR_TIP = "This option requires a Glow Style that can be colored"
 
 -- The style control's getter: None while off, else the displayed value.
 local function StyleGetter(desc, values)
@@ -330,7 +341,8 @@ local function ColorRow(desc, off)
     local function pick(m) return function() desc.set("mode", m); GO.Changed(desc); EllesmereUI:RefreshPage() end end
     local dc = desc.defaultColor
     return { type = "multiswatch", label = "Glow Color",
-        disabled = off, disabledTooltip = "a Glow Style",
+        disabled = off,
+        disabledTooltip = function() return NoColor(desc) and NO_COLOR_TIP or "a Glow Style" end,
         swatches = {
             { tooltip = "Default", refreshAlpha = modeAlpha("default"), onClick = pick("default"),
               getValue = function()
@@ -377,7 +389,9 @@ function GO.PopupRows(desc, styleLabel, hidePixel)
             if desc.confirm then desc.confirm(v, commit) else commit() end
         end }
     local caps = desc.caps or {}
-    if caps.mode then rows[#rows + 1] = ColorRow(desc, off) end
+    if caps.mode then
+        rows[#rows + 1] = ColorRow(desc, function() return off() or NoColor(desc) end)
+    end
     local notPixel = hidePixel and NotPixel(desc) or nil
     for _, r in ipairs(CogRows(desc)) do
         if notPixel and r.pixelRow then r.hidden = notPixel end
@@ -400,21 +414,24 @@ function GO.AttachInline(rgn, desc, colorRgn)
         return not GO.Renders(desc)
     end
     -- colorDisabled: the site's color comes from elsewhere (NP Color by Type).
-    -- A colored extra (Solid Border) draws nothing to style but takes the color.
+    -- A colored extra (Solid Border) draws nothing to style but takes the color;
+    -- a noColor extra (Blizzard Pandemic Border) draws but never takes one.
     local function colorOff()
         if siteOff() then return true end
         if not GO.Renders(desc) then
             local x = CurrentExtra(desc)
             if not (x and x.colored) then return true end
         end
+        if NoColor(desc) then return true end
         return (desc.colorDisabled and desc.colorDisabled()) or false
     end
     -- Why the swatches are locked, as the sentence shown: the site's own
-    -- requirement (resolved like its dropdown's), no glow to color, or a
-    -- color that comes from elsewhere.
+    -- requirement (resolved like its dropdown's), no glow to color, a style
+    -- that takes no color, or a color that comes from elsewhere.
     local function colorLockTip()
         if siteOff() then return EllesmereUI.ResolveDisabledTip(desc) end
         if not GO.Renders(desc) then return EllesmereUI.DisabledTooltip(NO_STYLE_TIP) end
+        if NoColor(desc) then return EllesmereUI.DisabledTooltip(NO_COLOR_TIP) end
         if desc.colorDisabledTooltip then
             return EllesmereUI.DisabledTooltip(desc.colorDisabledTooltip, "disabled")
         end

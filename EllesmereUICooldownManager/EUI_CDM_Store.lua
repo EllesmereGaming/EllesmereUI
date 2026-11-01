@@ -306,6 +306,12 @@ function ns.IsEmptySlotMarker(id)
         and id > -ns.HOSTED_BUFF_MARKER_BASE
 end
 
+-- True for an item entry key (-itemID): an item preset or a Custom Item ID, the band
+-- below the equipment slot ids (-1..-19) and above every marker base.
+function ns.IsItemPresetKey(id)
+    return type(id) == "number" and id <= -100 and id > -ns.EMPTY_SLOT_MARKER_BASE
+end
+
 -------------------------------------------------------------------------------
 --  Cd-claim markers: a collided buff (two Blizzard buff-viewer slots sharing one canonical
 --  spellID, e.g. Diabolist Demonic Art vs Diabolic Ritual) can't be told apart by spellID, so
@@ -890,9 +896,11 @@ function ns.PresetHasCdState(frame)
        and not (ns._myRacialsSet and ns._myRacialsSet[fc.spellID]) then
         return false
     end
-    -- A hide or a glow (blocking-false = none in either).
-    local hide, glow = ns.CdStateOf(ns.GetEffectiveCustomActiveState(fc.spellID))
-    return hide ~= nil or glow ~= nil
+    -- A hide, a glow (blocking-false = none in either) or a Stance Bar hide: the
+    -- Fake-Active engine owns this icon's hidden state, so the other paths leave it.
+    local cas = ns.GetEffectiveCustomActiveState(fc.spellID)
+    local hide, glow = ns.CdStateOf(cas)
+    return hide ~= nil or glow ~= nil or ns.CdmStanceBarOf(cas) ~= nil
 end
 
 -- Max Stacks Glow gate: set ns._cdmAnyMaxStacksGlow once if any saved spell (any spec) has

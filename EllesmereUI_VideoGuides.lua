@@ -643,7 +643,7 @@ do
 
     local function ComputeDecision()
         -- RETIRED 2026-09-19: superseded by a newer login announcement (now
-        -- EllesmereUI_StyleLaunchPopup.lua) -- only the newest
+        -- EllesmereUI_GroupFinderPopup.lua) -- only the newest
         -- login announcement fires, so users upgrading across versions never
         -- see two intro popups back to back. The guide itself stays reachable
         -- from the Patch Notes video banner and /euivideos. Delete the next
@@ -702,7 +702,7 @@ end
 -------------------------------------------------------------------------------
 --  Guide #1: Settings Overrides
 --  Fired by the spec-override toolbar glyph's first-ever click (see the
---  OnClick in EllesmereUI_SpecOverrides.lua / SpecOverrides_SetupButton).
+--  OnClick in EUI_SpecOverrides_Popups.lua / SpecOverrides_SetupButton).
 --  Guide #4 (override_default_edit) shares its art: the one-time warning
 --  fired by the first BASE edit of a setting that has an override.
 -------------------------------------------------------------------------------
@@ -770,7 +770,7 @@ do
 
     ---------------------------------------------------------------------------
     --  Guide #4: base edit of an overridden setting (one-time warning)
-    --  Fired from EllesmereUI._NotifySettingWrite (EllesmereUI_SpecOverrides.lua)
+    --  Fired from EllesmereUI._NotifySettingWrite (EUI_SpecOverrides_Session.lua)
     --  the first time a Default Editing Mode edit lands on a gold-marked slot.
     --  Gold accent = the override system's own color; taller shell for the
     --  longer warning blurb (the OK button is bottom-anchored, so the extra

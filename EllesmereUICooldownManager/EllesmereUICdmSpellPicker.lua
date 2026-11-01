@@ -596,6 +596,33 @@ function ns.EnumerateCDMSettingsCatalog(wantSet)
     return result
 end
 
+-- True when the picker's spell list for a CD/utility bar holds spellID (or a
+-- variant of it): a cooldown in Blizzard's Essential/Utility viewers or its
+-- settings catalog, talented or not (GetCDMSpellsForBar's own sources). Added
+-- by Spell ID, such a spell is drawn from Blizzard's frame, which never reads
+-- the custom-spell settings its menu writes. A spell set to Not Displayed is
+-- left out, as the list leaves it out: it has no Blizzard frame, so EUI draws
+-- its own and those settings work. Built per call (Add Custom Spell only).
+function ns.IsCDMTrackedCooldown(spellID)
+    if not _IsUsableSID(spellID) then return false end
+    local gci = C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo
+    local set = {}
+    local function Add(cdID, sid)
+        if _IsUsableSID(sid) then set[sid] = true end
+        local info = gci and _IsUsableSID(cdID) and gci(cdID)
+        if info then
+            if _IsUsableSID(info.spellID) then set[info.spellID] = true end
+            if _IsUsableSID(info.overrideSpellID) then set[info.overrideSpellID] = true end
+        end
+    end
+    for _, e in ipairs(EnumerateCDMViewerSpells(false)) do Add(e.cdID, e.sid) end
+    local catalog = ns.EnumerateCDMSettingsCatalog(ns.CDM_ICON_CD_CATS)
+    if catalog then
+        for _, ce in ipairs(catalog) do Add(ce.cdID, ce.sid) end
+    end
+    return ResolveVariantValue(set, spellID) == true
+end
+
 --- Returns array of { cdID, spellID, name, icon, cdmCat, cdmCatGroup, onEUIBar, isKnown },
 --- sorted by viewer order (Essential before Utility) then alpha.
 --- Walks Blizzard's CDM viewer pools (live frames), NOT the static category
@@ -1762,10 +1789,46 @@ function ns.AddTrackedSpell(barKey, id)
     ns._spellOrderDirty = true
 
     if sd.removedSpells then sd.removedSpells[id] = nil end
+    -- Picked from the picker: the entry is the preset's own (an entry the reseed
+    -- listed for Blizzard's row of this item stood for that row alone).
+    if sd.nativeItems then sd.nativeItems[id] = nil end
 
     local frame = cdmBarFrames[barKey]
     if frame then frame._blizzCache = nil; frame._prevVisibleCount = nil end
     if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+    if ns.QueueReanchor then ns.QueueReanchor() end
+    return true
+end
+
+--- An item entry leaving a CD/utility bar by a user removal: one Blizzard's own
+--- row can render under (a potion or healthstone, the preset's nativeCategory) is
+--- ghosted like a racial, so the row routes to the ghost bar and stays hidden
+--- instead of coming back at the next reseed; the next add from the picker
+--- un-ghosts it (AddTrackedSpell's sweep). Any mark that the entry stood for
+--- Blizzard's row goes with it. Nothing for every other entry.
+function ns.NoteItemEntryRemoved(sd, key)
+    if not ns.IsItemPresetKey(key) then return end
+    if sd and sd.nativeItems then sd.nativeItems[key] = nil end
+    local pr = ns.ItemPresetForKey(key)
+    if not (pr and pr.nativeCategory) then return end
+    local gsd = ns.GetBarSpellData(ns.GHOST_CD_BAR_KEY)
+    if not gsd then return end
+    if not gsd.assignedSpells then gsd.assignedSpells = {} end
+    for _, g in ipairs(gsd.assignedSpells) do
+        if g == key then return end
+    end
+    gsd.assignedSpells[#gsd.assignedSpells + 1] = key
+end
+
+--- An entry the reseed listed for Blizzard's own row of an item (sd.nativeItems)
+--- picked again from the picker: it becomes the preset's own entry, whose frame
+--- stands in once Blizzard's row is gone. False for any other entry.
+function ns.AdoptNativeItemEntry(barKey, key)
+    local sd = ns.GetBarSpellData(barKey)
+    if not (sd and sd.nativeItems and sd.nativeItems[key]) then return false end
+    sd.nativeItems[key] = nil
+    if next(sd.nativeItems) == nil then sd.nativeItems = nil end
+    ns._spellOrderDirty = true
     if ns.QueueReanchor then ns.QueueReanchor() end
     return true
 end
@@ -1949,6 +2012,11 @@ function ns.RemoveTrackedSpell(barKey, idx)
         if removedID and ns.IsEmptySlotMarker(removedID) then
             local store = ns.GetSpellSettingsStore(barKey)
             if store then store[removedID] = nil end
+        end
+        -- An item preset Blizzard's own row can render under: ghosted like a
+        -- racial (ns.NoteItemEntryRemoved), CD/utility bars only.
+        if removedID and not IsBarBuffFamily(barKey) then
+            ns.NoteItemEntryRemoved(sd, removedID)
         end
 
         -- Route to the ghost CD bar so frames stay routed but hidden. Buff-family bars

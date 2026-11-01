@@ -1,4 +1,4 @@
-if EUI_CLIENT_BLOCKED then return end if select(2, ...).slcInert then return end 
+if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLootCouncil and SimpleLootCouncil.EDITION == "eui" then return end if (select(2, ...)).slcInert then return end
 
 
 
@@ -10,8 +10,6 @@ local T = addon.Locale.Text
 local RaidTeam = {}
 addon.RaidTeam = RaidTeam
 
-local issecretvalue = issecretvalue
-
 
 
 local ROSTER_TTL = 60
@@ -21,17 +19,19 @@ local roster, rosterAt = nil, 0
 local lastReadable, unreadable = nil, false
 
 
+local presenceStale = false
 
 
 
 
 
-local function IsSecret(...)
-    if not issecretvalue then return false end
-    for i = 1, select("#", ...) do
-        if issecretvalue((select(i, ...))) then return true end
-    end
-    return false
+
+
+local IsSecret = addon.IsSecret
+
+local function Plain(value)
+    if IsSecret(value) then return nil end
+    return value
 end
 
 
@@ -46,7 +46,7 @@ local knownGuild, guildLostAt = nil, nil
 function RaidTeam:GetGuildName()
     if not IsInGuild() then return nil end
     local name = GetGuildInfo("player")
-    if not name or name == "" or IsSecret(name) then return nil end
+    if IsSecret(name) or not name or name == "" then return nil end
     knownGuild, guildLostAt = name, nil
     return name
 end
@@ -83,7 +83,7 @@ function RaidTeam:GetRanks()
     if type(count) == "number" and count > 0 then
         for order = 1, count do
             local name = GuildControlGetRankName(order)
-            if name and name ~= "" and not IsSecret(name) and not seen[name] then
+            if not IsSecret(name) and name and name ~= "" and not seen[name] then
                 seen[name] = true
                 ranks[#ranks + 1] = { name = name, order = order }
             end
@@ -174,47 +174,110 @@ local ONLINE_PRESENCE = {
     [Presence.OnlineMobile or -4] = true,
 }
 
-local function BuildMember(info, canViewOfficer)
-    if IsSecret(info.name, info.guid, info.guildRank) then return nil end
-    if not info.name or info.name == "" then return nil end
 
-    local classFile, className
-    if info.classID and not IsSecret(info.classID) then
-        local classInfo = C_CreatureInfo.GetClassInfo(info.classID)
-        if classInfo then
-            classFile, className = classInfo.classFile, classInfo.className
-        end
+
+local classNames = {}
+local function ClassOf(classID)
+    local known = classNames[classID]
+    if not known then
+        local classInfo = C_CreatureInfo.GetClassInfo(classID)
+        if not classInfo then return nil, nil end
+        known = { classInfo.classFile, classInfo.className }
+        classNames[classID] = known
     end
+    return known[1], known[2]
+end
 
 
-    local note
-    if info.memberNote and info.memberNote ~= "" and not IsSecret(info.memberNote) then
-        note = info.memberNote
-    end
+local function BuildMember(was, guid, name, classFile, className, level, zone, rank,
+        rankOrder, online, mobile, note, officerNote)
+    if IsSecret(name) or not name or name == "" then return nil end
+
+    note, officerNote, level, zone = Plain(note), Plain(officerNote), Plain(level), Plain(zone)
+    if not note or note == "" then note = nil end
+    if not officerNote or officerNote == "" then officerNote = nil end
 
 
-    local officerNote
-    if canViewOfficer and info.officerNote and info.officerNote ~= ""
-        and not IsSecret(info.officerNote) then
-        officerNote = info.officerNote
+    local fullName = addon.Player:Qualify(name) or name
+    if was and was.guid == guid and was.name == name and was.fullName == fullName
+        and was.classFile == classFile and was.className == className
+        and was.level == level and was.zone == zone and was.rank == rank
+        and was.rankOrder == rankOrder and was.online == online and was.mobile == mobile
+        and was.note == note and was.officerNote == officerNote then
+        return was
     end
 
     return {
-        guid        = info.guid,
-        name        = info.name,
-
-        fullName    = addon.Player:Qualify(info.name) or info.name,
+        guid        = guid,
+        name        = name,
+        fullName    = fullName,
         classFile   = classFile,
         className   = className,
-        level       = info.level,
-        zone        = info.zone,
-        rank        = info.guildRank,
-        rankOrder   = info.guildRankOrder or 99,
-        online      = ONLINE_PRESENCE[info.presence] and true or false,
-        mobile      = info.presence == Presence.OnlineMobile,
+        level       = level,
+        zone        = zone,
+        rank        = rank,
+        rankOrder   = rankOrder,
+        online      = online,
+        mobile      = mobile,
         note        = note,
         officerNote = officerNote,
     }
+end
+
+local function FromClub(info, canViewOfficer, was)
+    if IsSecret(info.name, info.guid, info.guildRank) then return nil end
+    local classFile, className
+    local classID = Plain(info.classID)
+    if classID then
+        classFile, className = ClassOf(classID)
+    end
+    local presence = Plain(info.presence)
+
+    return BuildMember(was, info.guid, info.name, classFile, className, info.level, info.zone,
+        info.guildRank, Plain(info.guildRankOrder) or 99,
+        ONLINE_PRESENCE[presence] and true or false,
+        presence ~= nil and presence == Presence.OnlineMobile, info.memberNote,
+        canViewOfficer and Plain(info.officerNote) or nil)
+end
+
+
+
+local listSuffix, listSuffixOf = nil, nil
+local function RosterListSize()
+    if addon.IsForever or not GetGuildRosterInfo or not GetNumGuildMembers then return nil end
+    local total = GetNumGuildMembers()
+    local realm = GetNormalizedRealmName and GetNormalizedRealmName()
+    if IsSecret(total, realm) or type(total) ~= "number" or total == 0
+        or type(realm) ~= "string" or realm == "" then
+        return nil
+    end
+    if realm ~= listSuffixOf then listSuffix, listSuffixOf = "-" .. realm, realm end
+    return total, listSuffix
+end
+
+
+
+local function ReadRosterList(canViewOfficer, previous)
+
+    local total, suffix = RosterListSize()
+    if not total then return nil end
+    local built = {}
+    for i = 1, total do
+        local name, rank, rankIndex, level, className, zone, note, officerNote, isOnline, _,
+            classFile, _, _, isMobile, _, _, guid = GetGuildRosterInfo(i)
+
+        if type(name) ~= "string" or IsSecret(name, rank, rankIndex, guid, classFile, className)
+            or type(rankIndex) ~= "number" then
+            return nil
+        end
+        if name:sub(-#suffix) == suffix then name = name:sub(1, -#suffix - 1) end
+        isOnline, isMobile = Plain(isOnline), Plain(isMobile)
+        local member = BuildMember(previous[guid], guid, name, classFile, className, level, zone,
+            rank, rankIndex + 1, (isOnline or isMobile) and true or false, isMobile and true or false,
+            note, canViewOfficer and Plain(officerNote) or nil)
+        if member then built[#built + 1] = member end
+    end
+    return built
 end
 
 
@@ -227,8 +290,26 @@ end
 
 local lastAsked = nil
 
-local function Read(force)
-    if roster and not force and (GetTime() - rosterAt) < ROSTER_TTL then
+
+local guidIndex, guidIndexOf = {}, nil
+local function GuidIndex(list)
+    if list ~= guidIndexOf then
+        guidIndex, guidIndexOf = {}, list
+        for _, member in ipairs(list or {}) do
+            if member.guid then guidIndex[member.guid] = member end
+        end
+    end
+    return guidIndex
+end
+
+
+
+local reported = {}
+
+
+local function Read(force, ranksOnly)
+    if roster and not force and (ranksOnly or not presenceStale)
+        and (GetTime() - rosterAt) < ROSTER_TTL then
         return roster, true
     end
 
@@ -236,31 +317,40 @@ local function Read(force)
 
     if IsInGuild() then
 
-        local clubId = C_Club.GetGuildClubId()
-        if not clubId then return Unreadable() end
-
-
 
         local canViewOfficer = C_GuildInfo and C_GuildInfo.CanViewOfficerNote
             and C_GuildInfo.CanViewOfficerNote() or false
 
+        local previous = GuidIndex(lastReadable)
 
-        local ids = C_Club.GetClubMembers(clubId)
+        local list = ReadRosterList(canViewOfficer, previous)
+        if list then
+            built = list
+        else
 
-        if IsSecret(ids) or type(ids) ~= "table" or #ids == 0 then return Unreadable() end
-        for _, memberId in ipairs(ids) do
-            local info = C_Club.GetMemberInfo(clubId, memberId)
+            local clubId = C_Club.GetGuildClubId()
+            if not clubId then return Unreadable() end
 
-            if IsSecret(info) or (info and IsSecret(info.name, info.guid, info.guildRank)) then
-                return Unreadable()
+
+            local ids = C_Club.GetClubMembers(clubId)
+
+            if IsSecret(ids) or type(ids) ~= "table" or #ids == 0 then return Unreadable() end
+            for _, memberId in ipairs(ids) do
+                local info = C_Club.GetMemberInfo(clubId, memberId)
+
+                if IsSecret(info) or (info and IsSecret(info.name, info.guid, info.guildRank)) then
+                    return Unreadable()
+                end
+                local member = info and FromClub(info, canViewOfficer, previous[info.guid])
+                if member then built[#built + 1] = member end
             end
-            local member = info and BuildMember(info, canViewOfficer)
-            if member then built[#built + 1] = member end
         end
     end
 
     roster, rosterAt = built, GetTime()
     lastReadable, unreadable = built, false
+    presenceStale = false
+    for guid in pairs(reported) do reported[guid] = nil end
     return roster, true
 end
 
@@ -276,7 +366,9 @@ end
 
 local index, indexOf = {}, nil
 function RaidTeam:GetRosterIndex()
-    local list, readable = RaidTeam:GetRoster()
+
+
+    local list, readable = Read(false, true)
     if list ~= indexOf then
         index, indexOf = {}, list
         for _, member in ipairs(list) do
@@ -311,11 +403,70 @@ local function Compare(old, new)
 end
 RaidTeam.Compare = Compare
 
+local function PresenceDiffers(m, online, mobile, level, zone, note, officerNote)
+    return m.online ~= online or m.mobile ~= mobile or m.level ~= level or m.zone ~= zone
+        or m.note ~= note or m.officerNote ~= officerNote
+end
+
+
+
+
+local function Walk(old)
+    local total, suffix = RosterListSize()
+    if not total then return false end
+    local canViewOfficer = C_GuildInfo and C_GuildInfo.CanViewOfficerNote
+        and C_GuildInfo.CanViewOfficerNote() or false
+    local byGUID = GuidIndex(old)
+    local count, what = 0, nil
+    for i = 1, total do
+        local name, rank, rankIndex, level, className, zone, note, officerNote, isOnline, _,
+            classFile, _, _, isMobile, _, _, guid = GetGuildRosterInfo(i)
+        if type(name) ~= "string" or IsSecret(name, rank, rankIndex, guid, classFile, className)
+            or type(rankIndex) ~= "number" then
+            return false
+        end
+
+        if name ~= "" then
+            count = count + 1
+
+            if name:find(suffix, -#suffix, true) then name = name:sub(1, -#suffix - 1) end
+            local was = byGUID[guid]
+            if not was or was.name ~= name or was.rank ~= rank
+                or was.rankOrder ~= rankIndex + 1 or was.classFile ~= classFile then
+                return "identity"
+            end
+            isOnline, isMobile = Plain(isOnline), Plain(isMobile)
+            local online, mobile = (isOnline or isMobile) and true or false, isMobile and true or false
+            level, zone, note = Plain(level), Plain(zone), Plain(note)
+            if not note or note == "" then note = nil end
+            officerNote = canViewOfficer and Plain(officerNote) or nil
+            if not officerNote or officerNote == "" then officerNote = nil end
+            local seen = reported[guid]
+            if PresenceDiffers(seen or was, online, mobile, level, zone, note, officerNote) then
+                what = "presence"
+                if not PresenceDiffers(was, online, mobile, level, zone, note, officerNote) then
+                    reported[guid] = nil
+                else
+                    seen = seen or {}
+                    seen.online, seen.mobile, seen.level, seen.zone = online, mobile, level, zone
+                    seen.note, seen.officerNote = note, officerNote
+                    reported[guid] = seen
+                end
+            end
+        end
+    end
+    if count ~= #old then return "identity" end
+    return what
+end
+
+
 
 function RaidTeam:GetMembers()
     local members = {}
+    local set = Selection(false)
+    if not set then return members end
     for _, member in ipairs(RaidTeam:GetRoster()) do
-        if RaidTeam:IsRaiderRank(member.rank) then
+        if member.rank and set[member.rank] then
             members[#members + 1] = member
         end
     end
@@ -431,11 +582,18 @@ function RaidTeam:BuildLootIndex()
     local index = {}
     local foldAlts = not (addon.db and addon.db.teamShowAlts == false)
 
+    local keyOf = {}
+
     addon.History.EachEntry(function(entry)
-        local main = entry.winner
-            and (foldAlts and addon.Player:Main(entry.winner)
-                or addon.Player:Qualify(entry.winner) or entry.winner)
-        local key = main and addon.Player:NameKey(main)
+        local winner = entry.winner
+        if not winner then return end
+        local key = keyOf[winner]
+        if key == nil then
+            local main = foldAlts and addon.Player:Main(winner)
+                or addon.Player:Qualify(winner) or winner
+            key = main and addon.Player:NameKey(main) or false
+            keyOf[winner] = key
+        end
         if not key then return end
         local list = index[key]
         if not list then
@@ -453,10 +611,17 @@ function RaidTeam:BuildLootIndex()
     return index
 end
 
+
+local NO_LOOT = {}
 function RaidTeam:LootFor(index, member)
-    if not index or not member or not member.fullName then return {} end
-    local key = addon.Player:NameKey(member.fullName)
-    return (key and index[key]) or {}
+    if not index or not member or not member.fullName then return NO_LOOT end
+
+    local key = member.nameKey
+    if key == nil or member.nameKeyOf ~= member.fullName then
+        key = addon.Player:NameKey(member.fullName) or false
+        member.nameKey, member.nameKeyOf = key, member.fullName
+    end
+    return (key and index[key]) or NO_LOOT
 end
 
 
@@ -501,12 +666,18 @@ end
 
 function RaidTeam:ParseDate(text)
     if type(text) ~= "string" then return nil end
-    local digits = text:gsub("[^%d]", "")
-    if #digits ~= 8 then return nil end
-
-    local year = tonumber(digits:sub(1, 4))
-    local month = tonumber(digits:sub(5, 6))
-    local day = tonumber(digits:sub(7, 8))
+    local year, month, day
+    local a, b, c = text:match("^%s*(%d+)[/%-%.](%d+)[/%-%.](%d+)%s*$")
+    if a and #a == 4 then
+        year, month, day = tonumber(a), tonumber(b), tonumber(c)
+    elseif a and #c == 4 then
+        year, month, day = tonumber(c), tonumber(b), tonumber(a)
+    else
+        local digits = text:match("^%s*(%d+)%s*$")
+        if not digits or #digits ~= 8 then return nil end
+        year, month, day = tonumber(digits:sub(1, 4)), tonumber(digits:sub(5, 6)),
+            tonumber(digits:sub(7, 8))
+    end
     if not year or not month or not day then return nil end
     if month < 1 or month > 12 or day < 1 or day > 31 then return nil end
 
@@ -565,16 +736,46 @@ end
 
 local CHECK_SETTLE, CHECK_INTERVAL, CHECK_INTEREST = 2, 10, 300
 local checkPending, lastCheck = false, nil
+local watchers = {}
 
-local function InUse()
-    if addon.Council and addon.Council.HasRankRule and addon.Council:HasRankRule() then
-        return true
-    end
+local function ReaderAsked()
     return lastAsked ~= nil and GetTime() - lastAsked < CHECK_INTEREST
 end
 
+function RaidTeam:Watch(who, on)
+    watchers[who] = on and true or nil
+end
+
+
+local function InUse()
+    if next(watchers) then return true end
+    if IsInGroup() and addon.Council and addon.Council.HasRankRule
+        and addon.Council:HasRankRule() then
+        return true
+    end
+    return ReaderAsked()
+end
+
 local function CheckRoster()
+
+    if InCombatLockdown() then
+        addon.CombatQueue.Defer("RaidTeam.check", CheckRoster)
+        return
+    end
     checkPending, lastCheck = false, GetTime()
+
+
+    if roster and not unreadable and not ReaderAsked() then
+        local what = Walk(roster)
+        if what == nil or what == "presence" then
+            rosterAt = GetTime()
+            if what == "presence" then
+                presenceStale = true
+                addon.Callbacks:Fire("GuildPresenceChanged")
+            end
+            return
+        end
+    end
     local old = roster or lastReadable
     local new, readable = Read(true)
 

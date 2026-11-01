@@ -4072,7 +4072,7 @@ EllesmereUI.RegisterMigration({
 -- Same split for the Health/Power "hide bar/text per form" popups: Moonkin
 -- used to share the "mana"/Caster bucket, so disabling Caster there also hid
 -- Moonkin. Seed moonkin=true wherever mana=true so that choice survives.
--- Class Resource is skipped: it exempts Moonkin from this system entirely.
+-- Class Resource is skipped: its Caster choice never applied in Moonkin Form.
 EllesmereUI.RegisterMigration({
     id          = "erb_moonkin_form_bucket_v1",
     scope       = "profile",
@@ -4326,6 +4326,72 @@ EllesmereUI.RegisterMigration({
         end
     end,
 })
+
+-- The Swing Timer's indicator toggles became two settings: Attack State (Off /
+-- Queued Only / Full) replaces Highlight Queued Attacks, Highlight Active Attack
+-- and Show Shot Pending; Movement Guide (Off / Segments / Wind-Up Bar) replaces
+-- Latency Overlay and Smooth Swing Timing. Only explicit values
+-- move (defaults are stripped at logout); the colour keys keep their names, and
+-- the latency zone keeps its old red where no colour was stored (GO's default
+-- is white). Per profile: no current setting writes the old keys, so a profile
+-- imported later from an older string migrates on its next load.
+EllesmereUI.RegisterMigration({
+    id          = "swing_timer_indicators_v1",
+    scope       = "profile",
+    description = "Move the Swing Timer's indicator toggles into Attack State and Movement Guide.",
+    body        = function(ctx)
+        local profData = ctx.profile
+        local erb = type(profData.addons) == "table" and profData.addons.EllesmereUIResourceBars
+        local st = type(erb) == "table" and erb.swingTimer
+        if type(st) ~= "table" then return end
+        if st.activeHighlight or st.pendingEnabled then
+            st.attackState = "full"
+        elseif st.queueHighlight == false then
+            st.attackState = "off"
+        end
+        if st.latencyEnabled then
+            st.moveGuide = "segments"
+            if st.latencyR == nil then
+                st.latencyR, st.latencyG, st.latencyB, st.latencyA = 0.835, 0.290, 0.290, 1
+            end
+        end
+        st.queueHighlight, st.activeHighlight, st.pendingEnabled = nil, nil, nil
+        st.latencyEnabled, st.smoothTiming = nil, nil
+    end,
+})
+
+-- WoW Forever: the Swing Timer follows the Resource Bars row of Global
+-- Settings > Style, and its texture rides that row's style slots. Slots saved
+-- before then take the texture it has now, so switching styles later brings a
+-- custom texture back (also after the Classic seed's Plating, which a profile
+-- already on Classic gets at its first load with this build); a slot without
+-- it restores the default. Existing accounts only: a fresh install stamps it
+-- without running.
+if EllesmereUI.IS_FOREVER == true then
+EllesmereUI.RegisterMigration({
+    id          = "swing_timer_style_slots_v1",
+    scope       = "global",
+    description = "Save the Swing Timer's texture into the Resource Bars style slots saved before it joined them.",
+    body        = function(ctx)
+        local profiles = ctx.db and ctx.db.profiles
+        if type(profiles) ~= "table" then return end
+        for _, profData in pairs(profiles) do
+            local erb = type(profData) == "table" and type(profData.addons) == "table"
+                and profData.addons.EllesmereUIResourceBars
+            local st = type(erb) == "table" and erb.swingTimer
+            local tex = type(st) == "table" and st.texture or nil
+            local slots = tex ~= nil and erb._styleSlots
+            if type(slots) == "table" then
+                for _, slot in pairs(slots) do
+                    if type(slot) == "table" and slot["swingTimer.texture"] == nil then
+                        slot["swingTimer.texture"] = tex
+                    end
+                end
+            end
+        end
+    end,
+})
+end
 
 -- Spell ID on Tooltip became on by default (an unset showSpellID reads as on,
 -- EllesmereUI.SpellIDOn). An account from before keeps it off: its unset value

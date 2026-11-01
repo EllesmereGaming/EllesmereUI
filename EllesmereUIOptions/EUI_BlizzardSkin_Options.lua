@@ -22,13 +22,17 @@ initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
     if not EllesmereUI or not EllesmereUI.RegisterModule then return end
+    -- Page reuse (EllesmereUI_FramePool.lua): a frame made under a page pool
+    -- host comes from the pool and is dressed again by every later build; under
+    -- any other parent it is a plain new frame.
+    local CreateFrame = EllesmereUI._Pool.CreateFrame
 
     local function BuildTooltipsPage(pageName, parent, yOffset)
         if not EllesmereUIDB then EllesmereUIDB = {} end
         local W = EllesmereUI.Widgets
         local y = yOffset
         local _, h
-        -- The step the skin renders with (_applyConfiguredBorder in EllesmereUIBlizzardSkin.lua):
+        -- The step the skin renders with (_applyConfiguredBorder in EUI_BlizzardSkin_TooltipSkin.lua):
         -- the stored label (an unknown one = thin); unset = the legacy numeric tooltipBorderSize for the tooltip, 1 otherwise.
         local function BorderStep(prefix)
             local key = EllesmereUIDB[prefix.."BorderThickness"]
@@ -228,7 +232,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
-        _, h = W:SectionHeader(parent, "BLIZZARD TOOLTIP", y);  y = y - h
+        local hdr
+        hdr, h = W:SectionHeader(parent, "BLIZZARD TOOLTIP", y);  y = y - h
 
         -- "Reskin Tooltip" (customTooltips) is the master for this section: its
         -- reskin-driven sub-settings gray out (and stop applying) when it is off.
@@ -239,6 +244,19 @@ initFrame:SetScript("OnEvent", function(self)
         local function ttReskinOff()
             return EllesmereUIDB and EllesmereUIDB.customTooltips == false
         end
+
+        -- The Move in Unlock Mode button on the tooltip's first section: its
+        -- mover exists only while the fixed anchor is live (reskin on, Anchor
+        -- to Cursor off), so the button greys out as the Growth Direction row does.
+        EllesmereUI.BuildSectionUnlockJump(hdr, {
+            key = "EUI_TooltipAnchor",
+            disabled = function()
+                return ttReskinOff() or (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor and true or false)
+            end,
+            disabledTooltip = function()
+                if ttReskinOff() then return "Reskin Tooltip" end
+                return "This option does not apply while Anchor to Cursor is enabled"
+            end })
 
         -- Show Health Strip works without the reskin as well; its cog restyles
         -- the reskinned bar, so the cog locks with the reskin off.
@@ -326,7 +344,7 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()  -- update the position cog + Growth Direction disabled states
               end },
             -- Default screen-anchored tooltip only (see ApplyGrowthDirection in
-            -- EllesmereUIBlizzardSkin.lua): Blizzard picks the anchored corner
+            -- EUI_BlizzardSkin_TooltipAnchor.lua): Blizzard picks the anchored corner
             -- dynamically from the tooltip's screen position; "Expand Up"/"Expand Down"
             -- force the vertical component of that corner. The cursor anchor re-points
             -- the tooltip itself, so this grays out while Anchor to Cursor is on.
@@ -724,8 +742,10 @@ initFrame:SetScript("OnEvent", function(self)
         -----------------------------------------------------------------------
         _, h = W:SectionHeader(parent, "BLIZZARD BARS, POPUPS & BUTTONS", y);  y = y - h
 
-        local hudRow
-        hudRow, h = W:DualRow(parent, y,
+        -- The slot configs, laid out per client below: WoW Forever has no
+        -- extra action button, so its toggle is not built there and the
+        -- queue pair moves up a slot.
+        local widgetCfg =
             { type="toggle", text="Reskin Widget Bars",
               tooltip="Restyles Blizzard's on-screen progress bars (event objectives, nameplate counters)",
               getValue=function()
@@ -744,7 +764,8 @@ initFrame:SetScript("OnEvent", function(self)
                       cancelText  = "Later",
                       reload      = true,
                   })
-              end },
+              end }
+        local extraCfg = not EllesmereUI.IS_FOREVER and
             { type="toggle", text="Reskin Extra Action Buttons",
               getValue=function()
                   -- DEFAULT OFF: opt-in, so nil reads as unchecked.
@@ -753,14 +774,60 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.reskinExtraActionButton = v and true or false
-              end })
-        y = y - h
+              end } or nil
+        local queueCfg =
+            { type="toggle", text="Reskin Queue Popup",
+              tooltip="Reskins the dungeon and battleground queue accept popups and adds an accept countdown timer bar to the dungeon one.",
+              getValue=function()
+                  -- Independent, default on (not tied to any master reskin toggle).
+                  return not EllesmereUIDB or EllesmereUIDB.reskinQueuePopup ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.reskinQueuePopup = v
+                  if not v and EllesmereUI.ShowConfirmPopup then
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Disabling queue popup reskin requires a UI reload to restore Blizzard's default style.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Later",
+                          reload      = true,
+                      })
+                  end
+              end }
+        local timerCfg =
+            { type="toggle", text="Show Queue Timer",
+              getValue=function()
+                  return not EllesmereUIDB or EllesmereUIDB.showQueueTimer ~= false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.showQueueTimer = v
+                  EllesmereUI:RefreshPage()  -- update the style cog + swatch disabled states
+              end }
+
+        -- The regions the inline controls below sit on, whichever slot their
+        -- toggle took.
+        local hudRow, queueRow, widgetRgn, queueRgn, timerRgn
+        if extraCfg then
+            hudRow, h = W:DualRow(parent, y, widgetCfg, extraCfg);  y = y - h
+            queueRow, h = W:DualRow(parent, y, queueCfg, timerCfg);  y = y - h
+            widgetRgn = hudRow and hudRow._leftRegion
+            queueRgn = queueRow and queueRow._leftRegion
+            timerRgn = queueRow and queueRow._rightRegion
+        else
+            hudRow, h = W:DualRow(parent, y, widgetCfg, queueCfg);  y = y - h
+            queueRow, h = W:DualRow(parent, y, timerCfg, EllesmereUI.BlankRowCfg());  y = y - h
+            widgetRgn = hudRow and hudRow._leftRegion
+            queueRgn = hudRow and hudRow._rightRegion
+            timerRgn = queueRow and queueRow._leftRegion
+        end
 
         -- Minimum widget bar size (plate-hosted covers), a cog on "Reskin Widget
         -- Bars": the floor below which a shrunken nameplate's bar scales itself
         -- up. 0 = off (default, mirror Blizzard's rect exactly).
-        if hudRow and hudRow._leftRegion and not EllesmereUI._prebuilding then
-            local lrgn  = hudRow._leftRegion
+        if widgetRgn and not EllesmereUI._prebuilding then
+            local lrgn  = widgetRgn
             local function CogOff()
                 -- Same default-on test the toggle itself uses: nil means on.
                 return not (not EllesmereUIDB or EllesmereUIDB.reskinWidgetBars ~= false)
@@ -794,43 +861,11 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        local queueRow
-        queueRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Reskin Queue Popup",
-              tooltip="Reskins the dungeon and battleground queue accept popups and adds an accept countdown timer bar to the dungeon one.",
-              getValue=function()
-                  -- Independent, default on (not tied to any master reskin toggle).
-                  return not EllesmereUIDB or EllesmereUIDB.reskinQueuePopup ~= false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.reskinQueuePopup = v
-                  if not v and EllesmereUI.ShowConfirmPopup then
-                      EllesmereUI:ShowConfirmPopup({
-                          title       = "Reload Required",
-                          message     = "Disabling queue popup reskin requires a UI reload to restore Blizzard's default style.",
-                          confirmText = "Reload Now",
-                          cancelText  = "Later",
-                          reload      = true,
-                      })
-                  end
-              end },
-            { type="toggle", text="Show Queue Timer",
-              getValue=function()
-                  return not EllesmereUIDB or EllesmereUIDB.showQueueTimer ~= false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.showQueueTimer = v
-                  EllesmereUI:RefreshPage()  -- update the style cog + swatch disabled states
-              end }
-        );  y = y - h
-
         -- Red "!" warning left of the Reskin Queue Popup toggle while a mover addon
         -- that conflicts with the reskin is loaded
         local _eqolLoaded = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("EnhanceQoL")
-        if _eqolLoaded and queueRow and queueRow._leftRegion and not EllesmereUI._prebuilding then
-            local rgn = queueRow._leftRegion
+        if _eqolLoaded and queueRgn and not EllesmereUI._prebuilding then
+            local rgn = queueRgn
             local toggle = rgn._control
             if toggle then
                 local fontPath = (EllesmereUI.GetFontPath()) or "Fonts\\FRIZQT__.TTF"
@@ -851,10 +886,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Countdown text color swatch + style cog (left of it) on the Show Queue Timer toggle.
-        if not EllesmereUI._prebuilding then
+        if timerRgn and not EllesmereUI._prebuilding then
             local PP = EllesmereUI.PanelPP
             local QT = EllesmereUI.QUEUE_TIMER
-            local timerRgn = queueRow._rightRegion
             local function timerOff()
                 return EllesmereUIDB and EllesmereUIDB.showQueueTimer == false
             end
@@ -1765,7 +1799,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(refresh); refresh()
         end
 
-        _, h = WSCardSection(parent, "QUALITY OF LIFE", y);  y = y - h
+        _, h = WSCardSection(parent, "MERCHANT OPTIONS", y);  y = y - h
 
         local function merchantShowAsListOff()
             return EllesmereUIDB and EllesmereUIDB.merchantShowAsList == false
@@ -1818,7 +1852,18 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.merchantShowItemLevel = v
                   if EllesmereUI._Merchant_RefreshItemLevels then EllesmereUI._Merchant_RefreshItemLevels() end
               end },
-            { type="label", text="" }
+            { type="toggle", text="Bulk Buy",
+              tooltip="Shift-click a vendor item to buy more than one stack at a time.",
+              disabled=function() return EllesmereUI.PadGamepadUI() end,
+              disabledTooltip="This option does not work with the Gamepad interface style.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.merchantBulkBuy == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.merchantBulkBuy = v
+                  if EllesmereUI._Merchant_RefreshBulkBuy then EllesmereUI._Merchant_RefreshBulkBuy() end
+              end }
         ); y = y - h
 
         return y
@@ -1868,6 +1913,128 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._LootToast_Refresh then EllesmereUI._LootToast_Refresh() end
               end },
             { type="label", text="" }
+        ); y = y - h
+
+        return y
+    end
+
+    ---------------------------------------------------------------------------
+    --  Mail card, ALT LIST section (retail): the Alt List beside Send Mail
+    --  (EllesmereUIBlizzardSkin_MailAlts.lua, ns.MailAlts), whatever the card's
+    --  style. Sort, cap and minimum level ride the toggle's cog; Shown
+    --  Characters lists every recorded character under its realm.
+    ---------------------------------------------------------------------------
+    local function BuildMailAltList(parent, y)
+        local MA = ns.MailAlts
+        if not MA then return y end
+        local W = EllesmereUI.Widgets
+        local _, row, h
+        local REQ = "Show Alt List"
+        local function On() return EllesmereUIDB and EllesmereUIDB.mailAltList == true end
+        local function Off() return not On() end
+        local function Get(key, default)
+            local v = EllesmereUIDB and EllesmereUIDB[key]
+            if v == nil then return default end
+            return v
+        end
+        local function Set(key, v)
+            if not EllesmereUIDB then EllesmereUIDB = {} end
+            EllesmereUIDB[key] = v
+            MA.Refresh()
+        end
+        -- Every recorded character, a header per realm (rebuilt on each open).
+        local function Items()
+            local items, lastRealm = {}, nil
+            for _, e in ipairs(MA.Entries()) do
+                if e.realm ~= lastRealm then
+                    lastRealm = e.realm
+                    items[#items + 1] = { isHeader = true, label = e.realm }
+                end
+                local c = EllesmereUI.GetClassColor(e.class)
+                items[#items + 1] = {
+                    key = e.guid,
+                    label = EllesmereUI.HexColor(c.r, c.g, c.b) .. e.name .. "|r",
+                    tooltip = MA.Describe(e),
+                }
+            end
+            return items
+        end
+
+        _, h = WSCardSection(parent, "ALT LIST", y);  y = y - h
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Alt List",
+              tooltip="Lists your alts beside Send Mail.",
+              getValue=On,
+              setValue=function(v)
+                  Set("mailAltList", v)
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="dropdown", text="Shown Characters",
+              tooltip="Untick a character to leave it off the list.",
+              disabled=Off, disabledTooltip=REQ,
+              values={ __placeholder="..." }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end, setValue=function() end }
+        ); y = y - h
+
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(row._leftRegion, {
+                title = "Alt List",
+                disabled = Off,
+                disabledTooltip = REQ,
+                rows = {
+                    { type="dropdown", label="Sort By",
+                      values={ recent="Last Played", level="Level", name="Name" },
+                      order={ "recent", "level", "name" },
+                      get=function() return Get("mailAltListSort", MA.DEFAULT_SORT) end,
+                      set=function(v) Set("mailAltListSort", v) end },
+                    { type="slider", label="Max Characters Shown", min=1, max=MA.MAX_ROWS, step=1,
+                      get=function() return Get("mailAltListMax", MA.DEFAULT_MAX) end,
+                      set=function(v) Set("mailAltListMax", v) end },
+                    { type="slider", label="Minimum Level", min=1, max=GetMaxLevelForLatestExpansion(), step=1,
+                      get=function() return Get("mailAltListMinLevel", MA.DEFAULT_MIN_LEVEL) end,
+                      set=function(v) Set("mailAltListMinLevel", v) end },
+                },
+            })
+            -- Shown Characters: the checkbox dropdown in place of the row's
+            -- placeholder; a long roster gets the search box.
+            local rgn = row._rightRegion
+            if rgn._control then rgn._control:Hide() end
+            local dd, refresh = EllesmereUI.BuildVisOptsCBDropdown(rgn, 220, rgn:GetFrameLevel() + 2, Items,
+                MA.IsShown, MA.SetShown, nil, 10, #MA.Entries() > 12, nil, nil,
+                { disabled = Off, disabledTooltip = REQ, countLabel = true })
+            EllesmereUI.PanelPP.Point(dd, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = dd
+            rgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(refresh)
+        end
+
+        return y
+    end
+
+    ---------------------------------------------------------------------------
+    --  Mail card content: the Alt List (retail), then GENERAL (both clients).
+    --  Close Bags on Mail Close (EllesmereUIDB.mailCloseBags, on unless set
+    --  false) is read by Bags, which closes its window as the mailbox closes.
+    ---------------------------------------------------------------------------
+    local function BuildMailContent(parent, y)
+        y = BuildMailAltList(parent, y)
+        local W = EllesmereUI.Widgets
+        local _, h
+
+        _, h = WSCardSection(parent, "GENERAL", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Close Bags on Mail Close",
+              tooltip="Closes your bags when you close the mailbox.",
+              disabled=function() return not EllesmereUI._ModuleNS["EllesmereUIBags"] end,
+              disabledTooltip="Bags",
+              getValue=function() return not (EllesmereUIDB and EllesmereUIDB.mailCloseBags == false) end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.mailCloseBags = v
+              end },
+            EllesmereUI.BlankRowCfg()
         ); y = y - h
 
         return y
@@ -2191,6 +2358,9 @@ initFrame:SetScript("OnEvent", function(self)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.reskinMail = v
             end,
+            buildContent = BuildMailContent,
+            searchText = not EllesmereUI.IS_FOREVER and { "Show Alt List", "Shown Characters", "Close Bags on Mail Close" }
+                or { "Close Bags on Mail Close" },
         },
         {
             key   = "catalyst",
@@ -2512,6 +2682,16 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinTrade = v
             end,
         },
+        {
+            key   = "flagcarrier",
+            title = "Flag Carriers",
+            desc  = "The battleground flag and orb carrier frames, dressed like EllesmereUI unit frames: health in the carrier's class color and power in its power color inside a thin black border, a square spec icon, a bordered trinket and cast bar, and the carrier's pet. The faction icon and the cast bar's fill stay as Blizzard draws them. To move them, turn on Move Flag Carriers in Unlock Mode on the Quality of Life Shifter page.",
+            reloadMsg = "Changing the Flag Carriers reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            setEnabled = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.reskinFlagCarriers = v
+            end,
+        },
     }
 
     -- WoW Forever drops the cards for windows it does not skin or has no use
@@ -2625,10 +2805,19 @@ initFrame:SetScript("OnEvent", function(self)
         -- window's title or description returns the card (style dropdown and
         -- all) as a result. Deep links are unaffected: they match the exact
         -- section names created inside buildContent, never this joined string.
-        local searchName = win.title .. " " .. (win.desc or "")
+        -- win.searchText: the labels of a card's own settings (the Mail card's
+        -- Alt List), each a locale key, found while the card is closed.
+        local extra, extraLoc = "", ""
+        if win.searchText then
+            for _, label in ipairs(win.searchText) do
+                extra = extra .. " " .. label
+                extraLoc = extraLoc .. " " .. L(label)
+            end
+        end
+        local searchName = win.title .. " " .. (win.desc or "") .. extra
         hdr._isSectionHeader = true
         hdr._sectionName = searchName
-        local searchNameLoc = L(win.title) .. " " .. L(win.desc or "")
+        local searchNameLoc = L(win.title) .. " " .. L(win.desc or "") .. extraLoc
         if searchNameLoc ~= searchName then hdr._sectionNameLoc = searchNameLoc end
 
         -- Global (sidebar) search: the card header never goes through
@@ -2645,6 +2834,8 @@ initFrame:SetScript("OnEvent", function(self)
             local descSearch = win.desc or ""
             local descLoc = L(win.desc or "")
             if descLoc ~= descSearch then descSearch = descSearch .. " " .. descLoc end
+            descSearch = descSearch .. extra
+            if extraLoc ~= extra then descSearch = descSearch .. extraLoc end
             EllesmereUI._RegisterSearchEntry(win.title,
                 titleLoc ~= win.title and titleLoc or nil,
                 descSearch,
@@ -3582,7 +3773,13 @@ initFrame:SetScript("OnEvent", function(self)
         local BS = EllesmereUI.BlizzStyle
         local edrStyle = BS.Active("dragonriding")
 
-        _, h = W:SectionHeader(parent, "GENERAL", y); y = y - h
+        -- The Move in Unlock Mode button on the bar's first section, built
+        -- whatever Enable Skyriding Bar says: its disabled state explains itself.
+        local hdr
+        hdr, h = W:SectionHeader(parent, "GENERAL", y); y = y - h
+        EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EDR_Cluster",
+            disabled = function() return EDR_Cfg("enabled") ~= true end,
+            disabledTooltip = "Skyriding Bar" })
         y = BS.Note(parent, y, "dragonriding")
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Enable Skyriding Bar",
@@ -4047,6 +4244,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinDelvePicker = nil
                 EllesmereUIDB.reskinPlayerChoice = nil
                 EllesmereUIDB.reskinTrade = nil
+                EllesmereUIDB.reskinFlagCarriers = nil
                 EllesmereUIDB.windowSkinsStockSeeded = nil
                 EllesmereUIDB.windowSkinStyleSlots = nil
                 EllesmereUIDB.reskinWidgetBars = nil
@@ -4090,10 +4288,14 @@ initFrame:SetScript("OnEvent", function(self)
                     "charSheetSocketPanel", "charSheetIconZoom", "charSheetEnchantNames",
                     "charSheetEnchantSize", "inspectShowEnchants", "inspectShowItemLevel",
                     "inspectShowUpgradeTrack", "merchantShowAsList", "merchantListRowHeight",
-                    "merchantShowItemLevel", "tooltipItemLevel", "tooltipShowMode",
+                    "merchantShowItemLevel", "merchantBulkBuy", "tooltipItemLevel", "tooltipShowMode",
                     "tooltipShowModifier", "tooltipGrowthDirection", "tooltipBgColor",
                     "tooltipBgOpacity", "showSpellID", "spellIDModifier", "showIconID",
                     "showItemID", "friendsListCard",
+                    "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
+                    "mailCloseBags",
+                    -- Shown Characters (the roster itself is recorded data, not a setting)
+                    "mailAltHidden",
                 }) do EllesmereUIDB[k] = nil end
                 EllesmereUIDB.characterFramePos = nil
                 EllesmereUIDB.friendsFramePos = nil
@@ -4109,6 +4311,8 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._refreshInspectSlotLabels then EllesmereUI._refreshInspectSlotLabels() end
             -- WoW Forever's Friends List card (auto-accept and the tiles)
             if ns.FriendsCardRefresh then ns.FriendsCardRefresh() end
+            -- The Mail card's Alt List (retail)
+            if ns.MailAlts then ns.MailAlts.Refresh() end
         end,
     })
 
@@ -4119,6 +4323,10 @@ initFrame:SetScript("OnEvent", function(self)
     local origNav = EllesmereUI.NavigateToElementSettings
     if origNav then
         function EllesmereUI:NavigateToElementSettings(moduleName, pageName, sectionName, preSelectFn, highlightText)
+            -- The original refuses in combat: no page state changes then.
+            if InCombatLockdown() then
+                return origNav(self, moduleName, pageName, sectionName, preSelectFn, highlightText)
+            end
             if moduleName == "EllesmereUIBlizzardSkin" and pageName == PAGE_WINDOWSKINS
                and (sectionName or highlightText) then
                 local changed = false

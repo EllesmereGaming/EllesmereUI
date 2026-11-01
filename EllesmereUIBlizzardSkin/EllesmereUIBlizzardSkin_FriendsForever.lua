@@ -40,12 +40,7 @@ if not (WSkin and WSkin.RegisterWindow and WSkin.Shell) then return end
 
 local WIN = "socialui"
 
-local FFD = setmetatable({}, { __mode = "k" })
-local function GetFFD(frame)
-    local d = FFD[frame]
-    if not d then d = {}; FFD[frame] = d end
-    return d
-end
+local FFD, GetFFD = EllesmereUI.NewFrameData()
 
 -- One pooled list frame: a category header (carries a Title) loses its art
 -- and takes the house font; a friend or ignore row keeps Blizzard's colours

@@ -479,9 +479,9 @@ manager:SetScript("OnEvent", function(self, event, unit)
             ns._cachedTargetPlate:ApplyTarget()
             ns._cachedTargetPlate:UpdateHealthColor()
         end
-        -- Non-Target Opacity: gaining/losing a target flips every plate's fade state, so this
-        -- is the one full-iteration site. Zero cost while off (single compare).
-        if ns._ntAlpha < 1 then ns.NT_ApplyAll() end
+        -- Non-Target and Out of Combat Opacity: gaining/losing a target flips every plate's
+        -- fade state, so this is the one full-iteration site. Zero cost while off (compares).
+        if ns._ntAlpha < 1 or ns._oocAlpha < 1 then ns.NT_ApplyAll() end
     elseif event == "PLAYER_FOCUS_CHANGED" then
         -- PERF: only update old + new focus plates instead of iterating all
         local oldFocus = ns._cachedFocusPlate
@@ -514,9 +514,9 @@ manager:SetScript("OnEvent", function(self, event, unit)
         if ns._cachedFocusPlate and ns._cachedFocusPlate ~= oldFocus then
             UpdateFocusPlate(ns._cachedFocusPlate)
         end
-        -- Non-Target Opacity: only the old and new focus plates change
-        -- fade state on a focus swap.
-        if ns._ntAlpha < 1 then
+        -- Non-Target and Out of Combat Opacity: only the old and new focus
+        -- plates change fade state on a focus swap.
+        if ns._ntAlpha < 1 or ns._oocAlpha < 1 then
             if oldFocus then ns.NT_Apply(oldFocus) end
             if ns._cachedFocusPlate and ns._cachedFocusPlate ~= oldFocus then
                 ns.NT_Apply(ns._cachedFocusPlate)
@@ -532,15 +532,14 @@ manager:SetScript("OnEvent", function(self, event, unit)
             plate:UpdateRaidIcon()
             if p and p.nameRaidMarkerEnabled == true then plate:RefreshNamePosition(true) end
             -- A marker appearing/clearing in a side slot changes the side extents the target
-            -- arrows sit outside of, so re-run arrow positioning (no-op without arrows), then
-            -- reanchor the container-bearing sides -- same order as the target-swap path.
+            -- arrows sit outside of, so re-run arrow positioning (no-op without arrows).
             ns.PositionArrowsOutsideAuras(plate)
-            if ns.NPC_ReanchorArrows then ns.NPC_ReanchorArrows(plate) end
         end
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
         for _, plate in pairs(ns.plates) do
             plate:UpdateHealthColor()
         end
+        if ns._oocAlpha < 1 then ns.NT_ApplyAll() end
     elseif event == "DISPLAY_SIZE_CHANGED" or event == "UI_SCALE_CHANGED" then
         if ns.ApplyNamePlateClickArea then
             ns.ApplyNamePlateClickArea()

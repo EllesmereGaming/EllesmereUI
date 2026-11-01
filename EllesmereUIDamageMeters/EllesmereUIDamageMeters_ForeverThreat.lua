@@ -7,8 +7,8 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  rows carry their own value text, rank and highlight colours). Offered only
 --  while Forever Essentials is loaded, which hands the list over as
 --  EllesmereUI._ThreatFeed; a window saved on the type reads as Damage Done
---  wherever it is not offered. The main file reaches this file only through
---  nil-guarded ns hooks.
+--  wherever it is not offered. The other Damage Meters files reach this file
+--  only through nil-guarded ns hooks.
 -------------------------------------------------------------------------------
 local _, ns = ...
 local THREAT = "threat"

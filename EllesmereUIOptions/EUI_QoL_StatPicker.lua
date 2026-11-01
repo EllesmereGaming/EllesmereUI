@@ -11,6 +11,11 @@ if not EllesmereUI.IS_FOREVER then return end
 local qns = EllesmereUI._ModuleNS["EllesmereUIQoL"]
 if not qns then return end  -- module disabled: no options page
 
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua). The window is built once on the overlay layer,
+-- which is no pool host, so its frames are plain new frames.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local NUM_COLS, COL_W, COL_GAP = 3, 200, 18
 local PAD, CONTENT_TOP = 24, 92
 local HEADER_H, ITEM_H = 26, 24

@@ -5,6 +5,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local PP = EllesmereUI.PanelPP
 
+-- Options page pool (EllesmereUI_FramePool.lua): frames made here on a pool
+-- host are reset and dressed again by the next build instead of made anew;
+-- elsewhere this is CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 ---------------------------------------------------------------------------
 --  Colors Page
 ---------------------------------------------------------------------------
@@ -180,7 +185,7 @@ function _G._EUI_BuildColorsPage(pageName, parent, yOffset)
         -- condition); the class resource bar never does.
         local DM_ITEMS = {
             { key = "unitFrames",   label = "Unit Frames" },
-            { key = "raidFrames",   label = "Raid Frames" },
+            { key = "raidFrames",   label = "Raid & Party Frames" },
             { key = "resourceBars", label = "Class Resource Bar" },
         }
         local function DMProvider(id)

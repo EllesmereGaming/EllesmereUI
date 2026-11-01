@@ -18,6 +18,12 @@ local PAGE_DMG_METERS    = "Damage Meters"
 local SECTION_CHAT    = "CHAT"
 local SECTION_MINIMAP = "DISPLAY"
 
+-- Page reuse: a frame this file builds goes through the options frame pool
+-- (EllesmereUI_FramePool.lua, the options addon's first file), which hands a
+-- kept page its previous build's frames back reset to new; on any other
+-- parent it is the plain CreateFrame. The page builds only factory widgets.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:SetScript("OnEvent", function(self)

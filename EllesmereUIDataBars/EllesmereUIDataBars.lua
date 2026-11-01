@@ -61,7 +61,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --       preview strip re-solves from the block measurements that pass settled.
 
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -186,6 +186,9 @@ local floor             = math.floor
 local max, min, abs     = math.max, math.min, math.abs
 
 local PP = EllesmereUI.PP
+-- The options page frame pool's table (made by the parent, filled in place when
+-- the options addon loads it): read for its Gen at call time.
+local POOL = EllesmereUI._Pool
 
 local MEDIA = "Interface\\AddOns\\EllesmereUIDataBars\\media\\"
 ns.MEDIA = MEDIA
@@ -227,10 +230,23 @@ ns.BLOCK_TYPES = {
     { key = "crests",     label = "Crests" },
     { key = "ilvl",       label = "Item Level" },
     { key = "greatvault", label = "Great Vault" },
+    { key = "mplussummary", label = "M+ Summary",
+      available = function() return EllesmereUI._MythicRuns ~= nil end },
     { key = "audio",      label = "Audio" },
     { key = "ldb",        label = "Broker Plugin" },
     { key = "spacer",     label = "Spacer" },
 }
+
+-- The types the picker offers: one with available() only while it answers
+-- true (M+ Summary needs Mythic+ Tools loaded). Asked when the picker is built,
+-- after login, once every module has loaded. A bar saved with one keeps it.
+function ns.OfferedBlockTypes()
+    local out = {}
+    for _, t in ipairs(ns.BLOCK_TYPES) do
+        if not t.available or t.available() then out[#out + 1] = t end
+    end
+    return out
+end
 
 ns.BLOCK_DEFAULTS = {
     clock      = { localTime = true, twentyFour = true, showMail = true, showResting = true, fontSizeClock = nil, fontSizeInfo = nil },
@@ -261,6 +277,7 @@ ns.BLOCK_DEFAULTS = {
                    hideEmpty = false, reverse = false },
     ilvl       = { prefix = "short", value = "equipped", precision = 0 },
     greatvault = {},
+    mplussummary = { hideWhenEmpty = false },
     audio      = { channel = "master" },
     -- Broker plugin: one block type for every LibDataBroker data source, picked
     -- by name (source). stripColors defaults ON -- broker text arrives full of
@@ -274,13 +291,14 @@ ns.BLOCK_DEFAULTS = {
 -- Factories are registered by Blocks\*.lua.
 ns.BlockFactories = {}
 
--- WoW Forever has no Great Vault, no season crests and one spec per class with
--- nothing to switch: those blocks leave the picker (BLOCK_TYPES), the add path
--- refuses them (no default, so the Bottom Info Bar template skips its spec
--- block) and their Blocks\*.lua files return before registering a factory, so
--- a bar saved with one shows an empty slot there instead of erroring.
+-- WoW Forever has no Great Vault, no season crests, no Mythic+ Tools runs and
+-- one spec per class with nothing to switch: those blocks leave the picker
+-- (BLOCK_TYPES), the add path refuses them (no default, so the Bottom Info Bar
+-- template skips its spec block) and their Blocks\*.lua files return before
+-- registering a factory, so a bar saved with one shows an empty slot there
+-- instead of erroring.
 if EllesmereUI.IS_FOREVER then
-    local FOREVER_OFF = { greatvault = true, crests = true, spec = true }
+    local FOREVER_OFF = { greatvault = true, crests = true, spec = true, mplussummary = true }
     table.insert(ns.BLOCK_TYPES, #ns.BLOCK_TYPES, { key = "supplies", label = "Class Resources" })
     ns.BLOCK_DEFAULTS.supplies = { showIcon = true }
     for i = #ns.BLOCK_TYPES, 1, -1 do
@@ -448,7 +466,7 @@ end
 
 -- Reset countdowns for the clock tooltip. SecondsToTime is the client's own duration
 -- formatter, so units come out localized. Same call the Minimap module
--- (EllesmereUIMinimap.lua) makes for the weekly reset, so both render identically.
+-- (EUI_Minimap_Tooltips.lua) makes for the weekly reset, so both render identically.
 -- Seconds are suppressed above a minute (3 units already covers "2d 5h 30m"); below a
 -- minute they're all that's left, so suppressing them there would return "".
 function ns.FormatTimeLeft(seconds)
@@ -1743,7 +1761,12 @@ local BASE_L, BASE_R, BASE_T, BASE_B = 0.25, 1, 0, 0.75
 local BASE_U, BASE_V = BASE_R - BASE_L, BASE_B - BASE_T
 
 local function EnsureThemeTextures(host)
-    if host._edbBgAtlas then return end
+    -- Made once per host. An options preview strip is a frame of the options
+    -- page pool that every header build dresses again for another use: the
+    -- textures count only for the dress (generation) they were made in. Gen
+    -- is nil for every frame the pool did not make (the live bars).
+    local gen = POOL.Gen and POOL.Gen(host)
+    if host._edbBgAtlas and host._edbThemeGen == gen then return end
     local bgAtlas = host:CreateTexture(nil, "BACKGROUND", nil, -8)
     bgAtlas:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png")
     bgAtlas:SetAllPoints(host)
@@ -1762,6 +1785,7 @@ local function EnsureThemeTextures(host)
     host._edbBgOverlay = bgOverlay
     host._edbModernBg  = modernBg
     host._edbBarTex    = barTex
+    host._edbThemeGen  = gen
 
     -- Cover-fit: crop the atlas so it fills the host without stretching.
     local function UpdateBgTexCoords()
@@ -1984,10 +2008,12 @@ local function EnsureSlot(rec, blockCfg)
     if not slot then
         slot = CreateFrame("Frame", nil, rec.bar)
         slot:SetSize(10, 10)
+        rec.slots[blockCfg.id] = slot
+    end
+    if not slot._edbContent then
         local content = CreateFrame("Frame", nil, slot)
         content:SetSize(10, 10)
         slot._edbContent = content
-        rec.slots[blockCfg.id] = slot
     end
     return slot
 end
@@ -2293,7 +2319,18 @@ function ns.ApplyBar(id)
             rec.insts[blockId] = nil
             rec.assigned[blockId] = nil
             local slot = rec.slots[blockId]
-            if slot then slot:Hide() end
+            if slot then
+                slot:Hide()
+                -- The block's frames stay parented to its content, and Destroy
+                -- only hides it; a later block with this id (another type, or a
+                -- profile switch) would show them again. Retire it so EnsureSlot
+                -- builds a fresh one.
+                local content = slot._edbContent
+                if content and not (InCombatLockdown() and content:IsProtected()) then
+                    content:Hide()
+                    slot._edbContent = nil
+                end
+            end
         end
     end
     for blockId, slot in pairs(rec.slots) do

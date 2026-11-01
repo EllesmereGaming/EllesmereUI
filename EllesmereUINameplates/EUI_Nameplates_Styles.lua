@@ -14,6 +14,11 @@ I.broken = true
 
 local pairs, ipairs, type = pairs, ipairs, type
 local UnitIsUnit, UnitCanAttack = UnitIsUnit, UnitCanAttack
+-- The core's table of the options page frame pool (EllesmereUI_PixelPerfect.lua
+-- makes it, the options addon fills it): the builders the options preview shares
+-- with the plates create through it, so a preview frame is handed back to the
+-- preview's next build. A plate's parent is no pool host: a plain CreateFrame.
+local Pool = EllesmereUI._Pool
 
 local defaults = I.defaults
 
@@ -541,7 +546,7 @@ function ns.NP_ApplyClassicIconArt(frame, w, h)
     local host = frame._classicIconHost
     local border = frame._classicIconBorder
     if not border then
-        host = CreateFrame("Frame", nil, frame)
+        host = Pool.CreateFrame("Frame", nil, frame)
         host:SetAllPoints(frame)
         host:EnableMouse(false)
         border = host:CreateTexture(nil, "OVERLAY", nil, 5)
@@ -640,10 +645,11 @@ end
 function ns.NP_BuildForeverLevelBox(health)
     local B, L = ns.NP_BLIZZ, ns.NP_FOREVER_LVL
     if not ns.NP_AtlasOK(B.lvlBg) then return nil end
-    local box = CreateFrame("Frame", nil, health)
+    local box = Pool.CreateFrame("Frame", nil, health)
     box:EnableMouse(false)
     box:SetFrameLevel(health:GetFrameLevel() + 6)
-    box:SetPoint("LEFT", health, "RIGHT", L.gap, 0)
+    -- As the stock plate hangs it: L.pad taller than the bar, 3 of it above.
+    box:SetPoint("LEFT", health, "RIGHT", L.gap, 0.5)
     local bg = box:CreateTexture(nil, "BACKGROUND")
     bg:SetAtlas(B.lvlBg)
     bg:SetAllPoints(box)
@@ -657,12 +663,13 @@ function ns.NP_BuildForeverLevelBox(health)
     sk:Hide()
     box._skull = sk
     if ns.NP_AtlasOK(B.lvlSel) then
-        -- Where the stock plate hangs it (4 past a box 2 shorter), level with
-        -- the bar's own selection ring.
+        -- Where the stock plate hangs it (3 past the box's top and 4 past its
+        -- bottom, so 6 past the bar's each way), level with the bar's own
+        -- selection ring.
         local sel = box:CreateTexture(nil, "OVERLAY", nil, 1)
         sel:SetAtlas(B.lvlSel)
         sel:SetPoint("TOPLEFT", box, "TOPLEFT", -3, 3)
-        sel:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", 3, -3)
+        sel:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", 3, -4)
         sel:Hide()
         box._sel = sel
     end
@@ -1060,6 +1067,58 @@ function ns.ApplyCastBarTexture(plate)
     -- A path swap mints a new fill object: it joins the rounded body.
     if plate._npRounded then ns.NP_ApplyRounding(plate, "cast") end
 end
+-- Bar backgrounds, painted on every enemy appearance pass so a profile switch or
+-- an override reaches live plates: the Background / Cast Background colours, and
+-- Textured Background (Bar Texture / Cast Bar Texture cogs; off by default),
+-- which puts the bar texture there tinted by that colour. While textured, a
+-- background's own SetColorTexture tints the texture, so the colour rows' live
+-- repaints keep it: paint these backgrounds only through SetColorTexture
+-- (SetTexture / SetAtlas go around it). Blizzard Style draws its stock art there.
+do
+    local function PaintTinted(self, r, g, b, a) self:SetVertexColor(r, g, b, a) end
+    -- A background's texture path in settings s (nil = flat); the options
+    -- preview shares it.
+    function ns.NP_TexBgPath(s, cast)
+        if not (s and s[cast and "castTextureBg" or "healthTextureBg"]) then return nil end
+        return EllesmereUI.ResolveTexturePath(ns.healthBarTextures,
+            s[cast and "castBarTexture" or "healthBarTexture"] or "none", nil)
+    end
+    -- One paint of a background that is never swapped (the options preview).
+    function ns.NP_TexBgPaint(tex, path, r, g, b, a)
+        if path then
+            tex:SetTexture(path)
+            tex:SetVertexColor(r, g, b, a)
+            tex._npTexBgPath = path
+            return
+        end
+        if tex._npTexBgPath then
+            tex._npTexBgPath = nil
+            tex:SetVertexColor(1, 1, 1, 1)
+        end
+        tex:SetColorTexture(r, g, b, a)
+    end
+    local function Paint(bg, path, c, a)
+        if path then
+            if bg._npTexBgPath ~= path then
+                bg:SetTexture(path)
+                bg._npTexBgPath = path
+            end
+            bg.SetColorTexture = PaintTinted
+        elseif bg._npTexBgPath then
+            bg._npTexBgPath = nil
+            bg.SetColorTexture = nil
+            bg:SetVertexColor(1, 1, 1, 1)
+        end
+        bg:SetColorTexture(c.r, c.g, c.b, a)
+    end
+    function ns.ApplyBarBackgrounds(plate)
+        if ns.NP_Style() == "blizzard" then return end
+        Paint(plate.healthBG, ns.NP_TexBgPath(p, false),
+            (p and p.bgColor) or defaults.bgColor, (p and p.bgAlpha) or defaults.bgAlpha)
+        Paint(plate.castBG, ns.NP_TexBgPath(p, true),
+            (p and p.castBgColor) or defaults.castBgColor, (p and p.castBgAlpha) or defaults.castBgAlpha)
+    end
+end
 
 function ns.ApplyAbsorbStyle(plate)
     local style = (p and p.absorbStyle) or defaults.absorbStyle
@@ -1132,15 +1191,15 @@ end
 -- Shared with the options preview (owner is any table holding the bars).
 function ns.NP_BuildAbsorbBars(owner, health, mask)
     local lvl = health:GetFrameLevel() + 1
-    local curClip = CreateFrame("Frame", nil, health)
+    local curClip = Pool.CreateFrame("Frame", nil, health)
     curClip:SetClipsChildren(true)
     curClip:SetFrameLevel(lvl)
-    local missClip = CreateFrame("Frame", nil, health)
+    local missClip = Pool.CreateFrame("Frame", nil, health)
     missClip:SetClipsChildren(true)
     missClip:SetFrameLevel(lvl)
-    local fw = CreateFrame("StatusBar", nil, missClip)
+    local fw = Pool.CreateFrame("StatusBar", nil, missClip)
     fw:SetReverseFill(false)
-    local ab = CreateFrame("StatusBar", nil, curClip)
+    local ab = Pool.CreateFrame("StatusBar", nil, curClip)
     for _, bar in ipairs({ ab, fw }) do
         bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
         local fill = bar:GetStatusBarTexture()

@@ -9,6 +9,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local ns = EllesmereUI._ModuleNS["EllesmereUIUnitFrames"]
 if not ns then return end  -- module disabled: no options page
 
+-- Page reuse: the frames this file builds under a kept page go through the
+-- options frame pool (EllesmereUI_FramePool.lua), which hands the next build
+-- the previous build's frames reset to new; on any other parent it is the
+-- plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 function ns.UFO_BuildCastBarSection(parent, y, ctx)
     local env = ns._UFO_OptEnv
     local GROUP_UNIT_ORDER, PP, RegisterWidgetRefresh, ReloadAndUpdate = env.GROUP_UNIT_ORDER, env.PP, env.RegisterWidgetRefresh, env.ReloadAndUpdate
@@ -54,6 +60,13 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
         if optState.selectedUnit == "player" then UNIT_DB_MAP.player().playerCastbarHeight = v
         else UNIT_DB_MAP[optState.selectedUnit]().castbarHeight = v end
     end
+
+    -- The Move in Unlock Mode button on the cast bar's section: the selected
+    -- unit's own cast bar mover, whose Show Cast Bar toggle opens the section.
+    EllesmereUI.BuildSectionUnlockJump(sharedCastHeader, {
+        key = function() return optState.selectedUnit .. "Castbar" end,
+        disabled = function() return not GetCastbarEnabled(optState.selectedUnit) end,
+        disabledTooltip = "Show Cast Bar" })
 
     -- Player-only hint: this is the compact mini cast bar under the player frame;
     -- the full-size one belongs to Resource & Cast Bars, deep-linked here. The page
@@ -1358,7 +1371,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                 { type="slider", label="Offset Y", min=-100, max=100, step=1,
                   get=function() return SValSupported("buffCooldownTextOffsetY", 0) end,
                   set=function(v) SSetSupported("buffCooldownTextOffsetY", v) end },
-                { type="slider", label="Precise Below (minutes, 0 = off)", min=0, max=60, step=1,
+                { type="slider", label="Precise Below (minutes, 0 = off)", min=0, max=90, step=1,
                   get=function() local v=SValSupported("buffCooldownTextPrecision", nil); return v and v/60 or 0 end,
                   set=function(v) SSetSupported("buffCooldownTextPrecision", v > 0 and v*60 or nil) end },
             },
@@ -1502,7 +1515,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                 { type="slider", label="Offset Y", min=-100, max=100, step=1,
                   get=function() return SValSupported("debuffCooldownTextOffsetY", 0) end,
                   set=function(v) SSetSupported("debuffCooldownTextOffsetY", v) end },
-                { type="slider", label="Precise Below (minutes, 0 = off)", min=0, max=60, step=1,
+                { type="slider", label="Precise Below (minutes, 0 = off)", min=0, max=90, step=1,
                   get=function() local v=SValSupported("debuffCooldownTextPrecision", nil); return v and v/60 or 0 end,
                   set=function(v) SSetSupported("debuffCooldownTextPrecision", v > 0 and v*60 or nil) end },
             },
@@ -2051,7 +2064,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                     end,
                     function(k, v, neg)
                         if k == HIDE_EXH_KEY then
-                            ps.debuffHideExhaustion = (not v) and false or nil
+                            if v then ps.debuffHideExhaustion = nil else ps.debuffHideExhaustion = false end
                             ReloadAndUpdate()
                             EllesmereUI:RefreshPage()
                             return
@@ -2249,9 +2262,10 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
             rgn._lastInline = eyeBtn
             local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+            EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
             eyeTex:SetAllPoints()
             local function RefreshDispelEye()
                 eyeTex:SetTexture(optState.showDispelOverlayPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2263,11 +2277,11 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                 UpdatePreview()
             end)
             eyeBtn:SetScript("OnEnter", function(self)
-                self:SetAlpha(0.7)
+                EllesmereUI.SetGlyphAlpha(self, 0.7)
                 EllesmereUI.ShowWidgetTooltip(self, optState.showDispelOverlayPreview and "Hide dispel overlay preview" or "Show dispel overlay preview")
             end)
             eyeBtn:SetScript("OnLeave", function(self)
-                self:SetAlpha(0.4)
+                EllesmereUI.SetGlyphAlpha(self, 0.4)
                 EllesmereUI.HideWidgetTooltip()
             end)
         end

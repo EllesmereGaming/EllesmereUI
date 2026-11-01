@@ -11,6 +11,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 
 if not EllesmereUI._ModuleNS["EllesmereUIQoL"] then return end  -- module disabled: no options page
 
+-- Page reuse: frames this file builds go through the options frame pool
+-- (EllesmereUI_FramePool.lua), which hands a kept page its previous build's
+-- frames back reset to new; on any other parent it is the plain CreateFrame.
+local CreateFrame = EllesmereUI._Pool.CreateFrame
+
 local function DB()
     local fn = _G._EUI_MovementAlert_DB
     return fn and fn() or nil
@@ -343,7 +348,7 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     local ma = MA()
     if not ma then return 0 end
     local y = yOffset
-    local _, h
+    local _, h, hdr
 
     parent._showRowDivider = true
 
@@ -366,12 +371,18 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         if previewBtnLbl then previewBtnLbl:SetText(PreviewLabel()) end
     end);  y = y - h
     if not EllesmereUI._prebuilding then
-        local btn = select(1, previewBtnFrame:GetChildren())
+        -- The button the row was built with and its label, the SHOWN ones: a
+        -- pooled row also holds the hidden children and regions an earlier
+        -- dress left there, so the first child is not necessarily the button.
+        local btn
+        for _, c in ipairs({ previewBtnFrame:GetChildren() }) do
+            if c:IsShown() and c:IsObjectType("Button") then btn = c; break end
+        end
         if btn then
-            local regions = { btn:GetRegions() }
-            for i = 1, #regions do
-                local rgn = regions[i]
-                if rgn and rgn.GetText and rgn:GetText() then previewBtnLbl = rgn; break end
+            for _, rgn in ipairs({ btn:GetRegions() }) do
+                if rgn:IsShown() and rgn:IsObjectType("FontString") and rgn:GetText() then
+                    previewBtnLbl = rgn; break
+                end
             end
         end
         -- Keep the label truthful if the preview self-terminated meanwhile.
@@ -394,12 +405,13 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     -------------------------------------------------------------------------
     --  MOVEMENT COOLDOWN ALERT
     -------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "MOVEMENT COOLDOWN ALERT", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "MOVEMENT COOLDOWN ALERT", y);  y = y - h
 
     -- Off = no class checked at all (enabledClasses nil), the Totem Bar
     -- convention -- the page stays configurable while ANY class is checked;
     -- the backend additionally gates runtime on the player's own class.
     local function maOff() return not ma.enabledClasses end
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_MovementAlert", disabled = maOff, disabledTooltip = "Select a class above", rawTooltip = true })
 
     local enableRow
     enableRow, h = W:DualRow(parent, y,
@@ -973,11 +985,14 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
     -------------------------------------------------------------------------
     --  EXTRA TRACKING
     -------------------------------------------------------------------------
-    _, h = W:SectionHeader(parent, "EXTRA TRACKING", y);  y = y - h
+    hdr, h = W:SectionHeader(parent, "EXTRA TRACKING", y);  y = y - h
 
     -- The two sibling trackers' master toggles, each carrying its full settings cog.
     local function tsOff() return not ma.tsEnabled end
     local function gwOff() return not ma.gwEnabled end
+    -- Time Spiral is the section's first mover, so the header's button takes
+    -- it; the Gateway Shard mover stays reachable through its cog's footer.
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_TimeSpiralAlert", disabled = tsOff, disabledTooltip = "Enable Time Spiral Tracker" })
 
     local extraRow
     extraRow, h = W:DualRow(parent, y,

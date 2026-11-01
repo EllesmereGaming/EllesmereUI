@@ -114,9 +114,15 @@ local function GetAnchorDB()
     return EllesmereUIDB.unlockAnchors
 end
 
+-- A link saved on an element that places itself (ownsPosition: main chat) is
+-- inert, so it reads as none: no anchor rows in its cog, and no false circle
+-- when another element links to it. ValidateStoredLinks deletes it when
+-- Unlock Mode opens.
 local function GetAnchorInfo(barKey)
     local db = GetAnchorDB()
     if not db then return nil end
+    local elem = registeredElements[barKey]
+    if elem and elem.ownsPosition then return nil end
     return db[barKey]
 end
 
@@ -125,6 +131,7 @@ end
 -- Defined here, after its dependencies, so the closure captures the right upvalues.
 function EllesmereUI.RecenterBarAnchor(barKey)
     if not UM.isUnlocked then return end
+    if ns.PointAnchors.Recenter(barKey, UM) then return end
     local elem = registeredElements[barKey]
     if elem and elem.isAnchored and elem.isAnchored() then return end
     local b = UM.GetBarFrame(barKey)
@@ -666,7 +673,14 @@ local function ValidateStoredLinks()
     local anchors = EllesmereUIDB.unlockAnchors
     if anchors then
         for childKey, info in pairs(anchors) do
-            if LinkGone(childKey, info and info.target)
+            local cElem = elems[childKey]
+            if cElem and cElem.ownsPosition then
+                -- A link on an element that places itself (main chat) never
+                -- takes effect, yet the passes that walk the whole store still
+                -- see it: a line to its old target, and a loop that pulls back
+                -- an element linked to it. Dropped on every spec.
+                anchors[childKey] = nil
+            elseif LinkGone(childKey, info and info.target)
                and not OverrideProtected(childKey) then
                 anchors[childKey] = nil
             elseif info and info.edge and info.edge.key and LinkGone(childKey, info.edge.key)
@@ -945,7 +959,7 @@ local function ScheduleAnchorBatch()
                     -- Skip AB growth bars: LayoutBar/applyPos owns their position;
                     -- reapplying from a stale offset yields the wrong edge and visible drift.
                     local isAB = EllesmereUI._abBarKeys and EllesmereUI._abBarKeys[k]
-                    if not isAB then
+                    if not isAB or ownInfo.mode == "POINT" then
                         UM.ApplyAnchorPosition(k, ownInfo.target, ownInfo.side, true)
                     end
                 end
@@ -1019,7 +1033,7 @@ do
         local adb = GetAnchorDB()
         if not adb then return end
         for childKey, info in pairs(adb) do
-            if info.target and (childKey:sub(1, 4) == "CDM_"
+            if info.target and info.mode ~= "POINT" and (childKey:sub(1, 4) == "CDM_"
                or (EllesmereUI._abBarKeys and EllesmereUI._abBarKeys[childKey])) then
                 pcall(MigrateOne, childKey, info)
             end
@@ -1566,7 +1580,9 @@ local function HookFrameSizeChanged(key)
     -- No hooks on chat frames: ChatFrame1 is docked inside Blizzard's secure
     -- FCF_OpenTemporaryWindow chain and any addon code in OnSizeChanged/SetPoint
     -- hooks taints the execution context. Chat persists its own position/size.
-    if key and key:find("^ECHAT_") then return end
+    -- The quest tracker is laid out by Blizzard's managed frame container, in
+    -- combat too, and places itself from its Edit Mode layout entry.
+    if key and (key:find("^ECHAT_") or key == "EQT_Tracker") then return end
     local bar = UM.GetBarFrame(key)
     if not bar then return end
     if not _sizeHookedFrames[bar] then
@@ -1624,6 +1640,7 @@ end
 -- Cancel any active pick mode (width/height match, anchor to, snap select) and
 -- restore overlay text and screen brightness.
 local function CancelPickMode()
+    if UM.PointPicker then UM.PointPicker.Cancel() end
     if UM.pickModeMover then
         local m = UM.pickModeMover
         -- Restore overlay text visibility only if still hovered

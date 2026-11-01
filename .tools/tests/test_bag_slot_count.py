@@ -5,7 +5,7 @@ import sys
 from lupa.lua51 import LuaRuntime
 
 ROOT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
-bag = (ROOT / 'EllesmereUIBags/EllesmereUIBags.lua').read_text(encoding='utf-8-sig')
+bag = (ROOT / 'EllesmereUIBags/EUI_Bags_Refresh.lua').read_text(encoding='utf-8-sig')
 options = (ROOT / 'EllesmereUIOptions/EUI_Bags_Options.lua').read_text(encoding='utf-8-sig')
 def between(text, start, end):
     begin = text.index(start)

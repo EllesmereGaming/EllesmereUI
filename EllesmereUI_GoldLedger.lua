@@ -125,11 +125,11 @@ local function Build()
         return ledger
     end
 
-    --- "Name-Realm" for the current character, or nil when either part is unknown
+    --- "Name-Realm" for the current character (Forever: "Name-Ruleset"), or nil when either part is unknown
     --- (an "Unknown" placeholder would file the balance under a key no later
     --- session can match).
     function GL.CharKey()
-        local name, realm = UnitName("player"), GetRealmName()
+        local name, realm = UnitName("player"), EUI.RealmGroupName()
         if not name or not realm then return nil end
         return name .. "-" .. realm
     end
@@ -180,10 +180,13 @@ local function Build()
         local key = GL.CharKey()
         if not key then return money end
         local chars = GL.Data().chars
+        -- Forever: drop the entry an older build filed under the realm name.
+        local oldKey = UnitName("player") .. "-" .. (GetRealmName() or "")
+        if oldKey ~= key then chars[oldKey] = nil end
         local e = chars[key]
         if not e then e = {}; chars[key] = e end
         local _, class = UnitClass("player")
-        e.money, e.class, e.name, e.realm, e.updated = money, class, UnitName("player"), GetRealmName(), time()
+        e.money, e.class, e.name, e.realm, e.updated = money, class, UnitName("player"), EUI.RealmGroupName(), time()
         return money
     end
 
