@@ -216,7 +216,7 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterOnShow(UpdatePreview)
 
     ---------------------------------------------------------------------------
-    --  Glow sites: the Dispel, Pandemic and Important Cast glows as shared glow
+    --  Glow sites: the Dispel, Pandemic, Important Cast and Cast Targets You glows as shared glow
     --  descriptors, used by the page rows and the Global Settings Glows page.
     ---------------------------------------------------------------------------
     local npDispelGlowDesc, npImpCastGlowDesc, npPandemicGlowDesc, npCastTargetGlowDesc

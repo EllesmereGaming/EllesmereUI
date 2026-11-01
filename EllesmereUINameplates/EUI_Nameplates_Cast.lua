@@ -45,23 +45,34 @@ local function EnsureCastGlowOverlay(self, field, levelOffset)
     return ov
 end
 
--- Starts the glow on a cast bar overlay from a flat-key glow setting (prefix .. "Style",
--- "Color", "Lines", ...). One scratch spec for every plate: StartSpecGlow reads it
--- synchronously. Restarts only when the setting or the bar size changed.
-local function StartCastGlow(self, ov, cfg, prefix, defColor)
+-- Flat-key glow settings (prefix .. "Style", "Color", "Lines", ...), key names built
+-- once here so a cast start does no string work.
+local function GlowKeys(prefix)
+    return {
+        style = prefix .. "Style", color = prefix .. "Color", mode = prefix .. "ColorMode",
+        lines = prefix .. "Lines", thickness = prefix .. "Thickness", speed = prefix .. "Speed",
+        bg = prefix .. "Background", bgColor = prefix .. "BackgroundColor",
+    }
+end
+local IMP_GLOW_KEYS = GlowKeys("importantCastGlow")
+local TGT_GLOW_KEYS = GlowKeys("castTargetGlow")
+
+-- Starts the glow on a cast bar overlay. One scratch spec for every plate: StartSpecGlow
+-- reads it synchronously. Restarts only when the setting or the bar size changed.
+local function StartCastGlow(self, ov, cfg, k)
     local Glows = EllesmereUI.Glows
-    local style = cfg[prefix .. "Style"] or defaults[prefix .. "Style"] or 1
+    local style = cfg[k.style] or defaults[k.style] or 1
     if type(style) ~= "number" or style < 1 or style > #PANDEMIC_GLOW_STYLES then style = 1 end
-    local c = cfg[prefix .. "Color"] or defaults[prefix .. "Color"] or defColor
-    local bgColor = cfg[prefix .. "BackgroundColor"] or defaults[prefix .. "BackgroundColor"] or { r = 0, g = 0, b = 0 }
+    local c = cfg[k.color] or defaults[k.color]
+    local bgColor = cfg[k.bgColor] or defaults[k.bgColor]
     local spec = ns._impCastGlowSpec
     if not spec then spec = {}; ns._impCastGlowSpec = spec end
     spec.style = ns.NP_TO_SHARED_GLOW[style] or 1
-    spec.r, spec.g, spec.b = Glows.ResolveColor(cfg[prefix .. "ColorMode"] or "custom", c.r, c.g, c.b)
-    spec.lines = cfg[prefix .. "Lines"] or defaults[prefix .. "Lines"]
-    spec.thickness = cfg[prefix .. "Thickness"] or defaults[prefix .. "Thickness"]
-    spec.speed = cfg[prefix .. "Speed"] or defaults[prefix .. "Speed"]
-    spec.bg = (cfg[prefix .. "Background"] == true) or nil
+    spec.r, spec.g, spec.b = Glows.ResolveColor(cfg[k.mode] or "custom", c.r, c.g, c.b)
+    spec.lines = cfg[k.lines] or defaults[k.lines]
+    spec.thickness = cfg[k.thickness] or defaults[k.thickness]
+    spec.speed = cfg[k.speed] or defaults[k.speed]
+    spec.bg = (cfg[k.bg] == true) or nil
     spec.bgR, spec.bgG, spec.bgB = bgColor.r, bgColor.g, bgColor.b
     local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
     if pW < 5 then pW = 100 end
@@ -69,7 +80,8 @@ local function StartCastGlow(self, ov, cfg, prefix, defColor)
     Glows.StartSpecGlow(ov, spec, pW, pH, "bar")
 end
 
-function NameplateFrame:UpdateImportantCastGlow(spellID)
+-- Reads self._castImportant, cached by UpdateCast just before.
+function NameplateFrame:UpdateImportantCastGlow()
     local cfg = p or defaults
     local enabled = cfg.importantCastGlow
     if enabled == nil then enabled = defaults.importantCastGlow end
@@ -80,33 +92,39 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
     end
 
     local ov = EnsureCastGlowOverlay(self, "_importantCastOverlay", 5)
-    StartCastGlow(self, ov, cfg, "importantCastGlow", { r = 1, g = 0.2, b = 0.2 })
+    StartCastGlow(self, ov, cfg, IMP_GLOW_KEYS)
     self._importantGlowActive = true
 
     -- SetAlphaFromBoolean handles the secret boolean taint-free.
     -- Important = alpha 1 (glow visible), not important = alpha 0 (glow hidden).
     ov:Show()
-    local ok, isImportant = pcall(C_Spell.IsSpellImportant, spellID or 0)
-    if ok then
-        ov:SetAlphaFromBoolean(isImportant)
-    else
-        ov:SetAlpha(0)
-    end
+    ov:SetAlphaFromBoolean(self._castImportant)
 end
 
 -- Cast Targets You Glow (opt-in): the cast bar glows while the cast's target is the player.
 -- PlayerIsSpellTarget is SECRET, so it only drives the overlay's alpha. Read at cast start,
--- as Blizzard's own nameplate cast bar does.
+-- as Blizzard's own nameplate cast bar does. Runs after UpdateImportantCastGlow: while the
+-- important glow shows, it wins (this overlay sits above it), so the important flag folds
+-- into this alpha.
 function NameplateFrame:UpdateCastTargetGlow()
     local cfg = p or defaults
     if not cfg.castTargetGlow or not PlayerIsSpellTarget then
         self:ClearCastTargetGlow(); return
     end
     local ov = EnsureCastGlowOverlay(self, "_castTargetOverlay", 6)
-    StartCastGlow(self, ov, cfg, "castTargetGlow", { r = 1, g = 1, b = 1 })
+    StartCastGlow(self, ov, cfg, TGT_GLOW_KEYS)
     self._castTargetGlowActive = true
     ov:Show()
-    ov:SetAlphaFromBoolean(PlayerIsSpellTarget(self.unit))
+    if self._importantGlowActive then
+        -- Both flags may be SECRET: folded C-side, the result only reaches SetAlpha
+        -- (the kick tick's pattern).
+        local ev = C_CurveUtil.EvaluateColorValueFromBoolean
+        local isImp = self._castImportant
+        if type(isImp) == "nil" then isImp = false end
+        ov:SetAlpha(ev(PlayerIsSpellTarget(self.unit), ev(isImp, 0, 1), 0))
+    else
+        ov:SetAlphaFromBoolean(PlayerIsSpellTarget(self.unit))
+    end
 end
 
 function NameplateFrame:ClearCastTargetGlow()
@@ -286,7 +304,7 @@ function NameplateFrame:UpdateCast()
         self._kickGeoDirty = nil
         self:ApplyScale()
         self:UpdateKickTick(kickProtected, isChannel, isEmpowered)
-        self:UpdateImportantCastGlow(castSpellID)
+        self:UpdateImportantCastGlow()
         self:UpdateCastTargetGlow()
         if GetShowClassPower() and classPowerType and self._cpPips and self.unit and UnitIsUnit(self.unit, "target") then
             UpdateClassPowerOnPlate(self)
