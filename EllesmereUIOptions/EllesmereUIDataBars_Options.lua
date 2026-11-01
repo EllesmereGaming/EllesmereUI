@@ -3075,11 +3075,29 @@ initFrame:SetScript("OnEvent", function(self)
                 }
             elseif b.type == "travel" then
                 local function ChoiceOf(btn) return ns.TravelClickChoice(s, btn) end
+                -- Houses arrive asynchronously: rebuild once if this page is still open.
+                ns.TravelRequestHouseList(function()
+                    if EllesmereUI:GetActiveModule() == "EllesmereUIDataBars" then EllesmereUI:RefreshPage(true) end
+                end)
                 local function BuildClickValues(btn)
                     local values, order = {}, {}
                     if btn == 3 then values.none = "None"; order[1] = "none" end
                     values.random = "Random Hearthstone"; order[#order + 1] = "random"
                     local cur = ChoiceOf(btn)
+                    -- A saved house missing from the list (not loaded yet, or sold) stays listed as "Home".
+                    local houses = ns.TravelHouseChoices()
+                    local curIsHouse = type(cur) == "string" and cur:find("house:", 1, true) == 1
+                    if #houses > 0 or curIsHouse then
+                        order[#order + 1] = "---house"
+                        for _, house in ipairs(houses) do
+                            values[house.key] = house.name
+                            order[#order + 1] = house.key
+                        end
+                        if curIsHouse and not values[cur] then
+                            values[cur] = "Home"
+                            order[#order + 1] = cur
+                        end
+                    end
                     local curPlaced = type(cur) ~= "number"
                     local groups = {
                         { key = "---travel", ids = ns.TravelExtraIDs, usable = ns.TravelExtraUsable },
@@ -3117,7 +3135,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local CLICK_LABELS = { "Left Click", "Right Click", "Middle Click" }
                 local CLICK_KEYS = { "hsChoice", "hsChoiceRight", "hsChoiceMiddle" }
                 local CLICK_TIPS = {
-                    "What left click on the Travel block uses: a travel item or teleport, a specific hearthstone, or Random Hearthstone (a random owned hearthstone each cast).",
+                    "What left click on the Travel block uses: your house (the same click returns you after a visit), a travel item or teleport, a specific hearthstone, or Random Hearthstone (a random owned hearthstone each cast).",
                     "What right click on the Travel block uses. Defaults to Random Hearthstone.",
                     "What middle click on the Travel block uses. None leaves middle click unused.",
                 }

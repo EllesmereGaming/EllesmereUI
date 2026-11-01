@@ -153,6 +153,133 @@ local function TravelGetRemainingCooldown(id, isSpell)
     return 0, true
 end
 
+-- Player housing: a "house:<guid>" click uses Blizzard's teleporthome secure action
+-- (returnhome while a return trip is available). The house list arrives
+-- asynchronously; its listener registers only while a click or the options page needs it.
+local HOUSE_PREFIX = "house:"
+local travelHouses
+local houseWatchers = {}
+local houseOptionsWaiting
+local houseEv = CreateFrame("Frame")
+
+local function TravelHousingAvailable()
+    return not EllesmereUI.IS_FOREVER and C_Housing and C_Housing.GetPlayerOwnedHouses ~= nil
+end
+
+-- As the house favor bar: no request in a keystone or raid; world entry retries.
+local function TravelHousingBlocked()
+    if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
+        and C_ChallengeMode.IsChallengeModeActive() then
+        return true
+    end
+    local inInst, instType = IsInInstance()
+    return (inInst and instType == "raid") and true or false
+end
+
+local function TravelRequestHouses()
+    if TravelHousingBlocked() then return end
+    C_Housing.GetPlayerOwnedHouses()
+end
+
+local function TravelSyncHouseEvents()
+    local watching = next(houseWatchers) ~= nil
+    if watching or houseOptionsWaiting then
+        houseEv:RegisterEvent("PLAYER_HOUSE_LIST_UPDATED")
+    else
+        houseEv:UnregisterEvent("PLAYER_HOUSE_LIST_UPDATED")
+    end
+    if watching then
+        houseEv:RegisterEvent("PLAYER_ENTERING_WORLD")
+    else
+        houseEv:UnregisterEvent("PLAYER_ENTERING_WORLD")
+    end
+end
+
+houseEv:SetScript("OnEvent", function(_, event, houses)
+    if event == "PLAYER_ENTERING_WORLD" then
+        TravelRequestHouses()
+        return
+    end
+    travelHouses = type(houses) == "table" and houses or {}
+    local onLoaded = houseOptionsWaiting
+    houseOptionsWaiting = nil
+    TravelSyncHouseEvents()
+    for inst in next, houseWatchers do inst:OnHouseList() end
+    if onLoaded then onLoaded() end
+end)
+
+local function TravelWatchHouses(inst, on)
+    on = on and TravelHousingAvailable() or false
+    if (houseWatchers[inst] == true) == on then return end
+    houseWatchers[inst] = on or nil
+    TravelSyncHouseEvents()
+    if on and not travelHouses then TravelRequestHouses() end
+end
+
+function ns.TravelRequestHouseList(onLoaded)
+    if travelHouses or houseOptionsWaiting or not TravelHousingAvailable() or TravelHousingBlocked() then return end
+    houseOptionsWaiting = onLoaded
+    TravelSyncHouseEvents()
+    TravelRequestHouses()
+end
+
+local function TravelIsHouseChoice(choice)
+    return type(choice) == "string" and choice:find(HOUSE_PREFIX, 1, true) == 1
+end
+
+local function TravelUsableHouse(h)
+    return h and h.houseGUID and h.neighborhoodGUID and h.plotID
+        and not issecretvalue(h.houseGUID) and not issecretvalue(h.neighborhoodGUID)
+end
+
+local function TravelFindHouse(choice)
+    if not (travelHouses and TravelIsHouseChoice(choice)) then return nil end
+    local guid = choice:sub(#HOUSE_PREFIX + 1)
+    for _, h in ipairs(travelHouses) do
+        if TravelUsableHouse(h) and h.houseGUID == guid then return h end
+    end
+    return nil
+end
+
+-- Skips the opaque placeholder name some clients report.
+local function TravelHouseName(h)
+    local n = h and h.houseName
+    if n and not issecretvalue(n) and n ~= "" and not n:match("^Home%-opaque%-%d+$") then return n end
+    return L["HOME"]
+end
+
+local function TravelCanReturnHome()
+    local f = C_HousingNeighborhood and C_HousingNeighborhood.CanReturnAfterVisitingHouse
+    if not f then return false end
+    local ok, can = pcall(f)
+    return ok and can == true
+end
+
+-- Returns remaining, known; 2s or less is the global cooldown, read as ready.
+local function TravelHouseCooldown()
+    local info = C_Housing and C_Housing.GetVisitCooldownInfo and C_Housing.GetVisitCooldownInfo()
+    if not info or not info.isEnabled then return 0, true end
+    if issecretvalue(info.startTime) or issecretvalue(info.duration) then return 0, false end
+    local rem = 0
+    if (info.duration or 0) > 2 and (info.startTime or 0) > 0 then
+        rem = max(0, info.startTime + info.duration - GetTime())
+    end
+    return rem, true
+end
+
+-- Options-side: owned houses as { key = "house:<guid>", name = ... }.
+function ns.TravelHouseChoices()
+    local out = {}
+    if travelHouses then
+        for _, h in ipairs(travelHouses) do
+            if TravelUsableHouse(h) then
+                out[#out + 1] = { key = HOUSE_PREFIX .. h.houseGUID, name = TravelHouseName(h) }
+            end
+        end
+    end
+    return out
+end
+
 local _hearthList = {}
 local _hearthListCount = 0
 local function TravelGetAvailableHearthstones()
@@ -184,7 +311,7 @@ local function TravelPickHearthstone(randomize)
     return list[1]
 end
 
--- Stored choice for mouse button 1 (left), 2 (right) or 3 (middle): "none", "random" or an id.
+-- Per button (1 left, 2 right, 3 middle): "none", "random", "house:<guid>" or an id.
 local function TravelClickChoice(dt, btn)
     local c
     if btn == 1 then
@@ -379,6 +506,30 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             end
         end
 
+        local dt = D()
+        -- All houses share one visit cooldown.
+        local house = TravelFindHouse(TravelClickChoice(dt, 1)) or TravelFindHouse(TravelClickChoice(dt, 2))
+            or TravelFindHouse(TravelClickChoice(dt, 3))
+        if house then
+            local hstr, hready = "-", false
+            local returnTrip = TravelCanReturnHome()
+            if returnTrip then
+                hstr, hready = L["RETURN_AVAILABLE"], true
+            else
+                local rem, known = TravelHouseCooldown()
+                if known then
+                    hstr = ns.FormatCooldown(rem) or L["READY"]
+                    hready = rem <= 0
+                end
+            end
+            if hready then
+                ns.Tip_AddHouseActionDouble(TravelHouseName(house), hstr, house, returnTrip, 1, 1, 1, 0, 1, 0)
+            else
+                ns.Tip_AddDouble(TravelHouseName(house), hstr, 0.65, 0.65, 0.65, 0.5, 0.5, 0.5)
+                ns.Tip_PadRow()
+            end
+        end
+
         -- Show M+ Portals: nil reads as shown (no migration needed). OFF skips the section and its spell-resolution work entirely.
         -- WoW Forever has no Mythic+ teleports: the section never builds there.
         _mythicLineCount = 0
@@ -441,13 +592,15 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             end
         end
         ns.Tip_AddLine(" ")
-        local dt = D()
         for btn = 1, 3 do
             local choice = TravelClickChoice(dt, btn)
             if choice ~= "none" then
                 local what
+                local h = TravelFindHouse(choice)
                 if choice == "random" then
                     what = L["RANDOM_HEARTHSTONE"]
+                elseif h then
+                    what = TravelCanReturnHome() and L["RETURN_FROM_HOME"] or TravelHouseName(h)
                 elseif TRAVEL_EXTRA_SET[choice] and TravelExtraKind(choice) then
                     what = TravelEntryName(choice) or L["USE_HEARTHSTONE"]
                 else
@@ -485,9 +638,22 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         local function SeedMacro()
             if InCombatLockdown() then return end
             local dt = D()
+            local canReturn
             for btn = 1, 3 do
-                local id = TravelResolveChoice(TravelClickChoice(dt, btn))
-                hearthButton:SetAttribute("*macrotext" .. btn, id and TravelBuildMacro(id) or "")
+                local choice = TravelClickChoice(dt, btn)
+                local house = TravelFindHouse(choice)
+                if house then
+                    if canReturn == nil then canReturn = TravelCanReturnHome() end
+                    hearthButton:SetAttribute("*type" .. btn, canReturn and "returnhome" or "teleporthome")
+                    hearthButton:SetAttribute("*house-neighborhood-guid" .. btn, house.neighborhoodGUID)
+                    hearthButton:SetAttribute("*house-guid" .. btn, house.houseGUID)
+                    hearthButton:SetAttribute("*house-plot-id" .. btn, house.plotID)
+                    hearthButton:SetAttribute("*macrotext" .. btn, "")
+                else
+                    hearthButton:SetAttribute("*type" .. btn, "macro")
+                    local id = TravelResolveChoice(choice)
+                    hearthButton:SetAttribute("*macrotext" .. btn, id and TravelBuildMacro(id) or "")
+                end
             end
         end
 
@@ -513,6 +679,21 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
 
         -- Seed macrotext shortly after build so a first-combat click works.
         C_Timer.After(1, SeedMacro)
+        inst._seedClicks = SeedMacro
+    end
+
+    local enabled = false
+    local function SyncHouseWatch()
+        local dt = D()
+        local uses = TravelIsHouseChoice(TravelClickChoice(dt, 1))
+            or TravelIsHouseChoice(TravelClickChoice(dt, 2))
+            or TravelIsHouseChoice(TravelClickChoice(dt, 3))
+        TravelWatchHouses(inst, enabled and uses)
+    end
+
+    function inst:OnHouseList()
+        if self._seedClicks then self._seedClicks() end
+        self:Refresh()
     end
 
     -- Combat-deferred construction: dimmed non-interactive icon until OOC.
@@ -532,6 +713,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     end
 
     function inst:Refresh()
+        SyncHouseWatch()
         if not built then return end
         K.SetBlockIcon(hearthIcon, blockCfg)
         local barCfg = BC()
@@ -666,6 +848,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     end)
 
     function inst:Enable()
+        enabled = true
+        SyncHouseWatch()
         content:Show()
         RegisterInstEvents(self)
         -- Player-filtered registration; Disable's UnregisterAllEvents drops it,
@@ -677,6 +861,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     end
 
     function inst:Disable()
+        enabled = false
+        TravelWatchHouses(self, false)
         TravelSyncTicker(false)
         UnregisterInstEvents(self)
         content:Hide()
@@ -696,6 +882,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
 
     function inst:Destroy()
         self._dead = true
+        enabled = false
+        TravelWatchHouses(self, false)
         if hearthButton then
             ParkSecureFrame(hearthButton, self.key .. "_hearth")
         end

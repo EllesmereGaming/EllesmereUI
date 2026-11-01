@@ -121,6 +121,9 @@ local L = {
     MYTHIC_TELEPORTS     = "Mythic+ Teleports",
     USE_HEARTHSTONE      = "Use Hearthstone",
     RANDOM_HEARTHSTONE   = "Random Hearthstone",
+    HOME                 = "Home",
+    RETURN_FROM_HOME     = "Return from Home",
+    RETURN_AVAILABLE     = "Return available",
     CURRENT_SPEC         = "Current Specialization",
     CHANGE_SPEC          = "Change Specialization",
     CHANGE_SPEC_SHORT    = "Change Spec",
@@ -1046,6 +1049,7 @@ do
         d.action = nil
         d.actionToy = nil
         d.actionMacro = nil
+        d.actionHouse = nil
         d._padBand = nil
         d.onClick = nil
         d.onWheel = nil
@@ -1079,6 +1083,7 @@ do
         d.action = nil
         d.actionToy = nil
         d.actionMacro = nil
+        d.actionHouse = nil
         d._padBand = nil
         d.onClick = nil
         d.onWheel = nil
@@ -1109,6 +1114,7 @@ do
         d.action = nil
         d.actionToy = nil
         d.actionMacro = nil
+        d.actionHouse = nil
         d._padBand = nil
         d.onClick = nil
         d.onWheel = nil
@@ -1148,6 +1154,14 @@ do
     function ns.Tip_AddMacroActionDouble(left, right, macrotext, lr, lg, lb, rr, rg, rb)
         if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and macrotext then
             data[dataCount].actionMacro = macrotext
+        end
+    end
+
+    -- Click-to-teleport HOUSE row: same overlay/degrade contract. house is a HouseInfo
+    -- whose GUIDs the caller checked are not secret; returnTrip fires returnhome instead.
+    function ns.Tip_AddHouseActionDouble(left, right, house, returnTrip, lr, lg, lb, rr, rg, rb)
+        if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and house then
+            data[dataCount].actionHouse = { house = house, returnTrip = returnTrip }
         end
     end
 
@@ -1277,7 +1291,7 @@ do
                 -- Clickable (or pad-marked) rows carry 2px of breathing room
                 -- above and below the text; the padded band is the rect the
                 -- overlay button and its hover wash cover.
-                if d.action or d.actionToy or d.actionMacro or d._padBand then h = h + 4 end
+                if d.action or d.actionToy or d.actionMacro or d.actionHouse or d._padBand then h = h + 4 end
                 d._h = h
             end
         end
@@ -1309,7 +1323,7 @@ do
                     left:SetWordWrap(true)
                     left:SetWidth(innerW)
                     local h = left:GetStringHeight() or FONT_SIZE
-                    if d.action or d.actionToy or d.actionMacro or d._padBand then h = h + 4 end
+                    if d.action or d.actionToy or d.actionMacro or d.actionHouse or d._padBand then h = h + 4 end
                     d._h = h
                 end
             end
@@ -1331,7 +1345,7 @@ do
             -- Text sits 4px into a clickable row's padded band (centered);
             -- d._y keeps the band's top so the overlay covers all of it.
             local ty = y
-            if d.action or d.actionToy or d.actionMacro or d._padBand then ty = y - 2 end
+            if d.action or d.actionToy or d.actionMacro or d.actionHouse or d._padBand then ty = y - 2 end
             row.left:ClearAllPoints()
             row.left:SetPoint("TOPLEFT", tip, "TOPLEFT", PAD, ty)
             if d.r then
@@ -1365,7 +1379,7 @@ do
         if not InCombatLockdown() then
             for i = 1, dataCount do
                 local d = data[i]
-                if d.action or d.actionToy or d.actionMacro then
+                if d.action or d.actionToy or d.actionMacro or d.actionHouse then
                     interactive = true
                     -- Re-attach the host: REGEN_DISABLED detaches it (and the
                     -- buttons) from the tip at every combat start.
@@ -1380,6 +1394,10 @@ do
                     local b = AcquireActionButton()
                     -- Pooled reuse swaps type + payload; the unused payload is
                     -- cleared so a recycled button can never fire a stale one.
+                    local h = d.actionHouse and not d.actionHouse.returnTrip and d.actionHouse.house
+                    b:SetAttribute("house-neighborhood-guid", h and h.neighborhoodGUID or nil)
+                    b:SetAttribute("house-guid", h and h.houseGUID or nil)
+                    b:SetAttribute("house-plot-id", h and h.plotID or nil)
                     if d.action then
                         b:SetAttribute("type", "spell")
                         b:SetAttribute("spell", d.action)
@@ -1389,6 +1407,11 @@ do
                         b:SetAttribute("type", "toy")
                         b:SetAttribute("toy", d.actionToy)
                         b:SetAttribute("spell", nil)
+                        b:SetAttribute("macrotext", nil)
+                    elseif d.actionHouse then
+                        b:SetAttribute("type", d.actionHouse.returnTrip and "returnhome" or "teleporthome")
+                        b:SetAttribute("spell", nil)
+                        b:SetAttribute("toy", nil)
                         b:SetAttribute("macrotext", nil)
                     else
                         b:SetAttribute("type", "macro")
