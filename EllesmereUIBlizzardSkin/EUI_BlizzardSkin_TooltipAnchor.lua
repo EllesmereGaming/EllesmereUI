@@ -361,7 +361,10 @@ do
         ApplyFixedAnchor(tooltip, parent)
     end)
     -- Every explicit tooltip build starts with SetOwner, which runs BEFORE the SetDefaultAnchor post-hook re-arms the flag, so explicitly-anchored uses (bags, other addons) never get their anchors rewritten.
-    hooksecurefunc(GameTooltip, "SetOwner", function()
+    hooksecurefunc(GameTooltip, "SetOwner", function(self)
+        if _fixedArmed and WantFixed() and not self:IsForbidden() then
+            self:ClearAllPoints()
+        end
         _fixedArmed = false
     end)
     hooksecurefunc(GameTooltip, "SetPoint", function(tt)
