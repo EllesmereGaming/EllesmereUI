@@ -7922,6 +7922,9 @@ end
 --  logic. The frame widens and grows to hold the grid, and the pager steps one
 --  grid-full at a time. The native 2 x 5 size is Blizzard's own layout, so it
 --  needs none of this. Excluded with Show As List.
+--  "Hidden" means parked under a hidden holder rather than Hide(): the native
+--  tiles stay shown to Blizzard and to addons that decorate them (price
+--  displays, overlays), so they are already current when the grid comes down.
 -------------------------------------------------------------------------------
 local EX_COL_STEP, EX_ROW_STEP = 165, 52   -- tile 153 wide + Blizzard's 12 gap; 44 tall + 8 gap
 local EX_LEFT, EX_TOP = 11, -72            -- MerchantItem1's seat after the skin's 3px shift
@@ -8120,6 +8123,22 @@ local function EX_UpdatePager(f, numPages)
     ex.text:SetFormattedText("%d / %d", ex.page, numPages)
 end
 
+-- Move the native page under the hidden holder (park) or back to its parent.
+local function EX_ParkNative(park)
+    for i = 1, EX_NATIVE_PER_PAGE do
+        local n = _G["MerchantItem" .. i]
+        if n then
+            local parked = n:GetParent() == ex.holder
+            if park and not parked then
+                ex.nativeParent = ex.nativeParent or n:GetParent()
+                n:SetParent(ex.holder)
+            elseif not park and parked then
+                n:SetParent(ex.nativeParent)
+            end
+        end
+    end
+end
+
 local function EX_Deactivate(f)
     if not ex.active then return end
     ex.active = false
@@ -8133,16 +8152,17 @@ local function EX_Deactivate(f)
         bb:ClearAllPoints()
         bb:SetPoint(pt[1], pt[2], pt[3], pt[4], pt[5])
     end
-    for i = 1, EX_NATIVE_PER_PAGE do
-        local n = _G["MerchantItem" .. i]
-        if n then n:Show() end
-    end
+    EX_ParkNative(false)
     -- Switched off on the sell tab: show the pager the way Blizzard decides it.
     -- Blizzard keeps its text and enabled state current while it is hidden.
     if not ExpandOn() and f:IsShown() and (f.selectedTab or 1) == 1 and GetMerchantNumItems() > MERCHANT_ITEMS_PER_PAGE then
         for _, c in ipairs({ _G.MerchantPrevPageButton, _G.MerchantNextPageButton, _G.MerchantPageText }) do
             c:Show()
         end
+    end
+    -- Item levels went to the grid's tiles while it was up.
+    if EllesmereUIDB.merchantShowItemLevel and EllesmereUI._Merchant_RefreshItemLevels then
+        EllesmereUI._Merchant_RefreshItemLevels()
     end
 end
 
@@ -8156,7 +8176,7 @@ EX_Update = function()
     local cols, rows = ExGrid()
     ex.perPage = cols * rows
     if not ex.nativeW then ex.nativeW, ex.nativeH = f:GetWidth(), f:GetHeight() end
-    -- The most-recent-buyback slot hangs off MerchantItem10, which is hidden and
+    -- The most-recent-buyback slot hangs off MerchantItem10, which is parked and
     -- stays at row 5; keep its native offset from the Sell All Junk button, which
     -- rides the frame's bottom edge, so it follows the grid.
     local bb, junk = _G.MerchantBuyBackItem, _G.MerchantSellAllJunkButton
@@ -8176,10 +8196,7 @@ EX_Update = function()
     local h = ex.nativeH + (rows - EX_NATIVE_ROWS) * EX_ROW_STEP
     if f:GetWidth() ~= w then f:SetWidth(w) end
     if f:GetHeight() ~= h then f:SetHeight(h) end
-    for i = 1, EX_NATIVE_PER_PAGE do
-        local n = _G["MerchantItem" .. i]
-        if n then n:Hide() end
-    end
+    EX_ParkNative(true)
     for _, c in ipairs({ _G.MerchantPrevPageButton, _G.MerchantNextPageButton, _G.MerchantPageText }) do
         c:Hide()
     end
@@ -8210,14 +8227,13 @@ local function EnsureExpand()
     local f = _G.MerchantFrame
     if not f then return end
     ex.hooked = true
-    -- Blizzard re-Shows the native page and pager on every update; keep them
-    -- down while the grid is up. Show hooks only, no method overwrites.
+    ex.holder = CreateFrame("Frame", nil, f)
+    ex.holder:Hide()
+    -- Blizzard re-Shows the native pager on every update; keep it down while
+    -- the grid is up (hidden, not parked: Blizzard's wheel handler pages
+    -- through a shown pager). Show hooks only, no method overwrites.
     local function HideIfActive(self)
         if ExpandActive() then self:Hide() end
-    end
-    for i = 1, EX_NATIVE_PER_PAGE do
-        local n = _G["MerchantItem" .. i]
-        if n then hooksecurefunc(n, "Show", HideIfActive) end
     end
     for _, c in ipairs({ _G.MerchantPrevPageButton, _G.MerchantNextPageButton, _G.MerchantPageText }) do
         hooksecurefunc(c, "Show", HideIfActive)
