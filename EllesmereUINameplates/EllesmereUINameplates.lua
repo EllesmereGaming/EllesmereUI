@@ -121,7 +121,7 @@ function ns._appendDisplayPresetKeys(t)
         "classificationHideRare", "classificationHideQuest",
         "castNameSize", "castNameColor", "castCombineNameTarget",
         "castTargetSize", "castTargetClassColor", "castTargetColor",
-        "showCastTimer", "castTimerSize", "castTimerColor", "targetScale", "minorEnemyScale",
+        "showCastTimer", "castTimerSize", "castTimerColor", "targetScale", "minorEnemyScale", "nonEliteEnemyScale",
         "castNameSide", "castTargetSide", "castTimerSide",
         "castNameWidthPct", "castNameWrap", "castTargetWidthPct", "castTargetWrap",
         "enemyNameWidthPct", "enemyNameWrap", "wrapBorderCastbar", "wrapBorderSeam",
@@ -430,6 +430,7 @@ local defaults = {
     enemyNameWrap = false,
     targetScale = 100,
     minorEnemyScale = 100,  -- minor/trivial mob plates; 100 = off
+    nonEliteEnemyScale = 100,  -- normal (non-elite, non-minor) mob plates in dungeons; 100 = off
     nonTargetKeepFocus = true,
     nonTargetCastFull = false,           -- casting plates ignore Non-Target Opacity
     nonTargetCastImportantOnly = false,  -- ...only for casts the game flags important

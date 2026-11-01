@@ -211,6 +211,7 @@ local function RefreshThreatContextAndPlateColors()
     for _, plate in pairs(ns.plates) do
         plate:UpdateHealthColor()
     end
+    ns.NP_RefreshTypeScale()
 end
 
 factionFrame:RegisterEvent("PLAYER_ENTERING_WORLD")

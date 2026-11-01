@@ -37,8 +37,16 @@ I.profileSetters[#I.profileSetters + 1] = function(v) p = v end
 local function GetMinorEnemyScale()
     return (p and p.minorEnemyScale) or defaults.minorEnemyScale
 end
-local function IsMinorScaleOn()
-    return GetMinorEnemyScale() ~= 100
+local function GetNonEliteEnemyScale()
+    return (p and p.nonEliteEnemyScale) or defaults.nonEliteEnemyScale
+end
+local function IsTypeScaleOn()
+    return GetMinorEnemyScale() ~= 100 or GetNonEliteEnemyScale() ~= 100
+end
+-- Non-Elite Enemy Scale is dungeon-only: rescale once the zone verdict (ns._inDungeon) settles.
+function ns.NP_RefreshTypeScale()
+    if GetNonEliteEnemyScale() == 100 then return end
+    for _, plate in pairs(ns.plates) do plate:ApplyScale() end
 end
 
 local function EnsureCastGlowOverlay(self, field, levelOffset)
@@ -360,10 +368,15 @@ function NameplateFrame:ApplyScale()
     if self.unit and UnitIsUnit(self.unit, "target") then
         local ts = GetTargetScale() / 100
         if ts ~= 1 then base = ts end
-    elseif self.unit and IsMinorScaleOn() then
-        -- Minor Enemy Scale: minor (minus) and trivial mobs; the target keeps Target Scale.
+    elseif self.unit and IsTypeScaleOn() then
+        -- Minor Enemy Scale: minor (minus) and trivial mobs. Non-Elite Enemy Scale: normal NPCs in
+        -- dungeons (the Mini Enemies color's scope). The target keeps Target Scale.
         local c = UnitClassification(self.unit)
-        if c == "minus" or c == "trivial" then base = GetMinorEnemyScale() / 100 end
+        if c == "minus" or c == "trivial" then
+            base = GetMinorEnemyScale() / 100
+        elseif c == "normal" and ns._inDungeon and not UnitIsPlayer(self.unit) then
+            base = GetNonEliteEnemyScale() / 100
+        end
     end
     local cs = GetCastScale() / 100
     local dest = base
@@ -870,11 +883,11 @@ function NameplateFrame:UNIT_NAME_UPDATE()
     -- A unit first seen this session reads "normal" until its data arrives, the
     -- same moment its name resolves: re-read the elite/rare badge with the name.
     self:UpdateClassification()
-    if IsMinorScaleOn() then self:ApplyScale() end
+    if IsTypeScaleOn() then self:ApplyScale() end
 end
 function NameplateFrame:UNIT_CLASSIFICATION_CHANGED()
     self:UpdateClassification()
-    if IsMinorScaleOn() then self:ApplyScale() end
+    if IsTypeScaleOn() then self:ApplyScale() end
 end
 function NameplateFrame:UNIT_THREAT_LIST_UPDATE()
     self:UpdateHealthColor()
