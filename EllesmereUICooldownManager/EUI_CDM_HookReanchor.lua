@@ -554,28 +554,8 @@ local function CollectAndReanchor()
                                     fc.barKey = barKey
                                     fc.spellID = nativeKey
                                     fc.isHostedBuff = nil
-                                    local category = eqInfo.spellCategoryID
-                                    frame._nativeHealthstoneCategory = (category == 1711 or category == 2566)
-                                        and category or nil
-                                    if frame._nativeHealthstoneCategory then
-                                        local frames = ns._nativeHealthstoneFrames
-                                        if not frames then frames = {}; ns._nativeHealthstoneFrames = frames end
-                                        frames[frame] = true
-                                        if not frame._nativeHealthstoneCountHooked
-                                           and frame.RefreshSpellChargeInfo then
-                                            frame._nativeHealthstoneCountHooked = true
-                                            hooksecurefunc(frame, "RefreshSpellChargeInfo", function(self)
-                                                if ns._ApplyNativeHealthstoneCount then
-                                                    ns._ApplyNativeHealthstoneCount(self)
-                                                end
-                                            end)
-                                        end
-                                        if ns._ApplyNativeHealthstoneCount then
-                                            ns._ApplyNativeHealthstoneCount(frame)
-                                        end
-                                    else
-                                        local frames = ns._nativeHealthstoneFrames
-                                        if frames then frames[frame] = nil end
+                                    if ns._ClaimNativeHealthstone then
+                                        ns._ClaimNativeHealthstone(frame, cdID)
                                     end
                                     -- A pooled frame may carry the spell identity of
                                     -- its last occupant: none of it describes an item
