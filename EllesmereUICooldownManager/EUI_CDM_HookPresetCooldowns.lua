@@ -240,6 +240,26 @@ function ns._HealthstoneHiddenByPact(itemID)
     return not pact
 end
 
+function ns._ApplyNativeHealthstoneCount(frame)
+    if not (frame and frame._nativeHealthstoneCategory and frame.ChargeCount
+        and frame.ChargeCount.Current) then return end
+    local count = (C_Item.GetItemCount(5512, false, true) or 0)
+        + (C_Item.GetItemCount(224464, false, true) or 0)
+    if count > 0 then
+        frame.ChargeCount.Current:SetText(count)
+        frame.ChargeCount:Show()
+    else
+        frame.ChargeCount.Current:SetText(nil)
+        frame.ChargeCount:Hide()
+    end
+end
+
+function ns._RefreshNativeHealthstoneCounts()
+    for frame in pairs(ns._nativeHealthstoneFrames or {}) do
+        ns._ApplyNativeHealthstoneCount(frame)
+    end
+end
+
 -- Count (charges included) of a non-pot item preset frame: the primary id, else the
 -- sum of the family alts. Returns total and first owned id. On ns: 200-local cap.
 function ns._ReadItemPresetCount(f)
@@ -740,6 +760,7 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
     end
     -- Infrequent events: handle immediately and return
     if event == "BAG_UPDATE_DELAYED" then
+        if ns._RefreshNativeHealthstoneCounts then ns._RefreshNativeHealthstoneCounts() end
         -- Loot-storm cap (probe-proven capture #12: mob-farming loot fires
         -- this in bursts, and each fire re-armed variant re-resolves + chain
         -- walks + bag-count scans -- the drain's dominant real cost). At
@@ -761,6 +782,7 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         return
     end
     if event == "BAG_UPDATE_COOLDOWN" then
+        if ns._RefreshNativeHealthstoneCounts then ns._RefreshNativeHealthstoneCounts() end
         -- Charge-only item count changes (a used Healthstone charge, a Soulwell
         -- refill) move no bag contents, so no BAG_UPDATE fires; a used charge
         -- lands with this event, after the cast arm already read the old count.
