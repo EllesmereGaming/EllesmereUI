@@ -72,6 +72,7 @@ ns.WB = WB
 local L = {
     LEFT_CLICK           = "|cffFFFFFFLeft Click:|r",
     RIGHT_CLICK          = "|cffFFFFFFRight Click:|r",
+    MIDDLE_CLICK         = "|cffFFFFFFMiddle Click:|r",
     SHIFT_MIDDLE_CLICK   = "|cffFFFFFFShift + Middle Click:|r",
     SHIFT_LEFT_CLICK     = "|cffFFFFFFShift + Left Click:|r",
     CTRL_LEFT_CLICK      = "|cffFFFFFFCtrl + Left Click:|r",
