@@ -608,85 +608,19 @@ local function StyleButton(button)
         ns.RF_KitBuild(button, d, health, d.power, bdrFrame)
     end
 
-    -- Text carrier: name + health text in the text band (ns.LVL_TEXT) -- above every border incl. the raise, below the aura band.
+    -- Text carrier: the texts in the text band (ns.LVL_TEXT) -- above every border incl.
+    -- the raise, below the aura band. Their FontStrings are built on it on first need
+    -- (ns.RF_TextLayout, run by AnchorTexts below and by the paints when the settings changed).
     local textCarrier = CreateFrame("Frame", nil, button)
     textCarrier:SetAllPoints(health)
     textCarrier:SetFrameLevel(button:GetFrameLevel() + ns.LVL_TEXT)
-    -- Kept for Power Text, whose FontString is built on it only when a mode first needs it.
     d.textCarrier = textCarrier
-
-    -- Name text
-    local nameFS = textCarrier:CreateFontString(nil, "OVERLAY")
-    ApplyFont(nameFS, s.nameSize or 10)
-    nameFS:SetJustifyH("CENTER")
-    nameFS:SetWordWrap(false)
-    d.nameText = nameFS
-
-    -- Health deficit text
-    local healthFS = textCarrier:CreateFontString(nil, "OVERLAY")
-    ApplyFont(healthFS, s.healthTextSize or 9)
-    healthFS:SetTextColor(1, 1, 1, 0.9)
-    d.healthText = healthFS
-
-    local function AnchorHealthText()
-        local s = LiveS()   -- party/extra-aware (see LiveS note above)
-        local health = ns.RF_BarHost(health, s)   -- Uniform Icon Anchoring host swap / kit bar
-        healthFS:ClearAllPoints()
-        local pos = s.healthTextPosition or "center"
-        local ox = s.healthTextOffsetX or 0
-        local oy = s.healthTextOffsetY or 0
-        healthFS:SetWidth(d.kitG and d.kitG.health.w or (s.frameWidth or 72) * 0.75)
-        healthFS:SetHeight(0)
-        if pos == "topleft" then
-            healthFS:SetPoint("TOPLEFT", health, "TOPLEFT", 2 + ox, -2 + oy)
-            healthFS:SetJustifyH("LEFT"); healthFS:SetJustifyV("TOP")
-        elseif pos == "top" then
-            healthFS:SetPoint("TOP", health, "TOP", ox, -2 + oy)
-            healthFS:SetJustifyH("CENTER"); healthFS:SetJustifyV("TOP")
-        elseif pos == "topright" then
-            healthFS:SetPoint("TOPRIGHT", health, "TOPRIGHT", -2 + ox, -2 + oy)
-            healthFS:SetJustifyH("RIGHT"); healthFS:SetJustifyV("TOP")
-        elseif pos == "left" then
-            healthFS:SetPoint("LEFT", health, "LEFT", 2 + ox, oy)
-            healthFS:SetJustifyH("LEFT"); healthFS:SetJustifyV("MIDDLE")
-        elseif pos == "right" then
-            healthFS:SetPoint("RIGHT", health, "RIGHT", -2 + ox, oy)
-            healthFS:SetJustifyH("RIGHT"); healthFS:SetJustifyV("MIDDLE")
-        elseif pos == "bottomleft" then
-            healthFS:SetPoint("BOTTOMLEFT", health, "BOTTOMLEFT", 2 + ox, 2 + oy)
-            healthFS:SetJustifyH("LEFT"); healthFS:SetJustifyV("BOTTOM")
-        elseif pos == "bottom" then
-            healthFS:SetPoint("BOTTOM", health, "BOTTOM", ox, 2 + oy)
-            healthFS:SetJustifyH("CENTER"); healthFS:SetJustifyV("BOTTOM")
-        elseif pos == "bottomright" then
-            healthFS:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", -2 + ox, 2 + oy)
-            healthFS:SetJustifyH("RIGHT"); healthFS:SetJustifyV("BOTTOM")
-        else -- "center"
-            healthFS:SetPoint("CENTER", health, "CENTER", ox, oy)
-            healthFS:SetJustifyH("CENTER"); healthFS:SetJustifyV("MIDDLE")
-        end
-        local txt = healthFS:GetText()
-        healthFS:SetText("")
-        healthFS:SetText(txt or "")
-    end
-    AnchorHealthText()
-    d.AnchorHealthText = AnchorHealthText
-
-    -- Heal absorb text (1:1 with health text; independent position/size/color).
-    local healAbsorbFS = textCarrier:CreateFontString(nil, "OVERLAY")
-    ApplyFont(healAbsorbFS, s.healAbsorbTextSize or 9)
-    healAbsorbFS:SetWordWrap(false)
-    d.healAbsorbText = healAbsorbFS
-    local function AnchorHealAbsorbText()
-        local s = LiveS()   -- party/extra-aware (see LiveS note above)
-        local health = ns.RF_BarHost(health, s)   -- Uniform Icon Anchoring host swap / kit bar
-        ns.AnchorRFText(healAbsorbFS, health, s.healAbsorbTextPosition or "center",
-            s.healAbsorbTextOffsetX or 0, s.healAbsorbTextOffsetY or 0,
-            d.kitG and d.kitG.health.w or (s.frameWidth or 72) * 0.75)
-    end
-    AnchorHealAbsorbText()
-    d.AnchorHealAbsorbText = AnchorHealAbsorbText
-
+    -- The second carrier for texts whose Show Above Icons differs from the name's: built
+    -- here with the first (never in a later layout pass), levelled by ns.RF_TextLayout.
+    local textCarrierAlt = CreateFrame("Frame", nil, button)
+    textCarrierAlt:SetAllPoints(health)
+    textCarrierAlt:SetFrameLevel(button:GetFrameLevel() + ns.LVL_TEXT)
+    d._txAlt = textCarrierAlt
     -- Status text (DEAD / OFFLINE / AFK -- always shown, own position/size/color).
     -- Party Frames kit: in the text band, so the Classic art (drawn over the
     -- bars) never covers it; it still anchors to the kit health bar.
@@ -877,79 +811,19 @@ local function StyleButton(button)
     AnchorCombatIcon()
     d.AnchorCombatIcon = AnchorCombatIcon
 
-    -- Anchor name text: width-constrained region, position via a single anchor; JustifyH/V aligns within it.
-    local function AnchorNameText()
+    -- The texts: font, anchor and visibility of every shown text (Top Name Bar
+    -- hides the name, the Party Frames kit puts it on the stock spot).
+    local function AnchorTexts()
         local s = LiveS()   -- party/extra-aware (see LiveS note above)
-        local health = ns.RF_AnchorHost(health, s)   -- Uniform Icon Anchoring host swap
-        -- Text band level, re-applied on every reload; BEFORE the name-hidden early return because
-        -- health text shares this carrier. Default sits under the aura band (ns.LVL_TEXT); "Show
-        -- Above Icons" (name cog) lifts it above the band's children (+6 clears each aura unit's
-        -- +1..+5), still below the marker carrier.
+        -- Text band level, re-applied on every reload. Default sits under the aura band
+        -- (ns.LVL_TEXT); "Show Above Icons" (the name's cog) lifts it above the band's children
+        -- (+6 clears each aura unit's +1..+5), still below the marker carrier.
         textCarrier:SetFrameLevel(button:GetFrameLevel()
             + (s.nameTextAboveIcons and (ns.LVL_AURA + 6) or ns.LVL_TEXT))
-        nameFS:ClearAllPoints()
-        local pos = s.namePosition or "center"
-        -- Party Frames kit: the stock name spot and width plus the user's
-        -- offsets ("None" still hides it; the kit has no Top Name Bar).
-        local g = d.kitG
-        if g then
-            if pos == "none" then nameFS:Hide(); return end
-            nameFS:Show()
-            nameFS:SetWidth(g.name.w)
-            nameFS:SetHeight(0)
-            ns.RF_KitSpot(g.name, nameFS, button, s.nameOffsetX, s.nameOffsetY)
-            nameFS:SetJustifyH("LEFT"); nameFS:SetJustifyV(g.name.jv)
-            local txt = nameFS:GetText()
-            nameFS:SetText("")
-            nameFS:SetText(txt or "")
-            return
-        end
-        -- Top Name Bar enabled: it owns the unit name, suppress the in-frame name.
-        if pos == "none" or s.topNameBarEnabled then
-            nameFS:Hide()
-            return
-        end
-        nameFS:Show()
-        local ox = s.nameOffsetX or 0
-        local oy = s.nameOffsetY or 0
-        nameFS:SetWidth((s.frameWidth or 72) * ns.RF_NAME_WIDTH_FRACTION)
-        nameFS:SetHeight(0)
-        if pos == "topleft" then
-            nameFS:SetPoint("TOPLEFT", health, "TOPLEFT", 2 + ox, -2 + oy)
-            nameFS:SetJustifyH("LEFT"); nameFS:SetJustifyV("TOP")
-        elseif pos == "top" then
-            nameFS:SetPoint("TOP", health, "TOP", ox, -2 + oy)
-            nameFS:SetJustifyH("CENTER"); nameFS:SetJustifyV("TOP")
-        elseif pos == "topright" then
-            nameFS:SetPoint("TOPRIGHT", health, "TOPRIGHT", -2 + ox, -2 + oy)
-            nameFS:SetJustifyH("RIGHT"); nameFS:SetJustifyV("TOP")
-        elseif pos == "left" then
-            nameFS:SetPoint("LEFT", health, "LEFT", 2 + ox, oy)
-            nameFS:SetJustifyH("LEFT"); nameFS:SetJustifyV("MIDDLE")
-        elseif pos == "right" then
-            nameFS:SetPoint("RIGHT", health, "RIGHT", -2 + ox, oy)
-            nameFS:SetJustifyH("RIGHT"); nameFS:SetJustifyV("MIDDLE")
-        elseif pos == "bottomleft" then
-            nameFS:SetPoint("BOTTOMLEFT", health, "BOTTOMLEFT", 2 + ox, 2 + oy)
-            nameFS:SetJustifyH("LEFT"); nameFS:SetJustifyV("BOTTOM")
-        elseif pos == "bottom" then
-            nameFS:SetPoint("BOTTOM", health, "BOTTOM", ox, 2 + oy)
-            nameFS:SetJustifyH("CENTER"); nameFS:SetJustifyV("BOTTOM")
-        elseif pos == "bottomright" then
-            nameFS:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", -2 + ox, 2 + oy)
-            nameFS:SetJustifyH("RIGHT"); nameFS:SetJustifyV("BOTTOM")
-        else -- "center"
-            nameFS:SetPoint("CENTER", health, "CENTER", ox, oy)
-            nameFS:SetJustifyH("CENTER"); nameFS:SetJustifyV("MIDDLE")
-        end
-        -- Force text re-render (WoW doesn't visually re-layout on JustifyH change alone)
-        local txt = nameFS:GetText()
-        nameFS:SetText("")
-        nameFS:SetText(txt or "")
+        ns.RF_TextLayout(d, s)
     end
-    AnchorNameText()
-    d.AnchorNameText = AnchorNameText
-
+    AnchorTexts()
+    d.AnchorTexts = AnchorTexts
     -- Raise the border above neighbors while hovered/targeted (or recolored for aggro): buttons share a frame level, so with
     -- small/negative Frame Spacing a neighbor's border would cover this frame's highlight.
     -- Highlight states bump it up, normal restores the base level. The PP container's level is

@@ -507,7 +507,8 @@ initFrame:SetScript("OnEvent", function(self)
         local textSlotKeys = ns.textSlotKeys
         local function SetTextElementAtSlot(slotKey, element)
             local db = DB()
-            if element ~= "none" then
+            -- Custom keeps its template per slot: any number of slots may show it.
+            if element ~= "none" and element ~= "custom" then
                 for _, key in ipairs(textSlotKeys) do
                     if key ~= slotKey then
                         local cur = db[key] or defaults[key]
@@ -673,6 +674,14 @@ initFrame:SetScript("OnEvent", function(self)
                 return { section = coreTextHeader, target = info.row, slotSide = (info.side == "_leftRegion") and "left" or "right" }
             end,
         }
+        -- Custom texts: each position's own font string, that position's row.
+        for _, slotKey in ipairs(ns.textSlotKeys) do
+            dynamicMappings["custom_" .. slotKey] = function()
+                local info = textSlotToRow[slotKey]
+                if not info then return { section = coreTextHeader, target = textFirstRow } end
+                return { section = coreTextHeader, target = info.row, slotSide = (info.side == "_leftRegion") and "left" or "right" }
+            end
+        end
         -- The font strings a single element owns: the row of the slot showing it.
         for mapKey, element in pairs({ healthNumber = "healthNumber", levelText = "level", targetOfTarget = "targetOfTarget" }) do
             dynamicMappings[mapKey] = function()
@@ -835,6 +844,15 @@ initFrame:SetScript("OnEvent", function(self)
                 local fs = pv[fsKey]
                 if fs then
                     local ov = CreateHitOverlay(fs, mapKey, true)
+                    ov._syncFS = fs
+                    ov:SetShown(fs:IsShown())
+                    textOverlays[#textOverlays + 1] = ov
+                end
+            end
+            -- Custom texts: one font string per position, shown while it holds one.
+            if pv._customFS then
+                for slotKey, fs in pairs(pv._customFS) do
+                    local ov = CreateHitOverlay(fs, "custom_" .. slotKey, true)
                     ov._syncFS = fs
                     ov:SetShown(fs:IsShown())
                     textOverlays[#textOverlays + 1] = ov

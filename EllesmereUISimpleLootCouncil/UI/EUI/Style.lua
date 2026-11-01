@@ -416,14 +416,107 @@ end
 
 
 
-local function IconGlyph(button, file, extent)
-    local tex = button:CreateTexture(nil, "OVERLAY")
-    P.Size(tex, extent, extent)
-    tex:SetPoint("CENTER")
-    tex:SetTexture(ICONS .. file)
-    return { SetColor = function(_, c) tex:SetVertexColor(Unpack(c)) end }
+local function IconGlyph(button, file, extent, spread)
+
+    local texs = {}
+    for i = 0, spread and 3 or 0 do
+        local tex = button:CreateTexture(nil, "OVERLAY")
+        P.Size(tex, extent, extent)
+        if spread then
+            tex:SetPoint("CENTER", (i % 2 - 0.5) * spread, (math.floor(i / 2) - 0.5) * spread)
+        else
+            tex:SetPoint("CENTER")
+        end
+        tex:SetTexture(ICONS .. file)
+        texs[#texs + 1] = tex
+    end
+    return { SetColor = function(_, c)
+        for i = 1, #texs do texs[i]:SetVertexColor(Unpack(c)) end
+    end }
 end
 
+
+
+
+
+
+
+
+
+local TOGGLE_CUT = { 14, 28, 2, 16 }
+local TOGGLE_CENTRE = { 21, 9 }
+
+
+
+local TOGGLE_ENDS = { { 17, 20, 11, 13, -1, -1 }, { 18, 20, 5, 6, -1, 0 }, { 24, 25, 10, 12, 0, -1 } }
+
+
+
+
+local TOGGLE_HEADS = { { 3.1, 0, 2.4, 8.6 }, { 0, 3.1, 8.6, 2.4 }, { 2.5, 2.5, 3.6, 3.6 } }
+local TOGGLE_SHAFT = { 16, 22 }
+local TOGGLE_STROKE = 0.6
+
+local function ArrowGlyph(button)
+    local cuts = {}
+    local cx, cy = TOGGLE_CENTRE[1], TOGGLE_CENTRE[2]
+    for _, name in ipairs({ "expand", "compact" }) do
+
+        local s = name == "expand" and 1 or -1
+        local stamps = {}
+
+        local function Piece(x0, x1, y0, y1, px, py)
+            for i = 0, 3 do
+                local tex = button:CreateTexture(nil, "OVERLAY")
+                P.Size(tex, x1 - x0, y1 - y0)
+                tex:SetPoint("CENTER", px + (i % 2 - 0.5) * TOGGLE_STROKE,
+                    py + (math.floor(i / 2) - 0.5) * TOGGLE_STROKE)
+                tex:SetTexture(EUI.RESIZE_ICON)
+                if s == 1 then
+                    tex:SetTexCoord(x0 / 30, x1 / 30, y0 / 30, y1 / 30)
+                else
+                    tex:SetTexCoord(x1 / 30, x0 / 30, y1 / 30, y0 / 30)
+                end
+                stamps[#stamps + 1] = tex
+            end
+        end
+        local function Bar(px, py, width, height)
+            local bar = button:CreateTexture(nil, "OVERLAY")
+            bar:SetColorTexture(1, 1, 1, 1)
+            P.Size(bar, width, height)
+            bar:SetPoint("CENTER", px * s, py * s)
+            stamps[#stamps + 1] = bar
+        end
+
+        Piece(TOGGLE_CUT[1], TOGGLE_CUT[2], TOGGLE_CUT[3], TOGGLE_CUT[4], 0, 0)
+        for _, e in ipairs(TOGGLE_ENDS) do
+            Piece(e[1], e[2], e[3], e[4],
+                ((e[1] + e[2]) / 2 - cx + e[5]) * s, -((e[3] + e[4]) / 2 - cy - e[6]) * s)
+        end
+        for _, h in ipairs(TOGGLE_HEADS) do Bar(h[1], h[2], h[3], h[4]) end
+        for x = TOGGLE_SHAFT[1], TOGGLE_SHAFT[2] do
+            Bar(x + 0.5 - cx, -(29 - x + 0.5 - cy), 2.6, 2.6)
+        end
+        cuts[name] = stamps
+    end
+
+    local function SetCompacted(_, compacted)
+        for name, stamps in pairs(cuts) do
+            local shown = (name == "expand") == (compacted and true or false)
+            for i = 1, #stamps do stamps[i]:SetShown(shown) end
+        end
+    end
+    SetCompacted(nil, false)
+
+    return {
+        SetColor = function(_, c)
+            for _, stamps in pairs(cuts) do
+                for i = 1, #stamps do stamps[i]:SetVertexColor(Unpack(c)) end
+            end
+        end,
+        SetCompacted = SetCompacted,
+    }
+end
 
 local function PlusGlyph(button, extent)
     local bars = {}
@@ -473,7 +566,7 @@ function S.Button(parent, text, opts)
     label:SetWordWrap(false)
     label:SetMaxLines(1)
 
-    local bare = opts.glyph == "close"
+    local bare = opts.glyph == "close" or opts.glyph == "arrow"
     if bare then
         bg:Hide()
         border:SetColor(0, 0, 0, 0)
@@ -579,10 +672,15 @@ function S.Button(parent, text, opts)
     local glyph
     if opts.glyph == "close" then
         label:Hide()
-        glyph = IconGlyph(b, "eui-close.png", 12)
+
+
+        glyph = IconGlyph(b, "eui-close.png", 15, 0.35)
     elseif opts.glyph == "plus" then
         label:Hide()
         glyph = PlusGlyph(b, math.floor(math.min(w, h) * 0.46))
+    elseif opts.glyph == "arrow" then
+        label:Hide()
+        glyph = ArrowGlyph(b)
     elseif opts.glyph == "chat" then
         label:Hide()
         glyph = IconGlyph(b, "eui-edit.png", math.floor(math.min(w, h) * 0.6))
@@ -857,8 +955,8 @@ function S.Chip(parent, text, c, opts)
     local chip = CreateFrame("Frame", nil, parent)
 
     local label = S.Label(chip, opts.font or S.fontMicro, "CENTER")
-    label:SetText(text or "")
-    P.Point(label, "CENTER", chip, "CENTER", 0, 0)
+
+    P.Point(label, "CENTER", chip, "CENTER", 0, opts.plain and -1 or 0)
 
     local fill = chip:CreateTexture(nil, "BACKGROUND")
     fill:SetAllPoints(chip)
@@ -882,13 +980,24 @@ function S.Chip(parent, text, c, opts)
     function chip:SetChipColor(nc)
         nc = nc or color.textMuted
         current = nc
-        fill:SetColorTexture(Unpack(nc, 0.12))
+        fill:SetColorTexture(Unpack(nc, opts.plain and 0 or 0.12))
         border:SetColor(lit and bright(nc) or nc)
         label:SetTextColor(Unpack(opts.textColor or nc))
     end
 
+
+    local function Plain(value)
+        local first, rest = value:match("^([%z\1-\127\194-\244][\128-\191]*)(.*)$")
+        if first then value = addon.Locale.Upper(first) .. addon.Locale.Lower(rest) end
+        local num, word, tail = value:match("^(%d+%s+)([%z\1-\127\194-\244][\128-\191]*)(.*)$")
+        if num and not tail:find("%d") then value = num .. addon.Locale.Upper(word) .. tail end
+        return value
+    end
+
     function chip:SetText(value)
-        label:SetText(value or "")
+        value = value or ""
+        if opts.plain and value ~= "" then value = Plain(value) end
+        label:SetText(value)
         chip:Fit()
     end
 
@@ -898,7 +1007,7 @@ function S.Chip(parent, text, c, opts)
         local minWidth = opts.minWidth or 0
 
 
-        if opts.font == S.fontTag then
+        if opts.plain or opts.font == S.fontTag then
             padding = math.max(0, padding - 2)
             minWidth = math.max(0, minWidth - 4)
         end
@@ -913,7 +1022,7 @@ function S.Chip(parent, text, c, opts)
     end
 
     chip:SetChipColor(c)
-    chip:Fit()
+    chip:SetText(text)
     chip.Label = label
     return chip
 end
@@ -1637,7 +1746,7 @@ end
 
 
 
-local TAG_H = 24
+local TAG_H = size.CLOSE
 local TAG_SQUARE_H = 18
 local TAG_INSET = 5
 local TITLE_BAND_RATIO = 1.7
@@ -1915,6 +2024,32 @@ function S.Window(globalName, key, width, height, title, options)
         math.max(slot, math.ceil(slot * badgeFontH / 11)),
         math.max(size.CLOSE, math.ceil(size.CLOSE * badgeFontH / 11)))
     f.Badge = badge
+    f.CloseInset = closeInset
+
+
+
+    function f:AddToggle(onClick)
+        local toggle = S.Button(f, "", { width = size.CLOSE, height = size.CLOSE, glyph = "arrow" })
+        toggle:SetFrameLevel(close:GetFrameLevel())
+        P.Point(toggle, "RIGHT", close, "LEFT", -closeInset, 0)
+        toggle:SetScript("OnClick", onClick)
+        badge:ClearAllPoints()
+        P.Point(badge, "RIGHT", toggle, "LEFT", -size.GAP, 0)
+
+        local tip = T["Compact"]
+        toggle:HookScript("OnEnter", function(self)
+            S.AboveTooltip(self)
+            GameTooltip:AddLine(tip, 1, 1, 1, true)
+            GameTooltip:Show()
+        end)
+        toggle:HookScript("OnLeave", function() GameTooltip:Hide() end)
+        function f:SetToggleState(compacted)
+            toggle.Glyph:SetCompacted(compacted)
+            tip = compacted and T["Expand"] or T["Compact"]
+        end
+        f.Toggle = toggle
+        return toggle
+    end
 
 
 
@@ -1957,7 +2092,7 @@ function S.Window(globalName, key, width, height, title, options)
         tag:EnableMouse(false)
     else
         tag = S.Chip(header, "", color.textMuted,
-            { height = TAG_H, font = S.fontTag, padding = 8, square = true })
+            { height = TAG_H, font = S.fontBody, padding = 8, square = true, plain = true })
         f.TagPadding = 8
     end
     P.Point(tag, "LEFT", titleText, "RIGHT", size.TAG_GAP, 0)
@@ -1998,9 +2133,39 @@ end
 
 
 
+local confirmOpen
+local dimmerHooked
+
+local function ConfirmClosed(entry, how)
+    if entry.done then return end
+    entry.done = true
+    if confirmOpen == entry then confirmOpen = nil end
+    if entry.onClose then entry.onClose(how) end
+end
+
+
+function S.ConfirmBusy()
+    return EUIConfirmDimmer ~= nil and EUIConfirmDimmer:IsShown() and true or false
+end
+
+
+local function HookDimmer()
+    if dimmerHooked or not EUIConfirmDimmer then return end
+    dimmerHooked = true
+    EUIConfirmDimmer:HookScript("OnHide", function()
+        local entry = confirmOpen
+        if entry then C_Timer.After(0, function() ConfirmClosed(entry, "replaced") end) end
+    end)
+end
+
+
+
 
 function S.Confirm(options)
     options = options or {}
+    if confirmOpen then ConfirmClosed(confirmOpen, "replaced") end
+    local entry = { onClose = options.onClose }
+    confirmOpen = entry
 
     local body = options.body or ""
     local prompt, detail = body:match("^(.-)\n\n(.*)$")
@@ -2012,21 +2177,28 @@ function S.Confirm(options)
     local acknowledge = options.acknowledge and true or false
     local alternate = not acknowledge and options.alternate or nil
 
-    return EUI:ShowConfirmPopup({
+
+    local handle = EUI:ShowConfirmPopup({
         title       = options.title or T["Are you sure?"],
         message     = prompt,
         disclaimer  = detail,
         checkbox    = alternate,
         confirmText = acknowledge and T["OK"] or (options.accept or T["Confirm"]),
-        cancelText  = T["Cancel"],
+        cancelText  = options.cancel or T["Cancel"],
         hideCancel  = acknowledge or nil,
         onConfirm   = function(checked)
-            if acknowledge then return end
-            if checked and alternate then
+
+            if acknowledge then return ConfirmClosed(entry, "cancel") end
+            local take = checked and alternate
+            ConfirmClosed(entry, take and "alternate" or "accept")
+            if take then
                 if options.onAlternate then options.onAlternate() end
             elseif options.onAccept then
                 options.onAccept()
             end
         end,
+        onCancel    = function() ConfirmClosed(entry, "cancel") end,
     })
+    HookDimmer()
+    return handle
 end

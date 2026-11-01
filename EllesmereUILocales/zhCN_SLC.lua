@@ -1144,3 +1144,9 @@ L["your tradeable items"] = "你的可交易物品"
 L["your view of the run"] = "你的分配视图"
 L["your view of the run (alt. sess)"] = "你的分配视图 (别名 sess)"
 L["|cff478cebSimpleLootCouncil|r loaded.  |cff73716C/slc|r for options."] = "|cff478cebSimpleLootCouncil|r 已加载。  输入 |cff73716C/slc|r 打开设置。"
+
+-- == Autoroll and response-button notices, from the Simple Loot Council standalone translations ==
+L["A player who picks this response gets a roll on the council table automatically."] = "选择此回应的玩家会自动在议会表中获得一次掷骰。"
+L["Autoroll"] = "自动掷骰"
+L["Response buttons locked while loot session is active"] = "分配会话进行期间，回应按钮已锁定"
+L["Your untouched response buttons now read in your language. Buttons you renamed, recoloured or added were kept."] = "未修改的回应按钮现已显示为你的语言。你重命名、重新着色或新增的按钮已保留。"

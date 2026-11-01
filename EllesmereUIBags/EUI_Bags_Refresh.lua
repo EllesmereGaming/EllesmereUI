@@ -21,6 +21,7 @@ local AbbrevDungeon, BP, GetColumns = I.AbbrevDungeon, I.BP, I.GetColumns
 local GetItemLevelAtLocation, IsGearItem = I.GetItemLevelAtLocation, I.IsGearItem
 local IsItemPinned, SetBagFont, SLOT_SIZE = I.IsItemPinned, I.SetBagFont, I.SLOT_SIZE
 local SPACING, _pendingResortCats = I.SPACING, I._pendingResortCats
+ns.OnSlotMetrics(function(m) SLOT_SIZE, SPACING = m[1], m[2] end)
 local _pendingResortGroups, _slotCategories = I._pendingResortGroups, I._slotCategories
 local AcquireSlotTable, bagSlots = I.AcquireSlotTable, I.bagSlots
 local DetectAndApplySwaps, FOOTER_H, HEADER_H = I.DetectAndApplySwaps, I.FOOTER_H, I.HEADER_H
@@ -428,15 +429,27 @@ local _bagGripCfg = {
     hidden = function() return EUI_Bags.AutoSizeOn() end,
 }
 
--- List display: free width (rows have no cell grid), saved in pixels
+-- List display: free width (rows have no cell grid), saved in pixels. It keeps
+-- the default slot pitch: the slot sliders are for Grid and Compact
+local LIST_PITCH = 38
 local _bagListGripCfg = setmetatable({
-    step = 1, relayoutStep = SLOT_SIZE + SPACING, minCols = 300,
-    getCols = function() return BP().bagListWidth or GetColumns() * (SLOT_SIZE + SPACING) end,
+    step = 1, relayoutStep = LIST_PITCH, minCols = 300,
+    getCols = function() return BP().bagListWidth or GetColumns() * LIST_PITCH end,
     save = function(w, h)
         BP().bagListWidth, BP().bagHeight = w, h
         if EUI_Bags._updateThumb then EUI_Bags._updateThumb() end
     end,
 }, { __index = _bagGripCfg })
+-- a new slot size: grow-only widths start over, and the detached reagent
+-- window and bag bar lay out again (the main refresh does the rest)
+ns.OnSlotMetrics(function(m)
+    _bagGripCfg.step = m[1] + m[2]
+    _bagGripCfg.minCols = math.max(1, math.ceil(8 * 38 / (m[1] + m[2])))
+    EUI_Bags._compactCols, EUI_Bags._compactW = nil, nil
+    EUI_Bags._asCols, EUI_Bags._asMaxGridW, EUI_Bags._asMaxH = nil, nil, nil
+    if EUI_BagsReagent:IsShown() and EUI_BagsReagent.RefreshInventory then EUI_BagsReagent:RefreshInventory() end
+    if EUI_BagsWindow:IsShown() and EUI_BagsWindow.RefreshBags then EUI_BagsWindow:RefreshBags() end
+end)
 
 local function FinishRefresh(curY, gridContentW, sidebarW, totalCount, numEmpty, spItems, spEmpty)
     -- In combat the sort button's lock depends on the view just painted.
@@ -515,13 +528,17 @@ local function FinishRefresh(curY, gridContentW, sidebarW, totalCount, numEmpty,
     end
 
     UpdateBagMoneyDisplay()
+    ns.ApplyWindowBackground(EUI_Bags.bg, EUI_Bags.bgOverlay)
     -- View may have changed under a held item (catch layer on / off)
     if EUI_Bags._syncDropTarget and GetCursorInfo() == "item" then EUI_Bags._syncDropTarget() end
     ns.UpdateResizeGrip(EUI_Bags, EUI_Bags.IsListMode() and _bagListGripCfg or _bagGripCfg)
+    -- the offline bank panel goes over the items (bank picked, or an alt)
+    if ns.OfflinePanel then ns.OfflinePanel(sidebarW) end
 end
 
 function EUI_Bags:RefreshInventory()
     if not EUI_Bags:IsVisible() then return end
+    ns.ApplySlotMetrics()
 
     -- A select mode's hover box sits on a button this refresh may refill: put
     -- that button's border back now and re-test the hover after
@@ -715,6 +732,12 @@ function EUI_Bags:RefreshInventory()
         categoryCounts[recentCatIdx] = recentCount
     end
 
+    -- 2c. viewing an alt: the sidebar counts their bags instead
+    local altView = ns.OfflineAlt and ns.OfflineAlt()
+    if altView then categoryCounts, totalCount = ns.OfflineCounts() end
+    -- an alt or the offline bank view: its panel takes the item area
+    local offlineUp = altView or (ns.Offline and ns.Offline.Enabled() and selectedCategoryIndex == ns.OFFLINE_BANK_VIEW)
+
     -- 3. Update sidebar
     BuildSidebarButtons(categoryCounts, totalCount)
 
@@ -753,7 +776,9 @@ function EUI_Bags:RefreshInventory()
     local displayItems = {}
     for _, data in ipairs(tempItems) do
         local show = true
-        if isRecentView then
+        if offlineUp then
+            show = false  -- the offline panel covers these
+        elseif isRecentView then
             show = data.info and data.info.itemID and EUI_Bags._recentItems and EUI_Bags._recentItems[data.info.itemID]
         elseif isPinnedView then
             show = data.info and data.info.itemID and pinnedSet and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID)
@@ -817,8 +842,10 @@ function EUI_Bags:RefreshInventory()
     -- (running max in _asCols, reset on close); HEIGHT follows rendered content up to the screen cap. Decided BEFORE GetColumns() so the grid renders at this count.
     if EUI_Bags.AutoSizeOn() then
         local baseCols = BP().bagColumns or 12
-        local BASE_ROWS = 15  -- rows visible at the base (FIXED_H) height
-        local HDR = 0.74      -- section-header height in slot-row units (~28/38)
+        -- tuned at the default 38 px pitch, scaled to the current one
+        local pitch = SLOT_SIZE + SPACING
+        local BASE_ROWS = 15 * 38 / pitch  -- rows visible at the base (FIXED_H) height
+        local HDR = 0.74 * 38 / pitch      -- section-header height in slot-row units (~28/38)
         -- Slot count (n) + section-header count (S) for the active tab. Headers add HEIGHT
         -- but not WIDTH, so they MUST fold into the estimate or a header-heavy tab (All Items with many categories) grows taller than wide.
         local n, S
@@ -894,9 +921,9 @@ function EUI_Bags:RefreshInventory()
     local sidebarW = GetSidebarWidth()
     local gridPadX = 10
     local gridW = columns * (SLOT_SIZE + SPACING)
-    -- List rows take the grip-set width (List has no Auto-Size)
-    if EUI_Bags.IsListMode() and BP().bagListWidth then
-        gridW = BP().bagListWidth
+    -- List rows take the grip-set width (List has no Auto-Size), by default the default pitch's
+    if EUI_Bags.IsListMode() then
+        gridW = BP().bagListWidth or columns * LIST_PITCH
     end
     local scrollbarPad = SCROLLBAR_HIT_W + 2
 
@@ -916,6 +943,10 @@ function EUI_Bags:RefreshInventory()
     -- (slot views and an unmerged list never reach MergeDuplicates)
     SetPaintedPanelOpen(_anyItemPanelOpen)
 
+    -- no live items laid out under the offline panel (select modes would hit them)
+    local liveItems, liveEmpty = tempItems, emptySlots
+    if offlineUp then liveItems, liveEmpty = {}, {} end
+
     -- List display (latched per session): rows replace the grid; the column
     -- header bar takes the top of the scroll area
     if EUI_Bags.IsListMode() and sf then
@@ -932,7 +963,7 @@ function EUI_Bags:RefreshInventory()
             -- The Recent Items tab: its items in one newest-first section
             recentOnly = isRecentView or nil,
             -- Empty rows only when nothing is search-filtered out
-            emptySlots = (#displayItems == #tempItems) and emptySlots or nil,
+            emptySlots = (#displayItems == #liveItems) and liveEmpty or nil,
             -- Same rule as the grid's Pinned Items section
             pinned = (showPinned and (isAllItems or (selectedCategoryIndex < 0 and BP().bagPinnedInOneBag ~= false)))
                 and pinnedSet or nil,
@@ -942,7 +973,7 @@ function EUI_Bags:RefreshInventory()
         return
     end
 
-    local curY = ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, gridW, gridPadX, showPinned, pinnedSet)
+    local curY = ns.RenderGridView(liveItems, displayItems, liveEmpty, child, columns, gridW, gridPadX, showPinned, pinnedSet)
 
     -- Compact: the window drops the remainder its widest band leaves short of
     -- the columns, less than a cell (ns.CompactBagsContentW). While open it

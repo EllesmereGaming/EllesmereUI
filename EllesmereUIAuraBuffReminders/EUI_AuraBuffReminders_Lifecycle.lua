@@ -188,6 +188,9 @@ function EABR:OnEnable()
     _G._EABR_PALADIN_RITES = PALADIN_RITES
     _G._EABR_SHAMAN_IMBUES = SHAMAN_IMBUES
     _G._EABR_SHAMAN_SHIELDS = SHAMAN_SHIELDS
+    _G._EABR_SPECIALS = EABR.SPECIALS
+    _G._EABR_SpecialsWhere = EABR.SpecialsWhere
+    _G._EABR_SpecialsSound = EABR.SpecialsSound
     _G._EABR_WARLOCK_PETS = WARLOCK_PETS
     _G._EABR_WEAPON_ENCHANT_ITEMS = WEAPON_ENCHANT_ITEMS
     _G._EABR_Tex = Tex
@@ -595,6 +598,11 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
             -- Cast success is an immediate fallback; UNIT_AURA will subsequently
             -- attach the concrete target GUID/auraInstanceID via HELPFUL|PLAYER.
             EABR.SetOwnOtherAuraState(369459, true)
+        elseif arg3 == 360827 and _isEvokerOwnOnRaid then
+            -- Blistering Scales is secret in a key, so the aura lookups miss it;
+            -- our own successful cast is the only proof it went out.
+            _preCombatOwnOnRaidCache[360827] = true
+            RequestRefresh()
         end
         return
     end

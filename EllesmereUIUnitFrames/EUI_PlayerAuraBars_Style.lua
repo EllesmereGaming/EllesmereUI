@@ -62,11 +62,11 @@ local STYLE_DEBUFFS = "playerAuraBars_debuffs"
 -- showAllBuffs); dispelColorMagic/Curse/Disease/Poison/Bleed (optional Color-like
 -- {r,g,b}, falls back to the Raid Frames palette).
 --
--- Duration format: AK.GetDurationFormatter(showSecondsUnit) serves two cached
--- variants -- bare seconds under 60 (the suite default) or unit-suffixed
--- ("10s") via the per-bar "Show S for Seconds" cog (style.durationShowSeconds);
--- both keep Xm/Xh/Xd above the minute. No other format variants ("colon" etc.):
--- those would mean new AuraKit breakpoint schemas (shared with Raid Frames).
+-- Duration format: AK.GetDurationFormatter(showSecondsUnit, preciseThreshold) --
+-- bare seconds under 90 (the suite default) or unit-suffixed ("10s") via the
+-- per-bar "Show S for Seconds" cog (style.durationShowSeconds), Xm/Xh/Xd above,
+-- and m:ss under the cog's Precise Below (style.durationPrecisionThreshold). The
+-- breakpoint tables live in AuraKit, shared with Raid Frames.
 -- DISPEL_SLOTS below is a local copy of EUI_RaidFrames_AuraContainers.lua's: ns is
 -- per-addon-private, so tokens/fallback colors are duplicated on purpose for suite-wide
 -- consistency -- a RaidFrames palette change must be mirrored here by hand, no shared source.

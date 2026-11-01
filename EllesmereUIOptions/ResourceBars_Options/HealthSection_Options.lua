@@ -196,6 +196,99 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
             end
             EllesmereUI.RegisterWidgetRefresh(UpdateSwatchDis)
             UpdateSwatchDis()
+            do
+                local isHeal = k.key == "healAbsorb"
+                local edgeKey = isHeal and "healAbsorbEdgeMode" or "absorbEdgeMode"
+                local edgeDefault = isHeal and "overlay" or "overlayReverse"
+                local edgeLabels = { overlay = "Overlay" }
+                if not isHeal then
+                    edgeLabels.overlayReverse = "Overlay Reverse"
+                    edgeLabels.overlayReverseFull = "Overlay Reverse (Full)"
+                end
+                local lastVertical
+                local function isVertical()
+                    local c, p = cfg(), DB()
+                    local ori = (c and c.orientation) or (p and p.general.orientation) or "HORIZONTAL"
+                    return ori == "VERTICAL_UP" or ori == "VERTICAL_DOWN"
+                end
+                local function syncLabels()
+                    local vertical = isVertical()
+                    if lastVertical == vertical then return false end
+                    lastVertical = vertical
+                    edgeLabels.right = vertical and "From Top Edge" or "From Right Edge"
+                    edgeLabels.left = vertical and "From Bottom Edge" or "From Left Edge"
+                    return true
+                end
+                local function get(key, fallback)
+                    local c = cfg()
+                    if c and c[key] ~= nil then return c[key] end
+                    return fallback
+                end
+                local function set(key, value)
+                    local c = cfg(); if not c then return end
+                    c[key] = value; RefreshHealth()
+                end
+                local function glowUnavailable()
+                    return styleOff() or isVertical() or get("absorbEdgeMode", "overlayReverse") == "left"
+                end
+                syncLabels()
+                local rows = {
+                        { type = "dropdown", label = "Placement", values = edgeLabels, ddWidth = 190,
+                          order = isHeal and { "overlay", "right", "left" }
+                              or { "overlay", "overlayReverse", "overlayReverseFull", "right", "left" },
+                          disabled = isHeal and styleOff or nil,
+                          disabledTooltip = styleText,
+                          get = function() syncLabels(); return get(edgeKey, edgeDefault) end,
+                          set = function(v) set(edgeKey, v) end },
+                }
+                if isHeal then
+                    rows[2] = { type = "slider", label = "Backing Opacity", min = 0, max = 100, step = 1,
+                        disabled = styleOff, disabledTooltip = styleText,
+                        get = function() return get("healAbsorbBgOpacity", 0) end,
+                        set = function(v) set("healAbsorbBgOpacity", v) end }
+                else
+                    rows[2] = { type = "dropdown", label = "Show Overshield",
+                          tooltip = "Overshield is the part of an absorb exceeding your empty health. Always backfills it over current health from the shield's edge; From Left grows it from the opposite end of the bar; Never hides it.",
+                          values = { never = "Never", always = "Always", fromleft = "From Left" },
+                          order = { "never", "always", "fromleft" },
+                          itemDisabled = function(v)
+                              return v == "fromleft" and get("absorbEdgeMode", "overlayReverse") ~= "overlay"
+                          end,
+                          get = function() return get("overshieldMode", "always") end,
+                          set = function(v) set("overshieldMode", v) end }
+                    rows[3] = { type = "toggle", label = "Blizzard Glow Line",
+                          tooltip = "Adds the Blizzard shield glow line where the shield meets current health.",
+                          disabled = glowUnavailable,
+                          disabledTooltip = function()
+                              if styleOff() then return "The glow line is not shown with Absorb Style None" end
+                              return "The glow line is not shown on a vertical fill or with the From Left Edge placement"
+                          end,
+                          rawTooltip = true,
+                          get = function() return get("absorbGlowLine", false) == true end,
+                          set = function(v) set("absorbGlowLine", v) end }
+                    rows[4] = { type = "dropdown", label = "Glow Line Texture",
+                          tooltip = "Art used for the glow line and the overshield edge.",
+                          values = { blizzard = "Blizzard", pixelsGlow = "Pixels Glow Line", pixelsOvershield = "Pixels Overshield Line" },
+                          order = { "blizzard", "pixelsGlow", "pixelsOvershield" },
+                          disabled = function() return glowUnavailable() or get("absorbGlowLine", false) ~= true end,
+                          disabledTooltip = "Blizzard Glow Line",
+                          get = function() return get("absorbGlowLineTexture", "blizzard") end,
+                          set = function(v) set("absorbGlowLineTexture", v) end }
+                end
+                local _, cogShow = EllesmereUI.BuildInlineCog(rgn, {
+                    title = isHeal and "Heal Absorb Rendering" or "Absorb Rendering",
+                    rows = rows,
+                })
+                EllesmereUI.RegisterWidgetRefresh(function()
+                    if not syncLabels() then return end
+                    local popup = cogShow and cogShow._popupFrame
+                    if popup then
+                        for _, child in ipairs({ popup:GetChildren() }) do
+                            if child._invalidateMenu and not EllesmereUI._Pool.IsIdle(child) then child._invalidateMenu() end
+                        end
+                    end
+                end)
+            end
         end
     end
 

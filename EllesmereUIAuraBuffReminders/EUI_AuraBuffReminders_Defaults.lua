@@ -162,8 +162,9 @@ local defaults = {
                 flask=true,
                 food=true,
             },
-            -- Bag/equip consumables (open world off) and a separate shared
-            -- set for the class specials (open world on).
+            -- Bag/equip consumables (open world off) and the old shared
+            -- class-specials set (open world on). The per-section copies have
+            -- no default on purpose, see EABR.SPECIALS.
             whereToShow = { open_world = false },
             specialsWhereToShow = {},
             -- Warlock-section reminders (Soulstone and Wrong Demon) have
@@ -207,15 +208,20 @@ local _dismissedUntilLoad = {}  -- [dismissKey] = true
 --  Two swapped sets avoid per-refresh allocation; the first primed pass is
 --  skipped so login never replays a burst. Hung on EABR.
 -------------------------------------------------------------------------------
--- Class-special keys (poisons/rites/imbues/shields) share one sound; built once.
-function EABR.IsSpecialKey(key)
+-- Class-special keys (poisons/rites/imbues/shields) -> their section's sound
+-- field, or nil; built once. Rogue reminders carry per-category keys.
+function EABR.SpecialSoundField(key)
     local set = EABR._specialKeySet
     if not set then
-        set = {}
-        for _, tbl in ipairs({ _G._EABR_ROGUE_POISONS, _G._EABR_PALADIN_RITES,
-                               _G._EABR_SHAMAN_IMBUES, _G._EABR_SHAMAN_SHIELDS }) do
-            if type(tbl) == "table" then
-                for _, it in ipairs(tbl) do if it.key then set[it.key] = true end end
+        local S = EABR.SPECIALS
+        set = { rogue_lethal = S.ROGUE.sound, rogue_nonlethal = S.ROGUE.sound }
+        local groups = {
+            { I.ROGUE_POISONS, S.ROGUE.sound }, { I.PALADIN_RITES, S.PALADIN.sound },
+            { I.SHAMAN_IMBUES, S.SHAMAN.sound }, { I.SHAMAN_SHIELDS, S.SHAMAN.sound },
+        }
+        for _, g in ipairs(groups) do
+            if type(g[1]) == "table" then
+                for _, it in ipairs(g[1]) do if it.key then set[it.key] = g[2] end end
             end
         end
         EABR._specialKeySet = set
@@ -234,7 +240,8 @@ function EABR.ResolveReminderSound(dk)
         return p.auras.sectionSound
     elseif prefix == "consumable" then
         local co = p.consumables
-        if EABR.IsSpecialKey(key) then return co.specialsSound end
+        local field = EABR.SpecialSoundField(key)
+        if field then return EABR.SpecialsSound(co, field) end
         return co.sectionSound
     elseif prefix == "forever" then
         local fo = p.forever

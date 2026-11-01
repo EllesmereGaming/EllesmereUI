@@ -409,10 +409,36 @@ EllesmereUI.NewInternals(ns, "_bagsInternals", {
     IsItemPinned = IsItemPinned, NormalizePinKey = NormalizePinKey, SetBagFont = SetBagFont,
     SLOT_SIZE = SLOT_SIZE, SPACING = SPACING,
     categoryIndexSetters = {}, groupNameSetters = {}, gearCatSetSetters = {},
-    anyItemPanelOpenSetters = {}, paintedPanelOpenSetters = {},
+    anyItemPanelOpenSetters = {}, paintedPanelOpenSetters = {}, slotMetricSetters = {},
 }, {
     SetSelectedCategoryIndex = "categoryIndexSetters",
     SetSelectedGroupName = "groupNameSetters", SetGearCatSet = "gearCatSetSetters",
     SetAnyItemPanelOpen = "anyItemPanelOpenSetters",
     SetPaintedPanelOpen = "paintedPanelOpenSetters",
+    SetSlotMetrics = "slotMetricSetters",
 })
+
+-- slot size and spacing come from the profile. each file that lays out slots
+-- keeps its own copy (OnSlotMetrics gets { size, spacing }), and frames made
+-- through SizeSlot get resized on a change
+local slotFrames = setmetatable({}, { __mode = "k" })
+function ns.SizeSlot(f)
+    slotFrames[f] = true
+    f:SetSize(SLOT_SIZE, SLOT_SIZE)
+end
+function ns.OnSlotMetrics(fn)
+    local list = ns._bagsInternals.slotMetricSetters
+    list[#list + 1] = fn
+end
+-- both refreshes call this first; a change made in combat waits for the next one
+function ns.ApplySlotMetrics()
+    local p = BP()
+    -- the sliders' ranges: a hand-edited or imported 0 would divide by zero
+    local size = math.min(math.max(tonumber(p.bagSlotSize) or 34, 24), 56)
+    local gap = math.min(math.max(tonumber(p.bagSlotSpacing) or 4, 0), 12)
+    if (size == SLOT_SIZE and gap == SPACING) or InCombatLockdown() then return end
+    SLOT_SIZE, SPACING = size, gap
+    ns.SLOT_SIZE, ns.SPACING = size, gap
+    for f in pairs(slotFrames) do f:SetSize(size, size) end
+    ns._bagsInternals.SetSlotMetrics({ size, gap })
+end

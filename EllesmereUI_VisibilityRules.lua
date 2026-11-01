@@ -157,6 +157,16 @@ function EllesmereUI.IsInDungeon()
     return not (C_Garrison and C_Garrison.IsOnGarrisonMap and C_Garrison.IsOnGarrisonMap())
 end
 
+-- Delve probe for the Hide in Delves rules: a delve in progress that is not a Lair.
+-- The game runs Lairs on its delve system, so its delve check alone also answers
+-- true inside one.
+function EllesmereUI.IsInDelve()
+    if not (C_PartyInfo and C_PartyInfo.IsDelveInProgress and C_PartyInfo.IsDelveInProgress()) then
+        return false
+    end
+    return not (C_DelvesUI and C_DelvesUI.IsInLair and C_DelvesUI.IsInLair())
+end
+
 -- Runtime check: returns true if the element should be HIDDEN by visibility options.
 -- `opts` is the settings table containing the vis option booleans.
 function EllesmereUI.IsPlayerMountedLike()

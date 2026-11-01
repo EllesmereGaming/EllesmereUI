@@ -2,7 +2,7 @@
 ## Title: |cff0cd29fEllesmereUI|r
 ## Notes: Shared framework for the EllesmereUI addon suite
 ## Author: Ellesmere
-## Version: 9.6.9
+## Version: 9.7.2
 ## SavedVariables: EllesmereUIDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 ## X-Curse-Project-ID: 1477613
@@ -47,6 +47,7 @@ EllesmereUI_GoldLedger.lua
 # Shared EllesmereUI Files
 EllesmereUI_PixelPerfect.lua
 EllesmereUI.lua
+EllesmereUI_AbsorbGlow.lua
 EllesmereUI_Panel.lua
 EllesmereUI_VisibilityRules.lua
 EllesmereUI_SharedHelpers.lua

@@ -367,7 +367,7 @@ PF.StyleButton = function(b, map)
     b:SetAttribute("*type1", "target")
     -- The engine gates SecureUnitButton's togglemenu; route right-click through a SecureActionButton proxy so the menu works without taint.
     EllesmereUI.AttachSecureUnitMenu(b)
-    FB.BuildVisuals(b)
+    FB.BuildVisuals(b, true)
 
     b:HookScript("OnShow", function(self)
         PF.visCount = (PF.visCount or 0) + 1
@@ -443,7 +443,7 @@ end
 -- its own), plus the UI scale its pixel-sized borders follow, gathered into a reused list, so a
 -- reload that changed none of them leaves the pets' fonts, textures and borders alone. The hover and
 -- target borders are painted, not styled.
-PF.STYLE_N = 37
+PF.STYLE_N = 26 + ns.RF_TEXT_STYLE_N
 PF.fp = {}
 PF.fpNew = {}
 PF.StyleInputs = function(t, s, texPath)
@@ -452,17 +452,16 @@ PF.StyleInputs = function(t, s, texPath)
     t[1], t[2], t[3], t[4], t[5] = bgc.r, bgc.g, bgc.b, s.bgDarkness, texPath
     t[6], t[7] = s.healthVerticalFill, s.healthBarOpacity
     t[8], t[9] = EllesmereUI.GetFontPath("raidFrames"), EllesmereUI.GetFontOutlineFlag("raidFrames")
-    t[10], t[11], t[12] = s.nameSize, s.healthTextSize, s.healAbsorbTextSize
-    t[13], t[14], t[15] = s.namePosition, s.nameOffsetX, s.nameOffsetY
-    t[16], t[17], t[18] = s.healthTextPosition, s.healthTextOffsetX, s.healthTextOffsetY
-    t[19], t[20], t[21] = s.healAbsorbTextPosition, s.healAbsorbTextOffsetX, s.healAbsorbTextOffsetY
-    t[22], t[23], t[24], t[25], t[26] = s.borderSize, bc and bc.r, bc and bc.g, bc and bc.b, s.borderAlpha
-    t[27], t[28], t[29] = s.borderTexture, s.borderSizePx, s.borderBehind
-    t[30], t[31] = s.borderTextureOffset, s.borderTextureOffsetY
-    t[32], t[33] = s.borderTextureShiftX, s.borderTextureShiftY
-    t[34] = UIParent:GetEffectiveScale()
-    t[35] = s.healthInvertFill
-    t[36], t[37] = s.cornerRadius, s.cornerMask
+    t[10], t[11], t[12], t[13], t[14] = s.borderSize, bc and bc.r, bc and bc.g, bc and bc.b, s.borderAlpha
+    t[15], t[16], t[17] = s.borderTexture, s.borderSizePx, s.borderBehind
+    t[18], t[19] = s.borderTextureOffset, s.borderTextureOffsetY
+    t[20], t[21] = s.borderTextureShiftX, s.borderTextureShiftY
+    t[22] = UIParent:GetEffectiveScale()
+    t[23] = s.healthInvertFill
+    t[24], t[25] = s.cornerRadius, s.cornerMask
+    -- The texts: the plan signature, then offsets and size of each (t[26] on).
+    ns.RF_TextStyleInputs(t, 25, s)
+    t[PF.STYLE_N] = s.textureBg  -- Textured Background
 end
 
 -- True when the inputs differ from the ones last styled under key ("hdr": the header, "owner": the
@@ -758,6 +757,8 @@ PF.Geometry = function(ctx)
     end
     w = PixelSnap(math.max(10, w + (v.extraWidth or 0)))
     h = PixelSnap(math.max(10, h + (v.extraHeight or 0)))
+    -- Same grid as FB.FreePin: the pet header's own scale.
+    sp = EllesmereUI.PP.SnapForES(sp, (PF.container or UIParent):GetEffectiveScale())
     return w, h, sp, unitGrowth, groupGrowth
 end
 
@@ -1106,7 +1107,7 @@ end
 
 PF.FreeAnchor = function(c, set)
     local corner, x, y = PF.FreeCorner(set, PF.Ctx())
-    FB.Pin(c, corner, UIParent, "CENTER", x, y)
+    FB.FreePin(c, corner, x, y)
     return true
 end
 
@@ -1126,7 +1127,7 @@ end
 PF.PlaceMover = function(m, set)
     local corner, x, y, w, h = PF.FreeCorner(set, PF.moverCtx or PF.Ctx())
     m:SetSize(w, h)
-    m:SetPoint(corner, UIParent, "CENTER", x, y)
+    FB.FreePin(m, corner, x, y)
 end
 
 PF.SaveFreeRect = function(mover)
@@ -1172,8 +1173,8 @@ PF.PvStyle = function()
     return PF.pvStyle
 end
 
--- One preview pass's shared paint values (reused table). Pets have no class: a class colour mode
--- reads white.
+-- One preview pass's shared paint values (reused table). The texts are the frame's texts (no
+-- class for pets: a class colour mode reads white).
 PF.pvc = {}
 PF.PvColors = function(s)
     local c = PF.pvc
@@ -1183,13 +1184,6 @@ PF.PvColors = function(s)
     local raw = PF.Raw()
     c.hc = raw and raw.healthColor
     c.opacity = (s.healthBarOpacity or 100) / 100
-    c.nr, c.ng, c.nb = ns.RF_PreviewTextColor(s.nameColorMode or "class", s.nameCustomColor, nil, 1, 1, 1)
-    c.tr, c.tg, c.tb = ns.RF_PreviewTextColor(s.healthTextColorMode or "custom",
-        s.healthTextCustomColor, nil, 1, 1, 1)
-    c.ar, c.ag, c.ab = ns.RF_PreviewTextColor(s.healAbsorbTextColorMode or "custom",
-        s.healAbsorbTextCustomColor, nil, 1, 0.3, 0.3)
-    c.mode = s.healthTextMode or "none"
-    c.haMode = s.healAbsorbTextMode or "none"
     return c
 end
 
@@ -1198,7 +1192,7 @@ PF.PvFrame = function(i, parent, s, w, h, c, grouped)
     local f = PF.pv[i]
     if not f then
         f = CreateFrame("Frame", nil, parent)
-        FB.BuildVisuals(f)
+        FB.BuildVisuals(f, true)
         FB.src[f] = PF.PvStyle
         PF.pv[i] = f
     elseif f:GetParent() ~= parent then
@@ -1221,14 +1215,12 @@ PF.PvFrame = function(i, parent, s, w, h, c, grouped)
     -- inverted fill (the _euiInv stamp FB.StyleVisuals just left).
     f._health:SetValue(f._health._euiInv and (100 - pct) or pct)
     f._health:SetStatusBarColor(hc and hc.r or 23/255, hc and hc.g or 172/255, hc and hc.b or 49/255, c.opacity)
-    f._nameText:SetText(pet.name)
-    f._nameText:SetTextColor(c.nr, c.ng, c.nb)
-    -- Made-up health (3000 per percent) and a heal absorb of a quarter of it, in the raid preview's
-    -- proportions.
-    ns.RF_HealthTextInto(f._healthText, c.mode, pct, nil, 3000)
-    f._healthText:SetTextColor(c.tr, c.tg, c.tb, 0.9)
-    ns.FormatHealAbsorbInto(f._healAbsorbText, pct * 750, c.haMode)
-    f._healAbsorbText:SetTextColor(c.ar, c.ag, c.ab, 0.9)
+    -- The texts with the boss/pet rules: made-up health (3000 per percent) and a heal absorb
+    -- of a quarter of it, in the raid preview's proportions.
+    local st = FB.txs[f]
+    local pv = st._txPv or {}
+    pv.hpPct, pv.hpPer, pv.ha, pv.name = pct, 3000, pct * 750, ns.CapName(pet.name, s)
+    ns.RF_TextPreview(st, s, pv)
     f:Show()
     return f
 end

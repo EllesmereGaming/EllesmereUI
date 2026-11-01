@@ -1699,6 +1699,15 @@ local function BmApplyBar(button, dd, style)
     end
 end
 
+-- Textured Background on a Background Color effect: the class's background texture
+-- (style.texBgPath, set with the style) under the effect's tint; its style key
+-- carries it, so a change restyles.
+function ns.RFC_BmTexBg(style, s)
+    style.texBgPath, style.texBgVert = ns.RF_TexBgPath(s), ns.RF_IsVerticalFill(s)
+end
+function ns.RFC_BmTexBgKey(s)
+    return "|" .. tostring(ns.RF_TexBgPath(s)) .. (ns.RF_IsVerticalFill(s) and "v" or "")
+end
 local function BmApplyEffect(button, dd, style)
     local ind = style.ind
     if ind.type == "healthcolor" or ind.type == "bgcolor" then
@@ -1710,6 +1719,7 @@ local function BmApplyEffect(button, dd, style)
             if ind.type == "healthcolor" then
                 ns.RF_TintOverBarFill(dd.tex, dd.bmHealthBar, r, g, b, a)
             else
+                ns.RF_TexBgTint(dd.tex, style.texBgPath, style.texBgVert)
                 dd.tex:SetColorTexture(r, g, b, a)
             end
         end
@@ -2026,6 +2036,7 @@ local function BuildBmSlots(inds, d, health, iscale, styleBase)
                 local slotKey = "bm" .. tostring(ind.id or ("x" .. i)) .. "_fx"
                 local styleKey = styleBase .. ":" .. tostring(ind.id or ("x" .. i)) .. ":fx"
                 AK.styles[styleKey] = BuildBmStyleFor(kind, ind, iscale, 1)
+                if kind == "bgcolor" then ns.RFC_BmTexBg(AK.styles[styleKey], ProxyFor(d)) end
                 local mm = { key = slotKey, styleKey = styleKey, ind = ind, kind = kind, spells = spells }
                 slots[#slots + 1] = {
                     key = slotKey,
@@ -2683,6 +2694,9 @@ local function CreateBmContainer(button, health, d, unit)
         local m = meta[i]
         if m.styleKey then
             bmStyleFP[m.styleKey] = BmVisualKey(m.kind, m.ind, m.size, font, m.spellID)
+            if m.kind == "bgcolor" then
+                bmStyleFP[m.styleKey] = bmStyleFP[m.styleKey] .. ns.RFC_BmTexBgKey(ProxyFor(d))
+            end
         end
     end
     bmOwnFP[StyleKeyFor(d)] = BmOwnKey(meta)
@@ -2775,6 +2789,7 @@ local function BmClassPass(d)
     cls.sig = BmSignature(cls.inds, cls.specKey, cls.mode)
     cls.iscale = BmScaleFor(d)
     cls.styleKey = StyleKeyFor(d)
+    cls.s = ProxyFor(d)
     return cls
 end
 
@@ -2788,10 +2803,12 @@ local function BmCheckStyles(cls, meta)
         local m = meta[i]
         if m.styleKey then
             local vk = BmVisualKey(m.kind, m.ind, m.size, font, m.spellID)
+            if m.kind == "bgcolor" then vk = vk .. ns.RFC_BmTexBgKey(cls.s) end
             if bmStyleFP[m.styleKey] ~= vk then
                 bmStyleFP[m.styleKey] = vk
                 local previousStyle = AK.styles[m.styleKey]
                 AK.styles[m.styleKey] = BuildBmStyleFor(m.kind, m.ind, cls.iscale, m.size, m.spellID)
+                if m.kind == "bgcolor" then ns.RFC_BmTexBg(AK.styles[m.styleKey], cls.s) end
                 -- Pool registration applies to every member, including disabled ones.
                 AK.styles[m.styleKey].bmPandemicRegister = previousStyle and previousStyle.bmPandemicRegister
                 AK.RestyleSoon(m.styleKey)

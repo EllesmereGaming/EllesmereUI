@@ -81,7 +81,7 @@ local function SolidTex(parent, layer, r, g, b, a, sublevel)
 end
 WSkin.SolidTex = SolidTex
 
-local function AddBorder(frame, r, g, b, a)
+local function AddBorder(frame, r, g, b, a, layer, sublevel)
     if GetFFD(frame).border then return end
     local PP = EUI and (EUI.PanelPP or EUI.PP)
     if PP and PP.CreateBorder then
@@ -91,7 +91,9 @@ local function AddBorder(frame, r, g, b, a)
         -- container level, frame level beats every layer and the border covers
         -- bar text -- XP/reputation bar labels). Demotion is window-engine-only
         -- on purpose: every other CreateBorder consumer keeps the +1 contract.
-        local c = PP.CreateBorder(frame, r or Theme.brdR, g or Theme.brdG, b or Theme.brdB, a or Theme.brdA, 1, "BORDER", -7)
+        -- layer/sublevel put the strips lower still, for a frame sitting at its
+        -- parent's level under art the parent draws (flag carrier panels).
+        local c = PP.CreateBorder(frame, r or Theme.brdR, g or Theme.brdG, b or Theme.brdB, a or Theme.brdA, 1, layer or "BORDER", sublevel or -7)
         if c and c.SetFrameLevel then c:SetFrameLevel(frame:GetFrameLevel()) end
         GetFFD(frame).border = true
     end

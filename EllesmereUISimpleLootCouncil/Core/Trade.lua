@@ -671,7 +671,7 @@ end
 
 
 
-local OTHERS_MAX_AGE = 2 * 60 * 60
+local OTHERS_MAX_AGE = 4 * 60 * 60
 
 local function OthersKey(runId, session)
     return tostring(runId) .. "|" .. tostring(session)
@@ -857,33 +857,6 @@ function Trade:RangeBand(state)
     if state == "inRange" then return 1 end
     if state == "outOfRange" then return 2 end
     return 3
-end
-
-function Trade:RangeLabel(state, dead, count)
-    local Locale = addon.Locale
-    if state == "inRange" then
-        return Locale.Format(Locale.Plural{ one = "%d item \194\183 in range", other = "%d items \194\183 in range" },
-            count, count), "accent"
-    end
-    if state == "offline" then
-        return Locale.Format(Locale.Plural{ one = "%d item \194\183 offline", other = "%d items \194\183 offline" },
-            count, count), "textFaint"
-    end
-    if state == "combat" then
-        return Locale.Format(Locale.Plural{ one = "%d item \194\183 combat", other = "%d items \194\183 combat" },
-            count, count), "bad"
-    end
-    if state == "outOfRange" then
-
-
-        local forms = dead
-            and Locale.Plural{ one = "%d item \194\183 out of range (dead)",
-                other = "%d items \194\183 out of range (dead)" }
-            or Locale.Plural{ one = "%d item \194\183 out of range", other = "%d items \194\183 out of range" }
-        return Locale.Format(forms, count, count), "textFaint"
-    end
-    return Locale.Format(Locale.Plural{ one = "%d item", other = "%d items" },
-        count, count), "textMuted"
 end
 
 

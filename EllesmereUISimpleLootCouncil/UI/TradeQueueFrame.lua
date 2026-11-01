@@ -4,6 +4,8 @@ if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLo
 
 
 
+
+
 SimpleLootCouncil = SimpleLootCouncil or {}
 local addon = SimpleLootCouncil
 local T = addon.Locale.Text
@@ -15,7 +17,18 @@ local TradeQueueFrame = {}
 UI.TradeQueueFrame = TradeQueueFrame
 
 local S, L, P
-local frame, host, heading, othersHeading, empty
+local frame, host, heading, othersHeading, empty, urgentChip, urgentSlot
+
+
+
+
+local function SetUrgent(text)
+    if not urgentChip then return end
+    if text then urgentChip:SetText(text) end
+    urgentChip:SetShown(text ~= nil)
+    P.Size(frame.Badge, math.max(urgentSlot, text and math.ceil(urgentChip:GetWidth()) or 0), nil)
+    if frame.ClampTitle then P.AfterLayout(frame.ClampTitle) end
+end
 local rows = {}
 local rowSet = {}
 local rangeTicker, clockTicker
@@ -25,15 +38,37 @@ local clockRows = {}
 
 
 
-local WINDOW_W = 440
+local NAME_W, CLOCK_W, ITEM_W, TRADE_W = 96, 44, 190, 56
+
+
+local GROUP_GAP = 9
+local LINE_GAP = 1
+
+local TIGHT = 4
+
+
+local ITEM_SHIFT = 5
+
+
+local TOP_PAD = 8
+
+
+local ITEM_LETTERS = 20
 
 
 
-local ITEM_INDENT = 12
+local FILL_PAD = 8
+
+local BUTTON_PAD = 3
+
+local BUTTON_TRIM = 1
+
+local BELOW_EXTRA = 1
+
+local ICON_GROW = 1
 
 
-
-local GROUP_GAP = 11
+local OUT_ALPHA = 0.4
 
 
 
@@ -116,6 +151,12 @@ local function RowEnter(self)
     if text then
         self.tipShown = true
         S.TextTooltip(self, text)
+    elseif self.link then
+
+        self.tipShown = true
+        S.SideTooltip(self)
+        S.SetTooltipItem(self.link)
+        GameTooltip:Show()
     end
 end
 
@@ -127,28 +168,29 @@ local function RowLeave(self)
     end
 end
 
+
+local function InNameColumn(row)
+    if not GetCursorPosition then return false end
+    local x, scale, left = GetCursorPosition(), row:GetEffectiveScale(), row:GetLeft()
+    if not (x and scale and left) then return false end
+    return x / scale - left < S.size.ROW_PAD + NAME_W
+end
+
 local function RowClick(self, button)
     local kind = self.kind
-    if kind == "group" then
-        if button == "LeftButton" and self.canTrade and self.recipient then
-            addon.Trade:Initiate(self.recipient)
-        end
-    elseif kind == "item" then
+    if kind == "item" then
         local MLFrame = addon.UI.MLFrame
         if button == "RightButton" then
-
-
-
             if addon.PlayerIsMasterLooter() and self.session and self.runId
                 and MLFrame:ConfirmUnaward(self.session, self.runId, self.link,
                     self.untradeable)
             then
                 return
             end
-
-
             if MLFrame:ConfirmRetract(self.entryId) then return end
             MLFrame:ConfirmDropObligation(self.entryId)
+        elseif self.first and self.canTrade and self.recipient and InNameColumn(self) then
+            addon.Trade:Initiate(self.recipient)
         elseif self.session and self.runId == addon.Session:GetRunId() then
             MLFrame:SelectSession(self.session)
         end
@@ -171,7 +213,8 @@ local function ResetRow(row)
         S.HideTextTooltip()
     end
     row.Hover:Hide()
-    row.kind, row.recipient, row.canTrade = nil, nil, nil
+    row.kind, row.recipient, row.canTrade, row.first = nil, nil, nil, nil
+    row.nameColour = nil
     row.entry, row.record, row.key, row.link = nil, nil, nil, nil
     row.session, row.runId, row.entryId, row.untradeable = nil, nil, nil, nil
 end
@@ -190,11 +233,21 @@ local function GetRow(index)
     row:SetScript("OnEnter", RowEnter)
     row:SetScript("OnLeave", RowLeave)
 
+
+    local function Outset(fill)
+        fill:ClearAllPoints()
+        P.Point(fill, "TOPLEFT", row, "TOPLEFT", -FILL_PAD, 0)
+        P.Point(fill, "BOTTOMRIGHT", row, "BOTTOMRIGHT", BUTTON_PAD, 0)
+    end
+    row:SetHitRectInsets(-FILL_PAD, -BUTTON_PAD, 0, 0)
+
     row.Stripe = S.RoundFill(row, S.color.rowStripe, S.radius.CTRL,
         "BACKGROUND", -1)
+    Outset(row.Stripe)
     row.Stripe:Hide()
 
     row.Hover = S.RoundFill(row, S.color.rowHover, S.radius.CTRL, "BACKGROUND")
+    Outset(row.Hover)
     row.Hover:Hide()
 
 
@@ -202,32 +255,35 @@ local function GetRow(index)
     P.Size(row.Urgent, 2, nil)
     row.Urgent:SetColorTexture(S.Unpack(S.color.danger))
     P.Crisp(row.Urgent)
-    row.Urgent:SetPoint("TOPLEFT")
-    row.Urgent:SetPoint("BOTTOMLEFT")
+    P.Point(row.Urgent, "TOPLEFT", row, "TOPLEFT", -FILL_PAD, 0)
+    P.Point(row.Urgent, "BOTTOMLEFT", row, "BOTTOMLEFT", -FILL_PAD, 0)
     row.Urgent:Hide()
 
 
     local danger = S.color.danger
     row.Untradeable = S.RoundFill(row, { danger[1], danger[2], danger[3], 0.16 },
         S.radius.CTRL, "BACKGROUND")
+    Outset(row.Untradeable)
     row.Untradeable:Hide()
 
-    row.icon = S.ItemIcon(row, S.size.ICON_SM)
+    row.icon = S.ItemIcon(row, S.size.ICON_SM + ICON_GROW)
 
     row.icon:EnableMouse(false)
 
-    row.right = S.Label(row, S.fontNum, "RIGHT")
-
-    row.count = S.Label(row, S.fontSmall, "RIGHT")
+    row.name = S.Label(row, S.fontButton, "LEFT")
+    row.clock = S.Label(row, S.fontNum, "LEFT")
 
     row.trade = S.Button(row, T["Trade"],
-        { height = S.size.BTN_H_SM, primary = true, font = S.fontSmall })
+        { height = S.size.BTN_H_SM, primary = true, font = S.fontSmall, width = TRADE_W,
+            labelPad = S.size.BTN_PAD - 2,
+            fixedWidth = true })
+    row.trade:SetLabelOffset(-1)
     row.trade:SetScript("OnClick", function()
-        if row.kind == "group" and row.recipient then addon.Trade:Initiate(row.recipient) end
+        if row.first and row.recipient then addon.Trade:Initiate(row.recipient) end
     end)
 
 
-    row.label = S.Label(row, S.fontBody, "LEFT")
+    row.label = S.Label(row, S.fontSmall, "LEFT")
 
     rows[index] = row
     rowSet[row] = true
@@ -235,34 +291,39 @@ local function GetRow(index)
 end
 
 
+
+
 local function ShapeRow(row, kind)
+
+
+    local pad, gap = 0, S.size.GAP
+    P.Size(row, nil, S.size.BTN_H_SM + 2 * BUTTON_PAD + BELOW_EXTRA)
     row.label:ClearAllPoints()
-    row.right:ClearAllPoints()
+    row.clock:ClearAllPoints()
+    row.name:ClearAllPoints()
+    row.icon:ClearAllPoints()
 
-    if kind == "group" then
-        P.Size(row, nil, S.size.GROUP_ROW)
-        row.icon:Hide()
-        row.trade:Show()
-        row.count:Show()
+    P.Point(row.name, "LEFT", row, "LEFT", pad, 0)
+    P.Size(row.name, NAME_W, nil)
+    P.Point(row.clock, "LEFT", row.name, "RIGHT", gap, 0)
+    P.Size(row.clock, CLOCK_W, nil)
 
-        P.Point(row.trade, "RIGHT", row, "RIGHT", -S.size.ROW_PAD, 0)
-        P.Point(row.count, "RIGHT", row.trade, "LEFT", -S.size.GAP, 0)
-        P.Point(row.label, "LEFT", row, "LEFT", S.size.ROW_PAD, 0)
-        P.Point(row.label, "RIGHT", row.count, "LEFT", -S.size.GAP, 0)
-        row.label:SetFontObject(S.fontButton)
-        row.right:Hide()
+
+    local iconTop = math.floor((S.size.BTN_H_SM + 2 * BUTTON_PAD + BELOW_EXTRA - (S.size.ICON_SM + ICON_GROW)) / 2)
+    P.Point(row.icon, "TOPLEFT", row, "TOPLEFT", pad + NAME_W + gap + CLOCK_W + gap - ITEM_SHIFT, -iconTop)
+    P.Point(row.label, "LEFT", row.icon, "RIGHT", gap, 0)
+    row.icon:Show()
+
+    if kind == "item" then
+        P.Size(row.label, ITEM_W, nil)
+
+
+        P.Size(row.trade, nil, S.size.BTN_H_SM - 2 * BUTTON_TRIM)
+        P.Point(row.trade, "TOPRIGHT", row, "TOPRIGHT", -(pad + BUTTON_TRIM), -(BUTTON_PAD + BUTTON_TRIM + 1))
     else
-        P.Size(row, nil, S.size.LIST_ROW)
-        row.icon:Show()
+        row.label:SetWidth(0)
+        P.Point(row.label, "RIGHT", row, "RIGHT", -pad, 0)
         row.trade:Hide()
-        row.count:Hide()
-        row.right:Show()
-
-        P.Point(row.icon, "LEFT", row, "LEFT", ITEM_INDENT + S.size.ROW_PAD, 0)
-        P.Point(row.right, "RIGHT", row, "RIGHT", -S.size.ROW_PAD, 0)
-        P.Point(row.label, "LEFT", row.icon, "RIGHT", S.size.GAP, 0)
-        P.Point(row.label, "RIGHT", row.right, "LEFT", -S.size.GAP, 0)
-        row.label:SetFontObject(S.fontSmall)
     end
 end
 
@@ -278,18 +339,20 @@ local function ClockText(seconds)
     return text, S.color.textMuted
 end
 
+
+
 local function PaintRange(group)
-
-
-    if group.tradeable == 0 then
-        group.row.count:SetText(T["Loot no longer tradeable"])
-        group.row.count:SetTextColor(S.Unpack(S.color.dangerText))
-        return
+    local name = group.row.name
+    local colour, alpha = group.row.nameColour, 1
+    if group.tradeable > 0 then
+        if group.rangeState == "offline" then
+            colour, alpha = S.color.textMuted, OUT_ALPHA
+        elseif group.rangeState == "outOfRange" then
+            alpha = OUT_ALPHA
+        end
     end
-    local text, colourKey = addon.Trade:RangeLabel(group.rangeState, group.dead,
-        group.tradeable)
-    group.row.count:SetText(text)
-    group.row.count:SetTextColor(S.Unpack(S.color[colourKey]))
+    name:SetTextColor(S.Unpack(colour))
+    name:SetAlpha(alpha)
 end
 
 
@@ -388,15 +451,41 @@ local function NameColour(fullName)
 end
 
 
+
+
+local function LabelRoom()
+    local gap = S.size.GAP
+    local rowW = NAME_W + CLOCK_W + ITEM_W + TRADE_W + 2 * gap + TIGHT
+    return rowW - (NAME_W + 2 * gap + CLOCK_W - ITEM_SHIFT + S.size.ICON_SM + ICON_GROW + gap)
+end
+
 local function PaintItem(item, link, holder)
     item.icon:Show()
     item.icon:SetItem(link)
     local name, _, quality = C_Item.GetItemInfo(link)
     item.icon:SetQualityBorder(quality)
 
-    local label = name or link or "?"
-    if holder then label = addon.Locale.Format(T["%s (%s)"], label, holder) end
-    item.label:SetText(label)
+    local full = name or link or "?"
+
+    local function Shape(letters)
+        local cut = addon.Locale.Truncate(full, letters)
+        local text = cut ~= full and (cut:gsub("%s+$", "") .. "...") or full
+        if holder then text = addon.Locale.Format(T["%s (%s)"], text, holder) end
+        return text
+    end
+    local letters = ITEM_LETTERS
+    item.label:SetText(Shape(letters))
+
+
+    if holder then
+        local room = LabelRoom()
+        while letters > 4 do
+            local w = item.label:GetUnboundedStringWidth()
+            if type(w) ~= "number" or w <= room then break end
+            letters = letters - 1
+            item.label:SetText(Shape(letters))
+        end
+    end
 
 
 
@@ -416,7 +505,7 @@ function TradeQueueFrame:Refresh()
     local others = BuildOthers()
     visibleGroups = groups
     clockRows = {}
-    local index, owed, urgent, othersOwed = 0, 0, 0, 0
+    local index, owed, urgent, othersOwed, groupNo = 0, 0, 0, 0, 0
     local y = 0
 
 
@@ -427,53 +516,46 @@ function TradeQueueFrame:Refresh()
         ShapeRow(row, kind)
         P.Point(row, "TOPLEFT", host, "TOPLEFT", 0, -y)
         P.Point(row, "TOPRIGHT", host, "TOPRIGHT", 0, -y)
-        y = y + (kind == "group" and S.size.GROUP_ROW or S.size.LIST_ROW) + S.size.ITEM_GAP
+        y = y + S.size.BTN_H_SM + 2 * BUTTON_PAD + BELOW_EXTRA + LINE_GAP
         return row
     end
 
     for _, group in ipairs(groups) do
-        local groupUrgent = group.soonest < URGENT_BELOW
-
-        local row = NextRow("group")
-
-        row.Stripe:SetShown(not groupUrgent)
-        row.Urgent:SetShown(groupUrgent)
-
-        row.Untradeable:Hide()
-        if groupUrgent then urgent = urgent + 1 end
-
-        row.label:SetText(Ambiguate(group.recipient, "short"))
-        row.label:SetTextColor(S.Unpack(NameColour(group.recipient)))
-        group.row = row
-        PaintRange(group)
-
+        groupNo = groupNo + 1
+        if group.soonest < URGENT_BELOW then urgent = urgent + 1 end
 
 
         local canTrade = group.tradeable > 0
-        row.kind, row.recipient, row.canTrade = "group", group.recipient, canTrade
-        row.trade:SetShown(canTrade)
-        row:EnableMouse(true)
-        row:Show()
 
         for i, record in ipairs(group.items) do
             owed = owed + 1
             local item = NextRow("item")
+            local first = i == 1
 
             local untradeable = record.untradeable
-            item.Urgent:SetShown(untradeable)
+            local atRisk = untradeable or (record.remaining ~= nil and record.remaining < URGENT_BELOW)
+            item.Urgent:SetShown(atRisk)
             item.Untradeable:SetShown(untradeable)
-            item.Stripe:SetShown(not untradeable and i % 2 == 0)
+            item.Stripe:SetShown(not untradeable and groupNo % 2 == 0)
 
             local link = record.entry.link
             PaintItem(item, link)
 
+            item.name:SetShown(first)
+            item.trade:SetShown(first and canTrade)
+            if first then
+                item.name:SetText(Ambiguate(group.recipient, "short"))
+                item.nameColour = NameColour(group.recipient)
+                group.row = item
+                PaintRange(group)
+            end
+
             if untradeable then
-                item.right:SetText(T["Loot no longer tradeable"])
-                item.right:SetTextColor(S.Unpack(S.color.dangerText))
+                item.clock:SetText("")
             else
                 local text, colour = ClockText(record.remaining)
-                item.right:SetText(text)
-                item.right:SetTextColor(S.Unpack(colour))
+                item.clock:SetText(text)
+                item.clock:SetTextColor(S.Unpack(colour))
                 clockRows[#clockRows + 1] = { row = item, entry = record.entry,
                     remaining = record.remaining }
             end
@@ -481,6 +563,7 @@ function TradeQueueFrame:Refresh()
 
             local args = record.entry.args
             item.kind, item.recipient, item.entry = "item", group.recipient, record.entry
+            item.first, item.canTrade = first, canTrade
             item.link, item.untradeable, item.entryId = link, untradeable, record.entry.id
             item.session = args and args.session
             item.runId = args and args.runId
@@ -488,7 +571,7 @@ function TradeQueueFrame:Refresh()
             item:Show()
         end
 
-        y = y - S.size.ITEM_GAP + GROUP_GAP
+        y = y - LINE_GAP + GROUP_GAP
     end
 
 
@@ -503,40 +586,32 @@ function TradeQueueFrame:Refresh()
     end
 
     for _, group in ipairs(others) do
-        local row = NextRow("group")
-        row.Stripe:Show()
-        row.Urgent:Hide()
-        row.Untradeable:Hide()
-        row.trade:Hide()
-        row.label:SetText(Ambiguate(group.recipient, "short"))
-        row.label:SetTextColor(S.Unpack(NameColour(group.recipient)))
-        row.count:SetText(addon.Locale.Format(addon.Locale.Plural{
-            one = "%d item", other = "%d items" }, #group.items, #group.items))
-        row.count:SetTextColor(S.Unpack(S.color.textMuted))
-        row.kind, row.recipient = "othersGroup", group.recipient
-        row:EnableMouse(true)
-        row:Show()
-
+        groupNo = groupNo + 1
         for i, entry in ipairs(group.items) do
             othersOwed = othersOwed + 1
             local record = entry.record
-            local item = NextRow("item")
+            local item = NextRow("othersItem")
+            local first = i == 1
             local untradeable = entry.untradeable
             item.Urgent:SetShown(untradeable)
             item.Untradeable:SetShown(untradeable)
-            item.Stripe:SetShown(not untradeable and i % 2 == 0)
+            item.Stripe:SetShown(not untradeable and groupNo % 2 == 0)
 
-            local holder = S.Colorize(NameColour(record.holder),
-                Ambiguate(record.holder or "?", "short"))
-            PaintItem(item, record.link, holder)
+            PaintItem(item, record.link, S.Colorize(NameColour(record.holder),
+                Ambiguate(record.holder or "?", "short")))
+
+            item.name:SetShown(first)
+            if first then
+                item.name:SetText(Ambiguate(group.recipient, "short"))
+                item.name:SetTextColor(S.Unpack(NameColour(group.recipient)))
+            end
 
             if untradeable then
-                item.right:SetText(T["Loot no longer tradeable"])
-                item.right:SetTextColor(S.Unpack(S.color.dangerText))
+                item.clock:SetText("")
             elseif entry.remaining then
                 local text, colour = ClockText(entry.remaining)
-                item.right:SetText(text)
-                item.right:SetTextColor(S.Unpack(colour))
+                item.clock:SetText(text)
+                item.clock:SetTextColor(S.Unpack(colour))
                 if record.expiresAt then
                     clockRows[#clockRows + 1] = { row = item, record = record,
                         remaining = entry.remaining }
@@ -544,7 +619,7 @@ function TradeQueueFrame:Refresh()
             else
 
 
-                item.right:SetText("")
+                item.clock:SetText("")
             end
 
             item.kind, item.recipient, item.record = "othersItem", group.recipient, record
@@ -554,7 +629,7 @@ function TradeQueueFrame:Refresh()
             item:Show()
         end
 
-        y = y - S.size.ITEM_GAP + GROUP_GAP
+        y = y - LINE_GAP + GROUP_GAP
     end
 
     for i = index + 1, #rows do
@@ -575,12 +650,12 @@ function TradeQueueFrame:Refresh()
     if owed + othersOwed == 0 then
         empty:Show()
         heading:SetRight("0")
-        frame:SetTag(nil)
+        SetUrgent(nil)
         y = empty:GetHeight()
     elseif owed == 0 then
         empty:Hide()
         heading:SetRight(othersCount)
-        frame:SetTag(nil)
+        SetUrgent(nil)
     else
         empty:Hide()
         local items = addon.Locale.Format(addon.Locale.Plural{ one = "%d item", other = "%d items" },
@@ -589,14 +664,23 @@ function TradeQueueFrame:Refresh()
             one = "%d player", other = "%d players",
         }, #groups, #groups)
         heading:SetRight(addon.Locale.Format(T["%s to %s"], items, players))
-        frame:SetTag(urgent > 0 and addon.Locale.Format(T["%d URGENT"], urgent) or nil,
-            S.color.dangerText)
+        SetUrgent(urgent > 0 and addon.Locale.Format(T["%d Urgent"], urgent) or nil)
     end
 
 
-    P.Size(host, nil, y)
-    P.Size(frame, nil, frame.HeaderHeight + S.size.PAD + heading:GetHeight()
-        + S.size.SECTION + y + S.size.PAD)
+    local function Fit(h)
+        P.Size(host, nil, h)
+        P.Size(frame, nil, frame.HeaderHeight + TOP_PAD + heading:GetHeight()
+            + S.size.SECTION + h + S.size.PAD)
+    end
+    Fit(y)
+
+
+    if owed + othersOwed == 0 then
+        P.AfterLayout(function()
+            if empty:IsShown() then Fit(empty:GetHeight()) end
+        end)
+    end
 
 
     local foci = GetMouseFoci and GetMouseFoci()
@@ -633,8 +717,8 @@ local function UpdateClocks()
     for i, clock in ipairs(clockRows) do
         clock.remaining = fresh[i]
         local text, colour = ClockText(fresh[i])
-        clock.row.right:SetText(text)
-        clock.row.right:SetTextColor(S.Unpack(colour))
+        clock.row.clock:SetText(text)
+        clock.row.clock:SetTextColor(S.Unpack(colour))
     end
 end
 
@@ -650,14 +734,63 @@ end
 
 
 
+
+
+local function MeasureColumns()
+    if not UIParent then return end
+    local scratch = S.Label(UIParent, S.fontSmall)
+    local function Measure(font, text, fallback)
+        scratch:SetFontObject(font)
+        scratch:SetText(text)
+        local w = scratch:GetUnboundedStringWidth()
+        return type(w) == "number" and w > 0 and math.ceil(w) or fallback
+    end
+    NAME_W = Measure(S.fontButton,
+        addon.IsForever and string.rep("x", 7) .. " " .. string.rep("x", 7)
+            or string.rep("x", 12), NAME_W)
+    CLOCK_W = Measure(S.fontNum, addon.Locale.Format(T["%dh%02dm"], 10, 59), CLOCK_W)
+    ITEM_W = S.size.ICON_SM + ICON_GROW + S.size.GAP
+        + Measure(S.fontSmall, string.rep("x", ITEM_LETTERS) .. "...",
+            ITEM_W - (S.size.ICON_SM + ICON_GROW) - S.size.GAP)
+
+
+    local _, fontSize = S.fontSmall:GetFont()
+    local rowH = S.size.BTN_H_SM + 2 * BUTTON_PAD + BELOW_EXTRA
+    FILL_PAD = math.max(math.floor((rowH - (tonumber(fontSize) or 12)) / 2), 2)
+    local textW = Measure(S.fontSmall, T["Trade"], 0)
+    if textW > 0 then TRADE_W = textW + 2 * (S.size.BTN_PAD - 2) end
+    scratch:SetText("")
+    scratch:Hide()
+end
+
+
+
+local function RowWidth()
+    return NAME_W + CLOCK_W + ITEM_W + TRADE_W + 2 * S.size.GAP + TIGHT
+end
+
 local function Build()
+    MeasureColumns()
     frame = S.Window("SimpleLootCouncilTradeQueueFrame", "tradeQueue",
-        WINDOW_W, 420, T["Loot to trade"])
+        RowWidth() + 2 * S.size.PAD, 420, T["Loot to trade"])
     frame:RestorePosition()
 
+    urgentChip = S.Chip(frame.Tag:GetParent(), "", S.color.dangerText,
+        { height = frame.Tag:GetHeight(), font = S.fontBody,
+            padding = frame.TagPadding or 9, square = true, plain = true })
+    urgentChip:SetPoint("RIGHT", frame.Close, "LEFT", -S.size.GAP, 0)
+    urgentChip:Hide()
+    urgentSlot = frame.Badge:GetWidth()
 
 
     local content = frame.Content
+    content:ClearAllPoints()
+    P.Point(content, "TOPLEFT", frame, "TOPLEFT", S.size.PAD, -(frame.HeaderHeight + TOP_PAD))
+    P.Point(content, "BOTTOMRIGHT", frame, "BOTTOMRIGHT", -S.size.PAD, S.size.PAD)
+    content.slcWidth = RowWidth()
+
+
+
     local width = L.WidthOf(content)
 
     heading = S.Heading(content, 0, width, 0, T["Owed"],

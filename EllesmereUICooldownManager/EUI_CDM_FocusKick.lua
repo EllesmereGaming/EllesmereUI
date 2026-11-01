@@ -92,6 +92,9 @@ local function EnsureFocusKickBar()
         -- FocusKick-specific: focus-cast sound trigger
         focusCastSoundKey = "none",
         focusKickInterruptSpellID = nil,
+        -- Sound-only mode: play on every tracked-unit cast, no interrupt or
+        -- cooldown gate, so the bar can stay empty (no icon, kick stays on CDM).
+        focusCastSoundAnyCast = false,
         growDirection = "RIGHT",
     })
     local sd = ns.GetBarSpellData(FOCUSKICK_BAR_KEY)
@@ -352,11 +355,28 @@ local function EnsureFocusCastProxy()
     local unit = GetFocusKickUnit()
     _focusCastProxy:RegisterUnitEvent("UNIT_SPELLCAST_START", unit)
     _focusCastProxy:RegisterUnitEvent("UNIT_SPELLCAST_CHANNEL_START", unit)
-    _focusCastProxy:SetScript("OnEvent", function()
+    _focusCastProxy:SetScript("OnEvent", function(_, _, castUnit)
+        -- Never trust the registration alone: only the tracked unit's own casts
+        -- count, it must exist, and it is never the player (no focus set, or
+        -- focus/target on yourself, must stay silent).
+        local fkUnit = GetFocusKickUnit()
+        if castUnit ~= fkUnit then return end
+        if not UnitExists(fkUnit) or UnitIsUnit(fkUnit, "player") then return end
+        -- Enemies only: a friendly focus (raid member) casts constantly. A secret
+        -- answer (protected content) cannot vouch either way, so it plays rather
+        -- than silencing a real enemy focus.
+        local attackable = UnitCanAttack("player", fkUnit)
+        if not (issecretvalue and issecretvalue(attackable)) and not attackable then return end
         local bd = barDataByKey and barDataByKey[FOCUSKICK_BAR_KEY]
         if not bd then return end
         local soundKey = bd.focusCastSoundKey or "none"
         if soundKey == "none" then return end
+        -- Sound-only mode ("Any Cast"): no interrupt lookup, no cooldown gate.
+        if bd.focusCastSoundAnyCast == true then
+            local anyPath = FOCUSKICK_SOUND_PATHS[soundKey]
+            if anyPath then PlaySoundFile(anyPath, "Master") end
+            return
+        end
         local spellID = bd.focusKickInterruptSpellID
         -- An explicit pick is only trusted while this character can cast it: a stale profile-level
         -- id sails through the cooldown gate below forever (a spell you do not know is never on
@@ -884,7 +904,8 @@ function ns.RefreshFocusKickProxies()
         local sk = bd.focusCastSoundKey
         if sk and sk ~= "none" then
             local pick = bd.focusKickInterruptSpellID
-            soundWanted = (type(pick) == "number" and pick > 0) or hasContent
+            soundWanted = (bd.focusCastSoundAnyCast == true)
+                or (type(pick) == "number" and pick > 0) or hasContent
         end
     end
 

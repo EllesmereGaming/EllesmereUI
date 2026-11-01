@@ -202,6 +202,29 @@ local function ChainPreview(cx)
     end
 end
 
+-- Core Text slot colours by the slot's Text Coloring mode. The preview is a
+-- hostile NPC at the player's level: Hostility / Class shows the Hostile name
+-- colour, Level Difficulty that level's difficulty colour (friendly levels
+-- included, as the player stands in for the mob), Custom the slot colour.
+-- File level, so the custom text popup (DisplayLayout_Options.lua) shares it
+-- without holding a preview build. PV_LVL_COLOR is reused by every level read.
+local PV_LVL_COLOR = { r = 1, g = 1, b = 1 }
+function ns.NPO_PreviewSlotColor(slotKey)
+    local env = ns._NPO_OptEnv
+    local db, defaults = env.DB(), env.defaults
+    local mode = ns.NP_SlotColorMode(slotKey, db)
+    if mode == "class" then
+        return (db and db.enemyNameHostileColor) or defaults.hostile
+    elseif mode == "level" then
+        local r, g, b = EllesmereUI.GetLevelColor("player", UnitEffectiveLevel("player"), true)
+        if r then
+            PV_LVL_COLOR.r, PV_LVL_COLOR.g, PV_LVL_COLOR.b = r, g, b
+            return PV_LVL_COLOR
+        end
+    end
+    return (db and db[slotKey .. "Color"]) or defaults[slotKey .. "Color"]
+end
+
 --- Build the nameplate preview in the content header area: an exact 1:1
 --- replica of a real enemy nameplate (same pixel sizes, anchors, fonts,
 --- borders; no glow, no added effects).
@@ -555,10 +578,23 @@ local function BuildNameplatePreview(parent, parentW)
     pf._totFS = healthTextFrame:CreateFontString(nil, "OVERLAY")
     SetPVFont(pf._totFS, FONT_PATH, 10, GetNPOptOutline())
     pf._totFS:Hide()
+    -- Custom texts: one font string per position, as live, showing the tag samples.
+    pf._customFS = {}
+    for _, key in ipairs(ns.textSlotKeys) do
+        local fs = healthTextFrame:CreateFontString(nil, "OVERLAY")
+        SetPVFont(fs, FONT_PATH, 10, GetNPOptOutline())
+        fs:Hide()
+        pf._customFS[key] = fs
+    end
+    -- Paints a custom text's sample; true when it names the unit (its width then
+    -- ends where the name's would, as live).
+    pf._pvCustom = function(fs, slotKey)
+        local c = ns.NP_CustomCompiled(slotKey, DB())
+        if c then ns.NP_PaintCustom(fs, c, nil, slotKey) else fs:SetText("") end
+        return c and c.has.name
+    end
     pf._totSample = function(slotKey)
-        local name = EllesmereUI.WithSurname(UnitName("player")) or ""
-        if ns.NP_FormatName then name = ns.NP_FormatName(name, slotKey) end
-        return name
+        return ns.NP_FormatName(EllesmereUI.WithSurname(UnitName("player")) or "", slotKey)
     end
     -- Its colour: in Class mode the player's class colour (the sample target),
     -- else the slot colour passed in.
@@ -1172,27 +1208,8 @@ local function BuildNameplatePreview(parent, parentW)
             end
         end
     end
-    -- Core Text slot colours by the slot's Text Coloring mode. The preview is a
-    -- hostile NPC at the player's level: Hostility / Class shows the Hostile name
-    -- colour, Level Difficulty that level's difficulty colour (friendly levels
-    -- included, as the player stands in for the mob), Custom the slot colour.
-    -- lvlColor is reused by every level-mode read.
-    previewGlow.lvlColor = { r = 1, g = 1, b = 1 }
-    previewGlow.slotColor = function(slotKey)
-        local db = DB()
-        local mode = ns.NP_SlotColorMode(slotKey, db)
-        if mode == "class" then
-            return (db and db.enemyNameHostileColor) or defaults.hostile
-        elseif mode == "level" then
-            local r, g, b = EllesmereUI.GetLevelColor("player", UnitEffectiveLevel("player"), true)
-            if r then
-                local c = previewGlow.lvlColor
-                c.r, c.g, c.b = r, g, b
-                return c
-            end
-        end
-        return (db and db[slotKey .. "Color"]) or defaults[slotKey .. "Color"]
-    end
+    -- Core Text slot colours (file level, shared with the custom text popup).
+    previewGlow.slotColor = ns.NPO_PreviewSlotColor
 
     -- Cached position values for the health bar anchor (see health block).
     local _cachedRawBarW, _cachedXOff
@@ -1755,10 +1772,15 @@ local function BuildNameplatePreview(parent, parentW)
         hpNumber:ClearAllPoints()
         lvlText:ClearAllPoints()
         pf._totFS:ClearAllPoints()
+        for _, fs in pairs(pf._customFS) do
+            fs:Hide()
+            fs:ClearAllPoints()
+        end
 
         -- Helper: position a health-related element in a bar slot
         local function PlaceHealthInBar(element, anchor, point, xOff, yOff, fontSize, cr, cg, cb, slotKey)
             yOff = yOff or 0
+            local namesUnit
             local dec = slotKey and DBVal(slotKey .. "PctDecimal") == true
             if element == "healthPercent" or element == "healthPercentNoSign" then
                 SetPVFont(hpText, fontPath, fontSize, npOutline)
@@ -1790,9 +1812,18 @@ local function BuildNameplatePreview(parent, parentW)
                 fs:SetPoint(point, health, anchor, xOff, yOff)
                 fs:SetTextColor(cr, cg, cb, 1)
                 fs:Show()
+            elseif element == "custom" then
+                local fs = pf._customFS[slotKey]
+                SetPVFont(fs, fontPath, fontSize, npOutline)
+                fs:SetParent(healthTextFrame)
+                namesUnit = pf._pvCustom(fs, slotKey)
+                fs:SetPoint(point, health, anchor, xOff, yOff)
+                fs:SetTextColor(cr, cg, cb, 1)
+                fs:Show()
             end
             -- Per-slot Width % + Wrap mirrors runtime. At 100% (default) the FontString stays UNCONSTRAINED (SetWidth 0): a width box on a single-point-anchored FontString ignores SetJustifyH and drifts to centre, so only impose one below 100%.
-            local hfs = (element == "healthNumber") and hpNumber
+            local hfs = (element == "custom") and pf._customFS[slotKey]
+                or (element == "healthNumber") and hpNumber
                 or (element == "level") and lvlText
                 or (element == "targetOfTarget") and pf._totFS or hpText
             -- Bottom slots anchor by a top corner; justify by its side.
@@ -1801,18 +1832,25 @@ local function BuildNameplatePreview(parent, parentW)
             local noClip = slotKey == "textSlotBottomLeft" or slotKey == "textSlotBottomRight"
             local hwpct = (not noClip and slotKey and DBVal(slotKey .. "WidthPct")) or 100
             local hw = 0
-            if hwpct < 100 then hw = barW * hwpct / 100 end
+            if namesUnit and not noClip then
+                -- The bar left by the other bar texts (live: NP_BarRestWidth).
+                hw = math.max((barW - ns.GetHealthBarWidth() + ns.NP_BarRestWidth(slotKey, DB())) * hwpct / 100, 20)
+            elseif hwpct < 100 then
+                hw = barW * hwpct / 100
+            end
             hfs:SetWidth(hw)
             local hwrap = false
             if not noClip and slotKey and DBVal(slotKey .. "Wrap") == true then hwrap = true end
             hfs:SetWordWrap(hwrap)
             hfs:SetMaxLines(hwrap and 2 or 1)
+            if element == "custom" and hw > 0 then ns.ReflowFontString(hfs) end
         end
 
         -- Helper: position a health-related element in the top slot
         local function PlaceHealthOnTop(element, txOff, tyOff, fontSize, cr, cg, cb, slotKey)
             txOff = txOff or 0
             tyOff = tyOff or 0
+            local namesUnit
             local dec = slotKey and DBVal(slotKey .. "PctDecimal") == true
             if element == "healthPercent" or element == "healthPercentNoSign" then
                 SetPVFont(hpText, fontPath, fontSize, npOutline)
@@ -1844,15 +1882,28 @@ local function BuildNameplatePreview(parent, parentW)
                 fs:SetPoint("BOTTOM", health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)
                 fs:SetTextColor(cr, cg, cb, 1)
                 fs:Show()
+            elseif element == "custom" then
+                local fs = pf._customFS[slotKey]
+                SetPVFont(fs, fontPath, fontSize, npOutline)
+                namesUnit = pf._pvCustom(fs, slotKey)
+                fs:SetParent(topTextFrame)
+                fs:SetPoint("BOTTOM", health, "TOP", txOff, 4 + nameYOff + cpPush + tyOff)
+                fs:SetTextColor(cr, cg, cb, 1)
+                fs:Show()
             end
             -- Per-slot Width % + Wrap mirrors runtime. Top slot is centered and stays unconstrained at 100% (see PlaceHealthInBar for why a width box mis-positions the text).
-            local hfs = (element == "healthNumber") and hpNumber
+            local hfs = (element == "custom") and pf._customFS[slotKey]
+                or (element == "healthNumber") and hpNumber
                 or (element == "level") and lvlText
                 or (element == "targetOfTarget") and pf._totFS or hpText
             hfs:SetJustifyH("CENTER")
             local hwpct = (slotKey and DBVal(slotKey .. "WidthPct")) or 100
             local hw = 0
-            if hwpct < 100 then hw = barW * hwpct / 100 end
+            if namesUnit then
+                hw = math.max(barW * hwpct / 100, 20)
+            elseif hwpct < 100 then
+                hw = barW * hwpct / 100
+            end
             hfs:SetWidth(hw)
             local hwrap = false
             if slotKey and DBVal(slotKey .. "Wrap") == true then hwrap = true end
@@ -1914,7 +1965,9 @@ local function BuildNameplatePreview(parent, parentW)
                 for _, info in ipairs(barSlotInfo) do
                     if info.key ~= nameSlotKey then
                         local el = info.slot
-                        if el ~= "none" and not ns.IsNameElement(el) then
+                        if el == "custom" then
+                            usedWidth = usedWidth + ns.NP_CustomWidth(info.key, DB())
+                        elseif el ~= "none" and not ns.IsNameElement(el) then
                             usedWidth = usedWidth + ns.EstimateHealthTextWidth(el)
                         end
                     end
@@ -2015,9 +2068,8 @@ local function BuildNameplatePreview(parent, parentW)
             or (ns.IsNameElement(slotBL) and slotBL)
             or (ns.IsNameElement(slotBR) and slotBR)
             or "enemyName",
-            -- WoW Forever: the slot's Name Format, as live (nil function off Forever).
-            ns.NP_FormatName and ns.NP_FormatName(EllesmereUI.L("Enemy Name Text"), pvNameSlotKey)
-                or EllesmereUI.L("Enemy Name Text"), "player", pvNameSlotKey)
+            -- The slot's Name Format, as live.
+            ns.NP_FormatName(EllesmereUI.L("Enemy Name Text"), pvNameSlotKey), "player", pvNameSlotKey)
         ns.ReflowFontString(nameFS)
         if DBVal("hideEnemyNameWhileCasting") == true then nameFS:Hide() end
         LayoutPreviewNameRaidMarker()
@@ -2148,6 +2200,8 @@ local function BuildNameplatePreview(parent, parentW)
                     anchor = lvlText
                 elseif slotTop == "targetOfTarget" then
                     anchor = pf._totFS
+                elseif slotTop == "custom" then
+                    anchor = pf._customFS.textSlotTop
                 elseif slotTop ~= "none" then
                     anchor = hpText
                 else

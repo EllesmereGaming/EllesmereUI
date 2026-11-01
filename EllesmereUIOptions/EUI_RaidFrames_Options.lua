@@ -775,24 +775,6 @@ initFrame:SetScript("OnEvent", function(self)
     }
     local healthColorOrder = { "class", "classReactive", "dark", "classic", "custom", "customDynamic" }
 
-    local namePositionValues = EllesmereUI.POSITION_GRID_VALUES
-    local namePositionOrder = EllesmereUI.POSITION_GRID_ORDER
-
-    -- Name Position adds "None" (hides the name); Health Text Position reuses these base tables, so keep "None" out of the shared set.
-    local namePositionValuesName = EllesmereUI.POSITION_GRID_VALUES_NONE
-    local namePositionOrderName = { "topleft", "top", "topright", "left", "center", "right", "bottomleft", "bottom", "bottomright", "none" }
-
-    local healthTextValues = {
-        ["none"]          = "None",
-        ["percent"]       = "Percent",
-        ["percentNoSign"] = "Percent (No Sign)",
-        ["number"]        = "Number",
-        ["numberPercent"] = "Number | Percent",
-        ["percentNumber"] = "Percent | Number",
-        ["missing"]       = "Missing Number",
-    }
-    local healthTextOrder = { "none", "percent", "percentNoSign", "number", "numberPercent", "percentNumber", "missing" }
-
     local absorbStyleValues = {
         ["none"]            = "None",
         ["striped"]         = "Striped",
@@ -1572,9 +1554,33 @@ initFrame:SetScript("OnEvent", function(self)
         end)
     end
 
+    -- Textured Background: the Health Bar Fill cog's row, shared with Global
+    -- Settings > Textures. read(key, default) / write(key, value): the page's own
+    -- settings access (the Textures card reads and writes the raid keys).
+    local function TexBgRowCfg(read, write)
+        local function Dark() return read("healthColorMode", "class") == "dark" end
+        return { type="toggle", label="Textured Background",
+            tooltip="Draws the bar texture on the health and power backgrounds too.",
+            disabled=function()
+                if read("healthBarTexture", "atrocity") == "none" then return true end
+                if Dark() then return not ns.RF_TexBgOpaque(nil, true) end
+                return read("healthBarOpacity", 100) < 100
+            end,
+            disabledTooltip=function()
+                if read("healthBarTexture", "atrocity") == "none" then
+                    return "This option requires a Health Bar Texture other than None."
+                end
+                if Dark() then return "This option requires a Dark Mode Fill of 100 (Global Settings > Colors)." end
+                return "This option requires a Fill Opacity of 100."
+            end,
+            get=function() return read("textureBg", false) == true end,
+            set=function(v) write("textureBg", v and true or false) end }
+    end
+
     -- Shared with the page builders under RaidFrames_Options\ (read in their
     -- prologs). Every field is final here: optState holds the mutable state.
     ns._RFO_OptEnv = {
+        TexBgRowCfg = TexBgRowCfg,
         AbbreviateNumbers = AbbreviateNumbers, absorbStyleOrder = absorbStyleOrder,
         absorbStyleValues = absorbStyleValues, allGrowthOrder = allGrowthOrder,
         BuildPreviewModeRow = BuildPreviewModeRow, BuildVisualSections = BuildVisualSections,
@@ -1582,11 +1588,8 @@ initFrame:SetScript("OnEvent", function(self)
         groupGrowthValues = groupGrowthValues, hbtOrder = hbtOrder,
         hbtValues = hbtValues, healAbsorbStyleOrder = healAbsorbStyleOrder,
         healthColorOrder = healthColorOrder, healthColorValues = healthColorValues,
-        healthTextOrder = healthTextOrder, healthTextValues = healthTextValues,
         IsPreviewOff = IsPreviewOff, KeepGrowthPerpendicular = KeepGrowthPerpendicular,
         maxHealthStyleOrder = maxHealthStyleOrder, MissingGlowDesc = MissingGlowDesc,
-        namePositionOrder = namePositionOrder, namePositionOrderName = namePositionOrderName,
-        namePositionValues = namePositionValues, namePositionValuesName = namePositionValuesName,
         optState = optState, PP = PP, ReadGroupGrowth = ReadGroupGrowth,
         ReloadAndUpdate = ReloadAndUpdate, SGet = SGet,
         SGetPx = SGetPx, SSet = SSet, SVal = SVal, SWrite = SWrite,
@@ -1738,6 +1741,14 @@ initFrame:SetScript("OnEvent", function(self)
             -- Mirrors buildPage's root cleanup: fires INSTEAD of buildPage when the target page is already cached.
             -- Without it, switching from Buffs/HoverCast to a cached page never hides ns._bmRoot/ns._ccRoot, which are built onto the shared live scroll frame (not a per-page wrapper) and would stay stuck over the restored page.
             DropManagerRoots(pageName)
+            -- Presets, spec changes and profile switches can alter the text list
+            -- while the page is cached (EUI_RaidFrames_TextDisplay_Options.lua).
+            local textCheck = ns._rfTextChecks and ns._rfTextChecks[pageName]
+            if textCheck and textCheck() then
+                C_Timer.After(0, function()
+                    if RFPageShown(pageName) then EllesmereUI:RefreshPage(true) end
+                end)
+            end
             if pageName == PAGE_MAIN then
                 local mode = db.profile.previewMode or "overlay"
                 -- Skip-restore; see buildPage.

@@ -2263,12 +2263,20 @@ local function _FlushLabelClamps()
         if label and bound and label:IsShown() then
             local truncated = false
             local ll, bl, sw = label:GetLeft(), bound:GetLeft(), label:GetStringWidth()
+            -- A row label menu's arrow (BuildRowLabelMenu) sits right after the text: keep its room too.
+            local arrow = region._labelArrow
+            local reserve = arrow and (6 + arrow:GetWidth()) or 0
             if ll and bl and sw and not (issecretvalue and (issecretvalue(ll) or issecretvalue(bl) or issecretvalue(sw))) then
-                truncated = sw > (bl - 12 - ll) + 0.5
+                truncated = sw + reserve > (bl - 12 - ll) + 0.5
             end
             -- Bound ONLY when overflowing: a right anchor stretches the rect and displaces label-edge-anchored subtitles on short labels.
             if truncated then
-                label:SetPoint("RIGHT", bound, "LEFT", -12, 0)
+                label:SetPoint("RIGHT", bound, "LEFT", -12 - reserve, 0)
+                -- The arrow was placed at the full text width: follow the cut label instead.
+                if arrow then
+                    arrow:ClearAllPoints()
+                    arrow:SetPoint("LEFT", label, "RIGHT", 6, -1)
+                end
             end
             region._labelTruncated = truncated
             if truncated and not region._labelHasHit and not region._labelRevealHit then

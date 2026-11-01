@@ -2537,6 +2537,13 @@ local function UpdateSecondaryResource()
                 nextPip._rechargeBar = sb
                 if nextPip._blizzMask then ns.ERB_MaskPip(nextPip, nextPip._blizzMask) end
             end
+            -- Reused overlays follow orientation changes, as rune recharge fills do.
+            local pipOri = sp.pipOrientation or "HORIZONTAL"
+            if nextPip._rechargeOri ~= pipOri then
+                I.ApplyBarOrientation(nextPip._rechargeBar,
+                    pipOri == "VERTICAL" and "VERTICAL_DOWN" or pipOri)
+                nextPip._rechargeOri = pipOri
+            end
             nextPip._rechargeBar:SetValue(frac)
             -- Partial generator (Evoker/Lock): color the filling pip like the full
             -- ones -- the threshold/band color when it applies to this slot (index

@@ -479,40 +479,8 @@ local function CreatePreviewFrame(index, party)
     local textCarrier = CreateFrame("Frame", nil, f)
     textCarrier:SetAllPoints(health)
     textCarrier:SetFrameLevel(f:GetFrameLevel() + ns.LVL_TEXT)
-
-    -- Name text (anchoring done by ApplyPreviewData on every refresh)
-    local nameFS = textCarrier:CreateFontString(nil, "OVERLAY")
-    ApplyFont(nameFS, s.nameSize or 10)
-    nameFS:SetJustifyH("CENTER")
-    nameFS:SetWordWrap(false)
-    nameFS:SetPoint("CENTER", health, "CENTER", 0, 0)
-
-    -- Health text
-    local healthFS = textCarrier:CreateFontString(nil, "OVERLAY")
-    ApplyFont(healthFS, s.healthTextSize or 9)
-    healthFS:SetJustifyH("CENTER")
-    healthFS:SetPoint("CENTER", health, "CENTER", 0, 0)
-    healthFS:SetTextColor(1, 1, 1, 0.9)
-
-    -- Power text (anchored, sized, coloured and shown by ApplyPreviewData)
-    local powerFS = textCarrier:CreateFontString(nil, "OVERLAY")
-    ApplyFont(powerFS, s.powerTextSize or 8)
-    powerFS:SetWordWrap(false)
-    powerFS:SetTextColor(1, 1, 1, 0.9)
-    powerFS:Hide()
-
-    -- Level text on its own spot (anchored, sized, coloured and shown by ApplyPreviewData)
-    local levelFS = textCarrier:CreateFontString(nil, "OVERLAY")
-    ApplyFont(levelFS, s.levelTextSize or 10)
-    levelFS:SetWordWrap(false)
-    levelFS:Hide()
-
-    -- Heal absorb text (preview)
-    local healAbsorbFS = textCarrier:CreateFontString(nil, "OVERLAY")
-    ApplyFont(healAbsorbFS, s.healAbsorbTextSize or 9)
-    healAbsorbFS:SetWordWrap(false)
-    healAbsorbFS:SetJustifyH("CENTER")
-    healAbsorbFS:SetPoint("CENTER", health, "CENTER", 0, 0)
+    -- The texts are built on it by ApplyPreviewData (ns.RF_TextPreview).
+    f.textCarrier = textCarrier
 
     -- Status text (DEAD / OFFLINE / AFK)
     local statusFS = textCarrier:CreateFontString(nil, "OVERLAY")
@@ -577,14 +545,9 @@ local function CreatePreviewFrame(index, party)
     f._dispelIconTex = dispelIconTex
     f._raidMarker = raidMarker
     f._readyCheck = readyCheck
-    f._nameText = nameFS
     f._topNameBar = tnb
     f._topNameBarBg = tnbBg
     f._topNameBarText = tnbText
-    f._healthText = healthFS
-    f._powerText = powerFS
-    f._levelText = levelFS
-    f._healAbsorbText = healAbsorbFS
     f._statusText = statusFS
     f._roleIcon = roleIcon
     f._leaderIcon = leaderIcon

@@ -1053,7 +1053,15 @@ function ns.ERB_BuildClassResourceSection(parent, y, ctx)
                   local p = DB(); if not p then return end
                   p.secondary.showTextOnlyIfNoPower = v; RebuildClass()
               end },
-            { type = "slider", label = "Size", min = 8, max = 24, step = 1,
+            { type = "toggle", label = "Hide at Zero",
+              tooltip = "Hide the resource text while the resource is at zero.",
+              get = function() local p = DB(); return p and p.secondary.hideTextAtZero end,
+              set = function(v)
+                  local p = DB(); if not p then return end
+                  -- Rebuild: the build path installs or removes the filter.
+                  p.secondary.hideTextAtZero = v; RebuildClass()
+              end },
+            { type = "slider", label = "Size", min = 8, max = 64, step = 1,
               get = function() local p = DB(); return p and p.secondary.textSize or 11 end,
               set = function(v)
                   local p = DB(); if not p then return end

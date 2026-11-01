@@ -351,6 +351,7 @@ local function CreateAbsorbBar(button, healthBar)
         -- is what rotates them.
         healthBar._euiFillOpacity = (vs.healthBarOpacity or 100) / 100
         ns.RF_RefreshBarTints(healthBar)
+        ns.RF_TexBgApply(button, d, healthBar, vs)
         -- Indexed, not ipairs: a nil entry must not end the walk early.
         local axisBars = { backfillBar, forwardBar, healAbsorbBar, healPredBar, reducedBar }
         for i = 1, 5 do

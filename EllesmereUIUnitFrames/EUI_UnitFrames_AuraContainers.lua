@@ -2660,6 +2660,16 @@ end
 -- without the addon ever reading dispel data. The engine shows/hides the slot button;
 -- the overlay is its child. Priority when multiple debuff types are present: fixed
 -- layer order (Magic on top), replacing the old first-by-scan-index behavior.
+--
+-- Two slot sets, one per container. The health bar and its absorb bars sit
+-- inside the frame's bar clip (_barClip, SetClipsChildren), which draws its
+-- whole subtree as one group at its own level: anything outside it covers every
+-- bar inside it, whatever the levels. The overlay set therefore lives under the
+-- health bar, where it sorts below the absorbs. The decoration set (Color
+-- Custom Borders copies, Type Icon) reaches past the health bar and would be
+-- clipped there, so it stays on the unit frame. Each set is built the first
+-- time its feature is on: with the overlay, Color Custom Borders and the Type
+-- Icon all off (the defaults), neither is.
 ------------------------------------------------------------------------------
 
 local DISPEL_SLOTS = {
@@ -2755,7 +2765,9 @@ local function ApplyDispelSlotStyle(button, d, style)
     local health = style.healthFrame
     if not health then return end
 
-    if not d.overlay then
+    -- Overlay set only: the decoration set never draws one. Still created on
+    -- the first run (the creation window) even under Overlay None.
+    if not d.overlay and style.fillSet then
         -- Sublevel 2+level (3..7): higher-priority types get the higher
         -- sublevel, since every slot shares one frame level (see below).
         d.overlay = button:CreateTexture(nil, "ARTWORK", nil, 2 + (style.level or 1))
@@ -2770,26 +2782,31 @@ local function ApplyDispelSlotStyle(button, d, style)
     -- legal); on later restyles the level rarely changes, and a denied
     -- attempt throws so the worker defers this key to the lift re-queue.
     -- The health bar's own level, where the legacy overlay texture lived:
-    -- below the shield and heal-absorb bars at hpBar+1, so fill/full overlays
-    -- never cover them. All slots share this level; the Magic > Curse > ...
-    -- priority is encoded in the overlay's ARTWORK sublevel above.
+    -- over the fill and below the shield and heal-absorb bars at
+    -- hpBar+1, so fill/full overlays never cover them. That order only holds
+    -- for the overlay set, which shares the bar clip with them (see the section
+    -- header). All slots share this level; the Magic > Curse > ... priority is
+    -- encoded in the overlay's ARTWORK sublevel above.
     local lvl = health:GetFrameLevel()
     if d.lvl ~= lvl then
         button:SetFrameLevel(lvl)
         d.lvl = lvl
     end
 
-    tex:ClearAllPoints()
-    if style.mode == "none" then
-        -- Overlay None with Color Custom Borders on: the slots show for the
-        -- border copy alone.
+    if not tex then
+        -- Decoration set: no overlay texture.
+    elseif style.mode == "none" then
+        -- Overlay None; the overlay set's container is hidden then anyway.
+        tex:ClearAllPoints()
         tex:Hide()
     elseif style.mode == "gradient" or style.mode == "gradient_sharp" then
+        tex:ClearAllPoints()
         tex:Show()
         tex:SetAllPoints(health)
         tex:SetTexture(style.mode == "gradient_sharp" and GRADIENT_SHARP_TEXTURE or GRADIENT_TEXTURE)
         tex:SetVertexColor(c.r, c.g, c.b, alpha)
     elseif style.mode == "fill" then
+        tex:ClearAllPoints()
         tex:Show()
         local fillTex = health.GetStatusBarTexture and health:GetStatusBarTexture()
         -- Both corners come off the fill texture so the overlay follows vertical and
@@ -2802,6 +2819,7 @@ local function ApplyDispelSlotStyle(button, d, style)
         tex:SetColorTexture(c.r, c.g, c.b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     else -- "full"
+        tex:ClearAllPoints()
         tex:Show()
         tex:SetAllPoints(health)
         tex:SetColorTexture(c.r, c.g, c.b, alpha)
@@ -2915,8 +2933,9 @@ local function ApplyDispelSlotStyle(button, d, style)
     end
 end
 
-local function DispelStyleKey(slotKey)
-    return "uf:player:dispel:" .. slotKey
+-- `fill` picks the overlay set's key, otherwise the decoration set's.
+local function DispelStyleKey(slotKey, fill)
+    return (fill and "uf:player:dispelfill:" or "uf:player:dispel:") .. slotKey
 end
 
 -- Color Custom Borders is live: the toggle, over a custom border (runtime twin
@@ -2926,12 +2945,13 @@ local function DispelCustomBorderOn(p)
     return p.dispelCustomBorder == true and ns.UF_CustomBorderOn(p.player)
 end
 
--- The slots show while the overlay, Color Custom Borders or the type icon
--- needs them; all off (the default), the container stays hidden and parses
--- nothing.
+-- Returns decoration shown, overlay shown. The decoration set shows while
+-- Color Custom Borders or the type icon needs it, the overlay set while an
+-- overlay mode is picked; off (the default), a container stays hidden and
+-- parses nothing.
 local function DispelSlotsShown(p)
-    return (p.dispelOverlay or "none") ~= "none" or DispelCustomBorderOn(p)
-        or p.showDispelIcons == true
+    return DispelCustomBorderOn(p) or p.showDispelIcons == true,
+        (p.dispelOverlay or "none") ~= "none"
 end
 
 local function BuildDispelStyles(frame)
@@ -2971,63 +2991,63 @@ local function BuildDispelStyles(frame)
         local byMeLive = byMe and not tokenBlind
         local col = p[slot.colorKey]
         local color = { r = col and col.r or slot.fallback[1], g = col and col.g or slot.fallback[2], b = col and col.b or slot.fallback[3] }
-        -- The border copy and the type icon ride the live twin only; the inactive
-        -- one draws nothing.
-        local plainCB, byMeCB
-        if byMeLive then byMeCB = customBorder else plainCB = customBorder end
         local icon = iconCorner and {
             atlas = slot.atlas, corner = iconCorner, size = p.dispelIconSize or 16,
             offX = p.dispelIconOffsetX or 0, offY = p.dispelIconOffsetY or 0,
         } or nil
-        local plainIcon, byMeIcon
-        if byMeLive then byMeIcon = icon else plainIcon = icon end
-        AK.styles[DispelStyleKey(slot.key)] = {
-            width = 1, height = 1,
-            noRegions = true,
-            mode = mode,
-            color = color,
-            opacity = byMeLive and 0 or op,
-            level = slot.level,
-            healthFrame = frame.Health,
-            unitFrame = frame,
-            customBorder = plainCB,
-            ringLift = ringLift,
-            icon = plainIcon,
-            applyExtra = ApplyDispelSlotStyle,
-        }
-        AK.styles[DispelStyleKey(slot.key .. "_byme")] = {
-            width = 1, height = 1,
-            noRegions = true,
-            mode = mode,
-            color = color,
-            opacity = byMeLive and op or 0,
-            level = slot.level,
-            healthFrame = frame.Health,
-            unitFrame = frame,
-            customBorder = byMeCB,
-            ringLift = ringLift,
-            icon = byMeIcon,
-            applyExtra = ApplyDispelSlotStyle,
-        }
+        -- Plain twin, then the by-me twin. The overlay, the border copy and the
+        -- type icon ride the live twin only; the inactive one draws nothing.
+        for t = 1, 2 do
+            local key = (t == 1) and slot.key or (slot.key .. "_byme")
+            local live = (t == 2) == byMeLive
+            AK.styles[DispelStyleKey(key)] = {
+                width = 1, height = 1,
+                noRegions = true,
+                mode = "none",
+                color = color,
+                level = slot.level,
+                healthFrame = frame.Health,
+                unitFrame = frame,
+                customBorder = live and customBorder or nil,
+                ringLift = ringLift,
+                icon = live and icon or nil,
+                applyExtra = ApplyDispelSlotStyle,
+            }
+            AK.styles[DispelStyleKey(key, true)] = {
+                width = 1, height = 1,
+                noRegions = true,
+                fillSet = true,
+                mode = mode,
+                color = color,
+                opacity = live and op or 0,
+                level = slot.level,
+                healthFrame = frame.Health,
+                applyExtra = ApplyDispelSlotStyle,
+            }
+        end
     end
     return DispelSlotsShown(p)
 end
 
-local function CreateDispelSlots(frame, entry)
-    local shown = BuildDispelStyles(frame)
-
-    local container = entry.dispel
+-- One set: the decoration set (fill false) on the unit frame, or the overlay
+-- set (fill true) under the health bar, inside the bar clip with the absorbs
+-- (section header). Built once and kept; `<field>Adds` counts the set's
+-- completed slot declarations, so a resumed build skips what already landed
+-- instead of re-declaring existing slot keys.
+local function CreateDispelSet(frame, entry, fill)
+    local field = fill and "dispelFill" or "dispel"
+    if entry[field .. "Built"] then return end
+    local addsField = field .. "Adds"
+    local container = entry[field]
     if not container then
-        container = AK.CreateContainerShell(frame, {
+        container = AK.CreateContainerShell(fill and frame.Health or frame, {
             point = { "CENTER", frame, "CENTER" },
         })
         -- Stashed BEFORE the slot adds so a watchdog-killed build resumes on
         -- the same container instead of birthing a second one.
-        entry.dispel = container
+        entry[field] = container
     end
 
-    -- `dispelAdds` counts completed slot declarations: a resumed build skips
-    -- what already landed instead of re-declaring existing slot keys.
     local n = 0
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
@@ -3040,38 +3060,47 @@ local function CreateDispelSlots(frame, entry)
             slotButton:SetPoint("CENTER", frame.Health or frame, "CENTER")
         end
         n = n + 1
-        if n > (entry.dispelAdds or 0) then
+        if n > (entry[addsField] or 0) then
             AK.AddSlotToContainer(container, {
                 key = slot.key,
                 filter = { "HARMFUL" },
                 candidateFilters = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } },
-                style = DispelStyleKey(slot.key),
+                style = DispelStyleKey(slot.key, fill),
                 extraInit = ParkSlot,
             })
-            entry.dispelAdds = n
+            entry[addsField] = n
         end
         -- "Only Dispellable by You" variant: identical slot with the engine
         -- by-me filter token added. Declared upfront -- slot filters cannot
         -- change after declaration -- and mutually exclusive with the plain
-        -- slot via style opacity (BuildDispelStyles zeroes the inactive one).
+        -- slot via its style (BuildDispelStyles blanks the inactive one).
         n = n + 1
-        if n > (entry.dispelAdds or 0) then
+        if n > (entry[addsField] or 0) then
             AK.AddSlotToContainer(container, {
                 key = slot.key .. "_byme",
                 filter = { "HARMFUL", "RAID_PLAYER_DISPELLABLE" },
                 candidateFilters = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } },
-                style = DispelStyleKey(slot.key .. "_byme"),
+                style = DispelStyleKey(slot.key .. "_byme", fill),
                 extraInit = ParkSlot,
             })
-            entry.dispelAdds = n
+            entry[addsField] = n
         end
     end
     AK.FinishContainer(container, "player")
-
-    container:SetShown(shown)
+    entry[field .. "Built"] = true
 end
 
-local function DispelFP(p)
+-- Builds a set the first time its feature is on (decorated from the current
+-- styles: callers run BuildDispelStyles first), then shows each built set
+-- only while its feature is on; a hidden container parses nothing.
+local function SyncDispelSets(frame, entry, decorShown, fillShown)
+    if decorShown then CreateDispelSet(frame, entry, false) end
+    if fillShown then CreateDispelSet(frame, entry, true) end
+    if entry.dispel then entry.dispel:SetShown(decorShown and true or false) end
+    if entry.dispelFill then entry.dispelFill:SetShown(fillShown and true or false) end
+end
+
+local function DispelFP(p, frame)
     -- The poison capability is a talent (Poison Cleansing Totem), so it rides
     -- the fingerprint; race can't change mid-session.
     -- Color Custom Borders copies the frame border, so while it is on every input
@@ -3101,23 +3130,35 @@ local function DispelFP(p)
         fp = fp .. "|ti|" .. FP(p.dispelIconPosition, p.dispelIconSize,
             p.dispelIconOffsetX, p.dispelIconOffsetY)
     end
+    -- The health bar's level: the slot buttons copy it only on a restyle, and
+    -- the overlay must stay under the absorbs at hpBar+1.
+    local health = frame and frame.Health
+    if health then
+        fp = fp .. "|hl|" .. health:GetFrameLevel()
+    end
     return fp
 end
 
 local function ReloadDispelSlots(frame, entry)
-    if not entry.dispel then return end
+    -- The build's dispel stage makes the styles; nothing to reload before it.
+    if not entry.dispelDone then return end
     local p = ns.UF_GetProfile and ns.UF_GetProfile()
     if not p then return end
-    local v = DispelFP(p)
+    local v = DispelFP(p, frame)
     if ufFP.dispel ~= v then
         ufFP.dispel = v
         BuildDispelStyles(frame)
         for i = 1, #DISPEL_SLOTS do
-            AK.RestyleSoon(DispelStyleKey(DISPEL_SLOTS[i].key))
-            AK.RestyleSoon(DispelStyleKey(DISPEL_SLOTS[i].key .. "_byme"))
+            local key = DISPEL_SLOTS[i].key
+            AK.RestyleSoon(DispelStyleKey(key))
+            AK.RestyleSoon(DispelStyleKey(key .. "_byme"))
+            AK.RestyleSoon(DispelStyleKey(key, true))
+            AK.RestyleSoon(DispelStyleKey(key .. "_byme", true))
         end
     end
-    entry.dispel:SetShown(DispelSlotsShown(p))
+    -- A set turned on for the first time is built here, from the styles just
+    -- made current.
+    SyncDispelSets(frame, entry, DispelSlotsShown(p))
 end
 
 -- Options-panel poke (via ns.UpdatePlayerDispelOverlay): re-run the
@@ -3282,7 +3323,7 @@ end
 -- watch a pile of game events, Resource Bars ARMS this one-shot throttle at the end of
 -- BuildBars via EllesmereUI.UF_RequestResourceReanchor(). Arming reads no geometry; the
 -- throttle's OnUpdate re-anchors once on the next frame, after the build has settled,
--- then disarms. Mirrors the reloadThrottle pattern in EllesmereUIUnitFrames.lua. Zero cost when idle:
+-- then disarms. Mirrors the reloadThrottle pattern in EUI_UnitFrames_OptionsSetup.lua. Zero cost when idle:
 -- no registered events, and non-bottom-anchored players never arm anything. Per-bar
 -- VISIBILITY modes (combat/target/group alpha) are intentionally NOT handled -- the
 -- footprint (ERB_PlayerStackBars) is predicate-based, so alpha toggles do not move it.
@@ -3334,6 +3375,7 @@ local function RefreshUnit(unitKey)
     if entry.buffs then entry.buffs:UpdateAllAuras() end
     if entry.debuffs then entry.debuffs:UpdateAllAuras() end
     if entry.dispel then entry.dispel:UpdateAllAuras() end
+    if entry.dispelFill then entry.dispelFill:UpdateAllAuras() end
 end
 
 -- Pet swap (a different pet summoned while one is out): the frame stays shown
@@ -3607,17 +3649,19 @@ local function BuildUnitContainers(frame, unit)
         return "again"
     end
 
-    -- Stage 4: player dispel slots (batch-1 slot adds; internally resumable
-    -- via entry.dispel / entry.dispelAdds).
+    -- Stage 4: player dispel styles, and the slot sets whose feature is on
+    -- (batch-1 slot adds; each set resumable via its container and add
+    -- count). A set that is off is built by the reload that first sees it on.
     if unit == "player" and not entry.dispelDone then
-        CreateDispelSlots(frame, entry)
+        local decorShown, fillShown = BuildDispelStyles(frame)
+        SyncDispelSets(frame, entry, decorShown, fillShown)
         entry.dispelDone = true
         -- Prime the dispel fingerprint: creation just applied these exact
         -- settings, so the final-stage reload must not queue a redundant
         -- restyle (harmless noise OOC, but denied button writes when built
         -- under restriction -- the in-instance /reload case).
         local p = ns.UF_GetProfile and ns.UF_GetProfile()
-        if p then ufFP.dispel = DispelFP(p) end
+        if p then ufFP.dispel = DispelFP(p, frame) end
         return "again"
     end
 

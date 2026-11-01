@@ -1152,3 +1152,9 @@ L["your tradeable items"] = "vos objets échangeables"
 L["your view of the run"] = "votre vue de la séance"
 L["your view of the run (alt. sess)"] = "votre vue de la séance (alias sess)"
 L["|cff478cebSimpleLootCouncil|r loaded.  |cff73716C/slc|r for options."] = "|cff478cebSimpleLootCouncil|r chargé.  |cff73716C/slc|r pour les options."
+
+-- == Autoroll and response-button notices, from the Simple Loot Council standalone translations ==
+L["A player who picks this response gets a roll on the council table automatically."] = "Un joueur qui choisit cette réponse obtient automatiquement un jet dans la table du conseil."
+L["Autoroll"] = "Jet automatique"
+L["Response buttons locked while loot session is active"] = "Boutons de réponse verrouillés pendant une séance de butin"
+L["Your untouched response buttons now read in your language. Buttons you renamed, recoloured or added were kept."] = "Vos boutons de réponse inchangés s'affichent désormais dans votre langue. Les boutons que vous avez renommés, recolorés ou ajoutés ont été conservés."

@@ -1144,3 +1144,9 @@ L["you declined to take part in Simple Loot Council for this raid."] = "你拒�
 L["your tradeable items"] = "你的可交易物品"
 L["your view of the run"] = "你所見的分裝狀態"
 L["|cff478cebSimpleLootCouncil|r loaded.  |cff73716C/slc|r for options."] = "|cff478cebSimpleLootCouncil|r 已載入。  輸入 |cff73716C/slc|r 開啟設定。"
+
+-- == Autoroll and response-button notices, from the Simple Loot Council standalone translations ==
+L["A player who picks this response gets a roll on the council table automatically."] = "選擇此回應的玩家會自動在議會表中獲得一次擲骰。"
+L["Autoroll"] = "自動擲骰"
+L["Response buttons locked while loot session is active"] = "分裝進行期間，回應按鈕已鎖定"
+L["Your untouched response buttons now read in your language. Buttons you renamed, recoloured or added were kept."] = "未修改的回應按鈕現已顯示為你的語言。你重新命名、重新著色或新增的按鈕已保留。"

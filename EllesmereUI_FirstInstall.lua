@@ -6,8 +6,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  to keep enabled. Visual style mirrors the Spec Assign popup (dimmer +
 --  dark panel + white border + Check All / Uncheck All links + Done button).
 --
---  Layout: three columns (Core / QoL / UI Reskin), one checkbox per row,
---  groups build down independently.
+--  Layout: one column per group (the sidebar's groups: Core / Secondary /
+--  Utility / UI Enhancements), one checkbox per row, groups build down
+--  independently.
 --
 --  Fires at PLAYER_LOGIN, BEFORE the conflict-check popup (see EllesmereUI.lua
 --  which now gates its conflict check on EllesmereUIDB.firstInstallPopupShown).
@@ -55,11 +56,18 @@ local GROUPS = {
         },
     },
     {
-        header = "QoL Addons",
+        header = "Secondary Addons",
+        entries = {
+            { label = "Mythic+ Tools",       addon = "EllesmereUIMythicTimer" },
+            { label = "Damage Meters",       addon = "EllesmereUIDamageMeters" },
+            { label = "AuraBuff Reminders",  addon = "EllesmereUIAuraBuffReminders" },
+        },
+    },
+    {
+        header = "Utility Addons",
         entries = {
             { label = "Quality of Life",     addon = "EllesmereUIQoL" },
             { label = "Forever Essentials",  addon = "EllesmereUIForeverEssentials" },
-            { label = "AuraBuff Reminders",  addon = "EllesmereUIAuraBuffReminders" },
             { label = "DataBars",            addon = "EllesmereUIDataBars" },
             { label = "Quickdraw",           addon = "EllesmereUIQuickdraw" },
             -- Cursor Circle is a feature inside the QoL addon (cursor.enabled).
@@ -69,15 +77,13 @@ local GROUPS = {
         },
     },
     {
-        header = "UI Reskin Addons",
+        header = "UI Enhancements",
         entries = {
-            { label = "Blizzard Skins+", addon = "EllesmereUIBlizzardSkin" },
-            { label = "Friends List",      addon = "EllesmereUIFriends" },
-            { label = "Damage Meters",     addon = "EllesmereUIDamageMeters" },
+            { label = "Blizzard Skins+",   addon = "EllesmereUIBlizzardSkin" },
             { label = "Chat",              addon = "EllesmereUIChat" },
             { label = "Bags",              addon = "EllesmereUIBags" },
-            { label = "Mythic+ Tools",     addon = "EllesmereUIMythicTimer" },
             { label = "Quest Tracker",     addon = "EllesmereUIQuestTracker" },
+            { label = "Friends List",      addon = "EllesmereUIFriends" },
         },
     },
 }
@@ -147,7 +153,7 @@ local function ShowFirstInstallPopup()
     })
 
     -- Decorative header visual (announcement-popup style): three mini module
-    -- cards echoing the three picker columns below, each with the green top
+    -- cards in the look of the picker columns below, each with the green top
     -- accent and a checked box beside stand-in text lines. The center card is
     -- slightly taller/brighter, matching the sibling popups' motif.
     do
@@ -263,7 +269,7 @@ local function ShowFirstInstallPopup()
     -- Track all checkbox rows for check-all / uncheck-all
     local allRows = {}
 
-    -- Build the three columns
+    -- One column per group
     for colIdx, group in ipairs(GROUPS) do
         local col = CreateFrame("Frame", nil, popup)
         col:SetFrameLevel(popup:GetFrameLevel() + 1)

@@ -1169,3 +1169,9 @@ L["whisper / w [text]"] = "whisper / w [Text]"
 L["you are not in this run - there is nothing to show you."] = "Ihr seid nicht in dieser Runde - es gibt nichts anzuzeigen."
 L["your view of the run"] = "Eure Ansicht der Runde"
 L["your view of the run (alt. sess)"] = "Eure Ansicht der Runde (alt. sess)"
+
+-- == Autoroll and response-button notices, from the Simple Loot Council standalone translations ==
+L["A player who picks this response gets a roll on the council table automatically."] = "Ein Spieler, der diese Antwort wählt, erhält automatisch einen Wurf in der Ratstabelle."
+L["Autoroll"] = "Automatischer Wurf"
+L["Response buttons locked while loot session is active"] = "Antwortschaltflächen gesperrt, solange eine Beutesitzung aktiv ist"
+L["Your untouched response buttons now read in your language. Buttons you renamed, recoloured or added were kept."] = "Eure unveränderten Antwortschaltflächen erscheinen jetzt in Eurer Sprache. Schaltflächen, die Ihr umbenannt, umgefärbt oder hinzugefügt habt, blieben erhalten."

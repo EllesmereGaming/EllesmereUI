@@ -361,21 +361,25 @@ local _snapScratch = {}  -- reused for SnapshotOwnOnRaidBuffs
 SnapshotOwnOnRaidBuffs = function()
     wipe(_preCombatOwnOnRaidCache)
     for _, id in ipairs(_ownOnRaidIDs) do
-        local found = false
-        _snapScratch[1] = id
-        if _unitHasBuffFromPlayer("player", _snapScratch) then found = true end
-        if not found then
-            if IsInRaid() then
-                for i = 1, GetNumGroupMembers() do
-                    if _unitHasBuffFromPlayer("raid"..i, _snapScratch) then found = true; break end
-                end
-            elseif IsInGroup() then
-                for i = 1, GetNumSubgroupMembers() do
-                    if _unitHasBuffFromPlayer("party"..i, _snapScratch) then found = true; break end
+        -- Secret right now (Blistering Scales in a key): no lookup can see it,
+        -- so leave the entry nil (unknown, suppressed) instead of a false miss.
+        if EABR.IsRuntimeNonSecret(id) then
+            local found = false
+            _snapScratch[1] = id
+            if _unitHasBuffFromPlayer("player", _snapScratch) then found = true end
+            if not found then
+                if IsInRaid() then
+                    for i = 1, GetNumGroupMembers() do
+                        if _unitHasBuffFromPlayer("raid"..i, _snapScratch) then found = true; break end
+                    end
+                elseif IsInGroup() then
+                    for i = 1, GetNumSubgroupMembers() do
+                        if _unitHasBuffFromPlayer("party"..i, _snapScratch) then found = true; break end
+                    end
                 end
             end
+            _preCombatOwnOnRaidCache[id] = found
         end
-        _preCombatOwnOnRaidCache[id] = found
     end
 end
 

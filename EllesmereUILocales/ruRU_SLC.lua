@@ -1155,3 +1155,9 @@ L["your tradeable items"] = "ваши предметы для обмена"
 L["your view of the run"] = "ваш вид раздачи"
 L["your view of the run (alt. sess)"] = "ваш вид раздачи (также sess)"
 L["|cff478cebSimpleLootCouncil|r loaded.  |cff73716C/slc|r for options."] = "|cff478cebSimpleLootCouncil|r загружен.  |cff73716C/slc|r - настройки."
+
+-- == Autoroll and response-button notices, from the Simple Loot Council standalone translations ==
+L["A player who picks this response gets a roll on the council table automatically."] = "Игрок, выбравший этот ответ, автоматически получает бросок в таблице совета."
+L["Autoroll"] = "Автобросок"
+L["Response buttons locked while loot session is active"] = "Кнопки ответов заблокированы, пока идет раздача добычи"
+L["Your untouched response buttons now read in your language. Buttons you renamed, recoloured or added were kept."] = "Ваши неизмененные кнопки ответов теперь отображаются на вашем языке. Кнопки, которые вы переименовали, перекрасили или добавили, сохранены."

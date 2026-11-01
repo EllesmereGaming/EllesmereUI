@@ -236,6 +236,7 @@ local DEFAULTS = {
             bgR         = 1, bgG = 1, bgB = 1, bgA = 0.1,
             showText    = true,
             showTextOnlyIfNoPower = false,  -- only show the resource text while the power bar is hidden (see IsPowerBarHidden)
+            hideTextAtZero = false,  -- blank the resource text while the resource reads zero (see ns.ERB_TextIsZero)
             showPercent = false,  -- secondary "Show %": OFF (default) = current / max, ON = percent (Maelstrom/Insanity/Focus/Astral Power bars).
             showMaxStacks = true,
             textSize    = 11,

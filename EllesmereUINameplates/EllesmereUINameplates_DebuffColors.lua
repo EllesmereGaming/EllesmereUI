@@ -113,6 +113,17 @@ function DC.Read(class, get)
     return DC.Parse((get or Value)(DC.Key(class)))
 end
 
+-- What the color goes on: "nameplate" (the health fill, in the bar's texture),
+-- "texture" (the health fill, in debuffColorsTexture), "border" or "name". A
+-- view over debuffColorsMode, which holds only the last two, and the older
+-- debuffColorsBorder (Color Border, else Color Nameplate).
+function DC.Mode(get)
+    get = get or Value
+    local m = get("debuffColorsMode")
+    if m == "texture" or m == "name" then return m end
+    return get("debuffColorsBorder") == true and "border" or "nameplate"
+end
+
 local function Distinct(spells)
     local out, seen = {}, {}
     for _, id in ipairs(spells) do
@@ -186,16 +197,23 @@ local function ReadConfig()
         filterTokens = playerOnly and { "HARMFUL", "PLAYER" } or { "HARMFUL" },
         singles = {}, combos = {},
     }
-    local parts = { tostring(c.enabled), tostring(playerOnly) }
+    local mode = DC.Mode()
+    local parts = { tostring(c.enabled), tostring(playerOnly), mode }
     -- Color Border draws over the plate's border; Color Nameplate tints the
-    -- health fill with the bar's own texture.
-    local colorsBorder = Value("debuffColorsBorder") == true
-    if colorsBorder then
+    -- health fill with the bar's own texture, Texture Nameplate with the one
+    -- picked for it (the bar's until then); Color Name draws the name again.
+    -- channel: the threat color each one gives way to (see Threat).
+    if mode == "border" then
         c.border = BorderSpec()
+        c.channel = "border"
         parts[#parts + 1] = c.border and c.border.key or "noborder"
+    elseif mode == "name" then
+        c.name, c.channel = true, "name"
     else
-        c.texture = EllesmereUI.ResolveTexturePath(ns.healthBarTextures,
-            Value("healthBarTexture"), WHITE)
+        local key = Value("healthBarTexture")
+        if mode == "texture" then key = Value("debuffColorsTexture") or key end
+        c.texture = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, key, WHITE)
+        c.channel = "health"
         parts[#parts + 1] = tostring(c.texture)
     end
     -- Declared bottom to top (a later-declared slot draws on top): the single
@@ -229,7 +247,7 @@ local function ReadConfig()
         end
     end
     -- Color Border on a plate with no border has nothing to show.
-    c.any = (#c.singles > 0 or #c.combos > 0) and (c.border ~= nil or not colorsBorder)
+    c.any = (#c.singles > 0 or #c.combos > 0) and (c.border ~= nil or mode ~= "border")
     c.fingerprint = table.concat(parts, "|")
     return c
 end
@@ -341,11 +359,13 @@ local function Engaged(unit)
 end
 
 -- Shown on an engaged enemy: an assistable unit's debuffs cannot be spell-filtered.
+-- nameGated: Color Name's Missing rows (see NameKit).
 local function SyncGate(kit)
     local open = not UnitCanAssist("player", kit.unit, true, true) and Engaged(kit.unit)
     if open ~= kit.open then
         kit.open = open
         kit.gate:SetShown(open)
+        if kit.nameGated then kit.nameGated:SetShown(open) end
     end
 end
 
@@ -425,6 +445,8 @@ local function ParkSensors(kit)
     end
 end
 
+-- The gate's events only while a Missing row reads it (Color Name binds a kit
+-- for its sensors alone).
 local function BindKit(kit, unit)
     for n = 1, kit.used do
         local s = kit.sensors[n]
@@ -435,9 +457,11 @@ local function BindKit(kit, unit)
     end
     kit.hider:Show()
     kit.unit, kit.open = unit, nil
-    kit.gate:RegisterUnitEvent("UNIT_FLAGS", unit)
-    kit.gate:RegisterUnitEvent("UNIT_THREAT_LIST_UPDATE", unit)
-    SyncGate(kit)
+    if config.anyMissing then
+        kit.gate:RegisterUnitEvent("UNIT_FLAGS", unit)
+        kit.gate:RegisterUnitEvent("UNIT_THREAT_LIST_UPDATE", unit)
+        SyncGate(kit)
+    end
 end
 
 local function ParkKit(kit)
@@ -445,16 +469,21 @@ local function ParkKit(kit)
     kit.gate:UnregisterAllEvents()
     kit.gate:Hide()
     kit.hider:Hide()
+    if kit.nameGated then kit.nameGated:Hide() end
 end
 
 -- A bundle a settings change replaces can never be freed (frames are permanent);
 -- releasing its containers keeps their engine slots out of AuraKit's restyle
 -- registry. Refresh runs this out of combat only.
 local function ReleaseBundle(b)
-    b.holder:Hide()
+    if b.holder then b.holder:Hide() end
     for _, container in ipairs(b.containers) do
         container:SetEnabled(false)
         EllesmereUI.AuraKit.ReleaseContainer(container)
+    end
+    if b.nameKit then
+        b.nameKit.attached = nil
+        b.nameKit.root:Hide()
     end
     if b.kit then ParkKit(b.kit) end
 end
@@ -726,9 +755,202 @@ local function AddComboRun(b, container, key, run)
     end))
 end
 
+-------------------------------------------------------------------------------
+-- Color Name: the plate's name drawn again in the color, over the name. Font
+-- strings take no masks, so each copy sits inside clip frames hung on the
+-- While Missing sensors (one per debuff spell): a clip covers the name while
+-- its sensor's container is SPAN wide (the debuff is up) or, for a Missing
+-- row, while it is a single pixel. A combo nests one clip per debuff, so its
+-- copy shows only while every one is up. These frames are ours: a plate keeps
+-- them across rebuilds and re-points them, and the copies follow the name's
+-- text, font and placement through ns.DebuffColors_NameChanged.
+-------------------------------------------------------------------------------
+local CLIP_REACH = 300  -- above and below a sensor (REACH over the bar): past any name slot
+local CHAIN_STEP = 5    -- frame levels per row (a combo nests up to four clips)
+local nameKits = {}     -- plate -> { root, gated, chains, used, attached }
+
+-- root rides the name's host (MirrorName); gated holds the Missing rows and is
+-- shown with the kit's gate. Born with the aspect: only such frames may anchor
+-- to a container that holds a group, and their clips inherit it.
+local function NameKit(plate, kit)
+    local nk = nameKits[plate]
+    if not nk then
+        local root = CreateFrame("Frame", nil, plate, "DisableUntrustedLayoutScriptsTemplate")
+        root:SetAllPoints(plate.health)
+        root:Hide()
+        local gated = CreateFrame("Frame", nil, root)
+        gated:SetAllPoints(root)
+        nk = { root = root, gated = gated, chains = {}, used = 0 }
+        nameKits[plate] = nk
+    end
+    kit.nameGated = nk.gated
+    nk.gated:SetShown(kit.open == true)
+    return nk
+end
+
+-- Row i's chain: depth clips, each inside the last, the copy in the innermost.
+-- Pooled by index; a row that needs more clips adds them.
+local function Chain(nk, i, depth, parent)
+    local ch = nk.chains[i]
+    if not ch then
+        ch = { clips = {} }
+        nk.chains[i] = ch
+    end
+    local clips = ch.clips
+    for d = 1, depth do
+        local want = (d == 1) and parent or clips[d - 1]
+        local clip = clips[d]
+        if not clip then
+            clip = CreateFrame("Frame", nil, want)
+            clip:SetClipsChildren(true)
+            clips[d] = clip
+        elseif clip:GetParent() ~= want then
+            clip:SetParent(want)
+        end
+        clip:Show()
+    end
+    for d = depth + 1, #clips do clips[d]:Hide() end
+    ch.depth = depth
+    local inner = clips[depth]
+    if not ch.copy then
+        ch.copy = inner:CreateFontString(nil, "OVERLAY")
+    elseif ch.copy:GetParent() ~= inner then
+        ch.copy:SetParent(inner)
+    end
+    return ch
+end
+
+-- A clip open while its debuff is up (the sensor's container SPAN wide), or
+-- for a Missing row while it is absent (a single pixel; the mask's placement).
+local function AnchorClip(clip, sensor, missing)
+    local c = sensor.container
+    clip:ClearAllPoints()
+    if missing then
+        clip:SetPoint("TOPLEFT", c, "TOPRIGHT", 0, CLIP_REACH)
+        clip:SetPoint("BOTTOMLEFT", c, "BOTTOMRIGHT", 0, -CLIP_REACH)
+        clip:SetWidth(SPAN)
+    else
+        clip:SetPoint("TOPLEFT", c, "TOPLEFT", 0, CLIP_REACH)
+        clip:SetPoint("BOTTOMRIGHT", c, "BOTTOMRIGHT", 0, -CLIP_REACH)
+    end
+end
+
+-- A later row draws over an earlier one, every row over the name itself. Each
+-- frame takes the root's strata itself, parents first: on the flattened plate a
+-- frame that only inherits it renders in the plate's own batch, under the name,
+-- and a parent's strata change resets its children's strata and levels.
+local function LevelChains(nk)
+    local strata, base = nk.root:GetFrameStrata(), nk.root:GetFrameLevel()
+    nk.gated:SetFrameStrata(strata)
+    nk.gated:SetFrameLevel(base)
+    for i = 1, nk.used do
+        local ch = nk.chains[i]
+        for d = 1, ch.depth do
+            local clip = ch.clips[d]
+            clip:SetFrameStrata(strata)
+            clip:SetFrameLevel(base + (i - 1) * CHAIN_STEP + d)
+        end
+    end
+end
+
+-- The copies follow the name: its host (and so its strata), its shown state,
+-- font, shadow, justification, wrapping and text. The text may be secret: it
+-- only passes from one font string to the others. shownOnly: just the shown
+-- state (the name hides while casting, a hot path).
+local function MirrorName(plate, shownOnly)
+    local b = bundles[plate]
+    local nk = b and b.nameKit
+    if not nk then return end
+    local name, root = plate.name, nk.root
+    root:SetShown(nk.attached == true and name:IsShown())
+    if shownOnly then return end
+    -- The host's own strata change (SlotTextHost) reaches its children, so the
+    -- strata and levels are set again on every pass.
+    local host = name:GetParent()
+    if root:GetParent() ~= host then root:SetParent(host) end
+    root:SetFrameStrata(host:GetFrameStrata())
+    root:SetFrameLevel(host:GetFrameLevel() + 1)
+    LevelChains(nk)
+    local font, size, flags = name:GetFont()
+    local sr, sg, sb, sa = name:GetShadowColor()
+    local sx, sy = name:GetShadowOffset()
+    local jh, jv = name:GetJustifyH(), name:GetJustifyV()
+    local wrap, nsWrap, lines = name:CanWordWrap(), name:CanNonSpaceWrap(), name:GetMaxLines()
+    local text = name:GetText()
+    for i = 1, nk.used do
+        local fs = nk.chains[i].copy
+        if font then fs:SetFont(font, size, flags or "") end
+        fs:SetShadowColor(sr, sg, sb, sa)
+        fs:SetShadowOffset(sx, sy)
+        fs:SetJustifyH(jh)
+        fs:SetJustifyV(jv)
+        fs:SetWordWrap(wrap)
+        fs:SetNonSpaceWrap(nsWrap)
+        fs:SetMaxLines(lines)
+        fs:SetText(text)
+    end
+end
+
+-- The rows bottom to top, as the tints rank: the single debuffs, then the
+-- combos, then the Missing ones by their sublevel (the first listed on top).
+local function NameEntries(c)
+    local out, missing = {}, {}
+    for _, e in ipairs(c.singles) do
+        if e.missing then
+            missing[#missing + 1] = e
+        else
+            out[#out + 1] = { spells = { e.spell }, color = e.color }
+        end
+    end
+    for _, combo in ipairs(c.combos) do
+        out[#out + 1] = { spells = combo.spells, color = combo.color }
+    end
+    table.sort(missing, function(x, y) return x.sublevel < y.sublevel end)
+    for _, e in ipairs(missing) do
+        out[#out + 1] = { spells = { e.spell }, color = e.color, missing = true }
+    end
+    return out
+end
+
+-- One sensor per debuff spell, shared by every row that names it.
+local function CreateNameBundle(plate)
+    local kit = Kit(plate)
+    -- Nothing of Color Name draws on the kit's host: hide the tints and border
+    -- copies a Missing row left there in another mode, or they show again
+    -- whenever the gate opens for the name's own Missing rows.
+    HideLooks(kit)
+    local nk = NameKit(plate, kit)
+    local b = { config = config, kit = kit, nameKit = nk, containers = {} }
+    kit.used = 0
+    local sensorOf = {}
+    for i, e in ipairs(config.nameEntries) do
+        local ch = Chain(nk, i, #e.spells, e.missing and nk.gated or nk.root)
+        for d, spell in ipairs(e.spells) do
+            local s = sensorOf[spell]
+            if not s then
+                kit.used = kit.used + 1
+                s = PointSensor(kit, kit.used, spell)
+                sensorOf[spell] = s
+            end
+            AnchorClip(ch.clips[d], s, e.missing)
+        end
+        local fs = ch.copy
+        fs:ClearAllPoints()
+        fs:SetAllPoints(plate.name)
+        fs:SetTextColor(e.color.r, e.color.g, e.color.b, 1)
+    end
+    nk.used = #config.nameEntries
+    for i = nk.used + 1, #nk.chains do nk.chains[i].clips[1]:Hide() end
+    ParkSensors(kit)
+    LevelChains(nk)
+    bundles[plate] = b
+    return b
+end
+
 -- The tints share one frame level (the target/focus/hover patterns sit one
 -- level up), so a later-declared slot draws on top: ReadConfig orders them.
 local function CreateBundle(plate)
+    if config.name then return CreateNameBundle(plate) end
     local b = {
         config = config,
         fill = plate.health:GetStatusBarTexture(), mask = plate._absorbMask,
@@ -766,22 +988,74 @@ local function CreateBundle(plate)
     return b
 end
 
+-------------------------------------------------------------------------------
+-- Bad threat: the plate's threat colors as UpdateHealthColor reads them, one
+-- alpha per channel, 1 while nothing is wrong, 0 on bad threat (a non-tank with
+-- or near aggro, a tank without or losing it), or the off-tank fold's secret
+-- answer where only another tank's hold decides. The coloring yields where that
+-- threat color shows under it: the health bar for the tints, the Threat Colors
+-- border for Color Border, their name for Color Name. Kept on the plate (ours)
+-- so a bundle built later takes it; an alpha, not a hide, so the containers
+-- keep their aura data.
+-------------------------------------------------------------------------------
+local function ApplyThreat(b, plate)
+    local a
+    if b.config.channel == "border" then
+        a = plate._dcThreatB
+    elseif b.config.channel == "name" then
+        a = plate._dcThreatN
+    else
+        a = plate._dcThreatH
+    end
+    if type(a) == "nil" then a = 1 end
+    if issecretvalue(a) then
+        b.threatA = nil
+    elseif a == b.threatA then
+        return
+    else
+        b.threatA = a
+    end
+    if b.holder then b.holder:SetAlpha(a) end
+    if b.kit then b.kit.host:SetAlpha(a) end
+    if b.nameKit then b.nameKit.root:SetAlpha(a) end
+end
+
+local function Threat(plate, healthA, borderA, nameA)
+    plate._dcThreatH, plate._dcThreatB, plate._dcThreatN = healthA, borderA, nameA
+    local b = bundles[plate]
+    if b then ApplyThreat(b, plate) end
+end
+
 local function Attach(plate, unit)
     local b = bundles[plate] or CreateBundle(plate)
+    if b.nameKit then
+        BindKit(b.kit, unit)
+        b.nameKit.attached = true
+        MirrorName(plate)
+        ApplyThreat(b, plate)
+        return
+    end
     -- Parent level changes propagate to all descendants. Touch only the ordinary
     -- holder; a nested container inherits its secure AuraButton's restrictions.
     b.level = plate.health:GetFrameLevel()
     b.holder:SetFrameLevel(b.level)
     if b.kit then BindKit(b.kit, unit) end
     BindBundle(b, unit)
+    ApplyThreat(b, plate)
 end
 
 -- Parking is a hide, at once even while a parse is pending; the containers
--- keep their binding (see BindBundle).
+-- keep their binding (see BindBundle). The plate's threat state is the last
+-- unit's: its next one arrives with UpdateHealthColor.
 local function Detach(plate)
+    plate._dcThreatH, plate._dcThreatB, plate._dcThreatN = nil, nil, nil
     local b = bundles[plate]
     if not b then return end
-    b.holder:Hide()
+    if b.holder then b.holder:Hide() end
+    if b.nameKit then
+        b.nameKit.attached = nil
+        b.nameKit.root:Hide()
+    end
     if b.kit then ParkKit(b.kit) end
 end
 
@@ -832,14 +1106,20 @@ function ns.DebuffColors_Refresh()
     end
     if config.enabled and config.any then
         config.comboRuns = GroupComboRuns(config.combos)
+        if config.name then config.nameEntries = NameEntries(config) end
         local AK = EllesmereUI.AuraKit
         AK.styles[STYLE] = AK.styles[STYLE] or { noRegions = true, noTooltips = true }
         ns.DebuffColors_Attach, ns.DebuffColors_Detach = Attach, Detach
+        ns.DebuffColors_Threat = Threat
+        ns.DebuffColors_NameChanged = config.name and MirrorName or nil
         for unit, plate in pairs(ns.plates) do Attach(plate, unit) end
+        -- Every plate's threat state, read again now that the bundles take it.
+        for _, plate in pairs(ns.plates) do plate:UpdateHealthColor() end
     else
         -- Nothing to color: no plate hooks. An enabled config stays as the
         -- applied state the next refresh compares against.
         ns.DebuffColors_Attach, ns.DebuffColors_Detach = nil, nil
+        ns.DebuffColors_Threat, ns.DebuffColors_NameChanged = nil, nil
         if not config.enabled then config = nil end
         if worker then
             worker:UnregisterEvent("PLAYER_REGEN_ENABLED")

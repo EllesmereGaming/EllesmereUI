@@ -35,8 +35,9 @@ local _isTankRole      = false
 -- UnitDetailedThreatSituation(tankToken, mob) (plain tokens in; isTanking
 -- boolean out, plain or secret; field-probed real boolean in keys) folded
 -- through C_CurveUtil.EvaluateColorValueFromBoolean so no secret is ever read
--- in Lua. Returns ok plus possibly-SECRET r,g,b: the caller must hand them to
--- SETTERS ONLY -- never compare, cache, multiply or format them. Tank tokens
+-- in Lua. Returns ok plus possibly-SECRET r,g,b, and a: 1 while another tank
+-- holds the mob, else 0 (the debuff colors' bad-threat alpha). The caller must
+-- hand them to SETTERS ONLY -- never compare, cache, multiply or format them. Tank tokens
 -- rebuild lazily off ns._otherTanksDirty (set by RefreshThreatCache's existing
 -- roster/role/zone events -- zero new registrations; own-group role reads are
 -- plain). On ns (file is at the 200-local cap).
@@ -66,7 +67,7 @@ function ns.ComputeOffTankFold(unit, br, bg, bb, otr, otg, otb)
     if not toks[1] then return false end
     -- All colors arrive from the caller: the _C accessor is declared far BELOW
     -- this function, so resolving colors here read a nil global (field crash).
-    local r, g, b = br, bg, bb
+    local r, g, b, a = br, bg, bb, 0
     if not (r and otr) then return false end
     for i = 1, #toks do
         local isTanking = UnitDetailedThreatSituation(toks[i], unit)
@@ -77,9 +78,10 @@ function ns.ComputeOffTankFold(unit, br, bg, bb, otr, otg, otb)
             r = eval(isTanking, otr, r)
             g = eval(isTanking, otg, g)
             b = eval(isTanking, otb, b)
+            a = eval(isTanking, 1, a)
         end
     end
-    return true, r, g, b
+    return true, r, g, b, a
 end
 
 -- A damage dealer's or healer's threat colors mean something only while someone else can
@@ -462,12 +464,16 @@ ns._npSlotLevelCK = {}  -- parallel: the owning slot's colour key (unreadable-le
 -- either owns one (the cast show / hide re-anchor runs only then), and the slot
 -- showing Target of Target (false = none; its UNIT_TARGET registration follows
 -- it) plus whether that slot is in class mode. _npToTUnits caches "<unit>target".
+-- _npCustomTgt: a custom text reads [target] (UNIT_TARGET follows it too).
+-- _npTgtTexts: either is shown, the one gate of every target-text trigger.
 ns._npBottomFS = { false, false }
 ns._npBottomUsed = false
 ns._npToTSlot = false
 ns._npToTClass = false
 ns._npToTColorKey = nil
 ns._npToTUnits = {}
+ns._npCustomTgt = false
+ns._npTgtTexts = false
 do
     -- The order ApplyHealthTextAppearance lays the slots out in (bar slots, then top):
     -- the last slot writing a shared font string owns it.
@@ -476,8 +482,10 @@ do
     local owner, ownerSlot, lastIdx = {}, {}, {}
     local COLOR_KEY = {}  -- slot -> its colour key (prebuilt for UpdateToT and the painter)
     for i = 1, #SLOTS do COLOR_KEY[SLOTS[i]] = SLOTS[i] .. "Color" end
-    -- The plate font string key an element renders on (nil for None).
-    function ns.NP_ElementFSKey(el)
+    -- The plate font string key an element renders on (nil for None). slot: the slot
+    -- showing it, which picks a custom text's own font string.
+    function ns.NP_ElementFSKey(el, slot)
+        if el == "custom" then return slot and ns.NP_CustomFSKey[slot] end
         if ns.IsNameElement(el) then return "name" end
         if el == "level" then return "levelText" end
         if el == "targetOfTarget" then return "totText" end
@@ -496,13 +504,19 @@ do
         wipe(lastIdx)
         ns._npToTSlot = false
         ns._npToTClass = false
+        ns._npCustomTgt = false
         local B = ns._npBottomFS
         -- The name is placed in FindNameSlot's slot (the first holding one), the
         -- other shared font strings by the last slot writing them.
         local nameSlot = ns.FindNameSlot()
         for i = 1, #SLOTS do
             local s = SLOTS[i]
-            local key = ns.NP_ElementFSKey(GetTextSlot(s))
+            local el = GetTextSlot(s)
+            local key = ns.NP_ElementFSKey(el, s)
+            if el == "custom" and not ns._npCustomTgt then
+                local parsed = ns.NP_CustomParse(s)
+                ns._npCustomTgt = (parsed and parsed.reads.tgt) or false
+            end
             if key == "totText" then
                 -- Painted by UpdateToT from the target's class, never the plate unit's.
                 ns._npToTSlot = s
@@ -522,6 +536,7 @@ do
             end
         end
         ns._npToTColorKey = ns._npToTSlot and COLOR_KEY[ns._npToTSlot] or nil
+        ns._npTgtTexts = (ns._npToTSlot or ns._npCustomTgt) and true or false
         ns._npBottomUsed = (B[1] or B[2]) and true or false
         for key, mode in pairs(owner) do
             if mode == "class" then
@@ -550,7 +565,8 @@ end
 -- slot colours are written statically. Returns true while the name's slot is in either
 -- mode. An inline colour escape in the text (a Level | Name part colour) still wins over
 -- it. skipName leaves the name alone (Threat Colors "Text" holds it) and drops its memo
--- entry, so the first call without it repaints the name.
+-- entry, so the first call without it repaints the name. A custom text's font string
+-- is missing until the plate's next appearance pass builds it: skipped until then.
 function ns.NP_PaintSlotClassColors(plate, unit, skipName)
     local m = plate._scMemo
     if not m then m = {}; plate._scMemo = m end
@@ -581,7 +597,7 @@ function ns.NP_PaintSlotClassColors(plate, unit, skipName)
                     local e = m[key]
                     if e then e[1] = nil end
                     if not (skipName and key == "name") then
-                        plate[key]:SetTextColor(sr, sg, sb, 1)
+                        local fs = plate[key]; if fs then fs:SetTextColor(sr, sg, sb, 1) end
                     end
                 end
             end
@@ -605,7 +621,7 @@ function ns.NP_PaintSlotClassColors(plate, unit, skipName)
                     e[1] = nil
                 elseif e[1] ~= r or e[2] ~= g or e[3] ~= b then
                     e[1], e[2], e[3] = r, g, b
-                    plate[key]:SetTextColor(r, g, b, 1)
+                    local fs = plate[key]; if fs then fs:SetTextColor(r, g, b, 1) end
                 end
             end
         end
@@ -624,11 +640,11 @@ function ns.NP_PaintSlotClassColors(plate, unit, skipName)
                     e[1] = false
                     local ck = ns._npSlotLevelCK[i]
                     local c = (p and p[ck]) or defaults[ck]
-                    plate[key]:SetTextColor(c.r, c.g, c.b, 1)
+                    local fs = plate[key]; if fs then fs:SetTextColor(c.r, c.g, c.b, 1) end
                 end
             elseif e[1] ~= r or e[2] ~= g or e[3] ~= b then
                 e[1], e[2], e[3] = r, g, b
-                plate[key]:SetTextColor(r, g, b, 1)
+                local fs = plate[key]; if fs then fs:SetTextColor(r, g, b, 1) end
             end
         end
     end
@@ -669,7 +685,11 @@ end
 -- must hand them to setters only and never cache or compare them. status: the threat
 -- situation this pass already read (false = no threat data), or nil to read it here; the
 -- nil test reads the type tag only, since the situation read can be secret.
+-- ns._threatOkA: 1 while nothing is wrong, 0 on bad threat (a non-tank with or
+-- near aggro, a tank without or losing it), or the off-tank fold's secret answer;
+-- the debuff colors give way on the border and name channels by it.
 function ns.ResolveThreatColor(unit, status)
+    ns._threatOkA = 1
     if not ns._npThreatColorsOn then return end
     if type(status) == "nil" then status = UnitThreatSituation("player", unit) end
     if not status then return end
@@ -678,9 +698,11 @@ function ns.ResolveThreatColor(unit, status)
         -- Solo with no pet out the player always has aggro: no signal (ThreatShared).
         if not ThreatShared() then return end
         if status >= 3 then
+            ns._threatOkA = 0
             local c = _C("dpsHasAggro")
             return c.r, c.g, c.b, false
         elseif status >= 2 then
+            ns._threatOkA = 0
             local c = _C("dpsNearAggro")
             return c.r, c.g, c.b, false
         end
@@ -710,6 +732,7 @@ function ns.ResolveThreatColor(unit, status)
         return
     end
     if status >= 2 then
+        ns._threatOkA = 0
         local c = _C("tankLosingAggro")
         return c.r, c.g, c.b, false
     end
@@ -730,12 +753,14 @@ function ns.ResolveThreatColor(unit, status)
     end
     if otE and roleSecret then
         local otc = _C("offTankAggro")
-        local folded, fr, fg, fb = ns.ComputeOffTankFold(unit, base.r, base.g, base.b, otc.r, otc.g, otc.b)
+        local folded, fr, fg, fb, fa = ns.ComputeOffTankFold(unit, base.r, base.g, base.b, otc.r, otc.g, otc.b)
         -- Secret when an isTanking read was: those components reach setters only. A
         -- plain fold goes through the caller's memos like any other colour.
         if folded then
+            ns._threatOkA = fa
             return fr, fg, fb, (issecretvalue(fr) or issecretvalue(fg) or issecretvalue(fb))
         end
+        ns._threatOkA = 0
         return base.r, base.g, base.b, false
     end
     if targetRole == "TANK" then
@@ -745,6 +770,7 @@ function ns.ResolveThreatColor(unit, status)
         local c = _C("offTankAggro")
         return c.r, c.g, c.b, false
     end
+    ns._threatOkA = 0
     return base.r, base.g, base.b, false
 end
 local function GetReactionColor(unit)
@@ -765,6 +791,9 @@ local function GetReactionColor(unit)
     -- (false = no threat data), which UpdateHealthColor hands to ns.ResolveThreatColor
     -- instead of a second UnitThreatSituation read.
     ns._reactionThreatStatus = nil
+    -- Same idiom: true when this resolution landed on bad threat (a non-tank with or
+    -- near aggro, a tank without or losing it), where the debuff colors give way.
+    ns._reactionBadThreat = false
     local db = p or defaults
     -- 1. Tapped always highest
     if UnitIsTapDenied(unit) then
@@ -808,10 +837,12 @@ local function GetReactionColor(unit)
                 -- Only in a group or with a pet out (solo without one, the player always has aggro)
                 if threatShared then
                 if status >= 3 then
+                    ns._reactionBadThreat = true
                     local c = _C("dpsHasAggro")
                     return c.r, c.g, c.b
                 elseif status >= 2 then
                     ns._reactionNearAggro = true
+                    ns._reactionBadThreat = true
                     local c = _C("dpsNearAggro")
                     return c.r, c.g, c.b
                 end
@@ -830,6 +861,7 @@ local function GetReactionColor(unit)
                 if otE == nil then otE = defaults.offTankAggroEnabled end
                 if otE then ns._reactionOffTankFold = true end
                 if status < 3 and status >= 2 then
+                    ns._reactionBadThreat = true
                     local c = _C("tankLosingAggro")
                     return c.r, c.g, c.b
                 elseif status < 3 then
@@ -857,6 +889,7 @@ local function GetReactionColor(unit)
                         if otE then ns._reactionOffTankFold = true end
                     end
                     if targetRole ~= "TANK" then
+                        ns._reactionBadThreat = true
                         local c = _C("tankNoAggro")
                         return c.r, c.g, c.b
                     end

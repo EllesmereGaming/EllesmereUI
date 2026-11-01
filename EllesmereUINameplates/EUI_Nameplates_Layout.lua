@@ -743,18 +743,17 @@ do
             fs:SetText(name)
         end
     end
-    -- WoW Forever: the name slot's Name Format (text-slot cog), the first or last word
-    -- of the name; unset shows it whole. Defined only on Forever, so retail's name
-    -- write pays one nil check. Keys prebuilt (no per-update string building); the
-    -- split, its secret pass-through and its bounded cache live in ForeverShortName.
-    if EllesmereUI.IS_FOREVER then
+    -- Name Format (text-slot cog): one word, initials or a Character Count;
+    -- unset shows the name whole. Keys are prebuilt; the split and its cache
+    -- live in EllesmereUI.ShortName.
+    do
         local NAME_FORMAT_KEYS = {
             textSlotTop  = "textSlotTopNameFormat",  textSlotRight  = "textSlotRightNameFormat",
             textSlotLeft = "textSlotLeftNameFormat", textSlotCenter = "textSlotCenterNameFormat",
             textSlotBottomLeft  = "textSlotBottomLeftNameFormat",
             textSlotBottomRight = "textSlotBottomRightNameFormat",
         }
-        local short = EllesmereUI.ForeverShortName
+        local short = EllesmereUI.ShortName
         function ns.NP_FormatName(name, slotKey)
             local key = slotKey and NAME_FORMAT_KEYS[slotKey]
             local mode = key and p and p[key]
@@ -783,6 +782,140 @@ local function EstimateHealthTextWidth(element)
     return (healthTextWidths[element] or 0) + HEALTH_TEXT_PADDING
 end
 ns.EstimateHealthTextWidth = EstimateHealthTextWidth
+
+-- Custom text (element "custom"): any slot may show one, each with its own template
+-- (<slot>CustomFormat) on its own font string (plate[ns.NP_CustomFSKey[slot]]), parsed by
+-- EllesmereUI.TextTags against this binding of the unit schema. Pieces take (unit, slotKey)
+-- and hand values only to format setters: health, absorb and names may be secret. A nil unit
+-- is the options preview (the schema samples). do/end + ns funcs: no new locals (cap).
+do
+    local TT, sf = EllesmereUI.TextTags, string.format
+    local FS_KEY, FORMAT_KEY = {}, {}
+    for i = 1, #textSlotKeys do
+        local s = textSlotKeys[i]
+        FS_KEY[s] = "custom" .. s:sub(9)  -- textSlotTop -> customTop
+        FORMAT_KEY[s] = s .. "CustomFormat"
+    end
+    ns.NP_CustomFSKey = FS_KEY
+    -- The unit's name as the name slot writes it (the slot's Name Format).
+    local function Name(u, slotKey)
+        local name = EllesmereUI.WithSurname(UnitName(u))
+        if type(name) == "nil" then return "" end
+        return ns.NP_FormatName(name, slotKey)
+    end
+    -- Tag modifiers shape the plain name. They do not also apply the slot's Name Format.
+    local function Shaped(mode)
+        return function(u)
+            local name = EllesmereUI.WithSurname(UnitName(u))
+            if type(name) == "nil" then return "" end
+            return EllesmereUI.ShortName(name, mode)
+        end
+    end
+    local function TargetShaped(mode)
+        local piece = Shaped(mode)
+        return function(u)
+            local tu = ns._npToTUnits[u]
+            if not tu then tu = u .. "target"; ns._npToTUnits[u] = tu end
+            if not UnitExists(tu) then return "" end
+            return piece(tu)
+        end
+    end
+    local P = {
+        ["hp"] = function(u)
+            if UnitIsDeadOrGhost(u) then return EllesmereUI.L("DEAD") end
+            return sf("%d", UnitHealth(u) or 0)
+        end,
+        ["hp:abr"] = function(u)
+            if UnitIsDeadOrGhost(u) then return EllesmereUI.L("DEAD") end
+            return ns.AbbreviateNumbers(UnitHealth(u) or 0)
+        end,
+        ["hp:max"] = function(u) return sf("%d", UnitHealthMax(u) or 0) end,
+        ["hp:max:abr"] = function(u) return ns.AbbreviateNumbers(UnitHealthMax(u) or 0) end,
+        ["hp:pct"] = function(u)
+            if UnitIsDeadOrGhost(u) then return "0" end
+            return sf("%d", UnitHealthPercent(u, true, CurveConstants.ScaleTo100) or 0)
+        end,
+        ["absorb"] = function(u) return C_StringUtil.TruncateWhenZero(UnitGetTotalAbsorbs(u) or 0) end,
+        ["absorb:abr"] = function(u) return ns.AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0) end,
+        ["name"] = Name,
+        ["name:first"] = Shaped("first"), ["name:last"] = Shaped("last"), ["name:abbr"] = Shaped("abbr"),
+        ["target"] = function(u, slotKey)
+            local tu = ns._npToTUnits[u]
+            if not tu then tu = u .. "target"; ns._npToTUnits[u] = tu end
+            if not UnitExists(tu) then return "" end
+            return Name(tu, slotKey)
+        end,
+        ["target:first"] = TargetShaped("first"), ["target:last"] = TargetShaped("last"),
+        ["target:abbr"] = TargetShaped("abbr"),
+        ["level"] = function(u) return ns.GetUnitLevelText(u) end,
+    }
+    local CAT = TT.Bind(TT.UNIT, P)
+    ns.NP_TextTags = CAT
+    -- Weak both ways: each value points back at its key (c.parsed), which a weak-key
+    -- table alone would never let go of in Lua 5.1. Plates hold what they paint.
+    local compiled = setmetatable({}, { __mode = "kv" })
+    local args = {}
+    -- A slot's parsed template (nil while empty). db: a profile to read instead of the live one.
+    function ns.NP_CustomParse(slotKey, db)
+        db = db or p
+        return TT.Parse(CAT, db and db[FORMAT_KEY[slotKey]])
+    end
+    -- A slot's compiled template { fmt, n, reads, has, parsed, [i] = piece }, nil while
+    -- empty. Built once per parse result.
+    function ns.NP_CustomCompiled(slotKey, db)
+        local parsed = ns.NP_CustomParse(slotKey, db)
+        if not parsed then return nil end
+        local c = compiled[parsed]
+        if not c then
+            local keys = parsed.keys
+            c = { fmt = parsed.fmt, n = #keys, reads = parsed.reads, has = parsed.has, parsed = parsed }
+            for i = 1, c.n do c[i] = P[keys[i]] end
+            compiled[parsed] = c
+        end
+        return c
+    end
+    -- One SetFormattedText per paint; unit nil paints the schema samples.
+    function ns.NP_PaintCustom(fs, c, unit, slotKey)
+        if not unit then
+            fs:SetText(TT.Preview(CAT, c.parsed))
+            return
+        end
+        local n = c.n
+        for i = 1, n do args[i] = c[i](unit, slotKey) end
+        fs:SetFormattedText(c.fmt, unpack(args, 1, n))
+        -- An empty Top text (no target, no shield) keeps its line: the top aura row
+        -- and the range text anchor to it. GetText reads nil while empty.
+        if slotKey == "textSlotTop" and not fs:GetText() then fs:SetText(" ") end
+    end
+    -- Estimated width of a slot's custom text, 0 while empty. db: as NP_CustomParse.
+    function ns.NP_CustomWidth(slotKey, db)
+        local parsed = ns.NP_CustomParse(slotKey, db)
+        if not parsed then return 0 end
+        return TT.EstimateWidth(CAT, parsed) + HEALTH_TEXT_PADDING
+    end
+    -- The bar width left to a name-like text in a bar slot: the bar minus the estimated
+    -- widths of the other bar slots' texts (a name-family text at the schema's name width).
+    -- db: a profile to read instead of the live one.
+    function ns.NP_BarRestWidth(slotKey, db)
+        db = db or p
+        local w = ns.GetHealthBarWidth()
+        local bar = ns._npBarTextKeys
+        for i = 1, #bar do
+            local key = bar[i]
+            if key ~= slotKey then
+                local el = (db and db[key]) or defaults[key]
+                if el == "custom" then
+                    w = w - ns.NP_CustomWidth(key, db)
+                elseif ns.IsNameElement(el) then
+                    w = w - (TT.UNIT.keys.name.width + HEALTH_TEXT_PADDING)
+                elseif el ~= "none" then
+                    w = w - EstimateHealthTextWidth(el)
+                end
+            end
+        end
+        return w
+    end
+end
 
 local function GetHealthBarWidth()
     local extra = (p and p.healthBarWidth) or defaults.healthBarWidth
@@ -1422,8 +1555,8 @@ end
 -- slots share healthTextFrame. A non-default strata on a non-top slot gets
 -- a lazily-created host so the four slots layer independently; hosts carry
 -- only font strings (no child frames), so SetFrameStrata propagation is not
--- a concern -- except the name raid marker frame, whose caller re-asserts
--- its own strata after parenting.
+-- a concern -- except the name raid marker frame and debuff coloring's Color
+-- Name copies, whose callers re-assert their strata and levels after parenting.
 ns.SlotTextHost = function(self, slotKey, strata)
     if slotKey == "textSlotTop" then
         local f = self.topTextFrame

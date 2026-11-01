@@ -1082,7 +1082,14 @@ local function ShowAfk()
 end
 
 local function Check()
-    if UnitIsAFK("player") and not InCombatLockdown() then
+    local afk = UnitIsAFK("player")
+    -- Secret during the chat messaging lockdown (keys, encounters, /euidev):
+    -- no screen then, and a dismissal still stands once it can be read.
+    if issecretvalue(afk) then
+        HideAfk()
+        return
+    end
+    if afk and not InCombatLockdown() then
         if not dismissed then ShowAfk() end
     else
         dismissed = false

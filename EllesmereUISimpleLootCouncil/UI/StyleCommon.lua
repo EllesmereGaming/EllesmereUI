@@ -522,7 +522,7 @@ function S.InstallWindowTitle(f, key, titleText, mark, badge, tag, squareTag, te
             if squareTag then
                 tag:SetLabel(text)
             else
-                tag:SetChipColor(color or S.color.textMuted)
+                tag:SetChipColor(color or S.color.accent)
                 tag:SetText(text)
             end
             tag:Show()
@@ -736,6 +736,27 @@ function S.InstallWindowGeometry(f, key, header, close)
     end
 
 
+
+    function f:SetSizeFromTopRight(width, height)
+        width, height = P.Snap(width), P.Snap(height)
+        local wasW, wasH = f:GetWidth(), f:GetHeight()
+        local point, relTo, relPoint, x, y = f:GetPoint()
+        if point and wasW and wasH and wasW > 0 and wasH > 0 and f:IsShown()
+            and (width ~= wasW or height ~= wasH) then
+            local left = point:find("RIGHT") and 0 or (point:find("LEFT") and 1 or 0.5)
+            local down = point:find("BOTTOM") and 1 or (point:find("TOP") and 0 or 0.5)
+            f:SetPoint(point, relTo, relPoint, x - (width - wasW) * left,
+                y - (height - wasH) * down)
+            f:SetSize(width, height)
+            P.AlignFrame(f)
+            f:SavePosition()
+            return
+        end
+        f:SetSize(width, height)
+        P.AlignFrame(f)
+    end
+
+
     function f:SetSizeFromTopLeft(width, height)
         width, height = P.Snap(width), P.Snap(height)
         local wasW, wasH = f:GetWidth(), f:GetHeight()
@@ -772,6 +793,14 @@ function S.InstallWindowGeometry(f, key, header, close)
         x = math.max(w / 2, math.min(UIParent:GetWidth() * ratio - w / 2, x))
         y = math.max(h / 2, math.min(UIParent:GetHeight() * ratio - h / 2, y))
         f:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x, y)
+        P.AlignFrame(f)
+    end
+
+
+    function f:PlaceCentredHigh()
+        local scale = S.ScaleNow(f)
+        f:ClearAllPoints()
+        f:SetPoint("CENTER", UIParent, "CENTER", 0, UIParent:GetHeight() * 0.1 / scale)
         P.AlignFrame(f)
     end
 

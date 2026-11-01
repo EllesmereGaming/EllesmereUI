@@ -2162,26 +2162,25 @@ local function PaintFeatured(item)
 end
 
 
-function CM.PaintLive()
-    local state = addon.Session:HasEnded() and "ended"
-        or addon.Session:IsRunning() and "live" or "idle"
-    if CM.liveKey == state then return end
-    CM.liveKey = state
-    local text = state ~= "idle" and (state == "ended" and T["ENDED"] or T["LIVE"]) or nil
-    frame:SetTag(text, state == "ended" and S.color.textMuted or S.color.good)
-end
-
-
 
 
 function CM.ShowCount()
     local chip = CM.countChip
     if not chip then return end
     local text = CM.counts and CM.counts[CM.tab]
-    if text == "" then text = nil end
+
+
+    local response = CM.tab == "response"
+    if text == "" or (response and not CM.active) then text = nil end
+    local gap = response and frame.CloseInset or S.size.GAP
+    if gap and CM.countGap ~= gap then
+        CM.countGap = gap
+        chip:ClearAllPoints()
+        chip:SetPoint("RIGHT", frame.Toggle or frame.Close, "LEFT", -gap, 0)
+    end
     if CM.countText == text then return end
     CM.countText = text
-    if text then chip:SetText(addon.Locale.Upper(text)) end
+    if text then chip:SetText(text) end
     chip:SetShown(text ~= nil)
     P.Size(frame.Badge, math.max(CM.countSlot, text and math.ceil(chip:GetWidth()) or 0), nil)
     if frame.ClampTitle then P.AfterLayout(frame.ClampTitle) end
@@ -2198,7 +2197,6 @@ end
 local function PaintTallies(items, item, full)
     CM.SetCount("council", #items > 0 and addon.Locale.Format(T["%d of %d"],
         math.min(selectedSession, #items), #items) or nil)
-    CM.PaintLive()
 
 
 
@@ -2393,7 +2391,6 @@ end
 
 function MLFrame:UpdateTimer()
     if not frame or not frame:IsShown() then return end
-    CM.PaintLive()
 
     local left = addon.Session:GetTimeLeft()
     local duration = addon.Session:GetTimerDuration()
@@ -2451,6 +2448,9 @@ function CM.Build()
     CM.FULL_H = FULL_RAIL_H + frame.HeaderHeight
     P.Size(frame, nil, CM.FULL_H)
     frame:RestorePosition()
+    if frame.AddToggle then
+        frame:AddToggle(function() MLFrame:SetCompact(not CM.active) end)
+    end
     CM.BuildToast()
     local content = frame.Content
 
@@ -2469,10 +2469,10 @@ function CM.Build()
     timerLabel = S.Label(strip, S.fontHeading, "RIGHT")
     timerLabel:SetPoint("RIGHT", timerText, "LEFT", -6, 0)
 
-    CM.countChip = S.Chip(frame.Tag:GetParent(), "", S.color.textMuted,
-        { height = frame.Tag:GetHeight(), font = S.fontTag,
-            padding = frame.TagPadding or 9, square = true })
-    CM.countChip:SetPoint("RIGHT", frame.Close, "LEFT", -S.size.GAP, 0)
+    CM.countChip = S.Chip(frame.Tag:GetParent(), "", S.color.accent,
+        { height = frame.Tag:GetHeight(), font = S.fontBody,
+            padding = frame.TagPadding or 9, square = true, plain = true })
+    CM.countChip:SetPoint("RIGHT", frame.Toggle or frame.Close, "LEFT", -S.size.GAP, 0)
     CM.countChip:Hide()
     CM.countSlot = frame.Badge:GetWidth()
 
@@ -2707,13 +2707,6 @@ function CM.Build()
     end)
 
 
-    CM.button = S.Button(footer, T["Compact"], { width = 100, labelPad = S.size.BTN_PAD_FOOTER })
-    footer:Add(CM.button, true)
-    CM.button:SetScript("OnClick", function()
-        MLFrame:SetCompact(not CM.active)
-    end)
-
-
 
     menuHint = footer:AddText(S.fontHint)
     menuHint:SetText(T["Right-click a row to award, set a response, or ask for a roll"])
@@ -2752,10 +2745,12 @@ function CM.Build()
 
         if CM.tab == "council" or CM.tab == "queue" then CM.FitWindow() end
 
-        CM.button:SetLabel(CM.active and T["Expand"] or T["Compact"])
-        if CM.responseButton then
-            CM.responseButton:SetLabel(CM.active and T["Expand"] or T["Compact"])
-            if CM.tab == "response" then addon.Callbacks:Invalidate("voter") end
+        if frame.SetToggleState then frame:SetToggleState(CM.active) end
+
+        CM.countText = nil
+        CM.ShowCount()
+        if CM.responseHost and CM.tab == "response" then
+            addon.Callbacks:Invalidate("voter")
         end
         MLFrame:Refresh()
     end
@@ -2768,7 +2763,7 @@ function CM.Build()
         if CM.tabSwitch and frame.SetSizeFromTopLeft then
             frame:SetSizeFromTopLeft(width, CM.Height(CM.active))
         else
-            frame:SetSizeFromBottomRight(width, CM.Height(CM.active))
+            frame:SetSizeFromTopRight(width, CM.Height(CM.active))
         end
 
         content.slcWidth = width - S.size.PAD * 2
@@ -2794,7 +2789,17 @@ function CM.Build()
             and addon.Session:GetRunId() or nil
         if hiddenRun then CM.dismissedRun = hiddenRun end
         addon.AutoClose:AfterHide(function(swept)
-            if not addon.Session:IsRunning() or addon.Session:HasEnded() then return end
+
+            local killQueue = CM.killQueue
+            CM.killQueue = swept and killQueue or nil
+            if not addon.Session:IsRunning() or addon.Session:HasEnded() then
+                if killQueue and swept and not frame:IsShown() and addon.PlayerIsMasterLooter() then
+                    addon.Log:D("UI", "loot queue closed by the game after a kill - reopening")
+                    MLFrame:ShowQueue()
+                end
+                return
+            end
+            CM.killQueue = nil
             if not swept then return end
             if CM.dismissedRun == hiddenRun then CM.dismissedRun = nil end
             if frame:IsShown() then return end
@@ -2873,8 +2878,16 @@ end
 
 
 function CM.Ensure()
-    if not frame and CM.ready then CM.Build() end
-    return frame
+    if not frame and CM.ready and not CM.buildFailed then
+        local ok, err = pcall(CM.Build)
+        if not ok then
+
+            CM.buildFailed = true
+            if frame then frame:Hide() end
+            addon.Log:Bug("UI", "the council window failed to build: " .. tostring(err))
+        end
+    end
+    return not CM.buildFailed and frame or nil
 end
 
 
@@ -2942,19 +2955,11 @@ function CM.PlaceTimer(response)
 end
 
 function CM.BuildResponse(content)
-
     CM.responsePane = CreateFrame("Frame", nil, content)
     CM.responsePane:SetPoint("TOPLEFT", content, "TOPLEFT")
     CM.responsePane:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -S.size.PAD,
         S.size.FOOTER_H)
     CM.responsePane:Hide()
-    CM.responseButton = S.Button(footer, CM.active and T["Expand"] or T["Compact"],
-        { width = 100, labelPad = S.size.BTN_PAD_FOOTER })
-    footer:Add(CM.responseButton, true)
-    CM.responseButton:Hide()
-    CM.responseButton:SetScript("OnClick", function()
-        MLFrame:SetCompact(not CM.active)
-    end)
     CM.responseHost = {
         pane = CM.responsePane,
         IsActive = function() return frame:IsShown() and CM.tab == "response" end,
@@ -2979,9 +2984,9 @@ function CM.BuildResponse(content)
 
 
                 CM.responseSig = sig
-                frame:SetSizeFromBottomRight(w, h)
+                frame:SetSizeFromTopRight(w, h)
             else
-                frame:SetSizeFromBottomRight(w, frame:GetHeight())
+                frame:SetSizeFromTopRight(w, frame:GetHeight())
                 frame:SetHeightFromTop(h)
             end
             content.slcWidth = w - S.size.PAD * 2
@@ -3015,16 +3020,13 @@ function CM.ShowTab(key)
     CM.responsePane:SetShown(response)
 
     endButton:SetShown(council)
-    CM.button:SetShown(not response)
     if not council then
         rollButton:Hide()
         menuHint:Hide()
     end
-    CM.liveKey, CM.countText = nil, nil
-    CM.PaintLive()
+    CM.countText = nil
     CM.ShowCount()
     for _, button in ipairs(CM.queueButtons) do button:SetShown(queue) end
-    CM.responseButton:SetShown(response)
 
     footer:Reflow()
 
@@ -3222,6 +3224,10 @@ function MLFrame:Init()
 
     CM.ready = true
     addon.Log:I("UI", "council frame ready")
+
+    local pending = CM.killPending
+    CM.killPending = nil
+    if pending and GetTime() - pending <= 60 then MLFrame:OpenForKill() end
 end
 
 
@@ -3236,10 +3242,14 @@ end
 
 
 
+
 function MLFrame:OpenForKill()
 
-    if not CM.ready or not addon.PlayerIsMasterLooter() or not CM.Ensure() then return end
-    if frame:IsShown() then return end
+    if not addon.PlayerIsMasterLooter() then return false end
+
+    if not CM.ready then CM.killPending = GetTime() return true end
+    if not CM.Ensure() then return false end
+    if frame:IsShown() then return true end
     if not CM.killOpened then
         CM.killOpened = true
 
@@ -3247,10 +3257,13 @@ function MLFrame:OpenForKill()
     end
     if addon.Session:IsRunning() and not addon.Session:HasEnded() and CM.HasWork() then
         CM.dismissedRun = nil
+        CM.killQueue = nil
         MLFrame:Present()
     else
-        MLFrame:ShowQueue()
+
+        CM.killQueue = MLFrame:ShowQueue() or nil
     end
+    return frame:IsShown()
 end
 
 

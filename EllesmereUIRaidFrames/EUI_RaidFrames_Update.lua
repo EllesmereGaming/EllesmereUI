@@ -41,7 +41,6 @@ local SUMMON_STATUS_ACCEPTED = I.SUMMON_STATUS_ACCEPTED
 local SUMMON_STATUS_DECLINED = I.SUMMON_STATUS_DECLINED
 local SUMMON_STATUS_PENDING, unitToButton = I.SUMMON_STATUS_PENDING, I.unitToButton
 local unitTrackers, GetHealthColor = I.unitTrackers, I.GetHealthColor
-local GetHealthTextColor, GetNameColor = I.GetHealthTextColor, I.GetNameColor
 local GetPowerColor, GetSafeHealthPercent = I.GetPowerColor, I.GetSafeHealthPercent
 local GetTopNameBarColor, ResolveDisplayName = I.GetTopNameBarColor, I.ResolveDisplayName
 local UpdateAbsorb = I.UpdateAbsorb
@@ -534,7 +533,7 @@ ns._PaintPower = function(button, d, s, unit)
                     power:Hide()
                     if d.powerBorderFrame and d.powerBorderFrame._powerArtKey then ns.RF_ClearPowerBorderArt(d.powerBorderFrame) end
                     if d.powerBorderFrame then d.powerBorderFrame:Hide() end
-                    if d._pwtMode then d.powerText:Hide(); d._pwtMode = nil end
+                    ns.RF_TextPowerHide(d)
                     -- Expand health bar to full frame height (minus the Top Name Bar)
                     if d.health then
                         d.health:SetHeight(PixelSnap(frameH - tnbH))
@@ -559,9 +558,8 @@ ns._PaintPower = function(button, d, s, unit)
             local wasShown = power:IsShown()
             power:Show()
             if d.UpdatePowerBorder then d.UpdatePowerBorder() end
-            -- Power Text: shown/hidden (built on first need) by mode ahead of the edge below,
-            -- which colours it. None and never shown = two field reads, no call.
-            if d._pwtMode or s.powerTextMode ~= "none" then ns._RFPowerTextSetup(d, s) end
+            -- Power Texts: shown ahead of the edge below, which colours them.
+            ns.RF_TextPowerShow(d, s)
             local smoothPower = wasShown and s.smoothPowerBars and Enum
                 and Enum.StatusBarInterpolation
                 and Enum.StatusBarInterpolation.ExponentialEaseOut
@@ -578,13 +576,9 @@ ns._PaintPower = function(button, d, s, unit)
             else
                 power:SetValue(ppct)
             end
-            -- Power Text rides the same value; clearing the dead/offline stamp makes the next
-            -- health tick re-check a possibly new occupant.
-            local pwtMode = d._pwtMode
-            if pwtMode then
-                d._pwtGone = nil
-                ns.RF_PowerTextInto(d.powerText, pwtMode, ppct, unit, pType)
-            end
+            -- Power Text rides the same value (RF_TextPowerShow cleared the dead/offline
+            -- stamp, so the next health tick re-checks a possibly new occupant).
+            if d._pwtOn then ns.RF_TextPower(d, unit, ppct, pType, true) end
         end
     end
 end
@@ -599,6 +593,9 @@ ns._RefreshRosterState = function(button, d, s, unit)
     ns._UpdateRoleIcon(d, s, unit)
     ns._UpdateLeaderIcon(d, s, unit)
     ns._PaintPower(button, d, s, unit)
+    -- Custom texts showing [group]: the raid group can change with the occupant staying.
+    local tp = d._txP
+    if tp and tp.reads then ns.RF_TextRepaintCustom(d, unit, "roster") end
 end
 
 -- One button's share of the coalesced roster pass (both roster timers). A paint
@@ -624,28 +621,15 @@ end
 ns._PaintButtonTail = function(button, d, s, unit)
     local EllesmereUI = ns.EllesmereUI  -- upvalue read, not a global read (see the taint note at the top of EllesmereUIRaidFrames.lua)
 
-    -- Name (visibility owned by AnchorNameText, which hides it when the Top Name Bar is enabled)
-    -- Level Position "Attach to Name" (either format) puts the level in front of the name,
-    -- in both name texts.
-    local lvlPos = s.levelTextPosition or ns.RF_LEVEL_DEFAULT
-    local lvlAttach = ns.RF_LEVEL_ATTACH[lvlPos]
-    if d.nameText then
-        if lvlAttach then
-            ns._RFNameWithLevel(d.nameText, ResolveDisplayName(unit, true, s), unit, lvlAttach)
-        else
-            d.nameText:SetText(ResolveDisplayName(unit, true, s))
-        end
-        local nr, ng, nb = GetNameColor(unit, s)
-        d.nameText:SetTextColor(nr, ng, nb)
-    end
-
-    -- Level Text on its own spot, in the name's colour. None or attached, never shown = no call.
-    if d._lvlOn or (lvlPos ~= "none" and not lvlAttach) then
-        ns._RFLevelText(d, s, unit, GetNameColor(unit, s))
-    end
+    -- The texts (name, level, Health, Heal Absorb and Custom Text; Power Text is the
+    -- power paint's). Health, Power and Heal Absorb Text blank while dead or offline (the
+    -- status text shows DEAD/OFFLINE); Custom stays, its tags name the status.
+    ns.RF_TextFull(d, s, unit)
 
     -- Top Name Bar text (unit name + class/custom color); size/anchor/visibility are LayoutTopNameBar's.
+    -- It keeps the level in front of the name as the name does.
     if d.topNameBarText and s.topNameBarEnabled then
+        local lvlAttach = ns.RF_TextNameAttach(s)
         if lvlAttach then
             ns._RFNameWithLevel(d.topNameBarText, ResolveDisplayName(unit, false, s), unit, lvlAttach)
         else
@@ -653,90 +637,6 @@ ns._PaintButtonTail = function(button, d, s, unit)
         end
         local tr, tg, tb = GetTopNameBarColor(unit, s)
         d.topNameBarText:SetTextColor(tr, tg, tb)
-    end
-
-    -- Health text
-    if d.healthText then
-        local mode = s.healthTextMode or "none"
-        -- Hide health %/value while dead/offline (status text shows DEAD/OFFLINE). UnitIsDeadOrGhost
-        -- /UnitIsConnected return clean booleans for group units (only UnitIsAFK can be secret).
-        if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then
-            d.healthText:SetText("")
-        elseif mode == "percent" then
-            local pct = GetSafeHealthPercent(unit)
-            d.healthText:SetFormattedText("%.0f%%", pct)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "percentNoSign" then
-            local pct = GetSafeHealthPercent(unit)
-            d.healthText:SetFormattedText("%.0f", pct)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "number" then
-            local curr = UnitHealth(unit, true)
-            if curr and AbbreviateNumbers then
-                d.healthText:SetText(AbbreviateNumbers(curr))
-            elseif curr then
-                d.healthText:SetFormattedText("%s", curr)
-            end
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "numberPercent" then
-            local curr = UnitHealth(unit, true)
-            local pct = GetSafeHealthPercent(unit)
-            local numStr = (curr and AbbreviateNumbers) and AbbreviateNumbers(curr) or tostring(curr or 0)
-            d.healthText:SetFormattedText("%s | %.0f%%", numStr, pct)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "percentNumber" then
-            local curr = UnitHealth(unit, true)
-            local pct = GetSafeHealthPercent(unit)
-            local numStr = (curr and AbbreviateNumbers) and AbbreviateNumbers(curr) or tostring(curr or 0)
-            d.healthText:SetFormattedText("%.0f%% | %s", pct, numStr)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "missing" then
-            local curr = UnitHealthMissing(unit, true)
-            d.healthText:SetText(C_StringUtil.TruncateWhenZero(curr))
-            if d.healthText:GetText() then
-                if curr and AbbreviateNumbers then
-                    d.healthText:SetText(AbbreviateNumbers(curr))
-                elseif curr then
-                    d.healthText:SetFormattedText("%s", curr)
-                end
-            end
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        else
-            d.healthText:SetText("")
-        end
-    end
-
-    -- Heal absorb text
-    if d.healAbsorbText then
-        if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then
-            d.healAbsorbText:SetText("")
-        else
-            ns.SetHealAbsorbText(d.healAbsorbText, unit, s)
-        end
     end
 
     -- Status text (DEAD / OFFLINE / AFK). The SAME stamped painter as the
@@ -797,25 +697,18 @@ ns._PaintButtonTail = function(button, d, s, unit)
     ns.RF_PaintThreat(d, s, unit)
 end
 
--- UNIT_LEVEL: only the level repaints -- in front of the name (both name texts)
--- or on its own spot, colours untouched; a button whose view shows no level is
--- left alone.
+-- UNIT_LEVEL: only the name and level texts repaint (and the Top Name Bar while it
+-- shows the level); a button whose view shows no level is left alone.
 ns._RFRepaintLevel = function(button)
     local unit = button:GetAttribute("unit")
     if not unit or not UnitExists(unit) then return end
     local d = GetFFD(button)
-    if not d.styled then return end
-    local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
-    local lvlAttach = ns.RF_LEVEL_ATTACH[s.levelTextPosition or ns.RF_LEVEL_DEFAULT]
-    if lvlAttach then
-        if d.nameText then
-            ns._RFNameWithLevel(d.nameText, ResolveDisplayName(unit, true, s), unit, lvlAttach)
-        end
-        if d.topNameBarText and s.topNameBarEnabled then
-            ns._RFNameWithLevel(d.topNameBarText, ResolveDisplayName(unit, false, s), unit, lvlAttach)
-        end
-    elseif d._lvlOn then
-        ns._RFLevelInto(d.levelText, unit)
+    local p = d._txP
+    if not (d.styled and p and p.wantLevel) then return end
+    ns.RF_TextNames(d, unit)
+    local s = d._txS
+    if p.nameAttach and d.topNameBarText and s.topNameBarEnabled then
+        ns._RFNameWithLevel(d.topNameBarText, ResolveDisplayName(unit, false, s), unit, p.nameAttach)
     end
 end
 
@@ -1045,6 +938,9 @@ function ERF:UpdateAllFrames()
     -- Cross-module pushes (Dark Mode master, accent) change paint inputs outside the RF options
     -- funnel: break the same-frame paint-stamp window.
     ns._paintGen = (ns._paintGen or 0) + 1
+    -- Textured Background layers first (a Dark Mode Fill edit can cross 100 with no
+    -- reload): the repaints below paint them.
+    ns.RF_TexBgRecheck()
     UpdateAllButtons()
     -- Party and Boss frames are NOT in `allButtons` (Extra frames ARE, see XF.EnsureBuilt), so
     -- repaint their health too, or Dark Mode / color pushes (ApplyColorsToOUF) miss those frame
@@ -1056,7 +952,7 @@ function ERF:UpdateAllFrames()
                 -- Power Text's accent/power colour moves with these pushes too (raid and extra
                 -- buttons take it from the full paint above): one field read while it is off.
                 local pd = GetFFD(btn)
-                if pd._pwtMode then ns._RFPowerTextColor(pd, u, ns._scaledPartyProxy, GetPowerColor(u)) end
+                if pd._pwtOn then ns.RF_TextPowerColor(pd, u, ns._scaledPartyProxy, GetPowerColor(u)) end
             end
         end
         if ns._xfUnitToButton then
@@ -1332,91 +1228,14 @@ ns._UpdateButtonHealth = function(button, unit)
         end
     end
 
-    -- Health text
-    if d.healthText then
-        local mode = s.healthTextMode or "none"
-        -- Hide health text while dead/offline (see UpdateButton; matches preview).
-        if deadOrGhost or not connected then
-            d.healthText:SetText("")
-        elseif mode == "percent" then
-            d.healthText:SetFormattedText("%.0f%%", pct)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "percentNoSign" then
-            d.healthText:SetFormattedText("%.0f", pct)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "number" then
-            local curr = UnitHealth(unit, true)
-            if curr and AbbreviateNumbers then
-                d.healthText:SetText(AbbreviateNumbers(curr))
-            elseif curr then
-                d.healthText:SetFormattedText("%s", curr)
-            end
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "numberPercent" then
-            local curr = UnitHealth(unit, true)
-            local numStr = (curr and AbbreviateNumbers) and AbbreviateNumbers(curr) or tostring(curr or 0)
-            d.healthText:SetFormattedText("%s | %.0f%%", numStr, pct)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "percentNumber" then
-            local curr = UnitHealth(unit, true)
-            local numStr = (curr and AbbreviateNumbers) and AbbreviateNumbers(curr) or tostring(curr or 0)
-            d.healthText:SetFormattedText("%.0f%% | %s", pct, numStr)
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        elseif mode == "missing" then
-            local curr = UnitHealthMissing(unit, true)
-            d.healthText:SetText(C_StringUtil.TruncateWhenZero(curr))
-            if d.healthText:GetText() then
-                if curr and AbbreviateNumbers then
-                    d.healthText:SetText(AbbreviateNumbers(curr))
-                elseif curr then
-                    d.healthText:SetFormattedText("%s", curr)
-                end
-            end
-            local htr, htg, htb = GetHealthTextColor(unit, s)
-            if d._htR ~= htr or d._htG ~= htg or d._htB ~= htb then
-                d._htR, d._htG, d._htB = htr, htg, htb
-                d.healthText:SetTextColor(htr, htg, htb, 0.9)
-            end
-        else
-            d.healthText:SetText("")
-        end
-    end
-
-    -- Heal absorb text
-    if d.healAbsorbText then
-        if deadOrGhost or not connected then
-            d.healAbsorbText:SetText("")
-        else
-            ns.SetHealAbsorbText(d.healAbsorbText, unit, s)
-        end
-    end
+    -- The texts: Health and Heal Absorb Text, Power Text's dead/offline edge (death
+    -- and resurrection need not move a power value) and the Custom texts reading health.
+    -- One field read while the button's texts have none of them.
+    local tp = d._txP
+    if tp and tp.tick then ns.RF_TextHealth(d, unit, pct, deadOrGhost or not connected) end
 
     -- Status text (dead/ghost state changes with health)
     ns._PaintStatusText(d, s, unit, connected, deadOrGhost)
-
-    -- Power Text blanks and refills on the same dead/offline edge (death and resurrection need
-    -- not move a power value): one field read while it is off.
-    if d._pwtMode then ns._RFPowerTextLife(d, unit, deadOrGhost or not connected) end
 
     -- Background + dead/offline tint. This path owns death/resurrect transitions
     -- arriving via UNIT_HEALTH, so it runs per tick (state-stamped inside).

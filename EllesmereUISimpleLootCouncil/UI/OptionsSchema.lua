@@ -30,24 +30,26 @@ local RUN_EVENTS = { "SessionChanged", "RunStarted", "RunEnded", "RunRecovered" 
 
 
 
-function Schema.LeaderLockReason()
+function Schema.LootMasterLockReason()
     return addon.Locale.Format(
-        T["Set by the group leader while SLC is active. Yours applies when you lead."])
+        T["Set by the Loot Master while SLC is active. Yours applies when you are Loot Master."])
 end
 
+Schema.LeaderLockReason = Schema.LootMasterLockReason
 
-local function LeaderLock(effective)
+
+local function LootMasterLock(effective)
     return function()
-        if not addon.Config:LeaderDictates() then return nil end
-        return effective(), Schema.LeaderLockReason()
+        if not addon.Config:LootMasterDictates() then return nil end
+        return effective(), Schema.LootMasterLockReason()
     end
 end
 
 
-local function OtherLootMaster()
-    return IsInGroup() and addon.Loot.handling and not addon.PlayerIsMasterLooter() and true or false
+local function SectionLock()
+    if not addon.Config:LootMasterDictates() then return nil end
+    return Schema.LootMasterLockReason()
 end
-local MASTER_EVENTS = { "PARTY_LEADER_CHANGED", "HandlingChanged", "LootMasterChanged" }
 
 
 
@@ -115,6 +117,11 @@ local function Responses()
         refreshOn = RUN_EVENTS,
 
         nameLabel = T["Button %d"], addText = T["Add response"],
+        autorollText = T["Autoroll"],
+
+        sessionLocked = function() return addon.Session:IsRunning() end,
+        sessionLockedText = T["Response buttons locked while loot session is active"],
+        autorollHelp = T["A player who picks this response gets a roll on the council table automatically."],
         list = function() return addon.db.responses end,
         entry = function(index) return addon.db.responses[index] end,
 
@@ -159,6 +166,11 @@ local function Responses()
             return true
         end,
 
+        setAutoroll = function(entry, on)
+            entry.autoroll = on and true or nil
+            addon.Council:RequestBroadcast()
+        end,
+
 
         setColour = function(entry, r, g, b)
             entry.r, entry.g, entry.b = r, g, b
@@ -172,17 +184,17 @@ end
 function Schema.CouncilStatusText(state, leader, good, warn)
     local name = leader and Ambiguate(leader, "short")
     if state == "leader" then
-        return addon.Locale.Format(T["%sIn force|r - you lead this group."], good)
+        return addon.Locale.Format(T["%sIn force|r - you are the Loot Master."], good)
     elseif state == "solo" then
         return addon.Locale.Format(T["%sIn force|r - you are not in a group."], good)
     elseif not name then
-        return addon.Locale.Format(T["%sNot in force|r - another player leads this group."], warn)
+        return addon.Locale.Format(T["%sNot in force|r - another player is Loot Master."], warn)
     elseif state == "follower" then
         return addon.Locale.Format(
-            T["%sNot in force|r - %s leads this group, so their council is used."], warn, name)
+            T["%sNot in force|r - %s is Loot Master, so their council is used."], warn, name)
     end
     return addon.Locale.Format(
-        T["%sNot in force|r - %s leads this group, and no council has arrived from them yet."],
+        T["%sNot in force|r - %s is Loot Master, and no council has arrived from them yet."],
         warn, name)
 end
 
@@ -294,9 +306,6 @@ local function Council()
         refreshOn = { "CouncilChanged", "RaidTeamChanged", "GROUP_ROSTER_UPDATE",
             "PARTY_LEADER_CHANGED", "HandlingChanged", "LootMasterChanged" },
 
-
-        locked = OtherLootMaster,
-        lockedText = T["Your loot council may only be edited while you are Loot Master."],
 
         hint = function()
             return addon.IsForever and T["A character name, then Enter."]
@@ -746,8 +755,7 @@ local function Build()
                 end }),
         } },
         { id = "master", title = T["Loot Master"],
-            locked = OtherLootMaster, refreshOn = MASTER_EVENTS,
-            lockedText = T["Your Loot Master settings may only be edited while you are Loot Master."],
+            locked = SectionLock, refreshOn = LOCK_EVENTS,
             rows = {
 
 
@@ -855,9 +863,11 @@ local function Build()
                 setValue = function(value) addon.Style.SetWindowScale(value / 100) end }),
         } },
 
-        { id = "council", title = T["Loot council"], rows = { Council(), CouncilRanks() } },
+        { id = "council", title = T["Loot council"],
+            locked = SectionLock, refreshOn = LOCK_EVENTS, rows = { Council(), CouncilRanks() } },
 
-        { id = "voting", title = T["Council rules"], rows = {
+        { id = "voting", title = T["Council rules"],
+            locked = SectionLock, refreshOn = LOCK_EVENTS, rows = {
 
             SwitchRow("shareCouncilBags", T["View loot in council members' bags"],
                 T["Lists each council member's tradeable loot under their name, after the Loot Master's, in the Loot Queue bags panel. Queue it like your own."],
@@ -868,7 +878,7 @@ local function Build()
                     addon.Callbacks:Fire("BagShareChanged")
                     if v then addon.BagShare:Request() end
                 end,
-                { locked = LeaderLock(function() return addon.Config:CouncilBagsShared() end),
+                { locked = LootMasterLock(function() return addon.Config:CouncilBagsShared() end),
                     refreshOn = LOCK_EVENTS }),
             SwitchRow("hideVotes", T["Hide vote counts until you vote"],
                 T["Display guard only - every client still holds the voter list."],
@@ -877,7 +887,7 @@ local function Build()
                     db().vote.hideVotes = v
                     addon.Council:RequestBroadcast()
                 end,
-                { locked = LeaderLock(function() return addon.Config:Vote().hideVotes end),
+                { locked = LootMasterLock(function() return addon.Config:Vote().hideVotes end),
                     refreshOn = LOCK_EVENTS }),
             Setting({ id = "councilMay", type = "multiselect", text = T["Council Members May Vote For:"],
                 help = T["How council members may vote."],
@@ -892,12 +902,14 @@ local function Build()
                     db().vote[key] = v and true or false
                     addon.Council:RequestBroadcast()
                 end,
-                locked = LeaderLock(function() return true end),
+                locked = LootMasterLock(function() return true end),
                 lockedValue = function(key) return addon.Config:Vote()[key] and true or false end,
                 refreshOn = LOCK_EVENTS }),
 
             Setting({ id = "councilQueue", type = "multiselect", exclusive = true,
                 text = T["Council members can manage the loot queue"],
+
+                euiText = T["Council can manage queue"],
                 help = T["Whether council members may queue loot and start sessions from the Loot queue tab."],
                 items = {
                     { key = "off", text = T["Disabled"],
@@ -914,7 +926,7 @@ local function Build()
                     addon.Council:RequestBroadcast()
                     if addon.StartRequest then addon.StartRequest:Refresh() end
                 end,
-                locked = LeaderLock(function() return true end),
+                locked = LootMasterLock(function() return true end),
                 lockedValue = function(key) return addon.Config:CouncilQueueMode() == key end,
                 refreshOn = LOCK_EVENTS }),
         } },

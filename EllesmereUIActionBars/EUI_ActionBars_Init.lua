@@ -34,6 +34,7 @@ function EAB:OnInitialize()
         or (rawDB.profiles and not next(rawDB.profiles))
 
     self.db = EllesmereUI.Lite.NewDB("EllesmereUIActionBarsDB", defaults, true)
+    self:RefreshCustomFadeGate()
 
     -- Copy the main bar's Masque setting to the stance bar for older profiles.
     self.db.profile.bars.StanceBar.masqueEnabled = self.db.profile.bars.MainBar.masqueEnabled == true
@@ -67,6 +68,7 @@ function EAB:OnInitialize()
 
     _G._EAB_ApplyKeyDown = function() ApplyKeyDownCVar() end
     _G._EAB_Apply = function()
+        EAB:RefreshCustomFadeGate()
         -- Re-point the exposed barPositions view at the active profile's table.
         -- Profile swaps replace db.profile wholesale and the unlock system reads
         -- saved growth edges / follow baselines through this reference; a stale

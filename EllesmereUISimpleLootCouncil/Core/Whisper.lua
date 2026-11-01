@@ -248,6 +248,26 @@ local ticker
 local SPACING = 0.7
 local lastSent = 0
 
+
+
+
+local OUTBOX_MAX = 40
+local WAITING_MAX = 5
+local waiting = {}
+
+local HELP_COOLDOWN = 60
+local helpAt = {}
+
+
+local function Admit()
+    while waiting[1] and (#outbox == 0 or #outbox + #waiting[1].lines <= OUTBOX_MAX) do
+        local guide = table.remove(waiting, 1)
+        for _, text in ipairs(guide.lines) do
+            outbox[#outbox + 1] = { to = guide.to, text = text, guide = guide }
+        end
+    end
+end
+
 local function Pump()
     local entry = table.remove(outbox, 1)
     if not entry then
@@ -258,35 +278,39 @@ local function Pump()
         return
     end
 
+    if entry.guide then entry.guide.started = true end
     C_ChatInfo.SendChatMessage(entry.text, "WHISPER", nil, addon.Player:WhisperTarget(entry.to))
     lastSent = GetTime()
+    Admit()
 end
 
 
-
-
-local OUTBOX_MAX = 40
-
-
-local HELP_COOLDOWN = 60
-local helpAt = {}
-
-
-local function DropNewestGuide()
-    local to
+local function RequeueNewestGuide()
+    local guide
     for i = #outbox, 1, -1 do
-        if outbox[i].help then
-            to = outbox[i].to
+        local queued = outbox[i].guide
+        if queued and not queued.started then
+            guide = queued
             break
         end
     end
-    if not to then return false end
+    if not guide then return false end
     for i = #outbox, 1, -1 do
-        if outbox[i].help and outbox[i].to == to then table.remove(outbox, i) end
+        if outbox[i].guide == guide then table.remove(outbox, i) end
     end
-    helpAt[to] = nil
-    addon.Log:D("Whisper", "outbox full, guide for", to, "dropped to make room for replies")
+    table.insert(waiting, 1, guide)
+    addon.Log:D("Whisper", "outbox full, guide for", guide.to, "waits to make room for replies")
     return true
+end
+
+local function GuideQueued(to)
+    for _, guide in ipairs(waiting) do
+        if guide.to == to then return true end
+    end
+    for _, queued in ipairs(outbox) do
+        if queued.guide and queued.to == to then return true end
+    end
+    return false
 end
 
 local function Say(to, lines, help)
@@ -294,26 +318,31 @@ local function Say(to, lines, help)
     if type(lines) == "string" then lines = { lines } end
 
     if help then
-        for _, queued in ipairs(outbox) do
-            if queued.help and queued.to == to then
-                addon.Log:D("Whisper", "guide already queued for", to)
-                return
-            end
+        if GuideQueued(to) then
+            addon.Log:D("Whisper", "guide already queued for", to)
+            return
         end
-    end
-
-    for _, line in ipairs(lines) do
-        if line and line ~= "" then
-            if #outbox >= OUTBOX_MAX and (help or not DropNewestGuide()) then
-                addon.Log:D("Whisper", "outbox full, dropping a reply to", to)
-                break
-            end
-            if help then
-                outbox[#outbox + 1] = { to = to, text = line, help = true }
-            else
+        if #waiting >= WAITING_MAX then
+            helpAt[to] = nil
+            addon.Log:D("Whisper", "guides waiting full, dropping the guide for", to)
+            return
+        end
+        local guide = { to = to, lines = {} }
+        for _, line in ipairs(lines) do
+            if line and line ~= "" then guide.lines[#guide.lines + 1] = line end
+        end
+        waiting[#waiting + 1] = guide
+        Admit()
+    else
+        for _, line in ipairs(lines) do
+            if line and line ~= "" then
+                if #outbox >= OUTBOX_MAX and not RequeueNewestGuide() then
+                    addon.Log:D("Whisper", "outbox full, dropping a reply to", to)
+                    break
+                end
                 local at = #outbox + 1
                 for i, queued in ipairs(outbox) do
-                    if queued.help then
+                    if queued.guide then
                         at = i
                         break
                     end
@@ -449,13 +478,15 @@ end
 
 
 
-local asking, promptFor, promptFrame, promptAccept = {}, nil, nil, nil
+local asking, promptFor, retrying = {}, nil, false
 local ASK_MAX = 5
+local RETRY = 0.5
+
+
 
 local function PromptOpen()
-    if promptFor and promptFrame and promptFrame:IsShown() and promptFrame.onAccept == promptAccept then
-        return true
-    end
+    local S = addon.Style
+    if promptFor and S and S.ConfirmBusy and S.ConfirmBusy() then return true end
     promptFor = nil
     return false
 end
@@ -475,27 +506,34 @@ function Whisper:SendRaidGuide() return SendGuide(nil, true) end
 
 local function ShowPrompt()
     local S = addon.Style
-    if PromptOpen() or not S or not S.Confirm then return end
+    if PromptOpen() or not S or not S.Confirm or not asking[1] then return end
+
+    if S.ConfirmBusy and S.ConfirmBusy() then
+        if not retrying then
+            retrying = true
+            C_Timer.After(RETRY, function()
+                retrying = false
+                ShowPrompt()
+            end)
+        end
+        return
+    end
     local who = table.remove(asking, 1)
-    if not who then return end
     promptFor = who
-    promptAccept = function() Whisper:SendRaidGuide() end
-    promptFrame = S.Confirm({
+
+    S.Confirm({
         title = T["Response guide"],
         body = addon.Locale.Format(T["%s asked for the response guide."], Ambiguate(who, "short")),
-        accept = T["Send to raid"], onAccept = promptAccept,
+        accept = T["Send to raid"], onAccept = function() Whisper:SendRaidGuide() end,
         alternate = T["Send as whisper"], onAlternate = function() SendGuide(who, false) end,
         cancel = T["Decline"], neutral = true,
+        onClose = function(how)
+            if promptFor == who then promptFor = nil end
+
+            if how == "replaced" then table.insert(asking, 1, who) end
+            C_Timer.After(0, ShowPrompt)
+        end,
     })
-    if not promptFrame.slcGuideHook then
-        promptFrame.slcGuideHook = true
-        promptFrame:HookScript("OnHide", function()
-            if promptFor then
-                promptFor = nil
-                C_Timer.After(0, ShowPrompt)
-            end
-        end)
-    end
 end
 
 local function AskGuide(who)
@@ -643,6 +681,9 @@ local function Handle(text, sender)
     local parsed = Whisper.Parse(text, Whisper.BuildKeys(addon.Config:Responses()))
     if not parsed then return end
 
+
+    if not addon.Session:IsRunning() then return end
+
     if parsed.kind == "help" then
         local last = helpAt[who]
         if last and GetTime() - last < HELP_COOLDOWN then
@@ -656,14 +697,6 @@ local function Handle(text, sender)
 
     if parsed.quiet then
         addon.Log:D("Whisper", "bare number and unknown word from", who, "- read as chat")
-        return
-    end
-
-
-    if not addon.Session:IsRunning() then
-        if (parsed.link or parsed.session) and CanReply(who) then
-            Say(who, T["No loot session is running. I have not recorded that."])
-        end
         return
     end
 
@@ -720,6 +753,10 @@ function Whisper:Describe(text)
         return { T["ignored - not an attempt at a command, so no reply is sent."] }
     end
 
+    if not addon.Session:IsRunning() then
+        return { T["no run is active, and no item was named - silent."] }
+    end
+
     if parsed.kind == "help" then
         local lines = { T["would ask whether to send the guide to the raid or by whisper:"] }
         for _, line in ipairs(Whisper:HelpLines()) do
@@ -733,12 +770,6 @@ function Whisper:Describe(text)
             tostring(parsed.word)) }
     end
 
-    if not addon.Session:IsRunning() then
-        if parsed.link or parsed.session then
-            return { T["no run is active - would reply that nothing was recorded."] }
-        end
-        return { T["no run is active, and no item was named - silent."] }
-    end
 
     if parsed.kind == "unknown" then
 

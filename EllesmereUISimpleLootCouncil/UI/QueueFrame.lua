@@ -28,6 +28,8 @@ local bagCache, bagCacheAt
 local ownScan
 
 local ROW_HEIGHT = 32
+
+local FILL_PAD = 4
 local BAG_ROW_HEIGHT = 28
 local BAG_HEADER_HEIGHT = 24
 
@@ -49,7 +51,7 @@ local function GetRow(index)
     row.remove = S.Button(row, "", {
         width = S.size.BTN_W_SM, compact = true, glyph = "close",
     })
-    P.Point(row.remove, "RIGHT", row, "RIGHT", -2, 0)
+    P.Point(row.remove, "RIGHT", row, "RIGHT", -FILL_PAD, 0)
     row:AdoptHover(row.remove)
 
 
@@ -57,6 +59,16 @@ local function GetRow(index)
     row.ordinal:SetTextColor(S.Unpack(S.color.textMuted))
     P.Point(row.ordinal, "LEFT", row, "LEFT", S.size.ROW_PAD, 0)
     P.Size(row.ordinal, 22, ROW_HEIGHT)
+
+
+
+    for _, fill in ipairs({ row.Hover, row.Stripe or false }) do
+        if type(fill) == "table" then
+            fill:ClearAllPoints()
+            P.Point(fill, "TOPLEFT", row, "TOPLEFT", S.size.ROW_PAD - FILL_PAD, 0)
+            P.Point(fill, "BOTTOMRIGHT", row, "BOTTOMRIGHT", 0, 0)
+        end
+    end
 
     row.icon = S.ItemIcon(row, 28)
     P.Point(row.icon, "LEFT", row.ordinal, "RIGHT", S.size.ITEM_GAP, 0)

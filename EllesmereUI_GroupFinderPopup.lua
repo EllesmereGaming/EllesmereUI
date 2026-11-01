@@ -257,7 +257,7 @@ local function ShowGroupFinderPopup()
         ReleaseConflictCheck()
         if not act then return end
         if InCombatLockdown() then
-            EllesmereUI.PrintError(EllesmereUI.L("Cannot open options during combat. Group Finder is under UI Reskin Addons in /eui."))
+            EllesmereUI.PrintError(EllesmereUI.L("Cannot open options during combat. Group Finder is under UI Enhancements in /eui."))
             return
         end
         -- Carries the options first-open split, so the page still lands when
@@ -285,8 +285,8 @@ local function ShowGroupFinderPopup()
     footnote:SetWidth(POPUP_W - 90)
     footnote:SetJustifyH("CENTER")
     PP.Point(footnote, "BOTTOM", popup, "BOTTOM", 0, 16)
-    footnote:SetText(isOn and EllesmereUI.L("Group Finder is under UI Reskin Addons in /eui.")
-        or EllesmereUI.L("Turning it on reloads your UI. Group Finder is under UI Reskin Addons in /eui."))
+    footnote:SetText(isOn and EllesmereUI.L("Group Finder is under UI Enhancements in /eui.")
+        or EllesmereUI.L("Turning it on reloads your UI. Group Finder is under UI Enhancements in /eui."))
 
     -- Height from the laid-out text: header art and eyebrow (112), eyebrow,
     -- title and description with their gaps, the bullets, then the buttons and

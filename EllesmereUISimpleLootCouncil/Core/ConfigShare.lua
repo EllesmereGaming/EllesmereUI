@@ -63,6 +63,7 @@ local function ResponsesPart()
         out[index] = {
             id = entry.id, t = entry.text,
             r = entry.r, g = entry.g, b = entry.b,
+            a = entry.autoroll and true or nil,
         }
     end
     return out
@@ -161,7 +162,7 @@ local function ParseResponses(part)
         if text and r and g and b then
             out[#out + 1] = {
                 id = Text(entry.id), text = text,
-                r = r, g = g, b = b,
+                r = r, g = g, b = b, autoroll = entry.a == true or nil,
             }
         end
     end
@@ -283,7 +284,7 @@ local function ApplyResponses(list)
         out[index] = {
             id = entry.id or ("CUSTOM" .. index), text = entry.text,
             r = entry.r, g = entry.g, b = entry.b,
-            sort = index,
+            sort = index, autoroll = entry.autoroll,
         }
     end
     addon.db.responses = out

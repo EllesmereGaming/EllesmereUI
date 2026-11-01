@@ -70,7 +70,7 @@ end
 
 function BonusRoll.ItemStringOf(link)
     if type(link) ~= "string" or #link > MAX_LINK then return nil end
-    local itemString = link:match("|H(item:[^|]*)") or link:match("^item:[%-%d:]*$")
+    local itemString = link:match("|H(item:[^|]*)") or link:match("^item:[^|]*$")
     local id = itemString and tonumber(itemString:match("^item:(%d+)"))
     if not id or id <= 0 then return nil end
     return itemString

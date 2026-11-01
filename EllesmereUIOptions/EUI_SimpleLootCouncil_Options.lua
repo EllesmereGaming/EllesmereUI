@@ -186,8 +186,19 @@ initFrame:SetScript("OnEvent", function(self)
         target.rawTooltip = true
         return target
     end
+
+
+
+    local function RowLabel(row)
+        if row.id == "councilQueue" then
+
+            if row.euiText then return EllesmereUI.L(row.euiText) end
+            return EllesmereUI.L("Council can manage queue")
+        end
+        return row.text
+    end
     local function ChecksCfg(row)
-        return ChecksLock({ type = "dropdown", text = row.text, tooltip = row.tooltip, noCapture = true,
+        return ChecksLock({ type = "dropdown", text = RowLabel(row), tooltip = row.tooltip, noCapture = true,
             values = { __placeholder = "..." }, order = { "__placeholder" },
             getValue = function() return "__placeholder" end, setValue = function() end }, row)
     end
@@ -244,7 +255,12 @@ initFrame:SetScript("OnEvent", function(self)
         return function(region)
             local width = region._control and region._control:GetWidth() or 0
             if width < 50 then width = CHECKS_W end
-            width = math.max(width, ChecksWidth(items))
+            if row.id == "councilQueue" then
+
+                width = ChecksWidth(items)
+            else
+                width = math.max(width, ChecksWidth(items))
+            end
             if region._control then region._control:Hide() end
             local dd, refresh = EllesmereUI.BuildVisOptsCBDropdown(region, width,
                 region:GetFrameLevel() + 2, items, Get,
@@ -1071,9 +1087,45 @@ initFrame:SetScript("OnEvent", function(self)
                         } })
 
                         local swatch = region._lastInline
+
+
+                        local auto
                         if box and swatch and swatch ~= box then
+                            auto = CreateFrame("Button", nil, region)
+                            auto.slcAutoroll = true
+                            local check, _, _, apply = EllesmereUI.BuildCheckboxControl(auto, region:GetFrameLevel() + 2)
+                            PP.Point(check, "RIGHT", auto, "RIGHT", 0, 0)
+                            local label = EllesmereUI.MakeFont(auto, 12, nil, 1, 1, 1)
+                            label:SetAlpha(0.6)
+                            label:SetPoint("RIGHT", check, "LEFT", -6, 0)
+                            label:SetText(spec.autorollText)
+                            local labelW = label:GetStringWidth()
+                            if type(labelW) ~= "number" or (issecretvalue and issecretvalue(labelW)) then labelW = 50 end
+                            PP.Size(auto, math.ceil(labelW) + 6 + 18, 24)
+                            local hovering = false
+                            local function Paint() apply(entry.autoroll == true, hovering) end
+                            auto:SetScript("OnEnter", function(b)
+                                hovering = true
+                                Paint()
+                                EllesmereUI.ShowWidgetTooltip(b, spec.autorollHelp)
+                            end)
+                            auto:SetScript("OnLeave", function()
+                                hovering = false
+                                Paint()
+                                EllesmereUI.HideWidgetTooltip()
+                            end)
+                            auto:SetScript("OnClick", function()
+                                if spec.sessionLocked() then return end
+                                spec.setAutoroll(entry, not (entry.autoroll == true))
+                                Paint()
+                                Invalidate()
+                            end)
+                            OnRefresh(Paint)
+                            Paint()
+                            auto:ClearAllPoints()
+                            PP.Point(auto, "LEFT", box, "RIGHT", 8, 0)
                             swatch:ClearAllPoints()
-                            PP.Point(swatch, "LEFT", box, "RIGHT", 8, 0)
+                            PP.Point(swatch, "LEFT", auto, "RIGHT", 8, 0)
                         end
                         local requirement = spec.deleteRequirement
                         local delete = EllesmereUI.BuildInlineButton(region, spec.confirmDelete().accept, function()
@@ -1092,7 +1144,8 @@ initFrame:SetScript("OnEvent", function(self)
 
 
                         if box and swatch and delete and swatch ~= box then
-                            local total = box:GetWidth() + 8 + swatch:GetWidth() + 8 + delete:GetWidth()
+                            local total = box:GetWidth() + 8 + (auto and (auto:GetWidth() + 8) or 0)
+                                + swatch:GetWidth() + 8 + delete:GetWidth()
                             local room = region:GetWidth()
                             if type(total) == "number" and type(room) == "number" and room > total then
                                 box:ClearAllPoints()
@@ -1498,8 +1551,18 @@ initFrame:SetScript("OnEvent", function(self)
             Flush()
 
 
-            if section.id == "voting" and not prebuild and y < rowsTop then
-                LockCover(rowsTop, y, Schema.LeaderLockReason(), function() return slc.Config:LeaderDictates() end)
+
+            local reason = section.locked and section.locked()
+            if (section.id == "council" or section.id == "master" or section.id == "voting")
+                and section.locked and not prebuild and y < rowsTop then
+                LockCover(rowsTop, y, reason or Schema.LootMasterLockReason(),
+                    function() return section.locked() ~= nil end)
+            end
+
+
+            if section.id == "responses" and not prebuild and y < rowsTop then
+                local spec = Schema.Row("responses")
+                LockCover(rowsTop, y, spec.sessionLockedText, spec.sessionLocked)
             end
         end
 

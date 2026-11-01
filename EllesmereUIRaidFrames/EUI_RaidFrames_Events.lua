@@ -108,6 +108,12 @@ local function OnEvent(self, event, arg1, ...)
             if event ~= "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then ns._AbArm(btn, arg1, dd) end
             ns._MarkAbsorbDirty(btn, arg1)
             if event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then ns.UpdateHealAbsorbTextFor(btn, arg1) end
+            -- Custom texts showing the amount this event moved (two field reads while
+            -- none does); the max-health-modifier edge moves health only.
+            local tp = dd._txP
+            if tp and tp.reads and event ~= "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
+                ns.RF_TextRepaintCustom(dd, arg1, event == "UNIT_ABSORB_AMOUNT_CHANGED" and "abs" or "habs")
+            end
             if event == "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" then
                 dd._rmhPct = nil -- reduced-max cache: this is its only value edge
                 ns._UpdateButtonHealth(btn, arg1)
@@ -443,8 +449,8 @@ local function OnEvent(self, event, arg1, ...)
         local hmRows = ns._hmUnitRows
         if hmRows and hmRows[arg1] then ns._HMUpdateValue(arg1) end
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
-        if btn and GetFFD(btn).power then
-            local d = GetFFD(btn)
+        local d = btn and GetFFD(btn)
+        if d and d.power then
             -- Value only (Blizzard's CompactUnitFrame_UpdatePower shape): type,
             -- color and bounds belong to the UNIT_DISPLAYPOWER edge below; nil
             -- = not derived yet for this occupant, derive once.
@@ -456,21 +462,22 @@ local function OnEvent(self, event, arg1, ...)
             -- Percent-based, secret-safe (see UpdateButton power block).
             local ppct = UnitPowerPercent(arg1, pType, true, CurveConstants.ScaleTo100)
             d.power:SetValue(ppct)
-            -- Power Text rides the same value (nil = off: this one field test).
-            local pwtMode = d._pwtMode
-            if pwtMode then ns.RF_PowerTextInto(d.powerText, pwtMode, ppct, arg1, pType) end
+            -- Power Texts and the Custom texts reading power ride the same value
+            -- (two field reads while the button has neither).
+            local tp = d._txP
+            if tp and (d._pwtOn or tp.reads) then ns.RF_TextPower(d, arg1, ppct, pType) end
         end
     elseif event == "UNIT_DISPLAYPOWER" then
         -- The displayed power type changed (forms, spec swaps, vehicles):
         -- re-derive type + color + bounds once (Power Text's colour too), then push the value.
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
-        if btn and GetFFD(btn).power then
-            local d = GetFFD(btn)
+        local d = btn and GetFFD(btn)
+        if d and d.power then
             ns._RFPowerTypeEdge(d, arg1)
             local ppct = UnitPowerPercent(arg1, d._pwType, true, CurveConstants.ScaleTo100)
             d.power:SetValue(ppct)
-            local pwtMode = d._pwtMode
-            if pwtMode then ns.RF_PowerTextInto(d.powerText, pwtMode, ppct, arg1, d._pwType) end
+            local tp = d._txP
+            if tp and (d._pwtOn or tp.reads) then ns.RF_TextPower(d, arg1, ppct, d._pwType) end
         end
     elseif event == "UNIT_NAME_UPDATE" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
@@ -505,12 +512,17 @@ local function OnEvent(self, event, arg1, ...)
             end)
         end
     elseif event == "UNIT_LEVEL" then
-        -- Level Text only (registered while a view shows it): the level alone repaints,
-        -- on its spot or in front of the name.
+        -- Level only (registered while a view shows it): the name and level texts repaint.
         local btn = unitToButton[arg1]
         if btn then ns._RFRepaintLevel(btn) end
         btn = ns._partyUnitToButton[arg1]
         if btn then ns._RFRepaintLevel(btn) end
+    elseif event == "UNIT_TARGET" then
+        -- Custom texts showing [target] only (registered while a view's Custom text does).
+        local btn = unitToButton[arg1]
+        if btn then ns.RF_TextRepaintCustom(GetFFD(btn), arg1, "tgt") end
+        btn = ns._partyUnitToButton[arg1]
+        if btn then ns.RF_TextRepaintCustom(GetFFD(btn), arg1, "tgt") end
     elseif event == "UNIT_THREAT_LIST_UPDATE" or event == "UNIT_THREAT_SITUATION_UPDATE" then
         local btn = unitToButton[arg1] or ns._partyUnitToButton[arg1]
         if btn then

@@ -17,7 +17,7 @@ Storage.KEPT = "kept"
 
 
 Storage.UNTRADEABLE_KEEP = 24 * 60 * 60
-Storage.TRADE_WINDOW = 2 * 60 * 60
+Storage.TRADE_WINDOW = 4 * 60 * 60
 
 
 
@@ -558,7 +558,7 @@ end
 
 
 
-local WON_TTL = 2 * 60 * 60
+local WON_TTL = 4 * 60 * 60
 local WON_MAX = 64
 local wonListening = false
 

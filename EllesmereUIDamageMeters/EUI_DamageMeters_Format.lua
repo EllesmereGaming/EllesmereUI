@@ -232,21 +232,21 @@ local function FormatBarValue(amt, perSec, numFmt)
     return AbbrevNumber(amt)
 end
 
--- A combatant's name without its realm. On WoW Forever the Name Format
--- (dm.nameFormat, the Left Text cog) then keeps a PLAYER's first or last name:
--- src is the meter row the name belongs to (a player has a class, no creature
--- id and is no Threat list pet; the Pull Aggro line has no class), attacker an
--- Enemy Damage Taken attacker (AggregateEnemyPlayers: a class, neither pet nor
--- mob); with neither, the name is only stripped. Your own row (isLocalPlayer
--- is never secret) always takes your name from your unit, so it reads the same
--- in and out of combat; any other secret name (combat) cannot be split and
--- shows whole. ForeverShortName is nil off Forever, so src and attacker are
--- never read there.
-local ForeverShortName = EUI.ForeverShortName
+-- A combatant's name without its realm. The Name Format (dm.nameFormat, the
+-- Left Text cog) then shapes a PLAYER's name: src is the meter row the name
+-- belongs to (a player has a class, no creature id and is no Threat list pet;
+-- the Pull Aggro line has no class), attacker an Enemy Damage Taken attacker
+-- (AggregateEnemyPlayers: a class, neither pet nor mob); with neither, the
+-- name is only stripped. Your own row (isLocalPlayer is never secret) always
+-- takes your name from your unit, so it reads the same in and out of combat;
+-- any other secret name (combat) cannot be split and shows whole. With no
+-- Name Format set, src and attacker are never read.
+local ShortName = EUI.ShortName
 local function StripRealm(name, src, attacker)
     if not name then return "Unknown" end
     if Ambiguate then name = Ambiguate(name, "short") or name end
-    if not (ForeverShortName and (src or attacker)) then return name end
+    local mode = (src or attacker) and DB().nameFormat
+    if not mode then return name end
     local player
     if not src then
         local cls = attacker.class
@@ -254,18 +254,14 @@ local function StripRealm(name, src, attacker)
     else
         local own = src.isLocalPlayer
         if own ~= nil and not issecretvalue(own) and own == true then
-            local mode = DB().nameFormat
-            if not mode then return name end
-            return ForeverShortName(EUI.WithSurname(UnitName("player")), mode) or name
+            return ShortName(EUI.WithSurname(UnitName("player")), mode) or name
         end
         if issecretvalue(name) then return name end
         local cls = src.classFilename
         player = cls ~= nil and cls ~= "" and src.sourceCreatureID == nil and not src.threatPet
     end
     if not player then return name end
-    local mode = DB().nameFormat
-    if mode then return ForeverShortName(name, mode) end
-    return name
+    return ShortName(name, mode)
 end
 
 local function IsSecret(v)
@@ -540,41 +536,73 @@ local function ResolveIcon(src, iconTex, barH)
     return barH
 end
 
--- Enemy Damage Taken: aggregate combatSpellDetails into per-player totals. Returns sorted array
--- of { name, class, specIcon, total, amountPerSecond } or nil on failure.
-local function AggregateEnemyPlayers(srcData, duration)
-    if not srcData or not srcData.combatSpells or #srcData.combatSpells == 0 then return nil end
-    local byName = {}
-    local list = {}
-    for _, spell in ipairs(srcData.combatSpells) do
+-- Enemy Damage Taken: one enemy's attackers as rows { name, class, specIcon,
+-- total, amountPerSecond, isPet, isMob }, largest first. They are written into
+-- the caller's own list `rows`, whose row tables are reused by index, and the
+-- call returns rows and their count, or nil. The engine lists one entry per
+-- attacker, largest first. Out of combat, entries that share a name are summed
+-- and sorted again. Mid-combat the names and amounts are secret, so Lua can
+-- neither key a table by them nor add them up: the entries pass through in the
+-- engine's order and reach the screen only through the text and bar setters.
+-- The class and spec icon never read secret, which keeps the icon and colour.
+local _enemyByName = {}
+local function AggregateEnemyPlayers(srcData, duration, rows)
+    local spells = srcData and srcData.combatSpells
+    local count = spells and #spells or 0
+    if count == 0 then return nil end
+    local secret = false
+    for i = 1, count do
+        local spell = spells[i]
         local det = spell.combatSpellDetails
-        if det then
-            local name = det.unitName
-            if name and not (issecretvalue and issecretvalue(name)) then
-                local ok, amt = pcall(function() return spell.totalAmount end)
-                local amount = (ok and amt) or 0
-                local p = byName[name]
-                if not p then
-                    p = { name = name, class = det.unitClassFilename, specIcon = det.specIconID, total = 0 }
-                    -- WoW Forever: the Name Format leaves a pet's or a mob's name
-                    -- whole (StripRealm); a flag that cannot be read counts as set.
-                    if ForeverShortName then
-                        local pet, mob = det.isPet, det.isMob
-                        p.isPet, p.isMob = issecretvalue(pet) or pet, issecretvalue(mob) or mob
-                    end
-                    byName[name] = p
-                    list[#list + 1] = p
-                end
-                p.total = p.total + amount
+        if IsSecret(spell.totalAmount) or (det and IsSecret(det.unitName)) then
+            secret = true
+            break
+        end
+    end
+    local n = 0
+    for i = 1, count do
+        local spell = spells[i]
+        local det = spell.combatSpellDetails
+        local name = det and det.unitName
+        if name ~= nil then
+            local p = not secret and _enemyByName[name]
+            if p then
+                p.total = p.total + (spell.totalAmount or 0)
+            else
+                n = n + 1
+                p = rows[n]
+                if not p then p = {}; rows[n] = p end
+                local cls, icon, pet, mob = det.unitClassFilename, det.specIconID, det.isPet, det.isMob
+                p.name = name
+                p.class = not IsSecret(cls) and cls or nil
+                p.specIcon = not IsSecret(icon) and icon or nil
+                -- The Name Format leaves a pet's or a mob's name whole
+                -- (StripRealm); a flag that cannot be read counts as set.
+                p.isPet, p.isMob = IsSecret(pet) or pet, IsSecret(mob) or mob
+                p.total = spell.totalAmount or 0
+                p.amountPerSecond = spell.amountPerSecond
+                if not secret then _enemyByName[name] = p end
             end
         end
     end
-    if #list == 0 then return nil end
-    for _, p in ipairs(list) do
-        p.amountPerSecond = AmountPerSecond(p.total, duration)
+    wipe(_enemyByName)
+    if n == 0 then return nil end
+    if not secret then
+        for i = 1, n do
+            local p = rows[i]
+            p.amountPerSecond = AmountPerSecond(p.total, duration)
+        end
+        -- Largest first; an insertion sort, since only the first n rows are live.
+        for i = 2, n do
+            local p, j = rows[i], i - 1
+            while j >= 1 and rows[j].total < p.total do
+                rows[j + 1] = rows[j]
+                j = j - 1
+            end
+            rows[j + 1] = p
+        end
     end
-    table.sort(list, function(a, b) return a.total > b.total end)
-    return list
+    return rows, n
 end
 
 -- Damage Done targets: cross-reference EnemyDamageTaken to build a complete map of ALL players'

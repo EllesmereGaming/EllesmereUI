@@ -14,7 +14,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  shared with Cursor/BattleRes/Bloodlust: each NewDB merges its own defaults
 --  into the SAME profile table, repointed by the profile system on swap.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Shifter's loot windows use the parent's frame placer)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer and EllesmereUI.RAID_PREP_IDS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Shifter's loot windows use the parent's frame placer; Raid Buff Check reads the parent's buff lists)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS["EllesmereUIQoL"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -72,6 +72,9 @@ qolFrame:SetScript("OnEvent", function(self)
     -- Environment Ping keybind (EllesmereUI._applyEnvPing, further down):
     -- nothing is built unless a key is saved.
     if EllesmereUIDB.envPingKey then EllesmereUI._applyEnvPing() end
+    -- Transparent World Map Sidebars (EllesmereUI._applyMapSidebars, further down;
+    -- not on WoW Forever): nothing is built while off.
+    if EllesmereUIDB.mapSidebarsClear and EllesmereUI._applyMapSidebars then EllesmereUI._applyMapSidebars() end
     -- Self Combat Text (EllesmereUIQoL_SelfCombatText.lua): nothing is built while off.
     ns.SCT_Refresh()
     if EllesmereUI._applyUpgradeTooltips then EllesmereUI._applyUpgradeTooltips() end
@@ -2159,6 +2162,51 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Auto-Accept Resurrection
+--  Accepts res requests automatically. A res from a caster in combat (a
+--  battle res) is left to the player unless the combat option is on.
+-------------------------------------------------------------------------------
+do
+    local IsSecret = EllesmereUI.IsSecret
+    local frame
+
+    -- A secret or unreadable answer counts as in combat.
+    local function CasterInCombat(caster)
+        if not caster then return false end
+        local ok, v = pcall(UnitAffectingCombat, caster)
+        if not ok or IsSecret(v) then return true end
+        return v and true or false
+    end
+
+    local function OnEvent(_, _, caster)
+        if not EllesmereUIDB.autoAcceptResCombat and CasterInCombat(caster) then return end
+        AcceptResurrect()
+    end
+
+    local function ApplyAutoAcceptRes()
+        local on = EllesmereUIDB and EllesmereUIDB.autoAcceptRes
+        if on and not frame then
+            frame = CreateFrame("Frame")
+            frame:SetScript("OnEvent", OnEvent)
+        end
+        if not frame then return end
+        if on then
+            frame:RegisterEvent("RESURRECT_REQUEST")
+        else
+            frame:UnregisterEvent("RESURRECT_REQUEST")
+        end
+    end
+    EllesmereUI._applyAutoAcceptRes = ApplyAutoAcceptRes
+
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_LOGIN")
+    f:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        if EllesmereUIDB and EllesmereUIDB.autoAcceptRes then ApplyAutoAcceptRes() end
+    end)
+end
+
+-------------------------------------------------------------------------------
 --  Secondary Stats Display
 --  On-screen overlay showing crit/haste/mastery/vers (+ optional tertiaries).
 -------------------------------------------------------------------------------
@@ -3834,6 +3882,56 @@ do
                 end
             end)
         end
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Transparent World Map Sidebars: the black beside the maximized world map goes
+--  to the chosen opacity (clear by default) and lets the mouse through to
+--  the world. Blizzard only shows and hides BlackoutFrame, so the change
+--  holds until turned off. Not offered on WoW Forever: Forever Essentials
+--  has its own map background option there.
+-------------------------------------------------------------------------------
+if not EllesmereUI.IS_FOREVER then
+    local loader
+    local applied = false
+    local mouseWas
+
+    function EllesmereUI._applyMapSidebars()
+        local on = EllesmereUIDB and EllesmereUIDB.mapSidebarsClear == true
+        if not (on or applied or loader) then return end
+        -- The world map loads on demand.
+        if not C_AddOns.IsAddOnLoaded("Blizzard_WorldMap") then
+            if on and not loader then
+                loader = CreateFrame("Frame")
+                loader:SetScript("OnEvent", function(self, _, name)
+                    if name ~= "Blizzard_WorldMap" then return end
+                    self:UnregisterEvent("ADDON_LOADED")
+                    EllesmereUI._applyMapSidebars()
+                end)
+            end
+            if on then loader:RegisterEvent("ADDON_LOADED") else loader:UnregisterEvent("ADDON_LOADED") end
+            return
+        end
+        if not (on or applied) then return end
+        if InCombatLockdown() then
+            ns.CombatQueue.Defer("MapSidebars", EllesmereUI._applyMapSidebars)
+            return
+        end
+        local b = WorldMapFrame.BlackoutFrame
+        if not (b and b.Blackout) then return end
+        if on then
+            if not applied then
+                mouseWas = b:IsMouseEnabled()
+            end
+            b.Blackout:SetAlpha((EllesmereUIDB.mapSidebarsOpacity or 0) / 100)
+            -- The wheel already passes through: the frame never takes it.
+            b:EnableMouse(false)
+        else
+            b.Blackout:SetAlpha(1)
+            b:EnableMouse(mouseWas)
+        end
+        applied = on
     end
 end
 

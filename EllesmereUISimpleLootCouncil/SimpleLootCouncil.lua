@@ -1020,10 +1020,13 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         if who:lower() == "clear" then
             addon.db.lootMaster = nil
             addon.InvalidateMasterLooter()
+            addon.Config:ClearShared("delegation cleared")
+            addon.Council:ForgetDelegateHeard()
             if onMasterLoot then
                 HandGameMasterLoot("player", addon.Player:GetFullName("player") or "?")
             end
-            addon.Council:Broadcast()
+
+            addon.Council:Broadcast(true)
             Print(addon.Locale.Format(T["Loot Master reset to the group leader: %s"],
                 tostring(addon.Player:GetFullName("player") or addon.GetMasterLooter())))
             return
@@ -1046,7 +1049,11 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
 
         addon.db.lootMaster = record.guid
         addon.InvalidateMasterLooter()
-        addon.Council:Broadcast()
+
+
+        addon.Config:ClearShared("delegation changed")
+        addon.Council:ForgetDelegateHeard()
+        addon.Council:Broadcast(true)
         Print(addon.Locale.Format(T["Loot Master set to %s for this raid"],
             record.fullName))
         if onMasterLoot then
@@ -1915,12 +1922,25 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             Ambiguate(candidate, "short"), item.link, tostring(boss)))
 
     elseif cmd == "guild" then
+        local sub, scenario = input:match("^%S+%s+(%S+)%s*(%S*)")
+        if sub == "sim" then
+            if not addon.Loot.Simulate(scenario:lower()) then
+                Print("/slc guild sim <" .. table.concat(addon.Loot.SimulationNames(), "|")
+                    .. "|clear>")
+                return
+            end
+            Print("guild guard simulation: " .. scenario:lower())
+        end
+        if addon.Loot.IsSimulating() then
+            Print("|cffFFD54FSIMULATED inputs - /slc guild sim clear to go live|r")
+        end
 
         Print("in a group: " .. tostring(IsInGroup())
             .. ", in a guild: " .. tostring(IsInGuild())
             .. ", in an instance: " .. tostring(addon.Loot.InInstance()))
+        local state = addon.Loot.GuildGroupState()
         Print("gate says guild group: "
-            .. tostring(addon.Loot.IsGuildGroup())
+            .. (state == nil and "unknown (held, not asked)" or tostring(state))
             .. " (funnel.guildGroupOnly is "
             .. ((addon.db.funnel and addon.db.funnel.guildGroupOnly)
                 and "on" or "off") .. ")")

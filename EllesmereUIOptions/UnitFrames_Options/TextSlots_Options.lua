@@ -14,13 +14,8 @@ end
 -- Custom text popup for any text slot. prefix names the slot's keys
 -- (<prefix>CustomFormat, ClassColor, ColorR/G/B); db is the unit's settings;
 -- onSave runs after the format is stored and selects Custom for the slot.
-function ns.UFO_EditCustomText(prefix, db, unit, onSave, warning)
+function ns.UFO_EditCustomText(prefix, db, unit, onSave)
     local key = prefix .. "CustomFormat"
-    local cur = db[key]
-    -- Stored with single pipes; the edit box holds a typed "|" doubled.
-    if type(cur) == "string" then cur = cur:gsub("|", "||") else cur = nil end
-    -- 120 letters for new input; a longer stored format (import) keeps its length.
-    local maxLen = math.max(120, cur and (strlenutf8 and strlenutf8(cur) or #cur) or 0)
     -- The preview in the slot's text colour, as the unit preview shows it.
     local color
     -- Power Colored: the page's unit while it exists (boss1 for Boss),
@@ -48,58 +43,21 @@ function ns.UFO_EditCustomText(prefix, db, unit, onSave, warning)
     else
         color = { r = db[prefix .. "ColorR"] or 1, g = db[prefix .. "ColorG"] or 1, b = db[prefix .. "ColorB"] or 1 }
     end
-    -- Preview, suggestions, unknown-tag hint and tag help come from the engine's catalog.
-    local popupOpts = {
-        title = EllesmereUI.L("Custom Text"),
-        message = EllesmereUI.L("Tags in [brackets] show live values, other text stays as typed.") .. "\n"
-            .. EllesmereUI.L("Type [ for suggestions, the (i) lists every tag."),
-        messageSize = 10,
-        previewColor = color,
-        placeholder = "[name] - [hp:pct]%",
-        initialText = (not warning and cur) or "",
-        maxLetters = maxLen,
-        showCount = true,
-        warning = warning,
-        onConfirm = function(txt)
-            -- Stored with single pipes; the engine escapes them for display.
-            txt = tostring(txt or ""):gsub("||", "|"):gsub("^%s+", ""):gsub("%s+$", "")
-            -- Spaces only: show the popup again instead of closing unsaved.
-            if txt == "" then
-                ns.UFO_EditCustomText(prefix, db, unit, onSave, EllesmereUI.L("Enter at least one tag or character."))
-                return
-            end
-            db[key] = txt
-            onSave()
-        end,
-    }
-    EllesmereUI.TextTags.PopupOpts(ns.UF_TextTags, popupOpts, {
+    EllesmereUI.TextTags.EditPopup({
+        cat = ns.UF_TextTags, color = color, onSave = onSave,
         tagNotes = { hp = EllesmereUI.L("shows DEAD or OFFLINE") },
+        get = function() return db[key] end,
+        set = function(txt) db[key] = txt end,
     })
-    EllesmereUI:ShowInputPopup(popupOpts)
 end
 
 -- A copy of a slot's dropdown values whose Custom entry is an action that
--- opens the popup (edit), marked with the white edit pencil at full alpha
--- while getValue() is "custom". The menu reads the alpha when it is built,
--- so a selection has to rebuild it (page rebuild or _invalidateMenu).
-local EDIT_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-edit.png"
+-- opens the popup (edit), its pencil at full alpha while getValue() is
+-- "custom". The menu reads the alpha when it is built, so a selection has
+-- to rebuild it (page rebuild or _invalidateMenu).
 function ns.UFO_CustomTextValues(values, getValue, edit)
-    local v = CopyTable(values)
-    v.custom = { text = "Custom", action = edit }
-    local mo = v._menuOpts or {}
-    v._menuOpts = mo
-    local icon, iconColor = mo.icon, mo.iconColor
-    mo.icon = function(key)
-        if key == "custom" then return EDIT_ICON end
-        if icon then return icon(key) end
-    end
-    mo.iconSize = mo.iconSize or function() return 12 end
-    mo.iconClearScroll = true
-    mo.iconColor = function(key)
-        if key == "custom" then return 1, 1, 1, getValue() == "custom" and 1 or 0.75 end
-        if iconColor then return iconColor(key) end
-    end
-    return v
+    return EllesmereUI.TextTags.MenuValues(values, edit,
+        { selected = function() return getValue() == "custom" end })
 end
 
 -- For a dropdown whose selection keeps the page: rebuilds the given regions'
@@ -119,8 +77,8 @@ function ns.UFO_RefreshMenus(...)
 end
 
 -- The power text cog (Main and Boss): Show % for the preset formats in pctOff's
--- complement; Custom writes its own %, so it keeps only the Name Format (WoW
--- Forever, whose rows carry it), and only while the format shows a name.
+-- complement; Custom writes its own %, so it keeps only the Name Format, and
+-- only while the format shows a name.
 local PCT_TIP = "This option is only available for formats that display a percentage."
 function ns.UFO_PowerTextCog(get, set, pctOff, setShowPct)
     local rows = ns.UF_NameFormatRows("powerText", "perpp", get, set, {
@@ -130,18 +88,17 @@ function ns.UFO_PowerTextCog(get, set, pctOff, setShowPct)
           get=function() return get("powerShowPercent", true) ~= false end,
           set=setShowPct },
     }, "powerTextFormat")
-    local hasName = #rows > 1
     return {
         title = "Power Text", rows = rows,
         disabled = function()
             local fmt = get("powerTextFormat", "perpp")
             if fmt == "custom" then
-                return not (hasName and ns.UF_ContentShowsName(fmt, get("powerTextCustomFormat")))
+                return not ns.UF_ContentShowsName(fmt, get("powerTextCustomFormat"))
             end
             return pctOff[fmt] == true
         end,
         disabledTooltip = function()
-            if hasName and get("powerTextFormat", "perpp") == "custom" then
+            if get("powerTextFormat", "perpp") == "custom" then
                 return "This option only applies when the text shows a name."
             end
             return PCT_TIP
@@ -154,14 +111,9 @@ end
 function ns.UFO_AddCustomFormatAccessor(rgn, label, prefix, content, getDB, apply)
     local fk = prefix .. "CustomFormat"
     if content ~= "custom" and type(getDB()[fk]) ~= "string" then return end
-    EllesmereUI.AddCaptureAccessor(rgn, {
-        type = "input", text = label .. " Custom Format",
-        getValue = function() return getDB()[fk] or "" end,
-        setValue = function(v)
-            getDB()[fk] = (v ~= "" and v) or nil
-            apply()
-        end,
-    })
+    EllesmereUI.TextTags.AddFormatAccessor(rgn, label,
+        function() return getDB()[fk] end,
+        function(v) getDB()[fk] = v; apply() end)
 end
 
 -- Level coloring is shared by the unit, and edited from its level-text cogs.

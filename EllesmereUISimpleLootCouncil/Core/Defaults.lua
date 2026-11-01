@@ -9,7 +9,7 @@ local T = addon.Locale.Text
 
 
 
-addon.SCHEMA_VERSION = 14
+addon.SCHEMA_VERSION = 16
 
 
 local interface = GetBuildInfo and select(4, GetBuildInfo())
@@ -250,7 +250,7 @@ addon.defaults = {
 
 
 
-    responseTab = true,
+    responseTab = false,
 
 
     soundNotifications = { responseFrame = true, responseTab = true },
@@ -466,16 +466,46 @@ addon.migrations = addon.Locale.Texts{
     },
     {
         version = 14,
-        name = "response buttons in the client's language",
-        notify = T["Your response buttons were reset to their default names in your language. You can rename them in Settings."],
+        name = "response buttons in the client's language (retired)",
+        func = function()
+
+
+            return false
+        end,
+    },
+    {
+        version = 15,
+        name = "untouched response buttons in the client's language",
+        notify = T["Your untouched response buttons now read in your language. Buttons you renamed, recoloured or added were kept."],
         func = function(db)
 
-            local differs = false
-            for _, response in ipairs(addon.defaults.responses) do
-                if response.text ~= response.id:sub(1, 1) .. response.id:sub(2):lower() then differs = true end
+            if type(db.responses) ~= "table" then return false end
+            local function near(a, b) return a == nil or (type(a) == "number" and math.abs(a - b) < 0.001) end
+            local changed = false
+            for _, default in ipairs(addon.defaults.responses) do
+                local english = default.id:sub(1, 1) .. default.id:sub(2):lower()
+                if default.text ~= english then
+                    for _, stored in ipairs(db.responses) do
+                        if type(stored) == "table" and stored.id == default.id and stored.text == english
+                            and stored.whisper == nil and near(stored.r, default.r)
+                            and near(stored.g, default.g) and near(stored.b, default.b) then
+                            stored.text = default.text
+                            changed = true
+                        end
+                    end
+                end
             end
-            if not differs then return false end
-            db.responses = CopyTable(addon.defaults.responses)
+            if not changed then return false end
+        end,
+    },
+    {
+        version = 16,
+        name = "loot response tab off",
+        notify = T["The loot response tab in the Loot Council window is now off by default, so your response window opens on its own again. You can switch it back on in Settings."],
+        func = function(db)
+
+            if db.responseTab ~= true then return false end
+            db.responseTab = false
         end,
     },
 }

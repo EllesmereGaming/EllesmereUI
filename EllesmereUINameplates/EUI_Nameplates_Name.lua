@@ -60,7 +60,7 @@ function NameplateFrame:UpdateName()
             ns.ClearHoverExtras(self)
             self:ApplyTarget()
             self._maxHPValid = nil
-            if ns._npToTSlot or self._totEv then self:SyncToT(actualUnit) end
+            if ns._npTgtTexts or self._totEv then self:SyncToT(actualUnit) end
         end
     end
     -- Standalone level renders on its own FontString and can share the plate with a
@@ -80,11 +80,18 @@ function NameplateFrame:UpdateName()
     local el = slot and GetTextSlot(slot) or "enemyName"
     local name = EllesmereUI.WithSurname(UnitName(unit))
     if type(name) == "string" then
-        -- WoW Forever: the slot's Name Format (nil function off Forever).
-        if ns.NP_FormatName then name = ns.NP_FormatName(name, slot) end
+        name = ns.NP_FormatName(name, slot)  -- the slot's Name Format
         ns.SetNameElementText(self.name, el, name, unit, slot)
-        if p and p.nameRaidMarkerEnabled == true then self:RefreshNamePosition(true) end
+        -- Debuff coloring's Color Name copies follow the text (RefreshNamePosition
+        -- passes it on too).
+        if p and p.nameRaidMarkerEnabled == true then
+            self:RefreshNamePosition(true)
+        elseif ns.DebuffColors_NameChanged then
+            ns.DebuffColors_NameChanged(self)
+        end
     end
+    -- Custom texts: name, level and target follow the unit.
+    self:PaintCustomTexts()
 end
 -- Places an icon of a Core Positions slot (the raid marker, the Rare/Quest indicator, the
 -- faction badge) by the slot's own rule: centred above the bar at Top, beside the bar at
@@ -305,6 +312,28 @@ function NameplateFrame:UpdateFaction(artOnly)
     -- Elements sharing the slot follow the badge's show and move.
     if ns.NP_CoreChain then ns.NP_CoreChain(self, slot) end
 end
+-- The room a name has in the Top slot: the bar minus the raid marker, the Rare/Quest
+-- indicator and the faction badge while they show. The Top Custom text naming the
+-- unit takes it too (AddCustomText, then UpdateNameWidth keeps it current).
+local function TopNameWidth(self, barW)
+    local nameW = barW
+    local rmPos = GetRaidMarkerPos()
+    if rmPos ~= "none" and self.raidFrame:IsShown() then
+        nameW = nameW - 2 * (GetRaidMarkerSize() - 2) - 7
+    end
+    local clSlot = GetClassificationSlot()
+    if clSlot ~= "none" and self.classFrame:IsShown() then
+        nameW = nameW - (GetRareEliteIconSize() + 4)
+    end
+    -- Stacked with the classification icon ("Rare/Quest + Faction") it takes
+    -- no extra width; alone it reserves its own.
+    local stacked = p and p.classificationIncludeFaction and self.classFrame:IsShown()
+    if self.factionFrame and self.factionFrame:IsShown() and not stacked then
+        nameW = nameW - (ns.NP_GetFactionIconSize() + 4)
+    end
+    return nameW
+end
+ns.NP_TopNameWidth = TopNameWidth
 function NameplateFrame:UpdateNameWidth()
     local barW = GetHealthBarWidth()
     -- Width % scales the computed (bar-derived) width; 100 = historical behaviour.
@@ -314,21 +343,7 @@ function NameplateFrame:UpdateNameWidth()
         and (((p and p.nameRaidMarkerSize) or defaults.nameRaidMarkerSize or 14) + 3) or 0
     if nameSlot == "textSlotTop" then
         -- Above the bar: reserve a fixed slot for the inline raid marker.
-        local nameW = barW - nameMarkerReserve
-        local rmPos = GetRaidMarkerPos()
-        if rmPos ~= "none" and self.raidFrame:IsShown() then
-            nameW = nameW - 2 * (GetRaidMarkerSize() - 2) - 7
-        end
-        local clSlot = GetClassificationSlot()
-        if clSlot ~= "none" and self.classFrame:IsShown() then
-            nameW = nameW - (GetRareEliteIconSize() + 4)
-        end
-        -- Stacked with the classification icon ("Rare/Quest + Faction") it takes
-        -- no extra width; alone it reserves its own.
-        local stacked = p and p.classificationIncludeFaction and self.classFrame:IsShown()
-        if self.factionFrame and self.factionFrame:IsShown() and not stacked then
-            nameW = nameW - (ns.NP_GetFactionIconSize() + 4)
-        end
+        local nameW = TopNameWidth(self, barW) - nameMarkerReserve
         PP.Width(self.name, math.max(nameW * pct / 100, 20))
     elseif nameSlot == "textSlotBottomLeft" or nameSlot == "textSlotBottomRight" then
         -- Under the bar the name never truncates: no width box (auto-sized).
@@ -340,7 +355,9 @@ function NameplateFrame:UpdateNameWidth()
         for _, key in ipairs(ns._npBarTextKeys) do
             if key ~= nameSlot then
                 local el = GetTextSlot(key)
-                if el ~= "none" and not ns.IsNameElement(el) then
+                if el == "custom" then
+                    usedWidth = usedWidth + ns.NP_CustomWidth(key)
+                elseif el ~= "none" and not ns.IsNameElement(el) then
                     usedWidth = usedWidth + EstimateHealthTextWidth(el)
                 end
             end
@@ -351,6 +368,11 @@ function NameplateFrame:UpdateNameWidth()
         -- Name not in any slot, use minimal width
         PP.Width(self.name, math.max(barW * pct / 100, 20))
     end
+    if self._cuTopName then
+        local fs = self.customTop
+        fs:SetWidth(math.max(TopNameWidth(self, barW) * ((p and p.textSlotTopWidthPct) or 100) / 100, 20))
+        ns.ReflowFontString(fs)
+    end
 end
 function NameplateFrame:ApplyNameVisibility()
     -- Zero cost when off: the name's shown state is owned by RefreshNamePosition;
@@ -360,6 +382,7 @@ function NameplateFrame:ApplyNameVisibility()
     local shown = hasNameSlot and not self.cast:IsShown()
     self.name:SetShown(shown)
     if self.nameRaidFrame then self.nameRaidFrame:SetShown(shown and self._nameRaidMarkerShown == true) end
+    if ns.DebuffColors_NameChanged then ns.DebuffColors_NameChanged(self, true) end
 end
 -- The full-size cast icon (a cast-bar child) occupies its side-slot space only while a cast is
 -- up, so its push is gated on the cast bar being shown (see ns.NP_FullIconPush). On every cast
@@ -466,6 +489,8 @@ function NameplateFrame:RefreshNamePosition(localOnly)
     elseif nameRaid then
         nameRaid:Hide()
     end
+    -- Debuff coloring's Color Name copies follow the name's host, font and wrapping.
+    if ns.DebuffColors_NameChanged then ns.DebuffColors_NameChanged(self) end
     if localOnly then return end
     self:UpdateClassification()
     if not (p and p.classificationIncludeFaction) then self:UpdateFaction() end

@@ -64,8 +64,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             eyeBtn:SetPoint("LEFT", indicatorHeader, "BOTTOMLEFT", 85, 8)
         end
         eyeBtn:SetFrameLevel(indicatorHeader:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
 
         -- On ns so the preview can read it.
@@ -74,11 +75,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         local function RefreshIndicatorEye()
             if IsPreviewOff() then
                 eyeTex:SetTexture(EYE_VISIBLE)
-                eyeBtn:SetAlpha(0.15)
+                EllesmereUI.SetGlyphAlpha(eyeBtn, 0.15)
                 return
             end
             eyeTex:SetTexture(ns._indicatorsVisible and EYE_INVISIBLE or EYE_VISIBLE)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         end
         EYE.refreshIndicatorEye = RefreshIndicatorEye
         RefreshIndicatorEye()
@@ -108,11 +109,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
                 return
             end
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, ns._indicatorsVisible and "Hide indicators on preview" or "Show indicators on preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            if not IsPreviewOff() then self:SetAlpha(0.4) end
+            if not IsPreviewOff() then EllesmereUI.SetGlyphAlpha(self, 0.4) end
             EllesmereUI.HideWidgetTooltip()
         end)
     end  -- close do (indicators eyeball)
@@ -920,8 +921,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             eyeBtn:SetPoint("LEFT", dispelHeader, "BOTTOMLEFT", 85, 8)
         end
         eyeBtn:SetFrameLevel(dispelHeader:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
 
         if ns._dispelsVisible == nil then ns._dispelsVisible = false end
@@ -929,11 +931,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         local function RefreshDispelEye()
             if IsPreviewOff() then
                 eyeTex:SetTexture(EYE_VISIBLE)
-                eyeBtn:SetAlpha(0.15)
+                EllesmereUI.SetGlyphAlpha(eyeBtn, 0.15)
                 return
             end
             eyeTex:SetTexture(ns._dispelsVisible and EYE_INVISIBLE or EYE_VISIBLE)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         end
         EYE.refreshDispelEye = RefreshDispelEye
         RefreshDispelEye()
@@ -955,11 +957,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
                 return
             end
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, ns._dispelsVisible and "Hide dispels on preview" or "Show dispels on preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            if not IsPreviewOff() then self:SetAlpha(0.4) end
+            if not IsPreviewOff() then EllesmereUI.SetGlyphAlpha(self, 0.4) end
             EllesmereUI.HideWidgetTooltip()
         end)
     end  -- close do (dispels eyeball)
@@ -1929,8 +1931,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         eyeBtn:SetPoint("RIGHT", rgn._lastInline, "LEFT", -4, 0)
         rgn._lastInline = eyeBtn
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints(); eyeTex:SetTexture(EYE_VISIBLE)
         local function RefreshHMEye()
             eyeTex:SetTexture(ns._hmPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -1941,11 +1944,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             RefreshHMEye()
         end)
         eyeBtn:SetScript("OnEnter", function(s)
-            s:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(s, 0.7)
             EllesmereUI.ShowWidgetTooltip(s, ns._hmPreview and "Hide the preview" or "Preview the display at its position")
         end)
         eyeBtn:SetScript("OnLeave", function(s)
-            s:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(s, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
         if not hmEyeOnHide then

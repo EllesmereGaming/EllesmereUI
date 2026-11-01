@@ -182,6 +182,122 @@ do
     end
 end
 
+-- Textured Background (Health Bar Fill cog; off by default): the bar texture on the
+-- bar backgrounds, tinted by the colour each is painted. A tinted background's own
+-- SetColorTexture tints the texture, so every existing paint keeps it: paint these
+-- backgrounds only through SetColorTexture. The health background follows the fill
+-- edge, so there the texture is a fixed full-size layer on the health bar, shown
+-- while the fill is opaque, with the flat background under it painted clear.
+do
+    local SetColor  -- the stock SetColorTexture
+    local function PaintTinted(self, r, g, b, a) self:SetVertexColor(r, g, b, a) end
+    local function PaintLayer(self, r, g, b, a)
+        SetColor(self, r, g, b, 0)
+        self._rfTexBgLayer:SetVertexColor(r, g, b, a)
+    end
+    -- The background texture path in settings s (nil = flat); the previews share it.
+    function ns.RF_TexBgPath(s)
+        if not (s and s.textureBg) then return nil end
+        local key = s.healthBarTexture or "atrocity"
+        if key == "none" then return nil end
+        return ns.EllesmereUI.ResolveTexturePath(ns.healthBarTextures, key, nil)
+    end
+    -- Whether a health fill painted from s is opaque (dark: the Dark Mode Fill).
+    function ns.RF_TexBgOpaque(s, dark)
+        if dark then
+            local _, _, _, a = ns.EllesmereUI.GetDarkModeFill()
+            return a >= 1
+        end
+        return (s.healthBarOpacity or 100) >= 100
+    end
+    -- A background that never moves: swapped to the texture at path, tinted by its
+    -- paints (vertical: turned with a vertical bar); nil puts the flat colour back at
+    -- the next paint.
+    function ns.RF_TexBgTint(bg, path, vertical)
+        if path then
+            SetColor = SetColor or bg.SetColorTexture
+            if bg._rfTexBgPath ~= path then
+                bg:SetTexture(path)
+                bg._rfTexBgPath = path
+            end
+            if vertical then bg:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1) else bg:SetTexCoord(0, 1, 0, 1) end
+            bg.SetColorTexture = PaintTinted
+        elseif bg._rfTexBgPath then
+            bg._rfTexBgPath = nil
+            bg.SetColorTexture = nil
+            bg:SetVertexColor(1, 1, 1, 1)
+            bg:SetTexCoord(0, 1, 0, 1)
+        end
+    end
+    -- The health background's fixed layer (built once, turned as the fill is), shown
+    -- while path is set; the next paint of bg tints it.
+    function ns.RF_TexBgLayer(health, bg, path)
+        if path then
+            SetColor = SetColor or bg.SetColorTexture
+            local layer = bg._rfTexBgLayer
+            if not layer then
+                layer = health:CreateTexture(nil, "BACKGROUND", nil, 2)
+                layer:SetAllPoints(health)
+                bg._rfTexBgLayer = layer
+            end
+            if layer._rfTexBgPath ~= path then
+                layer:SetTexture(path)
+                layer._rfTexBgPath = path
+            end
+            if health:GetRotatesTexture() then
+                layer:SetTexCoord(1, 0, 0, 0, 1, 1, 0, 1)
+            else
+                layer:SetTexCoord(0, 1, 0, 1)
+            end
+            layer:Show()
+            bg.SetColorTexture = PaintLayer
+        elseif bg.SetColorTexture == PaintLayer then
+            bg.SetColorTexture = nil
+            bg._rfTexBgLayer:Hide()
+        end
+    end
+    -- Buttons with a health layer, re-checked by every colour push before
+    -- ERF:UpdateAllFrames repaints (a Dark Mode Fill edit can cross 100 with no
+    -- reload). Nil until the option is first on.
+    local watched
+    function ns.RF_TexBgRecheck()
+        if not watched then return end
+        for button, health in pairs(watched) do
+            local d = GetFFD(button)
+            local s = d._isParty and ns._scaledPartyProxy
+                or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
+            local path = ns.RF_TexBgPath(s)
+            path = path and not d.kit and ns.RF_TexBgOpaque(s, s.healthColorMode == "dark") and path or nil
+            if (path ~= nil) ~= (d.bg.SetColorTexture == PaintLayer) then
+                ns.RF_TexBgLayer(health, d.bg, path)
+                d._bgSt, d._bgA = nil, nil
+                local u = button:GetAttribute("unit")
+                if u and UnitExists(u) then ns._ApplyHealthBg(d, health, s, u) end
+            end
+        end
+        if ns._PT_TexBgRecheck then ns._PT_TexBgRecheck() end
+    end
+    function ns.RF_TexBgWatch()
+        if not watched then watched = setmetatable({}, { __mode = "k" }) end
+        return watched
+    end
+    -- The raid, party and Extra Frames buttons (ReanchorAbsorbToFill: built, and
+    -- every settings reload before both backgrounds repaint). s: the button's view.
+    function ns.RF_TexBgApply(button, d, health, s)
+        local path = ns.RF_TexBgPath(s)
+        if not (path or d._rfTexBg) then return end
+        d._rfTexBg = path and true or nil
+        local hp = path and not d.kit and ns.RF_TexBgOpaque(s, s.healthColorMode == "dark") and path or nil
+        if d.bg then ns.RF_TexBgLayer(health, d.bg, hp) end
+        if d.powerBg then ns.RF_TexBgTint(d.powerBg, path) end
+        if hp then
+            ns.RF_TexBgWatch()[button] = health
+        elseif watched then
+            watched[button] = nil
+        end
+    end
+end
+
 -- Dark mode colors come from the global per-profile palette via GetDarkModeFill()/GetDarkModeBg(),
 -- fetched live at each use so settings changes show on the next refresh. Opacity honored here
 -- (RF + UF); only Resource Bars keep their own alpha.
@@ -347,30 +463,16 @@ function ns.CapName(display, s)
     s = s or (db and db.profile)
     local maxLen = s and s.nameMaxLength or 15
     if not maxLen or maxLen <= 0 then return display end
-    local bytes = #display
-    local i, chars, endByte = 1, 0, nil
-    while i <= bytes do
-        local b = string.byte(display, i)
-        local sz = (b < 128 and 1) or (b < 224 and 2) or (b < 240 and 3) or 4
-        chars = chars + 1
-        if chars == maxLen then endByte = i + sz - 1; break end
-        i = i + sz
-    end
-    if endByte and endByte < bytes then
-        return string.sub(display, 1, endByte)
-    end
-    return display
+    return EllesmereUI.Utf8Prefix(display, maxLen)
 end
 
--- WoW Forever Name Format (the Name Text cog, nameFormat): the character name's
--- first or last word; unset or "full" shows it whole. Nicknames are never
--- shortened. Defined only on Forever, so elsewhere a name pays one nil test.
-if ns.EllesmereUI.IS_FOREVER then
-    function ns.RF_FormatName(display, s)
-        local mode = s and s.nameFormat
-        if not mode or mode == "full" then return display end
-        return ns.EllesmereUI.ForeverShortName(display, mode)
-    end
+-- The Name Format (Text Display, nameFormat): the character name shaped by
+-- EllesmereUI.ShortName; unset or "full" shows it whole. Nicknames are never
+-- shortened. fmt (a tag's own modifier, [name:abbr]) takes the setting's place.
+function ns.RF_FormatName(display, s, fmt)
+    local mode = fmt or (s and s.nameFormat)
+    if not mode or mode == "full" then return display end
+    return EllesmereUI.ShortName(display, mode)
 end
 
 -- Fraction of the frame width the NAME text may fill before auto-truncating
@@ -379,13 +481,14 @@ end
 ns.RF_NAME_WIDTH_FRACTION = 1.0
 
 -- Display name for a unit. Nickname sources in order: Northern Sky Raid Tools (NSAPI), MethodInternal
--- (EasyNicknameAPI), TimelineReminders, the Liquid addon (LiquidAPI), then RakGaming Aliases
--- (RG_UnitName); falls back to the short character name. NSAPI
+-- (EasyNicknameAPI), TimelineReminders, the Liquid addon (LiquidAPI), RakGaming Aliases
+-- (RG_UnitName), then CustomNames; falls back to the short character name. NSAPI
 -- gets our addon key "EUI" (it has a dedicated per-addon setting + EUI_NICKNAME_TOGGLE callback):
 -- NSAPI:GetName self-gates on its global nicknames toggle AND that checkbox and returns the short
 -- name when unset, falling through to the next source. Every source gates itself entirely (no
 -- EUI-side toggle); pcall keeps a misbehaving external API from breaking name rendering.
-local function ResolveDisplayName(unit, applyCap, s)
+-- fmt: a tag's Name Format modifier in place of the setting (ns.RF_FormatName).
+local function ResolveDisplayName(unit, applyCap, s, fmt)
     local name, surname = UnitName(unit)
     name = name or ""
     local display
@@ -405,8 +508,7 @@ local function ResolveDisplayName(unit, applyCap, s)
                and not (issecretvalue and issecretvalue(dn)) and dn ~= "" then
                 display = dn
             else
-                display = EllesmereUI.WithSurname(name, surname)
-                if ns.RF_FormatName then display = ns.RF_FormatName(display, s) end
+                display = ns.RF_FormatName(EllesmereUI.WithSurname(name, surname), s, fmt)
             end
         end
     end
@@ -438,7 +540,7 @@ local function ResolveDisplayName(unit, applyCap, s)
             display = dn
         end
     end
-    -- Final alias source, RakGaming Aliases (RGA), gated on ns._rgaNick (maintained by
+    -- RakGaming Aliases (RGA), gated on ns._rgaNick (maintained by
     -- RegisterRGALIASNicknames + RGA's module callbacks: true only while RGA is present AND its
     -- "ellesmereui" module is enabled), so this hot path costs one flag read and never dereferences
     -- RGA's settings shape. dn ~= name keeps the Ambiguate path for unaliased units.
@@ -449,10 +551,19 @@ local function ResolveDisplayName(unit, applyCap, s)
             display = dn
         end
     end
+    -- CustomNames (LibStub library), set by RegisterCustomNames once it has loaded.
+    -- UnitName returns the raw name when none is set, so dn ~= name keeps the
+    -- Ambiguate path; a secret name is never compared.
+    if not display and ns._customNames and not (issecretvalue and issecretvalue(name)) then
+        local ok, dn = pcall(ns._customNames.UnitName, unit)
+        if ok and type(dn) == "string"
+           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+            display = dn
+        end
+    end
     if not display then
         if Ambiguate then name = Ambiguate(name, "short") end
-        display = EllesmereUI.WithSurname(name, surname)
-        if ns.RF_FormatName then display = ns.RF_FormatName(display, s) end
+        display = ns.RF_FormatName(EllesmereUI.WithSurname(name, surname), s, fmt)
     end
     -- Cap only the in-frame name (applyCap), not the top name bar banner.
     if applyCap then display = ns.CapName(display, s) end
@@ -476,27 +587,6 @@ function ns.GetBgColor(unit, s)
     -- Partial/imported profiles can lack the key (field report 2026-08-16).
     local c = s.customBgColor or defaults.customBgColor
     return c.r, c.g, c.b, a
-end
-
-local function GetNameColor(unit, s)
-    local EllesmereUI = ns.EllesmereUI  -- upvalue read, not a global read (see the taint note at the top of EllesmereUIRaidFrames.lua)
-    s = s or db.profile
-    local mode = s.nameColorMode or "class"
-    if mode == "accent" then
-        local r, g, b = EllesmereUI.ResolveActiveAccent()
-        if r then return r, g, b end
-        return 1, 1, 1
-    elseif mode == "custom" then
-        local c = s.nameCustomColor
-        return c.r, c.g, c.b
-    else -- "class"
-        local _, classToken = UnitClass(unit)
-        if classToken and not issecretvalue(classToken) then
-            local cc = EllesmereUI.GetClassColor(classToken)
-            if cc then return cc.r, cc.g, cc.b end
-        end
-        return 1, 1, 1
-    end
 end
 
 -- Class/custom color resolution for the Top Name Bar text (no accent mode).
@@ -608,17 +698,9 @@ function ns.RefreshAllNames()
         local d = GetFFD(btn)
         -- Party buttons read through the party proxy so a per-party cap applies.
         local bs = (d and d._isParty) and (ns._scaledPartyProxy or s) or s
-        -- Level Position "Attach to Name" keeps the level in front of the name.
-        local attach = ns.RF_LEVEL_ATTACH[bs.levelTextPosition or ns.RF_LEVEL_DEFAULT]
-        if d and d.nameText then
-            if attach then
-                ns._RFNameWithLevel(d.nameText, ResolveDisplayName(unit, true, bs), unit, attach)
-            else
-                d.nameText:SetText(ResolveDisplayName(unit, true, bs))
-            end
-            local nr, ng, nb = GetNameColor(unit, bs)
-            d.nameText:SetTextColor(nr, ng, nb)
-        end
+        if d then ns.RF_TextNames(d, unit) end
+        -- The Top Name Bar keeps the level in front of the name as the name does.
+        local attach = ns.RF_TextNameAttach(bs)
         if d and d.topNameBarText and bs.topNameBarEnabled then
             if attach then
                 ns._RFNameWithLevel(d.topNameBarText, ResolveDisplayName(unit, false, bs), unit, attach)
@@ -631,50 +713,6 @@ function ns.RefreshAllNames()
     end
     for unit, btn in pairs(unitToButton) do refresh(unit, btn) end
     for unit, btn in pairs(ns._partyUnitToButton) do refresh(unit, btn) end
-end
-
--- Health text color (mirrors GetNameColor). Default mode "custom" = white.
-local function GetHealthTextColor(unit, s)
-    s = s or db.profile
-    local mode = s.healthTextColorMode or "custom"
-    if mode == "accent" then
-        local r, g, b = EllesmereUI.ResolveActiveAccent()
-        if r then return r, g, b end
-        return 1, 1, 1
-    elseif mode == "class" then
-        local _, classToken = UnitClass(unit)
-        if classToken and not issecretvalue(classToken) then
-            local cc = EllesmereUI.GetClassColor(classToken)
-            if cc then return cc.r, cc.g, cc.b end
-        end
-        return 1, 1, 1
-    else -- "custom"
-        local c = s.healthTextCustomColor
-        if c then return c.r, c.g, c.b end
-        return 1, 1, 1
-    end
-end
-
--- Heal absorb text color (mirrors GetHealthTextColor). Default mode "custom"
-function ns.GetHealAbsorbTextColor(unit, s)
-    s = s or db.profile
-    local mode = s.healAbsorbTextColorMode or "custom"
-    if mode == "accent" then
-        local r, g, b = EllesmereUI.ResolveActiveAccent()
-        if r then return r, g, b end
-        return 1, 0.3, 0.3
-    elseif mode == "class" then
-        local _, classToken = UnitClass(unit)
-        if classToken and not issecretvalue(classToken) then
-            local cc = EllesmereUI.GetClassColor(classToken)
-            if cc then return cc.r, cc.g, cc.b end
-        end
-        return 1, 0.3, 0.3
-    else -- "custom"
-        local c = s.healAbsorbTextCustomColor
-        if c then return c.r, c.g, c.b end
-        return 1, 0.3, 0.3
-    end
 end
 
 -- A preview text's colour for its colour mode: accent, class (classToken: the sample member's
@@ -696,9 +734,8 @@ function ns.RF_PreviewTextColor(mode, custom, classToken, r, g, b, pToken)
     return r, g, b
 end
 
--- Anchor a FontString to the health bar using the shared 8-position scheme. Mirrors FB.AnchorText
--- (EUI_RaidFrames_BossFrames.lua) so heal-absorb text in the early frame-build
--- path anchors identically. Optional width clamps long "amount"-mode values like health text.
+-- Anchor a FontString to the health bar using the shared position scheme of the texts.
+-- Optional width clamps long values like health text.
 function ns.AnchorRFText(fs, health, pos, ox, oy, width)
     if not fs or not health then return end
     fs:ClearAllPoints()
@@ -737,9 +774,200 @@ function ns.AnchorRFText(fs, health, pos, ox, oy, width)
     fs:SetText(""); fs:SetText(txt or "")
 end
 
--- Health text in one of the health text modes. A unit's values are read only in the modes that
--- show them; a preview (unit nil) shows made-up ones, perPct per percent. Returns false for None or
--- an unknown mode, which blank the text.
+-------------------------------------------------------------------------------
+--  Custom Health / Power Text: one EllesmereUI.TextTags catalog for both. A
+--  piece is (unit, s, pv); unit nil is a preview (pv's made-up values, else the
+--  schema sample). Values only reach a format setter, never a comparison. Dead
+--  or offline keeps the text: [hp] names the status, [hp:pct] reads 0 (as UF).
+-------------------------------------------------------------------------------
+do
+    local TextTags = EllesmereUI.TextTags
+    local sformat, sfind, ssub, unpack = string.format, string.find, string.sub, unpack
+    local UnitHealthMax, UnitPowerMax = UnitHealthMax, UnitPowerMax
+    local UnitPowerPercent, UnitGetTotalAbsorbs = UnitPowerPercent, UnitGetTotalAbsorbs
+    local UnitInRaid, GetRaidRosterInfo, IsInRaid = UnitInRaid, GetRaidRosterInfo, IsInRaid
+    local SCHEMA = TextTags.UNIT.keys
+
+    -- OFFLINE / DEAD, nil while alive and connected (clean booleans for group units).
+    local function Status(unit, pv)
+        if unit then
+            if not UnitIsConnected(unit) then return EllesmereUI.L("OFFLINE") end
+            if UnitIsDeadOrGhost(unit) then return EllesmereUI.L("DEAD") end
+        elseif pv then
+            if pv.offline then return EllesmereUI.L("OFFLINE") end
+            if pv.dead then return EllesmereUI.L("DEAD") end
+        end
+    end
+
+    local function GetHealth(unit, max)
+        if max then return UnitHealthMax(unit) or 0 end
+        return UnitHealth(unit, true) or 0
+    end
+    local function GetPower(unit, max)
+        local pType = UnitPowerType(unit)
+        if max then return UnitPowerMax(unit, pType) or 0 end
+        return UnitPower(unit, pType) or 0
+    end
+
+    -- [hp], [pp] and their :max / :abr keys. Current health names the status, so
+    -- Health / Max names it once ("DEAD / 150 K").
+    local function Amount(key)
+        local kind = ssub(key, 1, 2)
+        local get = kind == "hp" and GetHealth or GetPower
+        local max, abr = sfind(key, ":max", 1, true) ~= nil, sfind(key, ":abr", 1, true) ~= nil
+        local status = kind == "hp" and not max
+        local pctKey, perKey, sample = kind .. "Pct", kind .. "Per", SCHEMA[key].sample
+        return function(unit, s, pv)
+            local st = status and Status(unit, pv)
+            if st then return st end
+            local v
+            if unit then
+                v = get(unit, max)
+            elseif pv and pv[perKey] then
+                v = max and 100 * pv[perKey] or (pv[pctKey] or 0) * pv[perKey]
+            else
+                return sample
+            end
+            if abr then return AbbreviateNumbers(v) end
+            return sformat("%d", v)
+        end
+    end
+
+    local function HealthPct(unit, s, pv)
+        if unit then
+            if UnitIsDeadOrGhost(unit) then return "0" end
+            return sformat("%.0f", GetSafeHealthPercent(unit) or 0)
+        end
+        if pv and pv.hpPct then return sformat("%.0f", pv.dead and 0 or pv.hpPct) end
+        return SCHEMA["hp:pct"].sample
+    end
+    local function PowerPct(unit, s, pv)
+        if unit then
+            return sformat("%.0f", UnitPowerPercent(unit, UnitPowerType(unit), true, CurveConstants.ScaleTo100) or 0)
+        end
+        if pv and pv.ppPct then return sformat("%.0f", pv.ppPct) end
+        return SCHEMA["pp:pct"].sample
+    end
+
+    -- Full amounts blank at zero, abbreviated ones read 0, as in the Unit Frames.
+    local function Absorb(key, get)
+        local abr, sample = sfind(key, ":abr", 1, true) ~= nil, SCHEMA[key].sample
+        return function(unit)
+            if not unit then return sample end
+            local v = get(unit) or 0
+            if abr then return AbbreviateNumbers(v) end
+            return C_StringUtil.TruncateWhenZero(v)
+        end
+    end
+
+    -- [name] and [target], plain or with a Name Format modifier ([name:abbr]):
+    -- fmt, when given, takes the place of the text's Name Format, so the cap
+    -- still comes last and nicknames stay whole.
+    local function NamePiece(key, fmt)
+        local sample = SCHEMA[key].sample
+        return function(unit, s, pv)
+            if unit then return ResolveDisplayName(unit, true, s, fmt) end
+            -- A preview member's name as its name text would show it.
+            if fmt and pv and pv.rawName then
+                return ns.CapName(ns.RF_FormatName(pv.rawName, s, fmt), s)
+            end
+            return pv and pv.name or sample
+        end
+    end
+    -- The target's name through the same resolver, uncapped (Name Max Length is the
+    -- unit's own name, and only a clean name could be capped); a secret one passes raw.
+    local targetOf = setmetatable({}, { __index = function(t, unit)
+        local v = unit .. "target"
+        t[unit] = v
+        return v
+    end })
+    local function TargetPiece(key, fmt)
+        local sample = SCHEMA[key].sample
+        return function(unit, s)
+            if not unit then return sample end
+            local tunit = targetOf[unit]
+            if not UnitExists(tunit) then return "" end
+            local name = UnitName(tunit)
+            if issecretvalue(name) then return name end
+            return ResolveDisplayName(tunit, false, s, fmt)
+        end
+    end
+    local function Group(unit)
+        if not unit then return SCHEMA.group.sample end
+        if not IsInRaid() then return "" end
+        local idx = UnitInRaid(unit)
+        if idx and not issecretvalue(idx) then
+            local _, _, subgroup = GetRaidRosterInfo(idx)
+            return subgroup or ""
+        end
+        return ""
+    end
+
+    local CATALOG = TextTags.Bind(TextTags.UNIT, {
+        ["hp"] = Amount("hp"), ["hp:abr"] = Amount("hp:abr"), ["hp:max"] = Amount("hp:max"),
+        ["hp:max:abr"] = Amount("hp:max:abr"), ["hp:pct"] = HealthPct,
+        ["pp"] = Amount("pp"), ["pp:abr"] = Amount("pp:abr"), ["pp:max"] = Amount("pp:max"),
+        ["pp:max:abr"] = Amount("pp:max:abr"), ["pp:pct"] = PowerPct,
+        ["absorb"] = Absorb("absorb", UnitGetTotalAbsorbs),
+        ["absorb:abr"] = Absorb("absorb:abr", UnitGetTotalAbsorbs),
+        ["healabsorb"] = Absorb("healabsorb", UnitGetTotalHealAbsorbs),
+        ["healabsorb:abr"] = Absorb("healabsorb:abr", UnitGetTotalHealAbsorbs),
+        ["name"] = NamePiece("name"), ["name:first"] = NamePiece("name:first", "first"),
+        ["name:last"] = NamePiece("name:last", "last"), ["name:abbr"] = NamePiece("name:abbr", "abbr"),
+        ["target"] = TargetPiece("target"), ["target:first"] = TargetPiece("target:first", "first"),
+        ["target:last"] = TargetPiece("target:last", "last"), ["target:abbr"] = TargetPiece("target:abbr", "abbr"),
+        ["group"] = Group,
+    })
+    ns.RF_TextTags = CATALOG
+
+    -- Compiled once per parse (the engine caches parses per template): fmt, the
+    -- pieces in tag order, each piece's value class (cls), their count and the value
+    -- classes the template reads.
+    local compiled = setmetatable({}, { __mode = "k" })
+    function ns.RF_CustomCompile(template)
+        local parsed = TextTags.Parse(CATALOG, template)
+        if not parsed then return nil end
+        local cc = compiled[parsed]
+        if cc then return cc end
+        local keys, map, pieces, cls = parsed.keys, CATALOG.map, {}, {}
+        for i = 1, #keys do pieces[i], cls[i] = map[keys[i]], SCHEMA[keys[i]].reads end
+        cc = { fmt = parsed.fmt, pieces = pieces, cls = cls, n = #keys, reads = parsed.reads }
+        compiled[parsed] = cc
+        return cc
+    end
+    local Compile = ns.RF_CustomCompile
+
+    -- Paints a template; returns the value classes it reads (TextTags' reads set),
+    -- or false (blank) for a missing or empty one. args: a button's values for this
+    -- text, kept between paints; a / b: only the pieces reading those classes are
+    -- read again, the rest keep their values (a nil, a new template or no args:
+    -- every piece, as on the previews).
+    local scratch = {}
+    local function CustomTextInto(fs, template, unit, s, pv, args, a, b)
+        local cc = Compile(template)
+        if not cc then
+            fs:SetText("")
+            return false
+        end
+        if not args then
+            args, a = scratch, nil
+        elseif args.cc ~= cc then
+            args.cc, a = cc, nil
+        end
+        local pieces, cls, n = cc.pieces, cc.cls, cc.n
+        for k = 1, n do
+            if not a or cls[k] == a or cls[k] == b then args[k] = pieces[k](unit, s, pv) end
+        end
+        fs:SetFormattedText(cc.fmt, unpack(args, 1, n))
+        return cc.reads
+    end
+    ns.RF_CustomTextInto = CustomTextInto
+end
+
+-- Health text in one of the health text modes (Custom texts paint through RF_CustomTextInto). A
+-- unit's values are read only in the modes that show them; a preview (unit nil) shows made-up
+-- ones, perPct per percent. Returns false for None or an unknown mode, which blank the text;
+-- otherwise true.
 function ns.RF_HealthTextInto(fs, mode, pct, unit, perPct)
     local v
     if mode == "percent" then
@@ -792,30 +1020,10 @@ function ns.FormatHealAbsorbInto(fs, amt, mode)
     end
 end
 
--- Render the live heal-absorb text on a real frame (value from the unit).
-function ns.SetHealAbsorbText(fs, unit, s)
-    if not fs then return end
-    local mode = s.healAbsorbTextMode or "none"
-    ns.FormatHealAbsorbInto(fs, (UnitGetTotalHealAbsorbs and UnitGetTotalHealAbsorbs(unit)) or 0, mode)
-    if mode ~= "none" then
-        local r, g, b = ns.GetHealAbsorbTextColor(unit, s)
-        fs:SetTextColor(r, g, b, 0.9)
-    end
-end
-
--- Update one button's heal-absorb text with the correct scaled profile. Called from the
--- absorb-only event path (UNIT_HEAL_ABSORB_AMOUNT_CHANGED), which runs no full button update.
+-- Update one button's Heal Absorb Texts. Called from the absorb-only event path
+-- (UNIT_HEAL_ABSORB_AMOUNT_CHANGED), which runs no full button update.
 function ns.UpdateHealAbsorbTextFor(button, unit)
-    local d = GetFFD(button)
-    if not d.healAbsorbText then return end
-    if UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit) then
-        d.healAbsorbText:SetText("")
-        return
-    end
-    local s = (d._isParty and ns._scaledPartyProxy)
-        or (d._isExtra and ns._scaledExtraProxy)
-        or ns._scaledProfile or db.profile
-    ns.SetHealAbsorbText(d.healAbsorbText, unit, s)
+    ns.RF_TextHealAbsorb(GetFFD(button), unit)
 end
 
 -- Maps a dispel type to its saved-color key. The "" type (Bleed/physical) is
@@ -875,17 +1083,12 @@ ns._RFPowerTypeEdge = function(d, unit, force)
         end
     end
     -- Power Text's colour is identity-class state too (its Power mode is this type's colour).
-    if d._pwtMode then ns._RFPowerTextColor(d, unit, s, pr, pg, pb) end
+    if d._pwtOn then ns.RF_TextPowerColor(d, unit, s, pr, pg, pb) end
 end
 
 -------------------------------------------------------------------------------
---  Power Text (opt-in, default None): the unit's power as text in Health Text's
---  9-point scheme on the same health bar host, shown only while the button's
---  power bar shows. Nothing exists while None: the FontString is built the first
---  time a shown power bar paints with a mode set. d._pwtMode (the mode, nil = no
---  text shown) is the one field the per-tick power paths and the UNIT_HEALTH
---  path test; the colour rides the identity edge above, the value rides every
---  power value push, and dead/offline blanks it as Health Text.
+--  Power Text formatting. The texts, their visibility (only while the power bar
+--  shows) and the event paths live in EUI_RaidFrames_TextPaint.lua.
 -------------------------------------------------------------------------------
 
 -- Power text in one of its modes (Health Text's minus Missing). pct: the bar's percent
@@ -894,7 +1097,7 @@ end
 -- clean booleans for group units); its amount is read only in the modes that show it and goes
 -- straight through AbbreviateNumbers into the setter, never compared. A preview (unit nil)
 -- shows made-up amounts, perPct per percent. Returns false when it blanks the text (dead,
--- offline, None or an unknown mode).
+-- offline, None or an unknown mode), otherwise true.
 function ns.RF_PowerTextInto(fs, mode, pct, unit, pType, perPct)
     if unit and (UnitIsDeadOrGhost(unit) or not UnitIsConnected(unit)) then
         fs:SetText("")
@@ -921,80 +1124,9 @@ function ns.RF_PowerTextInto(fs, mode, pct, unit, pType, perPct)
     return true
 end
 
--- Live Power Text colour for its colour mode. pr, pg, pb: the unit's power-type colour, already
--- resolved by the caller (the identity edge above, or the cross-module colour push).
-ns._RFPowerTextColor = function(d, unit, s, pr, pg, pb)
-    local mode = s.powerTextColorMode
-    local r, g, b = 1, 1, 1
-    if mode == "power" then
-        r, g, b = pr, pg, pb
-    elseif mode == "class" then
-        local _, classToken = UnitClass(unit)
-        if not issecretvalue(classToken) and classToken then
-            local cc = ns.EllesmereUI.GetClassColor(classToken)
-            if cc then r, g, b = cc.r, cc.g, cc.b end
-        end
-    elseif mode == "accent" then
-        local ar, ag, ab = ns.EllesmereUI.ResolveActiveAccent()
-        if ar then r, g, b = ar, ag, ab end
-    else -- "custom"
-        local c = s.powerTextCustomColor
-        if c then r, g, b = c.r, c.g, c.b end
-    end
-    d.powerText:SetTextColor(r, g, b, 0.9)
-end
-
--- Anchor on Health Text's host (the health bar, or the Party Frames kit's) with its width and
--- 9-point scheme. Party/extra-aware like the per-button anchor closures; re-run by every reload
--- pass and the Party Frames kit pass.
-ns._RFAnchorPowerText = function(d)
-    local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
-    ns.AnchorRFText(d.powerText, ns.RF_BarHost(d.health, s), s.powerTextPosition or "bottom",
-        s.powerTextOffsetX or 0, s.powerTextOffsetY or 0,
-        d.kitG and d.kitG.health.w or (s.frameWidth or 72) * 0.75)
-end
-
--- Show or hide by mode for a button whose power bar shows (the full power paint, ahead of the
--- identity edge so a newly shown text takes its colour there); builds the FontString on the
--- text carrier the first time a mode needs it. Stamps d._pwtMode.
-ns._RFPowerTextSetup = function(d, s)
-    local mode = s.powerTextMode
-    if mode == nil or mode == "none" then
-        if d._pwtMode then d.powerText:Hide(); d._pwtMode = nil end
-        return
-    end
-    local fs = d.powerText
-    if not fs then
-        fs = d.textCarrier:CreateFontString(nil, "OVERLAY")
-        ApplyFont(fs, s.powerTextSize or 8)
-        fs:SetWordWrap(false)
-        fs:SetTextColor(1, 1, 1, 0.9)
-        d.powerText = fs
-        ns._RFAnchorPowerText(d)
-    end
-    if not d._pwtMode then fs:Show() end
-    d._pwtMode = mode
-end
-
--- Dead/offline edge, from the UNIT_HEALTH path that owns death, release and resurrection (none
--- of them has to move a power value): blank or refill once per transition. d._pwtGone stamps
--- the state last seen here (clean booleans); the full power paint clears it so a new occupant
--- is always re-checked on its next health tick.
-ns._RFPowerTextLife = function(d, unit, gone)
-    if d._pwtGone == gone then return end
-    d._pwtGone = gone
-    if gone then d.powerText:SetText(""); return end
-    local pType = d._pwType or UnitPowerType(unit) or 0
-    ns.RF_PowerTextInto(d.powerText, d._pwtMode,
-        UnitPowerPercent(unit, pType, true, CurveConstants.ScaleTo100), unit, pType)
-end
-
 -------------------------------------------------------------------------------
---  Level Text: the unit's level in front of the name inside the name text itself
---  (Attach to Name, "60 Name", the WoW Forever default; or with a divider, "60 | Name"), or
---  on its own spot on Health Text's host in the name's colour. Nothing exists
---  while None or attached: the FontString is built the first time a full paint
---  runs with a spot set. d._lvlOn is true while it shows. UNIT_LEVEL (a level-only
+--  Level formatting: the unit's level in front of the name ("60 Name", the WoW
+--  Forever default, or "60 | Name") or on its own spot. UNIT_LEVEL (a level-only
 --  repaint, ns._RFRepaintLevel) is registered only while some view shows the level.
 --  The level is the effective one (scaled content), like the suite's other level
 --  texts.
@@ -1005,23 +1137,6 @@ ns.RF_LEVEL_ATTACH = {
     name    = { "%d %s", "?? %s" },
     nameDiv = { "%d | %s", "?? | %s" },
 }
-
--- True while the raid, party or extra-frames view shows Level Text.
-function ns._RFLevelWanted()
-    return (ns._scaledProfile.levelTextPosition or ns.RF_LEVEL_DEFAULT) ~= "none"
-        or (ns._scaledPartyProxy.levelTextPosition or ns.RF_LEVEL_DEFAULT) ~= "none"
-        or (ns._scaledExtraProxy.levelTextPosition or ns.RF_LEVEL_DEFAULT) ~= "none"
-end
-
--- Anchor on Health Text's host with the 9-point scheme; party/extra-aware like the
--- Power Text anchor, and re-run by every reload pass and the Party Frames kit pass.
-ns._RFAnchorLevelText = function(d)
-    local s = d._isParty and ns._scaledPartyProxy or (d._isExtra and ns._scaledExtraProxy) or ns._scaledProfile
-    local pos = s.levelTextPosition or ns.RF_LEVEL_DEFAULT
-    if pos == "none" or ns.RF_LEVEL_ATTACH[pos] then return end
-    ns.AnchorRFText(d.levelText, ns.RF_BarHost(d.health, s), pos,
-        s.levelTextOffsetX or 0, s.levelTextOffsetY or 0)
-end
 
 -- The level as text: a secret level goes straight to the setter (never compared),
 -- "??" for a unit too far above to read, blank while it is not known yet.
@@ -1065,30 +1180,8 @@ ns._RFNameWithLevel = function(fs, name, unit, fmt)
     end
 end
 
--- The full paint's share for the own spot: shown or hidden by position (built on first
--- need), filled, and coloured as the name (r, g, b).
-ns._RFLevelText = function(d, s, unit, r, g, b)
-    local pos = s.levelTextPosition or ns.RF_LEVEL_DEFAULT
-    if pos == "none" or ns.RF_LEVEL_ATTACH[pos] then
-        if d._lvlOn then d.levelText:Hide(); d._lvlOn = nil end
-        return
-    end
-    local fs = d.levelText
-    if not fs then
-        fs = d.textCarrier:CreateFontString(nil, "OVERLAY")
-        ApplyFont(fs, s.levelTextSize or 10)
-        fs:SetWordWrap(false)
-        d.levelText = fs
-        ns._RFAnchorLevelText(d)
-    end
-    if not d._lvlOn then fs:Show(); d._lvlOn = true end
-    ns._RFLevelInto(fs, unit)
-    fs:SetTextColor(r, g, b)
-end
-
 I.GetClassicHealthCurve, I.GetDispelColor = GetClassicHealthCurve, GetDispelColor
-I.GetHealthColor, I.GetHealthTextColor = GetHealthColor, GetHealthTextColor
-I.GetNameColor, I.GetPowerColor = GetNameColor, GetPowerColor
+I.GetHealthColor, I.GetPowerColor = GetHealthColor, GetPowerColor
 I.GetSafeHealthPercent, I.GetTopNameBarColor = GetSafeHealthPercent, GetTopNameBarColor
 I.LayoutTopNameBar, I.ResolveDisplayName = LayoutTopNameBar, ResolveDisplayName
 I.broken = false

@@ -1216,6 +1216,7 @@ local function BuildSidebar()
                 local t = dot:CreateTexture(nil, "OVERLAY")
                 t:SetAllPoints()
                 t:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+                EllesmereUI.RegAccent({ type = "solid", obj = t, a = 1 })
                 -- Round: run the solid color through the portrait circle mask.
                 local mask = dot:CreateMaskTexture()
                 mask:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\portraits\\circle_mask.tga",
@@ -1549,6 +1550,10 @@ local function BuildSidebar()
 
     local function UpdateAddonThumb()
         local maxScroll = EllesmereUI.SafeScrollRange(addonScrollFrame) or 0
+        -- A shorter list (a group collapsed) pulls the offset back into range.
+        if (tonumber(addonScrollFrame:GetVerticalScroll()) or 0) > maxScroll then
+            addonScrollFrame:SetVerticalScroll(math.max(0, maxScroll))
+        end
         -- Arrow state: dimmed when nothing is below. Runs before the no-scroll return.
         do
             local cur = tonumber(addonScrollFrame:GetVerticalScroll()) or 0
@@ -1713,23 +1718,54 @@ local function BuildSidebar()
         end
     end
 
-    -- Create a group header row (accent-colored label only, no icon, no power,
-    -- not clickable). Acts as a visual category divider above its children.
+    -- Create a group header row: the accent-colored label, then right after its
+    -- text the quest tracker section headers' +/- art in the accent, shown only
+    -- while the row is hovered. A click anywhere on the row collapses or
+    -- expands the group; RefreshSidebarStates lays the rows out and sets the
+    -- +/- for the saved state.
     local function CreateGroupHeader(group)
-        local row = CreateFrame("Frame", nil, addonScrollChild)
+        local row = CreateFrame("Button", nil, addonScrollChild)
         row:SetSize(SIDEBAR_W, GROUP_ROW_H)
         row:SetFrameLevel(addonScrollChild:GetFrameLevel() + 1)
 
         local EG = ELLESMERE_GREEN
+        -- The label takes its text's width (one anchor), so the +/- follows the text.
         local label = MakeFont(row, 15, nil, EG.r, EG.g, EG.b, 1)
         label:SetPoint("LEFT", row, "LEFT", NAV_LEFT, 0)
+        label:SetWordWrap(false)
+        label:SetMaxLines(1)
         label:SetText(EllesmereUI.L(group.label))
-        RegAccent({ type="callback", fn = function(r, g, b)
+
+        local toggle = row:CreateTexture(nil, "ARTWORK")
+        toggle:SetSize(14, 14)
+        toggle:SetPoint("LEFT", label, "RIGHT", 4, 0)
+        toggle:SetAtlas("ui-questtrackerbutton-secondary-collapse")
+        toggle:SetDesaturated(true)
+        toggle:SetVertexColor(EG.r, EG.g, EG.b, 1)
+        toggle:Hide()
+
+        -- Hovering the row shows the +/- and lightens it and the label by 25%.
+        local cr, cg, cb = EG.r, EG.g, EG.b
+        local function Paint(lit)
+            local m = lit and 1.25 or 1
+            local r, g, b = math.min(1, cr * m), math.min(1, cg * m), math.min(1, cb * m)
             label:SetTextColor(r, g, b, 1)
+            toggle:SetVertexColor(r, g, b, 1)
+            toggle:SetShown(lit)
+        end
+        RegAccent({ type="callback", fn = function(r, g, b)
+            cr, cg, cb = r, g, b
+            Paint(row:IsMouseOver())
         end })
+        row:SetScript("OnEnter", function() Paint(true) end)
+        row:SetScript("OnLeave", function() Paint(false) end)
+
+        local key = group.key
+        row:SetScript("OnClick", function() EUI_NS.ToggleSidebarGroup(key) end)
 
         row._isGroup = true
         row._label   = label
+        row._toggle  = toggle
         return row
     end
 
@@ -5095,6 +5131,7 @@ function EllesmereUI:SelectModule(folderName)
 
     activeModule = folderName
     local config = modules[folderName]
+    EUI_NS.RevealSidebarRow(folderName)
     UpdateSidebarHighlight(folderName)
     headerFrame._title:SetText(EllesmereUI.L(config.title or folderName))
     local rb = footerFrame and footerFrame._resetBtn
@@ -5176,14 +5213,27 @@ local function RefreshSidebarStates()
     local GROUP_H   = EllesmereUI.SIDEBAR_GROUP_ROW_H
     local CHILD_H   = EllesmereUI.SIDEBAR_CHILD_ROW_H
     local GROUP_GAP = EllesmereUI.SIDEBAR_GROUP_GAP
+    -- Collapsed groups keep their header and hide their rows; the rows below close up.
+    -- The gap between groups follows only a group that shows rows, so collapsed
+    -- headers stack at the row pitch.
+    local collapsed = EllesmereUIDB and EllesmereUIDB.sidebarCollapsed
     local y = 0
-    for i, group in ipairs(EUI_NS.navGroups) do
-        if i > 1 then y = y + GROUP_GAP end
+    local afterRows = false
+    for _, group in ipairs(EUI_NS.navGroups) do
+        if afterRows then y = y + GROUP_GAP end
+        afterRows = false
+        local shut = collapsed and collapsed[group.key] and true or false
         local header = groupHeaders[group.key]
         if header then
             header:ClearAllPoints()
             header:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -y)
             header:Show()
+            local toggle = header._toggle
+            if toggle then
+                toggle:SetAtlas(shut and "ui-questtrackerbutton-secondary-expand"
+                    or "ui-questtrackerbutton-secondary-collapse")
+                toggle:SetDesaturated(true)
+            end
             y = y + GROUP_H
         end
         for _, folder in ipairs(group.members) do
@@ -5191,9 +5241,14 @@ local function RefreshSidebarStates()
             local btn = info and sidebarButtons[folder]
             if btn then
                 btn:ClearAllPoints()
-                btn:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -y)
-                btn:Show()
-                y = y + CHILD_H
+                if shut then
+                    btn:Hide()
+                else
+                    btn:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -y)
+                    btn:Show()
+                    y = y + CHILD_H
+                    afterRows = true
+                end
 
                 local loaded = info.alwaysLoaded or IsAddonLoaded(info.folder)
                 local isSpecial = info.comingSoon or info.maintenance
@@ -5250,6 +5305,35 @@ local function RefreshSidebarStates()
     -- state and would otherwise wash out locked rows on every module/page switch.
     if EllesmereUI.RefreshSidebarOverrideLocks then
         EllesmereUI.RefreshSidebarOverrideLocks()
+    end
+end
+
+-- Collapse or expand a sidebar group (header click). The state is account-wide,
+-- in EllesmereUIDB.sidebarCollapsed keyed by group key (true = collapsed).
+function EUI_NS.ToggleSidebarGroup(key)
+    if not EllesmereUIDB then return end
+    local c = EllesmereUIDB.sidebarCollapsed
+    if not c then c = {}; EllesmereUIDB.sidebarCollapsed = c end
+    c[key] = (not c[key]) or nil
+    RefreshSidebarStates()
+end
+
+-- Selecting a module whose group is collapsed expands that group, so the
+-- selected row shows (Global Search, link tabs and slash commands select
+-- modules the player cannot see).
+function EUI_NS.RevealSidebarRow(folder)
+    local c = EllesmereUIDB and EllesmereUIDB.sidebarCollapsed
+    if not (c and next(c)) then return end
+    for _, group in ipairs(EUI_NS.navGroups) do
+        if c[group.key] then
+            for _, member in ipairs(group.members) do
+                if member == folder then
+                    c[group.key] = nil
+                    RefreshSidebarStates()
+                    return
+                end
+            end
+        end
     end
 end
 

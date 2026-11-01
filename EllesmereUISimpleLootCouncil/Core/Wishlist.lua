@@ -684,6 +684,14 @@ function Wishlist.ReconcileFile()
     local db = addon.db
     if not db then return end
     local file, saved = addon.WowauditFile, db.wowauditCopy
+
+    local stray = _G.SLC_WoWAuditSimData
+    _G.SLC_WoWAuditSimData = nil
+    if Usable(stray) and (not Usable(file) or stray.wowauditTimestamp > file.wowauditTimestamp) then
+        stray.origin = "SLC_WoWAuditSimData.lua"
+        file = stray
+        addon.WowauditFile = stray
+    end
     if Usable(file) and (not Usable(saved) or file.wowauditTimestamp > saved.wowauditTimestamp) then
         db.wowauditCopy = file
     elseif Usable(saved) and (not Usable(file) or saved.wowauditTimestamp > file.wowauditTimestamp) then

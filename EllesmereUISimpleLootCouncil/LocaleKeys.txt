@@ -44,7 +44,7 @@
 %d -> %d
 %d ITEM
 %d ITEMS
-%d URGENT
+%d Urgent
 %d already held
 %d awarded to you
 %d button
@@ -55,20 +55,10 @@
 %d entries recorded, %d imported
 %d imported
 %d item
-%d item \194\183 combat
-%d item \194\183 in range
-%d item \194\183 offline
-%d item \194\183 out of range
-%d item \194\183 out of range (dead)
 %d item is owed to %s - adding it to the trade. Press Trade to send it.
 %d item on this corpse was left in the loot window - the game does not offer it to you.
 %d item, %d awarded
 %d items
-%d items \194\183 combat
-%d items \194\183 in range
-%d items \194\183 offline
-%d items \194\183 out of range
-%d items \194\183 out of range (dead)
 %d items are owed to %s - adding them to the trade. Press Trade to send them.
 %d items on this corpse were left in the loot window - the game does not offer them to you.
 %d items, %d awarded
@@ -158,7 +148,6 @@
 %s is no longer in %s's bags, so it cannot be awarded. Right-click it in the council list to remove it from the run.
 %s is not in your group
 %s is not in your group.
-%s is not in your guild.
 %s is not on the council.
 %s is now the group's Master Looter.
 %s is running Simple Loot Council for this raid.
@@ -213,10 +202,10 @@
 %s: %s
 %s: no raids recorded
 %sIn force|r - you are not in a group.
-%sIn force|r - you lead this group.
-%sNot in force|r - %s leads this group, and no council has arrived from them yet.
-%sNot in force|r - %s leads this group, so their council is used.
-%sNot in force|r - another player leads this group.
+%sIn force|r - you are the Loot Master.
+%sNot in force|r - %s is Loot Master, and no council has arrived from them yet.
+%sNot in force|r - %s is Loot Master, so their council is used.
+%sNot in force|r - another player is Loot Master.
 %s\n\n%s
 '%s' could be any of: %s
 (Awarded to you)
@@ -236,6 +225,7 @@
 0 of 0
 A character name, for Player. Council and Raid need no name.
 A character name, then Enter.
+A player who picks this response gets a roll on the council table automatically.
 AGAINST EQUIPPED
 ANSWERED
 AWARDED
@@ -282,6 +272,7 @@ Automatic pass: %s.
 Automatically join SLC sessions?
 Automatically start session on boss kill
 Autopassed
+Autoroll
 Average equipped
 Award
 Award for
@@ -340,6 +331,7 @@ Council Members May Vote For:
 Council Rank
 Council Snapshot
 Council bags
+Council can manage queue
 Council in force: %s
 Council members can manage the loot queue
 Council members queue items and ask; the Loot Master approves each start.
@@ -381,7 +373,6 @@ Drop only, keep history
 Drop prior Loot Master delegation when passed lead
 Drop this obligation?
 Duplicate award history entries have been merged. They were caused by a bug that recorded every award twice.
-ENDED
 Each distinct one once. Off: they are still recorded in /slc log. Log to chat shows everything either way.
 Echoes the diagnostic log while reproducing a problem.
 Enable Funnel
@@ -451,7 +442,6 @@ It was equipped, which ends its trade window.
 It was not in %s's bags when it was awarded to %s.
 It was not in your bags when it was awarded to %s.
 Item
-Item Level %s
 Items
 Items appear here when you are holding something that was awarded to someone else.
 Items cannot be removed once the run has started.
@@ -540,7 +530,6 @@ No character recorded
 No guild
 No items
 No loot session is running at the moment.
-No loot session is running. I have not recorded that.
 No loot session running
 No loot session running.
 No other council members.
@@ -665,6 +654,7 @@ Reset Columns
 Response
 Response %d
 Response buttons
+Response buttons locked while loot session is active
 Response buttons: %s
 Response guide
 Restore
@@ -705,7 +695,7 @@ Session Length (seconds)
 Session running - answer for your loot.
 Session running - open the council window.
 Set award reason
-Set by the group leader while SLC is active. Yours applies when you lead.
+Set by the Loot Master while SLC is active. Yours applies when you are Loot Master.
 Set response
 Set winner
 Setup
@@ -769,6 +759,7 @@ The current run must finish first.
 The group-loot funnel now runs whenever Simple Loot Council is active, so its switch is gone. The guild loot funnel guard is now off; switch it on in Settings to be asked before your loot is passed outside your guild.
 The guild filter does not apply here: the rows it hides are exported too.
 The loot funnel now runs in guild groups only by default: you are asked before your loot is passed outside your guild. Set \"Loot funnel in which groups?\" to All Groups in Settings if you would rather not be asked.
+The loot response tab in the Loot Council window is now off by default, so your response window opens on its own again. You can switch it back on in Settings.
 Their equipped item and upgrade will appear here.
 Their guild ranks are left out: they belong to another guild.
 Themselves
@@ -850,12 +841,10 @@ You are not in a guild, so there is no roster to read.
 You are not in a guild.
 You declined to take part in this SLC group, so your group-loot funnel is off.
 You roll Need on group loot, everyone taking part passes, and the council distributes what lands in your bags.
-Your Loot Master settings may only be edited while you are Loot Master.
 Your Simple Loot Council settings were reset to their new defaults. Your councils, alts, response buttons, raid team and history were kept.
 Your bags
 Your guild has no rank called this - it was renamed or removed. It confers nothing until a rank of this name exists again.
-Your loot council may only be edited while you are Loot Master.
-Your response buttons were reset to their default names in your language. You can rename them in Settings.
+Your untouched response buttons now read in your language. Buttons you renamed, recoloured or added were kept.
 a bare number then '%s' reads as chat - silent. '#N' or a link would get a reply.
 a character cannot be their own main
 a delegation lasts for this raid - it is forgotten when you leave the group
@@ -975,7 +964,10 @@ history / h
 how much the log records
 ignored - not an attempt at a command, so no reply is sent.
 ilvl %d
+ilvl %s
 import failed
+it hit an error - /slc log has the details
+it was not ready yet - /slc queue opens it
 item %d
 item %d skipped: %s
 item %d: %s (difficulty %d) - %d fake coin for %s
@@ -1030,7 +1022,6 @@ no raids recorded
 no recorded boss matches '%s' - using it as typed
 no rolls asked for. /slc roll ask||random||clear
 no rows found below the header
-no run is active - would reply that nothing was recorded.
 no run is active, and no item was named - silent.
 no run is active.
 no such rank in your guild
@@ -1156,6 +1147,7 @@ the Loot Master started the run.
 the Loot to Trade window
 the Raid versions window
 the council is not ready
+the council window did not open for this boss kill: %s
 the diagnostic log, copyable
 the guild-group gate
 the header has no %q column

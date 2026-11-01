@@ -144,37 +144,12 @@ local function ReloadFrames(skipButtons)
         end
         if d.UpdatePowerBorder then d.UpdatePowerBorder(true) end
 
-        -- Name text
-        if d.nameText then
-            ApplyFont(d.nameText, s.nameSize or 10)
-            if d.AnchorNameText then d.AnchorNameText() end
-        end
-
-        -- Health text
-        if d.healthText then
-            ApplyFont(d.healthText, s.healthTextSize or 9)
-            if d.AnchorHealthText then d.AnchorHealthText() end
-        end
-
-        -- Power text (exists once a mode has needed it): hidden with the bar above until
-        -- UpdateAllButtons below shows it again, and restyled.
-        if d.powerText then
-            d.powerText:Hide(); d._pwtMode = nil
-            ApplyFont(d.powerText, s.powerTextSize or 8)
-            ns._RFAnchorPowerText(d)
-        end
-
-        -- Level text (exists once a position has needed it): restyled; the full paint
-        -- that follows shows or hides it by position.
-        if d.levelText then
-            ApplyFont(d.levelText, s.levelTextSize or 10)
-            ns._RFAnchorLevelText(d)
-        end
-
-        -- Heal absorb text
-        if d.healAbsorbText then
-            ApplyFont(d.healAbsorbText, s.healAbsorbTextSize or 9)
-            if d.AnchorHealAbsorbText then d.AnchorHealAbsorbText() end
+        -- The texts: Power Text hidden with the bar above until UpdateAllButtons
+        -- below shows it again; every text restyled and re-anchored (the full paint that
+        -- follows fills them).
+        if d.AnchorTexts then
+            ns.RF_TextPowerHide(d)
+            d.AnchorTexts()
         end
 
         -- Status text (DEAD/OFFLINE/AFK)
@@ -339,7 +314,7 @@ ns._ResizeButtons = function(w, h)
             if d.health then
                 d.health:SetHeight(((d.power and d.power:IsShown()) and xhealthH or xbh) - topBarH)
             end
-            if d.nameText then d.nameText:SetWidth(xbw * ns.RF_NAME_WIDTH_FRACTION) end
+            ns.RF_TextNameWidth(d, xbw)
         end
     end
     ns._activeSizeW = w
@@ -385,7 +360,7 @@ ns._ResizePartyButtons = function(w, h)
                     local hh = ((d.power and d.power:IsShown()) and healthH or bh) - topBarH
                     d.health:SetHeight(hh)
                 end
-                if d.nameText then d.nameText:SetWidth(barW * ns.RF_NAME_WIDTH_FRACTION) end
+                ns.RF_TextNameWidth(d, barW)
                 -- Party portrait: the attached square follows the height.
                 if d.pt then ns.RF_PtApply(btn, d, ns._scaledPartyProxy, bw, bh, nil) end
             end
@@ -413,11 +388,7 @@ ns._ResizePartyButtons = function(w, h)
                     d.combatIcon:SetSize(cciSz, cciSz)
                     if d.AnchorCombatIcon then d.AnchorCombatIcon() end
                 end
-                if d.nameText then ApplyFont(d.nameText, pp.nameSize or 10) end
-                if d.healthText then ApplyFont(d.healthText, pp.healthTextSize or 9) end
-                if d.powerText then ApplyFont(d.powerText, pp.powerTextSize or 8) end
-                if d.levelText then ApplyFont(d.levelText, pp.levelTextSize or 10) end
-                if d.healAbsorbText then ApplyFont(d.healAbsorbText, pp.healAbsorbTextSize or 9) end
+                ns.RF_TextFonts(d, pp)
                 if d.statusText then ApplyFont(d.statusText, pp.statusTextSize or 14) end
             end
         end

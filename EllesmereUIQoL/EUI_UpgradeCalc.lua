@@ -72,6 +72,7 @@ Data.slotNames = {
     [17] = "Off Hand",
 }
 
+-- SEASON UPDATE: the season's Ascendant upgrade bonus IDs and their caps.
 -- Bonus IDs: Wago 12.1.5; caps include the October 23 Myth hotfix.
 -- These are terminal upgrades, not a flat bonus applied to every rank or slot.
 Data.ascendantBonuses = {
@@ -135,19 +136,20 @@ for _, td in pairs(Data.tracks) do
     end
 end
 
--- SEASON UPDATE: update these ilvl steps to match the base-crafted tier ilvls
--- for the new season (currently T1–T5 = 246/249/252/255/259).
+-- SEASON UPDATE: update these ilvl steps to match the Spark-crafted tier ilvls
+-- for the new season (Season 2: T1-T5 = 292/296/299/302/305, warcraft.wiki.gg).
 -- Referenced in GetCraftedInfo; hoisted here so it is allocated once, not per call.
-Data.craftedTierSteps = { 246, 249, 252, 255, 259 }
+Data.craftedTierSteps = { 292, 296, 299, 302, 305 }
 
--- SEASON UPDATE: update minIlvl/maxIlvl each new season to match crafted item ilvl caps.
+-- SEASON UPDATE: update minIlvl/maxIlvl each new season to match crafted item ilvl caps
+-- (Season 2: Hero crest crafts 305-318, Myth crest crafts 318-331).
 -- minIlvl: lowest ilvl at which an item belongs to this crafted band (checked highest-first).
 -- maxIlvl: ilvl ceiling for crafted items in this band.
 -- Ordered highest-first so CraftedBandFromIlvl can short-circuit on the first match.
 Data.craftedBands = {
-    { name = "Myth", minIlvl = 272, maxIlvl = 285 },
-    { name = "Hero", minIlvl = 259, maxIlvl = 272 },
-    { name = "None", minIlvl = 0,   maxIlvl = 259 },
+    { name = "Myth", minIlvl = 318, maxIlvl = 331 },
+    { name = "Hero", minIlvl = 305, maxIlvl = 318 },
+    { name = "None", minIlvl = 0,   maxIlvl = 305 },
 }
 -- Reverse lookup: band name → band data (for O(1) access in ScanItemLink).
 Data.craftedBandByName = {}
@@ -331,7 +333,7 @@ function Calc:ScanItemLink(link)
             local bname = sawMyth and "Myth" or sawHero and "Hero" or "None"
             local bdata = Data.craftedBandByName[bname]
             result.craftBand    = bname
-            result.craftMaxIlvl = bdata and bdata.maxIlvl or 259
+            result.craftMaxIlvl = bdata and bdata.maxIlvl or Data.craftedBandByName.None.maxIlvl
         end
     end
 
@@ -363,14 +365,14 @@ local function CraftedBandFromIlvl(ilvl)
     end
     -- Fallback: treat as base crafted (should never be reached; ilvl < 0 is impossible).
     local base = Data.craftedBandByName["None"]
-    return "None", math.max(base and base.maxIlvl or 259, ilvl)
+    return "None", math.max(base and base.maxIlvl or 0, ilvl)
 end
 
 -- Returns: isCrafted, band, tier, maxIlvl.
 function Calc:GetCraftedInfo(link, ilvl)
     local r = self:ScanItemLink(link)
     if not r or not r.isCrafted then return false end
-    local band, maxIlvl = r.craftBand or "None", r.craftMaxIlvl or 259
+    local band, maxIlvl = r.craftBand or "None", r.craftMaxIlvl or Data.craftedBandByName.None.maxIlvl
 
     -- If tooltip gave no band keywords, fall back to ilvl thresholds via shared helper.
     -- (See CraftedBandFromIlvl above for the SEASON UPDATE note.)

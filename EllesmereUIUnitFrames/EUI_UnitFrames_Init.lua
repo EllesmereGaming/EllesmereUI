@@ -311,12 +311,27 @@ local function InitializeFrames()
 
         if frame.Portrait and frame.Portrait.backdrop and showPortrait and not frame.Portrait.backdrop._isInside then
             PP.Size(frame.Portrait.backdrop, adjPortraitH, adjPortraitH)
+            -- The same anchors the reload pass gives the backdrop (a top text bar
+            -- pushes an attached one down; a detached one floats off the health
+            -- bar's edge): a backdrop cleared and left with no anchor renders
+            -- nowhere until the next reload pass.
             frame.Portrait.backdrop:ClearAllPoints()
+            local pBtbTopOff = (btbPos2 == "top" and settings.bottomTextBar) and (settings.bottomTextBarHeight or 16) or 0
             if isAttached then
                 if effectiveSide == "left" then
-                    PP.Point(frame.Portrait.backdrop, "TOPLEFT", frame, "TOPLEFT", 0, 0)
+                    PP.Point(frame.Portrait.backdrop, "TOPLEFT", frame, "TOPLEFT", 0, -pBtbTopOff)
                 else
-                    PP.Point(frame.Portrait.backdrop, "TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+                    PP.Point(frame.Portrait.backdrop, "TOPRIGHT", frame, "TOPRIGHT", 0, -pBtbTopOff)
+                end
+            else
+                local pXOff = settings.portraitX or 0
+                local pYOff = (settings.portraitY or 0) + 5
+                if effectiveSide == "top" then
+                    frame.Portrait.backdrop:SetPoint("BOTTOM", frame.Health or frame, "TOP", pXOff, 15 + pYOff)
+                elseif effectiveSide == "left" then
+                    frame.Portrait.backdrop:SetPoint("TOPRIGHT", frame.Health or frame, "TOPLEFT", -15 + pXOff, pYOff)
+                else
+                    frame.Portrait.backdrop:SetPoint("TOPLEFT", frame.Health or frame, "TOPRIGHT", 15 + pXOff, pYOff)
                 end
             end
             if frame.Portrait.backdrop._2d then
@@ -2202,6 +2217,12 @@ local function InitializeFrames()
     -- Apply all settings (cast bar colors, text, sizes, etc.) now that
     -- frames are spawned and anchored.
     ReloadFrames()
+    -- A /reload in combat lands here under lockdown, where ReloadFrames holds
+    -- back its frame work: the throttle pass at combat end applies it
+    -- (ns.ReloadFrames exists by then, set a frame later by SetupOptionsPanel).
+    if InCombatLockdown() then
+        ns.CombatQueue.Defer("ReloadFrames", function() ns.ReloadFrames() end)
+    end
 end
 
 I.InitializeFrames = InitializeFrames

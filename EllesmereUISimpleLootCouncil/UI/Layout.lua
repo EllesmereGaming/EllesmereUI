@@ -156,7 +156,7 @@ function L.Row(parent, x, width, y, height)
         if not index then return end
 
         if index % 2 == 1 then return end
-        S.RoundFill(f, S.color.rowStripe, S.radius.CTRL, "BACKGROUND", -1)
+        f.Stripe = S.RoundFill(f, S.color.rowStripe, S.radius.CTRL, "BACKGROUND", -1)
     end
 
     return f, height or size.ROW_H

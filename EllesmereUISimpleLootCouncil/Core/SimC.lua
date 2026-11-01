@@ -130,7 +130,9 @@ end
 local function SessionLines()
     local lines = {}
     for _, item in ipairs(addon.Session:GetItems()) do
+
         local itemString = addon.Gear.ItemString(item.link)
+            or (item.link and item.link:match("^item:[^|]*$"))
         local _, _, _, equipLoc = C_Item.GetItemInfoInstant(item.link)
         local line, reason = SimC.Line(itemString, equipLoc)
         if line then

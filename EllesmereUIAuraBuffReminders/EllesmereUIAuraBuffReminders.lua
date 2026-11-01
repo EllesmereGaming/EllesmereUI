@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 
 local ADDON_NAME = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI._Pool and EllesmereUI.RAID_PREP_IDS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
 EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read this module ns via the registry
 
 local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
@@ -336,6 +336,29 @@ function EABR.SectionShows(whereToShow, inInstance)
     return whereToShow[bucket] ~= false
 end
 
+-- Rogue, Paladin, Shaman and Pets each keep their own "Where to Show" (and,
+-- for the classes, reminder sound) in these consumables fields. A field that
+-- is not set yet reads the old shared specials value, so a profile from
+-- before the split behaves as it did until the section is edited.
+EABR.SPECIALS = {
+    ROGUE   = { where = "rogueWhereToShow",   sound = "rogueSound" },
+    PALADIN = { where = "paladinWhereToShow", sound = "paladinSound" },
+    SHAMAN  = { where = "shamanWhereToShow",  sound = "shamanSound" },
+    PET     = { where = "petWhereToShow" },
+}
+function EABR.SpecialsWhere(co, field)
+    local t = field and co[field]
+    if type(t) == "table" then return t end
+    return co.specialsWhereToShow
+end
+-- A section set to no sound stores "none" (not nil), so it never reads
+-- through to the shared value; HandleAppearSounds skips "none".
+function EABR.SpecialsSound(co, field)
+    local snd = field and co[field]
+    if snd == nil then snd = co.specialsSound end
+    return snd
+end
+
 -- Bag/equip consumable call sites share the consumables section set; the key
 -- arg is retained for call-site clarity.
 function EABR.ConsumableShows(co, key, inInstance)
@@ -386,7 +409,9 @@ local NON_SECRET_SPELL_IDS = {
     -- Preservation Evoker
     [355941]=true, [363502]=true, [364343]=true, [366155]=true,
     [367364]=true, [373267]=true, [376788]=true,
-    -- Augmentation Evoker
+    -- Augmentation Evoker. Blistering Scales (360827) is still secret under
+    -- keystone restrictions (ShouldSpellAuraBeSecret), so a miss there is not
+    -- authoritative; check EABR.IsRuntimeNonSecret before trusting one.
     [360827]=true, [395152]=true, [410089]=true, [410263]=true,
     [410686]=true, [413984]=true,
     -- Resto Druid

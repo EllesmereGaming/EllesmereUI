@@ -86,4 +86,5 @@ SimpleLootCouncil.RequestReload = function() EllesmereUI.RequestReload() end
 local function ChatSink(line) EllesmereUI.Print(line) end
 SimpleLootCouncil.ChatSinkOverride = { Print = ChatSink, Error = ChatSink }
 
+
 EllesmereUI._ModuleNS[ADDON_NAME] = ns

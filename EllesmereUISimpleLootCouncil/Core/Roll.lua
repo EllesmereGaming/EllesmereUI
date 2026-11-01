@@ -21,9 +21,16 @@ function Roll.ValidValue(value)
 end
 
 
+
 local function ValidRound(round)
     return round == nil or (type(round) == "number" and round >= 0
-        and round == math.floor(round))
+        and round < 2 ^ 31 and round == math.floor(round))
+end
+
+
+local function ValidStamp(stamp)
+    return type(stamp) == "number" and stamp == math.floor(stamp)
+        and stamp >= 1 and stamp < 2 ^ 31
 end
 
 
@@ -265,9 +272,11 @@ function Roll:ApplyAsk(payload, sender)
         local item = addon.Session:GetItem(session)
         if item then
             local stamp = payload.k
-                and tonumber(payload.k[session] or payload.k[tostring(session)])
+                and (payload.k[session] or payload.k[tostring(session)])
             local changed
-            if stamp then
+            if stamp ~= nil and not ValidStamp(stamp) then
+                Refuse("malformed_roll_ask", sender, "stamp", tostring(stamp))
+            elseif stamp then
                 changed = stamp > (item.rollAskSeq or 0)
                 if changed then
                     item.rollAskSeq = stamp
@@ -460,8 +469,14 @@ function Roll:ApplyOne(payload, sender)
     if type(payload) ~= "table" or not payload.s or not payload.c then return end
     local item = addon.Session:GetItem(payload.s)
     local candidate = item and item.candidates and item.candidates[payload.c]
-    local q = tonumber(payload.q)
-    if not candidate or not q or q <= (candidate.rollGen or 0) then return end
+    if not candidate then return end
+
+    local q = payload.q
+    if type(q) ~= "number" or q ~= q or q ~= math.floor(q) or q < 1 or q >= 2 ^ 31 then
+        Refuse("malformed_roll_one", sender, "q", tostring(q))
+        return
+    end
+    if q <= (candidate.rollGen or 0) then return end
 
     local value = payload.v
     if value ~= nil and not Roll.ValidValue(value) then

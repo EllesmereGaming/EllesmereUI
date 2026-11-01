@@ -512,39 +512,14 @@ ns.ReloadPartyFrames = function(skipButtons)
         end
         if d.UpdatePowerBorder then d.UpdatePowerBorder(true) end
 
-        -- Name text
-        if d.nameText then
-            ApplyFont(d.nameText, pp.nameSize or 10)
-            if d.AnchorNameText then d.AnchorNameText() end
-            -- Override width constraint for party button dimensions (the
-            -- kit's name width is its closure's own).
-            if not d.kit then d.nameText:SetWidth(barW * ns.RF_NAME_WIDTH_FRACTION) end
-        end
-
-        -- Health text
-        if d.healthText then
-            ApplyFont(d.healthText, pp.healthTextSize or 9)
-            if d.AnchorHealthText then d.AnchorHealthText() end
-        end
-
-        -- Power text: hidden with the bar above (not under the kit, whose mana bar stays shown)
-        -- until _UpdateAllPartyButtons below shows it again, and restyled.
-        if d.powerText then
-            if not d.kit then d.powerText:Hide(); d._pwtMode = nil end
-            ApplyFont(d.powerText, pp.powerTextSize or 8)
-            ns._RFAnchorPowerText(d)
-        end
-
-        -- Level text: restyled; _UpdateAllPartyButtons below shows or hides it by position.
-        if d.levelText then
-            ApplyFont(d.levelText, pp.levelTextSize or 10)
-            ns._RFAnchorLevelText(d)
-        end
-
-        -- Heal absorb text
-        if d.healAbsorbText then
-            ApplyFont(d.healAbsorbText, pp.healAbsorbTextSize or 9)
-            if d.AnchorHealAbsorbText then d.AnchorHealAbsorbText() end
+        -- The texts: Power Text hidden with the bar above (not under the kit, whose
+        -- mana bar stays shown) until _UpdateAllPartyButtons below shows it again; every
+        -- text restyled and re-anchored, the name on the party bar width (the kit's is
+        -- its own).
+        if d.AnchorTexts then
+            if not d.kit then ns.RF_TextPowerHide(d) end
+            d.AnchorTexts()
+            ns.RF_TextNameWidth(d, barW)
         end
 
         -- Status text

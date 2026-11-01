@@ -124,7 +124,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
 
     -- Top Name Bar text (preview unit name + class/custom color)
     if f._topNameBarText and s.topNameBarEnabled then
-        local attach = ns.RF_LEVEL_ATTACH[s.levelTextPosition or ns.RF_LEVEL_DEFAULT]
+        local attach = ns.RF_TextNameAttach(s)
         if attach then
             f._topNameBarText:SetFormattedText(attach[1], ns._RFPreviewLevel(), name)
         else
@@ -166,6 +166,9 @@ local function ApplyPreviewData(f, index, roles, classTokens)
                 end
             end
         end
+        -- Textured Background, as on the live frames.
+        ns.RF_TexBgLayer(f._health, f._bg, not f.kit
+            and ns.RF_TexBgOpaque(s, s.healthColorMode == "dark") and ns.RF_TexBgPath(s) or nil)
         if s.healthColorMode == "dark" then
             AnchorPreviewBg()
             f._bg:SetColorTexture(EllesmereUI.GetDarkModeBg())
@@ -761,6 +764,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
                 and EllesmereUI.GetPowerColor(EllesmereUI.CLASS_POWER_MAP[classToken] or "MANA")
             local pf = bgc and EllesmereUI.GetPowerBgDarkenFactor() or 1
             bgc = bgc or s.powerBgColor
+            ns.RF_TexBgTint(f._powerBg, ns.RF_TexBgPath(s))
             f._powerBg:SetColorTexture(((bgc or {}).r or 0) * pf, ((bgc or {}).g or 0) * pf, ((bgc or {}).b or 0) * pf, (s.powerBgDarkness or 70) / 100)
             f._powerBg:Show()
         end
@@ -1157,83 +1161,11 @@ local function ApplyPreviewData(f, index, roles, classTokens)
         end
     end
 
-    -- Name (re-anchor position every refresh, single-point + width constraint)
-    if f._nameText then
-        -- Text band level: mirrors AnchorNameText on the live buttons ("Show
-        -- Above Icons" lifts the carrier over the aura band).
-        local pvCarrier = f._nameText:GetParent()
-        if pvCarrier and pvCarrier.SetFrameLevel then
-            pvCarrier:SetFrameLevel(f:GetFrameLevel()
-                + (s.nameTextAboveIcons and (ns.LVL_AURA + 6) or ns.LVL_TEXT))
-        end
-        f._nameText:ClearAllPoints()
-        local pos = s.namePosition or "center"
-        if pos == "none" or s.topNameBarEnabled then
-            f._nameText:Hide()
-        else
-        f._nameText:Show()
-        local ox = s.nameOffsetX or 0
-        local oy = s.nameOffsetY or 0
-        f._nameText:SetWidth((s.frameWidth or 72) * ns.RF_NAME_WIDTH_FRACTION)
-        f._nameText:SetHeight(0)
-        local ntHost = ns.RF_AnchorHost(f._health, s)
-        if pos == "topleft" then
-            f._nameText:SetPoint("TOPLEFT", ntHost, "TOPLEFT", 2 + ox, -2 + oy)
-            f._nameText:SetJustifyH("LEFT"); f._nameText:SetJustifyV("TOP")
-        elseif pos == "top" then
-            f._nameText:SetPoint("TOP", ntHost, "TOP", ox, -2 + oy)
-            f._nameText:SetJustifyH("CENTER"); f._nameText:SetJustifyV("TOP")
-        elseif pos == "topright" then
-            f._nameText:SetPoint("TOPRIGHT", ntHost, "TOPRIGHT", -2 + ox, -2 + oy)
-            f._nameText:SetJustifyH("RIGHT"); f._nameText:SetJustifyV("TOP")
-        elseif pos == "left" then
-            f._nameText:SetPoint("LEFT", ntHost, "LEFT", 2 + ox, oy)
-            f._nameText:SetJustifyH("LEFT"); f._nameText:SetJustifyV("MIDDLE")
-        elseif pos == "right" then
-            f._nameText:SetPoint("RIGHT", ntHost, "RIGHT", -2 + ox, oy)
-            f._nameText:SetJustifyH("RIGHT"); f._nameText:SetJustifyV("MIDDLE")
-        elseif pos == "bottomleft" then
-            f._nameText:SetPoint("BOTTOMLEFT", ntHost, "BOTTOMLEFT", 2 + ox, 2 + oy)
-            f._nameText:SetJustifyH("LEFT"); f._nameText:SetJustifyV("BOTTOM")
-        elseif pos == "bottom" then
-            f._nameText:SetPoint("BOTTOM", ntHost, "BOTTOM", ox, 2 + oy)
-            f._nameText:SetJustifyH("CENTER"); f._nameText:SetJustifyV("BOTTOM")
-        elseif pos == "bottomright" then
-            f._nameText:SetPoint("BOTTOMRIGHT", ntHost, "BOTTOMRIGHT", -2 + ox, 2 + oy)
-            f._nameText:SetJustifyH("RIGHT"); f._nameText:SetJustifyV("BOTTOM")
-        else -- center
-            f._nameText:SetPoint("CENTER", ntHost, "CENTER", ox, oy)
-            f._nameText:SetJustifyH("CENTER"); f._nameText:SetJustifyV("MIDDLE")
-        end
-        -- Force text re-render (WoW doesn't visually re-layout on JustifyH change alone)
-        f._nameText:SetText("")
-        local attach = ns.RF_LEVEL_ATTACH[s.levelTextPosition or ns.RF_LEVEL_DEFAULT]
-        local pvName = ns.RF_FormatName and ns.RF_FormatName(name, s) or name
-        if attach then
-            f._nameText:SetFormattedText(attach[1], ns._RFPreviewLevel(), ns.CapName(pvName, s))
-        else
-            f._nameText:SetText(ns.CapName(pvName, s))
-        end
-        ApplyFont(f._nameText, s.nameSize or 10)
-        f._nameText:SetTextColor(ns.RF_PreviewTextColor(s.nameColorMode or "class",
-            s.nameCustomColor, classToken, 1, 1, 1))
-        end -- pos ~= "none"
-    end
-
-    -- Level text on its own spot (preview): the player's level in the name's colour.
-    if f._levelText then
-        local lpos = s.levelTextPosition or ns.RF_LEVEL_DEFAULT
-        if lpos == "none" or ns.RF_LEVEL_ATTACH[lpos] then
-            f._levelText:Hide()
-        else
-            ApplyFont(f._levelText, s.levelTextSize or 10)
-            ns.AnchorRFText(f._levelText, ns.RF_BarHost(f._health, s), lpos,
-                s.levelTextOffsetX or 0, s.levelTextOffsetY or 0)
-            f._levelText:SetFormattedText("%d", ns._RFPreviewLevel())
-            f._levelText:SetTextColor(ns.RF_PreviewTextColor(s.nameColorMode or "class",
-                s.nameCustomColor, classToken, 1, 1, 1))
-            f._levelText:Show()
-        end
+    -- Text band level: mirrors AnchorTexts on the live buttons ("Show Above Icons"
+    -- lifts the carrier over the aura band). The texts are painted below.
+    if f.textCarrier then
+        f.textCarrier:SetFrameLevel(f:GetFrameLevel()
+            + (s.nameTextAboveIcons and (ns.LVL_AURA + 6) or ns.LVL_TEXT))
     end
 
     -- Dead/offline/AFK states (only when indicators eyeball is on). The rez slot is
@@ -1247,102 +1179,22 @@ local function ApplyPreviewData(f, index, roles, classTokens)
     f._pvHideHealthText = (isDead or isOffline) or nil
     local isAfk     = indVis and index == previewRoles._afkSlot
 
-    -- Health text
-    if f._healthText then
-        ApplyFont(f._healthText, s.healthTextSize or 9)
-        -- Position
-        f._healthText:ClearAllPoints()
-        local htPos = s.healthTextPosition or "center"
-        local htOX = s.healthTextOffsetX or 0
-        local htOY = s.healthTextOffsetY or 0
-        local htW = f.kitG and f.kitG.health.w or (s.frameWidth or 72) * 0.75
-        f._healthText:SetWidth(htW)
-        f._healthText:SetHeight(0)
-        local htHost = ns.RF_BarHost(f._health, s)
-        if htPos == "topleft" then
-            f._healthText:SetPoint("TOPLEFT", htHost, "TOPLEFT", 2 + htOX, -2 + htOY)
-            f._healthText:SetJustifyH("LEFT"); f._healthText:SetJustifyV("TOP")
-        elseif htPos == "top" then
-            f._healthText:SetPoint("TOP", htHost, "TOP", htOX, -2 + htOY)
-            f._healthText:SetJustifyH("CENTER"); f._healthText:SetJustifyV("TOP")
-        elseif htPos == "topright" then
-            f._healthText:SetPoint("TOPRIGHT", htHost, "TOPRIGHT", -2 + htOX, -2 + htOY)
-            f._healthText:SetJustifyH("RIGHT"); f._healthText:SetJustifyV("TOP")
-        elseif htPos == "left" then
-            f._healthText:SetPoint("LEFT", htHost, "LEFT", 2 + htOX, htOY)
-            f._healthText:SetJustifyH("LEFT"); f._healthText:SetJustifyV("MIDDLE")
-        elseif htPos == "right" then
-            f._healthText:SetPoint("RIGHT", htHost, "RIGHT", -2 + htOX, htOY)
-            f._healthText:SetJustifyH("RIGHT"); f._healthText:SetJustifyV("MIDDLE")
-        elseif htPos == "bottomleft" then
-            f._healthText:SetPoint("BOTTOMLEFT", htHost, "BOTTOMLEFT", 2 + htOX, 2 + htOY)
-            f._healthText:SetJustifyH("LEFT"); f._healthText:SetJustifyV("BOTTOM")
-        elseif htPos == "bottom" then
-            f._healthText:SetPoint("BOTTOM", htHost, "BOTTOM", htOX, 2 + htOY)
-            f._healthText:SetJustifyH("CENTER"); f._healthText:SetJustifyV("BOTTOM")
-        elseif htPos == "bottomright" then
-            f._healthText:SetPoint("BOTTOMRIGHT", htHost, "BOTTOMRIGHT", -2 + htOX, 2 + htOY)
-            f._healthText:SetJustifyH("RIGHT"); f._healthText:SetJustifyV("BOTTOM")
-        else
-            f._healthText:SetPoint("CENTER", htHost, "CENTER", htOX, htOY)
-            f._healthText:SetJustifyH("CENTER"); f._healthText:SetJustifyV("MIDDLE")
-        end
-        -- Force text re-render (WoW doesn't visually re-layout on JustifyH change alone)
-        local htTxt = f._healthText:GetText()
-        f._healthText:SetText("")
-        f._healthText:SetText(htTxt or "")
-        local mode = s.healthTextMode or "none"
-        -- Dead and offline sample members keep only the missing amount.
-        if (isDead or isOffline) and mode ~= "missing" then mode = "none" end
-        if ns.RF_HealthTextInto(f._healthText, mode, healthPct, nil, 12000) then
-            -- The preview's classToken stands in for the unit.
-            local htr, htg, htb = ns.RF_PreviewTextColor(s.healthTextColorMode or "custom",
-                s.healthTextCustomColor, classToken, 1, 1, 1)
-            f._healthText:SetTextColor(htr, htg, htb, 0.9)
-        end
-    end
-
-    -- Heal absorb text (preview): a representative value so the user can see
-    -- and position it.
-    if f._healAbsorbText then
-        local haMode = s.healAbsorbTextMode or "none"
-        ApplyFont(f._healAbsorbText, s.healAbsorbTextSize or 9)
-        ns.AnchorRFText(f._healAbsorbText, ns.RF_BarHost(f._health, s), s.healAbsorbTextPosition or "center",
-            s.healAbsorbTextOffsetX or 0, s.healAbsorbTextOffsetY or 0,
-            f.kitG and f.kitG.health.w or (s.frameWidth or 72) * 0.75)
-        if haMode ~= "none" and not isDead and not isOffline then
-            ns.FormatHealAbsorbInto(f._healAbsorbText, math.floor(healthPct * 3000), haMode)
-            local hr, hg, hb = ns.RF_PreviewTextColor(s.healAbsorbTextColorMode or "custom",
-                s.healAbsorbTextCustomColor, classToken, 1, 0.3, 0.3)
-            f._healAbsorbText:SetTextColor(hr, hg, hb, 0.9)
-        else
-            f._healAbsorbText:SetText("")
-        end
-    end
-
-    -- Power text (preview): the sample member's bar value, only where its power bar shows and
-    -- (as Health Text) not on the dead or offline sample members.
-    -- f._pwtMode / f._pwtPer (mode and made-up amount per percent, nil = hidden) let the
-    -- Power Bar section's animated preview keep the text in step with the bar.
-    if f._powerText then
-        local pwtMode = s.powerTextMode or "none"
-        if hidePower or pwtMode == "none" or isDead or isOffline then
-            f._powerText:Hide()
-            f._pwtMode = nil
-        else
-            ApplyFont(f._powerText, s.powerTextSize or 8)
-            ns.AnchorRFText(f._powerText, ns.RF_BarHost(f._health, s), s.powerTextPosition or "bottom",
-                s.powerTextOffsetX or 0, s.powerTextOffsetY or 0,
-                f.kitG and f.kitG.health.w or (s.frameWidth or 72) * 0.75)
-            local pwtTok = EllesmereUI.CLASS_POWER_MAP[classToken] or "MANA"
-            f._pwtPer = (pwtTok == "MANA") and 2500 or 1
-            ns.RF_PowerTextInto(f._powerText, pwtMode, f._powerPct or 100, nil, nil, f._pwtPer)
-            local pr, pg, pb = ns.RF_PreviewTextColor(s.powerTextColorMode or "custom",
-                s.powerTextCustomColor, classToken, 1, 1, 1, pwtTok)
-            f._powerText:SetTextColor(pr, pg, pb, 0.9)
-            f._powerText:Show()
-            f._pwtMode = pwtMode
-        end
+    -- The texts from this member's made-up values, kept on the frame (f._pv) for the
+    -- animated previews: health and power as its bars show them, a heal absorb of 3000 per
+    -- health percent, its name as the name text shows it, its state, class and power type.
+    if f.textCarrier then
+        local pv = f._pv or {}
+        f._pv = pv
+        local pTok = EllesmereUI.CLASS_POWER_MAP[classToken] or "MANA"
+        pv.hpPct, pv.hpPer = healthPct, 12000
+        pv.ppPct, pv.ppPer = f._powerPct or 100, (pTok == "MANA") and 2500 or 1
+        pv.ha = math.floor(healthPct * 3000)
+        -- rawName: for a custom text tag's own Name Format ([name:abbr]).
+        pv.rawName, pv.name = name, ns.CapName(ns.RF_FormatName(name, s), s)
+        pv.dead, pv.offline = isDead or nil, isOffline or nil
+        pv.power = not hidePower or nil
+        pv.class, pv.pToken = classToken, pTok
+        ns.RF_TextPreview(f, s, pv)
     end
 
     -- Status text (DEAD / OFFLINE / AFK)

@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: EllesmereUI settings panel. Loads on demand when you open EllesmereUI options.
 ## Author: Ellesmere
-## Version: 9.6.9
+## Version: 9.7.2
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -94,6 +94,7 @@ EUI_Quickdraw_Options.lua
 EUI_RaidFrames_ManagerPages.lua
 RaidFrames_Options\FramesPages_Options.lua
 RaidFrames_Options\VisualBars_Options.lua
+RaidFrames_Options\EUI_RaidFrames_TextDisplay_Options.lua
 RaidFrames_Options\VisualIndicators_Options.lua
 EUI_RaidFrames_Options.lua
 ResourceBars_Options\HealthSection_Options.lua

@@ -1238,6 +1238,7 @@ local function TopAnchorFor(plate)
     if topElement == "healthNumber" then return plate.hpNumber or plate.health end
     if topElement == "level" then return plate.levelText or plate.health end
     if topElement == "targetOfTarget" then return plate.totText or plate.health end
+    if topElement == "custom" then return plate.customTop or plate.health end
     if topElement ~= "none" then return plate.hpText or plate.health end
     return plate.health, true -- health-anchored: add class power push
 end

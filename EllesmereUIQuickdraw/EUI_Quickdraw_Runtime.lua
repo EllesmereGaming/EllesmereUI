@@ -116,6 +116,8 @@ SetReleaseSecureState(ReleaseSecureState)
 -- because the press below has to be able to land a pending push before it
 -- opens anything.
 local FlushPendingPush
+-- Defined beside PushCell, whose record of the cells it rewrites it reads.
+local RerollHearth
 
 -- Is the live view drawing the palette this button pushed? There is one view
 -- for every bound key, and only the button whose palette it is currently laid
@@ -163,6 +165,9 @@ local function OnPreClick(self, button, down)
         if liveView and liveView:GetFrame():IsShown() and not OwnsLiveView(self) then
             return
         end
+        -- Ahead of the open, which paints the pick, and of the snippet, which
+        -- fires it.
+        RerollHearth(self)
         ns.Open(self._palette)
         return
     end
@@ -307,6 +312,41 @@ local function PushCell(btn, i, slot, p)
     end
     btn:SetAttribute("eqdCycN" .. i, steps and #steps or nil)
     btn:SetAttribute("eqdCycPos" .. i, steps and tonumber(slot.cyclePos) or nil)
+
+    -- Random Hearthstone cells, so a press can roll them again without a whole
+    -- push. Every cell index passes through here on every push, cleared ones
+    -- included, so the record cannot outlive the entry.
+    local hearth = btn._hearthCells
+    if slot and slot.kind == "randomhearth" then
+        if not hearth then hearth = {}; btn._hearthCells = hearth end
+        hearth[i] = slot
+    elseif hearth then
+        hearth[i] = nil
+    end
+end
+
+-- A new Random Hearthstone when the menu being opened holds one (a nest's
+-- cells are pushed onto its parent's button, so they count), written onto
+-- every cell of every button that holds one -- the pick is shared, and a
+-- button left on the old one would fire a different toy than its palette
+-- draws. Out of combat only, like every insecure write here, so a menu opened
+-- mid-fight keeps the last roll -- still a working hearthstone, just the same
+-- one as before.
+RerollHearth = function(pressed)
+    local own = pressed._hearthCells
+    if not (own and next(own)) or InCombatLockdown() then return end
+    I.Hearth.Roll()
+    for _, btn in pairs(secureButtons) do
+        local cells = btn._hearthCells
+        if cells then
+            for i, slot in pairs(cells) do
+                local aType, aKey, aVal = ResolveAction(slot)
+                btn:SetAttribute("eqdT" .. i, aType)
+                btn:SetAttribute("eqdK" .. i, aKey)
+                btn:SetAttribute("eqdV" .. i, aVal)
+            end
+        end
+    end
 end
 
 local function PushPalette(index)
