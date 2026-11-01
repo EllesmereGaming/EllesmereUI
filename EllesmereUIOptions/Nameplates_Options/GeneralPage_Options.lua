@@ -910,8 +910,8 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             suffixFS:SetText(EllesmereUI.L("(Percent)"))
         end
     end
-    -- Inline cog on Non-Target Opacity: the focus and casting exemptions, which Out
-    -- of Combat Opacity (Extras) reads too.
+    -- Inline cog on Non-Target Opacity: the focus exemption, which Out of Combat
+    -- Opacity (Extras) reads too, and the casting one.
     if not EllesmereUI._prebuilding then
         local function ntOff()
             return (DBVal("nonTargetAlpha") or 100) >= 100 and (DBVal("outOfCombatAlpha") or 100) >= 100
@@ -929,23 +929,22 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                     DB().nonTargetKeepFocus = v
                     if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
                   end },
-                { type="toggle", label="Full Opacity While Casting",
-                  tooltip="A casting enemy's nameplate never fades with Non-Target Opacity or Out of Combat Opacity while the cast lasts.",
-                  get=function() return DBVal("nonTargetCastFull") == true end,
-                  set=function(v)
-                    DB().nonTargetCastFull = v
-                    if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
-                    EllesmereUI:RefreshPage()
-                  end },
-                { type="toggle", label="Only Important Casts",
-                  tooltip="Full Opacity While Casting applies only to casts the game flags as important.",
-                  get=function() return DBVal("nonTargetCastImportantOnly") == true end,
-                  set=function(v)
-                    DB().nonTargetCastImportantOnly = v
-                    if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
+                -- One dropdown over nonTargetCastFull + nonTargetCastImportantOnly.
+                { type="dropdown", label="Full Opacity While Casting",
+                  values={ off = "Off", all = "All Casts", important = "Important Casts" },
+                  order={ "off", "all", "important" },
+                  tooltip="A casting enemy's nameplate skips Non-Target Opacity while the cast lasts.",
+                  disabled=function() return (DBVal("nonTargetAlpha") or 100) >= 100 end,
+                  disabledTooltip="Non-Target Opacity below 100",
+                  get=function()
+                    if DBVal("nonTargetCastFull") ~= true then return "off" end
+                    return DBVal("nonTargetCastImportantOnly") == true and "important" or "all"
                   end,
-                  disabled=function() return DBVal("nonTargetCastFull") ~= true end,
-                  disabledTooltip="Full Opacity While Casting" },
+                  set=function(v)
+                    DB().nonTargetCastFull = v ~= "off"
+                    DB().nonTargetCastImportantOnly = v == "important"
+                    if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
+                  end },
             },
         })
     end
