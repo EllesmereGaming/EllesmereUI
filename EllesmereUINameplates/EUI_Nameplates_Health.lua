@@ -55,6 +55,8 @@ function NameplateFrame:UpdateHealthValues()
             end
             self.unit = actualUnit
             unit = actualUnit
+            -- Opacity for the new occupant (the cast end above applied it to the old token).
+            if ns._ntAlpha < 1 or ns._oocAlpha < 1 then ns.NT_Apply(self) end
             if ns._npTgtTexts or self._totEv then self:SyncToT(actualUnit) end
             -- New occupant: its absorb state is unknown. Nil the lean-gate flag
             -- so this pass takes the full absorb path and re-seeds it; the

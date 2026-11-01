@@ -925,8 +925,8 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             suffixFS:SetText(EllesmereUI.L("(Percent)"))
         end
     end
-    -- Inline cog on Non-Target Opacity: focus exclusion toggle, which Out of
-    -- Combat Opacity (Extras) reads too.
+    -- Inline cog on Non-Target Opacity: the focus exemption, which Out of Combat
+    -- Opacity (Extras) reads too, and the casting one.
     if not EllesmereUI._prebuilding then
         local function ntOff()
             return (DBVal("nonTargetAlpha") or 100) >= 100 and (DBVal("outOfCombatAlpha") or 100) >= 100
@@ -942,6 +942,22 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                   get=function() return DBVal("nonTargetKeepFocus") ~= false end,
                   set=function(v)
                     DB().nonTargetKeepFocus = v
+                    if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
+                  end },
+                -- One dropdown over nonTargetCastFull + nonTargetCastImportantOnly.
+                { type="dropdown", label="Full Opacity While Casting",
+                  values={ off = "Off", all = "All Casts", important = "Important Casts" },
+                  order={ "off", "all", "important" },
+                  tooltip="A casting enemy's nameplate skips Non-Target Opacity while the cast lasts.",
+                  disabled=function() return (DBVal("nonTargetAlpha") or 100) >= 100 end,
+                  disabledTooltip="Non-Target Opacity below 100",
+                  get=function()
+                    if DBVal("nonTargetCastFull") ~= true then return "off" end
+                    return DBVal("nonTargetCastImportantOnly") == true and "important" or "all"
+                  end,
+                  set=function(v)
+                    DB().nonTargetCastFull = v ~= "off"
+                    DB().nonTargetCastImportantOnly = v == "important"
                     if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
                   end },
             },
