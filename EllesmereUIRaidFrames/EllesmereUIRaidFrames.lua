@@ -642,7 +642,7 @@ local defaults = {
 
         -- Dispels
         dispelBorderSize = 0,
-        dispelOverlay    = "fill",   -- "none", "fill", "full", "gradient", "gradient_sharp"
+        dispelOverlay    = "fill",   -- "none", "fill", "full", "gradient", "gradient_sharp", "gradient_reverse"
         dispelOverlayOpacity = 100,
         dispelShowAll             = true,   -- true = highlight any dispellable debuff; false = only player-dispellable
         dispelOverlayPosition     = 0,      -- 0=Top, 1=Bottom, 2=Left (aura-organization-type for private aura dispel container)
