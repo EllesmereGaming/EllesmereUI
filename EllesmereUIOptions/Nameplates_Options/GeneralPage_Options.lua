@@ -925,6 +925,26 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             suffixFS:SetText(EllesmereUI.L("(Percent)"))
         end
     end
+    -- Inline cog on Scale Target Nameplate: the enemy type scales.
+    if not EllesmereUI._prebuilding then
+        local function TypeScaleRow(label, key, tip)
+            return { type="slider", label=label, tooltip=tip, min=25, max=125, step=5,
+                get=function() return DBVal(key) or defaults[key] end,
+                set=function(v)
+                    DB()[key] = v
+                    if ns.NP_RefreshTypeScaleSetting then ns.NP_RefreshTypeScaleSetting() end
+                end }
+        end
+        EllesmereUI.BuildInlineCog(tfScaleRow._leftRegion, {
+            title = "Scale Target Nameplate",
+            rows = {
+                TypeScaleRow("Minor Enemy Scale (Percent)", "minorEnemyScale",
+                    "Scales the nameplates of minor and trivial enemies; 100% = no change."),
+                TypeScaleRow("Non-Elite Enemy Scale (Percent)", "nonEliteEnemyScale",
+                    "Scales the nameplates of non-elite enemies in dungeons only; 100% = no change."),
+            },
+        })
+    end
     -- Inline cog on Non-Target Opacity: the focus exemption, which Out of Combat
     -- Opacity (Extras) reads too, and the casting one.
     if not EllesmereUI._prebuilding then
@@ -1321,10 +1341,10 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             if ns.ApplyOOCPlates then ns.ApplyOOCPlates() end
           end });  y = y - h
 
-    -- Row 6: Minor Enemy Scale | Non-Elite Enemy Scale. Row 7: Out of Combat Opacity | the
-    -- class option, if any. Hide Copies of Blood Plague (Blood Death Knight only) and Show
-    -- Sunder Armor (WoW Forever warriors only) are not built at all for anyone else -- each
-    -- only affects that class's debuff.
+    -- Row 6: Out of Combat Opacity | the class option, if any. Hide Copies of Blood
+    -- Plague (Blood Death Knight only) and Show Sunder Armor (WoW Forever warriors
+    -- only) are not built at all for anyone else -- each only affects that class's
+    -- debuff.
     local classCfg
     do
         local _, classFile = UnitClass("player")
@@ -1348,29 +1368,6 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                   end }
         end
     end
-    _, h = W:DualRow(parent, y,
-        { type="slider", text="Minor Enemy Scale",
-          tooltip="Scales the nameplates of minor enemies, such as small critter-like adds (the ones Blizzard's Simplify Nameplates calls Minor), and of trivial (grey-level) enemies. Applies everywhere. Your target keeps Scale Target Nameplate. 100% = no change.",
-          trackWidth=110,
-          min=25, max=125, step=5,
-          getValue=function() return DBVal("minorEnemyScale") or defaults.minorEnemyScale end,
-          setValue=function(v)
-            DB().minorEnemyScale = v
-            for _, plate in pairs(plates) do
-                plate:ApplyScale()
-            end
-          end },
-        { type="slider", text="Non-Elite Enemy Scale",
-          tooltip="Scales the nameplates of non-elite enemies in dungeons only (not the open world), such as weak trash adds. Elites, bosses and minor enemies are not affected (minor enemies use Minor Enemy Scale). Your target keeps Scale Target Nameplate. 100% = no change.",
-          trackWidth=110,
-          min=25, max=125, step=5,
-          getValue=function() return DBVal("nonEliteEnemyScale") or defaults.nonEliteEnemyScale end,
-          setValue=function(v)
-            DB().nonEliteEnemyScale = v
-            for _, plate in pairs(plates) do
-                plate:ApplyScale()
-            end
-          end });  y = y - h
     _, h = W:DualRow(parent, y,
         { type="slider", text="Out of Combat Opacity",
           tooltip="Fades the nameplates of enemies that are not in combat with anyone, such as packs you have not pulled. Your target, and your focus while Keep Focus Full Opacity is on, are never faded by this. Multiplies with Non-Target Opacity. 100 = no fading.",

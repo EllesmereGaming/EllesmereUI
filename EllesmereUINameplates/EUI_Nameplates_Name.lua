@@ -57,6 +57,8 @@ function NameplateFrame:UpdateName()
             -- Repaint target/hover styling for the new occupant so the old one's
             -- paint cannot stick; mirrors the UpdateHealthValues swap.
             -- ApplyTarget re-owns the shared target-plate cache as a side effect.
+            -- The new occupant's type scale first: ApplyTarget ends in ApplyScale.
+            if ns._typeScaleOn then self:UpdateTypeScale() end
             ns.ClearHoverExtras(self)
             self:ApplyTarget()
             self._maxHPValid = nil
