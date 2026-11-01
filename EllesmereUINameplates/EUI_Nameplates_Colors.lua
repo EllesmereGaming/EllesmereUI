@@ -773,7 +773,8 @@ function ns.ResolveThreatColor(unit, status)
     ns._threatOkA = 0
     return base.r, base.g, base.b, false
 end
-local function GetReactionColor(unit)
+-- castSeen: the plate's Color Casting Enemies memory (plate._castSeen).
+local function GetReactionColor(unit, castSeen)
     -- Per-call marker read SYNCHRONOUSLY by UpdateHealthColor right after this
     -- returns: true only when this resolution landed on the non-tank Near
     -- Aggro color, so the near-aggro glow rides the exact same decision.
@@ -795,6 +796,7 @@ local function GetReactionColor(unit)
     -- near aggro, a tank without or losing it), where the debuff colors give way.
     ns._reactionBadThreat = false
     -- Same idiom: the mob-type tier Color Casting Enemies may tint, nil when it may not.
+    -- ns._reactionCastLit (plainly in combat, for Modify Out of Combat) is set with it.
     ns._reactionCastTier = nil
     local db = p or defaults
     -- 1. Tapped always highest
@@ -1021,15 +1023,14 @@ local function GetReactionColor(unit)
     -- mob-type steps start, so its tints cover what Spell Casters would; the threat
     -- overrides and neutral returns below clear it again. Mobs painted Spell Casters keep
     -- it (a mini-boss with mana is painted Mini-Boss, step 7, so it can be tinted).
-    if db.castingEnemyColors and not owBasic and (_isMiniBoss or not _isCaster) then
-        local plate = ns.plates[unit]
-        if plate and plate._castSeen then
-            if _isBossUnit then ns._reactionCastTier = "Boss"
-            elseif _isMiniBoss then ns._reactionCastTier = "MiniBoss"
-            elseif classification == "elite" or classification == "rareelite"
-                or classification == "worldboss" then ns._reactionCastTier = "Elite"
-            else ns._reactionCastTier = "Normal" end
-        end
+    -- castSeen is never set for players (ns.NP_NoteCastKind).
+    if castSeen and db.castingEnemyColors and not owBasic and (_isMiniBoss or not _isCaster) then
+        if _isBossUnit then ns._reactionCastTier = "Boss"
+        elseif _isMiniBoss then ns._reactionCastTier = "MiniBoss"
+        elseif classification == "elite" or classification == "rareelite"
+            or classification == "worldboss" then ns._reactionCastTier = "Elite"
+        else ns._reactionCastTier = "Normal" end
+        ns._reactionCastLit = not (issecretvalue and issecretvalue(inCombat)) and inCombat == true
     end
     -- DPS/healer No Aggro override state (mirrors tank has-aggro overrides at 6b). Each
     -- override independently promotes the No Aggro color above one mob-type step (mini-boss 7,
@@ -1133,6 +1134,7 @@ local function GetReactionColor(unit)
             local ovrBoss = defaults.tankHasAggroOverrideBoss
             if db.tankHasAggroOverrideBoss ~= nil then ovrBoss = db.tankHasAggroOverrideBoss end
             if ovrBoss or not _isBossUnit then
+                ns._reactionCastTier = nil
                 local c = _C("tankHasAggro")
                 return c.r, c.g, c.b
             end
@@ -1151,6 +1153,7 @@ local function GetReactionColor(unit)
             local ovrBoss = defaults.dpsNoAggroOverrideBoss
             if db.dpsNoAggroOverrideBoss ~= nil then ovrBoss = db.dpsNoAggroOverrideBoss end
             if ovrBoss or not _isBossUnit then
+                ns._reactionCastTier = nil
                 local c = _C("dpsNoAggro")
                 return c.r, c.g, c.b
             end
@@ -1177,6 +1180,7 @@ local function GetReactionColor(unit)
     -- 10d. Neutral, deferred (dungeons only -- step 5 skipped it there): a neutral unit
     -- matching no mob-type/threat color lands here, just above the generic enemy fallback.
     if isNeutral then
+        ns._reactionCastTier = nil
         return ResolveNeutralColor(unit)
     end
     -- 11. Fallback: enemy in/out of combat. With Simple Coloring When Not In M+ active, every mob-type

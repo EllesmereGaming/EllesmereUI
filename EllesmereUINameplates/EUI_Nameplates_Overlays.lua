@@ -834,6 +834,11 @@ function ns.NP_LayoutCastTints(plate)
     LayoutCastTint(plate.castTintInt, fill, path)
 end
 
+-- Bumped on settings changes (RefreshAllSettings, the options' RefreshAllPlates): each plate
+-- repaints its tint colors once when its gen is stale.
+local castTintGen = 0
+function ns.NP_CastTintsDirty() castTintGen = castTintGen + 1 end
+
 local function EnsureCastTints(plate)
     if plate.castTintInt then return end
     local health = plate.health
@@ -843,6 +848,7 @@ local function EnsureCastTints(plate)
     plate.castTintInt:AddMaskTexture(plate._absorbMask)
     plate.castTintUnint:Hide()
     plate.castTintInt:Hide()
+    plate._castIntOn, plate._castUnintOn = false, false
     ns.NP_LayoutCastTints(plate)
     if plate._blizzBarMask then ns.NP_ApplyBlizzBarArt(plate) end
     if plate._npRounded then ns.NP_ApplyRounding(plate, "health") end
@@ -851,49 +857,85 @@ end
 local function TierOn(keys, tier)
     local v = p and p[keys[tier]]
     if v == nil then v = defaults[keys[tier]] end
-    return v
+    return v == true
 end
 
--- tier: the mob type GetReactionColor marked (ns._reactionCastTier), nil to hide.
-function ns.NP_ApplyCastTints(plate, tier)
-    plate._castTier = tier
-    local intOn = tier and plate._castSeen and TierOn(CAST_INT_KEYS, tier)
-    local unintOn = tier and plate._castSeen and TierOn(CAST_UNINT_KEYS, tier)
-    if not (intOn or unintOn) then
-        if plate.castTintInt then
-            plate.castTintInt:Hide()
-            plate.castTintUnint:Hide()
+-- tier: the mob type GetReactionColor marked (ns._reactionCastTier), nil to hide. lit: the unit
+-- is plainly in combat (ns._reactionCastLit); else the colors darken like the bar's own
+-- (Modify Out of Combat). fold: UpdateHealthColor folded the bar to Off-Tank Aggro (the answer
+-- is SECRET); the tints take the same fold. Runs on every health color pass, so each setter
+-- is change-checked, except while folded (secret colors, like the bar's own).
+function ns.NP_ApplyCastTints(plate, tier, lit, fold)
+    local intOn = tier ~= nil and TierOn(CAST_INT_KEYS, tier)
+    local unintOn = tier ~= nil and TierOn(CAST_UNINT_KEYS, tier)
+    local ti, tu = plate.castTintInt, plate.castTintUnint
+    if intOn or unintOn then
+        if not ti then
+            EnsureCastTints(plate)
+            ti, tu = plate.castTintInt, plate.castTintUnint
+            ti:SetAlpha(plate._castIntA or 0)
+            tu:SetAlpha(plate._castUnintA or 0)
         end
+        local folded = false
+        if fold then
+            local MaybeDarken = I.MaybeDarken
+            local ic = (p and p.castingIntColor) or defaults.castingIntColor
+            local uc = (p and p.castingUnintColor) or defaults.castingUnintColor
+            local otc = I._C("offTankAggro")
+            local ir, ig, ib = MaybeDarken(ic.r, ic.g, ic.b, lit)
+            local ur, ug, ub = MaybeDarken(uc.r, uc.g, uc.b, lit)
+            local okI, okU
+            okI, ir, ig, ib = ns.ComputeOffTankFold(plate.unit, ir, ig, ib, otc.r, otc.g, otc.b)
+            okU, ur, ug, ub = ns.ComputeOffTankFold(plate.unit, ur, ug, ub, otc.r, otc.g, otc.b)
+            if okI and okU then
+                ti:SetVertexColor(ir, ig, ib)
+                tu:SetVertexColor(ur, ug, ub)
+                -- Never cached: the next plain pass always repaints.
+                plate._castTintGen = nil
+                folded = true
+            end
+        end
+        if not folded and (plate._castTintGen ~= castTintGen or plate._castTintLit ~= lit) then
+            plate._castTintGen, plate._castTintLit = castTintGen, lit
+            local MaybeDarken = I.MaybeDarken
+            local ic = (p and p.castingIntColor) or defaults.castingIntColor
+            local uc = (p and p.castingUnintColor) or defaults.castingUnintColor
+            ti:SetVertexColor(MaybeDarken(ic.r, ic.g, ic.b, lit))
+            tu:SetVertexColor(MaybeDarken(uc.r, uc.g, uc.b, lit))
+        end
+    elseif not ti then
         return
     end
-    EnsureCastTints(plate)
-    local ic = (p and p.castingIntColor) or defaults.castingIntColor
-    local uc = (p and p.castingUnintColor) or defaults.castingUnintColor
-    plate.castTintInt:SetVertexColor(ic.r, ic.g, ic.b)
-    plate.castTintUnint:SetVertexColor(uc.r, uc.g, uc.b)
-    plate.castTintInt:SetAlpha(plate._castIntA)
-    plate.castTintUnint:SetAlpha(plate._castUnintA)
-    plate.castTintInt:SetShown(intOn)
-    plate.castTintUnint:SetShown(unintOn)
+    if plate._castIntOn ~= intOn then plate._castIntOn = intOn; ti:SetShown(intOn) end
+    if plate._castUnintOn ~= unintOn then plate._castUnintOn = unintOn; tu:SetShown(unintOn) end
 end
 
 -- A cast's start or interruptible flip (kickProtected: true = cannot be interrupted, maybe
--- SECRET). Each kind's alpha turns 1 once seen and stays 1 for the plate's life.
+-- SECRET). Each kind's alpha turns 1 once seen and stays 1 while the mob holds the plate;
+-- the alphas change only here.
 function ns.NP_NoteCastKind(plate, kickProtected)
     local eval = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
     if not eval then return end
     local first = not plate._castSeen
     if first then
+        -- Never players (an enemy player's class color stays); checked once per mob.
+        if UnitIsPlayer(plate.unit) then return end
         plate._castSeen = true
         plate._castIntA, plate._castUnintA = 0, 0
     end
     plate._castIntA = eval(kickProtected, plate._castIntA, 1)
     plate._castUnintA = eval(kickProtected, 1, plate._castUnintA)
-    if first then
-        plate:UpdateHealthColor()
-    elseif plate._castTier then
-        ns.NP_ApplyCastTints(plate, plate._castTier)
+    if plate.castTintInt then
+        plate.castTintInt:SetAlpha(plate._castIntA)
+        plate.castTintUnint:SetAlpha(plate._castUnintA)
     end
+    if first then plate:UpdateHealthColor() end
+end
+
+-- The plate's unit left (ClearUnit) or changed (the token swap): forget its casts.
+function ns.NP_ResetCastKind(plate)
+    plate._castSeen, plate._castIntA, plate._castUnintA = nil, nil, nil
+    ns.NP_ApplyCastTints(plate, nil)
 end
 
 I.ApplyOverlayGeometry, I.EnsureArrows = ApplyOverlayGeometry, EnsureArrows

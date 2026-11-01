@@ -1077,10 +1077,7 @@ function NameplateFrame:ClearUnit()
     -- WoW Forever: the level box waits for the next unit's level.
     if self._fvLevelBox then self._fvLevelBox:Hide() end
 
-    if self._castSeen then
-        self._castSeen, self._castIntA, self._castUnintA = nil, nil, nil
-        ns.NP_ApplyCastTints(self, nil)
-    end
+    if self._castSeen then ns.NP_ResetCastKind(self) end
 
     if self.isCasting then
         self.isCasting = false

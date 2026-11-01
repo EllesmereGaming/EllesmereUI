@@ -1406,6 +1406,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
             local db = DB()
             if OOCOn() ~= on then db.darkenEnemiesOOC = on end
             if on and OOCRecolorOn() ~= (v == "color") then db.darkenOOCRecolor = (v == "color") end
+            if ns.NP_CastTintsDirty then ns.NP_CastTintsDirty() end
             for _, plate in pairs(ns.plates) do
                 plate:UpdateHealthColor()
             end
@@ -1425,6 +1426,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
               end,
               setValue = function(r, g, b)
                 DB().darkenOOCColor = { r = r, g = g, b = b }
+                if ns.NP_CastTintsDirty then ns.NP_CastTintsDirty() end
                 for _, plate in pairs(ns.plates) do
                     plate:UpdateHealthColor()
                 end
@@ -1554,7 +1556,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
             RefreshAllPlates()
             EllesmereUI:RefreshPage()
           end,
-          tooltip="An enemy without mana takes the Interruptible color once it casts something that can be interrupted, or the Uninterruptible color once it casts something that cannot. Interruptible wins. Enemies colored as Spell Casters keep their color." },
+          tooltip="Enemies not colored as Spell Casters take the Interruptible Caster or Uninterruptible Caster color once they cast a spell that can or cannot be interrupted." },
         EllesmereUI.BlankRowCfg());  y = y - h
 
     -- Inline Interruptible / Uninterruptible swatches, then a cog with the mob types each applies to.
@@ -1562,13 +1564,13 @@ local function BuildColorsPage(pageName, parent, yOffset)
         local rgn = castingRow._leftRegion
         local isCastingOff = function() return DBVal("castingEnemyColors") ~= true end
         EllesmereUI.BuildInlineSwatches(rgn, {
-            { tooltip = "Interruptible",
+            { tooltip = "Interruptible Caster",
               getValue = function() return DBColor("castingIntColor") end,
               setValue = function(r, g, b)
                 DB().castingIntColor = { r = r, g = g, b = b }
                 RefreshAllPlates()
               end },
-            { tooltip = "Uninterruptible",
+            { tooltip = "Uninterruptible Caster",
               getValue = function() return DBColor("castingUnintColor") end,
               setValue = function(r, g, b)
                 DB().castingUnintColor = { r = r, g = g, b = b }
