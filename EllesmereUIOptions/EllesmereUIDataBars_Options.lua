@@ -3139,10 +3139,15 @@ initFrame:SetScript("OnEvent", function(self)
                     "What right click on the Travel block uses. Defaults to Random Hearthstone.",
                     "What middle click on the Travel block uses. None leaves middle click unused.",
                 }
+                local TEXT_LABELS = { "Left Click Text", "Right Click Text", "Middle Click Text" }
+                local TEXT_KEYS = { "textLeft", "textRight", "textMiddle" }
+                local TEXT_VALUES = { location = "Destination", smart = "Cooldown Else Destination",
+                                      both = "Destination and Cooldown", cooldown = "Cooldown Only", none = "None" }
+                local TEXT_ORDER = { "location", "smart", "both", "cooldown", "none" }
                 typeRows = {}
                 for btn = 1, 3 do
                     local vals, ord = BuildClickValues(btn)
-                    typeRows[btn] = { type = "dropdown", text = CLICK_LABELS[btn],
+                    typeRows[#typeRows + 1] = { type = "dropdown", text = CLICK_LABELS[btn],
                       tooltip = CLICK_TIPS[btn],
                       values = vals, order = ord,
                       getValue = function() return ChoiceOf(btn) end,
@@ -3150,10 +3155,19 @@ initFrame:SetScript("OnEvent", function(self)
                           s[CLICK_KEYS[btn]] = v
                           -- Mirrored for old readers/exports of the legacy boolean.
                           if btn == 1 then s.randomizeHs = (v == "random") end
-                          Apply()
+                          Apply(); EllesmereUI:RefreshPage()
                       end }
+                    typeRows[#typeRows + 1] = { type = "dropdown", text = TEXT_LABELS[btn],
+                      tooltip = "What the bar shows for this click: where it goes, its own cooldown (the hearthstone's for hearthstone choices), both, or nothing. Parts from several clicks are joined with /.",
+                      values = TEXT_VALUES, order = TEXT_ORDER,
+                      getValue = function() return ns.TravelClickTextMode(s, btn) end,
+                      setValue = function(v) s[TEXT_KEYS[btn]] = v; Apply() end,
+                      disabled = function() return ChoiceOf(btn) == "none" end,
+                      disabledTooltip = "Set this click to something other than None.",
+                      rawTooltip = true }
                 end
-                if travelIconCfg then table.insert(typeRows, 1, travelIconCfg) end
+                -- Last, so each click keeps its choice and text on one row.
+                if travelIconCfg then typeRows[#typeRows + 1] = travelIconCfg end
             elseif b.type == "micromenu" then
                 -- Align Content returns here as a type row (its shared-row
                 -- slot hosts the Enable Text toggle instead): anchors the

@@ -363,6 +363,153 @@ local function TravelGetPrimaryCooldown()
     return TravelGetRemainingCooldown(travelPrimaryHearthId, false)
 end
 
+-- "smart": the cooldown while cooling, else the destination.
+local TEXT_KEYS = { "textLeft", "textRight", "textMiddle" }
+local function TravelClickTextMode(dt, btn)
+    local m = dt[TEXT_KEYS[btn]]
+    if m ~= nil then return m end
+    return btn == 1 and "location" or "none"
+end
+ns.TravelClickTextMode = TravelClickTextMode
+
+local function TravelAnyTimerText(dt)
+    for btn = 1, 3 do
+        local m = TravelClickTextMode(dt, btn)
+        if m == "smart" or m == "both" or m == "cooldown" then return true end
+    end
+    return false
+end
+
+local TRAVEL_DESTINATIONS = {
+    [140192] = { global = "DUNGEON_FLOOR_DALARANCITY1" },
+    [253629] = { key = "TRAVEL_ARCANTINA" },
+    [110560] = { global = "GARRISON_LOCATION_TOOLTIP" },
+    [193753] = { global = "ORDER_HALL_DRUID" },
+    [18960]  = { key = "TRAVEL_MOONGLADE" },
+    [50977]  = { global = "ORDER_HALL_DEATHKNIGHT" },
+    [193759] = { global = "ORDER_HALL_MAGE" },
+    [126892] = { global = "ORDER_HALL_MONK" },
+}
+
+local HOUSE_ZONE_LABELS = { [2352] = "HOME_ALLIANCE", [2351] = "HOME_HORDE" } -- Founder's Point, Razorwind Shores
+
+-- Bar destination of a choice; nil means the bind location.
+local function TravelBarDestination(choice, tagHouses)
+    local h = TravelFindHouse(choice)
+    if h then
+        if not tagHouses then return EllesmereUI.L(L["HOME"]) end
+        local f = C_Housing.GetUIMapIDForNeighborhood
+        local ok, mapID = false, nil
+        if f then ok, mapID = pcall(f, h.neighborhoodGUID) end
+        local key = ok and HOUSE_ZONE_LABELS[mapID]
+        if key then return EllesmereUI.L(L[key]) end
+        return EllesmereUI.L(TravelHouseName(h))
+    end
+    if TRAVEL_EXTRA_SET[choice] and TravelExtraKind(choice) then
+        local d = TRAVEL_DESTINATIONS[choice]
+        local name = d and ((d.global and _G[d.global]) or (d.key and EllesmereUI.L(L[d.key])))
+        if name then return name end
+        if choice ~= 556 then return TravelEntryName(choice) end -- Astral Recall: the bind point
+    end
+    return nil
+end
+
+local function TravelChoiceCooldown(choice)
+    if TravelFindHouse(choice) then
+        if TravelCanReturnHome() then return 0, true end
+        return TravelHouseCooldown()
+    end
+    if TRAVEL_EXTRA_SET[choice] then
+        local kind = TravelExtraKind(choice)
+        if kind then return TravelGetRemainingCooldown(choice, kind == "spell") end
+    end
+    return TravelGetPrimaryCooldown()
+end
+
+local function TravelShownCooldown(dt, btn)
+    local choice = TravelClickChoice(dt, btn)
+    if choice == "none" or TravelClickTextMode(dt, btn) == "none" then return nil end
+    return TravelChoiceCooldown(choice)
+end
+
+-- One bit per shown click that is cooling (unknown counts); the left click when none shows.
+local CLICK_BITS = { 1, 2, 4 }
+local function TravelCoolingMask(dt)
+    local mask, shownMask = 0, 0
+    for btn = 1, 3 do
+        local cd, known = TravelShownCooldown(dt, btn)
+        if cd then
+            shownMask = shownMask + CLICK_BITS[btn]
+            if not known or cd > 0 then mask = mask + CLICK_BITS[btn] end
+        end
+    end
+    if shownMask == 0 then
+        local cd, known = TravelChoiceCooldown(TravelClickChoice(dt, 1))
+        if not known or cd > 0 then mask = 1 end
+    end
+    return mask
+end
+
+-- Cooling parts are wrapped in gray unless plain. Returns text, timerShown
+-- (a shown timer is counting down), coolingMask, iconDim.
+local _textParts, _textRaw = {}, {}
+local function TravelBarText(dt, bind, plain)
+    local firstHouse, tagHouses = nil, false
+    for btn = 1, 3 do
+        if TravelClickTextMode(dt, btn) ~= "none" then
+            local h = TravelFindHouse(TravelClickChoice(dt, btn))
+            if h then
+                if not firstHouse then firstHouse = h.houseGUID
+                elseif h.houseGUID ~= firstHouse then tagHouses = true end
+            end
+        end
+    end
+    local n, timer, mask, shownMask = 0, false, 0, 0
+    for btn = 1, 3 do
+        local cd, known = TravelShownCooldown(dt, btn)
+        if cd then
+            local mode = TravelClickTextMode(dt, btn)
+            local choice = TravelClickChoice(dt, btn)
+            local cooling = not known or cd > 0
+            shownMask = shownMask + CLICK_BITS[btn]
+            if cooling then mask = mask + CLICK_BITS[btn] end
+            local dest = TravelBarDestination(choice, tagHouses) or bind
+            local part = dest
+            if mode ~= "location" then
+                local cdStr = known and ns.FormatCooldown(cd) or nil
+                if cdStr then timer = true end
+                if mode == "smart" then
+                    part = cdStr or dest
+                elseif mode == "both" then
+                    part = cdStr and (dest .. " " .. cdStr) or dest
+                else
+                    part = cdStr or (known and EllesmereUI.L(L["READY"]) or "-")
+                end
+            end
+            local dup = false
+            for i = 1, n do
+                if _textRaw[i] == part then dup = true; break end
+            end
+            if not dup then
+                n = n + 1
+                _textRaw[n] = part
+                _textParts[n] = (cooling and not plain) and ("|cff808080" .. part .. "|r") or part
+            end
+        end
+    end
+    for i = n + 1, #_textParts do _textParts[i] = nil; _textRaw[i] = nil end
+    local iconDim
+    if shownMask == 0 then
+        local cd, known = TravelChoiceCooldown(TravelClickChoice(dt, 1))
+        iconDim = not known or cd > 0
+        mask = iconDim and 1 or 0
+    else
+        iconDim = mask == shownMask
+    end
+    if n == 0 then return "", timer, mask, iconDim end
+    return table.concat(_textParts, " / ", 1, n), timer, mask, iconDim
+end
+
 local function TravelResolveMythicId(idOrTable)
     if type(idOrTable) == "table" then
         for _, id in ipairs(idOrTable) do if IsPlayerSpell(id) then return id end end
@@ -397,9 +544,9 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     local _trvFitBuf1 = { "" }
     local _trvFitBuf2 = { "" }
     local mouseOver = false
-    -- Heartbeat demand-gate: the 1s tick runs ONLY while something is cooling
-    -- or the tooltip is open (live M:SS columns). Ready + un-hovered = no tick
-    -- at all; BAG_UPDATE_COOLDOWN announces every start edge and re-arms.
+    -- Heartbeat demand-gate: the 1s tick runs ONLY while something is cooling,
+    -- a timer shows on the bar, or the tooltip is open (live M:SS columns).
+    -- Otherwise no tick at all; a player cast announces every start edge and re-arms.
     local ticking = false
     local TravelSyncTicker -- forward declaration, filled in after TravelTick
 
@@ -712,6 +859,10 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         Build()
     end
 
+    local function RelayoutAfterCombat()
+        if not inst._dead then inst:Refresh() end
+    end
+
     function inst:Refresh()
         SyncHouseWatch()
         if not built then return end
@@ -721,7 +872,9 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
         local isSide = barCtx.IsVertical()
 
-        local location = GetBindLocation() or "?"
+        local location, barTimer, coolMask, iconDim = TravelBarText(D(), GetBindLocation() or "?", mouseOver)
+        inst._barTimer = barTimer
+        inst._lastCoolMask = coolMask
         if isSide then
             local slotW = VSlotW(inst)
             local innerW = max(30, slotW - 8)
@@ -733,24 +886,28 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
 
         hearthText:SetText(location)
 
-        -- Block renders only icon + bind location; remaining cooldown lives in
-        -- the tooltip. On cooldown (or an unknown/secret one) it dims to gray.
-        local cd, cdKnown = TravelGetPrimaryCooldown()
-        inst._lastCooling = (not cdKnown) or cd > 0
-        TravelSyncTicker(mouseOver or inst._lastCooling)
+        TravelSyncTicker(mouseOver or coolMask ~= 0 or barTimer)
 
+        -- Cooling parts carry their own gray; the icon dims only when every shown part cools.
         if mouseOver then
             local ar, ag, ab = ns.GetAccent()
             hearthText:SetTextColor(ar, ag, ab, 1); hearthIcon:SetVertexColor(ar, ag, ab, 1)
-        elseif (not cdKnown) or cd > 0 then
-            hearthText:SetTextColor(0.5, 0.5, 0.5, 1); hearthIcon:SetVertexColor(0.5, 0.5, 0.5, 1)
         else
             local br, bgr, bb = BlockColorOf(blockCfg)
-            local ir, ig, ib = IconColorOf(blockCfg)
-            hearthText:SetTextColor(br, bgr, bb, 1); hearthIcon:SetVertexColor(ir, ig, ib, 1)
+            hearthText:SetTextColor(br, bgr, bb, 1)
+            if iconDim then
+                hearthIcon:SetVertexColor(0.5, 0.5, 0.5, 1)
+            else
+                local ir, ig, ib = IconColorOf(blockCfg)
+                hearthIcon:SetVertexColor(ir, ig, ib, 1)
+            end
         end
 
-        if InCombatLockdown() then return end
+        -- The secure button cannot resize in combat: lay out again once it ends.
+        if InCombatLockdown() then
+            ns.DeferUntilOOC("edbtravellayout:" .. inst.key, RelayoutAfterCombat)
+            return
+        end
 
         -- +2 icon size, -2 gap: hearthstone runs bigger and tighter than default.
         local iconSz, gap = fontSize + 2, ICON_GAP - 2
@@ -789,6 +946,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             hearthIcon:SetSize(iconSz, iconSz)
             ns.ResetInlineText(hearthText, "LEFT")
             local tw = ns.SnapToPixelGrid(hearthText:GetStringWidth())
+            if location == "" then tw = 0; gap = 0 end
             local totalW = min(slotW, iconSz + gap + tw + 4)
             content:SetSize(totalW, barH)
             hearthButton:SetSize(totalW, barH)
@@ -799,9 +957,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     end
 
     -- 1s heartbeat. Hovered: the open tooltip's M:SS columns need per-second full
-    -- refreshes. Un-hovered: the block shows only icon+location+ready/cooling tint,
-    -- so the tick is a cheap two-call cooling probe and Refresh runs only on the
-    -- tint EDGE. Location changes arrive via HEARTHSTONE_BOUND.
+    -- refreshes. Un-hovered: a cooling probe of the shown parts; Refresh runs when
+    -- any part's state changes, and each second while a timer shows on the bar.
     local function TravelTick()
         if built and mouseOver and ns.Tip_IsOwned(hearthButton) then
             inst:Refresh()
@@ -809,12 +966,12 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             return
         end
         -- Unknown (secret) cooldowns count as cooling: the probe keeps ticking through combat and self-corrects on the first clean read.
-        local pcd, pKnown = TravelGetPrimaryCooldown()
-        local cooling = (not pKnown) or pcd > 0
-        if cooling ~= inst._lastCooling then
-            inst._lastCooling = cooling
+        local coolMask = TravelCoolingMask(D())
+        if coolMask ~= inst._lastCoolMask then
             inst:Refresh()
-        elseif not cooling and not mouseOver then
+        elseif inst._barTimer then
+            inst:Refresh()
+        elseif coolMask == 0 and not mouseOver then
             -- Settled ready with no edge to paint: nothing left to watch.
             TravelSyncTicker(false)
         end
@@ -840,7 +997,11 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             -- one): never invalidates the hearthstone pick, and while the
             -- ticker already runs there is nothing to learn. One probe on a
             -- start edge re-arms the tick; zero fires standing idle.
-            if not ticking then TravelTick() end
+            -- With timer text on, a full Refresh also reads the click cooldowns
+            -- the hearthstone probe does not watch.
+            if not ticking then
+                if TravelAnyTimerText(D()) and not InCombatLockdown() then self:Refresh() else TravelTick() end
+            end
             return
         end
         ns.TravelInvalidateHearthCache()
