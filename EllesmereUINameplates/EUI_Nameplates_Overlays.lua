@@ -807,6 +807,95 @@ ns.EnsureTargetOverlay = function(plate)
     if plate._npRounded then ns.NP_ApplyRounding(plate, "health") end
 end
 
+-------------------------------------------------------------------------------
+--  Color Casting Enemies: two tints over the health fill (the bar's own texture in each
+--  color), Interruptible drawn above Uninterruptible so it wins once both were seen. The
+--  plate remembers each kind as an alpha, folded C-side from the cast's interruptible flag
+--  (SECRET in restricted combat): only ever passed to SetAlpha, never read in Lua.
+-------------------------------------------------------------------------------
+local CAST_INT_KEYS = { Normal = "castingIntNormal", Elite = "castingIntElite",
+    MiniBoss = "castingIntMiniBoss", Boss = "castingIntBoss" }
+local CAST_UNINT_KEYS = { Normal = "castingUnintNormal", Elite = "castingUnintElite",
+    MiniBoss = "castingUnintMiniBoss", Boss = "castingUnintBoss" }
+
+local function LayoutCastTint(t, fill, path)
+    t:ClearAllPoints()
+    t:SetPoint("TOPLEFT", fill, "TOPLEFT", 0, 0)
+    t:SetPoint("BOTTOMRIGHT", fill, "BOTTOMRIGHT", 0, 0)
+    t:SetTexture(path)
+end
+
+-- Anchors and texture follow the fill, which a health texture swap replaces.
+function ns.NP_LayoutCastTints(plate)
+    local fill = plate.health:GetStatusBarTexture()
+    local key = (p and p.healthBarTexture) or defaults.healthBarTexture
+    local path = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, key, "Interface\\Buttons\\WHITE8x8")
+    LayoutCastTint(plate.castTintUnint, fill, path)
+    LayoutCastTint(plate.castTintInt, fill, path)
+end
+
+local function EnsureCastTints(plate)
+    if plate.castTintInt then return end
+    local health = plate.health
+    plate.castTintUnint = health:CreateTexture(nil, "ARTWORK", nil, 1)
+    plate.castTintInt = health:CreateTexture(nil, "ARTWORK", nil, 2)
+    plate.castTintUnint:AddMaskTexture(plate._absorbMask)
+    plate.castTintInt:AddMaskTexture(plate._absorbMask)
+    plate.castTintUnint:Hide()
+    plate.castTintInt:Hide()
+    ns.NP_LayoutCastTints(plate)
+    if plate._blizzBarMask then ns.NP_ApplyBlizzBarArt(plate) end
+    if plate._npRounded then ns.NP_ApplyRounding(plate, "health") end
+end
+
+local function TierOn(keys, tier)
+    local v = p and p[keys[tier]]
+    if v == nil then v = defaults[keys[tier]] end
+    return v
+end
+
+-- tier: the mob type GetReactionColor marked (ns._reactionCastTier), nil to hide.
+function ns.NP_ApplyCastTints(plate, tier)
+    plate._castTier = tier
+    local intOn = tier and plate._castSeen and TierOn(CAST_INT_KEYS, tier)
+    local unintOn = tier and plate._castSeen and TierOn(CAST_UNINT_KEYS, tier)
+    if not (intOn or unintOn) then
+        if plate.castTintInt then
+            plate.castTintInt:Hide()
+            plate.castTintUnint:Hide()
+        end
+        return
+    end
+    EnsureCastTints(plate)
+    local ic = (p and p.castingIntColor) or defaults.castingIntColor
+    local uc = (p and p.castingUnintColor) or defaults.castingUnintColor
+    plate.castTintInt:SetVertexColor(ic.r, ic.g, ic.b)
+    plate.castTintUnint:SetVertexColor(uc.r, uc.g, uc.b)
+    plate.castTintInt:SetAlpha(plate._castIntA)
+    plate.castTintUnint:SetAlpha(plate._castUnintA)
+    plate.castTintInt:SetShown(intOn)
+    plate.castTintUnint:SetShown(unintOn)
+end
+
+-- A cast's start or interruptible flip (kickProtected: true = cannot be interrupted, maybe
+-- SECRET). Each kind's alpha turns 1 once seen and stays 1 for the plate's life.
+function ns.NP_NoteCastKind(plate, kickProtected)
+    local eval = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
+    if not eval then return end
+    local first = not plate._castSeen
+    if first then
+        plate._castSeen = true
+        plate._castIntA, plate._castUnintA = 0, 0
+    end
+    plate._castIntA = eval(kickProtected, plate._castIntA, 1)
+    plate._castUnintA = eval(kickProtected, 1, plate._castUnintA)
+    if first then
+        plate:UpdateHealthColor()
+    elseif plate._castTier then
+        ns.NP_ApplyCastTints(plate, plate._castTier)
+    end
+end
+
 I.ApplyOverlayGeometry, I.EnsureArrows = ApplyOverlayGeometry, EnsureArrows
 I.EnsureFocusOverlay, I.EnsureGlow = EnsureFocusOverlay, EnsureGlow
 I.EnsureTargetHighlight, I.OverlayBgAlpha = EnsureTargetHighlight, OverlayBgAlpha

@@ -1461,13 +1461,6 @@ local function BuildColorsPage(pageName, parent, yOffset)
                   end,
                   disabled=isOWOff,
                   disabledTooltip="Simple Coloring When Not In M+" },
-                { type="toggle", label="Color Casting Enemies as Casters",
-                  tooltip="An enemy that casts a spell takes the Spell Casters color once it starts casting a spell.",
-                  get=function() return DBVal("casterFromCasts") == true end,
-                  set=function(v)
-                    DB().casterFromCasts = v
-                    RefreshAllPlates()
-                  end },
             },
         })
     end
@@ -1547,6 +1540,63 @@ local function BuildColorsPage(pageName, parent, yOffset)
                     DB().miniColoringMPlusOnly = v
                     RefreshAllPlates()
                   end },
+            },
+        })
+    end
+
+    -- Color Casting Enemies | (blank, last row of the section)
+    local castingRow
+    castingRow, h = W:DualRow(parent, y,
+        { type="toggle", text="Color Casting Enemies",
+          getValue=function() return DBVal("castingEnemyColors") == true end,
+          setValue=function(v)
+            DB().castingEnemyColors = v
+            RefreshAllPlates()
+            EllesmereUI:RefreshPage()
+          end,
+          tooltip="An enemy without mana takes the Interruptible color once it casts something that can be interrupted, or the Uninterruptible color once it casts something that cannot. Interruptible wins. Enemies colored as Spell Casters keep their color." },
+        EllesmereUI.BlankRowCfg());  y = y - h
+
+    -- Inline Interruptible / Uninterruptible swatches, then a cog with the mob types each applies to.
+    if not EllesmereUI._prebuilding then
+        local rgn = castingRow._leftRegion
+        local isCastingOff = function() return DBVal("castingEnemyColors") ~= true end
+        EllesmereUI.BuildInlineSwatches(rgn, {
+            { tooltip = "Interruptible",
+              getValue = function() return DBColor("castingIntColor") end,
+              setValue = function(r, g, b)
+                DB().castingIntColor = { r = r, g = g, b = b }
+                RefreshAllPlates()
+              end },
+            { tooltip = "Uninterruptible",
+              getValue = function() return DBColor("castingUnintColor") end,
+              setValue = function(r, g, b)
+                DB().castingUnintColor = { r = r, g = g, b = b }
+                RefreshAllPlates()
+              end },
+        }, { disabled = isCastingOff, disabledTooltip = "Color Casting Enemies" })
+        local typeItems = {
+            { key="Normal",   label="Normal / Trivial", fixed=true },
+            { key="Elite",    label="Elite",            fixed=true },
+            { key="MiniBoss", label="Mini-Bosses",      fixed=true },
+            { key="Boss",     label="Bosses",           fixed=true },
+        }
+        local function TypeRow(label, prefix)
+            -- hint replaces the widget's "Drag to Reorder": every row is fixed.
+            return { type="reordercheck", label=label, ddWidth=170, items=typeItems, hint="Enemy Types",
+              get=function(key) return DBVal(prefix .. key) end,
+              set=function(key, v)
+                DB()[prefix .. key] = v
+                RefreshAllPlates()
+              end }
+        end
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Casting Enemies",
+            disabled = isCastingOff,
+            disabledTooltip = "Color Casting Enemies",
+            rows = {
+                TypeRow("Interruptible Applies To", "castingInt"),
+                TypeRow("Uninterruptible Applies To", "castingUnint"),
             },
         })
     end

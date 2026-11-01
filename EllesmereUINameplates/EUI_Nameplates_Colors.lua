@@ -794,6 +794,8 @@ local function GetReactionColor(unit)
     -- Same idiom: true when this resolution landed on bad threat (a non-tank with or
     -- near aggro, a tank without or losing it), where the debuff colors give way.
     ns._reactionBadThreat = false
+    -- Same idiom: the mob-type tier Color Casting Enemies may tint, nil when it may not.
+    ns._reactionCastTier = nil
     local db = p or defaults
     -- 1. Tapped always highest
     if UnitIsTapDenied(unit) then
@@ -1014,11 +1016,21 @@ local function GetReactionColor(unit)
     -- caster-type raid boss) hit step 8's return before step 10b was ever reached, showing the
     -- Spell Caster color instead of Bosses. Mirrors the mutual exclusivity boss/mini-boss
     -- already have with each other.
-    -- Casters From Casts (opt-in): a mob seen casting keeps the Caster color for the rest of
-    -- its plate's life, for the casters the game gives no mana pool.
-    local _isCaster = not owBasic and not _isBossUnit
-        and (UnitHasPowerType(unit, Enum.PowerType.Mana)
-             or (db.casterFromCasts and ns.plates[unit] and ns.plates[unit]._seenCasting))
+    local _isCaster = not owBasic and not _isBossUnit and UnitHasPowerType(unit, Enum.PowerType.Mana)
+    -- Color Casting Enemies (opt-in): a mob that has cast gets its tier here, where the
+    -- mob-type steps start, so its tints cover what Spell Casters would; the threat
+    -- overrides and neutral returns below clear it again. Mobs painted Spell Casters keep
+    -- it (a mini-boss with mana is painted Mini-Boss, step 7, so it can be tinted).
+    if db.castingEnemyColors and not owBasic and (_isMiniBoss or not _isCaster) then
+        local plate = ns.plates[unit]
+        if plate and plate._castSeen then
+            if _isBossUnit then ns._reactionCastTier = "Boss"
+            elseif _isMiniBoss then ns._reactionCastTier = "MiniBoss"
+            elseif classification == "elite" or classification == "rareelite"
+                or classification == "worldboss" then ns._reactionCastTier = "Elite"
+            else ns._reactionCastTier = "Normal" end
+        end
+    end
     -- DPS/healer No Aggro override state (mirrors tank has-aggro overrides at 6b). Each
     -- override independently promotes the No Aggro color above one mob-type step (mini-boss 7,
     -- caster 8). Active only for a non-tank without aggro in a group or with a pet out
@@ -1039,6 +1051,7 @@ local function GetReactionColor(unit)
         local ovr = defaults.tankHasAggroOverrideMobType
         if db.tankHasAggroOverrideMobType ~= nil then ovr = db.tankHasAggroOverrideMobType end
         if hae and ovr then
+            ns._reactionCastTier = nil
             local c = _C("tankHasAggro")
             return c.r, c.g, c.b
         end
@@ -1052,6 +1065,7 @@ local function GetReactionColor(unit)
             local ovr = defaults.dpsNoAggroOverrideMiniBoss
             if db.dpsNoAggroOverrideMiniBoss ~= nil then ovr = db.dpsNoAggroOverrideMiniBoss end
             if ovr then
+                ns._reactionCastTier = nil
                 local c = _C("dpsNoAggro")
                 return c.r, c.g, c.b
             end
@@ -1073,7 +1087,10 @@ local function GetReactionColor(unit)
         -- neutral mobs stay enemy-red for tanks. Other viewers: neutral beats trash/DPS
         -- carve-out/Caster (7b sits above step 8). Non-trash neutral units defer to 10d.
         local tankAggroPending = isThreatUnit and _isTankRole and threatStatus >= 3 and thae
-        if isNeutral and not tankAggroPending then return ResolveNeutralColor(unit) end
+        if isNeutral and not tankAggroPending then
+            ns._reactionCastTier = nil
+            return ResolveNeutralColor(unit)
+        end
         if not (_isTankRole and thae) then
             -- DPS "No Aggro" still wins over the promoted Mini Enemies color, so a DPS/healer
             -- without aggro sees the warning on trash. Scoped to this trash branch so Caster
@@ -1082,6 +1099,7 @@ local function GetReactionColor(unit)
                 local dpsNA = defaults.dpsNoAggroEnabled
                 if db.dpsNoAggroEnabled ~= nil then dpsNA = db.dpsNoAggroEnabled end
                 if dpsNA then
+                    ns._reactionCastTier = nil
                     local c = _C("dpsNoAggro")
                     return c.r, c.g, c.b
                 end

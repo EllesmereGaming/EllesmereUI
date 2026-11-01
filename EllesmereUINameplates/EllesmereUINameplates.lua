@@ -202,7 +202,14 @@ local defaults = {
     -- Enemies/Casters/Mini-Bosses/Bosses) collapse to owBasicColor; Neutral stays own color.
     owBasicColoring = false,
     owBasicColor = { r = 0.800, g = 0.137, b = 0.137 },
-    casterFromCasts = false,  -- a mob seen casting keeps the Spell Casters color
+    -- Color Casting Enemies: a mob without a mana pool takes the Interruptible color once it
+    -- casts something interruptible, else the Uninterruptible color once it casts something
+    -- that is not; each color applies to the mob types ticked for it.
+    castingEnemyColors = false,
+    castingIntColor   = { r = 0.310, g = 0.702, b = 1.000 },
+    castingUnintColor = { r = 0.953, g = 0.573, b = 0.000 },
+    castingIntNormal = true, castingIntElite = true, castingIntMiniBoss = true, castingIntBoss = true,
+    castingUnintNormal = true, castingUnintElite = true, castingUnintMiniBoss = false, castingUnintBoss = false,
     darkenEnemiesOOC = true,
     darkenOOCRecolor = false,  -- Modify Out of Combat "Change Color": recolor OOC enemies rather than dimming
     darkenOOCColor   = { r = 0.5, g = 0.5, b = 0.5 },

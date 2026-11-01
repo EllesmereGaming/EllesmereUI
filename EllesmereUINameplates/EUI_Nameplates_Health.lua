@@ -388,6 +388,8 @@ function NameplateFrame:UpdateHealthColor()
         self._lastHCr, self._lastHCg, self._lastHCb = hr, hg, hb
         self.health:SetStatusBarColor(hr, hg, hb)
     end
+    -- Color Casting Enemies: tints over the bar for the tier GetReactionColor marked.
+    if self._castSeen then ns.NP_ApplyCastTints(self, ns._reactionCastTier) end
     -- Threat Colors "Border" / "Text" channels -- the SECOND signal. Both off by default,
     -- so the shipped path costs two field reads. ns.ResolveThreatColor answers "what does
     -- threat say about this unit" without any of the health bar's priority competition,
