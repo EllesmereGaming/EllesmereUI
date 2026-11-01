@@ -57,7 +57,7 @@ function NameplateFrame:UpdateHealthValues()
             self.unit = actualUnit
             unit = actualUnit
             -- Color Casting Enemies remembers the mob, not the plate.
-            if self._castSeen then ns.NP_ResetCastKind(self) end
+            if self._castSeen ~= nil then ns.NP_ResetCastKind(self) end
             -- Opacity for the new occupant (the cast end above applied it to the old token).
             if ns._ntAlpha < 1 or ns._oocAlpha < 1 then ns.NT_Apply(self) end
             if ns._npTgtTexts or self._totEv then self:SyncToT(actualUnit) end

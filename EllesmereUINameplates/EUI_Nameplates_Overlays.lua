@@ -876,24 +876,31 @@ function ns.NP_ApplyCastTints(plate, tier, lit, fold)
             ti:SetAlpha(plate._castIntA or 0)
             tu:SetAlpha(plate._castUnintA or 0)
         end
+        -- Folded: only the shown tints, each recomputed every pass (secret, uncached).
+        -- A hidden one keeps a stale color; the gen reset below repaints it on the next
+        -- plain pass.
         local folded = false
         if fold then
             local MaybeDarken = I.MaybeDarken
-            local ic = (p and p.castingIntColor) or defaults.castingIntColor
-            local uc = (p and p.castingUnintColor) or defaults.castingUnintColor
             local otc = I._C("offTankAggro")
-            local ir, ig, ib = MaybeDarken(ic.r, ic.g, ic.b, lit)
-            local ur, ug, ub = MaybeDarken(uc.r, uc.g, uc.b, lit)
-            local okI, okU
-            okI, ir, ig, ib = ns.ComputeOffTankFold(plate.unit, ir, ig, ib, otc.r, otc.g, otc.b)
-            okU, ur, ug, ub = ns.ComputeOffTankFold(plate.unit, ur, ug, ub, otc.r, otc.g, otc.b)
-            if okI and okU then
-                ti:SetVertexColor(ir, ig, ib)
-                tu:SetVertexColor(ur, ug, ub)
-                -- Never cached: the next plain pass always repaints.
-                plate._castTintGen = nil
-                folded = true
+            local ok = true
+            if intOn then
+                local c = (p and p.castingIntColor) or defaults.castingIntColor
+                local r, g, b = MaybeDarken(c.r, c.g, c.b, lit)
+                local okI
+                okI, r, g, b = ns.ComputeOffTankFold(plate.unit, r, g, b, otc.r, otc.g, otc.b)
+                if okI then ti:SetVertexColor(r, g, b) else ok = false end
             end
+            if ok and unintOn then
+                local c = (p and p.castingUnintColor) or defaults.castingUnintColor
+                local r, g, b = MaybeDarken(c.r, c.g, c.b, lit)
+                local okU
+                okU, r, g, b = ns.ComputeOffTankFold(plate.unit, r, g, b, otc.r, otc.g, otc.b)
+                if okU then tu:SetVertexColor(r, g, b) else ok = false end
+            end
+            -- Never cached: the next plain pass always repaints.
+            plate._castTintGen = nil
+            folded = ok
         end
         if not folded and (plate._castTintGen ~= castTintGen or plate._castTintLit ~= lit) then
             plate._castTintGen, plate._castTintLit = castTintGen, lit
@@ -916,10 +923,13 @@ end
 function ns.NP_NoteCastKind(plate, kickProtected)
     local eval = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
     if not eval then return end
-    local first = not plate._castSeen
+    -- _castSeen: nil = not checked yet, false = a player (never tinted), true = noted.
+    local seen = plate._castSeen
+    if seen == false then return end
+    local first = seen == nil
     if first then
-        -- Never players (an enemy player's class color stays); checked once per mob.
-        if UnitIsPlayer(plate.unit) then return end
+        -- Never players (an enemy player's class color stays); checked once per unit.
+        if UnitIsPlayer(plate.unit) then plate._castSeen = false; return end
         plate._castSeen = true
         plate._castIntA, plate._castUnintA = 0, 0
     end

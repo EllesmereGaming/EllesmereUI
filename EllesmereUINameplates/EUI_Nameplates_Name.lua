@@ -55,7 +55,7 @@ function NameplateFrame:UpdateName()
             -- belongs to the old unit, drop it too.
             self._absorbHidden = nil
             -- Color Casting Enemies remembers the mob, not the plate.
-            if self._castSeen then ns.NP_ResetCastKind(self) end
+            if self._castSeen ~= nil then ns.NP_ResetCastKind(self) end
             -- Repaint target/hover styling for the new occupant so the old one's
             -- paint cannot stick; mirrors the UpdateHealthValues swap.
             -- ApplyTarget re-owns the shared target-plate cache as a side effect.
