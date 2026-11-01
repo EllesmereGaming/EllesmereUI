@@ -96,7 +96,8 @@ local function TravelGetRemainingCooldown(id, isSpell)
     if issecretvalue(startTime) or issecretvalue(duration) then
         return 0, false
     end
-    if type(startTime) == "number" and type(duration) == "number" and duration > 0 then
+    -- 2s or less is the global cooldown, which these APIs also report on travel items: read as ready.
+    if type(startTime) == "number" and type(duration) == "number" and duration > 2 then
         return max(0, startTime + duration - GetTime()), true
     end
     return 0, true
