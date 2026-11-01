@@ -1918,42 +1918,6 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Expand Vendor UI: the vendor window shows a bigger grid. The cog sets
-        -- its size; 2 x 5 is Blizzard's own layout. The work lives in Blizzard Skin.
-        local expandCfg = { type="toggle", text="Expand Vendor UI",
-            tooltip="Shows more vendor items at once. Use the cog to set the number of columns and rows; the vendor window grows to fit. Needs the Merchant window skin, and is not used with Show As List.",
-            getValue=function()
-                return EllesmereUIDB and EllesmereUIDB.merchantExpand or false
-            end,
-            setValue=function(v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.merchantExpand = v
-                if EllesmereUI._Merchant_RefreshExpand then EllesmereUI._Merchant_RefreshExpand() end
-                EllesmereUI:RefreshPage()
-            end }
-        local function BuildExpandCog(rgn)
-            if EllesmereUI._prebuilding then return end
-            local function setSize(key, v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB[key] = v
-                if EllesmereUI._Merchant_RefreshExpand then EllesmereUI._Merchant_RefreshExpand() end
-            end
-            EllesmereUI.BuildInlineCog(rgn, {
-                title = "Expand Vendor UI Settings",
-                rows = {
-                    { type="slider", label="Vendor Columns", min=2, max=6, step=1,
-                      get=function() return (EllesmereUIDB and EllesmereUIDB.merchantCols) or 2 end,
-                      set=function(v) setSize("merchantCols", v) end },
-                    { type="slider", label="Vendor Rows", min=5, max=10, step=1,
-                      get=function() return (EllesmereUIDB and EllesmereUIDB.merchantRows) or 5 end,
-                      set=function(v) setSize("merchantRows", v) end },
-                },
-                gap = 9,
-                disabled = function() return not (EllesmereUIDB and EllesmereUIDB.merchantExpand) end,
-                disabledTooltip = "Expand Vendor UI",
-            })
-        end
-
         -- Row 6: Transparent World Map Sidebars (left) | Auto-Accept Resurrection. Not offered
         -- on WoW Forever: Forever Essentials has its own map background option there.
         if not EllesmereUI.IS_FOREVER then
@@ -1994,15 +1958,10 @@ initFrame:SetScript("OnEvent", function(self)
                     gap = 9, disabled = sidebarsOff, disabledTooltip = "Transparent World Map Sidebars",
                 })
             end
-
-            local expandRow
-            expandRow, h = W:DualRow(parent, y, expandCfg, EllesmereUI.BlankRowCfg());  y = y - h
-            BuildExpandCog(expandRow._leftRegion)
         else
             local resRow
-            resRow, h = W:DualRow(parent, y, resCfg, expandCfg);  y = y - h
+            resRow, h = W:DualRow(parent, y, resCfg, EllesmereUI.BlankRowCfg());  y = y - h
             BuildResCog(resRow._leftRegion)
-            BuildExpandCog(resRow._rightRegion)
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h

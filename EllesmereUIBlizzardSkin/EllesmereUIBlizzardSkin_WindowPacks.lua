@@ -8075,9 +8075,15 @@ local EX_Update
 local function EX_Flip(dir)
     local want = math.min(math.max(ex.page + dir, 1), EX_NumPages())
     if want == ex.page then return end
-    ex.page = want
     -- A split open on the old page would act on whatever now holds its index.
-    if StackSplitFrame and StackSplitFrame:IsShown() then StackSplitCancelButton_OnClick() end
+    -- Close it through the shared helpers; with a key still held in it, skip the
+    -- flip rather than leave the split on the wrong item.
+    local ssf = StackSplitFrame
+    if ssf and ssf:IsShown() then
+        if not EllesmereUI.StackSplitFor(ssf.owner) then return end
+        EllesmereUI.TakeStackSplit()
+    end
+    ex.page = want
     PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
     EX_Update()
 end
@@ -8131,9 +8137,12 @@ local function EX_Deactivate(f)
         local n = _G["MerchantItem" .. i]
         if n then n:Show() end
     end
-    -- Switched off on the sell tab: let Blizzard repaint its own pager.
-    if not ExpandOn() and f:IsShown() and type(_G.MerchantFrame_Update) == "function" then
-        _G.MerchantFrame_Update()
+    -- Switched off on the sell tab: show the pager the way Blizzard decides it.
+    -- Blizzard keeps its text and enabled state current while it is hidden.
+    if not ExpandOn() and f:IsShown() and (f.selectedTab or 1) == 1 and GetMerchantNumItems() > MERCHANT_ITEMS_PER_PAGE then
+        for _, c in ipairs({ _G.MerchantPrevPageButton, _G.MerchantNextPageButton, _G.MerchantPageText }) do
+            c:Show()
+        end
     end
 end
 
