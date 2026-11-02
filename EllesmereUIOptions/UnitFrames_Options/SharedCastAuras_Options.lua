@@ -1105,6 +1105,11 @@ end
 -- Settings (the Location cog): Growth Direction, Max Count, afterMax (an
 -- optional row placed right after Max Count), Max Per Row (unset follows Max
 -- Count) and Cropped Icons.
+-- Max Count caps each aura group on its own (the engine has no shared cap):
+-- the boss rows in MiniFrames_Options.lua use the same tooltip.
+-- The _IMP variant sits beside a Max Important row (afterMax).
+ns.UFO_MAX_COUNT_TOOLTIP = "When several filters are on, each one shows up to this many."
+ns.UFO_MAX_COUNT_TOOLTIP_IMP = "When several filters are on, each one shows up to this many. With Important or Own, important debuffs from others use Max Important instead."
 function ns.UFO_AuraSettingsRows(kind, get, set, maxMax, maxDefault, afterMax)
     local env = ns._UFO_OptEnv
     local growthKey, perRowKey, cropKey = kind .. "Growth", kind .. "MaxPerRow", kind .. "CropIcons"
@@ -1114,6 +1119,7 @@ function ns.UFO_AuraSettingsRows(kind, get, set, maxMax, maxDefault, afterMax)
           get=function() return get(growthKey, "auto") end,
           set=function(v) set(growthKey, v) end },
         { type="slider", label="Max Count", min=1, max=maxMax, step=1,
+          tooltip=afterMax and ns.UFO_MAX_COUNT_TOOLTIP_IMP or ns.UFO_MAX_COUNT_TOOLTIP,
           get=function() return get(maxKey, maxDefault) end,
           set=function(v) set(maxKey, v) end },
     }
