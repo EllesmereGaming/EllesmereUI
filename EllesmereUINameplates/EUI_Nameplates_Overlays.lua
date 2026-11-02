@@ -866,6 +866,10 @@ end
 -- is SECRET); the tints take the same fold. Runs on every health color pass, so each setter
 -- is change-checked, except while folded (secret colors, like the bar's own).
 function ns.NP_ApplyCastTints(plate, tier, lit, fold)
+    if tier == nil and not (p and p.castingEnemyColors) then
+        -- Turned off: the plate forgets its casts, so its color passes stop calling here.
+        plate._castSeen, plate._castIntA, plate._castUnintA = nil, nil, nil
+    end
     local intOn = tier ~= nil and TierOn(CAST_INT_KEYS, tier)
     local unintOn = tier ~= nil and TierOn(CAST_UNINT_KEYS, tier)
     local ti, tu = plate.castTintInt, plate.castTintUnint
@@ -921,8 +925,7 @@ end
 -- SECRET). Each kind's alpha turns 1 once seen and stays 1 while the mob holds the plate;
 -- the alphas change only here.
 function ns.NP_NoteCastKind(plate, kickProtected)
-    local eval = C_CurveUtil and C_CurveUtil.EvaluateColorValueFromBoolean
-    if not eval then return end
+    local eval = C_CurveUtil.EvaluateColorValueFromBoolean
     -- _castSeen: nil = not checked yet, false = a player (never tinted), true = noted.
     local seen = plate._castSeen
     if seen == false then return end

@@ -3303,14 +3303,16 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 local alpha = (db.profile.dispelOverlayOpacity or 100) / 100
                 dispelOverlayPreview:ClearAllPoints()
                 dispelOverlayPreview:SetVertexColor(1, 1, 1, 1)
+                dispelOverlayPreview:SetTexCoord(0, 1, 0, 1)
                 if mode == "full" then
                     dispelOverlayPreview:SetAllPoints(health)
                     dispelOverlayPreview:SetColorTexture(c.r, c.g, c.b, alpha)
-                elseif mode == "gradient" or mode == "gradient_sharp" then
+                elseif mode == "gradient" or mode == "gradient_sharp" or mode == "gradient_reverse" then
                     dispelOverlayPreview:SetAllPoints(health)
-                    dispelOverlayPreview:SetTexture(mode == "gradient_sharp"
-                        and "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
-                        or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga")
+                    dispelOverlayPreview:SetTexture(mode == "gradient"
+                        and "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
+                        or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga")
+                    if mode == "gradient_reverse" then dispelOverlayPreview:SetTexCoord(0, 1, 1, 0) end
                     dispelOverlayPreview:SetVertexColor(c.r, c.g, c.b, alpha)
                 else
                     dispelOverlayPreview:SetAllPoints(healthFill)

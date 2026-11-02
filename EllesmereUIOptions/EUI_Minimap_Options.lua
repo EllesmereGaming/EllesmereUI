@@ -159,11 +159,12 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Row 1: Visibility | Shape. On the WoW Forever look its Border Style
         -- takes the slot, as the shape is part of it: Forever Circle ("circle"),
-        -- the variant's round map in Blizzard's Forever ring, or Forever Square
+        -- the variant's round map in Blizzard's Forever ring, Forever Square
         -- (the default there),
         -- the EllesmereUI look's square map in the bronze frame of Forever's
-        -- own windows. Blizzard Style on the Forever client has its own (below).
-        -- The two render different layouts and latch with the look, so a change
+        -- own windows, or Slim Square ("slim"), that map in the slim bronze
+        -- line. Blizzard Style on the Forever client has its own (below).
+        -- Each choice renders its own layout and latches with the look, so a change
         -- asks for a reload. A changed pick also moves the clock to that border's
         -- spot (BorderClock), the one the Style page's seed gives a first visit.
         -- Square: inside the map at its bottom, no offset (the title bar holds
@@ -178,19 +179,26 @@ initFrame:SetScript("OnEvent", function(self)
         local shapeCfg
         if EllesmereUI.BlizzStyle.Forever("minimap") then
             shapeCfg = { type="dropdown", text="Border Style",
-              tooltip="Forever Circle: the round map in WoW Forever's ring. Forever Square: the EllesmereUI square map in the bronze frame of WoW Forever's windows, with the zone name in its title bar. Applies after a UI reload.",
-              values = { circle = "Forever Circle", square = "Forever Square" },
-              order  = { "circle", "square" },
+              tooltip="Forever Circle: the round map in WoW Forever's ring. Forever Square: the EllesmereUI square map in the bronze frame of WoW Forever's windows, with the zone name in its title bar. Slim Square: the same square map in a thin bronze frame. Applies after a UI reload.",
+              values = { circle = "Forever Circle", square = "Forever Square", slim = "Slim Square" },
+              order  = { "circle", "square", "slim" },
               disabled = function() return not EllesmereUI.ForeverHeavyOK() end,
               disabledTooltip = "This client is missing WoW Forever's window frame art.", rawTooltip = true,
-              getValue=function() local m = MinimapDB(); return (m and m.foreverBorder == "circle") and "circle" or "square" end,
+              getValue=function()
+                  local m = MinimapDB()
+                  local fb = m and m.foreverBorder
+                  return (fb == "circle" or fb == "slim") and fb or "square"
+              end,
               setValue=function(v)
                 local m = MinimapDB(); if not m then return end
-                -- Forever Square is the default: the round map saves "circle".
-                local square = v == "square"
+                -- Forever Square is the default: the round map saves "circle",
+                -- the slim square "slim".
+                local square = v ~= "circle"
                 if square ~= (m.foreverBorder ~= "circle") then BorderClock(m, square) end
-                m.foreverBorder = square and "square" or "circle"
-                if square == ns.MinimapFvSquare() then return end
+                m.foreverBorder = v
+                -- A reload only when the frame that renders changes (square
+                -- or not, heavy or slim): the module latches it.
+                if not ns.MinimapFvBorderChanged(m) then return end
                 EllesmereUI:ShowConfirmPopup({
                     title       = "Reload Required",
                     message     = "Border Style changed. A UI reload is needed to apply it.",
@@ -1392,6 +1400,8 @@ initFrame:SetScript("OnEvent", function(self)
         local zoneRow
         zoneRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Zone Text Style",
+              tooltip = EllesmereUI.BlizzStyle.Active("minimap") ~= "eui"
+                  and "On this look, Inside Map and Edge Box both show the zone name in the map's top bar." or nil,
               values = { none = "None", inside = "Inside Map", edge = "Edge Box" },
               order  = { "none", "inside", "edge" },
               getValue=LocationMode,

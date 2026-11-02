@@ -74,6 +74,8 @@ function ns.NT_Apply(plate)
                 -- Never a plain number: the next numeric apply always writes.
                 plate._ntCurAlpha = -1
                 plate._ntBoolHi, plate._ntBoolLo = rest, lo
+                -- A SECRET flag makes the plate root's alpha secret for the session: never
+                -- compare its GetAlpha() or a child's GetEffectiveAlpha().
                 plate:SetAlphaFromBoolean(imp, rest, lo)
             end
             return

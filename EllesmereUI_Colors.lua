@@ -728,7 +728,7 @@ function EllesmereUI.ApplyColorsToOUF()
     end
     -- 7. A class-colored accent or cursor follows a class swatch edit; the accent
     -- re-applies only when it changed (that path redraws the options page).
-    if EllesmereUI.ResolveActiveAccent and EllesmereUI.GetAccentColor then
+    do
         local r, g, b = EllesmereUI.ResolveActiveAccent()
         local cr, cg, cb = EllesmereUI.GetAccentColor()
         if r ~= cr or g ~= cg or b ~= cb then EllesmereUI.RefreshAccent() end

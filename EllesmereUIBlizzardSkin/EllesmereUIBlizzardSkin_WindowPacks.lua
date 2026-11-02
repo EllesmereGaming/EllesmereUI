@@ -7913,7 +7913,7 @@ local function SkinMerchantIconButton(btn)
 end
 
 -------------------------------------------------------------------------------
---  Expand Vendor UI (QoL): the sell tab shows a grid of the chosen columns x
+--  Expand Vendor UI (Merchant card): the sell tab shows a grid of the chosen columns x
 --  rows (EllesmereUIDB.merchantCols / merchantRows) instead of Blizzard's
 --  2 x 5 page. Nothing is built or hooked until the setting is first on
 --  (EnsureExpand). Blizzard's native 10-tile page stays Blizzard's and is only
@@ -7934,7 +7934,8 @@ local EX_MAX_COLS, EX_MAX_ROWS = 6, 10
 local EX_FRAME_PAD = 6                     -- native 336 wide = 2 columns + 6
 local EX_PREFIX = "EUI_MerchantPage"
 local MAX_MONEY_DISPLAY_WIDTH_EX = 120
-local ex = { page = 1, tiles = {}, cols = EX_NATIVE_COLS, perPage = 0 }
+-- buttons: the grid tiles' item buttons (a split open on one of them is the grid's).
+local ex = { page = 1, tiles = {}, buttons = {}, cols = EX_NATIVE_COLS, perPage = 0 }
 
 local function ExGrid()
     local db = EllesmereUIDB
@@ -7982,6 +7983,7 @@ local function EX_GetTile(i)
     LiftMerchantCurrency(_G[EX_PREFIX .. i .. "MoneyFrame"])
     LiftMerchantCurrency(_G[EX_PREFIX .. i .. "AltCurrencyFrame"])
     ex.tiles[i] = t
+    ex.buttons[t.ItemButton] = true
     return t
 end
 
@@ -8078,12 +8080,14 @@ local EX_Update
 local function EX_Flip(dir)
     local want = math.min(math.max(ex.page + dir, 1), EX_NumPages())
     if want == ex.page then return end
-    -- A split open on the old page would act on whatever now holds its index.
-    -- Close it through the shared helpers; with a key still held in it, skip the
-    -- flip rather than leave the split on the wrong item.
+    -- A split open on one of the grid's tiles would act on whatever now holds its
+    -- index. Close it through the shared helpers; with a key still held in it, skip
+    -- the flip rather than leave the split on the wrong item. A split on anything
+    -- else (a bag slot) is not the grid's to close.
     local ssf = StackSplitFrame
-    if ssf and ssf:IsShown() then
-        if not EllesmereUI.StackSplitFor(ssf.owner) then return end
+    local owner = ssf and ssf:IsShown() and ssf.owner
+    if owner and ex.buttons[owner] then
+        if not EllesmereUI.StackSplitFor(owner) then return end
         EllesmereUI.TakeStackSplit()
     end
     ex.page = want
@@ -8156,14 +8160,10 @@ local function EX_Deactivate(f)
     -- Switched off on the sell tab: show the pager the way Blizzard decides it.
     -- Blizzard keeps its text and enabled state current while it is hidden.
     if not ExpandOn() and f:IsShown() and (f.selectedTab or 1) == 1 and GetMerchantNumItems() > MERCHANT_ITEMS_PER_PAGE then
-        for _, c in ipairs({ _G.MerchantPrevPageButton, _G.MerchantNextPageButton, _G.MerchantPageText }) do
-            c:Show()
-        end
+        for _, c in ipairs(ex.pager) do c:Show() end
     end
     -- Item levels went to the grid's tiles while it was up.
-    if EllesmereUIDB.merchantShowItemLevel and EllesmereUI._Merchant_RefreshItemLevels then
-        EllesmereUI._Merchant_RefreshItemLevels()
-    end
+    if EllesmereUIDB.merchantShowItemLevel then EllesmereUI._Merchant_RefreshItemLevels() end
 end
 
 EX_Update = function()
@@ -8197,9 +8197,7 @@ EX_Update = function()
     if f:GetWidth() ~= w then f:SetWidth(w) end
     if f:GetHeight() ~= h then f:SetHeight(h) end
     EX_ParkNative(true)
-    for _, c in ipairs({ _G.MerchantPrevPageButton, _G.MerchantNextPageButton, _G.MerchantPageText }) do
-        c:Hide()
-    end
+    for _, c in ipairs(ex.pager) do c:Hide() end
 
     if ex.cols ~= cols then
         ex.cols = cols
@@ -8217,13 +8215,14 @@ EX_Update = function()
     EX_UpdatePager(f, numPages)
 
     -- Item levels read each button's ID, which a flip just changed.
-    if EllesmereUIDB.merchantShowItemLevel and EllesmereUI._Merchant_RefreshItemLevels then
-        EllesmereUI._Merchant_RefreshItemLevels()
-    end
+    if EllesmereUIDB.merchantShowItemLevel then EllesmereUI._Merchant_RefreshItemLevels() end
     -- Bulk Buy closes its window once its tile shows another item; it checks on
     -- MerchantFrame_Update, which a flip does not run.
     if EllesmereUI._Merchant_BulkBuyRepaint then EllesmereUI._Merchant_BulkBuyRepaint() end
 end
+-- GET_ITEM_INFO_RECEIVED comes in a burst while a vendor's items load: one refill
+-- per frame. Built here, at load, so no skin callback wraps it.
+ex.updateSoon = WSkin.Debounce(EX_Update)
 
 local function EnsureExpand()
     if ex.hooked then return end
@@ -8238,12 +8237,13 @@ local function EnsureExpand()
     local function HideIfActive(self)
         if ExpandActive() then self:Hide() end
     end
-    for _, c in ipairs({ _G.MerchantPrevPageButton, _G.MerchantNextPageButton, _G.MerchantPageText }) do
+    ex.pager = { _G.MerchantPrevPageButton, _G.MerchantNextPageButton, _G.MerchantPageText }
+    for _, c in ipairs(ex.pager) do
         hooksecurefunc(c, "Show", HideIfActive)
     end
     hooksecurefunc("MerchantFrame_Update", EX_Update)
     -- Fires when an uncached item resolves; the native pass would only refill its own tiles.
-    hooksecurefunc("MerchantFrame_UpdateItemQualityBorders", EX_Update)
+    hooksecurefunc("MerchantFrame_UpdateItemQualityBorders", ex.updateSoon)
     f:HookScript("OnShow", function() ex.page = 1 end)
     f:HookScript("OnMouseWheel", function(_, delta)
         if ExpandActive() then EX_Flip(delta > 0 and -1 or 1) end
@@ -8388,7 +8388,7 @@ local function UpdateMerchantItemLevels()
         -- GetNumBuybackItems is irrelevant: text only shows on the sell tab.
         numItems = GetMerchantNumItems()
         prefix = "EUI_MerchantItem"
-    elseif EllesmereUI._Merchant_ExpandActive and EllesmereUI._Merchant_ExpandActive() then
+    elseif EllesmereUI._Merchant_ExpandActive() then
         numItems = EllesmereUI._Merchant_ExpandPerPage()
         prefix = "EUI_MerchantPage"
     else

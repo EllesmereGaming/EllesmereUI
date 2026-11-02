@@ -1540,12 +1540,12 @@ local PORTRAIT_CLICK = {
     end,
     backdrop = function(frame) return frame.Portrait.backdrop end,
     onEnter = function(frame)
-        if I.UnitFrame_OnEnter then I.UnitFrame_OnEnter(frame) end
-        if I.FrameBorderEnter then I.FrameBorderEnter(frame) end
+        I.UnitFrame_OnEnter(frame)
+        I.FrameBorderEnter(frame)
     end,
     onLeave = function(frame)
-        if I.UnitFrame_OnLeave then I.UnitFrame_OnLeave(frame) end
-        if I.FrameBorderLeave then I.FrameBorderLeave(frame) end
+        I.UnitFrame_OnLeave(frame)
+        I.FrameBorderLeave(frame)
     end,
     -- Same registration as the unit button itself (SetupUnitMenu).
     register = function(btn)
@@ -1553,8 +1553,9 @@ local PORTRAIT_CLICK = {
         ClickCastFrames[btn] = true
     end,
 }
+-- True while the frame wants its click overlay (EllesmereUI.SyncPortraitClick).
 function ns.UF_SyncPortraitClick(frame)
-    if frame and frame.Portrait then EllesmereUI.SyncPortraitClick(frame, PORTRAIT_CLICK) end
+    if frame and frame.Portrait then return EllesmereUI.SyncPortraitClick(frame, PORTRAIT_CLICK) end
 end
 
 I.ApplyClassIconTexture, I.ApplyDetachedPortraitShape = ApplyClassIconTexture, ApplyDetachedPortraitShape

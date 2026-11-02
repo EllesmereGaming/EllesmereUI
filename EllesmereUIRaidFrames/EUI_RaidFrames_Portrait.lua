@@ -519,8 +519,9 @@ local PORTRAIT_CLICK = {
             and (s.partyPortraitStyle or "none") == "detached" or false
     end,
     backdrop = function(owner) return ns.GetFFD(owner).pt end,
-    onEnter = function(owner) if ns.RF_ButtonOnEnter then ns.RF_ButtonOnEnter(owner) end end,
-    onLeave = function(owner) if ns.RF_ButtonOnLeave then ns.RF_ButtonOnLeave(owner) end end,
+    -- EUI_RaidFrames_Style.lua loads first.
+    onEnter = ns.RF_ButtonOnEnter,
+    onLeave = ns.RF_ButtonOnLeave,
     -- Same registration as the party button itself (_StyleButtonSecure).
     register = function(btn)
         if ns.CC_RegisterFrame then

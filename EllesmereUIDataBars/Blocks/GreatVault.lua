@@ -188,7 +188,8 @@ local GV_REQUEST_FLOOR    = 1
 -- have answered the roster-change request, and swallowing the hover request too would leave the tooltip blank until a later re-hover.
 local function GVRequestKeys(emptyHand)
     local lib = GVLib()
-    if not lib or not IsInGroup() then return end
+    -- A party of your own: the request goes out on PARTY, which a Dungeon Finder group alone answers with "You aren't in a party."
+    if not lib or not IsInGroup(LE_PARTY_CATEGORY_HOME) then return end
     local now = GetTime()
     local wait = emptyHand and GV_REQUEST_FLOOR or GV_REQUEST_THROTTLE
     if now - _gvLastRequest < wait then return end

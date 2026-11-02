@@ -678,12 +678,7 @@ end
 -- The level part of a friendly player's name: plain, or difficulty-coloured
 -- while that option is on. A secret or unreadable level stays a plain "??".
 local function FriendlyLevelText(unit)
-    if not FriendlyLevelDiffColor() then return ns.GetUnitLevelText(unit) end
-    local lvl = UnitEffectiveLevel(unit)
-    if type(lvl) ~= "number" or (issecretvalue and issecretvalue(lvl)) or lvl <= 0 then
-        return ns.GetUnitLevelText(unit)
-    end
-    return EllesmereUI.ColorText(tostring(lvl), EllesmereUI.GetLevelColor(unit, lvl, true))
+    return ns.GetUnitLevelText(unit, FriendlyLevelDiffColor() and "diffAll" or nil)
 end
 
 

@@ -100,35 +100,19 @@ local function EnsureCastGlowOverlay(self, field, levelOffset)
     return ov
 end
 
--- Flat-key glow settings (prefix .. "Style", "Color", "Lines", ...), key names built
--- once here so a cast start does no string work.
-local function GlowKeys(prefix)
-    return {
-        style = prefix .. "Style", color = prefix .. "Color", mode = prefix .. "ColorMode",
-        lines = prefix .. "Lines", thickness = prefix .. "Thickness", speed = prefix .. "Speed",
-        bg = prefix .. "Background", bgColor = prefix .. "BackgroundColor",
-    }
-end
-local IMP_GLOW_KEYS = GlowKeys("importantCastGlow")
-local TGT_GLOW_KEYS = GlowKeys("castTargetGlow")
+-- The two cast bar glows' flat-schema keys, built once (so a cast start does no string work).
+local IMP_GLOW_KEYS = EllesmereUI.Glows.FlatKeys("importantCastGlow")
+local TGT_GLOW_KEYS = EllesmereUI.Glows.FlatKeys("castTargetGlow")
+-- One scratch spec for every plate and both glows: StartSpecGlow reads it synchronously.
+local castGlowSpec = {}
 
--- Starts the glow on a cast bar overlay. One scratch spec for every plate: StartSpecGlow
--- reads it synchronously. Restarts only when the setting or the bar size changed.
+-- Starts the glow on a cast bar overlay. Restarts only when the setting or the bar size changed.
 local function StartCastGlow(self, ov, cfg, k)
     local Glows = EllesmereUI.Glows
     local style = cfg[k.style] or defaults[k.style] or 1
     if type(style) ~= "number" or style < 1 or style > #PANDEMIC_GLOW_STYLES then style = 1 end
-    local c = cfg[k.color] or defaults[k.color]
-    local bgColor = cfg[k.bgColor] or defaults[k.bgColor]
-    local spec = ns._impCastGlowSpec
-    if not spec then spec = {}; ns._impCastGlowSpec = spec end
+    local spec = Glows.SpecFromFlat(castGlowSpec, cfg, k, cfg[k.mode] or "custom", defaults)
     spec.style = ns.NP_TO_SHARED_GLOW[style] or 1
-    spec.r, spec.g, spec.b = Glows.ResolveColor(cfg[k.mode] or "custom", c.r, c.g, c.b)
-    spec.lines = cfg[k.lines] or defaults[k.lines]
-    spec.thickness = cfg[k.thickness] or defaults[k.thickness]
-    spec.speed = cfg[k.speed] or defaults[k.speed]
-    spec.bg = (cfg[k.bg] == true) or nil
-    spec.bgR, spec.bgG, spec.bgB = bgColor.r, bgColor.g, bgColor.b
     local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
     if pW < 5 then pW = 100 end
     if pH < 5 then pH = 14 end
@@ -197,6 +181,17 @@ function NameplateFrame:ClearImportantCastGlow()
         self._importantCastOverlay:SetAlpha(0)
         self._importantCastOverlay:Hide()
         self._importantGlowActive = false
+    end
+end
+
+-- A cast glow setting changed (its options row, Global Settings > Glows): the casts already
+-- showing take it at once. A new cast reads the settings itself.
+function ns.NP_RefreshCastGlows()
+    for _, plate in pairs(ns.plates) do
+        if plate.unit and plate.isCasting then
+            plate:UpdateImportantCastGlow()
+            plate:UpdateCastTargetGlow()
+        end
     end
 end
 
@@ -289,6 +284,12 @@ function NameplateFrame:UpdateCast()
         if C_Spell and C_Spell.IsSpellImportant then
             local impOK, imp = pcall(C_Spell.IsSpellImportant, castSpellID or 0)
             if impOK then self._castImportant = imp end
+        end
+        -- A cast that starts before the last one's stop was handled skips NotifyCastStarted:
+        -- Full Opacity While Casting (Important Casts) takes the new flag here.
+        if self.isCasting and ns._ntCastFull and ns._ntCastImportantOnly and ns._ntAlpha < 1 then
+            self._ntBoolHi = nil
+            ns.NT_Apply(self)
         end
         local cfg = p or defaults
         local unintColor = cfg.castBarUninterruptible or defaults.castBarUninterruptible

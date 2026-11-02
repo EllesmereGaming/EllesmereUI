@@ -721,6 +721,8 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         local two = rest:sub(1, 2)
         return rest == "" or rest:sub(1, 1) == "-" or two == " (" or two == " ["
     end
+    -- One parts list for the compact level line, refilled on every build.
+    local _compactParts = {}
     local function _ttLineColors(tt, data, unit, cc)
         local db = EllesmereUIDB
         if not (db and (db.tooltipLevelColor or db.tooltipClassLineColor or db.tooltipFactionColor
@@ -760,7 +762,9 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             -- Compact line: "90 Tauren" for players, "90 Elite Humanoid" for NPCs.
             local player = UnitIsPlayer(unit)
             if db.tooltipCompactLevel and not (_isSecret and (_isSecret(lvl) or _isSecret(player))) then
-                local parts = { EllesmereUI.ColorText(lvl > 0 and lvl or "??", r, g, b) }
+                local parts = _compactParts
+                wipe(parts)
+                parts[1] = EllesmereUI.ColorText(lvl > 0 and lvl or "??", r, g, b)
                 if player then
                     parts[2] = UnitRace(unit)
                 else
@@ -1150,6 +1154,10 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     end
 
     local function _menuInit()
+        -- Under WoW Forever's Gamepad interface style, closing a skinned menu
+        -- runs SmartNavigation's protected interact call tainted: menus keep
+        -- Blizzard's look there.
+        if EllesmereUI.BlizzSkinPadStandDown() then return end
         if not _G.Menu or not _G.Menu.GetManager then return end
         local mgr = _G.Menu.GetManager()
         if not mgr then return end

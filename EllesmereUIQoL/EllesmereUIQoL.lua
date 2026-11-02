@@ -317,8 +317,6 @@ qolFrame:SetScript("OnEvent", function(self)
             end)
         end
 
-        EllesmereUI._applyAutoUnwrap = function() end
-
         -- Runs during PLAYER_LOGIN, before Blizzard's PLAYER_ENTERING_WORLD
         -- check, so the Collections button does not raise the unopened alert.
         if EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections then
@@ -333,11 +331,26 @@ qolFrame:SetScript("OnEvent", function(self)
             end
         end)
 
+        -- The collection events are registered only while the option is on.
         local f = CreateFrame("Frame")
-        f:RegisterEvent("PLAYER_LOGIN")
-        f:RegisterEvent("NEW_MOUNT_ADDED")
-        f:RegisterEvent("NEW_PET_ADDED")
-        f:RegisterEvent("NEW_TOY_ADDED")
+        local function SyncUnwrapEvents()
+            local on = EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections
+            if on then
+                f:RegisterEvent("NEW_MOUNT_ADDED")
+                f:RegisterEvent("NEW_PET_ADDED")
+                f:RegisterEvent("NEW_TOY_ADDED")
+            else
+                f:UnregisterEvent("NEW_MOUNT_ADDED")
+                f:UnregisterEvent("NEW_PET_ADDED")
+                f:UnregisterEvent("NEW_TOY_ADDED")
+            end
+            return on
+        end
+        -- The options toggle: switching on also unwraps what is already pending.
+        EllesmereUI._applyAutoUnwrap = function()
+            if SyncUnwrapEvents() then DismissCollectionAlerts() end
+        end
+        if SyncUnwrapEvents() then f:RegisterEvent("PLAYER_LOGIN") end
         f:SetScript("OnEvent", function(self, event)
             if event == "PLAYER_LOGIN" then
                 self:UnregisterEvent("PLAYER_LOGIN")

@@ -259,7 +259,7 @@ end
 -- The accent, read on every use (it can change at any time).
 local function Accent(s)
     local EG = EUI.ELLESMERE_GREEN
-    return EUI.HexColor(EG.r, EG.g, EG.b) .. s .. "|r"
+    return EUI.ColorText(s, EG.r, EG.g, EG.b)
 end
 
 -- A Max tooltip amount: purchases shown in items, in the accent when it is the limit.
@@ -296,14 +296,10 @@ local function StackTip()
     return t
 end
 
-local function ShowTip(b, tip)
-    EUI.ShowWidgetTooltip(b, tip, TIP_OPTS)
-end
-
 local function AddStack(b)
     dialog:SetValue(NextStack())
     -- The tooltip under the cursor follows the new amount.
-    if b:IsMouseOver() then ShowTip(b, StackTip) end
+    if b:IsMouseOver() then EUI.ShowWidgetTooltip(b, StackTip, TIP_OPTS) end
 end
 
 -- Blizzard Skins+' look on the shared quantity window: the theme's surface,
@@ -334,14 +330,9 @@ local SKIN = {
     end,
 }
 
-local function HookTip(b, tip)
-    b:HookScript("OnEnter", function() ShowTip(b, tip) end)
-    b:HookScript("OnLeave", function() EUI.HideWidgetTooltip() end)
-end
-
 local function CreateDialog()
     if not Theme.fontPath then WSkin.ResolveTheme() end
-    local d = EUI.CreateQuantityDialog({
+    return EUI.CreateQuantityDialog({
         name = "EUI_MerchantBulkBuyFrame", width = 232, height = 121,
         title = EllesmereUI.L("Bulk Buy"), editWidth = 64, maxLetters = 6,
         extraLine = true, skin = SKIN,
@@ -349,17 +340,14 @@ local function CreateDialog()
         onShow = SyncEvents, onHide = SyncEvents,
         buttons = {
             { key = "stack", label = EllesmereUI.L("+1 Stack"), width = 66, height = 27,
-              point = "BOTTOMLEFT", onClick = AddStack },
+              point = "BOTTOMLEFT", onClick = AddStack, tooltip = StackTip, tooltipOpts = TIP_OPTS },
             { key = "max", label = EllesmereUI.L("Max"), width = 66, height = 27,
-              point = "BOTTOM", onClick = function() dialog:SetValue(dialog._max) end },
+              point = "BOTTOM", onClick = function() dialog:SetValue(dialog._max) end,
+              tooltip = MaxTip, tooltipOpts = TIP_OPTS },
             { key = "buy", label = EllesmereUI.L("Buy"), width = 66, height = 27,
               point = "BOTTOMRIGHT", onClick = BuyOrSnap, primary = true },
         },
     })
-    -- Live breakdowns, so hooked here rather than as a fixed spec tooltip.
-    HookTip(d._buttons.max, MaxTip)
-    HookTip(d._buttons.stack, StackTip)
-    return d
 end
 
 local function Validate()

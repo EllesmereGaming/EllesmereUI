@@ -31,6 +31,16 @@ local GetCastbarColor, ApplyUnitFrameCastColor, IsKickCastbarUnit, UpdateUnitFra
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
+-- Detached portrait click overlays on the settled geometry; true while any
+-- frame wants one.
+local function SyncPortraitClicks()
+    local any = false
+    for _, frame in pairs(frames) do
+        if type(frame) == "table" and frame.Portrait and ns.UF_SyncPortraitClick(frame) then any = true end
+    end
+    return any
+end
+
 -- Blizzard Style: the per-unit geometry re-applies inside a reload each run
 -- the stock pass from UpdateBordersForScale's tail, only for the re-anchors
 -- that follow to undo it; the sweep at the end of the reload is the pass that
@@ -1908,15 +1918,9 @@ ReloadFramesBody = function()
     -- on the geometry the sweep just settled (returns at once everywhere else).
     ns.UF_ApplyForeverComboArc()
 
-    -- Detached portrait click overlays, measured on the settled geometry (and
-    -- once more next frame, after any anchors still resolving).
-    local function SyncPortraitClicks()
-        for _, frame in pairs(frames) do
-            if type(frame) == "table" and frame.Portrait then ns.UF_SyncPortraitClick(frame) end
-        end
-    end
-    SyncPortraitClicks()
-    C_Timer.After(0, SyncPortraitClicks)
+    -- Detached portrait click overlays, and once more next frame (anchors still
+    -- resolving) only while a frame uses one.
+    if SyncPortraitClicks() then C_Timer.After(0, SyncPortraitClicks) end
 
     -- Rounded corners (EllesmereUI_RoundedCorners.lua), on the settled
     -- geometry. The radius rides with the border source, like the border; a

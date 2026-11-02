@@ -980,8 +980,8 @@ end
 --  secure unit button for the same unit covers the portrait, set up like the
 --  owner's own: target on left-click, the secure menu on right-click, and
 --  handed to click-casting, so Blizzard's native click casting, EUI's engine
---  and Clique bind it as they bind the owner. Hover replays the owner's own
---  hover work through the module's callbacks.
+--  and click-cast addons bind it as they bind the owner. Hover replays the
+--  owner's own hover work through the module's callbacks.
 --  The overlay is parented to the owner and anchored to it by measured
 --  offsets, never to the backdrop: a protected frame anchored to the backdrop
 --  would lock the backdrop's anchors in combat. Built on the first wanted
@@ -995,10 +995,13 @@ end
 --      parentUnit      -> true: the unit resolves through the owner (header
 --                         buttons, whose unit moves in combat); else the
 --                         owner's unit attribute is copied once
+--  Returns true while the owner wants the overlay (placed, or waiting for a
+--  rect); nil when it does not, and in combat.
 -------------------------------------------------------------------------------
 do
     local overlays = setmetatable({}, { __mode = "k" })  -- owner -> overlay
     local pending = setmetatable({}, { __mode = "k" })   -- owner -> cfg, awaiting a rect
+    local placed = setmetatable({}, { __mode = "k" })    -- overlay -> its last offsets and size
 
     local function OverlayEnter(self)
         local cfg = self._euiPtCfg
@@ -1033,11 +1036,7 @@ do
             btn:SetAttribute("*type1", "target")
             btn:SetAttribute("toggleForVehicle", true)
             btn:RegisterForClicks("AnyUp")
-            if EllesmereUI.AttachSecureUnitMenu then
-                EllesmereUI.AttachSecureUnitMenu(btn)
-            else
-                btn:SetAttribute("*type2", "togglemenu")
-            end
+            EllesmereUI.AttachSecureUnitMenu(btn)
             btn._euiPtCfg = cfg
             btn:HookScript("OnEnter", OverlayEnter)
             btn:HookScript("OnLeave", OverlayLeave)
@@ -1055,16 +1054,28 @@ do
         if not (fl and ft and bl and bt) then
             pending[owner] = cfg
             btn:Hide()
-            return
+            return true
         end
         pending[owner] = nil
+        -- Placed again only when the portrait moved or resized against the owner.
         local k = bd:GetEffectiveScale() / owner:GetEffectiveScale()
-        btn:ClearAllPoints()
-        btn:SetPoint("TOPLEFT", owner, "TOPLEFT", bl * k - fl, bt * k - ft)
-        btn:SetSize(bd:GetWidth() * k, bd:GetHeight() * k)
-        btn:SetFrameStrata(bd:GetFrameStrata())
-        btn:SetFrameLevel(bd:GetFrameLevel() + 1)
+        local x, y = bl * k - fl, bt * k - ft
+        local w, h = bd:GetWidth() * k, bd:GetHeight() * k
+        local r = placed[btn]
+        if not r then r = {}; placed[btn] = r end
+        if r.x ~= x or r.y ~= y or r.w ~= w or r.h ~= h then
+            r.x, r.y, r.w, r.h = x, y, w, h
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", owner, "TOPLEFT", x, y)
+            btn:SetSize(w, h)
+        end
+        -- The layer is read back from the overlay: a strata change on the owner moves it too.
+        local strata = bd:GetFrameStrata()
+        if btn:GetFrameStrata() ~= strata then btn:SetFrameStrata(strata) end
+        local level = bd:GetFrameLevel() + 1
+        if btn:GetFrameLevel() ~= level then btn:SetFrameLevel(level) end
         btn:Show()
+        return true
     end
     EllesmereUI.SyncPortraitClick = Sync
 end

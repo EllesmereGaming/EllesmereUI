@@ -1681,7 +1681,8 @@ end
 --    d:Open(owner), d:FocusInput(); d._eb, d._extra, d._buttons[key].
 --  opts: name, width, height, title, editWidth, maxLetters, extraLine,
 --    buttons = { { key, label, width, height, point ("BOTTOMLEFT", "BOTTOM" or
---    "BOTTOMRIGHT"), onClick, tooltip, primary } }, onEnter, onChange(n),
+--    "BOTTOMRIGHT"), onClick, tooltip (text, or a function read on every
+--    hover), tooltipOpts (ShowWidgetTooltip's opts), primary } }, onEnter, onChange(n),
 --    onShow, onHide, skin = { frame(d), font(fs, size), button(parent, w, h,
 --    label) -> button, editBox(eb), close(btn) }.
 -------------------------------------------------------------------------------
@@ -1788,7 +1789,7 @@ function EllesmereUI.CreateQuantityDialog(opts)
         b:SetPoint(p, d, p, (p == "BOTTOMLEFT" and 10) or (p == "BOTTOMRIGHT" and -10) or 0, 10)
         b:SetScript("OnClick", spec.onClick)
         if spec.tooltip then
-            b:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(b, spec.tooltip) end)
+            b:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(b, spec.tooltip, spec.tooltipOpts) end)
             b:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         end
         d._buttons[spec.key] = b

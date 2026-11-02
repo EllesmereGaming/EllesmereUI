@@ -275,59 +275,40 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
             },
         }
-        -- The cast bar is a bar host (no Shape).
-        npImpCastGlowDesc = {
-            view = ns.NP_GLOW_VIEW, host = "bar",
-            caps = { mode = true, params = true, bg = true },
-            defaultColor = { r = 1, g = 0.2, b = 0.2 },
-            isOff = function()
-                local d = DB()
-                local on = d and d.importantCastGlow
-                if on == nil then on = defaults.importantCastGlow end
-                return not on
-            end,
-            onChange = RefreshAllPlates,
-            get = function(f)
-                local d = DB()
-                if f == "style" then return d.importantCastGlowStyle or defaults.importantCastGlowStyle or 1
-                elseif f == "mode" then return d.importantCastGlowColorMode or "custom"
-                end
-                return EllesmereUI.GlowOptions.FlatGet(d, "importantCastGlow", f, defaults)
-            end,
-            set = function(f, a, b2, c2)
-                local d = DB()
-                if f == "style" then
-                    if a == 0 then d.importantCastGlow = false
-                    else d.importantCastGlow = true; d.importantCastGlowStyle = a end
-                elseif f == "mode" then d.importantCastGlowColorMode = a
-                else EllesmereUI.GlowOptions.FlatSet(d, "importantCastGlow", f, a, b2, c2)
-                end
-            end,
-        }
-        -- Casts targeting the player (castTargetGlow* keys, off by default).
-        npCastTargetGlowDesc = {
-            view = ns.NP_GLOW_VIEW, host = "bar",
-            caps = { mode = true, params = true, bg = true },
-            defaultColor = { r = 1, g = 1, b = 1 },
-            isOff = function() return DBVal("castTargetGlow") ~= true end,
-            onChange = RefreshAllPlates,
-            get = function(f)
-                local d = DB()
-                if f == "style" then return d.castTargetGlowStyle or defaults.castTargetGlowStyle or 1
-                elseif f == "mode" then return d.castTargetGlowColorMode or "custom"
-                end
-                return EllesmereUI.GlowOptions.FlatGet(d, "castTargetGlow", f, defaults)
-            end,
-            set = function(f, a, b2, c2)
-                local d = DB()
-                if f == "style" then
-                    if a == 0 then d.castTargetGlow = false
-                    else d.castTargetGlow = true; d.castTargetGlowStyle = a end
-                elseif f == "mode" then d.castTargetGlowColorMode = a
-                else EllesmereUI.GlowOptions.FlatSet(d, "castTargetGlow", f, a, b2, c2)
-                end
-            end,
-        }
+        -- The cast bar glows (flat <prefix>* keys, on/off in <prefix>): the cast bar is a
+        -- bar host (no Shape). An edit reaches the casts already showing.
+        local function RefreshCastGlows()
+            if ns.NP_RefreshCastGlows then ns.NP_RefreshCastGlows() end
+        end
+        local function CastBarGlowDesc(prefix)
+            local k = EllesmereUI.Glows.FlatKeys(prefix)
+            return {
+                view = ns.NP_GLOW_VIEW, host = "bar",
+                caps = { mode = true, params = true, bg = true },
+                defaultColor = defaults[k.color],
+                isOff = function() return DBVal(prefix) ~= true end,
+                onChange = RefreshCastGlows,
+                get = function(f)
+                    local d = DB()
+                    if f == "style" then return d[k.style] or defaults[k.style] or 1
+                    elseif f == "mode" then return d[k.mode] or "custom"
+                    end
+                    return GO.FlatGet(d, prefix, f, defaults)
+                end,
+                set = function(f, a, b2, c2)
+                    local d = DB()
+                    if f == "style" then
+                        if a == 0 then d[prefix] = false
+                        else d[prefix] = true; d[k.style] = a end
+                    elseif f == "mode" then d[k.mode] = a
+                    else GO.FlatSet(d, prefix, f, a, b2, c2)
+                    end
+                end,
+            }
+        end
+        npImpCastGlowDesc = CastBarGlowDesc("importantCastGlow")
+        -- Casts targeting the player (off by default).
+        npCastTargetGlowDesc = CastBarGlowDesc("castTargetGlow")
         -- Debuffs in their pandemic window (pandemicGlow* keys; the same mode
         -- key the CDM pandemic sync writes). An unset color mode is Custom:
         -- the swatch color this glow always drew (the profile merge fills it

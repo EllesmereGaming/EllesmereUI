@@ -1907,13 +1907,16 @@ initFrame:SetScript("OnEvent", function(self)
                 disabled = function()
                     return merchantShowAsListOn() or not (EllesmereUIDB and EllesmereUIDB.merchantExpand)
                 end,
-                disabledTooltip = "Expand Vendor UI",
+                disabledTooltip = function()
+                    if merchantShowAsListOn() then return "This option does not work with Show As List." end
+                    return "Expand Vendor UI"
+                end,
             })
         end
 
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Expand Vendor UI",
-              tooltip="Shows more vendor items at once. Use the cog to set the number of columns and rows; the vendor window grows to fit. Not used with Show As List.",
+              tooltip="Shows more vendor items at once, in the columns and rows set in the cog.",
               disabled=merchantShowAsListOn, disabledTooltip="This option does not work with Show As List.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.merchantExpand == true

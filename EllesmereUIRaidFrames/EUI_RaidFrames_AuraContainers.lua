@@ -721,7 +721,7 @@ local function ApplyRFDispelSlot(button, dd, style)
         tex:Show()
         tex:SetAllPoints(health)
         tex:SetTexture(style.mode == "gradient" and GRADIENT_TEXTURE or GRADIENT_SHARP_TEXTURE)
-        -- Gradient Reverse: the sharp texture flipped vertically (bottom-up).
+        -- Gradient Sharp Reverse: the sharp texture flipped vertically (bottom-up).
         if style.mode == "gradient_reverse" then
             tex:SetTexCoord(0, 1, 1, 0)
         else
@@ -750,9 +750,8 @@ local function ApplyRFDispelSlot(button, dd, style)
     -- Type-colored border around the health bar. One shared level for every type
     -- (unit button + LVL_RAISE - 1, strips + 10): over the base border strips (+9),
     -- under the hover/target/aggro raise (strips +11) and the text band (LVL_TEXT).
-    -- A per-type level offset pushed Magic/Curse/Disease over the name and role
-    -- icon; the type priority rides the strips' OVERLAY sublevel instead, like
-    -- the overlay's ARTWORK sublevel above.
+    -- The Magic > Curse > ... priority rides the strips' OVERLAY sublevel
+    -- (2 + def.level), like the overlay's ARTWORK sublevel above.
     if (style.borderSize or 0) > 0 and PP then
         if not dd.borderHost then
             dd.borderHost = CreateFrame("Frame", nil, button)

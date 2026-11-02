@@ -2799,11 +2799,17 @@ local function ApplyDispelSlotStyle(button, d, style)
         -- Overlay None; the overlay set's container is hidden then anyway.
         tex:ClearAllPoints()
         tex:Hide()
-    elseif style.mode == "gradient" or style.mode == "gradient_sharp" then
+    elseif style.mode == "gradient" or style.mode == "gradient_sharp" or style.mode == "gradient_reverse" then
         tex:ClearAllPoints()
         tex:Show()
         tex:SetAllPoints(health)
-        tex:SetTexture(style.mode == "gradient_sharp" and GRADIENT_SHARP_TEXTURE or GRADIENT_TEXTURE)
+        tex:SetTexture(style.mode == "gradient" and GRADIENT_TEXTURE or GRADIENT_SHARP_TEXTURE)
+        -- Gradient Sharp Reverse: the sharp texture flipped vertically (bottom-up).
+        if style.mode == "gradient_reverse" then
+            tex:SetTexCoord(0, 1, 1, 0)
+        else
+            tex:SetTexCoord(0, 1, 0, 1)
+        end
         tex:SetVertexColor(c.r, c.g, c.b, alpha)
     elseif style.mode == "fill" then
         tex:ClearAllPoints()
@@ -2816,12 +2822,14 @@ local function ApplyDispelSlotStyle(button, d, style)
         else
             tex:SetAllPoints(health)
         end
+        tex:SetTexCoord(0, 1, 0, 1)
         tex:SetColorTexture(c.r, c.g, c.b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     else -- "full"
         tex:ClearAllPoints()
         tex:Show()
         tex:SetAllPoints(health)
+        tex:SetTexCoord(0, 1, 0, 1)
         tex:SetColorTexture(c.r, c.g, c.b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     end

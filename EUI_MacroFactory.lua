@@ -63,6 +63,9 @@ local GENERAL_DEFS = {
         name = "EUI_Potion",
         icon = "Interface\\Icons\\inv_potion_54",
         label = "Potion",
+        -- SEASON UPDATE: the season's combat potions, each option an item's ranks best first
+        -- (the IDs EllesmereUI_BuffPresets.lua lists too). One /use line per item: these six
+        -- options fill 228 of the macro's 255 characters.
         checkboxes = {
             { key = "opt1", label = "Fleeting Light's Potential", items = {245898, 245897} },
             { key = "opt2", label = "Light's Potential",          items = {241308, 241309} },
@@ -79,6 +82,7 @@ local GENERAL_DEFS = {
         spells = {1231418}, -- Recuperate (universal campfire self-heal)
         -- Line order is the priority: the first potion in bags is the one used.
         -- Concentrated Silvermoon r2 > r1, then Silvermoon r2 > r1.
+        -- SEASON UPDATE: the season's health potions, here and in fixedTooltip.
         fixedBody = "/stopcasting\n/cast [nocombat] {1}\n/use [combat] item:271884\n/use [combat] item:271883\n/use [combat] item:241304\n/use [combat] item:241305",
         fixedTooltip = "item:271884",
     },
@@ -86,6 +90,7 @@ local GENERAL_DEFS = {
         name = "EUI_Food",
         icon = "Interface\\Icons\\inv_misc_food_73cinnamonroll",
         label = "Food",
+        -- SEASON UPDATE: the expansion's food and drink (a new patch can add more).
         checkboxes = {
             { key = "opt1", label = "Conjured Mana Bun",          items = {113509} },
             { key = "opt2", label = "Fairbreeze Feast",           items = {260262} },

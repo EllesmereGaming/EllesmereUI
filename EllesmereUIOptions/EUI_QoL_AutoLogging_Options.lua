@@ -327,7 +327,6 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
         { type    = "toggle",
           text    = "Chat Notification",
           tooltip = "Prints a chat message when auto logging starts or stops.",
-          -- Off by default.
           getValue = function() return Cfg().notify == true end,
           setValue = function(v)
               Cfg().notify = v or nil

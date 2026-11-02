@@ -1,28 +1,37 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -- Auto Deposit/Withdraw: on bank open, moves gold to or from the warband bank
--- so the character carries the set amount. Off: nothing registered.
+-- so the character carries the set amount. The settings are account-wide
+-- (EllesmereUIDB.bagAutoGold / .bagAutoGoldAmount / .bagAutoGoldChat), so a
+-- shared profile never moves anyone's gold. Off: nothing registered.
 local EUI = EllesmereUI
 local ns = select(2, ...)
 if EUI.IS_FOREVER then return end  -- no warband bank there
 
 local COPPER_PER_GOLD = 10000
 local _emptyP = {}
-local function BP() return (EUI._bagsDB and EUI._bagsDB.profile) or _emptyP end
+local function Acct() return _G.EllesmereUIDB or _emptyP end
 
 local AutoGold = {}
 ns.AutoGold = AutoGold
 
 -- The gold to keep on hand, or nil while the box is empty.
 function AutoGold.Target()
-    local g = BP().bankAutoGoldAmount
+    local g = Acct().bagAutoGoldAmount
     return type(g) == "number" and g >= 0 and g or nil
 end
 
-function AutoGold.Enabled() return BP().bankAutoGold == true end
-function AutoGold.ChatEnabled() return BP().bankAutoGoldChat == true end
+function AutoGold.Enabled() return Acct().bagAutoGold == true end
+function AutoGold.ChatEnabled() return Acct().bagAutoGoldChat == true end
+
+-- An options write: key is bagAutoGold, bagAutoGoldAmount or bagAutoGoldChat.
+function AutoGold.Set(key, value)
+    if not _G.EllesmereUIDB then return end
+    _G.EllesmereUIDB[key] = value
+    AutoGold.Sync()
+end
 
 -- Opt-in chat line; EllesmereUI.Print stays quiet where chat output could taint.
-local function Announce(text) EUI.Print("|cff0cd29fEllesmereUI:|r " .. text) end
+local function Announce(text) EUI.Print(EUI.COLOR_CODES.BRAND .. "EllesmereUI:|r " .. text) end
 local function Coins(copper) return C_CurrencyInfo.GetCoinTextureString(copper) end
 
 local function Balance()

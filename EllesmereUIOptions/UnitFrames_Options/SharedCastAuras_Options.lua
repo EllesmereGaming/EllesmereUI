@@ -2190,8 +2190,9 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             full     = "Full Overlay",
             gradient = "Gradient Overlay",
             gradient_sharp = "Gradient Sharp",
+            gradient_reverse = "Gradient Sharp Reverse",
         }
-        local dispelOverlayOrder = { "none", "fill", "full", "gradient", "gradient_sharp" }
+        local dispelOverlayOrder = { "none", "fill", "full", "gradient", "gradient_sharp", "gradient_reverse" }
         local function DispelRefresh()
             if ns.UpdatePlayerDispelOverlay then ns.UpdatePlayerDispelOverlay() end
             UpdatePreview()
