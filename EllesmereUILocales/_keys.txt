@@ -107,6 +107,7 @@
 + Add Spender
 + Add Threshold
 +1 Stack
++1 Stack goes to: %s
 , %1$d not shown in this layout
 ...and %1$d more
 1H
@@ -1254,6 +1255,7 @@ Right-click: remove favorite
 Role
 Role Icon Size
 Roles
+Room in partial stacks: %d
 Run Summary
 Run Summary is disabled in Mythic+ Tools.
 Rune
@@ -1404,6 +1406,7 @@ Split Stack
 Split this stack into empty slots repeatedly until only the chosen amount or less remains. Alt+Enter does the same.
 Stack
 Stack Thresholds
+Stack size: %d
 Stam
 Stance %d
 Standing
@@ -1682,6 +1685,7 @@ Use arrow keys to move selected element 1px any direction
 Use at your own risk: Blizzard restrictions can keep custom spells from working fully.
 Value
 Vantus Rune
+Vendor has: %s
 View EUI Legends
 View Houses
 Virgo
@@ -1746,6 +1750,9 @@ You are displaying NO buffs at all.
 You are displaying NO debuffs at all.
 You are in combat.
 You are not inside a dungeon, raid or other instance.
+You can afford: %s
+You can buy: %s
+You can fit: %s
 You don't have this item in your bags
 You have arrived:
 You have not learned %1$s.
