@@ -2487,17 +2487,13 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
     local cellN = cellsOn and WeaponCells.Count() or 0
     if unit == "player" and isBuff then WeaponCells.Sync(cellsOn, cellN) end
     if cellN > 0 and oneRow then
-        local shown = 0
+        local groups = 0
         for i = 1, #chain do
-            if not chain[i].hidden then shown = shown + 1 end
+            if not chain[i].hidden then groups = groups + 1 end
         end
-        if shown <= 1 then cols = cols + cellN end
+        if groups <= 1 then cols = cols + cellN end
     end
-    local rowWidth = nil
-    if cols then
-        rowWidth = cols * size + (cols - 1) * spX + 0.4
-    end
-    AK.SetContainerRowWidth(container, rowWidth)
+    AK.SetContainerRowWidth(container, cols * size + (cols - 1) * spX + 0.4)
 
     -- Candidate filters: (debuffs) the always-hide and Hide Exhaustion
     -- excludes. Caster scope rides the chain links' own PLAYER tokens, never
@@ -2774,6 +2770,11 @@ local DISPEL_SLOTS = {
 }
 local DISPEL_TYPE_TOKENS = { magic = "Magic", curse = "Curse", disease = "Disease", poison = "Poison", bleed = "Bleed" }
 
+-- Type Icon Position: the stacked icons (ApplyDispelSlotStyle) and the Growth
+-- Direction row (TypeIcons.CreateRow) both draw at health+LIFT+level, over the
+-- border and the texts.
+local TypeIcons = { LIFT = 18, GROW = { up = "UP", down = "DOWN", left = "LEFT", right = "RIGHT" } }
+
 -- Use Dispel Colors: the player's Dispel Colors (profile root, the palette the
 -- dispel overlay uses) as a customDispelColorMap (dispel type -> Color) for the
 -- player's debuff rings, plus its fingerprint, which BuildStyle hands on as
@@ -3010,7 +3011,7 @@ local function ApplyDispelSlotStyle(button, d, style)
     end
 
     -- Type Icon Position: the type's icon on a corner of the health bar (Raid
-    -- Frames parity). Only the live twin carries style.icon. health+18+level
+    -- Frames parity). Only the live twin carries style.icon. health+LIFT+level
     -- (frame+21..+25) draws it over the border and the texts (frame+20), in
     -- the Magic > ... > Bleed order, at most level with the raid marker.
     local ic = style.icon
@@ -3023,7 +3024,7 @@ local function ApplyDispelSlotStyle(button, d, style)
             d.ufIconHost = host
         end
         local host = d.ufIconHost
-        host:SetFrameLevel(health:GetFrameLevel() + 18 + (style.level or 1))
+        host:SetFrameLevel(health:GetFrameLevel() + TypeIcons.LIFT + (style.level or 1))
         d.ufIconTex:SetAtlas(ic.atlas)
         host:SetSize(ic.size, ic.size)
         host:ClearAllPoints()
@@ -3034,106 +3035,86 @@ local function ApplyDispelSlotStyle(button, d, style)
     end
 end
 
--- Type icon Growth Direction: one engine-painted, engine-packed icon per typed
--- debuff, flowing from the Type Icon Position corner. "none" keeps the stacked slot icons.
-local DISPEL_ICON_STYLE = "uf:player:dispelicon"
-local DISPEL_ICON_MAX = 5
-local DISPEL_ICON_GROUPS = { "icons", "icons_byme", "icons_blind" }
-local DISPEL_ICON_GROW = { up = "UP", down = "DOWN", left = "LEFT", right = "RIGHT" }
-
--- Engine-only icon on a bare cell, registered in the creation window (the only
--- legal one). The texture fills the cell, so a size change needs no re-add.
-local function DispelIconCellInit(button, d)
-    local opts = Enum.CustomAuraButtonDispelTypeTextureStyle
-    if not (opts and button.AddDispelTypeTexture) then return end
-    local host = CreateFrame("Frame", nil, button)
-    host:SetAllPoints(button)
-    host:EnableMouse(false)
-    local tex = host:CreateTexture(nil, "ARTWORK")
-    tex:SetAllPoints(host)
-    tex:Hide()
-    if pcall(button.AddDispelTypeTexture, button, tex,
-        { style = opts.Icon, showWhenHarmful = true, showWhenHelpful = false }) then
-        d.ufTypeIconHost = host
-    end
+-- Type Icon Position Growth Direction ("none" keeps the stacked slot icons):
+-- the icons move to a row of their own, one engine group per type in DISPEL_SLOTS
+-- order (Magic first), each capped at one icon, so every type present shows once
+-- and the engine packs the shown ones from the Type Icon Position point. A cell
+-- draws its type's atlas, as the stacked icons do; no aura data is read. "Only
+-- Dispellable by You" picks each type's plain or by-me group, as the slot twins.
+function TypeIcons.StyleKey(slotKey)
+    return "uf:player:dispelicon:" .. slotKey
 end
 
--- Same level as the stacked slot icons: over the border and the texts.
-local function ApplyDispelIconCell(button, d, style)
-    local host = d.ufTypeIconHost
+-- applyExtra: the cell's icon host, made on the first run (the creation window,
+-- the only one that may anchor to the cell), with its type's art at the stacked
+-- icons' level.
+function TypeIcons.ApplyCell(button, d, style)
+    local host = d.ufRowIconHost
+    if not host then
+        host = CreateFrame("Frame", nil, button)
+        host:SetAllPoints(button)
+        host:EnableMouse(false)
+        d.ufRowIconTex = host:CreateTexture(nil, "ARTWORK")
+        d.ufRowIconTex:SetAllPoints(host)
+        d.ufRowIconHost = host
+    end
+    d.ufRowIconTex:SetAtlas(style.atlas)
     local health = style.healthFrame
-    if host and health then
-        host:SetFrameLevel(health:GetFrameLevel() + 18 + 5)
-    end
+    if health then host:SetFrameLevel(health:GetFrameLevel() + TypeIcons.LIFT + (style.level or 1)) end
 end
 
--- Group caps and candidates for "Only Dispellable by You", as the slot twins:
--- a type the by-me token can never match keeps the plain filter (icons_blind).
-local function DispelIconCandidates(p)
-    local byMe = p.dispelOverlayByMe == true
-    local all, blind = {}, nil
-    for i = 1, #DISPEL_SLOTS do
-        local key = DISPEL_SLOTS[i].key
-        all[DISPEL_TYPE_TOKENS[key]] = true
-        if byMe and TokenBlindDispelSlot(key) then
-            blind = blind or {}
-            blind[DISPEL_TYPE_TOKENS[key]] = true
-        end
-    end
-    return byMe, all, blind
-end
-
-local function CreateDispelIconRow(frame, entry)
+-- Declared at cap 0, so no cell exists until a debuff of its type shows.
+function TypeIcons.CreateRow(frame, entry)
     if entry.dispelIconsBuilt then return end
     local container = entry.dispelIcons
     if not container then
         container = AK.CreateContainerShell(frame, { point = { "CENTER", frame, "CENTER" } })
         entry.dispelIcons = container
     end
-    local p = ns.UF_GetProfile and ns.UF_GetProfile()
-    local _, all = DispelIconCandidates(p or {})
-    local filters = { { "HARMFUL" }, { "HARMFUL", "RAID_PLAYER_DISPELLABLE" }, { "HARMFUL" } }
-    for i = 1, #DISPEL_ICON_GROUPS do
-        local key = DISPEL_ICON_GROUPS[i]
-        if not container:HasAuraGroup(key) then
-            AK.AddGroupToContainer(container, {
-                key = key, filter = filters[i], maxFrameCount = 0,
-                candidateFilters = { includeDispelTypes = all },
-                style = DISPEL_ICON_STYLE, extraInit = DispelIconCellInit,
-            })
+    for i = 1, #DISPEL_SLOTS do
+        local slot = DISPEL_SLOTS[i]
+        local cand = { includeDispelTypes = { [DISPEL_TYPE_TOKENS[slot.key]] = true } }
+        for t = 1, 2 do
+            local key = (t == 1) and slot.key or (slot.key .. "_byme")
+            if not container:HasAuraGroup(key) then
+                AK.AddGroupToContainer(container, {
+                    key = key, maxFrameCount = 0, candidateFilters = cand,
+                    filter = (t == 1) and { "HARMFUL" } or { "HARMFUL", "RAID_PLAYER_DISPELLABLE" },
+                    style = TypeIcons.StyleKey(slot.key),
+                })
+            end
         end
     end
     AK.FinishContainer(container, "player")
     entry.dispelIconsBuilt = true
 end
 
--- Anchors the row on its corner, grows it, and enables the active groups.
-local function LayoutDispelIconRow(frame, entry, p)
-    local container = entry.dispelIcons
-    local health = frame.Health
+-- Anchors the row on the Type Icon Position point, grows it, and lights each
+-- type's live group at one icon.
+function TypeIcons.LayoutRow(frame, entry, p)
+    local container, health = entry.dispelIcons, frame.Health
     if not (container and health) then return end
-    local corner = (p.dispelIconPosition or "right"):upper()
-    local grow = DISPEL_ICON_GROW[p.dispelIconGrowth or "none"] or "LEFT"
+    local point = (p.dispelIconPosition or "right"):upper()
+    local grow = TypeIcons.GROW[p.dispelIconGrowth or "none"] or "LEFT"
     local size = p.dispelIconSize or 16
     local gap = EllesmereUI.PP.FromPixels(1)
     container:ClearAllPoints()
-    container:SetPoint(corner, health, corner, p.dispelIconOffsetX or 0, p.dispelIconOffsetY or 0)
-    AK.SetContainerAnchor(container, corner)
+    container:SetPoint(point, health, point, p.dispelIconOffsetX or 0, p.dispelIconOffsetY or 0)
+    AK.SetContainerAnchor(container, point)
     local vertical = grow == "UP" or grow == "DOWN"
-    local gX = vertical and (corner:find("LEFT") and "RIGHT" or "LEFT") or grow
-    local gY = vertical and grow or (corner:find("BOTTOM") and "UP" or "DOWN")
+    local gX = vertical and (point:find("LEFT") and "RIGHT" or "LEFT") or grow
+    local gY = vertical and grow or (point:find("BOTTOM") and "UP" or "DOWN")
     AK.SetContainerRowWidth(container, vertical and (size + 0.4) or nil)
     AK.SetContainerGrowth(container, FlowDir(gX), FlowDir(gY))
     local layout = { elementWidth = size, elementHeight = size, elementSpacing = gap, lineSpacing = gap }
-    local byMe, all, blind = DispelIconCandidates(p)
-    local caps = { byMe and 0 or DISPEL_ICON_MAX, byMe and DISPEL_ICON_MAX or 0, blind and DISPEL_ICON_MAX or 0 }
-    for i = 1, #DISPEL_ICON_GROUPS do
-        local key = DISPEL_ICON_GROUPS[i]
+    local byMe = p.dispelOverlayByMe == true
+    for i = 1, #DISPEL_SLOTS do
+        local key = DISPEL_SLOTS[i].key
+        local byMeLive = byMe and not TokenBlindDispelSlot(key)
         container:SetAuraGroupLayout(key, layout)
-        if i == 3 then
-            container:SetAuraGroupCandidateFilters(key, { includeDispelTypes = blind or all })
-        end
-        AK.SetGroupCap(container, key, caps[i])
+        container:SetAuraGroupLayout(key .. "_byme", layout)
+        AK.SetGroupCap(container, key, byMeLive and 0 or 1)
+        AK.SetGroupCap(container, key .. "_byme", byMeLive and 1 or 0)
     end
 end
 
@@ -3187,9 +3168,10 @@ local function BuildDispelStyles(frame)
     -- The Outer Ring copy's lift over the portrait backdrop (ApplyDispelSlotStyle).
     local ringLift = (customBorder and ns.UF_CastIconOnPortrait("player", p.player)) and 4 or 1
     -- Type Icon Position: one geometry for every type's icon (its art per slot).
-    -- A Growth Direction moves the icons to their own row (CreateDispelIconRow).
+    -- A Growth Direction moves the icons to their own row (TypeIcons.CreateRow).
     local iconCorner = p.showDispelIcons == true and (p.dispelIconGrowth or "none") == "none"
         and (p.dispelIconPosition or "right"):upper() or nil
+    local rowSize = p.dispelIconSize or 16
     for i = 1, #DISPEL_SLOTS do
         local slot = DISPEL_SLOTS[i]
         -- A type the engine token can never match keeps using the PLAIN slot in
@@ -3233,15 +3215,17 @@ local function BuildDispelStyles(frame)
                 applyExtra = ApplyDispelSlotStyle,
             }
         end
+        -- The Growth Direction row's cells for this type (both twins).
+        AK.styles[TypeIcons.StyleKey(slot.key)] = {
+            width = rowSize, height = rowSize,
+            noRegions = true,
+            noTooltips = true,
+            atlas = slot.atlas,
+            level = slot.level,
+            healthFrame = frame.Health,
+            applyExtra = TypeIcons.ApplyCell,
+        }
     end
-    local size = p.dispelIconSize or 16
-    AK.styles[DISPEL_ICON_STYLE] = {
-        width = size, height = size,
-        noRegions = true,
-        noTooltips = true,
-        healthFrame = frame.Health,
-        applyExtra = ApplyDispelIconCell,
-    }
     return DispelSlotsShown(p)
 end
 
@@ -3313,9 +3297,9 @@ local function SyncDispelSets(frame, entry, decorShown, fillShown, iconsShown)
     if decorShown then CreateDispelSet(frame, entry, false) end
     if fillShown then CreateDispelSet(frame, entry, true) end
     if iconsShown and not entry.dispelIconsBuilt then
-        CreateDispelIconRow(frame, entry)
+        TypeIcons.CreateRow(frame, entry)
         local p = ns.UF_GetProfile and ns.UF_GetProfile()
-        if p then LayoutDispelIconRow(frame, entry, p) end
+        if p then TypeIcons.LayoutRow(frame, entry, p) end
     end
     if entry.dispel then entry.dispel:SetShown(decorShown and true or false) end
     if entry.dispelFill then entry.dispelFill:SetShown(fillShown and true or false) end
@@ -3376,9 +3360,9 @@ local function ReloadDispelSlots(frame, entry)
             AK.RestyleSoon(DispelStyleKey(key .. "_byme"))
             AK.RestyleSoon(DispelStyleKey(key, true))
             AK.RestyleSoon(DispelStyleKey(key .. "_byme", true))
+            AK.RestyleSoon(TypeIcons.StyleKey(key))
         end
-        AK.RestyleSoon(DISPEL_ICON_STYLE)
-        if entry.dispelIconsBuilt then LayoutDispelIconRow(frame, entry, p) end
+        if entry.dispelIconsBuilt then TypeIcons.LayoutRow(frame, entry, p) end
     end
     -- A set turned on for the first time is built here, from the styles just
     -- made current.
