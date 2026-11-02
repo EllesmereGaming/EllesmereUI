@@ -925,6 +925,26 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             suffixFS:SetText(EllesmereUI.L("(Percent)"))
         end
     end
+    -- Inline cog on Scale Target Nameplate: the enemy type scales.
+    if not EllesmereUI._prebuilding then
+        local function TypeScaleRow(label, key, tip)
+            return { type="slider", label=label, tooltip=tip, min=25, max=125, step=5,
+                get=function() return DBVal(key) or defaults[key] end,
+                set=function(v)
+                    DB()[key] = v
+                    if ns.NP_RefreshTypeScaleSetting then ns.NP_RefreshTypeScaleSetting() end
+                end }
+        end
+        EllesmereUI.BuildInlineCog(tfScaleRow._leftRegion, {
+            title = "Scale Target Nameplate",
+            rows = {
+                TypeScaleRow("Minor Enemy Scale (Percent)", "minorEnemyScale",
+                    "Scales the nameplates of minor and trivial enemies; 100% = no change."),
+                TypeScaleRow("Non-Elite Enemy Scale (Percent)", "nonEliteEnemyScale",
+                    "Scales the nameplates of non-elite enemies in dungeons only; 100% = no change."),
+            },
+        })
+    end
     -- Inline cog on Non-Target Opacity: the focus exemption, which Out of Combat
     -- Opacity (Extras) reads too, and the casting one.
     if not EllesmereUI._prebuilding then

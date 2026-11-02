@@ -969,6 +969,8 @@ function NameplateFrame:SetUnit(unit, nameplate)
     -- Non-Target and Out of Combat Opacity (zero cost while off: numeric compares).
     if ns._oocAlpha < 1 then self:RegisterUnitEvent("UNIT_FLAGS", unit) end
     if ns._ntAlpha < 1 or ns._oocAlpha < 1 then ns.NT_Apply(self) end
+    -- Minor / Non-Elite Enemy Scale: the type base for the spawn pass's ApplyScale.
+    if ns._typeScaleOn then self:UpdateTypeScale() end
     -- Execute glow is per-spawn state, not appearance: ApplyAppearance is generation-cached
     -- (skipped on recycled plates) and the threshold watcher only reaches plates active at flip
     -- time, so a plate pooled during a no-execute window would return glowless. Re-assert.

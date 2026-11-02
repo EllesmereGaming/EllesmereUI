@@ -81,6 +81,8 @@ function NameplateFrame:UpdateHealthValues()
             -- restores. ClearHoverExtras restores hover size then re-runs
             -- ApplyTarget; the direct call covers its no-hover-fx early-out
             -- and re-evaluates target state for the new unit.
+            -- The new occupant's type scale (its unit events stay on the old token).
+            if ns._typeScaleOn then self:UpdateTypeScale() end
             ns.ClearHoverExtras(self)
             self:ApplyTarget()
         end

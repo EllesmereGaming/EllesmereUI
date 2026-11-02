@@ -15,6 +15,7 @@ local pairs, type = pairs, type
 local UnitName = UnitName
 local UnitIsUnit = UnitIsUnit
 local UnitIsDeadOrGhost = UnitIsDeadOrGhost
+local UnitClassification = UnitClassification
 local UnitCastingInfo, UnitChannelInfo = UnitCastingInfo, UnitChannelInfo
 local GetTime = GetTime
 local Enum = Enum
@@ -32,6 +33,60 @@ local classPowerType
 I.classPowerTypeSetters[#I.classPowerTypeSetters + 1] = function(v) classPowerType = v end
 local p
 I.profileSetters[#I.profileSetters + 1] = function(v) p = v end
+
+-- Minor / Non-Elite Enemy Scale: factors cached from the profile (1 = off), so while both
+-- are off every hook is one flag read. Each plate stores its type base in _typeScale.
+ns._typeScaleOn = false
+local minorScale, nonEliteScale = 1, 1
+
+-- Re-reads the plate's type base; true when it changed. Classification is read here only,
+-- never in ApplyScale. A unit first seen this session reads "normal" (and its name
+-- UNKNOWNOBJECT) until its data arrives, so Non-Elite waits for UNIT_NAME_UPDATE then:
+-- a dungeon elite never spawns shrunk and grows back.
+function NameplateFrame:UpdateTypeScale()
+    local base = 1
+    local unit = self.unit
+    if unit and ns._typeScaleOn then
+        local c = UnitClassification(unit)
+        if c == "minus" or c == "trivial" then
+            base = minorScale
+        elseif c == "normal" and nonEliteScale ~= 1 and ns._inDungeon and not UnitIsPlayer(unit) then
+            local name = UnitName(unit)
+            if (issecretvalue and issecretvalue(name)) or name ~= UNKNOWNOBJECT then
+                base = nonEliteScale
+            end
+        end
+    end
+    if self._typeScale == base then return false end
+    self._typeScale = base
+    return true
+end
+
+-- From the sliders, OnInitialize and RefreshAllSettings.
+function ns.NP_RefreshTypeScaleSetting()
+    minorScale = ((p and p.minorEnemyScale) or defaults.minorEnemyScale) / 100
+    nonEliteScale = ((p and p.nonEliteEnemyScale) or defaults.nonEliteEnemyScale) / 100
+    ns._typeScaleOn = minorScale ~= 1 or nonEliteScale ~= 1
+    for _, plate in pairs(ns.plates) do
+        if plate.unit then
+            plate:UpdateTypeScale()
+            plate:ApplyScale()
+        end
+    end
+end
+
+-- Non-Elite Enemy Scale is dungeon-only: from RefreshThreatContextAndPlateColors, which runs
+-- on roster, role and spec events too, so the plates are walked only when ns._inDungeon flips.
+local lastInDungeon
+function ns.NP_RefreshTypeScale()
+    local d = ns._inDungeon
+    if d == lastInDungeon then return end
+    lastInDungeon = d
+    if not ns._typeScaleOn or nonEliteScale == 1 then return end
+    for _, plate in pairs(ns.plates) do
+        if plate.unit and plate:UpdateTypeScale() then plate:ApplyScale() end
+    end
+end
 
 local function EnsureCastGlowOverlay(self, field, levelOffset)
     local ov = self[field]
@@ -352,6 +407,10 @@ function NameplateFrame:ApplyScale()
     if self.unit and UnitIsUnit(self.unit, "target") then
         local ts = GetTargetScale() / 100
         if ts ~= 1 then base = ts end
+    elseif ns._typeScaleOn then
+        -- Minor Enemy Scale: minor (minus) and trivial mobs. Non-Elite Enemy Scale: normal NPCs in
+        -- dungeons (the Mini Enemies color's scope). The target keeps Target Scale.
+        base = self._typeScale or 1
     end
     local cs = GetCastScale() / 100
     local dest = base
@@ -858,9 +917,11 @@ function NameplateFrame:UNIT_NAME_UPDATE()
     -- A unit first seen this session reads "normal" until its data arrives, the
     -- same moment its name resolves: re-read the elite/rare badge with the name.
     self:UpdateClassification()
+    if ns._typeScaleOn and self:UpdateTypeScale() then self:ApplyScale() end
 end
 function NameplateFrame:UNIT_CLASSIFICATION_CHANGED()
     self:UpdateClassification()
+    if ns._typeScaleOn and self:UpdateTypeScale() then self:ApplyScale() end
 end
 function NameplateFrame:UNIT_THREAT_LIST_UPDATE()
     self:UpdateHealthColor()
