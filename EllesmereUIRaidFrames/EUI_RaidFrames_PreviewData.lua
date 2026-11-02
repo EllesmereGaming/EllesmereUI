@@ -924,6 +924,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             olTex:ClearAllPoints()
             -- Reset any prior vertex tint so fill/full render their explicit color cleanly.
             olTex:SetVertexColor(1, 1, 1, 1)
+            olTex:SetTexCoord(0, 1, 0, 1)
             if olMode == "fill" then
                 -- Current health, as on the live frames (the fill, or the rest of
                 -- the bar under Inverted Fill), off the bar oriented above.
@@ -932,12 +933,13 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             elseif olMode == "full" then
                 olTex:SetAllPoints(f._health)
                 olTex:SetColorTexture(dispelDC.r, dispelDC.g, dispelDC.b, olAlpha)
-            elseif olMode == "gradient" or olMode == "gradient_sharp" then
+            elseif olMode == "gradient" or olMode == "gradient_sharp" or olMode == "gradient_reverse" then
                 -- Same pre-baked gradient textures as the live frames so the preview matches.
                 olTex:SetAllPoints(f._health)
-                olTex:SetTexture(olMode == "gradient_sharp"
-                    and "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
-                    or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga")
+                olTex:SetTexture(olMode == "gradient"
+                    and "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
+                    or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga")
+                if olMode == "gradient_reverse" then olTex:SetTexCoord(0, 1, 1, 0) end
                 olTex:SetVertexColor(dispelDC.r, dispelDC.g, dispelDC.b, olAlpha)
             end
             olTex:Show()

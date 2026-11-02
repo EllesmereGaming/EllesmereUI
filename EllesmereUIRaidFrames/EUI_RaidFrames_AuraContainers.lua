@@ -717,14 +717,21 @@ local function ApplyRFDispelSlot(button, dd, style)
     tex:ClearAllPoints()
     if style.mode == "none" then
         tex:Hide()
-    elseif style.mode == "gradient" or style.mode == "gradient_sharp" then
+    elseif style.mode == "gradient" or style.mode == "gradient_sharp" or style.mode == "gradient_reverse" then
         tex:Show()
         tex:SetAllPoints(health)
-        tex:SetTexture(style.mode == "gradient_sharp" and GRADIENT_SHARP_TEXTURE or GRADIENT_TEXTURE)
+        tex:SetTexture(style.mode == "gradient" and GRADIENT_TEXTURE or GRADIENT_SHARP_TEXTURE)
+        -- Gradient Reverse: the sharp texture flipped vertically (bottom-up).
+        if style.mode == "gradient_reverse" then
+            tex:SetTexCoord(0, 1, 1, 0)
+        else
+            tex:SetTexCoord(0, 1, 0, 1)
+        end
         tex:SetVertexColor(r, g, b, alpha)
     elseif style.mode == "full" then
         tex:Show()
         tex:SetAllPoints(health)
+        tex:SetTexCoord(0, 1, 0, 1)
         tex:SetColorTexture(r, g, b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     else -- "fill"
@@ -735,6 +742,7 @@ local function ApplyRFDispelSlot(button, dd, style)
         -- Inverted Fill the rest of the bar up to the fill's HP edge, so a unit at
         -- full health still shows the wash.
         ns.RF_AnchorCurHealth(tex, health, fillTex, style.fillVert, style.fillInvert)
+        tex:SetTexCoord(0, 1, 0, 1)
         tex:SetColorTexture(r, g, b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     end
