@@ -1880,6 +1880,55 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         ); y = y - h
 
+        -- Expand Vendor UI: a bigger grid in the vendor window. The cog sets its
+        -- size; 2 x 5 is Blizzard's own layout. Needs the Merchant skin (the
+        -- card overlay) and is not used with Show As List.
+        local function merchantShowAsListOn()
+            return EllesmereUIDB and EllesmereUIDB.merchantShowAsList == true
+        end
+        local function BuildExpandCog(rgn)
+            if EllesmereUI._prebuilding then return end
+            local function setSize(key, v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB[key] = v
+                if EllesmereUI._Merchant_RefreshExpand then EllesmereUI._Merchant_RefreshExpand() end
+            end
+            EllesmereUI.BuildInlineCog(rgn, {
+                title = "Expand Vendor UI Settings",
+                rows = {
+                    { type="slider", label="Vendor Columns", min=2, max=6, step=1,
+                      get=function() return (EllesmereUIDB and EllesmereUIDB.merchantCols) or 2 end,
+                      set=function(v) setSize("merchantCols", v) end },
+                    { type="slider", label="Vendor Rows", min=5, max=10, step=1,
+                      get=function() return (EllesmereUIDB and EllesmereUIDB.merchantRows) or 5 end,
+                      set=function(v) setSize("merchantRows", v) end },
+                },
+                gap = 9,
+                disabled = function()
+                    return merchantShowAsListOn() or not (EllesmereUIDB and EllesmereUIDB.merchantExpand)
+                end,
+                disabledTooltip = "Expand Vendor UI",
+            })
+        end
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Expand Vendor UI",
+              tooltip="Shows more vendor items at once. Use the cog to set the number of columns and rows; the vendor window grows to fit. Not used with Show As List.",
+              disabled=merchantShowAsListOn, disabledTooltip="This option does not work with Show As List.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.merchantExpand == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.merchantExpand = v
+                  if EllesmereUI._Merchant_RefreshExpand then EllesmereUI._Merchant_RefreshExpand() end
+                  EllesmereUI:RefreshPage()
+              end },
+            EllesmereUI.BlankRowCfg()
+        ); y = y - h
+        BuildExpandCog(row._leftRegion)
+        AttachDisabledOverlay(row)
+
         return y
     end
 
@@ -4308,7 +4357,8 @@ initFrame:SetScript("OnEvent", function(self)
                     "charSheetSocketPanel", "charSheetIconZoom", "charSheetEnchantNames",
                     "charSheetEnchantSize", "inspectShowEnchants", "inspectShowItemLevel",
                     "inspectShowUpgradeTrack", "merchantShowAsList", "merchantListRowHeight",
-                    "merchantShowItemLevel", "merchantBulkBuy", "tooltipItemLevel", "tooltipShowMode",
+                    "merchantShowItemLevel", "merchantBulkBuy", "merchantExpand", "merchantCols", "merchantRows",
+                    "tooltipItemLevel", "tooltipShowMode",
                     "tooltipShowModifier", "tooltipGrowthDirection", "tooltipBgColor",
                     "tooltipBgOpacity", "showSpellID", "spellIDModifier", "showIconID",
                     "showItemID", "friendsListCard",
