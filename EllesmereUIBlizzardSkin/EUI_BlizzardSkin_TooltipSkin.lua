@@ -679,6 +679,135 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         _ttBuffs:Show()
     end
 
+    -- Tooltip Extras level/guild/spec/faction lines: level number by difficulty, a compact
+    -- level line, spec/class line in class color, Alliance/Horde line in faction color, and a
+    -- guildmate's guild line in guild chat color. Secret text is left as Blizzard drew it.
+    local _FACTION_CC = {
+        [FACTION_HORDE] = PLAYER_FACTION_COLORS[0],
+        [FACTION_ALLIANCE] = PLAYER_FACTION_COLORS[1],
+    }
+    -- Compact level line labels, colored like the target frame's portrait dragon.
+    local _CLASSIFICATION = {
+        elite = { ELITE, NORMAL_FONT_COLOR },
+        rare = { MAP_LEGEND_RARE, LIGHTGRAY_FONT_COLOR },
+        rareelite = { MAP_LEGEND_RAREELITE, LIGHTGRAY_FONT_COLOR },
+        worldboss = { BOSS, RED_FONT_COLOR },
+    }
+    -- Level line patterns, anchored at the start, built from the client's own level format
+    -- strings so they match in every locale ("Level %s" -> "^Level .-"). The anchor and the
+    -- required number (or "??") keep a title like "Leveling Coach" from matching.
+    local _LEVEL_PATTERNS = {}
+    for _, fmt in ipairs({ TOOLTIP_UNIT_LEVEL, TOOLTIP_UNIT_LEVEL_RACE, TOOLTIP_UNIT_LEVEL_TYPE,
+        UNIT_TYPE_LEVEL_TEMPLATE, UNIT_TYPE_PLUS_LEVEL_TEMPLATE, UNIT_LETHAL_LEVEL_TEMPLATE,
+        UNIT_TYPE_LETHAL_LEVEL_TEMPLATE }) do
+        if fmt:gsub("%%%d?%$?[sd]", ""):find("[^%s%p]") then
+            -- Escape the magic characters, then turn the (now escaped) %s / %d / %1$s into ".-".
+            local pat = "^" .. fmt:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0"):gsub("%%%%%d?%%?%$?[sd]", ".-")
+            _LEVEL_PATTERNS[#_LEVEL_PATTERNS + 1] = pat
+        end
+    end
+    local function _isLevelText(text)
+        if not text:find("[%d%?]") then return false end
+        for _, pat in ipairs(_LEVEL_PATTERNS) do
+            if text:find(pat) then return true end
+        end
+        return false
+    end
+    -- The guild line is the guild name, optionally followed by "-Realm", " (Rank)" or
+    -- Guild Rank's " [Rank]"; matching the start keeps a guild named "Or" off "Level 80 Orc".
+    local function _isGuildText(text, guildName)
+        if text:sub(1, #guildName) ~= guildName then return false end
+        local rest = text:sub(#guildName + 1)
+        local two = rest:sub(1, 2)
+        return rest == "" or rest:sub(1, 1) == "-" or two == " (" or two == " ["
+    end
+    local function _ttLineColors(tt, data, unit, cc)
+        local db = EllesmereUIDB
+        if not (db and (db.tooltipLevelColor or db.tooltipClassLineColor or db.tooltipFactionColor
+            or db.tooltipGuildmateColor or db.tooltipCompactLevel)) then return end
+        local guildName = unit and GetGuildInfo(unit)
+        if guildName and _isSecret and _isSecret(guildName) then guildName = nil end
+        local nLines = tt.NumLines and tt:NumLines() or 0
+        -- Level line: the tooltip data's UnitLevel line type when the client tags it, else the
+        -- first of lines 2-4 (after name, guild or title) that matches a level format.
+        local levelIdx
+        for _, ld in ipairs(data and data.lines or {}) do
+            local t = ld.type
+            if not (_isSecret and _isSecret(t)) and t == Enum.TooltipDataLineType.UnitLevel then
+                levelIdx = ld.lineIndex
+                break
+            end
+        end
+        if not levelIdx then
+            for i = 2, math.min(nLines, 4) do
+                local text = _G["GameTooltipTextLeft" .. i]:GetText()
+                if text and not (_isSecret and _isSecret(text))
+                    and not (guildName and _isGuildText(text, guildName)) and _isLevelText(text) then
+                    levelIdx = i
+                    break
+                end
+            end
+        end
+        -- Difficulty color on every unit, friendly included; battle pet levels aren't
+        -- comparable to the player's, so pets keep Blizzard's line.
+        local hex, compact
+        if levelIdx and unit and (db.tooltipLevelColor or db.tooltipCompactLevel)
+            and not (UnitIsWildBattlePet(unit) or UnitIsBattlePetCompanion(unit)) then
+            local lvl = UnitEffectiveLevel(unit)
+            local r, g, b
+            if db.tooltipLevelColor then r, g, b = EllesmereUI.GetLevelColor(unit, lvl, true) end
+            if r then hex = EllesmereUI.ColorText("%0", r, g, b) end
+            -- Compact line: "90 Tauren" for players, "90 Elite Humanoid" for NPCs.
+            local player = UnitIsPlayer(unit)
+            if db.tooltipCompactLevel and not (_isSecret and (_isSecret(lvl) or _isSecret(player))) then
+                local parts = { EllesmereUI.ColorText(lvl > 0 and lvl or "??", r, g, b) }
+                if player then
+                    parts[2] = UnitRace(unit)
+                else
+                    local cl = _CLASSIFICATION[UnitClassification(unit)]
+                    if cl then parts[#parts + 1] = cl[2]:WrapTextInColorCode(cl[1]) end
+                    parts[#parts + 1] = UnitCreatureType(unit)
+                end
+                local secret = false
+                for _, v in ipairs(parts) do
+                    if _isSecret and _isSecret(v) then secret = true end
+                end
+                if not secret then compact = table.concat(parts, " ") end
+            end
+        end
+        local doClass = levelIdx and unit and cc and db.tooltipClassLineColor
+        local guildColor = guildName and db.tooltipGuildmateColor and UnitIsInMyGuild(unit) and ChatTypeInfo.GUILD
+        if not (hex or compact or doClass or guildColor or db.tooltipFactionColor) then return end
+        for i = 2, nLines do
+            local line = _G["GameTooltipTextLeft" .. i]
+            local text = line and line:GetText()
+            if text and not (_isSecret and _isSecret(text)) then
+                if i == levelIdx then
+                    -- Compact rewrite, else color the number (or "??") only, leaving text
+                    -- another addon already colored.
+                    if compact then
+                        line:SetText(compact)
+                    elseif hex and not string.find(text, "|c", 1, true) then
+                        local newText, n = text:gsub("%d+", hex, 1)
+                        if n == 0 then newText, n = text:gsub("%?%?", hex, 1) end
+                        if n > 0 then line:SetText(newText) end
+                    end
+                elseif guildColor and (not levelIdx or i < levelIdx) and _isGuildText(text, guildName) then
+                    line:SetTextColor(guildColor.r, guildColor.g, guildColor.b)
+                    guildColor = nil
+                elseif _FACTION_CC[text] then
+                    if db.tooltipFactionColor then
+                        local fc = _FACTION_CC[text]
+                        line:SetTextColor(fc.r, fc.g, fc.b)
+                    end
+                -- The spec/class line directly follows the level line on player tooltips.
+                elseif doClass and i == levelIdx + 1 and text ~= PVP_ENABLED then
+                    line:SetTextColor(cc.r, cc.g, cc.b)
+                end
+            end
+        end
+    end
+
     local function _ttUnitColor(tt, data)
         if tt ~= _GameTooltip or tt:IsForbidden() then return end
         local nLinesBefore = tt.NumLines and tt:NumLines() or 0
@@ -700,6 +829,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         if not classFile and unit then
             if not UnitIsPlayer(unit) then
                 -- No class additions on non-players, but Targeting still applies (checking a boss's target is the core case).
+                _ttLineColors(tt, data, unit)
                 _ttTargetLine(tt, unit)
                 _ttFonts(tt, nLinesBefore)
                 return
@@ -732,6 +862,16 @@ local FFD, GetFFD = I.FFD, I.GetFFD
                 if strip then _nameL1:SetText(display) end
             end
         end
+        -- Away/busy tag after the name, in Blizzard's own <Away>/<Busy> wording.
+        if unit and db and db.tooltipAFKTag then
+            local afk, dnd = UnitIsAFK(unit), UnitIsDND(unit)
+            local tag = not (_isSecret and (_isSecret(afk) or _isSecret(dnd)))
+                and (afk and CHAT_FLAG_AFK or dnd and CHAT_FLAG_DND)
+            local cur = tag and _nameL1:GetText()
+            if cur and not (_isSecret and _isSecret(cur)) and not string.find(cur, tag, 1, true) then
+                _nameL1:SetText(cur .. " " .. GRAY_FONT_COLOR:WrapTextInColorCode(tag))
+            end
+        end
         -- Recolor only (never replaces text): name line + health bar.
         local cc = _RAID_CC and _RAID_CC[classFile]
         if cc then
@@ -740,6 +880,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
                 GameTooltipStatusBar:SetStatusBarColor(cc.r, cc.g, cc.b)
             end
         end
+        _ttLineColors(tt, data, unit, cc)
         -- Guild rank next to guild name: Name-Realm [Rank]. Re-found every call (index varies
         -- per unit; titles shift it, so a cached index would decorate the wrong row). Deduped like the M+ line against refresh re-runs.
         if unit and db and db.tooltipShowGuildRank then

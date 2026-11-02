@@ -430,7 +430,7 @@ local function CreatePreviewFrame(index, party)
     -- Dispel border
     local dispelBdrFrame = CreateFrame("Frame", nil, f)
     dispelBdrFrame:SetAllPoints(health)
-    dispelBdrFrame:SetFrameLevel(f:GetFrameLevel() + 10)
+    dispelBdrFrame:SetFrameLevel(f:GetFrameLevel() + ns.LVL_RAISE - 1)
     dispelBdrFrame:Hide()
     if PP then PP.CreateBorder(dispelBdrFrame, 0.2, 0.6, 1, 1, 2) end
 

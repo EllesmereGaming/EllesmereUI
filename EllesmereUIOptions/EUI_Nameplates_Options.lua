@@ -126,6 +126,8 @@ initFrame:SetScript("OnEvent", function(self)
     --  Refresh helpers
     ---------------------------------------------------------------------------
     local function RefreshAllPlates()
+        -- Color Casting Enemies repaints its tint colors (its swatches, Modify Out of Combat).
+        if ns.NP_CastTintsDirty then ns.NP_CastTintsDirty() end
         for _, plate in pairs(plates) do
             plate:UpdateHealth()
         end
@@ -216,10 +218,10 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterOnShow(UpdatePreview)
 
     ---------------------------------------------------------------------------
-    --  Glow sites: the Dispel, Pandemic and Important Cast glows as shared glow
+    --  Glow sites: the Dispel, Pandemic, Important Cast and Cast Targets You glows as shared glow
     --  descriptors, used by the page rows and the Global Settings Glows page.
     ---------------------------------------------------------------------------
-    local npDispelGlowDesc, npImpCastGlowDesc, npPandemicGlowDesc
+    local npDispelGlowDesc, npImpCastGlowDesc, npPandemicGlowDesc, npCastTargetGlowDesc
     do
         local GO = EllesmereUI.GlowOptions
         -- The aura glows (Dispel, Pandemic) share one refresh, so the Glows
@@ -302,6 +304,30 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end,
         }
+        -- Casts targeting the player (castTargetGlow* keys, off by default).
+        npCastTargetGlowDesc = {
+            view = ns.NP_GLOW_VIEW, host = "bar",
+            caps = { mode = true, params = true, bg = true },
+            defaultColor = { r = 1, g = 1, b = 1 },
+            isOff = function() return DBVal("castTargetGlow") ~= true end,
+            onChange = RefreshAllPlates,
+            get = function(f)
+                local d = DB()
+                if f == "style" then return d.castTargetGlowStyle or defaults.castTargetGlowStyle or 1
+                elseif f == "mode" then return d.castTargetGlowColorMode or "custom"
+                end
+                return EllesmereUI.GlowOptions.FlatGet(d, "castTargetGlow", f, defaults)
+            end,
+            set = function(f, a, b2, c2)
+                local d = DB()
+                if f == "style" then
+                    if a == 0 then d.castTargetGlow = false
+                    else d.castTargetGlow = true; d.castTargetGlowStyle = a end
+                elseif f == "mode" then d.castTargetGlowColorMode = a
+                else EllesmereUI.GlowOptions.FlatSet(d, "castTargetGlow", f, a, b2, c2)
+                end
+            end,
+        }
         -- Debuffs in their pandemic window (pandemicGlow* keys; the same mode
         -- key the CDM pandemic sync writes). An unset color mode is Custom:
         -- the swatch color this glow always drew (the profile merge fills it
@@ -340,6 +366,9 @@ initFrame:SetScript("OnEvent", function(self)
         GO.RegisterSite({ id = "np_importantcast", label = "Important Cast Glow", group = "module",
             module = "EllesmereUINameplates", page = PAGE_DISPLAY, section = SECTION_CASTBAR,
             highlight = "Important Cast Glow", desc = npImpCastGlowDesc })
+        GO.RegisterSite({ id = "np_casttarget", label = "Cast Targets You Glow", group = "module",
+            module = "EllesmereUINameplates", page = PAGE_DISPLAY, section = SECTION_CASTBAR,
+            highlight = "Cast Targets You Glow", desc = npCastTargetGlowDesc })
     end
 
     ---------------------------------------------------------------------------
@@ -1143,7 +1172,7 @@ initFrame:SetScript("OnEvent", function(self)
         LazyColorPreviewBar = LazyColorPreviewBar, NAME_RAID_MARKER_GAP = NAME_RAID_MARKER_GAP,
         NextCastFill = NextCastFill, NextCastIcon = NextCastIcon,
         npDispelGlowDesc = npDispelGlowDesc, npImpCastGlowDesc = npImpCastGlowDesc,
-        npPandemicGlowDesc = npPandemicGlowDesc,
+        npPandemicGlowDesc = npPandemicGlowDesc, npCastTargetGlowDesc = npCastTargetGlowDesc,
         optState = optState, pairs = pairs, pcall = pcall, plates = plates, PP = PP,
         RandomizePreviewValues = RandomizePreviewValues, RefreshAllAuras = RefreshAllAuras,
         RefreshAllPlates = RefreshAllPlates, SECTION_AURA = SECTION_AURA,

@@ -722,6 +722,7 @@ function EUI_Bags:OnProfileApplied()
     if self:IsShown() then self:RefreshInventory() end
     ns.RefreshOpenBank()
     EUI_CategoryManager:OnJunkChanged()  -- the new profile may switch the Junk Marker
+    if ns.AutoGold then ns.AutoGold.Sync() end  -- nil on WoW Forever
 end
 end -- Junk Marker
 

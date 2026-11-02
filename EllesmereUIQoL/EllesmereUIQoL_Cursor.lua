@@ -69,7 +69,8 @@ local function ResolveColor(cfg)
     end
     if cfg.useClassColor then
         local _, engClass = UnitClass("player")
-        local cc = engClass and RAID_CLASS_COLORS and RAID_CLASS_COLORS[engClass]
+        local cc = engClass and ((EllesmereUI.GetRawClassColor and EllesmereUI.GetRawClassColor(engClass))
+            or (RAID_CLASS_COLORS and RAID_CLASS_COLORS[engClass]))
         if cc then return cc.r, cc.g, cc.b end
     end
     return ParseHex(cfg.hex or DEF_HEX)

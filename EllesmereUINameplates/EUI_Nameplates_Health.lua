@@ -49,12 +49,17 @@ function NameplateFrame:UpdateHealthValues()
                 self.isCasting = false
                 self:HideKickTick()
                 self:ClearImportantCastGlow()
+                self:ClearCastTargetGlow()
                 if not self._interrupted then self.cast:Hide() end
                 self.castTimer:SetText("")
                 self._castTex = nil
             end
             self.unit = actualUnit
             unit = actualUnit
+            -- Color Casting Enemies remembers the mob, not the plate.
+            if self._castSeen ~= nil then ns.NP_ResetCastKind(self) end
+            -- Opacity for the new occupant (the cast end above applied it to the old token).
+            if ns._ntAlpha < 1 or ns._oocAlpha < 1 then ns.NT_Apply(self) end
             if ns._npTgtTexts or self._totEv then self:SyncToT(actualUnit) end
             -- New occupant: its absorb state is unknown. Nil the lean-gate flag
             -- so this pass takes the full absorb path and re-seeds it; the
@@ -78,6 +83,8 @@ function NameplateFrame:UpdateHealthValues()
             -- restores. ClearHoverExtras restores hover size then re-runs
             -- ApplyTarget; the direct call covers its no-hover-fx early-out
             -- and re-evaluates target state for the new unit.
+            -- The new occupant's type scale (its unit events stay on the old token).
+            if ns._typeScaleOn then self:UpdateTypeScale() end
             ns.ClearHoverExtras(self)
             self:ApplyTarget()
         end
@@ -353,7 +360,7 @@ function NameplateFrame:UpdateHealthColor()
     -- Skip-if-unchanged: GetReactionColor returns plain profile-sourced numbers (every return
     -- path verified non-secret). Threat events fire constantly with an unchanged result, so
     -- compare against the last applied values and skip the setter. Cache nil'd in ClearUnit.
-    local hr, hg, hb = GetReactionColor(unit)
+    local hr, hg, hb = GetReactionColor(unit, self._castSeen)
     -- Enemy player whose class token was redacted (instanced PvP): the token still keys
     -- C_ClassColor, Blizzard's palette as step 6 paints a readable token. The colour may be
     -- secret, so it skips the skip-if-unchanged compare, goes straight to the setter and is
@@ -383,6 +390,8 @@ function NameplateFrame:UpdateHealthColor()
         self._lastHCr, self._lastHCg, self._lastHCb = hr, hg, hb
         self.health:SetStatusBarColor(hr, hg, hb)
     end
+    -- Color Casting Enemies: tints over the bar for the tier GetReactionColor marked.
+    if self._castSeen then ns.NP_ApplyCastTints(self, ns._reactionCastTier, ns._reactionCastLit, folded) end
     -- Threat Colors "Border" / "Text" channels -- the SECOND signal. Both off by default,
     -- so the shipped path costs two field reads. ns.ResolveThreatColor answers "what does
     -- threat say about this unit" without any of the health bar's priority competition,

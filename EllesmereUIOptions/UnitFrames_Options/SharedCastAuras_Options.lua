@@ -780,9 +780,7 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
     -- Inline cog on Duration Size: toggle + X/Y offsets
     if not EllesmereUI._prebuilding then
         local dtCogRgn = castTextRow._rightRegion
-        EllesmereUI.BuildInlineCog(dtCogRgn, {
-            title = "Duration",
-            rows = {
+        local dtCogRows = {
                 { type="slider", label="Size", min=6, max=20, step=1,
                   get=function() return SValSupported("castDurationSize", 10) end,
                   set=function(v) SSetSupported("castDurationSize", v); ReloadAndUpdate(); UpdatePreview() end },
@@ -792,7 +790,16 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
                 { type="slider", label="Y Offset", min=-50, max=50, step=1,
                   get=function() return SValSupported("castDurationY", 0) end,
                   set=function(v) SSetSupported("castDurationY", v); ReloadAndUpdate(); UpdatePreview() end },
-            },
+        }
+        if optState.selectedUnit == "player" then
+            dtCogRows[#dtCogRows + 1] = { type="toggle", label="Full Craft Time",
+                tooltip="While crafting several items at once, the duration shows the time left for the whole batch and the spell name shows the craft count.",
+                get=function() return SValSupported("castFullCraftTime", false) end,
+                set=function(v) SSetSupported("castFullCraftTime", v); ReloadAndUpdate() end }
+        end
+        EllesmereUI.BuildInlineCog(dtCogRgn, {
+            title = "Duration",
+            rows = dtCogRows,
         })
     end
 

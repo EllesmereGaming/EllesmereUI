@@ -913,8 +913,22 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
     end
 
 
-    -- Row 5: Show Spell Rank (spell ranks exist only on WoW Forever)
-    if EllesmereUI.IS_FOREVER then
+    -- Row 5: Show Spell Rank (spell ranks exist only on WoW Forever) | Full Craft Time
+    local craftCfg = { type = "toggle", text = "Full Craft Time",
+          tooltip = "While crafting several items at once, the duration text shows the time left for the whole batch and the spell text shows the craft count.",
+          disabled = function()
+              local p = DB()
+              return castOff() or not (p and p.castBar.showTimer)
+          end,
+          disabledTooltip = "Duration Text",
+          getValue = function() local p = DB(); return p and p.castBar.fullCraftTime end,
+          setValue = function(v)
+              local p = DB(); if not p then return end
+              p.castBar.fullCraftTime = v
+          end }
+    if not EllesmereUI.IS_FOREVER then
+        _, h = W:DualRow(parent, y, craftCfg, EllesmereUI.BlankRowCfg());  y = y - h
+    else
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Show Spell Rank",
           tooltip = "Appends the spell's rank to the spell name, for spells that have one.",
@@ -928,7 +942,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
               local p = DB(); if not p then return end
               p.castBar.showSpellRank = v
           end },
-        EllesmereUI.BlankRowCfg()
+        craftCfg
     );  y = y - h
     end -- IS_FOREVER
 

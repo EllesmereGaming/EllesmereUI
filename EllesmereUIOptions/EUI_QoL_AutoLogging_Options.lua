@@ -15,6 +15,8 @@ local TRIGGER_DEFAULTS = {
     log5pp      = true,
     logArena    = true,
     logScenario = false,
+    logRBG      = false,
+    logBlitz    = false,
     delaystop   = true,
 }
 
@@ -26,11 +28,14 @@ local TRIGGER_ITEMS = {
     { key = "log5pp",      label = "Mythic+ Dungeons" },
     { key = "logArena",    label = "Arena" },
     { key = "logScenario", label = "Scenarios" },
+    { key = "logRBG",      label = "Rated Battlegrounds" },
+    { key = "logBlitz",    label = "Battleground Blitz" },
 }
 -- WoW Forever: every raid instance logs on the Raids trigger (the Normal Raid
 -- key and its default) and every dungeon on the Dungeons trigger (a key only
 -- that client offers, off until the player turns it on). The retail
--- difficulty, Mythic+, arena and scenario rows have nothing to match there.
+-- difficulty, Mythic+, arena, scenario and rated battleground rows have
+-- nothing to match there.
 if EllesmereUI.IS_FOREVER then
     TRIGGER_ITEMS = {
         { key = "logNormal",  label = "Raids" },
@@ -319,7 +324,14 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
           setValue = function(v)
               Cfg().delaystop = v
           end },
-        { type = "label", text = "" }
+        { type    = "toggle",
+          text    = "Chat Notification",
+          tooltip = "Prints a chat message when auto logging starts or stops.",
+          -- Off by default.
+          getValue = function() return Cfg().notify == true end,
+          setValue = function(v)
+              Cfg().notify = v or nil
+          end }
     ); y = y - h
     end   -- close Auto Logging hidden-while-disabled gate
 

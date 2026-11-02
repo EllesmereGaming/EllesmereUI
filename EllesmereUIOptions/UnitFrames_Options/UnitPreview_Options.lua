@@ -766,7 +766,11 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         local customPFill = settings.customPowerFillColor
         local customPBg = settings.customPowerBgColor
         local pfR, pfG, pfB
-        if isPowerColored then
+        if isPowerColored and settings.powerClassColored then
+            local _, ct = UnitClass("player")
+            local cc = EllesmereUI.GetClassColor(ct)
+            pfR, pfG, pfB = cc.r, cc.g, cc.b
+        elseif isPowerColored then
             local _, pToken = UnitPowerType("player")
             local info = EllesmereUI.GetPowerColor(pToken or "MANA")
             pfR, pfG, pfB = info.r, info.g, info.b
@@ -839,7 +843,11 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         if pf._powerFill and powerH > 0 then
             local txR, txG, txB
             local isPwrC = settings.powerPercentPowerColor ~= false
-            if isPwrC then
+            if isPwrC and settings.powerClassColored then
+                local _, ct = UnitClass("player")
+                local cc = EllesmereUI.GetClassColor(ct)
+                txR, txG, txB = cc.r, cc.g, cc.b
+            elseif isPwrC then
                 local _, pToken = UnitPowerType("player")
                 local info = EllesmereUI.GetPowerColor(pToken or "MANA")
                 txR, txG, txB = info.r, info.g, info.b
@@ -2489,7 +2497,11 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 if pf._powerFill then
                     local pvFR, pvFG, pvFB
                     local isPwrC2 = s.powerPercentPowerColor ~= false
-                    if isPwrC2 then
+                    if isPwrC2 and s.powerClassColored then
+                        local _, ct = UnitClass("player")
+                        local cc = EllesmereUI.GetClassColor(ct)
+                        pvFR, pvFG, pvFB = cc.r, cc.g, cc.b
+                    elseif isPwrC2 then
                         local _, pToken = UnitPowerType("player")
                         local info = EllesmereUI.GetPowerColor(pToken or "MANA")
                         pvFR, pvFG, pvFB = info.r, info.g, info.b
@@ -2612,7 +2624,11 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
 
             local pvPfR, pvPfG, pvPfB
             local pvUsePowerColor = s.powerPercentPowerColor ~= false
-            if pvUsePowerColor then
+            if pvUsePowerColor and s.powerClassColored then
+                local _, ct = UnitClass("player")
+                local cc = EllesmereUI.GetClassColor(ct)
+                pvPfR, pvPfG, pvPfB = cc.r, cc.g, cc.b
+            elseif pvUsePowerColor then
                 local _, pToken = UnitPowerType("player")
                 local info = EllesmereUI.GetPowerColor(pToken or "MANA")
                 pvPfR, pvPfG, pvPfB = info.r, info.g, info.b

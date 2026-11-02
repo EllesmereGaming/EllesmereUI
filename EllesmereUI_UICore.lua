@@ -436,7 +436,7 @@ end
 local function ResolveThemeColor(theme)
     theme = EllesmereUI._ResolveFactionTheme(theme)
     if theme == "Class Colored" then
-        local clr = EllesmereUI.CLASS_COLOR_MAP[EllesmereUI._playerClass]
+        local clr = EllesmereUI.GetRawClassColor(EllesmereUI._playerClass)
         if clr then return clr.r, clr.g, clr.b end
         return EllesmereUI.DEFAULT_ACCENT_R, EllesmereUI.DEFAULT_ACCENT_G, EllesmereUI.DEFAULT_ACCENT_B
     elseif theme == "Custom Color" then
@@ -556,7 +556,7 @@ function EllesmereUI.ResolveProfileAccent(profileData)
     local acc = profileData and profileData.euiAccent
     -- 1) per-profile
     if acc and acc.useClass then
-        local c = EllesmereUI.CLASS_COLOR_MAP[EllesmereUI._playerClass]
+        local c = EllesmereUI.GetRawClassColor(EllesmereUI._playerClass)
         if c then return true, c.r, c.g, c.b end
     end
     if acc and acc.custom then
@@ -565,7 +565,7 @@ function EllesmereUI.ResolveProfileAccent(profileData)
     end
     -- 2) frozen global root -- ONLY when the profile has no explicit euiAccent. An explicit per-profile opt-out (useClass=false, no custom yet) must NOT fall through to the global class color; it drops to the global custom/theme terminal below, matching the displayed Custom swatch state.
     if (not acc) and EllesmereUIDB and EllesmereUIDB.useClassAccentColor then
-        local c = EllesmereUI.CLASS_COLOR_MAP[EllesmereUI._playerClass]
+        local c = EllesmereUI.GetRawClassColor(EllesmereUI._playerClass)
         if c then return true, c.r, c.g, c.b end
     end
     local gca = EllesmereUIDB and EllesmereUIDB.customAccentColor
@@ -588,7 +588,7 @@ end
 
 --- Class color for the current player
 EllesmereUI.GetPlayerClassColor = function()
-    local clr = EllesmereUI.CLASS_COLOR_MAP[EllesmereUI._playerClass]
+    local clr = EllesmereUI.GetRawClassColor(EllesmereUI._playerClass)
     if clr then return clr.r, clr.g, clr.b end
     return EllesmereUI.DEFAULT_ACCENT_R, EllesmereUI.DEFAULT_ACCENT_G, EllesmereUI.DEFAULT_ACCENT_B
 end
