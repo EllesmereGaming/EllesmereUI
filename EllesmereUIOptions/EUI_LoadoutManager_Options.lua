@@ -409,6 +409,10 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Auto-Swap",
                 rows = {
+                    { type = "toggle", label = "Ask Before Swapping",
+                      tooltip = "In a dungeon or raid, ask Yes or No before gear or talents change.",
+                      get = function() return DB().askBeforeSwap and true or false end,
+                      set = function(v) ns.SetAskBeforeSwap(v) end },
                     { type = "toggle", label = "Queue In Combat",
                       tooltip = "Apply a swap due in combat once it ends.",
                       get = function() return DB().queueInCombat and true or false end,

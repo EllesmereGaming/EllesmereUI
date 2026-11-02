@@ -692,6 +692,7 @@ Gear set %s is already equipped.
 Gear set %s not found; it may have been renamed or deleted.
 Gear swap held: an item is locked or you are casting.
 Gear swap skipped: you are in combat.
+Gear: %s
 Gemini
 General
 Gilneas
@@ -1423,6 +1424,8 @@ Sunday belongs to the Sun: warmth and confidence carry you.
 Sunday belongs to the Sun: your parse wants to glow orange.
 Suramar
 Swap Combat Pots When Missing
+Swap skipped for %s. Check Now applies it.
+Swap your loadout for %s?
 Swords
 Sync
 Sync cleared -- fewer than two specs remained selected.
@@ -1457,6 +1460,7 @@ Talent swap skipped: you are in combat.
 Talents Here
 Talents cannot be changed here yet.
 Talents not saved: %1$s belongs to %2$s.
+Talents: %s
 Tank
 Tank Available
 Tanks
