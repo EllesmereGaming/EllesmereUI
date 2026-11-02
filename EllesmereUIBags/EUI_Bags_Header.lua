@@ -25,6 +25,27 @@ I.categoryIndexSetters[#I.categoryIndexSetters + 1] = function(v) selectedCatego
 -------------------------------------------------------------------------------
 --  UI Components -- Header
 -------------------------------------------------------------------------------
+-- Fits the title and item count between their start and the leftmost header icon
+-- (SyncHeaderIcons): the count truncates first, then the title, both with "...".
+function EUI_Bags:FitHeaderText()
+    local hdr, edge = self.Header, self._hdrEdge
+    if not (hdr and edge) then return end
+    local title, count = hdr.title, hdr.itemCount
+    local tl, el = title:GetLeft(), edge:GetLeft()
+    if not (tl and el) then return end
+    local room = el - 12 - tl
+    local tw = title:GetUnboundedStringWidth()
+    if tw > room then
+        title:SetWidth(math.max(room, 1))
+        count:SetAlpha(0)
+        return
+    end
+    title:SetWidth(tw + 1)
+    local countRoom = room - tw - 8
+    count:SetWidth(math.max(math.min(count:GetUnboundedStringWidth() + 1, countRoom), 1))
+    count:SetAlpha(countRoom >= 16 and 1 or 0)
+end
+
 local function CreateHeader()
     if EUI_Bags.Header then return end
     local header = CreateFrame("Frame", nil, EUI_Bags)
@@ -46,6 +67,19 @@ local function CreateHeader()
     SetBagFont(header.itemCount, 11)
     header.itemCount:SetPoint("LEFT", header.title, "RIGHT", 8, 0)
     header.itemCount:SetTextColor(0.6, 0.6, 0.6)
+
+    -- Title and count stop short of the header icons (EUI_Bags:FitHeaderText),
+    -- refitted whenever either text, the title's spot or the header width changes.
+    header.title:SetWordWrap(false)
+    header.title:SetJustifyH("LEFT")
+    header.itemCount:SetWordWrap(false)
+    header.itemCount:SetJustifyH("LEFT")
+    local function Fit() EUI_Bags:FitHeaderText() end
+    hooksecurefunc(header.title, "SetText", Fit)
+    hooksecurefunc(header.title, "SetPoint", Fit)
+    hooksecurefunc(header.itemCount, "SetText", Fit)
+    header:HookScript("OnSizeChanged", Fit)
+    header:HookScript("OnShow", Fit)
 
     local search = CreateFrame("EditBox", "EUI_BagSearchBox", header)
     search:SetSize(160, 22)
