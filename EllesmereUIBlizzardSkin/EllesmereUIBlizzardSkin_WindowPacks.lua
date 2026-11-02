@@ -8220,6 +8220,9 @@ EX_Update = function()
     if EllesmereUIDB.merchantShowItemLevel and EllesmereUI._Merchant_RefreshItemLevels then
         EllesmereUI._Merchant_RefreshItemLevels()
     end
+    -- Bulk Buy closes its window once its tile shows another item; it checks on
+    -- MerchantFrame_Update, which a flip does not run.
+    if EllesmereUI._Merchant_BulkBuyRepaint then EllesmereUI._Merchant_BulkBuyRepaint() end
 end
 
 local function EnsureExpand()

@@ -337,6 +337,13 @@ local function TakeOver(button)
     if dialog:IsShown() then dialog:FocusInput() end
 end
 
+-- A merchant repaint: Blizzard's MerchantFrame_Update, or Expand Vendor UI's
+-- grid, which repaints its own tiles (page flips) without one.
+local function OnRepaint()
+    if dialog and dialog:IsShown() then refreshSoon() end
+end
+EllesmereUI._Merchant_BulkBuyRepaint = OnRepaint
+
 local function Install()
     if hooked then return end
     hooked = true
@@ -344,9 +351,7 @@ local function Install()
         hooksecurefunc("MerchantItemButton_OnModifiedClick", TakeOver)
     end
     if type(MerchantFrame_Update) == "function" then
-        hooksecurefunc("MerchantFrame_Update", function()
-            if dialog and dialog:IsShown() then refreshSoon() end
-        end)
+        hooksecurefunc("MerchantFrame_Update", OnRepaint)
     end
 end
 
