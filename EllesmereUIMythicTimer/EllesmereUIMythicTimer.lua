@@ -385,7 +385,9 @@ local DB_DEFAULTS = {
             -- Where to Show: checked = true. An unchecked default entry is
             -- stored as false, never nil (a nil reads back as true at login).
             whereToShow  = { dungeon_mythic = true, arena = true },
-            focusMarker  = 0,         -- Focus Announce: the raid marker (1-8) told to the party in a Mythic dungeon; 0 = none
+            focusMarker  = 0,         -- Focus Marker: the raid marker (1-8) of your focus kick, 0 = none. The Set Focus macro places it, Focus Announce tells it to the party in a Mythic dungeon
+            focusAnnounce = true,     -- Focus Announce: the Focus Marker in party chat at ready checks in a Mythic dungeon
+            focusMacroPing = false,   -- Set Focus macro (EUI_MythicTimer_FocusMacro.lua): Ping Focus, /ping [@focus]
             -- announceText: the player's own Focus Announce line (Edit Announce Text), {marker} = the raid marker; unset = the default line
             showPlates   = true,      -- the nameplate icon
             aboveOverlap = true,      -- Show Above Overlapping Nameplates: the icons draw over every other nameplate (the plates' lift), never behind one
