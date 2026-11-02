@@ -49,6 +49,7 @@ function NameplateFrame:UpdateHealthValues()
                 self.isCasting = false
                 self:HideKickTick()
                 self:ClearImportantCastGlow()
+                self:ClearCastTargetGlow()
                 if not self._interrupted then self.cast:Hide() end
                 self.castTimer:SetText("")
                 self._castTex = nil

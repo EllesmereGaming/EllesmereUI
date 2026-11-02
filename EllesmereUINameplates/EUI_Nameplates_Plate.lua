@@ -1145,6 +1145,10 @@ function NameplateFrame:ClearUnit()
     self._kickProtected = nil
     self._castImportant = false
     self:HideKickTick()
+    -- Both glows: also after an interrupt or fallback end, which leave isCasting false
+    -- with the glow still up. Each checks its own active flag.
+    self:ClearImportantCastGlow()
+    self:ClearCastTargetGlow()
     if self._interruptTimer then
         self._interruptTimer:Cancel()
         self._interruptTimer = nil
