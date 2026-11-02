@@ -51,7 +51,6 @@ local SATED_DEBUFFS = {
 }
 
 local SHAPE_MASKS = EllesmereUI.SHAPE_MASKS
-local SHAPE_BORDERS = EllesmereUI.SHAPE_BORDERS
 local BORDER_PX = { none = 0, thin = 1, normal = 2, heavy = 3, strong = 4 }
 
 -------------------------------------------------------------------------------
@@ -173,6 +172,37 @@ local function _snapOff(v)
     return v
 end
 
+-- Custom-shape outline: the shape's mask grown by the border size and filled with
+-- the border colour behind the masked icon, leaving a ring exactly that thick.
+local function _applyShapeOutline(host, shape, bs, r, g, b, a)
+    local t = host._euiOutline
+    local maskPath = shape and EllesmereUI.SHAPE_MASKS[shape]
+    local PP = EllesmereUI and EllesmereUI.PP
+    if not (maskPath and PP) or bs <= 0 then
+        if t then t:Hide() end
+        return
+    end
+    if not t then
+        t = host:CreateTexture(nil, "BACKGROUND", nil, 7)
+        host._euiOutlineMask = host:CreateMaskTexture()
+        t:AddMaskTexture(host._euiOutlineMask)
+        host._euiOutline = t
+    end
+    local m = host._euiOutlineMask
+    -- The mask's opening is its middle (128 - 2 * inset) / 128: grow it by bs over
+    -- that ratio so the outline reaches bs pixels past the icon's own edge.
+    local inset = EllesmereUI.SHAPE_INSETS[shape] or 17
+    local grow = _snapOff(PP.FromPixels(bs * 128 / (128 - 2 * inset)))
+    m:ClearAllPoints()
+    m:SetPoint("TOPLEFT", host, "TOPLEFT", -grow, grow)
+    m:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", grow, -grow)
+    m:SetTexture(maskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    t:ClearAllPoints()
+    t:SetAllPoints(m)
+    t:SetColorTexture(r, g, b, a)
+    t:Show()
+end
+
 -- Border for one icon layer: PP edge strips for "none"/"cropped", the
 -- shape-matching atlas (shapeTex) otherwise. Applied to the debuff icon AND to
 -- the 40s buff overlay, whose opaque icon would otherwise cover the debuff
@@ -184,6 +214,7 @@ local function _applyBorder(host, shapeTex, level)
 
     if shape == "none" or shape == "cropped" then
         shapeTex:Hide()
+        _applyShapeOutline(host, nil, 0)
         if PP then
             if not PP.GetBorders(host) then PP.CreateBorder(host, 0, 0, 0, 1, 1, "OVERLAY", 2) end
             local brd = PP.GetBorders(host)
@@ -200,19 +231,9 @@ local function _applyBorder(host, shapeTex, level)
     end
 
     if PP and PP.GetBorders(host) then PP.HideBorder(host) end
-    local borderPath = SHAPE_BORDERS[shape]
-    if borderPath and bs > 0 then
-        local bsp = _snapOff(bs)
-        shapeTex:SetTexture(borderPath)
-        shapeTex:ClearAllPoints()
-        shapeTex:SetPoint("TOPLEFT", host, "TOPLEFT", -bsp, bsp)
-        shapeTex:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", bsp, -bsp)
-        local r, g, b, a = _resolveBorderColor()
-        shapeTex:SetVertexColor(r, g, b, a)
-        shapeTex:Show()
-    else
-        shapeTex:Hide()
-    end
+    shapeTex:Hide()
+    local r, g, b, a = _resolveBorderColor()
+    _applyShapeOutline(host, shape, bs, r, g, b, a)
 end
 
 -- Configure the buff overlay (texture coords + optional shape mask) so it
