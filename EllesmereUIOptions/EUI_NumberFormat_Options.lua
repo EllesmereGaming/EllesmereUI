@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
---  EUI_NumberFormat_Options.lua -- Global Settings > Number Format. How large
+--  EUI_NumberFormat_Options.lua -- Global Settings > Numbers. How large
 --  numbers are shortened (EllesmereUI_NumberFormat.lua): Precision and
 --  threshold per value type, picked in the page header, plus the global Unit
 --  Style and Letter Case. Every value lives in the active profile's
@@ -22,13 +22,6 @@ local TYPE_LABELS = {
     health = "Health", maxHealth = "Max Health", absorb = "Absorb",
     bossHealth = "Boss Health", meter = "Damage Meter",
 }
-local TYPE_USERS = {
-    health     = "Unit Frames, Raid Frames, Nameplates, Resource Bars",
-    maxHealth  = "Unit Frames, Raid Frames, Nameplates, Resource Bars",
-    absorb     = "Unit Frames, Raid Frames, Nameplates",
-    bossHealth = "Unit Frames boss frames",
-    meter      = "Damage Meters, Gold, Mythic+ Summary",
-}
 -- One label per type, so each search hit restores its own type.
 local PRECISION_LABELS = {
     health = "Health Precision", maxHealth = "Max Health Precision",
@@ -40,7 +33,7 @@ local PRECISION_TIPS = {
     maxHealth = "Maximum health values on Unit Frames, Raid Frames, Nameplates and the Resource Bars health bar. Standard keeps Blizzard's format. Smart shows three digits (1.23M, 12.3M, 123M).",
     absorb = "Absorb and heal absorb values on Unit Frames, Raid Frames and Nameplates. Standard keeps Blizzard's format. Smart shows three digits (1.23M, 12.3M, 123M).",
     bossHealth = "Current and maximum health on the Unit Frames boss frames. Standard keeps Blizzard's format. Smart shows three digits (1.23M, 12.3M, 123M).",
-    meter = "Damage Meters, gold blocks with Abbreviate Amount, and the Mythic+ run summary. Standard keeps the Damage Meters' own format. Smart shows three digits (1.23M, 12.3M, 123M).",
+    meter = "Damage Meters and the Mythic+ run summary. Standard keeps the Damage Meters' own format. Smart shows three digits (1.23M, 12.3M, 123M).",
 }
 
 -- The type the page shows; also set by a search jump (getPrebuildVariants).
@@ -116,30 +109,40 @@ local THRESHOLD_TIP = "Numbers below this stay whole."
 local THRESHOLD_LOCK = "This option requires a Precision other than Standard"
 
 -------------------------------------------------------------------------------
---  Header: value type tabs, who reads the type, its Precision and threshold,
---  and a live preview
+--  Header: value type tabs, a live preview, and the type's Precision and
+--  threshold
 -------------------------------------------------------------------------------
--- Centers a caption plus its line as one group on the header's middle.
-local function CenterPair(PP, hdr, caption, line, y, gap)
-    local capW = caption:GetStringWidth()
-    PP.Point(line, "TOP", hdr, "TOP", (capW + gap) / 2, y)
-    caption:ClearAllPoints()
-    caption:SetPoint("RIGHT", line, "LEFT", -gap, 0)
-end
+local INFO_ICON = [[Interface\AddOns\EllesmereUI\media\icons\eui-info.png]]
 
--- A header label and dropdown with the row tooltip on the label.
-local function HeaderDropdown(hdr, text, tip, w, values, order, getValue, setValue)
+-- A header label and dropdown with the row tooltip on the label; withInfo puts
+-- an (i) after the label that shares the label's tooltip.
+local function HeaderDropdown(hdr, text, tip, w, values, order, getValue, setValue, withInfo)
     local L = EllesmereUI.L
     local lbl = EllesmereUI.MakeFont(hdr, 14, nil, 1, 1, 1, 1)
     lbl:SetText(L(text))
     local dd = EllesmereUI.BuildDropdownControl(hdr, w, hdr:GetFrameLevel() + 5, values, order, getValue, setValue)
+    local info
+    if withInfo then
+        info = hdr:CreateTexture(nil, "OVERLAY")
+        info:SetTexture(INFO_ICON)
+        info:SetVertexColor(1, 1, 1, 0.45)
+        EllesmereUI.PanelPP.Size(info, 12, 12)
+        info:SetPoint("LEFT", lbl, "RIGHT", 5, 0)
+    end
     local hit = CreateFrame("Frame", nil, hdr)
-    hit:SetAllPoints(lbl)
+    hit:SetPoint("TOPLEFT", lbl, "TOPLEFT", 0, 0)
+    hit:SetPoint("BOTTOMRIGHT", info or lbl, "BOTTOMRIGHT", 0, 0)
     hit:SetMouseClickEnabled(false)
     hit:SetMouseMotionEnabled(true)
-    hit:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(lbl, L(tip)) end)
-    hit:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-    return lbl, dd
+    hit:SetScript("OnEnter", function()
+        if info then info:SetVertexColor(1, 1, 1, 0.9) end
+        EllesmereUI.ShowWidgetTooltip(lbl, tip())
+    end)
+    hit:SetScript("OnLeave", function()
+        if info then info:SetVertexColor(1, 1, 1, 0.45) end
+        EllesmereUI.HideWidgetTooltip()
+    end)
+    return lbl, dd, info
 end
 
 local function HeaderBuilder(hdr, hdrW)
@@ -169,65 +172,38 @@ local function HeaderBuilder(hdr, hdrW)
     })
     seg:SetFrameLevel(hdr:GetFrameLevel() + 5)
     PP.Point(seg, "TOP", hdr, "TOP", 0, y)
-    y = y - segH - 12
+    y = y - segH - 20
 
-    -- (i) and the modules that read the type; hovering explains the list.
-    local users = EllesmereUI.MakeFont(hdr, 11, nil, 1, 1, 1, 0.45)
-    users:SetText(L(TYPE_USERS[vt]))
-    local info = hdr:CreateTexture(nil, "OVERLAY")
-    info:SetTexture([[Interface\AddOns\EllesmereUI\media\icons\eui-info.png]])
-    info:SetVertexColor(1, 1, 1, 0.45)
-    PP.Size(info, 12, 12)
-    PP.Point(users, "TOP", hdr, "TOP", (12 + 5) / 2, y)
-    info:SetPoint("RIGHT", users, "LEFT", -5, 0)
-    local usersHit = CreateFrame("Frame", nil, hdr)
-    usersHit:SetPoint("TOPLEFT", info, "TOPLEFT", -2, 2)
-    usersHit:SetPoint("BOTTOMRIGHT", users, "BOTTOMRIGHT", 2, -2)
-    usersHit:SetMouseClickEnabled(false)
-    usersHit:SetMouseMotionEnabled(true)
-    usersHit:SetScript("OnEnter", function()
-        info:SetVertexColor(1, 1, 1, 0.9)
-        EllesmereUI.ShowWidgetTooltip(info, EllesmereUI.L("These settings apply to the modules listed here."))
-    end)
-    usersHit:SetScript("OnLeave", function()
-        info:SetVertexColor(1, 1, 1, 0.45)
-        EllesmereUI.HideWidgetTooltip()
-    end)
-    y = y - 26
-
-    -- Result: the shown type's strings; Example: the raw values behind them.
-    local resultCap = EllesmereUI.MakeFont(hdr, 11, nil, 1, 1, 1, 0.45)
-    resultCap:SetText(EllesmereUI.L("Result:"))
-    local preview = EllesmereUI.MakeFont(hdr, 20, nil, accent.r, accent.g, accent.b, 1)
-    local previewY = y
-    y = y - 28
-
-    local raw = {}
+    -- Preview: one column per value, the raw number small above its result.
+    local COL_W = 130
+    local results = {}
     for i = 1, #PREVIEW_VALUES do
         local v = PREVIEW_VALUES[i]
-        raw[i] = BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v)
+        local x = (i - (#PREVIEW_VALUES + 1) / 2) * COL_W
+        local raw = EllesmereUI.MakeFont(hdr, 11, nil, 1, 1, 1, 0.4)
+        raw:SetText(BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v))
+        PP.Point(raw, "TOP", hdr, "TOP", x, y)
+        local res = EllesmereUI.MakeFont(hdr, 20, nil, accent.r, accent.g, accent.b, 1)
+        PP.Point(res, "TOP", hdr, "TOP", x, y - 16)
+        results[i] = res
     end
-    local exampleCap = EllesmereUI.MakeFont(hdr, 11, nil, 1, 1, 1, 0.45)
-    exampleCap:SetText(EllesmereUI.L("Example:"))
-    local rawFS = EllesmereUI.MakeFont(hdr, 11, nil, 1, 1, 1, 0.4)
-    rawFS:SetText(table.concat(raw, "     "))
-    CenterPair(PP, hdr, exampleCap, rawFS, y, 8)
-    y = y - 14 - 12
+    y = y - 16 - 24 - 18
 
-    local note = EllesmereUI.MakeFont(hdr, 11, nil, 1, 1, 1, 0.45)
-    note:SetText(EllesmereUI.L("Numbers are cut, not rounded."))
-    PP.Point(note, "TOP", hdr, "TOP", 0, y)
-    y = y - 14 - 16
-
-    -- Precision and threshold of the shown type, either side of the middle.
-    local pLbl, pDD = HeaderDropdown(hdr, PRECISION_LABELS[vt], PRECISION_TIPS[vt], 170,
-        PRECISION_VALUES, PRECISION_ORDER,
+    -- Precision (its (i) names the modules and the cut) and threshold of the
+    -- shown type, either side of the middle.
+    local pLbl, pDD, pInfo = HeaderDropdown(hdr, PRECISION_LABELS[vt],
+        function() return L(PRECISION_TIPS[vt]) .. "\n\n" .. EllesmereUI.L("Numbers are cut, not rounded.") end,
+        170, PRECISION_VALUES, PRECISION_ORDER,
         function() return Precision(vt) end,
-        function(v) SetTypeField(vt, "precision", v) end)
+        function(v) SetTypeField(vt, "precision", v) end, true)
     PP.Point(pDD, "TOPRIGHT", hdr, "TOP", -20, y)
-    pLbl:SetPoint("RIGHT", pDD, "LEFT", -12, 0)
-    local tLbl, tDD = HeaderDropdown(hdr, "Start Abbreviating At", THRESHOLD_TIP, 110,
-        THRESHOLD_VALUES, THRESHOLD_ORDER,
+    -- The label centers on the dropdown; the (i) sits 3px lower to meet the
+    -- label's optical middle.
+    pLbl:SetPoint("RIGHT", pDD, "LEFT", -(12 + 12 + 5), 0)
+    pInfo:ClearAllPoints()
+    pInfo:SetPoint("LEFT", pLbl, "RIGHT", 5, -3)
+    local tLbl, tDD = HeaderDropdown(hdr, "Start Abbreviating At", function() return L(THRESHOLD_TIP) end,
+        110, THRESHOLD_VALUES, THRESHOLD_ORDER,
         function() return Threshold(vt) end,
         function(v) SetTypeField(vt, "threshold", v) end)
     tLbl:SetPoint("TOPLEFT", hdr, "TOP", 20, y - 8)
@@ -245,10 +221,7 @@ local function HeaderBuilder(hdr, hdrW)
     y = y - 30 - 16
 
     headerRefresh = function()
-        local parts = {}
-        for i = 1, #PREVIEW_VALUES do parts[i] = FormatAs(vt, PREVIEW_VALUES[i]) end
-        preview:SetText(table.concat(parts, "     "))
-        CenterPair(PP, hdr, resultCap, preview, previewY, 8)
+        for i = 1, #PREVIEW_VALUES do results[i]:SetText(FormatAs(vt, PREVIEW_VALUES[i])) end
         local locked = Precision(vt) == "standard"
         tLbl:SetAlpha(locked and 0.3 or 1)
         tDD:SetAlpha(locked and 0.3 or 1)
@@ -281,14 +254,12 @@ function _G._EUI_BuildNumberFormatPage(pageName, parent, yOffset)
     local vt = selectedType
 
     EllesmereUI:SetContentHeader(HeaderBuilder)
-    -- Tag the rows with the shown type, so a search jump restores it first
-    -- (the same selector contract as the Unit Frames unit dropdown).
-    local setter = EllesmereUI._setNumberFormatType
-    EllesmereUI._buildingSelector = { setter = setter, key = vt }
-
     -- The type's Precision and threshold sit in the header, which the search
-    -- never indexes: register them here, per type. Their section is not on
-    -- the page, so a jump selects the type and stops there.
+    -- never indexes: register them here, per type, with the type as selector
+    -- key. Their section is not on the page, so a jump selects the type and
+    -- stops there. The body rows are global and stay untagged, so a jump to
+    -- them keeps the shown type.
+    local setter = EllesmereUI._setNumberFormatType
     if EllesmereUI._RegisterSearchEntry then
         local L = EllesmereUI.L
         local module, page = EllesmereUI._buildingModule, EllesmereUI._buildingPage

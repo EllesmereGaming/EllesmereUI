@@ -159,8 +159,8 @@ end
 --  Number Format settings
 --------------------------------------------------------------------------------
 -- Value types, in options-page order. "bossHealth" covers current and max
--- health on Unit Frames' boss frames; "meter" covers Damage Meters, the gold
--- bar and the Mythic+ run summary.
+-- health on Unit Frames' boss frames; "meter" covers Damage Meters and the
+-- Mythic+ run summary.
 EllesmereUI.NUMBER_FORMAT_TYPES = { "health", "maxHealth", "absorb", "bossHealth", "meter" }
 
 local VALID_PRECISION = { standard = true, smart = true, [0] = true, [1] = true, [2] = true }
@@ -348,9 +348,14 @@ function EllesmereUI.RefreshNumberFormat()
     for i = 1, #refreshCallbacks do xpcall(refreshCallbacks[i], handler) end
 end
 
--- EllesmereUI.AbbreviateNumber(n) -> string
---   Formats n as the "meter" value type (Damage Meters, gold, Mythic+ summary).
-function EllesmereUI.AbbreviateNumber(n)
+-- EllesmereUI.AbbreviateNumber(n [, forceEnglish]) -> string
+--   Formats n as the "meter" value type (Damage Meters, Mythic+ summary).
+--   A boolean forceEnglish skips the Number Format and keeps the fixed
+--   Precision "standard" table (gold blocks with their own K/M/B toggle).
+function EllesmereUI.AbbreviateNumber(n, forceEnglish)
+    if forceEnglish ~= nil then
+        return AbbreviateNumbers(tonumber(n) or 0, BuildConfig(forceEnglish))
+    end
     return AbbreviateNumbers(tonumber(n) or 0, meterOpts or NumberFormatOptions("meter"))
 end
 

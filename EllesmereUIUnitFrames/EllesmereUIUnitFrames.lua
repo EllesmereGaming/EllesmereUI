@@ -204,7 +204,7 @@ local defaults = {
         darkTheme = false,
         -- One decimal on health percents (77.3%); global, read by text tags via _G flags.
         -- Values follow the global Number Format instead.
-        showDecimalOnText = false,
+        showDecimalOnPercent = false,
         -- With decimals on, boss frames use two (77.30%); inline cog on "Show Decimal on Health Percent".
         showDecimalBoss2 = true,
         -- With decimals on, "Hide Trailing Zeros" drops a zero decimal from the PERCENT (100.0% -> 100%, 99.5% unchanged); same inline cog.

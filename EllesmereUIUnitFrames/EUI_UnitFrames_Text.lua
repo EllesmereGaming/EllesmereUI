@@ -312,13 +312,13 @@ local function MakePctTrim(scale, fractionDivisor)
 end
 ns._pctTrim  = MakePctTrim(1000, 10)
 ns._pctTrim2 = MakePctTrim(10000, 100)
--- Show Decimal on Text (global), health percent only; values follow the Number
+-- Show Decimal on Health Percent (global); values follow the Number
 -- Format above. Tags read these _G flags:
 --   _G._EUI_TextDecimals     = true/false, selects "%.1f" vs "%d" for percents
 --   _G._EUI_PctTrim          = { curve, cfg } trimming the percent, nil when off
 --   _G._EUI_BossExtraDecimal = boss frames take a second decimal ("%.2f")
 function ns.ApplyTextDecimalGlobals()
-    if db and db.profile and db.profile.showDecimalOnText then
+    if db and db.profile and db.profile.showDecimalOnPercent then
         _G._EUI_TextDecimals = true
         local trimZeros = db.profile.showDecimalTrimZeros
         _G._EUI_PctTrim = trimZeros and ns._pctTrim or nil

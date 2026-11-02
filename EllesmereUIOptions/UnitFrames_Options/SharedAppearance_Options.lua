@@ -832,14 +832,14 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
     end
 
     -- Show Decimal on Health Percent (global): one decimal on health percent
-    -- (77.3%) for every unit. Values follow the Number Format tab. Default off.
+    -- (77.3%) for every unit. Values follow the Numbers tab. Default off.
     local decRow
     decRow, h = W:DualRow(parent, y,
         { type="toggle", text="Show Decimal on Health Percent",
-          tooltip="Show one decimal place on health percent, like 77.3%. Health values follow the Number Format tab in the global settings. Off by default.",
-          getValue=function() return db.profile.showDecimalOnText end,
+          tooltip="Show one decimal place on health percent, like 77.3%. Health values follow the Numbers tab in the global settings. Off by default.",
+          getValue=function() return db.profile.showDecimalOnPercent end,
           setValue=function(v)
-              db.profile.showDecimalOnText = v
+              db.profile.showDecimalOnPercent = v
               if ns.ApplyTextDecimalGlobals then ns.ApplyTextDecimalGlobals() end
               ReloadAndUpdate(); UpdatePreview()
               EllesmereUI:RefreshPage()
@@ -873,7 +873,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
     -- boss frames a second decimal. Greyed out while the master decimal toggle is off.
     if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(decRow._leftRegion, {
-            disabled = function() return not db.profile.showDecimalOnText end,
+            disabled = function() return not db.profile.showDecimalOnPercent end,
             disabledTooltip = "Show Decimal on Health Percent",
             title = "Health Percent Decimals",
             rows = {

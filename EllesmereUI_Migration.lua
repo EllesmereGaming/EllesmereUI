@@ -4532,46 +4532,27 @@ do
     })
 end
 
--- Number Format's Unit Style replaced the two "Force English Units" toggles
--- (Damage Meters, gold blocks). Either one on makes the profile's Unit Style
--- Western; the old keys go. PROFILE scope so an older export string is folded
--- at its next load. Unit Style is global, so on a CJK client this now also
--- reaches health text; on any other client Western changes nothing.
+-- Number Format's Unit Style replaced the Damage Meters' "Force English Units"
+-- toggle. On, it makes the profile's Unit Style Western; the old key goes.
+-- PROFILE scope so an older export string is folded at its next load. Unit
+-- Style is global, so on a CJK client this now also reaches health text; on
+-- any other client Western changes nothing. Gold blocks keep their own toggle.
 EllesmereUI.RegisterMigration({
     id          = "number_format_force_english_units_v1",
     scope       = "profile",
-    description = "Fold the Damage Meters and gold block Force English Units toggles into the profile's Number Format Unit Style.",
+    description = "Fold the Damage Meters' Force English Units toggle into the profile's Number Format Unit Style.",
     body = function(ctx)
         local prof = ctx.profile
         local addons = prof.addons
         if type(addons) ~= "table" then return end
-        local western = false
         local edm = addons.EllesmereUIDamageMeters
         local dm = type(edm) == "table" and edm.dm or nil
-        if type(dm) == "table" and dm.forceEnglishUnits ~= nil then
-            if dm.forceEnglishUnits == true then western = true end
-            dm.forceEnglishUnits = nil
-        end
-        local edb = addons.EllesmereUIDataBars
-        local bars = type(edb) == "table" and edb.bars or nil
-        if type(bars) == "table" then
-            for _, bar in ipairs(bars) do
-                local blocks = type(bar) == "table" and bar.blocks or nil
-                if type(blocks) == "table" then
-                    for _, b in ipairs(blocks) do
-                        local s = type(b) == "table" and b.settings or nil
-                        if type(s) == "table" and s.forceEnglishUnits ~= nil then
-                            if s.forceEnglishUnits == true then western = true end
-                            s.forceEnglishUnits = nil
-                        end
-                    end
-                end
-            end
-        end
-        if western then
+        if type(dm) ~= "table" or dm.forceEnglishUnits == nil then return end
+        if dm.forceEnglishUnits == true then
             prof.numberFormat = prof.numberFormat or {}
             prof.numberFormat.units = "western"
         end
+        dm.forceEnglishUnits = nil
     end,
 })
 
@@ -4581,8 +4562,8 @@ EllesmereUI.RegisterMigration({
 -- Precision 1 for Health / Max Health / Absorb (Unit Frames win, so Raid
 -- Frames, Nameplates and Resource Bars follow), 1 or 2 for Boss Health, and a
 -- lowercase Letter Case. "Only Show for % Health" kept values whole: no value
--- precision then, and the key goes. The toggle itself stays for the percent.
--- A type the profile already set is left alone.
+-- precision then, and the key goes. The percent half moves to a new key (next
+-- migration), so only legacy data matches. Set types are left alone.
 EllesmereUI.RegisterMigration({
     id          = "number_format_uf_value_decimals_v1",
     scope       = "profile",
@@ -4607,6 +4588,24 @@ EllesmereUI.RegisterMigration({
         SetPrecision("absorb", 1)
         SetPrecision("bossHealth", uf.showDecimalBoss2 == false and 1 or 2)
         if nf.case == nil then nf.case = "lower" end
+    end,
+})
+
+-- The percent half of that toggle moves to showDecimalOnPercent. Its own
+-- migration, after the one above, because an import without global settings
+-- stamps that one as done while the percent setting must still carry over.
+EllesmereUI.RegisterMigration({
+    id          = "uf_decimal_on_percent_key_v1",
+    scope       = "profile",
+    description = "Rename Unit Frames' showDecimalOnText to showDecimalOnPercent.",
+    body = function(ctx)
+        local prof = ctx.profile
+        local uf = type(prof.addons) == "table" and prof.addons.EllesmereUIUnitFrames or nil
+        if type(uf) ~= "table" or uf.showDecimalOnText == nil then return end
+        if uf.showDecimalOnPercent == nil then
+            uf.showDecimalOnPercent = uf.showDecimalOnText == true
+        end
+        uf.showDecimalOnText = nil
     end,
 })
 

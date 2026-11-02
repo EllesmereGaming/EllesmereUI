@@ -257,7 +257,7 @@ ns.BLOCK_DEFAULTS = {
     -- which the options page pulses about.
     location   = { showIcon = true, showSubZone = true },
     coords     = { showIcon = true, precision = 0, hideInInstance = true },
-    gold       = { showIcons = true, showBagSpace = false, showSmall = false, coinIcons = false, abbreviate = false },
+    gold       = { showIcons = true, showBagSpace = false, showSmall = false, coinIcons = false, abbreviate = false, forceEnglishUnits = false },
     bags       = { showIcon = true, value = "free", reagent = false, lowThreshold = 0 },
     durability = { showIcon = true },
     combat     = { onlyInCombat = false },
@@ -419,8 +419,8 @@ end
 -- Gold abbreviation (SI units): 284208 -> "284.2K". The breakpoint table and
 -- any locale-specific algorithm (e.g. CJK wan/yi grouping) live in the
 -- shared EllesmereUI_NumberFormat.lua, so every module abbreviates the same way.
-local function GoldDisplay(val, abbreviate)
-    if abbreviate then return EllesmereUI.AbbreviateNumber(val) end
+local function GoldDisplay(val, abbreviate, forceEnglish)
+    if abbreviate then return EllesmereUI.AbbreviateNumber(val, forceEnglish) end
     return BreakUpLargeNumbers and BreakUpLargeNumbers(val) or tostring(val)
 end
 
@@ -431,11 +431,11 @@ end
 -- Tip_AddColumns copies it, so one buffer serves all rows.
 local _moneyTokens = {}
 
-function ns.MoneyTokens(amount, showSmall, coinIcons, coloured, abbreviate)
+function ns.MoneyTokens(amount, showSmall, coinIcons, coloured, abbreviate, forceEnglish)
     amount = floor(abs(amount or 0))
     wipe(_moneyTokens)
     local gold = floor(amount / DENOMINATIONS[1].divisor)
-    _moneyTokens[1] = GoldDisplay(gold, abbreviate) .. CoinMarker(1, coinIcons, coloured)
+    _moneyTokens[1] = GoldDisplay(gold, abbreviate, forceEnglish) .. CoinMarker(1, coinIcons, coloured)
     if showSmall ~= false then
         local silver = floor((amount % DENOMINATIONS[1].divisor) / DENOMINATIONS[2].divisor)
         _moneyTokens[2] = silver .. CoinMarker(2, coinIcons, coloured)
@@ -444,7 +444,7 @@ function ns.MoneyTokens(amount, showSmall, coinIcons, coloured, abbreviate)
     return _moneyTokens
 end
 
-function ns.FormatMoney(amount, useColors, showSmall, coinIcons, abbreviate)
+function ns.FormatMoney(amount, useColors, showSmall, coinIcons, abbreviate, forceEnglish)
     amount = floor(abs(amount or 0))
     local coloured = useColors ~= false
     local parts, foundGold = {}, false
@@ -453,7 +453,7 @@ function ns.FormatMoney(amount, useColors, showSmall, coinIcons, abbreviate)
         amount = amount % denom.divisor
         if i == 1 and val > 0 then
             foundGold = true
-            parts[#parts + 1] = GoldDisplay(val, abbreviate) .. CoinMarker(i, coinIcons, coloured)
+            parts[#parts + 1] = GoldDisplay(val, abbreviate, forceEnglish) .. CoinMarker(i, coinIcons, coloured)
         elseif i > 1 and (not foundGold or showSmall ~= false) and (val > 0 or (i == 3 and #parts == 0)) then
             parts[#parts + 1] = val .. CoinMarker(i, coinIcons, coloured)
         end
