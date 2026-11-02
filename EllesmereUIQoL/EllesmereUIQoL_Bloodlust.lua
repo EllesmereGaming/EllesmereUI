@@ -50,6 +50,8 @@ local SATED_DEBUFFS = {
     390435,  -- Exhaustion (Fury of the Aspects)
 }
 
+local _, ns = ...
+
 local SHAPE_MASKS = EllesmereUI.SHAPE_MASKS
 local BORDER_PX = { none = 0, thin = 1, normal = 2, heavy = 3, strong = 4 }
 
@@ -172,36 +174,8 @@ local function _snapOff(v)
     return v
 end
 
--- Custom-shape outline: the shape's mask grown by the border size and filled with
--- the border colour behind the masked icon, leaving a ring exactly that thick.
-local function _applyShapeOutline(host, shape, bs, r, g, b, a)
-    local t = host._euiOutline
-    local maskPath = shape and EllesmereUI.SHAPE_MASKS[shape]
-    local PP = EllesmereUI and EllesmereUI.PP
-    if not (maskPath and PP) or bs <= 0 then
-        if t then t:Hide() end
-        return
-    end
-    if not t then
-        t = host:CreateTexture(nil, "BACKGROUND", nil, 7)
-        host._euiOutlineMask = host:CreateMaskTexture()
-        t:AddMaskTexture(host._euiOutlineMask)
-        host._euiOutline = t
-    end
-    local m = host._euiOutlineMask
-    -- The mask's opening is its middle (128 - 2 * inset) / 128: grow it by bs over
-    -- that ratio so the outline reaches bs pixels past the icon's own edge.
-    local inset = EllesmereUI.SHAPE_INSETS[shape] or 17
-    local grow = _snapOff(PP.FromPixels(bs * 128 / (128 - 2 * inset)))
-    m:ClearAllPoints()
-    m:SetPoint("TOPLEFT", host, "TOPLEFT", -grow, grow)
-    m:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", grow, -grow)
-    m:SetTexture(maskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-    t:ClearAllPoints()
-    t:SetAllPoints(m)
-    t:SetColorTexture(r, g, b, a)
-    t:Show()
-end
+-- Custom-shape outline, shared with the Battle Res icon (EllesmereUIQoL_BattleRes.lua).
+local _applyShapeOutline = ns.QoL_ApplyShapeOutline
 
 -- Border for one icon layer: PP edge strips for "none"/"cropped", the
 -- shape-matching atlas (shapeTex) otherwise. Applied to the debuff icon AND to
@@ -657,7 +631,6 @@ local _state = {
     encounterIsRaid = false,
     inChallenge     = false,
 }
-local ns = select(2, ...)
 
 -------------------------------------------------------------------------------
 --  Visibility / text

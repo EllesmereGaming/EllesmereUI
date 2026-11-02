@@ -421,8 +421,9 @@ end
 
 -------------------------------------------------------------------------------
 --  Bind keyword search (shared by bags and bank): typing BoP / BoE / WuE / BoA /
---  Soulbound (any case), optionally with an item level (bop=300, wue 290-300,
---  boe>=280), filters by bind type instead of the native tooltip search.
+--  Soulbound / Warbound (any case), optionally with an item level (bop=300,
+--  wue 290-300, boe>=280), filters by bind type instead of the native tooltip
+--  search.
 -------------------------------------------------------------------------------
 -- In a block so the main chunk's local count (close to the 200 cap) stays put.
 do
@@ -430,16 +431,14 @@ do
                            warbound = true }
 
     -- Bind expressions: terms joined with and / or / not (also & | !) and
-    -- parentheses, not > and > or. A term is a keyword with an optional item
-    -- level: "<keyword>", "<keyword> <op><ilvl>" (op: = == > >= < <=) or
-    -- "<keyword> <ilvl>-<ilvl>", e.g. "bop=300", "wue 290-300",
-    -- "boe and not wue", "wue290-300 not warbound" (side by side means and;
-    -- warbound is an account bind type
-    -- already bound to the character), "(bop or boe) and soulbound". Each term names its own
-    -- keyword. Returns nil for anything else, which then goes to the native
-    -- search untouched.
-    local OPS = { ["="] = "=", ["=="] = "=", [">"] = ">", [">="] = ">=", ["=>"] = ">=",
-                  ["<"] = "<", ["<="] = "<=", ["=<"] = "<=" }
+    -- parentheses, not > and > or; terms side by side mean and. A term is a
+    -- keyword with an optional item level: "<keyword>", "<keyword> <op><ilvl>"
+    -- (op: = == > >= < <=; a bare number means =) or "<keyword> <ilvl>-<ilvl>",
+    -- e.g. "bop=300", "wue 290-300", "boe and not wue", "(bop or boe) and
+    -- soulbound". Anything else parses to nil and goes to the native search
+    -- untouched.
+    local OPS = { ["="] = "=", ["=="] = "=", [">"] = ">", [">="] = ">=",
+                  ["<"] = "<", ["<="] = "<=" }
     local MAX_DEPTH = 12
 
     local function Tokenize(s)
@@ -555,10 +554,15 @@ do
     -- Facts about the item being tested, set by ApplyBindKeyword before each
     -- Eval; the item level and the WuE check are read only when a term asks.
     local curLink, curBound, curBindType, curIsAccount, curWue, curIlvl
+    -- One location reused for every slot: a keyword pass visits every item on
+    -- each refresh, and CreateFromBagAndSlot builds a new mixin table per call.
+    local loc = ItemLocation:CreateEmpty()
+    local GetItemLevelAtLocation = I.GetItemLevelAtLocation
 
+    -- The level the slot shows: the item's current level at its location.
     local function ItemLevelMatches(q)
         if curIlvl == nil then
-            curIlvl = curLink and C_Item.GetDetailedItemLevelInfo(curLink) or false
+            curIlvl = GetItemLevelAtLocation(loc, curLink) or false
         end
         local ilvl = curIlvl
         if not ilvl then return false end
@@ -571,8 +575,6 @@ do
         return ilvl >= lo and ilvl <= q.hi
     end
 
-    local loc -- the reused ItemLocation, declared below
-
     local function TermMatches(q)
         local k = q.kw
         local match = false
@@ -584,15 +586,14 @@ do
             -- Account-bound items are bound too, but are not soulbound.
             match = curBound and not curIsAccount
         elseif k == "warbound" then
-            -- Either account bind type, once it is bound to the character.
+            -- Either account bind type (Bind to Account, Binds to Warband) once
+            -- bound.
             match = curBound and curIsAccount
         elseif not curBound then
-            -- BoE and WuE both mean "not bound yet". WuE is ToBnetAccount, but
-            -- may still read as OnEquip from GetItemInfo, so the account check
-            -- tells the two apart too.
+            -- BoE and WuE both mean "not bound yet". WuE reads as OnEquip from
+            -- GetItemInfo, so the account check tells the two apart.
             if curWue == nil then
-                curWue = curBindType == Enum.ItemBind.ToBnetAccount
-                    or C_Item.IsBoundToAccountUntilEquip(loc) and true or false
+                curWue = C_Item.IsBoundToAccountUntilEquip(loc) and true or false
             end
             if k == "wue" then
                 match = curWue
@@ -611,9 +612,6 @@ do
         if t == "and" then return Eval(n.a) and Eval(n.b) end
         return Eval(n.a) or Eval(n.b)
     end
-    -- One location reused for every slot: a keyword pass visits every item on
-    -- each refresh, and CreateFromBagAndSlot builds a new mixin table per call.
-    loc = ItemLocation:CreateEmpty()
 
     -- The game applies a search after SetItemSearch returns and reports the
     -- result with INVENTORY_SEARCH_UPDATE, the event Blizzard's own bags repaint
