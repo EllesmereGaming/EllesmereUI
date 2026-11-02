@@ -342,6 +342,7 @@ local DEFAULTS = {
             spellTextSize = 11,
             spellTextX    = 0,
             spellTextY    = 0,
+            fitSpellName  = false,    -- Show Full Spell Name: long names shrink to fit instead of truncating
             spellTextSide = "left",   -- "left" | "right" | "center" (spell text position; "None" = showSpellText false)
             spellTextR = 1, spellTextG = 1, spellTextB = 1, spellTextA = 1,  -- Spell Text colour (white = untinted)
             unlockPos     = nil,
