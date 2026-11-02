@@ -130,8 +130,23 @@ local function CreateHeader()
 
     local DoVisualSort  -- forward declaration
 
+    -- One physical sort at a time: a sidebar drag can unlock the button
+    -- mid-run, and a second run would take the muted sound effects for the
+    -- player's own and give them back muted.
+    local physicalActive = false
+    -- Combat ends a physical sort at its edge: PLAYER_REGEN_DISABLED comes
+    -- before the lockdown, so no item moves in combat, and the cleanup (the
+    -- sound effects back, the bags refreshed) runs while it is still allowed.
+    -- Registered only while a physical sort runs, with CVAR_UPDATE (the player
+    -- taking the muted sound effects over).
+    local sortCombatStop = CreateFrame("Frame")
+    -- Seconds a pass's item moves may take to show in a bag update before the
+    -- run counts as stuck (ArmBackstop).
+    local SORT_STUCK_AFTER = 5
+
     local function DoPhysicalSort()
-        if InCombatLockdown() then return end  -- confirm popup can outlive the pull
+        if InCombatLockdown() or physicalActive then return end  -- confirm popup can outlive the pull
+        physicalActive = true
         LockSort()
         EUI_Bags.refreshEnabled = false
 
@@ -144,6 +159,35 @@ local function CreateHeader()
             PlaySound(SOUNDKIT.UI_BAG_SORTING_01, "Master")
         end
         EllesmereUI.HoldCVar("Sound_EnableSFX", "0", "EllesmereUIBags")
+        -- The player changed the sound effects while they were muted: the
+        -- mute ends where it stands, and the run gives nothing back.
+        local tookOver = false
+
+        local FinishSort  -- the run's end, below
+        -- The run's waiting callbacks check their frame's token: cleared, they
+        -- drop out. Either frame is made on first use.
+        local function StopWaiting(f)
+            if not f then return end
+            f._runToken = nil
+            f._wait = nil
+            f:UnregisterAllEvents()
+            f:SetScript("OnEvent", nil)
+        end
+        -- Fail-open backstop: a pass whose moves all fail (an item locked
+        -- elsewhere: a mail attachment, the auction house, a trade) brings no
+        -- bag update, and the run would wait for good, the bags frozen and the
+        -- sound effects muted. A wait with no update SORT_STUCK_AFTER seconds
+        -- on ends the run as finished; a sort cut short can simply run again.
+        local function ArmBackstop(f, token)
+            local wait = {}
+            f._wait = wait
+            C_Timer.After(SORT_STUCK_AFTER, function()
+                if f._runToken ~= token or f._wait ~= wait then return end
+                StopWaiting(consolidateFrame)
+                StopWaiting(retryFrame)
+                FinishSort()
+            end)
+        end
 
         -----------------------------------------------------------------------
         --  Phase 1: consolidate partial stacks (smallest onto largest of the same itemID; the engine performs the combine).
@@ -226,14 +270,17 @@ local function CreateHeader()
             local runToken = {}
             consolidateFrame._runToken = runToken
             consolidateFrame:RegisterEvent("BAG_UPDATE")
+            ArmBackstop(consolidateFrame, runToken)
             consolidateFrame:SetScript("OnEvent", function(self)
                 if self._runToken ~= runToken then return end
+                self._wait = nil
                 self:UnregisterAllEvents()
                 consolidateRetry = consolidateRetry + 1
                 C_Timer.After(0.15, function()
                     if consolidateFrame._runToken ~= runToken then return end
                     if consolidateRetry < 30 and DoOnePass() then
                         self:RegisterEvent("BAG_UPDATE")
+                        ArmBackstop(self, runToken)
                     else
                         self:SetScript("OnEvent", nil)
                         onDone()
@@ -356,8 +403,20 @@ local function CreateHeader()
             return #moves > 0
         end
 
-        local function FinishSort()
-            EllesmereUI.ReleaseCVar("Sound_EnableSFX", sfxWas, "EllesmereUIBags")
+        -- combat: ended at the combat edge, so the bags refresh at once, still
+        -- outside the lockdown; the button waits out combat (ApplySortEnabled).
+        FinishSort = function(combat)
+            physicalActive = false
+            sortCombatStop:UnregisterAllEvents()
+            if not tookOver then
+                EllesmereUI.ReleaseCVar("Sound_EnableSFX", sfxWas, "EllesmereUIBags")
+            end
+            if combat then
+                EUI_Bags.refreshEnabled = true
+                EUI_Bags:RefreshInventory()
+                C_Timer.After(3, UnlockSort)
+                return
+            end
             C_Timer.After(0.3, function()
                 EUI_Bags.refreshEnabled = true
                 EUI_Bags:RefreshInventory()
@@ -374,8 +433,10 @@ local function CreateHeader()
             local runToken = {}
             retryFrame._runToken = runToken
             retryFrame:RegisterEvent("BAG_UPDATE")
+            ArmBackstop(retryFrame, runToken)
             retryFrame:SetScript("OnEvent", function(self)
                 if self._runToken ~= runToken then return end
+                self._wait = nil
                 self:UnregisterAllEvents()
                 retryCount = retryCount + 1
                 C_Timer.After(0.15, function()
@@ -383,6 +444,7 @@ local function CreateHeader()
                     local moved = ComputeAndExecute(bagMin, bagMax)
                     if moved and retryCount < 15 then
                         self:RegisterEvent("BAG_UPDATE")
+                        ArmBackstop(self, runToken)
                     else
                         self:SetScript("OnEvent", nil)
                         onDone()
@@ -401,6 +463,25 @@ local function CreateHeader()
             end)
         end
 
+        -- Registered after the mute (CVAR_UPDATE is synchronous: the mute's own
+        -- write is never heard, nor, past FinishSort's unregister, the
+        -- release's) and before the first pass, which can finish the whole run
+        -- at once.
+        sortCombatStop:SetScript("OnEvent", function(_, event, cvar)
+            if event == "CVAR_UPDATE" then
+                if type(cvar) == "string" and cvar:lower() == "sound_enablesfx" then
+                    tookOver = true
+                    sortCombatStop:UnregisterEvent("CVAR_UPDATE")
+                    EllesmereUI.DropHold("Sound_EnableSFX", "EllesmereUIBags")
+                end
+                return
+            end
+            StopWaiting(consolidateFrame)
+            StopWaiting(retryFrame)
+            FinishSort(true)
+        end)
+        sortCombatStop:RegisterEvent("PLAYER_REGEN_DISABLED")
+        sortCombatStop:RegisterEvent("CVAR_UPDATE")
         ConsolidateStacks(RunSort)
     end
 

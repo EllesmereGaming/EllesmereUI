@@ -69,6 +69,8 @@ local travelPrimaryHearthId
 
 local function TravelIsUsable(id)
     if not id then return false end
+    -- A race-restricted hearthstone toy counts only on the races that can use it.
+    if not EllesmereUI.CanUseHearthToy(id) then return false end
     if PlayerHasToy(id) then return true end
     if IsPlayerSpell(id) then return true end
     return (C_Item and C_Item.GetItemCount and C_Item.GetItemCount(id) or 0) > 0

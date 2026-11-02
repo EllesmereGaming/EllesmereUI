@@ -25,7 +25,8 @@ local SESSION_OVERALL = DM_SESSION and DM_SESSION.Overall
 local METRICS = {
     { key = "damage",      dmType = DM_TYPE and DM_TYPE.DamageDone  },
     { key = "damageTaken", dmType = DM_TYPE and DM_TYPE.DamageTaken },
-    { key = "interrupts",  dmType = DM_TYPE and DM_TYPE.Interrupts  },
+    -- A demon's kicks are its warlock's (PetOwner).
+    { key = "interrupts",  dmType = DM_TYPE and DM_TYPE.Interrupts, pets = true },
     -- One source row per death, most recent first; a real death carries a
     -- deathRecapID and totalAmount is not a count, so rows are counted.
     { key = "deaths",      dmType = DM_TYPE and DM_TYPE.Deaths, countRows = true },
@@ -163,7 +164,50 @@ local function MeterReady()
     return ok and ready == true
 end
 
-local function WalkSources(session, totals, perSec, identityRoster, countRows)
+-- The pet units and the units that own them.
+local PET_OWNER_UNIT = {
+    pet = "player", partypet1 = "party1", partypet2 = "party2", partypet3 = "party3", partypet4 = "party4",
+}
+
+-- The classes whose interrupt a demon casts (Spell Lock, Axe Toss).
+local PET_KICK_CLASS = {}
+for _, kick in pairs(EllesmereUI.KickData.INTERRUPTS) do
+    if kick.pet then PET_KICK_CLASS[kick.class] = true end
+end
+
+-- Whose kicks a row that is no member's own holds. The meter keeps a demon as
+-- a source of its own and files its kicks there, never under its warlock: a
+-- row of class WARLOCK with no spec icon. The member whose pet the row's GUID
+-- names owns it; failing that (a demon summoned again keeps its old row), the
+-- one member of a class whose interrupt a demon casts. With two such members
+-- and no pet to match, nobody.
+local function PetOwner(src, owners)
+    local raw = src.sourceGUID
+    if IsSecret(raw) then return nil end
+    local guid = PlainString(raw)
+    if guid then
+        for petUnit, ownerUnit in pairs(PET_OWNER_UNIT) do
+            if PlainString(UnitGUID(petUnit)) == guid then
+                local og = PlainString(UnitGUID(ownerUnit))
+                return og and owners[og] and og or nil
+            end
+        end
+    end
+    local icon = src.specIconID
+    if IsSecret(icon) or (icon ~= nil and icon ~= 0) then return nil end
+    local cls = PlainString(src.classFilename)
+    if not (cls and PET_KICK_CLASS[cls]) then return nil end
+    local found
+    for g, rec in pairs(owners) do
+        if rec.class == cls then
+            if found then return nil end
+            found = g
+        end
+    end
+    return found
+end
+
+local function WalkSources(session, totals, perSec, identityRoster, countRows, owners)
     local n = 0
     for _, src in ipairs(session.combatSources) do
         n = n + 1
@@ -172,9 +216,13 @@ local function WalkSources(session, totals, perSec, identityRoster, countRows)
         if countRows then
             local rid = PlainNumber(src.deathRecapID)
             if guid and rid and rid > 0 then totals[guid] = (totals[guid] or 0) + 1 end
-        elseif guid and total then
-            totals[guid] = total
-            if perSec then perSec[guid] = PlainNumber(src.amountPerSecond) end
+        elseif total then
+            local into = guid
+            if owners and not (into and owners[into]) then into = PetOwner(src, owners) end
+            if into then
+                totals[into] = (totals[into] or 0) + total
+                if perSec then perSec[into] = PlainNumber(src.amountPerSecond) end
+            end
         end
         if identityRoster and guid and identityRoster[guid] then
             local rec = identityRoster[guid]
@@ -191,7 +239,9 @@ end
 -- told apart from rows that are still classified.
 -- identityRoster, when given, also banks classFilename and specIconID onto it.
 -- Both are NeverSecret, so they read even when the amounts beside them do not.
-local function HarvestTotals(dmType, totals, perSec, identityRoster, countRows)
+-- owners, the run's roster for a metric whose pets count for their owners,
+-- adds each pet's row to its owner's total (PetOwner).
+local function HarvestTotals(dmType, totals, perSec, identityRoster, countRows, owners)
     if dmType == nil then return false end
     local ok, session = pcall(C_DamageMeter.GetCombatSessionFromType, SESSION_OVERALL, dmType)
     if not ok or type(session) ~= "table" or type(session.combatSources) ~= "table" then
@@ -200,7 +250,7 @@ local function HarvestTotals(dmType, totals, perSec, identityRoster, countRows)
     -- The whole walk sits inside the pcall, not just the call that produced
     -- the session: type() answers "table" for a secret table too, so indexing
     -- one raises rather than reading nil.
-    local walked, rows = pcall(WalkSources, session, totals, perSec, identityRoster, countRows)
+    local walked, rows = pcall(WalkSources, session, totals, perSec, identityRoster, countRows, owners)
     return true, walked and rows or nil
 end
 
@@ -642,7 +692,7 @@ local function StartCollecting(skipBaseline)
         local allRead = true
         for _, m in ipairs(METRICS) do
             local t = {}
-            if not HarvestTotals(m.dmType, t, nil, nil, m.countRows) then allRead = false end
+            if not HarvestTotals(m.dmType, t, nil, nil, m.countRows, m.pets and roster) then allRead = false end
             baseTotals[m.key] = t
         end
         -- Right after the reset at key start there is no session yet and the
@@ -712,7 +762,7 @@ local function HarvestInto(record, rst, base, baseDur, based, sg)
     for _, m in ipairs(METRICS) do
         wipe(totals); wipe(perSec)
         local isDamage = (m.key == "damage")
-        local read, rows = HarvestTotals(m.dmType, totals, isDamage and perSec or nil, isDamage and rst or nil, m.countRows)
+        local read, rows = HarvestTotals(m.dmType, totals, isDamage and perSec or nil, isDamage and rst or nil, m.countRows, m.pets and rst)
         if read then
             okAny = true
             local b = base[m.key]
@@ -778,13 +828,13 @@ end
 -- A checkpoint: a pull ended and the combat restriction lifted, so the Overall
 -- totals read plain. A row still classified keeps its last value, and the
 -- pull only counts as banked once the damage rows came back readable (or the
--- meter is simply empty).
-local function Checkpoint(sg)
+-- meter is simply empty). rst is the roster the seg belongs to.
+local function Checkpoint(sg, rst)
     if not MeterReady() then return end
     local readable = false
     for _, m in ipairs(METRICS) do
         wipe(scratchTotals)
-        local read, rows = HarvestTotals(m.dmType, scratchTotals, nil, nil, m.countRows)
+        local read, rows = HarvestTotals(m.dmType, scratchTotals, nil, nil, m.countRows, m.pets and rst)
         if read then
             local s = sg.snap[m.key]
             if not s then s = {}; sg.snap[m.key] = s end
@@ -1185,10 +1235,10 @@ local function OnEvent(_, event, ...)
         -- switching off is the checkpoint itself.
         local rtype, rstate = PlainNumber((select(1, ...))), PlainNumber((select(2, ...)))
         local R, S = Enum.AddOnRestrictionType, Enum.AddOnRestrictionState
-        local sg = ResetScope()
+        local sg, lr = ResetScope()
         if sg and rtype and R and S and rtype == R.Combat then
             if rstate == S.Inactive then
-                Checkpoint(sg)
+                Checkpoint(sg, lr and lr.rst or roster)
             else
                 sg.unbanked = true
             end

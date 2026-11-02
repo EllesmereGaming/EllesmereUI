@@ -503,6 +503,15 @@ local _divertedBuffCdIDs  = {}
 --- same way listing a spellID claims a spell. On ns, not a local: this file is at
 --- the 200-local cap.
 ns._divertedSlotCD = {}
+--- Item preset diversions, entry key (-itemID) -> barKey, and the key Blizzard's own
+--- potion / healthstone row renders under, by its spell category (Combat Potion 4,
+--- Health Potion 30, Healthstone 1711, Demonic Healthstone 2566: Blizzard's own table
+--- in CooldownViewerItemData.lua). Such a row carries no spell of its own, so the
+--- preset key is its one stable identity: it takes the preset's slot and settings,
+--- and the preset's own frame stands down while it is live (NativeItemKeyFor below,
+--- EUI_CDM_HookReanchor.lua Phase 1 and 3). On ns: 200-local cap.
+ns._divertedItemCD = {}
+ns._nativeItemKeyByCat = {}
 -- "Replace with Buff" (per-spell cd/util setting): buff identity -> the cooldown
 -- spellID whose slot the buff's viewer frame takes while the aura is active.
 -- Spell-keyed map is variant-expanded on write; the cooldownID map serves
@@ -693,6 +702,8 @@ function ns.RebuildSpellRouteMap()
     wipe(_divertedVarBaseCD)
     wipe(_divertedBuffCdIDs)
     wipe(ns._divertedSlotCD)
+    wipe(ns._divertedItemCD)
+    wipe(ns._nativeItemKeyByCat)
     wipe(ns._buffReplaceTarget)
     wipe(ns._buffReplaceTargetCd)
     wipe(ns._buffReplaceBars)
@@ -752,7 +763,13 @@ function ns.RebuildSpellRouteMap()
                 -- order as the sid maps above, so a custom bar outranks the
                 -- default (pass 3) and a ghost bar hides it (pass 4).
                 local slot = ns.SlotIDFromKey and ns.SlotIDFromKey(sid)
-                if slot then ns._divertedSlotCD[slot] = bd.key end
+                if slot then
+                    ns._divertedSlotCD[slot] = bd.key
+                elseif ns.IsItemPresetKey(sid) then
+                    -- Item preset entry: Blizzard's own row for that item (a potion
+                    -- or healthstone category row) routes to the bar listing it.
+                    ns._divertedItemCD[sid] = bd.key
+                end
             end
         end
     end
@@ -914,7 +931,46 @@ function ns.RebuildSpellRouteMap()
         end
     end
 
+    -- The key each of Blizzard's item rows renders under: a key of its category a
+    -- visible bar lists (the player's own placement), else one the ghost bar lists
+    -- (the row hides with it), else the category's first key (the reseed lists it
+    -- where the row renders).
+    local nativeKeys = ns.CDM_NATIVE_ITEM_KEYS
+    if nativeKeys then
+        local byKey = ns.barDataByKey
+        for cat, keys in pairs(nativeKeys) do
+            local pick
+            for i = 1, #keys do
+                local bar = ns._divertedItemCD[keys[i]]
+                local bdK = bar and byKey and byKey[bar]
+                if bar and not (bdK and bdK.isGhostBar) then pick = keys[i]; break end
+            end
+            if not pick then
+                for i = 1, #keys do
+                    if ns._divertedItemCD[keys[i]] then pick = keys[i]; break end
+                end
+            end
+            ns._nativeItemKeyByCat[cat] = pick or keys[1]
+        end
+    end
+
     _routeMapBuilt = true
+end
+
+-- Blizzard's own potion / healthstone row (a spell-category row of the Essential or
+-- Utility viewer): the preset key it renders under, or nil for any other row. Reads
+-- the RAW cooldown info (the merged copy folds categories). The second return says
+-- the row's live frame resolves a racial spell: such a row is a racial, never an
+-- item, whatever category it carries, and stays on the managed spell path.
+function ns.NativeItemKeyFor(info, frame)
+    local cat = info and info.spellCategoryID
+    if type(cat) ~= "number" or (issecretvalue and issecretvalue(cat)) then return nil, false end
+    local live = frame and frame.GetSpellID and frame:GetSpellID()
+    if type(live) == "number" and not (issecretvalue and issecretvalue(live))
+       and ns.ALL_RACIAL_SPELLS[live] then
+        return nil, true
+    end
+    return ns._nativeItemKeyByCat[cat], false
 end
 
 --- Lazily resolve a cooldownID to a bar key (per-frame at reanchor).
@@ -1000,6 +1056,22 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
             -- the fallback, uncached, and let the next clean pass route by
             -- slot.
             return viewerDefaultBar
+        end
+        -- Blizzard's own potion / healthstone row: no spell of its own either, so
+        -- it routes by the preset key its category maps to (NativeItemKeyFor) to
+        -- the bar listing that preset (a ghost listing hides it), else the viewer
+        -- default; cached like the slot route (the reseed that lists the key
+        -- rebuilds the map). A category UNREADABLE in restricted content resolves
+        -- transiently, uncached, like an unreadable slot.
+        local cat = info.spellCategoryID
+        if cat ~= nil then
+            if issecretvalue and issecretvalue(cat) then return viewerDefaultBar end
+            local itemKey = ns._nativeItemKeyByCat[cat]
+            if itemKey then
+                local itemBar = ns._divertedItemCD[itemKey] or viewerDefaultBar
+                _cdidRouteMap[cdID] = itemBar
+                return itemBar
+            end
         end
     end
 

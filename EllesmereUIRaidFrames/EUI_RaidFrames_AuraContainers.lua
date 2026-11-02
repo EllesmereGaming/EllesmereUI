@@ -717,14 +717,21 @@ local function ApplyRFDispelSlot(button, dd, style)
     tex:ClearAllPoints()
     if style.mode == "none" then
         tex:Hide()
-    elseif style.mode == "gradient" or style.mode == "gradient_sharp" then
+    elseif style.mode == "gradient" or style.mode == "gradient_sharp" or style.mode == "gradient_reverse" then
         tex:Show()
         tex:SetAllPoints(health)
-        tex:SetTexture(style.mode == "gradient_sharp" and GRADIENT_SHARP_TEXTURE or GRADIENT_TEXTURE)
+        tex:SetTexture(style.mode == "gradient" and GRADIENT_TEXTURE or GRADIENT_SHARP_TEXTURE)
+        -- Gradient Sharp Reverse: the sharp texture flipped vertically (bottom-up).
+        if style.mode == "gradient_reverse" then
+            tex:SetTexCoord(0, 1, 1, 0)
+        else
+            tex:SetTexCoord(0, 1, 0, 1)
+        end
         tex:SetVertexColor(r, g, b, alpha)
     elseif style.mode == "full" then
         tex:Show()
         tex:SetAllPoints(health)
+        tex:SetTexCoord(0, 1, 0, 1)
         tex:SetColorTexture(r, g, b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     else -- "fill"
@@ -735,22 +742,37 @@ local function ApplyRFDispelSlot(button, dd, style)
         -- Inverted Fill the rest of the bar up to the fill's HP edge, so a unit at
         -- full health still shows the wash.
         ns.RF_AnchorCurHealth(tex, health, fillTex, style.fillVert, style.fillInvert)
+        tex:SetTexCoord(0, 1, 0, 1)
         tex:SetColorTexture(r, g, b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     end
 
-    -- Type-colored border around the health bar.
+    -- Type-colored border around the health bar. One shared level for every type
+    -- (unit button + LVL_RAISE - 1, strips + 10): over the base border strips (+9),
+    -- under the hover/target/aggro raise (strips +11) and the text band (LVL_TEXT).
+    -- The Magic > Curse > ... priority rides the strips' OVERLAY sublevel
+    -- (2 + def.level), like the overlay's ARTWORK sublevel above.
     if (style.borderSize or 0) > 0 and PP then
         if not dd.borderHost then
             dd.borderHost = CreateFrame("Frame", nil, button)
             dd.borderHost:SetAllPoints(health)
         end
-        dd.borderHost:SetFrameLevel(health:GetFrameLevel() + 6 + def.level)
+        local ub = dd.rfUnitBtn
+        local bLvl = (ub and ub:GetFrameLevel() or health:GetFrameLevel() - 2) + ns.LVL_RAISE - 1
+        -- Change-guarded, stamped after the writes, like dd.lvl above.
+        local relevel = dd.bLvl ~= bLvl
+        if relevel then dd.borderHost:SetFrameLevel(bLvl) end
         if dd.borderMade then
             PP.UpdateBorder(dd.borderHost, style.borderSize, r, g, b, typeA)
         else
-            PP.CreateBorder(dd.borderHost, r, g, b, typeA, style.borderSize, "OVERLAY", 7)
+            PP.CreateBorder(dd.borderHost, r, g, b, typeA, style.borderSize, "OVERLAY", 2 + def.level)
             dd.borderMade = true
+        end
+        if relevel then
+            -- The strips' PP container keeps the level it was created at.
+            local ppC = PP.GetBorders(dd.borderHost)
+            if ppC then ppC:SetFrameLevel(bLvl + 1) end
+            dd.bLvl = bLvl
         end
         dd.borderHost:Show()
     elseif dd.borderHost then
@@ -1833,8 +1855,8 @@ local function BmEffectInit(button, dd, style, ind, health)
         local unitButton = button:GetParent() and button:GetParent():GetParent()
         if unitButton then
             -- Slot button sits AT the unit button's level: legacy renderer
-            -- (BM_ApplyEffectBorder) levels the host at parent+11 (static)/+14
-            -- (sweep) -- exact live parity.
+            -- (BM_ApplyEffectBorder) levels the host at parent + LVL_RAISE - 1,
+            -- under the hover raise and the text band -- exact live parity.
             button:SetFrameLevel(unitButton:GetFrameLevel())
             dd.borderHost = CreateFrame("Frame", nil, button)
             -- The Party Frames kit outlines the visible party frame (our

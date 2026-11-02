@@ -611,7 +611,9 @@ local function CreateAbsorbBar(button, healthBar)
     healPredBar:SetPoint("BOTTOMLEFT", healthBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
     healPredBar:SetWidth(healthBar:GetWidth())
     healPredBar:SetHeight(healthBar:GetHeight())
-    healPredBar:SetFrameLevel(healthBar:GetFrameLevel() + 1)
+    -- The absorb bars' level: its ARTWORK 2 fill draws over their ARTWORK 1,
+    -- so absorb opacity never hides incoming heals (as on the unit frames).
+    healPredBar:SetFrameLevel(healthBar:GetFrameLevel() + 3)
     healPredBar:Hide()
 
     -- Reduced max health bar: black bg + red striped overlay on the right side (forward-declared above for ReanchorAbsorbToFill).

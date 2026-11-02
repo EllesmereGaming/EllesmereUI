@@ -2326,7 +2326,7 @@ end
 --  (LayoutRail: a ready lane right after the ready live icons, and the
 --  on-cooldown live icons step out for it through the rail's shift chain;
 --  two kickers on one marker take lanes side by side). Markers are learned
---  from addon messages on the party channel (open before a key starts;
+--  from addon messages on the group's channel (open before a key starts;
 --  inside one the lockdown drops them): "F" carries a member's marker, "R"
 --  carries it and asks everyone inside for theirs. Focus Announce sends an
 --  "F" beside its chat line at the ready check; without one, a zone-in with
@@ -2334,8 +2334,8 @@ end
 --  client inside answers, and a marker set or cleared inside is told at once.
 --  Markers are cached by member GUID, saved so a reload keeps them inside the
 --  same instance, and forgotten at every zone-in. Rails exist only on marked
---  hostile plates while a kicker is cached; the addon channel is heard only
---  inside a party instance.
+--  hostile plates while a kicker is cached; markers are sent and heard only
+--  inside a Mythic dungeon or key, where the tracker itself runs.
 --------------------------------------------------------------------------------
 Rails.PREFIX = "EUIKT"
 Rails.count = 0             -- rails on plates (the driver follows them like icons)
@@ -2346,7 +2346,7 @@ Rails.laneOf = {}           -- kicker unit -> index in kickers
 Rails.railOf = {}           -- plate unit -> its rail
 Rails.free = {}             -- parked rails
 Rails.liveHidden = {}       -- kicker unit -> true while their live icon sits on a plate
-Rails.inst = nil            -- the party instance the cache belongs to (GetInstanceInfo's instanceID)
+Rails.inst = nil            -- the dungeon the cache belongs to (GetInstanceInfo's instanceID)
 Rails.pendingRestore = false
 Rails.on = false            -- the marker frame is live (SyncEvents: the plates are on)
 Rails.marker = 0            -- your Focus Announce marker while the tracker is on (SyncAnnounce), else 0
@@ -2356,8 +2356,11 @@ local RAIL_SPAN = 8         -- indexes of fill travel on either side of a kicker
 local ASK_GAP = 2           -- seconds between requests: a zone-in's roster storm asks once
 local REPLY_DELAY = 1       -- seconds an answer waits, so a burst of requests gets one
 
--- The party instance's ID, or nil outside one.
-local function CurrentInstance()
+-- The ID of the dungeon markers are shared in: a Mythic dungeon or key, the
+-- tracker's own content (the Where bucket, read live), so nothing is sent or
+-- heard in a dungeon where the tracker never shows; nil anywhere else.
+local function MarkerInstance()
+    if MTWhere.Bucket() ~= "dungeon_mythic" then return nil end
     local _, iType, _, _, _, _, _, inst = GetInstanceInfo()
     if iType ~= "party" then return nil end
     return inst
@@ -2419,7 +2422,7 @@ end
 -- A member's marker (0: they have none now).
 function Rails.Learn(guid, marker)
     Rails.markerOf[guid] = (marker >= 1 and marker <= 8) and marker or nil
-    Rails.inst = CurrentInstance()
+    Rails.inst = MarkerInstance()
     SaveCache()
     Rails.SyncKickers()
     Rails.SyncAll()
@@ -2438,7 +2441,7 @@ end
 -- they were learned in. Read-only on the record.
 local function RestoreMarkers()
     wipe(Rails.markerOf)
-    local inst = CurrentInstance()
+    local inst = MarkerInstance()
     Rails.inst = inst
     local rec = SavedRecord()
     if rec and inst and rec.inst == inst and type(rec.m) == "table" then
@@ -2452,23 +2455,37 @@ local function RestoreMarkers()
     Rails.SyncAll()
 end
 
--- Whether the group is a full party inside a dungeon: the request edges fire
+-- The chat type that reaches the whole group, as Blizzard's edit box picks it:
+-- a Dungeon Finder group (which a party that queued together is in as well)
+-- speaks on INSTANCE_CHAT, a party of your own on PARTY (sent from a Dungeon
+-- Finder group alone, PARTY only brings back "You aren't in a party."); nil
+-- solo and in a raid.
+function Rails.Channel()
+    if IsInRaid() then return nil end
+    if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then return "INSTANCE_CHAT" end
+    if IsInGroup(LE_PARTY_CATEGORY_HOME) then return "PARTY" end
+    return nil
+end
+
+-- Whether the group is a full party inside a Mythic dungeon or key: the request edges fire
 -- only then (owner 2026-10-21), the ready check whatever the count.
 local function FullPartyInDungeon()
-    if not CurrentInstance() then return false end
-    if not IsInGroup() or IsInRaid() then return false end
+    if not MarkerInstance() then return false end
+    if not Rails.Channel() then return false end
     return GetNumGroupMembers() == 5
 end
 
 -- Your marker to every client inside, on the addon channel alone (never the
--- chat line): "F" tells it, "R" tells it and asks for theirs; a 0 clears a
--- marker you no longer have. Before a key starts it goes through; inside one
--- the lockdown drops it, and the result is not read.
+-- chat line) of the group's chat type (Rails.Channel; solo or in a raid
+-- nothing is sent): "F" tells it, "R" tells it and asks for theirs; a 0
+-- clears a marker you no longer have. Before a key starts it goes through;
+-- inside one the lockdown drops it, and the result is not read.
 local function SendMarker(kind)
     local me = PlainString(UnitGUID("player"))
-    if not me then return end
+    local channel = Rails.Channel()
+    if not (me and channel) then return end
     Rails.Learn(me, Rails.marker)
-    C_ChatInfo.SendAddonMessage(Rails.PREFIX, kind .. "\t" .. Rails.marker .. "\t" .. me, "PARTY")
+    C_ChatInfo.SendAddonMessage(Rails.PREFIX, kind .. "\t" .. Rails.marker .. "\t" .. me, channel)
 end
 
 -- A request on the edges where a client may have missed earlier sends: your
@@ -2494,7 +2511,7 @@ local function Reply()
     Rails.replyArmed = true
     C_Timer.After(REPLY_DELAY, function()
         Rails.replyArmed = false
-        if Rails.on and CurrentInstance() and IsInGroup() and not IsInRaid() then SendMarker("F") end
+        if Rails.on and MarkerInstance() then SendMarker("F") end
     end)
 end
 
@@ -3102,7 +3119,7 @@ local function OnMarkerEvent(_, event, a1, a2, a3)
             ForgetMarkers()
         end
     elseif event == "CHAT_MSG_ADDON" then
-        if a1 ~= Rails.PREFIX or a3 ~= "PARTY" then return end
+        if a1 ~= Rails.PREFIX or (a3 ~= "PARTY" and a3 ~= "INSTANCE_CHAT") then return end
         local text = PlainString(a2)
         if not text then return end
         local kind, mk, guid = text:match("^([FR])\t([0-8])\t(Player%-%d+%-%x+)$")
@@ -3115,13 +3132,14 @@ local function OnMarkerEvent(_, event, a1, a2, a3)
 end
 
 -- The zone settled after a loading screen (the Where watcher's RECHECK): the
--- addon channel and the roster are heard only inside a party instance, a
+-- addon channel and the roster are heard only inside a Mythic dungeon or key
+-- (MarkerInstance), a
 -- pending login or reload restore runs here, where the instance reads true,
 -- and a zone-in or a fresh enable asks the group (ask).
 function Rails.Settled(ask)
     local f = Rails.frame
     if not f then return end
-    if CurrentInstance() then
+    if MarkerInstance() then
         f:RegisterEvent("CHAT_MSG_ADDON")
         f:RegisterEvent("GROUP_ROSTER_UPDATE")
     else
@@ -3398,15 +3416,16 @@ end
 
 local function Announce(marker)
     if not MythicDungeon() then return end
-    if not IsInGroup() or IsInRaid() then return end
-    C_ChatInfo.SendChatMessage(AnnounceLine(marker), "PARTY")
+    local channel = Rails.Channel()
+    if not channel then return end
+    C_ChatInfo.SendChatMessage(AnnounceLine(marker), channel)
     -- The same marker on the addon channel for the marker defaults (Rails):
     -- before the key starts, as here, it still goes through.
     SendMarker("F")
 end
 
 -- From KT_Refresh: keeps the READY_CHECK registration with the setting, and
--- a marker set or cleared inside a dungeon tells every client inside at once
+-- a marker set or cleared inside a Mythic dungeon or key tells every client inside at once
 -- (the marker defaults need no ready check for it).
 local function SyncAnnounce(cfg)
     local marker = (cfg and cfg.enabled == true) and tonumber(cfg.focusMarker) or 0
@@ -3414,7 +3433,7 @@ local function SyncAnnounce(cfg)
     announceMarker = marker
     if marker ~= Rails.marker then
         Rails.marker = marker
-        if Rails.on and CurrentInstance() and IsInGroup() and not IsInRaid() then SendMarker("F") end
+        if Rails.on and MarkerInstance() then SendMarker("F") end
     end
     if marker == 0 then
         if announceFrame then announceFrame:UnregisterEvent("READY_CHECK") end

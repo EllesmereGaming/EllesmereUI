@@ -518,6 +518,8 @@ do
         end
         return n
     end
+    -- Unit Frames widens the player buff row by the same cells.
+    ns.PAB_ActiveEnchantCount = ActiveEnchantCount
 
     -- Aura cap for the Buffs bar: "Max Icons" is the whole bar's budget, so the
     -- cells actually showing come off it and the rendered total stays at the

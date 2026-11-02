@@ -324,20 +324,21 @@ local function GetLowestContentFrame()
     local modules = otf.modules or otf.MODULES
     if not modules then return nil end
     local lowestModule
-    local _scenarioTracker = _G.ScenarioObjectiveTracker
     local _widgetTracker = _G.UIWidgetObjectiveTracker
     for _, tracker in ipairs(modules) do
-        -- Skip ScenarioObjectiveTracker: its M+ challenge mode blocks
-        -- aren't quest content. Showing our bg/top-line around them
-        -- during M+ produces visible chrome with no actual quests.
-        --
         -- Skip UIWidgetObjectiveTracker: its blocks share Blizzard's widget
         -- pool with tooltip/AreaPOI widgets. ANY method call here (GetBottom,
         -- GetObjectType, IsShown) taints the pool, causing "attempt to compare
         -- a secret number value" in LayoutFrame.lua when GameTooltip later lays
         -- out an AreaPOI widget set. See HookTracker in the Skin module, which
         -- refuses to touch these frames for the same reason.
-        if tracker == _scenarioTracker or tracker == _widgetTracker then
+        --
+        -- ScenarioObjectiveTracker counts: a zone event's, a delve's or a
+        -- dungeon's objectives are content the background belongs behind, and
+        -- with no quest tracked they are the only content there is (its module
+        -- frame is a fixed XML frame, never a pooled widget). A key's blocks
+        -- stay bare through ResizeBGToContent's challenge mode gate.
+        if tracker == _widgetTracker then
             -- skip
         -- EndLayout hides a module that has nothing to display, so IsShown is
         -- the content gate, and a later module sits further down. Anchoring to

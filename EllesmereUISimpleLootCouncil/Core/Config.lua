@@ -287,9 +287,8 @@ end
 
 
 
-
 function Config:RulesSettled()
-    return shared ~= nil or OwnsDelegation()
+    return shared ~= nil
         or (addon.Council and addon.Council.IsAuthor and addon.Council.IsAuthor()) or false
 end
 

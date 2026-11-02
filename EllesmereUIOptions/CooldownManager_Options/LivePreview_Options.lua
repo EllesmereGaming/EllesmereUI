@@ -1787,10 +1787,13 @@ local function BuildCDMLivePreview(parent, yOff)
                         -- Empty Slot: blank placeholder, no icon/tooltip identity.
                         slot._previewIsEmptySlot = true
                     elseif id <= -100 then
-                        -- On-use bag item: negated itemID
-                        tex = C_Item.GetItemIconByID(-id)
+                        -- On-use bag item: negated itemID. The art and the item the
+                        -- live icon shows (a resolved potion variant, or Blizzard's
+                        -- own row's art), so the preview matches the bar in game.
+                        local dispID
+                        tex, dispID = ns.ItemEntryPreview(bd.key, id)
                         slot._previewItemID = -id
-                        slot._previewTipItemID = -id
+                        slot._previewTipItemID = dispID or -id
                     elseif id < 0 then
                         -- Trinket slot: get icon from equipped item
                         local itemID = GetInventoryItemID("player", -id)

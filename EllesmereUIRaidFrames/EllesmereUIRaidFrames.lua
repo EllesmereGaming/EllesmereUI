@@ -48,7 +48,8 @@ end
 --  icons, Buff Manager icons/squares/bars) share one band ABOVE the
 --  threat/dispel/base border so the threat border renders behind them; each
 --  aura unit renders children (cooldown/border/text) up to +5 above base.
---  Bottom to top: base border (+8/strips +9) -> hover/target/aggro raise (LVL_RAISE,
+--  Bottom to top: base border (+8/strips +9) -> dispel ring and Buff Manager
+--  Frame Border (LVL_RAISE - 1, strips +10) -> hover/target/aggro raise (LVL_RAISE,
 --  strips +11, covering base/threat/dispel border strips) -> text band
 --  (LVL_TEXT: name/health text, role icon, leader crown) -> aura band ->
 --  marker carrier (also hosts ready-check/summon/rez icons). The raise sits
@@ -60,9 +61,10 @@ end
 -------------------------------------------------------------------------------
 ns.LVL_DISPEL_OVERLAY = 7  -- Blizzard private-aura dispel gradient: below the border (+8) and name/health text (LVL_TEXT) so it renders BEHIND them (like the regular dispel overlay), but above the health bar so it stays visible. Per-slot private-aura icons stay above at LVL_AURA.
 ns.LVL_ROLE_BEHIND = 7  -- role icon with Show Behind Border: just under the base border (+8; strips +9)
-ns.LVL_RAISE  = 10   -- hover/target/aggro-recolor border (strips +11: above base strips +9;
-                     -- ties threat/dispel strips +11 but the raise container is
-                     -- created later so it wins). MUST stay below ns.LVL_TEXT:
+ns.LVL_RAISE  = 10   -- hover/target/aggro-recolor border (strips +11: above base strips +9
+                     -- and the dispel / Buff Manager border strips +10; ties threat
+                     -- strips +11 but the raise container is created later so it
+                     -- wins). MUST stay below ns.LVL_TEXT:
                      -- UpdateBorder creates strips lazily AFTER the text
                      -- carriers, so a tie with text puts the border on top.
 ns.LVL_TEXT   = 12   -- text band: name/health text, role icon, leader crown;
@@ -642,7 +644,7 @@ local defaults = {
 
         -- Dispels
         dispelBorderSize = 0,
-        dispelOverlay    = "fill",   -- "none", "fill", "full", "gradient", "gradient_sharp"
+        dispelOverlay    = "fill",   -- "none", "fill", "full", "gradient", "gradient_sharp", "gradient_reverse"
         dispelOverlayOpacity = 100,
         dispelShowAll             = true,   -- true = highlight any dispellable debuff; false = only player-dispellable
         dispelOverlayPosition     = 0,      -- 0=Top, 1=Bottom, 2=Left (aura-organization-type for private aura dispel container)

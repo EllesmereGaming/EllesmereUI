@@ -159,6 +159,49 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI.BlankRowCfg()
                 ); y = y - h
 
+                -- auto deposit/withdraw (not on wow forever: no warband bank there).
+                -- account-wide, so a shared profile never moves anyone's gold
+                local AutoGold = BagsNS and BagsNS.AutoGold
+                if AutoGold then
+                    _, h = W:SectionHeader(parent, "WARBAND GOLD", y); y = y - h
+                    local goldRow
+                    goldRow, h = W:DualRow(parent, y,
+                        { type="toggle", text="Auto Deposit/Withdraw",
+                          tooltip="When you open the bank, gold moves between this character and your warband bank so the character keeps the Amount. Gold above it is deposited, and gold missing is withdrawn, as far as the warband bank holds it. Applies to all characters.",
+                          getValue=function() return AutoGold.Enabled() end,
+                          setValue=function(v)
+                              AutoGold.Set("bagAutoGold", v and true or nil)
+                              EllesmereUI:RefreshPage()
+                          end },
+                        { type="input", text="Amount", inputStyle="popup", inputJustify="CENTER", placeholder="Amount", inputWidth=110,
+                          tooltip="The gold each character keeps on hand when the bank opens. Leave it empty to move nothing.",
+                          disabled=function() return not AutoGold.Enabled() end,
+                          disabledTooltip="Turn on Auto Deposit/Withdraw first.",
+                          getValue=function()
+                              local g = AutoGold.Target()
+                              return g and tostring(g) or ""
+                          end,
+                          setValue=function(text)
+                              -- Digits only, so 5,000 and 5000g read as 5000; empty clears it.
+                              local g = tonumber((text or ""):gsub("%D", ""), 10)
+                              AutoGold.Set("bagAutoGoldAmount", g and math.min(g, 9999999) or nil)
+                          end }
+                    ); y = y - h
+                    if not EllesmereUI._prebuilding then
+                        EllesmereUI.BuildInlineCog(goldRow._leftRegion, {
+                            title = "Auto Deposit/Withdraw",
+                            disabled = function() return not AutoGold.Enabled() end,
+                            disabledTooltip = "Auto Deposit/Withdraw",
+                            rows = {
+                                { type="toggle", label="Post Result to Chat",
+                                  tooltip="Posts a chat line with the amount each time gold is deposited or withdrawn.",
+                                  get=function() return AutoGold.ChatEnabled() end,
+                                  set=function(v) AutoGold.Set("bagAutoGoldChat", v and true or nil) end },
+                            },
+                        })
+                    end
+                end
+
                 -- offline bank (not on wow forever). account-wide, like the data it saves
                 local Offline = BagsNS and BagsNS.Offline
                 if Offline then
@@ -1222,6 +1265,10 @@ initFrame:SetScript("OnEvent", function(self)
                 -- offline bank: its switches and every saved inventory
                 EllesmereUIDB.bagOfflineBank = nil
                 EllesmereUIDB.bagTooltipCounts = nil
+                -- auto deposit/withdraw
+                EllesmereUIDB.bagAutoGold = nil
+                EllesmereUIDB.bagAutoGoldAmount = nil
+                EllesmereUIDB.bagAutoGoldChat = nil
             end
             local bagsNS = EllesmereUI._ModuleNS and EllesmereUI._ModuleNS["EllesmereUIBags"]
             local Offline = bagsNS and bagsNS.Offline
@@ -1230,6 +1277,7 @@ initFrame:SetScript("OnEvent", function(self)
                 Offline.Sync()
                 Offline.SyncButton()
             end
+            if bagsNS and bagsNS.AutoGold then bagsNS.AutoGold.Sync() end
             EllesmereUI:InvalidatePageCache()
         end,
     })

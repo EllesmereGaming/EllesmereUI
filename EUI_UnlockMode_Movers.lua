@@ -175,7 +175,7 @@ end
 
 -- Clickable row: a highlight texture and a left label. Comes back with no
 -- scripts, the highlight clear, the label idle grey, anchored on its left only
--- and wrapping, and the arrow and flyout of an earlier use hidden.
+-- and wrapping, and the arrow, check box and flyout of an earlier use hidden.
 function MenuPool.Item(menu, y, h)
     local p = menu._pool
     local n = p.nItems + 1
@@ -208,9 +208,40 @@ function MenuPool.Item(menu, y, h)
     lbl:SetWordWrap(true)
     lbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
     if it._arrow then it._arrow:Hide() end
+    if it._check then it._check:Hide() end
     if it._sub then it._sub:Hide() end
     it:Show()
     return it, hl, lbl
+end
+
+-- Check box on a pooled row's left (the suite's checkbox look, filled in the
+-- menu's linked orange while checked); the label moves to its right. dim
+-- greys the box on a row that cannot be picked.
+function MenuPool.Check(it, checked, dim)
+    local box = it._check
+    if not box then
+        box = CreateFrame("Frame", nil, it)
+        box:SetSize(12, 12)
+        box:SetPoint("LEFT", it, "LEFT", 10, 0)
+        local bg = box:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.114, 0.106, 0.099, 1)
+        box._brd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6)
+        local fill = box:CreateTexture(nil, "ARTWORK")
+        EllesmereUI.PP.SetInside(fill, box, 2, 2)
+        fill:SetColorTexture(1, 0.7, 0.3, 1)
+        box._fill = fill
+        it._check = box
+    end
+    box._fill:SetShown(checked and true or false)
+    if checked then box._brd:SetColor(1, 0.7, 0.3, 0.8)
+    else box._brd:SetColor(0.4, 0.4, 0.4, 0.6) end
+    box:SetAlpha(dim and 0.3 or 1)
+    box:Show()
+    local lbl = it._lbl
+    lbl:ClearAllPoints()
+    lbl:SetPoint("LEFT", box, "RIGHT", 6, 0)
+    return box
 end
 
 -- Right-pointing arrow on a pooled row (a row that opens a flyout).
@@ -3295,6 +3326,8 @@ local function CreateMover(barKey)
 
     local function BuildCogMenu()
         if mover._cogEdgeSub then mover._cogEdgeSub:Hide() end
+        -- A fresh build shows the links as they stand (see CloseEdgeSub).
+        mover._cogEdgeDirty = nil
         -- Cleared up front: the rows below point these at this open's boxes, and
         -- a box from an earlier open may now serve another row.
         mover._syncCogPos = nil
@@ -3906,8 +3939,14 @@ local function CreateMover(barKey)
         -- The minimap and kin carry it while EllesmereUI owns their position. Only a
         -- Blizzard-owned position must stay out, or the two fight over the frame.
         local NO_SCREEN_ANCHOR = { QueueStatus = true }   -- Blizzard Edit Mode owns it
+        -- An element that places itself (ownsPosition: main chat) takes no
+        -- screen-edge link either; one that keeps its own screen relation
+        -- (getScreenPoint / setScreenPoint) gets the same menu through those.
+        local seElem = registeredElements[barKey]
+        local ownScreen = seElem and seElem.ownsPosition and seElem.getScreenPoint
+            and seElem.setScreenPoint and seElem or nil
         if not NO_SCREEN_ANCHOR[barKey] and not ns.IsMoverPosLocked(barKey)
-           and not (registeredElements[barKey] and registeredElements[barKey].ownsPosition) then
+           and (ownScreen or not (seElem and seElem.ownsPosition)) then
             -- Primary link to a screen edge. The capture comes first: on an
             -- offset-less link ApplyAnchorPosition's side-snap branch stores the FLUSH
             -- offsets (0/0) before its no-move capture runs, and the next apply would
@@ -3956,16 +3995,49 @@ local function CreateMover(barKey)
                 if mover.RefreshAnchoredText then mover:RefreshAnchoredText() end
             end
             -- The side says where the element sits relative to the strip, so it is
-            -- the opposite of the edge it hugs. The last row carries no key: it
-            -- clears the link, which is what centered means here -- the element
+            -- the opposite of the edge it hugs; opp is the edge across the screen,
+            -- which a checked edge greys out. The last row carries no key: it
+            -- clears the links, which is what centered means here -- the element
             -- follows the screen center again, like every unanchored element.
             local EDGE_ITEMS = {
-                { key = "SCREEN_LEFT",   side = "RIGHT",  text = "Left" },
-                { key = "SCREEN_RIGHT",  side = "LEFT",   text = "Right" },
-                { key = "SCREEN_TOP",    side = "BOTTOM", text = "Top" },
-                { key = "SCREEN_BOTTOM", side = "TOP",    text = "Bottom" },
+                { key = "SCREEN_LEFT",   side = "RIGHT",  opp = "SCREEN_RIGHT",  text = "Left" },
+                { key = "SCREEN_RIGHT",  side = "LEFT",   opp = "SCREEN_LEFT",   text = "Right" },
+                { key = "SCREEN_TOP",    side = "BOTTOM", opp = "SCREEN_BOTTOM", text = "Top" },
+                { key = "SCREEN_BOTTOM", side = "TOP",    opp = "SCREEN_TOP",    text = "Bottom" },
                 { text = "Center" },
             }
+
+            -- The point an element with its own screen relation is left with when
+            -- an edge is checked (on) or unchecked: Left and Right set or clear its
+            -- horizontal half, Top and Bottom its vertical one. No edge is Center.
+            local function ScreenPointWith(cur, edgeKey, on)
+                if not edgeKey then return "CENTER" end
+                cur = cur or "CENTER"
+                local v = cur:match("TOP") or cur:match("BOTTOM") or ""
+                local h = cur:match("LEFT") or cur:match("RIGHT") or ""
+                if edgeKey == "SCREEN_LEFT" then h = on and "LEFT" or ""
+                elseif edgeKey == "SCREEN_RIGHT" then h = on and "RIGHT" or ""
+                elseif edgeKey == "SCREEN_TOP" then v = on and "TOP" or ""
+                else v = on and "BOTTOM" or "" end
+                local p = v .. h
+                return p ~= "" and p or "CENTER"
+            end
+
+            -- The cross-axis edge goes and the primary link takes its axis back.
+            -- Rebase the link's offsets from the live rect first, or the element
+            -- jumps to wherever that axis pointed before the edge took over.
+            local function DropCrossEdge(ai)
+                ai.edge = nil
+                EllesmereUI._anchorLinksStamp = (EllesmereUI._anchorLinksStamp or 0) + 1
+                local offX, offY = EllesmereUI._CaptureAnchorOffsets(barKey, ai.target, ai.side)
+                if offX ~= nil then ai.offsetX, ai.offsetY = offX, offY end
+                -- Growth bars: the pin outranks the offsets on its axis, so recapture
+                -- it from the current position too, the way the drag-stop path does.
+                if EllesmereUI._unlockCaptureGrowPin then
+                    EllesmereUI._unlockCaptureGrowPin(barKey, ai, ai.side)
+                end
+                UM.ApplyAnchorPosition(barKey, ai.target, ai.side, nil, true)
+            end
 
             -- Center: drop the SCREEN anchors only. A link to another element stays,
             -- that one belongs to the link button.
@@ -3988,22 +4060,31 @@ local function CreateMover(barKey)
                         end
                     end
                 else
-                    -- The element link takes its axis back. Rebase its offsets from the
-                    -- live rect first, or the element jumps to wherever that axis
-                    -- pointed before the edge took over.
-                    ai.edge = nil
-                    EllesmereUI._anchorLinksStamp = (EllesmereUI._anchorLinksStamp or 0) + 1
-                    local offX, offY = EllesmereUI._CaptureAnchorOffsets(barKey, ai.target, ai.side)
-                    if offX ~= nil then ai.offsetX, ai.offsetY = offX, offY end
-                    -- Growth bars: the pin outranks the offsets on its axis, so recapture
-                    -- it from the current position too, the way the drag-stop path does.
-                    if EllesmereUI._unlockCaptureGrowPin then
-                        EllesmereUI._unlockCaptureGrowPin(barKey, ai, ai.side)
-                    end
-                    UM.ApplyAnchorPosition(barKey, ai.target, ai.side, nil, true)
+                    DropCrossEdge(ai)
                 end
                 UM.hasChanges = true
                 if mover.RefreshAnchoredText then mover:RefreshAnchoredText() end
+            end
+
+            -- Unchecking an edge drops that edge alone. A primary edge hands its
+            -- slot to the cross-axis edge when there is one (the link a pick of
+            -- that edge makes); a lone primary edge goes the way Center takes it.
+            local function DropScreenEdge(edgeKey)
+                if InCombatLockdown() then return end
+                local ai = GetAnchorInfo(barKey)
+                if not ai then return end
+                local cross = ai.edge
+                if cross and cross.key == edgeKey then
+                    DropCrossEdge(ai)
+                    UM.hasChanges = true
+                    if mover.RefreshAnchoredText then mover:RefreshAnchoredText() end
+                elseif ai.target == edgeKey then
+                    if cross and cross.key then
+                        LinkToScreenEdge(cross.key, cross.side)
+                    else
+                        ClearScreenAnchor()
+                    end
+                end
             end
 
             -- Divider: the screen anchor is a state, not another one-shot action.
@@ -4013,10 +4094,29 @@ local function CreateMover(barKey)
             local seItem, seLbl, seHl = MakeActionItem("Relative to Screen", function() end)
             local seArrow = MenuPool.Arrow(seItem, ARROW_RIGHT_ICON, 0.7)
             -- Linked to an edge: the row wears the same orange as an anchored mover.
-            local aiSE = GetAnchorInfo(barKey)
-            local seLinked = aiSE and ((aiSE.target and EllesmereUI.IsScreenEdgeKey(aiSE.target))
-                or (aiSE.edge and aiSE.edge.key ~= nil))
-            if seLinked then seLbl:SetTextColor(1, 0.7, 0.3, 1) end
+            local function SERestColor()
+                local linked
+                if ownScreen then
+                    linked = ownScreen.getScreenPoint(barKey) ~= "CENTER"
+                else
+                    local ai = GetAnchorInfo(barKey)
+                    linked = ai and ((ai.target and EllesmereUI.IsScreenEdgeKey(ai.target))
+                        or (ai.edge and ai.edge.key ~= nil))
+                end
+                if linked then seLbl:SetTextColor(1, 0.7, 0.3, 1)
+                else seLbl:SetTextColor(0.75, 0.75, 0.75, 0.9) end
+            end
+            SERestColor()
+
+            -- Leaving the flyout closes it. A check made in it changed the links
+            -- the cog menu's anchor rows show, so the menu is built again then:
+            -- built under the cursor, it would push the flyout away mid-pick.
+            local function CloseEdgeSub(sub)
+                sub:Hide()
+                if mover._cogEdgeDirty and cogMenu and cogMenu:IsShown() then
+                    BuildCogMenu()
+                end
+            end
 
             local function ShowEdgeSub()
                 -- Built once per mover and kept on it, parented to unlockFrame;
@@ -4035,49 +4135,85 @@ local function CreateMover(barKey)
                 seSub:ClearAllPoints()
                 seSub:SetPoint("TOPLEFT", seItem, "TOPRIGHT", 2, 0)
                 MenuPool.Begin(seSub, false)
-                -- Two rows can be active at once: a primary edge plus the cross-axis
-                -- one. Center is active exactly while neither exists.
+                -- Two rows can be checked at once: a primary edge plus the cross-axis
+                -- one. Center is checked exactly while neither exists.
                 local curAi = GetAnchorInfo(barKey)
                 local curT = curAi and curAi.target
                 curT = (curT and EllesmereUI.IsScreenEdgeKey(curT)) and curT or nil
                 local curEdge = curAi and curAi.edge and curAi.edge.key or nil
+                local centered = curAi == nil
+                if ownScreen then
+                    -- Its point gives both rows: the horizontal half and the
+                    -- vertical one.
+                    local p = ownScreen.getScreenPoint(barKey) or "CENTER"
+                    curT = (p:find("LEFT", 1, true) and "SCREEN_LEFT")
+                        or (p:find("RIGHT", 1, true) and "SCREEN_RIGHT") or nil
+                    curEdge = (p:find("TOP", 1, true) and "SCREEN_TOP")
+                        or (p:find("BOTTOM", 1, true) and "SCREEN_BOTTOM") or nil
+                    centered = p == "CENTER"
+                end
+                -- A check box per row, and the flyout stays open: a click checks or
+                -- unchecks a row and the rows are drawn again in place.
+                local foci = GetMouseFoci()
                 local seY = -4
                 for i = 1, #EDGE_ITEMS do
                     local e = EDGE_ITEMS[i]
-                    -- Center is the active row exactly while nothing is linked.
-                    local isCur = (e.key ~= nil and (e.key == curT or e.key == curEdge))
-                        or (e.key == nil and curAi == nil)
+                    local checked = (e.key ~= nil and (e.key == curT or e.key == curEdge))
+                        or (e.key == nil and centered)
+                    -- An edge cannot join the one across the screen from it, and
+                    -- Center has nothing to clear while no screen edge is checked
+                    -- (an element linked to another element only).
+                    local disabled
+                    if e.key then
+                        disabled = e.opp == curT or e.opp == curEdge
+                    else
+                        disabled = not centered and curT == nil and curEdge == nil
+                    end
                     local r, g, b, a = 0.75, 0.75, 0.75, 0.9
-                    if isCur then r, g, b, a = 1, 0.7, 0.3, 1 end
+                    if checked then r, g, b, a = 1, 0.7, 0.3, 1 end
+                    if disabled then a = 0.3 end
                     local si, sHl, sLbl = MenuPool.Item(seSub, seY, ITEM_H)
-                    sHl:SetColorTexture(1, 1, 1, isCur and 0.04 or 0)
+                    MenuPool.Check(si, checked, disabled)
+                    sHl:SetColorTexture(1, 1, 1, checked and 0.04 or 0)
                     sLbl:SetTextColor(r, g, b, a)
                     sLbl:SetPoint("RIGHT", si, "RIGHT", -8, 0)
                     sLbl:SetWordWrap(false)
                     sLbl:SetText(EllesmereUI.L(e.text))
-                    si:SetScript("OnEnter", function()
-                        sHl:SetColorTexture(1, 1, 1, 0.08)
-                        if isCur then sLbl:SetTextColor(1, 0.8, 0.5, 1)
-                        else sLbl:SetTextColor(1, 1, 1, 1) end
-                        -- Preview: show the line the element would hold on to.
-                        if e.key then EllesmereUI._ShowScreenEdgeMarker(e.key) end
-                    end)
-                    si:SetScript("OnLeave", function()
-                        sHl:SetColorTexture(1, 1, 1, isCur and 0.04 or 0)
-                        sLbl:SetTextColor(r, g, b, a)
-                        if e.key then EllesmereUI._HideScreenEdgeMarker(e.key) end
-                    end)
-                    si:SetScript("OnClick", function()
-                        CloseCogMenu()
-                        if e.key then
-                            SetScreenAnchor(e.key, e.side)
-                            -- Confirmation: the menu is gone, so the line is the only
-                            -- feedback that the pick landed on that edge.
-                            EllesmereUI._ShowScreenEdgeMarker(e.key, true)
-                        else
-                            ClearScreenAnchor()
+                    if not disabled then
+                        local function OnEnter()
+                            sHl:SetColorTexture(1, 1, 1, 0.08)
+                            if checked then sLbl:SetTextColor(1, 0.8, 0.5, 1)
+                            else sLbl:SetTextColor(1, 1, 1, 1) end
+                            -- Preview: show the line the element would hold on to.
+                            if e.key then EllesmereUI._ShowScreenEdgeMarker(e.key) end
                         end
-                    end)
+                        si:SetScript("OnEnter", OnEnter)
+                        si:SetScript("OnLeave", function()
+                            sHl:SetColorTexture(1, 1, 1, checked and 0.04 or 0)
+                            sLbl:SetTextColor(r, g, b, a)
+                            if e.key then EllesmereUI._HideScreenEdgeMarker(e.key) end
+                        end)
+                        si:SetScript("OnClick", function()
+                            if InCombatLockdown() or (checked and not e.key) then return end
+                            if ownScreen then
+                                ownScreen.setScreenPoint(barKey,
+                                    ScreenPointWith(ownScreen.getScreenPoint(barKey), e.key, not checked))
+                            elseif not e.key then
+                                ClearScreenAnchor()
+                            elseif checked then
+                                DropScreenEdge(e.key)
+                            else
+                                SetScreenAnchor(e.key, e.side)
+                            end
+                            mover._cogEdgeDirty = true
+                            -- The anchor rows' offset boxes read the links live.
+                            if mover._syncCogPos then mover._syncCogPos() end
+                            SERestColor()
+                            ShowEdgeSub()
+                        end)
+                        -- The row just clicked is still under the cursor.
+                        if foci and foci[1] == si then OnEnter() end
+                    end
                     seY = seY - ITEM_H
                 end
                 MenuPool.End(seSub)
@@ -4090,7 +4226,7 @@ local function CreateMover(barKey)
                 seSub:SetScript("OnLeave", function(self)
                     C_Timer.After(0.05, function()
                         if self:IsShown() and not self:IsMouseOver() and not seItem:IsMouseOver() then
-                            self:Hide()
+                            CloseEdgeSub(self)
                         end
                     end)
                 end)
@@ -4108,13 +4244,12 @@ local function CreateMover(barKey)
             end)
             seItem:SetScript("OnLeave", function()
                 seHl:SetColorTexture(1, 1, 1, 0)
-                seLbl:SetTextColor(0.75, 0.75, 0.75, 0.9)
                 seArrow:SetAlpha(0.7)
-                if seLinked then seLbl:SetTextColor(1, 0.7, 0.3, 1) end
+                SERestColor()
                 C_Timer.After(0.05, function()
                     local sub = mover._cogEdgeSub
                     if sub and sub:IsShown() and not sub:IsMouseOver() and not seItem:IsMouseOver() then
-                        sub:Hide()
+                        CloseEdgeSub(sub)
                     end
                 end)
             end)

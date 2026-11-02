@@ -969,6 +969,8 @@ function NameplateFrame:SetUnit(unit, nameplate)
     -- Non-Target and Out of Combat Opacity (zero cost while off: numeric compares).
     if ns._oocAlpha < 1 then self:RegisterUnitEvent("UNIT_FLAGS", unit) end
     if ns._ntAlpha < 1 or ns._oocAlpha < 1 then ns.NT_Apply(self) end
+    -- Minor / Non-Elite Enemy Scale: the type base for the spawn pass's ApplyScale.
+    if ns._typeScaleOn then self:UpdateTypeScale() end
     -- Execute glow is per-spawn state, not appearance: ApplyAppearance is generation-cached
     -- (skipped on recycled plates) and the threshold watcher only reaches plates active at flip
     -- time, so a plate pooled during a no-execute window would return glowless. Re-assert.
@@ -1075,13 +1077,8 @@ function NameplateFrame:ClearUnit()
     -- WoW Forever: the level box waits for the next unit's level.
     if self._fvLevelBox then self._fvLevelBox:Hide() end
 
-    -- Non-Target Opacity: released pool frames always go back at full
-    -- alpha (nil _ntCurAlpha = never faded, keeps this a no-op).
-    if self._ntCurAlpha and self._ntCurAlpha < 1 then
-        self:SetAlpha(1)
-    end
-    self._ntCurAlpha = nil
-    self._oorCurAlpha = nil
+    -- Color Casting Enemies: the next unit starts with no casts seen.
+    if self._castSeen ~= nil then ns.NP_ResetCastKind(self) end
 
     if self.isCasting then
         self.isCasting = false
@@ -1093,6 +1090,15 @@ function NameplateFrame:ClearUnit()
         end
         NotifyCastEnded(self)
     end
+
+    -- Non-Target Opacity: released pool frames always go back at full alpha (nil
+    -- _ntCurAlpha = never faded, keeps this a no-op). After the cast end above, which
+    -- reapplies opacity for Full Opacity While Casting.
+    if self._ntCurAlpha and self._ntCurAlpha < 1 then
+        self:SetAlpha(1)
+    end
+    self._ntCurAlpha = nil
+    self._oorCurAlpha = nil
 
     self.name:SetText("")
     -- The Custom texts too: a recycled plate never shows the last unit's for a frame.
@@ -1144,6 +1150,10 @@ function NameplateFrame:ClearUnit()
     self._kickProtected = nil
     self._castImportant = false
     self:HideKickTick()
+    -- Both glows: also after an interrupt or fallback end, which leave isCasting false
+    -- with the glow still up. Each checks its own active flag.
+    self:ClearImportantCastGlow()
+    self:ClearCastTargetGlow()
     if self._interruptTimer then
         self._interruptTimer:Cancel()
         self._interruptTimer = nil

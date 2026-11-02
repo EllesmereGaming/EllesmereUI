@@ -171,7 +171,8 @@ function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
 
     -- Row 1: Portrait Mode | Art Style. A mode change can widen the frame
     -- (the full party pass) and shows or hides the rows below (a rebuild).
-    _, h = W:DualRow(parent, y,
+    local modeRow
+    modeRow, h = W:DualRow(parent, y,
         ns.RF_PartyKitGate({ type="dropdown", text="Portrait Mode",
           tooltip="Attached widens each frame by the portrait.",
           values={ none = "None", attached = "Attached", detached = "Detached" },
@@ -227,6 +228,36 @@ function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
               SetArt(v)
               RunWidgetRefresh()
           end });  y = y - h
+    -- Portrait Settings (Detached only): Clickable Portrait, Background Color.
+    EllesmereUI.BuildInlineCog(modeRow._leftRegion, {
+        title = "Portrait Settings",
+        disabled = function() return kit or PV("partyPortraitStyle", "none") ~= "detached" end,
+        disabledTooltip = function()
+            if kit then return "Frame Style: Party Frames" end
+            return "This option requires Portrait Mode to be set to Detached."
+        end,
+        rawTooltip = function() return not kit end,
+        requireState = "disabled",
+        rows = {
+            { type="toggle", label="Clickable Portrait",
+              tooltip="Clicking or hovering the detached portrait acts like clicking or hovering the frame's bars.",
+              get=function() return PV("partyPortraitClickable", false) end,
+              set=function(v) PtSet("partyPortraitClickable", v or nil) end },
+            { type="colorpicker", label="Background Color", hasAlpha=true,
+              tooltip="Fill color behind the detached portrait.",
+              disabled=function() return PV("partyPortraitShape", "portrait") == "none" end,
+              disabledTooltip="This option requires a Shape other than None.",
+              rawTooltip=true,
+              get=function()
+                  local c = db.profile.partyPortraitBgColor
+                  if c then return c.r, c.g, c.b, c.a or 1 end
+                  return 0.1, 0.1, 0.1, 1
+              end,
+              set=function(r, g, b, a)
+                  PtSet("partyPortraitBgColor", { r = r, g = g, b = b, a = a or 1 })
+              end },
+        },
+    })
 
     if kit or PV("partyPortraitStyle", "none") == "none" then return y end
 

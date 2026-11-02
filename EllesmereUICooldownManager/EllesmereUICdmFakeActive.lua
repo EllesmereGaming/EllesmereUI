@@ -461,8 +461,15 @@ end
 -- moves between bars. Those settings must not decorate a native viewer icon
 -- when the spell is later added through normal CDM tracking.
 local function IsInjectedFrame(f)
-    return (f._isCustomSpellFrame or f._isRacialFrame or f._isPresetFrame
-            or f._isItemPresetFrame or f._isTrinketFrame) and true or false
+    if f._isCustomSpellFrame or f._isRacialFrame or f._isPresetFrame
+       or f._isItemPresetFrame or f._isTrinketFrame then
+        return true
+    end
+    -- Blizzard's own potion / healthstone row claimed under an item preset key
+    -- (EUI_CDM_HookReanchor.lua, Phase 1) renders as that preset: its settings
+    -- are the preset menu's, like a racial Blizzard tracks natively.
+    local fc = ns._ecmeFC and ns._ecmeFC[f]
+    return ns.IsItemPresetKey(fc and fc.spellID)
 end
 ns.CdmIsInjectedFrame = IsInjectedFrame
 

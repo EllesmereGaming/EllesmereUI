@@ -531,14 +531,42 @@ local function CollectAndReanchor()
                                 local eqInfo = cdID and C_CooldownViewer
                                     and C_CooldownViewer.GetCooldownViewerCooldownInfo
                                     and C_CooldownViewer.GetCooldownViewerCooldownInfo(cdID)
-                                -- Consumable categories pin inert too (field-probed
-                                -- 2026-08-14: potions/healthstones = 4/30), EXCEPT
-                                -- 1711 = the racial category, the one category-row
-                                -- class that must stay managed (settings/Remove/
-                                -- routing). Unknown future categories fail safe:
-                                -- inert render, unmanaged.
-                                if eqInfo and (eqInfo.equipSlot
-                                    or (eqInfo.spellCategoryID and eqInfo.spellCategoryID ~= 1711)) then
+                                -- Blizzard's own potion / healthstone row (Combat
+                                -- Potion, Health Potion, Healthstone, Demonic
+                                -- Healthstone: spell categories 4 / 30 / 1711 / 2566,
+                                -- Blizzard's own table): claimed under the EUI item
+                                -- preset's key, so it takes the preset's slot and
+                                -- settings, and the preset's own frame stands down
+                                -- while it is live (Phase 3). The key is the row's
+                                -- one stable identity: its raw info has no spell,
+                                -- and its live frame reports the LAST USED item's
+                                -- spell only after a use. The old inert pin left the
+                                -- potion rows without a slot or settings, and 1711,
+                                -- taken for the racial category, let the healthstone
+                                -- row flip between inert and the stone's spell at
+                                -- its first use.
+                                local nativeKey, racialRow = ns.NativeItemKeyFor(eqInfo, frame)
+                                if nativeKey then
+                                    if not cdFrames[barKey] then cdFrames[barKey] = {} end
+                                    local frames = cdFrames[barKey]
+                                    frames[#frames + 1] = frame
+                                    local fc = FC(frame)
+                                    fc.barKey = barKey
+                                    fc.spellID = nativeKey
+                                    fc.isHostedBuff = nil
+                                    -- A pooled frame may carry the spell identity of
+                                    -- its last occupant: none of it describes an item
+                                    -- row (the claim set and the settings identity
+                                    -- set read these).
+                                    fc.baseSpellID, fc.resolvedSid, fc.overrideSid = nil, nil, nil
+                                    fc.linkedSpellIDs, fc.cachedCdID = nil, nil
+                                -- Equipment rows and every other category row pin
+                                -- inert, except a category row whose live frame
+                                -- resolves a racial: that one stays managed below
+                                -- (settings/Remove/routing). Unknown future
+                                -- categories fail safe: inert render, unmanaged.
+                                elseif eqInfo and (eqInfo.equipSlot
+                                    or (eqInfo.spellCategoryID and not racialRow)) then
                                     if not cdFrames[barKey] then cdFrames[barKey] = {} end
                                     local frames = cdFrames[barKey]
                                     frames[#frames + 1] = frame
@@ -1348,8 +1376,16 @@ local function CollectAndReanchor()
                             local itemID = -sid
                             -- Skip when a slot entry on this bar already shows this
                             -- exact item (see slotEquippedItems above); the orphan
-                            -- sweep hides any frame from a previous pass.
-                            local f = not (slotEquippedItems and slotEquippedItems[itemID])
+                            -- sweep hides any frame from a previous pass. Skip too
+                            -- while Blizzard's own row for the item renders in this
+                            -- slot (claimed under this key in Phase 1, so in the
+                            -- claim set): one icon per item, Blizzard's. An entry the
+                            -- reseed listed for such a row (sd.nativeItems) is that
+                            -- row's slot alone: with the row gone it shows nothing,
+                            -- never the preset's own icon.
+                            local nativeOnly = sd and sd.nativeItems and sd.nativeItems[sid]
+                            local f = not _globalClaimSet[sid] and not nativeOnly
+                                and not (slotEquippedItems and slotEquippedItems[itemID])
                                 and not ns._HealthstoneHiddenByPact(itemID)
                                 and GetOrCreateItemPresetFrame(barKey, itemID)
                             if f then

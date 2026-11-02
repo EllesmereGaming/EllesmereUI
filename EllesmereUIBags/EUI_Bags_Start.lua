@@ -1021,6 +1021,9 @@ end
 -- runs in this frame's own handler (its own script budget); whatever it leaves is built at
 -- PLAYER_ENTERING_WORLD, still behind the loading screen, then at combat end.
 local WINDOW_WARM_MS = 40
+local function ReleaseStaleSortMute()
+    EllesmereUI.ReleaseStaleHold("Sound_EnableSFX", "EllesmereUIBags")
+end
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self, event)
@@ -1030,6 +1033,15 @@ loader:SetScript("OnEvent", function(self, event)
         return
     end
     self:UnregisterEvent("PLAYER_LOGIN")
+    -- The sort's sound effects mute, when a session ended with it held (a
+    -- reload mid-sort): no sort runs at login, so it goes back, only while the
+    -- sound effects still read the mute. Out of combat (some CVars cannot
+    -- change in combat): a reload in combat waits for its end.
+    if InCombatLockdown() then
+        ns.CombatQueue.Defer("staleSortMute", ReleaseStaleSortMute)
+    else
+        ReleaseStaleSortMute()
+    end
     -- Scheduled first, so nothing in the pass below can stop the module from starting.
     C_Timer.After(0.5, function()
         StartAddon()

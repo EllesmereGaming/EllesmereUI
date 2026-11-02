@@ -736,6 +736,27 @@ function S.InstallWindowGeometry(f, key, header, close)
     end
 
 
+
+    function f:SetSizeFromTopRight(width, height)
+        width, height = P.Snap(width), P.Snap(height)
+        local wasW, wasH = f:GetWidth(), f:GetHeight()
+        local point, relTo, relPoint, x, y = f:GetPoint()
+        if point and wasW and wasH and wasW > 0 and wasH > 0 and f:IsShown()
+            and (width ~= wasW or height ~= wasH) then
+            local left = point:find("RIGHT") and 0 or (point:find("LEFT") and 1 or 0.5)
+            local down = point:find("BOTTOM") and 1 or (point:find("TOP") and 0 or 0.5)
+            f:SetPoint(point, relTo, relPoint, x - (width - wasW) * left,
+                y - (height - wasH) * down)
+            f:SetSize(width, height)
+            P.AlignFrame(f)
+            f:SavePosition()
+            return
+        end
+        f:SetSize(width, height)
+        P.AlignFrame(f)
+    end
+
+
     function f:SetSizeFromTopLeft(width, height)
         width, height = P.Snap(width), P.Snap(height)
         local wasW, wasH = f:GetWidth(), f:GetHeight()

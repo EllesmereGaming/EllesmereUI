@@ -9,7 +9,7 @@ local T = addon.Locale.Text
 
 
 
-addon.SCHEMA_VERSION = 15
+addon.SCHEMA_VERSION = 16
 
 
 local interface = GetBuildInfo and select(4, GetBuildInfo())
@@ -250,7 +250,7 @@ addon.defaults = {
 
 
 
-    responseTab = true,
+    responseTab = false,
 
 
     soundNotifications = { responseFrame = true, responseTab = true },
@@ -496,6 +496,16 @@ addon.migrations = addon.Locale.Texts{
                 end
             end
             if not changed then return false end
+        end,
+    },
+    {
+        version = 16,
+        name = "loot response tab off",
+        notify = T["The loot response tab in the Loot Council window is now off by default, so your response window opens on its own again. You can switch it back on in Settings."],
+        func = function(db)
+
+            if db.responseTab ~= true then return false end
+            db.responseTab = false
         end,
     },
 }

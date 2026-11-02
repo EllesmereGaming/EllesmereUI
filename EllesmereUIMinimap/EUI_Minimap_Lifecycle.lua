@@ -404,6 +404,57 @@ do
     end)
 end
 
+-------------------------------------------------------------------------------
+--  The map as it shows, for Unlock Mode: the mover's box, and the edges an
+--  element linked to the minimap measures from.
+-------------------------------------------------------------------------------
+local function MDB() return EBS.db and EBS.db.profile.minimap end
+
+-- Inset from the square canvas (canvas units): a square frame's outer box,
+-- its title bar and rims included, or a cropped map's visible band.
+local function MoverInsets()
+    local m = MDB()
+    local crop = m and EBS._MapCrop(m, m.mapSize or 140) or 0
+    if EBS._MinimapFvSquare() then
+        local o = EBS._SqOut()
+        return -o, -o, crop - (EBS._fvTitleOn and EBS._SqTitle() or o), crop - o
+    end
+    return 0, 0, crop, crop
+end
+
+-- Anchor-target edges for the unlock anchor system: an element linked to a
+-- side of the minimap measures from that box, not the square canvas. Live in
+-- unlock mode too, so a drag measures from the same edges as the apply.
+-- Chained in front of any provider installed before this file loaded.
+local prevExtent = EllesmereUI._GetAnchorTargetExtent
+EllesmereUI._GetAnchorTargetExtent = function(targetKey, side)
+    if targetKey == "EBS_Minimap" and Minimap and Minimap:GetLeft() then
+        local l, r, t, b = MoverInsets()
+        local ratio = Minimap:GetEffectiveScale() / UIParent:GetEffectiveScale()
+        if side == "LEFT" then return (Minimap:GetLeft() + l) * ratio
+        elseif side == "RIGHT" then return (Minimap:GetRight() - r) * ratio
+        elseif side == "TOP" then return (Minimap:GetTop() - t) * ratio
+        elseif side == "BOTTOM" then return (Minimap:GetBottom() + b) * ratio
+        end
+    end
+    if prevExtent then return prevExtent(targetKey, side) end
+    return nil
+end
+
+-- A pass can move the insets with no change to the canvas's size or point
+-- (Shape, the zone text's title bar), which the unlock size and point hooks
+-- miss: every ApplyMinimap pass ends here, and the elements linked to the
+-- minimap follow a change.
+local extL, extR, extT, extB
+function EBS._NotifyMinimapExtent()
+    local l, r, t, b = MoverInsets()
+    if l == extL and r == extR and t == extT and b == extB then return end
+    extL, extR, extT, extB = l, r, t, b
+    if not EllesmereUI._unlockActive and EllesmereUI.PropagateAnchorChain then
+        EllesmereUI.PropagateAnchorChain("EBS_Minimap")
+    end
+end
+
 function EBS:OnInitialize()
     EBS.db = EllesmereUI.Lite.NewDB("EllesmereUIMinimapDB", defaults)
 
@@ -502,7 +553,9 @@ function EBS:OnEnable()
     -- Register minimap with unlock mode
     if EllesmereUI and EllesmereUI.RegisterUnlockElements then
         local MK = EllesmereUI.MakeUnlockElement
-        local function MDB() return EBS.db and EBS.db.profile.minimap end
+        -- The mover outlines the map as it shows (MoverInsets above). getSize
+        -- gives the same box, so the drag, the nudge and size matches all
+        -- measure it.
         EllesmereUI:RegisterUnlockElements({
             MK({
                 key   = "EBS_Minimap",
@@ -513,10 +566,10 @@ function EBS:OnEnable()
                 noAnchorTo = true,
                 getFrame = function() return Minimap end,
                 getSize  = function()
-                    local layout = GetFFD(Minimap).layoutFrame
-                    if layout then return layout:GetWidth(), layout:GetHeight() end
-                    return Minimap:GetWidth(), Minimap:GetHeight()
+                    local l, r, t, b = MoverInsets()
+                    return Minimap:GetWidth() - l - r, Minimap:GetHeight() - t - b
                 end,
+                getInsets = MoverInsets,
                 isHidden = function()
                     local m = MDB()
                     return not m or not m.enabled

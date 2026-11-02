@@ -3419,6 +3419,229 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         si._refreshSwatch = refreshSwatch
                     end
 
+                    -- Combat Potion Icon (the three combat potion presets): the order the
+                    -- icon tracks the families in and whether a family out of bags swaps
+                    -- to the next (EUI_CDM_HookPresetCooldowns.lua, PotSwap). A flyout of
+                    -- its own: the swap toggle, then one row per family, dragged into the
+                    -- icon's priority order through the shared row reorder. Both settings
+                    -- sit on the icon's customActiveStates entry (potSwap, potOrder), so
+                    -- they travel with the entry across bars and specs; an unset toggle
+                    -- reads the old profile-wide switch.
+                    local potPreset = ns.ItemPresetForKey and ns.ItemPresetForKey(spellID)
+                    if potPreset and potPreset.potFamily and ns.COMBAT_POTION_FAMILIES
+                       and #ns.COMBAT_POTION_FAMILIES > 0 then
+                        local function PotSwapOn()
+                            if cas.potSwap == nil then return ns.PotSwapLegacyDefault() end
+                            return cas.potSwap == true
+                        end
+                        local function PotIsDefault()
+                            return cas.potSwap == nil and cas.potOrder == nil
+                        end
+                        local function PotChanged()
+                            if ns._BumpPotResolveGen then ns._BumpPotResolveGen() end
+                            if ns._MarkPresetCdDirty then ns._MarkPresetCdDirty() end
+                            if ns.FakeActive_Rearm then ns.FakeActive_Rearm() end
+                            if ns.QueueReanchor then ns.QueueReanchor() end
+                        end
+
+                        local row = CreateFrame("Button", nil, inner)
+                        row:SetHeight(ITEM_H)
+                        row:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+                        row:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+                        row:SetFrameLevel(menu:GetFrameLevel() + 2)
+                        local acR, acG, acB = EllesmereUI.GetAccentColor()
+                        local lbl = row:CreateFontString(nil, "OVERLAY")
+                        lbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                        lbl:SetPoint("LEFT", 10, 0)
+                        lbl:SetJustifyH("LEFT")
+                        lbl:SetText(EllesmereUI.L("Combat Potion Icon"))
+                        local function PaintRow()
+                            if PotIsDefault() then
+                                lbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                            else
+                                lbl:SetTextColor(acR, acG, acB, 1)
+                            end
+                        end
+                        PaintRow()
+                        local arrow = row:CreateTexture(nil, "ARTWORK")
+                        arrow:SetSize(10, 10)
+                        arrow:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+                        arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\right-arrow.png")
+                        arrow:SetAlpha(0.7)
+                        local hl = row:CreateTexture(nil, "ARTWORK")
+                        hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0); hl:SetAlpha(0)
+
+                        local sub
+                        local function ShowPotSub()
+                            if menu._openSub and menu._openSub ~= sub and menu._openSub.Hide then menu._openSub:Hide() end
+                            if sub then
+                                if not sub:IsShown() then sub:Show() end
+                                menu._openSub = sub
+                                return
+                            end
+                            sub = CreateFrame("Frame", nil, menu)
+                            sub:SetFrameStrata("FULLSCREEN_DIALOG")
+                            sub:SetFrameLevel(menu:GetFrameLevel() + 5)
+                            sub:SetClampedToScreen(true)
+                            sub:EnableMouse(true)
+                            sub:SetPoint("TOPLEFT", row, "TOPRIGHT", 2, 0)
+                            local subBg = sub:CreateTexture(nil, "BACKGROUND")
+                            subBg:SetAllPoints()
+                            subBg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
+                            EllesmereUI.MakeBorder(sub, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                            local labels = {}
+                            local subH = 4
+
+                            -- Swap Combat Pots When Missing: an independent toggle with
+                            -- the "+" look (accent text while on).
+                            local tg = CreateFrame("Button", nil, sub)
+                            tg:SetHeight(ITEM_H)
+                            tg:SetPoint("TOPLEFT", sub, "TOPLEFT", 1, -subH)
+                            tg:SetPoint("TOPRIGHT", sub, "TOPRIGHT", -1, -subH)
+                            tg:SetFrameLevel(sub:GetFrameLevel() + 2)
+                            local tgLbl = tg:CreateFontString(nil, "OVERLAY")
+                            tgLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                            tgLbl:SetPoint("LEFT", 10, 0)
+                            tgLbl:SetJustifyH("LEFT")
+                            tgLbl:SetText(EllesmereUI.L("Swap Combat Pots When Missing"))
+                            labels[#labels + 1] = tgLbl
+                            local tgHl = tg:CreateTexture(nil, "ARTWORK")
+                            tgHl:SetAllPoints(); tgHl:SetColorTexture(1, 1, 1, hlA); tgHl:SetAlpha(0)
+                            local function PaintToggle()
+                                if PotSwapOn() then
+                                    tgLbl:SetTextColor(acR, acG, acB, 1)
+                                else
+                                    tgLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                                end
+                            end
+                            PaintToggle()
+                            tg:SetScript("OnEnter", function()
+                                tgLbl:SetTextColor(1, 1, 1, 1); tgHl:SetAlpha(1)
+                                EllesmereUI.ShowWidgetTooltip(tg, EllesmereUI.L("When your bags hold none of the potion the icon tracks, it tracks the next potion in the priority order that you own."))
+                            end)
+                            tg:SetScript("OnLeave", function()
+                                PaintToggle(); tgHl:SetAlpha(0)
+                                EllesmereUI.HideWidgetTooltip()
+                            end)
+                            tg:SetScript("OnClick", function()
+                                EnsureCAS().potSwap = not PotSwapOn()
+                                PaintToggle(); PaintRow(); PotChanged()
+                            end)
+                            subH = subH + ITEM_H
+
+                            -- Priority Order: one row per family at a fixed slot, the top
+                            -- one the potion the icon tracks; a drop shuffles the rows'
+                            -- contents (EllesmereUI.AttachRowReorder).
+                            local head = sub:CreateFontString(nil, "OVERLAY")
+                            head:SetFont(FONT_PATH, 10, GetCDMOptOutline())
+                            head:SetTextColor(1, 1, 1, 0.35)
+                            head:SetPoint("TOPLEFT", sub, "TOPLEFT", 10, -subH - 6)
+                            head:SetText(EllesmereUI.L("Priority Order"))
+                            labels[#labels + 1] = head
+                            local hint = sub:CreateFontString(nil, "OVERLAY")
+                            hint:SetFont(FONT_PATH, 9, GetCDMOptOutline())
+                            hint:SetTextColor(1, 1, 1, 0.25)
+                            hint:SetPoint("RIGHT", sub, "TOPRIGHT", -10, -subH - 11)
+                            hint:SetText(EllesmereUI.L("Drag to Reorder"))
+                            subH = subH + 20
+                            local rowsTop = subH
+                            local famByKey = {}
+                            for _, fam in ipairs(ns.COMBAT_POTION_FAMILIES) do famByKey[fam.key] = fam end
+                            local movable = {}
+                            for _, k in ipairs(ns.PotOrderFor(potPreset, cas.potOrder)) do
+                                local fam = famByKey[k]
+                                if fam then
+                                    movable[#movable + 1] = { key = k, label = fam.name,
+                                        icon = fam.preset.icon or (fam.preset.itemID and C_Item.GetItemIconByID(fam.preset.itemID)) }
+                                end
+                            end
+                            local function SlotY(i) return -(rowsTop + (i - 1) * ITEM_H) end
+                            local rows = {}
+                            local dragState = { dragging = false }
+                            for i = 1, #movable do
+                                local r = CreateFrame("Button", nil, sub)
+                                r:SetHeight(ITEM_H)
+                                r:SetPoint("TOPLEFT", sub, "TOPLEFT", 1, SlotY(i))
+                                r:SetPoint("TOPRIGHT", sub, "TOPRIGHT", -1, SlotY(i))
+                                r:SetFrameLevel(sub:GetFrameLevel() + 2)
+                                r._item = movable[i]
+                                r._slotY = SlotY(i)
+                                local rIco = r:CreateTexture(nil, "ARTWORK")
+                                rIco:SetSize(ITEM_H - 6, ITEM_H - 6)
+                                rIco:SetPoint("RIGHT", r, "RIGHT", -26, 0)
+                                rIco:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                                local rLbl = r:CreateFontString(nil, "OVERLAY")
+                                rLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+                                rLbl:SetPoint("LEFT", 10, 0)
+                                rLbl:SetPoint("RIGHT", rIco, "LEFT", -5, 0)
+                                rLbl:SetJustifyH("LEFT")
+                                rLbl:SetWordWrap(false)
+                                rLbl:SetMaxLines(1)
+                                labels[#labels + 1] = rLbl
+                                -- The three-dash drag handle of the reorder dropdowns.
+                                for g = 1, 3 do
+                                    local bar = r:CreateTexture(nil, "ARTWORK")
+                                    bar:SetSize(10, 1)
+                                    bar:SetPoint("RIGHT", r, "RIGHT", -10, (2 - g) * 3)
+                                    bar:SetColorTexture(1, 1, 1, 0.35)
+                                end
+                                local rHl = r:CreateTexture(nil, "ARTWORK")
+                                rHl:SetAllPoints(); rHl:SetColorTexture(1, 1, 1, hlA); rHl:SetAlpha(0)
+                                local function Paint()
+                                    rLbl:SetText(EllesmereUI.L(r._item.label))
+                                    rLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                                    rIco:SetTexture(EllesmereUI.ClientIcon(r._item.icon))
+                                end
+                                Paint()
+                                r._paint = Paint
+                                r:SetScript("OnEnter", function()
+                                    if dragState.dragging then return end
+                                    rLbl:SetTextColor(1, 1, 1, 1); rHl:SetAlpha(1)
+                                end)
+                                r:SetScript("OnLeave", function()
+                                    if dragState.dragging then return end
+                                    rLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA); rHl:SetAlpha(0)
+                                end)
+                                rows[i] = r
+                            end
+                            local insLine = sub:CreateTexture(nil, "OVERLAY", nil, 7)
+                            insLine:SetHeight(2)
+                            local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
+                            insLine:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
+                            insLine:Hide()
+                            EllesmereUI.AttachRowReorder(sub, {
+                                rows = rows, items = movable, itemH = ITEM_H, slotY = SlotY,
+                                insLine = insLine, state = dragState,
+                                refresh = function()
+                                    for i = 1, #rows do
+                                        rows[i]._item = movable[i]
+                                        rows[i]._paint()
+                                    end
+                                end,
+                                onDragStart = function()
+                                    for i = 1, #rows do rows[i]._paint() end
+                                end,
+                                onDrop = function(keys)
+                                    EnsureCAS().potOrder = table.concat(keys, ",")
+                                    PaintRow(); PotChanged()
+                                end,
+                            })
+                            subH = rowsTop + #movable * ITEM_H
+                            sub:SetSize(FitMenuWidth(labels, 200, 64), subH + 4)
+                            sub:Show()
+                            menu._openSub = sub
+                        end
+                        row:SetScript("OnEnter", function()
+                            lbl:SetTextColor(1, 1, 1, 1)
+                            hl:SetColorTexture(1, 1, 1, hlA); hl:SetAlpha(1)
+                            ShowPotSub()
+                        end)
+                        row:SetScript("OnLeave", function()
+                            PaintRow(); hl:SetAlpha(0)
+                        end)
+                        mH = mH + ITEM_H
+                    end
+
                     -- Cooldown State Effect (always available for presets; driven by the live
                     -- cooldown, independent of the active overlay): the hide single-select
                     -- plus the "+ Glow" choices beside it (see the regular-spell row). The
@@ -5345,10 +5568,32 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 subInner:SetPoint("TOPLEFT")
 
                 local subH = 4
+                local nativeOnly = sdTrk and sdTrk.nativeItems
                 for _, preset in ipairs(itemPresets) do
-                    do
+                    -- The two legacy combat potion entries resolve bars saved with
+                    -- their keys but are not offered: Combat Potion is the one entry.
+                    if not preset.legacy then
                     local pID = -(preset.itemID)
-                    local isAdded = alreadyOnBar[pID]
+                    -- Combat Potion counts as on this bar under any of its family keys.
+                    -- An entry the reseed listed for Blizzard's own row of the item
+                    -- (nativeItems) is not the preset's yet: the pick adopts it.
+                    local famKeys = preset.potFamily and ns.CDM_NATIVE_ITEM_KEYS
+                        and ns.CDM_NATIVE_ITEM_KEYS[preset.nativeCategory] or nil
+                    local isAdded = false
+                    if famKeys then
+                        for _, k in ipairs(famKeys) do
+                            if alreadyOnBar[k] and not (nativeOnly and nativeOnly[k]) then isAdded = true; break end
+                        end
+                        if not isAdded then
+                            -- Its own key here (to adopt), else the family key another
+                            -- bar lists (the add moves it, as any preset auto-moves).
+                            for _, k in ipairs(famKeys) do
+                                if alreadyOnBar[k] or usedOnOtherBar[k] then pID = k; break end
+                            end
+                        end
+                    else
+                        isAdded = alreadyOnBar[pID] and not (nativeOnly and nativeOnly[pID]) or false
+                    end
                     local pOtherBar = not isAdded and usedOnOtherBar[pID]
                     local pIsDisabled = isAdded  -- other bars stay claimable (auto-move)
 
@@ -5403,12 +5648,16 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             _potionsSub:Hide()
                             menu:Hide()
                             EnsureAssignedSpells(barKey)
-                            ns.AddTrackedSpell(barKey, pID)
+                            -- Already listed for Blizzard's own row: the entry becomes
+                            -- the preset's (the add refuses a key the bar holds).
+                            if not ns.AddTrackedSpell(barKey, pID) then
+                                ns.AdoptNativeItemEntry(barKey, pID)
+                            end
                             RefreshCDPreview()
                         end)
                     end
                     subH = subH + SUB_ITEM_H
-                    end -- healthstone filter
+                    end -- not preset.legacy
                 end
 
                 -- Widen to the longest preset name (pad leaves room for the text

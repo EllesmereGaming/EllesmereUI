@@ -375,7 +375,17 @@ local function MapHeader(line, delim, comments)
 end
 
 
-local function NormaliseSLC(get)
+local FREE_TEXT = {
+    winner = true, owner = true, item = true, response = true, instance = true,
+    boss = true, note = true, reason = true, guild = true, recorder = true,
+}
+
+
+local function NormaliseSLC(read)
+    local function get(name)
+        local value = read(name)
+        return FREE_TEXT[name] and addon.History.Plain(value) or value
+    end
     local winner, rawID = get("winner"), get("id")
     if not winner or not rawID then return nil end
 

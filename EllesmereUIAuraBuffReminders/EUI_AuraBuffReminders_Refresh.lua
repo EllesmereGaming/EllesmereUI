@@ -633,11 +633,12 @@ local function Refresh()
     end
 
     ---------------------------------------------------------------------------
-    --  3) Consumables: OOC (non-PvP) normally; in restricted contexts the
-    --  trackable subset only. PvP stays fully suppressed.
+    --  3) Consumables: OOC normally; in restricted contexts the trackable
+    --  subset only. In a PvP instance the class specials (poisons, rites,
+    --  imbues, shields) still run; the bag and equip items stay off there.
     ---------------------------------------------------------------------------
-    if remindersOn and not inPvP and not EABR.FOREVER then
-        CollectConsumables(missing, playerClass, specID, inInstance, inKeystone, inCombat)
+    if remindersOn and not EABR.FOREVER then
+        CollectConsumables(missing, playerClass, specID, inInstance, inKeystone, inCombat, inPvP)
     else
         -- The Inky Black Potion map watch follows the collector that reads it
         InkyMapWatch(false)

@@ -780,9 +780,7 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
     -- Inline cog on Duration Size: toggle + X/Y offsets
     if not EllesmereUI._prebuilding then
         local dtCogRgn = castTextRow._rightRegion
-        EllesmereUI.BuildInlineCog(dtCogRgn, {
-            title = "Duration",
-            rows = {
+        local dtCogRows = {
                 { type="slider", label="Size", min=6, max=20, step=1,
                   get=function() return SValSupported("castDurationSize", 10) end,
                   set=function(v) SSetSupported("castDurationSize", v); ReloadAndUpdate(); UpdatePreview() end },
@@ -792,7 +790,16 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
                 { type="slider", label="Y Offset", min=-50, max=50, step=1,
                   get=function() return SValSupported("castDurationY", 0) end,
                   set=function(v) SSetSupported("castDurationY", v); ReloadAndUpdate(); UpdatePreview() end },
-            },
+        }
+        if optState.selectedUnit == "player" then
+            dtCogRows[#dtCogRows + 1] = { type="toggle", label="Full Craft Time",
+                tooltip="While crafting several items at once, the duration shows the time left for the whole batch and the spell name shows the craft count.",
+                get=function() return SValSupported("castFullCraftTime", false) end,
+                set=function(v) SSetSupported("castFullCraftTime", v); ReloadAndUpdate() end }
+        end
+        EllesmereUI.BuildInlineCog(dtCogRgn, {
+            title = "Duration",
+            rows = dtCogRows,
         })
     end
 
@@ -1098,6 +1105,11 @@ end
 -- Settings (the Location cog): Growth Direction, Max Count, afterMax (an
 -- optional row placed right after Max Count), Max Per Row (unset follows Max
 -- Count) and Cropped Icons.
+-- Max Count caps each aura group on its own (the engine has no shared cap):
+-- the boss rows in MiniFrames_Options.lua use the same tooltip.
+-- The _IMP variant sits beside a Max Important row (afterMax).
+ns.UFO_MAX_COUNT_TOOLTIP = "When several filters are on, each one shows up to this many."
+ns.UFO_MAX_COUNT_TOOLTIP_IMP = "When several filters are on, each one shows up to this many. With Important or Own, important debuffs from others use Max Important instead."
 function ns.UFO_AuraSettingsRows(kind, get, set, maxMax, maxDefault, afterMax)
     local env = ns._UFO_OptEnv
     local growthKey, perRowKey, cropKey = kind .. "Growth", kind .. "MaxPerRow", kind .. "CropIcons"
@@ -1107,6 +1119,7 @@ function ns.UFO_AuraSettingsRows(kind, get, set, maxMax, maxDefault, afterMax)
           get=function() return get(growthKey, "auto") end,
           set=function(v) set(growthKey, v) end },
         { type="slider", label="Max Count", min=1, max=maxMax, step=1,
+          tooltip=afterMax and ns.UFO_MAX_COUNT_TOOLTIP_IMP or ns.UFO_MAX_COUNT_TOOLTIP,
           get=function() return get(maxKey, maxDefault) end,
           set=function(v) set(maxKey, v) end },
     }
@@ -2183,8 +2196,9 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             full     = "Full Overlay",
             gradient = "Gradient Overlay",
             gradient_sharp = "Gradient Sharp",
+            gradient_reverse = "Gradient Sharp Reverse",
         }
-        local dispelOverlayOrder = { "none", "fill", "full", "gradient", "gradient_sharp" }
+        local dispelOverlayOrder = { "none", "fill", "full", "gradient", "gradient_sharp", "gradient_reverse" }
         local function DispelRefresh()
             if ns.UpdatePlayerDispelOverlay then ns.UpdatePlayerDispelOverlay() end
             UpdatePreview()
@@ -2350,6 +2364,11 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                     { type="slider", label="Icon Size", min=8, max=48, step=1,
                       get=function() return db.profile.dispelIconSize or 16 end,
                       set=function(v) db.profile.dispelIconSize = v; DispelRefresh() end },
+                    { type="dropdown", label="Growth Direction",
+                      values={ none="None", up="Up", down="Down", left="Left", right="Right" },
+                      order={ "none", "up", "down", "left", "right" },
+                      get=function() return db.profile.dispelIconGrowth or "none" end,
+                      set=function(v) db.profile.dispelIconGrowth = v; DispelRefresh() end },
                     { type="slider", label="Offset X", min=-50, max=50, step=1,
                       get=function() return db.profile.dispelIconOffsetX or 0 end,
                       set=function(v) db.profile.dispelIconOffsetX = v; DispelRefresh() end },

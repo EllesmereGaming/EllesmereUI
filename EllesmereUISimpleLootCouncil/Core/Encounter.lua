@@ -17,7 +17,7 @@ addon.Encounter = Encounter
 local GRACE = 10 * 60
 
 
-local TRADE_WINDOW = 2 * 60 * 60
+local TRADE_WINDOW = 4 * 60 * 60
 
 
 local MAX_LOG = 40

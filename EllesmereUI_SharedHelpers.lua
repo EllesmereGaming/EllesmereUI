@@ -972,3 +972,162 @@ do
     EUI_NS.NewInternals = NewInternals
     EllesmereUI.NewInternals = NewInternals
 end
+
+-------------------------------------------------------------------------------
+--  Detached portrait click buttons (Unit Frames and Party Frames)
+--  A detached portrait floats outside its unit button, so clicks on it fall
+--  through to the world. While a module's Clickable Portrait is on, a second
+--  secure unit button for the same unit covers the portrait, set up like the
+--  owner's own: target on left-click, the secure menu on right-click, and
+--  handed to click-casting, so Blizzard's native click casting, EUI's engine
+--  and click-cast addons bind it as they bind the owner. Hover replays the
+--  owner's own hover work through the module's callbacks.
+--  The overlay is parented to the owner and anchored to it by measured
+--  offsets, never to the backdrop: a protected frame anchored to the backdrop
+--  would lock the backdrop's anchors in combat. Built on the first wanted
+--  sync; out of combat only (in combat it re-runs at combat end).
+--    owner : the unit button the portrait belongs to
+--    cfg   : one static table per module:
+--      wanted(owner)   -> true while the overlay should cover the portrait
+--      backdrop(owner) -> the portrait backdrop frame
+--      onEnter(owner), onLeave(owner) -> the owner's own hover work
+--      register(btn)   -> hands the overlay to click-casting
+--      parentUnit      -> true: the unit resolves through the owner (header
+--                         buttons, whose unit moves in combat); else the
+--                         owner's unit attribute is copied once
+--  Returns true while the owner wants the overlay (placed, or waiting for a
+--  rect); nil when it does not, and in combat.
+-------------------------------------------------------------------------------
+do
+    local overlays = setmetatable({}, { __mode = "k" })  -- owner -> overlay
+    local pending = setmetatable({}, { __mode = "k" })   -- owner -> cfg, awaiting a rect
+    local placed = setmetatable({}, { __mode = "k" })    -- overlay -> its last offsets and size
+
+    local function OverlayEnter(self)
+        local cfg = self._euiPtCfg
+        if cfg and cfg.onEnter then cfg.onEnter(self:GetParent()) end
+    end
+    local function OverlayLeave(self)
+        local cfg = self._euiPtCfg
+        if cfg and cfg.onLeave then cfg.onLeave(self:GetParent()) end
+    end
+
+    local Sync
+    Sync = function(owner, cfg)
+        local btn = overlays[owner]
+        if not btn and not cfg.wanted(owner) then return end
+        if InCombatLockdown() then
+            EllesmereUI.CombatQueue.Defer(owner, function() Sync(owner, cfg) end)
+            return
+        end
+        if not cfg.wanted(owner) then
+            pending[owner] = nil
+            btn:Hide()
+            return
+        end
+        if not btn then
+            local name = owner:GetName()
+            btn = CreateFrame("Button", name and (name .. "PortraitClick"), owner, "SecureUnitButtonTemplate")
+            if cfg.parentUnit then
+                btn:SetAttribute("useparent-unit", true)
+            else
+                btn:SetAttribute("unit", owner:GetAttribute("unit"))
+            end
+            btn:SetAttribute("*type1", "target")
+            btn:SetAttribute("toggleForVehicle", true)
+            btn:RegisterForClicks("AnyUp")
+            EllesmereUI.AttachSecureUnitMenu(btn)
+            btn._euiPtCfg = cfg
+            btn:HookScript("OnEnter", OverlayEnter)
+            btn:HookScript("OnLeave", OverlayLeave)
+            overlays[owner] = btn
+            if cfg.register then cfg.register(btn) end
+            -- An owner never shown yet has no rect to measure: measure on its first show.
+            owner:HookScript("OnShow", function(o)
+                local c = pending[o]
+                if c then Sync(o, c) end
+            end)
+        end
+        local bd = cfg.backdrop(owner)
+        local fl, ft = owner:GetLeft(), owner:GetTop()
+        local bl, bt = bd:GetLeft(), bd:GetTop()
+        if not (fl and ft and bl and bt) then
+            pending[owner] = cfg
+            btn:Hide()
+            return true
+        end
+        pending[owner] = nil
+        -- Placed again only when the portrait moved or resized against the owner.
+        local k = bd:GetEffectiveScale() / owner:GetEffectiveScale()
+        local x, y = bl * k - fl, bt * k - ft
+        local w, h = bd:GetWidth() * k, bd:GetHeight() * k
+        local r = placed[btn]
+        if not r then r = {}; placed[btn] = r end
+        if r.x ~= x or r.y ~= y or r.w ~= w or r.h ~= h then
+            r.x, r.y, r.w, r.h = x, y, w, h
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", owner, "TOPLEFT", x, y)
+            btn:SetSize(w, h)
+        end
+        -- The layer is read back from the overlay: a strata change on the owner moves it too.
+        local strata = bd:GetFrameStrata()
+        if btn:GetFrameStrata() ~= strata then btn:SetFrameStrata(strata) end
+        local level = bd:GetFrameLevel() + 1
+        if btn:GetFrameLevel() ~= level then btn:SetFrameLevel(level) end
+        btn:Show()
+        return true
+    end
+    EllesmereUI.SyncPortraitClick = Sync
+end
+
+-------------------------------------------------------------------------------
+--  Full Craft Time (player cast bars). A repeat craft queues the rest of the
+--  batch behind the current cast. SetCraftBatch fills f._craftExtra (seconds
+--  queued after this cast), the batch total and the " (n/N)" name suffix, or
+--  clears them when on is false or the cast is not part of a batch. Done
+--  counts finished casts so the total stays fixed; a re-read of the same cast
+--  (settings refresh mid-cast) keeps the batch as is.
+-------------------------------------------------------------------------------
+do
+    local floor, format = math.floor, string.format
+
+    function EllesmereUI.SetCraftBatch(f, on, spellID, castID, castDur)
+        local getLeft = C_TradeSkillUI and C_TradeSkillUI.GetRemainingRecasts
+        if not (on and getLeft) then
+            f._craftExtra, f._craftLeft = nil, nil
+            return
+        end
+        local left = getLeft() or 0
+        if castID and castID == f._craftCast then
+            left = f._craftLeft or left
+        elseif f._craftLeft and spellID == f._craftSpell and left == f._craftLeft - 1 then
+            f._craftDone = f._craftDone + 1
+        else
+            f._craftDone = 0
+        end
+        f._craftLeft, f._craftSpell, f._craftCast = left, spellID, castID
+        if left == 0 and f._craftDone == 0 then
+            f._craftExtra = nil
+            return
+        end
+        local done = f._craftDone
+        local total = floor((done + 1 + left) * castDur)
+        f._craftExtra = left * castDur
+        f._craftTotal = total
+        f._craftTotalSuffix = format(" / %d:%02d", floor(total / 60), total % 60)
+        f._craftCountSuffix = format(" (%d/%d)", done + 1, done + 1 + left)
+        f._craftSecs = nil
+    end
+
+    -- Whole batch left (or elapsed / total), repainted once per second.
+    function EllesmereUI.SetCraftTimerText(f, fs, remaining, totalMode)
+        local left = (remaining > 0 and remaining or 0) + f._craftExtra
+        local secs = floor(totalMode and (f._craftTotal - left) or left)
+        if secs < 0 then secs = 0 end
+        if secs ~= f._craftSecs then
+            f._craftSecs = secs
+            fs:SetText(format("%d:%02d", floor(secs / 60), secs % 60)
+                .. (totalMode and f._craftTotalSuffix or ""))
+        end
+    end
+end

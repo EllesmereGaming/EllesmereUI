@@ -293,8 +293,7 @@ local function AskGuard()
     local reason = addon.Loot:GuardReason()
     local name = CollectorName()
     Ask("guard", T["Disable your guild loot funnel guard?"],
-        reason == "group" and T["This is not a guild group."]
-            or addon.Locale.Format(T["%s is not in your guild."], name),
+        T["This is not a guild group."],
         addon.Locale.Format(T["While the guard is on, this addon does not pass your group-loot rolls to %s. Disable it to take part in the funnel, or keep it and roll on group loot yourself. You still respond to the council either way."], name),
         false,
         function()
@@ -504,7 +503,14 @@ function RaidPrompt:Evaluate()
 
 
 
-    if not addon.Loot:GuardReason() or addon.Loot:GuardKept() then
+    local reason = addon.Loot:GuardReason()
+    if reason == "pending" then
+
+
+        if showing == "guard" then Retire() end
+        return
+    end
+    if not reason or addon.Loot:GuardKept() then
 
         if showing == "guard" then Retire() end
         guardAskedFor = nil

@@ -1208,6 +1208,8 @@ local function ApplyMinimap()
     ApplyOmniumFolio()
     EBS._ApplyAddonCompartment()
     EBS._ApplyExternalEventButton()
+    -- Elements linked to the minimap follow a change of its insets.
+    EBS._NotifyMinimapExtent()
 end
 
 -- Blizzard's external event button (a link to an event outside the game,

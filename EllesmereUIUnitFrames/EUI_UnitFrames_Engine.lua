@@ -150,6 +150,7 @@ do
         element.casting, element.channeling, element.empowering = nil, nil, nil
         element.notInterruptible, element.spellID, element.castID = nil, nil, nil
         element.spellName = nil
+        element._craftExtra = nil
         -- Empower stage pips outlive the cast otherwise (the old element
         -- wiring hid them in its reset).
         if element.Pips then
@@ -269,7 +270,14 @@ do
 
         if element.Icon then element.Icon:SetTexture(texture or FALLBACK_ICON) end
         if element.Spark then element.Spark:Show() end
-        if element.Text then element.Text:SetText(text) end
+        -- Full Craft Time (player only): batch countdown and " (n/N)" count.
+        if unit == "player" and (element._fullCraft or element._craftExtra) then
+            EllesmereUI.SetCraftBatch(element, element._fullCraft and element.casting and isTradeSkill,
+                spellID, castID, (endTime - startTime) / 1000)
+        end
+        if element.Text then
+            element.Text:SetText(element._craftExtra and (text .. element._craftCountSuffix) or text)
+        end
         if element.Time then element.Time:SetText() end
 
         local safeZone = element.SafeZone

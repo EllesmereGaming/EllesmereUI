@@ -2073,6 +2073,8 @@ do
         "tooltipItemLevel", "tooltipMythicScore", "tooltipShowMount",
         "tooltipShowGuildRank", "tooltipShowTarget", "tooltipShowMode",
         "tooltipShowModifier", "tooltipGrowthDirection",
+        "tooltipLevelColor", "tooltipClassLineColor", "tooltipFactionColor",
+        "tooltipGuildmateColor", "tooltipCompactLevel", "tooltipAFKTag",
         "uberTooltips", "uberTooltipsManual", "tooltipHideHealthStrip",
         "tooltipHealthStripTexture", "tooltipHealthStripHeight",
         "tooltipAnchorCursor", "tooltipCursorPosition",
@@ -2149,6 +2151,7 @@ do
         -- LFG / Merchant / Mail cards
         "lfgRememberRoles",
         "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel", "merchantBulkBuy",
+        "merchantExpand", "merchantCols", "merchantRows",
         "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
         "mailCloseBags",
         -- Friends List card (WoW Forever: the friend tiles and auto-accept)

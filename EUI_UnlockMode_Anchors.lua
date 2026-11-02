@@ -116,7 +116,8 @@ end
 
 -- A link saved on an element that places itself (ownsPosition: main chat) is
 -- inert, so it reads as none: no anchor rows in its cog, and no false circle
--- when another element links to it. The record stays in the store.
+-- when another element links to it. ValidateStoredLinks deletes it when
+-- Unlock Mode opens.
 local function GetAnchorInfo(barKey)
     local db = GetAnchorDB()
     if not db then return nil end
@@ -672,7 +673,14 @@ local function ValidateStoredLinks()
     local anchors = EllesmereUIDB.unlockAnchors
     if anchors then
         for childKey, info in pairs(anchors) do
-            if LinkGone(childKey, info and info.target)
+            local cElem = elems[childKey]
+            if cElem and cElem.ownsPosition then
+                -- A link on an element that places itself (main chat) never
+                -- takes effect, yet the passes that walk the whole store still
+                -- see it: a line to its old target, and a loop that pulls back
+                -- an element linked to it. Dropped on every spec.
+                anchors[childKey] = nil
+            elseif LinkGone(childKey, info and info.target)
                and not OverrideProtected(childKey) then
                 anchors[childKey] = nil
             elseif info and info.edge and info.edge.key and LinkGone(childKey, info.edge.key)
