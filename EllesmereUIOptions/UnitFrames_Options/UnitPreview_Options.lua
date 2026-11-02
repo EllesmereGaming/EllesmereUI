@@ -456,7 +456,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
     local function PreviewTextForContent(content, s, prefix)
         -- Values as the live tags format them (the Number Format per value type;
         -- boss frames read "bossHealth" for health). Percents mirror "Show
-        -- Decimal on Text": one decimal when the global flag is on.
+        -- Decimal on Health Percent": one decimal when the global flag is on.
         local function _pvAbbrev(v, valueType)
             if valueType ~= "absorb" and unitKey:match("^boss") then valueType = "bossHealth" end
             return ns.AbbreviateValue(v, valueType)

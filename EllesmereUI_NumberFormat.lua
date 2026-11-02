@@ -27,7 +27,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  and EllesmereUI.ForeverAbbreviateNumbers hands the same trimmed tiers to
 --  modules that call the client function directly.
 --
---  AbbreviateNumber() runs on every combat-meter and gold-bar refresh, often many
+--  AbbreviateNumber() runs on every combat-meter refresh, often many
 --  times a second across a raid frame's worth of bars, so it's written as a hot
 --  path: client API localized to upvalues, and each value type's resolved config
 --  cached until RefreshNumberFormat() (settings change, profile switch).
@@ -348,15 +348,18 @@ function EllesmereUI.RefreshNumberFormat()
     for i = 1, #refreshCallbacks do xpcall(refreshCallbacks[i], handler) end
 end
 
--- EllesmereUI.AbbreviateNumber(n [, forceEnglish]) -> string
+-- EllesmereUI.AbbreviateNumber(n) -> string
 --   Formats n as the "meter" value type (Damage Meters, Mythic+ summary).
---   A boolean forceEnglish skips the Number Format and keeps the fixed
---   Precision "standard" table (gold blocks with their own K/M/B toggle).
-function EllesmereUI.AbbreviateNumber(n, forceEnglish)
-    if forceEnglish ~= nil then
-        return AbbreviateNumbers(tonumber(n) or 0, BuildConfig(forceEnglish))
-    end
+function EllesmereUI.AbbreviateNumber(n)
     return AbbreviateNumbers(tonumber(n) or 0, meterOpts or NumberFormatOptions("meter"))
+end
+
+-- EllesmereUI.AbbreviateNumberFixed(n, forceEnglish) -> string
+--   The fixed Precision "standard" table, outside the Number Format (gold
+--   blocks, which keep their own K/M/B toggle). forceEnglish: true always
+--   uses K/M/B, else the client's own units.
+function EllesmereUI.AbbreviateNumberFixed(n, forceEnglish)
+    return AbbreviateNumbers(tonumber(n) or 0, BuildConfig(forceEnglish))
 end
 
 --------------------------------------------------------------------------------
