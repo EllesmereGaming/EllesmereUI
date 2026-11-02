@@ -216,7 +216,7 @@ local function CreatePreviewFrame(index, party)
         hp:SetPoint("BOTTOMLEFT", health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
         hp:SetWidth(health:GetWidth())
         hp:SetHeight(health:GetHeight())
-        hp:SetFrameLevel(health:GetFrameLevel() + 1)
+        hp:SetFrameLevel(health:GetFrameLevel() + 3)  -- over the absorb, as live
         hp:SetMinMaxValues(0, 100)
         hp:Hide()
         f._healPredBar = hp
