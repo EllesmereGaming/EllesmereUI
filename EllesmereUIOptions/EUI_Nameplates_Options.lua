@@ -126,6 +126,8 @@ initFrame:SetScript("OnEvent", function(self)
     --  Refresh helpers
     ---------------------------------------------------------------------------
     local function RefreshAllPlates()
+        -- Color Casting Enemies repaints its tint colors (its swatches, Modify Out of Combat).
+        if ns.NP_CastTintsDirty then ns.NP_CastTintsDirty() end
         for _, plate in pairs(plates) do
             plate:UpdateHealth()
         end

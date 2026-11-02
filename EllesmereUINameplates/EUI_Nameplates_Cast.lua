@@ -361,6 +361,7 @@ function NameplateFrame:UpdateCast()
         self:UpdateKickTick(kickProtected, isChannel, isEmpowered)
         self:UpdateImportantCastGlow()
         self:UpdateCastTargetGlow()
+        if p and p.castingEnemyColors then ns.NP_NoteCastKind(self, kickProtected) end
         if GetShowClassPower() and classPowerType and self._cpPips and self.unit and UnitIsUnit(self.unit, "target") then
             UpdateClassPowerOnPlate(self)
         end
@@ -1057,6 +1058,7 @@ function NameplateFrame:KickProtectionChanged()
     self._kickProtected = kickProtected
     self:ApplyCastColor(kickProtected)
     self:RefreshKickTick()
+    if p and p.castingEnemyColors then ns.NP_NoteCastKind(self, kickProtected) end
 end
 function NameplateFrame:UNIT_SPELLCAST_INTERRUPTIBLE()
     self:KickProtectionChanged()
