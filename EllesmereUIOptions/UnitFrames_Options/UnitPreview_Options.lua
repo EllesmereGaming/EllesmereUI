@@ -3366,6 +3366,40 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             elseif tiPv then
                 tiPv:Hide()
             end
+            -- Growth Direction: Poison and Bleed icons follow Magic along the row, as live.
+            local grow = dp.dispelIconGrowth or "none"
+            local growOn = tiPv and tiPv:IsShown() and grow ~= "none"
+            local extra = pf._pvDispelIconRow
+            if growOn and not extra then
+                extra = {}
+                local atlases = { "RaidFrame-Icon-DebuffPoison", "RaidFrame-Icon-DebuffBleed" }
+                for i = 1, #atlases do
+                    local f = CreateFrame("Frame", nil, pf)
+                    local tex = f:CreateTexture(nil, "ARTWORK")
+                    tex:SetAllPoints(f)
+                    tex:SetAtlas(atlases[i])
+                    extra[i] = f
+                end
+                pf._pvDispelIconRow = extra
+            end
+            if extra then
+                local sz = dp.dispelIconSize or 16
+                local step = sz + EllesmereUI.PP.FromPixels(1)
+                local dx = (grow == "left" and -step) or (grow == "right" and step) or 0
+                local dy = (grow == "down" and -step) or (grow == "up" and step) or 0
+                for i = 1, #extra do
+                    local f = extra[i]
+                    if growOn then
+                        f:SetFrameLevel(tiPv:GetFrameLevel())
+                        f:SetSize(sz, sz)
+                        f:ClearAllPoints()
+                        f:SetPoint("CENTER", tiPv, "CENTER", dx * i, dy * i)
+                        f:Show()
+                    else
+                        f:Hide()
+                    end
+                end
+            end
         end
 
         -- Buff icons -- reposition based on anchor/growth/size/offset settings
