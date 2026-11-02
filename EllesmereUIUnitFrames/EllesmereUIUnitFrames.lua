@@ -1328,6 +1328,7 @@ local defaults = {
         showDispelIcons      = false,    -- Type Icon Position: the type's icon on a health bar corner
         dispelIconPosition   = "right",
         dispelIconSize       = 16,
+        dispelIconGrowth     = "none",   -- "none" stacks the type icons; up/down/left/right flows them
         dispelIconOffsetX    = 0,
         dispelIconOffsetY    = 0,
         dispelColorMagic   = { r = 0.349, g = 0.475, b = 1.0 },
