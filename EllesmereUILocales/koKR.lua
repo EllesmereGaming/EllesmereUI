@@ -1989,6 +1989,7 @@ L["Pummel\n(Focus)"] = "들이치기\n(주시)"
 L["Intervene\n(Focus)"] = "가로막기\n(주시)"
 L["Heroic Leap\n(Cursor)"] = "영웅의 도약\n(커서)"
 L["Fleeting Recklessness"] = "덧없는 무모함"   -- 공식: 덧없는 무모함의 물약(245902) 축약
+L["Fleeting Liquid Luster"] = "덧없는 액화 광택제"
 L["Void Metamorphosis\n+ Trinket 1"] = "공허 탈태\n+ 장신구 1"
 L["Vengeful Retreat\n& Glide"] = "복수의 퇴각\n& 활공"
 L["Innervate\n(Player)"] = "정신 자극\n(자신)"

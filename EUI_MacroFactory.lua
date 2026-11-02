@@ -68,6 +68,8 @@ local GENERAL_DEFS = {
             { key = "opt2", label = "Light's Potential",          items = {241308, 241309} },
             { key = "opt3", label = "Fleeting Recklessness",      items = {245902, 245903} },
             { key = "opt4", label = "Recklessness",               items = {241288, 241289} },
+            { key = "opt5", label = "Fleeting Liquid Luster",     items = {274764, 274763} },
+            { key = "opt6", label = "Liquid Luster",              items = {271887, 271886} },
         },
     },
     {
@@ -177,17 +179,33 @@ local function GetMacroDB(macroName)
     return EllesmereUIDB.macroFactory[macroName]
 end
 
+-- Priority order for a checkbox macro. Keeps a saved db.order and appends any option
+-- added since it was saved (so a new option never wipes a user's custom order); builds
+-- the default 1..n order when none is saved. A saved order already n long is returned as is.
+local function EnsureOrder(db, n)
+    local order = db.order
+    if type(order) == "table" and #order == n then return order end
+    if type(order) ~= "table" then order = {} end
+    local seen, clean = {}, {}
+    for _, idx in ipairs(order) do
+        if type(idx) == "number" and idx >= 1 and idx <= n and not seen[idx] then
+            seen[idx] = true; clean[#clean + 1] = idx
+        end
+    end
+    for i = 1, n do
+        if not seen[i] then clean[#clean + 1] = i end
+    end
+    db.order = clean
+    return clean
+end
+
 -------------------------------------------------------------------------------
 --  Macro body generation
 -------------------------------------------------------------------------------
 local function GetFirstAvailableItemID(def, db)
     if not def.checkboxes then return nil end
     local cbs = def.checkboxes
-    local order = db.order
-    if not order or #order < #cbs then
-        order = {}
-        for i = 1, #cbs do order[i] = i end
-    end
+    local order = EnsureOrder(db, #cbs)
     for _, idx in ipairs(order) do
         local cb = cbs[idx]
         if cb and db[cb.key] ~= false then
@@ -231,11 +249,7 @@ end
 local function BuildMacroBody(def, db)
     if def.checkboxes then
         local cbs = def.checkboxes
-        local order = db.order
-        if not order or #order < #cbs then
-            order = {}
-            for i = 1, #cbs do order[i] = i end
-        end
+        local order = EnsureOrder(db, #cbs)
 
         -- Collect all enabled items
         local availItems = {}
@@ -890,11 +904,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 local icon
                 if def.checkboxes then
                     local cbs = def.checkboxes
-                    local order = db.order
-                    if not order or #order < #cbs then
-                        order = {}
-                        for i = 1, #cbs do order[i] = i end
-                    end
+                    local order = EnsureOrder(db, #cbs)
                     for _, idx in ipairs(order) do
                         local cb = cbs[idx]
                         if cb and db[cb.key] ~= false and cb.items and cb.items[1] then
@@ -1247,11 +1257,11 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                             local to = math.max(1, math.min(iI, #cbItems))
                             if from ~= to then
                                 local db = GetDB()
-                                if not db.order then db.order = {}; for oi = 1, #cbItems do db.order[oi] = oi end end
+                                EnsureOrder(db, #cbItems)
                                 local mv = table.remove(db.order, from); table.insert(db.order, to, mv)
                             end
                             local db = GetDB()
-                            if not db.order then db.order = {}; for oi = 1, #cbItems do db.order[oi] = oi end end
+                            EnsureOrder(db, #cbItems)
                             for ri = 1, #rowFrames do
                                 local rf = rowFrames[ri]; local oi = db.order[ri]; local it = cbItems[oi]
                                 rf._cbIndex = ri; rf._cb = it; rf._lbl:SetText(OptionDisplayName(it))
