@@ -1341,12 +1341,19 @@ local function ResolveLayout(anchor, growth)
     return ia, fp[1], fp[2], fp[3], g[1], g[2]
 end
 
--- Column cap from the growth SETTING string: explicit per-row cap wins;
--- explicit vertical growth = one column; anything else = unlimited row.
-local function ResolveColumns(growth, maxCount, maxPerRow)
-    if maxPerRow and maxPerRow >= 1 and maxPerRow < maxCount then return maxPerRow end
-    if growth == "up" or growth == "down" then return 1 end
-    return nil
+-- Column cap from the growth SETTING string: a per-row cap below maxCount
+-- wins; explicit vertical growth = one column; anything else = Max Per Row,
+-- or maxCount while it is unset (what its slider shows). Never unlimited:
+-- Max Count caps each group, not the container, so several active groups
+-- (filters, the Purgeable Glow split, Max Important) would otherwise
+-- stretch one row past it.
+-- rowMax = Max Count; maxCount may be Max Important instead (ApplyGroupConfig).
+-- Second return: true when the cap is a single row (not a grid or a column).
+local function ResolveColumns(growth, maxCount, maxPerRow, rowMax)
+    if maxPerRow and maxPerRow >= 1 and maxPerRow < maxCount then return maxPerRow, false end
+    if growth == "up" or growth == "down" then return 1, false end
+    if maxPerRow and maxPerRow >= 1 then return maxPerRow, true end
+    return rowMax, true
 end
 
 local FLOWDIR = { RIGHT = nil, LEFT = nil, UP = nil, DOWN = nil } -- filled on first use
@@ -1583,6 +1590,69 @@ local function SideOn(unit, base, s)
     return (s.debuffAnchor or "none") ~= "none" or (BossSimple(unit, base, s))
 end
 ns.UF_AuraSideOn = SideOn
+
+-- Player weapon enchant cells (AnchorContainer declares them): they flow
+-- ahead of the buffs in the same row, so a capped row widens by the cells
+-- showing (only duration-bearing ones, hidePermanent). Equipment state, not
+-- aura data: no secret values, in restricted combat either.
+local WeaponCells = {}
+
+-- On = the buff row is in a broad mode, which declares the cells.
+function WeaponCells.On(unit, base, s)
+    return unit == "player" and base == "HELPFUL" and SideOn(unit, base, s)
+        and (s.buffShowAll ~= false or s.buffHasDuration == true)
+end
+
+-- Shown = the cells render on the player buff row: the engine cannot
+-- undeclare them, so once declared (AnchorContainer stamps the container)
+-- they stay after a switch out of the broad modes until the next /reload.
+function WeaponCells.Shown(unit, base, s)
+    if WeaponCells.On(unit, base, s) then return true end
+    local entry = registry.player
+    return unit == "player" and base == "HELPFUL" and WeaponCells.declared ~= nil
+        and entry ~= nil and entry.buffs == WeaponCells.declared and SideOn(unit, base, s)
+end
+
+-- Player Aura Bars' count (all three slots: AK declares them all here).
+function WeaponCells.Count()
+    return ns.PAB_ActiveEnchantCount and ns.PAB_ActiveEnchantCount(3) or 0
+end
+
+-- Registered only while the cells are on; the count is change-guarded
+-- (WEAPON_ENCHANT_CHANGED also fires for charge ticks). The count rides the
+-- player buff fingerprint, so the reload re-runs only that config pass.
+-- n = the current count when the caller already has it.
+function WeaponCells.Sync(want, n)
+    local f = WeaponCells.frame
+    if want then
+        if not f then
+            f = CreateFrame("Frame")
+            f:SetScript("OnEvent", function()
+                local entry = registry.player
+                -- Player frame no longer ours (source switched away without a
+                -- /reload): nothing to widen, stop listening.
+                if not (entry and entry.frame)
+                    or (ns.GetUnitFrameSource and ns.GetUnitFrameSource("player") ~= "eui") then
+                    WeaponCells.Sync(false)
+                    return
+                end
+                local n = WeaponCells.Count()
+                if n == WeaponCells.last then return end
+                WeaponCells.last = n
+                if ns.UF_ReloadAuraContainers then
+                    ns.UF_ReloadAuraContainers(entry.frame, "player")
+                end
+            end)
+            WeaponCells.frame = f
+        end
+        WeaponCells.last = n or WeaponCells.Count()
+        f:RegisterEvent("WEAPON_ENCHANT_CHANGED")
+        f:RegisterEvent("WEAPON_SLOT_CHANGED")
+    elseif f then
+        f:UnregisterAllEvents()
+        WeaponCells.last = nil
+    end
+end
 
 -- Element pixel size; boss simple mode matches the frame's bar-stack height.
 local function ElementSize(unit, base, s)
@@ -2148,8 +2218,7 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer, r
         -- mode (this pass re-runs on a chain change and when the row turns
         -- on), and -- the engine has no addon-facing unregister -- kept until
         -- the next /reload should the row or the mode turn off again.
-        if not reanchorOnly and unit == "player" and isBuff and SideOn(unit, base, s)
-            and (s.buffShowAll ~= false or s.buffHasDuration == true) then
+        if not reanchorOnly and WeaponCells.On(unit, base, s) then
             local PP = EllesmereUI.PP
             local w, h = ElementSize(unit, base, s)
             local gap = PP.FromPixels(s.buffSpacingX or 1)
@@ -2178,6 +2247,10 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer, r
                     placement = placement and placement.BeforeAuraGroups,
                 },
             })
+            -- Only where AK could declare them (it no-ops without the API).
+            if container.AddItemEnchantment and AuraContainerItemEnchantmentSlot then
+                WeaponCells.declared = container
+            end
         end
     end
     AK.SetContainerGrowth(container, FlowDir(gX), FlowDir(gY))
@@ -2405,7 +2478,21 @@ local function ApplyGroupConfig(container, unit, base, s, chain, declared)
             if chain[i].important then capMax = mi break end
         end
     end
-    local cols = ResolveColumns(growth, capMax > 0 and capMax or 1, maxPerRow)
+    local cols, oneRow = ResolveColumns(growth, capMax > 0 and capMax or 1, maxPerRow, num > 0 and num or 1)
+    -- Weapon enchant cells share the first row. The engine applies one line
+    -- size to every row, so only a single-row cap over at most one shown
+    -- group (which never overflows it) widens by the cells showing; a grid
+    -- or several groups keep the cells in their rows.
+    local cellsOn = WeaponCells.Shown(unit, base, s)
+    local cellN = cellsOn and WeaponCells.Count() or 0
+    if unit == "player" and isBuff then WeaponCells.Sync(cellsOn, cellN) end
+    if cellN > 0 and oneRow then
+        local shown = 0
+        for i = 1, #chain do
+            if not chain[i].hidden then shown = shown + 1 end
+        end
+        if shown <= 1 then cols = cols + cellN end
+    end
     local rowWidth = nil
     if cols then
         rowWidth = cols * size + (cols - 1) * spX + 0.4
@@ -2649,6 +2736,12 @@ local function CfgFP(unit, base, s, frame)
     -- Max Important (Important or Own) caps the important-from-others links in
     -- ApplyGroupConfig. Marked only while set, so a default fingerprint stays.
     if not isBuff and s.maxImportantDebuffs then fp = fp .. "|mi" .. s.maxImportantDebuffs end
+    -- Weapon enchant cells widen the player buff row (ApplyGroupConfig).
+    -- Marked only while some show, so a default fingerprint stays.
+    if WeaponCells.Shown(unit, base, s) then
+        local n = WeaponCells.Count()
+        if n > 0 then fp = fp .. "|we" .. n end
+    end
     return fp
 end
 
