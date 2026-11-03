@@ -441,6 +441,14 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 desc   = "The three combat potions are one Combat Potion preset: its menu's Combat Potion Icon orders them and can swap to the next when one runs out",
                 nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUICooldownManager", page = "CDM Bars" } or nil,
             },
+            {
+                -- Retail only: WoW Forever has its own planner in Forever Essentials.
+                module = "Quality of Life",
+                title  = "Talent Planner",
+                desc   = "Plan the order in which to learn your talents on the talent window; a level up then learns the next planned talent for you",
+                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIQoL", page = "QoL",
+                           section = "TALENT PLANNER", highlight = "Talent Planner" } or nil,
+            },
         },
         fixes = {
             { module = "AuraBuff Reminders", text = "A paladin's Rites, a shaman's imbues and shields and a rogue's poisons are now reminded in arenas and battlegrounds; only flasks, food, runes and weapon oils stay off there." },

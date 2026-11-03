@@ -82,6 +82,7 @@ EUI_UnlockMode_PointPicker.lua
 EUI_UnlockMode_Movers.lua
 EUI_UnlockMode_Session.lua
 EUI_UnlockMode_Filter.lua
+EllesmereUI_Feature.lua
 EllesmereUI_Glows.lua
 EllesmereUI_RoundedCorners.lua
 EllesmereUI_ClassicArt.lua

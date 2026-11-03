@@ -362,6 +362,28 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
         y = y - lustH
     end
 
+    ---------------------------------------------------------------------------
+    --  TALENT PLANNER (runtime in EllesmereUIQoL_TalentPlannerRetail.lua; the
+    --  runtime returns at load on WoW Forever, which has its own planner)
+    ---------------------------------------------------------------------------
+    local TP = EllesmereUI._TalentPlannerRetail
+    if TP then
+        _, h = W:Spacer(parent, y, 20); y = y - h
+        _, h = W:SectionHeader(parent, "TALENT PLANNER", y); y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Talent Planner",
+              tooltip = "Plan the order in which to learn talents (Plan Talents, under the talent window). At a level up, the next planned talent you can pay for is learned for you, out of combat, and applied like Apply Changes. The plan is kept per specialization.",
+              -- Off by default.
+              getValue = function() return TP.Get("enabled") end,
+              setValue = function(v)
+                  TP.Cfg().enabled = v
+                  TP.Apply()
+              end },
+            EllesmereUI.BlankRowCfg()
+        );  y = y - h
+    end
+
     return math.abs(y - yOffset)
 end
 

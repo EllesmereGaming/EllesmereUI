@@ -26,6 +26,7 @@ EllesmereUIQoL_RaidBuffCheck.lua
 EllesmereUIQoL_SelfCombatText.lua
 EllesmereUIQoL_Alerts.lua
 EllesmereUIQoL_UpgradeTooltip.lua
+EllesmereUIQoL_TalentPlannerRetail.lua
 EUI_UpgradeCalc.lua
 
 # Options
