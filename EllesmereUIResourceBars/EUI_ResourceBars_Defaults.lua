@@ -226,6 +226,7 @@ local DEFAULTS = {
             raiseLevel  = false,  -- Draw Above Other Bars (Class Resource cog)
             darkTheme   = false,
             useBlizzardAtlas = false,  -- bar-style class resources use Blizzard's player-frame power atlas as the fill
+            useContinuousTexture = false,  -- pip-style resources use a continuous texture
             blizzardClassArt = false,  -- Blizzard's own class resource frame replaces this bar (specs that have one)
             blizzardClassArtScale = 1,
             classColored = true,
