@@ -882,11 +882,12 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
     -- worst-case cell grid (which left too much gap around every normal icon). Shape-
     -- expanded the same as the live bar's own button SetSize (BuildStyle/
     -- EnsurePabSizedStyle), so preview spacing/footprint matches the real bar.
-    local slotSize = {}
+    local slotSize, slotHeight = {}, cfg.iconShape == "cropped" and {} or nil
     for i = 1, total do
         local e = fxBySlot and fxBySlot[i]
         local sz = e and tonumber(e.size)
         slotSize[i] = PabShapedSize((sz and sz > 0) and sz or iconSize, cfg.iconShape)
+        if slotHeight then slotHeight[i] = ns.PAB_CroppedHeight(slotSize[i], cfg) end
     end
 
     local rowWidth, rowHeight, colOffset, rowYOffset = {}, {}, {}, {}
@@ -901,8 +902,8 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
         for i = 1, total do
             local r = math.floor((i - 1) / cols)
             colOffset[i] = runningX[r] or 0
-            runningX[r] = (runningX[r] or 0) + slotSize[i] + pad
-            rowHeight[r] = math.max(rowHeight[r] or 0, slotSize[i])
+            runningX[r] = (runningX[r] or 0) + (vertical and slotHeight and slotHeight[i] or slotSize[i]) + pad
+            rowHeight[r] = math.max(rowHeight[r] or 0, (not vertical) and slotHeight and slotHeight[i] or slotSize[i])
         end
         for r = 0, rows - 1 do
             rowWidth[r] = math.max(0, runningX[r] - pad) -- drop the trailing gap
@@ -946,7 +947,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
             -- in CornerFor/BuildContainerSpec used by the real (non-preview) bars.
             local btnX, btnY
             if centeredVertical then
-                btnY = halfPrimary - withinLineStep - slotSize[i] / 2
+                btnY = halfPrimary - withinLineStep - (slotHeight and slotHeight[i] or slotSize[i]) / 2
                 btnX = -halfCross + acrossLinesStep + slotSize[i] / 2
             elseif vertical then
                 btnY = growUp and (-halfPrimary + withinLineStep) or (halfPrimary - withinLineStep)
@@ -957,7 +958,7 @@ local function RenderPreviewIcons(box, icons, isBuff, cfg, fontPath, pool)
             end
             btn:ClearAllPoints()
             btn:SetPoint(centeredVertical and "CENTER" or corner, box, "CENTER", btnX, btnY)
-            btn:SetSize(slotSize[i], slotSize[i])
+            btn:SetSize(slotSize[i], slotHeight and slotHeight[i] or slotSize[i])
 
             local slot = slots[i]
             local dispel

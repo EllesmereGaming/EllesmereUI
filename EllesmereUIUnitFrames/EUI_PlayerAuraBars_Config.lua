@@ -68,6 +68,9 @@ local ENCH_SLOT_COUNT = 3
 
 local function ComputeGrid(isBuff, cfg)
     local iconSize, rawIconSize = MaxIconSizeFor(isBuff, cfg)
+    local rawIconHeight = cfg.iconShape == "cropped"
+        and ns.PAB_CroppedHeight(rawIconSize, cfg) or rawIconSize
+    local iconHeight = cfg.iconShape == "cropped" and PabSnap(rawIconHeight) or iconSize
     local pad = cfg.padding or 5
     local rowGap = cfg.rowSpacing or 12
     local layoutPad = PabSnap(pad)
@@ -91,7 +94,10 @@ local function ComputeGrid(isBuff, cfg)
     -- Horizontal growth: a "line" is a row, so lineExtent -> width. Vertical growth
     -- modes: a "line" is a column, so lineExtent -> height -- see
     -- CornerFor/BuildContainerSpec for the matching growthH/growthV swap.
-    local lineExtent = cols * iconSize + (cols - 1) * layoutPad
+    local vertical = (cfg.growDirection == "UP" or cfg.growDirection == "DOWN" or cfg.growDirection == "CENTER_VERTICAL")
+    local primarySize = vertical and iconHeight or iconSize
+    local crossSize = vertical and iconSize or iconHeight
+    local lineExtent = cols * primarySize + (cols - 1) * layoutPad
     -- Wrap budget handed to the engine. At POSITIVE spacing the engine reserves a
     -- TRAILING elementSpacing after every element (not only between), so a full
     -- line needs cols * (icon + spacing) or the last icon of every row wraps --
@@ -100,9 +106,8 @@ local function ComputeGrid(isBuff, cfg)
     -- makes the final icon wrap EARLY, so the budget adds nothing there.
     -- lineExtent still sizes the bar's own frame either way, so the drag box
     -- measures the icons, not the phantom trailing gap.
-    local rowWidth = math.max(iconSize, lineExtent) + math.max(0, layoutPad)
-    local crossExtent = usedRows * iconSize + (usedRows - 1) * layoutRowGap
-    local vertical = (cfg.growDirection == "UP" or cfg.growDirection == "DOWN" or cfg.growDirection == "CENTER_VERTICAL")
+    local rowWidth = math.max(primarySize, lineExtent) + math.max(0, layoutPad)
+    local crossExtent = usedRows * crossSize + (usedRows - 1) * layoutRowGap
     local width = vertical and crossExtent or lineExtent
     local height = vertical and lineExtent or crossExtent
     -- Reference boxes for stored positions (see BarAnchorOffset): the design extent
@@ -110,10 +115,11 @@ local function ComputeGrid(isBuff, cfg)
     -- extent the pre-fix PP.Scale truncation produced at this resolution.
     local PP = EllesmereUI.PP
     local legacyIcon, legacyPad, legacyRowGap = PP.Scale(rawIconSize), PP.Scale(pad), PP.Scale(rowGap)
-    local designLine = cols * rawIconSize + (cols - 1) * pad
-    local designCross = usedRows * rawIconSize + (usedRows - 1) * rowGap
-    local legacyLine = cols * legacyIcon + (cols - 1) * legacyPad
-    local legacyCross = usedRows * legacyIcon + (usedRows - 1) * legacyRowGap
+    local legacyHeight = cfg.iconShape == "cropped" and PP.Scale(rawIconHeight) or legacyIcon
+    local designLine = cols * (vertical and rawIconHeight or rawIconSize) + (cols - 1) * pad
+    local designCross = usedRows * (vertical and rawIconSize or rawIconHeight) + (usedRows - 1) * rowGap
+    local legacyLine = cols * (vertical and legacyHeight or legacyIcon) + (cols - 1) * legacyPad
+    local legacyCross = usedRows * (vertical and legacyIcon or legacyHeight) + (usedRows - 1) * legacyRowGap
     return {
         -- The bar's WHOLE icon budget (Max Icons), weapon-enchant cells
         -- included -- BuffAuraMax takes the showing ones off it.
