@@ -109,6 +109,33 @@ local THRESHOLD_TIP = "Numbers below this stay whole."
 local THRESHOLD_LOCK = "This option requires a Precision other than Standard"
 
 -------------------------------------------------------------------------------
+--  Module overrides: Unit Frames' Show Decimal on Health Text and Damage
+--  Meters' Force English Units win over this page on their own module.
+-------------------------------------------------------------------------------
+local function UFDecimalsOn()
+    local uf = EllesmereUI.ModuleNS("EllesmereUIUnitFrames")
+    local p = uf and uf.db and uf.db.profile
+    return p ~= nil and p.showDecimalOnText == true and p.showDecimalPercentOnly ~= true
+end
+
+local function DMForceEnglishOn()
+    local d = _G._EDM_DB
+    local dm = d and d.profile and d.profile.dm
+    -- Only an override while the Unit Style shows the client's own units.
+    return dm ~= nil and dm.forceEnglishUnits == true and EllesmereUI.NumberFormatUsesGlyphs()
+end
+
+-- valueType -> active, label, module, page, section, highlight of its note
+local function OverrideNote(valueType)
+    if valueType == "meter" then
+        return DMForceEnglishOn(), "Damage Meters' Force English Units overrides the Unit Style on Damage Meters",
+            "EllesmereUIDamageMeters", "Damage Meters", "BAR TEXT", "Force English Units (K/M/B)"
+    end
+    return UFDecimalsOn(), "Unit Frames' Show Decimal on Health Text overrides this on Unit Frames",
+        "EllesmereUIUnitFrames", "Main Frames", "DISPLAY", "Show Decimal on Health Text"
+end
+
+-------------------------------------------------------------------------------
 --  Header: value type tabs, a live preview, and the type's Precision and
 --  threshold
 -------------------------------------------------------------------------------
@@ -290,7 +317,8 @@ function _G._EUI_BuildNumberFormatPage(pageName, parent, yOffset)
           disabledTooltip = function()
               if EllesmereUI.NumberFormatUsesGlyphs() then return "Your client's units have no letter case" end
               return "This option requires a value type with a Precision other than Standard"
-          end },
+          end,
+          rawTooltip = true },
         { type = "dropdown", text = "Unit Style",
           tooltip = "Client Language uses your client's own units (ten-thousand groups on Chinese and Korean clients). Western always uses K, M and B. Applies to every value type.",
           values = { auto = "Client Language", western = "Western (K, M, B)" },
@@ -301,7 +329,18 @@ function _G._EUI_BuildNumberFormatPage(pageName, parent, yOffset)
           end,
           setValue = function(v) SetGlobalField("units", v ~= "auto" and v or nil) end,
           disabled = function() return not EllesmereUI.LocaleHasNumberAbbreviation() end,
-          disabledTooltip = "Only East Asian clients have their own units" });  y = y - h
+          disabledTooltip = "Only East Asian clients have their own units",
+          rawTooltip = true });  y = y - h
+
+    -- A module toggle overriding the shown type, with a jump to it. The toggle
+    -- lives on another page, so the row is always built (last, so hiding it
+    -- shifts nothing) and shown or hidden in place on every refresh, a cache
+    -- restore included.
+    local on, note, module, page, section, highlight = OverrideNote(vt)
+    local noteRow
+    y, noteRow = EllesmereUI.BuildLinkRow(parent, y, note, module, page, section, highlight, { warn = true })
+    noteRow:SetShown(on)
+    EllesmereUI.RegisterWidgetRefresh(function() noteRow:SetShown((OverrideNote(vt))) end)
 
     -- Framework contract: return the positive total content height.
     return math.abs(y)

@@ -2712,6 +2712,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI.InvalidateFontCache()
             EllesmereUI.ApplyColorsToOUF()
+            -- Reset the active profile's Number Format to defaults
+            EllesmereUI.ResetNumberFormat()
             -- Reset panel scale to 100%
             EllesmereUI:SetPanelScale(1.0)
             -- Reset right-click targeting to default (disabled = off)

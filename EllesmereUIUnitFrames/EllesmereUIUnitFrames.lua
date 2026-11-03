@@ -202,11 +202,12 @@ local defaults = {
         -- names one of their own ("blizzard" = the vanilla cast fill).
         castBarTexture = "inherit",
         darkTheme = false,
-        -- One decimal on health percents (77.3%); global, read by text tags via _G flags.
-        -- Values follow the global Number Format instead.
-        showDecimalOnPercent = false,
-        -- With decimals on, boss frames use two (77.30%); inline cog on "Show Decimal on Health Percent".
+        -- One decimal on abbreviated values (240.5k) and percents (77.3%); global, read by text tags via _G flags.
+        showDecimalOnText = false,
+        -- With decimals on, boss frames use two (240.55k / 77.30%); inline cog on "Show Decimal on Health Text".
         showDecimalBoss2 = true,
+        -- With decimals on, "Only Show for % Health" keeps the decimal on PERCENT (77.3%) but leaves VALUES whole (240k); same inline cog.
+        showDecimalPercentOnly = false,
         -- With decimals on, "Hide Trailing Zeros" drops a zero decimal from the PERCENT (100.0% -> 100%, 99.5% unchanged); same inline cog.
         showDecimalTrimZeros = false,
         -- Player Threat (Non-Tank): additive "Shadow" border on the PLAYER frame while

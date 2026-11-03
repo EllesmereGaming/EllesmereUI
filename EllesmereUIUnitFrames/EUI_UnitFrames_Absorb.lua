@@ -14,7 +14,7 @@ local PP = EllesmereUI.PP
 
 local I = ns._internals
 local GetSettingsForUnit, UnsnapTex = I.GetSettingsForUnit, I.UnsnapTex
-local healthBarTextures = I.healthBarTextures
+local healthBarTextures, AbbreviateNumbers = I.healthBarTextures, I.AbbreviateNumbers
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
@@ -1176,7 +1176,8 @@ local function CreateAbsorbBar(frame, unit, settings)
                             local field = GATE_ZONE_TEXT[zone]
                             local fs = field and self[field]
                             if fs then
-                                fs:SetText(ns.AbbreviateValue(amt, "absorb"))
+                                local cfg = _G._EUI_AbbrevDecimalCfg
+                                fs:SetText(cfg and AbbreviateNumbers(amt, cfg) or ns.AbbreviateValue(amt, "absorb"))
                             end
                         end
                     end

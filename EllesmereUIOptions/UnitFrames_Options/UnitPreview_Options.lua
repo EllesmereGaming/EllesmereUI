@@ -454,10 +454,13 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
 
     -- Resolve preview text for a content key
     local function PreviewTextForContent(content, s, prefix)
-        -- Values as the live tags format them (the Number Format per value type;
-        -- boss frames read "bossHealth" for health). Percents mirror "Show
-        -- Decimal on Health Percent": one decimal when the global flag is on.
+        -- Mirror "Show Decimal on Text": one decimal on abbrevs/percents when the
+        -- global flag is on, else the Number Format for valueType like the live
+        -- tags (boss frames read "bossHealth" for health).
         local function _pvAbbrev(v, valueType)
+            local cfg = _G._EUI_AbbrevDecimalCfg
+            -- The live tags' function (WoW Forever: none under 10,000 abbreviates).
+            if cfg then return ns.AbbreviateNumbers(v, cfg) end
             if valueType ~= "absorb" and unitKey:match("^boss") then valueType = "bossHealth" end
             return ns.AbbreviateValue(v, valueType)
         end

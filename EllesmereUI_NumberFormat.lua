@@ -260,17 +260,24 @@ local function BuildRows(precision, glyphs, lower)
 end
 
 -- Resolved opts per value type (false = "use the caller's own default"), wiped
--- by RefreshNumberFormat. cfgBySpec shares one config between identical specs;
--- the locale is fixed per session, so it never needs wiping.
+-- by RefreshNumberFormat; optsByTypeW holds the forceWestern variants.
+-- cfgBySpec shares one config between identical specs; the locale is fixed per
+-- session, so it never needs wiping.
 local optsByType = {}
+local optsByTypeW = {}
 local cfgBySpec = {}
 
--- valueType -> opts | false, cacheable (false before the active profile exists)
-local function ResolveOptions(valueType)
+-- valueType, forceWestern -> opts | false, cacheable (false before the active
+-- profile exists). forceWestern: a module's own K/M/B override (Damage Meters'
+-- Force English Units) over the Unit Style; Precision and threshold stay, the
+-- case only where the Unit Style lets the user set it (else upper, as on CJK).
+local function ResolveOptions(valueType, forceWestern)
     local active = ActiveProfile()
     local nf = active and active.numberFormat
     local precision, threshold = TypeSettings(nf, valueType)
     local glyphs, western = ActiveUnits(nf)
+    local lower = nf ~= nil and nf.case == "lower" and not glyphs
+    if forceWestern then glyphs, western = nil, true end
 
     if precision == "standard" then
         if western then return BuildConfig(true), active ~= nil end
@@ -278,7 +285,6 @@ local function ResolveOptions(valueType)
         return false, active ~= nil
     end
 
-    local lower = nf.case == "lower" and not glyphs
     local key = (glyphs and EllesmereUI.LOCALE or "en") .. ":" .. precision .. ":" .. threshold .. (lower and ":l" or ":u")
     local cfg = cfgBySpec[key]
     if not cfg then
@@ -288,22 +294,25 @@ local function ResolveOptions(valueType)
     return cfg, true
 end
 
--- The "meter" opts again as a plain upvalue: AbbreviateNumber's warm path.
-local meterOpts
+-- The "meter" opts again as plain upvalues: AbbreviateNumber's warm path.
+local meterOpts, meterOptsW
 
--- EllesmereUI.NumberFormatOptions(valueType) -> opts | nil
+-- EllesmereUI.NumberFormatOptions(valueType, forceWestern) -> opts | nil
 --   The AbbreviateNumbers options for valueType under the active profile's
 --   Number Format. nil means Precision "standard" on a type whose consumer keeps
 --   its own default call (plain AbbreviateNumbers, or ForeverAbbreviateNumbers);
---   "meter" always returns a config.
-function EllesmereUI.NumberFormatOptions(valueType)
-    local o = optsByType[valueType]
+--   "meter" always returns a config. forceWestern: K/M/B whatever the Unit Style.
+function EllesmereUI.NumberFormatOptions(valueType, forceWestern)
+    local cache = forceWestern and optsByTypeW or optsByType
+    local o = cache[valueType]
     if o == nil then
         local cacheable
-        o, cacheable = ResolveOptions(valueType)
+        o, cacheable = ResolveOptions(valueType, forceWestern)
         if cacheable then
-            optsByType[valueType] = o
-            if valueType == "meter" then meterOpts = o end
+            cache[valueType] = o
+            if valueType == "meter" then
+                if forceWestern then meterOptsW = o else meterOpts = o end
+            end
         end
     end
     return o or nil
@@ -340,7 +349,8 @@ end
 --   reported without stopping the rest.
 function EllesmereUI.RefreshNumberFormat()
     wipe(optsByType)
-    meterOpts = nil
+    wipe(optsByTypeW)
+    meterOpts, meterOptsW = nil, nil
     local signature = Signature()
     if signature == lastSignature then return end
     lastSignature = signature
@@ -348,9 +358,22 @@ function EllesmereUI.RefreshNumberFormat()
     for i = 1, #refreshCallbacks do xpcall(refreshCallbacks[i], handler) end
 end
 
--- EllesmereUI.AbbreviateNumber(n) -> string
+-- EllesmereUI.ResetNumberFormat()
+--   The active profile back to the default Number Format, then redrawn.
+function EllesmereUI.ResetNumberFormat()
+    local active = ActiveProfile()
+    if active then active.numberFormat = nil end
+    EllesmereUI.RefreshNumberFormat()
+end
+
+-- EllesmereUI.AbbreviateNumber(n, forceWestern) -> string
 --   Formats n as the "meter" value type (Damage Meters, Mythic+ summary).
-function EllesmereUI.AbbreviateNumber(n)
+--   forceWestern: K/M/B whatever the Unit Style (Damage Meters' Force English
+--   Units); with Precision "standard" that is the old fixed English table.
+function EllesmereUI.AbbreviateNumber(n, forceWestern)
+    if forceWestern then
+        return AbbreviateNumbers(tonumber(n) or 0, meterOptsW or NumberFormatOptions("meter", true))
+    end
     return AbbreviateNumbers(tonumber(n) or 0, meterOpts or NumberFormatOptions("meter"))
 end
 

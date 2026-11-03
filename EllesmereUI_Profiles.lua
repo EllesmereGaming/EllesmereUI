@@ -3464,16 +3464,6 @@ function EllesmereUI.ImportProfile(importStr, profileName)
         elseif imported.fonts then
             merged.numberFormat = nil
         end
-        -- An older string still carries the Damage Meters' Force English Units and Unit
-        -- Frames' value decimals, which number_format_force_english_units_v1 and
-        -- number_format_uf_value_decimals_v1 would fold into this profile's Number
-        -- Format at the next load. Without the exporter's global settings the
-        -- recipient's Number Format stands, so both migrations count as done.
-        if not (imported.fonts or imported.numberFormat) then
-            merged._migrations = merged._migrations or {}
-            merged._migrations.number_format_force_english_units_v1 = true
-            merged._migrations.number_format_uf_value_decimals_v1 = true
-        end
         -- Override stores: ALL-OR-NOTHING (2026-07-20 redesign; the old per-folder
         -- value merge in SpecOverrides_MergeImportedStores is retired and must not be
         -- re-wired). Taking -> the exporter's complete override system (values + groups
