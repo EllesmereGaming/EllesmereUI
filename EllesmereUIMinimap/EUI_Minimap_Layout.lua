@@ -144,7 +144,14 @@ local function BuildCustomIndicators(minimap)
         if EBS._HVRevealMapHover then EBS._HVRevealMapHover() end
         if mailBaseEnter then mailBaseEnter(self) end
         if not GetFFD(self).freeMoveJustDragged and EllesmereUI.ShowWidgetTooltip then
-            EllesmereUI.ShowWidgetTooltip(self, HAVE_MAIL or "New Mail", { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
+            local label = HAVE_MAIL or "New Mail"
+            -- Up to three latest senders, as Blizzard's own mail icon lists them
+            -- (our button replaces it, so without this the names are lost).
+            local senders = GetLatestThreeSenders and { GetLatestThreeSenders() } or nil
+            if senders and #senders > 0 then
+                label = (HAVE_MAIL_FROM or "Unread mail from:") .. "\n" .. table.concat(senders, "\n")
+            end
+            EllesmereUI.ShowWidgetTooltip(self, label, { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
         end
     end)
     _customIndicators.mail:SetScript("OnLeave", function(self)
