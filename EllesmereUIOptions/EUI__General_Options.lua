@@ -24,6 +24,7 @@ local PAGE_GLOWS       = "Glows"     -- centralized glow page; body lives in EUI
 local PAGE_GAMEPAD     = "Gamepad"   -- controller settings page; body lives in EUI_Gamepad_Options.lua
 local PAGE_STYLE       = "Style"     -- per-module EllesmereUI / Blizzard Style page; body lives in EUI_Style_Options.lua
 local PAGE_COLORS      = "Colors"    -- the color half of the old "Fonts & Colors" page
+local PAGE_NUMBERS     = "Numbers"   -- Number Format page; body lives in EUI_NumberFormat_Options.lua
 local PAGE_PROFILES    = "Profiles"
 local PAGE_PRESETS     = "Presets"   -- navigation tab over the presets subpage of the profiles page
 local PAGE_WHATSNEW    = "Patch Notes"
@@ -2612,8 +2613,8 @@ initFrame:SetScript("OnEvent", function(self)
         EllesmereUI._EndRootRender("profilesRoot")
     end
 
-    -- Profiles and Patch Notes are their own sidebar pages (registered below), so Global Settings owns General + Style + Fonts + Textures + Glows + Colors (Style second, beside General), plus Gamepad while a module it configures is loaded.
-    local globalPages = { PAGE_GENERAL, PAGE_STYLE, PAGE_FONTS, PAGE_TEXTURES, PAGE_GLOWS, PAGE_COLORS }
+    -- Profiles and Patch Notes are their own sidebar pages (registered below), so Global Settings owns General + Style + Fonts + Textures + Glows + Colors + Numbers (Style second, beside General), plus Gamepad while a module it configures is loaded.
+    local globalPages = { PAGE_GENERAL, PAGE_STYLE, PAGE_FONTS, PAGE_TEXTURES, PAGE_GLOWS, PAGE_COLORS, PAGE_NUMBERS }
     if EllesmereUI.ModuleNS("EllesmereUIActionBars") or EllesmereUI.ModuleNS("EllesmereUIUnitFrames")
        or EllesmereUI.ModuleNS("EllesmereUIResourceBars") then
         globalPages[#globalPages + 1] = PAGE_GAMEPAD
@@ -2638,6 +2639,8 @@ initFrame:SetScript("OnEvent", function(self)
                     return _G._EUI_BuildGlowsPage and _G._EUI_BuildGlowsPage(pageName, parent, yOffset)
                 elseif pageName == PAGE_GAMEPAD then
                     return _G._EUI_BuildGamepadPage and _G._EUI_BuildGamepadPage(pageName, parent, yOffset)
+                elseif pageName == PAGE_NUMBERS then
+                    return _G._EUI_BuildNumberFormatPage and _G._EUI_BuildNumberFormatPage(pageName, parent, yOffset)
                 elseif pageName == PAGE_STYLE then
                     return _G._EUI_BuildStylePage and _G._EUI_BuildStylePage(pageName, parent, yOffset)
                 elseif pageName == PAGE_COLORS then
@@ -2661,6 +2664,8 @@ initFrame:SetScript("OnEvent", function(self)
                 return _G._EUI_BuildGlowsPage and _G._EUI_BuildGlowsPage(pageName, parent, yOffset)
             elseif pageName == PAGE_GAMEPAD then
                 return _G._EUI_BuildGamepadPage and _G._EUI_BuildGamepadPage(pageName, parent, yOffset)
+            elseif pageName == PAGE_NUMBERS then
+                return _G._EUI_BuildNumberFormatPage and _G._EUI_BuildNumberFormatPage(pageName, parent, yOffset)
             elseif pageName == PAGE_STYLE then
                 return _G._EUI_BuildStylePage and _G._EUI_BuildStylePage(pageName, parent, yOffset)
             elseif pageName == PAGE_COLORS then
@@ -2671,7 +2676,25 @@ initFrame:SetScript("OnEvent", function(self)
                 return EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
             end
         end,
+        -- Number Format: the value type picker and preview header, and one search
+        -- pre-build per value type (each type's Precision row exists only under it).
+        getHeaderBuilder = function(pageName)
+            if pageName == PAGE_NUMBERS and _G._EUI_NumberFormatHeaderBuilder then
+                return _G._EUI_NumberFormatHeaderBuilder()
+            end
+            return nil
+        end,
+        getPrebuildVariants = function(pageName)
+            if pageName == PAGE_NUMBERS and _G._EUI_NumberFormatVariants then
+                return _G._EUI_NumberFormatVariants()
+            end
+            return nil
+        end,
         onPageCacheRestore = function(pageName)
+            -- The cached header's preview may predate a profile switch.
+            if pageName == PAGE_NUMBERS and _G._EUI_NumberFormatRefreshHeader then
+                _G._EUI_NumberFormatRefreshHeader()
+            end
             if pageName == PAGE_GLOWS then
                 -- Glow sites bind per-bar and per-spec tables at build time (CDM bars,
                 -- tracking bars); a spec swap or bar change behind a cached page would
@@ -2713,6 +2736,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI.InvalidateFontCache()
             EllesmereUI.ApplyColorsToOUF()
+            -- Reset the active profile's Number Format to defaults
+            EllesmereUI.ResetNumberFormat()
             -- Reset panel scale to 100%
             EllesmereUI:SetPanelScale(1.0)
             -- Reset right-click targeting to default (disabled = off)

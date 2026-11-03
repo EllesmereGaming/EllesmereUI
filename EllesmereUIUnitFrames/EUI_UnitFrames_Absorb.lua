@@ -1177,7 +1177,7 @@ local function CreateAbsorbBar(frame, unit, settings)
                             local fs = field and self[field]
                             if fs then
                                 local cfg = _G._EUI_AbbrevDecimalCfg
-                                fs:SetText(cfg and AbbreviateNumbers(amt, cfg) or AbbreviateNumbers(amt))
+                                fs:SetText(cfg and AbbreviateNumbers(amt, cfg) or ns.AbbreviateValue(amt, "absorb"))
                             end
                         end
                     end

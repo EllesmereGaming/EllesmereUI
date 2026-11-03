@@ -424,7 +424,7 @@ end
 -- any locale-specific algorithm (e.g. CJK wan/yi grouping) live in the
 -- shared EllesmereUI_NumberFormat.lua, so every module abbreviates the same way.
 local function GoldDisplay(val, abbreviate, forceEnglish)
-    if abbreviate then return EllesmereUI.AbbreviateNumber(val, forceEnglish) end
+    if abbreviate then return EllesmereUI.AbbreviateNumberFixed(val, forceEnglish) end
     return BreakUpLargeNumbers and BreakUpLargeNumbers(val) or tostring(val)
 end
 
