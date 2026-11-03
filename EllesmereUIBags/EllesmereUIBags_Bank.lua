@@ -3233,9 +3233,9 @@ function BuildBankSidebar()
     -- Update header item count
     if EUI_Bank._headerItemCount then
         if _warbandOnly then
-            EUI_Bank._headerItemCount:SetText(EllesmereUI.Lf("%d / %d Items", warbUsed, warbTotal))
+            EUI_Bank._headerItemCount:SetText(EllesmereUI.Lf("%d / %d Slots", warbUsed, warbTotal))
         else
-            EUI_Bank._headerItemCount:SetText(EllesmereUI.Lf("%d / %d Items", charUsed + warbUsed, charTotal + warbTotal))
+            EUI_Bank._headerItemCount:SetText(EllesmereUI.Lf("%d / %d Slots", charUsed + warbUsed, charTotal + warbTotal))
         end
     end
 

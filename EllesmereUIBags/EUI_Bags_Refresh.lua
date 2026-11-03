@@ -451,7 +451,19 @@ ns.OnSlotMetrics(function(m)
     if EUI_BagsWindow:IsShown() and EUI_BagsWindow.RefreshBags then EUI_BagsWindow:RefreshBags() end
 end)
 
-local function FinishRefresh(curY, gridContentW, sidebarW, totalCount, numEmpty, spItems, spEmpty)
+local function FormatSlots(used, total, reagent, format)
+    if format == "free" then
+        if reagent then return EllesmereUI.Lf("%d Reagent slots free", total - used) end
+        return EllesmereUI.Lf("%d Slots free", total - used)
+    elseif format == "free_total" then
+        if reagent then return EllesmereUI.Lf("%d / %d Reagent slots free", total - used, total) end
+        return EllesmereUI.Lf("%d / %d Slots free", total - used, total)
+    end
+    if reagent then return EllesmereUI.Lf("%d / %d Reagent slots", used, total) end
+    return EllesmereUI.Lf("%d / %d Slots", used, total)
+end
+
+local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
     -- In combat the sort button's lock depends on the view just painted.
     if InCombatLockdown() and EUI_Bags._applySortEnabled then EUI_Bags._applySortEnabled() end
     local sf, child = EUI_Bags._scrollFrame, EUI_Bags._scrollChild
@@ -517,14 +529,22 @@ local function FinishRefresh(curY, gridContentW, sidebarW, totalCount, numEmpty,
     end
 
     if EUI_Bags.Header and EUI_Bags.Header.itemCount then
-        if selectedCategoryIndex == 0 or selectedCategoryIndex == -1 or selectedCategoryIndex == -2 then
-            -- WoW Forever's special bags stay out of this count (spItems/spEmpty)
-            local items = totalCount - (spItems or 0)
-            local totalSlots = items + numEmpty - (spEmpty or 0)
-            EUI_Bags.Header.itemCount:SetText(EllesmereUI.Lf("%d / %d Items", items, totalSlots))
+        -- Optional capacity formats count physical slots, not filtered items.
+        local format = BP().bagSlotCountFormat
+        local separate = not EllesmereUI.IS_FOREVER and BP().bagSeparateReagentSlots == true
+        local countText
+        if not separate and format ~= "free" and format ~= "free_total"
+            and selectedCategoryIndex ~= 0 and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2 then
+            countText = EllesmereUI.Lf("%d Items", totalCount)
+        elseif separate then
+            countText = FormatSlots(regularUsed, regularTotal, false, format)
+            if reagentTotal > 0 then
+                countText = countText .. "\n" .. FormatSlots(reagentUsed, reagentTotal, true, format)
+            end
         else
-            EUI_Bags.Header.itemCount:SetText(EllesmereUI.Lf("%d Items", totalCount))
+            countText = FormatSlots(regularUsed + reagentUsed, regularTotal + reagentTotal, false, format)
         end
+        EUI_Bags.Header.itemCount:SetText(countText)
     end
 
     UpdateBagMoneyDisplay()
@@ -562,12 +582,26 @@ function EUI_Bags:RefreshInventory()
     ReleaseAllSlotTables()
     local tempItems = {}
     local emptySlots = {}
+    local regularUsed, regularTotal = 0, 0
+    local reagentUsed, reagentTotal = 0, 0
+    local special = ns.SpecialBags()
 
     for bag = 0, 5 do
         local numSlots = C_Container.GetContainerNumSlots(bag)
+        local restricted = special and special[bag]
+        if bag == 5 then
+            reagentTotal = numSlots
+        elseif not restricted then
+            regularTotal = regularTotal + numSlots
+        end
         for slot = 1, numSlots do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             if info then
+                if bag == 5 then
+                    reagentUsed = reagentUsed + 1
+                elseif not restricted then
+                    regularUsed = regularUsed + 1
+                end
                 local itemLink = C_Container.GetContainerItemLink(bag, slot)
                 local d = AcquireSlotTable()
                 d.bag = bag; d.slot = slot; d.info = info; d.itemLink = itemLink
@@ -823,18 +857,10 @@ function EUI_Bags:RefreshInventory()
         wipe(_pendingResortGroups)
     end
 
-    -- WoW Forever: special bags (ns.SpecialBags) stay out of the header's item
-    -- and slot count; OneBag gives each one a section of its own.
-    local special = ns.SpecialBags()
-    local spItems, spEmpty, spBags = 0, 0, 0
+    -- OneBag gives each WoW Forever special bag a section of its own.
+    local spBags = 0
     if special then
         for _ in pairs(special) do spBags = spBags + 1 end
-        for _, d in ipairs(tempItems) do
-            if special[d.bag] and d.itemLink then spItems = spItems + 1 end
-        end
-        for _, d in ipairs(emptySlots) do
-            if special[d.bag] then spEmpty = spEmpty + 1 end
-        end
     end
 
     -- Auto-size: pick a column count keeping the window near its base shape (columns grow
@@ -969,7 +995,7 @@ function EUI_Bags:RefreshInventory()
                 and pinnedSet or nil,
         })
         sf:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", sidebarW, -(HEADER_H + 1 + colHdrH))
-        FinishRefresh(-(listH + colHdrH), gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, totalCount, #emptySlots, spItems, spEmpty)
+        FinishRefresh(-(listH + colHdrH), gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
         return
     end
 
@@ -994,7 +1020,7 @@ function EUI_Bags:RefreshInventory()
         if child then child:SetWidth(gridW + gridPadX * 2 + scrollbarPad) end
     end
 
-    FinishRefresh(curY, gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, totalCount, #emptySlots, spItems, spEmpty)
+    FinishRefresh(curY, gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
 end
 
 -------------------------------------------------------------------------------
