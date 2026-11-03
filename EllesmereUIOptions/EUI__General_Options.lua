@@ -148,6 +148,7 @@ EllesmereUI._LEGENDS.staff = {
         "Hasenburg", "eXhausted", "thoriphes", "jlauner", "msromike",
         "cassidymichael", "jixinliu666", "Cawfee", "Jetro974", "RoakStatic",
         "zanthor", "denis-makula", "brokencrown", "Tzahal", "Aelexe",
+        "grant-shoemaker", "mariusch",
     } },
     { group = "Multi-language Support Contributors", members = {
         "LoChinAn", "Crazyyoungs", "Barbiero", "Dlarge", "labrie75",
@@ -231,6 +232,188 @@ end
 --  deep-links via NavigateToElementSettings(module, page, section, preSelect, highlight).
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
+    {
+        version = "9.7.3",
+        thanks = true,
+        heroes = {
+            {
+                -- The Important Cast Glow | Cast Targets You Glow row of the Display page (both clients).
+                module = "Nameplates",
+                title  = "Cast Targets You Glow",
+                desc   = "Enemy cast bars can glow while the cast is aimed at you, so the casts coming your way stand out in a busy pull. Turn it on in the Display page's Cast Colors and Effects section, where it takes the same styles as Important Cast Glow.",
+                nav    = { module = "EllesmereUINameplates", page = "Display",
+                           section = "CAST COLORS AND EFFECTS", highlight = "Cast Targets You Glow" },
+            },
+            {
+                -- The WARBAND GOLD section of the Bags module's Bank page (retail only: the feature and
+                -- its section do not exist on WoW Forever).
+                module = "Bags",
+                title  = "Auto Deposit/Withdraw Gold",
+                desc   = "Opening the bank moves gold between the character and your warband bank, so every character keeps the amount you set. Set it in the Bank page's Warband Gold section; it can also post the result to chat.",
+                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIBags", page = "Bank",
+                           section = "WARBAND GOLD", highlight = "Auto Deposit/Withdraw" } or nil,
+            },
+        },
+        features = {
+            {
+                -- Typed in the bag and bank search boxes: no settings row, so no nav (both clients).
+                module = "Bags",
+                title  = "Bind Search Filters",
+                desc   = "The bag and bank search also knows BoA, Soulbound and Warbound, takes item levels (boe>=280, wue 290-300) and combines terms with and, or and not",
+            },
+            {
+                -- The MERCHANT OPTIONS section of the Merchant card in Window Skins (both clients).
+                module = "Blizzard Skins+",
+                title  = "Expand Vendor UI",
+                desc   = "The vendor window can show a bigger grid of items, up to 6 columns by 10 rows, so you page through vendors far less",
+                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins",
+                           section = "MERCHANT OPTIONS", highlight = "Expand Vendor UI" },
+            },
+            {
+                -- The Tooltip Extras dropdown in the BLIZZARD TOOLTIP section of Tooltips & Menus (both clients).
+                module = "Blizzard Skins+",
+                title  = "Tooltip Colors and Tags",
+                desc   = "Tooltip Extras can color levels by difficulty, specs by class and the faction line, mark guildmates and tag away or busy players",
+                nav    = { module = "EllesmereUIBlizzardSkin", page = "Tooltips, Menus & Popups",
+                           section = "BLIZZARD TOOLTIP", highlight = "Tooltip Extras" },
+            },
+            {
+                -- The JUNK ITEMS section's Maximum Quality, Delete Without Confirming and auction
+                -- price rows on the General page (WoW Forever only).
+                module  = "Forever Essentials",
+                forever = true,
+                title   = "Junk Items Prices and Quality",
+                desc    = "Junk Items can value stacks at auction house prices, list items up to Uncommon quality, and delete up to a chosen quality without confirming",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIForeverEssentials", page = "General",
+                            section = "JUNK ITEMS", highlight = "Maximum Quality" } or nil,
+            },
+            {
+                -- The Border Style dropdown of the minimap's DISPLAY section on the WoW Forever look
+                -- (WoW Forever only).
+                module  = "Minimap",
+                forever = true,
+                title   = "Slim Square Border",
+                desc    = "The WoW Forever look's minimap Border Style now offers Slim Square, the square map in the thin bronze frame that matches chat's Slim border",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIMinimap", page = "Minimap",
+                            section = "DISPLAY", highlight = "Border Style" } or nil,
+            },
+            {
+                -- The ENEMY COLORS section of the Nameplates Colors page (both clients).
+                module = "Nameplates",
+                title  = "Color Casting Enemies",
+                desc   = "Enemies not colored as Spell Casters take an Interruptible or Uninterruptible Caster color once they cast, so casters stand out for the whole pull",
+                nav    = { module = "EllesmereUINameplates", page = "Colors",
+                           section = "ENEMY COLORS", highlight = "Color Casting Enemies" },
+            },
+            {
+                -- The Non-Target Opacity cog on the General page (both clients).
+                module = "Nameplates",
+                title  = "Full Opacity While Casting",
+                desc   = "A casting enemy's nameplate skips Non-Target Opacity while the cast lasts, for every cast or only important ones",
+                nav    = { module = "EllesmereUINameplates", page = "General",
+                           section = "TARGET AND FOCUS EFFECTS", highlight = "Non-Target Opacity" },
+            },
+            {
+                -- The Subtitle Text cog of the OTHER NAMEPLATES section on the General page (both clients).
+                module = "Nameplates",
+                title  = "Level on Friendly Players",
+                desc   = "Friendly player nameplates can show the player's level before their name, optionally colored by difficulty against yours",
+                nav    = { module = "EllesmereUINameplates", page = "General",
+                           section = "OTHER NAMEPLATES", highlight = "Subtitle Text" },
+            },
+            {
+                -- The Scale Target Nameplate cog on the General page (both clients).
+                module = "Nameplates",
+                title  = "Minor and Non-Elite Enemy Scale",
+                desc   = "Shrink or enlarge the nameplates of minor enemies everywhere and of non-elite enemies in dungeons, while your target keeps its own size",
+                nav    = { module = "EllesmereUINameplates", page = "General",
+                           section = "TARGET AND FOCUS EFFECTS", highlight = "Scale Target Nameplate" },
+            },
+            {
+                -- The Auto-Log Triggers dropdown of AUTO COMBAT LOGGING on the QoL page (both clients).
+                module = "Quality of Life",
+                title  = "Battleground Combat Logging",
+                desc   = "Auto Combat Logging can start in Rated Battlegrounds and Battleground Blitz, and can print a chat line when logging starts or stops",
+                nav    = { module = "EllesmereUIQoL", page = "QoL",
+                           section = "AUTO COMBAT LOGGING", highlight = "Auto-Log Triggers" },
+            },
+            {
+                -- The Dispel Overlay dropdown of DISPELS on the raid Frames page; the player frame's
+                -- overlay offers it too (both clients).
+                module = "Raid & Party Frames",
+                title  = "Gradient Sharp Reverse",
+                desc   = "The Dispel Overlay can rise from the bottom of the health bar, the Gradient Sharp look flipped; the player frame's overlay offers it too",
+                nav    = { module = "EllesmereUIRaidFrames", page = "Frames",
+                           section = "DISPELS", highlight = "Dispel Overlay" },
+            },
+            {
+                -- The Duration Text cog on the Cast Bar page; the Unit Frames player cast bar has it in its
+                -- Duration cog (both clients).
+                module = "Resource Bars",
+                title  = "Full Craft Time",
+                desc   = "While crafting several items, the player cast bar can count down the whole batch and show the craft count, here and on Unit Frames",
+                nav    = { module = "EllesmereUIResourceBars", page = "Cast Bar",
+                           section = "DISPLAY", highlight = "Duration Text" },
+            },
+            {
+                -- The power bar's Fill Color row on the player frame (both clients).
+                module = "Unit Frames",
+                title  = "Class Colored Power Bars",
+                desc   = "The power bar's Fill Color has a Class Colored swatch: players and AI party members show their class color, others keep their power color",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames",
+                           section = "POWER BAR", highlight = "Fill Color",
+                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end; EllesmereUI._pendingUnitSelect = "player" end },
+            },
+            {
+                -- The PORTRAIT section of the player frame (both clients).
+                module = "Unit Frames",
+                title  = "Clickable Detached Portraits",
+                desc   = "Detached portraits on unit and party frames can be clicked and hovered like their frame, and take a Background Color behind them",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames",
+                           section = "PORTRAIT", highlight = "Portrait Mode",
+                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end; EllesmereUI._pendingUnitSelect = "player" end },
+            },
+            {
+                -- The Type Icon Position cog in BUFFS AND DEBUFFS on the player frame (both clients).
+                module = "Unit Frames",
+                title  = "Type Icon Growth Direction",
+                desc   = "Type Icon Position's cog has a Growth Direction that lines the dispel type icons up side by side, one per type, instead of stacking them",
+                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames",
+                           section = "BUFFS AND DEBUFFS", highlight = "Type Icon Position",
+                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end; EllesmereUI._pendingUnitSelect = "player" end },
+            },
+        },
+        fixes = {
+            { module = "Bags", text = "A bag sort no longer leaves your sound effects off or your bags frozen: a sort stops as combat starts, a sort that cannot finish (an item held by a mail, the auction house or a trade) ends after a few seconds, and sound effects a sort left off come back." },
+            { module = "Bags", text = "The bank's Deposit Reagents and Deposit Warbound Items button no longer covers the Withdraw button when your warband gold total is long." },
+            { module = "Blizzard Skins+", text = "The mail Alt List no longer says only Warbound items can be mailed to your characters of the other faction on the same or a connected realm: they take any mail." },
+            { module = "Blizzard Skins+", text = "Hovering Bulk Buy's Max now shows what limits the purchase (bag room, gold or currency, the vendor's stock), and +1 Stack shows the room in partial stacks." },
+            { module = "Blizzard Skins+", forever = true, text = "With the Gamepad interface style, context menus keep Blizzard's look, so closing one no longer shows a blocked-action error or stops your interact button until a reload." },
+            { module = "Cooldown Manager", text = "A bar with no icons showing yet, such as on a low-level character, now takes its Minimum Width or Height instead of the size of every spell on its list, so bars matched to its width no longer stretch, and an empty vertical bar that grows from its center is no longer laid out sideways." },
+            { module = "Cooldown Manager", text = "Show Stack Text now works on buffs placed on a Cooldown or Utility bar, such as Bone Shield." },
+            { module = "Data Bars", text = "The Gold block's session reset (Ctrl + Right Click) now shows in its tooltip at once, Ctrl + Shift + Right Click resets all gold data after a confirm, and holding Shift while hovering lists every character, so any one can be removed with Ctrl + Alt + Left Click." },
+            { module = "Data Bars", text = "The Great Vault block no longer brings up \"You aren't in a party.\" in Dungeon Finder groups." },
+            { module = "Data Bars", forever = true, text = "The Gold block's tooltip now lists your characters whatever their gold, not only those with over 10,000 gold." },
+            { module = "General", text = "The random hearthstone (the M+ Portals menu, Quickdraw's Random Hearthstone and the Data Bars Travel block) no longer picks the Draenic Hologem on characters that are not draenei or lightforged draenei." },
+            { module = "General", text = "A Class Color accent, the Class Colored theme and the cursor circle's Class Color now follow your custom class colors from Global Settings > Colors." },
+            { module = "General", forever = true, text = "With the Gamepad interface style, right-clicking a unit, raid or party frame opens its menu again instead of showing a Lua error." },
+            { module = "Group Finder", text = "A Bountiful delve's tooltip now says Bountiful today instead of this week, since Bountiful delves change at every daily reset." },
+            { module = "Minimap", text = "The minimap's box in Unlock Mode now matches the map as it shows (the WoW Forever frame with its title bar, or a Rectangular map's visible band), and elements linked to the minimap sit against its visible edge." },
+            { module = "Minimap", text = "A Rectangular minimap, or the WoW Forever frame with its title bar, no longer shows a strip with no map when moved against the top or bottom of the screen: the map now stays a little away from that edge." },
+            { module = "Mythic+ Tools", text = "The Kick Tracker no longer fills chat with \"You aren't in a party.\" in Dungeon Finder groups, and it now shares focus kick markers only in Mythic dungeons and keys, where it runs." },
+            { module = "Nameplates", text = "Changing targets in dungeons no longer causes a Lua error on enemy nameplates whose custom border wraps around the cast bar while Threat Colors tint the border." },
+            { module = "Quality of Life", text = "The Guild & Communities window no longer leads to blocked-action errors (SetAvatarTexture) with the Shifter or Auto Unwrap Collections on; with the Shifter it now moves the way the Group Finder window does, out of combat only." },
+            { module = "Quality of Life", text = "/keys no longer brings up \"You aren't in a party.\" in a Dungeon Finder group." },
+            { module = "Quality of Life", text = "The Macro Factory's Potion macro can use Liquid Luster and Fleeting Liquid Luster, and a custom potion order is kept, with new potions added at the end." },
+            { module = "Quality of Life", text = "Border Size now thickens the border of Battle Res and Bloodlust Tracker icons with a custom Icon Shape instead of pushing it away from the icon, and an eye beside Icon Shape hides that tracker's preview while you adjust it." },
+            { module = "Raid & Party Frames", text = "Magic, Curse and Disease dispel borders and the Buff Manager's Frame Border no longer cover the name and role icon or hide the hover border." },
+            { module = "Raid & Party Frames", text = "Heal Prediction is no longer hidden under absorb shields, so incoming heals show over a shield at their own opacity." },
+            { module = "Unit Frames", text = "Uninterruptible casts on the unit frame cast bars keep your bar texture instead of turning into a flat color." },
+            { module = "Unit Frames", text = "With the Classic WoW UI look and Hide Power Bar on, the player and target health bars no longer show a thin line across them where the power bar used to be." },
+            { module = "Unit Frames", text = "Buff and debuff rows no longer run past Max Count with some filters or Purgeable Buff Glow on: a row now wraps at Max Per Row, or at Max Count while Max Per Row is unset." },
+            { module = "Localization", text = "Brazilian Portuguese, Chinese (Simplified and Traditional), French, German, Korean, Russian and Spanish translations updated." },
+        },
+    },
     {
         version = "9.7.2",
         mini = true,
@@ -1335,29 +1518,6 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Unit Frames", text = "Escape in the Player Aura Bars Edit Filters window now closes that window instead of the whole settings window." },
             { module = "Unit Frames", text = "Turning a frame's Raid Marker back on shows the current marker right away, instead of after the next marker change." },
             { module = "Localization", text = "Spanish (Spain) translation added, and German, Korean, Brazilian Portuguese and Traditional Chinese translations updated for the latest options." },
-        },
-        -- Closing thank-you; its "contributors" word links to the Legends contributors box.
-        thanks = true,
-    },
-    {
-        version = "9.5.5",
-        heroes = {
-            {
-                -- Full-width banner with the performance bar-chart art, as 9.0.1's.
-                banner = true,
-                title  = "Performance Patch",
-                desc   = "CPU usage has been reduced across the suite, with the biggest gains in Nameplates, Chat, Action Bars, Resource Bars, Unit Frames, Cooldown Manager, and Spec Changes.",
-            },
-        },
-        fixes = {
-            { forever = true, module = "Action Bars", text = "Fixed combat errors from Blizzard's hidden action buttons and the gamepad bars (blocked actions and secret value errors on cooldowns)." },
-            { module = "Blizzard Skins+", text = "Fixed a stack overflow error on zone changes in sessions where the interface holds a very large number of frames." },
-            { forever = true, module = "Forever Essentials", text = "Shorten Equip Lines in Simplified Stats is now off by default; turn it on in Forever Essentials > General." },
-            { forever = true, module = "Forever Essentials", text = "Simplified Stats lists spell healing before spell damage, matching the item's own Equip line." },
-            { module = "Nameplates", text = "Pandemic Glow and Dispel Glow now draw Blizzard's own pandemic border instead of an animated glow. Pandemic Glow is a simple toggle, and the dispellable-buff border is Show Glow in the Enemy Buff Filter's settings." },
-            { module = "Unit Frames", text = "New Health # Short text, always one decimal (230.5K)." },
-            { module = "Unit Frames", text = "Text X/Y offsets reach twice as far, and the mini and boss frames' texts can color their level by difficulty." },
-            { module = "Localization", text = "Brazilian Portuguese translation updated for the latest options." },
         },
         -- Closing thank-you; its "contributors" word links to the Legends contributors box.
         thanks = true,

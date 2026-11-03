@@ -648,10 +648,11 @@ do
         end)
     end)
 
-    -- Deposit Warbound Items / Deposit Reagents button (center)
+    -- Deposit Warbound Items / Deposit Reagents button, left of Withdraw so a long
+    -- warband total pushes it along instead of overlapping it.
     local depositItemsBtn = CreateFrame("Button", nil, footer)
     depositItemsBtn:SetHeight(18)
-    depositItemsBtn:SetPoint("CENTER", footer, "CENTER", 0, 0)
+    depositItemsBtn:SetPoint("RIGHT", withdrawMoneyBtn, "LEFT", -8, 0)
     depositItemsBtn:EnableMouse(true)
 
     local depositItemsLabel = depositItemsBtn:CreateFontString(nil, "OVERLAY")

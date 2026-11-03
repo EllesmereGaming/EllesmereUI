@@ -775,7 +775,9 @@ local function ApplyEffectBorder(borderFrame, ind, r, g, b, a, w, h)
     local Glows = EllesmereUI.Glows
     local parent = borderFrame:GetParent()
     local baseLvl = (parent and parent:GetFrameLevel()) or borderFrame:GetFrameLevel()
-    borderFrame:SetFrameLevel(baseLvl + 11)   -- default border level (matches creation)
+    -- One under the raise (+9: solid strips +10, textured +9): over the base border,
+    -- under the hover/target/aggro raise and the text band. Matches creation.
+    borderFrame:SetFrameLevel(baseLvl + ns.LVL_RAISE - 1)
     if style == "dashed" then
         EllesmereUI.HideBorderStyle(borderFrame)
         Glows.StartProceduralAnts(borderFrame, ind.borderDashCount or 8, bw, nil, nil,
@@ -804,10 +806,10 @@ function ns.BM_ApplyEffectBorder(borderFrame, ind, r, g, b, a, w, h)
     local Glows = EllesmereUI.Glows
     if w and (ind.borderStyle or "solid") == "dashed" then
         EllesmereUI.HideBorderStyle(borderFrame)
-        -- Same +11 as the static styles (this branch returns first): otherwise the host stays at slot+1, one level BELOW the health bar (unit+2).
+        -- Same level as the static styles (this branch returns first): otherwise the host stays at slot+1, one level BELOW the health bar (unit+2).
         local parent = borderFrame:GetParent()
         local baseLvl = (parent and parent:GetFrameLevel()) or borderFrame:GetFrameLevel()
-        borderFrame:SetFrameLevel(baseLvl + 11)
+        borderFrame:SetFrameLevel(baseLvl + ns.LVL_RAISE - 1)
         Glows.StartAnimatedAnts(borderFrame, ind.borderDashCount or 8,
             ind.borderWidth or 2, nil, r, g, b, w, h, a)
         return
@@ -1021,7 +1023,7 @@ function ns.BM_CreatePreviewIndicators(f, health, PP)
 
     local effectBorder = CreateFrame("Frame", nil, f)
     effectBorder:SetAllPoints(f)
-    effectBorder:SetFrameLevel(f:GetFrameLevel() + 11)
+    effectBorder:SetFrameLevel(f:GetFrameLevel() + ns.LVL_RAISE - 1)
     effectBorder:Hide()
     if PP then PP.CreateBorder(effectBorder, 0, 1, 0, 1, 2) end
 

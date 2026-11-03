@@ -908,6 +908,13 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                       local p = DB(); if not p then return end
                       p.castBar.timerY = v; RefreshCast()
                   end },
+                { type = "toggle", label = "Full Craft Time",
+                  tooltip = "While crafting several items at once, the duration text shows the time left for the whole batch and the spell text shows the craft count.",
+                  get = function() local p = DB(); return p and p.castBar.fullCraftTime end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.castBar.fullCraftTime = v
+                  end },
             },
         })
     end

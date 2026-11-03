@@ -2399,6 +2399,16 @@ do
         return false
     end
 
+    -- Hearthstone toys are account-wide, but the Draenic Hologem works only for
+    -- draenei and lightforged draenei: owning it is not enough on other races.
+    local function CanUseHearthToy(id)
+        if id ~= 210455 then return true end
+        local _, race = UnitRace("player")
+        if issecretvalue(race) then return false end
+        return race == "Draenei" or race == "LightforgedDraenei"
+    end
+    EllesmereUI.CanUseHearthToy = CanUseHearthToy
+
     -- Resolve slot 1: For Shamans with Astral Recall known:
     --   In M+/raid combat -> always Astral Recall (no CD checks, no secret values)
     --   If any owned toy is on CD -> Astral Recall (shorter CD)
@@ -2419,7 +2429,7 @@ do
         local owned = {}
         for _, id in ipairs(HEARTH_TOYS) do
             local hasToy = PlayerHasToy and PlayerHasToy(id)
-            if hasToy then
+            if hasToy and CanUseHearthToy(id) then
                 owned[#owned + 1] = id
             end
         end
@@ -2747,7 +2757,8 @@ EllesmereUI._IS_STANDALONE  = IS_STANDALONE
 --               units, the mover extends BELOW the frame (a boss cast bar,
 --               the Blizzard Style cast bar text box)
 --    getInsets  (function(key) -> l, r, t, b)  visual insets from the frame's
---               box to the rect the mover outlines (Blizzard Style unit frames)
+--               box to the rect the mover outlines (Blizzard Style unit frames;
+--               negative reaches outside it: the minimap's square frame)
 --    detachedMover (boolean) the frame refuses dependents (it carries a
 --               forbidden layout aspect), so the mover takes its screen spot by
 --               absolute anchor instead of anchoring to it
@@ -2832,7 +2843,7 @@ if not EllesmereUI.ResolveThemeColor then
     EllesmereUI.ResolveThemeColor = function(theme)
         theme = ResolveFactionTheme(theme)
         if theme == "Class Colored" then
-            local clr = CLASS_COLOR_MAP[playerClass]
+            local clr = (EllesmereUI.GetRawClassColor and EllesmereUI.GetRawClassColor(playerClass)) or CLASS_COLOR_MAP[playerClass]
             if clr then return clr.r, clr.g, clr.b end
             return DEFAULT_ACCENT_R, DEFAULT_ACCENT_G, DEFAULT_ACCENT_B
         elseif theme == "Custom Color" then
@@ -2870,7 +2881,7 @@ if not EllesmereUI.ResolveActiveAccent then
         local acc = p and p.euiAccent
         -- 1) per-profile euiAccent
         if acc and acc.useClass then
-            local c = CLASS_COLOR_MAP[playerClass]
+            local c = (EllesmereUI.GetRawClassColor and EllesmereUI.GetRawClassColor(playerClass)) or CLASS_COLOR_MAP[playerClass]
             if c then return c.r, c.g, c.b end
         end
         if acc and acc.custom then
@@ -2879,7 +2890,7 @@ if not EllesmereUI.ResolveActiveAccent then
         end
         -- 2) frozen global root (only when no explicit per-profile euiAccent)
         if (not acc) and db and db.useClassAccentColor then
-            local c = CLASS_COLOR_MAP[playerClass]
+            local c = (EllesmereUI.GetRawClassColor and EllesmereUI.GetRawClassColor(playerClass)) or CLASS_COLOR_MAP[playerClass]
             if c then return c.r, c.g, c.b end
         end
         local gca = db and db.customAccentColor
@@ -3264,7 +3275,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.7.2"
+EllesmereUI.VERSION = "9.7.3"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

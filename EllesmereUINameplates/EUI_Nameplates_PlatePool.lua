@@ -866,6 +866,8 @@ function ns.RefreshAllSettings()
     -- Bump the appearance generation so SetUnit re-runs ApplyAppearance per plate; without it,
     -- cache-hit re-spawns skip the static appearance work and new settings never apply.
     ns._npAppearanceGen = (ns._npAppearanceGen or 0) + 1
+    -- Color Casting Enemies tint colors, before the loop below repaints the plates.
+    if ns.NP_CastTintsDirty then ns.NP_CastTintsDirty() end
     for _, plate in pairs(ns.plates) do
         if plate.unit and plate.nameplate then
             plate:SetUnit(plate.unit, plate.nameplate)
@@ -878,6 +880,7 @@ function ns.RefreshAllSettings()
     -- (the enemy plates followed through the appearance pass above).
     if ns._npForever and ns.NP_ForeverWatchLevels() then ns.NP_ForeverFriendlyBoxes() end
     if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
+    if ns.NP_RefreshTypeScaleSetting then ns.NP_RefreshTypeScaleSetting() end
     if ns.RangeText_Apply then ns.RangeText_Apply() end
     if ns.ApplyClassPowerSetting then ns.ApplyClassPowerSetting() end
     if ns.DebuffColors_Refresh then ns.DebuffColors_Refresh() end

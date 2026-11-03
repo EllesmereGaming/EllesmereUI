@@ -131,3 +131,20 @@ function ns.Feature(dbKey, defaults, defaultPos)
     end
     return F
 end
+
+-------------------------------------------------------------------------------
+--  Auctionator prices (Loot Feed, Junk Items)
+-------------------------------------------------------------------------------
+-- Auctionator's API, while that addon is loaded.
+function ns.AuctionAPI()
+    local api = Auctionator and Auctionator.API and Auctionator.API.v1
+    return api and api.GetAuctionPriceByItemLink and api or nil
+end
+
+-- What Auctionator last saw one of the item listed for, when it has a price.
+function ns.AuctionPrice(link)
+    local api = ns.AuctionAPI()
+    if not api then return end
+    local ok, price = pcall(api.GetAuctionPriceByItemLink, "EllesmereUI", link)
+    if ok and type(price) == "number" and price > 0 then return price end
+end

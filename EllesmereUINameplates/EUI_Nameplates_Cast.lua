@@ -15,6 +15,7 @@ local pairs, type = pairs, type
 local UnitName = UnitName
 local UnitIsUnit = UnitIsUnit
 local UnitIsDeadOrGhost = UnitIsDeadOrGhost
+local UnitClassification = UnitClassification
 local UnitCastingInfo, UnitChannelInfo = UnitCastingInfo, UnitChannelInfo
 local GetTime = GetTime
 local Enum = Enum
@@ -33,7 +34,93 @@ I.classPowerTypeSetters[#I.classPowerTypeSetters + 1] = function(v) classPowerTy
 local p
 I.profileSetters[#I.profileSetters + 1] = function(v) p = v end
 
-function NameplateFrame:UpdateImportantCastGlow(spellID)
+-- Minor / Non-Elite Enemy Scale: factors cached from the profile (1 = off), so while both
+-- are off every hook is one flag read. Each plate stores its type base in _typeScale.
+ns._typeScaleOn = false
+local minorScale, nonEliteScale = 1, 1
+
+-- Re-reads the plate's type base; true when it changed. Classification is read here only,
+-- never in ApplyScale. A unit first seen this session reads "normal" (and its name
+-- UNKNOWNOBJECT) until its data arrives, so Non-Elite waits for UNIT_NAME_UPDATE then:
+-- a dungeon elite never spawns shrunk and grows back.
+function NameplateFrame:UpdateTypeScale()
+    local base = 1
+    local unit = self.unit
+    if unit and ns._typeScaleOn then
+        local c = UnitClassification(unit)
+        if c == "minus" or c == "trivial" then
+            base = minorScale
+        elseif c == "normal" and nonEliteScale ~= 1 and ns._inDungeon and not UnitIsPlayer(unit) then
+            local name = UnitName(unit)
+            if (issecretvalue and issecretvalue(name)) or name ~= UNKNOWNOBJECT then
+                base = nonEliteScale
+            end
+        end
+    end
+    if self._typeScale == base then return false end
+    self._typeScale = base
+    return true
+end
+
+-- From the sliders, OnInitialize and RefreshAllSettings.
+function ns.NP_RefreshTypeScaleSetting()
+    minorScale = ((p and p.minorEnemyScale) or defaults.minorEnemyScale) / 100
+    nonEliteScale = ((p and p.nonEliteEnemyScale) or defaults.nonEliteEnemyScale) / 100
+    ns._typeScaleOn = minorScale ~= 1 or nonEliteScale ~= 1
+    for _, plate in pairs(ns.plates) do
+        if plate.unit then
+            plate:UpdateTypeScale()
+            plate:ApplyScale()
+        end
+    end
+end
+
+-- Non-Elite Enemy Scale is dungeon-only: from RefreshThreatContextAndPlateColors, which runs
+-- on roster, role and spec events too, so the plates are walked only when ns._inDungeon flips.
+local lastInDungeon
+function ns.NP_RefreshTypeScale()
+    local d = ns._inDungeon
+    if d == lastInDungeon then return end
+    lastInDungeon = d
+    if not ns._typeScaleOn or nonEliteScale == 1 then return end
+    for _, plate in pairs(ns.plates) do
+        if plate.unit and plate:UpdateTypeScale() then plate:ApplyScale() end
+    end
+end
+
+local function EnsureCastGlowOverlay(self, field, levelOffset)
+    local ov = self[field]
+    if not ov then
+        ov = CreateFrame("Frame", nil, self.cast)
+        ov:SetAllPoints(self.cast)
+        ov:SetFrameLevel(self.cast:GetFrameLevel() + levelOffset)
+        ov:EnableMouse(false)
+        self[field] = ov
+    end
+    return ov
+end
+
+-- The two cast bar glows' flat-schema keys, built once (so a cast start does no string work).
+local IMP_GLOW_KEYS = EllesmereUI.Glows.FlatKeys("importantCastGlow")
+local TGT_GLOW_KEYS = EllesmereUI.Glows.FlatKeys("castTargetGlow")
+-- One scratch spec for every plate and both glows: StartSpecGlow reads it synchronously.
+local castGlowSpec = {}
+
+-- Starts the glow on a cast bar overlay. Restarts only when the setting or the bar size changed.
+local function StartCastGlow(self, ov, cfg, k)
+    local Glows = EllesmereUI.Glows
+    local style = cfg[k.style] or defaults[k.style] or 1
+    if type(style) ~= "number" or style < 1 or style > #PANDEMIC_GLOW_STYLES then style = 1 end
+    local spec = Glows.SpecFromFlat(castGlowSpec, cfg, k, cfg[k.mode] or "custom", defaults)
+    spec.style = ns.NP_TO_SHARED_GLOW[style] or 1
+    local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
+    if pW < 5 then pW = 100 end
+    if pH < 5 then pH = 14 end
+    Glows.StartSpecGlow(ov, spec, pW, pH, "bar")
+end
+
+-- Reads self._castImportant, cached by UpdateCast just before.
+function NameplateFrame:UpdateImportantCastGlow()
     local cfg = p or defaults
     local enabled = cfg.importantCastGlow
     if enabled == nil then enabled = defaults.importantCastGlow end
@@ -43,45 +130,48 @@ function NameplateFrame:UpdateImportantCastGlow(spellID)
         self:ClearImportantCastGlow(); return
     end
 
-    if not self._importantCastOverlay then
-        local ov = CreateFrame("Frame", nil, self.cast)
-        ov:SetAllPoints(self.cast)
-        ov:SetFrameLevel(self.cast:GetFrameLevel() + 5)
-        ov:EnableMouse(false)
-        self._importantCastOverlay = ov
-    end
-
-    local Glows = EllesmereUI.Glows
-
-    local style = cfg.importantCastGlowStyle or defaults.importantCastGlowStyle or 1
-    if type(style) ~= "number" or style < 1 or style > #PANDEMIC_GLOW_STYLES then style = 1 end
-    local c = cfg.importantCastGlowColor or defaults.importantCastGlowColor or { r = 1, g = 0.2, b = 0.2 }
-    local bgColor = cfg.importantCastGlowBackgroundColor or defaults.importantCastGlowBackgroundColor or { r = 0, g = 0, b = 0 }
-    -- One scratch spec for every plate: StartSpecGlow reads it synchronously.
-    local spec = ns._impCastGlowSpec
-    if not spec then spec = {}; ns._impCastGlowSpec = spec end
-    spec.style = ns.NP_TO_SHARED_GLOW[style] or 1
-    spec.r, spec.g, spec.b = Glows.ResolveColor(cfg.importantCastGlowColorMode or "custom", c.r, c.g, c.b)
-    spec.lines = cfg.importantCastGlowLines or defaults.importantCastGlowLines
-    spec.thickness = cfg.importantCastGlowThickness or defaults.importantCastGlowThickness
-    spec.speed = cfg.importantCastGlowSpeed or defaults.importantCastGlowSpeed
-    spec.bg = (cfg.importantCastGlowBackground == true) or nil
-    spec.bgR, spec.bgG, spec.bgB = bgColor.r, bgColor.g, bgColor.b
-    local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
-    if pW < 5 then pW = 100 end
-    if pH < 5 then pH = 14 end
-    -- Restarts only when the setting or the bar size changed.
-    Glows.StartSpecGlow(self._importantCastOverlay, spec, pW, pH, "bar")
+    local ov = EnsureCastGlowOverlay(self, "_importantCastOverlay", 5)
+    StartCastGlow(self, ov, cfg, IMP_GLOW_KEYS)
     self._importantGlowActive = true
 
     -- SetAlphaFromBoolean handles the secret boolean taint-free.
     -- Important = alpha 1 (glow visible), not important = alpha 0 (glow hidden).
-    self._importantCastOverlay:Show()
-    local ok, isImportant = pcall(C_Spell.IsSpellImportant, spellID or 0)
-    if ok then
-        self._importantCastOverlay:SetAlphaFromBoolean(isImportant)
+    ov:Show()
+    ov:SetAlphaFromBoolean(self._castImportant)
+end
+
+-- Cast Targets You Glow (opt-in): the cast bar glows while the cast's target is the player.
+-- PlayerIsSpellTarget is SECRET, so it only drives the overlay's alpha. Read at cast start,
+-- as Blizzard's own nameplate cast bar does. Runs after UpdateImportantCastGlow: while the
+-- important glow shows, it wins (this overlay sits above it), so the important flag folds
+-- into this alpha.
+function NameplateFrame:UpdateCastTargetGlow()
+    local cfg = p or defaults
+    if not cfg.castTargetGlow or not PlayerIsSpellTarget then
+        self:ClearCastTargetGlow(); return
+    end
+    local ov = EnsureCastGlowOverlay(self, "_castTargetOverlay", 6)
+    StartCastGlow(self, ov, cfg, TGT_GLOW_KEYS)
+    self._castTargetGlowActive = true
+    ov:Show()
+    if self._importantGlowActive then
+        -- Both flags may be SECRET: folded C-side, the result only reaches SetAlpha
+        -- (the kick tick's pattern).
+        local ev = C_CurveUtil.EvaluateColorValueFromBoolean
+        local isImp = self._castImportant
+        if type(isImp) == "nil" then isImp = false end
+        ov:SetAlpha(ev(PlayerIsSpellTarget(self.unit), ev(isImp, 0, 1), 0))
     else
-        self._importantCastOverlay:SetAlpha(0)
+        ov:SetAlphaFromBoolean(PlayerIsSpellTarget(self.unit))
+    end
+end
+
+function NameplateFrame:ClearCastTargetGlow()
+    if self._castTargetGlowActive and self._castTargetOverlay then
+        EllesmereUI.Glows.StopAllGlows(self._castTargetOverlay)
+        self._castTargetOverlay:SetAlpha(0)
+        self._castTargetOverlay:Hide()
+        self._castTargetGlowActive = false
     end
 end
 
@@ -91,6 +181,17 @@ function NameplateFrame:ClearImportantCastGlow()
         self._importantCastOverlay:SetAlpha(0)
         self._importantCastOverlay:Hide()
         self._importantGlowActive = false
+    end
+end
+
+-- A cast glow setting changed (its options row, Global Settings > Glows): the casts already
+-- showing take it at once. A new cast reads the settings itself.
+function ns.NP_RefreshCastGlows()
+    for _, plate in pairs(ns.plates) do
+        if plate.unit and plate.isCasting then
+            plate:UpdateImportantCastGlow()
+            plate:UpdateCastTargetGlow()
+        end
     end
 end
 
@@ -127,6 +228,7 @@ function NameplateFrame:UpdateCast()
         self._castDirtyFull = nil
         self:HideKickTick()
         self:ClearImportantCastGlow()
+        self:ClearCastTargetGlow()
         self:ApplyScale()
         if GetShowClassPower() and classPowerType and self._cpPips and self.unit and UnitIsUnit(self.unit, "target") then
             UpdateClassPowerOnPlate(self)
@@ -182,6 +284,12 @@ function NameplateFrame:UpdateCast()
         if C_Spell and C_Spell.IsSpellImportant then
             local impOK, imp = pcall(C_Spell.IsSpellImportant, castSpellID or 0)
             if impOK then self._castImportant = imp end
+        end
+        -- A cast that starts before the last one's stop was handled skips NotifyCastStarted:
+        -- Full Opacity While Casting (Important Casts) takes the new flag here.
+        if self.isCasting and ns._ntCastFull and ns._ntCastImportantOnly and ns._ntAlpha < 1 then
+            self._ntBoolHi = nil
+            ns.NT_Apply(self)
         end
         local cfg = p or defaults
         local unintColor = cfg.castBarUninterruptible or defaults.castBarUninterruptible
@@ -252,7 +360,9 @@ function NameplateFrame:UpdateCast()
         self._kickGeoDirty = nil
         self:ApplyScale()
         self:UpdateKickTick(kickProtected, isChannel, isEmpowered)
-        self:UpdateImportantCastGlow(castSpellID)
+        self:UpdateImportantCastGlow()
+        self:UpdateCastTargetGlow()
+        if p and p.castingEnemyColors then ns.NP_NoteCastKind(self, kickProtected) end
         if GetShowClassPower() and classPowerType and self._cpPips and self.unit and UnitIsUnit(self.unit, "target") then
             UpdateClassPowerOnPlate(self)
         end
@@ -299,6 +409,10 @@ function NameplateFrame:ApplyScale()
     if self.unit and UnitIsUnit(self.unit, "target") then
         local ts = GetTargetScale() / 100
         if ts ~= 1 then base = ts end
+    elseif ns._typeScaleOn then
+        -- Minor Enemy Scale: minor (minus) and trivial mobs. Non-Elite Enemy Scale: normal NPCs in
+        -- dungeons (the Mini Enemies color's scope). The target keeps Target Scale.
+        base = self._typeScale or 1
     end
     local cs = GetCastScale() / 100
     local dest = base
@@ -805,9 +919,11 @@ function NameplateFrame:UNIT_NAME_UPDATE()
     -- A unit first seen this session reads "normal" until its data arrives, the
     -- same moment its name resolves: re-read the elite/rare badge with the name.
     self:UpdateClassification()
+    if ns._typeScaleOn and self:UpdateTypeScale() then self:ApplyScale() end
 end
 function NameplateFrame:UNIT_CLASSIFICATION_CHANGED()
     self:UpdateClassification()
+    if ns._typeScaleOn and self:UpdateTypeScale() then self:ApplyScale() end
 end
 function NameplateFrame:UNIT_THREAT_LIST_UPDATE()
     self:UpdateHealthColor()
@@ -861,6 +977,7 @@ function NameplateFrame:UNIT_SPELLCAST_STOP()
         self.isCasting = false
         self:HideKickTick()
         self:ClearImportantCastGlow()
+        self:ClearCastTargetGlow()
         self:ApplyScale()
         if not self._interrupted then
             self.cast:Hide()
@@ -895,6 +1012,7 @@ function NameplateFrame:UNIT_SPELLCAST_CHANNEL_STOP(_, _, _, interrupterGUID)
     self.isCasting = false
     self:HideKickTick()
     self:ClearImportantCastGlow()
+    self:ClearCastTargetGlow()
     self:ApplyScale()
     if not self._interrupted then
         self.cast:Hide()
@@ -941,6 +1059,7 @@ function NameplateFrame:KickProtectionChanged()
     self._kickProtected = kickProtected
     self:ApplyCastColor(kickProtected)
     self:RefreshKickTick()
+    if p and p.castingEnemyColors then ns.NP_NoteCastKind(self, kickProtected) end
 end
 function NameplateFrame:UNIT_SPELLCAST_INTERRUPTIBLE()
     self:KickProtectionChanged()
@@ -966,6 +1085,7 @@ function NameplateFrame:UNIT_SPELLCAST_EMPOWER_STOP(_, _, _, _, interrupterGUID)
     self.isCasting = false
     self:HideKickTick()
     self:ClearImportantCastGlow()
+    self:ClearCastTargetGlow()
     self:ApplyScale()
     if not self._interrupted then
         self.cast:Hide()

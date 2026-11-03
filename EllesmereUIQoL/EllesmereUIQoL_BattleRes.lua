@@ -5,10 +5,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  the shared raid brez pool (charges + recharge timer) as a single icon.
 -------------------------------------------------------------------------------
 
+local _, ns = ...
+
 local BREZ_SPELL_ID = 20484  -- Rebirth -- canonical shared brez pool spell ID
 
 local SHAPE_MASKS = EllesmereUI.SHAPE_MASKS
-local SHAPE_BORDERS = EllesmereUI.SHAPE_BORDERS
 
 -- Sits under EllesmereUIQoLDB.profile.battleRes so we don't clobber the
 -- existing cursor / QoL feature data that already lives in that SavedVariable.
@@ -153,6 +154,39 @@ local function _snapOff(v)
     return v
 end
 
+-- Custom-shape outline: the shape's mask grown by the border size and filled with
+-- the border colour behind the masked icon, leaving a ring exactly that thick.
+local function _applyShapeOutline(host, shape, bs, r, g, b, a)
+    local t = host._euiOutline
+    local maskPath = shape and EllesmereUI.SHAPE_MASKS[shape]
+    local PP = EllesmereUI and EllesmereUI.PP
+    if not (maskPath and PP) or bs <= 0 then
+        if t then t:Hide() end
+        return
+    end
+    if not t then
+        t = host:CreateTexture(nil, "BACKGROUND", nil, 7)
+        host._euiOutlineMask = host:CreateMaskTexture()
+        t:AddMaskTexture(host._euiOutlineMask)
+        host._euiOutline = t
+    end
+    local m = host._euiOutlineMask
+    -- The mask's opening is its middle (128 - 2 * inset) / 128: grow it by bs over
+    -- that ratio so the outline reaches bs pixels past the icon's own edge.
+    local inset = EllesmereUI.SHAPE_INSETS[shape] or 17
+    local grow = _snapOff(PP.FromPixels(bs * 128 / (128 - 2 * inset)))
+    m:ClearAllPoints()
+    m:SetPoint("TOPLEFT", host, "TOPLEFT", -grow, grow)
+    m:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", grow, -grow)
+    m:SetTexture(maskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    t:ClearAllPoints()
+    t:SetAllPoints(m)
+    t:SetColorTexture(r, g, b, a)
+    t:Show()
+end
+-- Shared with the Bloodlust tracker (this file loads first).
+ns.QoL_ApplyShapeOutline = _applyShapeOutline
+
 local function ApplyShape()
     if not frame then return end
     local p = P()
@@ -212,6 +246,7 @@ local function ApplyShape()
             iconTex._mask = nil
         end
         borderTex:Hide()  -- shape-border atlas is for custom shapes only
+        _applyShapeOutline(frame, nil, 0)
 
         local z = (p.iconZoom or 11) / 100
         if shape == "cropped" then
@@ -271,19 +306,9 @@ local function ApplyShape()
         end
     end
 
-    local borderPath = SHAPE_BORDERS[shape]
-    if borderPath and bs > 0 then
-        borderTex:SetTexture(borderPath)
-        borderTex:ClearAllPoints()
-        local bsp = _snapOff(bs)
-        borderTex:SetPoint("TOPLEFT", frame, "TOPLEFT", -bsp, bsp)
-        borderTex:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", bsp, -bsp)
-        local r, g, b, a = _resolveBorderColor(p)
-        borderTex:SetVertexColor(r, g, b, a)
-        borderTex:Show()
-    else
-        borderTex:Hide()
-    end
+    borderTex:Hide()
+    local r, g, b, a = _resolveBorderColor(p)
+    _applyShapeOutline(frame, shape, bs, r, g, b, a)
 
 end
 
@@ -370,7 +395,6 @@ local _state = {
 
 -- Keystone/encounter state writers, shared with the Bloodlust tracker through
 -- ns (this file loads first). Each icon passes its own state table.
-local ns = select(2, ...)
 
 local function _activeKeystoneLevel()
     -- IsChallengeModeActive only returns true when the timer is running,
@@ -652,6 +676,7 @@ local function Apply()
         if cooldownFrame then cooldownFrame:Clear(); cooldownFrame:Hide() end
         local PP = EllesmereUI and EllesmereUI.PP
         if PP and PP.GetBorders and PP.GetBorders(frame) then PP.HideBorder(frame) end
+        _applyShapeOutline(frame, nil, 0)
         textFS:Show()
         ApplyText()
     else

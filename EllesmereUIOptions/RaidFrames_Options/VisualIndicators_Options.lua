@@ -972,8 +972,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         full     = "Full Overlay",
         gradient = "Gradient Overlay",
         gradient_sharp = "Gradient Sharp",
+        gradient_reverse = "Gradient Sharp Reverse",
     }
-    local dispelOverlayOrder = { "none", "fill", "full", "gradient", "gradient_sharp" }
+    local dispelOverlayOrder = { "none", "fill", "full", "gradient", "gradient_sharp", "gradient_reverse" }
 
     _, h = W:DualRow(parent, y,
         { type="dropdown", text="Dispel Overlay", values=dispelOverlayValues, order=dispelOverlayOrder,

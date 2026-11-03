@@ -1728,12 +1728,30 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
               end,
               setValue = function() end,
               onClick = function()
+                  UNIT_DB_MAP[optState.selectedUnit]().powerClassColored = false
                   SSet("powerPercentPowerColor", true)
                   UpdatePreview()
                   EllesmereUI:RefreshPage()
               end,
               refreshAlpha = function()
-                  return SVal("powerPercentPowerColor", true) and 1 or 0.3
+                  return (SVal("powerPercentPowerColor", true) and not SVal("powerClassColored", false)) and 1 or 0.3
+              end },
+            { tooltip = "Class Colored Fill. Units without a class keep their power color.",
+              hasAlpha = false,
+              getValue = function()
+                  local _, ct = UnitClass("player")
+                  local cc = EllesmereUI.GetClassColor(ct)
+                  return cc.r, cc.g, cc.b
+              end,
+              setValue = function() end,
+              onClick = function()
+                  UNIT_DB_MAP[optState.selectedUnit]().powerPercentPowerColor = true
+                  SSet("powerClassColored", true)
+                  UpdatePreview()
+                  EllesmereUI:RefreshPage()
+              end,
+              refreshAlpha = function()
+                  return (SVal("powerPercentPowerColor", true) and SVal("powerClassColored", false)) and 1 or 0.3
               end },
           } },
         { type="slider", text="Bar Background", min=0, max=100, step=1,
@@ -1849,6 +1867,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             local src = UNIT_DB_MAP[optState.selectedUnit]()
             local pc = src.powerPercentPowerColor
             if pc == nil then pc = true end
+            local pcc = src.powerClassColored or false
             local fc = src.customPowerFillColor
             local gEn = src.powerGradientEnabled or false
             local gDir = src.powerGradientDir or "HORIZONTAL"
@@ -1857,6 +1876,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                 if key ~= optState.selectedUnit then
                     local d = UNIT_DB_MAP[key]()
                     d.powerPercentPowerColor = pc
+                    d.powerClassColored = pcc
                     if fc then d.customPowerFillColor = { r=fc.r, g=fc.g, b=fc.b }
                     else d.customPowerFillColor = nil end
                     d.powerGradientEnabled = gEn
@@ -1885,6 +1905,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                     local ov = d.powerPercentPowerColor
                     if ov == nil then ov = true end
                     if ov ~= v then return false end
+                    if (d.powerClassColored or false) ~= (src.powerClassColored or false) then return false end
                     if not colEq(d.customPowerFillColor, src.customPowerFillColor) then return false end
                     if (d.powerGradientEnabled or false) ~= (src.powerGradientEnabled or false) then return false end
                     if not colEq(d.powerGradientColor, src.powerGradientColor) then return false end

@@ -1607,6 +1607,48 @@ do
         return out
     end
 
+    -- The flat key schema most module glows save: <p>Color, <p>Lines,
+    -- <p>Thickness, <p>Speed, <p>Background, <p>BackgroundColor (colors as
+    -- {r,g,b} tables), plus <p>Style and <p>ColorMode where a site keeps them.
+    -- Keys are built once per prefix; the options' FlatGet / FlatSet read them.
+    local _flatKeys = {}
+    function G.FlatKeys(p)
+        local k = _flatKeys[p]
+        if not k then
+            k = { style = p .. "Style", mode = p .. "ColorMode", color = p .. "Color",
+                  lines = p .. "Lines", thickness = p .. "Thickness", speed = p .. "Speed",
+                  bg = p .. "Background", bgColor = p .. "BackgroundColor" }
+            _flatKeys[p] = k
+        end
+        return k
+    end
+
+    -- Spec from a flat-schema settings table, all but the style: sites number
+    -- their styles and store their color modes their own way, so the caller
+    -- passes the mode and sets out.style. k: the prefix's FlatKeys table.
+    -- defs: fallbacks under the same keys (a module's defaults table).
+    local function FlatVal(t, defs, key)
+        local v = t[key]
+        if v == nil and defs then v = defs[key] end
+        return v
+    end
+    function G.SpecFromFlat(out, t, k, mode, defs)
+        local c = FlatVal(t, defs, k.color)
+        out.r, out.g, out.b = G.ResolveColor(mode, c and c.r, c and c.g, c and c.b)
+        out.lines = FlatVal(t, defs, k.lines)
+        out.thickness = FlatVal(t, defs, k.thickness)
+        out.speed = FlatVal(t, defs, k.speed)
+        if FlatVal(t, defs, k.bg) == true then
+            local bc = FlatVal(t, defs, k.bgColor)
+            out.bg = true
+            out.bgR, out.bgG, out.bgB = bc and bc.r or 0, bc and bc.g or 0, bc and bc.b or 0
+        else
+            -- out is the caller's reused scratch: clear the colour too.
+            out.bg, out.bgR, out.bgG, out.bgB = nil, nil, nil, nil
+        end
+        return out
+    end
+
     -- Options previews sit in the panel, whose pixel grid differs from
     -- UIParent's: a raw thickness would draw a different (or no) pixel count
     -- there. Pass PANEL_EXTRA as StartSpecGlow's extra to draw the pixels the

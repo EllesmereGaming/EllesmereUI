@@ -104,7 +104,7 @@ function EllesmereUI.BlizzWindowSkinsKilled()
 end
 
 -- WoW Forever's Gamepad interface style shows, hides and navigates Blizzard's
--- windows, popups and tooltips from its own secure code and makes protected
+-- windows, popups, menus and tooltips from its own secure code and makes protected
 -- calls in the same execution, so a script hook of ours on those frames taints
 -- that path (ADDON_ACTION_FORBIDDEN, and the blocked-action popup's gamepad
 -- handling can loop until the client freezes). Under that style the Blizzard

@@ -311,6 +311,35 @@ local function ReleaseHolds(root)
     for key, h in pairs(held) do ReleaseHold(root, key, h) end
 end
 
+--- The player changed a CVar while owner held it: the hold ends with no write,
+--- and the record goes back as it was before the hold, so neither Uninstall
+--- nor a later login puts the held value back over the player's.
+function EllesmereUI.DropHold(name, owner)
+    if _fresh == nil then return end
+    local root = CVarRoot(name)
+    local key = name:lower()
+    local h = root and root.held and root.held[key]
+    if not (h and h.o == owner) then return end
+    root.held[key] = nil
+    if h.e then
+        Sub(root, "cvar")[key] = h.e
+    elseif root.cvar then
+        root.cvar[key] = nil
+    end
+end
+
+--- A hold owner left open in an earlier session (a reload in the middle of
+--- it), for owner to call at login, when it cannot still be running: put back
+--- as the module pass does, the value from before the hold only while the CVar
+--- still reads EllesmereUI's.
+function EllesmereUI.ReleaseStaleHold(name, owner)
+    if _uninstalled or _fresh == nil then return end
+    local root = CVarRoot(name)
+    local key = name:lower()
+    local h = root and root.held and root.held[key]
+    if h and h.o == owner then ReleaseHold(root, key, h) end
+end
+
 -- Puts back every recorded CVar that still holds EllesmereUI's value: to its
 -- snapshot, else the game's default.
 local function RestoreCVars(t)

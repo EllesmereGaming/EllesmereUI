@@ -32,6 +32,8 @@ local events = CreateFrame("Frame")
 local dialog, job, hooked
 local confirm          -- the open purchase confirm's handle (EUI:ShowConfirmPopup)
 local costParts = {}   -- CostText's pieces, reused
+local limits = {}      -- MaxBundles' breakdown, read by the button tooltips
+local TIP_OPTS = { justify = "LEFT" }
 
 local function Enabled()
     return EllesmereUIDB and EllesmereUIDB.merchantBulkBuy == true
@@ -39,11 +41,12 @@ end
 
 -- Free room for the item in the bags it may go into: empty slots in bags of
 -- its family (a quiver takes only arrows, a soul bag only shards), the reagent
--- bag for reagents, and what its own partial stacks still hold.
+-- bag for reagents, and what its own partial stacks still hold (also returned
+-- on its own).
 local function BagRoom(itemID, stackSize)
     local family = C_Item.GetItemFamily(itemID) or 0
     local isReagent = select(17, C_Item.GetItemInfo(itemID))
-    local room = 0
+    local room, partial = 0, 0
     for _, bag in ipairs(BAGS) do
         local fits
         if bag == REAGENT_BAG then
@@ -59,20 +62,25 @@ local function BagRoom(itemID, stackSize)
                     room = room + stackSize
                 elseif id == itemID then
                     local info = C_Container.GetContainerItemInfo(bag, slot)
-                    room = room + max(stackSize - (info and info.stackCount or stackSize), 0)
+                    local free = max(stackSize - (info and info.stackCount or stackSize), 0)
+                    room = room + free
+                    partial = partial + free
                 end
             end
         end
     end
-    return room
+    return room, partial
 end
 
 -- The most whole purchases the bags, the stock, the gold and every item or
--- currency cost allow.
+-- currency cost allow. Each limit goes into limits for the tooltips: fit,
+-- afford (math.huge for a free item) and stock (-1 for unlimited) in
+-- purchases, partial in items.
 local function MaxBundles(index, info, itemID, step, stackSize)
-    local n = floor(min(BagRoom(itemID, stackSize), 999999) / step)
-    if info.numAvailable >= 0 then n = min(n, info.numAvailable) end
-    if info.price > 0 then n = min(n, floor(GetMoney() / info.price)) end
+    local room, partial = BagRoom(itemID, stackSize)
+    local fit = floor(min(room, 999999) / step)
+    local afford = math.huge
+    if info.price > 0 then afford = floor(GetMoney() / info.price) end
     for i = 1, MAX_COSTS do
         local _, value, link, currencyName = GetMerchantItemCostItem(index, i)
         if link and value and value > 0 then
@@ -83,9 +91,12 @@ local function MaxBundles(index, info, itemID, step, stackSize)
             else
                 have = C_Item.GetItemCount(link, false, false, true)
             end
-            if have then n = min(n, floor(have / value)) end
+            if have then afford = min(afford, floor(have / value)) end
         end
     end
+    local n = min(fit, afford)
+    if info.numAvailable >= 0 then n = min(n, info.numAvailable) end
+    limits.fit, limits.afford, limits.stock, limits.partial = fit, afford, info.numAvailable, partial
     return max(n, 0)
 end
 
@@ -237,12 +248,58 @@ local function BuyOrSnap()
 end
 
 -- +1 Stack: up to the next full stack, at least one more purchase.
-local function AddStack()
+local function NextStack()
     local d = dialog
     local cur = d:Current()
     local n = (floor(cur / d._stackSize) + 1) * d._stackSize
     if floor(n / d._step) * d._step <= cur then n = cur + d._step end
-    d:SetValue(n)
+    return n
+end
+
+-- The accent, read on every use (it can change at any time).
+local function Accent(s)
+    local EG = EUI.ELLESMERE_GREEN
+    return EUI.ColorText(s, EG.r, EG.g, EG.b)
+end
+
+-- A Max tooltip amount: purchases shown in items, in the accent when it is the limit.
+local function LimitAmount(bundles, top)
+    local s = tostring(bundles * dialog._step)
+    return bundles == top and Accent(s) or s
+end
+
+-- Max's tooltip: what the bags, the money and the stock each allow.
+local function MaxTip()
+    local d, lim = dialog, limits
+    local top = floor(d._max / d._step)
+    local t = EllesmereUI.Lf("You can buy: %s", Accent(d._max))
+        .. "\n" .. EllesmereUI.Lf("You can fit: %s", LimitAmount(lim.fit, top))
+    if lim.afford ~= math.huge then
+        t = t .. "\n" .. EllesmereUI.Lf("You can afford: %s", LimitAmount(lim.afford, top))
+    end
+    if lim.stock >= 0 then
+        t = t .. "\n" .. EllesmereUI.Lf("Vendor has: %s", LimitAmount(lim.stock, top))
+    end
+    return t
+end
+
+-- +1 Stack's tooltip: where a click takes the amount, the stack size, and the
+-- room left in the partial stacks already in the bags.
+local function StackTip()
+    local d = dialog
+    local n = floor(min(NextStack(), d._max) / d._step) * d._step
+    local t = EllesmereUI.Lf("+1 Stack goes to: %s", Accent(max(n, 0)))
+        .. "\n" .. EllesmereUI.Lf("Stack size: %d", d._stackSize)
+    if limits.partial > 0 then
+        t = t .. "\n" .. EllesmereUI.Lf("Room in partial stacks: %d", limits.partial)
+    end
+    return t
+end
+
+local function AddStack(b)
+    dialog:SetValue(NextStack())
+    -- The tooltip under the cursor follows the new amount.
+    if b:IsMouseOver() then EUI.ShowWidgetTooltip(b, StackTip, TIP_OPTS) end
 end
 
 -- Blizzard Skins+' look on the shared quantity window: the theme's surface,
@@ -283,9 +340,10 @@ local function CreateDialog()
         onShow = SyncEvents, onHide = SyncEvents,
         buttons = {
             { key = "stack", label = EllesmereUI.L("+1 Stack"), width = 66, height = 27,
-              point = "BOTTOMLEFT", onClick = AddStack },
+              point = "BOTTOMLEFT", onClick = AddStack, tooltip = StackTip, tooltipOpts = TIP_OPTS },
             { key = "max", label = EllesmereUI.L("Max"), width = 66, height = 27,
-              point = "BOTTOM", onClick = function() dialog:SetValue(dialog._max) end },
+              point = "BOTTOM", onClick = function() dialog:SetValue(dialog._max) end,
+              tooltip = MaxTip, tooltipOpts = TIP_OPTS },
             { key = "buy", label = EllesmereUI.L("Buy"), width = 66, height = 27,
               point = "BOTTOMRIGHT", onClick = BuyOrSnap, primary = true },
         },
@@ -337,6 +395,13 @@ local function TakeOver(button)
     if dialog:IsShown() then dialog:FocusInput() end
 end
 
+-- A merchant repaint: Blizzard's MerchantFrame_Update, or Expand Vendor UI's
+-- grid, which repaints its own tiles (page flips) without one.
+local function OnRepaint()
+    if dialog and dialog:IsShown() then refreshSoon() end
+end
+EllesmereUI._Merchant_BulkBuyRepaint = OnRepaint
+
 local function Install()
     if hooked then return end
     hooked = true
@@ -344,9 +409,7 @@ local function Install()
         hooksecurefunc("MerchantItemButton_OnModifiedClick", TakeOver)
     end
     if type(MerchantFrame_Update) == "function" then
-        hooksecurefunc("MerchantFrame_Update", function()
-            if dialog and dialog:IsShown() then refreshSoon() end
-        end)
+        hooksecurefunc("MerchantFrame_Update", OnRepaint)
     end
 end
 

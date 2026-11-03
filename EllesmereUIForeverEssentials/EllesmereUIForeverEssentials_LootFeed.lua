@@ -687,15 +687,7 @@ local function Earn(kind, copper)
     SyncClock()
 end
 
--- What Auctionator last saw the item listed for, when that addon is loaded
--- and has a price.
-local function AuctionPrice(link)
-    local api = Auctionator and Auctionator.API and Auctionator.API.v1
-    local get = api and api.GetAuctionPriceByItemLink
-    if not get then return end
-    local ok, price = pcall(get, "EllesmereUI", link)
-    if ok and type(price) == "number" and price > 0 then return price end
-end
+local AuctionPrice = module.AuctionPrice
 
 -- What one of the item counts for: nothing for a quest-bound item, the vendor
 -- price for one that binds when picked up (it cannot be auctioned) and for

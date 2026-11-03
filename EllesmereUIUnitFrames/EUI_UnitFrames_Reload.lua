@@ -31,6 +31,16 @@ local GetCastbarColor, ApplyUnitFrameCastColor, IsKickCastbarUnit, UpdateUnitFra
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
+-- Detached portrait click overlays on the settled geometry; true while any
+-- frame wants one.
+local function SyncPortraitClicks()
+    local any = false
+    for _, frame in pairs(frames) do
+        if type(frame) == "table" and frame.Portrait and ns.UF_SyncPortraitClick(frame) then any = true end
+    end
+    return any
+end
+
 -- Blizzard Style: the per-unit geometry re-applies inside a reload each run
 -- the stock pass from UpdateBordersForScale's tail, only for the re-anchors
 -- that follow to undo it; the sweep at the end of the reload is the pass that
@@ -1608,16 +1618,26 @@ ReloadFramesBody = function()
                     if not s2 then return end
                     local useP = s2.powerPercentPowerColor ~= false
                     local bR, bG, bB
+                    -- PLAIN stand-ins for bR
+                    local haveBase, baseSecret = false, false
                     if not useP then
                         local cf = s2.customPowerFillColor
                         if cf then bR, bG, bB = cf.r, cf.g, cf.b else bR, bG, bB = 0, 0, 1 end
+                        haveBase = true
                     else
-                        -- Secret-safe per-unit power color (player via token,
-                        -- non-player via the clean integer type), so custom power
-                        -- colors apply on EVERY unit independent of oUF's sync.
-                        bR, bG, bB = EllesmereUI.ResolveUnitPowerColor(unit)
+                        if s2.powerClassColored then
+                            haveBase, bR, bG, bB = ns.UF_PowerClassColor(unit)
+                            baseSecret = haveBase and issecretvalue(bR)
+                        end
+                        if not haveBase then
+                            -- Secret-safe per-unit power color (player via token,
+                            -- non-player via the clean integer type), so custom power
+                            -- colors apply on EVERY unit independent of oUF's sync.
+                            bR, bG, bB = EllesmereUI.ResolveUnitPowerColor(unit)
+                            haveBase = bR ~= nil
+                        end
                     end
-                    if s2.powerGradientEnabled and bR then
+                    if s2.powerGradientEnabled and haveBase and not baseSecret then
                         local gc = s2.powerGradientColor
                         local ga = s2.powerBarOpacity or 100
                         if ga > 1.0 then ga = ga / 100 end
@@ -1627,8 +1647,8 @@ ReloadFramesBody = function()
                     elseif not useP then
                         local cf = s2.customPowerFillColor
                         if cf then self:SetStatusBarColor(cf.r, cf.g, cf.b) else self:SetStatusBarColor(0, 0, 1) end
-                    elseif bR then
-                        -- Power-color mode (no gradient): explicitly paint the bar so it
+                    elseif haveBase then
+                        -- Power/class-color mode (no gradient): explicitly paint the bar so it
                         -- doesn't depend on oUF's colors.power being synced.
                         self:SetStatusBarColor(bR, bG, bB)
                     end
@@ -1897,6 +1917,10 @@ ReloadFramesBody = function()
     -- WoW Forever: the combo point arc round its host frame's portrait, placed
     -- on the geometry the sweep just settled (returns at once everywhere else).
     ns.UF_ApplyForeverComboArc()
+
+    -- Detached portrait click overlays, and once more next frame (anchors still
+    -- resolving) only while a frame uses one.
+    if SyncPortraitClicks() then C_Timer.After(0, SyncPortraitClicks) end
 
     -- Rounded corners (EllesmereUI_RoundedCorners.lua), on the settled
     -- geometry. The radius rides with the border source, like the border; a
