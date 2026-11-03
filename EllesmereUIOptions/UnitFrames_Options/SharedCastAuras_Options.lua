@@ -744,6 +744,10 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
                 { type="slider", label="Y Offset", min=-50, max=50, step=1,
                   get=function() return SValSupported("castSpellNameY", 0) end,
                   set=function(v) SSetSupported("castSpellNameY", v); ReloadAndUpdate(); UpdatePreview() end },
+                { type="toggle", label="Show Full Spell Name",
+                  tooltip="Long spell names shrink to fit beside the duration instead of being cut off.",
+                  get=function() return SValSupported("castFitSpellName", false) end,
+                  set=function(v) SSetSupported("castFitSpellName", v); ReloadAndUpdate() end },
         }
         if optState.selectedUnit == "target" or optState.selectedUnit == "focus" then
             snCogRows[#snCogRows + 1] = { type="toggle", label="Combine Spell Name and Target",
@@ -808,12 +812,14 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
         local rgn = castTextRow._leftRegion
         EllesmereUI.BuildSyncIcon({
             region  = rgn,
-            tooltip = "Apply Spell Name Size and Color to all Frames",
+            tooltip = "Apply Spell Name Size, Color and Show Full Spell Name to all Frames",
             onClick = function()
                 local v = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameSize or 11
                 local c = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameColor
+                local fit = UNIT_DB_MAP[optState.selectedUnit]().castFitSpellName == true
                 for _, key in ipairs(GROUP_UNIT_ORDER) do
                     UNIT_DB_MAP[key]().castSpellNameSize = v
+                    UNIT_DB_MAP[key]().castFitSpellName = fit or nil
                     if c then UNIT_DB_MAP[key]().castSpellNameColor = { r=c.r, g=c.g, b=c.b } end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -821,8 +827,10 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
             isSynced = function()
                 local v = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameSize or 11
                 local c = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameColor
+                local fit = UNIT_DB_MAP[optState.selectedUnit]().castFitSpellName == true
                 for _, key in ipairs(GROUP_UNIT_ORDER) do
                     if (UNIT_DB_MAP[key]().castSpellNameSize or 11) ~= v then return false end
+                    if (UNIT_DB_MAP[key]().castFitSpellName == true) ~= fit then return false end
                     local kc = UNIT_DB_MAP[key]().castSpellNameColor
                     if c and kc then
                         if kc.r ~= c.r or kc.g ~= c.g or kc.b ~= c.b then return false end
@@ -838,8 +846,10 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
                 onApply       = function(checkedKeys)
                     local v = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameSize or 11
                     local c = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameColor
+                    local fit = UNIT_DB_MAP[optState.selectedUnit]().castFitSpellName == true
                     for _, key in ipairs(checkedKeys) do
                         UNIT_DB_MAP[key]().castSpellNameSize = v
+                        UNIT_DB_MAP[key]().castFitSpellName = fit or nil
                         if c then UNIT_DB_MAP[key]().castSpellNameColor = { r=c.r, g=c.g, b=c.b } end
                     end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()

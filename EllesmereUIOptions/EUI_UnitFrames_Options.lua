@@ -1967,6 +1967,7 @@ initFrame:SetScript("OnEvent", function(self)
         castbarImportantGlow       = { target=true, focus=true },
         castCombineNameTarget      = { target=true, focus=true },
         castFullCraftTime          = { player=true },
+        castFitSpellName           = { player=true, target=true, focus=true },
         showClassPowerBar    = { player=true },
         lockClassPowerToFrame= { player=true },
         classPowerStyle      = { player=true },

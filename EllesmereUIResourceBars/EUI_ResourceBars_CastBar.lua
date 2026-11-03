@@ -585,6 +585,9 @@ end
     ns.ReflowFontString(nameText)
     -- Blizzard Style chrome: frame art + text box (moves the spell name under the bar).
     if blizz then ns.ERB_ApplyBlizzCastChrome(cb, barW) end
+    -- Show Full Spell Name: the font above reset the name to its configured
+    -- size; re-fit a cast in flight to the width it now has.
+    if cb.fitSpellName then ns.ERB_FitCastName(cb) end
 
     -- Hide pips (build reset), then RE-LAY them for an in-flight empower:
     -- same wipe-sticks class as the channel ticks below (field: Evokers
@@ -1360,6 +1363,41 @@ function ns.CastDisplayName(cb, name, spellID)
     return name
 end
 
+-- Show Full Spell Name: shrink the spell text to fit its width instead of
+-- cutting it off (player cast names are always clean strings).
+function ns.ERB_FitCastName(cb)
+    local f = castBarFrame
+    if not (f and cb.showSpellText) then return end
+    local fs = f._nameText
+    -- The layout's timer slot fits a plain countdown; Show Total Duration,
+    -- latency text and Full Craft Time write wider strings. Size the name's
+    -- room (and its push, when it shares the timer's side) off the widest one
+    -- this cast will show. Blizzard Style moves the name off the bar.
+    if cb.showTimer and f._endTime and f._startTime and not ns.ERB_CastBlizz() then
+        local total = cb.showTotalDuration
+        local sample
+        if f._craftExtra and f._craftTotal then
+            local t = f._craftTotal
+            sample = format("%d:%02d", floor(t / 60), t % 60) .. (total and f._craftTotalSuffix or "")
+        else
+            sample = format("%.1f", f._endTime - f._startTime)
+                .. (total and (f._totalDurSuffix or "") or (f._latencySuffix or ""))
+        end
+        local timerW = max((cb.timerSize or 11) * 2.2, EllesmereUI.MeasureCastText(f._timerText, sample) + 6)
+        local bar = f._bar
+        local barW = bar:GetWidth()
+        if not barW or barW < 10 then barW = cb.width end
+        local spellSide = cb.spellTextSide or "left"
+        if (cb.timerSide or "right") == spellSide then
+            local pt, xb = ns.GetCastTextAnchor(spellSide, true, timerW)
+            fs:ClearAllPoints()
+            fs:SetPoint(pt, bar, pt, xb + (cb.spellTextX or 0), cb.spellTextY or 0)
+        end
+        fs:SetWidth(max(20, barW - 8 - (spellSide == "center" and 2 or 1) * timerW))
+    end
+    EllesmereUI.FitCastName(fs, fs:GetText(), cb.spellTextSize or 11)
+end
+
 OnCastStart = function()
     if not castBarFrame then return end
     local cb = ERB.db.profile.castBar
@@ -1408,6 +1446,8 @@ OnCastStart = function()
     end
 
     ShowLatencyOverlay("cast")
+    -- After the latency overlay: its " (NNms)" suffix widens the timer.
+    if cb.fitSpellName then ns.ERB_FitCastName(cb) end
 
     ns.ActivateCastBar()
 end
@@ -1471,6 +1511,7 @@ OnChannelStart = function()
     ShowChannelTicks(spellID)
 
     ShowLatencyOverlay("channel")
+    if cb.fitSpellName then ns.ERB_FitCastName(cb) end
 
     ns.ActivateCastBar()
 end
@@ -1809,6 +1850,7 @@ OnEmpowerStart = function()
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     HideLatencyOverlay()
     castBarFrame._nameText:SetText(ns.CastDisplayName(cb, name, spellID))
+    if cb.fitSpellName then ns.ERB_FitCastName(cb) end
     ns.ERB_SetBlizzCastFill("cast")
     ns.ERB_CastOverrideStart(cb, notInterruptible)
     if not ns.ApplyCastTimer("empower") then
