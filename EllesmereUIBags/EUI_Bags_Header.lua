@@ -67,7 +67,6 @@ local function CreateHeader()
     SetBagFont(header.itemCount, 11)
     header.itemCount:SetPoint("LEFT", header.title, "RIGHT", 8, 0)
     header.itemCount:SetTextColor(0.6, 0.6, 0.6)
-    header.itemCount:SetJustifyH("LEFT")
 
     -- Title and count stop short of the header icons (EUI_Bags:FitHeaderText),
     -- refitted whenever either text, the title's spot or the header width changes.

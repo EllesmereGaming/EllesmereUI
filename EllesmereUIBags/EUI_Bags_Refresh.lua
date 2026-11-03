@@ -463,7 +463,7 @@ local function FormatSlots(used, total, reagent, format)
     return EllesmereUI.Lf("%d / %d Bag slots", used, total)
 end
 
-local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal)
+local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
     -- In combat the sort button's lock depends on the view just painted.
     if InCombatLockdown() and EUI_Bags._applySortEnabled then EUI_Bags._applySortEnabled() end
     local sf, child = EUI_Bags._scrollFrame, EUI_Bags._scrollChild
@@ -529,11 +529,14 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     end
 
     if EUI_Bags.Header and EUI_Bags.Header.itemCount then
-        -- Physical capacity is independent of categories and merged stacks.
+        -- Optional capacity formats count physical slots, not filtered items.
         local format = BP().bagSlotCountFormat
         local separate = BP().bagSeparateReagentSlots == true
         local countText
-        if separate then
+        if not separate and format ~= "free" and format ~= "free_total"
+            and selectedCategoryIndex ~= 0 and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2 then
+            countText = EllesmereUI.Lf("%d Items", totalCount)
+        elseif separate then
             countText = FormatSlots(regularUsed, regularTotal, false, format)
             if reagentTotal > 0 then
                 countText = countText .. "\n" .. FormatSlots(reagentUsed, reagentTotal, true, format)
@@ -992,7 +995,7 @@ function EUI_Bags:RefreshInventory()
                 and pinnedSet or nil,
         })
         sf:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", sidebarW, -(HEADER_H + 1 + colHdrH))
-        FinishRefresh(-(listH + colHdrH), gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal)
+        FinishRefresh(-(listH + colHdrH), gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
         return
     end
 
@@ -1017,7 +1020,7 @@ function EUI_Bags:RefreshInventory()
         if child then child:SetWidth(gridW + gridPadX * 2 + scrollbarPad) end
     end
 
-    FinishRefresh(curY, gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal)
+    FinishRefresh(curY, gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
 end
 
 -------------------------------------------------------------------------------
