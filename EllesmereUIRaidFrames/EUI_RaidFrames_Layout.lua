@@ -292,6 +292,8 @@ ns._LayoutGroupsImpl = function()
     -- Backstop: self-heal a same-axis pair that reached here without going
     -- through a guarded write site (see ns._RFEffectiveGrowth).
     unitGrowth, groupGrowth = ns._RFEffectiveGrowth(unitGrowth, groupGrowth, merged)
+    -- Raid only: solo (Show When Solo) keeps the corner in both modes.
+    local centered = IsInRaid() and ns._RFGroupCentered(activeOv, groupGrowth)
     local bw = PixelSnap(ns._activeSizeW or s.frameWidth or 72)
     local bh = PixelSnap(ns._activeSizeH or s.frameHeight or 46)
     local cs = ns.RF_CellSpacing(s)
@@ -342,7 +344,10 @@ ns._LayoutGroupsImpl = function()
             -- same corner ns._RFGrowthCorner names for separated headers. A
             -- fixed TOPLEFT here left the rendered grid offset from the
             -- container/mover box whenever growth pinned a different corner.
-            local hdrCorner = ns._RFGrowthCorner(unitGrowth, groupGrowth)
+            -- Centered pins an edge midpoint instead: the header sizes itself to
+            -- its shown columns in the secure update, so it stays centered on
+            -- that point through mid-combat roster changes with no re-anchor.
+            local hdrCorner = ns._RFGrowthCorner(unitGrowth, groupGrowth, centered)
             ns._flatHeader:ClearAllPoints()
             ns._flatHeader:SetPoint(hdrCorner, containerFrame, hdrCorner, 0, 0)
             local layoutChanged = false
@@ -430,6 +435,32 @@ ns._LayoutGroupsImpl = function()
 
         local visSlot = 0  -- running counter for visible groups (collapses gaps)
         local groupOrder = s.customGroupOrder and ns._RFValidatedGroupOrder(s.groupOrder)
+
+        -- Center Groups: shift the whole run by half the box space it leaves
+        -- free. The run ends at the last shown slot holding members, so empty
+        -- trailing headers (Hide Empty Groups off) do not push it out of the
+        -- box. Same show test as the loop below; a group that gets its first
+        -- member in combat is placed after combat, like Hide Empty Groups.
+        local shiftX, shiftY = 0, 0
+        if centered then
+            local occ = occupied
+            if not occ then
+                occ = {}
+                for ri = 1, GetNumGroupMembers() or 0 do
+                    local _, _, sub = GetRaidRosterInfo(ri)
+                    if sub then occ[sub] = true end
+                end
+            end
+            local n, shown = 0, 0
+            for slot = 1, 8 do
+                local group = groupOrder and groupOrder[slot] or slot
+                if separatedHdrs[group] and vg[group] ~= false and not (occupied and not occupied[group]) then
+                    shown = shown + 1
+                    if occ[group] then n = shown end
+                end
+            end
+            shiftX, shiftY = ns._RFCenterShift(slots, n)
+        end
         for slot = 1, 8 do
             local group = groupOrder and groupOrder[slot] or slot
             local hdr = separatedHdrs[group]
@@ -437,8 +468,8 @@ ns._LayoutGroupsImpl = function()
                 if vg[group] == false or (occupied and not occupied[group]) then
                     if hdr:IsShown() then hdr:Hide() end
                 else
-                    local x = PixelSnap(slots[visSlot][1] - minX + hdrOffX)
-                    local y = PixelSnap(slots[visSlot][2] - maxY + hdrOffY)
+                    local x = PixelSnap(slots[visSlot][1] - minX + hdrOffX) + shiftX
+                    local y = PixelSnap(slots[visSlot][2] - maxY + hdrOffY) + shiftY
                     visSlot = visSlot + 1
 
                     hdr:ClearAllPoints()
