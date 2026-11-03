@@ -78,6 +78,8 @@ qolFrame:SetScript("OnEvent", function(self)
     -- Self Combat Text (EllesmereUIQoL_SelfCombatText.lua): nothing is built while off.
     ns.SCT_Refresh()
     if EllesmereUI._applyUpgradeTooltips then EllesmereUI._applyUpgradeTooltips() end
+    -- Dialog Keys (EllesmereUIQoL_DialogKeys.lua; not on WoW Forever): nothing is built while off.
+    if EllesmereUIDB.dialogKeys and EllesmereUI._applyDialogKeys then EllesmereUI._applyDialogKeys() end
 
     ---------------------------------------------------------------------------
     -- Bonus roll confirmation. Addon-owned overlays intercept Roll/Pass clicks;
