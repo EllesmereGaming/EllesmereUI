@@ -1176,3 +1176,29 @@ do
         if cur ~= size then fs:SetFont(font, size, flags) end
     end
 end
+
+-------------------------------------------------------------------------------
+--  Blizzard's animated rest icon (PlayerFrame.xml PlayerRestLoop) on `tex`:
+--  the flipbook atlas, a 6 x 7 grid of 42 frames, looping while `frame` is
+--  shown. MUST use SetAtlas: a raw SetTexture slices the sheet's padding into
+--  the FlipBook. `duration` is one loop in seconds (Blizzard: 1.5).
+-------------------------------------------------------------------------------
+function EllesmereUI.AddRestFlipbook(frame, tex, duration)
+    tex:SetAtlas("UI-HUD-UnitFrame-Player-Rest-Flipbook")
+    local anim = frame:CreateAnimationGroup()
+    anim:SetLooping("REPEAT")
+    if anim.SetToFinalAlpha then anim:SetToFinalAlpha(true) end
+    local flip = anim:CreateAnimation("FlipBook")
+    flip:SetTarget(tex)
+    flip:SetDuration(duration or 1.5)
+    flip:SetOrder(1)
+    if flip.SetSmoothing then flip:SetSmoothing("NONE") end
+    flip:SetFlipBookRows(7)
+    flip:SetFlipBookColumns(6)
+    flip:SetFlipBookFrames(42)
+    flip:SetFlipBookFrameWidth(0)
+    flip:SetFlipBookFrameHeight(0)
+    frame:SetScript("OnShow", function() anim:Play() end)
+    frame:SetScript("OnHide", function() anim:Stop() end)
+    return anim
+end

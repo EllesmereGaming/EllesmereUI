@@ -178,7 +178,8 @@ local function InitializeFrames()
     -- (Combat indicator overlay moved below the target/focus spawns -- the
     -- target frame does not exist yet at this point in the setup.)
 
-    -- Rested indicator ("ZZZ") on player health bar top-left
+    -- Rested indicator on player health bar top-left: "ZZZ" text, or
+    -- Blizzard's animated player frame rest icon when Animated is on.
     do
         local pf = frames.player
         if pf and pf.Health then
@@ -189,29 +190,58 @@ local function InitializeFrames()
                 restText:SetTextColor(1, 1, 1)
                 restText:SetText("ZZZ")
                 restText:Hide()
-                pf._restIndicator = restText
+                pf._restText = restText
+
+                local function PlaceRest(region)
+                    local rx = (EllesmereUIDB and EllesmereUIDB.restedIndicatorXOffset) or 0
+                    local ry = (EllesmereUIDB and EllesmereUIDB.restedIndicatorYOffset) or 0
+                    region:ClearAllPoints()
+                    region:SetPoint("TOPLEFT", pf.Health, "TOPLEFT", 3 + rx, -2 + ry)
+                end
+                -- Places the text, and the animated icon once built, at the cog's X/Y
+                -- offsets (and the icon at its Size).
+                pf._restPlace = function()
+                    PlaceRest(pf._restText)
+                    local a = pf._restAnim
+                    if a then
+                        local size = (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimatedSize) or 24
+                        a:SetSize(size, size)
+                        PlaceRest(a)
+                    end
+                end
+
+                -- Shows the style the settings pick (or neither) and hides the other.
+                -- The animated icon is built the first time it is needed.
+                pf._restUpdate = function()
+                    local db = EllesmereUIDB
+                    local on = db and db.showRestedIndicator == true and IsResting() or false
+                    local animated = db and db.restedIndicatorAnimated == true or false
+                    if on and animated and not pf._restAnim then
+                        -- On the unit frame, not the health bar: the bar sits in the frame's
+                        -- bar clip, which would cut off the z's as they float up past its edge.
+                        -- Its level keeps it above that clip, which draws as one group.
+                        local restAnim = CreateFrame("Frame", nil, pf)
+                        restAnim:SetFrameLevel(((pf._barClip or pf):GetFrameLevel()) + 10)
+                        restAnim:Hide()
+                        local restTex = restAnim:CreateTexture(nil, "OVERLAY")
+                        restTex:SetAllPoints(restAnim)
+                        EllesmereUI.AddRestFlipbook(restAnim, restTex)
+                        pf._restAnim = restAnim
+                        pf._restPlace()
+                    end
+                    pf._restText:SetShown(on and not animated)
+                    if pf._restAnim then pf._restAnim:SetShown(on and animated) end
+                end
 
                 pf._restEventFrame = CreateFrame("Frame", nil, pf)
                 pf._restEventFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
                 pf._restEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-                pf._restEventFrame:SetScript("OnEvent", function()
-                    local enabled = EllesmereUIDB and EllesmereUIDB.showRestedIndicator == true
-                    if enabled and IsResting() then
-                        pf._restIndicator:Show()
-                    else
-                        pf._restIndicator:Hide()
-                    end
-                end)
+                pf._restEventFrame:SetScript("OnEvent", function() pf._restUpdate() end)
             end
             pf._restHolder:SetAllPoints(pf.Health)
             pf._restHolder:SetFrameLevel(pf.Health:GetFrameLevel() + 5)
-            pf._restIndicator:ClearAllPoints()
-            local rxOff = (EllesmereUIDB and EllesmereUIDB.restedIndicatorXOffset) or 0
-            local ryOff = (EllesmereUIDB and EllesmereUIDB.restedIndicatorYOffset) or 0
-            pf._restIndicator:SetPoint("TOPLEFT", pf.Health, "TOPLEFT", 3 + rxOff, -2 + ryOff)
-
-            local restEnabled = EllesmereUIDB and EllesmereUIDB.showRestedIndicator == true
-            if restEnabled and IsResting() then pf._restIndicator:Show() else pf._restIndicator:Hide() end
+            pf._restPlace()
+            pf._restUpdate()
         end
     end
 
