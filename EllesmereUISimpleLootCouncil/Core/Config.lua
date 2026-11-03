@@ -191,10 +191,10 @@ end
 
 function Config:ClearShared(why)
     if not shared then return end
-    local hadDelegate = shared.lootMaster ~= nil
+    local hadPromote = shared.lootMaster ~= nil
     shared = nil
     addon.Log:I("Config", "shared contract dropped -", tostring(why))
-    if hadDelegate then addon.InvalidateMasterLooter() end
+    if hadPromote then addon.InvalidateMasterLooter() end
     if addon.Callbacks then addon.Callbacks:Fire("SharedConfigChanged") end
 end
 
@@ -272,7 +272,7 @@ end
 
 
 
-local function OwnsDelegation()
+local function OwnsPromotion()
     if addon.CanAssignMasterLooter then return addon.CanAssignMasterLooter() end
     return true
 end
@@ -281,7 +281,7 @@ end
 
 function Config:LootMaster()
     if shared then return shared.lootMaster end
-    if not OwnsDelegation() then return nil end
+    if not OwnsPromotion() then return nil end
     return (addon.db and addon.db.lootMaster) or nil
 end
 
