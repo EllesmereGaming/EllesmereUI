@@ -695,10 +695,13 @@ local function BuildCogPopup(opts)
                 box:SetAutoFocus(false)
                 box:SetFont(EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 11, "")
                 box:SetTextColor(1, 1, 1, POPUP_INPUT_A)
-                box:SetJustifyH("CENTER")
+                box:SetJustifyH(row.inputJustify or "CENTER")
+                if row.inputJustify == "LEFT" then box:SetTextInsets(6, 6, 0, 0) end
                 local boxBg = SolidTex(box, "BACKGROUND", 0.12, 0.12, 0.12, 0.8)
                 boxBg:SetAllPoints()
                 box:SetText(row.get and row.get() or "")
+                -- Left-aligned text that overflows shows its start, not its end.
+                if row.inputJustify == "LEFT" then box:SetCursorPosition(0) end
 
                 local _committing = false  -- guard ClearFocus -> OnEditFocusLost reentry
                 local function ApplyInput()
@@ -726,6 +729,7 @@ local function BuildCogPopup(opts)
                     -- Cancel: guard + restore BEFORE ClearFocus -- in commitOnBlur mode ClearFocus fires OnEditFocusLost, which would otherwise SAVE the discarded text.
                     _committing = true
                     self:SetText(row.get and row.get() or "")
+                    if row.inputJustify == "LEFT" then self:SetCursorPosition(0) end
                     self:ClearFocus()
                     _committing = false
                 end)
@@ -754,7 +758,7 @@ local function BuildCogPopup(opts)
                     inputDis:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 end
 
-                rowWidgets[#rowWidgets + 1] = { type = 'input', box = box, get = row.get, disOverlay = inputDis, disCheck = row.disabled, saveBg = saveBg }
+                rowWidgets[#rowWidgets + 1] = { type = 'input', box = box, get = row.get, disOverlay = inputDis, disCheck = row.disabled, saveBg = saveBg, leftJustify = row.inputJustify == "LEFT" }
                 curY = curY - ROW_H
 
             elseif row.type == 'button' then
@@ -1147,6 +1151,7 @@ local function BuildCogPopup(opts)
                     end
                     if rw.box and rw.get and not rw.box:HasFocus() then
                         rw.box:SetText(rw.get())
+                        if rw.leftJustify then rw.box:SetCursorPosition(0) end
                     end
                     -- Re-apply save button colour for the current theme
                     if rw.saveBg then
