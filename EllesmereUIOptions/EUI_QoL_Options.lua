@@ -871,9 +871,9 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Dialog Keys | Dialog Key keybind. Not on WoW Forever: the feature
-        -- (EllesmereUIQoL_DialogKeys.lua) is retail only.
-        if not EllesmereUI.IS_FOREVER then
+        -- Dialog Keys | Dialog Key keybind (EllesmereUIQoL_DialogKeys.lua),
+        -- retail and WoW Forever.
+        do
             local dialogKeysRow
             dialogKeysRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Dialog Keys",
@@ -902,7 +902,7 @@ initFrame:SetScript("OnEvent", function(self)
                     title = "Dialog Keys Settings",
                     rows = {
                         { type="toggle", label="Number Keys",
-                          tooltip="Number keys 1-9 and 0, on the top row or the numpad, press the numbered choice. Turn off to leave them to your action bars.",
+                          tooltip="Number keys 1-9 and 0, on the top row or the numpad, press the numbered choice. A quest ready to turn in shows its number in gold. Turn off to leave the keys to your action bars.",
                           get=function()
                               return not (EllesmereUIDB and EllesmereUIDB.dialogKeysNumbers == false)
                           end,

@@ -1,5 +1,4 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
-if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- retail dialog windows only; the options row is not built on WoW Forever
 -------------------------------------------------------------------------------
 --  EllesmereUIQoL_DialogKeys.lua
 --  Dialog Keys: answer NPC windows from the keyboard. The dialog key (Space
@@ -8,9 +7,14 @@ if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- retail dialog windo
 --  quest ready to turn in, else a new quest, else the first open option.
 --  Number keys 1-9 and 0, on the top row or the numpad, press the numbered
 --  choices (gossip rows, greeting quests, quest rewards), and each of those
---  shows its number. The number keys can be turned off on their own.
+--  shows its number, in gold on a quest ready to turn in. The number keys
+--  can be turned off on their own.
 --  Confirm Popups (off by default) lets the dialog key press Yes on the
 --  popups in POPUPS: confirmations of something the player just asked for.
+--  Retail and WoW Forever alike: Forever runs the same gossip, quest and
+--  popup windows. There the quest text can fade in first, with Accept
+--  disabled until it has; the dialog key presses Accept as the mouse does,
+--  so a press during the fade does nothing.
 --
 --  Taint (read before editing): every press is a real click on Blizzard's own
 --  button, made by the secure "click" action of a SecureActionButtonTemplate
@@ -40,7 +44,9 @@ local ns = select(2, ...)
 
 local LOCKOUT    = 0.5  -- seconds the dialog key stays ours after it answers, so a quick extra press never jumps
 local HOLD_LIMIT = 3    -- longest a pressed key stays ours after its window closes, waiting for the release
-local LABEL_SIZE = 12   -- number labels: the size of EUI's action bar keybind text
+local LABEL_SIZE = 12   -- reward tile numbers: the size of EUI's action bar keybind text
+local ROW_LABEL_SIZE = 9  -- dialog row numbers: small enough to clear a 16 px quest icon's ! or ?
+local READY = "|cffffd100"  -- number of a quest ready to turn in: Blizzard's gold (NORMAL_FONT_COLOR)
 local NUM_KEYS = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" }  -- slot n presses choice n
 local NUMPAD_KEYS = { "NUMPAD1", "NUMPAD2", "NUMPAD3", "NUMPAD4", "NUMPAD5",
                       "NUMPAD6", "NUMPAD7", "NUMPAD8", "NUMPAD9", "NUMPAD0" }  -- the same choices on the numpad
@@ -65,6 +71,7 @@ local heldAt = {}       -- [slot] when a press began whose release has not arriv
 local want = {}         -- Sync scratch: [slot] = button, false (bound, does nothing) or nil (not bound)
 local wantKey = {}      -- Sync scratch: [key] = slot the key should be laid on
 local keyed = {}        -- Sync scratch: [slot] = true when the slot holds at least one key
+local ready = {}        -- Sync scratch: [Blizzard button] = true on a quest ready to turn in
 local labels = setmetatable({}, { __mode = "k" })  -- [Blizzard button] = our number FontString on it (weak keys: nothing is written onto the button)
 local shown = {}        -- [Blizzard button] = true while its number shows
 local pickable = {}     -- [gossip row type] = "active" | "available" | "option"
@@ -196,7 +203,7 @@ local function ConsiderGossipRow(frame, ed)
     if n <= MAX_SLOT then want[n] = frame end
     local info, rank = ed.info, nil
     if kind == "active" then
-        if info and info.isComplete then rank = 1 end
+        if info and info.isComplete then rank = 1; ready[frame] = true end
     elseif kind == "available" then
         rank = 2
     else
@@ -235,6 +242,7 @@ local function GreetingTargets()
         if n >= 1 and n <= MAX_SLOT then want[n] = btn end
         if isActive then
             local _, isComplete = GetActiveTitle(id)
+            if isComplete then ready[btn] = true end
             if isComplete and (not turnInN or n < turnInN) then turnIn, turnInN = btn, n end
         elseif not offerN or n < offerN then
             offer, offerN = btn, n
@@ -268,9 +276,13 @@ end
 
 -------------------------------------------------------------------------------
 --  Number labels: our own FontStrings, parented to the buttons they number so
---  they scroll, clip and hide with them. Blizzard's text and icons are untouched.
+--  they scroll, clip and hide with them. Blizzard's text and icons are
+--  untouched. A reward tile's number sits inside its item icon's corner; a
+--  dialog row's, smaller, on the top-left corner of its 16 px bullet icon,
+--  hanging into the row's margin, clear of the icon's ! or ?. On a quest
+--  ready to turn in the number is gold.
 -------------------------------------------------------------------------------
-local function Label(btn)
+local function Label(btn, size)
     local fs = labels[btn]
     if not fs then
         fs = btn:CreateFontString(nil, "OVERLAY")
@@ -279,11 +291,11 @@ local function Label(btn)
     end
     local path = EUI.GetFontPath("extras") or STANDARD_TEXT_FONT
     local flags = EUI.GetFontOutlineFlag("extras") or ""
-    if fs.euiPath ~= path or fs.euiFlags ~= flags then
+    if fs.euiPath ~= path or fs.euiFlags ~= flags or fs.euiSize ~= size then
         EUI.PrimeFontShadow(fs, flags == "")
-        fs:SetFont(path, LABEL_SIZE, flags)
+        fs:SetFont(path, size, flags)
         fs:SetTextColor(1, 1, 1)
-        fs.euiPath, fs.euiFlags = path, flags
+        fs.euiPath, fs.euiFlags, fs.euiSize = path, flags, size
     end
     return fs
 end
@@ -301,15 +313,18 @@ local function UpdateLabels()
     for _, slot in pairs(bound) do
         local btn = slot > 0 and boundTo[slot]
         if btn and not shown[btn] then
-            local fs = Label(btn)
+            local choice = btn.type == "choice"
+            local fs = Label(btn, choice and LABEL_SIZE or ROW_LABEL_SIZE)
             local icon = btn.Icon or btn
             fs:ClearAllPoints()
-            if btn.type == "choice" then
-                fs:SetPoint("TOPLEFT", icon, "TOPLEFT", 2, -2)  -- reward tile: a keybind corner
+            if choice then
+                fs:SetPoint("TOPLEFT", icon, "TOPLEFT", 2, -2)   -- reward tile: inside the item icon's corner
             else
-                fs:SetPoint("CENTER", icon, "CENTER")           -- dialog row: on its bullet icon
+                fs:SetPoint("TOPLEFT", icon, "TOPLEFT", -2, 1)   -- dialog row: the bullet icon's corner, into the margin
             end
-            fs:SetText(NUM_KEYS[slot])
+            -- Gold goes in the text, not SetTextColor: EUI's gossip skin sets
+            -- every FontString in a row white, and leaves a gold code alone.
+            fs:SetText(ready[btn] and READY .. NUM_KEYS[slot] .. "|r" or NUM_KEYS[slot])
             fs:Show()
             shown[btn] = true
         end
@@ -353,6 +368,7 @@ Sync = function()
         return
     end
     for slot = 0, MAX_SLOT do want[slot] = nil end
+    wipe(ready)
     if enabled then
         local win, popup = ActiveWindow()
         if win == "popup" then
