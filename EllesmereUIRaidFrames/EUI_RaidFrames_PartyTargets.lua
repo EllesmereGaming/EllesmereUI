@@ -569,11 +569,11 @@ local function PT_TexBg(frame)
     ns.RF_TexBgLayer(frame._health, frame._bg, (not dark or ns.RF_TexBgOpaque(s, true)) and path or nil)
     if path then ns.RF_TexBgWatch() end
 end
--- A colour push (ns.RF_TexBgWatch): Dark Mode Fill can cross 100 with no restyle.
+-- A colour push (ns.RF_TexBgRecheck): Dark Mode Fill can cross 100 with no restyle.
+-- ERF:UpdateAllFrames repaints the frames on screen right after.
 ns._PT_TexBgRecheck = function()
     if not ns._ptEnabled then return end
     for _, frame in ipairs(ns._partyTargetFrames) do PT_TexBg(frame) end
-    ns._PT_RepaintVisible()
 end
 
 -- Texture, name font and border from the party settings (the stock edge under a stock style), and

@@ -1027,6 +1027,7 @@ local function MergeRow(item, index, name, row, fill)
         candidate = { status = "ANNOUNCED", voters = {} }
         item.candidates[name] = candidate
     end
+    local wasStatus, wasResponse = candidate.status, candidate.response
     local rows = assembling.live[index]
     local live = rows and rows[name]
     local whispered = candidate.viaWhisper
@@ -1055,6 +1056,17 @@ local function MergeRow(item, index, name, row, fill)
             if key ~= "note" then candidate[key] = addon.Gear.CleanField(key, row[key]) end
         end
     end
+    return candidate.status == "RESPONDED"
+        and (wasStatus ~= "RESPONDED" or wasResponse ~= candidate.response)
+end
+
+
+
+local function AutorollMerged(session, name, candidate)
+    if candidate.roll or not addon.Roll or not addon.PlayerIsMasterLooter() then return end
+    if addon.Perf and addon.Perf:IsStressing() then return end
+    local def = candidate.response and addon.Config:Responses()[candidate.response]
+    if def and def.autoroll then addon.Roll:SetOne(session, name, true) end
 end
 
 
@@ -1193,7 +1205,9 @@ function Session:ApplyRunPart(payload, sender)
             addon.Log:WLogOnly("Session", "recovery part item mismatch", index, "from", tostring(sender))
         else
             for name, row in pairs(entry and entry.c or {}) do
-                MergeRow(item, index, name, row, fill)
+                if MergeRow(item, index, name, row, fill) then
+                    AutorollMerged(index, name, item.candidates[name])
+                end
                 rows = rows + 1
             end
             for voter in pairs(voters) do
@@ -2401,7 +2415,7 @@ end
 function Session:Start(inParty)
     if run.active then return false end
     if not addon.PlayerIsMasterLooter() then
-        addon.Log:W("Session", "only the group leader can start a run")
+        addon.Log:W("Session", "only the loot master can start a run")
         return false
     end
     if IsInGroup() and not IsInRaid() and not inParty and not addon.GroupTestActive() then
@@ -2850,7 +2864,7 @@ function Session:ApplyResponseSet(session, candidateName, response, sender)
     local awarded = candidate.status == "AWARDED"
 
     if awarded then
-        if candidate.realResponse == response then return end
+        if candidate.realResponse == response and candidate.realStatus == status then return end
         candidate.realResponse = response
         candidate.realStatus = status
     else
@@ -2986,8 +3000,14 @@ end
 
 
 
-local function AcceptSeq(item, seq, what)
+local function AcceptSeq(item, seq, what, sender)
     if seq == nil then return true end
+
+    if type(seq) ~= "number" or seq ~= seq or seq ~= math.floor(seq)
+        or seq <= 0 or seq >= 2 ^ 31 then
+        Refuse(what, "malformed_seq", sender)
+        return false
+    end
     local current = item.awardSeq or 0
     if seq <= current then
         addon.Log:D("Session", "stale", what, "discarded", seq, "have", current)
@@ -3007,7 +3027,7 @@ function Session:ApplyAward(session, winner, sender, reason, seq)
     local item = run.items[session]
     if not item then return end
 
-    if not AcceptSeq(item, seq, "award") then return end
+    if not AcceptSeq(item, seq, "award", sender) then return end
 
 
     if item.awarded == winner then
@@ -3072,7 +3092,7 @@ function Session:ApplyUnaward(session, sender, seq)
 
 
 
-    if not AcceptSeq(item, seq, "unaward") then return end
+    if not AcceptSeq(item, seq, "unaward", sender) then return end
 
     local previous = item.awarded
     if not previous then
@@ -3194,7 +3214,7 @@ function Session:ApplyRemove(session, on, sender, seq, runId)
     if NotLive("item_remove", session) then return end
     local item = run.items[session]
     if not item then return end
-    if not AcceptSeq(item, seq, on and "remove" or "restore") then return end
+    if not AcceptSeq(item, seq, on and "remove" or "restore", sender) then return end
 
     on = on and true or nil
     if item.removed == on then return end
@@ -4087,7 +4107,8 @@ function Session:Init()
         if not args or not args.s then return end
         local ok, why = Session:MayReportHandover(args.s, args.w, sender, args.i)
         if not ok then return RefuseHandover("delivered", why, sender, args.s) end
-        Session:ApplyDelivered(args.s, args.w, sender, args.l, args.i)
+        Session:ApplyDelivered(args.s, args.w, sender,
+            type(args.l) == "string" and #args.l <= 512 and args.l or nil, args.i)
     end)
 
 
@@ -4095,7 +4116,8 @@ function Session:Init()
         if not args or not args.s then return end
         local ok, why = Session:MayReportHandover(args.s, args.w, sender, args.i)
         if not ok then return RefuseHandover("undelivered", why, sender, args.s) end
-        Session:ApplyUndelivered(args.s, args.w, sender, args.l, args.i, args.r,
+        Session:ApplyUndelivered(args.s, args.w, sender,
+            type(args.l) == "string" and #args.l <= 512 and args.l or nil, args.i, args.r,
             type(args.t) == "string" and args.t or nil)
     end)
 

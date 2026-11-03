@@ -32,6 +32,15 @@ local AbbreviateNumbers, ApplyFont, defaults = I.AbbreviateNumbers, I.ApplyFont,
 local DISPEL_COLORS, GetFFD, PixelSnap = I.DISPEL_COLORS, I.GetFFD, I.PixelSnap
 local unitToButton = I.unitToButton
 
+-- Health, max health and absorb text: the global Number Format for valueType,
+-- else the module's default call (which Power Text keeps).
+local NumberFormatOptions = ns.EllesmereUI.NumberFormatOptions
+local function AbbreviateValue(v, valueType)
+    local opts = NumberFormatOptions(valueType)
+    if opts then return AbbreviateNumbers(v, opts) end
+    return AbbreviateNumbers(v)
+end
+
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
@@ -256,10 +265,12 @@ do
             bg._rfTexBgLayer:Hide()
         end
     end
-    -- Buttons with a health layer, re-checked when the colours change (a Dark Mode
-    -- Fill edit can cross 100 with no reload); the hook goes in on first use.
+    -- Buttons with a health layer, re-checked by every colour push before
+    -- ERF:UpdateAllFrames repaints (a Dark Mode Fill edit can cross 100 with no
+    -- reload). Nil until the option is first on.
     local watched
-    local function Recheck()
+    function ns.RF_TexBgRecheck()
+        if not watched then return end
         for button, health in pairs(watched) do
             local d = GetFFD(button)
             local s = d._isParty and ns._scaledPartyProxy
@@ -276,9 +287,7 @@ do
         if ns._PT_TexBgRecheck then ns._PT_TexBgRecheck() end
     end
     function ns.RF_TexBgWatch()
-        if watched then return watched end
-        watched = setmetatable({}, { __mode = "k" })
-        hooksecurefunc(ns.EllesmereUI, "ApplyColorsToOUF", Recheck)
+        if not watched then watched = setmetatable({}, { __mode = "k" }) end
         return watched
     end
     -- The raid, party and Extra Frames buttons (ReanchorAbsorbToFill: built, and
@@ -463,30 +472,16 @@ function ns.CapName(display, s)
     s = s or (db and db.profile)
     local maxLen = s and s.nameMaxLength or 15
     if not maxLen or maxLen <= 0 then return display end
-    local bytes = #display
-    local i, chars, endByte = 1, 0, nil
-    while i <= bytes do
-        local b = string.byte(display, i)
-        local sz = (b < 128 and 1) or (b < 224 and 2) or (b < 240 and 3) or 4
-        chars = chars + 1
-        if chars == maxLen then endByte = i + sz - 1; break end
-        i = i + sz
-    end
-    if endByte and endByte < bytes then
-        return string.sub(display, 1, endByte)
-    end
-    return display
+    return EllesmereUI.Utf8Prefix(display, maxLen)
 end
 
--- WoW Forever Name Format (Text Display, nameFormat): the character name's
--- first or last word; unset or "full" shows it whole. Nicknames are never
--- shortened. Defined only on Forever, so elsewhere a name pays one nil test.
-if ns.EllesmereUI.IS_FOREVER then
-    function ns.RF_FormatName(display, s)
-        local mode = s and s.nameFormat
-        if not mode or mode == "full" then return display end
-        return ns.EllesmereUI.ForeverShortName(display, mode)
-    end
+-- The Name Format (Text Display, nameFormat): the character name shaped by
+-- EllesmereUI.ShortName; unset or "full" shows it whole. Nicknames are never
+-- shortened. fmt (a tag's own modifier, [name:abbr]) takes the setting's place.
+function ns.RF_FormatName(display, s, fmt)
+    local mode = fmt or (s and s.nameFormat)
+    if not mode or mode == "full" then return display end
+    return EllesmereUI.ShortName(display, mode)
 end
 
 -- Fraction of the frame width the NAME text may fill before auto-truncating
@@ -495,13 +490,14 @@ end
 ns.RF_NAME_WIDTH_FRACTION = 1.0
 
 -- Display name for a unit. Nickname sources in order: Northern Sky Raid Tools (NSAPI), MethodInternal
--- (EasyNicknameAPI), TimelineReminders, the Liquid addon (LiquidAPI), then RakGaming Aliases
--- (RG_UnitName); falls back to the short character name. NSAPI
+-- (EasyNicknameAPI), TimelineReminders, the Liquid addon (LiquidAPI), RakGaming Aliases
+-- (RG_UnitName), then CustomNames; falls back to the short character name. NSAPI
 -- gets our addon key "EUI" (it has a dedicated per-addon setting + EUI_NICKNAME_TOGGLE callback):
 -- NSAPI:GetName self-gates on its global nicknames toggle AND that checkbox and returns the short
 -- name when unset, falling through to the next source. Every source gates itself entirely (no
 -- EUI-side toggle); pcall keeps a misbehaving external API from breaking name rendering.
-local function ResolveDisplayName(unit, applyCap, s)
+-- fmt: a tag's Name Format modifier in place of the setting (ns.RF_FormatName).
+local function ResolveDisplayName(unit, applyCap, s, fmt)
     local name, surname = UnitName(unit)
     name = name or ""
     local display
@@ -521,8 +517,7 @@ local function ResolveDisplayName(unit, applyCap, s)
                and not (issecretvalue and issecretvalue(dn)) and dn ~= "" then
                 display = dn
             else
-                display = EllesmereUI.WithSurname(name, surname)
-                if ns.RF_FormatName then display = ns.RF_FormatName(display, s) end
+                display = ns.RF_FormatName(EllesmereUI.WithSurname(name, surname), s, fmt)
             end
         end
     end
@@ -554,7 +549,7 @@ local function ResolveDisplayName(unit, applyCap, s)
             display = dn
         end
     end
-    -- Final alias source, RakGaming Aliases (RGA), gated on ns._rgaNick (maintained by
+    -- RakGaming Aliases (RGA), gated on ns._rgaNick (maintained by
     -- RegisterRGALIASNicknames + RGA's module callbacks: true only while RGA is present AND its
     -- "ellesmereui" module is enabled), so this hot path costs one flag read and never dereferences
     -- RGA's settings shape. dn ~= name keeps the Ambiguate path for unaliased units.
@@ -565,10 +560,19 @@ local function ResolveDisplayName(unit, applyCap, s)
             display = dn
         end
     end
+    -- CustomNames (LibStub library), set by RegisterCustomNames once it has loaded.
+    -- UnitName returns the raw name when none is set, so dn ~= name keeps the
+    -- Ambiguate path; a secret name is never compared.
+    if not display and ns._customNames and not (issecretvalue and issecretvalue(name)) then
+        local ok, dn = pcall(ns._customNames.UnitName, unit)
+        if ok and type(dn) == "string"
+           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+            display = dn
+        end
+    end
     if not display then
         if Ambiguate then name = Ambiguate(name, "short") end
-        display = EllesmereUI.WithSurname(name, surname)
-        if ns.RF_FormatName then display = ns.RF_FormatName(display, s) end
+        display = ns.RF_FormatName(EllesmereUI.WithSurname(name, surname), s, fmt)
     end
     -- Cap only the in-frame name (applyCap), not the top name bar banner.
     if applyCap then display = ns.CapName(display, s) end
@@ -822,6 +826,7 @@ do
         local max, abr = sfind(key, ":max", 1, true) ~= nil, sfind(key, ":abr", 1, true) ~= nil
         local status = kind == "hp" and not max
         local pctKey, perKey, sample = kind .. "Pct", kind .. "Per", SCHEMA[key].sample
+        local valueType = kind == "hp" and (max and "maxHealth" or "health") or nil
         return function(unit, s, pv)
             local st = status and Status(unit, pv)
             if st then return st end
@@ -833,7 +838,10 @@ do
             else
                 return sample
             end
-            if abr then return AbbreviateNumbers(v) end
+            if abr then
+                if valueType then return AbbreviateValue(v, valueType) end
+                return AbbreviateNumbers(v)
+            end
             return sformat("%d", v)
         end
     end
@@ -860,14 +868,24 @@ do
         return function(unit)
             if not unit then return sample end
             local v = get(unit) or 0
-            if abr then return AbbreviateNumbers(v) end
+            if abr then return AbbreviateValue(v, "absorb") end
             return C_StringUtil.TruncateWhenZero(v)
         end
     end
 
-    local function Name(unit, s, pv)
-        if unit then return ResolveDisplayName(unit, true, s) end
-        return pv and pv.name or SCHEMA.name.sample
+    -- [name] and [target], plain or with a Name Format modifier ([name:abbr]):
+    -- fmt, when given, takes the place of the text's Name Format, so the cap
+    -- still comes last and nicknames stay whole.
+    local function NamePiece(key, fmt)
+        local sample = SCHEMA[key].sample
+        return function(unit, s, pv)
+            if unit then return ResolveDisplayName(unit, true, s, fmt) end
+            -- A preview member's name as its name text would show it.
+            if fmt and pv and pv.rawName then
+                return ns.CapName(ns.RF_FormatName(pv.rawName, s, fmt), s)
+            end
+            return pv and pv.name or sample
+        end
     end
     -- The target's name through the same resolver, uncapped (Name Max Length is the
     -- unit's own name, and only a clean name could be capped); a secret one passes raw.
@@ -876,13 +894,16 @@ do
         t[unit] = v
         return v
     end })
-    local function Target(unit, s)
-        if not unit then return SCHEMA.target.sample end
-        local tunit = targetOf[unit]
-        if not UnitExists(tunit) then return "" end
-        local name = UnitName(tunit)
-        if issecretvalue(name) then return name end
-        return ResolveDisplayName(tunit, false, s)
+    local function TargetPiece(key, fmt)
+        local sample = SCHEMA[key].sample
+        return function(unit, s)
+            if not unit then return sample end
+            local tunit = targetOf[unit]
+            if not UnitExists(tunit) then return "" end
+            local name = UnitName(tunit)
+            if issecretvalue(name) then return name end
+            return ResolveDisplayName(tunit, false, s, fmt)
+        end
     end
     local function Group(unit)
         if not unit then return SCHEMA.group.sample end
@@ -904,7 +925,11 @@ do
         ["absorb:abr"] = Absorb("absorb:abr", UnitGetTotalAbsorbs),
         ["healabsorb"] = Absorb("healabsorb", UnitGetTotalHealAbsorbs),
         ["healabsorb:abr"] = Absorb("healabsorb:abr", UnitGetTotalHealAbsorbs),
-        ["name"] = Name, ["target"] = Target, ["group"] = Group,
+        ["name"] = NamePiece("name"), ["name:first"] = NamePiece("name:first", "first"),
+        ["name:last"] = NamePiece("name:last", "last"), ["name:abbr"] = NamePiece("name:abbr", "abbr"),
+        ["target"] = TargetPiece("target"), ["target:first"] = TargetPiece("target:first", "first"),
+        ["target:last"] = TargetPiece("target:last", "last"), ["target:abbr"] = TargetPiece("target:abbr", "abbr"),
+        ["group"] = Group,
     })
     ns.RF_TextTags = CATALOG
 
@@ -965,13 +990,13 @@ function ns.RF_HealthTextInto(fs, mode, pct, unit, perPct)
     elseif mode == "number" then
         if unit then v = UnitHealth(unit, true) else v = pct * perPct end
         if v and AbbreviateNumbers then
-            fs:SetText(AbbreviateNumbers(v))
+            fs:SetText(AbbreviateValue(v, "health"))
         elseif v then
             fs:SetFormattedText("%s", v)
         end
     elseif mode == "numberPercent" or mode == "percentNumber" then
         if unit then v = UnitHealth(unit, true) else v = pct * perPct end
-        local numStr = (v and AbbreviateNumbers) and AbbreviateNumbers(v) or tostring(v or 0)
+        local numStr = (v and AbbreviateNumbers) and AbbreviateValue(v, "health") or tostring(v or 0)
         if mode == "numberPercent" then
             fs:SetFormattedText("%s | %.0f%%", numStr, pct)
         else
@@ -982,7 +1007,7 @@ function ns.RF_HealthTextInto(fs, mode, pct, unit, perPct)
         fs:SetText(C_StringUtil.TruncateWhenZero(v))
         if fs:GetText() then
             if v and AbbreviateNumbers then
-                fs:SetText(AbbreviateNumbers(v))
+                fs:SetText(AbbreviateValue(v, "health"))
             elseif v then
                 fs:SetFormattedText("%s", v)
             end
@@ -1004,7 +1029,7 @@ function ns.FormatHealAbsorbInto(fs, amt, mode)
     if not mode or mode == "none" then fs:SetText(""); return end
     fs:SetText(C_StringUtil.TruncateWhenZero(amt or 0))
     if mode == "short" and AbbreviateNumbers and fs:GetText() then
-        fs:SetText(AbbreviateNumbers(amt or 0))
+        fs:SetText(AbbreviateValue(amt or 0, "absorb"))
     end
 end
 

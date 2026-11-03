@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUIBags.lua -- Enhanced Bags System for EllesmereUI (Midnight): sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog and EllesmereUI.ReleaseStaleHold) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window; ReleaseStaleHold / DropHold, the sort's sound effects mute)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS["EllesmereUIBags"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -433,7 +433,9 @@ end
 -- both refreshes call this first; a change made in combat waits for the next one
 function ns.ApplySlotMetrics()
     local p = BP()
-    local size, gap = p.bagSlotSize or 34, p.bagSlotSpacing or 4
+    -- the sliders' ranges: a hand-edited or imported 0 would divide by zero
+    local size = math.min(math.max(tonumber(p.bagSlotSize) or 34, 24), 56)
+    local gap = math.min(math.max(tonumber(p.bagSlotSpacing) or 4, 0), 12)
     if (size == SLOT_SIZE and gap == SPACING) or InCombatLockdown() then return end
     SLOT_SIZE, SPACING = size, gap
     ns.SLOT_SIZE, ns.SPACING = size, gap

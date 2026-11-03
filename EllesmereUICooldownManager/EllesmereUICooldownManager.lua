@@ -444,40 +444,58 @@ end
 -- Item presets for CD/utility bars (potions that track cooldowns). displayOrder is a
 -- dynamic-display priority list, newest tier first: the icon resolves to the FIRST id
 -- with a bag count (that variant's icon/count/tooltip); rank 2 before rank 1, Fleeting
--- before regular at equal rank (cheap pots burn first). swapWith is an ORDERED list of
--- partner preset keys whose displayOrders get appended in order when "Swap Combat
--- Potions When Missing" is on and this family is fully out of bags (Liquid Luster is
--- the deliberate final fallback for the other two).
+-- before regular at equal rank (cheap pots burn first).
+-- The three combat potions are ONE picker entry, Combat Potion: potFamily names each
+-- family (familyName is its row in the icon's Combat Potion Icon menu, which orders
+-- the families and says whether a family out of bags swaps to the next; PotSwap in
+-- EUI_CDM_HookPresetCooldowns.lua), potDefaultOrder is the order an icon saved under
+-- that family's key starts with (its own family first, as the old swap chains ran),
+-- and the two legacy entries stay resolvable for bars saved with their keys without
+-- being offered again. nativeCategory is the spell category of Blizzard's own Cooldown
+-- Manager row for the item (Combat Potion 4, Health Potion 30, Healthstone 1711,
+-- Demonic Healthstone 2566, Blizzard's own table): that row renders under this
+-- preset's key (EUI_CDM_HookResolve.lua, NativeItemKeyFor).
 local CDM_ITEM_PRESETS = {
     {
         key      = "lights_potential",
-        name     = "Light's Potential",
+        name     = "Combat Potion",
+        familyName = "Light's Potential",
         icon     = 7548911,
         itemID   = CON.lights_potential.itemID,
         altItemIDs = CON.lights_potential.altItemIDs,
         displayOrder = CON.lights_potential.displayOrder,
-        swapWith = { "potion_recklessness", "liquid_luster" },
+        potFamily = "light",
+        potDefaultOrder = { "light", "reck", "luster" },
+        nativeCategory = 4,
     },
     {
         key      = "potion_recklessness",
-        name     = "Potion of Recklessness",
+        name     = "Combat Potion",
+        familyName = "Potion of Recklessness",
         icon     = 7548916,
         itemID   = CON.potion_recklessness.itemID,
         altItemIDs = CON.potion_recklessness.altItemIDs,
         displayOrder = CON.potion_recklessness.displayOrder,
-        swapWith = { "lights_potential", "liquid_luster" },
+        potFamily = "reck",
+        potDefaultOrder = { "reck", "light", "luster" },
+        nativeCategory = 4,
+        legacy = true,
     },
     {
         key      = "liquid_luster",
-        name     = "Liquid Luster",
-        -- Picker art runtime-resolved (fileID not known statically at authoring
+        name     = "Combat Potion",
+        familyName = "Liquid Luster",
+        -- Family art runtime-resolved (fileID not known statically at authoring
         -- time); question-mark fallback is theoretical -- icon lookups are
         -- client-DB-local.
         icon     = (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(271887)) or 134400,
         itemID   = CON.liquid_luster.itemID,
         altItemIDs = CON.liquid_luster.altItemIDs,
         displayOrder = CON.liquid_luster.displayOrder,
-        swapWith = { "potion_recklessness", "lights_potential" },
+        potFamily = "luster",
+        potDefaultOrder = { "luster", "reck", "light" },
+        nativeCategory = 4,
+        legacy = true,
     },
     {
         key      = "silvermoon_health",
@@ -492,6 +510,7 @@ local CDM_ITEM_PRESETS = {
         itemID   = CON.silvermoon_health.itemID,
         altItemIDs = CON.silvermoon_health.altItemIDs,
         displayOrder = CON.silvermoon_health.displayOrder,
+        nativeCategory = 30,
     },
     {
         key      = "lightfused_mana",
@@ -519,12 +538,14 @@ local CDM_ITEM_PRESETS = {
         altItemIDs = CON.healthstone.altItemIDs,
         spellID  = CON.healthstone.spellIDs[1],
         combatLockout = true,
+        nativeCategory = 1711,
     },
     {
         key      = "demonic_healthstone",
         name     = "Demonic Healthstone",
         itemID   = CON.demonic_healthstone.itemID,
         spellID  = CON.demonic_healthstone.spellIDs[1],
+        nativeCategory = 2566,
     },
 }
 ns.CDM_ITEM_PRESETS = CDM_ITEM_PRESETS
@@ -558,6 +579,34 @@ if EllesmereUI.IS_FOREVER then
             break
         end
     end
+end
+
+-- Built after the WoW Forever drop, so they describe the presets this client offers.
+do
+    -- The combat potion families in their canonical order (the Combat Potion Icon
+    -- menu's rows), each with its preset; empty on WoW Forever, which has none.
+    local families = {}
+    -- Blizzard's own item rows: spell category -> the entry keys (-itemID) such a
+    -- row can render under, the first the one it takes while no bar lists any.
+    local nativeKeys = {}
+    -- The item preset an entry key (-itemID, the preset's primary item) stands for;
+    -- nil for a Custom Item ID or anything else.
+    local byKey = {}
+    for _, p in ipairs(CDM_ITEM_PRESETS) do
+        if p.potFamily then
+            families[#families + 1] = { key = p.potFamily, name = p.familyName, preset = p }
+        end
+        local cat = p.nativeCategory
+        if cat then
+            local list = nativeKeys[cat]
+            if not list then list = {}; nativeKeys[cat] = list end
+            list[#list + 1] = -p.itemID
+        end
+        byKey[-p.itemID] = p
+    end
+    ns.COMBAT_POTION_FAMILIES = families
+    ns.CDM_NATIVE_ITEM_KEYS = nativeKeys
+    function ns.ItemPresetForKey(key) return byKey[key] end
 end
 
 -------------------------------------------------------------------------------

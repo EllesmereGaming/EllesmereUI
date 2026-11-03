@@ -938,6 +938,9 @@ function ERF:UpdateAllFrames()
     -- Cross-module pushes (Dark Mode master, accent) change paint inputs outside the RF options
     -- funnel: break the same-frame paint-stamp window.
     ns._paintGen = (ns._paintGen or 0) + 1
+    -- Textured Background layers first (a Dark Mode Fill edit can cross 100 with no
+    -- reload): the repaints below paint them.
+    ns.RF_TexBgRecheck()
     UpdateAllButtons()
     -- Party and Boss frames are NOT in `allButtons` (Extra frames ARE, see XF.EnsureBuilt), so
     -- repaint their health too, or Dark Mode / color pushes (ApplyColorsToOUF) miss those frame
@@ -965,6 +968,16 @@ function ERF:UpdateAllFrames()
     -- Party target frames: their fill and background read the Dark Mode and class palettes too.
     ns._PT_RepaintVisible()
 end
+
+-- A Number Format change repaints every text. Party buttons take only a health
+-- paint above, so they get the full one here for their absorb texts.
+ns.EllesmereUI.RegisterNumberFormatCallback(function()
+    ERF:UpdateAllFrames()
+    if ns._partyPvActive then return end
+    for _, b in ipairs(ns._partyAllButtons) do
+        if b:GetAttribute("unit") and b:IsVisible() then UpdateButton(b) end
+    end
+end)
 
 -- Lightweight: only toggle raid markers on each button (for RAID_TARGET_UPDATE)
 ns._UpdateRaidMarkers = function()

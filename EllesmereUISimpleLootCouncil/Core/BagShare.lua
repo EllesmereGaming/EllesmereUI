@@ -363,7 +363,7 @@ end
 
 
 local MAX_SHARED_ITEMS = 200
-local MAX_TRADE_SECONDS = 2 * 60 * 60 + 60
+local MAX_TRADE_SECONDS = 4 * 60 * 60 + 60
 
 local function ValidSeconds(value)
     if type(value) ~= "number" or value ~= value then return nil end

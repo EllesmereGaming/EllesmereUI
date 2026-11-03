@@ -2,7 +2,7 @@
 ## Title: |cff0cd29fEllesmereUI|r
 ## Notes: Shared framework for the EllesmereUI addon suite
 ## Author: Ellesmere
-## Version: 9.7
+## Version: 9.7.3
 ## SavedVariables: EllesmereUIDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 ## X-Curse-Project-ID: 1477613
@@ -82,6 +82,7 @@ EUI_UnlockMode_PointPicker.lua
 EUI_UnlockMode_Movers.lua
 EUI_UnlockMode_Session.lua
 EUI_UnlockMode_Filter.lua
+EllesmereUI_Feature.lua
 EllesmereUI_Glows.lua
 EllesmereUI_RoundedCorners.lua
 EllesmereUI_ClassicArt.lua

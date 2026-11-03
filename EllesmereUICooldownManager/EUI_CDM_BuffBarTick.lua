@@ -443,11 +443,10 @@ function ns.UpdateTrackedBuffBarTimers()
                     --     family (exact config ids or the bound slot's
                     --     cooldownInfo override/spellID/linkedSpellIDs).
                     --  3. The configured spell's name (deterministic).
-                    if content and bar._nameText and bar._nameText:IsShown() then
-                        if cfg.customName and cfg.customName ~= "" then
-                            bar._nameText:SetText(cfg.customName)
-                            bar._nameSet = true
-                        else
+                    -- None of it runs for a bar with a custom name: the build painted
+                    -- that, and nothing else writes the label.
+                    if content and bar._nameText and bar._nameText:IsShown()
+                       and not ns.TBBCustomName(cfg) then
                         local nameStr
                         -- auraInstanceID may itself be SECRET on the active frame
                         -- (probe-confirmed): type() reads the tag without touching
@@ -524,7 +523,6 @@ function ns.UpdateTrackedBuffBarTimers()
                         if nameStr then
                             bar._nameText:SetText(nameStr)
                             bar._nameSet = true
-                        end
                         end
                     end
                     -- Timer: engine-bound decimal mirror first (the engine formats the secret
@@ -726,22 +724,17 @@ function ns.UpdateTrackedBuffBarTimers()
                 -- unavailable, and for override/variant spells the build-time saved-form
                 -- icon can be the wrong form, so the live aura is the truth. Icon passes
                 -- through even when secret (SetTexture accepts secrets); name applies
-                -- only on a clean read (font strings need a plain string).
+                -- only on a clean read (font strings need a plain string) and never
+                -- over a bar's custom name.
                 if bar._icon and bar._icon:IsShown() and fbAura.icon then
                     bar._icon._tex:SetTexture(fbAura.icon)
                     bar._lastIconSID = nil
                 end
-                if bar._nameText and bar._nameText:IsShown() then
-                    if cfg.customName and cfg.customName ~= "" then
-                        bar._nameText:SetText(cfg.customName)
-                        bar._nameSet = true
-                    else
-                        local fbName = fbAura.name
-                        if fbName and not (isSec and isSec(fbName)) then
-                            bar._nameText:SetText(fbName)
-                            bar._nameSet = true
-                        end
-                    end
+                local fbName = fbAura.name
+                if bar._nameText and bar._nameText:IsShown() and fbName
+                   and not (isSec and isSec(fbName)) and not ns.TBBCustomName(cfg) then
+                    bar._nameText:SetText(fbName)
+                    bar._nameSet = true
                 end
                 -- Extras stay quiet in fallback mode: no Blizzard child to read stacks/pandemic from. Skipped when the stack fill drove them.
                 if not (sb and fbStackFill) then
@@ -784,8 +777,9 @@ function ns.UpdateTrackedBuffBarTimers()
     for i, cfg in ipairs(bars) do
         local bar = tbbFrames[i]
         if bar and bar._nameText and not bar._nameSet then
-            if cfg.customName and cfg.customName ~= "" then
-                bar._nameText:SetText(cfg.customName)
+            local customName = ns.TBBCustomName(cfg)
+            if customName then
+                bar._nameText:SetText(customName)
                 bar._nameSet = true
             elseif cfg.spellID and cfg.spellID > 0 then
                 local si = C_Spell.GetSpellInfo(cfg.spellID)

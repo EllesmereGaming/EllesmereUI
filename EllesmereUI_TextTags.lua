@@ -25,15 +25,15 @@ EllesmereUI.TextTags = TextTags
 --  "roster" (group membership). width: estimated pixels. sample: preview value.
 -------------------------------------------------------------------------------
 TextTags.UNIT = {
-    mods = { "max", "abr", "pct" },  -- order of the modifiers inside a key
+    mods = { "max", "abr", "pct", "first", "last", "abbr" },  -- order of the modifiers inside a key
     modAliases = { percent = "pct" },
     tags = {  -- order of the help text
         { tag = "hp", aliases = { "health" }, keys = { "hp", "hp:abr", "hp:max", "hp:max:abr", "hp:pct" } },
         { tag = "pp", aliases = { "power" }, keys = { "pp", "pp:abr", "pp:max", "pp:max:abr", "pp:pct" } },
         { tag = "absorb", keys = { "absorb", "absorb:abr" } },
         { tag = "healabsorb", keys = { "healabsorb", "healabsorb:abr" } },
-        { tag = "name", keys = { "name" } },
-        { tag = "target", keys = { "target" } },
+        { tag = "name", keys = { "name", "name:first", "name:last", "name:abbr" } },
+        { tag = "target", keys = { "target", "target:first", "target:last", "target:abbr" } },
         { tag = "level", keys = { "level" } },
         { tag = "group", keys = { "group" } },
     },
@@ -53,7 +53,13 @@ TextTags.UNIT = {
         ["healabsorb"]     = { reads = "habs", width = 45, sample = "4200" },
         ["healabsorb:abr"] = { reads = "habs", width = 38, sample = "4 K" },
         ["name"]           = { reads = "id", width = 80, sample = "Thrall" },
+        ["name:first"]     = { reads = "id", width = 48, sample = "Thrall" },
+        ["name:last"]      = { reads = "id", width = 64, sample = "Stormrage" },
+        ["name:abbr"]      = { reads = "id", width = 72, sample = "I. Stormrage" },
         ["target"]         = { reads = "tgt", width = 80, sample = "Jaina" },
+        ["target:first"]   = { reads = "tgt", width = 48, sample = "Jaina" },
+        ["target:last"]    = { reads = "tgt", width = 72, sample = "Proudmoore" },
+        ["target:abbr"]    = { reads = "tgt", width = 72, sample = "J. Proudmoore" },
         ["level"]          = { reads = "id", width = 24, sample = "80" },
         ["group"]          = { reads = "roster", width = 10, sample = "3" },
     },
@@ -70,6 +76,9 @@ TextTags.UNIT = {
                 abr = EllesmereUI.L("Abbreviated (132 K)"),
                 max = EllesmereUI.L("Maximum instead of current"),
                 pct = EllesmereUI.L("Percent, number only"),
+                first = EllesmereUI.L("First word"),
+                last = EllesmereUI.L("Last word"),
+                abbr = EllesmereUI.L("Initials, last word whole (I. Stormrage)"),
             },
             -- Short, for the suggestion list.
             keys = {
@@ -81,12 +90,17 @@ TextTags.UNIT = {
                 ["pp:pct"] = EllesmereUI.L("Power percent"),
                 ["absorb"] = EllesmereUI.L("Absorb shield"), ["absorb:abr"] = EllesmereUI.L("Absorb, abbreviated"),
                 ["healabsorb"] = EllesmereUI.L("Heal absorb"), ["healabsorb:abr"] = EllesmereUI.L("Heal absorb, abbreviated"),
-                ["name"] = EllesmereUI.L("Unit name"), ["target"] = EllesmereUI.L("Target's name"),
+                ["name"] = EllesmereUI.L("Unit name"),
+                ["name:first"] = EllesmereUI.L("First name"), ["name:last"] = EllesmereUI.L("Last name"),
+                ["name:abbr"] = EllesmereUI.L("Abbreviated"),
+                ["target"] = EllesmereUI.L("Target's name"),
+                ["target:first"] = EllesmereUI.L("Target, first name"), ["target:last"] = EllesmereUI.L("Target, last name"),
+                ["target:abbr"] = EllesmereUI.L("Target, abbreviated"),
                 ["level"] = EllesmereUI.L("Unit level"), ["group"] = EllesmereUI.L("Raid group"),
             },
         }
     end,
-    examples = { "[hp:max:abr]", "[name] [hp:pct]%", "[hp:abr] | [pp]/[pp:max]" },
+    examples = { "[hp:max:abr]", "[name:abbr] [hp:pct]%", "[hp:abr] | [pp]/[pp:max]" },
 }
 
 -------------------------------------------------------------------------------
@@ -488,13 +502,14 @@ function TextTags.EditPopup(o, warning)
 end
 
 --- A copy of a text dropdown's values whose "custom" entry is an action opening the
---- popup (edit; nil adds none), marked with the edit pencil. o.selected(): the pencil
---- at full alpha while true (nil: always); o.removeKey: that entry in the house red
---- with the close X. The values' own _menuOpts still dress their other entries; the
---- menu reads all of it when it is built.
+--- popup (edit; nil adds none), marked with the edit pencil. o.text: that entry's
+--- label (nil: "Custom"); o.selected(): the pencil at full alpha while true (nil:
+--- always); o.removeKey: that entry in the house red with the close X. The values'
+--- own _menuOpts still dress their other entries; the menu reads all of it when it
+--- is built.
 function TextTags.MenuValues(values, edit, o)
     local v = CopyTable(values)
-    if edit then v.custom = { text = "Custom", action = edit } end
+    if edit then v.custom = { text = (o and o.text) or "Custom", action = edit } end
     local mo = v._menuOpts or {}
     v._menuOpts = mo
     local icon, iconColor, labelColor = mo.icon, mo.iconColor, mo.labelColor

@@ -3,10 +3,11 @@ if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- retail only: WoW Fo
 -------------------------------------------------------------------------------
 --  EllesmereUIBlizzardSkin_MailAlts.lua
 --  The Mail card's Alt List (opt-in, EllesmereUIDB.mailAltList): beside the
---  Send Mail page, the player's other characters. Those of the same faction on
---  this realm or a connected one take any mail; the rest (another realm, the
---  other faction) take Warbound items only, which reach every character on the
---  account, and show dimmed. A click puts the name in the To: box; a right
+--  Send Mail page, the player's other characters. Those on this realm or a
+--  connected one take any mail, whatever their faction (your own characters of
+--  the other faction there receive items and gold too); those on another realm
+--  take Warbound items only, which reach every character on the account, and
+--  show dimmed. A click puts the name in the To: box; a right
 --  click offers Ignore This Character and Remove Character.
 --  The card also keeps Shown Characters (EllesmereUIDB.mailAltHidden, by
 --  player GUID) and, in the toggle's cog, Sort By (mailAltListSort), Max
@@ -159,8 +160,8 @@ end
 
 -------------------------------------------------------------------------------
 --  Who the list shows: every other character, minus Shown Characters and
---  Minimum Level. Any mail reaches the same faction on this realm or a
---  connected one; Warbound items reach every character on the account.
+--  Minimum Level. Any mail reaches this realm or a connected one, either
+--  faction; Warbound items reach every character on the account.
 -------------------------------------------------------------------------------
 local function ConnectedRealms()
     if connected then return connected end
@@ -405,9 +406,9 @@ Paint = function()
         local e = roster[guid]
         local r = rows[i] or NewRow(i)
         local foreign = e.realmKey ~= own
-        -- Any mail reaches the same faction on this realm or a connected one;
-        -- the rest take Warbound items only and show dimmed.
-        local limited = e.faction ~= paintedFaction or not realms[e.realmKey]
+        -- Any mail reaches this realm or a connected one, either faction;
+        -- another realm takes Warbound items only and shows dimmed.
+        local limited = not realms[e.realmKey]
         r._guid, r._foreign, r._limited = guid, foreign, limited
         -- Mail addresses another realm's character as "Name-Realm".
         r._target = foreign and (e.name .. "-" .. e.realmKey) or e.name

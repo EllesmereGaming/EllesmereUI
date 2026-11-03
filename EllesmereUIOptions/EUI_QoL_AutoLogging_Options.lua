@@ -15,6 +15,8 @@ local TRIGGER_DEFAULTS = {
     log5pp      = true,
     logArena    = true,
     logScenario = false,
+    logRBG      = false,
+    logBlitz    = false,
     delaystop   = true,
 }
 
@@ -26,11 +28,14 @@ local TRIGGER_ITEMS = {
     { key = "log5pp",      label = "Mythic+ Dungeons" },
     { key = "logArena",    label = "Arena" },
     { key = "logScenario", label = "Scenarios" },
+    { key = "logRBG",      label = "Rated Battlegrounds" },
+    { key = "logBlitz",    label = "Battleground Blitz" },
 }
 -- WoW Forever: every raid instance logs on the Raids trigger (the Normal Raid
 -- key and its default) and every dungeon on the Dungeons trigger (a key only
 -- that client offers, off until the player turns it on). The retail
--- difficulty, Mythic+, arena and scenario rows have nothing to match there.
+-- difficulty, Mythic+, arena, scenario and rated battleground rows have
+-- nothing to match there.
 if EllesmereUI.IS_FOREVER then
     TRIGGER_ITEMS = {
         { key = "logNormal",  label = "Raids" },
@@ -319,7 +324,13 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
           setValue = function(v)
               Cfg().delaystop = v
           end },
-        { type = "label", text = "" }
+        { type    = "toggle",
+          text    = "Chat Notification",
+          tooltip = "Prints a chat message when auto logging starts or stops.",
+          getValue = function() return Cfg().notify == true end,
+          setValue = function(v)
+              Cfg().notify = v or nil
+          end }
     ); y = y - h
     end   -- close Auto Logging hidden-while-disabled gate
 
@@ -349,6 +360,28 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     if _G._EUI_BuildBloodlustSection and not EllesmereUI.IS_FOREVER then
         local lustH = _G._EUI_BuildBloodlustSection(parent, y, W, EllesmereUI.PP)
         y = y - lustH
+    end
+
+    ---------------------------------------------------------------------------
+    --  TALENT PLANNER (runtime in EllesmereUIQoL_TalentPlannerRetail.lua; the
+    --  runtime returns at load on WoW Forever, which has its own planner)
+    ---------------------------------------------------------------------------
+    local TP = EllesmereUI._TalentPlannerRetail
+    if TP then
+        _, h = W:Spacer(parent, y, 20); y = y - h
+        _, h = W:SectionHeader(parent, "TALENT PLANNER", y); y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Talent Planner",
+              tooltip = "Plan the order in which to learn talents (Plan Talents, under the talent window). At a level up, the next planned talent you can pay for is learned for you, out of combat, and applied like Apply Changes. The plan is kept per specialization.",
+              -- Off by default.
+              getValue = function() return TP.Get("enabled") end,
+              setValue = function(v)
+                  TP.Cfg().enabled = v
+                  TP.Apply()
+              end },
+            EllesmereUI.BlankRowCfg()
+        );  y = y - h
     end
 
     return math.abs(y - yOffset)

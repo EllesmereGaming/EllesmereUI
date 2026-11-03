@@ -101,12 +101,15 @@ function Offline.Store()
     return db
 end
 
-local function OwnKey()
-    local name, realm = UnitName("player"), EUI.RealmGroupName()
-    if not name or not realm then return nil end
-    return name .. "-" .. realm
-end
+local function OwnKey() return EUI.CharKey("-") end
 Offline.CurrentKey = OwnKey
+
+-- a class's colour code, custom class colours included
+local function ClassHex(class)
+    local c = class and EUI.GetClassColor(class)
+    return c and EUI.HexColor(c.r, c.g, c.b) or "|cffffffff"
+end
+Offline.ClassHex = ClassHex
 
 function Offline.Char(key)
     if not key then return nil end
@@ -163,13 +166,23 @@ local function MyEntry()
     if not c then c = {}; chars[key] = c end
     local _, class = UnitClass("player")
     c.name, c.realm, c.class, c.level = UnitName("player"), EUI.RealmGroupName(), class, UnitLevel("player")
-    -- renamed or moved realms: same guid under the old key, drop that one
+    -- a rename keeps the guid: its old entry goes and the bank moves over (the
+    -- bags save again at once). a new character under a reused name has another
+    -- guid and starts empty. a realm transfer gets a new guid too, so its old
+    -- entry stays until it's deleted from the picker.
     local guid = UnitGUID("player")
     if guid and c.guid ~= guid then
+        local moved = c.guid ~= nil
+        if moved then c.bags, c.bank, c.bagsTime, c.bankTime = nil, nil, nil, nil end
         c.guid = guid
         for k, o in pairs(chars) do
-            if k ~= key and type(o) == "table" and o.guid == guid then chars[k] = nil end
+            if k ~= key and type(o) == "table" and o.guid == guid then
+                if c.bank == nil then c.bank, c.bankTime = o.bank, o.bankTime end
+                chars[k] = nil
+                moved = true
+            end
         end
+        if moved then Changed("forget") end
     end
     return c
 end
@@ -291,16 +304,19 @@ end
 -- a burst of updates only saves once
 local pendingBags, pendingBank = false, false
 local function Flush()
+    -- a save queued just before both switches went off (the Bags reset) is dropped
+    if not Active() then pendingBags, pendingBank = false, false; return end
     if pendingBags then pendingBags = false; SaveBags() end
     if pendingBank then pendingBank = false; SaveBanks() end
 end
 local flushQueued = false
+local function FlushQueued() flushQueued = false; Flush() end
 local function Queue(bags, bank)
     if bags then pendingBags = true end
     if bank then pendingBank = true end
     if flushQueued then return end
     flushQueued = true
-    C_Timer.After(0.5, function() flushQueued = false; Flush() end)
+    C_Timer.After(0.5, FlushQueued)
 end
 
 -------------------------------------------------------------------------------
@@ -333,20 +349,21 @@ ev:SetScript("OnEvent", function(_, event, arg)
             atBank, atCharBank = false, false
         end
     elseif atBank then
-        -- tab bought or edited, or a slot event without a bag id
-        if event == "PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED" and WARBAND_POS[arg] then
-            dirty[arg] = true
-        elseif event == "PLAYERBANKSLOTS_CHANGED" then
+        -- a tab bought or renamed (BANK_TABS_CHANGED / BANK_TAB_SETTINGS_UPDATED,
+        -- arg = its bank type): that bank's tabs, for their names and icons.
+        -- slot changes come through BAG_UPDATE with the tab's bag id
+        if arg == Enum.BankType.Account then
+            MarkAll(WARBAND_BANK)
+            Queue(false, true)
+        elseif arg == Enum.BankType.Character then
             MarkAll(CHAR_BANK)
-        else
-            MarkAll(CHAR_BANK); MarkAll(WARBAND_BANK)
+            Queue(false, true)
         end
-        Queue(false, true)
     end
 end)
 local EVENTS = { "BAG_UPDATE_DELAYED", "BAG_UPDATE", "BAG_CONTAINER_UPDATE",
     "PLAYER_INTERACTION_MANAGER_FRAME_SHOW", "PLAYER_INTERACTION_MANAGER_FRAME_HIDE",
-    "PLAYERBANKSLOTS_CHANGED", "PLAYER_ACCOUNT_BANK_TAB_SLOTS_CHANGED", "BANK_TABS_CHANGED" }
+    "BANK_TABS_CHANGED", "BANK_TAB_SETTINGS_UPDATED" }
 
 local listening = false
 local IndexSoon  -- below
@@ -440,26 +457,30 @@ IndexSoon = function()
     C_Timer.After(3, function() if listening and Offline.CountsEnabled() then Index() end end)
 end
 
-local function ClassHex(class)
-    local c = class and C_ClassColor and C_ClassColor.GetClassColor(class)
-    return c and c:GenerateHexColorMarkup() or "|cffffffff"
-end
-
 -- finished lines per item id, until the next write
 local lineCache, lineRev = {}, -1
+local sameName = {}
 local function BuildLines(id)
     local idx = Index()
     local row, war = idx.chars[id], idx.warband[id]
     if not row and not (war and war.n) then return false end
     local db, lines, total = Offline.Store(), {}, 0
+    -- two characters of one name (other realms) get their realm added
+    wipe(sameName)
+    for key in pairs(row or _emptyP) do
+        local c = db.chars[key]
+        if c and c.name then sameName[c.name] = (sameName[c.name] or 0) + 1 end
+    end
     for key, e in pairs(row or _emptyP) do
         local c = db.chars[key]
         local n = e.bags + e.bank
         if c and n > 0 then
             local parts = {}
-            if e.bags > 0 then parts[#parts + 1] = EllesmereUI.L("Bags") .. " " .. e.bags end
-            if e.bank > 0 then parts[#parts + 1] = EllesmereUI.L("Bank") .. " " .. e.bank end
-            lines[#lines + 1] = { ClassHex(c.class) .. (c.name or "?") .. "|r", table.concat(parts, "  "), 1, 1, 1, n = n }
+            if e.bags > 0 then parts[#parts + 1] = EllesmereUI.Lf("Bags %1$d", e.bags) end
+            if e.bank > 0 then parts[#parts + 1] = EllesmereUI.Lf("Bank %1$d", e.bank) end
+            local name = c.name or "?"
+            if (sameName[name] or 0) > 1 and c.realm and c.realm ~= "" then name = name .. "-" .. c.realm end
+            lines[#lines + 1] = { ClassHex(c.class) .. name .. "|r", table.concat(parts, "  "), 1, 1, 1, n = n }
             total = total + n
         end
     end
@@ -510,7 +531,8 @@ local boot = CreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:SetScript("OnEvent", function(self)
     self:UnregisterEvent("PLAYER_LOGIN")
-    Offline.Store()
+    -- old saves upgrade once; nothing is created for a player who never turned a switch on
+    if Active() or _G.EllesmereUIBagsInventoryDB ~= nil then Offline.Store() end
     Offline.Sync()
     Offline.SyncTooltip()
 end)

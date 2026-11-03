@@ -16,7 +16,11 @@ UI.MinimapButton = MinimapButton
 local S, P
 local button, tip
 
-local BUTTON_SIZE = 26
+
+
+
+local BUTTON_SIZE = 31
+local RIM_GAP = 5
 local TIP_PAD, TIP_GAP = 8, 2
 local DEFAULT_ANGLE = 215
 local ART = "Interface\\AddOns\\EllesmereUISimpleLootCouncil\\art\\minimap"
@@ -42,7 +46,7 @@ local function Place()
     local angle = math.rad(Settings().angle or DEFAULT_ANGLE)
     local half = Minimap:GetWidth() / 2
     local x, y = math.cos(angle), math.sin(angle)
-    local radius = half + 10
+    local radius = half + RIM_GAP
     local shape = GetMinimapShape and GetMinimapShape() or "ROUND"
     if shape == "SQUARE" then
 
@@ -164,12 +168,24 @@ local function Build()
     button:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
     button:RegisterForDrag("LeftButton")
 
+    local backdrop = button:CreateTexture(nil, "BACKGROUND")
+    backdrop:SetSize(24, 24)
+    backdrop:SetPoint("CENTER", button, "CENTER", 0, 0)
+    backdrop:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+
 
     local icon = button:CreateTexture(nil, "ARTWORK")
-    icon:SetAllPoints(button)
+    icon:SetSize(18, 18)
+    icon:SetPoint("CENTER", button, "CENTER", 0, 0)
     icon:SetTexture(ART)
     icon:SetVertexColor(0.85, 0.85, 0.85)
     button.icon = icon
+
+    local ring = button:CreateTexture(nil, "OVERLAY")
+    ring:SetSize(50, 50)
+    ring:SetPoint("TOPLEFT", button, "TOPLEFT", 0, 0)
+    ring:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
     button:SetScript("OnEnter", function(self)
         if self.dragging then return end

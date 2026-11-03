@@ -7502,9 +7502,9 @@ local function CreateMerchantScrollList(parent)
 end
 
 -- Same as the default UI's version, with frameName pointed at our own buttons.
-function EUI_MerchantFrame_UpdateAltCurrency(index, indexOnPage, canAfford)
+function EUI_MerchantFrame_UpdateAltCurrency(index, indexOnPage, canAfford, prefix)
 	local itemCount = GetMerchantItemCostInfo(index);
-	local frameName = "EUI_MerchantItem"..indexOnPage.."AltCurrencyFrame";
+	local frameName = (prefix or "EUI_MerchantItem")..indexOnPage.."AltCurrencyFrame";
 	local usedCurrencies = 0;
 	local width = 0;
 
@@ -7912,6 +7912,352 @@ local function SkinMerchantIconButton(btn)
     end
 end
 
+-------------------------------------------------------------------------------
+--  Expand Vendor UI (Merchant card): the sell tab shows a grid of the chosen columns x
+--  rows (EllesmereUIDB.merchantCols / merchantRows) instead of Blizzard's
+--  2 x 5 page. Nothing is built or hooked until the setting is first on
+--  (EnsureExpand). Blizzard's native 10-tile page stays Blizzard's and is only
+--  hidden while the grid is up (the buyback tab keeps it); tiles of the same
+--  template take its place, filled with MerchantFrame_UpdateMerchantInfo's
+--  logic. The frame widens and grows to hold the grid, and the pager steps one
+--  grid-full at a time. The native 2 x 5 size is Blizzard's own layout, so it
+--  needs none of this. Excluded with Show As List.
+--  "Hidden" means parked under a hidden holder rather than Hide(): the native
+--  tiles stay shown to Blizzard and to addons that decorate them (price
+--  displays, overlays), so they are already current when the grid comes down.
+-------------------------------------------------------------------------------
+local EX_COL_STEP, EX_ROW_STEP = 165, 52   -- tile 153 wide + Blizzard's 12 gap; 44 tall + 8 gap
+local EX_LEFT, EX_TOP = 11, -72            -- MerchantItem1's seat after the skin's 3px shift
+local EX_NATIVE_PER_PAGE = 10
+local EX_NATIVE_COLS, EX_NATIVE_ROWS = 2, 5
+local EX_MAX_COLS, EX_MAX_ROWS = 6, 10
+local EX_FRAME_PAD = 6                     -- native 336 wide = 2 columns + 6
+local EX_PREFIX = "EUI_MerchantPage"
+local MAX_MONEY_DISPLAY_WIDTH_EX = 120
+-- buttons: the grid tiles' item buttons (a split open on one of them is the grid's).
+local ex = { page = 1, tiles = {}, buttons = {}, cols = EX_NATIVE_COLS, perPage = 0 }
+
+local function ExGrid()
+    local db = EllesmereUIDB
+    local cols = math.floor(tonumber(db and db.merchantCols) or EX_NATIVE_COLS)
+    local rows = math.floor(tonumber(db and db.merchantRows) or EX_NATIVE_ROWS)
+    return math.min(EX_MAX_COLS, math.max(EX_NATIVE_COLS, cols)),
+           math.min(EX_MAX_ROWS, math.max(EX_NATIVE_ROWS, rows))
+end
+
+local function ExpandOn()
+    local db = EllesmereUIDB
+    if not db or db.merchantExpand ~= true or db.merchantShowAsList or db.reskinMerchant == false then
+        return false
+    end
+    local cols, rows = ExGrid()
+    return cols ~= EX_NATIVE_COLS or rows ~= EX_NATIVE_ROWS
+end
+
+local function ExpandActive()
+    local f = _G.MerchantFrame
+    return (ExpandOn() and f and (f.selectedTab or 1) == 1) and true or false
+end
+EllesmereUI._Merchant_ExpandActive = ExpandActive
+EllesmereUI._Merchant_ExpandPerPage = function() return ex.perPage end
+
+local function EX_NumPages()
+    return math.max(1, math.ceil(GetMerchantNumItems() / math.max(1, ex.perPage)))
+end
+
+local function EX_Place(t, i)
+    local f = _G.MerchantFrame
+    local col = (i - 1) % ex.cols
+    local row = math.floor((i - 1) / ex.cols)
+    t:ClearAllPoints()
+    t:SetPoint("TOPLEFT", f, "TOPLEFT", EX_LEFT + col * EX_COL_STEP, EX_TOP - row * EX_ROW_STEP)
+end
+
+local function EX_GetTile(i)
+    local t = ex.tiles[i]
+    if t then return t end
+    local f = _G.MerchantFrame
+    t = CreateFrame("Frame", EX_PREFIX .. i, f, "MerchantItemTemplate")
+    EX_Place(t, i)
+    SkinMerchantTile(t)
+    LiftMerchantCurrency(_G[EX_PREFIX .. i .. "MoneyFrame"])
+    LiftMerchantCurrency(_G[EX_PREFIX .. i .. "AltCurrencyFrame"])
+    ex.tiles[i] = t
+    ex.buttons[t.ItemButton] = true
+    return t
+end
+
+local function EX_FillTile(tile, slot, index, numItems)
+    local btn = tile.ItemButton
+    local money = _G[EX_PREFIX .. slot .. "MoneyFrame"]
+    local alt = _G[EX_PREFIX .. slot .. "AltCurrencyFrame"]
+    local info = index <= numItems and C_MerchantFrame.GetItemInfo(index) or nil
+    if not info then
+        btn.price = nil
+        btn.hasItem = nil
+        btn.name = nil
+        btn:SetID(0)
+        tile:Hide()
+        return
+    end
+
+    local itemName, texture, numAvailable = info.name, info.texture, info.numAvailable
+    if info.currencyID then
+        itemName, texture, numAvailable = CurrencyContainerUtil.GetCurrencyContainerInfo(
+            info.currencyID, info.numAvailable, info.name, info.texture, nil)
+    end
+
+    local canAfford = CanAffordMerchantItem(index)
+    local link = GetMerchantItemLink(index)
+    tile.Name:SetText(itemName)
+    SetItemButtonCount(btn, info.stackCount)
+    SetItemButtonStock(btn, numAvailable)
+    SetItemButtonTexture(btn, texture)
+
+    btn.name = itemName
+    btn.link = link
+    btn.texture = texture
+    if info.hasExtendedCost and info.price <= 0 then
+        btn.price = nil
+        btn.extendedCost = true
+        EUI_MerchantFrame_UpdateAltCurrency(index, slot, canAfford, EX_PREFIX)
+        alt:ClearAllPoints()
+        alt:SetPoint("BOTTOMLEFT", EX_PREFIX .. slot .. "NameFrame", "BOTTOMLEFT", 0, 31)
+        money:Hide()
+        alt:Show()
+    elseif info.hasExtendedCost then
+        btn.price = info.price
+        btn.extendedCost = true
+        local altWidth = EUI_MerchantFrame_UpdateAltCurrency(index, slot, canAfford, EX_PREFIX)
+        MoneyFrame_SetMaxDisplayWidth(money, MAX_MONEY_DISPLAY_WIDTH_EX - altWidth)
+        MoneyFrame_Update(money:GetName(), info.price)
+        SetMoneyFrameColor(money:GetName(), canAfford == false and "gray" or nil)
+        alt:ClearAllPoints()
+        alt:SetPoint("LEFT", money:GetName(), "RIGHT", -14, 0)
+        alt:Show()
+        money:Show()
+    else
+        btn.price = info.price
+        btn.extendedCost = nil
+        MoneyFrame_SetMaxDisplayWidth(money, MAX_MONEY_DISPLAY_WIDTH_EX)
+        MoneyFrame_Update(money:GetName(), info.price)
+        SetMoneyFrameColor(money:GetName(), canAfford == false and "gray" or nil)
+        alt:Hide()
+        money:Show()
+    end
+
+    if info.isQuestStartItem then
+        btn.IconQuestTexture:SetTexture(TEXTURE_ITEM_QUEST_BANG)
+        btn.IconQuestTexture:Show()
+    else
+        btn.IconQuestTexture:Hide()
+    end
+    MerchantFrameItem_UpdateQuality(tile, link)
+
+    local itemID = GetMerchantItemID(index)
+    local isHeirloom = itemID and C_Heirloom.IsItemHeirloom(itemID)
+    local isKnownHeirloom = isHeirloom and C_Heirloom.PlayerHasHeirloom(itemID)
+    btn.showNonrefundablePrompt = not C_MerchantFrame.IsMerchantItemRefundable(index)
+    btn.hasItem = true
+    btn:SetID(index)
+    btn:Show()
+    tile:Show()
+
+    local tintRed = not info.isPurchasable or (not info.isUsable and not isHeirloom)
+    SetItemButtonDesaturated(btn, isKnownHeirloom)
+    local r, g, b = 1, 1, 1
+    if numAvailable == 0 or isKnownHeirloom then
+        if tintRed then r, g, b = 0.5, 0, 0 else r, g, b = 0.5, 0.5, 0.5 end
+    elseif tintRed then
+        r, g, b = 0.9, 0, 0
+    end
+    SetItemButtonTextureVertexColor(btn, r, g, b)
+    SetItemButtonNormalTextureVertexColor(btn, r, g, b)
+end
+
+local EX_Update
+
+local function EX_Flip(dir)
+    local want = math.min(math.max(ex.page + dir, 1), EX_NumPages())
+    if want == ex.page then return end
+    -- A split open on one of the grid's tiles would act on whatever now holds its
+    -- index. Close it through the shared helpers; with a key still held in it, skip
+    -- the flip rather than leave the split on the wrong item. A split on anything
+    -- else (a bag slot) is not the grid's to close.
+    local ssf = StackSplitFrame
+    local owner = ssf and ssf:IsShown() and ssf.owner
+    if owner and ex.buttons[owner] then
+        if not EllesmereUI.StackSplitFor(owner) then return end
+        EllesmereUI.TakeStackSplit()
+    end
+    ex.page = want
+    PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+    EX_Update()
+end
+
+local function EX_MakePageButton(f, kind, glyph, point, x)
+    local b = CreateFrame("Button", nil, f)
+    b:SetSize(32, 32)
+    b:SetPoint("CENTER", f, point, x, 96)
+    b:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. kind .. "Page-Up")
+    b:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. kind .. "Page-Down")
+    b:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. kind .. "Page-Disabled")
+    b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+    b:SetScript("OnClick", function() EX_Flip(kind == "Prev" and -1 or 1) end)
+    SkinLabeledPageButton(b, glyph, glyph == ">" and 2 or nil)
+    return b
+end
+
+local function EX_UpdatePager(f, numPages)
+    if not ex.prev then
+        ex.prev = EX_MakePageButton(f, "Prev", "<", "BOTTOMLEFT", 25)
+        ex.next = EX_MakePageButton(f, "Next", ">", "BOTTOMRIGHT", -26)
+        ex.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        ex.text:SetPoint("BOTTOM", f, "BOTTOM", 0, 86)
+        WSkin.Font(ex.text)
+        WSkin.White(ex.text)
+    end
+    local show = numPages > 1
+    ex.prev:SetShown(show)
+    ex.next:SetShown(show)
+    ex.text:SetShown(show)
+    if not show then return end
+    ex.prev:SetEnabled(ex.page > 1)
+    ex.next:SetEnabled(ex.page < numPages)
+    ex.text:SetFormattedText("%d / %d", ex.page, numPages)
+end
+
+-- Move the native page under the hidden holder (park) or back to its parent.
+local function EX_ParkNative(park)
+    for i = 1, EX_NATIVE_PER_PAGE do
+        local n = _G["MerchantItem" .. i]
+        if n then
+            local parked = n:GetParent() == ex.holder
+            if park and not parked then
+                ex.nativeParent = ex.nativeParent or n:GetParent()
+                n:SetParent(ex.holder)
+            elseif not park and parked then
+                n:SetParent(ex.nativeParent)
+            end
+        end
+    end
+end
+
+local function EX_Deactivate(f)
+    if not ex.active then return end
+    ex.active = false
+    for i = 1, #ex.tiles do ex.tiles[i]:Hide() end
+    if ex.prev then ex.prev:Hide(); ex.next:Hide(); ex.text:Hide() end
+    if ex.nativeW and f:GetWidth() ~= ex.nativeW then f:SetWidth(ex.nativeW) end
+    if ex.nativeH and f:GetHeight() ~= ex.nativeH then f:SetHeight(ex.nativeH) end
+    local bb = _G.MerchantBuyBackItem
+    if bb and ex.bbPoint then
+        local pt = ex.bbPoint
+        bb:ClearAllPoints()
+        bb:SetPoint(pt[1], pt[2], pt[3], pt[4], pt[5])
+    end
+    EX_ParkNative(false)
+    -- Switched off on the sell tab: show the pager the way Blizzard decides it.
+    -- Blizzard keeps its text and enabled state current while it is hidden.
+    if not ExpandOn() and f:IsShown() and (f.selectedTab or 1) == 1 and GetMerchantNumItems() > MERCHANT_ITEMS_PER_PAGE then
+        for _, c in ipairs(ex.pager) do c:Show() end
+    end
+    -- Item levels went to the grid's tiles while it was up.
+    if EllesmereUIDB.merchantShowItemLevel then EllesmereUI._Merchant_RefreshItemLevels() end
+end
+
+EX_Update = function()
+    local f = _G.MerchantFrame
+    if not f or not ex.hooked then return end
+    if not ExpandActive() then EX_Deactivate(f) return end
+    if not f:IsShown() then return end
+
+    ex.active = true
+    local cols, rows = ExGrid()
+    ex.perPage = cols * rows
+    if not ex.nativeW then ex.nativeW, ex.nativeH = f:GetWidth(), f:GetHeight() end
+    -- The most-recent-buyback slot hangs off MerchantItem10, which is parked and
+    -- stays at row 5; keep its native offset from the Sell All Junk button, which
+    -- rides the frame's bottom edge, so it follows the grid.
+    local bb, junk = _G.MerchantBuyBackItem, _G.MerchantSellAllJunkButton
+    if bb and junk then
+        if not ex.bbPoint and bb:GetNumPoints() > 0 and bb:GetLeft() and junk:GetLeft() then
+            local p, rel, rp, x, y = bb:GetPoint(1)
+            ex.bbPoint = { p, rel, rp, x or 0, y or 0 }
+            ex.bbDX = bb:GetLeft() - junk:GetLeft()
+            ex.bbDY = bb:GetTop() - junk:GetTop()
+        end
+        if ex.bbDX then
+            bb:ClearAllPoints()
+            bb:SetPoint("TOPLEFT", junk, "TOPLEFT", ex.bbDX, ex.bbDY)
+        end
+    end
+    local w = cols * EX_COL_STEP + EX_FRAME_PAD
+    local h = ex.nativeH + (rows - EX_NATIVE_ROWS) * EX_ROW_STEP
+    if f:GetWidth() ~= w then f:SetWidth(w) end
+    if f:GetHeight() ~= h then f:SetHeight(h) end
+    EX_ParkNative(true)
+    for _, c in ipairs(ex.pager) do c:Hide() end
+
+    if ex.cols ~= cols then
+        ex.cols = cols
+        for i = 1, #ex.tiles do EX_Place(ex.tiles[i], i) end
+    end
+
+    local numItems = GetMerchantNumItems()
+    local numPages = EX_NumPages()
+    if ex.page > numPages then ex.page = numPages end
+    local base = (ex.page - 1) * ex.perPage
+    for i = 1, ex.perPage do
+        EX_FillTile(EX_GetTile(i), i, base + i, numItems)
+    end
+    for i = ex.perPage + 1, #ex.tiles do ex.tiles[i]:Hide() end
+    EX_UpdatePager(f, numPages)
+
+    -- Item levels read each button's ID, which a flip just changed.
+    if EllesmereUIDB.merchantShowItemLevel then EllesmereUI._Merchant_RefreshItemLevels() end
+    -- Bulk Buy closes its window once its tile shows another item; it checks on
+    -- MerchantFrame_Update, which a flip does not run.
+    if EllesmereUI._Merchant_BulkBuyRepaint then EllesmereUI._Merchant_BulkBuyRepaint() end
+end
+-- GET_ITEM_INFO_RECEIVED comes in a burst while a vendor's items load: one refill
+-- per frame. Built here, at load, so no skin callback wraps it.
+ex.updateSoon = WSkin.Debounce(EX_Update)
+
+local function EnsureExpand()
+    if ex.hooked then return end
+    local f = _G.MerchantFrame
+    if not f then return end
+    ex.hooked = true
+    ex.holder = CreateFrame("Frame", nil, f)
+    ex.holder:Hide()
+    -- Blizzard re-Shows the native pager on every update; keep it down while
+    -- the grid is up (hidden, not parked: Blizzard's wheel handler pages
+    -- through a shown pager). Show hooks only, no method overwrites.
+    local function HideIfActive(self)
+        if ExpandActive() then self:Hide() end
+    end
+    ex.pager = { _G.MerchantPrevPageButton, _G.MerchantNextPageButton, _G.MerchantPageText }
+    for _, c in ipairs(ex.pager) do
+        hooksecurefunc(c, "Show", HideIfActive)
+    end
+    hooksecurefunc("MerchantFrame_Update", EX_Update)
+    -- Fires when an uncached item resolves; the native pass would only refill its own tiles.
+    hooksecurefunc("MerchantFrame_UpdateItemQualityBorders", ex.updateSoon)
+    f:HookScript("OnShow", function() ex.page = 1 end)
+    f:HookScript("OnMouseWheel", function(_, delta)
+        if ExpandActive() then EX_Flip(delta > 0 and -1 or 1) end
+    end)
+end
+
+-- Options entry point (toggle, columns, rows).
+EllesmereUI._Merchant_RefreshExpand = function()
+    local f = _G.MerchantFrame
+    if not f or not f:IsShown() then return end   -- the next show picks it up
+    if ExpandOn() then EnsureExpand() end
+    EX_Update()
+end
+
 local _merchantHooked = false
 local function Skin_Merchant()
     local f = _G.MerchantFrame
@@ -7988,6 +8334,11 @@ local function Skin_Merchant()
     end
     WSkin.NormalizeTabRow(mTabs)
 
+    if ExpandOn() then
+        EnsureExpand()
+        EX_Update()
+    end
+
     if not _merchantHooked then
         _merchantHooked = true
         -- Blizzard re-textures tiles on every page flip/tab swap/vendor open, so re-run the (idempotent) tile pass on its repaint.
@@ -8032,20 +8383,20 @@ local function UpdateMerchantItemLevels()
     local show = EllesmereUIDB and EllesmereUIDB.merchantShowItemLevel == true
     local onSellTab = (f.selectedTab or 1) == 1
     local numItems
+    local prefix = "MerchantItem"
     if EllesmereUIDB.merchantShowAsList then
         -- GetNumBuybackItems is irrelevant: text only shows on the sell tab.
         numItems = GetMerchantNumItems()
+        prefix = "EUI_MerchantItem"
+    elseif EllesmereUI._Merchant_ExpandActive() then
+        numItems = EllesmereUI._Merchant_ExpandPerPage()
+        prefix = "EUI_MerchantPage"
     else
         numItems = 12
     end
     local render = show and onSellTab and f:IsVisible()
     for i = 1, numItems do
-        local btn
-        if EllesmereUIDB.merchantShowAsList then
-            btn = _G["EUI_MerchantItem" .. i .. "ItemButton"]
-        else
-            btn = _G["MerchantItem" .. i .. "ItemButton"]
-        end
+        local btn = _G[prefix .. i .. "ItemButton"]
         if btn then
             -- FontString ref lives in the engine FFD, NEVER on Blizzard's button
             -- table. Read without creating, so the disabled path costs one weak-table lookup per slot.
@@ -12466,7 +12817,20 @@ function LP.FitReadyCheck()
     -- in the wrap box either -- the full width is usable now.
     local pad  = LP.RC_PAD * 2
     local want = math.max(d.rcBaseW, math.min(need + pad, d.rcBaseW * LP.RC_MAX_GROW))
-    fr:SetWidth(want)
+    -- A protected frame anchored to the popup makes it protected too, and in
+    -- combat its SetWidth is then blocked: it keeps the width it has, and the
+    -- message wraps inside that.
+    local locked = InCombatLockdown()
+    if locked then
+        local p = fr:IsProtected()
+        locked = issecretvalue(p) or p
+    end
+    if locked then
+        local w = fr:GetWidth()
+        want = (w and not issecretvalue(w) and w > 0) and w or d.rcBaseW
+    else
+        fr:SetWidth(want)
+    end
     fs:SetWidth(want - pad)
     fs:ClearAllPoints()
     -- RC_TEXT_Y, not Blizzard's -37: a long "<Name>-<Realm> has initiated a
@@ -14026,86 +14390,202 @@ end
 --  right-side MANAGED column, so this pack is visual-only: no script hook on
 --  the buttons or their container (code run in their show path would leave
 --  the managed-layout pass under our taint), and never a Show, Hide, SetPoint
---  or SetSize on a frame of theirs. Built once at login. Blizzard's updates
---  set the portraits' textures and the bars' values and colors, never the art
---  alphas or the fonts; the one thing it puts back is the mana bars' texture
---  (FC.ManaType below).
+--  or SetSize on a frame of theirs. Built once at login. Moving the column is
+--  the Shifter's (an Unlock Mode mover written in the restricted environment).
 --
---  Kept as Blizzard draws them: the class circle, the faction icon, the cast
---  bar's fill (its atlas carries the cast type, uninterruptible included, and
---  that type is secret in combat) and the heal prediction segments.
+--  Dressed as the house unit frames are: the bar pair flat inside one 1px
+--  black border with a 1px line at the bars' seam, health in the carrier's
+--  class colour and power in its power colour (both from the Colors page),
+--  and the spec icon square at the bars' end in place of Blizzard's class
+--  circle and round badge (both at alpha 0). Blizzard paints the health bar
+--  its default green on every value change and update and the power bar its
+--  type's colour on every power update; ours goes back on after those writes
+--  only, so the grey of a carrier out of sight or offline stays. In instanced
+--  PvP the class token is secret: it goes to C_ClassColor and the colour to
+--  SetStatusBarColor, both of which take secrets, and is never compared.
+--
+--  Kept as Blizzard draws them: the faction icon, the cast bar's fill (its
+--  atlas carries the cast type, uninterruptible included, and that type is
+--  secret in combat) and the heal prediction segments.
 -------------------------------------------------------------------------------
 do
 local FC = {
     FLAT = "Interface\\Buttons\\WHITE8X8",
-    CIRCLE = "Interface\\CharacterFrame\\TempPortraitAlphaMask",
+    -- Blizzard's frame art, the black wash behind its bars, the class circle
+    -- and the spec icon's badge and ring.
+    ART = { "Texture", "Background", "ClassPortrait", "SpecPortrait", "SpecBorder" },
     BAR_TEXTS = {
         "HealthBarText", "HealthBarTextLeft", "HealthBarTextRight",
         "ManaBarText", "ManaBarTextLeft", "ManaBarTextRight",
     },
 }
 
+-- ok, r, g, b: unit's class colour from the Colors page, or Blizzard's shade
+-- of it while the class token is secret. ok is plain; r, g, b may be secret,
+-- so they only ever go to a setter.
+function FC.ClassRGB(unit)
+    local _, token = UnitClass(unit)
+    if type(token) ~= "string" then return false end
+    if not issecretvalue(token) then
+        local c = EllesmereUI.GetClassColor(token)
+        return true, c.r, c.g, c.b
+    end
+    local ok, r, g, b = EllesmereUI.GetClassColorForRestrictedUnit(unit, token)
+    if ok then return true, r, g, b end
+    local c = C_ClassColor.GetClassColor(token)
+    if c then return true, c.r, c.g, c.b end
+    return false
+end
+
+-- Every colour write on a health bar of ours: Blizzard's default green is
+-- taken over by the class colour, any other write is kept.
+function FC.HealthColor(bar, r, g, b)
+    local d = FFD[bar]
+    if not d or d.fcPaint then return end
+    if issecretvalue(r) or issecretvalue(g) or issecretvalue(b) then return end
+    if r ~= 0 or g ~= 1 or b ~= 0 then return end
+    local ok, cr, cg, cb = FC.ClassRGB(d.fcUnit)
+    if not ok then return end
+    d.fcPaint = true
+    bar:SetStatusBarColor(cr, cg, cb)
+    d.fcPaint = false
+end
+
 -- The pre-10.0 power-type update these frames still use puts Blizzard's bar
--- texture back on every call: the plain one, or for the power types with art
--- of their own an atlas that carries the color. A mana bar of ours goes flat
--- again after it, in the power type's own color where the art carried it.
+-- texture back on every call, and the type's colour (white under the atlas
+-- some types draw with). A power bar of ours goes flat again after it, in the
+-- power colour from the Colors page, or the colour the atlas carried for a
+-- type the page has none for.
 function FC.ManaType(bar)
     local d = bar and FFD[bar]
     if not (d and d.fcMana) then return end
     bar:SetStatusBarTexture(FC.FLAT)
     if bar.lockColor then return end
     local token = bar.powerToken
-    if token == nil or issecretvalue(token) then return end
-    local info = PowerBarColor and PowerBarColor[token]
-    if info and info.atlas then bar:SetStatusBarColor(info.r, info.g, info.b) end
+    if type(token) ~= "string" or issecretvalue(token) then return end
+    local c = EllesmereUI.GetPowerColor(token)
+    if not c then
+        c = PowerBarColor and PowerBarColor[token]
+        if not (c and c.atlas) then return end
+    end
+    bar:SetStatusBarColor(c.r, c.g, c.b)
 end
 
--- Flat fill over a dark trough, in the color Blizzard gives the bar (health
--- green, mana blue, the grey of a carrier out of sight).
-function FC.Bar(bar, mana)
+-- A bar of ours: flat fill. unit is the class colour's source for a health
+-- bar (a pet's is its owner); nil marks the power bar.
+function FC.Bar(bar, unit)
     if not bar or bar:IsForbidden() then return end
     local d = GetFFD(bar)
-    if d.fcTrough then return end
-    local trough = SolidTex(bar, "BACKGROUND", 0, 0, 0, 0.55)
-    trough:SetAllPoints(bar)
-    d.fcTrough = trough
-    if mana then
+    if d.fcBar then return end
+    d.fcBar = true
+    if not unit then
         d.fcMana = true
         FC.ManaType(bar)
-    else
-        bar:SetStatusBarTexture(FC.FLAT)
+        return
     end
+    d.fcUnit = unit
+    bar:SetStatusBarTexture(FC.FLAT)
+    hooksecurefunc(bar, "SetStatusBarColor", FC.HealthColor)
+    FC.HealthColor(bar, bar:GetStatusBarColor())
 end
 
--- Panel behind a button's bar pair: a frame of ours at the button's own
--- level, where its regions and the button's interleave by draw layer, so the
--- class circle (the button's BACKGROUND) stays over the panel's edge. The
--- house fill for the EllesmereUI style, the Modern color for Modern (the
--- shell registry swaps them live), and the house border below the circle too.
-function FC.Panel(owner, top, bottom, pad)
+-- The frame round a bar pair: a backing of ours under the bars at the
+-- button's own level (the house fill for the EllesmereUI style, the Modern
+-- colour for Modern; the shell registry swaps them live), and on a frame of
+-- ours above the bars a 1px black border over their outer pixel. seam: the
+-- bars touch, so a 1px line marks where.
+function FC.Frame(owner, top, bottom, seam)
     local d = GetFFD(owner)
-    if d.fcPanel then return end
-    local panel = CreateFrame("Frame", nil, owner)
-    panel:SetPoint("TOPLEFT", top, "TOPLEFT", -pad, pad)
-    panel:SetPoint("BOTTOMRIGHT", bottom, "BOTTOMRIGHT", pad, -pad)
-    panel:SetFrameLevel(owner:GetFrameLevel())
-    d.fcPanel = panel
-    local bg = SolidTex(panel, "BACKGROUND", Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA, -8)
-    bg:SetAllPoints(panel)
-    WSkin.AdoptShell("flagcarrier", panel, bg)
-    WSkin.AddBorder(panel, nil, nil, nil, nil, "BACKGROUND", -5)
+    if d.fcEdge then return d.fcEdge end
+    local PP = EllesmereUI.PP
+    local back = CreateFrame("Frame", nil, owner)
+    back:SetPoint("TOPLEFT", top, "TOPLEFT")
+    back:SetPoint("BOTTOMRIGHT", bottom, "BOTTOMRIGHT")
+    back:SetFrameLevel(owner:GetFrameLevel())
+    local bg = SolidTex(back, "BACKGROUND", Theme.bgR, Theme.bgG, Theme.bgB, Theme.bgA, -8)
+    bg:SetAllPoints(back)
+    WSkin.AdoptShell("flagcarrier", back, bg)
+    local edge = CreateFrame("Frame", nil, owner)
+    edge:SetAllPoints(back)
+    edge:SetFrameLevel(math.max(top:GetFrameLevel(), bottom:GetFrameLevel()) + 1)
+    PP.CreateBorder(edge, 0, 0, 0, 1, 1, "OVERLAY", 7)
+    if seam then
+        local line = CreateFrame("Frame", nil, edge)
+        line:SetAllPoints(bottom)
+        PP.CreateBorder(line, 0, 0, 0, 1, 1, "OVERLAY", 7)
+        local c = PP.GetBorders(line)
+        if c then
+            c._hideBottom, c._hideLeft, c._hideRight = true, true, true
+            PP.SetBorderSize(line, 1)
+        end
+    end
+    d.fcEdge = edge
+    return edge
 end
 
-function FC.SkinPet(pet)
+-- The spec icon, square and joined to the bar pair's right edge, following
+-- Blizzard's spec texture (now at alpha 0) whatever writes it: a carrier with
+-- no spec shows none.
+function FC.PaintSpec(box, tex, file)
+    if type(file) == "nil" then
+        box:Hide()
+        return
+    end
+    tex:SetTexture(file)
+    box:Show()
+end
+
+function FC.SpecIcon(owner, edge, spec, size)
+    local d = GetFFD(owner)
+    if d.fcSpec then return end
+    local PP = EllesmereUI.PP
+    local box = CreateFrame("Frame", nil, owner)
+    box:SetSize(size, size)
+    box:SetPoint("TOPLEFT", edge, "TOPRIGHT")
+    box:SetFrameLevel(edge:GetFrameLevel())
+    local tex = box:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints(box)
+    tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    -- The bar pair's right edge is the icon's left one.
+    PP.CreateBorder(box, 0, 0, 0, 1, 1, "OVERLAY", 7)
+    local c = PP.GetBorders(box)
+    if c then
+        c._hideLeft = true
+        PP.SetBorderSize(box, 1)
+    end
+    d.fcSpec = box
+    hooksecurefunc(spec, "SetTexture", function(_, file) FC.PaintSpec(box, tex, file) end)
+    FC.PaintSpec(box, tex, spec:GetTexture())
+end
+
+-- The trinket slot shows all the time, often empty: its icon is cropped
+-- square, and its border shows only while Blizzard has an icon in it. The
+-- border sits over the slot's cooldown swipe.
+function FC.Trinket(cc)
+    if not (cc and cc.Icon) then return end
+    local d = GetFFD(cc)
+    if d.fcEdge then return end
+    WSkin.SquareIcon(cc.Icon)
+    local edge = CreateFrame("Frame", nil, cc)
+    edge:SetAllPoints(cc)
+    edge:SetFrameLevel(cc:GetFrameLevel() + 3)
+    EllesmereUI.PP.CreateBorder(edge, 0, 0, 0, 1, 1, "OVERLAY", 7)
+    d.fcEdge = edge
+    hooksecurefunc(cc.Icon, "SetTexture", function(_, file) edge:SetShown(type(file) ~= "nil") end)
+    edge:SetShown(type(cc.Icon:GetTexture()) ~= "nil")
+end
+
+function FC.SkinPet(pet, unit)
     if not pet or pet:IsForbidden() then return end
     local name = pet:GetName()
     if not name then return end
     local art = _G[name .. "Texture"]
     if art then art:SetAlpha(0) end
     local hb, mb = _G[name .. "HealthBar"], _G[name .. "ManaBar"]
-    FC.Bar(hb)
-    FC.Bar(mb, true)
-    if hb and mb then FC.Panel(pet, hb, mb, 1) end
+    FC.Bar(hb, unit)
+    FC.Bar(mb)
+    -- A gap parts the pet's bars already.
+    if hb and mb then FC.Frame(pet, hb, mb) end
 end
 
 function FC.SkinFrame(f)
@@ -14114,27 +14594,19 @@ function FC.SkinFrame(f)
     local d = GetFFD(f)
     if not name or d.fcSkinned then return end
     d.fcSkinned = true
+    local unit = "arena" .. f:GetID()
 
-    -- Blizzard's frame art and the black wash behind its bars.
-    for _, suffix in ipairs({ "Texture", "Background" }) do
+    for _, suffix in ipairs(FC.ART) do
         local t = _G[name .. suffix]
         if t then t:SetAlpha(0) end
     end
     local hb, mb = _G[name .. "HealthBar"], _G[name .. "ManaBar"]
-    FC.Bar(hb)
-    FC.Bar(mb, true)
-    if hb and mb then FC.Panel(f, hb, mb, 2) end
-
-    -- Spec icon: Blizzard's gold ring off, the icon itself a round badge on
-    -- the class circle. The mask is made on the frame that owns the icon.
-    local ring = _G[name .. "SpecBorder"]
-    if ring then ring:SetAlpha(0) end
-    local spec = _G[name .. "SpecPortrait"]
-    if spec and spec.AddMaskTexture then
-        local mask = spec:GetParent():CreateMaskTexture()
-        mask:SetTexture(FC.CIRCLE, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-        mask:SetAllPoints(spec)
-        spec:AddMaskTexture(mask)
+    FC.Bar(hb, unit)
+    FC.Bar(mb)
+    if hb and mb then
+        local edge = FC.Frame(f, hb, mb, true)
+        local spec = _G[name .. "SpecPortrait"]
+        if spec then FC.SpecIcon(f, edge, spec, hb:GetHeight() + mb:GetHeight()) end
     end
 
     -- Name white like the windows' titles; the bar texts keep their color.
@@ -14145,17 +14617,15 @@ function FC.SkinFrame(f)
     end
     for _, suffix in ipairs(FC.BAR_TEXTS) do WSkin.Font(_G[name .. suffix]) end
 
-    -- The trinket slot shows all the time, often empty: its icon is cropped
-    -- square with no edge, so an empty slot draws nothing.
-    local cc = f.CC
-    if cc and cc.Icon then WSkin.SquareIcon(cc.Icon) end
+    FC.Trinket(f.CC)
     local cast = f.CastingBar
     if cast and not cast:IsForbidden() then
+        EllesmereUI.PP.CreateBorder(cast, 0, 0, 0, 1, 1, "OVERLAY", 7)
         if cast.Icon then WSkin.SquareIcon(cast.Icon, cast) end
         if cast.Text then WSkin.Font(cast.Text) end
     end
 
-    FC.SkinPet(f.petFrame)
+    FC.SkinPet(f.petFrame, unit)
 end
 
 function FC.Apply()

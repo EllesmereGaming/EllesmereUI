@@ -83,8 +83,33 @@ local function ResizeAnchorCentered(newW, newH)
 end
 
 local _layoutScratch = {}  -- reused each call
+-- The last out-of-combat row: its anchor point, first slot, text offset,
+-- icon size, spacing, opacity and how many of its slots the secure buttons
+-- take (the beacon icons follow them).
+local _layoutGeom = {}
 local function LayoutIcons()
-    if InCombatLockdown() then return end
+    if InCombatLockdown() then
+        -- The reminder buttons are secure, so the row stays as the last pass
+        -- left it. The beacon icons are plain frames, and one that shows in
+        -- combat (a Solo Shuffle round) would otherwise keep the spot an
+        -- earlier row gave it, over whatever sits there now: the shown beacons
+        -- hang after that row at its pitch until the next pass lays it out again.
+        local g = _layoutGeom
+        if not g.pt or not _B.icons then return end
+        if db and CursorAttachActive(db.profile.display) and cursorAnchor then return end
+        local i = g.fixed
+        for _, id in ipairs(_B.ALL or {}) do
+            local f = _B.iconState and _B.iconState[id] and _B.icons[id]
+            if f then
+                i = i + 1
+                f:SetSize(g.sz, g.sz)
+                f:SetAlpha(g.alpha)
+                f:ClearAllPoints()
+                f:SetPoint(g.pt, iconAnchor, g.pt, g.startX + (i - 1) * (g.sz + g.spacing), g.yOff)
+            end
+        end
+        return
+    end
     -- Merges beacon icons into the layout (one continuous row); beacon logic itself is untouched, just included here for positioning.
     local allIcons = _layoutScratch
     wipe(allIcons)
@@ -94,6 +119,7 @@ local function LayoutIcons()
         allIcons[#allIcons+1] = EABR._providerCastBtn
     end
     for _, btn in ipairs(activeIcons) do allIcons[#allIcons+1] = btn end
+    local fixed = #allIcons
     local beaconsOnCursor = db and CursorAttachActive(db.profile.display) and cursorAnchor
     if _B.icons and not beaconsOnCursor then
         for _, id in ipairs(_B.ALL or {}) do
@@ -102,7 +128,7 @@ local function LayoutIcons()
             end
         end
     end
-    local count = #allIcons; if count == 0 then return end
+    local count = #allIcons; if count == 0 then _layoutGeom.fixed = 0; return end
     local p = db.profile.display
     local spacing = p.iconSpacing or 8
     local baseScale = p.scale or 1.0
@@ -119,6 +145,8 @@ local function LayoutIcons()
     elseif p.growDirection == "LEFT" then
         pt, startX, yOff = "TOPRIGHT", -(count - 1) * (sz + spacing), 0
     end
+    local g = _layoutGeom
+    g.pt, g.startX, g.yOff, g.sz, g.spacing, g.alpha, g.fixed = pt, startX, yOff, sz, spacing, p.opacity or 1.0, fixed
     for i, btn in ipairs(allIcons) do
         btn:SetSize(sz, sz)
         btn:SetAlpha(p.opacity or 1.0)
@@ -505,7 +533,7 @@ local function InkyMapWatch(want)
     inkyMap.key = tostring(C_Map.GetBestMapForUnit("player") or 0)
 end
 
-local function CollectConsumables(missing, playerClass, specID, inInstance, inKeystone, inCombat)
+local function CollectConsumables(missing, playerClass, specID, inInstance, inKeystone, inCombat, inPvP)
 local co = db.profile.consumables
 -- Class specials (poisons/rites/imbues/shields) follow the "Where to Show"
 -- of the player's class section.
@@ -519,8 +547,8 @@ local specialsActive = EABR.SectionShows(EABR.SpecialsWhere(co, specialFields an
     do
 
         -- Rebuilds the bag/equip-derived item cache only when inputs changed (bags, weapon, preferred-item setting); a clean refresh is 3 scalar compares. Resolved inside instances, or in the open world when the consumables section shows there; the dirty flag persists until the next eligible refresh consumes it.
-        local needResolve = inInstance
-        if not needResolve then
+        local needResolve = inInstance and not inPvP
+        if not needResolve and not inPvP then
             local ow = co.whereToShow
             needResolve = (not ow) or (ow.open_world ~= false)
         end
@@ -656,6 +684,13 @@ local specialsActive = EABR.SectionShows(EABR.SpecialsWhere(co, specialFields an
         end -- end specialsActive
 
         -- === CONSUMABLES (visibility via the section "Where to Show") ===
+        -- None in a PvP instance: flasks, food, runes and oils do nothing
+        -- there, and their presence cannot be read; the class specials above
+        -- (poisons, rites, imbues, shields) are the player's own spells and
+        -- still run.
+        if inPvP then
+            InkyMapWatch(false)
+        else
 
         -- Augment Runes: presence unverifiable in combat/M+ (suppress);
         -- otherwise try the read and remind when missing.
@@ -769,6 +804,7 @@ local specialsActive = EABR.SectionShows(EABR.SpecialsWhere(co, specialFields an
             end
         end
         if not inkyWatch then InkyMapWatch(false) end
+        end -- not inPvP
     end -- consumables block
 
     -- Earth Shield self-buff (383648), only with Elemental Orbit. NOT

@@ -593,18 +593,12 @@ end
 --  <p>BackgroundColor (colors as {r,g,b} tables). FlatGet / FlatSet cover these
 --  six fields; each site keeps its own style and mode (their semantics differ).
 --  defs: optional fallbacks under the same keys (a module's defaults table).
+--  The key names come from the glow engine's EllesmereUI.Glows.FlatKeys.
 -------------------------------------------------------------------------------
-local FLAT_SUFFIX = { color = "Color", lines = "Lines", thickness = "Thickness",
-    speed = "Speed", bg = "Background", bgColor = "BackgroundColor" }
-local _flatKeys = {}
+local FLAT_FIELDS = { color = true, lines = true, thickness = true,
+    speed = true, bg = true, bgColor = true }
 local function FlatKey(p, f)
-    local suf = FLAT_SUFFIX[f]
-    if not suf then return nil end
-    local keys = _flatKeys[p]
-    if not keys then keys = {}; _flatKeys[p] = keys end
-    local k = keys[f]
-    if not k then k = p .. suf; keys[f] = k end
-    return k
+    return FLAT_FIELDS[f] and G.FlatKeys(p)[f] or nil
 end
 
 function GO.FlatGet(t, p, f, defs)

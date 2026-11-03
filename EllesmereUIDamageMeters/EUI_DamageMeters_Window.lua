@@ -537,14 +537,16 @@ local function CreateDMWindow(winIdx)
                 end
             end
             -- The combat message only for rows the API keeps unreadable:
-            -- own breakdown, death recaps, and group rows resolvable through
-            -- the identity-exempt token channel all fall through to the
-            -- normal hover path, whose builders are secret-safe.
+            -- own breakdown, death recaps, enemies inside this season's
+            -- dungeons (matched against their listed NPC IDs), and group rows
+            -- resolvable through the identity-exempt token channel all fall
+            -- through to the normal hover path, whose builders are secret-safe.
             -- Gated on Show Breakdown on Hover like ShowBarTooltip: with the option off
             -- this branch still showed the disclaimer for ally rows.
             if InCombatLockdown() and DB().showHoverTooltip ~= false
                and not IsOwnRow(bar._src)
                and W.curDMType ~= Enum.DamageMeterType.Deaths
+               and not (W.curDMType == Enum.DamageMeterType.EnemyDamageTaken and ns.DMSeasonMobsHere())
                and not ns._ResolveGroupGUID(bar._src) then
                 EnsureTooltipFrame()
                 -- Show header with player name + type
@@ -1239,8 +1241,9 @@ local function CreateDMWindow(winIdx)
         -- Tracked through guarded pin/unpin resizes too, so "grew" compares against the real last height.
         local grew = h and h > (W._vpH or 0)
         W._vpH = h
-        if W.stickyGuard then return end
+        -- Before the guard: a profile swap's resize can land inside a sticky pass.
         if w and w > 0 then content:SetWidth(w) end
+        if W.stickyGuard then return end
         W.UpdateSticky(nil, W.visibleCount)
         if W._decorSync then ns.DMSyncRowDecor(W) end
         -- A taller viewport reveals rows the last pass skipped; the grip drag queues once on release.
@@ -2201,7 +2204,10 @@ local function CreateDMWindow(winIdx)
                 if ok then srcData = sd end
             end
             local c = DB(); local barH, _, stride = ns._RowMetrics(c.barHeight or 18, c.barSpacing or 2, frame:GetEffectiveScale())
-            local players = AggregateEnemyPlayers(srcData, GetBreakdownDuration(W.curSession, W.curSessionID))
+            -- Rows and the icon lookup's source are kept on the window: this
+            -- runs on every meter refresh while the breakdown is open.
+            W._enemyRows = W._enemyRows or {}
+            local players, playerCount = AggregateEnemyPlayers(srcData, GetBreakdownDuration(W.curSession, W.curSessionID), W._enemyRows)
             if not players then
                 if W.spellPool then for i = 1, BAR_POOL_SIZE do W.spellPool[i].row:Hide() end end
                 return
@@ -2209,7 +2215,9 @@ local function CreateDMWindow(winIdx)
             local leftFS = c.leftFontSize or c.fontSize or 11; local rightFS = c.rightFontSize or c.fontSize or 11
             local texPath, texKey = GetBarTexturePath()
             local maxAmt = players[1].total
-            local pCount = math.min(#players, BAR_POOL_SIZE)
+            local pCount = math.min(playerCount, BAR_POOL_SIZE)
+            local iconSrc = W._enemyIconSrc or {}
+            W._enemyIconSrc = iconSrc
             for i = 1, BAR_POOL_SIZE do
                 local bar = W.spellPool[i]
                 if i <= pCount then
@@ -2219,8 +2227,8 @@ local function CreateDMWindow(winIdx)
                     bar.row:SetPoint("TOPRIGHT", W.srcContent, "TOPRIGHT", 0, -((i-1) * stride))
                     bar.row:SetHeight(barH)
                     -- Class/spec icon via ResolveIcon (consistent with main bars)
-                    local fakeSrc = { classFilename = p.class, specIconID = p.specIcon }
-                    local iconOffset = ResolveIcon(fakeSrc, bar.classIcon, barH)
+                    iconSrc.classFilename, iconSrc.specIconID = p.class, p.specIcon
+                    local iconOffset = ResolveIcon(iconSrc, bar.classIcon, barH)
                     bar.fill:ClearAllPoints(); bar.fill:SetPoint("TOPLEFT", bar.row, "TOPLEFT", iconOffset, 0)
                     bar.fill:SetPoint("TOPRIGHT", bar.row, "TOPRIGHT", 0, 0); bar.fill:SetHeight(barH)
                     ApplyBarTexture(bar.fill, texPath, texKey); bar.fill:SetMinMaxValues(0, maxAmt); bar.fill:SetValue(p.total)

@@ -1922,12 +1922,25 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             Ambiguate(candidate, "short"), item.link, tostring(boss)))
 
     elseif cmd == "guild" then
+        local sub, scenario = input:match("^%S+%s+(%S+)%s*(%S*)")
+        if sub == "sim" then
+            if not addon.Loot.Simulate(scenario:lower()) then
+                Print("/slc guild sim <" .. table.concat(addon.Loot.SimulationNames(), "|")
+                    .. "|clear>")
+                return
+            end
+            Print("guild guard simulation: " .. scenario:lower())
+        end
+        if addon.Loot.IsSimulating() then
+            Print("|cffFFD54FSIMULATED inputs - /slc guild sim clear to go live|r")
+        end
 
         Print("in a group: " .. tostring(IsInGroup())
             .. ", in a guild: " .. tostring(IsInGuild())
             .. ", in an instance: " .. tostring(addon.Loot.InInstance()))
+        local state = addon.Loot.GuildGroupState()
         Print("gate says guild group: "
-            .. tostring(addon.Loot.IsGuildGroup())
+            .. (state == nil and "unknown (held, not asked)" or tostring(state))
             .. " (funnel.guildGroupOnly is "
             .. ((addon.db.funnel and addon.db.funnel.guildGroupOnly)
                 and "on" or "off") .. ")")

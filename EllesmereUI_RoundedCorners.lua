@@ -13,7 +13,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --                  (EllesmereUI.RoundedStyleOK), any other style removes it
 --    opts.roots    up to 6 frames whose Texture regions (recursively) form
 --                  the body; nil slots are fine
---    opts.textures up to 8 single textures of the body; nil slots are fine
+--    opts.textures up to 9 single textures of the body; nil slots are fine
 --    opts.border   the frame EllesmereUI.ApplyBorderStyle draws on (optional)
 --    opts.clip     a SetClipsChildren frame to switch off while rounded
 --    opts.rect     the region whose rect is the rounded shape (default owner)
@@ -274,7 +274,7 @@ local function MaskBody(st, roots, singles, radius, cont, skip)
         local root = roots[i]
         if root then Walk(root) end
     end
-    for i = 1, 8 do
+    for i = 1, 9 do
         local tex = singles[i]
         if tex then Seat(tex) end
     end

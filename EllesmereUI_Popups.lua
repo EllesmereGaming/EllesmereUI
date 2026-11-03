@@ -931,7 +931,8 @@ end
 --          in previewColor) and a hint line. complete(text, cursor) returns
 --          items { text, label, desc, detail }, from, to: a suggestion list under the input
 --          (Up/Down select, Tab inserts, Esc closes it). messageSize sets the message size,
---          messageColor { r, g, b[, a] } its colour (a red note). numeric takes digits
+--          messageColor { r, g, b[, a] } its colour (a red note). warning adds an
+--          orange line under the input, redWarning a red one below it. numeric takes digits
 --          only. validate(text) runs on a confirm: a message it returns shows in red under
 --          the input and keeps the popup open. checkbox (a label) adds a box above the
 --          buttons, unchecked on each show; onConfirm then receives its state second.
@@ -1631,16 +1632,18 @@ function EllesmereUI:ShowInputPopup(opts)
         popup._warnLabel:Hide()
     end
 
-    -- Optional scale/resolution mismatch warning (red)
+    -- Optional red warning (redWarning; scaleWarning, its first use, a
+    -- scale/resolution mismatch), below the orange one
     local scaleWarnH = 0
-    if opts.scaleWarning and opts.scaleWarning ~= "" then
+    local redWarning = opts.redWarning or opts.scaleWarning
+    if redWarning and redWarning ~= "" then
         popup._scaleWarnLabel:ClearAllPoints()
         if opts.warning and opts.warning ~= "" then
             popup._scaleWarnLabel:SetPoint("TOP", popup._warnLabel, "BOTTOM", 0, -14)
         else
             popup._scaleWarnLabel:SetPoint("TOP", popup._inputFrame, "BOTTOM", 0, -18 - belowH)
         end
-        popup._scaleWarnLabel:SetText(EllesmereUI.L(opts.scaleWarning))
+        popup._scaleWarnLabel:SetText(EllesmereUI.L(redWarning))
         popup._scaleWarnLabel:Show()
         scaleWarnH = 30
     else
@@ -1678,7 +1681,8 @@ end
 --    d:Open(owner), d:FocusInput(); d._eb, d._extra, d._buttons[key].
 --  opts: name, width, height, title, editWidth, maxLetters, extraLine,
 --    buttons = { { key, label, width, height, point ("BOTTOMLEFT", "BOTTOM" or
---    "BOTTOMRIGHT"), onClick, tooltip, primary } }, onEnter, onChange(n),
+--    "BOTTOMRIGHT"), onClick, tooltip (text, or a function read on every
+--    hover), tooltipOpts (ShowWidgetTooltip's opts), primary } }, onEnter, onChange(n),
 --    onShow, onHide, skin = { frame(d), font(fs, size), button(parent, w, h,
 --    label) -> button, editBox(eb), close(btn) }.
 -------------------------------------------------------------------------------
@@ -1785,7 +1789,7 @@ function EllesmereUI.CreateQuantityDialog(opts)
         b:SetPoint(p, d, p, (p == "BOTTOMLEFT" and 10) or (p == "BOTTOMRIGHT" and -10) or 0, 10)
         b:SetScript("OnClick", spec.onClick)
         if spec.tooltip then
-            b:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(b, spec.tooltip) end)
+            b:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(b, spec.tooltip, spec.tooltipOpts) end)
             b:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         end
         d._buttons[spec.key] = b

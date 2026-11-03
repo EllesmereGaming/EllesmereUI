@@ -19,6 +19,19 @@ local PAGE_THREAT  = "Threat"
 local PAGE_LOOT    = "Loot"
 local PAGE_MACROS  = "Macros"
 
+-- Item quality dropdown values and order from Poor up to last, each in its
+-- colour (the General and Loot pages).
+_G._EUI_ItemQualityValues = function(last)
+    local values, order = {}, {}
+    for q = Enum.ItemQuality.Poor, last do
+        local key, color = tostring(q), ITEM_QUALITY_COLORS[q]
+        local label = _G["ITEM_QUALITY" .. q .. "_DESC"] or key
+        values[key] = color and (color.hex .. label .. "|r") or label
+        order[#order + 1] = key
+    end
+    return values, order
+end
+
 -- Page reuse: a frame this file builds goes through the options frame pool
 -- (EllesmereUI_FramePool.lua, the options addon's first file), which hands a
 -- kept page its previous build's frames back reset to new; on any other

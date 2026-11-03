@@ -429,10 +429,12 @@ local _bagGripCfg = {
     hidden = function() return EUI_Bags.AutoSizeOn() end,
 }
 
--- List display: free width (rows have no cell grid), saved in pixels
+-- List display: free width (rows have no cell grid), saved in pixels. It keeps
+-- the default slot pitch: the slot sliders are for Grid and Compact
+local LIST_PITCH = 38
 local _bagListGripCfg = setmetatable({
-    step = 1, relayoutStep = SLOT_SIZE + SPACING, minCols = 300,
-    getCols = function() return BP().bagListWidth or GetColumns() * (SLOT_SIZE + SPACING) end,
+    step = 1, relayoutStep = LIST_PITCH, minCols = 300,
+    getCols = function() return BP().bagListWidth or GetColumns() * LIST_PITCH end,
     save = function(w, h)
         BP().bagListWidth, BP().bagHeight = w, h
         if EUI_Bags._updateThumb then EUI_Bags._updateThumb() end
@@ -443,7 +445,6 @@ local _bagListGripCfg = setmetatable({
 ns.OnSlotMetrics(function(m)
     _bagGripCfg.step = m[1] + m[2]
     _bagGripCfg.minCols = math.max(1, math.ceil(8 * 38 / (m[1] + m[2])))
-    rawset(_bagListGripCfg, "relayoutStep", m[1] + m[2])
     EUI_Bags._compactCols, EUI_Bags._compactW = nil, nil
     EUI_Bags._asCols, EUI_Bags._asMaxGridW, EUI_Bags._asMaxH = nil, nil, nil
     if EUI_BagsReagent:IsShown() and EUI_BagsReagent.RefreshInventory then EUI_BagsReagent:RefreshInventory() end
@@ -735,7 +736,7 @@ function EUI_Bags:RefreshInventory()
     local altView = ns.OfflineAlt and ns.OfflineAlt()
     if altView then categoryCounts, totalCount = ns.OfflineCounts() end
     -- an alt or the offline bank view: its panel takes the item area
-    local offlineUp = altView or (selectedCategoryIndex == ns.OFFLINE_BANK_VIEW and ns.Offline.Enabled())
+    local offlineUp = altView or (ns.Offline and ns.Offline.Enabled() and selectedCategoryIndex == ns.OFFLINE_BANK_VIEW)
 
     -- 3. Update sidebar
     BuildSidebarButtons(categoryCounts, totalCount)
@@ -920,9 +921,9 @@ function EUI_Bags:RefreshInventory()
     local sidebarW = GetSidebarWidth()
     local gridPadX = 10
     local gridW = columns * (SLOT_SIZE + SPACING)
-    -- List rows take the grip-set width (List has no Auto-Size)
-    if EUI_Bags.IsListMode() and BP().bagListWidth then
-        gridW = BP().bagListWidth
+    -- List rows take the grip-set width (List has no Auto-Size), by default the default pitch's
+    if EUI_Bags.IsListMode() then
+        gridW = BP().bagListWidth or columns * LIST_PITCH
     end
     local scrollbarPad = SCROLLBAR_HIT_W + 2
 

@@ -2119,6 +2119,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                     -- with Buffs Location (the two modes are mutually exclusive);
                     -- the runtime caps frame.Buffs.num to it.
                     { type="slider", label="Max Count", min=1, max=20, step=1,
+                      tooltip=ns.UFO_MAX_COUNT_TOOLTIP,
                       get=function() return db.profile.boss.maxBuffs or 4 end,
                       set=function(v) db.profile.boss.maxBuffs = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                     -- Shares the boss buffMaxPerRow key with Buffs Location
@@ -2262,6 +2263,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                     -- key with Debuffs Location (the two modes are mutually
                     -- exclusive); the runtime caps frame.Debuffs.num to it.
                     { type="slider", label="Max Count", min=1, max=20, step=1,
+                      tooltip=ns.UFO_MAX_COUNT_TOOLTIP,
                       get=function() return db.profile.boss.maxDebuffs or 10 end,
                       set=function(v) db.profile.boss.maxDebuffs = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
                     ns.UFO_MaxImportantRow(function() return db.profile.boss end, ReloadAndUpdate, 20, 10),
@@ -2856,6 +2858,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                       get=function() return db.profile.boss.buffGrowth or "auto" end,
                       set=function(v) db.profile.boss.buffGrowth = v; ReloadAndUpdate() end },
                     { type="slider", label="Max Count", min=1, max=20, step=1,
+                      tooltip=ns.UFO_MAX_COUNT_TOOLTIP,
                       get=function() return db.profile.boss.maxBuffs or 4 end,
                       set=function(v) db.profile.boss.maxBuffs = v; ReloadAndUpdate() end },
                     { type="slider", label="Max Per Row", min=1, max=20, step=1,
@@ -2883,6 +2886,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                       get=function() return db.profile.boss.debuffGrowth or "auto" end,
                       set=function(v) db.profile.boss.debuffGrowth = v; ReloadAndUpdate() end },
                     { type="slider", label="Max Count", min=1, max=20, step=1,
+                      tooltip=ns.UFO_MAX_COUNT_TOOLTIP,
                       get=function() return db.profile.boss.maxDebuffs or 10 end,
                       set=function(v) db.profile.boss.maxDebuffs = v; ReloadAndUpdate() end },
                     ns.UFO_MaxImportantRow(function() return db.profile.boss end, ReloadAndUpdate, 20, 10),

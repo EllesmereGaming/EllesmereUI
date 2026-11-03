@@ -226,6 +226,7 @@ local DEFAULTS = {
             raiseLevel  = false,  -- Draw Above Other Bars (Class Resource cog)
             darkTheme   = false,
             useBlizzardAtlas = false,  -- bar-style class resources use Blizzard's player-frame power atlas as the fill
+            useContinuousTexture = false,  -- pip-style resources use a continuous texture
             blizzardClassArt = false,  -- Blizzard's own class resource frame replaces this bar (specs that have one)
             blizzardClassArtScale = 1,
             classColored = true,
@@ -342,6 +343,7 @@ local DEFAULTS = {
             spellTextSize = 11,
             spellTextX    = 0,
             spellTextY    = 0,
+            fitSpellName  = false,    -- Show Full Spell Name: long names shrink to fit instead of truncating
             spellTextSide = "left",   -- "left" | "right" | "center" (spell text position; "None" = showSpellText false)
             spellTextR = 1, spellTextG = 1, spellTextB = 1, spellTextA = 1,  -- Spell Text colour (white = untinted)
             unlockPos     = nil,
@@ -359,6 +361,7 @@ local DEFAULTS = {
             uninterruptibleOverride = false,  -- Own fill color for casts that cannot be interrupted
             uninterruptibleR = 0.5, uninterruptibleG = 0.5, uninterruptibleB = 0.5,
             showTotalDuration = false,
+            fullCraftTime     = false,  -- Duration Text counts down the whole repeat-craft batch
             latencyEnabled    = false,
             latencyShowText   = false,
             latencyR = 0.835, latencyG = 0.290, latencyB = 0.290, latencyA = 1.0,

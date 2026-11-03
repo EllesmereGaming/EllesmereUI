@@ -440,6 +440,8 @@ initFrame:SetScript("OnEvent", function(self)
             local EXTRA_DEFAULTS = {
                 tooltipPlayerTitles = false, tooltipItemLevel = true, tooltipMythicScore = true,
                 tooltipShowMount = false, tooltipShowGuildRank = false, tooltipShowTarget = false,
+                tooltipLevelColor = false, tooltipClassLineColor = false, tooltipFactionColor = false,
+                tooltipGuildmateColor = false, tooltipCompactLevel = false, tooltipAFKTag = false,
             }
             local lockTip = EllesmereUI.DisabledTooltip("Reskin Tooltip")
             local extrasDD, extrasRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -453,6 +455,18 @@ initFrame:SetScript("OnEvent", function(self)
                     { key="tooltipShowGuildRank", label="Guild Rank", lockedFn=ttReskinOff, lockedTooltip=lockTip },
                     { key="tooltipShowTarget", label="Unit Target", lockedFn=ttReskinOff, lockedTooltip=lockTip,
                       tooltip="Adds a Targeting line showing who the hovered player or NPC is targeting, in green when it's you." },
+                    { key="tooltipLevelColor", label="Level Difficulty Color", lockedFn=ttReskinOff, lockedTooltip=lockTip,
+                      tooltip="Colors the level number from gray (trivial) to red (much higher than you)." },
+                    { key="tooltipClassLineColor", label="Class Colored Spec", lockedFn=ttReskinOff, lockedTooltip=lockTip,
+                      tooltip="Colors a player's spec and class line in their class color." },
+                    { key="tooltipFactionColor", label="Faction Color", lockedFn=ttReskinOff, lockedTooltip=lockTip,
+                      tooltip="Colors the Alliance and Horde line in blue and red." },
+                    { key="tooltipGuildmateColor", label="Highlight Guildmates", lockedFn=ttReskinOff, lockedTooltip=lockTip,
+                      tooltip="Colors the guild name (and rank, if shown) of members of your own guild in your guild chat color." },
+                    { key="tooltipCompactLevel", label="Compact Level Line", lockedFn=ttReskinOff, lockedTooltip=lockTip,
+                      tooltip="Shortens the level line to the level and race, or level, rank and type for NPCs (\"90 Tauren\", \"90 Elite Humanoid\")." },
+                    { key="tooltipAFKTag", label="Away Tag", lockedFn=ttReskinOff, lockedTooltip=lockTip,
+                      tooltip="Adds <Away> or <Busy> after the name of players who are away or busy." },
                     { key="uber", label="Detailed Tooltips" },
                 },
                 function(k)
@@ -1866,6 +1880,58 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         ); y = y - h
 
+        -- Expand Vendor UI: a bigger grid in the vendor window. The cog sets its
+        -- size; 2 x 5 is Blizzard's own layout. Needs the Merchant skin (the
+        -- card overlay) and is not used with Show As List.
+        local function merchantShowAsListOn()
+            return EllesmereUIDB and EllesmereUIDB.merchantShowAsList == true
+        end
+        local function BuildExpandCog(rgn)
+            if EllesmereUI._prebuilding then return end
+            local function setSize(key, v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB[key] = v
+                if EllesmereUI._Merchant_RefreshExpand then EllesmereUI._Merchant_RefreshExpand() end
+            end
+            EllesmereUI.BuildInlineCog(rgn, {
+                title = "Expand Vendor UI Settings",
+                rows = {
+                    { type="slider", label="Vendor Columns", min=2, max=6, step=1,
+                      get=function() return (EllesmereUIDB and EllesmereUIDB.merchantCols) or 2 end,
+                      set=function(v) setSize("merchantCols", v) end },
+                    { type="slider", label="Vendor Rows", min=5, max=10, step=1,
+                      get=function() return (EllesmereUIDB and EllesmereUIDB.merchantRows) or 5 end,
+                      set=function(v) setSize("merchantRows", v) end },
+                },
+                gap = 9,
+                disabled = function()
+                    return merchantShowAsListOn() or not (EllesmereUIDB and EllesmereUIDB.merchantExpand)
+                end,
+                disabledTooltip = function()
+                    if merchantShowAsListOn() then return "This option does not work with Show As List." end
+                    return "Expand Vendor UI"
+                end,
+            })
+        end
+
+        row, h = W:DualRow(parent, y,
+            { type="toggle", text="Expand Vendor UI",
+              tooltip="Shows more vendor items at once, in the columns and rows set in the cog.",
+              disabled=merchantShowAsListOn, disabledTooltip="This option does not work with Show As List.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.merchantExpand == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.merchantExpand = v
+                  if EllesmereUI._Merchant_RefreshExpand then EllesmereUI._Merchant_RefreshExpand() end
+                  EllesmereUI:RefreshPage()
+              end },
+            EllesmereUI.BlankRowCfg()
+        ); y = y - h
+        BuildExpandCog(row._leftRegion)
+        AttachDisabledOverlay(row)
+
         return y
     end
 
@@ -1919,12 +1985,12 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
-    --  Mail card content (retail): the Alt List beside Send Mail
+    --  Mail card, ALT LIST section (retail): the Alt List beside Send Mail
     --  (EllesmereUIBlizzardSkin_MailAlts.lua, ns.MailAlts), whatever the card's
     --  style. Sort, cap and minimum level ride the toggle's cog; Shown
     --  Characters lists every recorded character under its realm.
     ---------------------------------------------------------------------------
-    local function BuildMailContent(parent, y)
+    local function BuildMailAltList(parent, y)
         local MA = ns.MailAlts
         if not MA then return y end
         local W = EllesmereUI.Widgets
@@ -2008,6 +2074,34 @@ initFrame:SetScript("OnEvent", function(self)
             rgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(refresh)
         end
+
+        return y
+    end
+
+    ---------------------------------------------------------------------------
+    --  Mail card content: the Alt List (retail), then GENERAL (both clients).
+    --  Close Bags on Mail Close (EllesmereUIDB.mailCloseBags, on unless set
+    --  false) is read by Bags, which closes its window as the mailbox closes.
+    ---------------------------------------------------------------------------
+    local function BuildMailContent(parent, y)
+        y = BuildMailAltList(parent, y)
+        local W = EllesmereUI.Widgets
+        local _, h
+
+        _, h = WSCardSection(parent, "GENERAL", y);  y = y - h
+
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Close Bags on Mail Close",
+              tooltip="Closes your bags when you close the mailbox.",
+              disabled=function() return not EllesmereUI._ModuleNS["EllesmereUIBags"] end,
+              disabledTooltip="Bags",
+              getValue=function() return not (EllesmereUIDB and EllesmereUIDB.mailCloseBags == false) end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.mailCloseBags = v
+              end },
+            EllesmereUI.BlankRowCfg()
+        ); y = y - h
 
         return y
     end
@@ -2330,8 +2424,9 @@ initFrame:SetScript("OnEvent", function(self)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB.reskinMail = v
             end,
-            buildContent = not EllesmereUI.IS_FOREVER and BuildMailContent or nil,
-            searchText = not EllesmereUI.IS_FOREVER and { "Show Alt List", "Shown Characters" } or nil,
+            buildContent = BuildMailContent,
+            searchText = not EllesmereUI.IS_FOREVER and { "Show Alt List", "Shown Characters", "Close Bags on Mail Close" }
+                or { "Close Bags on Mail Close" },
         },
         {
             key   = "catalyst",
@@ -2656,7 +2751,7 @@ initFrame:SetScript("OnEvent", function(self)
         {
             key   = "flagcarrier",
             title = "Flag Carriers",
-            desc  = "The battleground flag and orb carrier frames: health and mana bars flat on a dark panel, squared trinket and cast icons, and the carrier's pet. The class and faction icons and the cast bar's fill stay as Blizzard draws them.",
+            desc  = "The battleground flag and orb carrier frames, dressed like EllesmereUI unit frames: health in the carrier's class color and power in its power color inside a thin black border, a square spec icon, a bordered trinket and cast bar, and the carrier's pet. The faction icon and the cast bar's fill stay as Blizzard draws them. To move them, turn on Move Flag Carriers in Unlock Mode on the Quality of Life Shifter page.",
             reloadMsg = "Changing the Flag Carriers reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
             setEnabled = function(v)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -4132,6 +4227,12 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.tooltipShowGuildRank = nil
                 EllesmereUIDB.tooltipShowMount = nil
                 EllesmereUIDB.tooltipShowTarget = nil
+                EllesmereUIDB.tooltipLevelColor = nil
+                EllesmereUIDB.tooltipClassLineColor = nil
+                EllesmereUIDB.tooltipFactionColor = nil
+                EllesmereUIDB.tooltipGuildmateColor = nil
+                EllesmereUIDB.tooltipCompactLevel = nil
+                EllesmereUIDB.tooltipAFKTag = nil
                 EllesmereUIDB.tooltipShowBuffs = nil
                 EllesmereUIDB.tooltipBuffPosition = nil
                 EllesmereUIDB.tooltipBuffSize = nil
@@ -4259,11 +4360,13 @@ initFrame:SetScript("OnEvent", function(self)
                     "charSheetSocketPanel", "charSheetIconZoom", "charSheetEnchantNames",
                     "charSheetEnchantSize", "inspectShowEnchants", "inspectShowItemLevel",
                     "inspectShowUpgradeTrack", "merchantShowAsList", "merchantListRowHeight",
-                    "merchantShowItemLevel", "merchantBulkBuy", "tooltipItemLevel", "tooltipShowMode",
+                    "merchantShowItemLevel", "merchantBulkBuy", "merchantExpand", "merchantCols", "merchantRows",
+                    "tooltipItemLevel", "tooltipShowMode",
                     "tooltipShowModifier", "tooltipGrowthDirection", "tooltipBgColor",
                     "tooltipBgOpacity", "showSpellID", "spellIDModifier", "showIconID",
                     "showItemID", "friendsListCard",
                     "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
+                    "mailCloseBags",
                     -- Shown Characters (the roster itself is recorded data, not a setting)
                     "mailAltHidden",
                 }) do EllesmereUIDB[k] = nil end

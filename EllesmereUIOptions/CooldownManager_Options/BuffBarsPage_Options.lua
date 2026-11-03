@@ -177,14 +177,15 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         local unassigned = (not cfg.spellID or cfg.spellID == 0) and not cfg.glowBased
         -- Name (same resolution as the live build)
         if wrap._nameText and wrap._nameText:IsShown() then
-            local displayName = (cfg.customName and cfg.customName ~= "") and cfg.customName or cfg.name
+            local displayName = cfg.name
             if (not displayName or displayName == "" or displayName == "New Bar")
                and cfg.spellID and cfg.spellID > 0 then
                 local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(cfg.spellID)
                 displayName = (info and info.name) or displayName
             end
             if unassigned then displayName = "" end
-            wrap._nameText:SetText(EllesmereUI.L(displayName or ""))
+            -- A custom name is the player's own text: shown as typed, never translated.
+            wrap._nameText:SetText(ns.TBBCustomName(cfg) or EllesmereUI.L(displayName or ""))
         end
         -- Icon texture (same resolution as the live build; question mark when no buff assigned yet)
         if wrap._icon and wrap._icon:IsShown() and wrap._icon._tex then
@@ -770,6 +771,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             -- base; MatchFrameToConfig self-heals it once talented.
             barCfg.baseSpellID    = nil
             barCfg.name           = C_Spell.GetSpellName(sid)
+            barCfg.customName     = nil
             Refresh()
             ns.BuildTrackedBuffBars()
             if onChanged then onChanged() end
@@ -902,6 +904,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 barCfg.baseSpellID    = nil
                 barCfg.trackType      = nil
                 barCfg.name           = entry.name
+                barCfg.customName     = nil
                 Refresh()
                 ns.BuildTrackedBuffBars()
                 if onChanged then onChanged() end
@@ -1024,6 +1027,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 barCfg.customDuration = nil
                 barCfg.trackType      = nil
                 barCfg.name           = sp.name
+                barCfg.customName     = nil
                 -- Capture the BASE spell id for hero-talent override spells so the bar keeps
                 -- tracking after the talent is removed (active override's cooldownInfo
                 -- reports base in info.spellID); store only when it differs from the picked id.
@@ -1191,6 +1195,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                     barCfg.customDuration = nil
                     barCfg.trackType      = "cooldown"
                     barCfg.name           = sp.name
+                    barCfg.customName     = nil
                     -- Capture the BASE spell id for hero-talent override spells so the bar keeps tracking after the talent is removed.
                     barCfg.baseSpellID = nil
                     if sp.cdID and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
@@ -3663,7 +3668,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         );  y = y - h
         AddTBBTextSwatch(nameRow, nameRow._leftRegion, "name")
         AddTBBTextSwatch(nameRow, nameRow._rightRegion, "timer")
-        -- Cog on Name Text: text size + x/y
+        -- Cog on Name Text: custom name, text size, wrap + x/y
         do
             local rgn = nameRow._leftRegion
             EllesmereUI.BuildInlineCog(rgn, {
@@ -3682,6 +3687,18 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                     return "This option requires a Name Text position other than None"
                 end,
                 rows = {
+                    { type = "input", label = "Custom Name", inputWidth = 120, commitOnBlur = true,
+                      tooltip = "Leave empty to show the spell's name.",
+                      get = function()
+                          local bd = SelectedTBB()
+                          return bd and bd.customName or ""
+                      end,
+                      set = function(text)
+                          local bd = SelectedTBB(); if not bd then return end
+                          text = strtrim(text or "")
+                          bd.customName = text ~= "" and text or nil
+                          RefreshTBB()
+                      end },
                     { type = "slider", label = "Text Size", min = 8, max = 24, step = 1,
                       get = function() local bd = SelectedTBB(); return bd and bd.nameSize or 11 end,
                       set = function(v)
@@ -3705,45 +3722,6 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                       set = function(v)
                           local bd = SelectedTBB(); if not bd then return end
                           bd.nameY = v; RefreshTBB()
-                      end },
-                },
-            })
-        end
-        -- Cog on Name Text: custom display name override
-        do
-            local rgn = nameRow._leftRegion
-            EllesmereUI.BuildInlineCog(rgn, {
-                title = "Custom Name Text",
-                icon = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-edit.png",
-                tip = "Custom display name",
-                disabled = function()
-                    local bd = SelectedTBB()
-                    if bd and bd.verticalOrientation then return true end
-                    local pos = bd and bd.namePosition
-                    if not pos then pos = (bd and bd.showName ~= false) and "left" or "none" end
-                    return pos == "none"
-                end,
-                disabledTooltip = function()
-                    local bd = SelectedTBB()
-                    if bd and bd.verticalOrientation then return "Horizontal Orientation (name text is not shown on vertical bars)" end
-                    return "This option requires a Name Text position other than None"
-                end,
-                rows = {
-                    { type = "input", label = "Custom Name", inputWidth = 120, commitOnBlur = true,
-                      get = function()
-                          local bd = SelectedTBB()
-                          return bd and bd.customName or ""
-                      end,
-                      set = function(text)
-                          local bd = SelectedTBB(); if not bd then return end
-                          bd.customName = (text ~= "" and text or nil)
-                          RefreshTBB()
-                      end },
-                    { type = "button", label = "Reset to Default",
-                      action = function()
-                          local bd = SelectedTBB(); if not bd then return end
-                          bd.customName = nil
-                          RefreshTBB()
                       end },
                 },
             })

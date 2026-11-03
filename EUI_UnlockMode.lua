@@ -813,7 +813,7 @@ local function SuspendForCombat()
         local objTracker = _G.ObjectiveTrackerFrame
         if objTracker then
             objTracker:SetAlpha(1)
-            local wasEnabled = objTracker._eabMouseWasEnabled
+            local wasEnabled = EllesmereUI._GetFFD(objTracker).unlockMouseWasEnabled
             if objTracker.EnableMouse then
                 pcall(objTracker.EnableMouse, objTracker, wasEnabled and true or false)
             end

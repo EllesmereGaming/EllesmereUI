@@ -502,6 +502,15 @@ local function ApplyOverlayStyle(overlay, unit)
     overlay.title:SetTextColor(GetNPCTitleColor(unit))
 end
 
+-- The Friendly NPC Settings Name Format (friendlyNPCNameFormat; unset = the
+-- whole name).
+local function FormatNPCName(name)
+    local fp = FP()
+    local mode = fp and fp.friendlyNPCNameFormat
+    if not mode then return name end
+    return EllesmereUI.ShortName(name, mode)
+end
+
 local function ShowNPCOverlay(nameplate, unit)
     if npcOverlays[nameplate] then return end
     local overlay = AcquireOverlay()
@@ -511,7 +520,7 @@ local function ShowNPCOverlay(nameplate, unit)
     overlay:SetFrameLevel(nameplate:GetFrameLevel() + 5)
     overlay:Show()
     -- Set name text
-    local unitName = UnitName(unit) or ""
+    local unitName = FormatNPCName(UnitName(unit) or "")
     overlay.name:SetText(unitName)
     overlay.name:SetWidth(0)
     overlay.name:SetWordWrap(false)
@@ -535,7 +544,7 @@ local function ShowNPCOverlay(nameplate, unit)
     overlay:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
     overlay:SetScript("OnEvent", function(self, event, ...)
         if event == "UNIT_NAME_UPDATE" then
-            local updatedName = UnitName(self.unit) or ""
+            local updatedName = FormatNPCName(UnitName(self.unit) or "")
             self.name:SetText(updatedName)
         end
     end)
@@ -654,6 +663,23 @@ end
 
 local function ModeHasTitle(mode) return mode == "title" or mode == "both" end
 local function ModeHasGuild(mode) return mode == "guild" or mode == "both" end
+-- Show Level (friendlyShowLevel, default off): a friendly PLAYER's level ahead
+-- of the name, "60 | Name", in both friendly modes.
+local function ShowFriendlyLevel()
+    local fp = FP()
+    return fp and fp.friendlyShowLevel == true
+end
+-- Color Level by Difficulty (friendlyLevelDiffColor, default off): the level
+-- in its difficulty colour against yours, as Blizzard's level box draws it.
+local function FriendlyLevelDiffColor()
+    local fp = FP()
+    return fp and fp.friendlyShowLevel == true and fp.friendlyLevelDiffColor == true
+end
+-- The level part of a friendly player's name: plain, or difficulty-coloured
+-- while that option is on. A secret or unreadable level stays a plain "??".
+local function FriendlyLevelText(unit)
+    return ns.GetUnitLevelText(unit, FriendlyLevelDiffColor() and "diffAll" or nil)
+end
 
 
 -- The player's name WITH their title as one string ("Sergeant Bob" / "Bob
@@ -669,13 +695,12 @@ local function GetTitledName(unit)
     return titled
 end
 
--- WoW Forever Name Format (friendlyNameFormat: "first" or "last"; unset = First
--- and Last): a friendly PLAYER's first or last name, in both friendly modes
--- (callers pass players only). These are nil off Forever, so every name path
--- and the name-only hook gate pay one nil test there.
+-- Name Format (friendlyNameFormat: "first", "last", "abbr" or a Character
+-- Count; unset = Full Name): a friendly PLAYER's name, in both friendly
+-- modes (callers pass players only).
 --   FormatFriendlyName(unit, name, mayHaveTitle): a secret name passes through
---   whole (ForeverShortName caches the short forms). With a Subtitle Text mode
---   that shows the title, the name may carry one: the character name inside it
+--   whole (ShortName caches the short forms). With a Subtitle Text mode that
+--   shows the title, the name may carry one: the character name inside it
 --   (matched as whole words: the full name, else the first name alone) is
 --   swapped for its short form and the title stays; a name it cannot find shows
 --   whole. Results are cached per character and string (wiped at 256 per mode).
@@ -683,10 +708,19 @@ end
 --   repaint, and login); ns.NP_SyncFriendlyNameFormat repaints only when the
 --   Name Format or the Subtitle Text settings differ from that record.
 local FriendlyNameFormat, FormatFriendlyName, StampFriendlyNames
-if EllesmereUI.IS_FOREVER then
-    local short, WithSurname = EllesmereUI.ForeverShortName, EllesmereUI.WithSurname
-    local titledShort = { first = {}, last = {} }   -- [mode][full name][string] = result
-    local titledCount = { first = 0, last = 0 }
+do
+    local short, WithSurname = EllesmereUI.ShortName, EllesmereUI.WithSurname
+    local titledShort = { first = {}, last = {}, abbr = {} }   -- [mode][full name][string] = result
+    local titledCount = { first = 0, last = 0, abbr = 0 }
+    -- A mode's cache; a Character Count gets its own on first use.
+    local function TitledCache(mode)
+        local cache = titledShort[mode]
+        if not cache and EllesmereUI.IsNameFormat(mode) then
+            cache = {}
+            titledShort[mode], titledCount[mode] = cache, 0
+        end
+        return cache
+    end
     FriendlyNameFormat = function()
         local fp = FP()
         return fp and fp.friendlyNameFormat
@@ -705,7 +739,7 @@ if EllesmereUI.IS_FOREVER then
     end
     FormatFriendlyName = function(unit, name, mayHaveTitle)
         local mode = FriendlyNameFormat()
-        local cache = mode and titledShort[mode]
+        local cache = mode and TitledCache(mode)
         if not cache then return name end
         if not mayHaveTitle then return short(name, mode) end
         if issecretvalue(name) or type(name) ~= "string" then return name end
@@ -729,12 +763,13 @@ if EllesmereUI.IS_FOREVER then
         titledCount[mode] = titledCount[mode] + 1
         return s
     end
-    local aFormat, aMode, aBrackets, stamped
+    local aFormat, aMode, aBrackets, aLevel, aDiff, stamped
     StampFriendlyNames = function()
         local fp = FP()
         if not fp then return end
         aFormat, aMode = fp.friendlyNameFormat, fp.friendlyBelowName or "none"
         aBrackets, stamped = fp.friendlyBelowNameGuildBrackets ~= false, true
+        aLevel, aDiff = fp.friendlyShowLevel == true, fp.friendlyLevelDiffColor == true
     end
     -- The Name Format options rows and every settings re-read (ns.RefreshAllSettings:
     -- profile switches, Spec Overrides). Before the first record it only records.
@@ -743,7 +778,9 @@ if EllesmereUI.IS_FOREVER then
         if not fp then return end
         if not stamped then StampFriendlyNames(); return end
         if fp.friendlyNameFormat == aFormat and (fp.friendlyBelowName or "none") == aMode
-            and (fp.friendlyBelowNameGuildBrackets ~= false) == aBrackets then
+            and (fp.friendlyBelowNameGuildBrackets ~= false) == aBrackets
+            and (fp.friendlyShowLevel == true) == aLevel
+            and (fp.friendlyLevelDiffColor == true) == aDiff then
             return
         end
         ns.RefreshFriendlyBelowName()
@@ -812,10 +849,12 @@ local function UpdateNameOnlyText(nameFS)
     if ModeHasTitle(mode) and isPlayer then want = GetTitledName(unit) end
     if not want then want = EllesmereUI.WithSurname(UnitName(unit)) end
     if not want or (issecretvalue and issecretvalue(want)) then return end
-    -- WoW Forever: the friendly Name Format, while one is saved (players only;
-    -- FriendlyNameFormat is nil elsewhere).
-    if isPlayer and FriendlyNameFormat and FriendlyNameFormat() then
+    -- The friendly Name Format, while one is saved (players only).
+    if isPlayer and FriendlyNameFormat() then
         want = FormatFriendlyName(unit, want, ModeHasTitle(mode))
+    end
+    if isPlayer and ShowFriendlyLevel() then
+        want = FriendlyLevelText(unit) .. " | " .. want
     end
 
     local guild
@@ -870,7 +909,10 @@ local function AttachNameOnlyText(nameFS, unit)
         hookedNameText[nameFS] = true
         hooksecurefunc(nameFS, "SetText", function(self)
             if _titledNameGuard then return end
-            if GetBelowNameMode() == "none" and not (FriendlyNameFormat and FriendlyNameFormat()) then return end
+            if GetBelowNameMode() == "none" and not FriendlyNameFormat()
+                and not ShowFriendlyLevel() then
+                return
+            end
             -- Blizzard just overwrote the composed string with its own plain
             -- name; drop the dedupe so the recompose actually runs.
             nameFSText[self] = nil
@@ -1105,9 +1147,9 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
                 uf:RegisterEvent("RAID_TARGET_UPDATE")
             end
             EnsureNameUnconstrained(nameplate.UnitFrame.name)
-            -- Subtitle Text (inline title + guild line) and WoW Forever's Name
-            -- Format, all composed onto this same FontString.
-            if GetBelowNameMode() ~= "none" or (FriendlyNameFormat and FriendlyNameFormat()) then
+            -- Subtitle Text (inline title + guild line) and the Name Format, all
+            -- composed onto this same FontString.
+            if GetBelowNameMode() ~= "none" or FriendlyNameFormat() or ShowFriendlyLevel() then
                 AttachNameOnlyText(nameplate.UnitFrame.name, unit)
             end
         end
@@ -1436,13 +1478,13 @@ function FriendlyFrame:UpdateName()
     local unit = self.unit
     if not unit then return end
     -- Title (when the Subtitle Text mode includes it) rides the name as ONE
-    -- string via UnitPVPName; everything else shows the plain name. WoW
-    -- Forever's Name Format then shortens a player's name. The player test
-    -- runs only while a title or a saved format needs it (FriendlyNameFormat
-    -- is nil off Forever).
+    -- string via UnitPVPName; everything else shows the plain name. The Name
+    -- Format then shortens a player's name. The player test runs only while a
+    -- title or a saved format needs it.
     local hasTitle = ModeHasTitle(GetBelowNameMode())
-    local fmt = FriendlyNameFormat and FriendlyNameFormat()
-    local isPlayer = (hasTitle or fmt) and UnitIsPlayer(unit)
+    local fmt = FriendlyNameFormat()
+    local showLevel = ShowFriendlyLevel()
+    local isPlayer = (hasTitle or fmt or showLevel) and UnitIsPlayer(unit)
     local unitName
     if hasTitle and isPlayer then
         unitName = GetTitledName(unit)
@@ -1451,7 +1493,12 @@ function FriendlyFrame:UpdateName()
     if fmt and isPlayer and unitName then
         unitName = FormatFriendlyName(unit, unitName, hasTitle)
     end
-    self.name:SetText(unitName or "")
+    if showLevel and isPlayer and unitName then
+        -- The name may be secret: only ever a display argument.
+        self.name:SetFormattedText("%s | %s", FriendlyLevelText(unit), unitName)
+    else
+        self.name:SetText(unitName or "")
+    end
     self:UpdateSubText()
 end
 
@@ -1791,11 +1838,57 @@ function ns.RefreshFriendlyNameTextSize()
     end
 end
 
+-- Show Level: a friendly player's level-up repaints that plate's name, and
+-- with Color Level by Difficulty your own level-up repaints them all (the
+-- colours rank against your level). The event frame registers only while
+-- Show Level is on (armed from the settings refresh and the system pass), so
+-- it costs nothing while it is off.
+do
+    local levelEv, armed
+    local function RepaintUnit(unit)
+        local plate = friendlyPlates[unit]
+        if plate then plate:UpdateName(); return end
+        local nameplate = ns.pendingUnits and ns.pendingUnits[unit]
+        local uf = nameplate and nameplate.UnitFrame
+        if uf and uf.name and nameFSUnits[uf.name] == unit then
+            nameFSText[uf.name] = nil
+            UpdateNameOnlyText(uf.name)
+        end
+    end
+    function ns.NP_FriendlyLevelWatch()
+        local want = (ShowFriendlyLevel() and (FriendlyLevelDiffColor() and 2 or 1)) or 0
+        if want == (armed or 0) then return end
+        armed = want
+        if levelEv then levelEv:UnregisterAllEvents() end
+        if want == 0 then return end
+        if not levelEv then
+            levelEv = CreateFrame("Frame")
+            levelEv:SetScript("OnEvent", function(_, event, unit)
+                if event == "PLAYER_LEVEL_CHANGED" then
+                    for u in pairs(friendlyPlates) do RepaintUnit(u) end
+                    local pending = ns.pendingUnits
+                    if pending then
+                        for u in pairs(pending) do
+                            if not friendlyPlates[u] then RepaintUnit(u) end
+                        end
+                    end
+                    return
+                end
+                if not unit or not unit:find("^nameplate") then return end
+                RepaintUnit(unit)
+            end)
+        end
+        levelEv:RegisterEvent("UNIT_LEVEL")
+        if want == 2 then levelEv:RegisterEvent("PLAYER_LEVEL_CHANGED") end
+    end
+end
+
 -- Live-apply a Subtitle Text setting change (mode / size / color) from the
 -- options panel, in whichever friendly mode is active.
 function ns.RefreshFriendlyBelowName()
     -- Size / font / slug propagate through the shared font object.
     ApplySubtitleFont()
+    ns.NP_FriendlyLevelWatch()
     -- Full-plate mode: repaint the name (the title is part of it now) plus
     -- the guild line and name lift on live plates.
     for _, plate in pairs(friendlyPlates) do
@@ -1804,8 +1897,8 @@ function ns.RefreshFriendlyBelowName()
     -- Name-only mode: recompose the name text on visible player plates
     -- (self-gated; a no-op outside name-only mode).
     SweepPlayerSubText()
-    -- WoW Forever: the names now show these settings (the Name Format sync's record).
-    if StampFriendlyNames then StampFriendlyNames() end
+    -- The names now show these settings (the Name Format sync's record).
+    StampFriendlyNames()
 end
 
 -------------------------------------------------------------------------------
@@ -1926,6 +2019,7 @@ function ns.UpdateFriendlyNameplateSystem()
     -- Re-derive the shared subtitle font (login profile load, profile
     -- switches, slug toggles). Value-memoized, near-free when unchanged.
     ApplySubtitleFont()
+    ns.NP_FriendlyLevelWatch()
 
     -- In follower dungeons, force-hide friendly nameplates via CVars. In instances
     -- (dungeons/raids/scenarios/arenas/PvP), force-hide friendly NPC nameplates
@@ -2127,9 +2221,9 @@ initFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 initFrame:SetScript("OnEvent", function(self, event)
     if event == "PLAYER_LOGIN" then
         self:UnregisterEvent("PLAYER_LOGIN")
-        -- WoW Forever: the plates paint from these settings (the Name Format
-        -- sync's first record, so an unchanged first refresh repaints nothing).
-        if StampFriendlyNames then StampFriendlyNames() end
+        -- The plates paint from these settings (the Name Format sync's first
+        -- record, so an unchanged first refresh repaints nothing).
+        StampFriendlyNames()
         ns.UpdateFriendlyNameplateSystem()
     elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
         -- Re-evaluate the friendly system on every zone transition so

@@ -134,17 +134,30 @@ local function RegisterUFUnlockElements()
                     local s = GetSettingsForUnit(unit)
                     if not s then return end
                     local oldW = s.frameWidth
+                    -- The pet, ToT and FoT frames always attach their portrait.
+                    local miniUnit = unit == "pet" or unit == "targettarget" or unit == "focustarget"
                     local wPStyle = s.portraitStyle or db.profile.portraitStyle or "attached"
+                    if miniUnit and wPStyle == "detached" then wPStyle = "attached" end
                     local showPortrait = wPStyle ~= "none" and s.showPortrait ~= false
                     local isAttached = wPStyle == "attached"
                     if showPortrait and isAttached then
-                        local pSizeAdj = s.portraitSize or 0
-                        if not isAttached then pSizeAdj = pSizeAdj + 10 end
+                        -- The portrait's width, as GetFrameDimensions adds it:
+                        -- the one subtraction that gives a reported size back.
+                        local adjPH
                         local powerPos = s.powerPosition or "below"
                         local powerIsAtt = (powerPos == "below" or powerPos == "above")
-                        local ptH = s.healthHeight + (powerIsAtt and (s.powerHeight or 6) or 0)
-                        local adjPH = ptH + pSizeAdj
-                        if adjPH < 8 then adjPH = 8 end
+                        if miniUnit then
+                            -- A mini portrait squares off the bar stack, which
+                            -- only a WoW Forever pet's attached power bar grows
+                            -- (StyleSimpleFrame); Size does not touch it.
+                            local petPowerH = (unit == "pet" and ns.UF_PetHasPower and powerIsAtt) and (s.powerHeight or 6) or 0
+                            adjPH = s.healthHeight + petPowerH
+                        else
+                            local pSizeAdj = s.portraitSize or 0
+                            local ptH = s.healthHeight + (powerIsAtt and (s.powerHeight or 6) or 0)
+                            adjPH = ptH + pSizeAdj
+                            if adjPH < 8 then adjPH = 8 end
+                        end
                         s.frameWidth = math.max(PP.Snap(w - adjPH), 50)
                     else
                         s.frameWidth = math.max(PP.Snap(w), 50)

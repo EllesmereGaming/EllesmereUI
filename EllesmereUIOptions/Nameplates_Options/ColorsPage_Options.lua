@@ -303,13 +303,14 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
     end
 
     -- Debuff Coloring: a pure view over debuffColorsEnabled (off = None) and
-    -- debuffColorsBorder (on = Color Border, else Color Nameplate). Color
-    -- Border's cog (Extra Border Size) shows only over a Basic or Custom Solid
-    -- border; a textured custom border is recolored as it is. Both checks
-    -- follow the runtime's border reading (BorderSpec in the module).
+    -- the module's mode (DC.Mode: Texture Nameplate and Color Name in
+    -- debuffColorsMode, else debuffColorsBorder picks Color Border or Color
+    -- Nameplate). Color Border's cog (Extra Border Size) shows only over a
+    -- Basic or Custom Solid border; a textured custom border is recolored as it
+    -- is. Both checks follow the runtime's border reading (BorderSpec in the module).
     local function Mode()
         if Off() then return "none" end
-        return Get("debuffColorsBorder") == true and "border" or "nameplate"
+        return DC.Mode(Get)
     end
     local function NoBorder()
         if EllesmereUI.BlizzStyle.Get("nameplates") then return true end
@@ -335,19 +336,25 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
     _, h = W:SectionHeader(parent, "DEBUFF BASED NAMEPLATE COLORING", y); y = y - h
     modeRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Debuff Coloring",
-          values={ none = "None", nameplate = "Color Nameplate", border = "Color Border" },
-          order={ "none", "nameplate", "border" },
+          values={ none = "None", nameplate = "Color Nameplate", texture = "Texture Nameplate",
+                   border = "Color Border", name = "Color Name" },
+          order={ "none", "nameplate", "texture", "border", "name" },
           disabledValues=function(key)
               if key == "border" and NoBorder() then return "This option requires a Border to be selected" end
+              if key == "name" and not ns.FindNameSlot() then return "This option requires the enemy name to be shown" end
               return false
           end,
           getValue=Mode,
           setValue=EllesmereUI.SectionToggleSetValue(function(v)
-              ns.db.profile.debuffColorsEnabled = v ~= "none"
-              if v ~= "none" then ns.db.profile.debuffColorsBorder = v == "border" end
+              local db = ns.db.profile
+              db.debuffColorsEnabled = v ~= "none"
+              if v ~= "none" then
+                  db.debuffColorsBorder = v == "border"
+                  db.debuffColorsMode = (v == "texture" or v == "name") and v or nil
+              end
               ns.DebuffColors_Refresh()
           end),
-          tooltip="Colors enemy health bars, or their borders, while the chosen debuffs are on them." },
+          tooltip="Colors enemy health bars, their borders or their names while the chosen debuffs are on them." },
         { type="toggle", text="Only My Debuffs",
           getValue=function() return Get("debuffColorsPlayerOnly") ~= false end,
           setValue=function(v)
@@ -376,6 +383,21 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
         local function ShowCog() cog:SetShown(StripBorder()) end
         ShowCog()
         EllesmereUI.RegisterWidgetRefresh(ShowCog)
+    end
+
+    -- Texture Nameplate's texture, the row below while it is picked (unset reads
+    -- the health bar's own).
+    if Mode() == "texture" then
+        local env = ns._NPO_OptEnv
+        _, h = W:DualRow(parent, y,
+            { type="dropdown", text="Texture", values=env.hbtValues, order=env.hbtOrder,
+              tooltip="The texture the debuff color is drawn in.",
+              getValue=function() return Get("debuffColorsTexture") or Get("healthBarTexture") or "none" end,
+              setValue=function(v)
+                  ns.db.profile.debuffColorsTexture = v
+                  Apply()
+              end },
+            EllesmereUI.BlankRowCfg()); y = y - h
     end
 
     -- Section gate: the rows below exist only while Debuff Coloring is on (the
@@ -1384,6 +1406,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
             local db = DB()
             if OOCOn() ~= on then db.darkenEnemiesOOC = on end
             if on and OOCRecolorOn() ~= (v == "color") then db.darkenOOCRecolor = (v == "color") end
+            if ns.NP_CastTintsDirty then ns.NP_CastTintsDirty() end
             for _, plate in pairs(ns.plates) do
                 plate:UpdateHealthColor()
             end
@@ -1403,6 +1426,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
               end,
               setValue = function(r, g, b)
                 DB().darkenOOCColor = { r = r, g = g, b = b }
+                if ns.NP_CastTintsDirty then ns.NP_CastTintsDirty() end
                 for _, plate in pairs(ns.plates) do
                     plate:UpdateHealthColor()
                 end
@@ -1518,6 +1542,63 @@ local function BuildColorsPage(pageName, parent, yOffset)
                     DB().miniColoringMPlusOnly = v
                     RefreshAllPlates()
                   end },
+            },
+        })
+    end
+
+    -- Color Casting Enemies | (blank, last row of the section)
+    local castingRow
+    castingRow, h = W:DualRow(parent, y,
+        { type="toggle", text="Color Casting Enemies",
+          getValue=function() return DBVal("castingEnemyColors") == true end,
+          setValue=function(v)
+            DB().castingEnemyColors = v
+            RefreshAllPlates()
+            EllesmereUI:RefreshPage()
+          end,
+          tooltip="Enemies not colored as Spell Casters take the Interruptible Caster or Uninterruptible Caster color once they cast a spell that can or cannot be interrupted." },
+        EllesmereUI.BlankRowCfg());  y = y - h
+
+    -- Inline Interruptible / Uninterruptible swatches, then a cog with the mob types each applies to.
+    if not EllesmereUI._prebuilding then
+        local rgn = castingRow._leftRegion
+        local isCastingOff = function() return DBVal("castingEnemyColors") ~= true end
+        EllesmereUI.BuildInlineSwatches(rgn, {
+            { tooltip = "Interruptible Caster",
+              getValue = function() return DBColor("castingIntColor") end,
+              setValue = function(r, g, b)
+                DB().castingIntColor = { r = r, g = g, b = b }
+                RefreshAllPlates()
+              end },
+            { tooltip = "Uninterruptible Caster",
+              getValue = function() return DBColor("castingUnintColor") end,
+              setValue = function(r, g, b)
+                DB().castingUnintColor = { r = r, g = g, b = b }
+                RefreshAllPlates()
+              end },
+        }, { disabled = isCastingOff, disabledTooltip = "Color Casting Enemies" })
+        local typeItems = {
+            { key="Normal",   label="Normal / Trivial", fixed=true },
+            { key="Elite",    label="Elite",            fixed=true },
+            { key="MiniBoss", label="Mini-Bosses",      fixed=true },
+            { key="Boss",     label="Bosses",           fixed=true },
+        }
+        local function TypeRow(label, prefix)
+            -- hint replaces the widget's "Drag to Reorder": every row is fixed.
+            return { type="reordercheck", label=label, ddWidth=170, items=typeItems, hint="Enemy Types",
+              get=function(key) return DBVal(prefix .. key) end,
+              set=function(key, v)
+                DB()[prefix .. key] = v
+                RefreshAllPlates()
+              end }
+        end
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Casting Enemies",
+            disabled = isCastingOff,
+            disabledTooltip = "Color Casting Enemies",
+            rows = {
+                TypeRow("Interruptible Applies To", "castingInt"),
+                TypeRow("Uninterruptible Applies To", "castingUnint"),
             },
         })
     end

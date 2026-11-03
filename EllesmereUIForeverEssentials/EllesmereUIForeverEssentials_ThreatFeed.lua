@@ -27,6 +27,7 @@ local session = { combatSources = sources }   -- what a window paints
 local events, active, notify
 local pending, threatOn, flagsUnit, mobUnit, followTicker, titleName
 local units = false   -- Force English Units, the Damage Meters setting the value text follows
+local fmtGen = 0      -- bumped on a Number Format change, so the value texts rebuild
 local cfg             -- the list's settings, resolved once per settings change
 local RequestUpdate
 
@@ -96,8 +97,8 @@ local function FillRow(r, e, rank, c)
     if c.showPercent and not (e.pull and raw) then
         if c.pullPercent then pct = e.scaled else pct = e.rawPct end
     end
-    if r.threatText == nil or r._raw ~= raw or r._pct ~= pct or r._units ~= units then
-        r._raw, r._pct, r._units = raw, pct, units
+    if r.threatText == nil or r._raw ~= raw or r._pct ~= pct or r._units ~= units or r._fmt ~= fmtGen then
+        r._raw, r._pct, r._units, r._fmt = raw, pct, units, fmtGen
         if raw and pct then
             r.threatText = format("%s  %.0f%%", EUI.AbbreviateNumber(raw, units), pct)
         elseif raw then
@@ -273,6 +274,11 @@ function ns.FeedChanged()
     cfg = nil
     if active then RequestUpdate() end
 end
+
+EUI.RegisterNumberFormatCallback(function()
+    fmtGen = fmtGen + 1
+    if active then RequestUpdate() end
+end)
 
 EUI._ThreatFeed = {
     Start = Start,

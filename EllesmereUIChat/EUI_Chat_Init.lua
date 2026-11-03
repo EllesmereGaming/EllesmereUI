@@ -1028,6 +1028,10 @@ initFrame:SetScript("OnEvent", function(self)
                 -- a third owner, and a link saved before (the old WoW Forever base
                 -- layout made one) kept dragging chat back to its stale spot.
                 ownsPosition = true,
+                -- Relative to Screen (the cog) names the screen point chat's
+                -- saved spot is measured from; chat keeps it, no link.
+                getScreenPoint = function() return ns.GetChatScreenPoint() end,
+                setScreenPoint = function(_, point) ns.SetChatScreenPoint(point) end,
                 getFrame = function() return _G.ChatFrame1 end,
                 getSize  = function()
                     local cf1 = _G.ChatFrame1

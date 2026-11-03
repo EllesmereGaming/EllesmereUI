@@ -924,6 +924,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             olTex:ClearAllPoints()
             -- Reset any prior vertex tint so fill/full render their explicit color cleanly.
             olTex:SetVertexColor(1, 1, 1, 1)
+            olTex:SetTexCoord(0, 1, 0, 1)
             if olMode == "fill" then
                 -- Current health, as on the live frames (the fill, or the rest of
                 -- the bar under Inverted Fill), off the bar oriented above.
@@ -932,12 +933,13 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             elseif olMode == "full" then
                 olTex:SetAllPoints(f._health)
                 olTex:SetColorTexture(dispelDC.r, dispelDC.g, dispelDC.b, olAlpha)
-            elseif olMode == "gradient" or olMode == "gradient_sharp" then
+            elseif olMode == "gradient" or olMode == "gradient_sharp" or olMode == "gradient_reverse" then
                 -- Same pre-baked gradient textures as the live frames so the preview matches.
                 olTex:SetAllPoints(f._health)
-                olTex:SetTexture(olMode == "gradient_sharp"
-                    and "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
-                    or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga")
+                olTex:SetTexture(olMode == "gradient"
+                    and "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
+                    or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga")
+                if olMode == "gradient_reverse" then olTex:SetTexCoord(0, 1, 1, 0) end
                 olTex:SetVertexColor(dispelDC.r, dispelDC.g, dispelDC.b, olAlpha)
             end
             olTex:Show()
@@ -1189,7 +1191,8 @@ local function ApplyPreviewData(f, index, roles, classTokens)
         pv.hpPct, pv.hpPer = healthPct, 12000
         pv.ppPct, pv.ppPer = f._powerPct or 100, (pTok == "MANA") and 2500 or 1
         pv.ha = math.floor(healthPct * 3000)
-        pv.name = ns.CapName(ns.RF_FormatName and ns.RF_FormatName(name, s) or name, s)
+        -- rawName: for a custom text tag's own Name Format ([name:abbr]).
+        pv.rawName, pv.name = name, ns.CapName(ns.RF_FormatName(name, s), s)
         pv.dead, pv.offline = isDead or nil, isOffline or nil
         pv.power = not hidePower or nil
         pv.class, pv.pToken = classToken, pTok

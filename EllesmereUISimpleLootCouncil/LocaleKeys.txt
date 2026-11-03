@@ -148,7 +148,6 @@
 %s is no longer in %s's bags, so it cannot be awarded. Right-click it in the council list to remove it from the run.
 %s is not in your group
 %s is not in your group.
-%s is not in your guild.
 %s is not on the council.
 %s is now the group's Master Looter.
 %s is running Simple Loot Council for this raid.
@@ -443,7 +442,6 @@ It was equipped, which ends its trade window.
 It was not in %s's bags when it was awarded to %s.
 It was not in your bags when it was awarded to %s.
 Item
-Item Level %s
 Items
 Items appear here when you are holding something that was awarded to someone else.
 Items cannot be removed once the run has started.
@@ -532,7 +530,6 @@ No character recorded
 No guild
 No items
 No loot session is running at the moment.
-No loot session is running. I have not recorded that.
 No loot session running
 No loot session running.
 No other council members.
@@ -687,13 +684,10 @@ SLC stays active for this raid - you were handed loot while it was in use.
 Seen in your group and stored by player id, so a rename or a realm transfer will not lose them.
 Selected ranks join your council automatically. Selections are per guild. If a rank is renamed, select its new name.
 Semicolon (;) - Excel in German, French and more
-Send
 Send as whisper
 Send config
 Send gay config
-Send raid message
 Send to raid
-Send whisper
 Sends your own loot council and response buttons. Each player is asked before anything of theirs is replaced.
 Sep
 Session
@@ -765,6 +759,7 @@ The current run must finish first.
 The group-loot funnel now runs whenever Simple Loot Council is active, so its switch is gone. The guild loot funnel guard is now off; switch it on in Settings to be asked before your loot is passed outside your guild.
 The guild filter does not apply here: the rows it hides are exported too.
 The loot funnel now runs in guild groups only by default: you are asked before your loot is passed outside your guild. Set \"Loot funnel in which groups?\" to All Groups in Settings if you would rather not be asked.
+The loot response tab in the Loot Council window is now off by default, so your response window opens on its own again. You can switch it back on in Settings.
 Their equipped item and upgrade will appear here.
 Their guild ranks are left out: they belong to another guild.
 Themselves
@@ -969,7 +964,10 @@ history / h
 how much the log records
 ignored - not an attempt at a command, so no reply is sent.
 ilvl %d
+ilvl %s
 import failed
+it hit an error - /slc log has the details
+it was not ready yet - /slc queue opens it
 item %d
 item %d skipped: %s
 item %d: %s (difficulty %d) - %d fake coin for %s
@@ -1024,7 +1022,6 @@ no raids recorded
 no recorded boss matches '%s' - using it as typed
 no rolls asked for. /slc roll ask||random||clear
 no rows found below the header
-no run is active - would reply that nothing was recorded.
 no run is active, and no item was named - silent.
 no run is active.
 no such rank in your guild
@@ -1150,6 +1147,7 @@ the Loot Master started the run.
 the Loot to Trade window
 the Raid versions window
 the council is not ready
+the council window did not open for this boss kill: %s
 the diagnostic log, copyable
 the guild-group gate
 the header has no %q column

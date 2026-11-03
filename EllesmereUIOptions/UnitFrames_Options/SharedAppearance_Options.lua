@@ -1269,6 +1269,28 @@ function ns.UFO_BuildPortraitSection(parent, y, ctx)
                 set=function(v) SSet("portraitSeparator", v or nil) end,
             }
         end
+        if SVal("portraitStyle", "attached") == "detached" then
+            rows[#rows + 1] = { type="toggle", label="Clickable Portrait",
+                tooltip="Clicking or hovering the detached portrait acts like clicking or hovering the frame's bars.",
+                get=function() return SVal("detachedPortraitClickable", false) end,
+                set=function(v) SSet("detachedPortraitClickable", v or nil) end,
+            }
+            rows[#rows + 1] = { type="colorpicker", label="Background Color", hasAlpha=true,
+                tooltip="Fill color behind the detached portrait.",
+                disabled=function() return SVal("detachedPortraitShape", "portrait") == "none" end,
+                disabledTooltip="This option requires a Shape other than None.",
+                rawTooltip=true,
+                get=function()
+                    local c = SGet("detachedPortraitBgColor")
+                    if c then return c.r, c.g, c.b, c.a or 1 end
+                    return 0.1, 0.1, 0.1, 1
+                end,
+                set=function(r, g, b, a)
+                    SSet("detachedPortraitBgColor", { r=r, g=g, b=b, a=a or 1 })
+                    UpdatePreview()
+                end,
+            }
+        end
         EllesmereUI.BuildInlineCog(sharedPortraitModeRow._leftRegion, {
             title = "Portrait Settings",
             disabled = function()
@@ -2934,9 +2956,10 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetPoint("RIGHT", ciRgn._lastInline or ciRgn._control, "LEFT", -8, 0)
         eyeBtn:SetFrameLevel(ciRgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         ciRgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshCombatEye()
             eyeTex:SetTexture(optState.showCombatIndicatorPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2948,11 +2971,11 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
             UpdatePreview()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, optState.showCombatIndicatorPreview and "Hide combat indicator preview" or "Show combat indicator preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
 
@@ -3044,9 +3067,10 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         rgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshEye()
             eyeTex:SetTexture(eyes[key] and EllesmereUI.EYE_INVISIBLE_ICON or EllesmereUI.EYE_VISIBLE_ICON)
@@ -3059,11 +3083,11 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
             UpdatePreview()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, (eyes[key] and "Hide " or "Show ") .. what .. " preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
     end

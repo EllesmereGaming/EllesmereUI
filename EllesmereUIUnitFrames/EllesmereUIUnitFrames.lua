@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local GetSpecialization = (C_SpecializationInfo and C_SpecializationInfo.GetSpecialization) or GetSpecialization
 local addonName, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.AbsorbGlow) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard frame suppression hides through the parent's HideFrame, and the player absorb glow line is the parent's AbsorbGlow)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.AbsorbGlow and EllesmereUI.SetCraftBatch and EllesmereUI.FitCastName) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard frame suppression hides through the parent's HideFrame, the player absorb glow line is the parent's AbsorbGlow, and the player cast bar's Full Craft Time is the parent's SetCraftBatch, and Show Full Spell Name is the parent's FitCastName)
 EllesmereUI._ModuleNS[addonName] = ns  -- LOD options files read this module ns via the registry
 
 local math_floor, math_ceil, math_max, math_min, math_abs =
@@ -242,6 +242,7 @@ local defaults = {
             powerPercentX = 0,
             powerPercentY = 0,
             powerPercentPowerColor = true,
+            powerClassColored = false,
             powerBgPowerColored = false,
             powerPercentTextPowerColor = false,
             manaRegenSpark = false,  -- WoW Forever: mana regen spark while the bar shows mana; manaRegenSparkMode "ticks" = Regen Ticks, nil = 5-Second Rule
@@ -389,6 +390,7 @@ local defaults = {
             castSpellNameColor = { r = 1, g = 1, b = 1 },
             castDurationSize = 10,
             castDurationColor = { r = 1, g = 1, b = 1 },
+            castFullCraftTime = false,  -- Duration counts down the whole repeat-craft batch
             castSpellNameX = 0,
             castSpellNameY = 0,
             castSpellTargetSize = 11,
@@ -511,6 +513,7 @@ local defaults = {
             powerPercentX = 0,
             powerPercentY = 0,
             powerPercentPowerColor = true,
+            powerClassColored = false,
             powerBgPowerColored = false,
             powerPercentTextPowerColor = false,
             healthClassColored = true,
@@ -942,6 +945,7 @@ local defaults = {
             powerPercentX = 0,
             powerPercentY = 0,
             powerPercentPowerColor = true,
+            powerClassColored = false,
             powerBgPowerColored = false,
             powerPercentTextPowerColor = false,
             healthClassColored = true,
@@ -1317,13 +1321,14 @@ local defaults = {
         bossSpacing = 80,
 
         -- Player dispel overlay (player frame only; keys mirror Raid Frames)
-        dispelOverlay        = "none",   -- "none", "fill", "full", "gradient", "gradient_sharp"
+        dispelOverlay        = "none",   -- "none", "fill", "full", "gradient", "gradient_sharp", "gradient_reverse"
         dispelOverlayOpacity = 100,
         dispelOverlayByMe    = false,    -- only debuffs the player can dispel (engine filter token)
         dispelCustomBorder   = false,    -- Color Custom Borders: the frame border copied in the dispel type color
         showDispelIcons      = false,    -- Type Icon Position: the type's icon on a health bar corner
         dispelIconPosition   = "right",
         dispelIconSize       = 16,
+        dispelIconGrowth     = "none",   -- "none" stacks the type icons; up/down/left/right flows them
         dispelIconOffsetX    = 0,
         dispelIconOffsetY    = 0,
         dispelColorMagic   = { r = 0.349, g = 0.475, b = 1.0 },
@@ -1701,8 +1706,9 @@ ns.ApplyCastBarTexture = function(castbar, texKey)
     -- statusbar art BLANK on plain overlay textures (negative synthetic
     -- fileID, healthy alpha/rect/shown readbacks -- measured in-game
     -- 2026-08-12, the invisible-interrupt-shield report), so re-pointing it
-    -- at the art killed the shield entirely. A flat wash tints the textured
-    -- fill below it; SetAlphaFromBoolean keeps driving it secret-safe.
+    -- at the art killed the shield entirely. Only Blizzard Style still shows
+    -- that wash; elsewhere ApplyUnitFrameCastColor folds the uninterruptible
+    -- colour into the textured tint layer and base fill instead.
 end
 
 -- Cast bar Fill Opacity (player/target/focus). Below 100 the active-cast tint layer
@@ -1714,9 +1720,10 @@ end
 -- (relational anchors + plain alphas only), so secret cast states render identically.
 -- castbar._castTintOn mirrors "the last alpha we wrote to castTintLayer was
 -- above zero". It exists because castTintLayer:GetAlpha() cannot be trusted to
--- return a plain number: this castbar also drives _shieldedTint's alpha from
--- the SECRET notInterruptible flag (SetAlphaFromBoolean), and once secrecy is
--- in a castbar's render state an alpha read comes back secret. Comparing that
+-- return a plain number: this castbar's tint layer and base fill take colours
+-- folded from the SECRET notInterruptible flag (and Blizzard Style drives the
+-- shield's alpha from it), and once secrecy is in a castbar's render state an
+-- alpha read comes back secret. Comparing that
 -- inside our own (tainted) execution throws "attempt to compare a secret number
 -- value", which aborts the whole styling pass mid-way and leaves the cast bar
 -- unanchored at screen centre. We write every one of these alphas ourselves, so
@@ -2565,5 +2572,6 @@ EllesmereUI.NewInternals(ns, "_internals", {
     ApplyBarGradient = ApplyBarGradient, ApplyHealthBarTexture = ApplyHealthBarTexture,
     ApplyHealthBarAlpha = ApplyHealthBarAlpha, ApplyPowerBarAlpha = ApplyPowerBarAlpha,
     SpecHasClassPower = SpecHasClassPower, UF_SecretSafeHealthColor = UF_SecretSafeHealthColor,
+    ClassColorSourceUnit = ClassColorSourceUnit,
     dbSetters = { function(v) db = v end },
 }, { SetDB = "dbSetters" })

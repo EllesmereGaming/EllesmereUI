@@ -328,7 +328,7 @@ local function TileUnitFrames(parent, y, W, tile)
     -- UF's own dropdown copy drops the separator.
     local hbtValues, hbtOrder = CopyBarDD(ns.healthBarTextureNames, ns.healthBarTextureOrder, ns.healthBarTextures, true)
 
-    -- The module's own lists (ns, EllesmereUIUnitFrames.lua), copied: the
+    -- The module's own lists (ns, EUI_UnitFrames_Absorb.lua), copied: the
     -- SharedMedia tail is appended into them.
     local absorbStyleValues = CopyTable(ns.ABSORB_STYLE_NAMES)
     local absorbStyleOrder = CopyTable(ns.ABSORB_STYLE_ORDER)

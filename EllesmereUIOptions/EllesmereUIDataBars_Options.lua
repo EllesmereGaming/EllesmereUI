@@ -101,7 +101,7 @@ initFrame:SetScript("OnEvent", function(self)
         profession = 120, travel = 40, micromenu = 340, currency = 90, spacer = 40,
         durability = 70, combat = 105, profession2 = 120, greatvault = 100,
         location = 140, coords = 70, crests = 160, ilvl = 70, supplies = 70,
-        bags = 50,
+        bags = 50, mplussummary = 150,
     }
 
     ---------------------------------------------------------------------------
@@ -1476,7 +1476,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
                 menu._rows = {}
                 local mH = 4
-                for _, t in ipairs(ns.BLOCK_TYPES) do
+                for _, t in ipairs(ns.OfferedBlockTypes()) do
                     local item = CreateFrame("Button", nil, menu)
                     item:SetHeight(ITEM_H)
                     item:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -mH)
@@ -3267,6 +3267,11 @@ initFrame:SetScript("OnEvent", function(self)
                           if wasOn ~= (v > 0) then EllesmereUI:RefreshPage() end
                       end },
                 }
+            elseif b.type == "mplussummary" then
+                typeRows = {
+                    MkToggle("Hide When Empty", "hideWhenEmpty",
+                        "Removes the block from the bar until a Mythic+ run has been recorded."),
+                }
             elseif b.type == "ilvl" then
                 -- Prefix rides the Icon Color row's right slot above.
                 typeRows = {
@@ -3709,6 +3714,52 @@ initFrame:SetScript("OnEvent", function(self)
                     leftRgn._control = cbDD
                     leftRgn._lastInline = nil
                     if cbDDRefresh then EllesmereUI.RegisterWidgetRefresh(cbDDRefresh) end
+                end
+
+                local notesRow
+                notesRow, h = W:DualRow(parent, y,
+                    { type = "toggle", text = "Show Guild Notes",
+                      tooltip = "Shows each online member's public note after their name in the Guild tooltip.",
+                      getValue = function() return s.showGuildNotes == true end,
+                      setValue = function(v)
+                          s.showGuildNotes = v and true or false
+                          Apply(); EllesmereUI:RefreshPage()
+                      end },
+                    EllesmereUI.BlankRowCfg());  y = y - h
+                if not EllesmereUI._prebuilding then
+                    local rgn = notesRow._leftRegion
+                    local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                        rgn, notesRow:GetFrameLevel() + 3,
+                        function()
+                            local c = s.guildNoteColor
+                            if not c then return 0.925, 0.839, 0.447 end
+                            return c.r or 0.925, c.g or 0.839, c.b or 0.447
+                        end,
+                        function(r, g, b2)
+                            s.guildNoteColor = { r = r, g = g, b = b2 }
+                            Apply()
+                        end,
+                        false, 20)
+                    PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
+                    local block = CreateFrame("Frame", nil, swatch)
+                    block:SetAllPoints()
+                    block:SetFrameLevel(swatch:GetFrameLevel() + 10)
+                    block:EnableMouse(true)
+                    block:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Show Guild Notes"))
+                    end)
+                    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    local function UpdateState()
+                        if s.showGuildNotes == true then
+                            swatch:SetAlpha(1)
+                            block:Hide()
+                        else
+                            swatch:SetAlpha(0.3)
+                            block:Show()
+                        end
+                    end
+                    EllesmereUI.RegisterWidgetRefresh(function() updateSwatch(); UpdateState() end)
+                    UpdateState()
                 end
             end
 

@@ -79,12 +79,9 @@ initFrame:SetScript("OnEvent", function(self)
         local mode = ShowAsVal()
         return Disabled() or mode == "compact" or mode == "markers"
     end
-    -- Raid Buff Check is retail only: its file publishes ns.ToggleBuffCheck there.
-    local function BuffCheckUnavailable()
-        return ns.ToggleBuffCheck == nil
-    end
+    -- Raid Buff Check is retail only: its rows are not built on WoW Forever.
     local function BuffCheckOff()
-        return BuffCheckUnavailable() or Cfg("buffCheck") ~= true
+        return Cfg("buffCheck") ~= true
     end
     local function PullDisabled()
         return Disabled() or ShowAsVal() == "markers"
@@ -324,10 +321,16 @@ initFrame:SetScript("OnEvent", function(self)
             ButtonToggle("showDisband", "Show Disband",
                 "Shows the Disband button. It always asks before disbanding, but hiding it puts it out of misclick range for good.",
                 FullPanelButtonDisabled),
+            EllesmereUI.IS_FOREVER and { type = "spacer" } or
             { type = "toggle", text = "Show Buff Check",
-              tooltip = "Shows the Buff Check button, which opens the Raid Buff Check window (needs Raid Buff Check below). On Compact Band it is Shift + Left Click on the ready check button.",
+              tooltip = "Shows the Buff Check button. On Compact Band it is Shift + Left Click on the ready check button.",
               disabled = function()
                   return RoleCheckDisabled() or BuffCheckOff()
+              end,
+              disabledTooltip = function()
+                  if BuffCheckOff() then return "Raid Buff Check" end
+                  if Disabled() then return "Show Raid Tools" end
+                  return "This option requires a Show as layout with the group buttons."
               end,
               getValue = function() return Cfg("showBuffCheck") == true end,
               setValue = function(v)
@@ -336,13 +339,13 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- RAID BUFF CHECK
+        -- RAID BUFF CHECK (retail only)
+        if not EllesmereUI.IS_FOREVER then
         _, h = W:SectionHeader(parent, "RAID BUFF CHECK", y);  y = y - h
 
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Raid Buff Check",
-              tooltip = "A window listing every group member's flask, food, augment rune, vantus rune and missing raid buffs, opened with the Buff Check button or on ready checks. Out of combat only; in restricted content food and runes may show as unknown.",
-              disabled = BuffCheckUnavailable,
+              tooltip = "A window of each group member's flask, food, augment and vantus runes and missing raid buffs.",
               getValue = function() return Cfg("buffCheck") == true end,
               setValue = function(v)
                   Set("buffCheck", v)
@@ -350,14 +353,15 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end },
             { type = "toggle", text = "Open on Ready Check",
-              tooltip = "Opens the Raid Buff Check window on every ready check while you are the group leader or a raid assistant.",
-              disabled = BuffCheckOff,
+              tooltip = "Opens the window on ready checks while you lead the group or assist.",
+              disabled = BuffCheckOff, disabledTooltip = "Raid Buff Check",
               getValue = function() return Cfg("buffCheckOnReady") ~= false end,
               setValue = function(v)
                   Set("buffCheckOnReady", v)
                   Refresh()
               end }
         );  y = y - h
+        end -- not IS_FOREVER
 
         -- PULL TIMER
         _, h = W:SectionHeader(parent, "PULL TIMER", y);  y = y - h

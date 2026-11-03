@@ -1066,6 +1066,11 @@ local function BuildBars()
                     runeFrames[i]:ApplyBorder(0, 0, 0, 0, 0)
                 end
                 runeFrames[i]:ApplyTexture(g.barTexture or "none")
+                if sp.useContinuousTexture then
+                    I.PipTextureHelpers.Configure(runeFrames[i], x0, x1, widthSnapped, pipOri)
+                elseif runeFrames[i]._continuousStart then
+                    I.PipTextureHelpers.Reset(runeFrames[i])
+                end
                 runeFrames[i]._bg:SetColorTexture(ERB.PipBgColor(sp, pipBg))
                 -- Textured Background, as the bar-type branch.
                 if g.barTextureBg or runeFrames[i]._bg._erbBgTex then
@@ -1144,6 +1149,11 @@ local function BuildBars()
                     pips[i]:ApplyBorder(0, 0, 0, 0, 0)
                 end
                 pips[i]:ApplyTexture(g.barTexture or "none")
+                if sp.useContinuousTexture then
+                    I.PipTextureHelpers.Configure(pips[i], x0, x1, widthSnapped, pipOri)
+                elseif pips[i]._continuousStart then
+                    I.PipTextureHelpers.Reset(pips[i])
+                end
                 pips[i]._bg:SetColorTexture(ERB.PipBgColor(sp, pipBg))
                 -- Textured Background, as the bar-type branch.
                 if g.barTextureBg or pips[i]._bg._erbBgTex then

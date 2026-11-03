@@ -20,6 +20,8 @@ local flushPending = false
 local toldCouncil = false
 local warnedFor
 
+local pendingKill
+
 
 local function IsHost()
     return IsInRaid() and addon.PlayerIsMasterLooter() and addon.Loot.handling == true
@@ -226,20 +228,34 @@ local function WarnMissingHost()
 end
 
 
+
+local function TellNoWindow(code, reason)
+    addon.Log:I("AutoStart", "kill opened no window -", code)
+    addon.Chat.Warn(addon.Locale.Format(T["the council window did not open for this boss kill: %s"], reason))
+end
+
+
 local function OpenWindow()
     local MLFrame = addon.UI and addon.UI.MLFrame
     if not MLFrame then return end
-    local ok, err = pcall(MLFrame.OpenForKill, MLFrame)
-    if not ok then addon.Log:Bug("AutoStart", "opening the window on a kill failed: " .. tostring(err)) end
+    local ok, shown = pcall(MLFrame.OpenForKill, MLFrame)
+    if not ok then
+        addon.Log:Bug("AutoStart", "opening the window on a kill failed: " .. tostring(shown))
+        TellNoWindow("error", T["it hit an error - /slc log has the details"])
+    elseif not shown then
+        TellNoWindow("unready", T["it was not ready yet - /slc queue opens it"])
+    end
 end
 
 
 local function OnEncounterEnded(entry)
     if type(entry) ~= "table" or not entry.success or not entry.id then return end
     if not IsHost() then
+        pendingKill = { entry = entry, at = GetTime() }
         WarnMissingHost()
         return
     end
+    pendingKill = nil
     OpenWindow()
     if not Enabled() then return end
     local kill = FindKill(entry.id)
@@ -251,6 +267,19 @@ local function OnEncounterEnded(entry)
         addon.Log:I("AutoStart", "following the loot of", tostring(entry.name))
     end
     Scan(kill)
+end
+
+
+local function ReplayPending()
+    local pending = pendingKill
+    if not pending then return end
+    if GetTime() - pending.at > 60 then
+        pendingKill = nil
+        return
+    end
+    if not IsHost() then return end
+    pendingKill = nil
+    OnEncounterEnded(pending.entry)
 end
 
 local function OnEvent(_, event, encounterID, lootListID)
@@ -278,7 +307,7 @@ function AutoStart:Init()
     frame:SetScript("OnEvent", OnEvent)
     addon.Callbacks:Register("EncounterEnded", OnEncounterEnded)
     local function HostCheck()
-        if not IsHost() then Forget("no longer running the loot") end
+        if IsHost() then ReplayPending() else Forget("no longer running the loot") end
     end
     addon.Callbacks:Register("HandlingChanged", HostCheck)
     addon.Callbacks:Register("LootMasterChanged", HostCheck)

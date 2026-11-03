@@ -1728,12 +1728,30 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
               end,
               setValue = function() end,
               onClick = function()
+                  UNIT_DB_MAP[optState.selectedUnit]().powerClassColored = false
                   SSet("powerPercentPowerColor", true)
                   UpdatePreview()
                   EllesmereUI:RefreshPage()
               end,
               refreshAlpha = function()
-                  return SVal("powerPercentPowerColor", true) and 1 or 0.3
+                  return (SVal("powerPercentPowerColor", true) and not SVal("powerClassColored", false)) and 1 or 0.3
+              end },
+            { tooltip = "Class Colored Fill. Units without a class keep their power color.",
+              hasAlpha = false,
+              getValue = function()
+                  local _, ct = UnitClass("player")
+                  local cc = EllesmereUI.GetClassColor(ct)
+                  return cc.r, cc.g, cc.b
+              end,
+              setValue = function() end,
+              onClick = function()
+                  UNIT_DB_MAP[optState.selectedUnit]().powerPercentPowerColor = true
+                  SSet("powerClassColored", true)
+                  UpdatePreview()
+                  EllesmereUI:RefreshPage()
+              end,
+              refreshAlpha = function()
+                  return (SVal("powerPercentPowerColor", true) and SVal("powerClassColored", false)) and 1 or 0.3
               end },
           } },
         { type="slider", text="Bar Background", min=0, max=100, step=1,
@@ -1849,6 +1867,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             local src = UNIT_DB_MAP[optState.selectedUnit]()
             local pc = src.powerPercentPowerColor
             if pc == nil then pc = true end
+            local pcc = src.powerClassColored or false
             local fc = src.customPowerFillColor
             local gEn = src.powerGradientEnabled or false
             local gDir = src.powerGradientDir or "HORIZONTAL"
@@ -1857,6 +1876,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                 if key ~= optState.selectedUnit then
                     local d = UNIT_DB_MAP[key]()
                     d.powerPercentPowerColor = pc
+                    d.powerClassColored = pcc
                     if fc then d.customPowerFillColor = { r=fc.r, g=fc.g, b=fc.b }
                     else d.customPowerFillColor = nil end
                     d.powerGradientEnabled = gEn
@@ -1885,6 +1905,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                     local ov = d.powerPercentPowerColor
                     if ov == nil then ov = true end
                     if ov ~= v then return false end
+                    if (d.powerClassColored or false) ~= (src.powerClassColored or false) then return false end
                     if not colEq(d.customPowerFillColor, src.customPowerFillColor) then return false end
                     if (d.powerGradientEnabled or false) ~= (src.powerGradientEnabled or false) then return false end
                     if not colEq(d.powerGradientColor, src.powerGradientColor) then return false end
@@ -2248,9 +2269,10 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
             rgn._lastInline = eyeBtn
             local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+            EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
             eyeTex:SetAllPoints()
             local function RefreshCostEye()
                 eyeTex:SetTexture(ns._ufShowPowerCostPreview and EllesmereUI.EYE_INVISIBLE_ICON or EllesmereUI.EYE_VISIBLE_ICON)
@@ -2262,11 +2284,11 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                 UpdatePreview()
             end)
             eyeBtn:SetScript("OnEnter", function(self)
-                self:SetAlpha(0.7)
+                EllesmereUI.SetGlyphAlpha(self, 0.7)
                 EllesmereUI.ShowWidgetTooltip(self, ns._ufShowPowerCostPreview and "Hide spell cost preview" or "Show spell cost preview")
             end)
             eyeBtn:SetScript("OnLeave", function(self)
-                self:SetAlpha(0.4)
+                EllesmereUI.SetGlyphAlpha(self, 0.4)
                 EllesmereUI.HideWidgetTooltip()
             end)
         end
@@ -3100,7 +3122,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
     if _supportsAbsorbs then
     sharedAbsorbsHeader, h = W:SectionHeader(parent, "ABSORBS AND HEALS", y); y = y - h
 
-    -- Names and orders live on ns (EllesmereUIUnitFrames.lua, shared with the
+    -- Names and orders live on ns (EUI_UnitFrames_Absorb.lua, shared with the
     -- Textures page tile); fresh copies here because the SharedMedia tail
     -- below is appended into them. Shield (regular) absorb order; heal absorb
     -- uses its own (it adds the two "Outlined" variants on top).
@@ -3142,7 +3164,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
 
     -- Effective absorb opacity: absorbOpacity once set, otherwise the
     -- pre-split behavior (clean -> absorbCleanAlpha, other styles 80).
-    -- Must match GetAbsorbOpacity in EllesmereUIUnitFrames.lua.
+    -- Must match GetAbsorbOpacity in EUI_UnitFrames_Absorb.lua.
     local function EffAbsorbOpacity()
         local v = SValSupported("absorbOpacity", nil)
         if v then return v end
@@ -3417,9 +3439,10 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         rgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshHealEye()
             eyeTex:SetTexture(optState.showHealAbsorbPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -3431,11 +3454,11 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             UpdatePreview()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, optState.showHealAbsorbPreview and "Hide heal absorb preview" or "Show heal absorb preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
     end
@@ -3640,9 +3663,10 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         rgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshPredEye()
             eyeTex:SetTexture(ns._ufShowHealPredPreview and EllesmereUI.EYE_INVISIBLE_ICON or EllesmereUI.EYE_VISIBLE_ICON)
@@ -3654,11 +3678,11 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             UpdatePreview()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, ns._ufShowHealPredPreview and "Hide heal prediction preview" or "Show heal prediction preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
     end

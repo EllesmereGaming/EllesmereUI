@@ -648,7 +648,7 @@ end
 FB.FreePin = function(c, point, x, y)
     local P = EllesmereUI.PP
     local ux, uy = UIParent:GetCenter()
-    if P and P.SnapForES and ux then
+    if ux then
         local es = c:GetEffectiveScale()
         if point == "CENTER" then
             -- A secret size falls back to the even (whole-pixel) centre.

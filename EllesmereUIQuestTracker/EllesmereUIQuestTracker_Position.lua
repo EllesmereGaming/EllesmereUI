@@ -12,6 +12,7 @@ local HEIGHT_MIN, HEIGHT_MAX, HEIGHT_STEP = 400, 1000, 10
 
 local emAnchor = { relativeTo = "UIParent" }
 local hooked, changed, reloadOffered, resetPending, syncQueued, standIn, standInPlaced, sessionHeight
+local selectionOff
 
 -- Until its Edit Mode layout applies, the managed container places it.
 local function Held()
@@ -122,12 +123,12 @@ local function ResetLayout()
 end
 
 -- While we own the spot, Edit Mode's selection box cannot pick the tracker
--- up: a drag there would be overwritten by the next sync.
+-- up: a drag there would be overwritten by the next sync. Only a selection
+-- turned off here is turned back on.
 local function SetEditModeSelectable(on)
-    local sel = _G.ObjectiveTrackerFrame.Selection
-    sel:SetAlpha(on and 1 or 0)
-    sel:SetMouseClickEnabled(on)
-    sel:SetMouseMotionEnabled(on)
+    if on and not selectionOff then return end
+    selectionOff = not on
+    EllesmereUI.SetEditModeChildInert(_G.ObjectiveTrackerFrame.Selection, not on)
 end
 
 local function OfferReload()
@@ -147,13 +148,19 @@ local function WarnPreset()
         title = "Copy Your Edit Mode Layout",
         message = "Your active Edit Mode layout is one of Blizzard's presets, which cannot be changed. Copy it in Edit Mode, then move the quest tracker again.",
         confirmText = "Okay",
+        hideCancel = true,
     })
 end
 
 function EQT.SyncPosition()
     syncQueued = nil
     local cfg = EQT.DB()
-    if not cfg.position or EllesmereUI._unlockActive then return end
+    if EllesmereUI._unlockActive then return end
+    -- A profile with no spot of ours hands the selection back to Edit Mode.
+    if not cfg.position then
+        SetEditModeSelectable(true)
+        return
+    end
     if InCombatLockdown() then
         ns.CombatQueue.Defer("QTPosition", EQT.SyncPosition)
         return
@@ -216,6 +223,9 @@ function EQT.InitPosition()
             end,
             isHidden = function() return not EQT.Cfg("enabled") end,
             isPositionHeld = Held,
+            -- The shared Edit Mode layout holds the spot, and a change takes a
+            -- reload: one spot for every spec.
+            noSpecLayout = true,
             setHeight = function(_, h)
                 h = math.floor(h / HEIGHT_STEP + 0.5) * HEIGHT_STEP
                 h = math.max(HEIGHT_MIN, math.min(HEIGHT_MAX, h))
