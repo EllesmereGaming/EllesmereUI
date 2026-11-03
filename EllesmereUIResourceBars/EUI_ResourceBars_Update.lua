@@ -74,13 +74,9 @@ I.UpdateGCDBarSetters[#I.UpdateGCDBarSetters + 1] = function(v) UpdateGCDBar = v
 -- (EllesmereUI_NumberFormat.lua). On ns, not a local:
 -- the druid mana bar file reads it too.
 ns.AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
--- Health text: the global Number Format for valueType, else the default above
--- (which power text keeps). On ns for the options preview.
-function ns.AbbreviateValue(n, valueType)
-    local opts = EllesmereUI.NumberFormatOptions(valueType)
-    if opts then return AbbreviateNumbers(n, opts) end
-    return ns.AbbreviateNumbers(n)
-end
+-- Health text: the global Number Format for valueType (power text keeps the
+-- default above). On ns for the options preview.
+ns.AbbreviateValue = EllesmereUI.AbbreviateValue
 EllesmereUI.RegisterNumberFormatCallback(function() I.UpdateHealthBar() end)
 local function UpdateHealthBar()
     if not healthBar or not healthBar:IsShown() then return end

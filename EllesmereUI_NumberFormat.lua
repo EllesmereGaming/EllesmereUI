@@ -259,6 +259,23 @@ local function BuildRows(precision, glyphs, lower)
     return rows
 end
 
+-- The effective settings as one string, so a profile switch that keeps the same
+-- format skips the module repaints (the switch repaints them anyway). The first
+-- value drawn records the format it was drawn in (NumberFormatOptions).
+local TYPES = EllesmereUI.NUMBER_FORMAT_TYPES
+local lastSignature
+local function Signature()
+    local active = ActiveProfile()
+    local nf = active and active.numberFormat
+    local _, western = ActiveUnits(nf)
+    local parts = { western and "w" or "a", (nf and nf.case == "lower") and "l" or "u" }
+    for i = 1, #TYPES do
+        local precision, threshold = TypeSettings(nf, TYPES[i])
+        parts[#parts + 1] = precision .. "," .. threshold
+    end
+    return table.concat(parts, ";")
+end
+
 -- Resolved opts per value type (false = "use the caller's own default"), wiped
 -- by RefreshNumberFormat; optsByTypeW holds the forceWestern variants.
 -- cfgBySpec shares one config between identical specs; the locale is fixed per
@@ -308,6 +325,7 @@ function EllesmereUI.NumberFormatOptions(valueType, forceWestern)
     if o == nil then
         local cacheable
         o, cacheable = ResolveOptions(valueType, forceWestern)
+        if not lastSignature then lastSignature = Signature() end
         if cacheable then
             cache[valueType] = o
             if valueType == "meter" then
@@ -326,34 +344,22 @@ function EllesmereUI.RegisterNumberFormatCallback(fn)
     refreshCallbacks[#refreshCallbacks + 1] = fn
 end
 
--- The effective settings as one string, so a profile switch that keeps the same
--- format skips the module repaints (the switch repaints them anyway).
-local TYPES = EllesmereUI.NUMBER_FORMAT_TYPES
-local lastSignature
-local function Signature()
-    local active = ActiveProfile()
-    local nf = active and active.numberFormat
-    local _, western = ActiveUnits(nf)
-    local parts = { western and "w" or "a", (nf and nf.case == "lower") and "l" or "u" }
-    for i = 1, #TYPES do
-        local precision, threshold = TypeSettings(nf, TYPES[i])
-        parts[#parts + 1] = precision .. "," .. threshold
-    end
-    return table.concat(parts, ";")
-end
-
 -- EllesmereUI.RefreshNumberFormat()
 --   Drops the resolved per-type options (after a settings change or a profile
 --   switch) and, when the effective format changed, notifies the registered
---   modules. It runs inside the profile switch, so one failing callback is
---   reported without stopping the rest.
+--   modules. Before any value is drawn there is nothing to redraw (the
+--   spec-assigned profile is switched in before the modules enable). It runs
+--   inside the profile switch, so one failing callback is reported without
+--   stopping the rest.
 function EllesmereUI.RefreshNumberFormat()
     wipe(optsByType)
     wipe(optsByTypeW)
     meterOpts, meterOptsW = nil, nil
     local signature = Signature()
     if signature == lastSignature then return end
+    local drawn = lastSignature ~= nil
     lastSignature = signature
+    if not drawn then return end
     local handler = geterrorhandler()
     for i = 1, #refreshCallbacks do xpcall(refreshCallbacks[i], handler) end
 end
@@ -375,6 +381,19 @@ function EllesmereUI.AbbreviateNumber(n, forceWestern)
         return AbbreviateNumbers(tonumber(n) or 0, meterOptsW or NumberFormatOptions("meter", true))
     end
     return AbbreviateNumbers(tonumber(n) or 0, meterOpts or NumberFormatOptions("meter"))
+end
+
+-- EllesmereUI.AbbreviateValue(v, valueType) -> string
+--   v as valueType under the Number Format (health, max health, absorb and boss
+--   health text). Precision "standard" keeps the default call: the client's own
+--   format, on WoW Forever this file's table with its 10,000 cut. v goes straight
+--   to the C function, so a secret value stays secret-safe.
+local IS_FOREVER = EllesmereUI.IS_FOREVER
+function EllesmereUI.AbbreviateValue(v, valueType)
+    local opts = NumberFormatOptions(valueType)
+    if opts then return AbbreviateNumbers(v, opts) end
+    if IS_FOREVER then return AbbreviateNumbers(v, BuildConfig(false)) end
+    return AbbreviateNumbers(v)
 end
 
 -- EllesmereUI.AbbreviateNumberFixed(n, forceEnglish) -> string

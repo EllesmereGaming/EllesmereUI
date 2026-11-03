@@ -305,6 +305,22 @@ if EllesmereUI.IS_FOREVER then
 end
 ns.RACE_RACIALS = RACE_RACIALS
 
+-- Where a repopulate another addon requests (EllesmereUI.RequestCDMRepopulate,
+-- for profile installers) puts this character's racial slot, by racial spell
+-- ID (both clients'): the Cooldowns bar (Blizzard's Essential) or the Utility
+-- bar, at its end. A racial not listed follows Blizzard's layout instead.
+ns.RACIAL_REPOP_BAR = {
+    [20572] = "cooldowns", [33697] = "cooldowns", [33702] = "cooldowns",  -- Blood Fury
+    [20554] = "cooldowns", [26297] = "cooldowns",                         -- Berserking
+    [7744] = "utility",                                                   -- Will of the Forsaken
+    [20549] = "utility",                                                  -- War Stomp
+    [1259718] = "utility", [59752] = "utility",                           -- Will to Survive
+    [20594] = "utility",                                                  -- Stoneform
+    [20580] = "utility", [58984] = "utility",                             -- Shadowmeld
+    [20589] = "utility",                                                  -- Escape Artist
+    [1259705] = "utility", [1259686] = "utility",                         -- Read Ley Line, Skysight
+}
+
 local ALL_RACIAL_SPELLS = {}
 for _, racials in pairs(RACE_RACIALS) do
     for _, entry in ipairs(racials) do

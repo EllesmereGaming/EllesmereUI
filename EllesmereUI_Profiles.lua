@@ -932,7 +932,7 @@ local function RepointAllDBs(profileName)
     -- darken propagates to class/power colours even in global colour mode.
     EllesmereUI.RefreshDarkMode()
     -- Number Format is per-profile too: drop the resolved configs and redraw.
-    if EllesmereUI.RefreshNumberFormat then EllesmereUI.RefreshNumberFormat() end
+    EllesmereUI.RefreshNumberFormat()
     -- Sidebar sync icons key off the ACTIVE profile's group membership;
     -- re-evaluate them on every repoint (switch/create/delete/rename/import)
     if EllesmereUI._syncRefreshFns then

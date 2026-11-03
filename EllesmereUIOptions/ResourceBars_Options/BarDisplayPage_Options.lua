@@ -529,7 +529,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                       end
                   end },
                 { type = "toggle", label = "Continuous Texture for Pip Resources",
-                  tooltip = "Pip-style class resources (Runes, Holy Power, Arcane Charges, etc.) use one continuous texture across the full resource bar instead of restarting the texture on every pip. This is useful for gradient textures.",
+                  tooltip = "Spreads the texture across all pips instead of restarting it on each one. Useful for gradient textures.",
                   get = function()
                       local p = DB(); return (p and p.secondary.useContinuousTexture) or false
                   end,

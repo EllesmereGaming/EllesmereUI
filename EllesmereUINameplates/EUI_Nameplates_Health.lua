@@ -29,13 +29,9 @@ I.profileSetters[#I.profileSetters + 1] = function(v) p = v end
 -- WoW Forever: no health number under 10,000 abbreviates (EllesmereUI_NumberFormat.lua).
 -- On ns, not a local: this chunk is near its 200-local cap.
 ns.AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
--- Health, max health and absorb text: the global Number Format for valueType,
--- else the default above (which the threat gap text keeps).
-function ns.AbbreviateValue(n, valueType)
-    local opts = EllesmereUI.NumberFormatOptions(valueType)
-    if opts then return AbbreviateNumbers(n, opts) end
-    return ns.AbbreviateNumbers(n)
-end
+-- Health, max health and absorb text: the global Number Format for valueType
+-- (the threat gap text keeps the default above).
+ns.AbbreviateValue = EllesmereUI.AbbreviateValue
 -- A format change repaints every plate's health texts, value memo dropped.
 EllesmereUI.RegisterNumberFormatCallback(function()
     for _, plate in pairs(ns.plates) do

@@ -13,6 +13,7 @@ if not I or I.broken then return end
 I.broken = true
 
 local ALL_RACIAL_SPELLS, ECME, _myRacialsSet = I.ALL_RACIAL_SPELLS, I.ECME, I._myRacialsSet
+local ResolveActiveRacial = I.ResolveActiveRacial
 local GHOST_CD_BAR_KEY, MAIN_BAR_KEYS = I.GHOST_CD_BAR_KEY, I.MAIN_BAR_KEYS
 local SaveCurrentSpecProfile, barDataByKey = I.SaveCurrentSpecProfile, I.barDataByKey
 local CaptureCDMPositions = I.CaptureCDMPositions
@@ -1174,19 +1175,37 @@ end
 --- maps and reanchors. Preserves user-added entries:
 ---   * Negative IDs (trinket slots -13/-14, item presets <= -100)
 ---   * Custom spell IDs (entries in sd.customSpellIDs)
----   * Racial spells (entries in _myRacialsSet)
-function ns.RepopulateFromBlizzard()
+---   * Racial spells (entries in _myRacialsSet), except on a repopulate another
+---     addon requested (fromRequest, EllesmereUI.RequestCDMRepopulate) while the
+---     racial has a place: the bar ns.RACIAL_REPOP_BAR lists for it, else where
+---     Blizzard's viewers show it.
+function ns.RepopulateFromBlizzard(fromRequest)
     local p = ECME.db and ECME.db.profile
     if not p or not p.cdmBars then return end
     local specKey = ns.GetActiveSpecKey()
     if not specKey or specKey == "0" then return end
+
+    -- Requested repopulate: the racial slot's place. A listed racial goes to the
+    -- end of its bar (below); an unlisted one shown by Blizzard's viewers is
+    -- placed by the reseed like any spell; with neither the slot stays as it is.
+    local racialSid, racialBar, racialMoves
+    if fromRequest then
+        racialSid = ResolveActiveRacial()
+        racialBar = racialSid and ns.RACIAL_REPOP_BAR[racialSid]
+        racialMoves = racialBar ~= nil
+        if racialSid and not racialMoves then
+            for _, e in ipairs(ns.EnumerateCDMViewerSpells(false)) do
+                if _myRacialsSet[e.sid] then racialMoves = true; break end
+            end
+        end
+    end
 
     -- A spell ID is "user-added" (preserved across repopulate) if it's a negative preset marker, a custom spell ID added via the picker, or a racial belonging to this character.
     local function IsUserAdded(sd, id)
         if type(id) ~= "number" or id == 0 then return false end
         if id < 0 then return true end
         if sd.customSpellIDs and sd.customSpellIDs[id] then return true end
-        if _myRacialsSet and _myRacialsSet[id] then return true end
+        if _myRacialsSet and _myRacialsSet[id] and not racialMoves then return true end
         -- A positive id carrying a stored duration is one of OUR injected preset/custom buffs
         -- (Bloodlust/Heroism, potions, Time Spiral, custom buff IDs). Blizzard-tracked buffs are
         -- never written into assignedSpells with a duration, so this can only be a user-added entry -- preserve it. Presets predate the customSpellIDs flag, so the flag alone is not enough.
@@ -1256,6 +1275,28 @@ function ns.RepopulateFromBlizzard()
 
     ns.ReseedAssignedSpellsFromLiveIcons()
 
+    -- A listed racial: its one slot at the end of its bar, wherever the reseed
+    -- put Blizzard's copy. Buff bars keep their entries (a racial's buff can
+    -- share its spell ID).
+    local racialSD = racialBar and ns.GetBarSpellData(racialBar)
+    if racialSD then
+        for _, b in ipairs(p.cdmBars.bars) do
+            local isBuff = b.barType == "custom_buff" or ns.IsBarBuffFamily(b)
+            local sd = not isBuff and b.key and ns.GetBarSpellData(b.key)
+            local list = sd and sd.assignedSpells
+            if list then
+                for i = #list, 1, -1 do
+                    if ALL_RACIAL_SPELLS[list[i]] then table.remove(list, i) end
+                end
+            end
+        end
+        if not racialSD.assignedSpells then racialSD.assignedSpells = {} end
+        racialSD.assignedSpells[#racialSD.assignedSpells + 1] = racialSid
+        ns._spellOrderDirty = true
+        if ns.RebuildSpellRouteMap then ns.RebuildSpellRouteMap() end
+        if ns.QueueReanchor then ns.QueueReanchor() end
+    end
+
     C_Timer.After(1, function()
         local sk = ns.GetActiveSpecKey()
         if sk and sk ~= "0" then
@@ -1270,7 +1311,8 @@ end
 --  Blizzard CDM button's work for this character: each requested spec is
 --  repopulated the next time it is active and settled, at the final layout
 --  pass of a login, reload or spec swap (Blizzard's viewer pools hold that
---  spec's icons by then), never during combat. A profile installer that writes
+--  spec's icons by then) once Blizzard has loaded its saved layouts, never
+--  during combat. A profile installer that writes
 --  Blizzard CDM layouts calls it before its ReloadUI. Requests are kept per
 --  character, by the game's own spec IDs, in EllesmereUIDB.cdmRepopulatePending.
 -------------------------------------------------------------------------------
@@ -1317,6 +1359,9 @@ end
 
 -- Runs the live spec's queued repopulate, if any. Called a frame after the
 -- final layout pass; in combat it waits for combat to end and checks again.
+-- Until Blizzard has loaded its saved layouts its viewers show the class
+-- defaults (a new character's first login can reach the final pass first),
+-- so the request waits for the data-loaded wake in EUI_CDM_Lifecycle.lua.
 function ns.RunQueuedRepopulate()
     local pending = EllesmereUIDB and EllesmereUIDB.cdmRepopulatePending
     if not pending then return end
@@ -1325,6 +1370,10 @@ function ns.RunQueuedRepopulate()
     if not mine then return end
     local id = LiveSpecID()
     if not id or not mine[id] then return end
+    if not ns._cdmDataLoaded then
+        ns._repopAwaitsLayouts = true
+        return
+    end
     if InCombatLockdown() then
         ns.CombatQueue.Defer("CDMQueuedRepopulate", ns.RunQueuedRepopulate)
         return
@@ -1333,7 +1382,7 @@ function ns.RunQueuedRepopulate()
     mine[id] = nil
     if not next(mine) then pending[charKey] = nil end
     if not next(pending) then EllesmereUIDB.cdmRepopulatePending = nil end
-    ns.RepopulateFromBlizzard()
+    ns.RepopulateFromBlizzard(true)
 end
 
 I.CDMFirstLoginCapture = CDMFirstLoginCapture

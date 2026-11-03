@@ -591,7 +591,7 @@ function EUI_Bags:SyncHeaderIcons()
         edge = self._sellJunkBtn:IsShown() and self._sellJunkBtn or self._junkBtn
     end
     self._hdrEdge = edge
-    if self.FitHeaderText then self:FitHeaderText() end
+    self:FitHeaderText()
 end
 
 -- The slots one Sell Junk sweep may sell, gathered once as bag * 1000 + slot

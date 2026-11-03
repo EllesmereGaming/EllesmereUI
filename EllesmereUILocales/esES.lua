@@ -7698,7 +7698,7 @@ L["tooltip"] = "descripción"
 L["uprank"] = "subir de rango"
 
 -- == Opciones comunes y novedades de la 9.4 ================================
-L["%d / %d Items"] = "%d / %d objetos"
+L["%d / %d Slots"] = "%d / %d huecos"
 L["%d Items"] = "%d objetos"
 L["%d remaining"] = "Faltan %d"
 L[" Crests"] = " blasones"
