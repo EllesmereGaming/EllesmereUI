@@ -166,13 +166,15 @@ local function ShowIcon(iconIdx, m)
     local btn = GetOrCreateIcon(iconIdx)
     btn._dismissKey = m.dismissKey or nil
     btn._petCycleTotal = m.petCycleTotal or nil
+    btn._requestKey = m.requestKey or nil
+    btn._requestName = m.requestName or nil
     -- Right-click is passed through to whatever's behind (e.g. camera drag)
     -- for every other reminder; only a multi-pet cycle button claims it.
     -- Left-click is passed through too on a groupmate's raid buff the player
-    -- cannot cast: nothing it could do (the middle-click dismiss stays).
-    -- Click-routing changes are combat-protected, same as the attribute
-    -- writes below, so this only ever runs OOC.
-    local receiver = EABR.IsReceiverRaidBuff(m)
+    -- cannot cast, unless Click to Request Buff gives it one (the
+    -- middle-click dismiss stays). Click-routing changes are combat-protected,
+    -- same as the attribute writes below, so this only ever runs OOC.
+    local receiver = EABR.IsReceiverRaidBuff(m) and not m.requestKey
     if not InCombat() then
         local pass = (receiver and 1 or 0) + (m.petCycleTotal and 0 or 2)
         if btn._passButtons ~= pass then
@@ -278,8 +280,9 @@ do
                     end
                     if isMissing then
                         local e = AcquireEntry()
+                        local sname = _G._EABR_SpellName(buff.castSpell, buff.name)
                         e.spellID = buff.castSpell
-                        e.label = ShortLabel(_G._EABR_SpellName(buff.castSpell, buff.name))
+                        e.label = ShortLabel(sname)
                         if buff.check == "huntersMark" then e.unit = "target" end
                         e.cat = "raidbuff"; e.data = buff
                         e.dismissKey = buff.key and ("raidbuff:" .. buff.key) or nil
@@ -288,10 +291,14 @@ do
                             e.groupTotal = groupTotal
                         end
                         if doReceiver then
-                            -- Receiver reminders are informational: texture
-                            -- mode, no click action.
+                            -- Receiver reminders: texture mode, no cast; a
+                            -- left-click may ask the group for the buff.
                             e.mode = "texture"
                             e.texture = Tex(buff.castSpell)
+                            if rb.requestOnClick then
+                                e.requestKey = buff.key
+                                e.requestName = sname
+                            end
                         else
                             e.mode = "spell"
                         end
@@ -882,6 +889,10 @@ local specialsActive = EABR.SectionShows(EABR.SpecialsWhere(co, specialFields an
                 e.label = EllesmereUI.L("HS")
                 e.cat = "consumable"
                 e.dismissKey = "consumable:healthstone"
+                if db.profile.raidBuffs.requestOnClick and GetPlayerClass() ~= "WARLOCK" then
+                    e.requestKey = "healthstone"
+                    e.requestName = EllesmereUI.L("Healthstones")
+                end
                 missing[#missing+1] = e
             end
         end

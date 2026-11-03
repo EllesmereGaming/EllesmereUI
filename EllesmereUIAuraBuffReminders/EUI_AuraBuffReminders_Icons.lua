@@ -603,6 +603,8 @@ local function FadeOutSecureIcons()
         local btn = activeIcons[i]
         if btn then
             btn:SetAlpha(0)
+            -- A faded button still takes clicks: no buff request from it.
+            btn._requestKey = nil
             if btn._text then btn._text:SetAlpha(0) end
             if btn._eabrGlowWrapper then StopAllGlows(btn._eabrGlowWrapper); btn._eabrGlowWrapper:SetAlpha(0) end
         end
@@ -761,6 +763,76 @@ function EABR.NotifyCombatClickDisabled()
     EABR._clickHintAt = now
     if UIErrorsFrame then
         UIErrorsFrame:AddMessage(EllesmereUI.L("Click-to-use is disabled in combat"), 1.0, 0.3, 0.3, 1.0)
+    end
+end
+
+-- Click to request: a left-click on a reminder of a buff a groupmate gives
+-- (receiver raid buff, Healthstone) asks the group for it in chat, at most
+-- once per buff every REQUEST_THROTTLE seconds. The Custom Request Text
+-- replaces the default line; REQUEST_TOKEN in it (any case) becomes the
+-- buff's name.
+do
+    local REQUEST_THROTTLE = 10
+    local REQUEST_TOKEN = "[spell]"
+    local TOKEN_PATTERN = "%[[Ss][Pp][Ee][Ll][Ll]%]"  -- any case
+    local sentAt = {}
+
+    -- Cuts s to at most n bytes without splitting a UTF-8 character.
+    local function CutBytes(s, n)
+        if #s <= n then return s end
+        return (s:sub(1, n):gsub("[\192-\255][\128-\191]*$", ""))
+    end
+
+    -- Custom text as saved: "|" and control characters dropped (the chat API
+    -- rejects stray escape codes), trimmed, capped; nil when empty.
+    local function CleanRequestText(text)
+        if type(text) ~= "string" then return nil end
+        text = CutBytes(strtrim((text:gsub("[%c|]", ""))), 200)
+        if text == "" then return nil end
+        return text
+    end
+    -- Custom text until the player saves their own (shows where the token goes).
+    local function RequestExample()
+        return EllesmereUI.Lf("Could I get %1$s, please?", REQUEST_TOKEN)
+    end
+    local function HasRequestToken(text)
+        return text:find(TOKEN_PATTERN) ~= nil
+    end
+    _G._EABR_REQUEST_TOKEN = REQUEST_TOKEN
+    _G._EABR_HasRequestToken = HasRequestToken
+    _G._EABR_CleanRequestText = CleanRequestText
+    _G._EABR_RequestExample = RequestExample
+
+    local function RequestChannel()
+        if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then return "INSTANCE_CHAT" end
+        if IsInRaid() then return "RAID" end
+        if IsInGroup() then return "PARTY" end
+    end
+
+    function EABR.SendBuffRequest(key, name)
+        if InCombatLockdown() then return end
+        local channel = RequestChannel()
+        if not channel then return end
+        if not name then return end
+        if C_ChatInfo.InChatMessagingLockdown() then
+            if UIErrorsFrame then
+                UIErrorsFrame:AddMessage(EllesmereUI.L("Buff requests cannot be sent right now"), 1.0, 0.3, 0.3, 1.0)
+            end
+            return
+        end
+        local now = GetTime()
+        if sentAt[key] and now - sentAt[key] < REQUEST_THROTTLE then return end
+        sentAt[key] = now
+        local rb = db.profile.raidBuffs
+        local custom = rb.requestCustom and CleanRequestText(rb.requestText or RequestExample())
+        local msg
+        -- Text without the token falls back to the default line.
+        if custom and HasRequestToken(custom) then
+            msg = custom:gsub(TOKEN_PATTERN, (name:gsub("%%", "%%%%")))
+        else
+            msg = EllesmereUI.Lf("%1$s, please!", name)
+        end
+        C_ChatInfo.SendChatMessage(CutBytes(msg, 255), channel)
     end
 end
 
@@ -1004,10 +1076,12 @@ local function GetOrCreateIcon(index)
     -- casting (ShowIcon's pass-through toggle decides whether this reminder
     -- claims the click at all, vs letting it fall through like every other
     -- reminder does).
-    btn:HookScript("PostClick", function(self, button)
+    btn:HookScript("PostClick", function(self, button, down)
         if button == "MiddleButton" and self._dismissKey then
             _dismissedUntilLoad[self._dismissKey] = true
             if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+        elseif button == "LeftButton" and self._requestKey and not down then
+            EABR.SendBuffRequest(self._requestKey, self._requestName)
         elseif button == "RightButton" and self._petCycleTotal then
             EABR._petCycleIndex = ((EABR._petCycleIndex or 1) % self._petCycleTotal) + 1
             if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
@@ -1120,6 +1194,7 @@ do
         e.substitute = nil
         e.groupHave = nil
         e.groupTotal = nil
+        e.requestKey = nil; e.requestName = nil
         return e
     end
 
