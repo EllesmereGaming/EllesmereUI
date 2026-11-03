@@ -9,7 +9,7 @@ local T = addon.Locale.Text
 
 
 
-addon.SCHEMA_VERSION = 16
+addon.SCHEMA_VERSION = 17
 
 
 local interface = GetBuildInfo and select(4, GetBuildInfo())
@@ -37,6 +37,9 @@ addon.defaults = {
 
 
     lootMaster = nil,
+
+
+    lootMasterKept = nil,
 
 
     council = {},
@@ -148,7 +151,7 @@ addon.defaults = {
 
         autoHandover = false,
 
-        dropDelegationOnLead = false,
+        dropPromotionOnLead = false,
     },
 
 
@@ -506,6 +509,17 @@ addon.migrations = addon.Locale.Texts{
 
             if db.responseTab ~= true then return false end
             db.responseTab = false
+        end,
+    },
+    {
+        version = 17,
+        name = "drop-promotion-on-lead setting renamed",
+        func = function(db)
+
+            local prompt = db.raidPrompt
+            if type(prompt) ~= "table" or prompt.dropDelegationOnLead == nil then return false end
+            prompt.dropPromotionOnLead = prompt.dropDelegationOnLead
+            prompt.dropDelegationOnLead = nil
         end,
     },
 }

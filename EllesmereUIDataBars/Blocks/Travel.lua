@@ -69,6 +69,8 @@ local TRAVEL_EXTRAS = {
     126892,  -- Zen Pilgrimage (monk)
     1238686, -- Rootwalking (Haranir)
 }
+local TRAVEL_EXTRA_SET = {}
+for _, id in ipairs(TRAVEL_EXTRAS) do TRAVEL_EXTRA_SET[id] = true end
 -- Entries that are not toys.
 local TRAVEL_EXTRA_KIND = {
     [556] = "spell", [193753] = "spell", [18960] = "spell", [50977] = "spell",
@@ -102,9 +104,29 @@ local function TravelExtraKind(id)
     return PlayerHasToy(id) and "toy" or nil
 end
 
--- Options-side exports: the hearthstone dropdown lists owned pool entries.
+-- nil until the game has cached the name.
+local function TravelEntryName(id)
+    if TRAVEL_EXTRA_SET[id] and TravelExtraKind(id) == "spell" then
+        local info = C_Spell.GetSpellInfo(id)
+        return info and info.name
+    end
+    if C_ToyBox and C_ToyBox.GetToyInfo then
+        local _, tn = C_ToyBox.GetToyInfo(id)
+        if tn then return tn end
+    end
+    if C_Item and C_Item.GetItemNameByID then
+        local n = C_Item.GetItemNameByID(id)
+        if n then return n end
+    end
+    return nil
+end
+
+-- Options-side exports.
 ns.TravelHearthstoneIDs = HEARTHSTONE_IDS
 ns.TravelIsUsable = TravelIsUsable
+ns.TravelExtraIDs = TRAVEL_EXTRAS
+ns.TravelExtraUsable = function(id) return TravelExtraKind(id) ~= nil end
+ns.TravelEntryName = TravelEntryName
 
 -- Returns remaining, known. In restricted combat cooldown numbers are SECRET: comparing
 -- or dead-reckoning them throws (type() still says "number"), so those report 0, false and
@@ -129,6 +151,133 @@ local function TravelGetRemainingCooldown(id, isSpell)
         return max(0, startTime + duration - GetTime()), true
     end
     return 0, true
+end
+
+-- Player housing: a "house:<guid>" click uses Blizzard's teleporthome secure action
+-- (returnhome while a return trip is available). The house list arrives
+-- asynchronously; its listener registers only while a click or the options page needs it.
+local HOUSE_PREFIX = "house:"
+local travelHouses
+local houseWatchers = {}
+local houseOptionsWaiting
+local houseEv = CreateFrame("Frame")
+
+local function TravelHousingAvailable()
+    return not EllesmereUI.IS_FOREVER and C_Housing and C_Housing.GetPlayerOwnedHouses ~= nil
+end
+
+-- As the house favor bar: no request in a keystone or raid; world entry retries.
+local function TravelHousingBlocked()
+    if C_ChallengeMode and C_ChallengeMode.IsChallengeModeActive
+        and C_ChallengeMode.IsChallengeModeActive() then
+        return true
+    end
+    local inInst, instType = IsInInstance()
+    return (inInst and instType == "raid") and true or false
+end
+
+local function TravelRequestHouses()
+    if TravelHousingBlocked() then return end
+    C_Housing.GetPlayerOwnedHouses()
+end
+
+local function TravelSyncHouseEvents()
+    local watching = next(houseWatchers) ~= nil
+    if watching or houseOptionsWaiting then
+        houseEv:RegisterEvent("PLAYER_HOUSE_LIST_UPDATED")
+    else
+        houseEv:UnregisterEvent("PLAYER_HOUSE_LIST_UPDATED")
+    end
+    if watching then
+        houseEv:RegisterEvent("PLAYER_ENTERING_WORLD")
+    else
+        houseEv:UnregisterEvent("PLAYER_ENTERING_WORLD")
+    end
+end
+
+houseEv:SetScript("OnEvent", function(_, event, houses)
+    if event == "PLAYER_ENTERING_WORLD" then
+        TravelRequestHouses()
+        return
+    end
+    travelHouses = type(houses) == "table" and houses or {}
+    local onLoaded = houseOptionsWaiting
+    houseOptionsWaiting = nil
+    TravelSyncHouseEvents()
+    for inst in next, houseWatchers do inst:OnHouseList() end
+    if onLoaded then onLoaded() end
+end)
+
+local function TravelWatchHouses(inst, on)
+    on = on and TravelHousingAvailable() or false
+    if (houseWatchers[inst] == true) == on then return end
+    houseWatchers[inst] = on or nil
+    TravelSyncHouseEvents()
+    if on and not travelHouses then TravelRequestHouses() end
+end
+
+function ns.TravelRequestHouseList(onLoaded)
+    if travelHouses or houseOptionsWaiting or not TravelHousingAvailable() or TravelHousingBlocked() then return end
+    houseOptionsWaiting = onLoaded
+    TravelSyncHouseEvents()
+    TravelRequestHouses()
+end
+
+local function TravelIsHouseChoice(choice)
+    return type(choice) == "string" and choice:find(HOUSE_PREFIX, 1, true) == 1
+end
+
+local function TravelUsableHouse(h)
+    return h and h.houseGUID and h.neighborhoodGUID and h.plotID
+        and not issecretvalue(h.houseGUID) and not issecretvalue(h.neighborhoodGUID)
+end
+
+local function TravelFindHouse(choice)
+    if not (travelHouses and TravelIsHouseChoice(choice)) then return nil end
+    local guid = choice:sub(#HOUSE_PREFIX + 1)
+    for _, h in ipairs(travelHouses) do
+        if TravelUsableHouse(h) and h.houseGUID == guid then return h end
+    end
+    return nil
+end
+
+-- Skips the opaque placeholder name some clients report.
+local function TravelHouseName(h)
+    local n = h and h.houseName
+    if n and not issecretvalue(n) and n ~= "" and not n:match("^Home%-opaque%-%d+$") then return n end
+    return L["HOME"]
+end
+
+local function TravelCanReturnHome()
+    local f = C_HousingNeighborhood and C_HousingNeighborhood.CanReturnAfterVisitingHouse
+    if not f then return false end
+    local ok, can = pcall(f)
+    return ok and can == true
+end
+
+-- Returns remaining, known; 2s or less is the global cooldown, read as ready.
+local function TravelHouseCooldown()
+    local info = C_Housing and C_Housing.GetVisitCooldownInfo and C_Housing.GetVisitCooldownInfo()
+    if not info or not info.isEnabled then return 0, true end
+    if issecretvalue(info.startTime) or issecretvalue(info.duration) then return 0, false end
+    local rem = 0
+    if (info.duration or 0) > 2 and (info.startTime or 0) > 0 then
+        rem = max(0, info.startTime + info.duration - GetTime())
+    end
+    return rem, true
+end
+
+-- Options-side: owned houses as { key = "house:<guid>", name = ... }.
+function ns.TravelHouseChoices()
+    local out = {}
+    if travelHouses then
+        for _, h in ipairs(travelHouses) do
+            if TravelUsableHouse(h) then
+                out[#out + 1] = { key = HOUSE_PREFIX .. h.houseGUID, name = TravelHouseName(h) }
+            end
+        end
+    end
+    return out
 end
 
 local _hearthList = {}
@@ -162,6 +311,35 @@ local function TravelPickHearthstone(randomize)
     return list[1]
 end
 
+-- Per button (1 left, 2 right, 3 middle): "none", "random", "house:<guid>" or an id.
+local function TravelClickChoice(dt, btn)
+    local c
+    if btn == 1 then
+        c = dt.hsChoice
+        if c == nil then c = dt.randomizeHs and "random" or 6948 end
+    elseif btn == 2 then
+        c = dt.hsChoiceRight
+        if c == nil then c = "random" end
+    else
+        c = dt.hsChoiceMiddle
+        if c == nil then c = "none" end
+    end
+    return c
+end
+ns.TravelClickChoice = TravelClickChoice
+
+-- Id a choice fires now: nil for "none"; an entry the player lacks falls back to the hearthstone.
+local function TravelResolveChoice(choice)
+    if choice == "none" then return nil end
+    if choice == "random" then return TravelPickHearthstone(true) end
+    if TRAVEL_EXTRA_SET[choice] then
+        if TravelExtraKind(choice) then return choice end
+    elseif type(choice) == "number" and TravelIsUsable(choice) then
+        return choice
+    end
+    return TravelPickHearthstone(false)
+end
+
 -- Negative-result cache: with NO usable hearthstone the 1s cooling probe would re-scan all
 -- ~40 candidates every second forever. Ownership only changes via edges the block already
 -- listens to (hearth bind, world entry, bag/spell changes), which clear this through ns.TravelInvalidateHearthCache.
@@ -183,6 +361,153 @@ local function TravelGetPrimaryCooldown()
         end
     end
     return TravelGetRemainingCooldown(travelPrimaryHearthId, false)
+end
+
+-- "smart": the cooldown while cooling, else the destination.
+local TEXT_KEYS = { "textLeft", "textRight", "textMiddle" }
+local function TravelClickTextMode(dt, btn)
+    local m = dt[TEXT_KEYS[btn]]
+    if m ~= nil then return m end
+    return btn == 1 and "location" or "none"
+end
+ns.TravelClickTextMode = TravelClickTextMode
+
+local function TravelAnyTimerText(dt)
+    for btn = 1, 3 do
+        local m = TravelClickTextMode(dt, btn)
+        if m == "smart" or m == "both" or m == "cooldown" then return true end
+    end
+    return false
+end
+
+local TRAVEL_DESTINATIONS = {
+    [140192] = { global = "DUNGEON_FLOOR_DALARANCITY1" },
+    [253629] = { key = "TRAVEL_ARCANTINA" },
+    [110560] = { global = "GARRISON_LOCATION_TOOLTIP" },
+    [193753] = { global = "ORDER_HALL_DRUID" },
+    [18960]  = { key = "TRAVEL_MOONGLADE" },
+    [50977]  = { global = "ORDER_HALL_DEATHKNIGHT" },
+    [193759] = { global = "ORDER_HALL_MAGE" },
+    [126892] = { global = "ORDER_HALL_MONK" },
+}
+
+local HOUSE_ZONE_LABELS = { [2352] = "HOME_ALLIANCE", [2351] = "HOME_HORDE" } -- Founder's Point, Razorwind Shores
+
+-- Bar destination of a choice; nil means the bind location.
+local function TravelBarDestination(choice, tagHouses)
+    local h = TravelFindHouse(choice)
+    if h then
+        if not tagHouses then return EllesmereUI.L(L["HOME"]) end
+        local f = C_Housing.GetUIMapIDForNeighborhood
+        local ok, mapID = false, nil
+        if f then ok, mapID = pcall(f, h.neighborhoodGUID) end
+        local key = ok and HOUSE_ZONE_LABELS[mapID]
+        if key then return EllesmereUI.L(L[key]) end
+        return EllesmereUI.L(TravelHouseName(h))
+    end
+    if TRAVEL_EXTRA_SET[choice] and TravelExtraKind(choice) then
+        local d = TRAVEL_DESTINATIONS[choice]
+        local name = d and ((d.global and _G[d.global]) or (d.key and EllesmereUI.L(L[d.key])))
+        if name then return name end
+        if choice ~= 556 then return TravelEntryName(choice) end -- Astral Recall: the bind point
+    end
+    return nil
+end
+
+local function TravelChoiceCooldown(choice)
+    if TravelFindHouse(choice) then
+        if TravelCanReturnHome() then return 0, true end
+        return TravelHouseCooldown()
+    end
+    if TRAVEL_EXTRA_SET[choice] then
+        local kind = TravelExtraKind(choice)
+        if kind then return TravelGetRemainingCooldown(choice, kind == "spell") end
+    end
+    return TravelGetPrimaryCooldown()
+end
+
+local function TravelShownCooldown(dt, btn)
+    local choice = TravelClickChoice(dt, btn)
+    if choice == "none" or TravelClickTextMode(dt, btn) == "none" then return nil end
+    return TravelChoiceCooldown(choice)
+end
+
+-- One bit per shown click that is cooling (unknown counts); the left click when none shows.
+local CLICK_BITS = { 1, 2, 4 }
+local function TravelCoolingMask(dt)
+    local mask, shownMask = 0, 0
+    for btn = 1, 3 do
+        local cd, known = TravelShownCooldown(dt, btn)
+        if cd then
+            shownMask = shownMask + CLICK_BITS[btn]
+            if not known or cd > 0 then mask = mask + CLICK_BITS[btn] end
+        end
+    end
+    if shownMask == 0 then
+        local cd, known = TravelChoiceCooldown(TravelClickChoice(dt, 1))
+        if not known or cd > 0 then mask = 1 end
+    end
+    return mask
+end
+
+-- Cooling parts are wrapped in gray unless plain. Returns text, timerShown
+-- (a shown timer is counting down), coolingMask, iconDim.
+local _textParts, _textRaw = {}, {}
+local function TravelBarText(dt, bind, plain)
+    local firstHouse, tagHouses = nil, false
+    for btn = 1, 3 do
+        if TravelClickTextMode(dt, btn) ~= "none" then
+            local h = TravelFindHouse(TravelClickChoice(dt, btn))
+            if h then
+                if not firstHouse then firstHouse = h.houseGUID
+                elseif h.houseGUID ~= firstHouse then tagHouses = true end
+            end
+        end
+    end
+    local n, timer, mask, shownMask = 0, false, 0, 0
+    for btn = 1, 3 do
+        local cd, known = TravelShownCooldown(dt, btn)
+        if cd then
+            local mode = TravelClickTextMode(dt, btn)
+            local choice = TravelClickChoice(dt, btn)
+            local cooling = not known or cd > 0
+            shownMask = shownMask + CLICK_BITS[btn]
+            if cooling then mask = mask + CLICK_BITS[btn] end
+            local dest = TravelBarDestination(choice, tagHouses) or bind
+            local part = dest
+            if mode ~= "location" then
+                local cdStr = known and ns.FormatCooldown(cd) or nil
+                if cdStr then timer = true end
+                if mode == "smart" then
+                    part = cdStr or dest
+                elseif mode == "both" then
+                    part = cdStr and (dest .. " " .. cdStr) or dest
+                else
+                    part = cdStr or (known and EllesmereUI.L(L["READY"]) or "-")
+                end
+            end
+            local dup = false
+            for i = 1, n do
+                if _textRaw[i] == part then dup = true; break end
+            end
+            if not dup then
+                n = n + 1
+                _textRaw[n] = part
+                _textParts[n] = (cooling and not plain) and ("|cff808080" .. part .. "|r") or part
+            end
+        end
+    end
+    for i = n + 1, #_textParts do _textParts[i] = nil; _textRaw[i] = nil end
+    local iconDim
+    if shownMask == 0 then
+        local cd, known = TravelChoiceCooldown(TravelClickChoice(dt, 1))
+        iconDim = not known or cd > 0
+        mask = iconDim and 1 or 0
+    else
+        iconDim = mask == shownMask
+    end
+    if n == 0 then return "", timer, mask, iconDim end
+    return table.concat(_textParts, " / ", 1, n), timer, mask, iconDim
 end
 
 local function TravelResolveMythicId(idOrTable)
@@ -219,9 +544,9 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     local _trvFitBuf1 = { "" }
     local _trvFitBuf2 = { "" }
     local mouseOver = false
-    -- Heartbeat demand-gate: the 1s tick runs ONLY while something is cooling
-    -- or the tooltip is open (live M:SS columns). Ready + un-hovered = no tick
-    -- at all; BAG_UPDATE_COOLDOWN announces every start edge and re-arms.
+    -- Heartbeat demand-gate: the 1s tick runs ONLY while something is cooling,
+    -- a timer shows on the bar, or the tooltip is open (live M:SS columns).
+    -- Otherwise no tick at all; a player cast announces every start edge and re-arms.
     local ticking = false
     local TravelSyncTicker -- forward declaration, filled in after TravelTick
 
@@ -255,18 +580,15 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         local ready = cdKnown and cd2 <= 0
         local rr, rg, rb = 0.5, 0.5, 0.5
         if ready then rr, rg, rb = 0, 1, 0 end
-        -- Hearthstone row is click-to-use when ready, firing the same macro the block's
-        -- click seeds (selected or random) through the shared overlay. White while ready,
-        -- M+ "On Cooldown" gray otherwise; plain label (no embedded codes) so state and hover
-        -- color the whole line; the plain-state row is pad-marked to match the clickable row's spacing.
+        -- Click-to-use when ready (shared overlay), always a hearthstone: the left click's when
+        -- it is one. White while ready, M+ "On Cooldown" gray otherwise; plain label so state and
+        -- hover color the whole line; the plain-state row is pad-marked to match the clickable row.
         local hsLabel = L["HEARTHSTONE"] .. " (" .. (GetBindLocation() or "?") .. ")"
         local hsMacro
         if ready then
-            local dt = D()
-            local choice = dt.hsChoice
-            if choice == nil then choice = dt.randomizeHs and "random" or 6948 end
+            local choice = TravelClickChoice(D(), 1)
             local hsId
-            if choice ~= "random" and TravelIsUsable(choice) then
+            if type(choice) == "number" and not TRAVEL_EXTRA_SET[choice] and TravelIsUsable(choice) then
                 hsId = choice
             else
                 hsId = TravelPickHearthstone(choice == "random")
@@ -328,6 +650,30 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
                         ns.Tip_AddDouble(entryName, tstr, 0.65, 0.65, 0.65, tr, tg, tb)
                     end
                 end
+            end
+        end
+
+        local dt = D()
+        -- All houses share one visit cooldown.
+        local house = TravelFindHouse(TravelClickChoice(dt, 1)) or TravelFindHouse(TravelClickChoice(dt, 2))
+            or TravelFindHouse(TravelClickChoice(dt, 3))
+        if house then
+            local hstr, hready = "-", false
+            local returnTrip = TravelCanReturnHome()
+            if returnTrip then
+                hstr, hready = L["RETURN_AVAILABLE"], true
+            else
+                local rem, known = TravelHouseCooldown()
+                if known then
+                    hstr = ns.FormatCooldown(rem) or L["READY"]
+                    hready = rem <= 0
+                end
+            end
+            if hready then
+                ns.Tip_AddHouseActionDouble(TravelHouseName(house), hstr, house, returnTrip, 1, 1, 1, 0, 1, 0)
+            else
+                ns.Tip_AddDouble(TravelHouseName(house), hstr, 0.65, 0.65, 0.65, 0.5, 0.5, 0.5)
+                ns.Tip_PadRow()
             end
         end
 
@@ -393,8 +739,24 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             end
         end
         ns.Tip_AddLine(" ")
-        ns.Tip_AddDouble(L["LEFT_CLICK"], L["USE_HEARTHSTONE"], 1, 1, 1, ar, ag, ab)
-        ns.Tip_AddDouble(L["RIGHT_CLICK"], L["RANDOM_HEARTHSTONE"], 1, 1, 1, ar, ag, ab)
+        for btn = 1, 3 do
+            local choice = TravelClickChoice(dt, btn)
+            if choice ~= "none" then
+                local what
+                local h = TravelFindHouse(choice)
+                if choice == "random" then
+                    what = L["RANDOM_HEARTHSTONE"]
+                elseif h then
+                    what = TravelCanReturnHome() and L["RETURN_FROM_HOME"] or TravelHouseName(h)
+                elseif TRAVEL_EXTRA_SET[choice] and TravelExtraKind(choice) then
+                    what = TravelEntryName(choice) or L["USE_HEARTHSTONE"]
+                else
+                    what = L["USE_HEARTHSTONE"]
+                end
+                local label = (btn == 1 and L["LEFT_CLICK"]) or (btn == 2 and L["RIGHT_CLICK"]) or L["MIDDLE_CLICK"]
+                ns.Tip_AddDouble(label, what, 1, 1, 1, ar, ag, ab)
+            end
+        end
         ns.Tip_Show()
     end
 
@@ -408,14 +770,13 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         -- ActionButtonUseKeyDown CVar fire the macro twice (2nd /use cancels the cast).
         hearthButton:SetAllPoints()
         hearthButton:EnableMouse(true)
-        hearthButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        hearthButton:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
         hearthButton:SetAttribute("useOnKeyDown", false)
-        -- One explicit pair per button rather than an unsuffixed fallback:
-        -- 1 = the chosen hearthstone, 2 = always a random one.
-        hearthButton:SetAttribute("*type1", "macro")
-        hearthButton:SetAttribute("*macrotext1", "")
-        hearthButton:SetAttribute("*type2", "macro")
-        hearthButton:SetAttribute("*macrotext2", "")
+        -- One explicit pair per button (1 left, 2 right, 3 middle), not an unsuffixed fallback.
+        for btn = 1, 3 do
+            hearthButton:SetAttribute("*type" .. btn, "macro")
+            hearthButton:SetAttribute("*macrotext" .. btn, "")
+        end
 
         hearthIcon   = hearthButton:CreateTexture(nil, "OVERLAY")
         hearthText   = hearthButton:CreateFontString(nil, "OVERLAY")
@@ -424,28 +785,27 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         local function SeedMacro()
             if InCombatLockdown() then return end
             local dt = D()
-            -- Hearthstone choice: "random" or a pool item id. nil derives from
-            -- the randomizeHs boolean (nil/false = plain hearthstone preferred).
-            local choice = dt.hsChoice
-            if choice == nil then
-                choice = dt.randomizeHs and "random" or 6948
+            local canReturn
+            for btn = 1, 3 do
+                local choice = TravelClickChoice(dt, btn)
+                local house = TravelFindHouse(choice)
+                if house then
+                    if canReturn == nil then canReturn = TravelCanReturnHome() end
+                    hearthButton:SetAttribute("*type" .. btn, canReturn and "returnhome" or "teleporthome")
+                    hearthButton:SetAttribute("*house-neighborhood-guid" .. btn, house.neighborhoodGUID)
+                    hearthButton:SetAttribute("*house-guid" .. btn, house.houseGUID)
+                    hearthButton:SetAttribute("*house-plot-id" .. btn, house.plotID)
+                    hearthButton:SetAttribute("*macrotext" .. btn, "")
+                else
+                    hearthButton:SetAttribute("*type" .. btn, "macro")
+                    local id = TravelResolveChoice(choice)
+                    hearthButton:SetAttribute("*macrotext" .. btn, id and TravelBuildMacro(id) or "")
+                end
             end
-            local id
-            if choice ~= "random" and TravelIsUsable(choice) then
-                id = choice
-            else
-                -- Random pick, or fallback when the chosen hearthstone is no longer owned/usable.
-                id = TravelPickHearthstone(choice == "random")
-            end
-            if id then hearthButton:SetAttribute("*macrotext1", TravelBuildMacro(id)) end
-            -- Right click ignores the choice and always rolls its own.
-            local rid = TravelPickHearthstone(true)
-            if rid then hearthButton:SetAttribute("*macrotext2", TravelBuildMacro(rid)) end
         end
 
-        -- Reseed on every PreClick (OOC only) so the button always fires the currently
-        -- owned/random hearthstone without a protected call from OnClick. SetScript is
-        -- fine here: WE created this button.
+        -- Reseed on every PreClick (OOC only) so each click fires its current choice
+        -- without a protected call from OnClick. SetScript is fine here: WE created this button.
         hearthButton:SetScript("PreClick", function()
             if InCombatLockdown() then return end
             SeedMacro()
@@ -466,6 +826,21 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
 
         -- Seed macrotext shortly after build so a first-combat click works.
         C_Timer.After(1, SeedMacro)
+        inst._seedClicks = SeedMacro
+    end
+
+    local enabled = false
+    local function SyncHouseWatch()
+        local dt = D()
+        local uses = TravelIsHouseChoice(TravelClickChoice(dt, 1))
+            or TravelIsHouseChoice(TravelClickChoice(dt, 2))
+            or TravelIsHouseChoice(TravelClickChoice(dt, 3))
+        TravelWatchHouses(inst, enabled and uses)
+    end
+
+    function inst:OnHouseList()
+        if self._seedClicks then self._seedClicks() end
+        self:Refresh()
     end
 
     -- Combat-deferred construction: dimmed non-interactive icon until OOC.
@@ -484,7 +859,12 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         Build()
     end
 
+    local function RelayoutAfterCombat()
+        if not inst._dead then inst:Refresh() end
+    end
+
     function inst:Refresh()
+        SyncHouseWatch()
         if not built then return end
         K.SetBlockIcon(hearthIcon, blockCfg)
         local barCfg = BC()
@@ -492,7 +872,9 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         local fontSize = max(9, floor(CONTENT_BASE * 0.4333 + 0.5))
         local isSide = barCtx.IsVertical()
 
-        local location = GetBindLocation() or "?"
+        local location, barTimer, coolMask, iconDim = TravelBarText(D(), GetBindLocation() or "?", mouseOver)
+        inst._barTimer = barTimer
+        inst._lastCoolMask = coolMask
         if isSide then
             local slotW = VSlotW(inst)
             local innerW = max(30, slotW - 8)
@@ -504,24 +886,28 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
 
         hearthText:SetText(location)
 
-        -- Block renders only icon + bind location; remaining cooldown lives in
-        -- the tooltip. On cooldown (or an unknown/secret one) it dims to gray.
-        local cd, cdKnown = TravelGetPrimaryCooldown()
-        inst._lastCooling = (not cdKnown) or cd > 0
-        TravelSyncTicker(mouseOver or inst._lastCooling)
+        TravelSyncTicker(mouseOver or coolMask ~= 0 or barTimer)
 
+        -- Cooling parts carry their own gray; the icon dims only when every shown part cools.
         if mouseOver then
             local ar, ag, ab = ns.GetAccent()
             hearthText:SetTextColor(ar, ag, ab, 1); hearthIcon:SetVertexColor(ar, ag, ab, 1)
-        elseif (not cdKnown) or cd > 0 then
-            hearthText:SetTextColor(0.5, 0.5, 0.5, 1); hearthIcon:SetVertexColor(0.5, 0.5, 0.5, 1)
         else
             local br, bgr, bb = BlockColorOf(blockCfg)
-            local ir, ig, ib = IconColorOf(blockCfg)
-            hearthText:SetTextColor(br, bgr, bb, 1); hearthIcon:SetVertexColor(ir, ig, ib, 1)
+            hearthText:SetTextColor(br, bgr, bb, 1)
+            if iconDim then
+                hearthIcon:SetVertexColor(0.5, 0.5, 0.5, 1)
+            else
+                local ir, ig, ib = IconColorOf(blockCfg)
+                hearthIcon:SetVertexColor(ir, ig, ib, 1)
+            end
         end
 
-        if InCombatLockdown() then return end
+        -- The secure button cannot resize in combat: lay out again once it ends.
+        if InCombatLockdown() then
+            ns.DeferUntilOOC("edbtravellayout:" .. inst.key, RelayoutAfterCombat)
+            return
+        end
 
         -- +2 icon size, -2 gap: hearthstone runs bigger and tighter than default.
         local iconSz, gap = fontSize + 2, ICON_GAP - 2
@@ -560,6 +946,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             hearthIcon:SetSize(iconSz, iconSz)
             ns.ResetInlineText(hearthText, "LEFT")
             local tw = ns.SnapToPixelGrid(hearthText:GetStringWidth())
+            if location == "" then tw = 0; gap = 0 end
             local totalW = min(slotW, iconSz + gap + tw + 4)
             content:SetSize(totalW, barH)
             hearthButton:SetSize(totalW, barH)
@@ -570,9 +957,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     end
 
     -- 1s heartbeat. Hovered: the open tooltip's M:SS columns need per-second full
-    -- refreshes. Un-hovered: the block shows only icon+location+ready/cooling tint,
-    -- so the tick is a cheap two-call cooling probe and Refresh runs only on the
-    -- tint EDGE. Location changes arrive via HEARTHSTONE_BOUND.
+    -- refreshes. Un-hovered: a cooling probe of the shown parts; Refresh runs when
+    -- any part's state changes, and each second while a timer shows on the bar.
     local function TravelTick()
         if built and mouseOver and ns.Tip_IsOwned(hearthButton) then
             inst:Refresh()
@@ -580,12 +966,12 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             return
         end
         -- Unknown (secret) cooldowns count as cooling: the probe keeps ticking through combat and self-corrects on the first clean read.
-        local pcd, pKnown = TravelGetPrimaryCooldown()
-        local cooling = (not pKnown) or pcd > 0
-        if cooling ~= inst._lastCooling then
-            inst._lastCooling = cooling
+        local coolMask = TravelCoolingMask(D())
+        if coolMask ~= inst._lastCoolMask then
             inst:Refresh()
-        elseif not cooling and not mouseOver then
+        elseif inst._barTimer then
+            inst:Refresh()
+        elseif coolMask == 0 and not mouseOver then
             -- Settled ready with no edge to paint: nothing left to watch.
             TravelSyncTicker(false)
         end
@@ -611,7 +997,11 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             -- one): never invalidates the hearthstone pick, and while the
             -- ticker already runs there is nothing to learn. One probe on a
             -- start edge re-arms the tick; zero fires standing idle.
-            if not ticking then TravelTick() end
+            -- With timer text on, a full Refresh also reads the click cooldowns
+            -- the hearthstone probe does not watch.
+            if not ticking then
+                if TravelAnyTimerText(D()) and not InCombatLockdown() then self:Refresh() else TravelTick() end
+            end
             return
         end
         ns.TravelInvalidateHearthCache()
@@ -619,6 +1009,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     end)
 
     function inst:Enable()
+        enabled = true
+        SyncHouseWatch()
         content:Show()
         RegisterInstEvents(self)
         -- Player-filtered registration; Disable's UnregisterAllEvents drops it,
@@ -630,6 +1022,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     end
 
     function inst:Disable()
+        enabled = false
+        TravelWatchHouses(self, false)
         TravelSyncTicker(false)
         UnregisterInstEvents(self)
         content:Hide()
@@ -649,6 +1043,8 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
 
     function inst:Destroy()
         self._dead = true
+        enabled = false
+        TravelWatchHouses(self, false)
         if hearthButton then
             ParkSecureFrame(hearthButton, self.key .. "_hearth")
         end
