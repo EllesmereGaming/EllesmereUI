@@ -531,7 +531,7 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     if EUI_Bags.Header and EUI_Bags.Header.itemCount then
         -- Physical capacity is independent of categories and merged stacks.
         local format = BP().bagSlotCountFormat
-        local separate = BP().bagSeparateReagentSlots ~= false
+        local separate = BP().bagSeparateReagentSlots == true
         local countText
         if separate then
             countText = FormatSlots(regularUsed, regularTotal, false, format)
