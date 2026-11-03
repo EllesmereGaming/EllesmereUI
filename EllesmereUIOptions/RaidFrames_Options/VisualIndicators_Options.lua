@@ -450,13 +450,20 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         bottomright = "Bottom Right",
     }
     local rolePositionOrder = EllesmereUI.POSITION_GRID_ORDER
+    -- Attach Role Icons (Top Name Bar section) takes over the role icon's placement
+    local ATTACHED_TIP = "This option requires Attach Role Icons to be disabled"
+    local function RoleAttached()
+        return SVal("roleIconOnNameBar", false) and SVal("topNameBarEnabled", false)
+    end
     local roleRow2
     -- Party Frames kit: role, ready check and leader take the stock spots
     -- (their offset cogs stay live).
     roleRow2, h = W:DualRow(parent, y,
         ns.RF_PartyKitGate({ type="dropdown", text="Role Position", values=rolePositionValues, order=rolePositionOrder,
-          disabled=function() return not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none" end,
-          disabledTooltip="Role Icons",
+          disabled=function()
+              return RoleAttached() or (not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none")
+          end,
+          disabledTooltip=function() return RoleAttached() and ATTACHED_TIP or "Role Icons" end,
           getValue=function() return SVal("roleIconPosition", "bottomleft") end,
           setValue=function(v) SSet("roleIconPosition", v) end }),
         { type="slider", text="Role Icon Size", min=8, max=30, step=1,
@@ -469,6 +476,8 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         EllesmereUI.BuildInlineCog(rgn, {
             icon = EllesmereUI.DIRECTIONS_ICON,
             title = "Role Icon Offset",
+            disabled = RoleAttached,
+            disabledTooltip = ATTACHED_TIP,
             rows = {
                 { type="slider", label="Offset X", min=-50, max=50, step=1,
                   get=function() return SVal("roleIconOffsetX", 0) end,
@@ -1242,6 +1251,35 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 return 1, 1, 1, 1
             end,
             function() end, "class", false, "Class Color")
+    end
+
+    -- Attach Role Icons: the role icon sits on this bar, placed by the arrow cog
+    local tnbRow4
+    tnbRow4, h = W:DualRow(parent, y,
+        { type="toggle", text="Attach Role Icons",
+          tooltip="Places role icons on the Top Name Bar, in the same spot on every frame whether or not it shows a power bar.",
+          getValue=function() return SVal("roleIconOnNameBar", false) end,
+          setValue=function(v) SSet("roleIconOnNameBar", v); EllesmereUI:RefreshPage() end },
+        EllesmereUI.BlankRowCfg());  y = y - h
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(tnbRow4._leftRegion, {
+            icon = EllesmereUI.DIRECTIONS_ICON,
+            title = "Role Icon Position",
+            disabled = function() return not SVal("roleIconOnNameBar", false) end,
+            disabledTooltip = "Attach Role Icons",
+            rows = {
+                { type="dropdown", label="Position",
+                  values=EllesmereUI.POSITION_GRID_VALUES, order=EllesmereUI.POSITION_GRID_ORDER,
+                  get=function() return SVal("roleNameBarPosition", "left") end,
+                  set=function(v) SSet("roleNameBarPosition", v) end },
+                { type="slider", label="Offset X", min=-50, max=50, step=1,
+                  get=function() return SVal("roleNameBarOffsetX", 0) end,
+                  set=function(v) SSet("roleNameBarOffsetX", v) end },
+                { type="slider", label="Offset Y", min=-50, max=50, step=1,
+                  get=function() return SVal("roleNameBarOffsetY", 0) end,
+                  set=function(v) SSet("roleNameBarOffsetY", v) end },
+            },
+        })
     end
     end   -- close Top Name Bar hidden-while-disabled gate
 
