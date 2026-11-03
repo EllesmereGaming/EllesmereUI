@@ -93,6 +93,9 @@ local _rules     = {}                                  -- all live rules this sp
 local _auraRules = {}                                  -- subset: aura trigger
 local _customRules = {}                                -- subset: function trigger
 local _castMap   = {}                                  -- castSpellID -> { rule, ... }
+local _pendingCastRules = {}                           -- rule -> unresolved item IDs
+local _settledCastItems = {}                           -- completed loads this re-arm
+local RetryPendingCasts
 local _needAura  = false
 local _needCast  = false
 local _windows   = setmetatable({}, { __mode = "k" })  -- rule -> { start, dur, expiry }
@@ -1007,6 +1010,8 @@ OnEvent = function(self, event, unit, updateInfo, spellID)
                 QueueFormAuraEval()
             end
         end
+    elseif event == "ITEM_DATA_LOAD_RESULT" then
+        RetryPendingCasts(unit, updateInfo)
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         _lastCast = spellID
         local hits = spellID and _castMap[spellID]
@@ -1061,6 +1066,8 @@ UpdateListeners = function()
         else _events:UnregisterEvent("UNIT_AURA") end
         if _needCast then _events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
         else _events:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED") end
+        if next(_pendingCastRules) then _events:RegisterEvent("ITEM_DATA_LOAD_RESULT")
+        else _events:UnregisterEvent("ITEM_DATA_LOAD_RESULT") end
         if _needForms then _events:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
         else _events:UnregisterEvent("UPDATE_SHAPESHIFT_FORM") end
         if _needStance then
@@ -1087,8 +1094,52 @@ end
 -- Spell ids whose successful cast should open a rule's window. For positive
 -- keys: the spell (and its live override). For negative keys (item presets):
 -- the item's on-use spell. -13 / -14 are the equipped trinket slots.
+local _knownItemCasts
+local function KnownItemCasts(itemID)
+    if not _knownItemCasts then
+        local families = EllesmereUI.CONSUMABLES
+        if not families then return end
+        _knownItemCasts = {}
+        -- A primary identity wins over another family's alternate (Healthstones).
+        for _, family in pairs(families) do
+            if family.spellIDs then _knownItemCasts[family.itemID] = family.spellIDs end
+        end
+        for _, family in pairs(families) do
+            if family.spellIDs then
+                for _, id in ipairs(family.altItemIDs or {}) do
+                    if not _knownItemCasts[id] then _knownItemCasts[id] = family.spellIDs end
+                end
+            end
+        end
+    end
+    return _knownItemCasts[itemID]
+end
+
 ResolveCastSpells = function(key)
     local out = {}
+    local pending = {}
+    local seen = {}
+    local function ItemSpell(itemID)
+        local known = KnownItemCasts(itemID)
+        if known then
+            for _, spellID in ipairs(known) do
+                if not seen[spellID] then
+                    seen[spellID] = true
+                    out[#out + 1] = spellID
+                end
+            end
+        end
+        local _, spellID = C_Item.GetItemSpell(itemID)
+        if spellID then
+            if not seen[spellID] then
+                seen[spellID] = true
+                out[#out + 1] = spellID
+            end
+        elseif not known and not _settledCastItems[itemID] and C_Item.IsItemDataCachedByID
+            and not C_Item.IsItemDataCachedByID(itemID) then
+            pending[itemID] = true
+        end
+    end
     if key > 0 then
         out[#out + 1] = key
         if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
@@ -1110,35 +1161,23 @@ ResolveCastSpells = function(key)
             -- an on-use spell, hence the dedupe.
             local chain = ns.GetPresetPotChain and ns.GetPresetPotChain(itemID)
             if chain then
-                local seen = {}
                 for i = 1, #chain do
-                    local _, spID = C_Item.GetItemSpell(chain[i])
-                    if spID and not seen[spID] then
-                        seen[spID] = true
-                        out[#out + 1] = spID
-                    end
+                    ItemSpell(chain[i])
                 end
             else
-                local _, spID = C_Item.GetItemSpell(itemID)
-                if spID then out[#out + 1] = spID end
+                ItemSpell(itemID)
                 -- Other family presets (primary id only): map each alternate's
                 -- on-use spell too (Demonic Healthstone, other mana pot ranks).
                 local alts = PresetAltItemIDs(itemID)
                 if alts then
-                    local seen = {}
-                    if spID then seen[spID] = true end
                     for i = 1, #alts do
-                        local _, altSp = C_Item.GetItemSpell(alts[i])
-                        if altSp and not seen[altSp] then
-                            seen[altSp] = true
-                            out[#out + 1] = altSp
-                        end
+                        ItemSpell(alts[i])
                     end
                 end
             end
         end
     end
-    return out
+    return out, pending
 end
 
 -- ---------------------------------------------------------------------------
@@ -1562,14 +1601,36 @@ QueueFormAuraEval = function()
 end
 
 local function MapCast(rule)
-    local spells = ResolveCastSpells(rule.triggerSpellID or rule.spellID)
+    local spells, pending = ResolveCastSpells(rule.triggerSpellID or rule.spellID)
+    _pendingCastRules[rule] = next(pending) and pending or nil
     for i = 1, #spells do
         local sp = spells[i]
         local list = _castMap[sp]
         if not list then list = {}; _castMap[sp] = list end
-        list[#list + 1] = rule
+        local found = false
+        for j = 1, #list do
+            if list[j] == rule then found = true; break end
+        end
+        if not found then list[#list + 1] = rule end
     end
     _needCast = true
+end
+
+RetryPendingCasts = function(itemID, success)
+    local changed = false
+    for rule, pending in pairs(_pendingCastRules) do
+        if pending[itemID] then
+            _settledCastItems[itemID] = true
+            if success then
+                MapCast(rule)
+            else
+                pending[itemID] = nil
+                if not next(pending) then _pendingCastRules[rule] = nil end
+            end
+            changed = true
+        end
+    end
+    if changed and not next(_pendingCastRules) then UpdateListeners() end
 end
 
 local function AddRule(rule)
@@ -1686,6 +1747,8 @@ function ns.FakeActive_Rearm()
     RestoreAllCdState()  -- un-hide / un-glow icons from the outgoing rule set
     CloseAll()
     wipe(_rules); wipe(_auraRules); wipe(_customRules); wipe(_castMap); wipe(_cdStateRules)
+    wipe(_pendingCastRules)
+    wipe(_settledCastItems)
     -- Re-read rather than wipe: a re-arm during the login window would leave
     -- the map empty and the lazy refresh in KeyMatches would just rebuild it.
     RefreshSlotItemKeys()
@@ -1792,6 +1855,17 @@ function ns.FakeActive_Rearm()
     SyncFormAuraRules()
     _armed = #_rules > 0
     UpdateListeners()
+    if next(_pendingCastRules) and C_Item and C_Item.RequestLoadItemDataByID then
+        local requested = {}
+        for _, pending in pairs(_pendingCastRules) do
+            for itemID in pairs(pending) do
+                if not requested[itemID] then
+                    requested[itemID] = true
+                    C_Item.RequestLoadItemDataByID(itemID)
+                end
+            end
+        end
+    end
     if #_cdStateRules > 0 then
         -- Apply + wire the engine-edge hooks now so the rebuild doesn't flash
         -- the icon visible; from here every transition is edge-driven.

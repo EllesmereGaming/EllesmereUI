@@ -391,7 +391,8 @@ local function EnsurePabSizedStyle(baseKey, size, shape)
     -- iconSize -- base already carries iconShape/shapeMaskPath/etc via the shallow
     -- copy above, only width/height need recomputing for this variant's own size.
     v.width = PabSnap(PabShapedSize(size, shape))
-    v.height = PabSnap(PabShapedSize(size, shape))
+    v.height = shape == "cropped"
+        and PabSnap(ns.PAB_CroppedHeight(size, base)) or v.width
     AK.styles[variantKey] = v
     AK.RestyleSoon(variantKey)
     return variantKey
@@ -399,12 +400,14 @@ end
 
 local function BuildGroupLayout(cfg, gap, rowGap, size)
     rowGap = rowGap or gap
-    size = PabSnap(PabShapedSize(size or cfg.iconSize or 32, cfg.iconShape))
+    local rawSize = size or cfg.iconSize or 32
+    size = PabSnap(PabShapedSize(rawSize, cfg.iconShape))
     gap = PabSnap(gap)
     rowGap = PabSnap(rowGap)
     return {
         elementWidth = size,
-        elementHeight = size,
+        elementHeight = cfg.iconShape == "cropped"
+            and PabSnap(ns.PAB_CroppedHeight(rawSize, cfg)) or size,
         elementSpacing = gap,
         lineSpacing = rowGap,
         -- ZERO on purpose: the engine's flow layout advances the cursor by

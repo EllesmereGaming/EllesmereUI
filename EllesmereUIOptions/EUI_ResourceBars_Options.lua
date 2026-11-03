@@ -947,6 +947,13 @@ initFrame:SetScript("OnEvent", function(self)
                     else
                         pip._fill:SetTexture("Interface\\Buttons\\WHITE8x8")
                     end
+                    if sp.useContinuousTexture and totalW > 0 then
+                        pip._fill:SetTexCoord(pipX[i] / totalW, (pipX[i] + pipW[i]) / totalW, 0, 1)
+                        pip._continuousPreview = true
+                    elseif pip._continuousPreview then
+                        pip._fill:SetTexCoord(0, 1, 0, 1)
+                        pip._continuousPreview = nil
+                    end
                     UnsnapTex(pip._fill)
 
                     if pip._border then pip._border:SetShown(false) end

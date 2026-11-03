@@ -744,6 +744,10 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
                 { type="slider", label="Y Offset", min=-50, max=50, step=1,
                   get=function() return SValSupported("castSpellNameY", 0) end,
                   set=function(v) SSetSupported("castSpellNameY", v); ReloadAndUpdate(); UpdatePreview() end },
+                { type="toggle", label="Show Full Spell Name",
+                  tooltip="Long spell names shrink to fit beside the duration instead of being cut off.",
+                  get=function() return SValSupported("castFitSpellName", false) end,
+                  set=function(v) SSetSupported("castFitSpellName", v); ReloadAndUpdate() end },
         }
         if optState.selectedUnit == "target" or optState.selectedUnit == "focus" then
             snCogRows[#snCogRows + 1] = { type="toggle", label="Combine Spell Name and Target",
@@ -808,12 +812,14 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
         local rgn = castTextRow._leftRegion
         EllesmereUI.BuildSyncIcon({
             region  = rgn,
-            tooltip = "Apply Spell Name Size and Color to all Frames",
+            tooltip = "Apply Spell Name Size, Color and Show Full Spell Name to all Frames",
             onClick = function()
                 local v = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameSize or 11
                 local c = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameColor
+                local fit = UNIT_DB_MAP[optState.selectedUnit]().castFitSpellName == true
                 for _, key in ipairs(GROUP_UNIT_ORDER) do
                     UNIT_DB_MAP[key]().castSpellNameSize = v
+                    UNIT_DB_MAP[key]().castFitSpellName = fit or nil
                     if c then UNIT_DB_MAP[key]().castSpellNameColor = { r=c.r, g=c.g, b=c.b } end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -821,8 +827,10 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
             isSynced = function()
                 local v = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameSize or 11
                 local c = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameColor
+                local fit = UNIT_DB_MAP[optState.selectedUnit]().castFitSpellName == true
                 for _, key in ipairs(GROUP_UNIT_ORDER) do
                     if (UNIT_DB_MAP[key]().castSpellNameSize or 11) ~= v then return false end
+                    if (UNIT_DB_MAP[key]().castFitSpellName == true) ~= fit then return false end
                     local kc = UNIT_DB_MAP[key]().castSpellNameColor
                     if c and kc then
                         if kc.r ~= c.r or kc.g ~= c.g or kc.b ~= c.b then return false end
@@ -838,8 +846,10 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
                 onApply       = function(checkedKeys)
                     local v = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameSize or 11
                     local c = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameColor
+                    local fit = UNIT_DB_MAP[optState.selectedUnit]().castFitSpellName == true
                     for _, key in ipairs(checkedKeys) do
                         UNIT_DB_MAP[key]().castSpellNameSize = v
+                        UNIT_DB_MAP[key]().castFitSpellName = fit or nil
                         if c then UNIT_DB_MAP[key]().castSpellNameColor = { r=c.r, g=c.g, b=c.b } end
                     end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -1105,12 +1115,13 @@ end
 -- Settings (the Location cog): Growth Direction, Max Count, afterMax (an
 -- optional row placed right after Max Count), Max Per Row (unset follows Max
 -- Count) and Cropped Icons.
--- Max Count caps each aura group on its own (the engine has no shared cap):
--- the boss rows in MiniFrames_Options.lua use the same tooltip.
--- The _IMP variant sits beside a Max Important row (afterMax).
-ns.UFO_MAX_COUNT_TOOLTIP = "When several filters are on, each one shows up to this many."
-ns.UFO_MAX_COUNT_TOOLTIP_IMP = "When several filters are on, each one shows up to this many. With Important or Own, important debuffs from others use Max Important instead."
-function ns.UFO_AuraSettingsRows(kind, get, set, maxMax, maxDefault, afterMax)
+-- Max Count caps each aura group on its own (the engine has no shared cap),
+-- so several filters, or one drawn as two groups (Important), can show more.
+-- maxTip = this tooltip wherever that can happen: not the player's buffs
+-- (their filters merge into one group) nor the pet (one group per element).
+-- The boss rows in MiniFrames_Options.lua use it too.
+ns.UFO_MAX_COUNT_TOOLTIP = "More than this can show with some filters."
+function ns.UFO_AuraSettingsRows(kind, get, set, maxMax, maxDefault, afterMax, maxTip)
     local env = ns._UFO_OptEnv
     local growthKey, perRowKey, cropKey = kind .. "Growth", kind .. "MaxPerRow", kind .. "CropIcons"
     local maxKey = (kind == "buff") and "maxBuffs" or "maxDebuffs"
@@ -1119,7 +1130,7 @@ function ns.UFO_AuraSettingsRows(kind, get, set, maxMax, maxDefault, afterMax)
           get=function() return get(growthKey, "auto") end,
           set=function(v) set(growthKey, v) end },
         { type="slider", label="Max Count", min=1, max=maxMax, step=1,
-          tooltip=afterMax and ns.UFO_MAX_COUNT_TOOLTIP_IMP or ns.UFO_MAX_COUNT_TOOLTIP,
+          tooltip=maxTip,
           get=function() return get(maxKey, maxDefault) end,
           set=function(v) set(maxKey, v) end },
     }
@@ -1325,7 +1336,8 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     -- Dispel Type Borders
     if not EllesmereUI._prebuilding then
         local leftRgn = sharedAddRow2._leftRegion
-        local buffCogRows = ns.UFO_AuraSettingsRows("buff", SValSupported, SSetSupported, 40, 4)
+        local buffCogRows = ns.UFO_AuraSettingsRows("buff", SValSupported, SSetSupported, 40, 4, nil,
+            optState.selectedUnit ~= "player" and ns.UFO_MAX_COUNT_TOOLTIP or nil)
         buffCogRows[#buffCogRows + 1] = { type="slider", label="Icon Zoom", min=0, max=0.20, step=0.01,
               -- The stock styles draw the whole icon (zoom 0); the active
               -- style's name is the requirement noun the widget wraps.
@@ -1450,7 +1462,8 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             maxImpRow = ns.UFO_MaxImportantRow(SDB,
                 function() ReloadAndUpdate(); UpdatePreview() end, 20, 20)
         end
-        local debuffCogRows = ns.UFO_AuraSettingsRows("debuff", SValSupported, SSetSupported, 20, 20, maxImpRow)
+        local debuffCogRows = ns.UFO_AuraSettingsRows("debuff", SValSupported, SSetSupported, 20, 20, maxImpRow,
+            ns.UFO_MAX_COUNT_TOOLTIP)
         debuffCogRows[#debuffCogRows + 1] = { type="slider", label="Icon Zoom", min=0, max=0.20, step=0.01,
               -- The stock styles draw the whole icon (zoom 0); the active
               -- style's name is the requirement noun the widget wraps.

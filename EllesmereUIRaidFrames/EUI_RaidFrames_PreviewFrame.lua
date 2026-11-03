@@ -137,7 +137,7 @@ local function CreatePreviewFrame(index, party)
     forwardBar:SetPoint("BOTTOMLEFT", health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
     forwardBar:SetWidth(health:GetWidth())
     forwardBar:SetHeight(health:GetHeight())
-    -- Match backfill: absorb above heal absorb/heal pred and max health.
+    -- Match backfill (the heal prediction draws over it at this level, as live).
     forwardBar:SetFrameLevel(health:GetFrameLevel() + 3)
     forwardBar:SetMinMaxValues(0, 100)
     forwardBar:Hide()

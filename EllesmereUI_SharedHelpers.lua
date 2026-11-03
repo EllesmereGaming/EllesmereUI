@@ -1131,3 +1131,48 @@ do
         end
     end
 end
+
+-------------------------------------------------------------------------------
+--  Show Full Spell Name (cast bars). Shrinks the spell name's font just enough
+--  for the whole name to fit the FontString's set width, and puts it back at
+--  baseSize for names that already fit. Measured on a private FontString that
+--  only ever holds clean text, so the cast text's own (possibly secret) metrics
+--  are never read. A secret name stays at baseSize and truncates as before.
+-------------------------------------------------------------------------------
+do
+    local floor = math.floor
+    local MIN_SIZE = 6
+    local measure
+
+    -- Width of a clean string in fs's font face (at size, or fs's own size).
+    local function Measure(fs, str, size)
+        local font, cur, flags = fs:GetFont()
+        if not font then return 0 end
+        if not measure then
+            measure = UIParent:CreateFontString(nil, "BACKGROUND")
+            measure:SetPoint("TOPLEFT", UIParent, "BOTTOMRIGHT", 100, -100)
+            measure:SetAlpha(0)
+        end
+        measure:SetFont(font, size or cur, flags)
+        measure:SetText(str)
+        return measure:GetUnboundedStringWidth() or 0
+    end
+    EllesmereUI.MeasureCastText = Measure
+
+    function EllesmereUI.FitCastName(fs, str, baseSize)
+        local font, cur, flags = fs:GetFont()
+        if not font then return end
+        local size = baseSize
+        local room = fs:GetWidth()
+        if str and not issecretvalue(str) and str ~= ""
+           and room and not issecretvalue(room) and room > 1 then
+            local w = Measure(fs, str, baseSize)
+            -- 1px slack: glyph hinting can round a scaled string up a pixel.
+            if w and w > room - 1 then
+                size = floor(baseSize * (room - 1) / w * 2) / 2
+                if size < MIN_SIZE then size = MIN_SIZE end
+            end
+        end
+        if cur ~= size then fs:SetFont(font, size, flags) end
+    end
+end

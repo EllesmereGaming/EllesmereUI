@@ -4429,7 +4429,9 @@ EllesmereUI.RegisterMigration({
 
 -- WoW Forever Junk Items: Include White Items became Maximum Quality and Skip
 -- Confirmation for White Items became Delete Without Confirming. An account
--- with either on keeps it as Common; both old keys go.
+-- with either on keeps it as Common; both old keys go. Registered on the
+-- Forever client only, where Junk Items exists.
+if EllesmereUI.IS_FOREVER == true then
 EllesmereUI.RegisterMigration({
     id          = "junk_items_quality_settings_v1",
     scope       = "global",
@@ -4443,6 +4445,7 @@ EllesmereUI.RegisterMigration({
         c.includeWhite, c.skipWhiteConfirm = nil, nil
     end,
 })
+end
 
 -- Player Aura Bars icons with a custom Icon Shape used to zoom the spell art far
 -- past their Icon Zoom (the shaped icon grew past its button and still took the

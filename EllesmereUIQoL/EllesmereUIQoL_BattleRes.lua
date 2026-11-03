@@ -5,6 +5,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  the shared raid brez pool (charges + recharge timer) as a single icon.
 -------------------------------------------------------------------------------
 
+local _, ns = ...
+
 local BREZ_SPELL_ID = 20484  -- Rebirth -- canonical shared brez pool spell ID
 
 local SHAPE_MASKS = EllesmereUI.SHAPE_MASKS
@@ -182,6 +184,8 @@ local function _applyShapeOutline(host, shape, bs, r, g, b, a)
     t:SetColorTexture(r, g, b, a)
     t:Show()
 end
+-- Shared with the Bloodlust tracker (this file loads first).
+ns.QoL_ApplyShapeOutline = _applyShapeOutline
 
 local function ApplyShape()
     if not frame then return end
@@ -391,7 +395,6 @@ local _state = {
 
 -- Keystone/encounter state writers, shared with the Bloodlust tracker through
 -- ns (this file loads first). Each icon passes its own state table.
-local ns = select(2, ...)
 
 local function _activeKeystoneLevel()
     -- IsChallengeModeActive only returns true when the timer is running,

@@ -247,15 +247,14 @@ end
 
 _G._EUI_BuildBattleResPage = BuildBattleResPage
 
--- Live preview hidden per tracker, saved account-wide (shown by default, as before).
+-- Live preview hidden per tracker for this session only (a preview toggle is
+-- never saved): shown again after a /reload.
+local previewHidden = {}
 local function PreviewHidden(key)
-    local t = EllesmereUIDB and EllesmereUIDB.qolPreviewHidden
-    return (t and t[key]) == true
+    return previewHidden[key] == true
 end
 local function SetPreviewHidden(key, hidden)
-    if not EllesmereUIDB then return end
-    EllesmereUIDB.qolPreviewHidden = EllesmereUIDB.qolPreviewHidden or {}
-    EllesmereUIDB.qolPreviewHidden[key] = hidden or nil
+    previewHidden[key] = hidden or nil
 end
 
 -- Inline eye left of a row's control: shows/hides that tracker's live preview.

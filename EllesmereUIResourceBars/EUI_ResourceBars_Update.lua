@@ -29,6 +29,7 @@ local PT, FindCountBand, GetBarBandCurve = I.PT, I.FindCountBand, I.GetBarBandCu
 local GetBarThresholdCurve, ResolveBandConfig = I.GetBarThresholdCurve, I.ResolveBandConfig
 local ResolveThresholdSpecEntry, ApplyBarFlat = I.ResolveThresholdSpecEntry, I.ApplyBarFlat
 local ApplyBarGradient, CalcPipGeometry = I.ApplyBarGradient, I.CalcPipGeometry
+local PipTextureHelpers = I.PipTextureHelpers
 local IsPowerBarHidden, IsSpecDisabled, pips = I.IsPowerBarHidden, I.IsSpecDisabled, I.pips
 local runeFrames, secondaryBarTicks = I.runeFrames, I.secondaryBarTicks
 local ApplyResourceBarTicks = I.ApplyResourceBarTicks
@@ -1509,6 +1510,9 @@ local function UpdateSecondaryResource()
                     end
 
                     local active = (i <= readyN)
+                    if sp.useContinuousTexture then
+                        PipTextureHelpers.SetRange(rf, x0, slot.x1, slots[numPips].x1, pipOri)
+                    end
                     if active and runeUseThresh then
                         if not _tsBandOn and _tsPartialOnly and i < _tsThreshCount then
                             rf:SetActive(true, r, g, b, a)
@@ -1581,6 +1585,9 @@ local function UpdateSecondaryResource()
                         rf:SetWidth(w)
                     end
 
+                    if sp.useContinuousTexture then
+                        PipTextureHelpers.SetRange(rf, x0, slot.x1, slots[numPips].x1, pipOri)
+                    end
                     if _runeReady[runeIdx] then
                         -- Ready rune: full brightness + restore background, hide recharge overlay
                         rf._bg:SetAlpha(1)
@@ -1659,6 +1666,7 @@ local function UpdateSecondaryResource()
                             rf._rechargeBar:SetStatusBarColor(r * 0.75, g * 0.75, b * 0.75, a)
                         end
                         rf._rechargeBar:Show()
+                        if sp.useContinuousTexture then PipTextureHelpers.DrawFill(rf, rf._rechargeBar) end
 
                         -- Show duration text if Resource Text is enabled (DK runes use it for cooldown)
                         if rf._cdText then
@@ -2317,6 +2325,17 @@ local function UpdateSecondaryResource()
                             end
                         end
                     end
+                    -- Keep the native secret-value and opacity paths intact.
+                    if sp.useContinuousTexture then
+                        PipTextureHelpers.DrawFill(pip, pip._secretBar)
+                        PipTextureHelpers.DrawFill(pip, pip._secretThreshBar)
+                        PipTextureHelpers.DrawFill(pip, pip._bandResetBar)
+                        if pip._bandBars then
+                            for k = 1, #pip._bandBars do
+                                PipTextureHelpers.DrawFill(pip, pip._bandBars[k])
+                            end
+                        end
+                    end
                 end
             end
             -- Count text: derive from UnitPowerPercent when it reads clean
@@ -2565,6 +2584,7 @@ local function UpdateSecondaryResource()
             local shade = sp.darkenPartialPips == false and 1 or 0.75
             nextPip._rechargeBar:SetStatusBarColor(fr * shade, fg * shade, fb * shade, a)
             nextPip._rechargeBar:Show()
+            if sp.useContinuousTexture then PipTextureHelpers.DrawFill(nextPip, nextPip._rechargeBar) end
         end
 
         if sp.showText and secondaryFrame._countText then

@@ -120,15 +120,13 @@ local GROW_DIR_ORDER = { "LEFT", "RIGHT", "CENTER_HORIZONTAL", "CENTER_VERTICAL"
 local ICON_WRAP_VALUES = { LEFT = "Left", RIGHT = "Right", UP = "Up", DOWN = "Down" }
 local ICON_WRAP_ORDER = { "LEFT", "RIGHT", "UP", "DOWN" }
 
--- Same shape vocabulary and media set as Action Bars' Custom Button Shape
--- (EUI_ActionBars_Options.lua), minus "cropped" -- PAB has no equivalent
--- "cropped square" concept.
+-- Cropped uses a rectangular icon without the masked shapes' overhang.
 local SHAPE_VALUES = {
-    none = "None", square = "Square", circle = "Circle",
+    none = "None", cropped = "Cropped", square = "Square", circle = "Circle",
     csquare = "Curved Square", diamond = "Diamond", hexagon = "Hexagon",
     portrait = "Portrait", shield = "Shield",
 }
-local SHAPE_ORDER = { "none", "square", "circle", "csquare", "diamond", "hexagon", "portrait", "shield" }
+local SHAPE_ORDER = { "none", "cropped", "---", "square", "circle", "csquare", "diamond", "hexagon", "portrait", "shield" }
 
 -- Levels map 1:1 to Action Bars' ns.BORDER_THICKNESS regular values (thin=1, normal=2,
 -- heavy=3, strong=4), so cfg.borderSize stays the same plain 0-4 number used elsewhere
@@ -1135,13 +1133,13 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
     -- pixel count means nothing there. The Icon Shape setter rebuilds the page when
     -- the shape crosses none/custom, which swaps the control in this slot.
     local sizeCfg
-    if cfg.iconShape and cfg.iconShape ~= "none" then
+    if cfg.iconShape and cfg.iconShape ~= "none" and cfg.iconShape ~= "cropped" then
         sizeCfg = {
             type = "dropdown", text = "Border Size",
             values = BORDER_SIZE_VALUES, order = BORDER_SIZE_LEVELS,
             itemDisabled = function(v)
                 local shape = cfg.iconShape
-                return shape and shape ~= "none" and BORDER_SIZE_SHAPE_DISABLED[v] or false
+                return shape and shape ~= "none" and shape ~= "cropped" and BORDER_SIZE_SHAPE_DISABLED[v] or false
             end,
             itemDisabledTooltip = function()
                 return "This option requires a non-custom shape to be selected"
@@ -1166,7 +1164,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         EllesmereUI.BlizzStyle.Gate("playerauras", {
             type = "dropdown", text = "Border Style",
             disabled = function()
-                return cfg.iconShape and cfg.iconShape ~= "none"
+                return cfg.iconShape and cfg.iconShape ~= "none" and cfg.iconShape ~= "cropped"
             end,
             disabledTooltip = "This option requires a non-custom shape to be selected",
             rawTooltip = true,
@@ -1234,7 +1232,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         })
         local function UpdateBorderCogVisibility()
             if cogBtn then cogBtn:SetShown((cfg.borderTexture or "solid") ~= "solid"
-                and not (cfg.iconShape and cfg.iconShape ~= "none")
+                and not (cfg.iconShape and cfg.iconShape ~= "none" and cfg.iconShape ~= "cropped")
                 and not EllesmereUI.BlizzStyle.Get("playerauras")) end
         end
         EllesmereUI.RegisterWidgetRefresh(UpdateBorderCogVisibility)
@@ -1389,6 +1387,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
             -- could never pick, silently losing its border and dispel ring.
             local sz = entry.cfg.borderSize or 1
             if entry.cfg.iconShape and entry.cfg.iconShape ~= "none"
+                and entry.cfg.iconShape ~= "cropped"
                 and sz >= 1 and sz <= 3 then
                 entry.cfg.borderSize = BORDER_SIZE_NUM[BORDER_SIZE_DEFAULT_SHAPE]
             end
@@ -1478,29 +1477,29 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
             type = "dropdown", text = "Icon Shape",
             values = SHAPE_VALUES, order = SHAPE_ORDER,
             itemDisabled = function(v)
-                return v ~= "none" and (cfg.borderTexture or "solid") ~= "solid"
+                return v ~= "none" and v ~= "cropped" and (cfg.borderTexture or "solid") ~= "solid"
             end,
             itemDisabledTooltip = function(v)
-                if v ~= "none" and (cfg.borderTexture or "solid") ~= "solid" then
+                if v ~= "none" and v ~= "cropped" and (cfg.borderTexture or "solid") ~= "solid" then
                     return "This option requires the Border Style to be set to Solid"
                 end
             end,
             getValue = function() return cfg.iconShape or "none" end,
             setValue = function(v)
-                local wasShaped = cfg.iconShape ~= nil and cfg.iconShape ~= "none"
+                local wasShaped = cfg.iconShape ~= nil and cfg.iconShape ~= "none" and cfg.iconShape ~= "cropped"
                 cfg.iconShape = v
                 -- Entering shape mode with a now-disabled Border Size level selected:
                 -- snap to the shape default, same as Action Bars' own shape dropdown
                 -- resetting border thickness on every shape change.
                 local curKey = BORDER_SIZE_KEY[cfg.borderSize or 1] or "thin"
-                if v ~= "none" and BORDER_SIZE_SHAPE_DISABLED[curKey] then
+                if v ~= "none" and v ~= "cropped" and BORDER_SIZE_SHAPE_DISABLED[curKey] then
                     cfg.borderSize = BORDER_SIZE_NUM[BORDER_SIZE_DEFAULT_SHAPE]
                 end
                 apply()
                 -- The Border Size slots (here and in Icon Effects) hold a pixel
                 -- slider without a shape and the None..Strong dropdown with one, so
                 -- a none/custom crossing rebuilds the page to swap the control.
-                if wasShaped ~= (v ~= nil and v ~= "none") then
+                if wasShaped ~= (v ~= nil and v ~= "none" and v ~= "cropped") then
                     EllesmereUI:RefreshPage(true)
                 end
             end
@@ -1516,6 +1515,17 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
     ); sy = sy - hh
     do
         local rgn = shapeRow._leftRegion
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Icon Shape",
+            disabled = function() return cfg.iconShape ~= "cropped" end,
+            disabledTooltip = "This option requires Icon Shape to be set to Cropped",
+            rows = {
+                { type = "slider", label = "Adjust Crop", min = 5, max = 25, step = 1,
+                  tooltip = "How much is trimmed from the icon's top and bottom, as a percentage per side. 10% is the classic cropped look.",
+                  get = function() return ns.PAB_CropPercent(cfg) end,
+                  set = function(v) cfg.iconCropPercent = v; apply() end },
+            },
+        })
         local keys, labels = {}, {}
         for _, entry in ipairs(PabAllBarEntries()) do
             keys[#keys + 1] = entry.key
@@ -1528,7 +1538,8 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
         local function CopyShapeTo(entry)
             local shape = cfg.iconShape
             entry.cfg.iconShape = shape
-            if shape and shape ~= "none" then
+            if shape == "cropped" then entry.cfg.iconCropPercent = ns.PAB_CropPercent(cfg) end
+            if shape and shape ~= "none" and shape ~= "cropped" then
                 entry.cfg.borderTexture = "solid"
                 entry.cfg.borderTextureOffset = nil
                 entry.cfg.borderTextureOffsetY = nil
@@ -1537,7 +1548,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                 entry.cfg.borderBehind = false
             end
             local sz = entry.cfg.borderSize or 1
-            if shape and shape ~= "none" and sz >= 1 and sz <= 3 then
+            if shape and shape ~= "none" and shape ~= "cropped" and sz >= 1 and sz <= 3 then
                 entry.cfg.borderSize = BORDER_SIZE_NUM[BORDER_SIZE_DEFAULT_SHAPE]
             end
             PabApplyBarEntry(entry)
@@ -1555,6 +1566,7 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
                 local shape = cfg.iconShape or "none"
                 for _, entry in ipairs(PabAllBarEntries()) do
                     if (entry.cfg.iconShape or "none") ~= shape then return false end
+                    if shape == "cropped" and ns.PAB_CropPercent(entry.cfg) ~= ns.PAB_CropPercent(cfg) then return false end
                 end
                 return true
             end,
@@ -1814,12 +1826,12 @@ local function BuildFxEffects(frame, sy, cfg, apply)
         -- Shape keeps the None..Strong dropdown (the shape ring is on/off); the
         -- Icon Shape setter rebuilds the page on a none/custom crossing.
         local fxBorderCfg
-        if cfg.iconShape and cfg.iconShape ~= "none" then
+        if cfg.iconShape and cfg.iconShape ~= "none" and cfg.iconShape ~= "cropped" then
             fxBorderCfg = { type = "dropdown", text = "Border",
               values = BORDER_SIZE_VALUES, order = BORDER_SIZE_LEVELS,
               itemDisabled = function(v)
                   local shape = cfg.iconShape
-                  return shape and shape ~= "none" and BORDER_SIZE_SHAPE_DISABLED[v] or false
+                  return shape and shape ~= "none" and shape ~= "cropped" and BORDER_SIZE_SHAPE_DISABLED[v] or false
               end,
               itemDisabledTooltip = function()
                   return "This option requires a non-custom shape to be selected"

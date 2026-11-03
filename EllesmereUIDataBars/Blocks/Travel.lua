@@ -61,7 +61,22 @@ local TRAVEL_EXTRAS = {
     253629,  -- Key to the Arcantina
     110560,  -- Garrison Hearthstone
     556,     -- Astral Recall (a spell, hence the per-entry kind probe below)
+    128353,  -- Admiral's Compass (a plain item, not a toy)
+    193753,  -- Dreamwalk (druid)
+    18960,   -- Teleport: Moonglade (druid)
+    50977,   -- Death Gate (death knight)
+    193759,  -- Teleport: Hall of the Guardian (mage)
+    126892,  -- Zen Pilgrimage (monk)
+    1238686, -- Rootwalking (Haranir)
 }
+-- Entries that are not toys.
+local TRAVEL_EXTRA_KIND = {
+    [556] = "spell", [193753] = "spell", [18960] = "spell", [50977] = "spell",
+    [193759] = "spell", [126892] = "spell", [1238686] = "spell",
+    [128353] = "item",
+}
+-- Hidden while the player knows the replacement.
+local TRAVEL_EXTRA_SUPERSEDED_BY = { [18960] = 193753 }
 
 -- Hearthstones share one cooldown, so polling a single owned one suffices.
 -- Engine-level cache: the underlying cooldown is shared game-wide.
@@ -74,6 +89,17 @@ local function TravelIsUsable(id)
     if PlayerHasToy(id) then return true end
     if IsPlayerSpell(id) then return true end
     return (C_Item and C_Item.GetItemCount and C_Item.GetItemCount(id) or 0) > 0
+end
+
+local function TravelExtraKind(id)
+    local sup = TRAVEL_EXTRA_SUPERSEDED_BY[id]
+    if sup and IsPlayerSpell(sup) then return nil end
+    local kind = TRAVEL_EXTRA_KIND[id]
+    if kind == "spell" then return IsPlayerSpell(id) and kind or nil end
+    if kind == "item" then
+        return (C_Item and C_Item.GetItemCount and C_Item.GetItemCount(id) or 0) > 0 and kind or nil
+    end
+    return PlayerHasToy(id) and "toy" or nil
 end
 
 -- Options-side exports: the hearthstone dropdown lists owned pool entries.
@@ -98,7 +124,8 @@ local function TravelGetRemainingCooldown(id, isSpell)
     if issecretvalue(startTime) or issecretvalue(duration) then
         return 0, false
     end
-    if type(startTime) == "number" and type(duration) == "number" and duration > 0 then
+    -- 2s or less is the global cooldown, which these APIs also report on travel items: read as ready.
+    if type(startTime) == "number" and type(duration) == "number" and duration > 2 then
         return max(0, startTime + duration - GetTime()), true
     end
     return 0, true
@@ -258,9 +285,9 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         -- takes the spell-side name/cooldown/click overlay, and IsPlayerSpell gates it to its
         -- class. Name lookups can be nil on a cold cache: the row appears on the next tooltip refresh.
         for _, entryId in ipairs(TRAVEL_EXTRAS) do
-            local isToy   = PlayerHasToy(entryId)
-            local isSpell = not isToy and IsPlayerSpell(entryId)
-            if isToy or isSpell then
+            local kind    = TravelExtraKind(entryId)
+            local isSpell = kind == "spell"
+            if kind then
                 local entryName
                 if isSpell then
                     local sInfo = C_Spell.GetSpellInfo(entryId)
@@ -289,9 +316,13 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
                     if tready then
                         -- Ready: click-to-use, same secure overlay contract as the M+ rows
                         -- (degrades to text in combat). Both helpers take the same args; only the seeded secure attribute differs.
-                        local AddActionRow = isSpell and ns.Tip_AddActionDouble
-                                                      or ns.Tip_AddToyActionDouble
-                        AddActionRow(entryName, tstr, entryId, 1, 1, 1, tr, tg, tb)
+                        if kind == "item" then
+                            ns.Tip_AddMacroActionDouble(entryName, tstr, TravelBuildMacro(entryId), 1, 1, 1, tr, tg, tb)
+                        else
+                            local AddActionRow = isSpell and ns.Tip_AddActionDouble
+                                                          or ns.Tip_AddToyActionDouble
+                            AddActionRow(entryName, tstr, entryId, 1, 1, 1, tr, tg, tb)
+                        end
                     else
                         -- On cooldown: same gray as the M+ "On Cooldown" label.
                         ns.Tip_AddDouble(entryName, tstr, 0.65, 0.65, 0.65, tr, tg, tb)

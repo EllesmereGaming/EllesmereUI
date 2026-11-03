@@ -820,6 +820,13 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                       local p = DB(); if not p then return end
                       p.castBar.spellTextY = v; RefreshCast()
                   end },
+                { type = "toggle", label = "Show Full Spell Name",
+                  tooltip = "Long spell names shrink to fit beside the duration text instead of being cut off.",
+                  get = function() local p = DB(); return p and p.castBar.fitSpellName end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.castBar.fitSpellName = v; RefreshCast()
+                  end },
             },
         })
     end

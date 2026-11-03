@@ -366,6 +366,12 @@ local function OnEvent(self, event, arg1, ...)
             local numMembers = ns._GetEffectiveRaidSize()
             local newW, newH = ns._GetRaidSizeFrameDimensions(numMembers > 0 and numMembers or 1)
             local tierChanged = (newW ~= ns._activeSizeW or newH ~= ns._activeSizeH)
+            -- Same-sized tiers can still differ in growth or Center Groups (the
+            -- combat path checks this too); ReloadFrames re-resolves the override.
+            if not tierChanged and numMembers > 0 then
+                local _, newOv = ns._RFResolveTierOverride(numMembers)
+                tierChanged = newOv ~= ns._activeTierOverride
+            end
             local wasVis = framesVisible
             ns._visForceRebuild = nil
             UpdateVisibility()
