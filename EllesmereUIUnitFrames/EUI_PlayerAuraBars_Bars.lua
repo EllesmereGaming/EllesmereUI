@@ -249,8 +249,10 @@ local function ApplyContainerAnchorAndGrowth(container, parent, cfg, grid)
     if directionChanged then container:Hide() end
 
     local size = PabSnap(cfg.iconSize or 32)
+    local height = cfg.iconShape == "cropped"
+        and PabSnap(ns.PAB_CroppedHeight(cfg.iconSize or 32, cfg)) or size
     container:ClearAllPoints()
-    container:SetSize(size, size)
+    container:SetSize(size, height)
     container:SetPoint(containerAnchor, parent, containerAnchor, 0, 0)
     AK.SetContainerAnchor(container, spec.layout.anchorPoint)
     AK.SetContainerAxis(container, vertical)
