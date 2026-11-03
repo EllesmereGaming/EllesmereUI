@@ -33,6 +33,10 @@ function EUI_Bags:FitHeaderText()
     local title, count = hdr.title, hdr.itemCount
     local tl, el = title:GetLeft(), edge:GetLeft()
     if not (tl and el) then return end
+    if hdr.slotLines then
+        hdr.slotLines[1]:Hide()
+        hdr.slotLines[2]:Hide()
+    end
     local room = el - 12 - tl
     local tw = title:GetUnboundedStringWidth()
     if tw > room then
@@ -42,6 +46,33 @@ function EUI_Bags:FitHeaderText()
     end
     title:SetWidth(tw + 1)
     local countRoom = room - tw - 8
+    local first, second = (count:GetText() or ""):match("^([^\n]+)\n(.+)$")
+    if first then
+        -- Each capacity line truncates independently instead of wrapping into the other.
+        if not hdr.slotLines then
+            hdr.slotLines = {}
+            for i = 1, 2 do
+                local line = hdr:CreateFontString(nil, "OVERLAY")
+                SetBagFont(line, 11)
+                line:SetWordWrap(false)
+                line:SetJustifyH("LEFT")
+                hdr.slotLines[i] = line
+            end
+        end
+        local _, size = count:GetFont()
+        local r, g, b = count:GetTextColor()
+        for i = 1, 2 do
+            local line = hdr.slotLines[i]
+            line:SetFont(count:GetFont())
+            line:SetTextColor(r, g, b, 1)
+            line:SetPoint("LEFT", title, "RIGHT", 8, i == 1 and size / 2 or -size / 2)
+            line:SetText(i == 1 and first or second)
+            line:SetWidth(math.max(math.min(line:GetUnboundedStringWidth() + 1, countRoom), 1))
+            line:SetShown(countRoom >= 16)
+        end
+        count:SetAlpha(0)
+        return
+    end
     count:SetWidth(math.max(math.min(count:GetUnboundedStringWidth() + 1, countRoom), 1))
     count:SetAlpha(countRoom >= 16 and 1 or 0)
 end
