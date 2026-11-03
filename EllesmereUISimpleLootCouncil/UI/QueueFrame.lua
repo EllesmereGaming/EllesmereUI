@@ -457,9 +457,9 @@ local function PaintQueue()
 
 
     local ml = addon.GetMasterLooter()
-    if addon.IsLootDelegated() then
+    if addon.IsLootPromoted() then
         lootMasterText:SetText(addon.Locale.Format(
-            T["Loot Master: %s |cff73716C(delegated)|r"], PlayerLabel(ml)))
+            T["Loot Master: %s |cff73716C(promoted)|r"], PlayerLabel(ml)))
     else
         lootMasterText:SetText(addon.Locale.Format(T["Loot Master: %s"], PlayerLabel(ml)))
     end

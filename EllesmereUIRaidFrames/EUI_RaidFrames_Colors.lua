@@ -32,6 +32,15 @@ local AbbreviateNumbers, ApplyFont, defaults = I.AbbreviateNumbers, I.ApplyFont,
 local DISPEL_COLORS, GetFFD, PixelSnap = I.DISPEL_COLORS, I.GetFFD, I.PixelSnap
 local unitToButton = I.unitToButton
 
+-- Health, max health and absorb text: the global Number Format for valueType,
+-- else the module's default call (which Power Text keeps).
+local NumberFormatOptions = ns.EllesmereUI.NumberFormatOptions
+local function AbbreviateValue(v, valueType)
+    local opts = NumberFormatOptions(valueType)
+    if opts then return AbbreviateNumbers(v, opts) end
+    return AbbreviateNumbers(v)
+end
+
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
@@ -817,6 +826,7 @@ do
         local max, abr = sfind(key, ":max", 1, true) ~= nil, sfind(key, ":abr", 1, true) ~= nil
         local status = kind == "hp" and not max
         local pctKey, perKey, sample = kind .. "Pct", kind .. "Per", SCHEMA[key].sample
+        local valueType = kind == "hp" and (max and "maxHealth" or "health") or nil
         return function(unit, s, pv)
             local st = status and Status(unit, pv)
             if st then return st end
@@ -828,7 +838,10 @@ do
             else
                 return sample
             end
-            if abr then return AbbreviateNumbers(v) end
+            if abr then
+                if valueType then return AbbreviateValue(v, valueType) end
+                return AbbreviateNumbers(v)
+            end
             return sformat("%d", v)
         end
     end
@@ -855,7 +868,7 @@ do
         return function(unit)
             if not unit then return sample end
             local v = get(unit) or 0
-            if abr then return AbbreviateNumbers(v) end
+            if abr then return AbbreviateValue(v, "absorb") end
             return C_StringUtil.TruncateWhenZero(v)
         end
     end
@@ -977,13 +990,13 @@ function ns.RF_HealthTextInto(fs, mode, pct, unit, perPct)
     elseif mode == "number" then
         if unit then v = UnitHealth(unit, true) else v = pct * perPct end
         if v and AbbreviateNumbers then
-            fs:SetText(AbbreviateNumbers(v))
+            fs:SetText(AbbreviateValue(v, "health"))
         elseif v then
             fs:SetFormattedText("%s", v)
         end
     elseif mode == "numberPercent" or mode == "percentNumber" then
         if unit then v = UnitHealth(unit, true) else v = pct * perPct end
-        local numStr = (v and AbbreviateNumbers) and AbbreviateNumbers(v) or tostring(v or 0)
+        local numStr = (v and AbbreviateNumbers) and AbbreviateValue(v, "health") or tostring(v or 0)
         if mode == "numberPercent" then
             fs:SetFormattedText("%s | %.0f%%", numStr, pct)
         else
@@ -994,7 +1007,7 @@ function ns.RF_HealthTextInto(fs, mode, pct, unit, perPct)
         fs:SetText(C_StringUtil.TruncateWhenZero(v))
         if fs:GetText() then
             if v and AbbreviateNumbers then
-                fs:SetText(AbbreviateNumbers(v))
+                fs:SetText(AbbreviateValue(v, "health"))
             elseif v then
                 fs:SetFormattedText("%s", v)
             end
@@ -1016,7 +1029,7 @@ function ns.FormatHealAbsorbInto(fs, amt, mode)
     if not mode or mode == "none" then fs:SetText(""); return end
     fs:SetText(C_StringUtil.TruncateWhenZero(amt or 0))
     if mode == "short" and AbbreviateNumbers and fs:GetText() then
-        fs:SetText(AbbreviateNumbers(amt or 0))
+        fs:SetText(AbbreviateValue(amt or 0, "absorb"))
     end
 end
 

@@ -2078,6 +2078,8 @@ end
 RefreshWindowIfOpen = function()
     if win and win:IsShown() and currentRecord then Render(currentRecord) end
 end
+-- An open summary redraws its numbers after a Number Format change.
+EllesmereUI.RegisterNumberFormatCallback(function() RefreshWindowIfOpen() end)
 
 ShowPicker = function(anchor)
     local runs = ns.RS_GetRuns()
