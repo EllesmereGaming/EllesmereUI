@@ -412,6 +412,15 @@ local defaults = {
             -- unlockPos: saved by unlock mode (RF_HealerMana element)
         },
 
+        -- Player Group Label (Extras); unset style keys follow the raid frames.
+        playerGroup = {
+            enabled = false,
+            format  = "number", -- "number" | "full"
+            padding = 4,
+            -- width/height: nil = content-sized; unlockPos: saved by unlock
+            -- mode (RF_PlayerGroup element)
+        },
+
         -- Position (saved by unlock mode)
         unlockPos        = nil,
 

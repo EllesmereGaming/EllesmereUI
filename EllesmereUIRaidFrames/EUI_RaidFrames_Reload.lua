@@ -221,6 +221,8 @@ local function ReloadFrames(skipButtons)
     -- (growth changes move the anchor points, not just the anchored-to header).
     if ns.FB_Apply then ns.FB_Apply() end
     if ns.XF_Apply then ns.XF_Apply() end
+    -- Player Group Label follows the raid frame style.
+    if ns.PG_Apply then ns.PG_Apply() end
     -- Pet frames (the ones styled from the raid settings restyle here, the rest in the party
     -- reload): the login window's pass skips them (OnEnable builds them once the party frames
     -- exist, which the Beside Owner pets need).
