@@ -1233,6 +1233,29 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             ); y = y - h
 
+            -- Slot Count Format | Separate Reagent Slots
+            _, h = W:DualRow(parent, y,
+                { type="dropdown", text="Slot Count Format",
+                  tooltip="Show used or free inventory slots.",
+                  values={ used_total="Used / Total", free_total="Free / Total", free="Free" },
+                  order={ "used_total", "free_total", "free" },
+                  getValue=function()
+                      local v = db.profile.bagSlotCountFormat
+                      return (v == "free_total" or v == "free") and v or "used_total"
+                  end,
+                  setValue=function(v)
+                      db.profile.bagSlotCountFormat = v
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                  end },
+                EllesmereUI.IS_FOREVER and EllesmereUI.BlankRowCfg() or { type="toggle", text="Separate Reagent Slots",
+                  tooltip="Show reagent bag slots on a separate line.",
+                  getValue=function() return db.profile.bagSeparateReagentSlots == true end,
+                  setValue=function(v)
+                      db.profile.bagSeparateReagentSlots = v
+                      if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                  end }
+            ); y = y - h
+
             _, h = W:Spacer(parent, y, 20); y = y - h
             return math.abs(y)
             end) -- end pcall

@@ -787,7 +787,7 @@ Paint = function(v, force)
     if list and filter then
         text = EllesmereUI.Lf("%d Items", shown)
     elseif list then
-        text = EllesmereUI.Lf("%d / %d Items", used, total)
+        text = EllesmereUI.Lf("%d / %d Slots", used, total)
     end
     v.countText = text
     if v.side then PaintSide(v) end
