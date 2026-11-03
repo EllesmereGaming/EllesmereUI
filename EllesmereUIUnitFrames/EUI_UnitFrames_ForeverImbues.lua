@@ -180,7 +180,9 @@ function ns.PAB_FvImbueLayout(container, parent, cfg, grid, layout, anchor)
     numLaidFrom = numShown
     local n = math.min(numShown, grid.enchSlots or 0)
     local dir = cfg.growDirection or "LEFT"
-    local step = layout.elementWidth + layout.elementSpacing
+    -- A column steps by the cell's height (a Cropped icon is shorter than wide).
+    local vertical = dir == "UP" or dir == "DOWN" or dir == "CENTER_VERTICAL"
+    local step = (vertical and layout.elementHeight or layout.elementWidth) + layout.elementSpacing
     local lineGap = layout.lineSpacing or layout.elementSpacing
     local dx, dy = 0, 0
     if dir == "LEFT" then dx = -step

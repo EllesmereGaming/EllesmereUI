@@ -1684,33 +1684,31 @@ initFrame:SetScript("OnEvent", function(self)
             cogTitle = (not FOREVER) and "Raid Buff Options" or nil,
             cogRows = (not FOREVER) and {
                 { type="toggle", label="Click to Request Buff",
-                  tooltip="Left-click a reminder for a buff a groupmate gives you (or a Healthstone) to ask the group for it in chat.",
+                  tooltip="Click a buff or Healthstone to ask for it.",
                   get=function() local r = RDB(); return r and r.requestOnClick == true end,
                   set=function(v) local r = RDB(); if r then r.requestOnClick = v; RefreshAll() end end },
                 { type="toggle", label="Custom Request Text",
-                  tooltip="Ask with your own text instead of \"<Buff>, please!\".",
+                  tooltip="Send your own text instead of the default.",
                   disabled=function() local r = RDB(); return not (r and r.requestOnClick) end,
                   disabledTooltip="Click to Request Buff",
                   get=function() local r = RDB(); return r and r.requestCustom == true end,
                   set=function(v) local r = RDB(); if r then r.requestCustom = v end end },
                 { type="input", label="Request Text", inputWidth=170, inputJustify="LEFT",
-                  tooltip="Include [spell] where the buff's name goes (without it the default line is sent); save it empty to bring back the example.",
+                  tooltip="Type [spell] where the buff's name goes.",
                   disabled=function() local r = RDB(); return not (r and r.requestOnClick and r.requestCustom) end,
                   disabledTooltip="Custom Request Text",
                   get=function()
                       local r = RDB(); if not r then return "" end
-                      return r.requestText or (_G._EABR_RequestExample and _G._EABR_RequestExample()) or ""
+                      return r.requestText or _G._EABR_RequestExample()
                   end,
                   set=function(v)
                       local r = RDB(); if not r then return end
-                      local clean = _G._EABR_CleanRequestText and _G._EABR_CleanRequestText(v)
+                      local clean = _G._EABR_CleanRequestText(v)
                       -- The untouched example stays unsaved, so it follows the client language.
-                      if clean and _G._EABR_RequestExample and clean == _G._EABR_RequestExample() then clean = nil end
+                      if clean == _G._EABR_RequestExample() then clean = nil end
                       r.requestText = clean
-                      local token = _G._EABR_REQUEST_TOKEN
-                      local hasToken = _G._EABR_HasRequestToken
-                      if clean and token and hasToken and not hasToken(clean) and UIErrorsFrame then
-                          UIErrorsFrame:AddMessage(EllesmereUI.Lf("Request text must include %1$s", token), 1.0, 0.3, 0.3, 1.0)
+                      if clean and not _G._EABR_HasRequestToken(clean) then
+                          UIErrorsFrame:AddMessage(EllesmereUI.Lf("Request text must include %1$s", _G._EABR_REQUEST_TOKEN), 1.0, 0.3, 0.3, 1.0)
                       end
                   end },
             } or nil,

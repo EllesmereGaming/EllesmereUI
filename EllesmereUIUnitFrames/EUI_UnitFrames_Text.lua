@@ -305,14 +305,8 @@ if EllesmereUI.IS_FOREVER then
 end
 
 -- Health, max health and absorb values without a decimal config: the global
--- Number Format for valueType (EllesmereUI_NumberFormat.lua), else the plain
--- call. AbbreviateNumbers runs in Blizzard's secure context, so a secret value
--- plus a config stays secret-safe.
-function ns.AbbreviateValue(v, valueType)
-    local opts = EllesmereUI.NumberFormatOptions(valueType)
-    if opts then return AbbreviateNumbers(v, opts) end
-    return AbbreviateNumbers(v)
-end
+-- Number Format for valueType (EllesmereUI_NumberFormat.lua).
+ns.AbbreviateValue = EllesmereUI.AbbreviateValue
 EllesmereUI.RegisterNumberFormatCallback(function() ns.RefreshAllUnitNames() end)
 
 -- Health Short always abbreviates from 1,000 with one decimal.

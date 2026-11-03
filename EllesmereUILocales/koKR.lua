@@ -7491,7 +7491,7 @@ L["No items match your search."] = "검색 결과와 일치하는 아이템이 �
 
 -- == add Misc - dynamic/concat, not in source (기타 - 동적 생성·조합, 소스 리터럴 미발견,) ===
 L["%.2f%% Enemy Forces"] = "적 병력 %.2f%%"
-L["%d / %d Items"] = "%d / %d개"
+L["%d / %d Slots"] = "%d / %d칸"
 L["%d Adventurer"] = "모험가 %d개"
 L["%d Champion"] = "챔피언 %d개"
 L["%d Hero"] = "영웅 %d개"

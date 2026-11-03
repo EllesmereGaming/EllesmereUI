@@ -158,6 +158,8 @@ end
 -- asynchronously; its listener registers only while a click or the options page needs it.
 local HOUSE_PREFIX = "house:"
 local travelHouses
+-- Bumped on every list arrival (ns.TravelHouseListGen): the options refill their menus on a change.
+local travelHousesGen = 0
 local houseWatchers = {}
 local houseOptionsWaiting
 local houseEv = CreateFrame("Frame")
@@ -201,6 +203,7 @@ houseEv:SetScript("OnEvent", function(_, event, houses)
         return
     end
     travelHouses = type(houses) == "table" and houses or {}
+    travelHousesGen = travelHousesGen + 1
     local onLoaded = houseOptionsWaiting
     houseOptionsWaiting = nil
     TravelSyncHouseEvents()
@@ -266,6 +269,8 @@ local function TravelHouseCooldown()
     end
     return rem, true
 end
+
+function ns.TravelHouseListGen() return travelHousesGen end
 
 -- Options-side: owned houses as { key = "house:<guid>", name = ... }.
 function ns.TravelHouseChoices()
@@ -862,6 +867,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     local function RelayoutAfterCombat()
         if not inst._dead then inst:Refresh() end
     end
+    local layoutKey = "edbtravellayout:" .. inst.key
 
     function inst:Refresh()
         SyncHouseWatch()
@@ -905,7 +911,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
 
         -- The secure button cannot resize in combat: lay out again once it ends.
         if InCombatLockdown() then
-            ns.DeferUntilOOC("edbtravellayout:" .. inst.key, RelayoutAfterCombat)
+            ns.DeferUntilOOC(layoutKey, RelayoutAfterCombat)
             return
         end
 

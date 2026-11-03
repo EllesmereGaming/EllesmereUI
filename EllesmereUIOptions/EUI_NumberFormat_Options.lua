@@ -29,11 +29,14 @@ local PRECISION_LABELS = {
     meter = "Damage Meter Precision",
 }
 local PRECISION_TIPS = {
-    health = "Current health values on Unit Frames, Raid Frames, Nameplates and the Resource Bars health bar. Standard keeps Blizzard's format. Smart shows three digits (1.23M, 12.3M, 123M).",
-    maxHealth = "Maximum health values on Unit Frames, Raid Frames, Nameplates and the Resource Bars health bar. Standard keeps Blizzard's format. Smart shows three digits (1.23M, 12.3M, 123M).",
-    absorb = "Absorb and heal absorb values on Unit Frames, Raid Frames and Nameplates. Standard keeps Blizzard's format. Smart shows three digits (1.23M, 12.3M, 123M).",
-    bossHealth = "Current and maximum health on the Unit Frames boss frames. Standard keeps Blizzard's format. Smart shows three digits (1.23M, 12.3M, 123M).",
-    meter = "Damage Meters and the Mythic+ run summary. Standard keeps the Damage Meters' own format. Smart shows three digits (1.23M, 12.3M, 123M).",
+    health = "Current health values on Unit Frames, Raid Frames, Nameplates and the Resource Bars health bar. Standard keeps the default format. Smart shows three digits (1.23M, 12.3M, 123M).",
+    maxHealth = "Maximum health values on Unit Frames, Raid Frames, Nameplates and the Resource Bars health bar. Standard keeps the default format. Smart shows three digits (1.23M, 12.3M, 123M).",
+    absorb = "Absorb and heal absorb values on Unit Frames, Raid Frames and Nameplates. Standard keeps the default format. Smart shows three digits (1.23M, 12.3M, 123M).",
+    bossHealth = "Current and maximum health on the Unit Frames boss frames. Standard keeps the default format. Smart shows three digits (1.23M, 12.3M, 123M).",
+    -- WoW Forever has no Mythic+ run summary; its threat meter takes this type.
+    meter = EllesmereUI.IS_FOREVER
+        and "Damage Meters and the threat meter. Standard keeps the Damage Meters' own format. Smart shows three digits (1.23M, 12.3M, 123M)."
+        or "Damage Meters and the Mythic+ run summary. Standard keeps the Damage Meters' own format. Smart shows three digits (1.23M, 12.3M, 123M).",
 }
 
 -- The type the page shows; also set by a search jump (getPrebuildVariants).
@@ -62,14 +65,6 @@ local function AllStandard()
         if Precision(TYPES[i]) ~= "standard" then return false end
     end
     return true
-end
-
--- n as valueType reads now: the module's own call while it is on Standard.
-local function FormatAs(valueType, n)
-    local opts = EllesmereUI.NumberFormatOptions(valueType)
-    if opts then return AbbreviateNumbers(n, opts) end
-    if EllesmereUI.ForeverAbbreviateNumbers then return EllesmereUI.ForeverAbbreviateNumbers(n) end
-    return AbbreviateNumbers(n)
 end
 
 -- Repaints the header's preview and markers; set by the header builder.
@@ -172,11 +167,11 @@ local function HeaderDropdown(hdr, text, tip, w, values, order, getValue, setVal
     return lbl, dd, info
 end
 
-local function HeaderBuilder(hdr, hdrW)
+-- Everything here reads the shown type live, so a type pick only refreshes.
+local function HeaderBuilder(hdr)
     local PP = EllesmereUI.PanelPP
     local L = EllesmereUI.L
     local accent = EllesmereUI.ELLESMERE_GREEN
-    local vt = selectedType
     local y = -16
 
     local labels = {}
@@ -190,11 +185,9 @@ local function HeaderBuilder(hdr, hdrW)
         getChecked = function(key) return key == selectedType end,
         onToggle   = function(key)
             if key == selectedType then return end
-            local savedScroll = EllesmereUI.GetContentScroll and EllesmereUI.GetContentScroll() or 0
             selectedType = key
-            -- One pass builds the page and its header for the new type.
-            EllesmereUI:RefreshPage(true)
-            EllesmereUI.SmoothScrollTo(savedScroll)
+            headerRefresh()
+            EllesmereUI:RefreshPage()
         end,
     })
     seg:SetFrameLevel(hdr:GetFrameLevel() + 5)
@@ -208,7 +201,7 @@ local function HeaderBuilder(hdr, hdrW)
         local v = PREVIEW_VALUES[i]
         local x = (i - (#PREVIEW_VALUES + 1) / 2) * COL_W
         local raw = EllesmereUI.MakeFont(hdr, 11, nil, 1, 1, 1, 0.4)
-        raw:SetText(BreakUpLargeNumbers and BreakUpLargeNumbers(v) or tostring(v))
+        raw:SetText(BreakUpLargeNumbers(v))
         PP.Point(raw, "TOP", hdr, "TOP", x, y)
         local res = EllesmereUI.MakeFont(hdr, 20, nil, accent.r, accent.g, accent.b, 1)
         PP.Point(res, "TOP", hdr, "TOP", x, y - 16)
@@ -218,11 +211,11 @@ local function HeaderBuilder(hdr, hdrW)
 
     -- Precision (its (i) names the modules and the cut) and threshold of the
     -- shown type, either side of the middle.
-    local pLbl, pDD, pInfo = HeaderDropdown(hdr, PRECISION_LABELS[vt],
-        function() return L(PRECISION_TIPS[vt]) .. "\n\n" .. EllesmereUI.L("Numbers are cut, not rounded.") end,
+    local pLbl, pDD, pInfo = HeaderDropdown(hdr, PRECISION_LABELS[selectedType],
+        function() return L(PRECISION_TIPS[selectedType]) .. "\n\n" .. EllesmereUI.L("Numbers are cut, not rounded.") end,
         170, PRECISION_VALUES, PRECISION_ORDER,
-        function() return Precision(vt) end,
-        function(v) SetTypeField(vt, "precision", v) end, true)
+        function() return Precision(selectedType) end,
+        function(v) SetTypeField(selectedType, "precision", v) end, true)
     PP.Point(pDD, "TOPRIGHT", hdr, "TOP", -20, y)
     -- The label centers on the dropdown; the (i) sits 3px lower to meet the
     -- label's optical middle.
@@ -231,8 +224,8 @@ local function HeaderBuilder(hdr, hdrW)
     pInfo:SetPoint("LEFT", pLbl, "RIGHT", 5, -3)
     local tLbl, tDD = HeaderDropdown(hdr, "Start Abbreviating At", function() return L(THRESHOLD_TIP) end,
         110, THRESHOLD_VALUES, THRESHOLD_ORDER,
-        function() return Threshold(vt) end,
-        function(v) SetTypeField(vt, "threshold", v) end)
+        function() return Threshold(selectedType) end,
+        function(v) SetTypeField(selectedType, "threshold", v) end)
     tLbl:SetPoint("TOPLEFT", hdr, "TOP", 20, y - 8)
     tDD:SetPoint("LEFT", tLbl, "RIGHT", 12, 0)
     -- Locked while the type is on Standard: greyed, with the row lock tooltip.
@@ -242,13 +235,15 @@ local function HeaderBuilder(hdr, hdrW)
     tLock:SetFrameLevel(tDD:GetFrameLevel() + 10)
     tLock:EnableMouse(true)
     tLock:SetScript("OnEnter", function()
-        EllesmereUI.ShowWidgetTooltip(tDD, EllesmereUI.ResolveDisabledTip({ disabledTooltip = THRESHOLD_LOCK }))
+        EllesmereUI.ShowWidgetTooltip(tDD, EllesmereUI.DisabledTooltip(THRESHOLD_LOCK))
     end)
     tLock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
     y = y - 30 - 16
 
     headerRefresh = function()
-        for i = 1, #PREVIEW_VALUES do results[i]:SetText(FormatAs(vt, PREVIEW_VALUES[i])) end
+        local vt = selectedType
+        pLbl:SetText(L(PRECISION_LABELS[vt]))
+        for i = 1, #PREVIEW_VALUES do results[i]:SetText(EllesmereUI.AbbreviateValue(PREVIEW_VALUES[i], vt)) end
         local locked = Precision(vt) == "standard"
         tLbl:SetAlpha(locked and 0.3 or 1)
         tDD:SetAlpha(locked and 0.3 or 1)
@@ -287,13 +282,11 @@ function _G._EUI_BuildNumberFormatPage(pageName, parent, yOffset)
     -- stops there. The body rows are global and stay untagged, so a jump to
     -- them keeps the shown type.
     local setter = EllesmereUI._setNumberFormatType
-    if EllesmereUI._RegisterSearchEntry then
-        local L = EllesmereUI.L
-        local module, page = EllesmereUI._buildingModule, EllesmereUI._buildingPage
-        for _, e in ipairs({ { PRECISION_LABELS[vt], PRECISION_TIPS[vt] }, { "Start Abbreviating At", THRESHOLD_TIP } }) do
-            local loc = L(e[1])
-            EllesmereUI._RegisterSearchEntry(e[1], loc ~= e[1] and loc or nil, e[2], module, page, "PRECISION", setter, vt)
-        end
+    local L = EllesmereUI.L
+    local module, page = EllesmereUI._buildingModule, EllesmereUI._buildingPage
+    for _, e in ipairs({ { PRECISION_LABELS[vt], PRECISION_TIPS[vt] }, { "Start Abbreviating At", THRESHOLD_TIP } }) do
+        local loc = L(e[1])
+        EllesmereUI._RegisterSearchEntry(e[1], loc ~= e[1] and loc or nil, e[2], module, page, "PRECISION", setter, vt)
     end
 
     parent._showRowDivider = true
@@ -320,7 +313,7 @@ function _G._EUI_BuildNumberFormatPage(pageName, parent, yOffset)
           end,
           rawTooltip = true },
         { type = "dropdown", text = "Unit Style",
-          tooltip = "Client Language uses your client's own units (ten-thousand groups on Chinese and Korean clients). Western always uses K, M and B. Applies to every value type.",
+          tooltip = "Client Language uses your language's own units (ten-thousand groups in Chinese and Korean). Western always uses K, M and B. Applies to every value type.",
           values = { auto = "Client Language", western = "Western (K, M, B)" },
           order = { "auto", "western" },
           getValue = function()
@@ -334,13 +327,19 @@ function _G._EUI_BuildNumberFormatPage(pageName, parent, yOffset)
 
     -- A module toggle overriding the shown type, with a jump to it. The toggle
     -- lives on another page, so the row is always built (last, so hiding it
-    -- shifts nothing) and shown or hidden in place on every refresh, a cache
-    -- restore included.
-    local on, note, module, page, section, highlight = OverrideNote(vt)
+    -- shifts nothing) and aimed and shown in place on every refresh (a type
+    -- pick, a cache restore). The inline search leaves it alone: its clear
+    -- shows every row it collected.
+    local on, note, nModule, nPage, section, highlight = OverrideNote(vt)
     local noteRow
-    y, noteRow = EllesmereUI.BuildLinkRow(parent, y, note, module, page, section, highlight, { warn = true })
+    y, noteRow = EllesmereUI.BuildLinkRow(parent, y, note, nModule, nPage, section, highlight, { warn = true })
+    noteRow._searchIgnore = true
     noteRow:SetShown(on)
-    EllesmereUI.RegisterWidgetRefresh(function() noteRow:SetShown((OverrideNote(vt))) end)
+    EllesmereUI.RegisterWidgetRefresh(function()
+        local shown, n, m, p, s, hl = OverrideNote(selectedType)
+        noteRow:Relink(n, m, p, s, hl)
+        noteRow:SetShown(shown)
+    end)
 
     -- Framework contract: return the positive total content height.
     return math.abs(y)

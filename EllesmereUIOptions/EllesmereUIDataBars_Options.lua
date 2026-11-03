@@ -2850,6 +2850,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             local typeRows = {}
+            -- Travel: its three click dropdowns, set by the row loop below.
+            local travelClickDD
             if b.type == "audio" then
                 typeRows = {
                     { type = "dropdown", text = "Audio Channel",
@@ -3075,12 +3077,13 @@ initFrame:SetScript("OnEvent", function(self)
                 }
             elseif b.type == "travel" then
                 local function ChoiceOf(btn) return ns.TravelClickChoice(s, btn) end
-                -- Houses arrive asynchronously: rebuild once if this page is still open.
+                -- Houses arrive asynchronously: the page refresh lists them (the refill below).
                 ns.TravelRequestHouseList(function()
-                    if EllesmereUI:GetActiveModule() == "EllesmereUIDataBars" then EllesmereUI:RefreshPage(true) end
+                    if EllesmereUI:GetActiveModule() == "EllesmereUIDataBars" then EllesmereUI:RefreshPage() end
                 end)
-                local function BuildClickValues(btn)
-                    local values, order = {}, {}
+                -- Fills values / order in place: a built dropdown keeps reading these tables.
+                local function BuildClickValues(btn, values, order)
+                    wipe(values); wipe(order)
                     if btn == 3 then values.none = "None"; order[1] = "none" end
                     values.random = "Random Hearthstone"; order[#order + 1] = "random"
                     local cur = ChoiceOf(btn)
@@ -3135,9 +3138,9 @@ initFrame:SetScript("OnEvent", function(self)
                 local CLICK_LABELS = { "Left Click", "Right Click", "Middle Click" }
                 local CLICK_KEYS = { "hsChoice", "hsChoiceRight", "hsChoiceMiddle" }
                 local CLICK_TIPS = {
-                    "What left click on the Travel block uses: your house (the same click returns you after a visit), a travel item or teleport, a specific hearthstone, or Random Hearthstone (a random owned hearthstone each cast).",
-                    "What right click on the Travel block uses. Defaults to Random Hearthstone.",
-                    "What middle click on the Travel block uses. None leaves middle click unused.",
+                    "Where left-clicking the block takes you.",
+                    "Where right-clicking the block takes you.",
+                    "Where middle-clicking the block takes you.",
                 }
                 local TEXT_LABELS = { "Left Click Text", "Right Click Text", "Middle Click Text" }
                 local TEXT_KEYS = { "textLeft", "textRight", "textMiddle" }
@@ -3145,8 +3148,10 @@ initFrame:SetScript("OnEvent", function(self)
                                       both = "Destination and Cooldown", cooldown = "Cooldown Only", none = "None" }
                 local TEXT_ORDER = { "location", "smart", "both", "cooldown", "none" }
                 typeRows = {}
+                local clickVals, clickOrd = {}, {}
                 for btn = 1, 3 do
-                    local vals, ord = BuildClickValues(btn)
+                    local vals, ord = BuildClickValues(btn, {}, {})
+                    clickVals[btn], clickOrd[btn] = vals, ord
                     typeRows[#typeRows + 1] = { type = "dropdown", text = CLICK_LABELS[btn],
                       tooltip = CLICK_TIPS[btn],
                       values = vals, order = ord,
@@ -3158,7 +3163,7 @@ initFrame:SetScript("OnEvent", function(self)
                           Apply(); EllesmereUI:RefreshPage()
                       end }
                     typeRows[#typeRows + 1] = { type = "dropdown", text = TEXT_LABELS[btn],
-                      tooltip = "What the bar shows for this click: where it goes, its own cooldown (the hearthstone's for hearthstone choices), both, or nothing. Parts from several clicks are joined with /.",
+                      tooltip = "What the bar shows for this click.",
                       values = TEXT_VALUES, order = TEXT_ORDER,
                       getValue = function() return ns.TravelClickTextMode(s, btn) end,
                       setValue = function(v) s[TEXT_KEYS[btn]] = v; Apply() end,
@@ -3168,6 +3173,21 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 -- Last, so each click keeps its choice and text on one row.
                 if travelIconCfg then typeRows[#typeRows + 1] = travelIconCfg end
+                -- A house list that arrived after the build: refill the three menus in place.
+                if not EllesmereUI._prebuilding then
+                    travelClickDD = {}
+                    local clickDD, listGen = travelClickDD, ns.TravelHouseListGen()
+                    EllesmereUI.RegisterWidgetRefresh(function()
+                        local gen = ns.TravelHouseListGen()
+                        if gen == listGen then return end
+                        listGen = gen
+                        for btn = 1, 3 do
+                            BuildClickValues(btn, clickVals[btn], clickOrd[btn])
+                            local dd = clickDD[btn]
+                            if dd and dd._invalidateMenu then dd._invalidateMenu() end
+                        end
+                    end)
+                end
             elseif b.type == "micromenu" then
                 -- Align Content returns here as a type row (its shared-row
                 -- slot hosts the Enable Text toggle instead): anchors the
@@ -3408,6 +3428,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local rightCfg = typeRows[k + 1]
                 if not rightCfg then rightCfg = { type = "label", text = "" } end
                 row, h = W:DualRow(parent, y, typeRows[k], rightCfg);  y = y - h
+                -- Travel: the first three rows hold the click dropdowns on their left.
+                if travelClickDD and k <= 5 then travelClickDD[(k + 1) / 2] = row._leftRegion._control end
                 if b.type == "supplies" and k == 1 and not EllesmereUI._prebuilding then
                     local region = row._leftRegion
                     if region._control then region._control:Hide() end
@@ -3775,6 +3797,7 @@ initFrame:SetScript("OnEvent", function(self)
                         end,
                         false, 20)
                     PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
+                    rgn._lastInline = swatch
                     local block = CreateFrame("Frame", nil, swatch)
                     block:SetAllPoints()
                     block:SetFrameLevel(swatch:GetFrameLevel() + 10)

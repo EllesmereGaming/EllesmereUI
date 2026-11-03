@@ -93,9 +93,12 @@ local _rules     = {}                                  -- all live rules this sp
 local _auraRules = {}                                  -- subset: aura trigger
 local _customRules = {}                                -- subset: function trigger
 local _castMap   = {}                                  -- castSpellID -> { rule, ... }
-local _pendingCastRules = {}                           -- rule -> unresolved item IDs
-local _settledCastItems = {}                           -- completed loads this re-arm
-local RetryPendingCasts
+-- Cast rules with an item whose data had not loaded when they were mapped
+-- (login, /reload): rule -> { itemID = true }. ITEM_DATA_LOAD_RESULT maps them
+-- again as the data lands, registered only while a rule waits. Settled: the
+-- items whose load answered since the last re-arm, never waited on again.
+local _pendingCastRules = {}
+local _settledCastItems = {}
 local _needAura  = false
 local _needCast  = false
 local _windows   = setmetatable({}, { __mode = "k" })  -- rule -> { start, dur, expiry }
@@ -135,7 +138,7 @@ local _cdrArmedByKey = {}
 local GetOverlay, ResolveSwipeColor, IconTexture, ApplyToFrame, ApplyRule, RaiseOverlayBorders, RestoreOverlayBorders
 local EnsureTicker, OpenWindow, CloseWindow, CloseAll, CastWindow
 local OpenFromAura, EvalCustom, InitialStamp, OnEvent, UpdateListeners
-local ResolveCastSpells, PresetAltItemIDs
+local ResolveCastSpells, PresetAltItemIDs, RetryPendingCasts
 local PresetOnCD, ApplyCdState, RestoreAllCdState, EvalCdStateNow, QueueCdStateEval, QueueFormAuraEval
 
 -- ---------------------------------------------------------------------------
@@ -991,7 +994,8 @@ InitialStamp = function()
     for i = 1, #_customRules do EvalCustom(_customRules[i]) end
 end
 
--- updateInfo: UNIT_AURA's payload (UNIT_SPELLCAST_SUCCEEDED's cast GUID, unused)
+-- updateInfo: UNIT_AURA's payload (UNIT_SPELLCAST_SUCCEEDED's cast GUID, unused);
+-- ITEM_DATA_LOAD_RESULT brings the item ID in unit and the success flag in updateInfo
 OnEvent = function(self, event, unit, updateInfo, spellID)
     if event == "UNIT_AURA" then
         -- Registered for aura rules, or for form rules: a powershift's return,
@@ -1091,16 +1095,17 @@ UpdateListeners = function()
     end
 end
 
--- Spell ids whose successful cast should open a rule's window. For positive
--- keys: the spell (and its live override). For negative keys (item presets):
--- the item's on-use spell. -13 / -14 are the equipped trinket slots.
+-- Item ID -> the cast spell IDs the consumables catalogue knows ahead
+-- (EllesmereUI.CONSUMABLES spellIDs, the IDs the Tracking Bars potion presets
+-- trigger on too), so a potion or healthstone rule maps before its item data
+-- has loaded.
 local _knownItemCasts
 local function KnownItemCasts(itemID)
     if not _knownItemCasts then
         local families = EllesmereUI.CONSUMABLES
-        if not families then return end
         _knownItemCasts = {}
-        -- A primary identity wins over another family's alternate (Healthstones).
+        -- A family's own item wins over another family's alternate: 224464 is
+        -- the Demonic Healthstone, also listed as a Healthstone alternate.
         for _, family in pairs(families) do
             if family.spellIDs then _knownItemCasts[family.itemID] = family.spellIDs end
         end
@@ -1115,31 +1120,13 @@ local function KnownItemCasts(itemID)
     return _knownItemCasts[itemID]
 end
 
+-- Spell ids whose successful cast should open a rule's window. For positive
+-- keys: the spell (and its live override). For negative keys (item presets):
+-- the item's on-use spell and the cast IDs known ahead for it. -13 / -14 are
+-- the equipped trinket slots. An item key also returns the items whose on-use
+-- spell cannot be read yet ({ itemID = true }: data not loaded).
 ResolveCastSpells = function(key)
-    local out = {}
-    local pending = {}
-    local seen = {}
-    local function ItemSpell(itemID)
-        local known = KnownItemCasts(itemID)
-        if known then
-            for _, spellID in ipairs(known) do
-                if not seen[spellID] then
-                    seen[spellID] = true
-                    out[#out + 1] = spellID
-                end
-            end
-        end
-        local _, spellID = C_Item.GetItemSpell(itemID)
-        if spellID then
-            if not seen[spellID] then
-                seen[spellID] = true
-                out[#out + 1] = spellID
-            end
-        elseif not known and not _settledCastItems[itemID] and C_Item.IsItemDataCachedByID
-            and not C_Item.IsItemDataCachedByID(itemID) then
-            pending[itemID] = true
-        end
-    end
+    local out, pending = {}, nil
     if key > 0 then
         out[#out + 1] = key
         if C_SpellBook and C_SpellBook.FindSpellOverrideByID then
@@ -1147,6 +1134,29 @@ ResolveCastSpells = function(key)
             if ov and ov > 0 and ov ~= key then out[#out + 1] = ov end
         end
     else
+        pending = {}
+        local seen = {}
+        local function ItemSpell(itemID)
+            local known = KnownItemCasts(itemID)
+            if known then
+                for _, spellID in ipairs(known) do
+                    if not seen[spellID] then
+                        seen[spellID] = true
+                        out[#out + 1] = spellID
+                    end
+                end
+            end
+            local _, spellID = C_Item.GetItemSpell(itemID)
+            if spellID then
+                if not seen[spellID] then
+                    seen[spellID] = true
+                    out[#out + 1] = spellID
+                end
+            elseif not known and not _settledCastItems[itemID] and C_Item.IsItemDataCachedByID
+                and not C_Item.IsItemDataCachedByID(itemID) then
+                pending[itemID] = true
+            end
+        end
         local itemID
         local slot = ns.SlotIDFromKey and ns.SlotIDFromKey(key)
         if slot then
@@ -1602,11 +1612,13 @@ end
 
 local function MapCast(rule)
     local spells, pending = ResolveCastSpells(rule.triggerSpellID or rule.spellID)
-    _pendingCastRules[rule] = next(pending) and pending or nil
+    _pendingCastRules[rule] = pending and next(pending) and pending or nil
     for i = 1, #spells do
         local sp = spells[i]
         local list = _castMap[sp]
         if not list then list = {}; _castMap[sp] = list end
+        -- A rule maps again when one of its items loads (RetryPendingCasts):
+        -- a spell it already had keeps one entry.
         local found = false
         for j = 1, #list do
             if list[j] == rule then found = true; break end
@@ -1616,6 +1628,10 @@ local function MapCast(rule)
     _needCast = true
 end
 
+-- ITEM_DATA_LOAD_RESULT: each rule waiting on the item maps again once it has
+-- loaded (its other items may still wait), or stops waiting on it after a
+-- failed load. Either way the item is settled until the next re-arm, and the
+-- listener goes once no rule waits.
 RetryPendingCasts = function(itemID, success)
     local changed = false
     for rule, pending in pairs(_pendingCastRules) do
@@ -1855,6 +1871,8 @@ function ns.FakeActive_Rearm()
     SyncFormAuraRules()
     _armed = #_rules > 0
     UpdateListeners()
+    -- Ask once for each item a cast trigger waits on; the answers arrive through
+    -- ITEM_DATA_LOAD_RESULT, registered just above.
     if next(_pendingCastRules) and C_Item and C_Item.RequestLoadItemDataByID then
         local requested = {}
         for _, pending in pairs(_pendingCastRules) do
