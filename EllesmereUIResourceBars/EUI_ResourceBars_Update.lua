@@ -74,6 +74,14 @@ I.UpdateGCDBarSetters[#I.UpdateGCDBarSetters + 1] = function(v) UpdateGCDBar = v
 -- (EllesmereUI_NumberFormat.lua). On ns, not a local:
 -- the druid mana bar file reads it too.
 ns.AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
+-- Health text: the global Number Format for valueType, else the default above
+-- (which power text keeps). On ns for the options preview.
+function ns.AbbreviateValue(n, valueType)
+    local opts = EllesmereUI.NumberFormatOptions(valueType)
+    if opts then return AbbreviateNumbers(n, opts) end
+    return ns.AbbreviateNumbers(n)
+end
+EllesmereUI.RegisterNumberFormatCallback(function() I.UpdateHealthBar() end)
 local function UpdateHealthBar()
     if not healthBar or not healthBar:IsShown() then return end
     local hp = _G._ERB_ResolveHealthCfg()
@@ -183,14 +191,14 @@ local function UpdateHealthBar()
     if hp.textFormat ~= "none" and not _G._ERB_TextHiddenByForm(hp) then
         local fmt = hp.textFormat
         local pctStr = format("%d", pctRaw)
-        local curStr = ns.AbbreviateNumbers(cur)
+        local curStr = ns.AbbreviateValue(cur, "health")
         local txt
         if fmt == "both" then
             txt = curStr .. " | " .. pctStr .. "%"
         elseif fmt == "curhpshort" then
             txt = curStr
         elseif fmt == "curmaxhp" then
-            txt = curStr .. " / " .. ns.AbbreviateNumbers(mx)
+            txt = curStr .. " / " .. ns.AbbreviateValue(mx, "maxHealth")
         elseif fmt == "perhp" then
             txt = pctStr .. "%"
         elseif fmt == "perhpnosign" then

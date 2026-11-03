@@ -304,6 +304,17 @@ if EllesmereUI.IS_FOREVER then
     end
 end
 
+-- Health, max health and absorb values without a decimal config: the global
+-- Number Format for valueType (EllesmereUI_NumberFormat.lua), else the plain
+-- call. AbbreviateNumbers runs in Blizzard's secure context, so a secret value
+-- plus a config stays secret-safe.
+function ns.AbbreviateValue(v, valueType)
+    local opts = EllesmereUI.NumberFormatOptions(valueType)
+    if opts then return AbbreviateNumbers(v, opts) end
+    return AbbreviateNumbers(v)
+end
+EllesmereUI.RegisterNumberFormatCallback(function() ns.RefreshAllUnitNames() end)
+
 -- Health Short always abbreviates from 1,000 with one decimal.
 function ns.AbbreviateShortHealth(hp)
     if not ns._shortHealthAbbrevConfig then
@@ -341,7 +352,7 @@ function ns.ApplyTextDecimalGlobals()
         end
         _G._EUI_TextDecimals = true
         -- "Only Show for % Health": decimal on PERCENT, health/absorb VALUES whole --
-        -- withhold the abbreviate configs (values fall back to plain AbbreviateNumbers)
+        -- withhold the abbreviate configs (values follow the Number Format, ns.AbbreviateValue)
         -- while _EUI_TextDecimals stays true for percents.
         local percentOnly = db.profile.showDecimalPercentOnly
         _G._EUI_AbbrevDecimalCfg = ns._decimalAbbrevConfig
@@ -388,7 +399,9 @@ do
   -- current value takes it, so Health # / Max # names the status once
   -- ("DEAD / 150 K"). shortHealth (healthshort): always one decimal with an
   -- uppercase K/M/B (ns.AbbreviateShortHealth), whatever the decimal options say.
-  local function MakeAbbrevHP(getHP, status, shortHealth)
+  -- valueType: the Number Format type without a decimal config; boss frames
+  -- read "bossHealth" instead.
+  local function MakeAbbrevHP(getHP, status, shortHealth, valueType)
     return function(unit)
       if not unit or not UnitExists(unit) then return "" end
       if status then
@@ -398,17 +411,19 @@ do
       local hp = getHP(unit) or 0
       if shortHealth then return ns.AbbreviateShortHealth(hp) end
       local cfg = _G._EUI_AbbrevDecimalCfg
+      local boss = IS_BOSS_UNIT[unit]
       -- Boss frames use the 2-decimal config when "Show 2 for Boss" is on.
-      if _G._EUI_BossExtraDecimal and IS_BOSS_UNIT[unit] then
+      if _G._EUI_BossExtraDecimal and boss then
         cfg = _G._EUI_AbbrevDecimalCfg2
       end
-      return cfg and AbbreviateNumbers(hp, cfg) or AbbreviateNumbers(hp)
+      if cfg then return AbbreviateNumbers(hp, cfg) end
+      return ns.AbbreviateValue(hp, boss and "bossHealth" or valueType)
     end
   end
 
-  TagFns.curhpshort = MakeAbbrevHP(UnitHealth, true)
+  TagFns.curhpshort = MakeAbbrevHP(UnitHealth, true, nil, "health")
   TagFns.healthshort = MakeAbbrevHP(UnitHealth, true, true)
-  TagFns.maxhpshort = MakeAbbrevHP(UnitHealthMax)
+  TagFns.maxhpshort = MakeAbbrevHP(UnitHealthMax, nil, nil, "maxHealth")
 end
 
 do
@@ -960,7 +975,7 @@ do
         if not u or not UnitExists(u) then return "" end
         local cfg = _G._EUI_AbbrevDecimalCfg
         return cfg and AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0, cfg)
-            or AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0)
+            or ns.AbbreviateValue(UnitGetTotalAbsorbs(u) or 0, "absorb")
     end
     P.healabsorb = function(u)
         if not u or not UnitExists(u) then return "" end
@@ -970,7 +985,7 @@ do
         if not u or not UnitExists(u) then return "" end
         local cfg = _G._EUI_AbbrevDecimalCfg
         return cfg and AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0, cfg)
-            or AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0)
+            or ns.AbbreviateValue(UnitGetTotalHealAbsorbs(u) or 0, "absorb")
     end
     P.group = function(u)
         if not IsInRaid() then return "" end

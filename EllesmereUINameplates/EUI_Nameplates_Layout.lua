@@ -831,16 +831,16 @@ do
         end,
         ["hp:abr"] = function(u)
             if UnitIsDeadOrGhost(u) then return EllesmereUI.L("DEAD") end
-            return ns.AbbreviateNumbers(UnitHealth(u) or 0)
+            return ns.AbbreviateValue(UnitHealth(u) or 0, "health")
         end,
         ["hp:max"] = function(u) return sf("%d", UnitHealthMax(u) or 0) end,
-        ["hp:max:abr"] = function(u) return ns.AbbreviateNumbers(UnitHealthMax(u) or 0) end,
+        ["hp:max:abr"] = function(u) return ns.AbbreviateValue(UnitHealthMax(u) or 0, "maxHealth") end,
         ["hp:pct"] = function(u)
             if UnitIsDeadOrGhost(u) then return "0" end
             return sf("%d", UnitHealthPercent(u, true, CurveConstants.ScaleTo100) or 0)
         end,
         ["absorb"] = function(u) return C_StringUtil.TruncateWhenZero(UnitGetTotalAbsorbs(u) or 0) end,
-        ["absorb:abr"] = function(u) return ns.AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0) end,
+        ["absorb:abr"] = function(u) return ns.AbbreviateValue(UnitGetTotalAbsorbs(u) or 0, "absorb") end,
         ["name"] = Name,
         ["name:first"] = Shaped("first"), ["name:last"] = Shaped("last"), ["name:abbr"] = Shaped("abbr"),
         ["target"] = function(u, slotKey)
