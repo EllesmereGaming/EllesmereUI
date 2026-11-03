@@ -25,6 +25,9 @@ local askedFor = nil
 local guardAskedFor = nil
 local showing = nil
 
+
+local promoteAskedFor, promoteOpen, promoteShowing = nil, false, false
+
 local function AskedKey(groupKey)
     return groupKey .. "|" .. tostring(addon.GetMasterLooter())
         .. "|" .. tostring(addon.GetGroupLeader())
@@ -64,7 +67,7 @@ local function Build()
     silenceRow:AdoptHover(silenceRow.Box)
 
     silenceRow.LabelText = S.Label(silenceRow, S.fontSmall, "LEFT")
-    silenceRow.LabelText:SetText(T["Don't ask again - just take part"])
+    silenceRow.LabelText:SetText(T["Always join automatically"])
     addon.Pixel.Point(silenceRow.LabelText, "LEFT", silenceRow.Box, "RIGHT", S.size.GAP, 0)
     addon.Pixel.Point(silenceRow.LabelText, "RIGHT", silenceRow, "RIGHT", 0, 0)
 
@@ -107,11 +110,13 @@ local function Build()
             if not open or frame:IsShown() then return end
 
 
-            if swept and IsInGroup() then
+            if swept and addon.Loot:DecisionKey() then
                 addon.Log:D("UI", "raid prompt closed by the game - asking again")
                 frame:Show()
             else
                 open, showing = false, nil
+
+                if kind == "promote" then promoteOpen = false end
                 if not swept and kind == "raider" and decline then
                     addon.Log:I("UI", "raid prompt closed without an answer - counted as No")
                     decline()
@@ -151,9 +156,14 @@ local function Reflow(allowSilence, showSection, settled)
 
     cursor:Gap(12)
 
-    bodyText:SetWidth(addon.Pixel.Snap(cursor.width))
-    addon.Pixel.Point(bodyText, "TOPLEFT", content, "TOPLEFT", 0, cursor:Y())
-    cursor.y = cursor.y - TextHeight(bodyText, 42)
+
+    local hasBody = (bodyText:GetText() or "") ~= ""
+    bodyText:SetShown(hasBody)
+    if hasBody then
+        bodyText:SetWidth(addon.Pixel.Snap(cursor.width))
+        addon.Pixel.Point(bodyText, "TOPLEFT", content, "TOPLEFT", 0, cursor:Y())
+        cursor.y = cursor.y - TextHeight(bodyText, 42)
+    end
 
     cursor:Gap(S.size.SECTION)
 
@@ -187,18 +197,32 @@ end
 
 
 
-local FIXED_KIND = { lootMaster = true, raider = true, guard = true }
+local FIXED_KIND = { lootMaster = true, raider = true, guard = true, promote = true }
+
+
+local function ButtonLabels(kind)
+    if kind == "raider" or kind == "guard" then return T["Join & Auto-Pass"], T["Roll Normally"] end
+    if kind == "promote" then return T["Promote"], T["Clear"] end
+    return T["Yes"], T["No"]
+end
 
 
 
-local function Ask(kind, question, section, body, allowSilence, accept, decline, atCursor)
+
+local function Ask(kind, question, section, body, allowSilence, accept, decline, atCursor, title)
     if not frame then Build() end
 
+    frame.Title:SetText(title or T["Simple Loot Council"])
+    if frame.ClampTitle then addon.Pixel.AfterLayout(frame.ClampTitle) end
     questionText:SetText(question)
     sectionText:SetText(section or "")
     sectionText:SetTextColor(S.Unpack(S.color.bad))
     bodyText:SetText(body)
     onAccept, onDecline = accept, decline
+
+    local yes, no = ButtonLabels(kind)
+    buttonRow.Yes:SetLabel(yes)
+    buttonRow.No:SetLabel(no)
 
     silenceRow.Box:SetChecked(addon.db.raidPrompt.silence and true or false)
     Reflow(allowSilence, section ~= nil)
@@ -263,15 +287,12 @@ local function AskRaider()
     local collector = addon.GetMasterLooter()
     local question
     if collector then
-        question = addon.Locale.Format(T["%s is running Simple Loot Council for this raid."],
-            Ambiguate(collector, "short"))
+        question = addon.Locale.Format(T["Join %s's Loot Council?"], Ambiguate(collector, "short"))
     else
-        question = addon.Locale.Format(
-            T["The Loot Master is running Simple Loot Council for this raid."])
+        question = addon.Locale.Format(T["Join the Loot Council?"])
     end
-    Ask("raider", question,
-        T["Accepting also activates your group-loot funnel."],
-        T["Taking part means this addon passes your group-loot rolls on your behalf, so the council can distribute the item instead. You still respond and can still be awarded it."],
+    Ask("raider", question, nil,
+        T["Joining automatically passes your group-loot rolls so the council can distribute items. You can still be awarded loot."],
         true,
         function()
             addon.Loot:RecordDecision(true)
@@ -311,6 +332,81 @@ local function AskGuard()
 end
 
 
+local PREVIEW = { lootmaster = AskLootMaster, raider = AskRaider, guard = AskGuard }
+function RaidPrompt:Preview(kind)
+    local ask = PREVIEW[kind]
+    if not ask then return false end
+    ask()
+    onAccept, onDecline = nil, nil
+    return true
+end
+
+
+
+
+
+
+
+local function PromoteToOffer()
+    local kept = addon.db and addon.db.lootMasterKept
+    if type(kept) ~= "table" or type(kept.guid) ~= "string" then return nil end
+    if not addon.Loot:DecisionKey() or not addon.Loot.handling then return nil end
+    if not IsInGroup() or not addon.CanAssignMasterLooter() then return nil end
+    if addon.Player:IsSelf(kept.guid) then return nil end
+    local record = addon.Player:Get(kept.guid)
+    if not record.fullName or not addon.GetCandidates()[record.fullName] then return nil end
+    if addon.Player:IsSame(addon.GetMasterLooter(), record.fullName) then return nil end
+    return record
+end
+
+local function AskPromote(record)
+    Ask("promote",
+        addon.Locale.Format(T["Re-promote %s as the Loot Master of this raid, or clear your Loot Master promotion?"],
+            Ambiguate(record.fullName, "short")),
+        nil, "", false,
+        function()
+            promoteOpen = false
+            local now = PromoteToOffer()
+            if now then addon.PromoteLootMaster(now) end
+        end,
+        function()
+            promoteOpen = false
+            addon.db.lootMasterKept = nil
+            addon.Log:I("RaidPrompt", "remembered loot promotion cleared -", tostring(record.fullName))
+            addon.Chat.Print(T["Loot Master promotion cleared."])
+
+            addon.Callbacks:Invalidate("options")
+        end, nil,
+        T["Promote Loot Master"])
+end
+
+
+local function EvaluatePromote()
+    local record = PromoteToOffer()
+    if not record then
+        if showing == "promote" then Retire() end
+        promoteOpen = false
+        return
+    end
+    if open and showing ~= "promote" then return end
+    if promoteAskedFor == record.guid and not promoteOpen then return end
+    if showing == "promote" then return end
+    if promoteShowing then return end
+    promoteAskedFor, promoteOpen, promoteShowing = record.guid, true, true
+    addon.db.lootMasterKept.name = record.fullName
+    addon.db.lootMasterKept.classFile = record.classFile or addon.db.lootMasterKept.classFile
+    addon.Log:I("RaidPrompt", "asking to re-promote the loot master -", record.fullName)
+
+
+    C_Timer.After(0, function()
+        promoteShowing = false
+        local now = PromoteToOffer()
+        if not promoteOpen or not now or (open and showing ~= "promote") then return end
+        AskPromote(now)
+    end)
+end
+
+
 
 
 
@@ -318,7 +414,7 @@ end
 
 function RaidPrompt:AskToActivate()
     local key = addon.Loot:DecisionKey()
-    if not key or not addon.PlayerIsMasterLooter() then return end
+    if not key or not IsInRaid() or not addon.PlayerIsMasterLooter() then return end
     askedFor = AskedKey(key)
     AskLootMaster(true)
 end
@@ -394,8 +490,13 @@ end
 
 
 
-function RaidPrompt:Evaluate()
-    if not IsInGroup() then return end
+local function EvaluateParticipation()
+
+    if not IsInGroup() then
+        Retire()
+        askedFor, guardAskedFor = nil, nil
+        return
+    end
     local key = addon.Loot:DecisionKey()
     if not key then
         Retire()
@@ -442,8 +543,11 @@ function RaidPrompt:Evaluate()
             askedFor = asked
             addon.Log:I("RaidPrompt", "loot master not asked - answered earlier:", tostring(decision))
             if decision and not addon.Loot.handling then
-                addon.Chat.Print(addon.Locale.Format(
-                    T["still active for this raid - you said yes earlier."]))
+
+                if key == "raid" then
+                    addon.Chat.Print(addon.Locale.Format(
+                        T["still active for this raid - you said yes earlier."]))
+                end
                 addon.Loot:SetHandling(true)
             end
             return
@@ -467,6 +571,11 @@ function RaidPrompt:Evaluate()
         end
         if askedFor == asked then
             addon.Log:I("RaidPrompt", "loot master not asked - already asked for", asked)
+            return
+        end
+
+        if not IsInRaid() then
+            if showing == "lootMaster" then Retire() end
             return
         end
         askedFor = asked
@@ -522,6 +631,11 @@ function RaidPrompt:Evaluate()
     AskGuard()
 end
 
+function RaidPrompt:Evaluate()
+    EvaluateParticipation()
+    EvaluatePromote()
+end
+
 
 function RaidPrompt:SyncSilence()
     if silenceRow then
@@ -535,22 +649,34 @@ function RaidPrompt:Init()
 
 
 
-    local wasRaid = nil
+
+    local wasRaid, wasGrouped = nil, nil
+    local function GroupShape()
+        return IsInRaid() and true or false, IsInGroup() and true or false
+    end
     local f = CreateFrame("Frame")
     f:RegisterEvent("PLAYER_ENTERING_WORLD")
     f:RegisterEvent("GROUP_ROSTER_UPDATE")
     f:SetScript("OnEvent", function(_, event)
+        local isRaid, isGrouped = GroupShape()
         if event == "PLAYER_ENTERING_WORLD" then
-            C_Timer.After(3, function() RaidPrompt:Evaluate() end)
+            wasRaid, wasGrouped = isRaid, isGrouped
+            C_Timer.After(3, function()
+                addon.RestoreGroupTest()
+                RaidPrompt:Evaluate()
+            end)
             return
         end
-        local isRaid = IsInRaid() and true or false
-        if wasRaid ~= nil and isRaid ~= wasRaid then
-            wasRaid = isRaid
+        if wasRaid ~= nil and (isRaid ~= wasRaid or isGrouped ~= wasGrouped) then
+
+
+            if not isRaid then
+                Retire()
+                askedFor, guardAskedFor = nil, nil
+            end
             C_Timer.After(1, function() RaidPrompt:Evaluate() end)
-            return
         end
-        wasRaid = isRaid
+        wasRaid, wasGrouped = isRaid, isGrouped
     end)
 
 
@@ -571,6 +697,12 @@ function RaidPrompt:Init()
 
         askedFor, guardAskedFor = nil, nil
         RaidPrompt:Evaluate()
+    end)
+
+
+    addon.Callbacks:Register("RosterChanged", function(diff)
+        if not diff.inGroup then promoteAskedFor, promoteOpen = nil, false end
+        C_Timer.After(1, EvaluatePromote)
     end)
 
     addon.Log:I("UI", "raid prompt ready")

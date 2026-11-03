@@ -504,6 +504,31 @@ function addon.ShowHistoryCSV(scope)
     ShowDump(title, addon.History:ToCSV(scope))
 end
 
+
+local function HandGameMasterLoot(unit, name)
+    if not addon.GetGameMasterLooter() then return end
+    if addon.SetGameMasterLooter(unit) then
+        Print(addon.Locale.Format(T["%s is now the group's Master Looter."], name))
+    else
+        Print(addon.Locale.Format(T["could not make %s the group's Master Looter - set it from your portrait's Loot Method menu."], name))
+    end
+end
+
+
+
+function addon.PromoteLootMaster(record)
+    addon.db.lootMaster = record.guid
+    addon.db.lootMasterKept = { guid = record.guid, name = record.fullName, classFile = record.classFile }
+    addon.InvalidateMasterLooter()
+
+
+    addon.Config:ClearShared("promotion changed")
+    addon.Council:ForgetPromoteHeard()
+    addon.Council:Broadcast(true)
+    Print(addon.Locale.Format(T["Loot Master set to %s for this raid"], record.fullName))
+    HandGameMasterLoot(addon.Player:UnitFor(record.guid), record.fullName)
+end
+
 SLASH_SIMPLELOOTCOUNCIL1 = "/slc"
 SLASH_SIMPLELOOTCOUNCIL2 = "/glc"
 
@@ -596,6 +621,7 @@ local function HelpSections(dev)
                 { T["fakecoins [<count>] [Name-Realm] [#item] / clear"], T["fake coin history at each queued item's boss, and a live coin on #item"], retailOnly = true, devTools = true },
                 { T["stress [<raiders> [<items> [<seconds>]] / stop]"], T["replay a raid's answers"], devTools = true },
                 { T["pseudo [on / off]"], T["localisation test mode"], devTools = true },
+                { T["prompt <lootmaster / raider / guard>"], T["show a group question, answers do nothing"], devTools = true },
             },
             { T["State"],
                 { "show", T["current run state"], devTools = true },
@@ -627,7 +653,7 @@ local function HelpSections(dev)
             { T["on / off"], T["use SLC for this group, or stop"] },
             { T["council [add / remove <name>]"], T["manage the council"] },
             { "resend", T["push the council and settings again"] },
-            { T["lootmaster / lm / ml [<name> / clear]"], T["delegate loot"] },
+            { T["lootmaster / lm / ml [<name> / clear]"], T["promote loot"] },
             { T["alt [<alt> <main> / remove <alt>]"], T["link an alt to its main"] },
         },
         { T["Running loot"],
@@ -693,7 +719,7 @@ local DEV_COMMANDS = {
     ping = true, comms = true, snapshotsize = true, perf = true, stress = true,
     ftest = true, fakecoins = true, pseudo = true, debug = true, names = true,
     taint = true, show = true, boss = true, coins = true, guild = true,
-    item = true, why = true, set = true, localecheck = true,
+    item = true, why = true, set = true, localecheck = true, prompt = true,
 }
 
 
@@ -994,11 +1020,11 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
 
             Print(addon.Locale.Format(addon.GetGameMasterLooter()
                 and T["Loot Master: %s (the group's Master Looter)"]
-                or addon.IsLootDelegated() and T["Loot Master: %s (delegated)"]
+                or addon.IsLootPromoted() and T["Loot Master: %s (promoted)"]
                 or T["Loot Master: %s (group leader)"], tostring(current)))
             Print(addon.IsForever and T["usage: /slc lootmaster <Name>  ||  /slc lootmaster clear"]
                 or T["usage: /slc lootmaster <Name-Realm>  ||  /slc lootmaster clear"])
-            Print(T["a delegation lasts for this raid - it is forgotten when you leave the group"])
+            Print(T["a promotion is remembered after you leave - when you lead a raid with them in it, you are asked to promote again"])
             return
         end
 
@@ -1007,24 +1033,13 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             return
         end
 
-
-        local onMasterLoot = addon.GetGameMasterLooter() ~= nil
-        local function HandGameMasterLoot(unit, name)
-            if addon.SetGameMasterLooter(unit) then
-                Print(addon.Locale.Format(T["%s is now the group's Master Looter."], name))
-            else
-                Print(addon.Locale.Format(T["could not make %s the group's Master Looter - set it from your portrait's Loot Method menu."], name))
-            end
-        end
-
         if who:lower() == "clear" then
             addon.db.lootMaster = nil
+            addon.db.lootMasterKept = nil
             addon.InvalidateMasterLooter()
-            addon.Config:ClearShared("delegation cleared")
-            addon.Council:ForgetDelegateHeard()
-            if onMasterLoot then
-                HandGameMasterLoot("player", addon.Player:GetFullName("player") or "?")
-            end
+            addon.Config:ClearShared("promotion cleared")
+            addon.Council:ForgetPromoteHeard()
+            HandGameMasterLoot("player", addon.Player:GetFullName("player") or "?")
 
             addon.Council:Broadcast(true)
             Print(addon.Locale.Format(T["Loot Master reset to the group leader: %s"],
@@ -1047,18 +1062,7 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             return
         end
 
-        addon.db.lootMaster = record.guid
-        addon.InvalidateMasterLooter()
-
-
-        addon.Config:ClearShared("delegation changed")
-        addon.Council:ForgetDelegateHeard()
-        addon.Council:Broadcast(true)
-        Print(addon.Locale.Format(T["Loot Master set to %s for this raid"],
-            record.fullName))
-        if onMasterLoot then
-            HandGameMasterLoot(addon.Player:UnitFor(record.guid), record.fullName)
-        end
+        addon.PromoteLootMaster(record)
 
     elseif cmd == "additem" then
 
@@ -1823,6 +1827,12 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
             Print(T["active test is off."])
         end
 
+    elseif cmd == "prompt" then
+        local kind = (input:match("^%S+%s+(%S+)") or ""):lower()
+        if not addon.UI.RaidPrompt:Preview(kind) then
+            Print(T["usage: /slc prompt lootmaster / raider / guard"])
+        end
+
 
     elseif cmd == "ftest" then
         local args = input:match("^%S+%s*(.*)$") or ""
@@ -2102,7 +2112,7 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
                 addon.Restrictions:GetQueueDepth(),
                 tostring(addon.GetGroupLeader()),
                 tostring(addon.GetMasterLooter()),
-                addon.IsLootDelegated() and " (delegated)" or "",
+                addon.IsLootPromoted() and " (promoted)" or "",
                 tostring(addon.PlayerIsMasterLooter()),
                 (function()
                     local n = 0

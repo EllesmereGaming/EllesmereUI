@@ -583,9 +583,29 @@ local function LootMaster()
         command = "/slc lootmaster",
         name = function() return tostring(addon.GetMasterLooter() or T["unknown"]) end,
         fullName = function() return addon.GetMasterLooter() end,
+
+        classFile = function()
+            local record = addon.Player:Peek(addon.GetMasterLooter())
+            return record and record.classFile
+        end,
         unknown = T["unknown"],
         role = function()
-            return addon.IsLootDelegated() and T["delegated for this raid"] or T["group leader"]
+            return addon.IsLootPromoted() and T["promoted for this raid"] or T["group leader"]
+        end,
+
+
+        stored = function(paint)
+            if addon.IsLootPromoted() then return nil end
+            local kept = addon.db and addon.db.lootMasterKept
+            if type(kept) ~= "table" or type(kept.name) ~= "string" then return nil end
+            if addon.Player:IsSelf(kept.guid or kept.name) then return nil end
+
+            local name = kept.name:gsub("%-.*$", "")
+            if paint then
+                local classFile = kept.classFile or (kept.guid and addon.Player:Get(kept.guid).classFile)
+                name = paint(name, classFile)
+            end
+            return addon.Locale.Format(T["%s auto-promotion"], name)
         end,
     }
 end
@@ -775,10 +795,10 @@ local function Build()
                     if v and addon.UI.RaidPrompt then addon.UI.RaidPrompt:Evaluate() end
                 end),
 
-            SwitchRow("dropDelegationOnLead", T["Drop prior Loot Master delegation when passed lead"],
-                T["Become the Loot Master yourself when made group leader. Off: the previous leader's delegate keeps loot until you run /slc lootmaster clear."],
-                function() return db().raidPrompt.dropDelegationOnLead end,
-                function(v) db().raidPrompt.dropDelegationOnLead = v end),
+            SwitchRow("dropPromotionOnLead", T["Drop prior Loot Master promotion when passed lead"],
+                T["Become the Loot Master yourself when made group leader. Off: the previous leader's promote keeps loot until you run /slc lootmaster clear."],
+                function() return db().raidPrompt.dropPromotionOnLead end,
+                function(v) db().raidPrompt.dropPromotionOnLead = v end),
 
             Setting({ id = "announce", type = "multiselect", text = T["Chat Announcements"],
                 help = T["What you post in raid chat as the Loot Master."],

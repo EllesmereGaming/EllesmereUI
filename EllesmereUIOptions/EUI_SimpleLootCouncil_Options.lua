@@ -946,6 +946,12 @@ initFrame:SetScript("OnEvent", function(self)
             local mlName = EllesmereUI.MakeFont(block, 22, nil, 1, 1, 1)
             mlName:SetPoint("TOP", block, "TOP", 0, -ML_NAME_Y)
 
+            local mlNote = EllesmereUI.MakeFont(block, 16, nil, 1, 1, 1)
+            mlNote:SetPoint("LEFT", mlName, "RIGHT", 8, 0)
+
+            local gray = S.Flatten({ 1, 1, 1, 0.45 })
+            local noteGray = S.ColorStart(gray)
+
 
             local headHolder = CreateFrame("Frame", nil, block)
             PP.Size(headHolder, 160, 14)
@@ -992,6 +998,17 @@ initFrame:SetScript("OnEvent", function(self)
                 local master = lootMaster.fullName()
                 mlName:SetText(master and PlayerText(master)
                     or S.Colorize(S.color.textFaint, lootMaster.unknown))
+                local note
+                if slc.IsLootPromoted() and UnitIsGroupLeader("player") then
+                    note = S.Colorize(gray, T["(Promoted)"])
+                elseif lootMaster.stored() then
+
+                    local kept = slc.db.lootMasterKept
+                    local record = slc.Player:Get(kept.guid or kept.name)
+                    local who = ClassText((record and record.classFile) or kept.classFile, Ambiguate(kept.name, "short")) .. noteGray
+                    note = S.Colorize(gray, Format(T["(%s stored)"], Format(T["%s auto-promotion"], who)))
+                end
+                mlNote:SetText(note or "")
             end)
             OnRefresh(function()
                 local entries, count = CouncilMembers(inForce, PlayerText, RankText)
