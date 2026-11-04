@@ -11351,9 +11351,102 @@ end
 --  re-colored (same rule the merchant and trainer packs use).
 -------------------------------------------------------------------------------
 do
+local lootSkinned = false
+local LOOT_WHITE = { r = 1, g = 1, b = 1 }
+local lootQualityRGB = { r = 1, g = 1, b = 1 }
+
+-- The best quality among the slots still holding loot (a looted slot reads type None);
+-- nil with none left or no loot at all (the Edit Mode preview).
+local function BestLootQuality()
+    local best
+    for i = 1, GetNumLootItems() do
+        if GetLootSlotType(i) ~= Enum.LootSlotType.None then
+            local q = select(5, GetLootSlotInfo(i))
+            if q and (not best or q > best) then best = q end
+        end
+    end
+    return best
+end
+
+-- Quality mode's color for a best quality: Uncommon and up in their quality color, else (Poor
+-- or Common only, or no loot) the Quality swatch's own color. Refills one table, read at once.
+local function LootQualityColor(best)
+    if not best or best < Enum.ItemQuality.Uncommon then
+        return EllesmereUIDB.lootWindowBorderQualityColor or LOOT_WHITE
+    end
+    lootQualityRGB.r, lootQualityRGB.g, lootQualityRGB.b = C_Item.GetItemQualityColor(best)
+    return lootQualityRGB
+end
+
+-- The window border's picked color, for Poor/Common icons under Icon Borders. nil while the border is Default.
+local function LootWindowColor()
+    local db = EllesmereUIDB
+    if not (db and db.lootWindowBorderTexture) then return nil end
+    local mode = db.lootWindowBorderColorMode or "custom"
+    if mode == "accent" then return EllesmereUI.ELLESMERE_GREEN end
+    if mode == "class" then
+        local _, class = UnitClass("player")
+        return class and RAID_CLASS_COLORS[class]
+    end
+    if mode == "quality" then return db.lootWindowBorderQualityColor or LOOT_WHITE end
+    return db.lootWindowBorderColor or LOOT_WHITE
+end
+
+-- Quality mode follows the loot as it is taken: Blizzard hides a looted row with no list
+-- update, so a frame of ours repaints the border when a cleared slot changes the best quality.
+-- Registered only while the window shows in Quality mode; the loot's close lets it go.
+local ApplyLootBorder
+local lootQualityWatch, lootPaintedBest
+local function SyncLootQualityWatch(on)
+    if on then
+        if not lootQualityWatch then
+            lootQualityWatch = CreateFrame("Frame")
+            lootQualityWatch:SetScript("OnEvent", function(self, event)
+                if event == "LOOT_CLOSED" then
+                    self:UnregisterAllEvents()
+                elseif _G.LootFrame and BestLootQuality() ~= lootPaintedBest then
+                    ApplyLootBorder(_G.LootFrame)
+                end
+            end)
+        end
+        lootQualityWatch:RegisterEvent("LOOT_SLOT_CLEARED")
+        lootQualityWatch:RegisterEvent("LOOT_CLOSED")
+    elseif lootQualityWatch then
+        lootQualityWatch:UnregisterAllEvents()
+    end
+end
+
+-- The Loot Window card's border style. Unset keeps the shell's window border untouched.
+ApplyLootBorder = function(f)
+    local d = GetFFD(f)
+    local db = EllesmereUIDB
+    if db and db.lootWindowBorderTexture then
+        if d.atlasBorderFrame then d.atlasBorderFrame:Hide() end
+        local quality = db.lootWindowBorderColorMode == "quality"
+        local override
+        if quality then
+            lootPaintedBest = BestLootQuality()
+            override = LootQualityColor(lootPaintedBest)
+        end
+        if EllesmereUI._applyBlizzardConfiguredBorder then
+            EllesmereUI._applyBlizzardConfiguredBorder(f, "lootWindow", 1, override)
+        end
+        SyncLootQualityWatch(quality and f:IsShown())
+        d.lootBorderOn = true
+    elseif d.lootBorderOn then
+        if d.atlasBorderFrame then d.atlasBorderFrame:Show() end
+        if EllesmereUI._hideBlizzardConfiguredBorder then
+            EllesmereUI._hideBlizzardConfiguredBorder(f)
+        end
+        SyncLootQualityWatch(false)
+        d.lootBorderOn = nil
+    end
+end
+
 local function Skin_Loot()
     local f = _G.LootFrame
     if not f then return end
+    lootSkinned = true
     WSkin.Shell("loot", f)
     WSkin.RemovePortrait(f)
     WSkin.CommonChrome(f, "LootFrame")
@@ -11418,6 +11511,7 @@ local function Skin_Loot()
             if idd.qBorder and PPb and PPb.SetBorderColor then
                 local ring = item.IconBorder
                 local qr, qg, qb = 0, 0, 0
+                local isQuality = false
                 if ring and ring.IsShown and ring:IsShown() and ring.GetVertexColor then
                     local rr, rg, rb = ring:GetVertexColor()
                     -- Uncommon and up only: poor/common rings are achromatic
@@ -11425,10 +11519,35 @@ local function Skin_Loot()
                     -- chroma test filters them with no item-quality lookup.
                     if rr and (math.max(rr, rg, rb) - math.min(rr, rg, rb)) > 0.1 then
                         qr, qg, qb = rr, rg, rb
+                        isQuality = true
                     end
                     ring:SetAlpha(0)
                 end
-                PPb.SetBorderColor(idd.qBorder, qr, qg, qb, 1)
+                -- Loot Window card's Icon Borders: the picked style and size, still in the quality color.
+                local db = EllesmereUIDB
+                if db and db.lootIconBorder then
+                    -- Poor/common take the window border's color (black while that border is Default).
+                    if not isQuality then
+                        local wc = LootWindowColor()
+                        if wc then qr, qg, qb = wc.r, wc.g, wc.b end
+                    end
+                    local tex = db.lootIconBorderTexture or "solid"
+                    local key = db.lootIconBorderThickness
+                    local size = key and (EllesmereUI.BORDER_STEP_OF_LABEL[key] or 1) or 1
+                    EllesmereUI.ApplyBorderStyle(idd.qBorder, size, qr, qg, qb, 1, tex,
+                        db.lootIconBorderOffsetX, db.lootIconBorderOffsetY, nil, nil,
+                        "blizzardSkin", key or "thin", nil,
+                        EllesmereUI.BorderPx(db.lootIconBorderThicknessPx, size, tex))
+                    idd.qStyled = true
+                elseif idd.qStyled then
+                    EllesmereUI.HideBorderStyle(idd.qBorder)
+                    idd.qBorder:Show()
+                    EllesmereUI.PP.UpdateBorder(idd.qBorder, 1, qr, qg, qb, 1)
+                    EllesmereUI.PP.ShowBorder(idd.qBorder)
+                    idd.qStyled = nil
+                else
+                    PPb.SetBorderColor(idd.qBorder, qr, qg, qb, 1)
+                end
             end
         end
         for _, host in ipairs({ row, item }) do
@@ -11524,9 +11643,18 @@ local function Skin_Loot()
         end
     end
 
+    ApplyLootBorder(f)
+
     WSkin.HookShow(f, WSkin.Debounce(function()
         if f:IsVisible() then Skin_Loot(); WSkin.Restrip() end
     end))
+end
+
+EllesmereUI._Loot_RefreshBorder = function()
+    local f = _G.LootFrame
+    if not (lootSkinned and f) then return end
+    -- Open: a full pass also restyles the icon borders. Closed: the next open does that.
+    if f:IsShown() then Skin_Loot() else ApplyLootBorder(f) end
 end
 
 WSkin.RegisterWindow({

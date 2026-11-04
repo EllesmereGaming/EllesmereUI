@@ -919,6 +919,7 @@ initFrame:SetScript("OnEvent", function(self)
     local optState = {}
     optState.showCombatIndicatorPreview = false
     optState.showHealAbsorbPreview      = false  -- eyeball toggle for the Heal Absorb Style preview
+    optState.showMaxHealthPreview       = false  -- eyeball toggle for the Max Health Style preview
     optState.showDispelOverlayPreview   = false  -- eyeball toggle for the player dispel overlay preview
     -- Preview hover-highlight hint text (shared across Single/Multi tabs)
     optState._ufPreviewHintFS_display = nil  -- hint FontString for the Main Frames page
@@ -1899,6 +1900,10 @@ initFrame:SetScript("OnEvent", function(self)
         healAbsorbColor      = { player=true, target=true, focus=true },
         healAbsorbEdgeMode   = { player=true, target=true, focus=true },
         healAbsorbBgOpacity  = { player=true, target=true, focus=true },
+        maxHealthStyle       = { player=true, target=true, focus=true },
+        maxHealthOpacity     = { player=true, target=true, focus=true },
+        maxHealthColor       = { player=true, target=true, focus=true },
+        maxHealthBgOpacity   = { player=true, target=true, focus=true },
         healPrediction       = { player=true, target=true, focus=true },
         healPredOpacity      = { player=true, target=true, focus=true },
         healPredOverheal     = { player=true, target=true, focus=true },

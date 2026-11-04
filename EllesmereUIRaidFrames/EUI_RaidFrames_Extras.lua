@@ -2,8 +2,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_RaidFrames_Extras.lua
 --
---  The healer mana text display and the frame-provider APIs for external
---  trackers.
+--  The healer mana text display, the player group label and the
+--  frame-provider APIs for external trackers.
 --  Reads the earlier Raid Frames files through ns and ns._internals.
 -------------------------------------------------------------------------------
 local _, ns = ...
@@ -22,6 +22,8 @@ local UnitExists            = UnitExists
 local UnitIsUnit            = UnitIsUnit
 local IsInRaid              = IsInRaid
 local IsInGroup             = IsInGroup
+local UnitInRaid            = UnitInRaid
+local GetRaidRosterInfo     = GetRaidRosterInfo
 local InCombatLockdown      = InCombatLockdown
 local C_Timer               = C_Timer
 local issecretvalue         = issecretvalue
@@ -29,6 +31,7 @@ local CreateFrame           = CreateFrame
 local RAID_CLASS_COLORS     = RAID_CLASS_COLORS
 
 local allButtons, GetFFD, GetPowerColor = I.allButtons, I.GetFFD, I.GetPowerColor
+local ApplyFont, PixelSnap = I.ApplyFont, I.PixelSnap
 
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
@@ -268,6 +271,172 @@ do
     function ns.HM_SetPreview(on)
         ns._hmPreview = on and true or nil
         ns.HM_Rebuild()
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Player Group Label (Extras): the player's raid group number in its own
+--  movable frame.
+-------------------------------------------------------------------------------
+do
+    local frame, events
+
+    local function PGSet()
+        local prof = db.profile
+        local pg = prof.playerGroup
+        if not pg then
+            pg = {}
+            prof.playerGroup = pg
+        end
+        return pg
+    end
+    ns._PGSet = PGSet
+
+    local function ModeColor(mode, custom)
+        if mode == "custom" then return custom end
+        local r, g, b
+        if mode == "class" then
+            local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+            if cc then r, g, b = cc.r, cc.g, cc.b end
+        else
+            r, g, b = EllesmereUI.ResolveActiveAccent()
+        end
+        if not r then return custom end
+        return { r = r, g = g, b = b, a = 1 }
+    end
+
+    local function CustomColor(key)
+        local pg, s = PGSet(), db.profile
+        if pg[key] then return pg[key] end
+        if key == "textColor" then
+            local gc = s.groupNumberColor or {}
+            return { r = gc.r or 1, g = gc.g or 1, b = gc.b or 1, a = gc.a or 0.75 }
+        end
+        local bc = s.borderColor or {}
+        return { r = bc.r or 0, g = bc.g or 0, b = bc.b or 0, a = s.borderAlpha or 1 }
+    end
+    ns._PGCustomColor = CustomColor
+
+    function ns._PGStyle()
+        local pg, s = PGSet(), db.profile
+        local bg = s.customBgColor or {}
+        return pg.textSize or s.groupNumberSize or 10,
+            ModeColor(pg.textColorMode or "accent", CustomColor("textColor")),
+            pg.bgColor or { r = bg.r or 17/255, g = bg.g or 17/255, b = bg.b or 17/255, a = 1 },
+            pg.borderSize or s.borderSize or 1,
+            ModeColor(pg.borderColorMode or "accent", CustomColor("borderColor"))
+    end
+
+    local function ApplyPos()
+        if not frame then return end
+        local pos = PGSet().unlockPos
+        frame:ClearAllPoints()
+        if pos and pos.point then
+            frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
+        else
+            frame:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
+        end
+    end
+    ns._PGApplyPos = ApplyPos
+
+    local function EnsureFrame()
+        if frame then return frame end
+        frame = CreateFrame("Frame", "ERF_PlayerGroup", UIParent)
+        frame:SetSize(50, 25)
+        frame:Hide()
+        frame.bg = frame:CreateTexture(nil, "BACKGROUND")
+        frame.bg:SetAllPoints()
+        frame.borderFrame = CreateFrame("Frame", nil, frame)
+        frame.borderFrame:SetAllPoints()
+        frame.text = frame:CreateFontString(nil, "OVERLAY")
+        frame.text:SetPoint("CENTER")
+        ns._pgFrame = frame
+        ApplyPos()
+        return frame
+    end
+    ns._PGEnsureFrame = EnsureFrame
+
+    local fmt, shown -- the text format and the group it shows
+
+    local function UpdateGroup()
+        if not frame then return end
+        local index = IsInRaid() and UnitInRaid("player")
+        local group = index and select(3, GetRaidRosterInfo(index))
+        -- Out of a raid, or a roster read mid-update that has no group for you yet.
+        if not index or type(group) == "nil" then
+            if not ns._pgPreview then
+                frame:Hide()
+                shown = nil
+                return
+            end
+            group = 3
+        end
+        -- A secret subgroup goes straight into the text sink, never compared.
+        if issecretvalue and issecretvalue(group) then
+            frame.text:SetFormattedText(fmt, group)
+            shown = nil
+        elseif group ~= shown then
+            frame.text:SetFormattedText(fmt, group)
+            shown = group
+        end
+        frame:Show()
+    end
+
+    -- Style path: settings changes, reloads and accent changes.
+    function ns.PG_Apply()
+        local pg = PGSet()
+        local on = pg.enabled and true or false
+        if on and not events then
+            events = CreateFrame("Frame")
+            events:SetScript("OnEvent", UpdateGroup)
+            EllesmereUI.RegAccent({ type = "callback", fn = ns.PG_Apply })
+        end
+        if events then
+            if on then events:RegisterEvent("GROUP_ROSTER_UPDATE")
+            else events:UnregisterEvent("GROUP_ROSTER_UPDATE") end
+        end
+        if not on then
+            if frame then frame:Hide() end
+            return
+        end
+        EnsureFrame()
+        local size, tc, bg, bs, bc = ns._PGStyle()
+        local s = db.profile
+        local full = pg.format == "full"
+        local fs = frame.text
+        ApplyFont(fs, size)
+        fs:SetTextColor(tc.r, tc.g, tc.b, tc.a or 1)
+        fmt = full and GROUP_NUMBER or "%d"
+        local w, h = pg.width, pg.height
+        if not (w and h) then
+            -- The widest group, so the size never changes with the number.
+            local tw = 0
+            for g = 1, 8 do
+                fs:SetFormattedText(fmt, g)
+                local sw = fs:GetStringWidth()
+                if sw > tw then tw = sw end
+            end
+            local th = fs:GetStringHeight()
+            if not full then tw = math.max(tw, th); th = tw end
+            local pad = (pg.padding or 4) * 2
+            w = w or (tw + pad)
+            h = h or (th + pad)
+        end
+        shown = nil
+        frame:SetSize(PixelSnap(w), PixelSnap(h))
+        frame.bg:SetColorTexture(bg.r, bg.g, bg.b, bg.a or 1)
+        local tex = s.borderTexture or "solid"
+        -- The frame border's exact pixels apply only at its own size.
+        local px = (pg.borderSize == nil) and EllesmereUI.BorderPx(s.borderSizePx, bs, tex) or nil
+        EllesmereUI.ApplyBorderStyle(frame.borderFrame, bs, bc.r, bc.g, bc.b, bc.a or 1, tex,
+            s.borderTextureOffset, s.borderTextureOffsetY,
+            s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil, px)
+        UpdateGroup()
+    end
+
+    function ns.PG_SetPreview(on)
+        ns._pgPreview = on and true or nil
+        ns.PG_Apply()
     end
 end
 

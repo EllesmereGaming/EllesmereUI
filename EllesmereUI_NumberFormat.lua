@@ -396,6 +396,26 @@ function EllesmereUI.AbbreviateValue(v, valueType)
     return AbbreviateNumbers(v)
 end
 
+-- EllesmereUI.IsZeroValue(v) -> bool
+--   True for a whole-number amount of 0, secret ones too: a probe FontString's
+--   GetText is nil after TruncateWhenZero (as ns.FormatHealAbsorbInto, Raid Frames).
+--   For a secret amount that text is a secret string, so it is only tested for
+--   truth, never compared (comparing a secret, even to nil, raises).
+--   The probe sits on its own hidden, parentless frame, outside Blizzard's tree.
+do
+    local probe
+    function EllesmereUI.IsZeroValue(v)
+        if not issecretvalue(v) then return v == 0 end
+        if not probe then
+            local holder = CreateFrame("Frame")
+            holder:Hide()
+            probe = holder:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        end
+        probe:SetText(C_StringUtil.TruncateWhenZero(v))
+        return not probe:GetText()
+    end
+end
+
 -- EllesmereUI.AbbreviateNumberFixed(n, forceEnglish) -> string
 --   The fixed Precision "standard" table, outside the Number Format (gold
 --   blocks, which keep their own K/M/B toggle). forceEnglish: true always

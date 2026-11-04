@@ -55,5 +55,6 @@ EllesmereUICdmFakeActive.lua
 EllesmereUICdmRPTSync.lua
 EllesmereUICdmTalentConditions.lua
 EllesmereUICdmStanceBar.lua
+EUI_CDM_ForeverAntiClip.lua
 
 # Options

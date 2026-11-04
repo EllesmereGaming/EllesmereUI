@@ -59,6 +59,7 @@ BuildCastBar = function()
     -- across EUI modules and releases control cleanly for other addons.
     ns.RB_SyncBlizzCastSuppress()
     ns.ERB_SyncUninterruptWatch(cb.enabled and cb.uninterruptibleOverride and not blizzKit)
+    ns.ERB_LatencySendWatch(cb.enabled and cb.latencyEnabled)
 
     if not cb.enabled then
         if castBarFrame then EllesmereUI.SetElementVisibility(castBarFrame, false) end
@@ -508,8 +509,7 @@ end
     end
 
     -- Latency overlay style. Width is computed per cast from that cast's own
-    -- send-to-start time (ShowLatencyOverlay); the send watcher runs only while on.
-    if ns.ERB_LatencySendWatch then ns.ERB_LatencySendWatch(cb.latencyEnabled and cb.enabled) end
+    -- request-to-start time (ShowLatencyOverlay).
     if cb.latencyEnabled then
         local lR, lG, lB, lA = cb.latencyR or 0.835, cb.latencyG or 0.290, cb.latencyB or 0.290, cb.latencyA or 1
         local texKey = cb.texture
@@ -1201,19 +1201,21 @@ SetUpdateCastBar(function(dt)
     end
 end)
 
--- Per-cast latency: from the cast request (CURRENT_SPELL_CAST_CHANGED; SENT fires just
--- before START) to the server starting it. A request made mid-cast or mid-GCD is queued: not measured.
+-- Per-cast latency: from the cast request (CURRENT_SPELL_CAST_CHANGED, tied to its cast
+-- by the UNIT_SPELLCAST_SENT that follows) to the server starting it. A request made
+-- mid-cast or mid-GCD is queued (its time includes the wait): not measured. Watched
+-- only while the cast bar and its latency overlay are on; BuildCastBar syncs it.
 local latSend = {}
 local function LatencyRequestQueued()
     if UnitCastingInfo("player") ~= nil or UnitChannelInfo("player") ~= nil then return true end
-    -- A GCD that began before this request belongs to an earlier spell.
+    -- A GCD that began before this request belongs to an earlier spell. One that
+    -- cannot be read counts as queued: a reading that cannot be checked is not taken.
     local cd = C_Spell.GetSpellCooldown(EllesmereUI.GCD_SPELL)
     local s, d = cd and cd.startTime, cd and cd.duration
-    if s and d and not (issecretvalue and (issecretvalue(s) or issecretvalue(d))) then
-        local now = GetTime()
-        return s > 0 and s < now - 0.05 and s + d > now
-    end
-    return false
+    if not (s and d) then return false end
+    if issecretvalue and (issecretvalue(s) or issecretvalue(d)) then return true end
+    local now = GetTime()
+    return s > 0 and s < now - 0.05 and s + d > now
 end
 function ns.ERB_LatencySendWatch(on)
     local w = latSend.frame
@@ -1239,7 +1241,7 @@ function ns.ERB_LatencySendWatch(on)
         w:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
     else
         w:UnregisterAllEvents()
-        latSend.at, latSend.reqAt, latSend.last = nil, nil, nil
+        latSend.at, latSend.reqAt, latSend.off = nil, nil, nil
     end
 end
 
@@ -1263,13 +1265,15 @@ local function ShowLatencyOverlay(castType)
     end
 
     -- Live network latency (world, home until world is measured): a rolling
-    -- average, so only the fallback and the sanity bound for this cast's reading.
+    -- average, so only the fallback's base and the sanity bound for this cast's reading.
     local _, _, latencyHome, latencyWorld = GetNetStats()
     local latencyMs = latencyWorld
     if latencyMs <= 0 then latencyMs = latencyHome end
     local netSec = latencyMs / 1000
     -- This cast's request-to-start time (precise clock). Queued, mismatched or out
-    -- of range readings are skipped; those casts reuse the last clean one.
+    -- of range readings are skipped; those casts take the network average plus how
+    -- far clean readings run above it (server processing, frame timing), smoothed
+    -- so no single reading decides and a new route follows the average.
     local latencySec
     local sentAt = latSend.at
     latSend.at = nil
@@ -1279,10 +1283,15 @@ local function ShowLatencyOverlay(castType)
         local d = GetTimePreciseSec() - sentAt
         if d > 0.01 and d < netSec + 0.25 then
             latencySec = d
-            latSend.last = d
+            if netSec > 0 then
+                local off, prev = d - netSec, latSend.off
+                latSend.off = prev and (prev + (off - prev) * 0.3) or off
+            end
         end
     end
-    latencySec = latencySec or latSend.last or netSec
+    if not latencySec then
+        latencySec = netSec > 0 and max(netSec + (latSend.off or 0), 0.01) or 0
+    end
     local castDur = castBarFrame._endTime - castBarFrame._startTime
     local barWidth = castBarFrame._bar:GetWidth()
 
@@ -1435,7 +1444,7 @@ function ns.ERB_FitCastName(cb)
             sample = format("%d:%02d", floor(t / 60), t % 60) .. (total and f._craftTotalSuffix or "")
         else
             sample = format("%.1f", f._endTime - f._startTime)
-                .. (total and (f._totalDurSuffix or "") or (f._latencySuffix or ""))
+                .. (total and (f._totalDurSuffix or "") or "") .. (f._latencySuffix or "")
         end
         local timerW = max((cb.timerSize or 11) * 2.2, EllesmereUI.MeasureCastText(f._timerText, sample) + 6)
         local bar = f._bar

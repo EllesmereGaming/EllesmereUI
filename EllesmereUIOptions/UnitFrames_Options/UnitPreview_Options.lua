@@ -1417,6 +1417,16 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         haBgPv:SetAllPoints(healAbsorbBar:GetStatusBarTexture())
         healAbsorbBar._bg = haBgPv
 
+        -- Max Health Style preview (its eyeball): a fixed reduced maximum on the
+        -- bar's far end, styled by the live frames' function. Driven in pf:Update.
+        pf._pvMaxHp = CreateFrame("StatusBar", nil, health)
+        pf._pvMaxHp:SetAllPoints(health)
+        pf._pvMaxHp:SetFrameLevel(health:GetFrameLevel() + 2)
+        pf._pvMaxHp:SetMinMaxValues(0, 1)
+        pf._pvMaxHp:SetValue(0.2)
+        pf._pvMaxHp._bg = pf._pvMaxHp:CreateTexture(nil, "ARTWORK", nil, 2)
+        pf._pvMaxHp:Hide()
+
         -- Heal prediction preview (Heal Prediction eyeball): others' heals at the
         -- full incoming total underneath, yours on top, from the HP edge. The
         -- holder clips at the bar's end unless Overheal lets them run past it.
@@ -3233,6 +3243,17 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 end
             else
                 healAbsorbBar:Hide()
+            end
+        end
+        local mhPv = pf._pvMaxHp
+        if mhPv then
+            local mhS = s.maxHealthStyle or "none"
+            if optState.showMaxHealthPreview and mhS ~= "none" and ns.UF_ApplyMaxHealthStyle then
+                ns.UF_ApplyMaxHealthStyle(mhPv, mhS, s)
+                ns.UF_OrientMaxHealth(mhPv, s.healthReverseFill, s.healthVerticalFill)
+                mhPv:Show()
+            else
+                mhPv:Hide()
             end
         end
 

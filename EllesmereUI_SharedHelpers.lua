@@ -1181,7 +1181,8 @@ end
 --  Blizzard's animated rest icon (PlayerFrame.xml PlayerRestLoop) on `tex`:
 --  the flipbook atlas, a 6 x 7 grid of 42 frames, looping while `frame` is
 --  shown. MUST use SetAtlas: a raw SetTexture slices the sheet's padding into
---  the FlipBook. `duration` is one loop in seconds (Blizzard: 1.5).
+--  the FlipBook. `duration` is one loop in seconds (Blizzard: 1.5). Build once
+--  per frame of ours: it sets the frame's OnShow and OnHide scripts.
 -------------------------------------------------------------------------------
 function EllesmereUI.AddRestFlipbook(frame, tex, duration)
     tex:SetAtlas("UI-HUD-UnitFrame-Player-Rest-Flipbook")

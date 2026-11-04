@@ -757,6 +757,40 @@ local function RegisterWithUnlockMode()
                 end
             end,
         }),
+        EllesmereUI.MakeUnlockElement({
+            key   = "RF_PlayerGroup",
+            label = "Player Group Label",
+            group = "Raid & Party Frames",
+            order = 503,
+            noResize = true,
+            isHidden = function()
+                return not ns._PGSet().enabled
+            end,
+            -- Built only while enabled: the saved-position pass calls this
+            -- for every element.
+            getFrame = function()
+                if ns._PGSet().enabled then return ns._PGEnsureFrame() end
+                return ns._pgFrame
+            end,
+            getSize = function()
+                local f = ns._pgFrame
+                if f then return f:GetWidth(), f:GetHeight() end
+                return 50, 25
+            end,
+            savePos = function(_, point, relPoint, x, y)
+                ns._PGSet().unlockPos = { point = point, relPoint = relPoint,
+                    x = snap(ns._pgFrame, x), y = snap(ns._pgFrame, y) }
+            end,
+            loadPos = function()
+                return ns._PGSet().unlockPos
+            end,
+            clearPos = function()
+                ns._PGSet().unlockPos = nil
+            end,
+            applyPos = function()
+                ns._PGApplyPos()
+            end,
+        }),
     })
 end
 -- Options-side re-registration seam (the function above is a file-scope local

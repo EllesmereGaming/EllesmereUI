@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Secret-value-safe absorb shields matching UnitFrames visuals.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.NewFrameData and EllesmereUI.AbbreviateValue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard raid and party frame suppression hides and scales through the parent's HideFrame and SetFrameScale, and the health texts format through the parent's AbbreviateValue)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.NewFrameData and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard raid and party frame suppression hides and scales through the parent's HideFrame and SetFrameScale, and the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 
 local ERF = EllesmereUI.Lite.NewAddon(ADDON_NAME)
@@ -410,6 +410,15 @@ local defaults = {
             colorMode  = "custom", -- "custom" | "power" (value text color)
             color      = { r = 1, g = 1, b = 1 },
             -- unlockPos: saved by unlock mode (RF_HealerMana element)
+        },
+
+        -- Player Group Label (Extras); unset style keys follow the raid frames.
+        playerGroup = {
+            enabled = false,
+            format  = "number", -- "number" | "full"
+            padding = 4,
+            -- width/height: nil = content-sized; unlockPos: saved by unlock
+            -- mode (RF_PlayerGroup element)
         },
 
         -- Position (saved by unlock mode)

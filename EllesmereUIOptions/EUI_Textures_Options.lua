@@ -478,7 +478,7 @@ local function TileRaidFrames(parent, y, W, tile)
         background = function(key)
             if not key or key == "---" or key == "none" then return nil end
             if key == "blizzardModern" then return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex("striped"), modernSwatch end
-            if key == "maxHealthStripes" then return "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png" end
+            if key == "maxHealthStripes" then return EllesmereUI.MAX_HEALTH_STRIPES_TEX end
             return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex(key) or nil
         end,
     }

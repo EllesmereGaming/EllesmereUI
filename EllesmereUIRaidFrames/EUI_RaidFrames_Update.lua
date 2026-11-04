@@ -331,7 +331,7 @@ ns._UpdateRoleIcon = function(d, s, unit)
     if not (s.roleIconOnNameBar and tnb and d.topNameBarText) then return end
     local sec = d.roleIconSecret
     local secShown = sec and sec:IsShown()
-    local has = d.roleIcon:IsShown() or (issecretvalue and issecretvalue(secShown)) or secShown or false
+    local has = d.roleIcon:IsShown() or issecretvalue(secShown) or secShown or false
     if tnb._euiRoleIcon ~= has then
         tnb._euiRoleIcon = has
         ns.RF_PlaceTopNameText(d.topNameBarText, tnb, s)

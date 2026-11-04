@@ -812,6 +812,7 @@ do
     local UnitPowerPercent, UnitGetTotalAbsorbs = UnitPowerPercent, UnitGetTotalAbsorbs
     local UnitInRaid, GetRaidRosterInfo, IsInRaid = UnitInRaid, GetRaidRosterInfo, IsInRaid
     local SCHEMA = TextTags.UNIT.keys
+    local IsZeroValue = EllesmereUI.IsZeroValue
 
     -- OFFLINE / DEAD, nil while alive and connected (clean booleans for group units).
     local function Status(unit, pv)
@@ -878,13 +879,16 @@ do
         return SCHEMA["pp:pct"].sample
     end
 
-    -- Full amounts blank at zero, abbreviated ones read 0, as in the Unit Frames.
+    -- Full and abbreviated amounts blank at zero, as the Unit Frames' Absorb Short.
     local function Absorb(key, get)
         local abr, sample = sfind(key, ":abr", 1, true) ~= nil, SCHEMA[key].sample
         return function(unit)
             if not unit then return sample end
             local v = get(unit) or 0
-            if abr then return AbbreviateValue(v, "absorb") end
+            if abr then
+                if IsZeroValue(v) then return "" end
+                return AbbreviateValue(v, "absorb")
+            end
             return C_StringUtil.TruncateWhenZero(v)
         end
     end

@@ -99,7 +99,7 @@ local function BuildCustomIndicators(minimap)
     local trackBaseLeave = _customIndicators.tracking:GetScript("OnLeave")
     _customIndicators.tracking:SetScript("OnEnter", function(self)
         if trackBaseEnter then trackBaseEnter(self) end
-        if not GetFFD(self).freeMoveJustDragged and EllesmereUI.ShowWidgetTooltip then
+        if not GetFFD(self).freeMoveJustDragged then
             EllesmereUI.ShowWidgetTooltip(self, "Tracking", { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
         end
     end)
@@ -124,8 +124,8 @@ local function BuildCustomIndicators(minimap)
         if calBaseEnter then calBaseEnter(self) end
         if GetFFD(self).freeMoveJustDragged then return end
         -- While the invite alert shows, the tooltip says why (as Blizzard's does).
-        if self._invite and self._invite:IsShown() and EllesmereUI.ShowWidgetTooltip then
-            EllesmereUI.ShowWidgetTooltip(self, GAMETIME_TOOLTIP_CALENDAR_INVITES or "You have pending calendar invites.",
+        if self._invite and self._invite:IsShown() then
+            EllesmereUI.ShowWidgetTooltip(self, GAMETIME_TOOLTIP_CALENDAR_INVITES,
                 { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
             return
         end
@@ -135,7 +135,7 @@ local function BuildCustomIndicators(minimap)
         end
         if lockoutEntries then
             ShowCalendarTooltip(self, lockoutEntries)
-        elseif EllesmereUI.ShowWidgetTooltip then
+        else
             EllesmereUI.ShowWidgetTooltip(self, "Calendar", { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
         end
     end)
@@ -153,13 +153,13 @@ local function BuildCustomIndicators(minimap)
     _customIndicators.mail:SetScript("OnEnter", function(self)
         if EBS._HVRevealMapHover then EBS._HVRevealMapHover() end
         if mailBaseEnter then mailBaseEnter(self) end
-        if not GetFFD(self).freeMoveJustDragged and EllesmereUI.ShowWidgetTooltip then
-            local label = HAVE_MAIL or "New Mail"
+        if not GetFFD(self).freeMoveJustDragged then
+            local label = HAVE_MAIL
             -- Up to three latest senders, as Blizzard's own mail icon lists them
             -- (our button replaces it, so without this the names are lost).
             local senders = GetLatestThreeSenders and { GetLatestThreeSenders() } or nil
             if senders and #senders > 0 then
-                label = (HAVE_MAIL_FROM or "Unread mail from:") .. "\n" .. table.concat(senders, "\n")
+                label = HAVE_MAIL_FROM .. "\n" .. table.concat(senders, "\n")
             end
             EllesmereUI.ShowWidgetTooltip(self, label, { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
         end
@@ -176,7 +176,7 @@ local function BuildCustomIndicators(minimap)
     local craftBaseLeave = _customIndicators.crafting:GetScript("OnLeave")
     _customIndicators.crafting:SetScript("OnEnter", function(self)
         if craftBaseEnter then craftBaseEnter(self) end
-        if not GetFFD(self).freeMoveJustDragged and EllesmereUI.ShowWidgetTooltip then
+        if not GetFFD(self).freeMoveJustDragged then
             local label = "Crafting Orders"
             if C_CraftingOrders and C_CraftingOrders.GetPersonalOrdersInfo then
                 local infos = C_CraftingOrders.GetPersonalOrdersInfo()
@@ -284,6 +284,7 @@ end
 --  first show.
 -------------------------------------------------------------------------------
 local _inviteEvents = CreateFrame("Frame")
+local _inviteListening = false  -- its two events are registered
 local _inviteSeen = 0  -- pending count already alerted (or dismissed)
 
 local function SetInviteShown(cal, show)
@@ -321,14 +322,21 @@ SyncCalendarInvites = function()
     local cal = _customIndicators.calendar
     if not cal then return end
     local mp = EBS.db and EBS.db.profile.minimap
-    if not (mp and not mp.hideGameTime and C_Calendar and C_Calendar.GetNumPendingInvites) then
-        _inviteEvents:UnregisterAllEvents()
+    local on = mp and not mp.hideGameTime or false
+    if on ~= _inviteListening then
+        _inviteListening = on
+        if on then
+            _inviteEvents:RegisterEvent("CALENDAR_UPDATE_PENDING_INVITES")
+            _inviteEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+        else
+            _inviteEvents:UnregisterAllEvents()
+        end
+    end
+    if not on then
         _inviteSeen = 0
         SetInviteShown(cal, false)
         return
     end
-    _inviteEvents:RegisterEvent("CALENDAR_UPDATE_PENDING_INVITES")
-    _inviteEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
     local pending = C_Calendar.GetNumPendingInvites() or 0
     -- Answering an invite lowers the count: the next new one must alert again.
     if pending < _inviteSeen then _inviteSeen = pending end

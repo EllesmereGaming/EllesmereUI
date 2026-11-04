@@ -49,7 +49,8 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         return true
     end
 
-    local function _applyConfiguredBorder(owner, prefix, legacySize)
+    -- colorOverride (optional {r,g,b}): a caller-computed color for loot window's "quality"
+    local function _applyConfiguredBorder(owner, prefix, legacySize, colorOverride)
         if not owner or not EllesmereUI.ApplyBorderStyle then return end
         -- Read the level up front: it is the first widget call this makes, so it doubles as the restriction probe (see _ttUsable).
         local okLvl, ownerLevel = pcall(owner.GetFrameLevel, owner)
@@ -61,7 +62,9 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         key = key or ({ [0]="none", [1]="thin", [2]="normal", [3]="heavy", [4]="strong" })[size] or "thin"
         local mode = db[prefix .. "BorderColorMode"] or "custom"
         local color
-        if mode == "accent" then
+        if colorOverride then
+            color = colorOverride
+        elseif mode == "accent" then
             color = EllesmereUI.ELLESMERE_GREEN or { r=.27, g=.86, b=.49 }
         elseif mode == "class" then
             local _, class = UnitClass("player")
@@ -92,6 +95,15 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             "blizzardSkin", key, nil, px)
     end
     EllesmereUI._applyBlizzardConfiguredBorder = _applyConfiguredBorder
+
+    -- Removes a border drawn by _applyConfiguredBorder for a setting that went back to its default.
+    EllesmereUI._hideBlizzardConfiguredBorder = function(owner)
+        local data = owner and FFD[owner]
+        local border = data and data.configBorder
+        if not border then return end
+        EllesmereUI.HideBorderStyle(border)
+        border:Hide()
+    end
 
     -- Element & Text Color mode. "native" = surfaces keep original coloring (Game Menu header
     -- stays branded green). UNSET resolves to native unless the user had the legacy Accent Colored Elements toggle on, so old choices carry forward with no migration write and a fresh install sees no change.

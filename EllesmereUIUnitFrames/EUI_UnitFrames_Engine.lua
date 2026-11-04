@@ -115,6 +115,7 @@ local OPTIN_EVENTS = {
     healpred = { "UNIT_HEAL_PREDICTION", "UNIT_MAXHEALTH",
                  "UNIT_HEAL_ABSORB_AMOUNT_CHANGED", "UNIT_MAX_HEALTH_MODIFIERS_CHANGED" },
     absglow  = { "UNIT_HEALTH" },
+    maxhp    = { "UNIT_MAX_HEALTH_MODIFIERS_CHANGED", "UNIT_MAXHEALTH" },
     powerval = { "UNIT_POWER_FREQUENT" },
 }
 

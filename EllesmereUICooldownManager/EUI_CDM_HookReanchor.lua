@@ -554,6 +554,7 @@ local function CollectAndReanchor()
                                     fc.barKey = barKey
                                     fc.spellID = nativeKey
                                     fc.isHostedBuff = nil
+                                    ns._ClaimNativeHealthstone(frame, cdID)
                                     -- A pooled frame may carry the spell identity of
                                     -- its last occupant: none of it describes an item
                                     -- row (the claim set and the settings identity
