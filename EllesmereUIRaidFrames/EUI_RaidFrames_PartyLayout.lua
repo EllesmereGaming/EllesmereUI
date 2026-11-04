@@ -87,7 +87,7 @@ ns._LayoutPartyFrames = function()
     local useSelf = ns._PositionPartySlots(bw, bh, cs, unitGrowth)
     local hideSelf = s.partyHideSelf
 
-    -- Size container for unlock mode mover (always sized for 5 units)
+    -- Size the unlock mover and attachment bounds to the visible party capacity.
     ns._SizePartyContainer(bw, bh, cs, unitGrowth)
 
     -- Apply sort attributes + player visibility to the party header

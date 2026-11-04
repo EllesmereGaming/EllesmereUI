@@ -710,22 +710,30 @@ ns._PositionPartySlots = function(bw, bh, cs, unitGrowth)
         slotStepY = -(bh + cs)
     end
 
-    -- Centered growth shifts the whole stack (self button + header) so the
-    -- shown frames sit centered in the always-5-slot container: (5 - shown)/2
-    -- slots along the growth axis. Solo is the shown=1 case of the same math,
-    -- and the Center When Solo cog forces it while solo regardless of the growth mode.
+    -- Center the stack within the visible party capacity.
+    -- Center When Solo forces this while solo regardless of the growth mode.
     local centerShift = 0
     local centered = (s.partyFlipGrowth == "centered")
+    local slots = ns._PartySlotCount(s)
     if not live then
         -- Hidden set: the stack starts at the first slot (see useSelf above).
     elseif not IsInGroup() then
-        if centered or s.partyCenterWhenSolo then centerShift = 2 end
+        if centered or s.partyCenterWhenSolo then centerShift = (slots - 1) / 2 end
     elseif centered then
         local shown = GetNumGroupMembers() or 0
+        local group = ns._SmallRaidGroup()
+        if group then
+            local total = shown
+            shown = 0
+            for i = 1, total do
+                local _, _, subgroup = GetRaidRosterInfo(i)
+                if subgroup == group then shown = shown + 1 end
+            end
+        end
         if shown > 5 then shown = 5 end
-        if hideSelf then shown = shown - 1 end
+        if slots == 4 then shown = shown - 1 end
         if shown < 1 then shown = 1 end
-        centerShift = (5 - shown) / 2
+        centerShift = (slots - shown) / 2
     end
     local cShiftX = PixelSnap(slotStepX * centerShift)
     local cShiftY = PixelSnap(slotStepY * centerShift)
@@ -771,8 +779,16 @@ ns._PartyGrowth = function(s)
     return (s.partyFlipGrowth == true) and "UP" or "DOWN"
 end
 
--- Size the party container (the unlock mover's rect: always 5 slots) from
--- snapped slot dimensions. Every sizer goes through here so they all agree.
+-- Small Raid can show five others when the player is outside the kept subgroup.
+ns._PartySlotCount = function(s)
+    if not s.partyHideSelf then return 5 end
+    local group = ns._SmallRaidGroup()
+    if group and ns._GetPlayerSubgroup() ~= group then return 5 end
+    return 4
+end
+
+-- Size the party container from visible party capacity.
+-- Every sizer goes through here so the unlock mover and attached elements agree.
 -- Resizing the container triggers an implicit SecureGroupHeader child
 -- re-process, and that implicit pass has been observed landing with units
 -- unassigned (NAMELIST sort especially): children left hidden with unit=nil
@@ -783,11 +799,12 @@ end
 ns._SizePartyContainer = function(bw, bh, cs, unitGrowth)
     local c = ns._partyContainerFrame
     if not c then return end
+    local slots = ns._PartySlotCount(db.profile)
     local cw, ch
     if unitGrowth == "RIGHT" or unitGrowth == "LEFT" then
-        cw, ch = 5 * bw + 4 * cs, bh
+        cw, ch = slots * bw + (slots - 1) * cs, bh
     else
-        cw, ch = bw, 5 * bh + 4 * cs
+        cw, ch = bw, slots * bh + (slots - 1) * cs
     end
     cw, ch = PixelSnap(cw), PixelSnap(ch)
     local curW, curH = c:GetSize()

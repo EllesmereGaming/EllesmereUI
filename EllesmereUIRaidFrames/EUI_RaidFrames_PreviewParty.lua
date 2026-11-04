@@ -533,13 +533,10 @@ local function RefreshPartyPreview()
             else -- DOWN
                 stepY = -(h + pitch)
             end
-            -- Centered growth: mirror _PositionPartySlots, which shifts the stack by
-            -- (5 - shown)/2 slots so the shown frames sit centered in the 5-slot
-            -- container. The preview always shows a full party, so shown is 5, or 4
-            -- with Hide Self (the real layout subtracts the hidden self the same way).
+            -- Small Raid can retain five slots while this preview hides the player.
             local centerShift = 0
             if s.partyFlipGrowth == "centered" then
-                centerShift = (5 - shownCount) / 2
+                centerShift = (ns._PartySlotCount(s) - shownCount) / 2
             end
             local cShiftX = PixelSnap(stepX * centerShift)
             local cShiftY = PixelSnap(stepY * centerShift)
