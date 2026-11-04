@@ -7606,6 +7606,11 @@ local function SkinMerchantListItem(item)
     item.Name:SetJustifyH("LEFT")
 end
 
+-- Flag/Hide Owned Items (Merchant card). The code sits after the Expand Vendor UI
+-- section; this table stays empty, and the list and the grid skip it, until the
+-- setting is first on (EnsureOwned).
+local owned = {}
+
 local function UpdateCustomMerchantList(sf, child)
     local isBuyback = MerchantFrame.selectedTab == 2
     local numItems = isBuyback and GetNumBuybackItems() or GetMerchantNumItems()
@@ -7764,6 +7769,7 @@ local function UpdateCustomMerchantList(sf, child)
             else
                 row.SlotTexture:SetVertexColor(1, 1, 1)
             end
+            if owned.markRow then owned.markRow(row, i, isBuyback) end
 
             row:Show()
         else
@@ -7964,7 +7970,9 @@ EllesmereUI._Merchant_ExpandActive = ExpandActive
 EllesmereUI._Merchant_ExpandPerPage = function() return ex.perPage end
 
 local function EX_NumPages()
-    return math.max(1, math.ceil(GetMerchantNumItems() / math.max(1, ex.perPage)))
+    -- Owned items hidden from the grid (Flag/Hide Owned Items) do not count.
+    local list = owned.visible and owned.visible()
+    return math.max(1, math.ceil((list and #list or GetMerchantNumItems()) / math.max(1, ex.perPage)))
 end
 
 local function EX_Place(t, i)
@@ -8075,23 +8083,29 @@ local function EX_FillTile(tile, slot, index, numItems)
     end
     SetItemButtonTextureVertexColor(btn, r, g, b)
     SetItemButtonNormalTextureVertexColor(btn, r, g, b)
+    if owned.markTile then owned.markTile(tile, index) end
 end
 
 local EX_Update
 
-local function EX_Flip(dir)
-    local want = math.min(math.max(ex.page + dir, 1), EX_NumPages())
-    if want == ex.page then return end
-    -- A split open on one of the grid's tiles would act on whatever now holds its
-    -- index. Close it through the shared helpers; with a key still held in it, skip
-    -- the flip rather than leave the split on the wrong item. A split on anything
-    -- else (a bag slot) is not the grid's to close.
+-- A split open on one of the grid's tiles would act on whatever now holds its
+-- index. Close it through the shared helpers; with a key still held in it, report
+-- false so the caller skips the change rather than leave the split on the wrong
+-- item. A split on anything else (a bag slot) is not the grid's to close.
+local function EX_ReleaseSplit()
     local ssf = StackSplitFrame
     local owner = ssf and ssf:IsShown() and ssf.owner
     if owner and ex.buttons[owner] then
-        if not EllesmereUI.StackSplitFor(owner) then return end
+        if not EllesmereUI.StackSplitFor(owner) then return false end
         EllesmereUI.TakeStackSplit()
     end
+    return true
+end
+
+local function EX_Flip(dir)
+    local want = math.min(math.max(ex.page + dir, 1), EX_NumPages())
+    if want == ex.page then return end
+    if not EX_ReleaseSplit() then return end
     ex.page = want
     PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
     EX_Update()
@@ -8164,6 +8178,7 @@ local function EX_Deactivate(f)
     if not ExpandOn() and f:IsShown() and (f.selectedTab or 1) == 1 and GetMerchantNumItems() > MERCHANT_ITEMS_PER_PAGE then
         for _, c in ipairs(ex.pager) do c:Show() end
     end
+    if owned.syncButton then owned.syncButton(f, false) end
     -- Item levels went to the grid's tiles while it was up.
     if EllesmereUIDB.merchantShowItemLevel then EllesmereUI._Merchant_RefreshItemLevels() end
 end
@@ -8210,11 +8225,15 @@ EX_Update = function()
     local numPages = EX_NumPages()
     if ex.page > numPages then ex.page = numPages end
     local base = (ex.page - 1) * ex.perPage
+    -- With the owned items hidden, the slots take the next merchant indexes.
+    local list = owned.visible and owned.visible()
     for i = 1, ex.perPage do
-        EX_FillTile(EX_GetTile(i), i, base + i, numItems)
+        local index = list and (list[base + i] or numItems + 1) or base + i
+        EX_FillTile(EX_GetTile(i), i, index, numItems)
     end
     for i = ex.perPage + 1, #ex.tiles do ex.tiles[i]:Hide() end
     EX_UpdatePager(f, numPages)
+    if owned.syncButton then owned.syncButton(f, true) end
 
     -- Item levels read each button's ID, which a flip just changed.
     if EllesmereUIDB.merchantShowItemLevel then EllesmereUI._Merchant_RefreshItemLevels() end
@@ -8258,6 +8277,242 @@ EllesmereUI._Merchant_RefreshExpand = function()
     if not f or not f:IsShown() then return end   -- the next show picks it up
     if ExpandOn() then EnsureExpand() end
     EX_Update()
+end
+
+-------------------------------------------------------------------------------
+--  Flag/Hide Owned Items (Merchant card, EllesmereUIDB.merchantMarkOwned; needs
+--  the Merchant skin). A vendor item the player already has is flagged in every
+--  layout: a red wash over its tile or row and a red icon, as Blizzard tints
+--  what a character cannot use. Under Expand Vendor UI a header button also
+--  hides them (EllesmereUIDB.merchantHideKnown): the grid is ours, so its slots
+--  take the next merchant indexes. Blizzard's native 2 x 5 page and the list keep
+--  every item, flagged only.
+--  Nothing is hooked or registered until the setting is first on (EnsureOwned).
+--  Everything is drawn with textures of our own kept in weak tables, never as
+--  fields on a Blizzard frame, and Blizzard's frames are only read.
+-------------------------------------------------------------------------------
+local OWNED_WASH_ALPHA = 0.22
+local OWNED_TINT_LIT, OWNED_TINT_DIM = 0.9, 0.5   -- red channel, like Blizzard's unusable tint
+
+local ownedWash   = setmetatable({}, { __mode = "k" })   -- tile or row -> its red wash
+local ownedTinted = setmetatable({}, { __mode = "k" })   -- item button or row -> "btn" / "row"
+local knownCache  = {}                                   -- merchant index -> true / false
+local knownList   = {}                                   -- merchant indexes the grid shows
+
+local function OwnedOn()
+    local db = EllesmereUIDB
+    return db and db.merchantMarkOwned == true and db.reskinMerchant ~= false or false
+end
+
+-- An item the player already has: its tooltip reads "Already known" (recipe,
+-- mount, toy...) or "Collected (x/y)" (a companion pet already in the journal).
+-- Cached per merchant index until the merchant's goods or the collection change.
+-- The globals and the tooltip API are guarded, so a client missing one only
+-- loses that test. A tooltip that has not loaded yet is not cached.
+local PET_COLLECTED = ITEM_PET_KNOWN
+    and "^" .. ITEM_PET_KNOWN:gsub("[%(%)%.%-%+%[%]]", "%%%0"):gsub("%%d", "%%d+") .. "$"
+local function MerchantItemKnown(index)
+    local known = knownCache[index]
+    if known ~= nil then return known end
+    known = false
+    local tip = C_TooltipInfo and C_TooltipInfo.GetMerchantItem and C_TooltipInfo.GetMerchantItem(index)
+    local lines = tip and tip.lines
+    for _, line in ipairs(lines or {}) do
+        local text = line.leftText
+        if text and (text == ITEM_SPELL_KNOWN or (PET_COLLECTED and text:find(PET_COLLECTED))) then
+            known = true
+            break
+        end
+    end
+    if lines and #lines > 0 then knownCache[index] = known end
+    return known
+end
+
+local function SetOwnedWash(frame, on, inset)
+    local wash = ownedWash[frame]
+    if on then
+        if not wash then
+            wash = frame:CreateTexture(nil, "BACKGROUND", nil, 7)
+            wash:SetPoint("TOPLEFT", inset, -inset / 2)
+            wash:SetPoint("BOTTOMRIGHT", -inset, inset / 2)
+            wash:SetColorTexture(0.9, 0.15, 0.15, OWNED_WASH_ALPHA)
+            ownedWash[frame] = wash
+        end
+        wash:Show()
+    elseif wash then
+        wash:Hide()
+    end
+end
+
+-- A flagged tile: its icon goes red, kept dark where Blizzard already dimmed it.
+local function MarkOwnedTile(tile, index)
+    local known = index and OwnedOn() and MerchantItemKnown(index) or false
+    SetOwnedWash(tile, known, 2)
+    if not known then return end
+    local btn = tile.ItemButton
+    if not btn then return end
+    local icon = btn.icon or btn.Icon
+    local dim = icon and icon.GetVertexColor and (icon:GetVertexColor()) < 0.7
+    local r = dim and OWNED_TINT_DIM or OWNED_TINT_LIT
+    SetItemButtonTextureVertexColor(btn, r, 0, 0)
+    SetItemButtonNormalTextureVertexColor(btn, r, 0, 0)
+    ownedTinted[btn] = "btn"
+end
+
+-- A flagged list row: the row's icon (the slot texture) goes red.
+local function MarkOwnedRow(row, index, isBuyback)
+    local known = not isBuyback and OwnedOn() and MerchantItemKnown(index) or false
+    SetOwnedWash(row, known, 0)
+    if not known then return end
+    local slot = row.SlotTexture
+    if slot then
+        local dim = (slot:GetVertexColor()) < 0.7
+        slot:SetVertexColor(dim and OWNED_TINT_DIM or 1, 0, 0)
+    end
+    ownedTinted[row] = "row"
+end
+
+-- Setting turned off: the washes go, and the tints we set go back to plain.
+owned.clear = function()
+    for _, wash in pairs(ownedWash) do wash:Hide() end
+    for frame, kind in pairs(ownedTinted) do
+        if kind == "btn" then
+            SetItemButtonTextureVertexColor(frame, 1, 1, 1)
+            SetItemButtonNormalTextureVertexColor(frame, 1, 1, 1)
+        elseif frame.SlotTexture then
+            frame.SlotTexture:SetVertexColor(1, 1, 1)
+        end
+        ownedTinted[frame] = nil
+    end
+end
+
+-- Blizzard's native 2 x 5 page, after each of its updates (the grid and the list
+-- flag their own tiles as they fill them).
+local function MarkOwnedNative()
+    local f = _G.MerchantFrame
+    if not f then return end
+    if not OwnedOn() then
+        owned.clear()
+        return
+    end
+    if EllesmereUIDB.merchantShowAsList or ExpandActive() then return end
+    local sell = (f.selectedTab or 1) == 1
+    for i = 1, EX_NATIVE_PER_PAGE do
+        local tile = _G["MerchantItem" .. i]
+        local btn = tile and tile.ItemButton
+        if btn then
+            local index = sell and tile:IsShown() and btn:GetID() or 0
+            MarkOwnedTile(tile, index > 0 and index or nil)
+        end
+    end
+end
+
+local function CountOwned()
+    local n = 0
+    for i = 1, GetMerchantNumItems() do
+        if MerchantItemKnown(i) then n = n + 1 end
+    end
+    return n
+end
+
+-- The merchant indexes the grid shows with the owned items hidden; nil when they
+-- are not hidden (every item shows). One table, refilled on each call.
+local function OwnedVisible()
+    if not (OwnedOn() and EllesmereUIDB.merchantHideKnown) then return nil end
+    wipe(knownList)
+    for i = 1, GetMerchantNumItems() do
+        if not MerchantItemKnown(i) then knownList[#knownList + 1] = i end
+    end
+    return knownList
+end
+
+-- The header button (Expand Vendor UI only): what a click does, and how many
+-- owned items the vendor sells.
+local function BuildOwnedButton(f)
+    local b = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    b:SetHeight(22)
+    WSkin.Button(b)
+    WSkin.StateButtonLabel(b)
+    b:SetScript("OnClick", function()
+        if not EX_ReleaseSplit() then return end
+        EllesmereUIDB.merchantHideKnown = not EllesmereUIDB.merchantHideKnown
+        ex.page = 1
+        EX_Update()
+    end)
+    b:SetScript("OnEnter", function(self)
+        EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Items you already know, have learned or have collected (recipes, mounts, pets, toys...) are tinted red. Click to hide them from the list, or to show them again."))
+    end)
+    b:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+    return b
+end
+
+local function SyncOwnedButton(f, active)
+    local b = owned.button
+    if not (active and OwnedOn()) then
+        if b then b:Hide() end
+        return
+    end
+    if not b then
+        b = BuildOwnedButton(f)
+        owned.button = b
+    end
+    local count = CountOwned()
+    local hiding = EllesmereUIDB.merchantHideKnown == true
+    -- Right edge of the window, or left of Blizzard's filter while it shows.
+    local filter = f.FilterDropdown
+    b:ClearAllPoints()
+    if filter and filter:IsShown() then
+        b:SetPoint("RIGHT", filter, "LEFT", -8, 0)
+    else
+        b:SetPoint("TOPRIGHT", f, "TOPRIGHT", -11, -30)
+    end
+    b:SetFormattedText(hiding and EllesmereUI.L("Show Owned (%d)") or EllesmereUI.L("Hide Owned (%d)"), count)
+    b:SetWidth(b:GetFontString():GetStringWidth() + 24)
+    b:SetEnabled(count > 0 or hiding)
+    b:Show()
+end
+
+-- Repaint whatever layout is up (the setting changed, or what is owned did).
+local function OwnedRedraw()
+    local f = _G.MerchantFrame
+    if not (f and f:IsShown()) then return end
+    if ExpandActive() then
+        EX_Update()
+    elseif EllesmereUIDB.merchantShowAsList then
+        if f.wSkinScrollFrame then UpdateCustomMerchantList(f.wSkinScrollFrame, f.wSkinScrollChild) end
+    else
+        MarkOwnedNative()
+    end
+end
+-- Built at load, so no skin callback wraps it. The collection events come in
+-- bursts: one repaint per frame.
+local ownedRedrawSoon = WSkin.Debounce(OwnedRedraw)
+
+local OWNED_EVENTS = {
+    "MERCHANT_SHOW", "MERCHANT_UPDATE", "NEW_MOUNT_ADDED", "NEW_PET_ADDED",
+    "NEW_TOY_ADDED", "NEW_RECIPE_LEARNED",
+}
+
+local function EnsureOwned()
+    if owned.ready then return end
+    owned.ready = true
+    owned.markRow, owned.markTile = MarkOwnedRow, MarkOwnedTile
+    owned.visible, owned.syncButton = OwnedVisible, SyncOwnedButton
+    hooksecurefunc("MerchantFrame_Update", MarkOwnedNative)
+    -- A new merchant, a purchase or something learned: what is owned is read again.
+    local events = CreateFrame("Frame")
+    for _, e in ipairs(OWNED_EVENTS) do pcall(events.RegisterEvent, events, e) end
+    events:SetScript("OnEvent", function()
+        wipe(knownCache)
+        ownedRedrawSoon()
+    end)
+end
+
+-- Options entry point (toggle).
+EllesmereUI._Merchant_RefreshOwned = function()
+    if OwnedOn() then EnsureOwned() end
+    if owned.ready and not OwnedOn() then owned.clear() end
+    OwnedRedraw()
 end
 
 local _merchantHooked = false
@@ -8336,6 +8591,7 @@ local function Skin_Merchant()
     end
     WSkin.NormalizeTabRow(mTabs)
 
+    if OwnedOn() then EnsureOwned() end
     if ExpandOn() then
         EnsureExpand()
         EX_Update()

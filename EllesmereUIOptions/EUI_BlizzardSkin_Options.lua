@@ -2345,7 +2345,16 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._Merchant_RefreshExpand then EllesmereUI._Merchant_RefreshExpand() end
                   EllesmereUI:RefreshPage()
               end },
-            EllesmereUI.BlankRowCfg()
+            { type="toggle", text="Flag/Hide Owned Items",
+              tooltip="Tints red the vendor items you already know, have learned or have collected (recipes, mounts, pets, toys...), in every vendor layout. With Expand Vendor UI, a button at the top right also hides them.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.merchantMarkOwned == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.merchantMarkOwned = v
+                  if EllesmereUI._Merchant_RefreshOwned then EllesmereUI._Merchant_RefreshOwned() end
+              end }
         ); y = y - h
         BuildExpandCog(row._leftRegion)
         AttachDisabledOverlay(row)
@@ -4908,6 +4917,7 @@ initFrame:SetScript("OnEvent", function(self)
                     "charSheetEnchantSize", "inspectShowEnchants", "inspectShowItemLevel",
                     "inspectShowUpgradeTrack", "merchantShowAsList", "merchantListRowHeight",
                     "merchantShowItemLevel", "merchantBulkBuy", "merchantExpand", "merchantCols", "merchantRows",
+                    "merchantMarkOwned", "merchantHideKnown",
                     "tooltipItemLevel", "tooltipShowMode",
                     "tooltipShowModifier", "tooltipGrowthDirection", "tooltipBgColor",
                     "tooltipBgOpacity", "showSpellID", "spellIDModifier", "showIconID",
