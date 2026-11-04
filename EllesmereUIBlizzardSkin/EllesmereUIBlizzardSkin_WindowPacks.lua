@@ -5213,24 +5213,15 @@ local function Skin_Socket()
             c:ClearAllPoints()
             c:SetPoint("BOTTOM", f, "BOTTOM", 0, 40)
         end
-        -- SOCKETS anchor to the tooltip CONTENT, not the container, so moving
-        -- the container alone leaves the gems mid-text. Keep Blizzard's
-        -- horizontal arrangement (measured), own the vertical (bottoms pinned
-        -- to the gem section); re-measuring the x-delta each pass is idempotent.
+        -- Blizzard re-anchors only Socket1 each update; Socket2/3 chain off it,
+        -- so pin Socket1 alone (pinning the others latches stale offsets).
         local fcx = f:GetCenter()
-        if fcx and c then
-            local sockets = { c.Socket1, c.Socket2, c.Socket3 }
-            if c.SocketFrames then
-                for _, s3 in ipairs(c.SocketFrames) do sockets[#sockets + 1] = s3 end
-            end
-            for _, s2 in ipairs(sockets) do
-                if s2 and s2:IsShown() then
-                    local scx = s2:GetCenter()
-                    if scx then
-                        s2:ClearAllPoints()
-                        s2:SetPoint("BOTTOM", f, "BOTTOM", scx - fcx, 40)
-                    end
-                end
+        local s1 = c and c.Socket1
+        if fcx and s1 and s1:IsShown() then
+            local scx = s1:GetCenter()
+            if scx then
+                s1:ClearAllPoints()
+                s1:SetPoint("BOTTOM", f, "BOTTOM", scx - fcx, 40)
             end
         end
         -- Old-style scrollbar -> slim house strip (arrow buttons dark),
