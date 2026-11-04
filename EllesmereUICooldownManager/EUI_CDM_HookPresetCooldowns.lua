@@ -240,6 +240,78 @@ function ns._HealthstoneHiddenByPact(itemID)
     return not pact
 end
 
+-- Blizzard's native Healthstone row shows no count of its own. On ns: 200-local cap.
+do
+    local hooked = setmetatable({}, { __mode = "k" })
+    local inCombat = false
+    local CI = ns._internals
+    if CI and CI.inCombatSetters then
+        CI.inCombatSetters[#CI.inCombatSetters + 1] = function(v) inCombat = v end
+    end
+
+    local function IsHealthstoneKey(key)
+        local p = key and ns.ItemPresetForKey(key)
+        return p and (p.key == "healthstone" or p.key == "demonic_healthstone")
+    end
+
+    local function StoneCount()
+        local hs = ns.ItemPresetForKey(-5512)
+        if not hs then return 0 end
+        local total = C_Item.GetItemCount(hs.itemID, false, true) or 0
+        if hs.altItemIDs then
+            for _, id in ipairs(hs.altItemIDs) do
+                total = total + (C_Item.GetItemCount(id, false, true) or 0)
+            end
+        end
+        return total
+    end
+
+    local function Apply(frame)
+        local fc = _ecmeFC[frame]
+        local cc = frame.ChargeCount
+        local fs = cc and cc.Current
+        -- Pooled frames: the cdID check drops a frame Blizzard re-used before the next reanchor.
+        if not (fc and fs and fc.healthstoneCdID and frame.cooldownID == fc.healthstoneCdID
+            and IsHealthstoneKey(fc.spellID)) then return end
+        local bd = fc.barKey and barDataByKey[fc.barKey]
+        local show = not bd or bd.showItemCount ~= false
+        if show and bd and bd.itemCountOOC and inCombat then show = false end
+        local count = show and StoneCount() or 0
+        if count > 0 then
+            fs:SetText(count)
+            cc:Show()
+        else
+            fs:SetText("")
+            cc:Hide()
+        end
+    end
+
+    function ns._ClaimNativeHealthstone(frame, cdID)
+        local fc = _ecmeFC[frame]
+        if not (fc and IsHealthstoneKey(fc.spellID)) then return end
+        fc.healthstoneCdID = cdID
+        ns._nativeHealthstoneClaimed = true
+        if not hooked[frame] and frame.RefreshSpellChargeInfo then
+            hooked[frame] = true
+            hooksecurefunc(frame, "RefreshSpellChargeInfo", Apply)
+        end
+        Apply(frame)
+    end
+
+    function ns._RefreshNativeHealthstoneCounts()
+        if not ns._nativeHealthstoneClaimed then return end
+        for vi = 1, 2 do
+            local viewer = I.GetViewerFrame(vi)
+            local pool = viewer and viewer.itemFramePool
+            if pool and pool.EnumerateActive then
+                for frame in pool:EnumerateActive() do
+                    Apply(frame)
+                end
+            end
+        end
+    end
+end
+
 -- Count (charges included) of a non-pot item preset frame: the primary id, else the
 -- sum of the family alts. Returns total and first owned id. On ns: 200-local cap.
 function ns._ReadItemPresetCount(f)
@@ -740,6 +812,7 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
     end
     -- Infrequent events: handle immediately and return
     if event == "BAG_UPDATE_DELAYED" then
+        if ns._RefreshNativeHealthstoneCounts then ns._RefreshNativeHealthstoneCounts() end
         -- Loot-storm cap (probe-proven capture #12: mob-farming loot fires
         -- this in bursts, and each fire re-armed variant re-resolves + chain
         -- walks + bag-count scans -- the drain's dominant real cost). At
@@ -761,6 +834,7 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         return
     end
     if event == "BAG_UPDATE_COOLDOWN" then
+        if ns._RefreshNativeHealthstoneCounts then ns._RefreshNativeHealthstoneCounts() end
         -- Charge-only item count changes (a used Healthstone charge, a Soulwell
         -- refill) move no bag contents, so no BAG_UPDATE fires; a used charge
         -- lands with this event, after the cast arm already read the old count.
