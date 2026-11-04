@@ -74,6 +74,7 @@ end
 local defaults = {
     profile = {
         display = {
+            iconShape = "none",
             remindersEnabled = true,
             glowType = 0,
             scale = 1.0,

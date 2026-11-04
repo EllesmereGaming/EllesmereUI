@@ -102,7 +102,7 @@ local function LayoutIcons()
             local f = _B.iconState and _B.iconState[id] and _B.icons[id]
             if f then
                 i = i + 1
-                f:SetSize(g.sz, g.sz)
+                f:SetSize(g.sz, g.iconH or g.sz)
                 f:SetAlpha(g.alpha)
                 f:ClearAllPoints()
                 f:SetPoint(g.pt, iconAnchor, g.pt, g.startX + (i - 1) * (g.sz + g.spacing), g.yOff)
@@ -133,6 +133,8 @@ local function LayoutIcons()
     local spacing = p.iconSpacing or 8
     local baseScale = p.scale or 1.0
     local sz = floor(ICON_SIZE * baseScale + 0.5)
+    local iconH = sz
+    if p.iconShape and p.iconShape ~= "none" then sz, iconH = ns.IconDimensions(sz, p) end
     local totalW = (count * sz) + ((count-1) * spacing)
     local textH = 0
     if p.showText then textH = (p.textSize or 11) + abs(p.textYOffset or -2) end
@@ -147,8 +149,10 @@ local function LayoutIcons()
     end
     local g = _layoutGeom
     g.pt, g.startX, g.yOff, g.sz, g.spacing, g.alpha, g.fixed = pt, startX, yOff, sz, spacing, p.opacity or 1.0, fixed
+    if p.iconShape and p.iconShape ~= "none" then g.iconH = iconH
+    elseif g.iconH then g.iconH = nil end
     for i, btn in ipairs(allIcons) do
-        btn:SetSize(sz, sz)
+        btn:SetSize(sz, iconH)
         btn:SetAlpha(p.opacity or 1.0)
         -- This layout is OOC-only, so treating every entry as protected also
         -- covers the provider/main secure buttons without needing pool scans.
@@ -159,7 +163,7 @@ local function LayoutIcons()
         btn:SetPoint(pt, iconAnchor, pt, startX + (i-1)*(sz+spacing), yOff)
     end
     -- Size the anchor to the row so the unlock mode overlay covers it.
-    ResizeAnchorCentered(totalW, sz + textH)
+    ResizeAnchorCentered(totalW, iconH + textH)
 end
 
 local function ShowIcon(iconIdx, m)

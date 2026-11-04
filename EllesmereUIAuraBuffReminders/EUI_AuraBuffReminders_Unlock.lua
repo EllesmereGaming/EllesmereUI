@@ -134,6 +134,8 @@ local function RegisterUnlockElements()
                 local p = db.profile.display
                 local baseScale = p.scale or 1.0
                 local sz = floor(ICON_SIZE * baseScale + 0.5)
+                local iconH = sz
+                if p.iconShape and p.iconShape ~= "none" then sz, iconH = ns.IconDimensions(sz, p) end
                 local spacing = p.iconSpacing or 8
                 -- Fits all active icons (same set LayoutIcons places: reminders + merged beacon icons unless cursor-routed); falls back to a 2-wide grabbable box when empty so the mover overlay stays draggable.
                 local count = #activeIcons
@@ -149,7 +151,7 @@ local function RegisterUnlockElements()
                 if p.showText then
                     textH = (p.textSize or 11) + abs(p.textYOffset or -2)
                 end
-                local h = sz + textH
+                local h = iconH + textH
                 -- Resizes the anchor for the overlay
                 if iconAnchor then ResizeAnchorCentered(w, h) end
                 return w, h
