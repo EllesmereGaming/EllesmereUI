@@ -2010,19 +2010,21 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local PP = EllesmereUI.PanelPP
             local right = row._rightRegion
-            local function AddModeSwatch(anchor, mode, tip, getColor, custom)
+            --pickable: a second click on active swatch opens its color picker (Custom, Quality)
+            -- colorKey: where it saves (default the Custom color)
+            local function AddModeSwatch(anchor, mode, tip, getColor, pickable, colorKey)
                 local sw, upd = EllesmereUI.BuildColorSwatch(right, right:GetFrameLevel() + 5, getColor,
                     function(r, g, b, a)
-                        EllesmereUIDB[prefix.."BorderColor"] = { r = r, g = g, b = b }
+                        EllesmereUIDB[colorKey or (prefix.."BorderColor")] = { r = r, g = g, b = b }
                         EllesmereUIDB[prefix.."BorderOpacity"] = a
-                        EllesmereUIDB[prefix.."BorderColorMode"] = "custom"
+                        EllesmereUIDB[prefix.."BorderColorMode"] = mode
                         refresh()
                     end,
-                    custom, 20)
+                    pickable, 20)
                 PP.Point(sw, "RIGHT", anchor, "LEFT", -8, 0)
                 local orig = sw:GetScript("OnClick")
                 sw:SetScript("OnClick", function(self)
-                    if mode ~= "custom" or (EllesmereUIDB[prefix.."BorderColorMode"] or "custom") ~= "custom" then
+                    if not pickable or (EllesmereUIDB[prefix.."BorderColorMode"] or "custom") ~= mode then
                         EllesmereUIDB[prefix.."BorderColorMode"] = mode
                         refresh()
                         EllesmereUI:RefreshPage()
@@ -2052,8 +2054,12 @@ initFrame:SetScript("OnEvent", function(self)
                     local c = EllesmereUIDB[prefix.."BorderColor"] or { r = 1, g = 1, b = 1 }
                     return c.r, c.g, c.b, EllesmereUIDB[prefix.."BorderOpacity"] or EllesmereUI.RESKIN.BRD_ALPHA
                 end, true)
-            local quality = AddModeSwatch(custom, "quality", "Quality Color: the best item's quality in the window",
-                function() local r, g, b = C_Item.GetItemQualityColor(Enum.ItemQuality.Epic); return r, g, b, 1 end, false)
+            local quality = AddModeSwatch(custom, "quality",
+                "Quality Color: Uncommon and up use their quality color; Poor and Common use this color",
+                function()
+                    local c = EllesmereUIDB[prefix.."BorderQualityColor"] or { r = 1, g = 1, b = 1 }
+                    return c.r, c.g, c.b, EllesmereUIDB[prefix.."BorderOpacity"] or EllesmereUI.RESKIN.BRD_ALPHA
+                end, true, prefix.."BorderQualityColor")
             right._lastInline = quality
         end
 
@@ -2074,7 +2080,74 @@ initFrame:SetScript("OnEvent", function(self)
             }
             _, h = W:DualRow(parent, y, ocfgL, ocfgR); y = y - h
         end
-        
+        -- ICON BORDER: the item icons' quality border in a picked style and size (color stays the item quality).
+        local iconPrefix = "lootIcon"
+        local function iconOff()
+            return lootOff() or not EllesmereUIDB.lootIconBorder
+        end
+        local function iconStep()
+            local key = EllesmereUIDB[iconPrefix.."BorderThickness"]
+            return key and (EllesmereUI.BORDER_STEP_OF_LABEL[key] or 1) or 1
+        end
+
+        _, h = WSCardSection(parent, "ICON BORDER", y);  y = y - h
+
+        local iconValues, iconOrder = EllesmereUI.GetBorderTextureDropdown()
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Icon Borders",
+              tooltip="Draws the item icons' quality border in the style and size below.",
+              disabled=lootOff, disabledTooltip="Loot Window",
+              getValue=function() return EllesmereUIDB.lootIconBorder == true end,
+              setValue=function(v)
+                  EllesmereUIDB.lootIconBorder = v
+                  refresh()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="dropdown", text="Icon Border Style",
+              disabled=iconOff, disabledTooltip="Icon Borders",
+              values=iconValues, order=iconOrder,
+              getValue=function() return EllesmereUIDB[iconPrefix.."BorderTexture"] or "solid" end,
+              setValue=function(v)
+                  local db = EllesmereUIDB
+                  db[iconPrefix.."BorderTexture"] = v
+                  db[iconPrefix.."BorderOffsetX"] = nil
+                  db[iconPrefix.."BorderOffsetY"] = nil
+                  if db[iconPrefix.."BorderThicknessPx"] then db[iconPrefix.."BorderThicknessPx"] = false end
+                  refresh()
+                  EllesmereUI:RefreshPage(true)
+              end }
+        ); y = y - h
+
+        local iconSize = EllesmereUI.BorderPxSliderCfg{
+            text = "Icon Border Size", disabled = iconOff, disabledTooltip = "Icon Borders",
+            getStep = iconStep,
+            setStep = function(s) EllesmereUIDB[iconPrefix.."BorderThickness"] = EllesmereUI.BORDER_LABEL_OF_STEP[s] or "thin" end,
+            getTex = function() return EllesmereUIDB[iconPrefix.."BorderTexture"] or "solid" end,
+            getPx = function() return EllesmereUIDB[iconPrefix.."BorderThicknessPx"] end,
+            setPx = function(v) EllesmereUIDB[iconPrefix.."BorderThicknessPx"] = v end,
+            apply = refresh,
+        }
+        -- Textured styles add the two offsets: Size | Width Offset, then Height Offset | blank.
+        local iconTex = EllesmereUIDB[iconPrefix.."BorderTexture"]
+        if iconTex and iconTex ~= "solid" then
+            local ocfgL, ocfgR = EllesmereUI.BorderOffsetRowCfgs{
+                addonKey = "blizzardSkin", disabled = iconOff, disabledTooltip = "Icon Borders",
+                getTex = function() return EllesmereUIDB[iconPrefix.."BorderTexture"] or "solid" end,
+                getStep = iconStep,
+                getSizeKey = function() return EllesmereUIDB[iconPrefix.."BorderThickness"] or EllesmereUI.BORDER_LABEL_OF_STEP[iconStep()] or "thin" end,
+                getPx = function() return EllesmereUIDB[iconPrefix.."BorderThicknessPx"] end,
+                getX = function() return EllesmereUIDB[iconPrefix.."BorderOffsetX"] end,
+                setX = function(v) EllesmereUIDB[iconPrefix.."BorderOffsetX"] = v end,
+                getY = function() return EllesmereUIDB[iconPrefix.."BorderOffsetY"] end,
+                setY = function(v) EllesmereUIDB[iconPrefix.."BorderOffsetY"] = v end,
+                apply = refresh,
+            }
+            _, h = W:DualRow(parent, y, iconSize, ocfgL); y = y - h
+            _, h = W:DualRow(parent, y, ocfgR, EllesmereUI.BlankRowCfg()); y = y - h
+        else
+            _, h = W:DualRow(parent, y, iconSize, EllesmereUI.BlankRowCfg()); y = y - h
+        end
+
         return y
     end
 
