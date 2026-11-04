@@ -11360,9 +11360,30 @@ end
 --  re-colored (same rule the merchant and trainer packs use).
 -------------------------------------------------------------------------------
 do
+local lootSkinned = false
+
+-- Loot window cards border style.  Unset keeps the shell's window border untouched.
+local function ApplyLootBorder(f)
+    local d = GetFFD(f)
+    if EllesmereUIDB and EllesmereUIDB.lootWindowBorderTexture then
+        if d.atlasBorderFrame then d.atlasBorderFrame:Hide() end
+        if EllesmereUI._applyBlizzardConfiguredBorder then
+            EllesmereUI._applyBlizzardConfiguredBorder(f, "lootWindow", 1)
+        end
+        d.lootBorderOn = true
+    elseif d.lootBorderOn then
+        if d.atlasBorderFrame then d.atlasBorderFrame:Show() end
+        if EllesmereUI._hideBlizzardConfiguredBorder then
+            EllesmereUI._hideBlizzardConfiguredBorder(f)
+        end
+        d.lootBorderOn = nil
+    end
+end
+
 local function Skin_Loot()
     local f = _G.LootFrame
     if not f then return end
+    lootSkinned = true
     WSkin.Shell("loot", f)
     WSkin.RemovePortrait(f)
     WSkin.CommonChrome(f, "LootFrame")
@@ -11533,9 +11554,15 @@ local function Skin_Loot()
         end
     end
 
+    ApplyLootBorder(f)
+
     WSkin.HookShow(f, WSkin.Debounce(function()
         if f:IsVisible() then Skin_Loot(); WSkin.Restrip() end
     end))
+end
+
+EllesmereUI._loot_RefreshBorder = function ()
+    if lootSkinned and _G.LootFrame then ApplyLootBorder(_G.LootFrame) end
 end
 
 WSkin.RegisterWindow({

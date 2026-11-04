@@ -93,6 +93,15 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     end
     EllesmereUI._applyBlizzardConfiguredBorder = _applyConfiguredBorder
 
+    -- Removes a border dranw by _applyConfiguredBorder for a setting that went back to its default.
+    EllesmereUI._hideBlizzardConfiguredBorder = function(owner)
+        local data = owner and FFD[owner]
+        local border = data and data.configBorder
+        if not border then return end
+        EllesmereUI.HideBorderStyle(border)
+        border:Hide()
+    end
+
     -- Element & Text Color mode. "native" = surfaces keep original coloring (Game Menu header
     -- stays branded green). UNSET resolves to native unless the user had the legacy Accent Colored Elements toggle on, so old choices carry forward with no migration write and a fresh install sees no change.
     local function _elementColorMode()
