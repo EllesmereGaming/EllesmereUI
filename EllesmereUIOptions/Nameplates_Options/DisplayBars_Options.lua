@@ -2010,8 +2010,21 @@ local function BuildDisplayBars(parent, y, ctx)
                     sizeSet = function(v) DB().castNameSize = v; ns.RefreshAllSettings(); UpdatePreview() end,
                     sizeMin = 6, sizeMax = 20, sizeLabel = EllesmereUI.L("Size"),
                     sizeFirst = true,
-                    widthGet = function() return DBVal("castNameWidthPct") or defaults.castNameWidthPct end,
-                    widthSet = function(v) DB().castNameWidthPct = v; ns.RefreshAllSettings(); UpdatePreview() end,
+                    -- Combined text has its own width; the name's applies while separate.
+                    widthGet = function()
+                        if DBVal("castCombineNameTarget") == true then
+                            return DBVal("castCombinedWidthPct") or defaults.castCombinedWidthPct
+                        end
+                        return DBVal("castNameWidthPct") or defaults.castNameWidthPct
+                    end,
+                    widthSet = function(v)
+                        if DBVal("castCombineNameTarget") == true then
+                            DB().castCombinedWidthPct = v
+                        else
+                            DB().castNameWidthPct = v
+                        end
+                        ns.RefreshAllSettings(); UpdatePreview()
+                    end,
                     wrapGet = function() return DBVal("castNameWrap") == true end,
                     wrapSet = function(v) DB().castNameWrap = v; ns.RefreshAllSettings(); UpdatePreview() end,
                     toggleLabel = "Combine Spell Name and Target",

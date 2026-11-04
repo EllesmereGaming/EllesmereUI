@@ -1223,7 +1223,7 @@ local function MakeColorPreviewBar(parentRow, colorType, colorKey, anchorFrame)
             nameFS:Hide()
         else
             local pt, xb, jh = ns.GetCastTextAnchor(colNameSide, colShowTimer and colTimerSide == colNameSide, colTimerW, false)
-            nameFS:SetWidth(colCombine and (BAR_W * 0.80) or colNameW)
+            nameFS:SetWidth(colCombine and (BAR_W * ((dbRef and dbRef.castCombinedWidthPct) or defaults.castCombinedWidthPct) / 100) or colNameW)
             nameFS:SetJustifyH(jh)
             nameFS:SetPoint(pt, cast, pt, xb, 0)
         end

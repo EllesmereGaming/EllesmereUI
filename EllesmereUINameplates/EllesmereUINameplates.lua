@@ -123,7 +123,7 @@ function ns._appendDisplayPresetKeys(t)
         "castTargetSize", "castTargetClassColor", "castTargetColor",
         "showCastTimer", "castTimerSize", "castTimerColor", "targetScale", "minorEnemyScale", "nonEliteEnemyScale",
         "castNameSide", "castTargetSide", "castTimerSide",
-        "castNameWidthPct", "castNameWrap", "castTargetWidthPct", "castTargetWrap",
+        "castNameWidthPct", "castNameWrap", "castCombinedWidthPct", "castTargetWidthPct", "castTargetWrap",
         "enemyNameWidthPct", "enemyNameWrap", "wrapBorderCastbar", "wrapBorderSeam",
         "debuffSlot", "buffSlot", "ccSlot",
         "debuffYOffset", "sideAuraXOffset", "auraSpacing",
@@ -417,6 +417,7 @@ local defaults = {
     castNameWidthPct = 42,
     castNameWrap = false,
     castCombineNameTarget = false,
+    castCombinedWidthPct = 80,  -- combined "Spell - Target" width, % of cast bar
     castTargetSize = 10,
     castTargetClassColor = true,
     castTargetColor = { r = 1, g = 1, b = 1 },
