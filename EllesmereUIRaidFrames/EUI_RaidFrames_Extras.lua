@@ -356,23 +356,45 @@ do
     end
     ns._PGEnsureFrame = EnsureFrame
 
+    local fmt, shown -- the text format and the group it shows
+
+    local function UpdateGroup()
+        if not frame then return end
+        local index = IsInRaid() and UnitInRaid("player")
+        local group = index and select(3, GetRaidRosterInfo(index))
+        if not index then
+            if not ns._pgPreview then
+                frame:Hide()
+                shown = nil
+                return
+            end
+            group = 3
+        end
+        -- A secret subgroup goes straight into the text sink, never compared.
+        if issecretvalue and issecretvalue(group) then
+            frame.text:SetFormattedText(fmt, group)
+            shown = nil
+        elseif group ~= shown then
+            frame.text:SetFormattedText(fmt, group)
+            shown = group
+        end
+        frame:Show()
+    end
+
+    -- Style path: settings changes, reloads and accent changes.
     function ns.PG_Apply()
         local pg = PGSet()
         local on = pg.enabled and true or false
         if on and not events then
             events = CreateFrame("Frame")
-            events:SetScript("OnEvent", function() ns.PG_Apply() end)
+            events:SetScript("OnEvent", UpdateGroup)
             EllesmereUI.RegAccent({ type = "callback", fn = ns.PG_Apply })
         end
         if events then
             if on then events:RegisterEvent("GROUP_ROSTER_UPDATE")
             else events:UnregisterEvent("GROUP_ROSTER_UPDATE") end
         end
-        -- The subgroup goes straight into the text sink, never compared.
-        local index = on and IsInRaid() and UnitInRaid("player")
-        local group = index and select(3, GetRaidRosterInfo(index))
-        if not group and on and ns._pgPreview then group = 3 end
-        if not group then
+        if not on then
             if frame then frame:Hide() end
             return
         end
@@ -383,7 +405,7 @@ do
         local fs = frame.text
         ApplyFont(fs, size)
         fs:SetTextColor(tc.r, tc.g, tc.b, tc.a or 1)
-        local fmt = full and (GROUP_NUMBER or "Group %d") or "%d"
+        fmt = full and (GROUP_NUMBER or "Group %d") or "%d"
         local w, h = pg.width, pg.height
         if not (w and h) then
             -- The widest group, so the size never changes with the number.
@@ -399,7 +421,7 @@ do
             w = w or (tw + pad)
             h = h or (th + pad)
         end
-        fs:SetFormattedText(fmt, group)
+        shown = nil
         frame:SetSize(PixelSnap(w), PixelSnap(h))
         frame.bg:SetColorTexture(bg.r, bg.g, bg.b, bg.a or 1)
         local tex = s.borderTexture or "solid"
@@ -408,7 +430,7 @@ do
         EllesmereUI.ApplyBorderStyle(frame.borderFrame, bs, bc.r, bc.g, bc.b, bc.a or 1, tex,
             s.borderTextureOffset, s.borderTextureOffsetY,
             s.borderTextureShiftX, s.borderTextureShiftY, "unitframes", bs, nil, px)
-        frame:Show()
+        UpdateGroup()
     end
 
     function ns.PG_SetPreview(on)

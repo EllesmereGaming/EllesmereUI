@@ -766,8 +766,11 @@ local function RegisterWithUnlockMode()
             isHidden = function()
                 return not (ns._PGSet and ns._PGSet().enabled)
             end,
+            -- Built only while enabled: the saved-position pass calls this
+            -- for every element.
             getFrame = function()
-                return ns._pgFrame or (ns._PGEnsureFrame and ns._PGEnsureFrame())
+                if ns._PGSet and ns._PGSet().enabled then return ns._PGEnsureFrame() end
+                return ns._pgFrame
             end,
             getSize = function()
                 local f = ns._pgFrame
