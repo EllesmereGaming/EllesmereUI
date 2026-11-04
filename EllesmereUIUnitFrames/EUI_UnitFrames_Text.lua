@@ -981,6 +981,20 @@ do
         return cfg and AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0, cfg)
             or ns.AbbreviateValue(UnitGetTotalHealAbsorbs(u) or 0, "absorb")
     end
+    -- [absorb:abr], [healabsorb:abr]: empty at zero like the full tags. The presets
+    -- above keep "0" because ApplyAbsorbGate clips their whole zone instead.
+    local IsZeroValue = EllesmereUI.IsZeroValue
+    local function AbsorbShortTag(get)
+        return function(u)
+            if not u or not UnitExists(u) then return "" end
+            local v = get(u) or 0
+            if IsZeroValue(v) then return "" end
+            local cfg = _G._EUI_AbbrevDecimalCfg
+            return cfg and AbbreviateNumbers(v, cfg) or ns.AbbreviateValue(v, "absorb")
+        end
+    end
+    P.absorbshorttag = AbsorbShortTag(UnitGetTotalAbsorbs)
+    P.healabsorbshorttag = AbsorbShortTag(UnitGetTotalHealAbsorbs)
     P.group = function(u)
         if not IsInRaid() then return "" end
         local idx = UnitInRaid(u)
@@ -1086,6 +1100,7 @@ do
         [P.perpp] = "pp", [P.curpp] = "pp", [P.maxpp] = "pp", [P.curppfull] = "pp", [P.maxppfull] = "pp",
         [P.absorb] = "abs", [P.absorbshort] = "abs",
         [P.healabsorb] = "habs", [P.healabsorbshort] = "habs",
+        [P.absorbshorttag] = "abs", [P.healabsorbshorttag] = "habs",
         [P.name] = "id", [P.level] = "id", [P.levelcol] = "id", [P.levelcolall] = "id",
     }
     -- The tags' Name Format modifiers ([name:abbr]): they shape the plain name,
@@ -1109,8 +1124,8 @@ do
         ["hp:max:abr"] = P.maxhpshort, ["hp:pct"] = P.perhp,
         ["pp"] = P.curppfull, ["pp:abr"] = P.curpp, ["pp:max"] = P.maxppfull,
         ["pp:max:abr"] = P.maxpp, ["pp:pct"] = P.perpp,
-        ["absorb"] = P.absorb, ["absorb:abr"] = P.absorbshort,
-        ["healabsorb"] = P.healabsorb, ["healabsorb:abr"] = P.healabsorbshort,
+        ["absorb"] = P.absorb, ["absorb:abr"] = P.absorbshorttag,
+        ["healabsorb"] = P.healabsorb, ["healabsorb:abr"] = P.healabsorbshorttag,
         ["name"] = P.name, ["name:first"] = P.namefirst, ["name:last"] = P.namelast, ["name:abbr"] = P.nameabbr,
         ["target"] = P.tgtname, ["target:first"] = P.tgtfirst, ["target:last"] = P.tgtlast, ["target:abbr"] = P.tgtabbr,
         ["level"] = P.level, ["group"] = P.group,

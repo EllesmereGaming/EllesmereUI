@@ -793,7 +793,7 @@ ns.EstimateHealthTextWidth = EstimateHealthTextWidth
 -- and hand values only to format setters: health, absorb and names may be secret. A nil unit
 -- is the options preview (the schema samples). do/end + ns funcs: no new locals (cap).
 do
-    local TT, sf = EllesmereUI.TextTags, string.format
+    local TT, sf, IsZeroValue = EllesmereUI.TextTags, string.format, EllesmereUI.IsZeroValue
     local FS_KEY, FORMAT_KEY = {}, {}
     for i = 1, #textSlotKeys do
         local s = textSlotKeys[i]
@@ -840,7 +840,11 @@ do
             return sf("%d", UnitHealthPercent(u, true, CurveConstants.ScaleTo100) or 0)
         end,
         ["absorb"] = function(u) return C_StringUtil.TruncateWhenZero(UnitGetTotalAbsorbs(u) or 0) end,
-        ["absorb:abr"] = function(u) return ns.AbbreviateValue(UnitGetTotalAbsorbs(u) or 0, "absorb") end,
+        ["absorb:abr"] = function(u)
+            local v = UnitGetTotalAbsorbs(u) or 0
+            if IsZeroValue(v) then return "" end
+            return ns.AbbreviateValue(v, "absorb")
+        end,
         ["name"] = Name,
         ["name:first"] = Shaped("first"), ["name:last"] = Shaped("last"), ["name:abbr"] = Shaped("abbr"),
         ["target"] = function(u, slotKey)
