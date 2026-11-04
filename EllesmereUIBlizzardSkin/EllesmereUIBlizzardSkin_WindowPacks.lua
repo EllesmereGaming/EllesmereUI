@@ -11619,7 +11619,7 @@ local function Skin_Loot()
     end))
 end
 
-EllesmereUI._loot_RefreshBorder = function ()
+EllesmereUI._Loot_RefreshBorder = function ()
     local f = _G.LootFrame
     if not (lootSkinned and f) then return end
     -- Open: a full pass also restyles the icon borders. Closed: the next open does that.

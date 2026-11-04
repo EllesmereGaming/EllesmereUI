@@ -96,7 +96,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     end
     EllesmereUI._applyBlizzardConfiguredBorder = _applyConfiguredBorder
 
-    -- Removes a border dranw by _applyConfiguredBorder for a setting that went back to its default.
+    -- Removes a border drawn by _applyConfiguredBorder for a setting that went back to its default.
     EllesmereUI._hideBlizzardConfiguredBorder = function(owner)
         local data = owner and FFD[owner]
         local border = data and data.configBorder

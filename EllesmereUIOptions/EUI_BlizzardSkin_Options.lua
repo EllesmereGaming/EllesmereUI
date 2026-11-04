@@ -1985,7 +1985,6 @@ initFrame:SetScript("OnEvent", function(self)
                       db[prefix.."BorderColor"] = c
                       -- Full opacity and the style's own size: the 18% default leaves textured art faded
                       db[prefix.."BorderOpacity"] = 1
-                      db[prefix.."BorderOpacity"] = 1
                       local size = EllesmereUI.GetBorderDefaultSize(nil, v)
                       if size then db[prefix.."BorderThickness"] = EllesmereUI.BORDER_LABEL_OF_STEP[size] end
                   end
