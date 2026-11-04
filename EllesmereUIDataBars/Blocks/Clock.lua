@@ -110,11 +110,9 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
     eventText:SetPoint("CENTER", clockText, "TOP", 0, 6)
     eventText:Hide()
 
-    -- Resting indicator: Blizzard's PlayerFrame rest flipbook, replicated verbatim from
-    -- Blizzard_UnitFrame/PlayerFrame.xml. MUST use SetAtlas
-    -- (raw SetTexture slices the sheet's padding into the FlipBook); renders 1.5x
-    -- frame size centered (transparent margins); grid 6x7 = 42 frames, 1.5s
-    -- REPEAT, setToFinalAlpha. No OnUpdate -- animates only while shown.
+    -- Resting indicator: Blizzard's PlayerFrame rest flipbook (EllesmereUI.AddRestFlipbook);
+    -- renders 1.5x frame size centered (transparent margins). No OnUpdate --
+    -- animates only while shown.
     local restFrame = CreateFrame("Frame", nil, content)
     restFrame:SetSize(16, 21)
     restFrame:Hide()
@@ -122,27 +120,10 @@ ns.BlockFactories.clock = function(blockCfg, slot, content, barCtx)
     restIcon:SetDrawLayer("OVERLAY", 7)
     -- Nudged 5px up from center; desaturated so the gold art reads white.
     restIcon:SetPoint("CENTER", restFrame, "CENTER", 0, 5)
-    restIcon:SetAtlas("UI-HUD-UnitFrame-Player-Rest-Flipbook")
+    -- 80% of Blizzard's 1.5s pace (user-tuned).
+    EllesmereUI.AddRestFlipbook(restFrame, restIcon, 1.875)
     restIcon:SetDesaturated(true)
     restIcon:SetVertexColor(1, 1, 1, 1)
-    do
-        local anim = restFrame:CreateAnimationGroup()
-        anim:SetLooping("REPEAT")
-        if anim.SetToFinalAlpha then anim:SetToFinalAlpha(true) end
-        local flip = anim:CreateAnimation("FlipBook")
-        flip:SetTarget(restIcon)
-        -- 80% of Blizzard's 1.5s pace (user-tuned).
-        flip:SetDuration(1.875)
-        flip:SetOrder(1)
-        if flip.SetSmoothing then flip:SetSmoothing("NONE") end
-        flip:SetFlipBookRows(7)
-        flip:SetFlipBookColumns(6)
-        flip:SetFlipBookFrames(42)
-        flip:SetFlipBookFrameWidth(0)
-        flip:SetFlipBookFrameHeight(0)
-        restFrame:SetScript("OnShow", function() anim:Play() end)
-        restFrame:SetScript("OnHide", function() anim:Stop() end)
-    end
 
     -- Mail indicator: LEFT of the clock while mail waits, gated by showMail.
     local mailIcon = clockTextFrame:CreateTexture(nil, "OVERLAY")
