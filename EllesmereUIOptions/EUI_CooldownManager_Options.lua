@@ -282,10 +282,14 @@ initFrame:SetScript("OnEvent", function(self)
         -- configured = Blizzard Default, not None: the built-in bars never seed the
         -- key (the templates that do ship true + -1) and Blizzard's PandemicIcon
         -- still draws for them, so only an explicit false reads as None.
+        -- WoW Forever: the anti-clip glow (EUI_CDM_ForeverAntiClip.lua) has no
+        -- Blizzard look, so there Blizzard Default is not offered and an unset or
+        -- Blizzard Default bar reads as None, as the bar draws it.
         local function PandemicDesc(getBd, onChange)
+            local antiClip = ns.CDM_ANTI_CLIP
             return {
                 view = ns.GLOW_VIEW, host = "icon", excludes = { [4] = true },
-                extras = { { value = -1, label = "Blizzard Default" } },
+                extras = not antiClip and { { value = -1, label = "Blizzard Default" } } or nil,
                 caps = { mode = true, params = true, bg = true },
                 defaultColor = { r = 1, g = 1, b = 0 },
                 onChange = onChange or Rebuild,
@@ -293,8 +297,10 @@ initFrame:SetScript("OnEvent", function(self)
                     local bd = getBd(); if not bd then return nil end
                     if f == "style" then
                         if bd.pandemicGlow == false then return 0 end
-                        if bd.pandemicGlow == nil then return -1 end
-                        return bd.pandemicGlowStyle or 1
+                        if bd.pandemicGlow == nil then return antiClip and 0 or -1 end
+                        local style = bd.pandemicGlowStyle or 1
+                        if antiClip and style == -1 then return 0 end
+                        return style
                     end
                     return PandemicGet(bd, f)
                 end,
@@ -575,13 +581,15 @@ initFrame:SetScript("OnEvent", function(self)
                 list = function()
                     local out = {}
                     local c = CdmBars()
+                    -- WoW Forever: the bars' Pandemic Glow rows read Anti-Clip Glow.
+                    local panLabel = ns.CDM_ANTI_CLIP and "Anti-Clip Glow" or "Pandemic Glow"
                     for _, bd in ipairs((c and c.bars) or {}) do
                         -- Ghost and custom buff bars stay out, like the pandemic sync.
                         if not bd.isGhostBar and bd.barType ~= "custom_buff" then
                             local name = EllesmereUI.L(bd.name or bd.key or "?")
                             if ns.CDM_BarHasExtras(bd) then
-                                out[#out + 1] = { label = "Pandemic Glow", sub = name, desc = PandemicDesc(function() return bd end),
-                                    nav = BarNav(bd.key, "EXTRAS", "Pandemic Glow") }
+                                out[#out + 1] = { label = panLabel, sub = name, desc = PandemicDesc(function() return bd end),
+                                    nav = BarNav(bd.key, "EXTRAS", panLabel) }
                             end
                             if ns.IsBarBuffFamily and ns.IsBarBuffFamily(bd) then
                                 out[#out + 1] = { label = "Buff Glow", sub = name, desc = BuffGlowDesc(function() return bd end),
@@ -593,11 +601,12 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     end
                     local tbb = ns.GetTrackedBuffBars and ns.GetTrackedBuffBars()
-                    local tbbSub = EllesmereUI.L("Tracking Bars") .. " - " .. EllesmereUI.L("Pandemic Glow")
+                    local tbbSub = EllesmereUI.L("Tracking Bars") .. " - " .. (ns.CDM_ANTI_CLIP
+                        and EllesmereUI.L("Anti-Clip Glow") or EllesmereUI.L("Pandemic Glow"))
                     for i, bd in ipairs((tbb and tbb.bars) or {}) do
                         out[#out + 1] = { label = bd.name or "?", sub = tbbSub,
                             desc = TbbDesc(function() return bd end, RebuildTBB),
-                            nav = { page = PAGE_BUFF_BARS, section = "EXTRAS", highlight = "Pandemic Glow",
+                            nav = { page = PAGE_BUFF_BARS, section = "EXTRAS", highlight = panLabel,
                                 preSelect = function() if ns._TBBSelectBar then ns._TBBSelectBar(i) end end } }
                     end
                     return out

@@ -81,6 +81,8 @@ local function ProcessReanchorQueue(self)
     reanchorDirty = false
     _lastReanchorTime = now
     CollectAndReanchor()
+    -- WoW Forever: the anti-clip glow draws the icons this placed.
+    if ns.CDM_AntiClipPlaced then ns.CDM_AntiClipPlaced() end
     -- Reapply visibility: newly collected icons may be at alpha 0.
     if ns.CDMApplyVisibility then ns.CDMApplyVisibility() end
 end
@@ -393,6 +395,7 @@ function ns.SetupViewerHooks()
         if now - _lastDirectReanchor < DIRECT_REANCHOR_GUARD then return end
         _lastDirectReanchor = now
         CollectAndReanchor()
+        if ns.CDM_AntiClipPlaced then ns.CDM_AntiClipPlaced() end
     end
     local buffViewer = _G["BuffIconCooldownViewer"]
     if buffViewer and buffViewer.RefreshLayout then
@@ -495,6 +498,7 @@ function ns.SetupViewerHooks()
             end
             ns._btCleanFires = 0
             ns._btDirty = nil
+            local antiClip = ns.CDM_ANTI_CLIP
             local p = ECME and ECME.db and ECME.db.profile
             if not p or not p.cdmBars or not p.cdmBars.bars then return true end
             local needsReanchor = false
@@ -646,7 +650,15 @@ function ns.SetupViewerHooks()
                                 -- takes down (stuck lit until the aura lapses, re-lapses, since
                                 -- only that finally makes the stop branch reachable). The buff glow directly above already has this shape.
                                 local inPandemic = false
-                                if fd then
+                                if fd and antiClip then
+                                    -- WoW Forever: the bar's Pandemic Glow is the anti-clip glow
+                                    -- (EUI_CDM_ForeverAntiClip.lua). Vanilla auras carry no time
+                                    -- over, so Blizzard opens no pandemic window there; Blizzard
+                                    -- Default (-1) and None draw nothing.
+                                    if pandemicOn and (bd.pandemicGlowStyle or 1) ~= -1 and ns.CDM_AntiClip then
+                                        inPandemic = ns.CDM_AntiClip(frame, true)
+                                    end
+                                elseif fd then
                                     -- Blizzard Default (-1) is the ONLY config that
                                     -- needs no hook: Blizzard's native PandemicIcon
                                     -- does the whole job, so that config still costs

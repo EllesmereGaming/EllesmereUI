@@ -1902,6 +1902,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         else
             tnbText:SetText(playerName)
         end
+        -- This preview draws no role icon, so the name keeps its full width.
+        tnb._euiRoleIcon = false
         ns.RF_PlaceTopNameText(tnbText, tnb, s)
         if (s.topNameBarTextColorMode or "class") == "custom" then
             local c = s.topNameBarTextColor or { r=1, g=1, b=1 }

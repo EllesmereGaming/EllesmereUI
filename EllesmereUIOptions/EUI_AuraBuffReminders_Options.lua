@@ -339,9 +339,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     local function RefreshBorders()
-        if DDB() and DDB().iconShape and DDB().iconShape ~= "none" then
-            ns.RefreshIconShapes()
-        elseif _G._EABR_ApplyAllIconBorders then _G._EABR_ApplyAllIconBorders() end
+        if _G._EABR_ApplyAllIconBorders then _G._EABR_ApplyAllIconBorders() end
         RefreshAll()
         UpdatePreviewHeader()
     end
@@ -1345,9 +1343,6 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       local d = DDB(); if not d then return end
                       d.iconShape = v
-                      if ns.IconShapeMasked(d) and (d.borderSize or 1) > 0 and (d.borderSize or 1) < 4 then
-                          d.borderSize = 4
-                      end
                       ns.RefreshIconShapes(); UpdatePreviewHeader(); EllesmereUI:RefreshPage(true)
                   end },
                 { type="slider", text="Icon Zoom", min=0, max=15, step=0.5,
@@ -1364,7 +1359,7 @@ initFrame:SetScript("OnEvent", function(self)
                 disabledTooltip="This option requires Icon Shape to be set to Cropped",
                 rows={
                     { type="slider", label="Adjust Crop", min=5, max=25, step=1,
-                      tooltip="How much is trimmed from the icon's top and bottom, as a percentage per side. 10% is the classic cropped look.",
+                      tooltip="How much is trimmed from the icon's top and bottom, per side (10% is the classic cropped look).",
                       get=function() return ns.CropPercent(DDB()) end,
                       set=function(v)
                           local d = DDB(); if not d then return end
@@ -1406,8 +1401,15 @@ initFrame:SetScript("OnEvent", function(self)
             (ns.IconShapeMasked(DDB()) and {
               type="dropdown", text="Border Size",
               values={ none="None", strong="Strong" }, order={ "none", "strong" },
-              getValue=function() local d = DDB(); return d and (d.borderSize or 1) >= 4 and "strong" or "none" end,
-              setValue=function(v) local d = DDB(); if d then d.borderSize = v == "strong" and 4 or 0; RefreshBorders() end end,
+              -- The ring shows at any size above 0, so a pick keeps the square
+              -- border's own size for the way back to None or Cropped.
+              getValue=function() local d = DDB(); return d and (d.borderSize or 1) > 0 and "strong" or "none" end,
+              setValue=function(v)
+                  local d = DDB(); if not d then return end
+                  if v ~= "strong" then d.borderSize = 0
+                  elseif (d.borderSize or 1) <= 0 then d.borderSize = 1 end
+                  RefreshBorders()
+              end,
             } or EllesmereUI.BorderPxSliderCfg{
               text="Border Size",
               getStep=function() local d = DDB(); return (d and d.borderSize) or 1 end,

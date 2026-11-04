@@ -965,11 +965,15 @@ do
         if not u or not UnitExists(u) then return "" end
         return sf("%s", C_StringUtil.TruncateWhenZero(UnitGetTotalAbsorbs(u) or 0))
     end
+    -- An absorb amount abbreviated: Show Decimal on Health Text's table while it
+    -- is on, else the Number Format.
+    local function AbbrevAbsorb(v)
+        local cfg = _G._EUI_AbbrevDecimalCfg
+        return cfg and AbbreviateNumbers(v, cfg) or ns.AbbreviateValue(v, "absorb")
+    end
     P.absorbshort = function(u)
         if not u or not UnitExists(u) then return "" end
-        local cfg = _G._EUI_AbbrevDecimalCfg
-        return cfg and AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0, cfg)
-            or ns.AbbreviateValue(UnitGetTotalAbsorbs(u) or 0, "absorb")
+        return AbbrevAbsorb(UnitGetTotalAbsorbs(u) or 0)
     end
     P.healabsorb = function(u)
         if not u or not UnitExists(u) then return "" end
@@ -977,9 +981,7 @@ do
     end
     P.healabsorbshort = function(u)
         if not u or not UnitExists(u) then return "" end
-        local cfg = _G._EUI_AbbrevDecimalCfg
-        return cfg and AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0, cfg)
-            or ns.AbbreviateValue(UnitGetTotalHealAbsorbs(u) or 0, "absorb")
+        return AbbrevAbsorb(UnitGetTotalHealAbsorbs(u) or 0)
     end
     -- [absorb:abr], [healabsorb:abr]: empty at zero like the full tags. The presets
     -- above keep "0" because ApplyAbsorbGate clips their whole zone instead.
@@ -989,8 +991,7 @@ do
             if not u or not UnitExists(u) then return "" end
             local v = get(u) or 0
             if IsZeroValue(v) then return "" end
-            local cfg = _G._EUI_AbbrevDecimalCfg
-            return cfg and AbbreviateNumbers(v, cfg) or ns.AbbreviateValue(v, "absorb")
+            return AbbrevAbsorb(v)
         end
     end
     P.absorbshorttag = AbsorbShortTag(UnitGetTotalAbsorbs)

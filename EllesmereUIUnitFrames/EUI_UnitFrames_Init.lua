@@ -214,7 +214,19 @@ local function InitializeFrames()
                 -- The animated icon is built the first time it is needed.
                 pf._restUpdate = function()
                     local db = EllesmereUIDB
-                    local on = db and db.showRestedIndicator == true and IsResting() or false
+                    local enabled = db and db.showRestedIndicator == true or false
+                    -- Rest changes are listened to only while the indicator is on.
+                    if enabled ~= pf._restListening then
+                        pf._restListening = enabled
+                        local ef = pf._restEventFrame
+                        if enabled then
+                            ef:RegisterEvent("PLAYER_UPDATE_RESTING")
+                            ef:RegisterEvent("PLAYER_ENTERING_WORLD")
+                        else
+                            ef:UnregisterAllEvents()
+                        end
+                    end
+                    local on = enabled and IsResting() or false
                     local animated = db and db.restedIndicatorAnimated == true or false
                     if on and animated and not pf._restAnim then
                         -- On the unit frame, not the health bar: the bar sits in the frame's
@@ -233,9 +245,8 @@ local function InitializeFrames()
                     if pf._restAnim then pf._restAnim:SetShown(on and animated) end
                 end
 
+                -- Its events are registered by _restUpdate while the indicator is on.
                 pf._restEventFrame = CreateFrame("Frame", nil, pf)
-                pf._restEventFrame:RegisterEvent("PLAYER_UPDATE_RESTING")
-                pf._restEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
                 pf._restEventFrame:SetScript("OnEvent", function() pf._restUpdate() end)
             end
             pf._restHolder:SetAllPoints(pf.Health)

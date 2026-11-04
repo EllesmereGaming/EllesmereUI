@@ -463,7 +463,6 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     }
     local rolePositionOrder = EllesmereUI.POSITION_GRID_ORDER
     -- Attach Role Icons (Top Name Bar section) takes over the role icon's placement
-    local ATTACHED_TIP = "This option requires Attach Role Icons to be disabled"
     local function RoleAttached()
         return SVal("roleIconOnNameBar", false) and SVal("topNameBarEnabled", false)
     end
@@ -475,7 +474,8 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
           disabled=function()
               return RoleAttached() or (not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none")
           end,
-          disabledTooltip=function() return RoleAttached() and ATTACHED_TIP or "Role Icons" end,
+          disabledTooltip=function() return RoleAttached() and "Attach Role Icons" or "Role Icons" end,
+          requireState=function() return RoleAttached() and "disabled" or nil end,
           getValue=function() return SVal("roleIconPosition", "bottomleft") end,
           setValue=function(v) SSet("roleIconPosition", v) end }),
         { type="slider", text="Role Icon Size", min=8, max=30, step=1,
@@ -489,7 +489,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             icon = EllesmereUI.DIRECTIONS_ICON,
             title = "Role Icon Offset",
             disabled = RoleAttached,
-            disabledTooltip = ATTACHED_TIP,
+            disabledTooltip = "Attach Role Icons", requireState = "disabled",
             rows = {
                 { type="slider", label="Offset X", min=-50, max=50, step=1,
                   get=function() return SVal("roleIconOffsetX", 0) end,
@@ -2116,7 +2116,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 disabled = PGOff, disabledTooltip = "Player Group Label",
                 rows = {
                     { type="dropdown", label="Text Format",
-                      values={ number="3", full=GROUP_NUMBER and GROUP_NUMBER:format(3) or "Group 3" },
+                      values={ number="3", full=GROUP_NUMBER:format(3) },
                       order={ "number", "full" },
                       get=function() return PGS().format == "full" and "full" or "number" end,
                       set=function(k) PGS().format = k; PGRefresh() end },
