@@ -654,6 +654,54 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     end
 
     ---------------------------------------------------------------------------
+    --  LEVEL UP (EllesmereUIForeverEssentials_LevelUp.lua)
+    ---------------------------------------------------------------------------
+    local LU = EllesmereUI._LevelUpToast
+    _, h = W:Spacer(parent, y, 20);  y = y - h
+    _, h = W:SectionHeader(parent, "LEVEL UP", y);  y = y - h
+
+    local luRow
+    luRow, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Level Up Toast",
+          tooltip = "Shows a toast when you level up: your new level, the health, power and stats you gained, new talent points and the time the last level took. Place it in unlock mode.",
+          getValue = function() return LU.Get("enabled") end,
+          setValue = function(v)
+              LU.Cfg().enabled = v
+              LU.Apply()
+              EllesmereUI:RefreshPage()  -- the sample button's and chat's disabled state
+          end },
+        { type = "labeledButton", text = "Preview", buttonText = "Show Sample",
+          tooltip = "Shows a sample toast for the last level.",
+          disabled = function() return not LU.Get("enabled") end, disabledTooltip = "Level Up Toast",
+          onClick = function() LU.Preview() end }
+    );  y = y - h
+    if not EllesmereUI._prebuilding then
+        local function partRow(label, tooltip, key)
+            return { type = "toggle", label = label, tooltip = tooltip,
+                get = function() return LU.Get(key) end,
+                set = function(v) LU.Cfg()[key] = v end }
+        end
+        EllesmereUI.BuildInlineCog(luRow._leftRegion, {
+            title = "Level Up Toast",
+            rows = {
+                partRow("Stat Gains", "The health, power, stats and talent points the level brought.", "gains"),
+                partRow("Time at Level", "How long the last level took.", "time"),
+            },
+            disabled = function() return not LU.Get("enabled") end,
+            disabledTooltip = "Level Up Toast",
+        })
+    end
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Show in Chat",
+          tooltip = "Also writes the toast to the chat.",
+          disabled = function() return not LU.Get("enabled") end, disabledTooltip = "Level Up Toast",
+          getValue = function() return LU.Get("chat") end,
+          setValue = function(v) LU.Cfg().chat = v or nil end },
+        EllesmereUI.BlankRowCfg()
+    );  y = y - h
+
+    ---------------------------------------------------------------------------
     --  JUNK ITEMS (the rows after the toggle are built while the window is
     --  on; the toggle rebuilds the page)
     ---------------------------------------------------------------------------
