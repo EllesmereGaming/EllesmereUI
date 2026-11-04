@@ -230,6 +230,12 @@ local BASE_U, BASE_V = BASE_R - BASE_L, BASE_B - BASE_T
 local function ApplyShellStyle(winKey)
     local entry = _shells[winKey]
     if not entry then return end
+    -- a window's own background color/opacity: the backdrop fades with the
+    -- opacity, the tint takes the color (EUI._ShellLooks[winKey] returns both)
+    local look = EUI and EUI._ShellLooks and EUI._ShellLooks[winKey]
+    local tint, opacity
+    if look then tint, opacity = look() end
+    opacity = (opacity or 100) / 100
     for frame in pairs(entry) do
         local d = FFD[frame]
         if d then
@@ -239,16 +245,20 @@ local function ApplyShellStyle(winKey)
                 if d.bgOverlay then d.bgOverlay:SetAlpha(0) end
                 if d.modernBg then
                     local r, g, b, a = WSkin.GetModernBG()
+                    if tint then r, g, b, a = tint.r, tint.g, tint.b, tint.a or a end
                     d.modernBg:SetColorTexture(r, g, b, a)
                     -- Re-raise the region alpha too: a foreign restrip pass may
                     -- have zeroed it (color alpha and region alpha multiply).
-                    d.modernBg:SetAlpha(1)
+                    d.modernBg:SetAlpha(opacity)
                 end
             else
-                if d.bg then d.bg:SetAlpha(1) end
+                if d.bg then d.bg:SetAlpha(opacity) end
                 -- Region alpha is show/hide only; the darken strength lives in
                 -- the overlay's color alpha (they multiply).
-                if d.bgOverlay then d.bgOverlay:SetAlpha(1) end
+                if d.bgOverlay then
+                    if tint then d.bgOverlay:SetColorTexture(tint.r, tint.g, tint.b, tint.a or 0.62) end
+                    d.bgOverlay:SetAlpha(opacity)
+                end
                 if d.modernBg then d.modernBg:SetColorTexture(0, 0, 0, 0) end
             end
         end
