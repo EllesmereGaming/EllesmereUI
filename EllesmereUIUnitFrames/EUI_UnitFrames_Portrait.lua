@@ -511,6 +511,8 @@ function ns.UF_AttachEngineFrame(frame, unit, polled)
     end
     -- Opt-in Blizzard Glow Line: built and joined only when on.
     if frame.HealthPrediction then ns.UF_AbsorbGlowApply(frame, unit) end
+    -- Opt-in max health reduction: built and joined only when its style is on.
+    if frame.HealthPrediction then ns.UF_MaxHpApply(frame, unit) end
     -- The player's power value channel: joined while the frame is visible and
     -- shows the value, so it also follows the frame's show and hide.
     if unit == "player" and frame.Power then
