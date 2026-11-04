@@ -108,7 +108,8 @@ do
                 state.highlightAttached = true
             end
             if not state.glowExtra then state.glowExtra = {} end
-            state.glowExtra.maskWith, state.glowExtra.shapeMask = state.mask, state.mask
+            -- Outline glows extend beyond the inset icon mask, like CDM's proc glows.
+            state.glowExtra.shapeMask = state.mask
             state.glowExtra.maskPath = EllesmereUI.SHAPE_MASKS[shape]
             state.glowExtra.borderPath = EllesmereUI.SHAPE_BORDERS[shape]
             local visible = (128 - 2 * (EllesmereUI.SHAPE_INSETS[shape] or 17)) / 128
