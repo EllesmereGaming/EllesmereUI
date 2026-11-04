@@ -28,7 +28,7 @@ local function DB()
     end
     return t
 end
-function ns.OwnListOn() return DB().enabled == true end
+function ns.OwnListOn() return ns.Enabled() end
 function ns.OwnListRowHeight() return tonumber(DB().rowHeight) or 50 end
 function ns.OwnListOpt(k) return DB()[k] ~= false end  -- nil = on
 -- text sizes
@@ -1156,11 +1156,6 @@ function ns.OwnListRefresh()
     end
 end
 
-function ns.SetOwnListOn(v)
-    DB().enabled = v and true or nil
-    scrollPx = 0
-    ns.OwnListRefresh()
-end
 function ns.SetOwnListRowHeight(v)
     DB().rowHeight = v
     if active then Paint() end

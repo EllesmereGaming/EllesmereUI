@@ -46,7 +46,7 @@ local rowH, btnSize, btnRoom, iconPx = 36, 20, 50, 21
 local layoutKey
 local scrollPx = 0
 
-function ns.ApplicantListOn() return ns.OwnListGet("applicantList") == true end
+function ns.ApplicantListOn() return ns.Enabled() and ns.OwnListGet("applicantList") == true end
 
 -------------------------------------------------------------------------------
 --  reading

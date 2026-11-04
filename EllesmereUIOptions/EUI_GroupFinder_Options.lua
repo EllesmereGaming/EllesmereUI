@@ -98,14 +98,6 @@ initFrame:SetScript("OnEvent", function(self)
     function AddListSections(parent, y)
         local W = EUI.Widgets
         local _, h
-        _, h = W:SectionHeader(parent, "GROUP LIST", y); y = y - h
-        _, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Ellesmere Group List",
-              tooltip = "Draws the dungeon, raid and delve results with our own rows.",
-              getValue = function() return ns.OwnListOn() end,
-              setValue = function(v) ns.SetOwnListOn(v); EUI:RefreshPage() end },
-            EUI.BlankRowCfg())
-        y = y - h
         _, h = W:SectionHeader(parent, "WINDOW", y); y = y - h
         _, h = W:DualRow(parent, y,
             { type = "colorpicker", text = "Background Color", hasAlpha = true,
@@ -302,6 +294,7 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:SectionHeader(parent, "APPLICANT LIST", y); y = y - h
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Ellesmere Applicant List",
+              disabled = ModOff, disabledTooltip = "Group Finder",
               tooltip = "Draws your listed group's applicants with spec, rating, best key and raid progress columns. Raid progress needs Raider.IO.",
               getValue = function() return ns.ApplicantListOn() end,
               setValue = function(v) ns.SetOwnListValue("applicantList", v and true or false); EUI:RefreshPage() end },

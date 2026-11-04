@@ -21,6 +21,8 @@ ns.FinderLayoutOn, ns.SetFinderLayout = Switch("extraFinderLayout")
 
 -- runs fn once blizzard's group finder loads
 function ns.WhenGroupFinder(fn)
+    -- module off: nothing hooks in
+    if not ns.Enabled() or ns.Blocked() then return end
     if C_AddOns.IsAddOnLoaded("Blizzard_GroupFinder") and PVEFrame then
         fn()
         return
