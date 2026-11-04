@@ -11362,13 +11362,27 @@ end
 do
 local lootSkinned = false
 
+-- The best quality among the open loot's slots as {r,g,b}, or nil with no loot (Edit Mode preview).
+local function BestLootQualityColor()
+    local best
+    for i = 1, GetNumLootItems() do
+        local q = select(5, GetLootSlotInfo(i))
+        if q and (not best or q > best) then best = q end
+    end
+    if not best then return nil end
+    local r, g, b = C_Item.GetItemQualityColor(best)
+    return { r = r, g = g, b = b }
+end
+
 -- Loot window cards border style.  Unset keeps the shell's window border untouched.
 local function ApplyLootBorder(f)
     local d = GetFFD(f)
-    if EllesmereUIDB and EllesmereUIDB.lootWindowBorderTexture then
+    local db = EllesmereUIDB
+    if db and db.lootWindowBorderTexture then
         if d.atlasBorderFrame then d.atlasBorderFrame:Hide() end
         if EllesmereUI._applyBlizzardConfiguredBorder then
-            EllesmereUI._applyBlizzardConfiguredBorder(f, "lootWindow", 1)
+            local override = db.lootWindowBorderColorMode == "quality" and BestLootQualityColor() or nil
+            EllesmereUI._applyBlizzardConfiguredBorder(f, "lootWindow", 1, override)
         end
         d.lootBorderOn = true
     elseif d.lootBorderOn then

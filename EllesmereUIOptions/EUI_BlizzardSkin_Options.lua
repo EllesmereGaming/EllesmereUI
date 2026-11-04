@@ -2052,7 +2052,9 @@ initFrame:SetScript("OnEvent", function(self)
                     local c = EllesmereUIDB[prefix.."BorderColor"] or { r = 1, g = 1, b = 1 }
                     return c.r, c.g, c.b, EllesmereUIDB[prefix.."BorderOpacity"] or EllesmereUI.RESKIN.BRD_ALPHA
                 end, true)
-            right._lastInline = custom
+            local quality = AddModeSwatch(custom, "quality", "Quality Color: the best item's quality in the window",
+                function() local r, g, b = C_Item.GetItemQualityColor(Enum.ItemQuality.Epic); return r, g, b, 1 end, false)
+            right._lastInline = quality
         end
 
         -- Width | Height Offset, only for a textured style (art with built-in padding needs fitting).

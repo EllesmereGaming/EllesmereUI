@@ -49,7 +49,8 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         return true
     end
 
-    local function _applyConfiguredBorder(owner, prefix, legacySize)
+    -- colorOverride (optional {r,g,b}): a caller-computed color for loot window's "quality"
+    local function _applyConfiguredBorder(owner, prefix, legacySize, colorOverride)
         if not owner or not EllesmereUI.ApplyBorderStyle then return end
         -- Read the level up front: it is the first widget call this makes, so it doubles as the restriction probe (see _ttUsable).
         local okLvl, ownerLevel = pcall(owner.GetFrameLevel, owner)
@@ -61,7 +62,9 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         key = key or ({ [0]="none", [1]="thin", [2]="normal", [3]="heavy", [4]="strong" })[size] or "thin"
         local mode = db[prefix .. "BorderColorMode"] or "custom"
         local color
-        if mode == "accent" then
+        if colorOverride then
+            color = colorOverride
+        elseif mode == "accent" then
             color = EllesmereUI.ELLESMERE_GREEN or { r=.27, g=.86, b=.49 }
         elseif mode == "class" then
             local _, class = UnitClass("player")
