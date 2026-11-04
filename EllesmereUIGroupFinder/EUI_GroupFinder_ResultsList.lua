@@ -30,16 +30,11 @@ local function DB()
 end
 function ns.OwnListOn() return ns.Enabled() end
 function ns.OwnListRowHeight() return tonumber(DB().rowHeight) or 50 end
-function ns.OwnListOpt(k) return DB()[k] ~= false end  -- nil = on
 -- text sizes
 local SIZE_DEFAULTS = { titleSize = 12, nameSize = 10, lineSize = 10, scoreSize = 10 }
 function ns.OwnListSize(k) return tonumber(DB()[k]) or SIZE_DEFAULTS[k] end
 function ns.SetOwnListSize(k, v)
     DB()[k] = v
-    if ns.OwnListRefresh then ns.OwnListRefresh() end
-end
-function ns.SetOwnListOpt(k, v)
-    DB()[k] = v and true or false
     if ns.OwnListRefresh then ns.OwnListRefresh() end
 end
 -- display settings
@@ -104,7 +99,7 @@ local function RioShorts(who)
 end
 local SKIP = { the = true, of = true, ["and"] = true }
 local initials = {}
-function ns.LabShortName(act, mapID, cmID, name, leader)
+function ns.GFShortName(act, mapID, cmID, name, leader)
     local m = RioShorts("player") or (leader and RioShorts(leader))
     local s = m and ((act and m.act[act]) or (mapID and m.map[mapID]) or (cmID and m.cm[cmID]))
     if s then return s end
@@ -199,33 +194,12 @@ local function SignUpState(id)
     return true
 end
 
--- persistent signup note: keep the typed note between sign ups
-local function NoteOn() return EllesmereUIDB and EllesmereUIDB.persistSignupNote end
-
--- blizzard's show, minus clearing the note (our own copy, the global's left alone)
-local function ShowDialog(dlg, id)
-    if not NoteOn() then
-        LFGListApplicationDialog_Show(dlg, id)
-        return
-    end
-    dlg.resultID = id
-    dlg.activityID = nil
-    pcall(function()
-        local info = C_LFGList.GetSearchResultInfo(id)
-        local acts = Readable(info) and info.activityIDs
-        local aid = Readable(acts) and acts[1]
-        if not Secret(aid) then dlg.activityID = aid end
-    end)
-    LFGListApplicationDialog_UpdateRoles(dlg)
-    StaticPopupSpecial_Show(dlg)
-end
-
 -- opens blizzard's sign up dialog directly
 local function SignUp(id)
     if not (id and SignUpState(id)) then return end
     local dlg = LFGListApplicationDialog
     if not (LFGListApplicationDialog_Show and dlg) then return end
-    ShowDialog(dlg, id)
+    LFGListApplicationDialog_Show(dlg, id)
     -- quick signup: auto confirm unless shift (if the core helper
     -- already did it, the dialog's gone)
     if EllesmereUIDB and EllesmereUIDB.quickSignup and not IsShiftKeyDown()
@@ -448,9 +422,7 @@ local function MakeRow(i)
     r.cancel:SetScript("OnEnter", function(self)
         self.tex:SetVertexColor(1, 0.3, 0.3, 1)
         if self.edge and self.edge.SetColor then self.edge:SetColor(1, 0.3, 0.3, 1) end
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(CANCEL_SIGN_UP or "Cancel Sign Up")
-        GameTooltip:Show()
+        EUI.ShowWidgetTooltip(self, CANCEL_SIGN_UP or "Cancel Sign Up")
     end)
     r.cancel:SetScript("OnLeave", function(self)
         self.tex:SetVertexColor(0.8, 0.8, 0.8, 1)
@@ -537,7 +509,7 @@ local function MakeRow(i)
         local need = ({ single = 1, double = 2, triple = 3 })[ns.OwnListGet("signupClicks")] or 2
         local signup = EllesmereUIDB and EllesmereUIDB.quickSignup and clickCount >= need
         -- at the app limit, cancel the oldest
-        if ns.LabCancelOldest then ns.LabCancelOldest(id) end
+        if ns.GFCancelOldest then ns.GFCancelOldest(id) end
         -- same check blizzard's row click does
         if not Selectable(id) then return end
         if selected ~= id then
@@ -713,7 +685,7 @@ local function Fill(r, id)
     if r.act:IsShown() then
         r.act:SetPoint("TOPLEFT", r, "TOPLEFT", x0, -(r.lineY and r.lineY[2] or 0))
     end
-    local short = (r.lines or 0) < 2 and ai and ns.LabShortName(act, ai.mapID, nil, ai.fullName, not Secret(info.leaderName) and info.leaderName or nil)
+    local short = (r.lines or 0) < 2 and ai and ns.GFShortName(act, ai.mapID, nil, ai.fullName, not Secret(info.leaderName) and info.leaderName or nil)
     if short and short ~= "" then
         local ok, path, size, flags = pcall(r.name.GetFont, r.name)
         if ok and path then r.short:SetFont(path, size, flags or "") end
@@ -1002,7 +974,7 @@ function Paint()  -- forward-declared up top
         empty:SetText("")  -- blizzard's spinner covers it
     elseif #shown == 0 then
         local total = type(SP.results) == "table" and #SP.results or 0
-        empty:SetText(total > 0 and (total .. " groups found, none match your filters") or "No groups found")
+        empty:SetText(total > 0 and EllesmereUI.Lf("%1$d groups found, none match your filters", total) or EllesmereUI.L("No groups found"))
     else
         empty:SetText("")
     end
@@ -1070,11 +1042,9 @@ local function Build()
         signBtn:SetScript("OnClick", function() SignUp(selected) end)
         signBtn:SetScript("OnEnter", function(self)
             if not self.why then return end
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText(self.why, 1, 1, 1, 1, true)
-            GameTooltip:Show()
+            EUI.ShowWidgetTooltip(self, self.why)
         end)
-        signBtn:SetScript("OnLeave", GameTooltip_Hide)
+        signBtn:SetScript("OnLeave", EUI.HideWidgetTooltip)
         signBtn:Hide()
         hooksecurefunc(sb, "SetAlpha", HoldHidden)
     end
@@ -1154,6 +1124,12 @@ function ns.OwnListRefresh()
         Collect()
         Paint()
     end
+end
+
+-- settings reset: these live outside the profile
+function ns.ResetOwnList()
+    wipe(DB())
+    ns.OwnListRefresh()
 end
 
 function ns.SetOwnListRowHeight(v)

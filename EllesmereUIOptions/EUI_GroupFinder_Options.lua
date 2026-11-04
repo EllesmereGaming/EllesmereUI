@@ -271,7 +271,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return ns.Cfg().extraRowArt == true end,
               setValue = function(v)
                   ns.Cfg().extraRowArt = v and true or false
-                  if ns.LabRetagRows then ns.LabRetagRows() end
+                  if ns.GFRetagRows then ns.GFRetagRows() end
               end })
         y = y - h
 
@@ -480,6 +480,7 @@ initFrame:SetScript("OnEvent", function(self)
         end,
         onReset     = function()
             ns.ResetSettings()
+            if ns.ResetOwnList then ns.ResetOwnList() end
             if ns.Enabled() then
                 ns.Search_Layout()
                 ns.ApplyApplications()

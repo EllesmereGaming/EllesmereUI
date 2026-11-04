@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
---  expressions.lua - type a filter like "hasBL and hasBR and healers > 0"
+--  expressions.lua - type a filter like "hasBL and hasBR and healer > 0"
 --  our own little language, parsed into closures: nothing typed ever runs
 --  as lua. saved as extraExpr
 -------------------------------------------------------------------------------
@@ -24,11 +24,7 @@ local CLASS_WORDS = {
 local WORDS = {
     tank = "tanks", healer = "healers", dps = "dps", members = "members",
     tankopen = "tanksLeft", healeropen = "healersLeft", dpsopen = "dpsLeft",
-    -- old names, still read
-    tanks = "tanks", healers = "healers", heals = "healers",
-    tanksleft = "tanksLeft", healersleft = "healersLeft", dpsleft = "dpsLeft",
-    hastank = "tanks", hasheal = "healers", hashealer = "healers", hasdps = "dps",
-    hasbl = "hasBL", haslust = "hasBL", hasbr = "hasBR", hasbrez = "hasBR", myclass = "myClass",
+    hasbl = "hasBL", hasbr = "hasBR", myclass = "myClass",
     score = "score", ilvl = "ilvl", age = "age", friends = "friends", voice = "voice",
 }
 for w, cls in pairs(CLASS_WORDS) do WORDS[w] = cls end
@@ -61,7 +57,7 @@ local function Tokens(src)
                 if KEYWORDS[lw] then out[#out + 1] = { t = KEYWORDS[lw] }
                 elseif lw == "true" or lw == "false" then out[#out + 1] = { t = "num", v = lw == "true" and 1 or 0 }
                 elseif WORDS[lw] then out[#out + 1] = { t = "var", v = WORDS[lw] }
-                else return nil, "unknown word: " .. word end
+                else return nil, EllesmereUI.Lf("unknown word: %1$s", word) end
                 i = i + #word
             elseif TWO[two] then
                 out[#out + 1] = { t = TWO[two] }
@@ -70,7 +66,7 @@ local function Tokens(src)
                 out[#out + 1] = { t = ONE[c] }
                 i = i + 1
             else
-                return nil, "can't use \"" .. c .. "\""
+                return nil, EllesmereUI.Lf("can't use \"%1$s\"", c)
             end
         end
     end
@@ -95,7 +91,7 @@ local function Compile(src)
     local Or
     local function Primary()
         local tk = take()
-        if not tk then error("ends too soon", 0) end
+        if not tk then error(EllesmereUI.L("ends too soon"), 0) end
         if tk.t == "num" then
             local v = tk.v
             return function() return v end
@@ -108,10 +104,10 @@ local function Compile(src)
             end
         elseif tk.t == "(" then
             local f = Or()
-            if take() == nil or toks[pos - 1].t ~= ")" then error("missing )", 0) end
+            if take() == nil or toks[pos - 1].t ~= ")" then error(EllesmereUI.L("missing )"), 0) end
             return f
         end
-        error("unexpected \"" .. tk.t .. "\"", 0)
+        error(EllesmereUI.Lf("unexpected \"%1$s\"", tk.t), 0)
     end
     local function Unary()
         if peek() == "-" then
@@ -183,7 +179,7 @@ local function Compile(src)
 
     local ok, f = pcall(Or)
     if not ok then return nil, f end
-    if pos <= #toks then return nil, "unexpected \"" .. toks[pos].t .. "\"" end
+    if pos <= #toks then return nil, EllesmereUI.Lf("unexpected \"%1$s\"", toks[pos].t) end
     return f
 end
 
@@ -265,58 +261,58 @@ end
 -------------------------------------------------------------------------------
 -- the reference under the box: hover a tag for help, click to type it
 local SECTIONS = {
-    { title = "Words", boxes = {
-        { title = "Open Slots", color = { 0.35, 0.65, 1 }, cols = 1, examples = {
-            { "tankOpen >= 1", "room for a tank" },
-            { "healerOpen > 0 and dpsOpen > 0", "room for a healer and a dps" },
-            { "dpsOpen == 3", "still needs all three dps" } }, tags = {
-            { "tankOpen", "Tank spots still open." },
-            { "healerOpen", "Healer spots still open." },
-            { "dpsOpen", "DPS spots still open." } } },
-        { title = "Roles", color = { 0.3, 0.85, 0.5 }, cols = 2, examples = {
-            { "tank == 1 and healer == 1", "has its tank and healer" },
-            { "members <= 3", "three players or fewer so far" },
-            { "myClass == 0", "nobody of your class yet" },
-            { "mage >= 1 or priest >= 1", "has a mage or a priest" },
-            { "dk + dh == 0", "no death knight or demon hunter" } }, tags = {
-            { "tank", "Tanks in the group." },
-            { "healer", "Healers in the group." },
-            { "dps", "DPS in the group." },
-            { "mage", "Any class name counts that class: mage, druid, priest, dk, dh..." },
-            { "members", "Players in the group.", span = true },
-            { "myClass", "Members of your own class.", span = true } } },
-        { title = "Group", color = { 0.72, 0.52, 1 }, cols = 2, examples = {
-            { "hasBL and hasBR", "has bloodlust and a battle res" },
-            { "score >= 2500", "leader has 2500 score or more" },
-            { "age <= 5", "listed in the last five minutes" },
-            { "friends > 0", "a friend or guildmate is in it" },
-            { "not voice", "no voice chat listed" } }, tags = {
-            { "hasBL", "1 when someone can Bloodlust / Heroism." },
-            { "hasBR", "1 when someone can battle res." },
-            { "score", "The leader's Mythic+ score." },
-            { "ilvl", "The group's required item level." },
-            { "age", "Minutes since the group was listed." },
-            { "friends", "Your friends and guildmates in the group." },
-            { "voice", "1 when the group lists voice chat." } } },
+    { title = EllesmereUI.L("Words"), boxes = {
+        { title = EllesmereUI.L("Open Slots"), color = { 0.35, 0.65, 1 }, cols = 1, examples = {
+            { "tankOpen >= 1", EllesmereUI.L("room for a tank") },
+            { "healerOpen > 0 and dpsOpen > 0", EllesmereUI.L("room for a healer and a dps") },
+            { "dpsOpen == 3", EllesmereUI.L("still needs all three dps") } }, tags = {
+            { "tankOpen", EllesmereUI.L("Tank spots still open.") },
+            { "healerOpen", EllesmereUI.L("Healer spots still open.") },
+            { "dpsOpen", EllesmereUI.L("DPS spots still open.") } } },
+        { title = EllesmereUI.L("Roles"), color = { 0.3, 0.85, 0.5 }, cols = 2, examples = {
+            { "tank == 1 and healer == 1", EllesmereUI.L("has its tank and healer") },
+            { "members <= 3", EllesmereUI.L("three players or fewer so far") },
+            { "myClass == 0", EllesmereUI.L("nobody of your class yet") },
+            { "mage >= 1 or priest >= 1", EllesmereUI.L("has a mage or a priest") },
+            { "dk + dh == 0", EllesmereUI.L("no death knight or demon hunter") } }, tags = {
+            { "tank", EllesmereUI.L("Tanks in the group.") },
+            { "healer", EllesmereUI.L("Healers in the group.") },
+            { "dps", EllesmereUI.L("DPS in the group.") },
+            { "mage", EllesmereUI.L("Any class name counts that class: mage, druid, priest, dk, dh...") },
+            { "members", EllesmereUI.L("Players in the group."), span = true },
+            { "myClass", EllesmereUI.L("Members of your own class."), span = true } } },
+        { title = EllesmereUI.L("Group"), color = { 0.72, 0.52, 1 }, cols = 2, examples = {
+            { "hasBL and hasBR", EllesmereUI.L("has bloodlust and a battle res") },
+            { "score >= 2500", EllesmereUI.L("leader has 2500 score or more") },
+            { "age <= 5", EllesmereUI.L("listed in the last five minutes") },
+            { "friends > 0", EllesmereUI.L("a friend or guildmate is in it") },
+            { "not voice", EllesmereUI.L("no voice chat listed") } }, tags = {
+            { "hasBL", EllesmereUI.L("1 when someone can Bloodlust / Heroism.") },
+            { "hasBR", EllesmereUI.L("1 when someone can battle res.") },
+            { "score", EllesmereUI.L("The leader's Mythic+ score.") },
+            { "ilvl", EllesmereUI.L("The group's required item level.") },
+            { "age", EllesmereUI.L("Minutes since the group was listed.") },
+            { "friends", EllesmereUI.L("Your friends and guildmates in the group.") },
+            { "voice", EllesmereUI.L("1 when the group lists voice chat.") } } },
     } },
-    { title = "Syntax", boxes = {
-        { title = "Math", color = { 1, 0.55, 0.2 }, examples = {
-            { "tank + healer == 2", "has both a tank and a healer" },
-            { "5 - members >= 2", "at least two spots left" },
-            { "mage + priest + druid >= 2", "two or more of those classes" },
-            { "(tank + healer) == 0", "no tank or healer yet" } }, tags = {
-            { "+", "Add." }, { "-", "Subtract." }, { "*", "Multiply." }, { "/", "Divide." },
-            { "(", "Group a part together." }, { ")", "Close the group." } } },
-        { title = "Comparisons", color = { 1, 0.8, 0.2 }, examples = {
-            { "score > 2000", "more than 2000" },
-            { "healer != 0", "any healer at all" },
-            { "dps >= 1 and dps <= 2", "one or two dps" },
-            { "hasBL or hasBR", "either one is enough" },
-            { "not hasBL", "no bloodlust" } }, tags = {
-            { ">", "More than." }, { "<", "Less than." }, { ">=", "At least." }, { "<=", "At most." },
-            { "==", "Exactly." }, { "!=", "Anything but." },
-            { "and", "Both sides must be true." }, { "or", "Either side is enough." },
-            { "not", "Flips true and false." } } },
+    { title = EllesmereUI.L("Syntax"), boxes = {
+        { title = EllesmereUI.L("Math"), color = { 1, 0.55, 0.2 }, examples = {
+            { "tank + healer == 2", EllesmereUI.L("has both a tank and a healer") },
+            { "5 - members >= 2", EllesmereUI.L("at least two spots left") },
+            { "mage + priest + druid >= 2", EllesmereUI.L("two or more of those classes") },
+            { "(tank + healer) == 0", EllesmereUI.L("no tank or healer yet") } }, tags = {
+            { "+", EllesmereUI.L("Add.") }, { "-", EllesmereUI.L("Subtract.") }, { "*", EllesmereUI.L("Multiply.") }, { "/", EllesmereUI.L("Divide.") },
+            { "(", EllesmereUI.L("Group a part together.") }, { ")", EllesmereUI.L("Close the group.") } } },
+        { title = EllesmereUI.L("Comparisons"), color = { 1, 0.8, 0.2 }, examples = {
+            { "score > 2000", EllesmereUI.L("more than 2000") },
+            { "healer != 0", EllesmereUI.L("any healer at all") },
+            { "dps >= 1 and dps <= 2", EllesmereUI.L("one or two dps") },
+            { "hasBL or hasBR", EllesmereUI.L("either one is enough") },
+            { "not hasBL", EllesmereUI.L("no bloodlust") } }, tags = {
+            { ">", EllesmereUI.L("More than.") }, { "<", EllesmereUI.L("Less than.") }, { ">=", EllesmereUI.L("At least.") }, { "<=", EllesmereUI.L("At most.") },
+            { "==", EllesmereUI.L("Exactly.") }, { "!=", EllesmereUI.L("Anything but.") },
+            { "and", EllesmereUI.L("Both sides must be true.") }, { "or", EllesmereUI.L("Either side is enough.") },
+            { "not", EllesmereUI.L("Flips true and false.") } } },
     } },
 }
 -- color words like their tags, unknown ones red
@@ -575,7 +571,7 @@ local function Build(SP, K)
     K.Font(title, 9)
     title:SetTextColor(0.55, 0.55, 0.55, 1)
     title:SetPoint("TOPLEFT", panel, "TOPLEFT", 9, -7)
-    title:SetText("Expressions")
+    title:SetText(EllesmereUI.L("Expressions"))
 
     -- clear button, skinned
     local clear = CreateFrame("Button", nil, panel)
@@ -586,7 +582,7 @@ local function Build(SP, K)
     clear.Label = clear:CreateFontString(nil, "OVERLAY")
     K.Font(clear.Label, 9)
     clear.Label:SetPoint("CENTER", 0, 0)
-    clear.Label:SetText("Clear")
+    clear.Label:SetText(EllesmereUI.L("Clear"))
     local ct = clear.Label
     ct:SetTextColor(CM.TEXT_DIM_R, CM.TEXT_DIM_G, CM.TEXT_DIM_B, CM.TEXT_DIM_A)
     local skin = CM._ModuleNS and CM._ModuleNS.EllesmereUIBlizzardSkin
@@ -640,7 +636,7 @@ local function Build(SP, K)
     K.Font(hint, 10)
     hint:SetPoint("TOPLEFT", box, "TOPLEFT", 0, 0)
     hint:SetTextColor(0.45, 0.45, 0.45, 1)
-    hint:SetText("e.g. hasBL and hasBR and healer > 0")
+    hint:SetText(EllesmereUI.L("e.g. hasBL and hasBR and healer > 0"))
     well:EnableMouse(true)
     well:SetScript("OnMouseDown", function() box:SetFocus() end)
     box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)

@@ -247,8 +247,8 @@ local function PlaceBlock(f, m, y)
 end
 
 local MATCH = {
-    { any = false, label = "Match All",   hint = "(and)", tip = "Match all of the selected options below." },
-    { any = true,  label = "Match Any",   hint = "(or)",  tip = "Match any of the selected options below." },
+    { any = false, label = EllesmereUI.L("Match All"),   hint = "(and)", tip = EllesmereUI.L("Match all of the selected options below.") },
+    { any = true,  label = EllesmereUI.L("Match Any"),   hint = "(or)",  tip = EllesmereUI.L("Match any of the selected options below.") },
 }
 
 local function CountsOn(c)
@@ -267,7 +267,7 @@ GFNS.ExtraRoleCounts = function(m, y, K)
     btn:SetHeight(K.ITEM_H - 2)
     btn:SetPoint("TOPLEFT", sg, "TOPLEFT", 9, -1)
     btn:SetPoint("TOPRIGHT", sg, "TOPRIGHT", -9, -1)
-    btn.Label:SetText("Specific Roles")
+    btn.Label:SetText(EllesmereUI.L("Specific Roles"))
 
     local pop = CreateFrame("Frame", nil, K.parent or m)
     pop:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -477,7 +477,7 @@ GFNS.ExtraBossStrip = NewStrip("boss", function(sq, d)
 end)
 -- delves: the module dresses its squares
 GFNS.ExtraDelveStrip = NewStrip("delve", function(sq, d)
-    if GFNS.LabDressDelve then GFNS.LabDressDelve(sq, d) end
+    if GFNS.GFDressDelve then GFNS.GFDressDelve(sq, d) end
 end)
 
 -- filters menu spans search box to refresh
@@ -882,7 +882,7 @@ local function RetagRows()
     if ns.OwnListRefresh then ns.OwnListRefresh() end
 end
 
-ns.LabRetagRows = RetagRows  -- for the settings page
+ns.GFRetagRows = RetagRows  -- for the settings page
 
 if ns.WhenGroupFinder then
     ns.WhenGroupFinder(function()
@@ -907,38 +907,38 @@ GFNS.ExtraGroupMenu = function(list)
         -- end of listing: region tags (us), show playstyle
         local listing = {}
         if ns.RegionList() then
-            listing[#listing + 1] = { key = "extraRegionTags", label = "Region Tags", default = true,
+            listing[#listing + 1] = { key = "extraRegionTags", label = EllesmereUI.L("Region Tags"), default = true,
                 tip = ns.RegionIsLanguage()
-                    and "Shows the leader's realm language (EN, DE, FR, ES, IT, PT, RU) after each group's playstyle."
-                    or "Shows OCE, NA, MEX or BRA after each group's playstyle, from the leader's realm.",
+                    and EllesmereUI.L("Shows the leader's realm language (EN, DE, FR, ES, IT, PT, RU) after each group's playstyle.")
+                    or EllesmereUI.L("Shows OCE, NA, MEX or BRA after each group's playstyle, from the leader's realm."),
                 onToggle = RetagRows }
         end
-        listing[#listing + 1] = { key = "extraShowPlaystyle", label = "Show Playstyle", default = true,
-            tip = "Each group's playstyle (Learning, Relaxed, Competitive, Carry Offered) on its third line.",
+        listing[#listing + 1] = { key = "extraShowPlaystyle", label = EllesmereUI.L("Show Playstyle"), default = true,
+            tip = EllesmereUI.L("Each group's playstyle (Learning, Relaxed, Competitive, Carry Offered) on its third line."),
             onToggle = RetagRows }
         for i, spec in ipairs(list) do
             if i == listingEnd then for _, d in ipairs(listing) do groupMenu[#groupMenu + 1] = d end end
             if i == misc then
                 -- misc becomes display
-                groupMenu[#groupMenu + 1] = { title = "Display" }
+                groupMenu[#groupMenu + 1] = { title = EllesmereUI.L("Display") }
             else
                 groupMenu[#groupMenu + 1] = spec
             end
         end
         if listingEnd > #list then for _, d in ipairs(listing) do groupMenu[#groupMenu + 1] = d end end
         -- sort by, end of display
-        groupMenu[#groupMenu + 1] = { key = "extraSortBy", label = "Sort By", choice = ns.SORT_MODES }
+        groupMenu[#groupMenu + 1] = { key = "extraSortBy", label = EllesmereUI.L("Sort By"), choice = ns.SORT_MODES }
     end
     return groupMenu
 end
 
 -- results list order (saved as extraSortBy)
 ns.SORT_MODES = {
-    { key = "default", label = "Default" },
-    { key = "high",    label = "Highest Score" },
-    { key = "low",     label = "Lowest Score" },
-    { key = "big",     label = "Largest Size" },
-    { key = "small",   label = "Lowest Size" },
+    { key = "default", label = EllesmereUI.L("Default") },
+    { key = "high",    label = EllesmereUI.L("Highest Score") },
+    { key = "low",     label = EllesmereUI.L("Lowest Score") },
+    { key = "big",     label = EllesmereUI.L("Largest Size") },
+    { key = "small",   label = EllesmereUI.L("Lowest Size") },
 }
 
 -- a menu row: label + dropdown
@@ -990,7 +990,6 @@ GFNS.ExtraGroupColumns = function(m, list, G)
     local function Item(k, spec)
         local item
         if spec.choice then item = ChoiceItem(cols[k], ys[k], spec, G)
-        elseif spec.stepper then item = G.StepperItem(cols[k], ys[k], spec)
         else item = G.SwitchItem(cols[k], ys[k], spec) end
         m.items[#m.items + 1] = item
         ys[k] = ys[k] + G.ITEM_H
