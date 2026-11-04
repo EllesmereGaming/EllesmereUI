@@ -72,50 +72,6 @@ function ns.SetWindowLook(k, v)
     if EUI._WSkinRefreshStyles then EUI._WSkinRefreshStyles() end
 end
 
--- short dungeon names: raider.io's, else initials
-local rioShort, rioTried = nil, {}
-local function RioShorts(who)
-    if rioShort or rioTried[who] then return rioShort end
-    rioTried[who] = true
-    local rio = _G.RaiderIO
-    if not (rio and rio.GetProfile) then return end
-    local ok, p = pcall(rio.GetProfile, who)
-    local k = ok and type(p) == "table" and p.mythicKeystoneProfile
-    local list = type(k) == "table" and k.sortedDungeons
-    if type(list) ~= "table" or #list == 0 then return end
-    local map = { act = {}, map = {}, cm = {} }
-    for _, sd in ipairs(list) do
-        local d = sd.dungeon
-        local short = d and (d.shortNameLocale or d.shortName)
-        if short then
-            for _, a in ipairs(d.lfd_activity_ids or {}) do map.act[a] = short end
-            for _, m in ipairs(d.instance_map_ids or {}) do map.map[m] = short end
-            if d.instance_map_id then map.map[d.instance_map_id] = short end
-            if d.keystone_instance then map.cm[d.keystone_instance] = short end
-        end
-    end
-    rioShort = map
-    return map
-end
-local SKIP = { the = true, of = true, ["and"] = true }
-local initials = {}
-function ns.GFShortName(act, mapID, cmID, name, leader)
-    local m = RioShorts("player") or (leader and RioShorts(leader))
-    local s = m and ((act and m.act[act]) or (mapID and m.map[mapID]) or (cmID and m.cm[cmID]))
-    if s then return s end
-    local full = name or ""
-    if initials[full] then return initials[full] end
-    local base = full:gsub("%s*%b()", "")
-    local out, words = "", 0
-    for w in base:gmatch("[^%s%-:,]+") do
-        words = words + 1
-        if not SKIP[w:lower()] then out = out .. w:sub(1, 1):upper() end
-    end
-    if words == 1 then out = base:sub(1, 4):upper() end
-    initials[full] = out
-    return out
-end
-
 local SP, frame, body, rows, shown = nil, nil, nil, {}, {}
 local scrollPx = 0
 local active = false
@@ -685,7 +641,7 @@ local function Fill(r, id)
     if r.act:IsShown() then
         r.act:SetPoint("TOPLEFT", r, "TOPLEFT", x0, -(r.lineY and r.lineY[2] or 0))
     end
-    local short = (r.lines or 0) < 2 and ai and ns.GFShortName(act, ai.mapID, nil, ai.fullName, not Secret(info.leaderName) and info.leaderName or nil)
+    local short = (r.lines or 0) < 2 and ai and ns.GFShortName(ai.fullName)
     if short and short ~= "" then
         local ok, path, size, flags = pcall(r.name.GetFont, r.name)
         if ok and path then r.short:SetFont(path, size, flags or "") end

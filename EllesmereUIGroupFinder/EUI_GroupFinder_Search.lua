@@ -3212,7 +3212,7 @@ local function CogFilterButton(btn)
     end)
 end
 
--- short dungeon name ('Altar of Fangs' -> AoF), the fallback for raider.io's
+-- short dungeon name ('Altar of Fangs' -> AoF)
 XF.SMALL_WORDS = { of = true, the = true, ["and"] = true, to = true, ["in"] = true, on = true, at = true }
 function XF.Abbr(name)
     if type(name) ~= "string" then return "" end
@@ -3233,6 +3233,29 @@ function XF.Abbr(name)
     if ov and ov[abbr] then abbr = ov[abbr] end
     return abbr
 end
+
+-- the season's portal label when it's a seasonal dungeon, else initials
+local portalShort, portalsDone
+function XF.ShortName(name)
+    if type(name) ~= "string" or IsSecret(name) then return "" end
+    if not portalsDone then
+        -- dungeon names can be missing right after login, so keep asking until they're all in
+        portalShort, portalsDone = {}, true
+        for _, e in ipairs(EllesmereUI.SEASON_PORTALS or XF.EMPTY) do
+            for _, n in ipairs(e.names) do portalShort[n] = e.short end
+            local localized = GetLFGDungeonInfo and GetLFGDungeonInfo(e.dungeonID)
+            if type(localized) == "string" then
+                portalShort[localized:lower()] = e.short
+            else
+                portalsDone = false
+            end
+        end
+    end
+    local base = name:gsub("%s*%b()", "")
+    local short = portalShort[base:lower()]
+    return short and EllesmereUI.L(short) or XF.Abbr(base)
+end
+ns.GFShortName = XF.ShortName
 
 -- text layer over a square, above its border
 function XF.SquareOverlay(sq)
@@ -3269,7 +3292,7 @@ function XF.SquareAbbr(sq, d, size)
         end
         local fs = math.max(8, math.floor(size * 0.36))
         XF.Font(sq.abbr, fs, "OUTLINE")
-        sq.abbr:SetText(ns.GFShortName and ns.GFShortName(nil, nil, d.cmID, d.name) or XF.Abbr(d.name))  -- raider.io's short names
+        sq.abbr:SetText(XF.ShortName(d.name))
         while fs > 8 and ((sq.abbr.GetUnboundedStringWidth and sq.abbr:GetUnboundedStringWidth()) or 0) > size - 4 do
             fs = fs - 1
             XF.Font(sq.abbr, fs, "OUTLINE")
