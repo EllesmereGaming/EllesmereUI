@@ -202,8 +202,44 @@ end
 
 local Paint, PaintRefresh
 
+-- dimmed: blizzard's search goes wide so left out groups come back to dim, the
+-- picks stay with us and get checked on our side
+local PICK_KEYS = { "activities", "minimumRating", "hasTank", "hasHealer", "needsTank", "needsHealer", "needsDamage",
+    "needsMyClass", "difficultyNormal", "difficultyHeroic", "difficultyMythic", "difficultyMythicPlus",
+    "generalPlaystyle1", "generalPlaystyle2", "generalPlaystyle3", "generalPlaystyle4" }
+
+local function DimOn() return ns.OwnListGet and ns.OwnListGet("visibility") == "dimmed" end
+
+local function Picks(f)
+    local p = {}
+    for _, k in ipairs(PICK_KEYS) do p[k] = f[k] end
+    return p
+end
+
+local function Widen(f)
+    f.activities = AllDungeonGroups()
+    f.minimumRating = 0
+    f.hasTank, f.hasHealer = false, false
+    f.needsTank, f.needsHealer, f.needsDamage, f.needsMyClass = false, false, false, false
+    for _, d in ipairs(DIFFS) do f[d.key] = true end
+    for i = 1, 4 do f["generalPlaystyle" .. i] = true end
+end
+
+function XF.GetFilter()
+    local f = C_LFGList.GetAdvancedFilter()
+    local p = f and DimOn() and Cfg().dimPicks
+    if type(p) == "table" then
+        for _, k in ipairs(PICK_KEYS) do f[k] = p[k] end
+    end
+    return f
+end
+
 -- filter changes only save, the search waits for search again
 local function Apply(f)
+    if DimOn() then
+        Cfg().dimPicks = Picks(f)
+        Widen(f)
+    end
     C_LFGList.SaveAdvancedFilter(f)
     pending = true
     Paint()
@@ -211,7 +247,7 @@ local function Apply(f)
 end
 
 local function ToggleDungeon(gid)
-    local f = C_LFGList.GetAdvancedFilter()
+    local f = XF.GetFilter()
     if DungeonsDefault(f) then
         f.activities = { gid }
     else
@@ -224,7 +260,7 @@ local function ToggleDungeon(gid)
 end
 
 local function SetDifficulty(key, on)
-    local f = C_LFGList.GetAdvancedFilter()
+    local f = XF.GetFilter()
     local _, n = DiffAllOrNone(f)
     if n == 0 then for _, d in ipairs(DIFFS) do f[d.key] = true end end
     if key then f[key] = on else for _, d in ipairs(DIFFS) do f[d.key] = true end end
@@ -877,11 +913,89 @@ function XF.Pass()
     P.bossOn = BossFilterActive()
     P.raidOn = RaidListFilterActive()
     P.extraOn = XF.ExtraFilterActive()
-    P.any = P.regions or P.delveOn or P.bossOn or P.raidOn or P.extraOn
+    P.dimOn = XF.DimActive()
+    P.any = P.regions or P.delveOn or P.bossOn or P.raidOn or P.extraOn or P.dimOn
     P.need = (P.extraOn and Cfg().partyFit) and XF.PartyNeeds(P.needT) or nil
     return P
 end
 function XF.NewPass() XF.pass.at = nil end
+
+-- any picks waiting on our side?
+function XF.DimActive()
+    local p = SP and SP.categoryID == DUNGEONS and DimOn() and Cfg().dimPicks
+    if type(p) ~= "table" then return false end
+    return (not DungeonsDefault(p) or not DiffAllOrNone(p) or DungeonPlaystyles(p) or DungeonRolesSet(p)
+        or (tonumber(p.minimumRating) or 0) > 0) and true or false
+end
+
+-- blizzard's search would have done this if it wasn't wide
+function XF.DimKeep(id, info)
+    local p = Cfg().dimPicks
+    if not info then return true end
+    local acts = info.activityIDs
+    local act = type(acts) == "table" and not IsSecret(acts) and acts[1]
+    local ai = act and not IsSecret(act) and C_LFGList.GetActivityInfoTable(act)
+    if ai and not IsSecret(ai) then
+        local gid = ai.groupFinderActivityGroupID
+        if not DungeonsDefault(p) and not IsSecret(gid) and not Contains(p.activities, gid) then return false end
+        if not DiffAllOrNone(p) then
+            local key = ActivityDiffKey(ai)
+            if ai.isMythicPlusActivity then key = "difficultyMythicPlus"
+            elseif key then key = "difficulty" .. key:sub(1, 1):upper() .. key:sub(2) end
+            if key and not p[key] then return false end
+        end
+    end
+    local min = tonumber(p.minimumRating) or 0
+    local score = info.leaderOverallDungeonScore
+    if min > 0 and not IsSecret(score) and type(score) == "number" and score < min then return false end
+    local ps = info.generalPlaystyle
+    if DungeonPlaystyles(p) and not IsSecret(ps) and type(ps) == "number" and ps > 0 and not p["generalPlaystyle" .. ps] then
+        return false
+    end
+    if DungeonRolesSet(p) then
+        local counts = C_LFGList.GetSearchResultMemberCounts(id)
+        if type(counts) == "table" and not IsSecret(counts) then
+            local num = XF.Num
+            if p.hasTank and (num(counts, "TANK") or 1) < 1 then return false end
+            if p.hasHealer and (num(counts, "HEALER") or 1) < 1 then return false end
+            if p.needsTank and (num(counts, "TANK_REMAINING") or 1) < 1 then return false end
+            if p.needsHealer and (num(counts, "HEALER_REMAINING") or 1) < 1 then return false end
+            if p.needsDamage and (num(counts, "DAMAGER_REMAINING") or 1) < 1 then return false end
+        end
+        if p.needsMyClass then
+            local _, mine = UnitClass("player")
+            local n = info.numMembers
+            for i = 1, (type(n) == "number" and not IsSecret(n)) and n or 0 do
+                local m = C_LFGList.GetSearchResultPlayerInfo(id, i)
+                local cls = m and m.classFilename
+                if cls and not IsSecret(cls) and cls == mine then return false end
+            end
+        end
+    end
+    return true
+end
+
+-- visibility switched: move the picks to where they now belong
+function ns.DimFiltersChanged()
+    if not SP then return end
+    local f = C_LFGList.GetAdvancedFilter()
+    if not f then return end
+    local c = Cfg()
+    if DimOn() then
+        c.dimPicks = Picks(f)
+        Widen(f)
+    else
+        local p = c.dimPicks
+        if type(p) == "table" then
+            for _, k in ipairs(PICK_KEYS) do f[k] = p[k] end
+        end
+        c.dimPicks = nil
+    end
+    C_LFGList.SaveAdvancedFilter(f)
+    pending = true
+    Paint()
+    PaintRefresh()
+end
 
 -- does a group pass the client-side filters? info: readable info, false if none,
 -- nil to fetch it
@@ -896,6 +1010,7 @@ function XF.PassesFilters(id, info)
         -- applied groups stay lit, unless declined with not declined on.
         return not (P.extraOn and c.notDeclined and XF.IsDeclinedResult(id, info))
     end
+    if P.dimOn and not XF.DimKeep(id, info) then return false end
     if P.regions then
         local region = LeaderRegion(info)
         if region ~= nil and not ChosenRegions()[region] then return false end
@@ -1538,7 +1653,7 @@ local function AddPlaystyleItems(m, y, raids)
                 Refilter()
                 Paint()
             else
-                local f = C_LFGList.GetAdvancedFilter()
+                local f = XF.GetFilter()
                 local key = "generalPlaystyle" .. i
                 if DungeonPlaystyles(f) == nil then
                     for k = 1, #PLAYSTYLES do f["generalPlaystyle" .. k] = (k == i) end
@@ -1559,7 +1674,7 @@ end
 
 local function PaintPlaystyleItems(m, raids)
     local chosen
-    if raids then chosen = ChosenRaidPlaystyles() else chosen = DungeonPlaystyles(C_LFGList.GetAdvancedFilter()) end
+    if raids then chosen = ChosenRaidPlaystyles() else chosen = DungeonPlaystyles(XF.GetFilter()) end
     for i = 1, #PLAYSTYLES do
         local item = m.items["style_" .. i]
         if item then
@@ -1589,7 +1704,7 @@ local function AddRoleItems(m, y, raids)
                 Refilter()
                 Paint()
             else
-                local f = C_LFGList.GetAdvancedFilter()
+                local f = XF.GetFilter()
                 f[key] = not f[key]
                 Apply(f)
             end
@@ -1821,7 +1936,7 @@ function XF.PaintFlagItems(m)
 end
 
 local function PaintRoleItems(m, raids)
-    local src = raids and (ChosenRaidRoles() or XF.EMPTY) or C_LFGList.GetAdvancedFilter()
+    local src = raids and (ChosenRaidRoles() or XF.EMPTY) or XF.GetFilter()
     for _, r in ipairs(ROLES) do
         local item = m.items["role_" .. r.key]
         if item then item:SetChecked(src[r.key] == true) end
@@ -1835,7 +1950,7 @@ local function AddRatingRow(m, y)
     local function Send()
         local c = Cfg()
         local v = c.ratingOn and (tonumber(c.ratingValue) or 0) or 0
-        local f = C_LFGList.GetAdvancedFilter()
+        local f = XF.GetFilter()
         if (f.minimumRating or 0) ~= v then
             f.minimumRating = v
             Apply(f)
@@ -1890,7 +2005,7 @@ end
 function XF.AdoptRating()
     local c = Cfg()
     if c.ratingOn ~= nil or c.ratingValue ~= nil then return end
-    local f = C_LFGList.GetAdvancedFilter and C_LFGList.GetAdvancedFilter()
+    local f = XF.GetFilter()
     local v = f and tonumber(f.minimumRating) or 0
     if v > 0 then c.ratingOn, c.ratingValue = true, v end
 end
@@ -1970,7 +2085,7 @@ local function PaintMenu()
         PaintPlaystyleItems(raidDiffMenu.side, true)
     end
     if not (menu and menu:IsShown()) then return end
-    local f = C_LFGList.GetAdvancedFilter()
+    local f = XF.GetFilter()
     local all = DiffAllOrNone(f)
     for _, d in ipairs(DIFFS) do
         menu.items[d.key]:SetChecked(not all and f[d.key] == true)
@@ -2067,7 +2182,7 @@ local function BuildMenu()
     for _, d in ipairs(DIFFS) do
         local key = d.key
         menu.items[key] = MenuItem(menu, y, d.label, function()
-            local f = C_LFGList.GetAdvancedFilter()
+            local f = XF.GetFilter()
             local all = DiffAllOrNone(f)
             if all then
                 for _, o in ipairs(DIFFS) do f[o.key] = (o.key == key) end
@@ -2936,7 +3051,7 @@ end
 -- repaint the filter row
 Paint = function()
     if not SP then return end
-    local f = C_LFGList.GetAdvancedFilter()
+    local f = XF.GetFilter()
     if not f then return end
     if diffBtn then
         local active
@@ -2946,6 +3061,16 @@ Paint = function()
             active = not DiffAllOrNone(f) or DungeonPlaystyles(f) or DungeonRolesSet(f) or (f.minimumRating or 0) ~= 0
         end
         diffBtn.active = (active or RegionFilterActive() or XF.ExtraFilterActive()) and true or false
+        -- green edge while a filter's on, same as the expressions button
+        if not diffBtn.activeEdge then
+            local edge = CreateFrame("Frame", nil, diffBtn)
+            edge:SetAllPoints()
+            edge:SetFrameLevel(diffBtn:GetFrameLevel() + 3)
+            edge:EnableMouse(false)
+            CM.MakeBorder(edge, 0.3, 0.85, 0.4, 1, CM.PanelPP)
+            diffBtn.activeEdge = edge
+        end
+        diffBtn.activeEdge:SetShown(diffBtn.active)
         diffBtn:SetText(EllesmereUI.L("Filters"))
         XF.PaintLabel(diffBtn)
     end
@@ -3013,6 +3138,7 @@ Paint = function()
             local ok, v = pcall(cb)
             isDefault = (not ok) or (v and true or false)
         end
+        if XF.DimActive() then isDefault = false end
         if RegionFilterActive() or DelveFilterActive() or BossFilterActive() or (ChosenRaidDiffs() or ChosenRaidPlaystyles() or ChosenRaidRoles()) and SP.categoryID == RAIDS or XF.ExtraFilterActive() then isDefault = false end
         if resetBtn then
             resetBtn.active = not isDefault
@@ -3120,7 +3246,7 @@ local function CogFilterButton(btn)
     resetBtn = GlyphButton(row, BTN, X_TEX)
     resetBtn.Glyph:SetVertexColor(XF.GLYPH, XF.GLYPH, XF.GLYPH)
     resetBtn:SetScript("OnClick", function()
-        local f = C_LFGList.GetAdvancedFilter()
+        local f = XF.GetFilter()
         f.needsTank, f.needsHealer, f.needsDamage, f.needsMyClass = false, false, false, false
         f.hasTank, f.hasHealer = false, false
         f.minimumRating = 0

@@ -624,7 +624,7 @@ end
 -------------------------------------------------------------------------------
 local function TagsOn()
     local c = GFNS.Cfg and GFNS.Cfg()
-    return c and c.extraRegionTags == true and ns.RegionList() ~= nil
+    return c and c.extraRegionTags ~= false and ns.RegionList() ~= nil
 end
 
 local function RegionOf(resultID)
@@ -907,7 +907,7 @@ GFNS.ExtraGroupMenu = function(list)
         -- end of listing: region tags (us), show playstyle
         local listing = {}
         if ns.RegionList() then
-            listing[#listing + 1] = { key = "extraRegionTags", label = "Region Tags",
+            listing[#listing + 1] = { key = "extraRegionTags", label = "Region Tags", default = true,
                 tip = ns.RegionIsLanguage()
                     and "Shows the leader's realm language (EN, DE, FR, ES, IT, PT, RU) after each group's playstyle."
                     or "Shows OCE, NA, MEX or BRA after each group's playstyle, from the leader's realm.",

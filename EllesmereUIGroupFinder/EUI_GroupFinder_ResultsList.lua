@@ -45,7 +45,7 @@ end
 -- display settings
 local DISPLAY_DEFAULTS = { iconShape = "circle", borderTexture = "solid", borderSize = 1, missingIcons = "blizzard",
     appsFirst = true, signupClicks = "double", visibility = "hidden",
-    lineDelisted = true, lineAccepted = true, lineCancelled = true, lineDeclined = true }
+    lineDelisted = false, lineAccepted = false, lineCancelled = false, lineDeclined = false }
 function ns.OwnListGet(k)
     local v = DB()[k]
     if v == nil then return DISPLAY_DEFAULTS[k] end
@@ -587,7 +587,7 @@ local function Layout(r, h)
     if room >= tS + nS + 6 then lines[2] = nS + 2 end
     local gc = GFNS.Cfg and GFNS.Cfg()
     local third = not (gc and gc.extraShowPlaystyle == false)
-        or (gc and gc.extraRegionTags == true and ns.RegionList() ~= nil)
+        or (gc and gc.extraRegionTags ~= false and ns.RegionList() ~= nil)
     if lines[2] and third and room >= tS + nS + lS + 10 then lines[3] = lS + 2 end
     local total = 0
     for _, lh in ipairs(lines) do total = total + lh end
