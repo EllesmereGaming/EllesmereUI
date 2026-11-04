@@ -187,6 +187,7 @@ local function TryInit()
         if EQT.InitVisibility then EQT.InitVisibility() end
     end
     if EQT.InitQoL        then EQT.InitQoL()        end
+    if EQT.InitPosition   then EQT.InitPosition()   end
     loader:UnregisterAllEvents()
 end
 
@@ -211,6 +212,7 @@ _G._EQT_RefreshAll = function()
     if EQT.ApplyMasterHeaderVisibility then EQT.ApplyMasterHeaderVisibility() end
     if EQT.ApplyBackground then EQT.ApplyBackground() end
     if EQT.ApplyForceOnScreen then EQT.ApplyForceOnScreen() end
+    if EQT.SyncPosition then EQT.SyncPosition() end
     -- The hotkey is a per-profile setting backed by an override binding, so a
     -- profile or spec swap has to re-point it. Without this the outgoing
     -- profile's key stays overridden -- taken from whatever the player really

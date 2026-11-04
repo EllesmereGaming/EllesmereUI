@@ -166,6 +166,9 @@ local function ApplyPreviewData(f, index, roles, classTokens)
                 end
             end
         end
+        -- Textured Background, as on the live frames.
+        ns.RF_TexBgLayer(f._health, f._bg, not f.kit
+            and ns.RF_TexBgOpaque(s, s.healthColorMode == "dark") and ns.RF_TexBgPath(s) or nil)
         if s.healthColorMode == "dark" then
             AnchorPreviewBg()
             f._bg:SetColorTexture(EllesmereUI.GetDarkModeBg())
@@ -761,6 +764,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
                 and EllesmereUI.GetPowerColor(EllesmereUI.CLASS_POWER_MAP[classToken] or "MANA")
             local pf = bgc and EllesmereUI.GetPowerBgDarkenFactor() or 1
             bgc = bgc or s.powerBgColor
+            ns.RF_TexBgTint(f._powerBg, ns.RF_TexBgPath(s))
             f._powerBg:SetColorTexture(((bgc or {}).r or 0) * pf, ((bgc or {}).g or 0) * pf, ((bgc or {}).b or 0) * pf, (s.powerBgDarkness or 70) / 100)
             f._powerBg:Show()
         end
@@ -920,6 +924,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             olTex:ClearAllPoints()
             -- Reset any prior vertex tint so fill/full render their explicit color cleanly.
             olTex:SetVertexColor(1, 1, 1, 1)
+            olTex:SetTexCoord(0, 1, 0, 1)
             if olMode == "fill" then
                 -- Current health, as on the live frames (the fill, or the rest of
                 -- the bar under Inverted Fill), off the bar oriented above.
@@ -928,12 +933,13 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             elseif olMode == "full" then
                 olTex:SetAllPoints(f._health)
                 olTex:SetColorTexture(dispelDC.r, dispelDC.g, dispelDC.b, olAlpha)
-            elseif olMode == "gradient" or olMode == "gradient_sharp" then
+            elseif olMode == "gradient" or olMode == "gradient_sharp" or olMode == "gradient_reverse" then
                 -- Same pre-baked gradient textures as the live frames so the preview matches.
                 olTex:SetAllPoints(f._health)
-                olTex:SetTexture(olMode == "gradient_sharp"
-                    and "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
-                    or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga")
+                olTex:SetTexture(olMode == "gradient"
+                    and "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
+                    or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga")
+                if olMode == "gradient_reverse" then olTex:SetTexCoord(0, 1, 1, 0) end
                 olTex:SetVertexColor(dispelDC.r, dispelDC.g, dispelDC.b, olAlpha)
             end
             olTex:Show()
@@ -1185,7 +1191,8 @@ local function ApplyPreviewData(f, index, roles, classTokens)
         pv.hpPct, pv.hpPer = healthPct, 12000
         pv.ppPct, pv.ppPer = f._powerPct or 100, (pTok == "MANA") and 2500 or 1
         pv.ha = math.floor(healthPct * 3000)
-        pv.name = ns.CapName(ns.RF_FormatName and ns.RF_FormatName(name, s) or name, s)
+        -- rawName: for a custom text tag's own Name Format ([name:abbr]).
+        pv.rawName, pv.name = name, ns.CapName(ns.RF_FormatName(name, s), s)
         pv.dead, pv.offline = isDead or nil, isOffline or nil
         pv.power = not hidePower or nil
         pv.class, pv.pToken = classToken, pTok
@@ -1294,8 +1301,13 @@ local function ApplyPreviewData(f, index, roles, classTokens)
                         + (s.roleIconBehindBorder and ns.LVL_ROLE_BEHIND or (ns.LVL_AURA - 1)))
                 end
                 f._roleIcon:ClearAllPoints()
-                local pos = (s.roleIconPosition or "bottomleft"):upper()
-                f._roleIcon:SetPoint(pos, ns.RF_AnchorHost(f._health, s), pos, s.roleIconOffsetX or 0, s.roleIconOffsetY or 0)
+                if s.roleIconOnNameBar and s.topNameBarEnabled and f._topNameBar then
+                    local pos = (s.roleNameBarPosition or "left"):upper()
+                    f._roleIcon:SetPoint(pos, f._topNameBar, pos, s.roleNameBarOffsetX or 0, s.roleNameBarOffsetY or 0)
+                else
+                    local pos = (s.roleIconPosition or "bottomleft"):upper()
+                    f._roleIcon:SetPoint(pos, ns.RF_AnchorHost(f._health, s), pos, s.roleIconOffsetX or 0, s.roleIconOffsetY or 0)
+                end
                 f._roleIcon:Show()
                 if s.roleText then ns.ApplyRoleText(f._roleIcon, role, s) end
             else
@@ -1303,6 +1315,15 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             end
         else
             f._roleIcon:Hide()
+        end
+        -- Attach Role Icons: the name makes room only where the icon shows (as live)
+        local tnb = f._topNameBar
+        if s.roleIconOnNameBar and tnb and f._topNameBarText then
+            local has = f._roleIcon:IsShown() and true or false
+            if tnb._euiRoleIcon ~= has then
+                tnb._euiRoleIcon = has
+                ns.RF_PlaceTopNameText(f._topNameBarText, tnb, s)
+            end
         end
     end
 

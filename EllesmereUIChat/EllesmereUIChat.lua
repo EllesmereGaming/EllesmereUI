@@ -1267,15 +1267,18 @@ function ECHAT.SyncChatFrameState()
                 and (math.abs(w - sz.w) > 1.5 or math.abs(h - sz.h) > 1.5) then
                 drift = true
             end
-            -- Position drift too (canonical BOTTOMLEFT saves): Edit Mode's
-            -- late writes move the rect as well as resizing it.
-            if not drift and pos.point == "BOTTOMLEFT" and pos.x and pos.y then
+            -- Position drift too: Edit Mode's late writes move the rect as
+            -- well as resizing it.
+            local tx, ty
+            if not drift and ns.ChatSavedLeftBottom then
+                tx, ty = ns.ChatSavedLeftBottom(pos, sz.w, sz.h, cf1s)
+            end
+            if tx then
                 local l, b = cf1s:GetLeft(), cf1s:GetBottom()
                 -- Stock styles clamp against their art's reserve: compare with
                 -- the spot the clamp lets the frame reach, or a position saved
                 -- nearer an edge (the EllesmereUI look clamps at zero) would
                 -- read as drift on every pass and never converge.
-                local tx, ty = pos.x, pos.y
                 if ns.ChatStock() then
                     local il, ir, it, ib = cf1s:GetClampRectInsets()
                     local sw, sh = UIParent:GetWidth(), UIParent:GetHeight()

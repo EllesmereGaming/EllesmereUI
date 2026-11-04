@@ -47,10 +47,13 @@ local LINE_GAP = 1
 local TIGHT = 4
 
 
+local ITEM_SHIFT = 5
+
+
 local TOP_PAD = 8
 
 
-local ITEM_LETTERS = 22
+local ITEM_LETTERS = 20
 
 
 
@@ -148,6 +151,12 @@ local function RowEnter(self)
     if text then
         self.tipShown = true
         S.TextTooltip(self, text)
+    elseif self.link then
+
+        self.tipShown = true
+        S.SideTooltip(self)
+        S.SetTooltipItem(self.link)
+        GameTooltip:Show()
     end
 end
 
@@ -301,7 +310,7 @@ local function ShapeRow(row, kind)
 
 
     local iconTop = math.floor((S.size.BTN_H_SM + 2 * BUTTON_PAD + BELOW_EXTRA - (S.size.ICON_SM + ICON_GROW)) / 2)
-    P.Point(row.icon, "TOPLEFT", row, "TOPLEFT", pad + NAME_W + gap + CLOCK_W + gap, -iconTop)
+    P.Point(row.icon, "TOPLEFT", row, "TOPLEFT", pad + NAME_W + gap + CLOCK_W + gap - ITEM_SHIFT, -iconTop)
     P.Point(row.label, "LEFT", row.icon, "RIGHT", gap, 0)
     row.icon:Show()
 
@@ -442,17 +451,41 @@ local function NameColour(fullName)
 end
 
 
+
+
+local function LabelRoom()
+    local gap = S.size.GAP
+    local rowW = NAME_W + CLOCK_W + ITEM_W + TRADE_W + 2 * gap + TIGHT
+    return rowW - (NAME_W + 2 * gap + CLOCK_W - ITEM_SHIFT + S.size.ICON_SM + ICON_GROW + gap)
+end
+
 local function PaintItem(item, link, holder)
     item.icon:Show()
     item.icon:SetItem(link)
     local name, _, quality = C_Item.GetItemInfo(link)
     item.icon:SetQualityBorder(quality)
 
-    local label = name or link or "?"
-    local cut = addon.Locale.Truncate(label, ITEM_LETTERS)
-    if cut ~= label then label = cut .. "..." end
-    if holder then label = addon.Locale.Format(T["%s (%s)"], label, holder) end
-    item.label:SetText(label)
+    local full = name or link or "?"
+
+    local function Shape(letters)
+        local cut = addon.Locale.Truncate(full, letters)
+        local text = cut ~= full and (cut:gsub("%s+$", "") .. "...") or full
+        if holder then text = addon.Locale.Format(T["%s (%s)"], text, holder) end
+        return text
+    end
+    local letters = ITEM_LETTERS
+    item.label:SetText(Shape(letters))
+
+
+    if holder then
+        local room = LabelRoom()
+        while letters > 4 do
+            local w = item.label:GetUnboundedStringWidth()
+            if type(w) ~= "number" or w <= room then break end
+            letters = letters - 1
+            item.label:SetText(Shape(letters))
+        end
+    end
 
 
 

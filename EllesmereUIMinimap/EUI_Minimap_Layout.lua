@@ -52,6 +52,9 @@ I.clockBgSetters[#I.clockBgSetters + 1] = function(v) clockBg = v end
 -- at load: a file behind this one would have to import the function.
 local MO_Evaluate
 
+-- Calendar invite alert: defined below BuildCustomIndicators, which calls them.
+local SyncCalendarInvites, DismissCalendarInvites
+
 -- The Great Vault and M+ Portal buttons, built in BuildCustomIndicators.
 local _greatVaultBtn = nil
 local _portalBtn = nil
@@ -111,6 +114,7 @@ local function BuildCustomIndicators(minimap)
     _customIndicators.calendar = CreateIndicatorBtn("_gameTime", minimap,
         calPrefix .. "-Up", calPrefix .. "-Mouseover", calPrefix .. "-Down",
         function()
+            DismissCalendarInvites()
             if ToggleCalendar then ToggleCalendar() end
         end)
     _customIndicators.calendar._calDay = calDay
@@ -119,6 +123,12 @@ local function BuildCustomIndicators(minimap)
     _customIndicators.calendar:SetScript("OnEnter", function(self)
         if calBaseEnter then calBaseEnter(self) end
         if GetFFD(self).freeMoveJustDragged then return end
+        -- While the invite alert shows, the tooltip says why (as Blizzard's does).
+        if self._invite and self._invite:IsShown() and EllesmereUI.ShowWidgetTooltip then
+            EllesmereUI.ShowWidgetTooltip(self, GAMETIME_TOOLTIP_CALENDAR_INVITES or "You have pending calendar invites.",
+                { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
+            return
+        end
         local lockoutEntries
         if not (EllesmereUI.InProtectedInstance()) then
             lockoutEntries = GetCalendarLockoutEntries()
@@ -144,7 +154,14 @@ local function BuildCustomIndicators(minimap)
         if EBS._HVRevealMapHover then EBS._HVRevealMapHover() end
         if mailBaseEnter then mailBaseEnter(self) end
         if not GetFFD(self).freeMoveJustDragged and EllesmereUI.ShowWidgetTooltip then
-            EllesmereUI.ShowWidgetTooltip(self, HAVE_MAIL or "New Mail", { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
+            local label = HAVE_MAIL or "New Mail"
+            -- Up to three latest senders, as Blizzard's own mail icon lists them
+            -- (our button replaces it, so without this the names are lost).
+            local senders = GetLatestThreeSenders and { GetLatestThreeSenders() } or nil
+            if senders and #senders > 0 then
+                label = (HAVE_MAIL_FROM or "Unread mail from:") .. "\n" .. table.concat(senders, "\n")
+            end
+            EllesmereUI.ShowWidgetTooltip(self, label, { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
         end
     end)
     _customIndicators.mail:SetScript("OnLeave", function(self)
@@ -257,7 +274,81 @@ local function HideBlizzardIndicators()
     end
 end
 
+-------------------------------------------------------------------------------
+--  Calendar invite alert: the pulsing notice Blizzard's own calendar button
+--  shows for pending invites, which our button replaces, so it is on whenever
+--  Calendar is shown. Same rules as Blizzard's: it shows when the pending count
+--  rises while the calendar is closed, clicking the button dismisses it until
+--  another invite arrives, and it clears once no invite is pending.
+--  With Calendar hidden the event frame stays inert; the notice is built on
+--  first show.
+-------------------------------------------------------------------------------
+local _inviteEvents = CreateFrame("Frame")
+local _inviteSeen = 0  -- pending count already alerted (or dismissed)
+
+local function SetInviteShown(cal, show)
+    if show and not cal._invite then
+        -- Own child frame, so the pulse fades only the notice, never the day icon.
+        local invite = CreateFrame("Frame", nil, cal)
+        invite:SetAllPoints(cal)
+        invite:SetFrameLevel(cal:GetFrameLevel() + 2)
+        invite:Hide()
+        local glow = invite:CreateTexture(nil, "OVERLAY", nil, 1)
+        glow:SetTexture("Interface\\Calendar\\EventNotificationGlow")
+        glow:SetBlendMode("ADD")
+        glow:SetPoint("TOPLEFT", invite, "TOPLEFT", -6, 6)
+        glow:SetPoint("BOTTOMRIGHT", invite, "BOTTOMRIGHT", 6, -6)
+        local notice = invite:CreateTexture(nil, "OVERLAY", nil, 2)
+        notice:SetTexture("Interface\\Calendar\\EventNotification")
+        notice:SetTexCoord(0.03125, 0.6484375, 0.03125, 0.8671875)
+        notice:SetAllPoints(invite)
+        -- Fade out and back in, a full cycle every two seconds; runs only while shown.
+        local pulse = invite:CreateAnimationGroup()
+        pulse:SetLooping("BOUNCE")
+        local fade = pulse:CreateAnimation("Alpha")
+        fade:SetFromAlpha(1)
+        fade:SetToAlpha(0)
+        fade:SetDuration(1)
+        fade:SetSmoothing("IN_OUT")
+        invite:SetScript("OnShow", function() pulse:Play() end)
+        invite:SetScript("OnHide", function() pulse:Stop() end)
+        cal._invite = invite
+    end
+    if cal._invite then cal._invite:SetShown(show) end
+end
+
+SyncCalendarInvites = function()
+    local cal = _customIndicators.calendar
+    if not cal then return end
+    local mp = EBS.db and EBS.db.profile.minimap
+    if not (mp and not mp.hideGameTime and C_Calendar and C_Calendar.GetNumPendingInvites) then
+        _inviteEvents:UnregisterAllEvents()
+        _inviteSeen = 0
+        SetInviteShown(cal, false)
+        return
+    end
+    _inviteEvents:RegisterEvent("CALENDAR_UPDATE_PENDING_INVITES")
+    _inviteEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+    local pending = C_Calendar.GetNumPendingInvites() or 0
+    -- Answering an invite lowers the count: the next new one must alert again.
+    if pending < _inviteSeen then _inviteSeen = pending end
+    if pending == 0 then
+        _inviteSeen = 0
+        SetInviteShown(cal, false)
+    elseif pending > _inviteSeen and not (CalendarFrame and CalendarFrame:IsShown()) then
+        _inviteSeen = pending
+        SetInviteShown(cal, true)
+    end
+end
+_inviteEvents:SetScript("OnEvent", function() SyncCalendarInvites() end)
+
+DismissCalendarInvites = function()
+    local cal = _customIndicators.calendar
+    if cal then SetInviteShown(cal, false) end
+end
+
 local function SyncIndicatorVisibility()
+    SyncCalendarInvites()
     local indicator = MinimapCluster and MinimapCluster.IndicatorFrame
     if _customIndicators.mail then
         local hasMail = false

@@ -259,9 +259,9 @@ Register("minimap",      "EllesmereUIMinimap",         "Minimap",
     -- Either stock style, at each switch (the controls stay the user's
     -- afterwards): the Omnium Folio on the ring's bottom right spot (WoW
     -- Forever builds no folio), and the clock inside the map at the top,
-    -- 10px down, or, on a square (the WoW Forever look's Forever Square or
-    -- Blizzard Style's Square on the Forever client, each its Border Style
-    -- default there), at the map's bottom with no offset, its title bar
+    -- 10px down, or, on a square (the WoW Forever look's Forever Square, its
+    -- default there, or Slim Square, or Blizzard Style's Square on the Forever
+    -- client, its default there), at the map's bottom with no offset, its title bar
     -- holding the zone name up top. The Border Style rows move the clock the
     -- same way when a pick changes. Classic WoW UI also centres the zone text
     -- in the banner's text slot (its X/Y offsets back to 0).
@@ -269,7 +269,11 @@ Register("minimap",      "EllesmereUIMinimap",         "Minimap",
         if not EllesmereUI.IS_FOREVER then p.omniumFolioCorner = "BOTTOMRIGHT" end
         local square
         if isForever then
-            square = p.foreverBorder ~= "circle" and EllesmereUI.ForeverHeavyOK()
+            if p.foreverBorder == "slim" then
+                square = EllesmereUI.ForeverBorderOK()
+            else
+                square = p.foreverBorder ~= "circle" and EllesmereUI.ForeverHeavyOK()
+            end
         else
             square = styleKey == "blizzard" and EllesmereUI.IS_FOREVER and p.blizzBorder ~= "circle"
         end

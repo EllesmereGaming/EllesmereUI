@@ -3594,35 +3594,14 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
               BD().barStrata = v
               ns.BuildAllCDMBars(); Refresh()
           end }
-    -- WoW Forever has no combat potion presets, so the swap toggle is not
-    -- built there and Bar Strata opens the glow rows below instead.
-    if not EllesmereUI.IS_FOREVER then
-    _, h = W:DualRow(parent, y,
-        strataCfg,
-        -- Profile-wide (one switch covers the Light's Potential, Recklessness
-        -- and Liquid Luster presets on every CD/utility bar): a pot preset
-        -- whose own family is fully out of bags swaps its icon/count/cooldown
-        -- to the best pot of the partner families instead of sitting greyed
-        -- (Liquid Luster is the final fallback for the other two).
-        { type = "toggle", text = "Swap Combat Potions When Missing",
-          tooltip = "When your bags have none of one combat potion type, its icon swaps to track the next type you own.",
-          getValue = function()
-              local p = DB(); return p and p.cdmBars and p.cdmBars.swapPotionsWhenMissing == true
-          end,
-          setValue = function(v)
-              local p = DB()
-              if p and p.cdmBars then
-                  p.cdmBars.swapPotionsWhenMissing = v
-                  if ns._BumpPotResolveGen then ns._BumpPotResolveGen() end
-                  if ns.FullCDMRebuild then ns.FullCDMRebuild("pot_swap_toggle") end
-              end
-          end });  y = y - h
-    end -- not IS_FOREVER
+    -- Bar Strata opens the rows below. (Swap Combat Potions When Missing, once
+    -- beside it, is a per-icon setting now: each Combat Potion icon's menu,
+    -- Combat Potion Icon; an icon that never set its own still reads the old
+    -- profile-wide switch.)
 
     -- Global, not per-bar: one gate for every glow the Cooldown Manager
-    -- draws, hence the label. Same hosting trick as Hide Items if Missing
-    -- above -- it takes the cooldown edge row's free slot where that row
-    -- exists, and closes the section on its own for buff-family bars.
+    -- draws, hence the label. Beside Bar Strata on buff-family bars; on
+    -- cooldown/utility bars it leads the row under the cooldown edge row.
     local glowCombatCfg = { type="toggle", text="Show Glows Only in Combat (global)",
           tooltip = "Hide every Cooldown Manager glow out of combat and bring them all back the moment you enter combat.",
           getValue=function()
@@ -3651,9 +3630,10 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
               EllesmereUI:RefreshPage()
           end }
 
-    -- Cooldown/utility bars only: buff bars have no cooldown edge.
-    -- WoW Forever: Bar Strata takes the first slot here and every later
-    -- toggle moves up one, closing with Show Non-On Use Trinkets.
+    -- Cooldown/utility bars only: buff bars have no cooldown edge. Bar Strata
+    -- takes the first slot here and every later toggle moves up one; WoW
+    -- Forever closes with Show Non-On Use Trinkets (retail places it beside
+    -- Show Rotation Helper above).
     if barData.barType == "cooldowns" or barData.barType == "utility" then
     local edgeCfg = { type="toggle", text="Always Show Cooldown Edge",
           tooltip="Show the rotating cooldown edge on every cooldown in this bar, not just while a charge is recharging. Hide Recharge Edge still overrides this for individual charge spells.",
@@ -3662,18 +3642,16 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
               BD().showCooldownEdge = v and true or nil
               ns.BuildAllCDMBars(); Refresh()
           end }
+    _, h = W:DualRow(parent, y, strataCfg, edgeCfg);  y = y - h
     if EllesmereUI.IS_FOREVER then
-        _, h = W:DualRow(parent, y, strataCfg, edgeCfg);  y = y - h
         _, h = W:DualRow(parent, y, glowCombatCfg, trinketCfg);  y = y - h
     else
-        _, h = W:DualRow(parent, y, edgeCfg, glowCombatCfg);  y = y - h
+        _, h = W:DualRow(parent, y, glowCombatCfg, EllesmereUI.BlankRowCfg());  y = y - h
     end
     else
+    _, h = W:DualRow(parent, y, strataCfg, glowCombatCfg);  y = y - h
     if EllesmereUI.IS_FOREVER then
-        _, h = W:DualRow(parent, y, strataCfg, glowCombatCfg);  y = y - h
         _, h = W:DualRow(parent, y, trinketCfg, EllesmereUI.BlankRowCfg());  y = y - h
-    else
-        _, h = W:DualRow(parent, y, glowCombatCfg, EllesmereUI.BlankRowCfg());  y = y - h
     end
     end
 

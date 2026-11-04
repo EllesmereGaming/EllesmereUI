@@ -717,14 +717,21 @@ local function ApplyRFDispelSlot(button, dd, style)
     tex:ClearAllPoints()
     if style.mode == "none" then
         tex:Hide()
-    elseif style.mode == "gradient" or style.mode == "gradient_sharp" then
+    elseif style.mode == "gradient" or style.mode == "gradient_sharp" or style.mode == "gradient_reverse" then
         tex:Show()
         tex:SetAllPoints(health)
-        tex:SetTexture(style.mode == "gradient_sharp" and GRADIENT_SHARP_TEXTURE or GRADIENT_TEXTURE)
+        tex:SetTexture(style.mode == "gradient" and GRADIENT_TEXTURE or GRADIENT_SHARP_TEXTURE)
+        -- Gradient Sharp Reverse: the sharp texture flipped vertically (bottom-up).
+        if style.mode == "gradient_reverse" then
+            tex:SetTexCoord(0, 1, 1, 0)
+        else
+            tex:SetTexCoord(0, 1, 0, 1)
+        end
         tex:SetVertexColor(r, g, b, alpha)
     elseif style.mode == "full" then
         tex:Show()
         tex:SetAllPoints(health)
+        tex:SetTexCoord(0, 1, 0, 1)
         tex:SetColorTexture(r, g, b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     else -- "fill"
@@ -735,22 +742,37 @@ local function ApplyRFDispelSlot(button, dd, style)
         -- Inverted Fill the rest of the bar up to the fill's HP edge, so a unit at
         -- full health still shows the wash.
         ns.RF_AnchorCurHealth(tex, health, fillTex, style.fillVert, style.fillInvert)
+        tex:SetTexCoord(0, 1, 0, 1)
         tex:SetColorTexture(r, g, b, alpha)
         tex:SetVertexColor(1, 1, 1, 1)
     end
 
-    -- Type-colored border around the health bar.
+    -- Type-colored border around the health bar. One shared level for every type
+    -- (unit button + LVL_RAISE - 1, strips + 10): over the base border strips (+9),
+    -- under the hover/target/aggro raise (strips +11) and the text band (LVL_TEXT).
+    -- The Magic > Curse > ... priority rides the strips' OVERLAY sublevel
+    -- (2 + def.level), like the overlay's ARTWORK sublevel above.
     if (style.borderSize or 0) > 0 and PP then
         if not dd.borderHost then
             dd.borderHost = CreateFrame("Frame", nil, button)
             dd.borderHost:SetAllPoints(health)
         end
-        dd.borderHost:SetFrameLevel(health:GetFrameLevel() + 6 + def.level)
+        local ub = dd.rfUnitBtn
+        local bLvl = (ub and ub:GetFrameLevel() or health:GetFrameLevel() - 2) + ns.LVL_RAISE - 1
+        -- Change-guarded, stamped after the writes, like dd.lvl above.
+        local relevel = dd.bLvl ~= bLvl
+        if relevel then dd.borderHost:SetFrameLevel(bLvl) end
         if dd.borderMade then
             PP.UpdateBorder(dd.borderHost, style.borderSize, r, g, b, typeA)
         else
-            PP.CreateBorder(dd.borderHost, r, g, b, typeA, style.borderSize, "OVERLAY", 7)
+            PP.CreateBorder(dd.borderHost, r, g, b, typeA, style.borderSize, "OVERLAY", 2 + def.level)
             dd.borderMade = true
+        end
+        if relevel then
+            -- The strips' PP container keeps the level it was created at.
+            local ppC = PP.GetBorders(dd.borderHost)
+            if ppC then ppC:SetFrameLevel(bLvl + 1) end
+            dd.bLvl = bLvl
         end
         dd.borderHost:Show()
     elseif dd.borderHost then
@@ -1699,6 +1721,15 @@ local function BmApplyBar(button, dd, style)
     end
 end
 
+-- Textured Background on a Background Color effect: the class's background texture
+-- (style.texBgPath, set with the style) under the effect's tint; its style key
+-- carries it, so a change restyles.
+function ns.RFC_BmTexBg(style, s)
+    style.texBgPath, style.texBgVert = ns.RF_TexBgPath(s), ns.RF_IsVerticalFill(s)
+end
+function ns.RFC_BmTexBgKey(s)
+    return "|" .. tostring(ns.RF_TexBgPath(s)) .. (ns.RF_IsVerticalFill(s) and "v" or "")
+end
 local function BmApplyEffect(button, dd, style)
     local ind = style.ind
     if ind.type == "healthcolor" or ind.type == "bgcolor" then
@@ -1710,6 +1741,7 @@ local function BmApplyEffect(button, dd, style)
             if ind.type == "healthcolor" then
                 ns.RF_TintOverBarFill(dd.tex, dd.bmHealthBar, r, g, b, a)
             else
+                ns.RF_TexBgTint(dd.tex, style.texBgPath, style.texBgVert)
                 dd.tex:SetColorTexture(r, g, b, a)
             end
         end
@@ -1823,8 +1855,8 @@ local function BmEffectInit(button, dd, style, ind, health)
         local unitButton = button:GetParent() and button:GetParent():GetParent()
         if unitButton then
             -- Slot button sits AT the unit button's level: legacy renderer
-            -- (BM_ApplyEffectBorder) levels the host at parent+11 (static)/+14
-            -- (sweep) -- exact live parity.
+            -- (BM_ApplyEffectBorder) levels the host at parent + LVL_RAISE - 1,
+            -- under the hover raise and the text band -- exact live parity.
             button:SetFrameLevel(unitButton:GetFrameLevel())
             dd.borderHost = CreateFrame("Frame", nil, button)
             -- The Party Frames kit outlines the visible party frame (our
@@ -2026,6 +2058,7 @@ local function BuildBmSlots(inds, d, health, iscale, styleBase)
                 local slotKey = "bm" .. tostring(ind.id or ("x" .. i)) .. "_fx"
                 local styleKey = styleBase .. ":" .. tostring(ind.id or ("x" .. i)) .. ":fx"
                 AK.styles[styleKey] = BuildBmStyleFor(kind, ind, iscale, 1)
+                if kind == "bgcolor" then ns.RFC_BmTexBg(AK.styles[styleKey], ProxyFor(d)) end
                 local mm = { key = slotKey, styleKey = styleKey, ind = ind, kind = kind, spells = spells }
                 slots[#slots + 1] = {
                     key = slotKey,
@@ -2683,6 +2716,9 @@ local function CreateBmContainer(button, health, d, unit)
         local m = meta[i]
         if m.styleKey then
             bmStyleFP[m.styleKey] = BmVisualKey(m.kind, m.ind, m.size, font, m.spellID)
+            if m.kind == "bgcolor" then
+                bmStyleFP[m.styleKey] = bmStyleFP[m.styleKey] .. ns.RFC_BmTexBgKey(ProxyFor(d))
+            end
         end
     end
     bmOwnFP[StyleKeyFor(d)] = BmOwnKey(meta)
@@ -2775,6 +2811,7 @@ local function BmClassPass(d)
     cls.sig = BmSignature(cls.inds, cls.specKey, cls.mode)
     cls.iscale = BmScaleFor(d)
     cls.styleKey = StyleKeyFor(d)
+    cls.s = ProxyFor(d)
     return cls
 end
 
@@ -2788,10 +2825,12 @@ local function BmCheckStyles(cls, meta)
         local m = meta[i]
         if m.styleKey then
             local vk = BmVisualKey(m.kind, m.ind, m.size, font, m.spellID)
+            if m.kind == "bgcolor" then vk = vk .. ns.RFC_BmTexBgKey(cls.s) end
             if bmStyleFP[m.styleKey] ~= vk then
                 bmStyleFP[m.styleKey] = vk
                 local previousStyle = AK.styles[m.styleKey]
                 AK.styles[m.styleKey] = BuildBmStyleFor(m.kind, m.ind, cls.iscale, m.size, m.spellID)
+                if m.kind == "bgcolor" then ns.RFC_BmTexBg(AK.styles[m.styleKey], cls.s) end
                 -- Pool registration applies to every member, including disabled ones.
                 AK.styles[m.styleKey].bmPandemicRegister = previousStyle and previousStyle.bmPandemicRegister
                 AK.RestyleSoon(m.styleKey)

@@ -1647,7 +1647,7 @@ do
                 end
                 RunTier(ns._cdFastSpells)
                 local mf = ns._cdMacroFast
-                if mf and RunMacros(mf, visOn) then liveSeen = true end
+                if mf and mf[1] and RunMacros(mf, visOn) then liveSeen = true end
                 local nowS = GetTime()
                 if nowS >= (ns._cdSlowNext or 0) then
                     ns._cdSlowNext = nowS + 0.5
@@ -1711,11 +1711,169 @@ do
                 C_Timer.After(0, ns._cdCastKick)
             end
         end
+        -- LOSS OF CONTROL OVERLAY: the dark-red swipe Blizzard's own buttons draw
+        -- while the player is stunned, polymorphed or locked out of a school by an
+        -- interrupt (the template's lossOfControlCooldown frame). The mixin's own
+        -- handler cannot draw it on our buttons: it runs under our taint and hands
+        -- the restricted (secret) times to Cooldown:SetCooldown, which refuses them
+        -- from tainted code, so the overlay never appeared in PvP matches and other
+        -- restricted content (Secure.lua keeps the two events off the buttons). It
+        -- is painted here through the duration-object sink the swipe channel uses;
+        -- isActive and shouldReplaceNormalCooldown are NeverSecret. Runs only on the
+        -- player's two LOSS_OF_CONTROL_* edges, plus one deferred re-pass when the
+        -- bars' content changes under a showing overlay or a loading screen ends:
+        -- nothing at all otherwise.
+        do
+            local GetLoCInfo = C_ActionBar.GetActionLossOfControlCooldownInfo
+            local GetLoCDuration = C_ActionBar.GetActionLossOfControlCooldownDuration
+            local GetLoCCount = C_LossOfControl and C_LossOfControl.GetActiveLossOfControlDataCount
+            local shown = {}   -- btn -> true while its overlay shows
+            local seen = {}    -- btn -> the pass that last painted it
+            local stamp = 0
+            ns._abLoCShown = shown
+            -- While the overlay replaces the normal cooldown (it outlasts it), the
+            -- normal and charge swipes hide, as on Blizzard's buttons. Alpha only:
+            -- the push-through channel keeps feeding them underneath. Re-applied on
+            -- every paint, so a charge frame built mid-overlay hides too.
+            local function SetReplace(btn, fd, on)
+                if on then
+                    if btn.cooldown then btn.cooldown:SetAlpha(0) end
+                    if btn.chargeCooldown then btn.chargeCooldown:SetAlpha(0) end
+                    fd.locReplace = true
+                elseif fd.locReplace then
+                    if btn.cooldown then btn.cooldown:SetAlpha(1) end
+                    if btn.chargeCooldown then btn.chargeCooldown:SetAlpha(1) end
+                    fd.locReplace = nil
+                end
+            end
+            -- An overlay that is over: the normal swipes come back.
+            local function EndLoC(btn)
+                shown[btn] = nil
+                SetReplace(btn, EFD(btn), false)
+            end
+            local function ClearLoC(btn)
+                EndLoC(btn)
+                if btn.lossOfControlCooldown then btn.lossOfControlCooldown:Clear() end
+            end
+            -- Falling edge of an overlay that ran its course: bookkeeping only, and
+            -- only for one still listed, so a Clear() that fires this script
+            -- (ClearLoC drops the button first) cannot re-enter it.
+            local function LoCDone(cd)
+                local b = cd:GetParent()
+                if b and shown[b] then EndLoC(b) end
+            end
+            -- The overlay takes the main cooldown's size and shape: the template
+            -- insets it 3px from the icon, while our buttons are full-size squares
+            -- or masked shapes. The shape is mirrored on every paint (the overlay
+            -- only shows during a CC), so a shape change in the options follows at
+            -- the next overlay. No edge line: a square edge would sweep across a
+            -- round icon, and the dark swipe is the cue.
+            local function StyleLoC(btn, loc, fd)
+                if not fd.locStyled then
+                    fd.locStyled = true
+                    loc:ClearAllPoints()
+                    loc:SetAllPoints(btn.cooldown or btn)
+                    loc:SetDrawEdge(false)
+                    loc:HookScript("OnCooldownDone", LoCDone)
+                end
+                local mask = fd.shapeApplied and fd.shapeMask or nil
+                if fd.locMask ~= mask then
+                    if fd.locMask then pcall(loc.RemoveMaskTexture, loc, fd.locMask) end
+                    if mask then pcall(loc.AddMaskTexture, loc, mask) end
+                    fd.locMask = mask
+                end
+                local tex = mask and fd.shapeMaskPath or nil
+                if fd.locTex ~= tex then
+                    fd.locTex = tex
+                    pcall(loc.SetSwipeTexture, loc, tex or "")
+                    pcall(loc.SetSwipeColor, loc, 0.17, 0, 0, 0.64)
+                end
+            end
+            local function PaintLoC(btn)
+                local loc = btn.lossOfControlCooldown
+                if not loc then return end
+                local action = btn:GetAttribute("action")
+                local info = action and HasAction(action) and GetLoCInfo(action)
+                if info and info.isActive then
+                    local fd = EFD(btn)
+                    StyleLoC(btn, loc, fd)
+                    local dur = GetLoCDuration(action)
+                    if dur then loc:SetCooldownFromDurationObject(dur) end
+                    shown[btn] = true
+                    seen[btn] = stamp
+                    SetReplace(btn, fd, info.shouldReplaceNormalCooldown)
+                end
+            end
+            -- One pass over the filled buttons of the shown bars: paint every
+            -- active overlay, then clear the ones this pass did not renew (ended,
+            -- or their slot or bar left the lists). With no loss of control active
+            -- it only clears what still shows.
+            ns._abLoCPass = function()
+                local active = GetLoCCount and GetLoCCount() or 0
+                if active == 0 and not next(shown) then return end
+                stamp = stamp + 1
+                if active > 0 then
+                    local filled = ns._cdFilled
+                    if (ns._cdFilledDirty and ns._cdRebuiltAt ~= GetTime()) or not filled then
+                        DispRebuildLists()
+                        filled = ns._cdFilled
+                    end
+                    for _, list in pairs(filled) do
+                        for i = 1, #list do PaintLoC(list[i]) end
+                    end
+                end
+                for btn in pairs(shown) do
+                    if seen[btn] ~= stamp then ClearLoC(btn) end
+                end
+            end
+            -- Content edges can land before the secure paging driver has settled
+            -- the buttons' action attributes, so their re-pass runs next frame,
+            -- once per frame however many edges fire.
+            local deferPending = false
+            local function DeferredLoCPass()
+                deferPending = false
+                ns._abLoCPass()
+            end
+            ns._abLoCDefer = function()
+                if deferPending then return end
+                deferPending = true
+                C_Timer_After(0, DeferredLoCPass)
+            end
+            if GetLoCInfo and GetLoCDuration then
+                dispatcher:RegisterUnitEvent("LOSS_OF_CONTROL_ADDED", "player")
+                dispatcher:RegisterUnitEvent("LOSS_OF_CONTROL_UPDATE", "player")
+            end
+        end
         -- Direct API calls bypass the mixin's OnEvent dispatch, which
         -- triggers UpdateButtonArt (noop + hook), icon bg hook, and other
         -- per-button overhead. With 60 populated buttons, the mixin path
         -- caused visible frame drops on high-frequency events.
         dispatcher:SetScript("OnEvent", function(_, event, arg1, arg2, arg3)
+            -- Loss of control overlay (ns._abLoCPass above): its own two edges,
+            -- and a deferred re-pass when a loading screen ends (a reload mid-CC)
+            -- or the bars' content changes under a showing overlay (a form shift
+            -- during a lockout pages bar 1). The assisted-combat slot's re-stamp
+            -- spam is left out, as below.
+            if event == "LOSS_OF_CONTROL_ADDED" or event == "LOSS_OF_CONTROL_UPDATE" then
+                -- A CC landing fires both in one frame: the first paints at once,
+                -- a repeat in the same frame arms the one deferred pass.
+                local now = GetTime()
+                if ns._abLoCAt == now then
+                    ns._abLoCDefer()
+                else
+                    ns._abLoCAt = now
+                    ns._abLoCPass()
+                end
+                return
+            end
+            if event == "PLAYER_ENTERING_WORLD"
+               or (next(ns._abLoCShown) and (event == "ACTIONBAR_PAGE_CHANGED"
+                   or event == "UPDATE_BONUS_ACTIONBAR" or event == "UPDATE_SHAPESHIFT_FORM"
+                   or event == "UPDATE_OVERRIDE_ACTIONBAR" or event == "UPDATE_VEHICLE_ACTIONBAR"
+                   or (event == "ACTIONBAR_SLOT_CHANGED"
+                       and not (arg1 and arg1 ~= 0 and select(3, GetActionInfo(arg1)) == "assistedcombat")))) then
+                ns._abLoCDefer()
+            end
             -- Press-time triggers for the hot set: a press QUEUED inside the
             -- running GCD updates the engine's cooldown record at the press
             -- itself (client-side), and these are the earliest edges that can

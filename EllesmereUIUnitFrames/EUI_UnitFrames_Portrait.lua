@@ -511,6 +511,8 @@ function ns.UF_AttachEngineFrame(frame, unit, polled)
     end
     -- Opt-in Blizzard Glow Line: built and joined only when on.
     if frame.HealthPrediction then ns.UF_AbsorbGlowApply(frame, unit) end
+    -- Opt-in max health reduction: built and joined only when its style is on.
+    if frame.HealthPrediction then ns.UF_MaxHpApply(frame, unit) end
     -- The player's power value channel: joined while the frame is visible and
     -- shows the value, so it also follows the frame's show and hide.
     if unit == "player" and frame.Power then
@@ -1033,6 +1035,16 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
         end
     end
 
+    -- Background fill: Detached Background color while detached, stock grey otherwise.
+    if backdrop._bg then
+        local bgc = isDetached and uSettings and uSettings.detachedPortraitBgColor
+        if bgc then
+            backdrop._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, bgc.a or 1)
+        else
+            backdrop._bg:SetColorTexture(0.1, 0.1, 0.1, 1)
+        end
+    end
+
     -- Not detached: drop the mask and reset texture positions.
     if not isDetached then
         if backdrop._shapeMask then
@@ -1507,6 +1519,45 @@ function SwapPortraitMode(frame, painting)
     -- Repaint through the new object immediately.
     if not painting and frame.EnableElement then frame:EnableElement("Portrait") end
     ns.UF_StampPortraitForceUpdate(frame)
+end
+
+-------------------------------------------------------------------------------
+--  Detached portrait clicks: Clickable Portrait (per unit, default off) covers
+--  the detached portrait with a second unit button for the same unit
+--  (EllesmereUI.SyncPortraitClick, EllesmereUI_SharedHelpers.lua). Hover
+--  replays the unit button's own hover work (tooltip, mouseover fade-in,
+--  Hover Border).
+-------------------------------------------------------------------------------
+local PORTRAIT_CLICK = {
+    wanted = function(frame)
+        -- Only these three frames offer a detached portrait.
+        local u = frame._euiBaseUnit
+        if u ~= "player" and u ~= "target" and u ~= "focus" then return false end
+        local bd = frame.Portrait and frame.Portrait.backdrop
+        if not bd or not bd:IsShown() or ns.UF_Blizz() then return false end
+        local s = GetSettingsForUnit(u)
+        return s and s.detachedPortraitClickable
+            and (s.portraitStyle or db.profile.portraitStyle or "attached") == "detached"
+            and s.showPortrait ~= false
+    end,
+    backdrop = function(frame) return frame.Portrait.backdrop end,
+    onEnter = function(frame)
+        I.UnitFrame_OnEnter(frame)
+        I.FrameBorderEnter(frame)
+    end,
+    onLeave = function(frame)
+        I.UnitFrame_OnLeave(frame)
+        I.FrameBorderLeave(frame)
+    end,
+    -- Same registration as the unit button itself (SetupUnitMenu).
+    register = function(btn)
+        if type(ClickCastFrames) ~= "table" then ClickCastFrames = {} end
+        ClickCastFrames[btn] = true
+    end,
+}
+-- True while the frame wants its click overlay (EllesmereUI.SyncPortraitClick).
+function ns.UF_SyncPortraitClick(frame)
+    if frame and frame.Portrait then return EllesmereUI.SyncPortraitClick(frame, PORTRAIT_CLICK) end
 end
 
 I.ApplyClassIconTexture, I.ApplyDetachedPortraitShape = ApplyClassIconTexture, ApplyDetachedPortraitShape

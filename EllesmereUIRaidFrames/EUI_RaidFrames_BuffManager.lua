@@ -775,7 +775,9 @@ local function ApplyEffectBorder(borderFrame, ind, r, g, b, a, w, h)
     local Glows = EllesmereUI.Glows
     local parent = borderFrame:GetParent()
     local baseLvl = (parent and parent:GetFrameLevel()) or borderFrame:GetFrameLevel()
-    borderFrame:SetFrameLevel(baseLvl + 11)   -- default border level (matches creation)
+    -- One under the raise (+9: solid strips +10, textured +9): over the base border,
+    -- under the hover/target/aggro raise and the text band. Matches creation.
+    borderFrame:SetFrameLevel(baseLvl + ns.LVL_RAISE - 1)
     if style == "dashed" then
         EllesmereUI.HideBorderStyle(borderFrame)
         Glows.StartProceduralAnts(borderFrame, ind.borderDashCount or 8, bw, nil, nil,
@@ -804,10 +806,10 @@ function ns.BM_ApplyEffectBorder(borderFrame, ind, r, g, b, a, w, h)
     local Glows = EllesmereUI.Glows
     if w and (ind.borderStyle or "solid") == "dashed" then
         EllesmereUI.HideBorderStyle(borderFrame)
-        -- Same +11 as the static styles (this branch returns first): otherwise the host stays at slot+1, one level BELOW the health bar (unit+2).
+        -- Same level as the static styles (this branch returns first): otherwise the host stays at slot+1, one level BELOW the health bar (unit+2).
         local parent = borderFrame:GetParent()
         local baseLvl = (parent and parent:GetFrameLevel()) or borderFrame:GetFrameLevel()
-        borderFrame:SetFrameLevel(baseLvl + 11)
+        borderFrame:SetFrameLevel(baseLvl + ns.LVL_RAISE - 1)
         Glows.StartAnimatedAnts(borderFrame, ind.borderDashCount or 8,
             ind.borderWidth or 2, nil, r, g, b, w, h, a)
         return
@@ -1021,7 +1023,7 @@ function ns.BM_CreatePreviewIndicators(f, health, PP)
 
     local effectBorder = CreateFrame("Frame", nil, f)
     effectBorder:SetAllPoints(f)
-    effectBorder:SetFrameLevel(f:GetFrameLevel() + 11)
+    effectBorder:SetFrameLevel(f:GetFrameLevel() + ns.LVL_RAISE - 1)
     effectBorder:Hide()
     if PP then PP.CreateBorder(effectBorder, 0, 1, 0, 1, 2) end
 
@@ -1279,6 +1281,7 @@ function ns.BM_ApplyPreviewIndicators(f, index, s)
                                 f._bmHCOverlay:Show()
                             elseif indType == "bgcolor" and f._bmBGOverlay then
                                 local c = ind.color or { r=0, g=1, b=0 }
+                                ns.RF_TexBgTint(f._bmBGOverlay, ns.RF_TexBgPath(s), ns.RF_IsVerticalFill(s))
                                 f._bmBGOverlay:SetColorTexture(c.r, c.g, c.b, (ind.opacity or 100) / 100)
                                 f._bmBGOverlay:Show()
                             elseif indType == "border" and f._bmEffectBorder and PP then
@@ -1764,6 +1767,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
     local cc = EllesmereUI.GetClassColor(previewClass)
     local mode = s.healthColorMode or "class"
     local fillTex = health:GetStatusBarTexture()
+    -- Textured Background, as on the live frames.
+    ns.RF_TexBgLayer(health, bg, ns.RF_TexBgOpaque(s, mode == "dark") and ns.RF_TexBgPath(s) or nil)
     if mode == "dark" then
         local dfr, dfg, dfb, dfa = EllesmereUI.GetDarkModeFill()
         health:SetStatusBarColor(dfr, dfg, dfb, 1)
@@ -1812,6 +1817,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         pwBg:SetAllPoints()
         local pbc = (s.powerBgPowerColored and pInfo) or s.powerBgColor or { r=0, g=0, b=0 }
         local pbF = (s.powerBgPowerColored and pInfo) and EllesmereUI.GetPowerBgDarkenFactor() or 1
+        ns.RF_TexBgTint(pwBg, ns.RF_TexBgPath(s))
         pwBg:SetColorTexture(pbc.r * pbF, pbc.g * pbF, pbc.b * pbF, (s.powerBgDarkness or 70) / 100)
         -- Classic WoW UI: the stock edge and divider stand in (as live).
         if PP and ns.RF_Classic and ns.RF_Classic() then
@@ -1868,7 +1874,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
     local outline = (EllesmereUI.GetFontOutlineFlag("raidFrames")) or ""
     local playerName = UnitName("player") or "Player"
     if Ambiguate then playerName = Ambiguate(playerName, "short") end
-    if ns.RF_FormatName then playerName = ns.RF_FormatName(playerName, s) end
+    playerName = ns.RF_FormatName(playerName, s)
     -- Level Position "Attach to Name" (either format): the Top Name Bar shows the level too.
     local lvlAttach = ns.RF_TextNameAttach(s)
 
@@ -1896,17 +1902,7 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         else
             tnbText:SetText(playerName)
         end
-        local talign = s.topNameBarTextAlign or "center"
-        local tox = s.topNameBarTextOffsetX or 0
-        local toy = s.topNameBarTextOffsetY or 0
-        if talign == "left" then
-            tnbText:SetPoint("LEFT", tnb, "LEFT", 4 + tox, toy); tnbText:SetJustifyH("LEFT")
-        elseif talign == "right" then
-            tnbText:SetPoint("RIGHT", tnb, "RIGHT", -4 + tox, toy); tnbText:SetJustifyH("RIGHT")
-        else
-            tnbText:SetPoint("CENTER", tnb, "CENTER", tox, toy); tnbText:SetJustifyH("CENTER")
-        end
-        tnbText:SetJustifyV("MIDDLE")
+        ns.RF_PlaceTopNameText(tnbText, tnb, s)
         if (s.topNameBarTextColorMode or "class") == "custom" then
             local c = s.topNameBarTextColor or { r=1, g=1, b=1 }
             tnbText:SetTextColor(c.r, c.g, c.b)

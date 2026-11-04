@@ -64,13 +64,14 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
     -- key is read at the click, so it highlights the bar the selector shows.
     EllesmereUI.BuildSectionUnlockJump(hdr, { key = SelectedKey })
 
-    do
-        local _visBlizzDis
-        local _VIS_BLIZZ_TIP = "This option does not work with Blizzard Bars. Please use Blizzard Edit Mode."
-        if IsDataBar() then
-            _visBlizzDis = function() return EAB.db.profile.useBlizzardDataBars end
-        end
+    -- A data bar under Blizzard's own data bars: the rows EUI cannot apply to it grey out.
+    local _visBlizzDis
+    local _VIS_BLIZZ_TIP = "This option does not work with Blizzard Bars. Please use Blizzard Edit Mode."
+    if IsDataBar() then
+        _visBlizzDis = function() return EAB.db.profile.useBlizzardDataBars end
+    end
 
+    do
         -- Pet Bar cannot express group modes: lock them with an explanation instead of offering silent no-ops.
         -- noOverrideMouseover: see the caps on the bar row above.
         local visCaps = { partyIncludesRaid = false, noOverrideMouseover = true }
@@ -215,8 +216,8 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
     -- Show All Bars on Mouseover: one setting for every bar (the profile's). It links
     -- every bar set to Mouseover, action bars, the micro menu, the bag bar and
     -- the data bars alike (the runtime's mouseoverEnabled), so it is offered
-    -- while any of them is. It opens the section's third row, beside Click
-    -- Through (a visibility-only bar has none).
+    -- while any of them is. It sits beside Advanced Fade on the section's
+    -- third row.
     local function AnyMouseoverBar()
         for _, s in pairs(EAB.db.profile.bars) do
             if type(s) == "table" and s.mouseoverEnabled then return true end
@@ -247,6 +248,10 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
               local bs = SB()
               if bs.mouseoverEnabled then
                   bs._savedBarAlpha = v / 100
+                  -- The Advanced Fade layer rests on this value.
+                  if bs.advancedFadeEnabled == true then
+                      EAB:RefreshCustomFadeForBar(SelectedKey(), false)
+                  end
               else
                   SSet("mouseoverAlpha", v / 100, function(k) EAB:ApplyBarOpacity(k) end)
               end
@@ -307,20 +312,171 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
         })
     end
 
-    if visOnly then
-        _, h = W:DualRow(parent, y, ShowAllCfg(), EllesmereUI.BlankRowCfg());  y = y - h
-    else
+    -----------------------------------------------------------------------
+    --  ADVANCED FADE: one toggle per bar, its settings in the toggle's cog
+    --  and one Apply link, so the toggle, the conditions, the opacity and the
+    --  two fade times travel together.
+    -----------------------------------------------------------------------
+    local advFadeCfg, advFadeRows, ApplyAdvancedFadeTo, AdvancedFadeSynced
+    do
+        local FADE_ORDER = { "combat", "party", "raid", "instance", "mounted", "flying", "target", "enemy_target", "mouseover" }
+        local FADE_LABELS = {
+            combat = "In Combat",
+            party = "In Party",
+            raid = "In Raid",
+            instance = "In Instance",
+            mounted = "Mounted",
+            flying = "Skyriding (Airborne)",
+            target = "Target",
+            enemy_target = "Enemy Target",
+            mouseover = "Mouseover",
+        }
+
+        local function AdvancedFadeOn()
+            return SB().advancedFadeEnabled == true
+        end
+
+        local function Conditions(bs)
+            if type(bs.fadeConditions) ~= "table" then bs.fadeConditions = {} end
+            return bs.fadeConditions
+        end
+
+        local function CopyAdvancedFade(dst, src)
+            dst.advancedFadeEnabled = src.advancedFadeEnabled == true
+            local out, sc = {}, src.fadeConditions
+            if type(sc) == "table" then
+                for i = 1, #FADE_ORDER do
+                    local k = FADE_ORDER[i]
+                    if sc[k] then out[k] = true end
+                end
+            end
+            dst.fadeConditions = out
+            dst.fadeMaxAlpha = src.fadeMaxAlpha ~= nil and src.fadeMaxAlpha or 1
+            dst.fadeInSpeed = src.fadeInSpeed or 0.15
+            dst.fadeOutSpeed = src.fadeOutSpeed or 0.15
+        end
+
+        local function AdvancedFadeEqual(a, b)
+            if (a.advancedFadeEnabled == true) ~= (b.advancedFadeEnabled == true) then return false end
+            local ac, bc = a.fadeConditions, b.fadeConditions
+            for i = 1, #FADE_ORDER do
+                local k = FADE_ORDER[i]
+                if (type(ac) == "table" and ac[k] and true or false) ~= (type(bc) == "table" and bc[k] and true or false) then
+                    return false
+                end
+            end
+            if (a.fadeMaxAlpha ~= nil and a.fadeMaxAlpha or 1) ~= (b.fadeMaxAlpha ~= nil and b.fadeMaxAlpha or 1) then return false end
+            if (a.fadeInSpeed or 0.15) ~= (b.fadeInSpeed or 0.15) then return false end
+            return (a.fadeOutSpeed or 0.15) == (b.fadeOutSpeed or 0.15)
+        end
+
+        -- A bar the copy turns off hands its alpha back at once; the others
+        -- repaint with the copied values.
+        ApplyAdvancedFadeTo = function(keys)
+            local src = SB()
+            for _, key in ipairs(keys) do
+                local dst = EAB.db.profile.bars[key]
+                if dst and dst ~= src then CopyAdvancedFade(dst, src) end
+            end
+            EAB:RefreshAdvancedFadeEnabled(keys)
+            EAB:RefreshAllCustomFade(true, true)
+            EllesmereUI:RefreshPage()
+        end
+
+        AdvancedFadeSynced = function()
+            local src = SB()
+            for _, key in ipairs(GROUP_BAR_ORDER) do
+                local dst = EAB.db.profile.bars[key]
+                if dst and not AdvancedFadeEqual(src, dst) then return false end
+            end
+            return true
+        end
+
+        advFadeCfg = { type="toggle", text="Advanced Fade",
+          tooltip="Fades this bar to an opacity of its own while one of the conditions in its settings holds (in combat, with a target, mounted and more), with fade times of its own. Off, Bar Opacity and Visibility alone decide.",
+          disabled=_visBlizzDis, disabledTooltip=_visBlizzDis and _VIS_BLIZZ_TIP or nil,
+          rawTooltip=true,
+          getValue=AdvancedFadeOn,
+          setValue=function(v)
+              SSet("advancedFadeEnabled", v and true or false, function(k) EAB:RefreshAdvancedFadeEnabled(k) end)
+          end }
+
+        -- No skyriding on WoW Forever.
+        local fadeItems = {}
+        for i = 1, #FADE_ORDER do
+            local k = FADE_ORDER[i]
+            if k ~= "flying" or not EllesmereUI.IS_FOREVER then
+                fadeItems[#fadeItems + 1] = { key = k, label = FADE_LABELS[k], fixed = true }
+            end
+        end
+        advFadeRows = {
+            { type="reordercheck", label="Fade Conditions", ddWidth=170, items=fadeItems,
+              get=function(k)
+                  local c = SB().fadeConditions
+                  return type(c) == "table" and c[k] == true
+              end,
+              set=function(k, v)
+                  Conditions(SB())[k] = v and true or nil
+                  -- Re-reads the gate too: a first condition arms the layer's hooks.
+                  EAB:RefreshCustomFadeForBar(SelectedKey(), true)
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="slider", label="Condition Opacity", min=0, max=100, step=1,
+              tooltip="The opacity the bar fades to while one of its Fade Conditions holds, above or below Bar Opacity. Visibility still decides whether the bar shows at all.",
+              get=function() return floor(((SB().fadeMaxAlpha ~= nil and SB().fadeMaxAlpha or 1) * 100) + 0.5) end,
+              set=function(v) SSet("fadeMaxAlpha", v / 100, function(k) EAB:RefreshCustomFadeForBar(k, true) end) end },
+            { type="slider", label="Fade In Time", min=0.01, max=2, step=0.01,
+              tooltip="Seconds the fade to Condition Opacity takes.",
+              get=function() return SB().fadeInSpeed or 0.15 end,
+              set=function(v) SSet("fadeInSpeed", v) end },
+            { type="slider", label="Fade Out Time", min=0.01, max=2, step=0.01,
+              tooltip="Seconds the fade back to Bar Opacity takes.",
+              get=function() return SB().fadeOutSpeed or 0.15 end,
+              set=function(v) SSet("fadeOutSpeed", v) end },
+        }
+    end
+
+    local afRow
+    afRow, h = W:DualRow(parent, y, advFadeCfg, ShowAllCfg());  y = y - h
+    do
+        local rgn = afRow._leftRegion
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Advanced Fade",
+            disabled = function() return SB().advancedFadeEnabled ~= true or (_visBlizzDis ~= nil and _visBlizzDis()) end,
+            disabledTooltip = function()
+                if _visBlizzDis ~= nil and _visBlizzDis() then return _VIS_BLIZZ_TIP end
+                return "Advanced Fade"
+            end,
+            rows = advFadeRows,
+        })
+        EllesmereUI.BuildSyncIcon({
+            region  = rgn,
+            tooltip = "Apply Advanced Fade to all Bars",
+            onClick = function() ApplyAdvancedFadeTo(GROUP_BAR_ORDER) end,
+            isSynced = AdvancedFadeSynced,
+            flashTargets = function() return { rgn } end,
+            multiApply = {
+                elementKeys   = GROUP_BAR_ORDER,
+                elementLabels = SHORT_LABELS,
+                getCurrentKey = function() return SelectedKey() end,
+                onApply       = ApplyAdvancedFadeTo,
+            },
+        })
+    end
+
+    if not visOnly then
         local ctRow
-        ctRow, h = W:DualRow(parent, y, ShowAllCfg(),
+        ctRow, h = W:DualRow(parent, y,
             { type="toggle", text="Click Through",
               getValue=function() return SGet("clickThrough") end,
               setValue=function(v)
                   SSet("clickThrough", v, function(k) EAB:ApplyClickThroughForBar(k) end)
                   -- Its Apply link compares this toggle.
                   EllesmereUI:RefreshPage()
-              end });  y = y - h
+              end },
+            EllesmereUI.BlankRowCfg());  y = y - h
         do
-            local rgn = ctRow._rightRegion
+            local rgn = ctRow._leftRegion
             local function CopyTo(key, v)
                 EAB.db.profile.bars[key].clickThrough = v
                 EAB:ApplyClickThroughForBar(key)

@@ -164,6 +164,9 @@ local function UpdateStyle(st, s)
     PutStyle(st, "a", s.borderAlpha or 1); PutStyle(st, "bgR", r); PutStyle(st, "bgG", g); PutStyle(st, "bgB", b); PutStyle(st, "bgA", a)
     PutStyle(st, "one", EUI.PP.perfect / st.owner:GetEffectiveScale())
     PutStyle(st, "grid", grid)
+    -- Textured Background on the empty backgrounds, as on the frames.
+    PutStyle(st, "bgTex", grid and not st.isPet and ns.RF_TexBgPath(s) or false)
+    PutStyle(st, "bgVert", grid and ns.RF_IsVerticalFill(s) or false)
 end
 
 -- Records frame f as the index-th cell of group gi (rect in the owner's scale, top-left).
@@ -303,6 +306,7 @@ local function Draw(st)
                     f:SetSize(c.w, c.h); f:SetFrameStrata(c.strata); f:SetFrameLevel(c.level)
                     if f._sg ~= st.styleGen then
                         f._sg = st.styleGen
+                        ns.RF_TexBgTint(f.bg, v.bgTex or nil, v.bgVert)
                         f.bg:SetColorTexture(v.bgR, v.bgG, v.bgB, v.bgA)
                     end
                     f:Show()

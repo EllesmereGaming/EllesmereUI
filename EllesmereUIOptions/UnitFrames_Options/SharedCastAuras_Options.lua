@@ -744,6 +744,10 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
                 { type="slider", label="Y Offset", min=-50, max=50, step=1,
                   get=function() return SValSupported("castSpellNameY", 0) end,
                   set=function(v) SSetSupported("castSpellNameY", v); ReloadAndUpdate(); UpdatePreview() end },
+                { type="toggle", label="Show Full Spell Name",
+                  tooltip="Long spell names shrink to fit beside the duration instead of being cut off.",
+                  get=function() return SValSupported("castFitSpellName", false) end,
+                  set=function(v) SSetSupported("castFitSpellName", v); ReloadAndUpdate() end },
         }
         if optState.selectedUnit == "target" or optState.selectedUnit == "focus" then
             snCogRows[#snCogRows + 1] = { type="toggle", label="Combine Spell Name and Target",
@@ -780,9 +784,7 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
     -- Inline cog on Duration Size: toggle + X/Y offsets
     if not EllesmereUI._prebuilding then
         local dtCogRgn = castTextRow._rightRegion
-        EllesmereUI.BuildInlineCog(dtCogRgn, {
-            title = "Duration",
-            rows = {
+        local dtCogRows = {
                 { type="slider", label="Size", min=6, max=20, step=1,
                   get=function() return SValSupported("castDurationSize", 10) end,
                   set=function(v) SSetSupported("castDurationSize", v); ReloadAndUpdate(); UpdatePreview() end },
@@ -792,7 +794,16 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
                 { type="slider", label="Y Offset", min=-50, max=50, step=1,
                   get=function() return SValSupported("castDurationY", 0) end,
                   set=function(v) SSetSupported("castDurationY", v); ReloadAndUpdate(); UpdatePreview() end },
-            },
+        }
+        if optState.selectedUnit == "player" then
+            dtCogRows[#dtCogRows + 1] = { type="toggle", label="Full Craft Time",
+                tooltip="While crafting several items at once, the duration shows the time left for the whole batch and the spell name shows the craft count.",
+                get=function() return SValSupported("castFullCraftTime", false) end,
+                set=function(v) SSetSupported("castFullCraftTime", v); ReloadAndUpdate() end }
+        end
+        EllesmereUI.BuildInlineCog(dtCogRgn, {
+            title = "Duration",
+            rows = dtCogRows,
         })
     end
 
@@ -801,12 +812,14 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
         local rgn = castTextRow._leftRegion
         EllesmereUI.BuildSyncIcon({
             region  = rgn,
-            tooltip = "Apply Spell Name Size and Color to all Frames",
+            tooltip = "Apply Spell Name Size, Color and Show Full Spell Name to all Frames",
             onClick = function()
                 local v = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameSize or 11
                 local c = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameColor
+                local fit = UNIT_DB_MAP[optState.selectedUnit]().castFitSpellName == true
                 for _, key in ipairs(GROUP_UNIT_ORDER) do
                     UNIT_DB_MAP[key]().castSpellNameSize = v
+                    UNIT_DB_MAP[key]().castFitSpellName = fit or nil
                     if c then UNIT_DB_MAP[key]().castSpellNameColor = { r=c.r, g=c.g, b=c.b } end
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -814,8 +827,10 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
             isSynced = function()
                 local v = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameSize or 11
                 local c = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameColor
+                local fit = UNIT_DB_MAP[optState.selectedUnit]().castFitSpellName == true
                 for _, key in ipairs(GROUP_UNIT_ORDER) do
                     if (UNIT_DB_MAP[key]().castSpellNameSize or 11) ~= v then return false end
+                    if (UNIT_DB_MAP[key]().castFitSpellName == true) ~= fit then return false end
                     local kc = UNIT_DB_MAP[key]().castSpellNameColor
                     if c and kc then
                         if kc.r ~= c.r or kc.g ~= c.g or kc.b ~= c.b then return false end
@@ -831,8 +846,10 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
                 onApply       = function(checkedKeys)
                     local v = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameSize or 11
                     local c = UNIT_DB_MAP[optState.selectedUnit]().castSpellNameColor
+                    local fit = UNIT_DB_MAP[optState.selectedUnit]().castFitSpellName == true
                     for _, key in ipairs(checkedKeys) do
                         UNIT_DB_MAP[key]().castSpellNameSize = v
+                        UNIT_DB_MAP[key]().castFitSpellName = fit or nil
                         if c then UNIT_DB_MAP[key]().castSpellNameColor = { r=c.r, g=c.g, b=c.b } end
                     end
                     ReloadAndUpdate(); EllesmereUI:RefreshPage()
@@ -1098,7 +1115,13 @@ end
 -- Settings (the Location cog): Growth Direction, Max Count, afterMax (an
 -- optional row placed right after Max Count), Max Per Row (unset follows Max
 -- Count) and Cropped Icons.
-function ns.UFO_AuraSettingsRows(kind, get, set, maxMax, maxDefault, afterMax)
+-- Max Count caps each aura group on its own (the engine has no shared cap),
+-- so several filters, or one drawn as two groups (Important), can show more.
+-- maxTip = this tooltip wherever that can happen: not the player's buffs
+-- (their filters merge into one group) nor the pet (one group per element).
+-- The boss rows in MiniFrames_Options.lua use it too.
+ns.UFO_MAX_COUNT_TOOLTIP = "More than this can show with some filters."
+function ns.UFO_AuraSettingsRows(kind, get, set, maxMax, maxDefault, afterMax, maxTip)
     local env = ns._UFO_OptEnv
     local growthKey, perRowKey, cropKey = kind .. "Growth", kind .. "MaxPerRow", kind .. "CropIcons"
     local maxKey = (kind == "buff") and "maxBuffs" or "maxDebuffs"
@@ -1107,6 +1130,7 @@ function ns.UFO_AuraSettingsRows(kind, get, set, maxMax, maxDefault, afterMax)
           get=function() return get(growthKey, "auto") end,
           set=function(v) set(growthKey, v) end },
         { type="slider", label="Max Count", min=1, max=maxMax, step=1,
+          tooltip=maxTip,
           get=function() return get(maxKey, maxDefault) end,
           set=function(v) set(maxKey, v) end },
     }
@@ -1312,7 +1336,8 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     -- Dispel Type Borders
     if not EllesmereUI._prebuilding then
         local leftRgn = sharedAddRow2._leftRegion
-        local buffCogRows = ns.UFO_AuraSettingsRows("buff", SValSupported, SSetSupported, 40, 4)
+        local buffCogRows = ns.UFO_AuraSettingsRows("buff", SValSupported, SSetSupported, 40, 4, nil,
+            optState.selectedUnit ~= "player" and ns.UFO_MAX_COUNT_TOOLTIP or nil)
         buffCogRows[#buffCogRows + 1] = { type="slider", label="Icon Zoom", min=0, max=0.20, step=0.01,
               -- The stock styles draw the whole icon (zoom 0); the active
               -- style's name is the requirement noun the widget wraps.
@@ -1371,7 +1396,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                 { type="slider", label="Offset Y", min=-100, max=100, step=1,
                   get=function() return SValSupported("buffCooldownTextOffsetY", 0) end,
                   set=function(v) SSetSupported("buffCooldownTextOffsetY", v) end },
-                { type="slider", label="Precise Below (minutes, 0 = off)", min=0, max=60, step=1,
+                { type="slider", label="Precise Below (minutes, 0 = off)", min=0, max=90, step=1,
                   get=function() local v=SValSupported("buffCooldownTextPrecision", nil); return v and v/60 or 0 end,
                   set=function(v) SSetSupported("buffCooldownTextPrecision", v > 0 and v*60 or nil) end },
             },
@@ -1437,7 +1462,8 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             maxImpRow = ns.UFO_MaxImportantRow(SDB,
                 function() ReloadAndUpdate(); UpdatePreview() end, 20, 20)
         end
-        local debuffCogRows = ns.UFO_AuraSettingsRows("debuff", SValSupported, SSetSupported, 20, 20, maxImpRow)
+        local debuffCogRows = ns.UFO_AuraSettingsRows("debuff", SValSupported, SSetSupported, 20, 20, maxImpRow,
+            ns.UFO_MAX_COUNT_TOOLTIP)
         debuffCogRows[#debuffCogRows + 1] = { type="slider", label="Icon Zoom", min=0, max=0.20, step=0.01,
               -- The stock styles draw the whole icon (zoom 0); the active
               -- style's name is the requirement noun the widget wraps.
@@ -1515,7 +1541,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                 { type="slider", label="Offset Y", min=-100, max=100, step=1,
                   get=function() return SValSupported("debuffCooldownTextOffsetY", 0) end,
                   set=function(v) SSetSupported("debuffCooldownTextOffsetY", v) end },
-                { type="slider", label="Precise Below (minutes, 0 = off)", min=0, max=60, step=1,
+                { type="slider", label="Precise Below (minutes, 0 = off)", min=0, max=90, step=1,
                   get=function() local v=SValSupported("debuffCooldownTextPrecision", nil); return v and v/60 or 0 end,
                   set=function(v) SSetSupported("debuffCooldownTextPrecision", v > 0 and v*60 or nil) end },
             },
@@ -2183,8 +2209,9 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             full     = "Full Overlay",
             gradient = "Gradient Overlay",
             gradient_sharp = "Gradient Sharp",
+            gradient_reverse = "Gradient Sharp Reverse",
         }
-        local dispelOverlayOrder = { "none", "fill", "full", "gradient", "gradient_sharp" }
+        local dispelOverlayOrder = { "none", "fill", "full", "gradient", "gradient_sharp", "gradient_reverse" }
         local function DispelRefresh()
             if ns.UpdatePlayerDispelOverlay then ns.UpdatePlayerDispelOverlay() end
             UpdatePreview()
@@ -2262,9 +2289,10 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             eyeBtn:SetSize(26, 26)
             eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
             rgn._lastInline = eyeBtn
             local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+            EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
             eyeTex:SetAllPoints()
             local function RefreshDispelEye()
                 eyeTex:SetTexture(optState.showDispelOverlayPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2276,11 +2304,11 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                 UpdatePreview()
             end)
             eyeBtn:SetScript("OnEnter", function(self)
-                self:SetAlpha(0.7)
+                EllesmereUI.SetGlyphAlpha(self, 0.7)
                 EllesmereUI.ShowWidgetTooltip(self, optState.showDispelOverlayPreview and "Hide dispel overlay preview" or "Show dispel overlay preview")
             end)
             eyeBtn:SetScript("OnLeave", function(self)
-                self:SetAlpha(0.4)
+                EllesmereUI.SetGlyphAlpha(self, 0.4)
                 EllesmereUI.HideWidgetTooltip()
             end)
         end
@@ -2349,6 +2377,11 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
                     { type="slider", label="Icon Size", min=8, max=48, step=1,
                       get=function() return db.profile.dispelIconSize or 16 end,
                       set=function(v) db.profile.dispelIconSize = v; DispelRefresh() end },
+                    { type="dropdown", label="Growth Direction",
+                      values={ none="None", up="Up", down="Down", left="Left", right="Right" },
+                      order={ "none", "up", "down", "left", "right" },
+                      get=function() return db.profile.dispelIconGrowth or "none" end,
+                      set=function(v) db.profile.dispelIconGrowth = v; DispelRefresh() end },
                     { type="slider", label="Offset X", min=-50, max=50, step=1,
                       get=function() return db.profile.dispelIconOffsetX or 0 end,
                       set=function(v) db.profile.dispelIconOffsetX = v; DispelRefresh() end },

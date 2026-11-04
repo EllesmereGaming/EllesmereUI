@@ -482,6 +482,7 @@ local DB_DEFAULTS = {
         buffCheckOnReady     = true,
         buffCheckOnlyMissing = true,
         buffCheckRuneRequired = true,
+        buffCheckVantusRequired = false,
         -- Opt-in Buff Check group button (needs buffCheck).
         showBuffCheck = false,
         -- Per-section: pos[key] = { point, relPoint, x, y }
@@ -713,6 +714,27 @@ local function IsLeader()
     if not IsInGroup() then return true end
     return UnitIsGroupLeader("player")
 end
+
+-- The Raid Buff Check window (EllesmereUIQoL_RaidBuffCheck.lua) wears these panels'
+-- dress and font. Text: a font string on parent in the QoL font, kept current by
+-- ApplyFonts through owner (registered with AddFontOwner).
+ns.RT = {
+    TOPBAR_H = TOPBAR_H,
+    SkinPanelBg = SkinPanelBg,
+    SkinPanelBorder = SkinPanelBorder,
+    SkinButtonChrome = SkinButtonChrome,
+    HasAssist = HasAssist,
+    AddFontOwner = function(owner) fontOwners[#fontOwners + 1] = owner end,
+    Text = function(owner, parent, size, r, g, b)
+        local fs = TrackFont(owner, EllesmereUI.MakeFont(parent, size, nil, r, g, b), size)
+        local path = EllesmereUI.GetFontPath(FONT_KEY)
+        if path then
+            local _, _, flags = fs:GetFont()
+            fs:SetFont(path, size, flags or "")
+        end
+        return fs
+    end,
+}
 
 -- In a RAID, every control on the panel needs leader or assist: ready check,
 -- role check, the countdown, convert, disband and the marker buttons are all

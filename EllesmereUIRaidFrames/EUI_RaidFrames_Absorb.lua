@@ -229,7 +229,8 @@ local function CreateAbsorbBar(button, healthBar)
     backfillBar:SetPoint("BOTTOMRIGHT", healthBar, "BOTTOMRIGHT", 0, 0)
     backfillBar:SetWidth(healthBar:GetWidth())
     backfillBar:SetHeight(healthBar:GetHeight())
-    -- Absorb tops the HP cluster: above heal absorb/prediction (healthBar+1) and reduced max health (+2).
+    -- Above heal absorb (healthBar+1) and reduced max health (+2). The heal prediction shares
+    -- this level and its ARTWORK 2 fill draws over the absorb's ARTWORK 0/1.
     backfillBar:SetFrameLevel(healthBar:GetFrameLevel() + 3)
     backfillBar:Hide()
 
@@ -248,7 +249,7 @@ local function CreateAbsorbBar(button, healthBar)
     forwardBar:SetReverseFill(false)
     forwardBar:SetWidth(healthBar:GetWidth())
     forwardBar:SetHeight(healthBar:GetHeight())
-    -- Match backfill: absorb renders above heal absorb/heal prediction and max health.
+    -- Match backfill (the heal prediction draws over it at this level).
     forwardBar:SetFrameLevel(healthBar:GetFrameLevel() + 3)
     forwardBar:Hide()
 
@@ -351,6 +352,7 @@ local function CreateAbsorbBar(button, healthBar)
         -- is what rotates them.
         healthBar._euiFillOpacity = (vs.healthBarOpacity or 100) / 100
         ns.RF_RefreshBarTints(healthBar)
+        ns.RF_TexBgApply(button, d, healthBar, vs)
         -- Indexed, not ipairs: a nil entry must not end the walk early.
         local axisBars = { backfillBar, forwardBar, healAbsorbBar, healPredBar, reducedBar }
         for i = 1, 5 do
@@ -610,7 +612,9 @@ local function CreateAbsorbBar(button, healthBar)
     healPredBar:SetPoint("BOTTOMLEFT", healthBar:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
     healPredBar:SetWidth(healthBar:GetWidth())
     healPredBar:SetHeight(healthBar:GetHeight())
-    healPredBar:SetFrameLevel(healthBar:GetFrameLevel() + 1)
+    -- The absorb bars' level: its ARTWORK 2 fill draws over their ARTWORK 1,
+    -- so absorb opacity never hides incoming heals (as on the unit frames).
+    healPredBar:SetFrameLevel(healthBar:GetFrameLevel() + 3)
     healPredBar:Hide()
 
     -- Reduced max health bar: black bg + red striped overlay on the right side (forward-declared above for ReanchorAbsorbToFill).

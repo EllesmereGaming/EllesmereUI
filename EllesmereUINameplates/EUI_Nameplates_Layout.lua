@@ -700,10 +700,11 @@ do
     -- r, g, b for a readable level: the skull's colour below 0, else the difficulty
     -- colour (nil when attackability or the player's level is secret). "player" is the
     -- options preview's stand-in mob, ranked as attackable like a hostile mob.
-    local function LevelRGB(unit, lvl)
+    -- friendly: rank friendly units by difficulty whatever levelDifficultyColorFriendly says.
+    local function LevelRGB(unit, lvl, friendly)
         if lvl < 0 then return EllesmereUI.GetLevelDifficultyColor(-1) end
         return EllesmereUI.GetLevelColor(unit, lvl,
-            unit == "player" or (p and p.levelDifficultyColorFriendly))
+            friendly or unit == "player" or (p and p.levelDifficultyColorFriendly))
     end
     -- The unit's level difficulty colour, r, g, b; nil while its level cannot be read.
     function ns.NP_UnitLevelColor(unit)
@@ -714,14 +715,17 @@ do
     -- Display string for the unit's EFFECTIVE level (so scaling/Chromie time read as the game
     -- ranks them). "??" for skull-ranked (-1) or unreadable (secret) levels, matching default UI.
     -- color "diff" wraps it in the difficulty colour (an unreadable level stays a plain
-    -- "??"); any other value returns it plain.
+    -- "??"); "diffAll" does too and ranks friendly units as well (the friendly player
+    -- plates' Color Level by Difficulty); any other value returns it plain.
     function ns.GetUnitLevelText(unit, color)
         local lvl = UnitEffectiveLevel(unit)
         if type(lvl) ~= "number" or (issecretvalue and issecretvalue(lvl)) then
             return "??"
         end
         local txt = lvl < 0 and "??" or tostring(lvl)
-        if color == "diff" then return EllesmereUI.ColorText(txt, LevelRGB(unit, lvl)) end
+        if color == "diff" or color == "diffAll" then
+            return EllesmereUI.ColorText(txt, LevelRGB(unit, lvl, color == "diffAll"))
+        end
         return txt
     end
     -- Write a name-family element's text into a FontString (shared by runtime update and
@@ -743,18 +747,17 @@ do
             fs:SetText(name)
         end
     end
-    -- WoW Forever: the name slot's Name Format (text-slot cog), the first or last word
-    -- of the name; unset shows it whole. Defined only on Forever, so retail's name
-    -- write pays one nil check. Keys prebuilt (no per-update string building); the
-    -- split, its secret pass-through and its bounded cache live in ForeverShortName.
-    if EllesmereUI.IS_FOREVER then
+    -- Name Format (text-slot cog): one word, initials or a Character Count;
+    -- unset shows the name whole. Keys are prebuilt; the split and its cache
+    -- live in EllesmereUI.ShortName.
+    do
         local NAME_FORMAT_KEYS = {
             textSlotTop  = "textSlotTopNameFormat",  textSlotRight  = "textSlotRightNameFormat",
             textSlotLeft = "textSlotLeftNameFormat", textSlotCenter = "textSlotCenterNameFormat",
             textSlotBottomLeft  = "textSlotBottomLeftNameFormat",
             textSlotBottomRight = "textSlotBottomRightNameFormat",
         }
-        local short = EllesmereUI.ForeverShortName
+        local short = EllesmereUI.ShortName
         function ns.NP_FormatName(name, slotKey)
             local key = slotKey and NAME_FORMAT_KEYS[slotKey]
             local mode = key and p and p[key]
@@ -790,7 +793,7 @@ ns.EstimateHealthTextWidth = EstimateHealthTextWidth
 -- and hand values only to format setters: health, absorb and names may be secret. A nil unit
 -- is the options preview (the schema samples). do/end + ns funcs: no new locals (cap).
 do
-    local TT, sf = EllesmereUI.TextTags, string.format
+    local TT, sf, IsZeroValue = EllesmereUI.TextTags, string.format, EllesmereUI.IsZeroValue
     local FS_KEY, FORMAT_KEY = {}, {}
     for i = 1, #textSlotKeys do
         local s = textSlotKeys[i]
@@ -798,12 +801,28 @@ do
         FORMAT_KEY[s] = s .. "CustomFormat"
     end
     ns.NP_CustomFSKey = FS_KEY
-    -- The unit's name as the name slot writes it (WoW Forever: the slot's Name Format).
+    -- The unit's name as the name slot writes it (the slot's Name Format).
     local function Name(u, slotKey)
         local name = EllesmereUI.WithSurname(UnitName(u))
         if type(name) == "nil" then return "" end
-        if ns.NP_FormatName then name = ns.NP_FormatName(name, slotKey) end
-        return name
+        return ns.NP_FormatName(name, slotKey)
+    end
+    -- Tag modifiers shape the plain name. They do not also apply the slot's Name Format.
+    local function Shaped(mode)
+        return function(u)
+            local name = EllesmereUI.WithSurname(UnitName(u))
+            if type(name) == "nil" then return "" end
+            return EllesmereUI.ShortName(name, mode)
+        end
+    end
+    local function TargetShaped(mode)
+        local piece = Shaped(mode)
+        return function(u)
+            local tu = ns._npToTUnits[u]
+            if not tu then tu = u .. "target"; ns._npToTUnits[u] = tu end
+            if not UnitExists(tu) then return "" end
+            return piece(tu)
+        end
     end
     local P = {
         ["hp"] = function(u)
@@ -812,23 +831,30 @@ do
         end,
         ["hp:abr"] = function(u)
             if UnitIsDeadOrGhost(u) then return EllesmereUI.L("DEAD") end
-            return ns.AbbreviateNumbers(UnitHealth(u) or 0)
+            return ns.AbbreviateValue(UnitHealth(u) or 0, "health")
         end,
         ["hp:max"] = function(u) return sf("%d", UnitHealthMax(u) or 0) end,
-        ["hp:max:abr"] = function(u) return ns.AbbreviateNumbers(UnitHealthMax(u) or 0) end,
+        ["hp:max:abr"] = function(u) return ns.AbbreviateValue(UnitHealthMax(u) or 0, "maxHealth") end,
         ["hp:pct"] = function(u)
             if UnitIsDeadOrGhost(u) then return "0" end
             return sf("%d", UnitHealthPercent(u, true, CurveConstants.ScaleTo100) or 0)
         end,
         ["absorb"] = function(u) return C_StringUtil.TruncateWhenZero(UnitGetTotalAbsorbs(u) or 0) end,
-        ["absorb:abr"] = function(u) return ns.AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0) end,
+        ["absorb:abr"] = function(u)
+            local v = UnitGetTotalAbsorbs(u) or 0
+            if IsZeroValue(v) then return "" end
+            return ns.AbbreviateValue(v, "absorb")
+        end,
         ["name"] = Name,
+        ["name:first"] = Shaped("first"), ["name:last"] = Shaped("last"), ["name:abbr"] = Shaped("abbr"),
         ["target"] = function(u, slotKey)
             local tu = ns._npToTUnits[u]
             if not tu then tu = u .. "target"; ns._npToTUnits[u] = tu end
             if not UnitExists(tu) then return "" end
             return Name(tu, slotKey)
         end,
+        ["target:first"] = TargetShaped("first"), ["target:last"] = TargetShaped("last"),
+        ["target:abbr"] = TargetShaped("abbr"),
         ["level"] = function(u) return ns.GetUnitLevelText(u) end,
     }
     local CAT = TT.Bind(TT.UNIT, P)
@@ -1537,8 +1563,8 @@ end
 -- slots share healthTextFrame. A non-default strata on a non-top slot gets
 -- a lazily-created host so the four slots layer independently; hosts carry
 -- only font strings (no child frames), so SetFrameStrata propagation is not
--- a concern -- except the name raid marker frame, whose caller re-asserts
--- its own strata after parenting.
+-- a concern -- except the name raid marker frame and debuff coloring's Color
+-- Name copies, whose callers re-assert their strata and levels after parenting.
 ns.SlotTextHost = function(self, slotKey, strata)
     if slotKey == "textSlotTop" then
         local f = self.topTextFrame

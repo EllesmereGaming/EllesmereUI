@@ -638,6 +638,8 @@ local function ApplyUnitFrameCastColor(castbar)
     -- Zero-alloc: values flow as scalars instead of building up to three throwaway
     -- color tables per call (two default literals + the blended kick tint).
     local r, g, b
+    -- Base fill colour (what ReloadFrames gives the StatusBar), before the kick blend.
+    local br, bg, bb
     if settings and settings.castbarClassColored and ownerUnit == "player" then
         local _, classToken = UnitClass(ownerUnit)
         if issecretvalue(classToken) then classToken = nil end
@@ -645,22 +647,46 @@ local function ApplyUnitFrameCastColor(castbar)
             local cc = EllesmereUI.GetClassColor(classToken)
             if cc then r, g, b = cc.r, cc.g, cc.b end
         end
+        br, bg, bb = r, g, b
     end
     if not r then
         local baseTint = (settings and settings.castbarFillColor) or GetCastbarColor()
+        br, bg, bb = baseTint.r, baseTint.g, baseTint.b
         if IsKickCastbarUnit(ownerUnit) then
             local readyTint = (settings and settings.castbarInterruptReadyColor) or UF_KICK_READY_TINT
             r, g, b = ComputeCastBarTint(readyTint, baseTint)
         else
-            r, g, b = baseTint.r, baseTint.g, baseTint.b
+            r, g, b = br, bg, bb
         end
     end
+    local uc = (settings and settings.castbarUninterruptibleColor) or UF_UNINTERRUPT_GREY
+    if not castbar._blizzCast then
+        -- Uninterruptible colour folded into the textured tint layer and the base
+        -- fill under it (the nameplates' approach): the texture stays visible and
+        -- its transparent pixels cannot show the interruptible colour. The flat
+        -- shield wash below would cover the texture. The fold is secret-safe.
+        local ev = C_CurveUtil.EvaluateColorValueFromBoolean
+        local uninterruptible = GetCastbarUninterruptible(castbar)
+        castbar.castTintLayer:SetVertexColor(ev(uninterruptible, uc.r, r),
+            ev(uninterruptible, uc.g, g), ev(uninterruptible, uc.b, b), 1)
+        -- Same alpha as the ReloadFrames SetStatusBarColor sites.
+        local baseA = ((settings and settings.castFillOpacity or 100) < 100) and 0
+            or (db and db.profile.castbarOpacity or 1)
+        castbar:SetStatusBarColor(ev(uninterruptible, uc.r, br),
+            ev(uninterruptible, uc.g, bg), ev(uninterruptible, uc.b, bb), baseA)
+        if castbar._shieldHost and not castbar._shieldOff then
+            castbar._shieldHost:SetAlpha(0)
+            castbar._shieldOff = true
+        end
+        return
+    end
+    castbar._shieldOff = nil
     castbar.castTintLayer:SetVertexColor(r, g, b)
     if castbar._shieldedTint then
         -- Uninterruptible overlay colour (defaults to grey). Its alpha is toggled
         -- from the secret "not interruptible" flag, so the colour is always set and
-        -- only becomes visible on uninterruptible casts.
-        local uc = (settings and settings.castbarUninterruptibleColor) or UF_UNINTERRUPT_GREY
+        -- only becomes visible on uninterruptible casts. Only Blizzard Style
+        -- (tint layer hidden) still uses this wash.
         -- Explicit vertex alpha: Midnight's 3-arg SetVertexColor leaves the
         -- vertex alpha at an unexpected value (measured 0.5 with the gray
         -- default -- GetVertexColor returned a=r), and the composite with the
@@ -1047,6 +1073,16 @@ local function CreateCastBar(frame, unit, settings)
         -- shows a target (boss frames: showCastTarget false with no UI to enable it)
         -- the name owns the row and gets 80% before truncating.
         local nameW = (cb._showTarget == false) and (barW * 0.80) or textW
+        -- Show Full Spell Name: the name gets the whole row less the duration's
+        -- slot (both sides when centered) and a shown target's slot, and
+        -- shrinks to fit it (cb:_fitSpellName after each cast start).
+        if cb._fitName then
+            nameW = barW - 8 - (showDur and timerW * (nameSide == "center" and 2 or 1) or 0)
+            if not cb._combineNT and cb.Target:IsShown() and tgtSide ~= nameSide then
+                nameW = nameW - textW
+            end
+            if nameW < 20 then nameW = 20 end
+        end
         -- Combine Spell Name and Target suppresses the target element, so the combined
         -- name owns the row and gets the wide budget.
         cb.Text:ClearAllPoints()
@@ -1054,7 +1090,7 @@ local function CreateCastBar(frame, unit, settings)
             cb.Text:Hide()
         else
             local pt, xb, jh = ns.GetCastTextAnchor(nameSide, showDur and durSide == nameSide, timerW, false)
-            cb.Text:SetWidth(cb._combineNT and (barW * 0.80) or nameW)
+            cb.Text:SetWidth((cb._combineNT and not cb._fitName) and (barW * 0.80) or nameW)
             cb.Text:SetJustifyH(jh)
             cb.Text:SetPoint(pt, cb, pt, xb + (cb._nameOX or 0), 1 + (cb._nameOY or 0))
             cb.Text:Show()
@@ -1095,6 +1131,9 @@ local function CreateCastBar(frame, unit, settings)
     castbar._tgtSide  = settings.castSpellTargetSide or "right"
     castbar._durSide  = settings.castDurationSide or "right"
     castbar._showDuration = settings.showCastDuration ~= false
+    castbar._fullCraft = settings.castFullCraftTime == true
+    castbar._fitName = settings.castFitSpellName == true or nil
+    castbar._nameSize = settings.castSpellNameSize or 11
     castbar._showTarget = settings.showCastTarget ~= false
     castbar._layoutTextZones = LayoutCastTextZones
     LayoutCastTextZones(castbar)
@@ -1113,7 +1152,20 @@ local function CreateCastBar(frame, unit, settings)
         self._tgtSide  = s.castSpellTargetSide or "right"
         self._durSide  = s.castDurationSide or "right"
         self._showDuration = s.showCastDuration ~= false
+        self._fullCraft = s.castFullCraftTime == true
+        self._fitName = s.castFitSpellName == true or nil
+        self._nameSize = s.castSpellNameSize or 11
         if self._layoutTextZones then self:_layoutTextZones() end
+        -- Settings refresh resets the name to its configured size; re-fit a
+        -- cast in flight.
+        if self._fitName and self.spellName then self:_fitSpellName() end
+    end
+
+    -- Show Full Spell Name: shrink the shown name (spell, craft count or
+    -- "Spell - Target") to the width LayoutCastTextZones gave it. _fitStr is
+    -- the clean copy built at cast start; nil (secret) keeps the size.
+    castbar._fitSpellName = function(self)
+        EllesmereUI.FitCastName(self.Text, self._fitStr, self._nameSize or 11)
     end
 
     local castTintLayer = castbar:CreateTexture(nil, "ARTWORK", nil, 1)
@@ -1235,6 +1287,10 @@ local function CreateCastBar(frame, unit, settings)
             return
         end
         time:Show()
+        if self._craftExtra and durationObject then
+            EllesmereUI.SetCraftTimerText(self, time, durationObject:GetRemainingDuration(), false)
+            return
+        end
         if durationObject then
             -- The engine calls this only when the shown tenth can have changed
             -- (CastOnUpdate paces it), so every call formats. SetFormattedText
@@ -1444,6 +1500,22 @@ local function SetupShowOnCastBar(frame, unit)
             local combine = sOwn and sOwn.castCombineNameTarget == true
                 and (ownerUnit == "target" or ownerUnit == "focus")
             self._combineNT = combine or nil
+            -- Show Full Spell Name: the clean string the name element shows,
+            -- for measuring. Secret parts are never concatenated (nil = skip).
+            if self._fitName then
+                local n = self.spellName
+                if n and not issecretvalue(n) then
+                    if self._craftExtra and self._craftCountSuffix then
+                        n = n .. self._craftCountSuffix
+                    end
+                    if combine and hasTarget then
+                        n = (not issecretvalue(spellTarget)) and (n .. " - " .. spellTarget) or nil
+                    end
+                else
+                    n = nil
+                end
+                self._fitStr = n
+            end
             if combine then
                 -- The separate target element is fully suppressed; the target
                 -- rides appended to the spell NAME element instead.
@@ -1485,6 +1557,7 @@ local function SetupShowOnCastBar(frame, unit)
                 end
             end
             if self._layoutTextZones then self:_layoutTextZones() end
+            if self._fitName then self:_fitSpellName() end
         end
         if savedCastHook then savedCastHook(self, ...) end
         UpdateUnitFrameKickTick(self)

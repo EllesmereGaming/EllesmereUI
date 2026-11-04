@@ -202,16 +202,23 @@ Cooldown Manager keeps its own arrangement of Blizzard's spells, so a Blizzard
 layout imported or switched to later is not mirrored onto EUI's bars by
 itself. This queues the work of the **Repopulate from Blizzard CDM** button:
 EUI's bars drop every spell that came from Blizzard's Cooldown Manager (the
-spells a player added in EUI, their racial, trinkets and presets stay) and
-are filled again from the active Blizzard layout.
+spells a player added in EUI, trinkets and presets stay) and are filled again
+from the active Blizzard layout.
+
+The character's racial is placed as well. Blood Fury and Berserking go to the
+end of the Cooldowns bar; Will of the Forsaken, War Stomp, Will to Survive,
+Stoneform, Shadowmeld, Escape Artist, Read Ley Line and Skysight go to the end
+of the Utility bar. Any other racial goes where your Blizzard layout puts it,
+and if the layout doesn't track it, it stays where the EUI profile had it.
 
 `specIDs` is optional: one spec ID or a list of them, as the game reports them
 (`C_SpecializationInfo.GetSpecializationInfo`); leave it out for every spec of
 the player's class. The request is kept for the current character only. Each
 requested spec is repopulated the next time it is active, once Blizzard's
-Cooldown Manager has finished building its icons after a login, reload or spec
-change, and never during combat (it waits for combat to end). Returns `true`
-once queued, `false` when nothing valid was given.
+Cooldown Manager has loaded its saved layouts and finished building its icons
+after a login, reload or spec change, and never during combat (it waits for
+combat to end). Returns `true` once queued, `false` when nothing valid was
+given.
 
 Call it after your installer has written and activated its Blizzard layouts,
 right before your own `ReloadUI()`. The function exists only while the Cooldown

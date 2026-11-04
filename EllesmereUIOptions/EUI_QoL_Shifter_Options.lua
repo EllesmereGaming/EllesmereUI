@@ -240,5 +240,45 @@ _G._EUI_BuildShifterPage = function(pageName, parent, yOffset)
           end }
     );  y = y - h
 
+    ---------------------------------------------------------------------------
+    --  BATTLEGROUND FRAMES
+    ---------------------------------------------------------------------------
+    hdr, h = W:SectionHeader(parent, "BATTLEGROUND FRAMES", y);  y = y - h
+
+    local function battlegroundUnlockOff()
+        return not (EllesmereUIDB and EllesmereUIDB.shifterBattlegroundUnlock)
+    end
+    -- One toggle adds both battleground movers, so the button takes the flag carriers'.
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = "EUI_FlagCarriers", disabled = battlegroundUnlockOff, disabledTooltip = "Move Battleground Frames in Unlock Mode" })
+
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Move Battleground Frames in Unlock Mode",
+          tooltip = "Adds movers for the battleground flag carriers and the capture bar to Unlock Mode.",
+          getValue = function()
+              return EllesmereUIDB and EllesmereUIDB.shifterBattlegroundUnlock or false
+          end,
+          setValue = function(v)
+              if not EllesmereUIDB then EllesmereUIDB = {} end
+              EllesmereUIDB.shifterBattlegroundUnlock = v
+              if EllesmereUI._InitShifterLootWindows then
+                  EllesmereUI._InitShifterLootWindows()
+              end
+              if EllesmereUI._SyncShifterCarriers then
+                  EllesmereUI._SyncShifterCarriers()
+              end
+              EllesmereUI:RefreshPage()  -- update the overlay toggle disabled state
+          end },
+        { type = "toggle", text = "Hide Unlock Mode Overlays",
+          tooltip = "Hides the battleground frame movers in Unlock Mode while keeping their saved positions applied.",
+          disabled = battlegroundUnlockOff, disabledTooltip = "Move Battleground Frames in Unlock Mode",
+          getValue = function()
+              return EllesmereUIDB and EllesmereUIDB.shifterBattlegroundHideOverlays or false
+          end,
+          setValue = function(v)
+              if not EllesmereUIDB then EllesmereUIDB = {} end
+              EllesmereUIDB.shifterBattlegroundHideOverlays = v
+          end }
+    );  y = y - h
+
     return math.abs(y)
 end

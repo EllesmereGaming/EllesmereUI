@@ -527,13 +527,6 @@ local function ShowPrompt()
         accept = T["Send to raid"], onAccept = function() Whisper:SendRaidGuide() end,
         alternate = T["Send as whisper"], onAlternate = function() SendGuide(who, false) end,
         cancel = T["Decline"], neutral = true,
-
-
-        send = T["Send"],
-        choices = {
-            { text = T["Send whisper"], checked = true, onPick = function() SendGuide(who, false) end },
-            { text = T["Send raid message"], checked = true, onPick = function() Whisper:SendRaidGuide() end },
-        },
         onClose = function(how)
             if promptFor == who then promptFor = nil end
 
@@ -688,6 +681,9 @@ local function Handle(text, sender)
     local parsed = Whisper.Parse(text, Whisper.BuildKeys(addon.Config:Responses()))
     if not parsed then return end
 
+
+    if not addon.Session:IsRunning() then return end
+
     if parsed.kind == "help" then
         local last = helpAt[who]
         if last and GetTime() - last < HELP_COOLDOWN then
@@ -701,14 +697,6 @@ local function Handle(text, sender)
 
     if parsed.quiet then
         addon.Log:D("Whisper", "bare number and unknown word from", who, "- read as chat")
-        return
-    end
-
-
-    if not addon.Session:IsRunning() then
-        if (parsed.link or parsed.session) and CanReply(who) then
-            Say(who, T["No loot session is running. I have not recorded that."])
-        end
         return
     end
 
@@ -765,6 +753,10 @@ function Whisper:Describe(text)
         return { T["ignored - not an attempt at a command, so no reply is sent."] }
     end
 
+    if not addon.Session:IsRunning() then
+        return { T["no run is active, and no item was named - silent."] }
+    end
+
     if parsed.kind == "help" then
         local lines = { T["would ask whether to send the guide to the raid or by whisper:"] }
         for _, line in ipairs(Whisper:HelpLines()) do
@@ -778,12 +770,6 @@ function Whisper:Describe(text)
             tostring(parsed.word)) }
     end
 
-    if not addon.Session:IsRunning() then
-        if parsed.link or parsed.session then
-            return { T["no run is active - would reply that nothing was recorded."] }
-        end
-        return { T["no run is active, and no item was named - silent."] }
-    end
 
     if parsed.kind == "unknown" then
 

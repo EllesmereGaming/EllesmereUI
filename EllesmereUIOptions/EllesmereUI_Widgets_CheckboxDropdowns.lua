@@ -1392,6 +1392,138 @@ function EllesmereUI.SpecPickItems(opts)
 end
 
 -------------------------------------------------------------------------------
+--  AttachRowReorder
+--  Drag-to-reorder for a column of rows at fixed slots in a host frame (the
+--  reorder dropdown's movable rows, the Cooldown Manager's Combat Potion
+--  priority rows): a 3px drag threshold, the dragged row floating with the
+--  cursor, an insertion line at the gap it points at, and a drop that shuffles
+--  the ITEMS (spec.items, in place) while the row frames keep their slots.
+--  spec = {
+--      rows    = { row, ... },       -- row._item (its item), row._slotY (its slot's y)
+--      items   = { item, ... },      -- in row order; item.key; mutated on a drop
+--      itemH   = number,             -- the row height
+--      slotY   = function(i),        -- y of slot i from the host's top (slot 1 highest)
+--      insLine = texture,            -- the insertion line, on the host, hidden
+--      state   = { dragging = false },  -- read by the rows' own hover/click scripts
+--      refresh = function(),         -- repaint every row from spec.items
+--      onDrop  = function(keys),     -- after a drop that changed the order
+--      canReorder  = function() -> boolean,  -- optional drag guard
+--      onDragStart = function(row),  -- optional, as the drag begins
+--  }
+--  Rows anchor TOPLEFT (1, slotY) / TOPRIGHT (-1, slotY) to the host at the
+--  host's level + 2 and float at + 10. Every row gets row:_cancelDrag().
+-------------------------------------------------------------------------------
+function EllesmereUI.AttachRowReorder(host, spec)
+    local rows, movable, ITEM_H, SlotY = spec.rows, spec.items, spec.itemH, spec.slotY
+    local insLine, state = spec.insLine, spec.state
+    local baseLevel = host:GetFrameLevel() + 2
+    local function Park(row)
+        row:SetFrameLevel(baseLevel)
+        row:SetAlpha(1)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", host, "TOPLEFT", 1, row._slotY)
+        row:SetPoint("TOPRIGHT", host, "TOPRIGHT", -1, row._slotY)
+    end
+    -- Gap index (1..#items+1) the cursor points at: walk the slot midpoints, skipping the dragged row's own slot -- the same logic as the raid frames Sort By reorder menu, so the insertion line and the drop target always agree.
+    local function TargetGap(cursorY, fromIdx)
+        local mT = host:GetTop() or 0
+        local iI = #movable
+        for i = 1, #movable do
+            if i ~= fromIdx then
+                local mid = mT + SlotY(i) - ITEM_H / 2
+                if cursorY > mid then iI = i; break end
+                iI = i + 1
+            end
+        end
+        return math.max(1, math.min(iI, #movable + 1))
+    end
+    for i = 1, #rows do
+        local row = rows[i]
+        local dsY, dgO, dgFrom
+        local DragUpdate
+        row:SetScript("OnMouseDown", function(self, b)
+            if b ~= "LeftButton" then return end
+            row._suppressClick = nil
+            if spec.canReorder and not spec.canReorder() then return end
+            local _, cy = GetCursorPosition()
+            dsY = cy
+            self:SetScript("OnUpdate", DragUpdate)
+        end)
+        row:SetScript("OnMouseUp", function(self, b)
+            if b ~= "LeftButton" then return end
+            dsY = nil
+            self:SetScript("OnUpdate", nil)
+            if not state.dragging then return end
+            self._suppressClick = true
+            state.dragging = false
+            insLine:Hide()
+            -- Snap the floated row back to its slot
+            Park(self)
+            if spec.canReorder and not spec.canReorder() then
+                spec.refresh()
+                return
+            end
+            local _, cy = GetCursorPosition()
+            cy = cy / host:GetEffectiveScale()
+            local from
+            for mi = 1, #movable do
+                if movable[mi] == self._item then from = mi; break end
+            end
+            -- Gap -> insertion index: removing the row first shifts everything after it up one, so downward moves adjust by -1 (same as the raid frames Sort By drop).
+            local iI = TargetGap(cy, from)
+            if from and from < iI then iI = iI - 1 end
+            local to = math.max(1, math.min(iI, #movable))
+            if from and from ~= to then
+                local mv = table.remove(movable, from)
+                table.insert(movable, to, mv)
+                if spec.onDrop then
+                    local keys = {}
+                    for mi = 1, #movable do keys[mi] = movable[mi].key end
+                    spec.onDrop(keys)
+                end
+            end
+            spec.refresh()
+        end)
+        DragUpdate = function(self)
+            if not dsY then return end
+            local _, cy = GetCursorPosition()
+            if not state.dragging then
+                if math.abs(cy - dsY) < 3 then return end
+                state.dragging = true
+                local sc = host:GetEffectiveScale()
+                dgO = (cy / sc) - (self:GetTop() or 0)
+                dgFrom = nil
+                for mi = 1, #movable do
+                    if movable[mi] == self._item then dgFrom = mi; break end
+                end
+                self:SetFrameLevel(baseLevel + 8)
+                self:SetAlpha(0.8)
+                if spec.onDragStart then spec.onDragStart(self) end
+            end
+            local sc = host:GetEffectiveScale()
+            local cY = cy / sc
+            local mT = host:GetTop() or 0
+            local lY = cY - (dgO or 0) - mT
+            lY = math.max(SlotY(#movable), math.min(lY, SlotY(1)))
+            self:ClearAllPoints()
+            self:SetPoint("TOPLEFT", host, "TOPLEFT", 1, lY)
+            self:SetPoint("TOPRIGHT", host, "TOPRIGHT", -1, lY)
+            local lnY = SlotY(TargetGap(cY, dgFrom)) + 1
+            insLine:ClearAllPoints()
+            insLine:SetPoint("TOPLEFT", host, "TOPLEFT", 8, lnY)
+            insLine:SetPoint("TOPRIGHT", host, "TOPRIGHT", -8, lnY)
+            insLine:Show()
+        end
+        row._cancelDrag = function(self)
+            if not dsY then return end
+            dsY = nil
+            self:SetScript("OnUpdate", nil)
+            Park(self)
+        end
+    end
+end
+
+-------------------------------------------------------------------------------
 --  BuildReorderCBDropdown
 --  Checkbox dropdown whose rows can also be drag-reordered vertically. Row visuals match BuildVisOptsCBDropdown;
 --  the drag behavior matches the Macro Factory per-macro menus (3px threshold, floating row, insertion line, contents shuffle on drop).
@@ -1587,7 +1719,9 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             hd:SetColorTexture(1, 1, 1, 0.08)
         end
 
-        local isDragging = false
+        -- Shared with the row reorder (AttachRowReorder below): the rows' own
+        -- scripts stand down while a drag runs.
+        local dragState = { dragging = false }
         local insLine = menu:CreateTexture(nil, "OVERLAY", nil, 7)
         insLine:SetHeight(2)
         insLine:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
@@ -1648,7 +1782,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             row._updateCheck = UpdateCheck
             row._lbl = lbl
             row:SetScript("OnEnter", function()
-                if isDragging then return end
+                if dragState.dragging then return end
                 lbl:SetTextColor(1, 1, 1, 1)
                 hl:SetColorTexture(1, 1, 1, 0.04)
                 -- The row's current item (drops shuffle row contents).
@@ -1656,14 +1790,14 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
                 if tip then EllesmereUI.ShowWidgetTooltip(row, tip) end
             end)
             row:SetScript("OnLeave", function()
-                if isDragging then return end
+                if dragState.dragging then return end
                 lbl:SetTextColor(0.75, 0.75, 0.75, 1)
                 hl:SetColorTexture(1, 1, 1, 0)
                 if row._item.tooltip then EllesmereUI.HideWidgetTooltip() end
             end)
             row:SetScript("OnClick", function()
                 if row._suppressClick then row._suppressClick = nil; return end
-                if isDragging then return end
+                if dragState.dragging then return end
                 setFn(row._item.key, not getFn(row._item.key), MovableKeys())
                 UpdateLabel()
                 for _, r in ipairs(allRows) do
@@ -1686,118 +1820,26 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             end
         end
 
-        -- Gap index (1..#movable+1) the cursor points at: walk the slot midpoints, skipping the dragged row's own slot -- the same logic as the raid frames Sort By reorder menu, so the insertion line and the drop target always agree.
-        local function TargetGap(cursorY, fromIdx)
-            local mT = menu:GetTop() or 0
-            local iI = #movable
-            for i = 1, #movable do
-                if i ~= fromIdx then
-                    local mid = mT + SlotY(i) - ITEM_H / 2
-                    if cursorY > mid then iI = i; break end
-                    iI = i + 1
-                end
-            end
-            return math.max(1, math.min(iI, #movable + 1))
-        end
-
         for i = 1, #movable do
-            local row = BuildRow(movable[i], SlotY(i), true)
-            movableRows[i] = row
-
-            local dsY, dgO, dgFrom
-            local DragUpdate
-            row:SetScript("OnMouseDown", function(self, b)
-                if b ~= "LeftButton" then return end
-                row._suppressClick = nil
-                if opts.canReorder and not opts.canReorder() then return end
-                local _, cy = GetCursorPosition()
-                dsY = cy
-                self:SetScript("OnUpdate", DragUpdate)
-            end)
-            row:SetScript("OnMouseUp", function(self, b)
-                if b ~= "LeftButton" then return end
-                dsY = nil
-                self:SetScript("OnUpdate", nil)
-                if not isDragging then return end
-                self._suppressClick = true
-                isDragging = false
-                insLine:Hide()
-                self:SetFrameLevel(menu:GetFrameLevel() + 2)
-                self:SetAlpha(1)
-                -- Snap the floated row back to its slot
-                self:ClearAllPoints()
-                self:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, self._slotY)
-                self:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, self._slotY)
-                if opts.canReorder and not opts.canReorder() then
-                    RefreshMovableRows()
-                    return
-                end
-                local _, cy = GetCursorPosition()
-                cy = cy / menu:GetEffectiveScale()
-                local from
-                for mi = 1, #movable do
-                    if movable[mi] == self._item then from = mi; break end
-                end
-                -- Gap -> insertion index: removing the row first shifts everything after it up one, so downward moves adjust by -1 (same as the raid frames Sort By drop).
-                local iI = TargetGap(cy, from)
-                if from and from < iI then iI = iI - 1 end
-                local to = math.max(1, math.min(iI, #movable))
-                if from and from ~= to then
-                    local mv = table.remove(movable, from)
-                    table.insert(movable, to, mv)
-                    orderChanged = true
-                    if opts.setOrder then
-                        local keys = {}
-                        for mi = 1, #movable do keys[mi] = movable[mi].key end
-                        opts.setOrder(keys)
-                    end
-                    UpdateLabel()
-                end
-                RefreshMovableRows()
-            end)
-            DragUpdate = function(self)
-                if not dsY then return end
-                local _, cy = GetCursorPosition()
-                if not isDragging then
-                    if math.abs(cy - dsY) < 3 then return end
-                    isDragging = true
-                    local sc = menu:GetEffectiveScale()
-                    dgO = (cy / sc) - (self:GetTop() or 0)
-                    dgFrom = nil
-                    for mi = 1, #movable do
-                        if movable[mi] == self._item then dgFrom = mi; break end
-                    end
-                    self:SetFrameLevel(menu:GetFrameLevel() + 10)
-                    self:SetAlpha(0.8)
-                    for _, rf in ipairs(movableRows) do
-                        if rf._lbl then rf._lbl:SetTextColor(0.75, 0.75, 0.75, 1) end
-                    end
-                end
-                local sc = menu:GetEffectiveScale()
-                local cY = cy / sc
-                local mT = menu:GetTop() or 0
-                local lY = cY - (dgO or 0) - mT
-                lY = math.max(ROWS_BASE_Y - (#movable - 1) * ITEM_H, math.min(lY, ROWS_BASE_Y))
-                self:ClearAllPoints()
-                self:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, lY)
-                self:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, lY)
-                local lnY = SlotY(TargetGap(cY, dgFrom)) + 1
-                insLine:ClearAllPoints()
-                insLine:SetPoint("TOPLEFT", menu, "TOPLEFT", 8, lnY)
-                insLine:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -8, lnY)
-                insLine:Show()
-            end
-            row._cancelDrag = function(self)
-                if not dsY then return end
-                dsY = nil
-                self:SetScript("OnUpdate", nil)
-                self:SetFrameLevel(menu:GetFrameLevel() + 2)
-                self:SetAlpha(1)
-                self:ClearAllPoints()
-                self:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, self._slotY)
-                self:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, self._slotY)
-            end
+            movableRows[i] = BuildRow(movable[i], SlotY(i), true)
         end
+        -- The drag itself (threshold, floating row, insertion line, drop) is the
+        -- shared row reorder; a drop shuffles `movable` and repaints the rows.
+        EllesmereUI.AttachRowReorder(menu, {
+            rows = movableRows, items = movable, itemH = ITEM_H, slotY = SlotY,
+            insLine = insLine, state = dragState, canReorder = opts.canReorder,
+            refresh = RefreshMovableRows,
+            onDragStart = function()
+                for _, rf in ipairs(movableRows) do
+                    if rf._lbl then rf._lbl:SetTextColor(0.75, 0.75, 0.75, 1) end
+                end
+            end,
+            onDrop = function(keys)
+                orderChanged = true
+                if opts.setOrder then opts.setOrder(keys) end
+                UpdateLabel()
+            end,
+        })
 
         -- Divider + fixed (non-draggable) rows below the movable group
         if #fixedItems > 0 then
@@ -1860,7 +1902,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
         -- One close notification per open/close cycle (reload prompts hook this)
         menu:HookScript("OnHide", function()
             for _, row in ipairs(movableRows) do row:_cancelDrag() end
-            isDragging = false
+            dragState.dragging = false
             insLine:Hide()
             -- Controller cursor: back onto the dropdown button before onClose, so a
             -- prompt it opens can still take the cursor (a no-op once the button is hidden).

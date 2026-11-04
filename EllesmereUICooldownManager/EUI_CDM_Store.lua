@@ -306,6 +306,12 @@ function ns.IsEmptySlotMarker(id)
         and id > -ns.HOSTED_BUFF_MARKER_BASE
 end
 
+-- True for an item entry key (-itemID): an item preset or a Custom Item ID, the band
+-- below the equipment slot ids (-1..-19) and above every marker base.
+function ns.IsItemPresetKey(id)
+    return type(id) == "number" and id <= -100 and id > -ns.EMPTY_SLOT_MARKER_BASE
+end
+
 -------------------------------------------------------------------------------
 --  Cd-claim markers: a collided buff (two Blizzard buff-viewer slots sharing one canonical
 --  spellID, e.g. Diabolist Demonic Art vs Diabolic Ritual) can't be told apart by spellID, so

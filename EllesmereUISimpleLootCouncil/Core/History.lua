@@ -1871,6 +1871,21 @@ end
 
 
 
+local FORMULA_LEAD = "^'?[=+%-@\t\r]"
+
+function History.Neutralise(text)
+    if text:find(FORMULA_LEAD) then return "'" .. text end
+    return text
+end
+
+
+function History.Plain(text)
+    if type(text) == "string" and text:find("^''?[=+%-@\t\r]") then return text:sub(2) end
+    return text
+end
+
+
+
 function History:ToCSV(scope, delimiter)
     delimiter = delimiter or History:Delimiter()
     local rows = { (CSV_HEADER:gsub(",", delimiter)) }
@@ -1896,6 +1911,12 @@ function History:ToCSV(scope, delimiter)
     end
 
 
+    local function escText(value)
+        if value == nil then return "" end
+        return esc(History.Neutralise(tostring(value)))
+    end
+
+
     local function escLink(link)
         if not link then return "" end
         return esc((tostring(link):gsub("|", "||")))
@@ -1905,22 +1926,22 @@ function History:ToCSV(scope, delimiter)
         rows[#rows + 1] = table.concat({
             esc(entry.id), esc(entry.date), esc(entry.time),
             esc(entry.source or "slc"),
-            esc(entry.winner), esc(entry.owner),
+            escText(entry.winner), escText(entry.owner),
 
-            esc(entry.name
+            escText(entry.name
                 or (entry.link and (C_Item.GetItemInfo(entry.link) or entry.link))),
             escLink(entry.link),
-            esc(History.ResponseText(entry)), esc(entry.votes), esc(entry.instance),
-            esc(entry.difficultyName or entry.difficultyID), esc(entry.boss),
+            escText(History.ResponseText(entry)), esc(entry.votes), escText(entry.instance),
+            esc(entry.difficultyName or entry.difficultyID), escText(entry.boss),
 
             esc(entry.delivered == nil and "" or (entry.delivered and "yes" or "no")),
-            esc(entry.note and addon.Autopass
+            escText(entry.note and addon.Autopass
                 and addon.Autopass.NoteText(entry.note) or entry.note),
-            esc(entry.reason),
+            escText(entry.reason),
 
             esc(entry.coin and "yes" or ""),
             esc(entry.encounterID),
-            esc(entry.guild), esc(entry.recorder),
+            escText(entry.guild), escText(entry.recorder),
         }, delimiter)
     end
 

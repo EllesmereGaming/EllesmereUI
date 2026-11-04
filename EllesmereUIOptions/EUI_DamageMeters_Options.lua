@@ -1266,9 +1266,9 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(refreshLeft)
             refreshLeft()
 
-            -- Inline cog: left text X/Y offsets (live via ns.ApplyBarTextOffsets).
-            -- WoW Forever heads it with the Name Format (a player's first or
-            -- last name; in combat other players' names are secret and show whole).
+            -- Inline cog: left text X/Y offsets (live via ns.ApplyBarTextOffsets),
+            -- headed by the Name Format (players' names; in combat other players'
+            -- names are secret and show whole).
             local leftRows = {
                 { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
                   get = function() return Cfg("leftTextOffsetX") or 0 end,
@@ -1283,16 +1283,14 @@ initFrame:SetScript("OnEvent", function(self)
                       if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
                   end },
             }
-            if EllesmereUI.IS_FOREVER then
-                local nameFormat = EllesmereUI.NameFormatCogRow(
-                    function() return Cfg("nameFormat") end,
-                    function(v)
-                        Set("nameFormat", v)
-                        ns.RefreshNames()
-                    end)
-                nameFormat.tooltip = "Other players' names show in full during combat."
-                table.insert(leftRows, 1, nameFormat)
-            end
+            local nameFormat = EllesmereUI.NameFormatCogRow(
+                function() return Cfg("nameFormat") end,
+                function(v)
+                    Set("nameFormat", v)
+                    ns.RefreshNames()
+                end)
+            nameFormat.tooltip = "Other players' names show in full during combat."
+            table.insert(leftRows, 1, nameFormat)
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Left Text",
                 rows = leftRows,

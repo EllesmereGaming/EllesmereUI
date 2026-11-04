@@ -145,13 +145,17 @@ ns.UF_KITS.classic = {
         portrait = { point = "TOPLEFT", x = 24, y = -16, size = 64, mask = "CircleMask" },
         health = { x = 90, y = 45, w = 119, h = 12 },
         power  = { x = 90, y = 56, w = 119, h = 12 },
-        -- Hide Power Bar (UF_PaintArtCut): the divider band between the health
-        -- and power windows is the sheet's rows 50..56; across the windows and
-        -- their left rim (the sheet's columns before 147) it takes the power
-        -- window's clear rows from 56 instead. From 147 the right rim and the
+        -- Hide Power Bar (UF_PaintArtCut): the divider between the health and
+        -- power windows is the sheet's rows 50..55, between the clear rows
+        -- 45..49 and 56..61. The band runs from row 48 (a clear row) to the
+        -- bottom rim at 62; across the windows and their left rim (the sheet's
+        -- columns before 147) it takes the health window's clear rows 46..47,
+        -- stretched, so the shadow by the portrait ring keeps the health
+        -- window's width down to the rim (the power window's is narrower, and
+        -- the boss sheet's holds an ornament). From 147 the right rim and the
         -- portrait ring's edge slant with the rows, so they keep their own.
-        -- The target's elite, rare and rare-elite sheets share this layout.
-        merge = { t = 50 / 128, b = 56 / 128, src = 56 / 128, x = 147 / 256 },
+        -- The target's elite, rare, rare-elite and boss sheets share this layout.
+        merge = { t = 48 / 128, b = 62 / 128, src = 46 / 128, srcB = 48 / 128, x = 147 / 256 },
         name  = { point = "CENTER", x = 34, y = 15, w = 100, justify = "CENTER" },
         -- Level number in the ring under the portrait. The ring is an oval
         -- in the sheet (28 wide, 24 tall) centred 35.6 from the frame's left
@@ -177,7 +181,7 @@ ns.UF_KITS.classic = {
         portrait = { point = "TOPRIGHT", x = -24, y = -16, size = 64, mask = "CircleMask" },
         health = { x = 23, y = 45, w = 119, h = 12 },
         power  = { x = 23, y = 56, w = 119, h = 12 },
-        merge = { t = 50 / 128, b = 56 / 128, src = 56 / 128, x = 147 / 256 },
+        merge = { t = 48 / 128, b = 62 / 128, src = 46 / 128, srcB = 48 / 128, x = 147 / 256 },
         -- The name plaque behind the name, tinted by the unit's selection
         -- colour, under the art (the art's name window shows it).
         rep = { art = { key = "c-namebg", file = "Interface\\TargetingFrame\\UI-TargetingFrame-LevelBackground", w = 119, h = 19 },
@@ -929,12 +933,16 @@ end
 -- bars (the classic frames) it would cross the health bar, under them (the
 -- stock atlas art) it shows through a fill that is not fully opaque. `cut`
 -- (in sheet texcoords): rows t..b are the divider band; on the bars' side of
--- column x the band takes the clear window rows from src down instead, which
--- carries the windows' end rims through it, and on the portrait ring's side
--- it keeps its own rows. keepLeft: the ring lies left of x; unset, the bars
--- lie on the sheet's columns before x (the classic sheets, whose player frame
--- samples its sheet flipped). The art is centred on the frame plus (ax, ay),
--- w x h, from sheet coords l, r, t, b.
+-- column x the band takes the clear window rows from src down instead (src to
+-- srcB stretched over the band when given), which carries the windows' end
+-- rims through it, and on the portrait ring's side it keeps its own rows.
+-- A scaled draw samples a row past each piece's edge, so an edge that falls
+-- inside a window (t, b, src, srcB) lies between two plain track rows (clear
+-- window rows on the classic sheets); b may also sit on the window's rim,
+-- whose edge the art draws soft anyway. keepLeft: the ring lies left of x;
+-- unset, the bars lie on the sheet's columns before x (the classic sheets,
+-- whose player frame samples its sheet flipped). The art is centred on the
+-- frame plus (ax, ay), w x h, from sheet coords l, r, t, b.
 local function PlaceArtPiece(tex, frame, file, left, top, x0, x1, y0, y1, u0, u1, v0, v1)
     tex:SetTexture(file)
     tex:SetTexCoord(u0, u1, v0, v1)
@@ -966,7 +974,7 @@ function ns.UF_PaintArtCut(frame, art, pieces, file, cut, l, r, t, b, w, h, ax, 
     PlaceArtPiece(pieces[2], frame, file, left, top, kx0, kx1, y0, y1,
         l + kx0 * du, l + kx1 * du, cut.t, cut.b)
     PlaceArtPiece(pieces[3], frame, file, left, top, cx0, cx1, y0, y1,
-        l + cx0 * du, l + cx1 * du, cut.src, cut.src + (cut.b - cut.t))
+        l + cx0 * du, l + cx1 * du, cut.src, cut.srcB or (cut.src + (cut.b - cut.t)))
 end
 
 function ns.UF_PaintBlizzArt(frame, atlas)

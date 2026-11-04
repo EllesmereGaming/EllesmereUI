@@ -732,7 +732,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         local stringHasBlizzSkin = (payload and payload.data
             and type(payload.data.blizzSkinGlobals) == "table") or false
         local includeWindowSkinsImport = false
-        -- "Global Settings": the exporter's global appearance (fonts, custom colours, dark mode, accent) and UI scale. Presence = deliberate
+        -- "Global Settings": the exporter's global appearance (fonts, custom colours, dark mode, accent, number format) and UI scale. Presence = deliberate
         -- include; this toggle is the recipient's opt-out. ON when carried, inert when the string has none.
         local stringHasGlobals = false
         do
@@ -740,6 +740,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
             if d then
                 stringHasGlobals = d.fonts ~= nil or d.customColors ~= nil
                     or d.darkMode ~= nil or d.euiAccent ~= nil or d.uiScale ~= nil
+                    or d.numberFormat ~= nil
             end
         end
         local includeGlobalsImport = stringHasGlobals
@@ -1262,13 +1263,14 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
                 -- Meta is transient -- never overlay/persist it into the profile.
                 filteredPayload.data.unlockLayoutMeta = nil
             end
-            -- Global appearance (fonts, customColors, darkMode, euiAccent) and scale ride the Include dropdown's "Global Settings" row (on
+            -- Global appearance (fonts, customColors, darkMode, euiAccent, numberFormat) and scale ride the Include dropdown's "Global Settings" row (on
             -- by default when carried): unchecked strips them all so the merge keeps the recipient's look. Module deselection alone never
             -- strips them -- the store merge takes each key only when present.
             if filteredPayload and filteredPayload.data and not includeGlobalsImport then
                 filteredPayload.data.fonts        = nil
                 filteredPayload.data.customColors = nil
                 filteredPayload.data.darkMode     = nil
+                filteredPayload.data.numberFormat = nil
                 filteredPayload.data.euiAccent    = nil
                 filteredPayload.data.uiScale      = nil
                 filteredPayload.data.applyUIScale = nil

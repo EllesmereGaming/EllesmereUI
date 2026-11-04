@@ -558,6 +558,24 @@ local function PT_FpExtra(t)
     t[n + 9], t[n + 10] = p.partyTargetBgDarkness, PT_Source().smoothBars
 end
 
+-- Textured Background on a target frame, from the party settings: the fixed health
+-- layer (the background follows the fill edge), shown while the fill is opaque.
+local function PT_TexBg(frame)
+    local s = PT_Source()
+    local path = ns.RF_TexBgPath(s)
+    if not (path or frame._rfTexBg) then return end
+    frame._rfTexBg = path and true or nil
+    local dark = db.profile.partyTargetHealthColorMode == "dark"
+    ns.RF_TexBgLayer(frame._health, frame._bg, (not dark or ns.RF_TexBgOpaque(s, true)) and path or nil)
+    if path then ns.RF_TexBgWatch() end
+end
+-- A colour push (ns.RF_TexBgRecheck): Dark Mode Fill can cross 100 with no restyle.
+-- ERF:UpdateAllFrames repaints the frames on screen right after.
+ns._PT_TexBgRecheck = function()
+    if not ns._ptEnabled then return end
+    for _, frame in ipairs(ns._partyTargetFrames) do PT_TexBg(frame) end
+end
+
 -- Texture, name font and border from the party settings (the stock edge under a stock style), and
 -- the colour settings the paint reads, fingerprinted together: a reload or setting that changed
 -- none of them touches nothing; one that did repaints the frames on screen, restyling them only
@@ -600,6 +618,7 @@ ns._PT_Restyle = function()
             styleBorder(frame)
         end
     end
+    for _, frame in ipairs(ns._partyTargetFrames) do PT_TexBg(frame) end
     ns._PT_RepaintVisible()
 end
 
@@ -937,6 +956,8 @@ local function PT_PvFrame(i, parent, s, spec)
     health:SetValue(mock.hp)
     name:SetText(mock.name)
     local mode = s.partyTargetHealthColorMode or "class"
+    ns.RF_TexBgLayer(health, bg, (mode ~= "dark" or ns.RF_TexBgOpaque(st, true))
+        and ns.RF_TexBgPath(st) or nil)
     if mode == "dark" then
         local r, g, b, a = EUI.GetDarkModeFill()
         health:SetStatusBarColor(r, g, b, 1)

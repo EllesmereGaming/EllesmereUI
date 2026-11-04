@@ -84,6 +84,7 @@ do
             "customBgColor", "bgClassColored", "bgDarkness", "smoothBars",
             "healPrediction", "healPredOpacity", "healPredColor",
             "healthVerticalFill", "healthInvertFill",
+            "textureBg",
             -- Drawn as "Threat Borders" (and its cog) on the Health Bar row, so they file here.
             "threatBorderSize", "threatCustomBorder",
         },
@@ -119,6 +120,7 @@ do
         },
         indicators = {
             "roleIconStyle", "roleIconSize", "roleIconPosition", "roleIconOffsetX", "roleIconOffsetY", "roleIconHideInCombat",
+            "roleIconOnNameBar", "roleNameBarPosition", "roleNameBarOffsetX", "roleNameBarOffsetY",
             "roleIconBehindBorder", "roleText",
             "roleTextTankColor", "roleTextHealerColor", "roleTextDPSColor",
             "showRoleForTank", "showRoleForHealer", "showRoleForDPS",

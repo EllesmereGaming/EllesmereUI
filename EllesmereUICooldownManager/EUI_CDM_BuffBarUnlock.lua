@@ -52,7 +52,7 @@ function ns.RegisterTBBUnlockElements()
                 key   = "TBB_" .. posKey,
                 label = isGroupMover
                     and (ns.TBBGroupName(barGid) or EllesmereUI.Lf("Tracking Bar Group %d", barGid))
-                    or EllesmereUI.Lf("Tracking Bar: %s", cfg.name or EllesmereUI.Lf("Bar %d", idx)),
+                    or EllesmereUI.Lf("Tracking Bar: %s", ns.TBBCustomName(cfg) or cfg.name or EllesmereUI.Lf("Bar %d", idx)),
                 group = "Cooldown Manager",
                 order = 650,
                 noResize = true,

@@ -14,7 +14,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  shared with Cursor/BattleRes/Bloodlust: each NewDB merges its own defaults
 --  into the SAME profile table, repointed by the profile system on swap.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Shifter's loot windows use the parent's frame placer)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer and EllesmereUI.RAID_PREP_IDS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Shifter's loot windows use the parent's frame placer; Raid Buff Check reads the parent's buff lists)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS["EllesmereUIQoL"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -249,27 +249,19 @@ qolFrame:SetScript("OnEvent", function(self)
     do
         local busy = false
 
-        -- Clears pending mount fanfare: narrows the journal filter to
-        -- collected-only for the sweep, then restores the snapshot.
+        -- Walks all mount IDs so journal filters cannot hide a pending mount.
         local function AckMountAlerts()
             if not C_MountJournal then return false end
             local pending = C_MountJournal.GetNumMountsNeedingFanfare
                 and C_MountJournal.GetNumMountsNeedingFanfare()
             if not pending or pending <= 0 then return false end
 
-            local snapshot = {}
-            for i = LE_MOUNT_JOURNAL_FILTER_COLLECTED, LE_MOUNT_JOURNAL_FILTER_UNUSABLE do
-                snapshot[i] = C_MountJournal.GetCollectedFilterSetting(i) and true or false
-                C_MountJournal.SetCollectedFilterSetting(i, i == LE_MOUNT_JOURNAL_FILTER_COLLECTED)
-            end
-            for i = 1, C_MountJournal.GetNumDisplayedMounts() do
-                local id = C_MountJournal.GetDisplayedMountID(i)
-                if id and C_MountJournal.NeedsFanfare(id) then
+            for _, id in ipairs(C_MountJournal.GetMountIDs()) do
+                if C_MountJournal.NeedsFanfare(id) then
                     C_MountJournal.ClearFanfare(id)
+                    pending = pending - 1
+                    if pending == 0 then break end
                 end
-            end
-            for i = LE_MOUNT_JOURNAL_FILTER_COLLECTED, LE_MOUNT_JOURNAL_FILTER_UNUSABLE do
-                C_MountJournal.SetCollectedFilterSetting(i, snapshot[i])
             end
             return true
         end
@@ -315,21 +307,22 @@ qolFrame:SetScript("OnEvent", function(self)
             if not (EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections) then return end
             if busy then return end
             busy = true
+            -- Fanfare only: calling the micro button alert functions from here
+            -- taints them and blocks SetAvatarTexture in the Communities list.
             C_Timer.After(0.2, function()
                 busy = false
-                local changed = AckMountAlerts() or AckPetAlerts() or AckToyAlerts()
-                if changed then
-                    if CollectionsMicroButton and MainMenuMicroButton_HideAlert then
-                        MainMenuMicroButton_HideAlert(CollectionsMicroButton)
-                    end
-                    if CollectionsMicroButton_SetAlertShown then
-                        CollectionsMicroButton_SetAlertShown(false)
-                    end
-                end
+                local mounts = AckMountAlerts()
+                local pets = AckPetAlerts()
+                if not (mounts or pets) then AckToyAlerts() end
             end)
         end
 
-        EllesmereUI._applyAutoUnwrap = function() end
+        -- Runs during PLAYER_LOGIN, before Blizzard's PLAYER_ENTERING_WORLD
+        -- check, so the Collections button does not raise the unopened alert.
+        if EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections then
+            AckMountAlerts()
+            AckPetAlerts()
+        end
 
         hooksecurefunc("MainMenuMicroButton_ShowAlert", function(_, text)
             if not (EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections) then return end
@@ -338,11 +331,26 @@ qolFrame:SetScript("OnEvent", function(self)
             end
         end)
 
+        -- The collection events are registered only while the option is on.
         local f = CreateFrame("Frame")
-        f:RegisterEvent("PLAYER_LOGIN")
-        f:RegisterEvent("NEW_MOUNT_ADDED")
-        f:RegisterEvent("NEW_PET_ADDED")
-        f:RegisterEvent("NEW_TOY_ADDED")
+        local function SyncUnwrapEvents()
+            local on = EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections
+            if on then
+                f:RegisterEvent("NEW_MOUNT_ADDED")
+                f:RegisterEvent("NEW_PET_ADDED")
+                f:RegisterEvent("NEW_TOY_ADDED")
+            else
+                f:UnregisterEvent("NEW_MOUNT_ADDED")
+                f:UnregisterEvent("NEW_PET_ADDED")
+                f:UnregisterEvent("NEW_TOY_ADDED")
+            end
+            return on
+        end
+        -- The options toggle: switching on also unwraps what is already pending.
+        EllesmereUI._applyAutoUnwrap = function()
+            if SyncUnwrapEvents() then DismissCollectionAlerts() end
+        end
+        if SyncUnwrapEvents() then f:RegisterEvent("PLAYER_LOGIN") end
         f:SetScript("OnEvent", function(self, event)
             if event == "PLAYER_LOGIN" then
                 self:UnregisterEvent("PLAYER_LOGIN")
@@ -2162,6 +2170,51 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Auto-Accept Resurrection
+--  Accepts res requests automatically. A res from a caster in combat (a
+--  battle res) is left to the player unless the combat option is on.
+-------------------------------------------------------------------------------
+do
+    local IsSecret = EllesmereUI.IsSecret
+    local frame
+
+    -- A secret or unreadable answer counts as in combat.
+    local function CasterInCombat(caster)
+        if not caster then return false end
+        local ok, v = pcall(UnitAffectingCombat, caster)
+        if not ok or IsSecret(v) then return true end
+        return v and true or false
+    end
+
+    local function OnEvent(_, _, caster)
+        if not EllesmereUIDB.autoAcceptResCombat and CasterInCombat(caster) then return end
+        AcceptResurrect()
+    end
+
+    local function ApplyAutoAcceptRes()
+        local on = EllesmereUIDB and EllesmereUIDB.autoAcceptRes
+        if on and not frame then
+            frame = CreateFrame("Frame")
+            frame:SetScript("OnEvent", OnEvent)
+        end
+        if not frame then return end
+        if on then
+            frame:RegisterEvent("RESURRECT_REQUEST")
+        else
+            frame:UnregisterEvent("RESURRECT_REQUEST")
+        end
+    end
+    EllesmereUI._applyAutoAcceptRes = ApplyAutoAcceptRes
+
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_LOGIN")
+    f:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        if EllesmereUIDB and EllesmereUIDB.autoAcceptRes then ApplyAutoAcceptRes() end
+    end)
+end
+
+-------------------------------------------------------------------------------
 --  Secondary Stats Display
 --  On-screen overlay showing crit/haste/mastery/vers (+ optional tertiaries).
 -------------------------------------------------------------------------------
@@ -3850,7 +3903,7 @@ end
 if not EllesmereUI.IS_FOREVER then
     local loader
     local applied = false
-    local mouseWas, wheelWas
+    local mouseWas
 
     function EllesmereUI._applyMapSidebars()
         local on = EllesmereUIDB and EllesmereUIDB.mapSidebarsClear == true
@@ -3877,15 +3930,14 @@ if not EllesmereUI.IS_FOREVER then
         if not (b and b.Blackout) then return end
         if on then
             if not applied then
-                mouseWas, wheelWas = b:IsMouseEnabled(), b:IsMouseWheelEnabled()
+                mouseWas = b:IsMouseEnabled()
             end
             b.Blackout:SetAlpha((EllesmereUIDB.mapSidebarsOpacity or 0) / 100)
+            -- The wheel already passes through: the frame never takes it.
             b:EnableMouse(false)
-            b:EnableMouseWheel(false)
         else
             b.Blackout:SetAlpha(1)
             b:EnableMouse(mouseWas)
-            b:EnableMouseWheel(wheelWas)
         end
         applied = on
     end

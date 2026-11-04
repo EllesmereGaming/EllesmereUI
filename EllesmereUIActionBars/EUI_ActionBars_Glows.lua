@@ -35,6 +35,7 @@ local GetButtonActionSlot, MaskFrameTextures = I.GetButtonActionSlot, I.MaskFram
 -- Loop glow types: the shared glow styles in their shared order (saved procGlowType
 -- values are shared indices).
 local LOOP_GLOW_TYPES = EllesmereUI.Glows.MakeView({ 1, 2, 3, 4, 5, 6, 7 }).list
+ns.LOOP_GLOW_TYPES = LOOP_GLOW_TYPES
 
 -- Proc start types: the initial burst animation
 local PROC_START_TYPES = {
@@ -466,6 +467,70 @@ do
         return hf
     end
 
+    -- The custom Assisted Highlight glows run on the shared glow engines with
+    -- settings of their own (assistGlow*), never the Custom Proc Glow's.
+    -- Their colour: the palette's class colour or the picked one; the one
+    -- reader for the live buttons and the Animations page preview.
+    ns._AssistCustomGlowColor = function()
+        local p = EAB.db and EAB.db.profile
+        local c = p and p.assistGlowColor
+        return _G_Glows.ResolveColor(_G_Glows.DeriveColorMode(nil, p and p.assistGlowUseClassColor),
+            c and c.r, c and c.g, c and c.b, 0.15, 0.5, 1)
+    end
+
+    ns._AssistCustomGlowStop = function(btn)
+        local fd = EFD(btn)
+        local wrapper = fd.assistGlowWrapper
+        if wrapper then
+            _G_Glows.StopAllGlows(wrapper)
+            wrapper:Hide()
+        end
+    end
+
+    ns._AssistCustomGlowStart = function(btn, loopIdx, cr, cg, cb, bW, bH)
+        local loopEntry = LOOP_GLOW_TYPES[loopIdx]
+        if not loopEntry then
+            ns._AssistCustomGlowStop(btn)
+            return false
+        end
+
+        local fd = EFD(btn)
+        if not fd.assistGlowWrapper then
+            local wrapper = CreateFrame("Frame", nil, btn)
+            wrapper:SetAllPoints(btn)
+            fd.assistGlowWrapper = wrapper
+        end
+
+        local wrapper = fd.assistGlowWrapper
+        wrapper:SetAllPoints(btn)
+        wrapper:SetFrameLevel(btn:GetFrameLevel() + 15)
+        wrapper:SetAlpha(1)
+
+        local wfd = EFD(wrapper)
+        if fd.shapeMask and fd.shapeApplied and fd.shapeMaskPath then
+            if not wfd.ownMask then wfd.ownMask = wrapper:CreateMaskTexture() end
+            wfd.ownMask:ClearAllPoints()
+            PP.Point(wfd.ownMask, "TOPLEFT", btn, "TOPLEFT", 1, -1)
+            PP.Point(wfd.ownMask, "BOTTOMRIGHT", btn, "BOTTOMRIGHT", -1, 1)
+            wfd.ownMask:SetTexture(fd.shapeMaskPath, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+            wfd.ownMask:Show()
+        elseif wfd.ownMask then
+            wfd.ownMask:Hide()
+        end
+
+        _G_Glows.StopAllGlows(wrapper)
+        wrapper:Show()
+
+        _G_Glows.StartSpecGlow(wrapper,
+            { style = loopIdx, r = cr, g = cg, b = cb }, bW, bH, "icon", {
+                maskWith = wfd.ownMask and wfd.ownMask:IsShown() and wfd.ownMask or nil,
+                maskPath = fd.shapeMaskPath or SHAPE_MASKS[fd.shapeName or ""],
+                borderPath = SHAPE_BORDERS[fd.shapeName or ""],
+                shapeMask = fd.shapeMask, anchorFrame = btn,
+            })
+        return true
+    end
+
     -- Ring teardown alone. Split out of AssistHide because AssistShow also
     -- needs it on its own: with the overlay style picked, or with Blizzard
     -- painting its own ring on a hovered button, our ring must go while the
@@ -552,6 +617,16 @@ do
     -- button that stops being the suggestion (or the CVar going off) must not
     -- leave it invisible for whoever shows it next.
     local function AssistHide(btn)
+        local fd = EFD(btn)
+        if fd.assistCustomActive then
+            ns._AssistCustomGlowStop(btn)
+            fd.assistCustomActive = nil
+            fd.assistCustomType = nil
+            fd.assistCustomMask = nil
+            fd.assistCustomShapeMask = nil
+            fd.assistCustomW, fd.assistCustomH = nil, nil
+            fd.assistCustomR, fd.assistCustomG, fd.assistCustomB = nil, nil, nil
+        end
         ns._AssistRingHide(btn)
         ns._AssistOverlay(btn)
         local bf = btn.AssistedCombatHighlightFrame
@@ -633,9 +708,64 @@ do
     local function AssistShow(btn)
         local fd = EFD(btn)
         local p = EAB.db and EAB.db.profile
-        local style = (p and p.assistGlowStyle) or 1
+        local customType = (p and p.assistGlowType) or 0
+        if customType < 1 or customType > #LOOP_GLOW_TYPES or not LOOP_GLOW_TYPES[customType] then
+            customType = 0
+        end
 
-        -- Tint: always ours, Blizzard never paints one.
+        if customType > 0 and _assistInCombat then
+            if fd.shapeMask and fd.shapeApplied then
+                for si, entry in ipairs(LOOP_GLOW_TYPES) do
+                    if entry.shapeGlow then customType = si; break end
+                end
+            end
+            local ov = fd.assistOverlay
+            if ov and ov:IsShown() then ns._AssistOverlay(btn) end
+            local hf = fd.assistHL
+            if hf and hf:IsShown() then ns._AssistRingHide(btn) end
+
+            local bf = btn.AssistedCombatHighlightFrame
+            if bf then bf:SetAlpha(0) end
+
+            local cr, cg, cb = ns._AssistCustomGlowColor()
+            local bW, bH = btn:GetWidth() or 45, btn:GetHeight() or 45
+            if fd.assistCustomActive
+               and fd.assistCustomType == customType
+               and fd.assistCustomW == bW and fd.assistCustomH == bH
+               and fd.assistCustomMask == fd.shapeMaskPath
+               and fd.assistCustomShapeMask == fd.shapeMask
+               and fd.assistCustomR == cr and fd.assistCustomG == cg and fd.assistCustomB == cb
+               and fd.assistGlowWrapper and fd.assistGlowWrapper:IsShown() then
+                return
+            end
+
+            if ns._AssistCustomGlowStart(btn, customType, cr, cg, cb, bW, bH) then
+                fd.assistCustomActive = true
+                fd.assistCustomType = customType
+                fd.assistCustomW, fd.assistCustomH = bW, bH
+                fd.assistCustomMask = fd.shapeMaskPath
+                fd.assistCustomShapeMask = fd.shapeMask
+                fd.assistCustomR, fd.assistCustomG, fd.assistCustomB = cr, cg, cb
+            end
+            return
+        end
+
+        if fd.assistCustomActive then
+            ns._AssistCustomGlowStop(btn)
+            fd.assistCustomActive = nil
+            fd.assistCustomType = nil
+            fd.assistCustomMask = nil
+            fd.assistCustomShapeMask = nil
+            fd.assistCustomW, fd.assistCustomH = nil, nil
+            fd.assistCustomR, fd.assistCustomG, fd.assistCustomB = nil, nil, nil
+            local bf = btn.AssistedCombatHighlightFrame
+            if bf then bf:SetAlpha(1) end
+        end
+
+        local style = (p and p.assistGlowStyle) or 1
+        -- A custom glow runs in combat only: outside it, Blizzard's frozen ring.
+        if customType > 0 or style == 0 then style = 1 end
+
         ns._AssistOverlay(btn, style)
 
         -- Blizzard may show its own ring on a hovered button (candidate
@@ -767,11 +897,19 @@ do
     ns.QueueAssistRescan = QueueAssistRescan
 
     local function SyncAssistCombat()
-        _assistInCombat = (InCombatLockdown() or UnitAffectingCombat("player")) and true or false
+        local inCombat = (InCombatLockdown() or UnitAffectingCombat("player")) and true or false
+        local changed = _assistInCombat ~= inCombat
+        _assistInCombat = inCombat
         -- Exposed for the per-button rotation hook (different scope), which
         -- re-freezes Blizzard's swirl after its UpdateState calls.
         ns._assistCombatState = _assistInCombat
+        -- A custom glow runs in combat only (the frozen ring stands in outside
+        -- it), so its buttons are painted again on the edge; the stock styles
+        -- only start or stop their flipbook below.
+        local p = EAB.db and EAB.db.profile
+        local repaint = changed and ((p and p.assistGlowType) or 0) > 0
         for btn in pairs(_assistGlowed) do
+            if repaint then AssistShow(btn) end
             local hf = EFD(btn).assistHL
             if hf and hf:IsShown() and hf.Flipbook and hf.Flipbook.Anim then
                 if _assistInCombat then

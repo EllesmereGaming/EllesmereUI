@@ -39,6 +39,11 @@ local _sidebarBtns = {}  -- array of sidebar button frames
 
 -- 0 while collapsed under Hide Sidebar Icons When Collapsed (default off): the
 -- sidebar hides and its expand arrow sits left of the window title.
+-- fixed views up top: all items, onebag, multibag, plus bank when offline bank is on
+local function FixedViewCount()
+    return (ns.Offline and ns.Offline.Enabled()) and 4 or 3
+end
+
 local function GetSidebarWidth()
     local p = BP()
     if not p.bagSidebarCollapsed then return SIDEBAR_W_EXPANDED end
@@ -140,8 +145,8 @@ local function ComputeDropTarget()
     local sidebarTop = sidebar:GetTop() * scale
     local localY = (sidebarTop - cy) / scale
 
-    -- Offset past sidebar header + "All Items" + "OneBag" + "MultiBag" buttons
-    localY = localY - 24 - 3 * (SIDEBAR_BTN_H + SIDEBAR_PAD)
+    -- offset past the sidebar header and the fixed views
+    localY = localY - 24 - FixedViewCount() * (SIDEBAR_BTN_H + SIDEBAR_PAD)
 
     if localY < 0 then return 1 end
 
@@ -221,8 +226,8 @@ end
 
 -- Compute insert line Y position for a given category target index
 local function GetInsertLineY(targetCatIdx)
-    -- Offset: header (24) + 3 fixed buttons (All Items + OneBag + MultiBag)
-    local topOffset = 24 + 3 * (SIDEBAR_BTN_H + SIDEBAR_PAD)
+    -- offset: header (24) plus the fixed views
+    local topOffset = 24 + FixedViewCount() * (SIDEBAR_BTN_H + SIDEBAR_PAD)
     local visSlot = 0
     local cats = EUI_CategoryManager:GetCategories()
     for i = 1, #cats do
@@ -1111,6 +1116,10 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     for _, _k in ipairs({ "all", "onebag", "multibag" }) do
         if _k ~= _dbt then displayList[#displayList + 1] = _fixedViews[_k] end
     end
+    -- bank: the offline bank view
+    if FixedViewCount() == 4 then
+        displayList[#displayList + 1] = { catIdx = -3, name = EllesmereUI.L("Bank"), icon = 133784 }
+    end
 
     -- Split-mode set children: rendered nested under the "Item Set Gear" anchor
     -- wherever it sits (plain or inside a group), skipped by the main loop.
@@ -1256,7 +1265,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     or (not self._isGroupHeader and self._catIdx == selectedCategoryIndex and not selectedGroupName)
                 if not isSel then self._bg:SetColorTexture(1, 1, 1, 0.06) end
                 if (BP().bagSidebarCollapsed) and EUI.ShowWidgetTooltip then
-                    EUI.ShowWidgetTooltip(self, (self._catName or "?") .. " (" .. (self._catCount or 0) .. ")")
+                    EUI.ShowWidgetTooltip(self, (self._catName or "?") .. (self._catCount and (" (" .. self._catCount .. ")") or ""))
                 end
             end)
             btn:SetScript("OnLeave", function(self)
@@ -1407,7 +1416,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             btn._label:SetTextColor(1, 1, 1, isSelected and 1 or 0.75)
 
             btn._count:Show()
-            btn._count:SetText(tostring(entry.count))
+            btn._count:SetText(entry.count and tostring(entry.count) or "")
         end
 
         if isSelected then

@@ -178,7 +178,10 @@ function EllesmereUI.ModuleNS(folder) return EllesmereUI._ModuleNS and Ellesmere
 
 -- Custom link row: label on the left, an Open Settings button on the right,
 -- jumping to the module page that owns a selection-bound settings family.
-function EllesmereUI.BuildLinkRow(parent, y, label, module, page, section, highlight)
+-- opts.warn: the label in the warning red, for a setting there that overrides
+-- this page. Returns the next y and the row; row:Relink(label, module, page,
+-- section, highlight) aims the same row at another setting.
+function EllesmereUI.BuildLinkRow(parent, y, label, module, page, section, highlight, opts)
     local PP = EllesmereUI.PanelPP
     local ROW_H = 40
     local row = CreateFrame("Frame", nil, parent)
@@ -191,6 +194,7 @@ function EllesmereUI.BuildLinkRow(parent, y, label, module, page, section, highl
     lbl:SetAlpha(0.9)
     lbl:SetPoint("LEFT", row, "LEFT", 20, 0)
     lbl:SetText(EllesmereUI.L(label))
+    if opts and opts.warn then lbl:SetTextColor(0.9, 0.3, 0.3) end
 
     local btn = CreateFrame("Button", nil, row)
     PP.Size(btn, 122, 26)
@@ -199,8 +203,12 @@ function EllesmereUI.BuildLinkRow(parent, y, label, module, page, section, highl
     EllesmereUI.MakeStyledButton(btn, "Open Settings", 11, EllesmereUI.WB_COLOURS, function()
         EllesmereUI:NavigateToElementSettings(module, page, section, nil, highlight)
     end)
+    function row:Relink(l, m, p, s, h)
+        lbl:SetText(EllesmereUI.L(l))
+        module, page, section, highlight = m, p, s, h
+    end
 
-    return y - ROW_H
+    return y - ROW_H, row
 end
 
 -- A row of action cards across the page (icon, title, a short description;

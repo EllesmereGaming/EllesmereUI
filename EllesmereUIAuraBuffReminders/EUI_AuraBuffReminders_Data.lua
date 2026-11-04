@@ -44,15 +44,17 @@ EABR.WeaponEnchants = function()
     return GetWeaponEnchantInfo()
 end
 
+-- The buff IDs come from the shared list (EllesmereUI.RAID_PREP_IDS).
+local PREP = EllesmereUI.RAID_PREP_IDS
+local RAID_BUFF_IDS = {}
+for _, b in ipairs(PREP.raidBuffs) do RAID_BUFF_IDS[b.key] = b.buffIDs end
 local RAID_BUFFS = {
-    { key="motw",   class="DRUID",   name="Mark of the Wild",       castSpell=1126,   buffIDs={1126,432661},    check="raid" },
-    { key="bshout", class="WARRIOR", name="Battle Shout",           castSpell=6673,   buffIDs={6673},    check="raid", benefit="attackPower" },
-    { key="fort",   class="PRIEST",  name="Power Word: Fortitude",  castSpell=21562,  buffIDs={21562},   check="raid" },
-    { key="ai",     class="MAGE",    name="Arcane Intellect",       castSpell=1459,   buffIDs={1459,432778},    check="raid", benefit="intellect" },
-    { key="bronze", class="EVOKER",  name="Blessing of the Bronze", castSpell=364342,
-      buffIDs={381732,381741,381746,381748,381749,381750,381751,381752,381753,381754,381756,381757,381758},
-      check="raid" },
-    { key="sky",    class="SHAMAN",  name="Skyfury",                castSpell=462854, buffIDs={462854},  check="raid" },
+    { key="motw",   class="DRUID",   name="Mark of the Wild",       castSpell=1126,   buffIDs=RAID_BUFF_IDS.motw,   check="raid" },
+    { key="bshout", class="WARRIOR", name="Battle Shout",           castSpell=6673,   buffIDs=RAID_BUFF_IDS.bshout, check="raid", benefit="attackPower" },
+    { key="fort",   class="PRIEST",  name="Power Word: Fortitude",  castSpell=21562,  buffIDs=RAID_BUFF_IDS.fort,   check="raid" },
+    { key="ai",     class="MAGE",    name="Arcane Intellect",       castSpell=1459,   buffIDs=RAID_BUFF_IDS.ai,     check="raid", benefit="intellect" },
+    { key="bronze", class="EVOKER",  name="Blessing of the Bronze", castSpell=364342, buffIDs=RAID_BUFF_IDS.bronze, check="raid" },
+    { key="sky",    class="SHAMAN",  name="Skyfury",                castSpell=462854, buffIDs=RAID_BUFF_IDS.sky,    check="raid" },
     -- Hunter's Mark: disabled (under maintenance); entry intentionally omitted.
 }
 -- WoW Forever: that client's four raid buffs replace the list (there it is
@@ -296,12 +298,9 @@ for _, f in ipairs(FLASK_ITEMS) do
     if locName then FLASK_NAME_SET[locName] = true end
     FLASK_NAME_SET[f.name] = true  -- English fallback
 end
--- TWW flask buff IDs (detection only, so we don't false-positive when a player still has a TWW flask active)
-for _, id in ipairs({432473, 432021, 431974, 431973, 431972, 431971}) do
-    FLASK_BUFF_ID_SET[id] = true
-end
--- PvP-morphed Midnight flask buff IDs (Blizzard replaces the PvE buff ID with a separate PvP variant in arenas/battlegrounds)
-for _, id in ipairs({1235113, 1235114, 1235115, 1235116}) do
+-- Every flask buff of the shared list, the PvP variants and the TWW flasks
+-- included (a player still on a TWW flask is not missing one).
+for _, id in ipairs(PREP.flask) do
     FLASK_BUFF_ID_SET[id] = true
 end
 
@@ -396,7 +395,9 @@ local WEAPON_ENCHANT_CHOICES = {
 }
 
 -- Augment Runes (item IDs inlined at usage site in CollectConsumables)
-local RUNE_BUFF_IDS = {1295329, 1264426, 453250, 1234969, 1242347, 393438, 347901} -- 1295329 = Tidesworn (12.1)
+local RUNE_BUFF_IDS = {}  -- every augment rune of the shared list, older ones included
+for _, id in ipairs(PREP.rune) do RUNE_BUFF_IDS[#RUNE_BUFF_IDS + 1] = id end
+for _, id in ipairs(PREP.oldRune) do RUNE_BUFF_IDS[#RUNE_BUFF_IDS + 1] = id end
 
 -- Inky Black Potion
 local INKY_BLACK_ITEM = 124640
@@ -753,6 +754,7 @@ function EABR.ResolveConsumables()
     local lufd = db.profile and db.profile.lastUsedFood or nil
     local luwe = db.profile and db.profile.lastUsedWeaponEnchant or nil
 
+    -- SEASON UPDATE: the season's augment rune items.
     -- Augment Rune: void, then ethereal, then Tidesworn (12.1); fall back to the
     -- void rune so an out-of-stock restock reminder can still render.
     local runeItem = nil

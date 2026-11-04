@@ -9,7 +9,7 @@ local T = addon.Locale.Text
 
 
 
-addon.SCHEMA_VERSION = 15
+addon.SCHEMA_VERSION = 17
 
 
 local interface = GetBuildInfo and select(4, GetBuildInfo())
@@ -37,6 +37,9 @@ addon.defaults = {
 
 
     lootMaster = nil,
+
+
+    lootMasterKept = nil,
 
 
     council = {},
@@ -148,7 +151,7 @@ addon.defaults = {
 
         autoHandover = false,
 
-        dropDelegationOnLead = false,
+        dropPromotionOnLead = false,
     },
 
 
@@ -250,7 +253,7 @@ addon.defaults = {
 
 
 
-    responseTab = true,
+    responseTab = false,
 
 
     soundNotifications = { responseFrame = true, responseTab = true },
@@ -496,6 +499,27 @@ addon.migrations = addon.Locale.Texts{
                 end
             end
             if not changed then return false end
+        end,
+    },
+    {
+        version = 16,
+        name = "loot response tab off",
+        notify = T["The loot response tab in the Loot Council window is now off by default, so your response window opens on its own again. You can switch it back on in Settings."],
+        func = function(db)
+
+            if db.responseTab ~= true then return false end
+            db.responseTab = false
+        end,
+    },
+    {
+        version = 17,
+        name = "drop-promotion-on-lead setting renamed",
+        func = function(db)
+
+            local prompt = db.raidPrompt
+            if type(prompt) ~= "table" or prompt.dropDelegationOnLead == nil then return false end
+            prompt.dropPromotionOnLead = prompt.dropDelegationOnLead
+            prompt.dropDelegationOnLead = nil
         end,
     },
 }

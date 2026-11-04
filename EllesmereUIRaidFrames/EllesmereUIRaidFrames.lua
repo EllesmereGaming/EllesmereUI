@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Secret-value-safe absorb shields matching UnitFrames visuals.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.NewFrameData) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard raid and party frame suppression hides and scales through the parent's HideFrame and SetFrameScale)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.NewFrameData and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard raid and party frame suppression hides and scales through the parent's HideFrame and SetFrameScale, and the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 
 local ERF = EllesmereUI.Lite.NewAddon(ADDON_NAME)
@@ -48,7 +48,8 @@ end
 --  icons, Buff Manager icons/squares/bars) share one band ABOVE the
 --  threat/dispel/base border so the threat border renders behind them; each
 --  aura unit renders children (cooldown/border/text) up to +5 above base.
---  Bottom to top: base border (+8/strips +9) -> hover/target/aggro raise (LVL_RAISE,
+--  Bottom to top: base border (+8/strips +9) -> dispel ring and Buff Manager
+--  Frame Border (LVL_RAISE - 1, strips +10) -> hover/target/aggro raise (LVL_RAISE,
 --  strips +11, covering base/threat/dispel border strips) -> text band
 --  (LVL_TEXT: name/health text, role icon, leader crown) -> aura band ->
 --  marker carrier (also hosts ready-check/summon/rez icons). The raise sits
@@ -60,9 +61,10 @@ end
 -------------------------------------------------------------------------------
 ns.LVL_DISPEL_OVERLAY = 7  -- Blizzard private-aura dispel gradient: below the border (+8) and name/health text (LVL_TEXT) so it renders BEHIND them (like the regular dispel overlay), but above the health bar so it stays visible. Per-slot private-aura icons stay above at LVL_AURA.
 ns.LVL_ROLE_BEHIND = 7  -- role icon with Show Behind Border: just under the base border (+8; strips +9)
-ns.LVL_RAISE  = 10   -- hover/target/aggro-recolor border (strips +11: above base strips +9;
-                     -- ties threat/dispel strips +11 but the raise container is
-                     -- created later so it wins). MUST stay below ns.LVL_TEXT:
+ns.LVL_RAISE  = 10   -- hover/target/aggro-recolor border (strips +11: above base strips +9
+                     -- and the dispel / Buff Manager border strips +10; ties threat
+                     -- strips +11 but the raise container is created later so it
+                     -- wins). MUST stay below ns.LVL_TEXT:
                      -- UpdateBorder creates strips lazily AFTER the text
                      -- carriers, so a tie with text puts the border on top.
 ns.LVL_TEXT   = 12   -- text band: name/health text, role icon, leader crown;
@@ -335,6 +337,7 @@ local defaults = {
         partyCompactMode = false,
         groupGrowth      = "RIGHT",  -- "DOWN", "UP", "RIGHT", "LEFT", "DOWNRIGHT" (grid: ns._RF_GRID_ROWS per column)
         unitGrowth       = "DOWN",   -- any direction; same-axis as groupGrowth = one continuous line
+        groupGrowthCentered = false, -- center the shown groups in the mover box along the group axis (not for DOWNRIGHT)
         sortMode         = "ROLE",   -- "INDEX" (by group) or "ROLE" (by assigned role)
         roleOrder        = { "TANK", "HEALER", "DAMAGER" },
         prioritizeClass  = false,    -- sort by class within the main sort (raid)
@@ -409,12 +412,22 @@ local defaults = {
             -- unlockPos: saved by unlock mode (RF_HealerMana element)
         },
 
+        -- Player Group Label (Extras); unset style keys follow the raid frames.
+        playerGroup = {
+            enabled = false,
+            format  = "number", -- "number" | "full"
+            padding = 4,
+            -- width/height: nil = content-sized; unlockPos: saved by unlock
+            -- mode (RF_PlayerGroup element)
+        },
+
         -- Position (saved by unlock mode)
         unlockPos        = nil,
 
         -- Health bar
         healthBarTexture = "atrocity",
         healthBarOpacity = 100,
+        textureBg = false,  -- Textured Background (Health Bar Fill cog)
         healthColorMode  = "class",  -- "class", "dark", "classic", "custom", "customDynamic", "classReactive"
         customFillColor  = { r = 37/255, g = 193/255, b = 29/255 },
         -- Custom Dynamic Colors: health-percent gradient stops; defaults match
@@ -569,6 +582,10 @@ local defaults = {
         roleIconOffsetX  = 0,
         roleIconOffsetY  = 0,
         roleIconHideInCombat = false,
+        roleIconOnNameBar = false,     -- Attach Role Icons: on the Top Name Bar, with its own position/offsets
+        roleNameBarPosition = "left",
+        roleNameBarOffsetX = 0,
+        roleNameBarOffsetY = 0,
         roleIconBehindBorder = false,  -- drop the carrier below the normal border so borders draw over the icon
         showRoleForTank    = true,
         showRoleForHealer  = true,
@@ -641,7 +658,7 @@ local defaults = {
 
         -- Dispels
         dispelBorderSize = 0,
-        dispelOverlay    = "fill",   -- "none", "fill", "full", "gradient", "gradient_sharp"
+        dispelOverlay    = "fill",   -- "none", "fill", "full", "gradient", "gradient_sharp", "gradient_reverse"
         dispelOverlayOpacity = 100,
         dispelShowAll             = true,   -- true = highlight any dispellable debuff; false = only player-dispellable
         dispelOverlayPosition     = 0,      -- 0=Top, 1=Bottom, 2=Left (aura-organization-type for private aura dispel container)

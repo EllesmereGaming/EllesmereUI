@@ -34,7 +34,7 @@ local STYLE_DEBUFFS = "playerAuraBars_debuffs"
 -- from any older schema, deliberate). BuildStyle/ComputeGrid/ClassEnabled take
 -- (isBuff, cfg) and don't care which table it came from.
 --
--- Shared by every bar: iconSize (button width==height); durationShow/stackShow
+-- Shared by every bar: iconSize (width; Cropped trims height); durationShow/stackShow
 -- (independent show/hide); durationTextSize/durationPosition("TOP"/"BOTTOM"/...)/
 -- durationOffsetX/Y; durationColorR/G/B (optional, nil=white AK default);
 -- stackTextSize/stackPosition/stackOffsetX/Y; stackColorR/G/B (same nil=white rule).
@@ -62,11 +62,11 @@ local STYLE_DEBUFFS = "playerAuraBars_debuffs"
 -- showAllBuffs); dispelColorMagic/Curse/Disease/Poison/Bleed (optional Color-like
 -- {r,g,b}, falls back to the Raid Frames palette).
 --
--- Duration format: AK.GetDurationFormatter(showSecondsUnit) serves two cached
--- variants -- bare seconds under 60 (the suite default) or unit-suffixed
--- ("10s") via the per-bar "Show S for Seconds" cog (style.durationShowSeconds);
--- both keep Xm/Xh/Xd above the minute. No other format variants ("colon" etc.):
--- those would mean new AuraKit breakpoint schemas (shared with Raid Frames).
+-- Duration format: AK.GetDurationFormatter(showSecondsUnit, preciseThreshold) --
+-- bare seconds under 90 (the suite default) or unit-suffixed ("10s") via the
+-- per-bar "Show S for Seconds" cog (style.durationShowSeconds), Xm/Xh/Xd above,
+-- and m:ss under the cog's Precise Below (style.durationPrecisionThreshold). The
+-- breakpoint tables live in AuraKit, shared with Raid Frames.
 -- DISPEL_SLOTS below is a local copy of EUI_RaidFrames_AuraContainers.lua's: ns is
 -- per-addon-private, so tokens/fallback colors are duplicated on purpose for suite-wide
 -- consistency -- a RaidFrames palette change must be mirrored here by hand, no shared source.
@@ -343,6 +343,8 @@ local function BuildStyle(isBuff, cfg)
     -- gap snap) so the rendered size agrees with the container's cross-axis extent
     -- math at any UIParent scale.
     local iconSize = PabSnap(PabShapedSize(cfg.iconSize or 32, cfg.iconShape))
+    local iconHeight = cfg.iconShape == "cropped"
+        and PabSnap(ns.PAB_CroppedHeight(cfg.iconSize or 32, cfg)) or iconSize
 
     -- Negative Spacing / Row Spacing overlap neighbouring icons; AuraKit shrinks
     -- each mouse area by half the overlap so the icon being left cannot hide the
@@ -356,7 +358,7 @@ local function BuildStyle(isBuff, cfg)
 
     local style = {
         width = iconSize,
-        height = iconSize,
+        height = iconHeight,
         hitInsetX = (vertical and rowOverlap or gapOverlap) / 2,
         hitInsetY = (vertical and gapOverlap or rowOverlap) / 2,
         centeredGrowth = cfg.growDirection == "CENTER_HORIZONTAL" or cfg.growDirection == "CENTER_VERTICAL",
@@ -450,6 +452,11 @@ local function BuildStyle(isBuff, cfg)
         style.shapeBorderPath = ns.PORTRAIT_BORDERS and ns.PORTRAIT_BORDERS[shape]
         style.shapeInsetPx    = ns.MASK_INSETS and ns.MASK_INSETS[shape]
         style.shapeBorderSize = cfg.shapeBorderSizeOverride or PabShapeBorderSize(borderSize)
+    elseif shape == "cropped" then
+        local zoom = style.iconZoom
+        style.iconCropPercent = ns.PAB_CropPercent(cfg)
+        local trim = style.iconCropPercent / 100
+        style.texCoord = { zoom, 1 - zoom, zoom + trim, 1 - zoom - trim }
     end
 
     -- Engine dispel-type border, debuffs only (buffs have no dispel type). AK's gate

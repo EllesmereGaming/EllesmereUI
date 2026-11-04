@@ -16,7 +16,7 @@ local EUI = EllesmereUI
 
 local BP, GetAccentRGB, GetFont, IsGearItem = I.BP, I.GetAccentRGB, I.GetFont, I.IsGearItem
 local IsItemPinned, NormalizePinKey = I.IsItemPinned, I.NormalizePinKey
-local SetBagFont, SLOT_SIZE, _openItemPanels = I.SetBagFont, I.SLOT_SIZE, I._openItemPanels
+local SetBagFont, _openItemPanels = I.SetBagFont, I._openItemPanels
 local itemSlots, SetInsetBorderColor = I.itemSlots, I.SetInsetBorderColor
 
 -------------------------------------------------------------------------------
@@ -103,7 +103,7 @@ end
 local function GetOrCreatePinOverlay()
     if EUI_Bags._pinOverlayBtn then return OverSlots(EUI_Bags._pinOverlayBtn) end
     local ov = ns.CreatePlusButton(EUI_Bags, ns.PIN_PLUS_TIP)
-    ov:SetSize(SLOT_SIZE, SLOT_SIZE)
+    ns.SizeSlot(ov)
     ov:SetScript("OnReceiveDrag", ns.PinCursorItem)
     ov:SetScript("OnClick", function(self)
         -- Click-to-place also pins
@@ -132,7 +132,7 @@ local function GetOrCreateAssignOverlay()
     _assignOverlayIdx = _assignOverlayIdx + 1
     if _assignOverlays[_assignOverlayIdx] then return OverSlots(_assignOverlays[_assignOverlayIdx]) end
     local ov = ns.CreatePlusButton(EUI_Bags, ns.ASSIGN_PLUS_TIP)
-    ov:SetSize(SLOT_SIZE, SLOT_SIZE)
+    ns.SizeSlot(ov)
     local function DoAssign(self)
         if ns.AssignCursorItem(self._assignCatKey) then return end
         -- No cursor item: enter assign select mode (like pin select)
@@ -250,6 +250,7 @@ end
 -- header, the footer or outside the window; the scroll frame only clips them).
 -- Cursor / each button's OWN effective scale: GetRect() is in button units.
 function ns.SelectSlotUnderCursor()
+    if ns.OfflineUp and ns.OfflineUp() then return nil end  -- an alt's items aren't real slots
     local sf = EUI_Bags._scrollFrame
     if not (sf and sf:IsMouseOver()) then return nil end
     local rawCx, rawCy = GetCursorPosition()
@@ -295,6 +296,7 @@ end
 -- junk: Junk Marker mode -- clicks toggle marks, the mode stays open, and only
 -- the bag window dims (the "+" assign dims the whole screen).
 EnterAssignSelectMode = function(catKey, junk)
+    if ns.OfflineUp and ns.OfflineUp() then return end  -- nothing live to pick while an alt or bank is up
     EUI_Bags._assignSelectMode = true
     EUI_Bags._junkMode = junk or nil
     _assignSelectCatKey = catKey
@@ -583,6 +585,13 @@ function EUI_Bags:SyncHeaderIcons()
         self._sellJunkBtn:SetShown(junkOn and _openItemPanels.merchant == true)
     end
     if not junkOn and self._junkMode then ExitAssignSelectMode() end
+    -- The leftmost shown icon bounds the title and item count (FitHeaderText)
+    local edge = prev
+    if junkOn and self._junkBtn then
+        edge = self._sellJunkBtn:IsShown() and self._sellJunkBtn or self._junkBtn
+    end
+    self._hdrEdge = edge
+    self:FitHeaderText()
 end
 
 -- The slots one Sell Junk sweep may sell, gathered once as bag * 1000 + slot
@@ -724,6 +733,7 @@ end
 end -- Junk Marker
 
 EnterPinSelectMode = function()
+    if ns.OfflineUp and ns.OfflineUp() then return end
     EUI_Bags._pinSelectMode = true
 
     -- Dark overlay covers the entire screen including bags

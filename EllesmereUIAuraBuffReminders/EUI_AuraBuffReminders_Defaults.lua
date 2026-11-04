@@ -74,6 +74,7 @@ end
 local defaults = {
     profile = {
         display = {
+            iconShape = "none",
             remindersEnabled = true,
             glowType = 0,
             scale = 1.0,
@@ -127,6 +128,11 @@ local defaults = {
             -- buff I provide; iAmMissing = remind when I lack a buff a
             -- groupmate could give me (receiver view, off by default).
             showWhen = { othersMissing = true, iAmMissing = false },
+            -- Left-click a receiver reminder (or Healthstone) to ask the
+            -- group for it; requestCustom sends requestText (it holds the
+            -- "[spell]" token) instead of the default line.
+            requestOnClick = true,
+            requestCustom = false,
             -- One reminder sound for the whole section (nil = silent),
             -- played once when a reminder newly appears.
         },

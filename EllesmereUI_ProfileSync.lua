@@ -534,6 +534,7 @@ EllesmereUI.RegisterSyncExclusions("EllesmereUIMinimap", {
 -- Chat settings nest under profile.chat.
 EllesmereUI.RegisterSyncExclusions("EllesmereUIChat", {
     "chat.chatPosition",   -- unlock drag position
+    "chat.chatScreenPoint", -- the screen point that position is measured from
     "chat.chatWidth",      -- unlock resize-handle width
     "chat.chatHeight",     -- unlock resize-handle height
     "chat.toastPosition",  -- BNet toast unlock position
