@@ -665,12 +665,17 @@ do
         return gid
     end
 
-    -- Anchor-system hook: outermost visible member edge in UIParent space, or nil to use
-    -- the target frame's own bounds. Inert while unlock mode or the placeholder preview owns positions.
+    -- Keep other modules' bounds even while tracking bar extents are inactive.
+    local prevExtent = EllesmereUI._GetAnchorTargetExtent
     function EllesmereUI._GetAnchorTargetExtent(targetKey, side)
-        if EllesmereUI._unlockActive or ns._tbbPlaceholderMode then return nil end
-        local gid = ns.TBBExtentGidForTarget(targetKey, side)
-        if not gid then return nil end
+        local gid
+        if not EllesmereUI._unlockActive and not ns._tbbPlaceholderMode then
+            gid = ns.TBBExtentGidForTarget(targetKey, side)
+        end
+        if not gid then
+            if prevExtent then return prevExtent(targetKey, side) end
+            return nil
+        end
         local t = ns.GetTrackedBuffBars()
         local uiS = UIParent:GetEffectiveScale()
         local best

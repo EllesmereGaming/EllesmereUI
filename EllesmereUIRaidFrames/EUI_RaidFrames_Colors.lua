@@ -32,9 +32,8 @@ local AbbreviateNumbers, ApplyFont, defaults = I.AbbreviateNumbers, I.ApplyFont,
 local DISPEL_COLORS, GetFFD, PixelSnap = I.DISPEL_COLORS, I.GetFFD, I.PixelSnap
 local unitToButton = I.unitToButton
 
--- Health, max health and absorb text: the global Number Format for valueType
--- (Power Text keeps the module's default call).
-local AbbreviateValue = ns.EllesmereUI.AbbreviateValue
+-- Use Number Format when available, otherwise keep the module's secret-safe formatter.
+local AbbreviateValue = ns.EllesmereUI.AbbreviateValue or function(v) return AbbreviateNumbers(v) end
 
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end

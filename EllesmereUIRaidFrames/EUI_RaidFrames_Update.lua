@@ -987,13 +987,15 @@ end
 
 -- A Number Format change repaints every text. Party buttons take only a health
 -- paint above, so they get the full one here for their absorb texts.
-ns.EllesmereUI.RegisterNumberFormatCallback(function()
-    ERF:UpdateAllFrames()
-    if ns._partyPvActive then return end
-    for _, b in ipairs(ns._partyAllButtons) do
-        if b:GetAttribute("unit") and b:IsVisible() then UpdateButton(b) end
-    end
-end)
+if ns.EllesmereUI.RegisterNumberFormatCallback then
+    ns.EllesmereUI.RegisterNumberFormatCallback(function()
+        ERF:UpdateAllFrames()
+        if ns._partyPvActive then return end
+        for _, b in ipairs(ns._partyAllButtons) do
+            if b:GetAttribute("unit") and b:IsVisible() then UpdateButton(b) end
+        end
+    end)
+end
 
 -- Lightweight: only toggle raid markers on each button (for RAID_TARGET_UPDATE)
 ns._UpdateRaidMarkers = function()

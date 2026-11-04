@@ -37,6 +37,41 @@ I.containerFrameSetters[#I.containerFrameSetters + 1] = function(v) containerFra
 local framesVisible = false
 I.framesVisibleSetters[#I.framesVisibleSetters + 1] = function(v) framesVisible = v end
 
+-- Trim only the mover and anchor bounds; the secure container keeps its saved geometry.
+local function PartyMoverInsets()
+    if not db or ns._PartySlotCount(db.profile) == 5 then return 0, 0, 0, 0 end
+    local s = db.profile
+    local pw, ph, pcs = ns.RF_PartyDims(s)
+    local pitch = PixelSnap(s.partyHorizontal and pw or ph) + PixelSnap(pcs) + ns.PT_AlongPitch(s)
+    local startInset, endInset = 0, pitch
+    if s.partyFlipGrowth == "centered" then
+        -- Match the header's signed half-slot snapping.
+        startInset = s.partyHorizontal and PixelSnap(pitch / 2) or -PixelSnap(-pitch / 2)
+        endInset = pitch - startInset
+    elseif s.partyFlipGrowth == true then
+        startInset, endInset = pitch, 0
+    end
+    if s.partyHorizontal then return startInset, endInset, 0, 0 end
+    return 0, 0, startInset, endInset
+end
+
+local prevPartyExtent = EllesmereUI._GetAnchorTargetExtent
+EllesmereUI._GetAnchorTargetExtent = function(targetKey, side)
+    local c = ns._partyContainerFrame
+    if targetKey == "RF_PartyFrames" and c and c:GetLeft() then
+        local l, r, t, b = PartyMoverInsets()
+        local ratio = c:GetEffectiveScale() / UIParent:GetEffectiveScale()
+        if side == "LEFT" then return (c:GetLeft() + l) * ratio
+        elseif side == "RIGHT" then return (c:GetRight() - r) * ratio
+        elseif side == "TOP" then return (c:GetTop() - t) * ratio
+        elseif side == "BOTTOM" then return (c:GetBottom() + b) * ratio
+        end
+    end
+    if prevPartyExtent then return prevPartyExtent(targetKey, side) end
+    return nil
+end
+local partyInsetL, partyInsetR, partyInsetT, partyInsetB = 0, 0, 0, 0
+
 -- Layout party frames: apply unitGrowth direction and cell spacing to the header.
 ns._LayoutPartyFrames = function()
     if not ns._partyHeader then return end
@@ -87,7 +122,7 @@ ns._LayoutPartyFrames = function()
     local useSelf = ns._PositionPartySlots(bw, bh, cs, unitGrowth)
     local hideSelf = s.partyHideSelf
 
-    -- Size container for unlock mode mover (always sized for 5 units)
+    -- Keep the five-slot container independent of the trimmed unlock bounds.
     ns._SizePartyContainer(bw, bh, cs, unitGrowth)
 
     -- Apply sort attributes + player visibility to the party header
@@ -198,6 +233,15 @@ ns._LayoutPartyFrames = function()
     -- The party target frames ride FB_ReAnchor above; this covers the raid branch that skips it
     -- (delta-gated, a no-op after it).
     ns._PT_Layout()
+
+    -- Insets can change without a container resize (Hide Self, growth, subgroup).
+    local l, r, t, b = PartyMoverInsets()
+    if l ~= partyInsetL or r ~= partyInsetR or t ~= partyInsetT or b ~= partyInsetB then
+        partyInsetL, partyInsetR, partyInsetT, partyInsetB = l, r, t, b
+        if not EllesmereUI._unlockActive and EllesmereUI.PropagateAnchorChain then
+            EllesmereUI.PropagateAnchorChain("RF_PartyFrames")
+        end
+    end
 end
 
 -- Party visibility: show/hide based on group state.
@@ -687,8 +731,10 @@ local function RegisterWithUnlockMode()
 
             getFrame = function() return ns._partyContainerFrame end,
             getSize  = function()
-                return ns._partyContainerFrame:GetWidth(), ns._partyContainerFrame:GetHeight()
+                local l, r, t, b = PartyMoverInsets()
+                return ns._partyContainerFrame:GetWidth() - l - r, ns._partyContainerFrame:GetHeight() - t - b
             end,
+            getInsets = PartyMoverInsets,
 
             savePos = function(_, point, relPoint, x, y)
                 db.profile.partyUnlockPos = { point = point, relPoint = relPoint, x = snap(ns._partyContainerFrame, x), y = snap(ns._partyContainerFrame, y) }
