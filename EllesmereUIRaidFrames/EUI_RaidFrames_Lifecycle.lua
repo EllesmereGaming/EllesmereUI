@@ -686,8 +686,9 @@ end
 
 -------------------------------------------------------------------------------
 --  Party Mode: spinning party and raid frames (EllesmereUI.PartySpin_Create).
---  Each set's shown buttons orbit the centre of its container. homeInCombat
---  puts the secure buttons back on the header layout for each fight.
+--  Each set's shown buttons orbit the centre of its container, so the 5-slot
+--  party box turns around its third frame. homeInCombat puts the secure
+--  buttons back on the header layout for each fight.
 -------------------------------------------------------------------------------
 do
     -- A header's shown buttons, in child order.

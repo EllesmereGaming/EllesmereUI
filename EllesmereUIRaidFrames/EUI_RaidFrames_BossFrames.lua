@@ -764,8 +764,9 @@ FB.Anchor = function(owner)
                     end
                     pc = first
                 end
-                -- The growth axis comes from partyHorizontal alone; flipped and centered
-                -- growth keep the same perpendicular attach point.
+                -- Party growth axis comes from partyHorizontal alone (_LayoutPartyFrames): the flip
+                -- and "centered" variants only reverse it, and the container spans all five slots
+                -- either way, so the perpendicular attach point is the same.
                 if s.partyHorizontal then
                     if before then FB.Pin(c, "BOTTOMLEFT", pc, "TOPLEFT", 0, gap)
                     else FB.Pin(c, "TOPLEFT", pc, "BOTTOMLEFT", 0, -gap) end
