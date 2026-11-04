@@ -383,7 +383,7 @@ local function MakeRow(i)
     r.cancel:SetScript("OnLeave", function(self)
         self.tex:SetVertexColor(0.8, 0.8, 0.8, 1)
         if self.edge and self.edge.SetColor then self.edge:SetColor(0.25, 0.25, 0.25, 1) end
-        GameTooltip_Hide()
+        EUI.HideWidgetTooltip()
     end)
     r.cancel:SetScript("OnClick", function(self)
         local id = self:GetParent().resultID
@@ -622,6 +622,7 @@ local function Fill(r, id)
     local acts = info.activityIDs
     local act = type(acts) == "table" and not Secret(acts) and acts[1]
     local ai = act and not Secret(act) and C_LFGList.GetActivityInfoTable(act)
+    if not Readable(ai) then ai = nil end
     -- colored group names
     local nr, ng, nb
     if ns.GFNameColor then nr, ng, nb = ns.GFNameColor(id, info, ai) end  -- "and" would drop g and b
@@ -711,7 +712,9 @@ local function Fill(r, id)
                 if Secret(spec) then spec = nil end
                 local lead = p.isLeader
                 if Secret(lead) then lead = nil end
-                members[#members + 1] = { cls = p.classFilename, role = p.assignedRole, spec = spec, lead = lead, k = k }
+                local role = p.assignedRole
+                if Secret(role) then role = nil end
+                members[#members + 1] = { cls = p.classFilename, role = role, spec = spec, lead = lead, k = k }
             end
         end
     end

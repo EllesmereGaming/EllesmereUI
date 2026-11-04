@@ -319,7 +319,7 @@ GFNS.ExtraRoleCounts = function(m, y, K)
     -- "(2 active)" so ticked rows aren't forgotten
     local function ShowHint()
         local n = CountsOn(K.Cfg())
-        btn.Hint:SetText(n > 0 and ("(" .. n .. " active)") or "")
+        btn.Hint:SetText(n > 0 and EllesmereUI.Lf("(%1$d active)", n) or "")
     end
     local sgLevel = sg:GetFrameLevel()
     pop:HookScript("OnShow", function()
@@ -498,28 +498,27 @@ local function MyClass()
 end
 
 local CLASS_ROWS = {
-    { key = "hasLust", pick = "extraLustMissing", spell = 2825, has = "Has Bloodlust", missing = "Missing Bloodlust",
-      Tip = function(K) return "Bloodlust", {
-        "A member whose class has one of these spells:",
-        K.ClassLine("SHAMAN", "Bloodlust / Heroism (Shaman)"),
-        K.ClassLine("MAGE", "Time Warp (Mage)"),
-        K.ClassLine("HUNTER", "Primal Rage (Hunter pet)"),
-        K.ClassLine("EVOKER", "Fury of the Aspects (Evoker)"),
-        "Drums and other items don't count." } end },
-    { key = "hasBrez", pick = "extraBrezMissing", spell = 20484, has = "Has Battle Res", missing = "Missing Battle Res",
-      Tip = function(K) return "Battle Res", {
-        "A member whose class has one of these spells:",
-        K.ClassLine("DRUID", "Rebirth (Druid)"),
-        K.ClassLine("DEATHKNIGHT", "Raise Ally (Death Knight)"),
-        K.ClassLine("WARLOCK", "Soulstone (Warlock)"),
-        K.ClassLine("PALADIN", "Intercession (Paladin)"),
-        "Engineering and other items don't count." } end },
+    { key = "hasLust", pick = "extraLustMissing", spell = 2825, has = EllesmereUI.L("Has Bloodlust"), missing = EllesmereUI.L("Missing Bloodlust"),
+      Tip = function(K) return EllesmereUI.L("Bloodlust"), {
+        EllesmereUI.L("A member whose class has one of these spells:"),
+        K.ClassLine("SHAMAN", EllesmereUI.L("Bloodlust / Heroism (Shaman)")),
+        K.ClassLine("MAGE", EllesmereUI.L("Time Warp (Mage)")),
+        K.ClassLine("HUNTER", EllesmereUI.L("Primal Rage (Hunter pet)")),
+        K.ClassLine("EVOKER", EllesmereUI.L("Fury of the Aspects (Evoker)")),
+        EllesmereUI.L("Drums and other items don't count.") } end },
+    { key = "hasBrez", pick = "extraBrezMissing", spell = 20484, has = EllesmereUI.L("Has Battle Res"), missing = EllesmereUI.L("Missing Battle Res"),
+      Tip = function(K) return EllesmereUI.L("Battle Res"), {
+        EllesmereUI.L("A member whose class has one of these spells:"),
+        K.ClassLine("DRUID", EllesmereUI.L("Rebirth (Druid)")),
+        K.ClassLine("DEATHKNIGHT", EllesmereUI.L("Raise Ally (Death Knight)")),
+        K.ClassLine("WARLOCK", EllesmereUI.L("Soulstone (Warlock)")),
+        K.ClassLine("PALADIN", EllesmereUI.L("Intercession (Paladin)")),
+        EllesmereUI.L("Engineering and other items don't count.") } end },
     { key = "extraMyClass", pick = "extraMyClassMissing", missingDefault = true,
       has = "Has Class", missing = "No Class",  -- class name added at build
       Tip = function(K)
         local name, file = MyClass()
-        local a = name and name:match("^[AEIOUaeiou]") and "an" or "a"
-        return "Your Class", { "A member who's also " .. a .. " " .. (file and K.ClassLine(file, name) or "your class") .. "." }
+        return EllesmereUI.L("Your Class"), { EllesmereUI.Lf("A member who's your class: %1$s", file and K.ClassLine(file, name) or name or "") }
       end },
 }
 
@@ -550,10 +549,10 @@ GFNS.ExtraClassRows = function(m, y, K)
         local icon = row.spell and C_Spell.GetSpellTexture(row.spell)
         if inRoles then
             local name, file = MyClass()
-            local cls = (name and file) and K.ClassLine(file, name) or name or "Class"
-            has, missing = "Has " .. cls, "No " .. cls
+            local cls = (name and file) and K.ClassLine(file, name) or name or EllesmereUI.L("Class")
+            has, missing = EllesmereUI.L("Has") .. " " .. cls, EllesmereUI.L("No") .. " " .. cls
             -- full alpha so the class color shows, has / no greyed by hand
-            hasBtn, missingBtn = DIM_HEX .. "Has|r " .. cls, DIM_HEX .. "No|r " .. cls
+            hasBtn, missingBtn = DIM_HEX .. EllesmereUI.L("Has") .. "|r " .. cls, DIM_HEX .. EllesmereUI.L("No") .. "|r " .. cls
             icon = file and ("classicon-" .. file:lower())
         end
         local item = K.MenuItem(inRoles and roleG or miscG, inRoles and ry or my, "", function()
@@ -696,14 +695,15 @@ local function Art(mapID)
     return a or nil
 end
 
--- keystones: "MR", the rest keep their difficulty
 local function Activity(resultID)
     local info = C_LFGList.GetSearchResultInfo(resultID)
     if not info or Secret(info) or (canaccesstable and not canaccesstable(info)) then return nil end
     local acts = info.activityIDs
     local act = type(acts) == "table" and not Secret(acts) and acts[1]
     if not act or Secret(act) then return nil end
-    return C_LFGList.GetActivityInfoTable(act)
+    local ai = C_LFGList.GetActivityInfoTable(act)
+    if not ai or Secret(ai) or (canaccesstable and not canaccesstable(ai)) then return nil end
+    return ai
 end
 
 local ART_SHARE, ART_ALPHA = 0.5, 0.2  -- half the row, 20% fading out

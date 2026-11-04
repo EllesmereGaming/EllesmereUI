@@ -2034,7 +2034,7 @@ local function AddRegionItems(m, y)
     if not RegionsAvailable() then return y end
     -- eu lists languages, short names in two columns
     local lang = ns.RegionIsLanguage()
-    y = AddSection(m, y, EllesmereUI.L(lang and "Language" or "Region"))
+    y = AddSection(m, y, lang and EllesmereUI.L("Language") or EllesmereUI.L("Region"))
     for i, r in ipairs(Regions()) do
         local key = r.key
         local item = MenuItem(m, y, lang and r.tag or r.label, function()
@@ -2268,7 +2268,7 @@ XF.GROUP_MENU = {
       tip = EllesmereUI.L("Keeps the note you typed in the Sign Up dialog between sign ups.") },
     { title = EllesmereUI.L("Misc") },
     { key = "dungeonAbbr",    label = EllesmereUI.L("Dungeon Names"),
-      tip = EllesmereUI.L("Each dungeon square shows the dungeon's short name, Raider.IO's when it's loaded (e.g. KR for Kings' Rest)."),
+      tip = EllesmereUI.L("Each dungeon square shows the dungeon's short name (e.g. KR for Kings' Rest)."),
       onToggle = function() ns.Search_Layout() end },
     { key = "dungeonScore",   label = EllesmereUI.L("Dungeon Keystone Level"),
       tip = EllesmereUI.L("Each dungeon square shows your best keystone level this season, colored by its score rarity."),
@@ -2670,9 +2670,9 @@ end
 
 -- boss pick: one list under the clicked square, as wide as it
 local BOSS_PICKS = {
-    { value = true, tex = "Interface\\AddOns\\" .. FOLDER .. "\\media\\icons\\eui-heart.png", tip = "Boss Alive", r = 0.2, g = 1, b = 0.3 },
-    { value = "dead", tex = "Interface\\AddOns\\" .. FOLDER .. "\\media\\icons\\eui-skull.png", tip = "Boss Dead", r = 1, g = 0.15, b = 0.15 },
-    { tex = X_TEX, tip = "No Filter", r = 0.6, g = 0.6, b = 0.6 },
+    { value = true, tex = "Interface\\AddOns\\" .. FOLDER .. "\\media\\icons\\eui-heart.png", tip = EllesmereUI.L("Boss Alive"), r = 0.2, g = 1, b = 0.3 },
+    { value = "dead", tex = "Interface\\AddOns\\" .. FOLDER .. "\\media\\icons\\eui-skull.png", tip = EllesmereUI.L("Boss Dead"), r = 1, g = 0.15, b = 0.15 },
+    { tex = X_TEX, tip = EllesmereUI.L("No Filter"), r = 0.6, g = 0.6, b = 0.6 },
 }
 local bossPick
 
@@ -2701,7 +2701,7 @@ local function BossPickList()
         local hl = it:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints()
         hl:SetColorTexture(1, 1, 1, CM.DD_ITEM_HL_A or 0.08)
-        it:SetScript("OnEnter", function(self) XF.Tip(self, EllesmereUI.L(p.tip)) end)
+        it:SetScript("OnEnter", function(self) XF.Tip(self, p.tip) end)
         it:SetScript("OnLeave", XF.Untip)
         it:SetScript("OnClick", function()
             local d = list.owner and list.owner.boss
@@ -3613,7 +3613,7 @@ function XF.SettingsCog(panel)
                 CM.PrintError(EllesmereUI.L("Cannot open options during combat."))
                 return
             end
-            CM:ShowModule(ADDON_NAME)  -- our own page
+            CM:ShowModule(ADDON_NAME)
         end)
         XF.cog = cog
     end

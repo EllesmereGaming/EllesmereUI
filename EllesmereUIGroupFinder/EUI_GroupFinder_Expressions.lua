@@ -438,7 +438,7 @@ local function BuildHelp(panel, K, onClick)
                             -- starts with a color code so the tooltip keeps our colors
                             lines[#lines + 1] = "|cffffffff|r" .. Colorize(ex[1]) .. "   |cff8f8f8f" .. ex[2] .. "|r"
                         end
-                        K.Tip(self, spec.title .. " Examples", unpack(lines))
+                        K.Tip(self, EllesmereUI.Lf("%1$s Examples", spec.title), unpack(lines))
                     end)
                     q:SetScript("OnLeave", function()
                         qt:SetTextColor(0.6, 0.6, 0.6, 1)
@@ -538,9 +538,9 @@ local function Paint(K)
     if not text:find("%S") then
         status:SetText("")
     elseif f then
-        status:SetText("|cff66dd66Filtering with this expression.|r")
+        status:SetText("|cff66dd66" .. EllesmereUI.L("Filtering with this expression.") .. "|r")
     else
-        status:SetText("|cffff5555" .. (err or "can't read that") .. "|r")
+        status:SetText("|cffff5555" .. (err or EllesmereUI.L("can't read that")) .. "|r")
     end
 end
 
@@ -743,7 +743,7 @@ local function Build(SP, K)
     btn:SetScript("OnEnter", function(self)
         self.Glyph:SetAlpha(1)
         local f = Current()
-        K.Tip(self, "Expressions", f and ("Active: " .. GFNS.Cfg().extraExpr) or "Filter groups with your own rules")
+        K.Tip(self, EllesmereUI.L("Expressions"), f and EllesmereUI.Lf("Active: %1$s", GFNS.Cfg().extraExpr) or EllesmereUI.L("Filter groups with your own rules"))
     end)
     btn:SetScript("OnLeave", function(self)
         self.Glyph:SetAlpha(0.8)
@@ -758,7 +758,6 @@ local function Build(SP, K)
     end
 end
 
--- row 1: our button left of refresh
 -------------------------------------------------------------------------------
 --  one menu at a time: whatever the open menu blocks dims and eats clicks
 -------------------------------------------------------------------------------
