@@ -588,22 +588,41 @@ end
 -- and SPELLS_CHANGED is their edge (it also fires on every zone-in and spell
 -- learn). Only the known/unknown pattern of the enabled spell bindings decides
 -- a key, so an event that leaves the pattern as applied re-applies nothing,
--- and the event is listened for only while an enabled spell binding exists.
+-- and the event is listened for only while an enabled spell binding (or a
+-- warlock's Dispels binding) exists.
 local knownSig = ""
 local sigParts = {}
+local watchCommandDemon = false
 local function ComputeKnownSignature()
+    watchCommandDemon = false
     local cc = GetClickCastDB()
     if not cc or not cc.enabled then return "" end
     wipe(sigParts)
+    local hasDispel = false
     for _, b in ipairs(GetSpecBindings()) do
-        if b.type == "spell" and b.key and IsBindingActive(b) then
-            sigParts[#sigParts + 1] = IsBindingKnown(b) and "1" or "0"
+        if b.key and IsBindingActive(b) then
+            if b.type == "spell" then
+                sigParts[#sigParts + 1] = IsBindingKnown(b) and "1" or "0"
+            elseif b.type == "dispel" then
+                hasDispel = true
+            end
         end
     end
     for _, b in ipairs(cc.globals) do
-        if b.type == "spell" and b.key and IsBindingActive(b) then
-            sigParts[#sigParts + 1] = IsBindingKnown(b) and "1" or "0"
+        if b.key and IsBindingActive(b) then
+            if b.type == "spell" then
+                sigParts[#sigParts + 1] = IsBindingKnown(b) and "1" or "0"
+            elseif b.type == "dispel" then
+                hasDispel = true
+            end
         end
+    end
+    -- The Dispels macro casts Command Demon only while it overrides to Singe Magic.
+    if hasDispel and select(2, UnitClass("player")) == "WARLOCK" and C_Spell.GetOverrideSpell then
+        watchCommandDemon = true
+        local o = C_Spell.GetOverrideSpell(119898)
+        if issecretvalue and issecretvalue(o) then o = nil end
+        sigParts[#sigParts + 1] = "|" .. tostring(o or 0)
     end
     return table.concat(sigParts)
 end
@@ -2254,6 +2273,11 @@ function ns.CC_ApplyBindings()
     else
         ccEventFrame:UnregisterEvent("SPELLS_CHANGED")
     end
+    if watchCommandDemon then
+        ccEventFrame:RegisterUnitEvent("UNIT_PET", "player")
+    else
+        ccEventFrame:UnregisterEvent("UNIT_PET")
+    end
 
     -- Combat rez item: bags are watched only for a class with no battle rez
     -- that has a Dynamic Rez or Smart Rez binding.
@@ -2661,7 +2685,7 @@ local function OnCCEvent(self, event)
         if pendingApply then pendingApply = false; ns.CC_ApplyBindings() end
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
-    elseif event == "SPELLS_CHANGED" then
+    elseif event == "SPELLS_CHANGED" or event == "UNIT_PET" then
         -- A talent or loadout swap that moved a bound spell in or out of the
         -- book; the apply re-resolves which binding owns each key.
         if ComputeKnownSignature() ~= knownSig then
