@@ -8,17 +8,6 @@ local FOLDER, ns = ...
 if EllesmereUI.HELD_BACK_ADDONS[FOLDER] then return end -- held back (EllesmereUIGroupFinder.lua)
 ns.EUI = EllesmereUI
 
--- account-wide switches (nil = on)
-local function Switch(key)
-    return function() return not (EllesmereUIDB and EllesmereUIDB[key] == false) end,
-           function(v)
-               if not EllesmereUIDB then EllesmereUIDB = {} end
-               EllesmereUIDB[key] = v and true or false
-           end
-end
-ns.RailArtOn, ns.SetRailArt = Switch("extraRailArt")
-ns.FinderLayoutOn, ns.SetFinderLayout = Switch("extraFinderLayout")
-
 -- runs fn once blizzard's group finder loads
 function ns.WhenGroupFinder(fn)
     -- module off: nothing hooks in
@@ -677,37 +666,9 @@ end
 -------------------------------------------------------------------------------
 --  row art: the instance's art fading across the left half
 -------------------------------------------------------------------------------
-local NAME_X, NAME_Y = 10, -6  -- blizzard's title anchor
-local TITLE_ROOM = 34  -- room left of the role icons
-local shifted = setmetatable({}, { __mode = "k" })  -- entry -> title width we set
-
-local function CompactOn() return false end  -- compact mode's gone
-
 local function RowArtOn()
     local c = GFNS.Cfg and GFNS.Cfg()
     return c and c.extraRowArt == true
-end
-
--- "Murder Row" -> MR, "March on Quel'Danas" -> MoQD
-local SMALL = { of = true, the = true, ["and"] = true, to = true, ["in"] = true, on = true, at = true }
-local function Short(name)
-    name = (name:match("^([^,:]+)") or name):gsub("\226\128\153", "'")
-    local out = {}
-    for word in name:gmatch("[^%s%-']+") do
-        local w = word:gsub("[^%a]", "")
-        if w ~= "" then
-            local lw = w:lower()
-            if #out == 0 and lw == "the" then
-            elseif #out > 0 and SMALL[lw] then
-                out[#out + 1] = w:sub(1, 1):lower()
-            else
-                out[#out + 1] = w:sub(1, 1):upper()
-            end
-        end
-    end
-    local ab = #out > 0 and table.concat(out) or name  -- no latin letters: whole name
-    local ov = CM._dungeonAbbrevOverride
-    return ov and ov[ab] or ab
 end
 
 -- instance art by map id: keystone background, else the journal's
@@ -743,16 +704,6 @@ local function Activity(resultID)
     local act = type(acts) == "table" and not Secret(acts) and acts[1]
     if not act or Secret(act) then return nil end
     return C_LFGList.GetActivityInfoTable(act)
-end
-
-local function ActivityShort(resultID)
-    local ai = Activity(resultID)
-    local full = ai and ai.fullName
-    if type(full) ~= "string" or Secret(full) then return nil end
-    local base, diff = full:match("^(.-)%s*%(([^()]+)%)$")
-    local ab = Short(base or full)
-    if not ai.isMythicPlusActivity and diff then ab = ab .. " " .. DIM_HEX .. "(" .. diff .. ")|r" end
-    return ab
 end
 
 local ART_SHARE, ART_ALPHA = 0.5, 0.2  -- half the row, 20% fading out
@@ -793,51 +744,12 @@ local function RowArt(entry, p)
     p.art:Show()
 end
 
-local function Stock(entry, p)
-    if not shifted[entry] then return end
-    entry.Playstyle:SetAlpha(1)
-    entry.ActivityName:SetAlpha(1)
-    entry.Name:ClearAllPoints()
-    entry.Name:SetPoint("TOPLEFT", entry, "TOPLEFT", NAME_X, NAME_Y)
-    entry.Name:SetWidth(shifted[entry])
-    if p.short then p.short:Hide() end
-    shifted[entry] = nil
-end
-
-local function CompactEntry(entry, p)
-    if InCombatLockdown() or not (entry.Name and entry.ActivityName) then return end
-    local short = CompactOn() and entry.resultID and ActivityShort(entry.resultID)
-    if not short then return Stock(entry, p) end
-    entry.Playstyle:SetAlpha(0)
-    entry.ActivityName:SetAlpha(0)
-    p.short = p.short or p.sep:GetParent():CreateFontString(nil, "OVERLAY", "GameFontNormal")
-
-    local ok, path, size, flags = pcall(entry.Name.GetFont, entry.Name)
-    if ok and path then p.short:SetFont(path, size, flags or "") end
-    p.short:SetText(short)
-    p.short:SetTextColor(1, 1, 1, 1)
-    p.short:ClearAllPoints()
-    p.short:SetPoint("LEFT", entry, "LEFT", NAME_X, 0)
-    p.short:Show()
-    local x = NAME_X + math.ceil(p.short:GetStringWidth()) + 5
-    entry.Name:ClearAllPoints()
-    entry.Name:SetPoint("LEFT", entry, "LEFT", x, 0)
-    -- title can't be measured (protected), so give it a box
-    local dd, el = entry.DataDisplay, entry:GetLeft()
-    local right = dd and dd:IsShown() and dd:GetLeft()
-    local room = (right and el) and (right - el - x - TITLE_ROOM) or (176 - x)
-    room = math.max(40, math.floor(room))
-    entry.Name:SetWidth(room)
-    shifted[entry] = room + x - NAME_X
-end
-
 local function TagEntry(entry)
     if not (entry and entry.Playstyle) then return end
     local p = Parts(entry)
     RowArt(entry, p)
-    CompactEntry(entry, p)
     p.sep:Hide(); p.tag:Hide(); p.flag:Hide()
-    if CompactOn() or not (TagsOn() and entry.resultID) then return end
+    if not (TagsOn() and entry.resultID) then return end
     local d = ns.RegionInfo(RegionOf(entry.resultID))
     if not d then return end
     local play = entry.Playstyle
