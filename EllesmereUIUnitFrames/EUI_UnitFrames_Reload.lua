@@ -1584,6 +1584,7 @@ ReloadFramesBody = function()
             ApplyDarkTheme(frame.Health, unit)  -- re-anchors health.bg for the new axis
             UpdateAbsorbBarReverseFill(frame, settings.healthReverseFill and true or false, settings)
             ns.UF_HealPredApply(frame, unit, settings)
+            ns.UF_MaxHpApply(frame, unit)
             ns.UF_AbsorbGlowApply(frame, unit)
             -- Smooth bar interpolation (live toggle without /reload)
             if settings.smoothBars then

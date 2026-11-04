@@ -749,6 +749,115 @@ end
 --  the settings pass and after a retexture, never per paint.
 --  On ns: this chunk sits at the Lua 5.1 local ceiling.
 -------------------------------------------------------------------------------
+-- Max Health Style (Raid Frames parity) where Blizzard draws max health loss: player,
+-- target, focus; boss frames take target's. Opt-in channel, nothing built while None.
+ns.UF_MAXHP_UNITS = { player = true, target = true, focus = true }
+ns.UF_MAXHP_STRIPES = "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png"
+ns.UF_MAXHP_COLOR = { r = 0.7, g = 0.1, b = 0.1 }
+
+-- Texture, tint, opacity and the black backing; shared with the options preview.
+function ns.UF_ApplyMaxHealthStyle(bar, style, s, mask)
+    local tex, tiled
+    if style == "maxHealthStripes" then
+        tex, tiled = ns.UF_MAXHP_STRIPES, true
+    else
+        tex = ns.ResolveAbsorbStyleTex(style, "Interface\\Buttons\\WHITE8X8")
+        tiled = ns.ABSORB_TILED_STYLES[style] == true
+    end
+    local mc = (s and s.maxHealthColor) or ns.UF_MAXHP_COLOR
+    -- The "Large Outlined Stripes" styles are pre-colored; render them untinted.
+    if style == "largeOutlinedStripes" or style == "largeOutlinedStripesR" then mc = COLOR_WHITE end
+    bar:SetStatusBarTexture(tex)
+    bar:SetStatusBarColor(mc.r or 0.7, mc.g or 0.1, mc.b or 0.1, ((s and s.maxHealthOpacity) or 100) / 100)
+    local fill = bar:GetStatusBarTexture()
+    if fill then
+        fill:SetDrawLayer("ARTWORK", 3)
+        fill:SetHorizTile(tiled)
+        fill:SetVertTile(tiled)
+        if mask then
+            pcall(fill.RemoveMaskTexture, fill, mask)
+            fill:AddMaskTexture(mask)
+        end
+        -- A retexture can replace the fill object: re-seat the backing on it.
+        local bg = bar._bg
+        if bg then
+            bg:SetColorTexture(0, 0, 0, ((s and s.maxHealthBgOpacity) or 100) / 100)
+            bg:ClearAllPoints()
+            bg:SetAllPoints(fill)
+        end
+    end
+end
+
+-- The loss sits at the bar's far end, on whichever fill axis the health bar uses.
+function ns.UF_OrientMaxHealth(bar, isReversed, isVert)
+    bar:SetOrientation(isVert and "VERTICAL" or "HORIZONTAL")
+    bar:SetReverseFill(not isReversed)
+    ns.ApplyFillRotation(bar)
+end
+
+-- The maxhp channel's painter: loss only (gain is not drawn, as on Blizzard's
+-- frames); a secret percent goes straight to the bar.
+function ns.UF_PaintMaxHp(frame, unit)
+    local hpe = frame.HealthPrediction
+    local ab = hpe and hpe.damageAbsorb
+    local bar = ab and ab._maxHp
+    if not (bar and ab._maxHpOn) then return end
+    local pct = GetUnitTotalModifiedMaxHealthPercent(unit)
+    if pct == nil then
+        bar:Hide()
+    elseif issecretvalue and issecretvalue(pct) then
+        bar:SetValue(pct)
+        bar:Show()
+    elseif pct > 0 then
+        bar:SetValue(math.min(pct, 1))
+        bar:Show()
+    else
+        bar:Hide()
+    end
+end
+ns.Engine.SetPainter("maxhp", ns.UF_PaintMaxHp)
+
+-- Style pass + channel sync for one frame (unitKey = its unit token); runs at
+-- spawn and on every settings reload, after the absorb bars' fill axis is set.
+function ns.UF_MaxHpApply(frame, unitKey)
+    local hpe = frame.HealthPrediction
+    local ab = hpe and hpe.damageAbsorb
+    if not (ab and ab._hpBar and db) then return end
+    local s
+    if IS_BOSS_UNIT[unitKey] then
+        local b = db.profile.boss
+        if not (b and b.showAbsorbs == false) then s = db.profile.target end
+    elseif ns.UF_MAXHP_UNITS[unitKey] then
+        s = GetSettingsForUnit(unitKey)
+    end
+    local style = (s and s.maxHealthStyle) or "none"
+    local bar = ab._maxHp
+    if style == "none" or not GetUnitTotalModifiedMaxHealthPercent then
+        if ab._maxHpOn then
+            ab._maxHpOn = false
+            bar:Hide()
+            ns.Engine.SetChannelOn(frame, "maxhp", false)
+        end
+        return
+    end
+    if not bar then
+        bar = CreateFrame("StatusBar", nil, ab._hpBar)
+        bar:SetAllPoints(ab._hpBar)
+        bar:SetFrameLevel(ab._hpBar:GetFrameLevel() + 2)
+        bar:SetMinMaxValues(0, 1)
+        bar._bg = bar:CreateTexture(nil, "ARTWORK", nil, 2)
+        bar:Hide()
+        ab._maxHp = bar
+    end
+    ns.UF_ApplyMaxHealthStyle(bar, style, s, ab._absorbMask)
+    ns.UF_OrientMaxHealth(bar, ab._isReversed, ab._isVert)
+    if not ab._maxHpOn then
+        ab._maxHpOn = true
+        ns.Engine.SetChannelOn(frame, "maxhp", true)
+    end
+    ns.UF_PaintMaxHp(frame, frame._euiUnit or unitKey)
+end
+
 ns.UF_GLOW_LINE_ART = EllesmereUI.AbsorbGlow.art
 ns.UF_GlowLineWidth = EllesmereUI.AbsorbGlow.Width
 
