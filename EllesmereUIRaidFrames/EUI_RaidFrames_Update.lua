@@ -289,7 +289,7 @@ local function PaintSecretRole(d, unit, style, s)
     pcall(paint, proxy)
 end
 
-ns._UpdateRoleIcon = function(d, s, unit)
+local function UpdateRoleIconShown(d, s, unit)
     local roleIcon = d.roleIcon
     if not roleIcon then return end
     if roleIcon._roleText then roleIcon._roleText:Hide() end
@@ -319,6 +319,22 @@ ns._UpdateRoleIcon = function(d, s, unit)
     else
         roleIcon:Hide()
         if secretTex then secretTex:Hide() end
+    end
+end
+
+-- Attach Role Icons: the name only makes room on frames whose icon shows (a secret
+-- role's Blizzard-painted icon counts as shown).
+ns._UpdateRoleIcon = function(d, s, unit)
+    if not d.roleIcon then return end
+    UpdateRoleIconShown(d, s, unit)
+    local tnb = d.topNameBar
+    if not (s.roleIconOnNameBar and tnb and d.topNameBarText) then return end
+    local sec = d.roleIconSecret
+    local secShown = sec and sec:IsShown()
+    local has = d.roleIcon:IsShown() or (issecretvalue and issecretvalue(secShown)) or secShown or false
+    if tnb._euiRoleIcon ~= has then
+        tnb._euiRoleIcon = has
+        ns.RF_PlaceTopNameText(d.topNameBarText, tnb, s)
     end
 end
 

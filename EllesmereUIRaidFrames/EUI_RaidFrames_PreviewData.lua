@@ -1301,8 +1301,13 @@ local function ApplyPreviewData(f, index, roles, classTokens)
                         + (s.roleIconBehindBorder and ns.LVL_ROLE_BEHIND or (ns.LVL_AURA - 1)))
                 end
                 f._roleIcon:ClearAllPoints()
-                local pos = (s.roleIconPosition or "bottomleft"):upper()
-                f._roleIcon:SetPoint(pos, ns.RF_AnchorHost(f._health, s), pos, s.roleIconOffsetX or 0, s.roleIconOffsetY or 0)
+                if s.roleIconOnNameBar and s.topNameBarEnabled and f._topNameBar then
+                    local pos = (s.roleNameBarPosition or "left"):upper()
+                    f._roleIcon:SetPoint(pos, f._topNameBar, pos, s.roleNameBarOffsetX or 0, s.roleNameBarOffsetY or 0)
+                else
+                    local pos = (s.roleIconPosition or "bottomleft"):upper()
+                    f._roleIcon:SetPoint(pos, ns.RF_AnchorHost(f._health, s), pos, s.roleIconOffsetX or 0, s.roleIconOffsetY or 0)
+                end
                 f._roleIcon:Show()
                 if s.roleText then ns.ApplyRoleText(f._roleIcon, role, s) end
             else
@@ -1310,6 +1315,15 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             end
         else
             f._roleIcon:Hide()
+        end
+        -- Attach Role Icons: the name makes room only where the icon shows (as live)
+        local tnb = f._topNameBar
+        if s.roleIconOnNameBar and tnb and f._topNameBarText then
+            local has = f._roleIcon:IsShown() and true or false
+            if tnb._euiRoleIcon ~= has then
+                tnb._euiRoleIcon = has
+                ns.RF_PlaceTopNameText(f._topNameBarText, tnb, s)
+            end
         end
     end
 

@@ -120,6 +120,7 @@ do
         },
         indicators = {
             "roleIconStyle", "roleIconSize", "roleIconPosition", "roleIconOffsetX", "roleIconOffsetY", "roleIconHideInCombat",
+            "roleIconOnNameBar", "roleNameBarPosition", "roleNameBarOffsetX", "roleNameBarOffsetY",
             "roleIconBehindBorder", "roleText",
             "roleTextTankColor", "roleTextHealerColor", "roleTextDPSColor",
             "showRoleForTank", "showRoleForHealer", "showRoleForDPS",
