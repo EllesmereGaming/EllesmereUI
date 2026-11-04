@@ -261,6 +261,8 @@ initFrame:SetScript("OnEvent", function(self)
         local baseScale = d.scale or 1.0
         local ICON_SIZE = _G._EABR_ICON_SIZE or 40
         local sz = math.floor(ICON_SIZE * baseScale + 0.5)
+        local iconH = sz
+        if d.iconShape and d.iconShape ~= "none" then sz, iconH = ns.IconDimensions(sz, d) end
         local spacing = d.iconSpacing or 8
         -- The live renderer's own spec (nil = glow off), so the preview is the live look.
         local glowSpec = _G._EABR_GlowSpec and _G._EABR_GlowSpec(d, {})
@@ -273,7 +275,7 @@ initFrame:SetScript("OnEvent", function(self)
         for i, pIcon in ipairs(_previewIcons) do
             local btn = pIcon.frame
             if not btn then break end
-            btn:SetSize(sz, sz)
+            btn:SetSize(sz, iconH)
             btn:SetAlpha(opacity)
             btn:ClearAllPoints()
             btn:SetPoint("TOP", btn:GetParent(), "TOP", startX + (i - 1) * (sz + spacing), 0)
@@ -289,7 +291,8 @@ initFrame:SetScript("OnEvent", function(self)
                 btn._glowWrapper = w
             end
             if glowSpec then
-                EllesmereUI.Glows.StartSpecGlow(btn._glowWrapper, glowSpec, sz, sz, "icon", EllesmereUI.Glows.PANEL_EXTRA)
+                EllesmereUI.Glows.StartSpecGlow(btn._glowWrapper, glowSpec, sz, iconH, "icon",
+                    btn._eabrShape and ns.IconGlowExtra(btn, true) or EllesmereUI.Glows.PANEL_EXTRA)
                 btn._glowWrapper:Show()
             else
                 EllesmereUI.Glows.StopAllGlows(btn._glowWrapper)
@@ -320,7 +323,7 @@ initFrame:SetScript("OnEvent", function(self)
             local textYOff2 = d.textYOffset or -2
             local textSz2 = d.textSize or 11
             local textOverhang2 = showText and (math.abs(textYOff2) + textSz2) or 0
-            local CONTAINER_H = sz + textOverhang2
+            local CONTAINER_H = iconH + textOverhang2
             if _previewContainer then
                 _previewContainer:SetHeight(CONTAINER_H)
                 _previewContainer:ClearAllPoints()
@@ -336,7 +339,9 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     local function RefreshBorders()
-        if _G._EABR_ApplyAllIconBorders then _G._EABR_ApplyAllIconBorders() end
+        if DDB() and DDB().iconShape and DDB().iconShape ~= "none" then
+            ns.RefreshIconShapes()
+        elseif _G._EABR_ApplyAllIconBorders then _G._EABR_ApplyAllIconBorders() end
         RefreshAll()
         UpdatePreviewHeader()
     end
@@ -362,6 +367,7 @@ initFrame:SetScript("OnEvent", function(self)
         local ICON_SIZE = _G._EABR_ICON_SIZE or 40
         local sz = math.floor(ICON_SIZE * baseScale + 0.5)
         local spacing = d and d.iconSpacing or 8
+        if d and d.iconShape and d.iconShape ~= "none" then sz = ns.IconDimensions(sz, d) end
         local startX = PreviewStartX(d, #_previewIcons, sz, spacing, _previewContainer:GetWidth())
         for i, pIcon in ipairs(_previewIcons) do
             local btn = pIcon.frame
@@ -432,6 +438,8 @@ initFrame:SetScript("OnEvent", function(self)
         local baseScale = d and d.scale or 1.0
         local ICON_SIZE = _G._EABR_ICON_SIZE or 40
         local sz = math.floor(ICON_SIZE * baseScale + 0.5)
+        local iconH = sz
+        if d and d.iconShape and d.iconShape ~= "none" then sz, iconH = ns.IconDimensions(sz, d) end
         local spacing = d and d.iconSpacing or 8
         local showText = d and d.showText
         local tc = d and d.textColor or {r=1, g=1, b=1}
@@ -483,7 +491,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
         -- (the level a new container gets: see the reuse branch above)
         _previewContainer:SetFrameLevel(hdr:GetFrameLevel() + 1)
-        _previewContainer:SetSize(hdrW, sz + textOverhang)
+        _previewContainer:SetSize(hdrW, iconH + textOverhang)
         _previewContainer:SetPoint("CENTER", hdr, "CENTER", 0, 0)
         _previewContainer:Show()
         local container = _previewContainer
@@ -501,7 +509,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         for i, iconData in ipairs(icons) do
             local btn = CreateFrame("Button", nil, container)
-            btn:SetSize(sz, sz)
+            btn:SetSize(sz, iconH)
             btn:EnableMouse(true)
             btn:SetPoint("TOP", container, "TOP", startX + (i - 1) * (sz + spacing), 0)
             btn:SetAlpha(opacity)
@@ -1323,11 +1331,57 @@ initFrame:SetScript("OnEvent", function(self)
         local displaySection
         displaySection, h = W:SectionHeader(parent, SECTION_DISPLAY, y);  y = y - h
 
+        do
+            local values, order = ns.IconShapeValues()
+            local shapeRow
+            shapeRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Icon Shape", values=values, order=order,
+                  itemDisabled=function(v)
+                      local d = DDB()
+                      return v ~= "none" and v ~= "cropped" and d and (d.borderTexture or "solid") ~= "solid"
+                  end,
+                  itemDisabledTooltip="This option requires Border Style to be set to Solid",
+                  getValue=function() local d = DDB(); return (d and d.iconShape) or "none" end,
+                  setValue=function(v)
+                      local d = DDB(); if not d then return end
+                      d.iconShape = v
+                      if ns.IconShapeMasked(d) and (d.borderSize or 1) > 0 and (d.borderSize or 1) < 4 then
+                          d.borderSize = 4
+                      end
+                      ns.RefreshIconShapes(); UpdatePreviewHeader(); EllesmereUI:RefreshPage(true)
+                  end },
+                { type="slider", text="Icon Zoom", min=0, max=15, step=0.5,
+                  getValue=function() local d = DDB(); return ((d and d.iconZoom) or 0.07) * 100 end,
+                  setValue=function(v)
+                      local d = DDB(); if not d then return end
+                      d.iconZoom = v / 100
+                      ns.RefreshIconShapes(); UpdatePreviewHeader()
+                  end }
+            ); y = y - h
+            EllesmereUI.BuildInlineCog(shapeRow._leftRegion, {
+                title="Icon Shape",
+                disabled=function() local d = DDB(); return not d or d.iconShape ~= "cropped" end,
+                disabledTooltip="This option requires Icon Shape to be set to Cropped",
+                rows={
+                    { type="slider", label="Adjust Crop", min=5, max=25, step=1,
+                      tooltip="How much is trimmed from the icon's top and bottom, as a percentage per side. 10% is the classic cropped look.",
+                      get=function() return ns.CropPercent(DDB()) end,
+                      set=function(v)
+                          local d = DDB(); if not d then return end
+                          d.iconCropPercent = v
+                          ns.RefreshIconShapes(); UpdatePreviewHeader()
+                      end },
+                },
+            })
+        end
+
         -- Row 1: Border Style (+ options cog) | Border Size (+ color swatch)
         local borderTextureValues, borderTextureOrder = EllesmereUI.GetBorderTextureDropdown()
         local borderRow
         borderRow, h = W:DualRow(parent, y,
             { type="dropdown", text="Border Style",
+              disabled=function() return ns.IconShapeMasked(DDB()) end,
+              disabledTooltip="This option requires Icon Shape to be set to None or Cropped",
               values=borderTextureValues, order=borderTextureOrder,
               getValue=function() local d = DDB(); return d and d.borderTexture or "solid" end,
               setValue=function(v)
@@ -1349,14 +1403,19 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             -- Exact pixels over borderSize (the number the icons render with) and its
             -- borderSizePx companion (EllesmereUI.BorderPx).
-            EllesmereUI.BorderPxSliderCfg{
+            (ns.IconShapeMasked(DDB()) and {
+              type="dropdown", text="Border Size",
+              values={ none="None", strong="Strong" }, order={ "none", "strong" },
+              getValue=function() local d = DDB(); return d and (d.borderSize or 1) >= 4 and "strong" or "none" end,
+              setValue=function(v) local d = DDB(); if d then d.borderSize = v == "strong" and 4 or 0; RefreshBorders() end end,
+            } or EllesmereUI.BorderPxSliderCfg{
               text="Border Size",
               getStep=function() local d = DDB(); return (d and d.borderSize) or 1 end,
               setStep=function(v) local d = DDB(); if d then d.borderSize = v end end,
               getTex=function() local d = DDB(); return (d and d.borderTexture) or "solid" end,
               getPx=function() local d = DDB(); return d and d.borderSizePx end,
               setPx=function(v) local d = DDB(); if d then d.borderSizePx = v end end,
-              apply=RefreshBorders }
+              apply=RefreshBorders })
         );  y = y - h
 
         -- Row 1b: Width Offset | Height Offset. The textured border's outward offsets
