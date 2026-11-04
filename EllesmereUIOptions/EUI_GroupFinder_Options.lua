@@ -299,7 +299,7 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Ellesmere Applicant List",
               disabled = ModOff, disabledTooltip = "Group Finder",
-              tooltip = "Draws your listed group's applicants with spec, rating, best key and raid progress columns. Raid progress needs Raider.IO.",
+              tooltip = "Draws your listed group's applicants with spec, rating and best key columns.",
               getValue = function() return ns.ApplicantListOn() end,
               setValue = function(v) ns.SetOwnListValue("applicantList", v and true or false); EUI:RefreshPage() end },
             { type = "slider", text = "Applicant Row Height", min = 20, max = 64, step = 1,

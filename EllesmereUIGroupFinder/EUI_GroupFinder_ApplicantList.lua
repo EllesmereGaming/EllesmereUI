@@ -10,12 +10,10 @@ local FOLDER, ns = ...
 if EllesmereUI.HELD_BACK_ADDONS[FOLDER] then return end -- held back (EllesmereUIGroupFinder.lua)
 local EUI = EllesmereUI
 
-local RAIDS = 3
 local GAP, ROLE_GAP = 2, 4
 local BOX_RIGHT = 29  -- blizzard's list stops this far from the panel's right edge
 local HOME = LE_PARTY_CATEGORY_HOME
 local ROLES = { "TANK", "HEALER", "DAMAGER" }
-local RAID_DIFF = { "N", "H", "M" }
 local ROLE_ATLAS = { TANK = "groupfinder-icon-role-micro-tank", HEALER = "groupfinder-icon-role-micro-heal",
     DAMAGER = "groupfinder-icon-role-micro-dps" }
 local TAG = "|cff0cd29fApplicant list:|r "
@@ -26,11 +24,9 @@ local ROLE_COL = { key = "role", title = ROLE or "Role", w = 44 }
 local ILVL_COL = { key = "ilvl", title = ITEM_LEVEL_ABBR or "iLvl", w = 34 }
 local RATING_COL = { key = "rating", title = RATING or "Rating", w = 44 }
 local KEY_COL = { key = "best", title = EllesmereUI.L("Key"), w = 36 }
-local RAID_COL = { key = "raid", title = RAID or "Raid", w = 48 }
 local COLS_BASE = { SPEC_COL, ROLE_COL, ILVL_COL }
 local COLS_KEYS = { SPEC_COL, ROLE_COL, ILVL_COL, RATING_COL, KEY_COL }
 local COLS_PVP = { SPEC_COL, ROLE_COL, ILVL_COL, RATING_COL }
-local COLS_RAID = { SPEC_COL, ROLE_COL, ILVL_COL, RAID_COL }
 
 local function Secret(v) return issecretvalue and issecretvalue(v) or false end
 local function Readable(t) return type(t) == "table" and not Secret(t) and not (canaccesstable and not canaccesstable(t)) end
@@ -51,33 +47,6 @@ function ns.ApplicantListOn() return ns.Enabled() and ns.OwnListGet("applicantLi
 -------------------------------------------------------------------------------
 --  reading
 -------------------------------------------------------------------------------
--- raider.io's best current raid, "6/8 H". optional, a dash without it
-local function RaidText(name)
-    local api = _G.RaiderIO
-    if not (name and api and api.GetProfile) then return "-" end
-    local ok, prof = pcall(api.GetProfile, name)
-    local raid = ok and type(prof) == "table" and prof.raidProfile
-    if type(raid) ~= "table" or type(raid.raidProgress) ~= "table" then return "-" end
-    local bestDiff, bestKills, bestTotal = 0, 0, 0
-    for _, rp in ipairs(raid.raidProgress) do
-        if rp.current and type(rp.progress) == "table" then
-            for _, grp in ipairs(rp.progress) do
-                if type(grp.progress) == "table" and #grp.progress > 0 and not grp.obsolete then
-                    local kills = 0
-                    for _, boss in ipairs(grp.progress) do
-                        if boss.killed then kills = kills + 1 end
-                    end
-                    if kills > 0 and (grp.difficulty or 0) > bestDiff then
-                        bestDiff, bestKills, bestTotal = grp.difficulty, kills, #grp.progress
-                    end
-                end
-            end
-        end
-    end
-    if bestDiff == 0 then return "-" end
-    return bestKills .. "/" .. bestTotal .. " " .. (RAID_DIFF[bestDiff] or "?")
-end
-
 -- +12, red when it wasn't timed
 local function KeyText(s)
     if not Readable(s) then return "-" end
@@ -302,17 +271,8 @@ local function LineEnter(line)
     if ns.OwnListGet("applicantHideNote") or ns.OwnListGet("streamerNames")
         or ns.OwnListGet("streamerRating") or ns.OwnListGet("streamerSpec") then
         PrivateTooltip(line, id)
-    elseif not pcall(LFGListApplicantMember_OnEnter, line) then
-        return
-    end
-    if GameTooltip:GetOwner() ~= line then return end
-    -- raider.io hooks blizzard's rows, not ours, so raid progress goes on here
-    local name = C_LFGList.GetApplicantMemberInfo(id, line.memberIdx)
-    local raid = name and not Secret(name) and RaidText(name)
-    if raid and raid ~= "-" then
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddDoubleLine(EllesmereUI.L("Raid Progress"), raid, 1, 0.82, 0, 1, 1, 1)
-        GameTooltip:Show()
+    else
+        pcall(LFGListApplicantMember_OnEnter, line)
     end
 end
 
@@ -343,7 +303,7 @@ local function MakeLine(b, k)
     l.regionFlag = l:CreateTexture(nil, "ARTWORK")
     l.regionFlag:SetPoint("LEFT", l.region, "RIGHT", 4, 0)
     l.cells = {}
-    for _, key in ipairs({ "ilvl", "rating", "best", "raid" }) do
+    for _, key in ipairs({ "ilvl", "rating", "best" }) do
         local fs = l:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         fs:SetJustifyH("CENTER")
         fs:SetWordWrap(false)
@@ -685,8 +645,6 @@ local function FillLine(l, id, k, grey, noTouch)
         local pvp = act and C_LFGList.GetApplicantPvpRatingInfoForListing(id, k, act)
         local rating = Readable(pvp) and pvp.rating
         c.rating:SetText((rating and not Secret(rating)) and rating or "-")
-    elseif baseCols == COLS_RAID then
-        c.raid:SetText(RaidText(name))
     end
 end
 
@@ -950,7 +908,6 @@ local function Paint()
     entryActivity = act and ai or nil
     if entryActivity and entryActivity.isMythicPlusActivity then baseCols = COLS_KEYS
     elseif entryActivity and entryActivity.isRatedPvpActivity then baseCols = COLS_PVP
-    elseif entryActivity and entryActivity.categoryID == RAIDS and _G.RaiderIO then baseCols = COLS_RAID
     else baseCols = COLS_BASE end
     cols = VisibleCols(baseCols)
     PaintHeader()
