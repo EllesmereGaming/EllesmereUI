@@ -84,7 +84,7 @@ function NameplateFrame:UpdateName()
     local el = slot and GetTextSlot(slot) or "enemyName"
     local name = EllesmereUI.WithSurname(UnitName(unit))
     if type(name) == "string" then
-        name = ns.NP_FormatName(name, slot)  -- the slot's Name Format
+        name = ns.NP_FormatName(name, slot, unit)  -- the slot's Name Format
         ns.SetNameElementText(self.name, el, name, unit, slot)
         -- Debuff coloring's Color Name copies follow the text (RefreshNamePosition
         -- passes it on too).

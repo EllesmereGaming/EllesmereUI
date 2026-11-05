@@ -586,11 +586,12 @@ function EAB:FinishSetup()
     end)
 
     -- When a spell flyout closes, fade out any bars that were kept visible by it.
-    -- Not under WoW Forever's Gamepad interface style, which shows and hides
-    -- the flyout from secure code (the flyout skin stands down there too).
+    -- Not under WoW Forever's Gamepad interface style where its navigation can
+    -- still be tainted (EllesmereUI.PadTaintStandDown): it shows and hides the
+    -- flyout from secure code (the flyout skin stands down there too).
     do
         local flyFrame = GetEABFlyout():GetFrame()
-        if flyFrame and not EllesmereUI.PadGamepadUI() then
+        if flyFrame and not EllesmereUI.PadTaintStandDown() then
             flyFrame:HookScript("OnHide", function()
                 if _quickKeybindState.open then return end
                 for key, state in pairs(hoverStates) do
@@ -1168,6 +1169,12 @@ function EAB:FinishSetup()
             if nForms ~= _gridState.spellsForms then
                 _gridState.spellsForms = nForms
                 LayoutBar("StanceBar")
+                -- A newly learned form's button was parked while its slot had no
+                -- form, statehidden set: LayoutBar shows it again but leaves that
+                -- mark, and Blizzard's stance bar update on the next form change
+                -- (its UpdateShownButtons, run on the reused StanceButtons) hides
+                -- every button still carrying it. The AlwaysShow pass owns it.
+                self:ApplyAlwaysShowButtons("StanceBar")
                 self:RefreshRuntimeVisibility() -- re-eval stance bar show/hide
             end
             -- Content-signature gate: SPELLS_CHANGED also fires mid-combat on

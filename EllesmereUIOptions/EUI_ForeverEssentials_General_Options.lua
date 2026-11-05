@@ -40,7 +40,7 @@ local function NameFormatSources()
     local uf = MNS("EllesmereUIUnitFrames")
     local slots = uf and uf.db and uf.UF_NAME_FORMAT_SLOTS
     if slots then
-        list[#list + 1] = { text = "Unit Frames", tooltip = "Every unit frame text that shows a name.",
+        list[#list + 1] = { text = "Unit Frames", tooltip = "Player names in every unit frame text that shows a name.",
             get = function()
                 local p, shown, all = uf.db.profile, nil, nil
                 for i = 1, #slots do
@@ -78,7 +78,7 @@ local function NameFormatSources()
     local rf = MNS("EllesmereUIRaidFrames")
     if rf and rf.db then
         local function partyOwn() return rf._IsPartySectionCustom("textDisplay") end
-        list[#list + 1] = { text = "Raid & Party Frames", tooltip = "Raid and party frame names.",
+        list[#list + 1] = { text = "Raid & Party Frames", tooltip = "Player names on raid and party frames.",
             get = function()
                 local p = rf.db.profile
                 local m = ModeOf(p.nameFormat)
@@ -104,7 +104,8 @@ local function NameFormatSources()
     if np and np.db then
         local slotKeys, formatKey = np.textSlotKeys, {}
         for _, slot in ipairs(slotKeys) do formatKey[slot] = slot .. "NameFormat" end
-        list[#list + 1] = { text = "Enemy Nameplates", tooltip = "Enemy nameplate names and their targets.",
+        list[#list + 1] = { text = "Enemy Player Nameplates",
+            tooltip = "Enemy player names on nameplates, and their targets when they are players.",
             get = function()
                 local p, m = np.db.profile, nil
                 local nameSlot, totSlot = np.FindNameSlot(), np._npToTSlot
@@ -127,7 +128,8 @@ local function NameFormatSources()
                 for i = 1, #slotKeys do p[formatKey[slotKeys[i]]] = mode end
                 np.RefreshAllSettings()
             end }
-        list[#list + 1] = { text = "Friendly Nameplates", tooltip = "Friendly player nameplates, in both modes.",
+        list[#list + 1] = { text = "Friendly Player Nameplates",
+            tooltip = "Friendly player names on nameplates, in both modes.",
             disabled = function() return np.db.profile.showFriendlyPlayers == false end,
             disabledTooltip = "Show EUI Friendly Player Nameplates",
             get = function() return ModeOf(np.db.profile.friendlyNameFormat) end,
@@ -172,18 +174,205 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local _, h, hdr
     parent._showRowDivider = true
 
-    _, h = W:SectionHeader(parent, "SPELL RANKS", y);  y = y - h
+    ---------------------------------------------------------------------------
+    --  GENERAL: Auto Uprank Spells on Bars | Classic Windows (the vanilla
+    --  spellbook and talent window as one checkbox dropdown), then Most
+    --  Valuable Quest Reward (EllesmereUIForeverEssentials_QuestRewards.lua) |
+    --  Gathering Skill in Tooltips (EllesmereUIForeverEssentials_GatherSkill.lua,
+    --  its Minimap row in the cog), then Auto Summon Pet | Favorites per
+    --  Character. Every control reads and writes its feature's own key and
+    --  runs that feature's own apply.
+    ---------------------------------------------------------------------------
+    local QR, GS = EllesmereUI._QuestRewards, EllesmereUI._GatherSkill
+    _, h = W:SectionHeader(parent, "GENERAL", y);  y = y - h
 
-    _, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Auto Uprank Spells",
+    local CW_LABEL = "Classic Windows"
+    local cwItems = {
+        { key = "spellbook", label = "Classic Spellbook",
+          tooltip = "Your spellbook key and the micro menu's Spellbook button open the vanilla spellbook.",
+          read = function() return CS.Get("enabled") end,
+          write = function(v)
+              CS.Cfg().enabled = v
+              CS.Apply()
+          end },
+        { key = "talents", label = "Classic Talents",
+          tooltip = "Your talents key and the micro menu's Talents button open the vanilla talent window.",
+          read = function() return CT.Get("enabled") end,
+          write = function(v)
+              CT.Cfg().enabled = v
+              CT.Apply()
+          end },
+    }
+    -- Global search sees row labels and tooltips only, so this row's entry,
+    -- registered before the row (the index keeps the first one), carries the
+    -- dropdown's names as search text; it is never shown.
+    if EllesmereUI._RegisterSearchEntry then
+        local words = {}
+        for i = 1, #cwItems do
+            local s = cwItems[i].label
+            words[#words + 1] = s
+            local loc = EllesmereUI.L(s)
+            if loc ~= s then words[#words + 1] = loc end
+        end
+        local labelLoc = EllesmereUI.L(CW_LABEL)
+        EllesmereUI._RegisterSearchEntry(CW_LABEL, labelLoc ~= CW_LABEL and labelLoc or nil,
+            table.concat(words, " "), EllesmereUI._buildingModule, EllesmereUI._buildingPage,
+            parent._currentSection and parent._currentSection._sectionName)
+    end
+
+    local generalRow
+    generalRow, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Auto Uprank Spells on Bars",
           tooltip = "Swaps new spell ranks onto your action bars.",
           getValue = function() return SU.Get("enabled") end,
           setValue = function(v)
               SU.Cfg().enabled = v
               SU.Apply()
           end },
-        BLANK()
+        { type = "label", text = CW_LABEL,
+          tooltip = "Choose which windows open in their classic version." }
     );  y = y - h
+    if not EllesmereUI._prebuilding then
+        local rgn = generalRow._rightRegion
+        local byKey = {}
+        for i = 1, #cwItems do byKey[cwItems[i].key] = cwItems[i] end
+        local cwDD, cwRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+            rgn, 210, rgn:GetFrameLevel() + 2, cwItems,
+            function(key) return byKey[key].read() end,
+            function(key, v) byKey[key].write(v) end)
+        EllesmereUI.PanelPP.Point(cwDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        rgn._control = cwDD
+        rgn._lastInline = nil
+        EllesmereUI.RegisterWidgetRefresh(cwRefresh)
+    end
+
+    local rewardRow
+    rewardRow, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Most Valuable Quest Reward",
+          tooltip = "Among a quest's reward choices, a money bag marks the one that sells for most, its count included.",
+          getValue = function() return QR.Get("enabled") end,
+          setValue = function(v)
+              QR.Cfg().enabled = v
+              QR.Apply()
+          end },
+        { type = "toggle", text = "Gathering Skill in Tooltips",
+          tooltip = "Adds the skill a herb or ore node needs to its tooltip, colored by your chance to raise your skill there.",
+          getValue = function() return GS.Get("enabled") end,
+          setValue = function(v)
+              GS.Cfg().enabled = v
+              GS.Apply()
+              EllesmereUI:RefreshPage()  -- the cog's disabled state
+          end }
+    );  y = y - h
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(rewardRow._rightRegion, {
+            title = "Gathering Skill in Tooltips",
+            rows = {
+                { type = "toggle", label = "Minimap",
+                  tooltip = "Also adds the required skill to herb and ore names on the minimap.",
+                  get = function() return GS.Get("minimap") end,
+                  set = function(v)
+                      GS.Cfg().minimap = v
+                      GS.Apply()
+                  end },
+            },
+            disabled = function() return not GS.Get("enabled") end,
+            disabledTooltip = "Gathering Skill in Tooltips",
+        })
+    end
+
+    -- Auto Summon Pet | Favorites per Character
+    -- (EllesmereUIForeverEssentials_PetSummon.lua), while the Pet Journal exists.
+    local PS = EllesmereUI._PetSummon
+    if PS and C_PetJournal then
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Auto Summon Pet",
+              tooltip = "Brings a random favorite pet back after loading screens, flights and deaths; a pet you dismiss stays away.",
+              getValue = function() return PS.Get("enabled") end,
+              setValue = function(v)
+                  PS.Cfg().enabled = v
+                  PS.Apply(v)  -- turning it on also ends an earlier dismissal
+                  EllesmereUI:RefreshPage()  -- Favorites per Character's disabled state
+              end },
+            { type = "toggle", text = "Favorites per Character",
+              tooltip = "Pick this character's favorites from a pet's right-click menu in the Pet Journal.",
+              disabled = function() return not PS.Get("enabled") end,
+              disabledTooltip = "Auto Summon Pet",
+              -- This character's own setting, read without creating its table.
+              getValue = function()
+                  local chars, guid = PS.Get("chars"), UnitGUID("player")
+                  return chars ~= nil and guid ~= nil and chars[guid] ~= nil and chars[guid].own == true
+              end,
+              setValue = function(v)
+                  local guid = UnitGUID("player")
+                  if not guid then return end
+                  local cfg = PS.Cfg()
+                  cfg.chars = cfg.chars or {}
+                  cfg.chars[guid] = cfg.chars[guid] or {}
+                  cfg.chars[guid].own = v or nil
+                  PS.RefreshJournal()
+              end }
+        );  y = y - h
+    end
+
+    ---------------------------------------------------------------------------
+    --  NAME FORMAT (while a module with a Name Format is on)
+    ---------------------------------------------------------------------------
+    local sources = NameFormatSources()
+    if #sources > 0 then
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+        _, h = W:SectionHeader(parent, "NAME FORMAT", y);  y = y - h
+        -- Placeholder dropdowns keep the labels, tooltips and search entries; the
+        -- checkbox dropdowns replace them (DualRow only builds plain widgets).
+        local function Slot(text, tooltip)
+            return { type = "dropdown", text = text, tooltip = tooltip,
+                values = { __placeholder = "..." }, order = { "__placeholder" },
+                getValue = function() return "__placeholder" end,
+                setValue = function() end }
+        end
+        local row
+        row, h = W:DualRow(parent, y,
+            Slot("First Name", "Checked modules show players' first names. A module checked in both lists shows the full name."),
+            Slot("Last Name", "Checked modules show players' last names. A module checked in both lists shows the full name."));  y = y - h
+        if not EllesmereUI._prebuilding then
+            local PP = EllesmereUI.PanelPP
+            -- A module that is switched off stays greyed out and out of "All".
+            local items = {}
+            for i = 1, #sources do
+                local src = sources[i]
+                items[i] = { key = i, label = src.text, tooltip = src.tooltip,
+                    lockedFn = src.disabled, excludeFromSummaryFn = src.disabled,
+                    lockedTooltip = src.disabled and function()
+                        return EllesmereUI.DisabledTooltip(src.disabledTooltip)
+                    end or nil }
+            end
+            -- Whether a row value shows that part of the name ("mixed" shows neither box).
+            local function Has(m, part) return m == part or m == "full" end
+            local function List(rgn, part)
+                local other = (part == "first") and "last" or "first"
+                if rgn._control then rgn._control:Hide() end
+                -- 260 wide: room for the longest row label (Friendly Player
+                -- Nameplates and its translations); longer ones end in "...".
+                local dd, refresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    rgn, 260, rgn:GetFrameLevel() + 2, items,
+                    function(i) return Has(sources[i].get(), part) end,
+                    function(i, on)
+                        local theirs = Has(sources[i].get(), other)
+                        -- A name always shows: unchecking the last box keeps it.
+                        if not (on or theirs) then return end
+                        sources[i].set((on and theirs) and "full" or (on and part or other))
+                        -- The other list reads the new value too.
+                        EllesmereUI:RefreshPage()
+                    end)
+                PP.Point(dd, "RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._control = dd
+                rgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(refresh)
+            end
+            List(row._leftRegion, "first")
+            List(row._rightRegion, "last")
+        end
+    end
 
     ---------------------------------------------------------------------------
     --  WORLD MAP (Fade Map While Moving | Show the Game Behind the Map, then
@@ -308,29 +497,6 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     end
 
     ---------------------------------------------------------------------------
-    --  CLASSIC WINDOWS (the vanilla spellbook and talent window)
-    ---------------------------------------------------------------------------
-    _, h = W:Spacer(parent, y, 20);  y = y - h
-    _, h = W:SectionHeader(parent, "CLASSIC WINDOWS", y);  y = y - h
-
-    _, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Classic Spellbook",
-          tooltip = "Your spellbook key opens the vanilla spellbook.",
-          getValue = function() return CS.Get("enabled") end,
-          setValue = function(v)
-              CS.Cfg().enabled = v
-              CS.Apply()
-          end },
-        { type = "toggle", text = "Classic Talents",
-          tooltip = "Your talents key opens the vanilla talent window.",
-          getValue = function() return CT.Get("enabled") end,
-          setValue = function(v)
-              CT.Cfg().enabled = v
-              CT.Apply()
-          end }
-    );  y = y - h
-
-    ---------------------------------------------------------------------------
     --  SIMPLIFIED STATS (item tooltips)
     ---------------------------------------------------------------------------
     local SS = EllesmereUI._SimplifiedStats
@@ -370,62 +536,6 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               order = { "signed", "stat", "line" },
               getValue = function() return SS.Get("numColor") end,
               setValue = function(v) SS.Cfg().numColor = (v ~= "signed") and v or nil end }
-        );  y = y - h
-    end
-
-    ---------------------------------------------------------------------------
-    --  QUEST REWARDS (EllesmereUIForeverEssentials_QuestRewards.lua)
-    ---------------------------------------------------------------------------
-    local QR = EllesmereUI._QuestRewards
-    _, h = W:Spacer(parent, y, 20);  y = y - h
-    _, h = W:SectionHeader(parent, "QUEST REWARDS", y);  y = y - h
-
-    _, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Most Valuable Reward",
-          tooltip = "Among a quest's reward choices, a money bag marks the one that sells for most, its count included.",
-          getValue = function() return QR.Get("enabled") end,
-          setValue = function(v)
-              QR.Cfg().enabled = v
-              QR.Apply()
-          end },
-        BLANK()
-    );  y = y - h
-
-    ---------------------------------------------------------------------------
-    --  COMPANION PETS (EllesmereUIForeverEssentials_PetSummon.lua)
-    ---------------------------------------------------------------------------
-    local PS = EllesmereUI._PetSummon
-    if PS and C_PetJournal then
-        _, h = W:Spacer(parent, y, 20);  y = y - h
-        _, h = W:SectionHeader(parent, "COMPANION PETS", y);  y = y - h
-
-        _, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Auto Summon Pet",
-              tooltip = "Brings a random favorite pet back after loading screens, flights and deaths; a pet you dismiss stays away.",
-              getValue = function() return PS.Get("enabled") end,
-              setValue = function(v)
-                  PS.Cfg().enabled = v
-                  PS.Apply(v)  -- turning it on also ends an earlier dismissal
-                  EllesmereUI:RefreshPage()  -- Favorites per Character's disabled state
-              end },
-            { type = "toggle", text = "Favorites per Character",
-              tooltip = "Pick this character's favorites from a pet's right-click menu in the Pet Journal.",
-              disabled = function() return not PS.Get("enabled") end,
-              disabledTooltip = "Auto Summon Pet",
-              -- This character's own setting, read without creating its table.
-              getValue = function()
-                  local chars, guid = PS.Get("chars"), UnitGUID("player")
-                  return chars ~= nil and guid ~= nil and chars[guid] ~= nil and chars[guid].own == true
-              end,
-              setValue = function(v)
-                  local guid = UnitGUID("player")
-                  if not guid then return end
-                  local cfg = PS.Cfg()
-                  cfg.chars = cfg.chars or {}
-                  cfg.chars[guid] = cfg.chars[guid] or {}
-                  cfg.chars[guid].own = v or nil
-                  PS.RefreshJournal()
-              end }
         );  y = y - h
     end
 
@@ -541,99 +651,6 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
                 _, h = W:DualRow(parent, y, offL, offR);  y = y - h
             end
         end
-    end
-
-    ---------------------------------------------------------------------------
-    --  NAME FORMAT (while a module with a Name Format is on)
-    ---------------------------------------------------------------------------
-    local sources = NameFormatSources()
-    if #sources > 0 then
-        _, h = W:Spacer(parent, y, 20);  y = y - h
-        _, h = W:SectionHeader(parent, "NAME FORMAT", y);  y = y - h
-        -- Placeholder dropdowns keep the labels, tooltips and search entries; the
-        -- checkbox dropdowns replace them (DualRow only builds plain widgets).
-        local function Slot(text, tooltip)
-            return { type = "dropdown", text = text, tooltip = tooltip,
-                values = { __placeholder = "..." }, order = { "__placeholder" },
-                getValue = function() return "__placeholder" end,
-                setValue = function() end }
-        end
-        local row
-        row, h = W:DualRow(parent, y,
-            Slot("First Name", "Checked modules show their first name. A module checked in both lists shows the full name."),
-            Slot("Last Name", "Checked modules show their last name. A module checked in both lists shows the full name."));  y = y - h
-        if not EllesmereUI._prebuilding then
-            local PP = EllesmereUI.PanelPP
-            -- A module that is switched off stays greyed out and out of "All".
-            local items = {}
-            for i = 1, #sources do
-                local src = sources[i]
-                items[i] = { key = i, label = src.text, tooltip = src.tooltip,
-                    lockedFn = src.disabled, excludeFromSummaryFn = src.disabled,
-                    lockedTooltip = src.disabled and function()
-                        return EllesmereUI.DisabledTooltip(src.disabledTooltip)
-                    end or nil }
-            end
-            -- Whether a row value shows that part of the name ("mixed" shows neither box).
-            local function Has(m, part) return m == part or m == "full" end
-            local function List(rgn, part)
-                local other = (part == "first") and "last" or "first"
-                if rgn._control then rgn._control:Hide() end
-                local dd, refresh = EllesmereUI.BuildVisOptsCBDropdown(
-                    rgn, 210, rgn:GetFrameLevel() + 2, items,
-                    function(i) return Has(sources[i].get(), part) end,
-                    function(i, on)
-                        local theirs = Has(sources[i].get(), other)
-                        -- A name always shows: unchecking the last box keeps it.
-                        if not (on or theirs) then return end
-                        sources[i].set((on and theirs) and "full" or (on and part or other))
-                        -- The other list reads the new value too.
-                        EllesmereUI:RefreshPage()
-                    end)
-                PP.Point(dd, "RIGHT", rgn, "RIGHT", -20, 0)
-                rgn._control = dd
-                rgn._lastInline = nil
-                EllesmereUI.RegisterWidgetRefresh(refresh)
-            end
-            List(row._leftRegion, "first")
-            List(row._rightRegion, "last")
-        end
-    end
-
-    ---------------------------------------------------------------------------
-    --  GATHERING (EllesmereUIForeverEssentials_GatherSkill.lua)
-    ---------------------------------------------------------------------------
-    local GS = EllesmereUI._GatherSkill
-    _, h = W:Spacer(parent, y, 20);  y = y - h
-    _, h = W:SectionHeader(parent, "GATHERING", y);  y = y - h
-
-    local gsRow
-    gsRow, h = W:DualRow(parent, y,
-        { type = "toggle", text = "Gathering Skill in Tooltips",
-          tooltip = "Adds the skill a herb or ore node needs to its tooltip, colored by your chance to raise your skill there.",
-          getValue = function() return GS.Get("enabled") end,
-          setValue = function(v)
-              GS.Cfg().enabled = v
-              GS.Apply()
-              EllesmereUI:RefreshPage()  -- the cog's disabled state
-          end },
-        BLANK()
-    );  y = y - h
-    if not EllesmereUI._prebuilding then
-        EllesmereUI.BuildInlineCog(gsRow._leftRegion, {
-            title = "Gathering Skill in Tooltips",
-            rows = {
-                { type = "toggle", label = "Minimap",
-                  tooltip = "Also adds the required skill to herb and ore names on the minimap.",
-                  get = function() return GS.Get("minimap") end,
-                  set = function(v)
-                      GS.Cfg().minimap = v
-                      GS.Apply()
-                  end },
-            },
-            disabled = function() return not GS.Get("enabled") end,
-            disabledTooltip = "Gathering Skill in Tooltips",
-        })
     end
 
     ---------------------------------------------------------------------------

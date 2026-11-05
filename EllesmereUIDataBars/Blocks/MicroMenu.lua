@@ -266,9 +266,14 @@ end
 -- WoW Forever splits the spellbook and the talents into two micro buttons. Its
 -- PlayerSpellsMicroButton still exists but opens the frame on whichever tab was last
 -- shown, so there the spell entry clicks the spellbook's own button and a Talents entry follows it.
+-- Forever Essentials' routes come first: they open its Classic Spellbook and
+-- Classic Talents while those are on and click these buttons otherwise. The
+-- glyphs still come from the buttons themselves.
 if EllesmereUI.IS_FOREVER then
-    MM_MICRO_BUTTON_NAMES.spell  = "SpellbookMicroButton"
-    MM_MICRO_BUTTON_NAMES.talent = "TalentMicroButton"
+    MM_MICRO_BUTTON_NAMES.spell  = { "EUI_SpellbookRoute", "SpellbookMicroButton" }
+    MM_MICRO_BUTTON_NAMES.talent = { "EUI_TalentsRoute", "TalentMicroButton" }
+    MM_ART_BUTTON.spell  = "SpellbookMicroButton"
+    MM_ART_BUTTON.talent = "TalentMicroButton"
     for i, def in ipairs(mmButtonDefs) do
         if def.key == 'spell' then
             def.label = SPELLBOOK or 'Spellbook'

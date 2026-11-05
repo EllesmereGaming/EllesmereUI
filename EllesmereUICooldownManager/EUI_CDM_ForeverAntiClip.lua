@@ -116,8 +116,11 @@ local function Evaluate(frame, now)
     local fc = ns._ecmeFC[frame]
     local sid = fc and fc.resolvedSid
     if type(sid) ~= "number" or sid <= 0 then
+        -- A totem item's expiry came from its totem data, so the cached aura
+        -- is unchecked here and may be a secret table (no index on one).
         local d = frame.auraDataCached
-        sid = d and d.spellId
+        sid = nil
+        if not issecretvalue(d) and d then sid = d.spellId end
     end
     local plain = type(sid) == "number" and not issecretvalue(sid)
     -- Casting the spell itself refreshes the aura: nothing to queue.

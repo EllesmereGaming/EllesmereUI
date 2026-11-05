@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  context menu and static popup reskinning (EUI_BlizzardSkin_*.lua).
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.FriendsKit and EllesmereUI.CreateQuantityDialog and EllesmereUI.NewFrameData) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (FriendsForever reads the parent's friends kit, Merchant Bulk Buy its quantity window)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.FriendsKit and EllesmereUI.CreateQuantityDialog and EllesmereUI.NewFrameData and EllesmereUI.PadTaintStandDown) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (FriendsForever reads the parent's friends kit, Merchant Bulk Buy its quantity window)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -104,16 +104,17 @@ function EllesmereUI.BlizzWindowSkinsKilled()
 end
 
 -- WoW Forever's Gamepad interface style shows, hides and navigates Blizzard's
--- windows, popups, menus and tooltips from its own secure code and makes protected
--- calls in the same execution, so a script hook of ours on those frames taints
+-- windows, popups, menus and tooltips from its own secure code and made protected
+-- calls in the same execution, so a script hook of ours on those frames tainted
 -- that path (ADDON_ACTION_FORBIDDEN, and the blocked-action popup's gamepad
--- handling can loop until the client freezes). Under that style the Blizzard
--- frame skins stand down for the session, like the bags and the Shifter.
+-- handling could loop until the client froze). On a client whose navigation
+-- still does (EllesmereUI.PadTaintStandDown: before 1.60.1 70707) the Blizzard
+-- frame skins stand down for the session under that style.
 -- Decided at the first call once logged in; false on retail.
 local _padStandDown
 function EllesmereUI.BlizzSkinPadStandDown()
     if _padStandDown ~= nil then return _padStandDown end
-    local v = EllesmereUI.PadGamepadUI()
+    local v = EllesmereUI.PadTaintStandDown()
     if IsLoggedIn() then _padStandDown = v end
     return v
 end

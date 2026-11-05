@@ -477,11 +477,27 @@ local INPUT_TOP_DROP = 5
 -- and reserves a strip on ChatFrame1's hidden window instead. Docked windows
 -- share one rect, so a box shown on any docked frame is drawn over whichever
 -- docked frame is currently visible.
+--
+-- A box is UP while chat is using it. Classic Style shows a box only then, so
+-- shown is enough. IM Style (Blizzard's default) keeps an idle box shown,
+-- emptied and faded to 35% (invisible under our skin, so its strip read as
+-- dead space): there a box is up while it has the focus, or while chat still
+-- treats it as the active box and Blizzard's own rule keeps it open without
+-- the focus (a draft left in it). That also reads right inside the focus-lost
+-- callback: clicking away from an emptied box fires it before Blizzard
+-- deactivates the box, and the rule already says it closes.
+local function BoxUp(box)
+    if not box:IsShown() then return false end
+    if GetCVar("chatStyle") ~= "im" then return true end
+    if box:HasFocus() then return true end
+    return box == ChatFrameUtil.GetActiveWindow() and not box:ShouldDeactivateChatOnEditFocusLost()
+end
+
 local function DockedEditBoxShown()
     for i = 1, 10 do
         local owner = _G["ChatFrame" .. i]
         local box = owner and _G["ChatFrame" .. i .. "EditBox"]
-        if box and box:IsShown() and owner.isDocked then return true end
+        if box and owner.isDocked and BoxUp(box) then return true end
     end
     return false
 end
@@ -493,8 +509,8 @@ function ECHAT.InputTopStripActive(cf)
     if not eb then return false end
     local idx = tonumber(name:match("ChatFrame(%d+)"))
     if not (idx and idx <= 10) then return true end
-    -- Own box up: "im" style, and any undocked window, keep the old rule.
-    if eb:IsShown() then return true end
+    -- Own box up ("im" style, and any undocked window).
+    if BoxUp(eb) then return true end
     return (cf.isDocked and cf:IsShown() and DockedEditBoxShown()) and true or false
 end
 
@@ -527,6 +543,24 @@ function ECHAT.ApplyInputTopStrip(cf)
     -- without ever calling it -- dropping the arm strands the divider hidden.
     if d.inputDiv then
         d.inputDiv:SetShown(not ECHAT.BordersHidden(cfg) and (not ECHAT.InputOnTop(cfg) or active))
+    end
+    -- IM Style: with its strip released, an idle box still lies over the top
+    -- lines of the text, invisible, so it lets clicks through (links there stay
+    -- clickable) until chat opens it again. Permanent windows only, and only a
+    -- box switched off here is switched back on.
+    local name = cf:GetName()
+    local idx = name and tonumber(name:match("^ChatFrame(%d+)$"))
+    local eb = idx and idx <= 10 and _G[name .. "EditBox"]
+    if eb then
+        local idle = ECHAT.InputOnTop(cfg) and eb:IsShown() and not BoxUp(eb)
+        local ed = CFD(eb)
+        if idle and not ed.mouseOff and eb:IsMouseEnabled() then
+            eb:EnableMouse(false)
+            ed.mouseOff = true
+        elseif not idle and ed.mouseOff then
+            eb:EnableMouse(true)
+            ed.mouseOff = nil
+        end
     end
     if changed and ECHAT.EngineLayoutWindow then ECHAT.EngineLayoutWindow(cf) end
 end

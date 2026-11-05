@@ -145,10 +145,12 @@ if EllesmereUI.IS_FOREVER then
         if SIDEBAR_CHAIN_KEYS[i] == "showPortals" then table.remove(SIDEBAR_CHAIN_KEYS, i) end
     end
 end
--- Chat Menu leaves the chain under WoW Forever's Gamepad interface style: it
--- hooks Blizzard's chat menu button, which that style's navigation drives
--- from secure code. Decided once logged in, when the style reads reliably,
--- and kept for the session like the suite's other gamepad stand-downs.
+-- Chat Menu leaves the chain under WoW Forever's Gamepad interface style
+-- (EllesmereUI.PadGamepadUI): Blizzard hides each chat window's button frame
+-- there (FloatingChatFrameMixin:InitializeGamepad), and the chat menu button
+-- with it, so the icon would have nothing under it to click. Decided once
+-- logged in, when the style reads reliably, and kept for the session like the
+-- suite's other gamepad stand-downs.
 local chatMenuPadOff
 local function ChatMenuPadOff()
     if chatMenuPadOff == nil then

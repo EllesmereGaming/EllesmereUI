@@ -197,6 +197,7 @@ if EABR.FOREVER then
         gatherClassTrack = true,  -- an active class tracking also hides it
         treasure = false,   -- Find Treasure reminder (Dwarf); opt-in, it shows while it is off
         wellFed = false,    -- Well Fed reminder; opt-in, matched by aura name (every food has its own spell ID)
+        mageArmor = false,  -- Mage armor reminder (Mage); opt-in, it shows while no Frost/Ice/Mage Armor rank is up
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added
         customGroups = {},  -- { name = string, ids = { spell IDs } }: one reminder while none of ids is active

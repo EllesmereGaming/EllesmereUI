@@ -17,6 +17,9 @@ local PAGE_UNLOCK    = "Unlock Mode"
 -- Forever section (Camp Benefits + custom spell IDs); the Talent Reminders
 -- page does not exist there.
 local FOREVER = EllesmereUI.IS_FOREVER == true
+-- The Mage Armors row is the one WOW FOREVER row that is class-only. Class
+-- never changes mid-session, so unlike the Beacon M+ row no watcher is needed.
+local MAGE = FOREVER and select(2, UnitClass("player")) == "MAGE"
 
 local SECTION_CORE         = "CORE"
 local SECTION_FOREVER      = "WOW FOREVER"
@@ -1798,9 +1801,10 @@ initFrame:SetScript("OnEvent", function(self)
 
         -----------------------------------------------------------------------
         --  WOW FOREVER section: on that client the rest of the page.
-        --  Camp Benefits | Well Fed, Gathering Tracking | Find Treasure, then
-        --  the spell-ID entry that adds a custom reminder followed by one slot
-        --  per tracked spell; the retail sections below never build.
+        --  Camp Benefits | Well Fed, Gathering Tracking | Find Treasure, for a
+        --  Mage then Mage Armors, then the spell-ID entry that adds a custom
+        --  reminder followed by one slot per tracked spell; the retail sections
+        --  below never build.
         -----------------------------------------------------------------------
         if FOREVER then
             _, h = W:SectionHeader(parent, SECTION_FOREVER, y);  y = y - h
@@ -1863,6 +1867,22 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) local f = FDB(); if f then f.gatherClassTrack = v; RefreshAll() end end },
                     },
                 })
+            end
+
+            -- Mage Armors | (empty): built for a Mage only, so no other class
+            -- sees a row or a shift. Its own row, so the custom spells below
+            -- (packed from their own first slot) never land in the empty one.
+            if MAGE then
+                _, h = W:DualRow(parent, y,
+                    { type="toggle", text="Mage Armors",
+                      tooltip="Reminds you when no Frost Armor, Ice Armor or Mage Armor is up.\nThe icon is the one you last had on; click it to cast it.",
+                      getValue=function() local f = FDB(); return f and f.mageArmor == true end,
+                      setValue=function(v)
+                          local f = FDB(); if not f then return end; f.mageArmor = v
+                          RefreshAll()
+                      end },
+                    EllesmereUI.BlankRowCfg()
+                );  y = y - h
             end
 
             -- Add Custom Spell, paired with the tracked spells
