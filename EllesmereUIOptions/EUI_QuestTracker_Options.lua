@@ -239,9 +239,9 @@ initFrame:SetScript("OnEvent", function(self)
               onChanged = function() RefreshAll() end,
               onOptionChanged = function() RefreshAll() end },
             { type="dropdown", text="Hide When In Raid",
-              tooltip="Always: hide the tracker the whole time you are in a raid.\nBoss Combat: keep it visible and only hide during boss encounters.",
-              values = { always = "Always", boss = "Boss Combat" },
-              order  = { "always", "boss" },
+              tooltip="Always: hide the tracker the whole time you are in a raid.\nBoss Combat: keep it visible and only hide during boss encounters.\nNever: never automatically hides the tracker when in a raid; relies on Visibility settings only.",
+              values = { always = "Always", boss = "Boss Combat", never = "Never" },
+              order  = { "always", "boss", "never" },
               getValue=function() return Cfg("hideInRaidMode") or "boss" end,
               setValue=function(v) Set("hideInRaidMode", v); if EQT.UpdateVisibility then EQT.UpdateVisibility() end end })
         y = y - h
