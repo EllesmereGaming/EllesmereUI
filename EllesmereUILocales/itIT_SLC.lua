@@ -1238,3 +1238,8 @@ L["show a group question, answers do nothing"] = "mostra una domanda di gruppo, 
 L["the council window did not open for this boss kill: %s"] = "la finestra del consiglio non si è aperta per questa uccisione del boss: %s"
 L["whisper %s your answer for an item."] = "sussurra a %s la tua risposta per un oggetto."
 L["would ask whether to send the guide to the raid or by whisper:"] = "chiederebbe se inviare la guida all'incursione o per sussurro:"
+
+-- == Simple Loot Council 1.0.6 strings, from the Simple Loot Council standalone translations ==
+L["Clear \"Awarded to you\""] = "Rimuovi \"Assegnato a te\""
+L["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."] = "Eliminare %s assegnato a %s?\n\nNon è ancora stato scambiato, quindi questo annulla anche l'assegnazione: esce da \"Bottino da commerciare\" e dalla cronologia di ogni membro dell'incursione, come fa \"Revoca\"."
+L["usage: /slc prompt lootmaster / raider / guard"] = "uso: /slc prompt lootmaster / raider / guard"

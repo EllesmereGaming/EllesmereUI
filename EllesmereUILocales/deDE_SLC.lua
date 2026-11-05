@@ -1216,3 +1216,8 @@ L["Your untouched response buttons now read in your language. Buttons you rename
 L["your view of the run (alt. sess)"] = "Eure Ansicht der Runde (alt. sess)"
 L["your view of the run"] = "Eure Ansicht der Runde"
 L["|cff478cebSimpleLootCouncil|r loaded.  |cff73716C/slc|r for options."] = "|cff478cebSimpleLootCouncil|r geladen.  |cff73716C/slc|r für Optionen."
+
+-- == Simple Loot Council 1.0.6 strings, from the Simple Loot Council standalone translations ==
+L["Clear \"Awarded to you\""] = "„An Euch vergeben“ entfernen"
+L["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."] = "Das an %2$s vergebene %1$s löschen?\n\nEs wurde noch nicht gehandelt, daher macht dies auch die Vergabe rückgängig: Es verschwindet aus „Beute zum Handeln“ und aus dem Verlauf jedes Schlachtzugsmitglieds, wie bei „Vergabe zurück“."
+L["usage: /slc prompt lootmaster / raider / guard"] = "Verwendung: /slc prompt lootmaster / raider / guard"

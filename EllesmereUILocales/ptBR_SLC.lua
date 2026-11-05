@@ -1235,3 +1235,8 @@ L["promote loot"] = "promover o líder do saque"
 L["promoted for this raid"] = "promovido para este raide"
 L["show a group question, answers do nothing"] = "mostrar uma pergunta de grupo, as respostas não fazem nada"
 L["the council window did not open for this boss kill: %s"] = "a janela do conselho não abriu nesta morte de chefe: %s"
+
+-- == Simple Loot Council 1.0.6 strings, from the Simple Loot Council standalone translations ==
+L["Clear \"Awarded to you\""] = "Limpar \"Atribuído a você\""
+L["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."] = "Excluir %s atribuído a %s?\n\nEle ainda não foi negociado, então isso também desfaz a atribuição: ele sai de \"Saque para negociar\" e do histórico de cada membro da raide, como faz \"Desfazer\"."
+L["usage: /slc prompt lootmaster / raider / guard"] = "uso: /slc prompt lootmaster / raider / guard"

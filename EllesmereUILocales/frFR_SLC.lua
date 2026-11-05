@@ -1206,3 +1206,8 @@ L["team / t [season [date / clear]]"] = true
 L["the council window did not open for this boss kill: %s"] = "la fenêtre du conseil ne s'est pas ouverte pour ce boss vaincu : %s"
 L["whisper %s your answer for an item."] = "chuchotez à %s votre réponse pour un objet."
 L["would ask whether to send the guide to the raid or by whisper:"] = "demanderait s'il faut envoyer le guide au raid ou par chuchotement :"
+
+-- == Simple Loot Council 1.0.6 strings, from the Simple Loot Council standalone translations ==
+L["Clear \"Awarded to you\""] = "Effacer « Attribué à vous »"
+L["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."] = "Supprimer %s attribué à %s ?\n\nIl n'a pas encore été échangé, donc cela annule aussi l'attribution : il quitte « Butin à échanger » et l'historique de chaque membre du raid, comme « Annuler attribution »."
+L["usage: /slc prompt lootmaster / raider / guard"] = "utilisation : /slc prompt lootmaster / raider / guard"

@@ -1250,3 +1250,8 @@ L["promote loot"] = "분배 담당자 승급"
 L["promoted for this raid"] = "이 공격대 동안 승급됨"
 L["show a group question, answers do nothing"] = "그룹 질문 표시, 응답은 효과 없음"
 L["the council window did not open for this boss kill: %s"] = "이번 우두머리 처치에서 위원회 창이 열리지 않았습니다: %s"
+
+-- == Simple Loot Council 1.0.6 strings, from the Simple Loot Council standalone translations ==
+L["Clear \"Awarded to you\""] = "'나에게 지급됨' 지우기"
+L["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."] = "%s (%s 님에게 지급됨) 기록을 삭제하시겠습니까?\n\n아직 거래되지 않았으므로 지급도 함께 취소됩니다. '지급 취소'와 마찬가지로 '거래할 전리품'과 모든 공격대원의 기록에서 사라집니다."
+L["usage: /slc prompt lootmaster / raider / guard"] = "사용법: /slc prompt lootmaster / raider / guard"
