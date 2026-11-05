@@ -2783,6 +2783,15 @@ local function MakeBarElement(barId, orderIdx)
     local cfgNow = cfgOf()
     local label = "DataBar " .. barId
     if cfgNow and cfgNow.name then label = cfgNow.name end
+    -- Unlock resize: ApplyBar moved the bar to its stored spot, so return it to
+    -- the mover. Snapped and anchored bars keep their edge or link.
+    local function holdAtMover(cfg)
+        if cfg.snapEdge and cfg.snapEdge ~= "none" then return end
+        local key = "EDB_" .. barId
+        if EllesmereUI._unlockActive and not EllesmereUI.IsUnlockAnchored(key) then
+            EllesmereUI.RepositionBarToMover(key)
+        end
+    end
     return EllesmereUI.MakeUnlockElement({
         key      = "EDB_" .. barId,
         label    = label,
@@ -2851,6 +2860,7 @@ local function MakeBarElement(barId, orderIdx)
                 cfg.length = w
             end
             ns.ApplyBar(barId)
+            holdAtMover(cfg)
         end,
         setHeight = function(_, h)
             local cfg = cfgOf()
@@ -2864,6 +2874,7 @@ local function MakeBarElement(barId, orderIdx)
                 cfg.thickness = h
             end
             ns.ApplyBar(barId)
+            holdAtMover(cfg)
         end,
         isHidden = function()
             return cfgOf() == nil
