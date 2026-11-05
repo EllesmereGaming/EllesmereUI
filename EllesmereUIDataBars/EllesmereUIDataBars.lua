@@ -2407,6 +2407,12 @@ function ns.ApplyBar(id)
 
     ns.RequestLayout(id)
     if AfterBarStateChange then AfterBarStateChange() end
+    -- Enabled after registration: getFrame was nil, so install the unlock hooks
+    -- and bring held followers to the bar.
+    if wasDisabled and ns._edbUnlockRegistered then
+        ns.RegisterAllUnlockElements()
+        if EllesmereUI.PropagateAnchorChain then EllesmereUI.PropagateAnchorChain("EDB_" .. id) end
+    end
 end
 
 -- Theme-only fast path (live slider / swatch feedback).
@@ -2898,6 +2904,7 @@ function ns.RegisterAllUnlockElements()
     if #elements > 0 then
         EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIDataBars")
     end
+    ns._edbUnlockRegistered = true
 end
 
 -------------------------------------------------------------------------------
