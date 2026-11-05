@@ -3435,6 +3435,30 @@ EllesmereUI._RunConflictCheck = function()
         local function MPlusTimerMsg(label)
             return EllesmereUI.Lf("%1$s conflicts with EllesmereUI's Mythic+ Timer. Turn off Enable Mythic+ Timer on the Mythic+ Timer tab of Mythic+ Tools, or disable %1$s.", label)
         end
+        -- Leatrix Plus only clashes through these options (LeaPlusDB holds "On"/"Off"),
+        -- so it is named only while one is on for a loaded module, and the popup lists them.
+        local function LeatrixOptionsOn()
+            local db = _G.LeaPlusDB
+            if type(db) ~= "table" then return nil end
+            local on = {}
+            for _, o in ipairs({
+                { "EllesmereUIChat",    "UseEasyChatResizing",  "Use easy resizing" },
+                { "EllesmereUIChat",    "NoCombatLogTab",       "Hide the combat log" },
+                { "EllesmereUIChat",    "NoChatButtons",        "Hide chat buttons" },
+                { "EllesmereUIChat",    "UnclampChat",          "Unclamp chat frame" },
+                { "EllesmereUIChat",    "MoveChatEditBoxToTop", "Move editbox to top" },
+                { "EllesmereUIChat",    "NoStickyChat",         "Disable sticky chat" },
+                { "EllesmereUIChat",    "UseArrowKeysInChat",   "Use arrow keys in chat" },
+                { "EllesmereUIChat",    "NoChatFade",           "Disable chat fade" },
+                { "EllesmereUIChat",    "RecentChatWindow",     "Recent chat window" },
+                { "EllesmereUIChat",    "RestoreChatMessages",  "Restore chat messages" },
+                { "EllesmereUIMinimap", "MinimapModder",        "Enhance minimap" },
+            }) do
+                if db[o[2]] == "On" and IsLoaded(o[1]) then on[#on + 1] = o[3] end
+            end
+            return #on > 0 and table.concat(on, ", ") or nil
+        end
+        local leatrixOn = LeatrixOptionsOn()
         local conflicts = {
             { addon = "ElvUI",                    label = "ElvUI",                      targets = "all",                              message = "Many of ElvUI's modules are incompatible with EllesmereUI. Make sure to disable any conflicting modules." },
             { addon = "DandersFrames",            label = "Danders Frames",             targets = { "EllesmereUIRaidFrames" } },
@@ -3464,7 +3488,9 @@ EllesmereUI._RunConflictCheck = function()
             { addon = "SexyMap",                  label = "SexyMap",                    targets = { "EllesmereUIMinimap" }, },
             { addon = "MinimapButtonButton",      label = "MinimapButtonButton",        targets = { "EllesmereUIMinimap" }, },
             { addon = "Leatrix_Plus",              label = "Leatrix",                    targets = { "EllesmereUIChat", "EllesmereUIMinimap" },
-              message = "Leatrix Plus has chat and minimap features that conflict with EllesmereUI. Disable any chat or minimap related options within Leatrix Plus to stay compatible." },
+              moduleCheck = function() return leatrixOn ~= nil end,
+              message = EllesmereUI.L("Leatrix Plus has chat and minimap features that conflict with EllesmereUI. Disable any chat or minimap related options within Leatrix Plus to stay compatible.")
+                  .. "\n" .. EllesmereUI.L("Leatrix Plus options that are on:") .. " " .. (leatrixOn or "") },
             { addon = "Prat-3.0",                 label = "Prat",                       targets = { "EllesmereUIChat" } },
             { addon = "Chatter",                  label = "Chatter",                    targets = { "EllesmereUIChat" } },
             { addon = "Chattynator",              label = "Chattynator",                targets = { "EllesmereUIChat" } },
