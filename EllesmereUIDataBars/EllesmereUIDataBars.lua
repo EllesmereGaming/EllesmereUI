@@ -2810,11 +2810,14 @@ local function MakeBarElement(barId, orderIdx)
         savePos  = function(_, pt, rpt, x, y)
             local cfg = cfgOf()
             if not cfg then return end
+            local sp = cfg.savedPos
+            local moved = not (sp and sp.point == pt and (sp.relPoint or sp.point) == rpt
+                and sp.x == x and sp.y == y)
             cfg.savedPos = { point = pt, relPoint = rpt, x = x, y = y }
-            -- Any manual move un-snaps the bar: it is no longer flush to
-            -- the edge, so the setting reverting to None reflects reality
-            -- (and applyPos would otherwise fight the drag).
-            if cfg.snapEdge and cfg.snapEdge ~= "none" then
+            -- A real move un-snaps the bar: it is no longer flush to the edge,
+            -- so the setting reverting to None reflects reality (and applyPos
+            -- would otherwise fight the drag). A Cancel restores the same spot.
+            if moved and cfg.snapEdge and cfg.snapEdge ~= "none" then
                 cfg.snapEdge = "none"
             end
         end,
