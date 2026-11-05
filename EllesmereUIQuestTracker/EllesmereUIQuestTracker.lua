@@ -130,6 +130,19 @@ function ns.QT_Style()
     return v
 end
 -- Stock mode: true for both stock styles (Blizzard's own tracker art and text).
+-- WoW Forever: our own tracker replaces Blizzard's. Latched like the style.
+function ns.UseCustomTracker()
+    local v = ns._customTracker
+    if v == nil then
+        local d = EnsureDB()
+        local qt = d and d.profile and d.profile.questTracker
+        if not qt then return false end
+        v = EllesmereUI.IS_FOREVER == true and qt.customTracker == true
+        ns._customTracker = v
+    end
+    return v
+end
+
 function EQT.Blizz() return ns.QT_Style() ~= "eui" end
 function EQT.Classic() return ns.QT_Style() == "classic" end
 
@@ -167,10 +180,15 @@ end
 local function TryInit()
     if not (_sawSelf and _sawOT and _loggedIn) then return end
     EnsureDB()
-    if EQT.InitSkin       then EQT.InitSkin()       end
-    if EQT.InitVisibility then EQT.InitVisibility() end
+    if ns.UseCustomTracker() then
+        EQT.InitCustom()
+    else
+        if EQT.InitSkin       then EQT.InitSkin()       end
+        if EQT.InitVisibility then EQT.InitVisibility() end
+    end
     if EQT.InitQoL        then EQT.InitQoL()        end
-    if EQT.InitPosition   then EQT.InitPosition()   end
+    -- The custom tracker has its own mover; this one drives Blizzard's frame.
+    if EQT.InitPosition and not ns.UseCustomTracker() then EQT.InitPosition() end
     loader:UnregisterAllEvents()
 end
 
