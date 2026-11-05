@@ -354,9 +354,10 @@ end
 
 _quickKeybindState.InitMacroFrame = function()
     -- The Gamepad interface style drives the macro window from secure code; no
-    -- hooks on its buttons (asked at every call, once logged in).
+    -- hooks on its buttons where that navigation can still be tainted
+    -- (EllesmereUI.PadTaintStandDown; asked at every call, once logged in).
     if _quickKeybindState.macroFrameHooked or not MacroFrame or not QuickKeybindButtonTemplateMixin
-        or not IsLoggedIn() or EllesmereUI.PadGamepadUI() then return end
+        or not IsLoggedIn() or EllesmereUI.PadTaintStandDown() then return end
 
     _quickKeybindState.InitMacroButton(MacroFrameSelectedMacroButton or MacroFrame.SelectedMacroButton)
 
@@ -365,9 +366,10 @@ _quickKeybindState.InitMacroFrame = function()
 
     _quickKeybindState.macroScrollUpdate = function(frame)
         if not frame or not frame.GetView or not frame:GetView() then return end
-        -- No hooks on new buttons once the Gamepad interface style is on (it
-        -- can be switched on after the macro window was hooked).
-        if not EllesmereUI.PadGamepadUI() then
+        -- No hooks on new buttons once the Gamepad interface style is on where
+        -- its navigation can still be tainted (it can be switched on after the
+        -- macro window was hooked).
+        if not EllesmereUI.PadTaintStandDown() then
             frame:ForEachFrame(_quickKeybindState.InitMacroButton)
         end
         _quickKeybindState.UpdateMacroButtons(_quickKeybindState.open)
@@ -682,8 +684,8 @@ _qkbHookFrame:SetScript("OnEvent", function(self, event, addonName)
         self:UnregisterEvent("PLAYER_LOGIN")
         C_Timer_After(1, function()
             -- As Blizzard Skins+: no Quick Keybind hooks under the Gamepad
-            -- interface style.
-            if EllesmereUI.PadGamepadUI() then self:UnregisterAllEvents() return end
+            -- interface style where its navigation can still be tainted.
+            if EllesmereUI.PadTaintStandDown() then self:UnregisterAllEvents() return end
             local qkb = QuickKeybindFrame
             if qkb then
                 if _pagingFrame then

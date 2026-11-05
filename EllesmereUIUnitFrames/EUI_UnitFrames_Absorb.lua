@@ -727,6 +727,99 @@ function ns.UF_HealPredApply(frame, unitKey, s)
 end
 
 -------------------------------------------------------------------------------
+--  Max Health Style (opt-in per unit, s.maxHealthStyle; player, target and
+--  focus, where Blizzard's own frames draw max health loss, and boss frames
+--  through Target's): the part of the maximum a debuff took, as a styled
+--  overlay on the health bar's far end (Raid Frames parity; the look is
+--  EllesmereUI.ApplyMaxHealthStyle). Only loss is drawn. Off builds nothing;
+--  on, the opt-in "maxhp" channel repaints it on the unit's max health events.
+-------------------------------------------------------------------------------
+ns.UF_MAXHP_UNITS = { player = true, target = true, focus = true }
+
+-- Texture, tint, opacity and the black backing; shared with the options preview.
+function ns.UF_ApplyMaxHealthStyle(bar, style, s, mask)
+    local fill = EllesmereUI.ApplyMaxHealthStyle(bar, style, s, ns.ResolveAbsorbStyleTex)
+    if fill then
+        if mask then
+            pcall(fill.RemoveMaskTexture, fill, mask)
+            fill:AddMaskTexture(mask)
+        end
+        -- A retexture can replace the fill object: re-seat the backing on it.
+        local bg = bar._bg
+        if bg then
+            bg:SetColorTexture(0, 0, 0, ((s and s.maxHealthBgOpacity) or 100) / 100)
+            bg:ClearAllPoints()
+            bg:SetAllPoints(fill)
+        end
+    end
+end
+
+-- The loss sits at the bar's far end, on whichever fill axis the health bar uses.
+function ns.UF_OrientMaxHealth(bar, isReversed, isVert)
+    bar:SetOrientation(isVert and "VERTICAL" or "HORIZONTAL")
+    bar:SetReverseFill(not isReversed)
+    ns.ApplyFillRotation(bar)
+end
+
+-- The maxhp channel's painter. The API returns a plain fraction of the maximum
+-- (never secret, never nil); only loss is drawn, as on Blizzard's frames.
+function ns.UF_PaintMaxHp(frame, unit)
+    local hpe = frame.HealthPrediction
+    local ab = hpe and hpe.damageAbsorb
+    local bar = ab and ab._maxHp
+    if not (bar and ab._maxHpOn) then return end
+    local pct = GetUnitTotalModifiedMaxHealthPercent(unit)
+    if pct > 0 then
+        bar:SetValue(math.min(pct, 1))
+        bar:Show()
+    else
+        bar:Hide()
+    end
+end
+ns.Engine.SetPainter("maxhp", ns.UF_PaintMaxHp)
+
+-- Style pass + channel sync for one frame (unitKey = its unit token); runs at
+-- spawn and on every settings reload, after the absorb bars' fill axis is set.
+function ns.UF_MaxHpApply(frame, unitKey)
+    local hpe = frame.HealthPrediction
+    local ab = hpe and hpe.damageAbsorb
+    if not (ab and ab._hpBar and db) then return end
+    local s
+    if IS_BOSS_UNIT[unitKey] then
+        local b = db.profile.boss
+        if not (b and b.showAbsorbs == false) then s = db.profile.target end
+    elseif ns.UF_MAXHP_UNITS[unitKey] then
+        s = GetSettingsForUnit(unitKey)
+    end
+    local style = (s and s.maxHealthStyle) or "none"
+    local bar = ab._maxHp
+    if style == "none" then
+        if ab._maxHpOn then
+            ab._maxHpOn = false
+            bar:Hide()
+            ns.Engine.SetChannelOn(frame, "maxhp", false)
+        end
+        return
+    end
+    if not bar then
+        bar = CreateFrame("StatusBar", nil, ab._hpBar)
+        bar:SetAllPoints(ab._hpBar)
+        bar:SetFrameLevel(ab._hpBar:GetFrameLevel() + 2)
+        bar:SetMinMaxValues(0, 1)
+        bar._bg = bar:CreateTexture(nil, "ARTWORK", nil, 2)
+        bar:Hide()
+        ab._maxHp = bar
+    end
+    ns.UF_ApplyMaxHealthStyle(bar, style, s, ab._absorbMask)
+    ns.UF_OrientMaxHealth(bar, ab._isReversed, ab._isVert)
+    if not ab._maxHpOn then
+        ab._maxHpOn = true
+        ns.Engine.SetChannelOn(frame, "maxhp", true)
+    end
+    ns.UF_PaintMaxHp(frame, frame._euiUnit or unitKey)
+end
+
+-------------------------------------------------------------------------------
 --  Blizzard Glow Line (opt-in per unit, s.absorbGlowLine; player, target and
 --  focus, and boss frames through the Target styling they draw absorbs with).
 --  A soft line on the shield's edge next to current health. Placement
@@ -1177,7 +1270,7 @@ local function CreateAbsorbBar(frame, unit, settings)
                             local fs = field and self[field]
                             if fs then
                                 local cfg = _G._EUI_AbbrevDecimalCfg
-                                fs:SetText(cfg and AbbreviateNumbers(amt, cfg) or AbbreviateNumbers(amt))
+                                fs:SetText(cfg and AbbreviateNumbers(amt, cfg) or ns.AbbreviateValue(amt, "absorb"))
                             end
                         end
                     end

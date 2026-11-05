@@ -29,6 +29,7 @@ local PT, FindCountBand, GetBarBandCurve = I.PT, I.FindCountBand, I.GetBarBandCu
 local GetBarThresholdCurve, ResolveBandConfig = I.GetBarThresholdCurve, I.ResolveBandConfig
 local ResolveThresholdSpecEntry, ApplyBarFlat = I.ResolveThresholdSpecEntry, I.ApplyBarFlat
 local ApplyBarGradient, CalcPipGeometry = I.ApplyBarGradient, I.CalcPipGeometry
+local PipTextureHelpers = I.PipTextureHelpers
 local IsPowerBarHidden, IsSpecDisabled, pips = I.IsPowerBarHidden, I.IsSpecDisabled, I.pips
 local runeFrames, secondaryBarTicks = I.runeFrames, I.secondaryBarTicks
 local ApplyResourceBarTicks = I.ApplyResourceBarTicks
@@ -73,6 +74,10 @@ I.UpdateGCDBarSetters[#I.UpdateGCDBarSetters + 1] = function(v) UpdateGCDBar = v
 -- (EllesmereUI_NumberFormat.lua). On ns, not a local:
 -- the druid mana bar file reads it too.
 ns.AbbreviateNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbreviateNumbers) or AbbreviateNumbers
+-- Health text: the global Number Format for valueType (power text keeps the
+-- default above). On ns for the options preview.
+ns.AbbreviateValue = EllesmereUI.AbbreviateValue
+EllesmereUI.RegisterNumberFormatCallback(function() I.UpdateHealthBar() end)
 local function UpdateHealthBar()
     if not healthBar or not healthBar:IsShown() then return end
     local hp = _G._ERB_ResolveHealthCfg()
@@ -182,14 +187,14 @@ local function UpdateHealthBar()
     if hp.textFormat ~= "none" and not _G._ERB_TextHiddenByForm(hp) then
         local fmt = hp.textFormat
         local pctStr = format("%d", pctRaw)
-        local curStr = ns.AbbreviateNumbers(cur)
+        local curStr = ns.AbbreviateValue(cur, "health")
         local txt
         if fmt == "both" then
             txt = curStr .. " | " .. pctStr .. "%"
         elseif fmt == "curhpshort" then
             txt = curStr
         elseif fmt == "curmaxhp" then
-            txt = curStr .. " / " .. ns.AbbreviateNumbers(mx)
+            txt = curStr .. " / " .. ns.AbbreviateValue(mx, "maxHealth")
         elseif fmt == "perhp" then
             txt = pctStr .. "%"
         elseif fmt == "perhpnosign" then
@@ -1501,6 +1506,9 @@ local function UpdateSecondaryResource()
                     end
 
                     local active = (i <= readyN)
+                    if sp.useContinuousTexture then
+                        PipTextureHelpers.SetRange(rf, x0, slot.x1, slots[numPips].x1, pipOri)
+                    end
                     if active and runeUseThresh then
                         if not _tsBandOn and _tsPartialOnly and i < _tsThreshCount then
                             rf:SetActive(true, r, g, b, a)
@@ -1573,6 +1581,9 @@ local function UpdateSecondaryResource()
                         rf:SetWidth(w)
                     end
 
+                    if sp.useContinuousTexture then
+                        PipTextureHelpers.SetRange(rf, x0, slot.x1, slots[numPips].x1, pipOri)
+                    end
                     if _runeReady[runeIdx] then
                         -- Ready rune: full brightness + restore background, hide recharge overlay
                         rf._bg:SetAlpha(1)
@@ -1651,6 +1662,7 @@ local function UpdateSecondaryResource()
                             rf._rechargeBar:SetStatusBarColor(r * 0.75, g * 0.75, b * 0.75, a)
                         end
                         rf._rechargeBar:Show()
+                        if sp.useContinuousTexture then PipTextureHelpers.DrawFill(rf, rf._rechargeBar) end
 
                         -- Show duration text if Resource Text is enabled (DK runes use it for cooldown)
                         if rf._cdText then
@@ -2309,6 +2321,17 @@ local function UpdateSecondaryResource()
                             end
                         end
                     end
+                    -- Keep the native secret-value and opacity paths intact.
+                    if sp.useContinuousTexture then
+                        PipTextureHelpers.DrawFill(pip, pip._secretBar)
+                        PipTextureHelpers.DrawFill(pip, pip._secretThreshBar)
+                        PipTextureHelpers.DrawFill(pip, pip._bandResetBar)
+                        if pip._bandBars then
+                            for k = 1, #pip._bandBars do
+                                PipTextureHelpers.DrawFill(pip, pip._bandBars[k])
+                            end
+                        end
+                    end
                 end
             end
             -- Count text: derive from UnitPowerPercent when it reads clean
@@ -2557,6 +2580,7 @@ local function UpdateSecondaryResource()
             local shade = sp.darkenPartialPips == false and 1 or 0.75
             nextPip._rechargeBar:SetStatusBarColor(fr * shade, fg * shade, fb * shade, a)
             nextPip._rechargeBar:Show()
+            if sp.useContinuousTexture then PipTextureHelpers.DrawFill(nextPip, nextPip._rechargeBar) end
         end
 
         if sp.showText and secondaryFrame._countText then

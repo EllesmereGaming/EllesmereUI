@@ -576,11 +576,11 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local txt
         if isHealth then
-            local curStr = ns.AbbreviateNumbers(math.floor(mx * pct / 100))
+            local curStr = ns.AbbreviateValue(math.floor(mx * pct / 100), "health")
             local pctStr = tostring(pct)
             if fmt == "both" then txt = curStr .. " | " .. pctStr .. "%"
             elseif fmt == "curhpshort" then txt = curStr
-            elseif fmt == "curmaxhp" then txt = curStr .. " / " .. ns.AbbreviateNumbers(mx)
+            elseif fmt == "curmaxhp" then txt = curStr .. " / " .. ns.AbbreviateValue(mx, "maxHealth")
             elseif fmt == "perhpnosign" then txt = pctStr
             elseif fmt == "perhpnum" then txt = pctStr .. "% | " .. curStr
             else txt = pctStr .. "%" end
@@ -946,6 +946,13 @@ initFrame:SetScript("OnEvent", function(self)
                         pip._fill:SetTexture(texPath)
                     else
                         pip._fill:SetTexture("Interface\\Buttons\\WHITE8x8")
+                    end
+                    if sp.useContinuousTexture and totalW > 0 then
+                        pip._fill:SetTexCoord(pipX[i] / totalW, (pipX[i] + pipW[i]) / totalW, 0, 1)
+                        pip._continuousPreview = true
+                    elseif pip._continuousPreview then
+                        pip._fill:SetTexCoord(0, 1, 0, 1)
+                        pip._continuousPreview = nil
                     end
                     UnsnapTex(pip._fill)
 

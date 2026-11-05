@@ -5213,24 +5213,15 @@ local function Skin_Socket()
             c:ClearAllPoints()
             c:SetPoint("BOTTOM", f, "BOTTOM", 0, 40)
         end
-        -- SOCKETS anchor to the tooltip CONTENT, not the container, so moving
-        -- the container alone leaves the gems mid-text. Keep Blizzard's
-        -- horizontal arrangement (measured), own the vertical (bottoms pinned
-        -- to the gem section); re-measuring the x-delta each pass is idempotent.
+        -- Blizzard re-anchors only Socket1 each update; Socket2/3 chain off it,
+        -- so pin Socket1 alone (pinning the others latches stale offsets).
         local fcx = f:GetCenter()
-        if fcx and c then
-            local sockets = { c.Socket1, c.Socket2, c.Socket3 }
-            if c.SocketFrames then
-                for _, s3 in ipairs(c.SocketFrames) do sockets[#sockets + 1] = s3 end
-            end
-            for _, s2 in ipairs(sockets) do
-                if s2 and s2:IsShown() then
-                    local scx = s2:GetCenter()
-                    if scx then
-                        s2:ClearAllPoints()
-                        s2:SetPoint("BOTTOM", f, "BOTTOM", scx - fcx, 40)
-                    end
-                end
+        local s1 = c and c.Socket1
+        if fcx and s1 and s1:IsShown() then
+            local scx = s1:GetCenter()
+            if scx then
+                s1:ClearAllPoints()
+                s1:SetPoint("BOTTOM", f, "BOTTOM", scx - fcx, 40)
             end
         end
         -- Old-style scrollbar -> slim house strip (arrow buttons dark),
@@ -7502,9 +7493,9 @@ local function CreateMerchantScrollList(parent)
 end
 
 -- Same as the default UI's version, with frameName pointed at our own buttons.
-function EUI_MerchantFrame_UpdateAltCurrency(index, indexOnPage, canAfford)
+function EUI_MerchantFrame_UpdateAltCurrency(index, indexOnPage, canAfford, prefix)
 	local itemCount = GetMerchantItemCostInfo(index);
-	local frameName = "EUI_MerchantItem"..indexOnPage.."AltCurrencyFrame";
+	local frameName = (prefix or "EUI_MerchantItem")..indexOnPage.."AltCurrencyFrame";
 	local usedCurrencies = 0;
 	local width = 0;
 
@@ -7912,6 +7903,352 @@ local function SkinMerchantIconButton(btn)
     end
 end
 
+-------------------------------------------------------------------------------
+--  Expand Vendor UI (Merchant card): the sell tab shows a grid of the chosen columns x
+--  rows (EllesmereUIDB.merchantCols / merchantRows) instead of Blizzard's
+--  2 x 5 page. Nothing is built or hooked until the setting is first on
+--  (EnsureExpand). Blizzard's native 10-tile page stays Blizzard's and is only
+--  hidden while the grid is up (the buyback tab keeps it); tiles of the same
+--  template take its place, filled with MerchantFrame_UpdateMerchantInfo's
+--  logic. The frame widens and grows to hold the grid, and the pager steps one
+--  grid-full at a time. The native 2 x 5 size is Blizzard's own layout, so it
+--  needs none of this. Excluded with Show As List.
+--  "Hidden" means parked under a hidden holder rather than Hide(): the native
+--  tiles stay shown to Blizzard and to addons that decorate them (price
+--  displays, overlays), so they are already current when the grid comes down.
+-------------------------------------------------------------------------------
+local EX_COL_STEP, EX_ROW_STEP = 165, 52   -- tile 153 wide + Blizzard's 12 gap; 44 tall + 8 gap
+local EX_LEFT, EX_TOP = 11, -72            -- MerchantItem1's seat after the skin's 3px shift
+local EX_NATIVE_PER_PAGE = 10
+local EX_NATIVE_COLS, EX_NATIVE_ROWS = 2, 5
+local EX_MAX_COLS, EX_MAX_ROWS = 6, 10
+local EX_FRAME_PAD = 6                     -- native 336 wide = 2 columns + 6
+local EX_PREFIX = "EUI_MerchantPage"
+local MAX_MONEY_DISPLAY_WIDTH_EX = 120
+-- buttons: the grid tiles' item buttons (a split open on one of them is the grid's).
+local ex = { page = 1, tiles = {}, buttons = {}, cols = EX_NATIVE_COLS, perPage = 0 }
+
+local function ExGrid()
+    local db = EllesmereUIDB
+    local cols = math.floor(tonumber(db and db.merchantCols) or EX_NATIVE_COLS)
+    local rows = math.floor(tonumber(db and db.merchantRows) or EX_NATIVE_ROWS)
+    return math.min(EX_MAX_COLS, math.max(EX_NATIVE_COLS, cols)),
+           math.min(EX_MAX_ROWS, math.max(EX_NATIVE_ROWS, rows))
+end
+
+local function ExpandOn()
+    local db = EllesmereUIDB
+    if not db or db.merchantExpand ~= true or db.merchantShowAsList or db.reskinMerchant == false then
+        return false
+    end
+    local cols, rows = ExGrid()
+    return cols ~= EX_NATIVE_COLS or rows ~= EX_NATIVE_ROWS
+end
+
+local function ExpandActive()
+    local f = _G.MerchantFrame
+    return (ExpandOn() and f and (f.selectedTab or 1) == 1) and true or false
+end
+EllesmereUI._Merchant_ExpandActive = ExpandActive
+EllesmereUI._Merchant_ExpandPerPage = function() return ex.perPage end
+
+local function EX_NumPages()
+    return math.max(1, math.ceil(GetMerchantNumItems() / math.max(1, ex.perPage)))
+end
+
+local function EX_Place(t, i)
+    local f = _G.MerchantFrame
+    local col = (i - 1) % ex.cols
+    local row = math.floor((i - 1) / ex.cols)
+    t:ClearAllPoints()
+    t:SetPoint("TOPLEFT", f, "TOPLEFT", EX_LEFT + col * EX_COL_STEP, EX_TOP - row * EX_ROW_STEP)
+end
+
+local function EX_GetTile(i)
+    local t = ex.tiles[i]
+    if t then return t end
+    local f = _G.MerchantFrame
+    t = CreateFrame("Frame", EX_PREFIX .. i, f, "MerchantItemTemplate")
+    EX_Place(t, i)
+    SkinMerchantTile(t)
+    LiftMerchantCurrency(_G[EX_PREFIX .. i .. "MoneyFrame"])
+    LiftMerchantCurrency(_G[EX_PREFIX .. i .. "AltCurrencyFrame"])
+    ex.tiles[i] = t
+    ex.buttons[t.ItemButton] = true
+    return t
+end
+
+local function EX_FillTile(tile, slot, index, numItems)
+    local btn = tile.ItemButton
+    local money = _G[EX_PREFIX .. slot .. "MoneyFrame"]
+    local alt = _G[EX_PREFIX .. slot .. "AltCurrencyFrame"]
+    local info = index <= numItems and C_MerchantFrame.GetItemInfo(index) or nil
+    if not info then
+        btn.price = nil
+        btn.hasItem = nil
+        btn.name = nil
+        btn:SetID(0)
+        tile:Hide()
+        return
+    end
+
+    local itemName, texture, numAvailable = info.name, info.texture, info.numAvailable
+    if info.currencyID then
+        itemName, texture, numAvailable = CurrencyContainerUtil.GetCurrencyContainerInfo(
+            info.currencyID, info.numAvailable, info.name, info.texture, nil)
+    end
+
+    local canAfford = CanAffordMerchantItem(index)
+    local link = GetMerchantItemLink(index)
+    tile.Name:SetText(itemName)
+    SetItemButtonCount(btn, info.stackCount)
+    SetItemButtonStock(btn, numAvailable)
+    SetItemButtonTexture(btn, texture)
+
+    btn.name = itemName
+    btn.link = link
+    btn.texture = texture
+    if info.hasExtendedCost and info.price <= 0 then
+        btn.price = nil
+        btn.extendedCost = true
+        EUI_MerchantFrame_UpdateAltCurrency(index, slot, canAfford, EX_PREFIX)
+        alt:ClearAllPoints()
+        alt:SetPoint("BOTTOMLEFT", EX_PREFIX .. slot .. "NameFrame", "BOTTOMLEFT", 0, 31)
+        money:Hide()
+        alt:Show()
+    elseif info.hasExtendedCost then
+        btn.price = info.price
+        btn.extendedCost = true
+        local altWidth = EUI_MerchantFrame_UpdateAltCurrency(index, slot, canAfford, EX_PREFIX)
+        MoneyFrame_SetMaxDisplayWidth(money, MAX_MONEY_DISPLAY_WIDTH_EX - altWidth)
+        MoneyFrame_Update(money:GetName(), info.price)
+        SetMoneyFrameColor(money:GetName(), canAfford == false and "gray" or nil)
+        alt:ClearAllPoints()
+        alt:SetPoint("LEFT", money:GetName(), "RIGHT", -14, 0)
+        alt:Show()
+        money:Show()
+    else
+        btn.price = info.price
+        btn.extendedCost = nil
+        MoneyFrame_SetMaxDisplayWidth(money, MAX_MONEY_DISPLAY_WIDTH_EX)
+        MoneyFrame_Update(money:GetName(), info.price)
+        SetMoneyFrameColor(money:GetName(), canAfford == false and "gray" or nil)
+        alt:Hide()
+        money:Show()
+    end
+
+    if info.isQuestStartItem then
+        btn.IconQuestTexture:SetTexture(TEXTURE_ITEM_QUEST_BANG)
+        btn.IconQuestTexture:Show()
+    else
+        btn.IconQuestTexture:Hide()
+    end
+    MerchantFrameItem_UpdateQuality(tile, link)
+
+    local itemID = GetMerchantItemID(index)
+    local isHeirloom = itemID and C_Heirloom.IsItemHeirloom(itemID)
+    local isKnownHeirloom = isHeirloom and C_Heirloom.PlayerHasHeirloom(itemID)
+    btn.showNonrefundablePrompt = not C_MerchantFrame.IsMerchantItemRefundable(index)
+    btn.hasItem = true
+    btn:SetID(index)
+    btn:Show()
+    tile:Show()
+
+    local tintRed = not info.isPurchasable or (not info.isUsable and not isHeirloom)
+    SetItemButtonDesaturated(btn, isKnownHeirloom)
+    local r, g, b = 1, 1, 1
+    if numAvailable == 0 or isKnownHeirloom then
+        if tintRed then r, g, b = 0.5, 0, 0 else r, g, b = 0.5, 0.5, 0.5 end
+    elseif tintRed then
+        r, g, b = 0.9, 0, 0
+    end
+    SetItemButtonTextureVertexColor(btn, r, g, b)
+    SetItemButtonNormalTextureVertexColor(btn, r, g, b)
+end
+
+local EX_Update
+
+local function EX_Flip(dir)
+    local want = math.min(math.max(ex.page + dir, 1), EX_NumPages())
+    if want == ex.page then return end
+    -- A split open on one of the grid's tiles would act on whatever now holds its
+    -- index. Close it through the shared helpers; with a key still held in it, skip
+    -- the flip rather than leave the split on the wrong item. A split on anything
+    -- else (a bag slot) is not the grid's to close.
+    local ssf = StackSplitFrame
+    local owner = ssf and ssf:IsShown() and ssf.owner
+    if owner and ex.buttons[owner] then
+        if not EllesmereUI.StackSplitFor(owner) then return end
+        EllesmereUI.TakeStackSplit()
+    end
+    ex.page = want
+    PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+    EX_Update()
+end
+
+local function EX_MakePageButton(f, kind, glyph, point, x)
+    local b = CreateFrame("Button", nil, f)
+    b:SetSize(32, 32)
+    b:SetPoint("CENTER", f, point, x, 96)
+    b:SetNormalTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. kind .. "Page-Up")
+    b:SetPushedTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. kind .. "Page-Down")
+    b:SetDisabledTexture("Interface\\Buttons\\UI-SpellbookIcon-" .. kind .. "Page-Disabled")
+    b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+    b:SetScript("OnClick", function() EX_Flip(kind == "Prev" and -1 or 1) end)
+    SkinLabeledPageButton(b, glyph, glyph == ">" and 2 or nil)
+    return b
+end
+
+local function EX_UpdatePager(f, numPages)
+    if not ex.prev then
+        ex.prev = EX_MakePageButton(f, "Prev", "<", "BOTTOMLEFT", 25)
+        ex.next = EX_MakePageButton(f, "Next", ">", "BOTTOMRIGHT", -26)
+        ex.text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        ex.text:SetPoint("BOTTOM", f, "BOTTOM", 0, 86)
+        WSkin.Font(ex.text)
+        WSkin.White(ex.text)
+    end
+    local show = numPages > 1
+    ex.prev:SetShown(show)
+    ex.next:SetShown(show)
+    ex.text:SetShown(show)
+    if not show then return end
+    ex.prev:SetEnabled(ex.page > 1)
+    ex.next:SetEnabled(ex.page < numPages)
+    ex.text:SetFormattedText("%d / %d", ex.page, numPages)
+end
+
+-- Move the native page under the hidden holder (park) or back to its parent.
+local function EX_ParkNative(park)
+    for i = 1, EX_NATIVE_PER_PAGE do
+        local n = _G["MerchantItem" .. i]
+        if n then
+            local parked = n:GetParent() == ex.holder
+            if park and not parked then
+                ex.nativeParent = ex.nativeParent or n:GetParent()
+                n:SetParent(ex.holder)
+            elseif not park and parked then
+                n:SetParent(ex.nativeParent)
+            end
+        end
+    end
+end
+
+local function EX_Deactivate(f)
+    if not ex.active then return end
+    ex.active = false
+    for i = 1, #ex.tiles do ex.tiles[i]:Hide() end
+    if ex.prev then ex.prev:Hide(); ex.next:Hide(); ex.text:Hide() end
+    if ex.nativeW and f:GetWidth() ~= ex.nativeW then f:SetWidth(ex.nativeW) end
+    if ex.nativeH and f:GetHeight() ~= ex.nativeH then f:SetHeight(ex.nativeH) end
+    local bb = _G.MerchantBuyBackItem
+    if bb and ex.bbPoint then
+        local pt = ex.bbPoint
+        bb:ClearAllPoints()
+        bb:SetPoint(pt[1], pt[2], pt[3], pt[4], pt[5])
+    end
+    EX_ParkNative(false)
+    -- Switched off on the sell tab: show the pager the way Blizzard decides it.
+    -- Blizzard keeps its text and enabled state current while it is hidden.
+    if not ExpandOn() and f:IsShown() and (f.selectedTab or 1) == 1 and GetMerchantNumItems() > MERCHANT_ITEMS_PER_PAGE then
+        for _, c in ipairs(ex.pager) do c:Show() end
+    end
+    -- Item levels went to the grid's tiles while it was up.
+    if EllesmereUIDB.merchantShowItemLevel then EllesmereUI._Merchant_RefreshItemLevels() end
+end
+
+EX_Update = function()
+    local f = _G.MerchantFrame
+    if not f or not ex.hooked then return end
+    if not ExpandActive() then EX_Deactivate(f) return end
+    if not f:IsShown() then return end
+
+    ex.active = true
+    local cols, rows = ExGrid()
+    ex.perPage = cols * rows
+    if not ex.nativeW then ex.nativeW, ex.nativeH = f:GetWidth(), f:GetHeight() end
+    -- The most-recent-buyback slot hangs off MerchantItem10, which is parked and
+    -- stays at row 5; keep its native offset from the Sell All Junk button, which
+    -- rides the frame's bottom edge, so it follows the grid.
+    local bb, junk = _G.MerchantBuyBackItem, _G.MerchantSellAllJunkButton
+    if bb and junk then
+        if not ex.bbPoint and bb:GetNumPoints() > 0 and bb:GetLeft() and junk:GetLeft() then
+            local p, rel, rp, x, y = bb:GetPoint(1)
+            ex.bbPoint = { p, rel, rp, x or 0, y or 0 }
+            ex.bbDX = bb:GetLeft() - junk:GetLeft()
+            ex.bbDY = bb:GetTop() - junk:GetTop()
+        end
+        if ex.bbDX then
+            bb:ClearAllPoints()
+            bb:SetPoint("TOPLEFT", junk, "TOPLEFT", ex.bbDX, ex.bbDY)
+        end
+    end
+    local w = cols * EX_COL_STEP + EX_FRAME_PAD
+    local h = ex.nativeH + (rows - EX_NATIVE_ROWS) * EX_ROW_STEP
+    if f:GetWidth() ~= w then f:SetWidth(w) end
+    if f:GetHeight() ~= h then f:SetHeight(h) end
+    EX_ParkNative(true)
+    for _, c in ipairs(ex.pager) do c:Hide() end
+
+    if ex.cols ~= cols then
+        ex.cols = cols
+        for i = 1, #ex.tiles do EX_Place(ex.tiles[i], i) end
+    end
+
+    local numItems = GetMerchantNumItems()
+    local numPages = EX_NumPages()
+    if ex.page > numPages then ex.page = numPages end
+    local base = (ex.page - 1) * ex.perPage
+    for i = 1, ex.perPage do
+        EX_FillTile(EX_GetTile(i), i, base + i, numItems)
+    end
+    for i = ex.perPage + 1, #ex.tiles do ex.tiles[i]:Hide() end
+    EX_UpdatePager(f, numPages)
+
+    -- Item levels read each button's ID, which a flip just changed.
+    if EllesmereUIDB.merchantShowItemLevel then EllesmereUI._Merchant_RefreshItemLevels() end
+    -- Bulk Buy closes its window once its tile shows another item; it checks on
+    -- MerchantFrame_Update, which a flip does not run.
+    if EllesmereUI._Merchant_BulkBuyRepaint then EllesmereUI._Merchant_BulkBuyRepaint() end
+end
+-- GET_ITEM_INFO_RECEIVED comes in a burst while a vendor's items load: one refill
+-- per frame. Built here, at load, so no skin callback wraps it.
+ex.updateSoon = WSkin.Debounce(EX_Update)
+
+local function EnsureExpand()
+    if ex.hooked then return end
+    local f = _G.MerchantFrame
+    if not f then return end
+    ex.hooked = true
+    ex.holder = CreateFrame("Frame", nil, f)
+    ex.holder:Hide()
+    -- Blizzard re-Shows the native pager on every update; keep it down while
+    -- the grid is up (hidden, not parked: Blizzard's wheel handler pages
+    -- through a shown pager). Show hooks only, no method overwrites.
+    local function HideIfActive(self)
+        if ExpandActive() then self:Hide() end
+    end
+    ex.pager = { _G.MerchantPrevPageButton, _G.MerchantNextPageButton, _G.MerchantPageText }
+    for _, c in ipairs(ex.pager) do
+        hooksecurefunc(c, "Show", HideIfActive)
+    end
+    hooksecurefunc("MerchantFrame_Update", EX_Update)
+    -- Fires when an uncached item resolves; the native pass would only refill its own tiles.
+    hooksecurefunc("MerchantFrame_UpdateItemQualityBorders", ex.updateSoon)
+    f:HookScript("OnShow", function() ex.page = 1 end)
+    f:HookScript("OnMouseWheel", function(_, delta)
+        if ExpandActive() then EX_Flip(delta > 0 and -1 or 1) end
+    end)
+end
+
+-- Options entry point (toggle, columns, rows).
+EllesmereUI._Merchant_RefreshExpand = function()
+    local f = _G.MerchantFrame
+    if not f or not f:IsShown() then return end   -- the next show picks it up
+    if ExpandOn() then EnsureExpand() end
+    EX_Update()
+end
+
 local _merchantHooked = false
 local function Skin_Merchant()
     local f = _G.MerchantFrame
@@ -7988,6 +8325,11 @@ local function Skin_Merchant()
     end
     WSkin.NormalizeTabRow(mTabs)
 
+    if ExpandOn() then
+        EnsureExpand()
+        EX_Update()
+    end
+
     if not _merchantHooked then
         _merchantHooked = true
         -- Blizzard re-textures tiles on every page flip/tab swap/vendor open, so re-run the (idempotent) tile pass on its repaint.
@@ -8032,20 +8374,20 @@ local function UpdateMerchantItemLevels()
     local show = EllesmereUIDB and EllesmereUIDB.merchantShowItemLevel == true
     local onSellTab = (f.selectedTab or 1) == 1
     local numItems
+    local prefix = "MerchantItem"
     if EllesmereUIDB.merchantShowAsList then
         -- GetNumBuybackItems is irrelevant: text only shows on the sell tab.
         numItems = GetMerchantNumItems()
+        prefix = "EUI_MerchantItem"
+    elseif EllesmereUI._Merchant_ExpandActive() then
+        numItems = EllesmereUI._Merchant_ExpandPerPage()
+        prefix = "EUI_MerchantPage"
     else
         numItems = 12
     end
     local render = show and onSellTab and f:IsVisible()
     for i = 1, numItems do
-        local btn
-        if EllesmereUIDB.merchantShowAsList then
-            btn = _G["EUI_MerchantItem" .. i .. "ItemButton"]
-        else
-            btn = _G["MerchantItem" .. i .. "ItemButton"]
-        end
+        local btn = _G[prefix .. i .. "ItemButton"]
         if btn then
             -- FontString ref lives in the engine FFD, NEVER on Blizzard's button
             -- table. Read without creating, so the disabled path costs one weak-table lookup per slot.
@@ -11009,9 +11351,102 @@ end
 --  re-colored (same rule the merchant and trainer packs use).
 -------------------------------------------------------------------------------
 do
+local lootSkinned = false
+local LOOT_WHITE = { r = 1, g = 1, b = 1 }
+local lootQualityRGB = { r = 1, g = 1, b = 1 }
+
+-- The best quality among the slots still holding loot (a looted slot reads type None);
+-- nil with none left or no loot at all (the Edit Mode preview).
+local function BestLootQuality()
+    local best
+    for i = 1, GetNumLootItems() do
+        if GetLootSlotType(i) ~= Enum.LootSlotType.None then
+            local q = select(5, GetLootSlotInfo(i))
+            if q and (not best or q > best) then best = q end
+        end
+    end
+    return best
+end
+
+-- Quality mode's color for a best quality: Uncommon and up in their quality color, else (Poor
+-- or Common only, or no loot) the Quality swatch's own color. Refills one table, read at once.
+local function LootQualityColor(best)
+    if not best or best < Enum.ItemQuality.Uncommon then
+        return EllesmereUIDB.lootWindowBorderQualityColor or LOOT_WHITE
+    end
+    lootQualityRGB.r, lootQualityRGB.g, lootQualityRGB.b = C_Item.GetItemQualityColor(best)
+    return lootQualityRGB
+end
+
+-- The window border's picked color, for Poor/Common icons under Icon Borders. nil while the border is Default.
+local function LootWindowColor()
+    local db = EllesmereUIDB
+    if not (db and db.lootWindowBorderTexture) then return nil end
+    local mode = db.lootWindowBorderColorMode or "custom"
+    if mode == "accent" then return EllesmereUI.ELLESMERE_GREEN end
+    if mode == "class" then
+        local _, class = UnitClass("player")
+        return class and RAID_CLASS_COLORS[class]
+    end
+    if mode == "quality" then return db.lootWindowBorderQualityColor or LOOT_WHITE end
+    return db.lootWindowBorderColor or LOOT_WHITE
+end
+
+-- Quality mode follows the loot as it is taken: Blizzard hides a looted row with no list
+-- update, so a frame of ours repaints the border when a cleared slot changes the best quality.
+-- Registered only while the window shows in Quality mode; the loot's close lets it go.
+local ApplyLootBorder
+local lootQualityWatch, lootPaintedBest
+local function SyncLootQualityWatch(on)
+    if on then
+        if not lootQualityWatch then
+            lootQualityWatch = CreateFrame("Frame")
+            lootQualityWatch:SetScript("OnEvent", function(self, event)
+                if event == "LOOT_CLOSED" then
+                    self:UnregisterAllEvents()
+                elseif _G.LootFrame and BestLootQuality() ~= lootPaintedBest then
+                    ApplyLootBorder(_G.LootFrame)
+                end
+            end)
+        end
+        lootQualityWatch:RegisterEvent("LOOT_SLOT_CLEARED")
+        lootQualityWatch:RegisterEvent("LOOT_CLOSED")
+    elseif lootQualityWatch then
+        lootQualityWatch:UnregisterAllEvents()
+    end
+end
+
+-- The Loot Window card's border style. Unset keeps the shell's window border untouched.
+ApplyLootBorder = function(f)
+    local d = GetFFD(f)
+    local db = EllesmereUIDB
+    if db and db.lootWindowBorderTexture then
+        if d.atlasBorderFrame then d.atlasBorderFrame:Hide() end
+        local quality = db.lootWindowBorderColorMode == "quality"
+        local override
+        if quality then
+            lootPaintedBest = BestLootQuality()
+            override = LootQualityColor(lootPaintedBest)
+        end
+        if EllesmereUI._applyBlizzardConfiguredBorder then
+            EllesmereUI._applyBlizzardConfiguredBorder(f, "lootWindow", 1, override)
+        end
+        SyncLootQualityWatch(quality and f:IsShown())
+        d.lootBorderOn = true
+    elseif d.lootBorderOn then
+        if d.atlasBorderFrame then d.atlasBorderFrame:Show() end
+        if EllesmereUI._hideBlizzardConfiguredBorder then
+            EllesmereUI._hideBlizzardConfiguredBorder(f)
+        end
+        SyncLootQualityWatch(false)
+        d.lootBorderOn = nil
+    end
+end
+
 local function Skin_Loot()
     local f = _G.LootFrame
     if not f then return end
+    lootSkinned = true
     WSkin.Shell("loot", f)
     WSkin.RemovePortrait(f)
     WSkin.CommonChrome(f, "LootFrame")
@@ -11076,6 +11511,7 @@ local function Skin_Loot()
             if idd.qBorder and PPb and PPb.SetBorderColor then
                 local ring = item.IconBorder
                 local qr, qg, qb = 0, 0, 0
+                local isQuality = false
                 if ring and ring.IsShown and ring:IsShown() and ring.GetVertexColor then
                     local rr, rg, rb = ring:GetVertexColor()
                     -- Uncommon and up only: poor/common rings are achromatic
@@ -11083,10 +11519,35 @@ local function Skin_Loot()
                     -- chroma test filters them with no item-quality lookup.
                     if rr and (math.max(rr, rg, rb) - math.min(rr, rg, rb)) > 0.1 then
                         qr, qg, qb = rr, rg, rb
+                        isQuality = true
                     end
                     ring:SetAlpha(0)
                 end
-                PPb.SetBorderColor(idd.qBorder, qr, qg, qb, 1)
+                -- Loot Window card's Icon Borders: the picked style and size, still in the quality color.
+                local db = EllesmereUIDB
+                if db and db.lootIconBorder then
+                    -- Poor/common take the window border's color (black while that border is Default).
+                    if not isQuality then
+                        local wc = LootWindowColor()
+                        if wc then qr, qg, qb = wc.r, wc.g, wc.b end
+                    end
+                    local tex = db.lootIconBorderTexture or "solid"
+                    local key = db.lootIconBorderThickness
+                    local size = key and (EllesmereUI.BORDER_STEP_OF_LABEL[key] or 1) or 1
+                    EllesmereUI.ApplyBorderStyle(idd.qBorder, size, qr, qg, qb, 1, tex,
+                        db.lootIconBorderOffsetX, db.lootIconBorderOffsetY, nil, nil,
+                        "blizzardSkin", key or "thin", nil,
+                        EllesmereUI.BorderPx(db.lootIconBorderThicknessPx, size, tex))
+                    idd.qStyled = true
+                elseif idd.qStyled then
+                    EllesmereUI.HideBorderStyle(idd.qBorder)
+                    idd.qBorder:Show()
+                    EllesmereUI.PP.UpdateBorder(idd.qBorder, 1, qr, qg, qb, 1)
+                    EllesmereUI.PP.ShowBorder(idd.qBorder)
+                    idd.qStyled = nil
+                else
+                    PPb.SetBorderColor(idd.qBorder, qr, qg, qb, 1)
+                end
             end
         end
         for _, host in ipairs({ row, item }) do
@@ -11182,9 +11643,18 @@ local function Skin_Loot()
         end
     end
 
+    ApplyLootBorder(f)
+
     WSkin.HookShow(f, WSkin.Debounce(function()
         if f:IsVisible() then Skin_Loot(); WSkin.Restrip() end
     end))
+end
+
+EllesmereUI._Loot_RefreshBorder = function()
+    local f = _G.LootFrame
+    if not (lootSkinned and f) then return end
+    -- Open: a full pass also restyles the icon borders. Closed: the next open does that.
+    if f:IsShown() then Skin_Loot() else ApplyLootBorder(f) end
 end
 
 WSkin.RegisterWindow({

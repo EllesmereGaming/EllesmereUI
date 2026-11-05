@@ -528,6 +528,16 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                           })
                       end
                   end },
+                { type = "toggle", label = "Continuous Texture for Pip Resources",
+                  tooltip = "Spreads the texture across all pips instead of restarting it on each one. Useful for gradient textures.",
+                  get = function()
+                      local p = DB(); return (p and p.secondary.useContinuousTexture) or false
+                  end,
+                  set = function(v)
+                      local p = DB(); if not p then return end
+                      p.secondary.useContinuousTexture = v
+                      RebuildClass()
+                  end },
                 TexBgRowCfg("bars", SmoothRefresh),
             },
         })

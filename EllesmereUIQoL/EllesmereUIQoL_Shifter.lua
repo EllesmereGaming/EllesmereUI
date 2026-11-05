@@ -139,7 +139,25 @@ local DOCKING_COMPANIONS = {
     ProfessionsBookFrame = true,
     WorldMapFrame = true,
     HousingDashboardFrame = true,
+    EncounterJournal = true,
 }
+
+-- Unprotected windows that take the protected path all the same (Secured):
+-- an insecure SetMovable, SetClampedToScreen, StartMoving, SetPoint, SetScale,
+-- strata or Raise write of ours taints the window's tree, as it did PVEFrame's,
+-- and the Guild & Communities list hands secret club data to a call allowed
+-- only untainted (C_Club.SetAvatarTexture, in Mythic+ and raids).
+local SECURE_PATH = { CommunitiesFrame = true }
+
+-- Windows whose strata is never changed when lifted over a moved CharacterFrame
+-- (Raise only): a strata change leaves the Adventure Guide's boss loot list blank.
+local NO_STRATA_LIFT = { EncounterJournal = true }
+
+-- Whether a hooked window takes the protected path: secure positioning and
+-- scaling, the cursor-delta drag, position-only docking, never moved in combat.
+local function Secured(frame)
+    return frame:IsProtected() or GetFFD(frame)._shSecure == true
+end
 
 -------------------------------------------------------------------------------
 --  Position helpers
@@ -234,6 +252,21 @@ local function PointFrac(p)
     return x, y
 end
 
+-- Whether a window placed at its saved position would overlap CharacterFrame
+-- (screen-absolute units, so Shifter scaling on either frame is accounted for).
+local function SavedPosOverlaps(frame, pos, cf)
+    local es, cs = frame:GetEffectiveScale() or 1, cf:GetEffectiveScale() or 1
+    local ues = UIParent:GetEffectiveScale() or 1
+    local cl, cr, cb, ct = cf:GetLeft(), cf:GetRight(), cf:GetBottom(), cf:GetTop()
+    if not (cl and cr and cb and ct and pos.point) then return false end
+    local w, h = (frame:GetWidth() or 0) * es, (frame:GetHeight() or 0) * es
+    local rx, ry = PointFrac(pos.relPoint or pos.point)
+    local px, py = PointFrac(pos.point)
+    local left = rx * UIParent:GetWidth() * ues + (pos.x or 0) * es - px * w
+    local bottom = ry * UIParent:GetHeight() * ues + (pos.y or 0) * es - py * h
+    return left < cr * cs and left + w > cl * cs and bottom < ct * cs and bottom + h > cb * cs
+end
+
 -- Offset from one point of a w x h box to another: a mover saves where one
 -- point of its box is, and the frame it places may hang from another (so a
 -- frame that grows keeps that edge where the player put it).
@@ -244,12 +277,12 @@ local function AnchorShift(point, anchor, w, h)
 end
 
 local function ApplyPosition(frame, name)
-    if InCombatLockdown() and frame:IsProtected() then return end
+    if InCombatLockdown() and Secured(frame) then return end
     local pos = tempPos[frame] or GetSavedPos(name)
     if not pos or not pos.point then return end
     local ffd = GetFFD(frame)
     ffd._shIgnoreSP = true
-    if frame:IsProtected() then
+    if Secured(frame) then
         SecureSetPoint(frame, pos.point, pos.relPoint, pos.x, pos.y)
     else
         frame:ClearAllPoints()
@@ -286,7 +319,7 @@ local function SetShifterScale(frame, scale)
     local ffd = GetFFD(frame)
     ffd._shIgnoreSS = true
     local ok
-    if frame:IsProtected() then
+    if Secured(frame) then
         ok = SecureSetScale(frame, scale)
     else
         frame:SetScale(scale)
@@ -298,7 +331,7 @@ end
 
 -- OnShow / init restore: temp > saved > (original, if we scaled it earlier).
 local function ApplyScale(frame, name)
-    if InCombatLockdown() and frame:IsProtected() then return end
+    if InCombatLockdown() and Secured(frame) then return end
     local ffd = GetFFD(frame)
     local target = tempScale[frame] or GetSavedScale(name)
     if target then
@@ -314,7 +347,7 @@ local function ApplyScale(frame, name)
 end
 
 local function ApplyScaleStep(frame, name, delta, mode)
-    if InCombatLockdown() and frame:IsProtected() then return end
+    if InCombatLockdown() and Secured(frame) then return end
     local ffd = GetFFD(frame)
     if ffd._shOrigScale == nil then ffd._shOrigScale = frame:GetScale() end
     local oldS = frame:GetScale()
@@ -563,9 +596,9 @@ local function RedockCompanions()
     for i = 1, #dockedCompanions do
         local c = dockedCompanions[i]
         if c.frame:IsShown() and c.shouldDock() then
-            if not c.frame:IsProtected() then c.frame:SetFrameStrata("DIALOG") end
+            if c.liftStrata and not Secured(c.frame) then c.frame:SetFrameStrata("DIALOG") end
             c.dock()
-            if not c.frame:IsProtected() then c.frame:Raise() end
+            if not Secured(c.frame) then c.frame:Raise() end
         end
     end
 end
@@ -579,6 +612,10 @@ local function HookFrame(frame, name)
     ffd._shHooked = true
     hookedFrames[#hookedFrames + 1] = { frame = frame, name = name }
 
+    if SECURE_PATH[name] then ffd._shSecure = true end
+    -- Lifted over a moved CharacterFrame by strata and Raise, or by Raise alone (NO_STRATA_LIFT).
+    local liftStrata = not NO_STRATA_LIFT[name]
+
     -- Wheel arming rides panel visibility (WheelArm.Note): registry frames
     -- are all top-level closable panels, so OnShow/OnHide track exactly the
     -- IsVisible state FindWheelTarget tests. A frame hooked while already
@@ -587,11 +624,12 @@ local function HookFrame(frame, name)
     frame:HookScript("OnHide", function() WheelArm.Note(-1) end)
     if frame:IsShown() then WheelArm.Note(1) end
 
-    -- Non-protected frames use the cheap native StartMoving path. Protected frames are
-    -- NEVER made movable / SetMovable'd / StartMoving'd / SetPoint'd by insecure code
-    -- (it taints them); they drag via the secure cursor-delta path above. SetMovable is
-    -- only needed for StartMoving, so protected frames skip it entirely.
-    if not frame:IsProtected() then
+    -- Non-protected frames use the cheap native StartMoving path. Protected frames
+    -- (and SECURE_PATH windows) are NEVER made movable / SetMovable'd / StartMoving'd /
+    -- SetPoint'd by insecure code (it taints them); they drag via the secure
+    -- cursor-delta path above. SetMovable is only needed for StartMoving, so they
+    -- skip it entirely.
+    if not Secured(frame) then
         frame:SetMovable(true)
         frame:SetClampedToScreen(true)
     end
@@ -603,7 +641,7 @@ local function HookFrame(frame, name)
         dragTarget:HookScript("OnMouseDown", function(_, button)
             if not IsEnabled() then return end
             if button ~= "LeftButton" then return end
-            if InCombatLockdown() and frame:IsProtected() then return end
+            if InCombatLockdown() and Secured(frame) then return end
             local noShift = EllesmereUIDB and EllesmereUIDB.shifterNoShift
             local mode
             if IsShiftKeyDown() or noShift then
@@ -613,7 +651,7 @@ local function HookFrame(frame, name)
             else
                 return
             end
-            if frame:IsProtected() then
+            if Secured(frame) then
                 StartSecureDrag(frame, name, mode)
             else
                 dragging = mode
@@ -623,7 +661,7 @@ local function HookFrame(frame, name)
 
         dragTarget:HookScript("OnMouseUp", function(_, button)
             if button ~= "LeftButton" then return end
-            if frame:IsProtected() then
+            if Secured(frame) then
                 if secureDrag.frame == frame then StopSecureDrag() end
                 return
             end
@@ -641,6 +679,9 @@ local function HookFrame(frame, name)
                     }
                 end
             end
+            -- A drag ends with no SetPoint call, and a secured companion docks
+            -- by an absolute position: dock the open ones beside it again.
+            if name == "CharacterFrame" then RedockCompanions() end
             dragging = nil
         end)
     end
@@ -681,9 +722,9 @@ local function HookFrame(frame, name)
     -- to "HIGH" strata while these default to "MEDIUM", it then renders buried
     -- underneath. Docks left by default (matching Blizzard's normal layout), falling
     -- back to whichever side actually has room -- otherwise SetClampedToScreen just
-    -- snaps it back onto CharacterFrame regardless of which side we pick. Only kicks
-    -- in when the companion has no pin of its own; an explicit Shift+drag on the
-    -- companion wins over auto-docking.
+    -- snaps it back onto CharacterFrame regardless of which side we pick. A companion
+    -- with its own pin keeps it unless that spot would overlap the moved CharacterFrame
+    -- (whichever window moved last); then it docks beside it instead.
     local ShouldDock, DockToCharacterFrame
     if DOCKING_COMPANIONS[name] then
         local defaultStrata = frame:GetFrameStrata()
@@ -692,9 +733,10 @@ local function HookFrame(frame, name)
             -- through the SecureSetPoint branch below; their strata/Raise
             -- touches are skipped in the OnShow/OnHide hooks (insecure writes
             -- taint a protected tree -- the PVEFrame SetMovable incident).
-            if tempPos[frame] or GetSavedPos(name) then return false end
             local cf = _G.CharacterFrame
-            return cf ~= nil and cf:IsShown() and (tempPos[cf] or GetSavedPos("CharacterFrame")) ~= nil
+            if not (cf and cf:IsShown() and (tempPos[cf] or GetSavedPos("CharacterFrame"))) then return false end
+            local own = tempPos[frame] or GetSavedPos(name)
+            return not own or SavedPosOverlaps(frame, own, cf)
         end
         DockToCharacterFrame = function()
             local cf = _G.CharacterFrame
@@ -710,7 +752,7 @@ local function HookFrame(frame, name)
             local leftRoom = (cf:GetLeft() or 0) * cs
             local rightRoom = (GetScreenWidth() or 0) * ues - (cf:GetRight() or 0) * cs
             local dockLeft = leftRoom >= wAbs + margin * es or leftRoom >= rightRoom
-            if frame:IsProtected() then
+            if Secured(frame) then
                 -- Plain SetPoint on a protected frame (e.g. PVEFrame) taints it -- same
                 -- reason SecureSetPoint exists for saved/dragged positions above.
                 -- SecureSetPoint only anchors relative to UIParent, so convert the dock
@@ -747,7 +789,7 @@ local function HookFrame(frame, name)
             -- Strata writes are INSECURE: on a protected frame (PVEFrame)
             -- they taint its whole tree, exactly like the SetMovable call
             -- that caused the original secret-value incident. Skip them.
-            if not frame:IsProtected() then frame:SetFrameStrata(defaultStrata) end
+            if liftStrata and not Secured(frame) then frame:SetFrameStrata(defaultStrata) end
         end)
         frame:HookScript("OnShow", function()
             if not IsEnabled() then return end
@@ -756,12 +798,13 @@ local function HookFrame(frame, name)
                 -- CharacterFrame -- a docked frame no longer does. Protected
                 -- frames therefore get position-only docking; strata and
                 -- Raise are insecure writes that would taint their tree.
-                if not frame:IsProtected() then frame:SetFrameStrata("DIALOG") end
+                if liftStrata and not Secured(frame) then frame:SetFrameStrata("DIALOG") end
                 DockToCharacterFrame()
-                if not frame:IsProtected() then frame:Raise() end
+                if not Secured(frame) then frame:Raise() end
             end
         end)
-        dockedCompanions[#dockedCompanions + 1] = { frame = frame, shouldDock = ShouldDock, dock = DockToCharacterFrame }
+        dockedCompanions[#dockedCompanions + 1] = { frame = frame, shouldDock = ShouldDock,
+            dock = DockToCharacterFrame, liftStrata = liftStrata }
     elseif name == "CharacterFrame" then
         -- CharacterFrame itself isn't a companion, but every companion's dock
         -- is relative to IT -- so a scale or position change here is exactly
@@ -784,14 +827,14 @@ local function HookFrame(frame, name)
         -- Blizzard strata, possibly buried but never tainted.
         local defaultStrata = frame:GetFrameStrata()
         frame:HookScript("OnHide", function()
-            if not frame:IsProtected() then frame:SetFrameStrata(defaultStrata) end
+            if liftStrata and not Secured(frame) then frame:SetFrameStrata(defaultStrata) end
         end)
         frame:HookScript("OnShow", function()
             if not IsEnabled() then return end
-            if frame:IsProtected() then return end
+            if Secured(frame) then return end
             local cf = _G.CharacterFrame
             if cf and cf:IsShown() and (tempPos[cf] or GetSavedPos("CharacterFrame")) then
-                frame:SetFrameStrata("DIALOG")
+                if liftStrata then frame:SetFrameStrata("DIALOG") end
                 frame:Raise()
             end
         end)
@@ -801,7 +844,7 @@ local function HookFrame(frame, name)
         if not IsEnabled() then return end
         if ffd._shIgnoreSP then return end
         if secureDrag.frame == frame then return end  -- don't fight an active drag
-        if InCombatLockdown() and frame:IsProtected() then return end
+        if InCombatLockdown() and Secured(frame) then return end
         if DockToCharacterFrame and ShouldDock() then
             DockToCharacterFrame()
             return
@@ -819,7 +862,7 @@ local function HookFrame(frame, name)
     hooksecurefunc(frame, "SetScale", function()
         if not IsEnabled() then return end
         if ffd._shIgnoreSS then return end
-        if InCombatLockdown() and frame:IsProtected() then return end
+        if InCombatLockdown() and Secured(frame) then return end
         if tempScale[frame] or GetSavedScale(name) then
             ApplyScale(frame, name)
         end
@@ -837,6 +880,30 @@ local function TryHook(name)
     if EllesmereUI.PadGamepadUI() then return end
     local frame = _G[name]
     if frame and frame.HookScript then HookFrame(frame, name) end
+end
+
+-- Windows of our own modules that are built after login (Forever Essentials'
+-- classic spellbook and talent window): each module hands its window over by
+-- name as it builds it, and an enable later in the session hooks the ones
+-- already handed over. Placed at once, since such a window can first open in
+-- combat, when a protected one cannot be moved.
+local adopted = {}
+
+local function HookAdopted(name)
+    if EllesmereUI.PadGamepadUI() then return end
+    local frame = _G[name]
+    if not (frame and frame.HookScript) then return end
+    HookFrame(frame, name)
+    if not InCombatLockdown() then
+        ApplyScale(frame, name)
+        ApplyPosition(frame, name)
+    end
+end
+
+function EllesmereUI._ShifterAdopt(name)
+    if adopted[name] then return end
+    adopted[name] = true
+    if IsEnabled() then HookAdopted(name) end
 end
 
 -------------------------------------------------------------------------------
@@ -1422,6 +1489,7 @@ local function InitShifter()
     if next(pendingAddons) then
         eventFrame:RegisterEvent("ADDON_LOADED")
     end
+    for name in pairs(adopted) do HookAdopted(name) end
     -- Scroll-wheel scaling: the modifier listener is owned by WheelArm.Sync
     -- and registered ONLY while a registered panel is open -- with everything
     -- closed a modifier press never enters Lua. Called here (not just on

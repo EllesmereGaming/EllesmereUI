@@ -924,6 +924,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             olTex:ClearAllPoints()
             -- Reset any prior vertex tint so fill/full render their explicit color cleanly.
             olTex:SetVertexColor(1, 1, 1, 1)
+            olTex:SetTexCoord(0, 1, 0, 1)
             if olMode == "fill" then
                 -- Current health, as on the live frames (the fill, or the rest of
                 -- the bar under Inverted Fill), off the bar oriented above.
@@ -932,12 +933,13 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             elseif olMode == "full" then
                 olTex:SetAllPoints(f._health)
                 olTex:SetColorTexture(dispelDC.r, dispelDC.g, dispelDC.b, olAlpha)
-            elseif olMode == "gradient" or olMode == "gradient_sharp" then
+            elseif olMode == "gradient" or olMode == "gradient_sharp" or olMode == "gradient_reverse" then
                 -- Same pre-baked gradient textures as the live frames so the preview matches.
                 olTex:SetAllPoints(f._health)
-                olTex:SetTexture(olMode == "gradient_sharp"
-                    and "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga"
-                    or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga")
+                olTex:SetTexture(olMode == "gradient"
+                    and "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-tb.tga"
+                    or "Interface\\AddOns\\EllesmereUI\\media\\textures\\gradient-sharp.tga")
+                if olMode == "gradient_reverse" then olTex:SetTexCoord(0, 1, 1, 0) end
                 olTex:SetVertexColor(dispelDC.r, dispelDC.g, dispelDC.b, olAlpha)
             end
             olTex:Show()
@@ -1299,8 +1301,13 @@ local function ApplyPreviewData(f, index, roles, classTokens)
                         + (s.roleIconBehindBorder and ns.LVL_ROLE_BEHIND or (ns.LVL_AURA - 1)))
                 end
                 f._roleIcon:ClearAllPoints()
-                local pos = (s.roleIconPosition or "bottomleft"):upper()
-                f._roleIcon:SetPoint(pos, ns.RF_AnchorHost(f._health, s), pos, s.roleIconOffsetX or 0, s.roleIconOffsetY or 0)
+                if s.roleIconOnNameBar and s.topNameBarEnabled and f._topNameBar then
+                    local pos = (s.roleNameBarPosition or "left"):upper()
+                    f._roleIcon:SetPoint(pos, f._topNameBar, pos, s.roleNameBarOffsetX or 0, s.roleNameBarOffsetY or 0)
+                else
+                    local pos = (s.roleIconPosition or "bottomleft"):upper()
+                    f._roleIcon:SetPoint(pos, ns.RF_AnchorHost(f._health, s), pos, s.roleIconOffsetX or 0, s.roleIconOffsetY or 0)
+                end
                 f._roleIcon:Show()
                 if s.roleText then ns.ApplyRoleText(f._roleIcon, role, s) end
             else
@@ -1308,6 +1315,15 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             end
         else
             f._roleIcon:Hide()
+        end
+        -- Attach Role Icons: the name makes room only where the icon shows (as live)
+        local tnb = f._topNameBar
+        if s.roleIconOnNameBar and tnb and f._topNameBarText then
+            local has = f._roleIcon:IsShown() and true or false
+            if tnb._euiRoleIcon ~= has then
+                tnb._euiRoleIcon = has
+                ns.RF_PlaceTopNameText(f._topNameBarText, tnb, s)
+            end
         end
     end
 

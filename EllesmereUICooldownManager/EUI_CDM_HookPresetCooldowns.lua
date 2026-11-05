@@ -212,21 +212,35 @@ function ns.ItemEntryPreview(barKey, key)
     return C_Item.GetItemIconByID(itemID), itemID
 end
 
--- True when this frame IS the preset rather than one specific variant of it.
--- The picker only ever stores -(preset.itemID), so a frame sitting on an ALT id
--- can only have come from the user typing that exact item id into Custom Item
--- ID -- they asked for that rank, not for the family.
+-- Count (charges included) of an item preset's item: its own count, else, for the
+-- preset's PRIMARY item only, the sum of the family alts. Returns total and the
+-- first owned id. The picker only ever stores -(preset.itemID), so a frame
+-- sitting on an ALT id can only have come from the user typing that exact item id
+-- into Custom Item ID -- they asked for that rank, not for the family.
 -- Frames still carry _presetData either way: the preset icon and the keybind
--- fallback (which deliberately answers across ranks) want it. Only the
--- family-wide reads below are primary-only -- summing the family's bag counts
--- made a hand-added rank-2 pot report its rank-1 siblings as its own count,
--- point _itemCdSource at a sibling's cooldown and, with Hide Items if Missing
--- on, stay on the bar while the user owned none of it. Two such entries then
--- showed the same count off the same art (ranks share an icon), which reads as
--- one pot tracked twice. Mirrors PotSwap.Ensure's own primary check.
-local function IsPresetFamilyFrame(f)
-    local pd = f and f._presetData
-    return (pd and pd.altItemIDs and f._presetItemID == pd.itemID) and true or false
+-- fallback (which deliberately answers across ranks) want it. Only this
+-- family-wide read is primary-only -- summing the family's bag counts made a
+-- hand-added rank-2 pot report its rank-1 siblings as its own count, point
+-- _itemCdSource at a sibling's cooldown and, with Hide Items if Missing on, stay
+-- on the bar while the user owned none of it. Two such entries then showed the
+-- same count off the same art (ranks share an icon), which reads as one pot
+-- tracked twice. Mirrors PotSwap.Ensure's own primary check. On ns: 200-local cap.
+function ns._ItemPresetCount(pd, itemID)
+    local total = C_Item.GetItemCount(itemID, false, true) or 0
+    local owned = total > 0 and itemID or nil
+    if total == 0 and pd and pd.altItemIDs and itemID == pd.itemID then
+        for _, altID in ipairs(pd.altItemIDs) do
+            local c = C_Item.GetItemCount(altID, false, true) or 0
+            total = total + c
+            if not owned and c > 0 then owned = altID end
+        end
+    end
+    return total, owned
+end
+
+-- That count for a non-pot item preset frame. On ns: 200-local cap.
+function ns._ReadItemPresetCount(f)
+    return ns._ItemPresetCount(f._presetData, f._presetItemID)
 end
 
 -- Pact of Gluttony (386689) decides which stone the player conjures: with it only
@@ -240,19 +254,66 @@ function ns._HealthstoneHiddenByPact(itemID)
     return not pact
 end
 
--- Count (charges included) of a non-pot item preset frame: the primary id, else the
--- sum of the family alts. Returns total and first owned id. On ns: 200-local cap.
-function ns._ReadItemPresetCount(f)
-    local total = C_Item.GetItemCount(f._presetItemID, false, true) or 0
-    local owned = total > 0 and f._presetItemID or nil
-    if total == 0 and IsPresetFamilyFrame(f) then
-        for _, altID in ipairs(f._presetData.altItemIDs) do
-            local c = C_Item.GetItemCount(altID, false, true) or 0
-            total = total + c
-            if not owned and c > 0 then owned = altID end
+-- Blizzard's native Healthstone and Demonic Healthstone rows show no count of
+-- their own: each shows its preset's count, read as the preset icon reads it.
+-- On ns: 200-local cap.
+do
+    local hooked = setmetatable({}, { __mode = "k" })
+    local inCombat = false
+    local CI = ns._internals
+    CI.inCombatSetters[#CI.inCombatSetters + 1] = function(v) inCombat = v end
+
+    -- The stone preset an entry key stands for, else nil.
+    local function StonePreset(key)
+        local p = key and ns.ItemPresetForKey(key)
+        if p and (p.key == "healthstone" or p.key == "demonic_healthstone") then return p end
+    end
+
+    local function Apply(frame)
+        local fc = _ecmeFC[frame]
+        local cc = frame.ChargeCount
+        local fs = cc and cc.Current
+        -- Pooled frames: the cdID check drops a frame Blizzard re-used before the next reanchor.
+        local p = fc and fs and fc.healthstoneCdID and frame.cooldownID == fc.healthstoneCdID
+            and StonePreset(fc.spellID)
+        if not p then return end
+        local bd = fc.barKey and barDataByKey[fc.barKey]
+        local show = not bd or bd.showItemCount ~= false
+        if show and bd and bd.itemCountOOC and inCombat then show = false end
+        local count = show and ns._ItemPresetCount(p, p.itemID) or 0
+        if count > 0 then
+            fs:SetText(count)
+            cc:Show()
+        else
+            fs:SetText("")
+            cc:Hide()
         end
     end
-    return total, owned
+
+    function ns._ClaimNativeHealthstone(frame, cdID)
+        local fc = _ecmeFC[frame]
+        if not (fc and StonePreset(fc.spellID)) then return end
+        fc.healthstoneCdID = cdID
+        ns._nativeHealthstoneClaimed = true
+        if not hooked[frame] and frame.RefreshSpellChargeInfo then
+            hooked[frame] = true
+            hooksecurefunc(frame, "RefreshSpellChargeInfo", Apply)
+        end
+        Apply(frame)
+    end
+
+    function ns._RefreshNativeHealthstoneCounts()
+        if not ns._nativeHealthstoneClaimed then return end
+        for vi = 1, 2 do
+            local viewer = I.GetViewerFrame(vi)
+            local pool = viewer and viewer.itemFramePool
+            if pool and pool.EnumerateActive then
+                for frame in pool:EnumerateActive() do
+                    Apply(frame)
+                end
+            end
+        end
+    end
 end
 
 -- Guard: after ENCOUNTER_END clears item-preset caches, subsequent events
@@ -740,6 +801,7 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
     end
     -- Infrequent events: handle immediately and return
     if event == "BAG_UPDATE_DELAYED" then
+        ns._RefreshNativeHealthstoneCounts()
         -- Loot-storm cap (probe-proven capture #12: mob-farming loot fires
         -- this in bursts, and each fire re-armed variant re-resolves + chain
         -- walks + bag-count scans -- the drain's dominant real cost). At
@@ -761,6 +823,7 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         return
     end
     if event == "BAG_UPDATE_COOLDOWN" then
+        ns._RefreshNativeHealthstoneCounts()
         -- Charge-only item count changes (a used Healthstone charge, a Soulwell
         -- refill) move no bag contents, so no BAG_UPDATE fires; a used charge
         -- lands with this event, after the cast arm already read the old count.

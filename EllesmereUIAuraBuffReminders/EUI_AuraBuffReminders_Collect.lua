@@ -102,7 +102,7 @@ local function LayoutIcons()
             local f = _B.iconState and _B.iconState[id] and _B.icons[id]
             if f then
                 i = i + 1
-                f:SetSize(g.sz, g.sz)
+                f:SetSize(g.sz, g.iconH or g.sz)
                 f:SetAlpha(g.alpha)
                 f:ClearAllPoints()
                 f:SetPoint(g.pt, iconAnchor, g.pt, g.startX + (i - 1) * (g.sz + g.spacing), g.yOff)
@@ -133,6 +133,8 @@ local function LayoutIcons()
     local spacing = p.iconSpacing or 8
     local baseScale = p.scale or 1.0
     local sz = floor(ICON_SIZE * baseScale + 0.5)
+    local iconH = sz
+    if p.iconShape and p.iconShape ~= "none" then sz, iconH = ns.IconDimensions(sz, p) end
     local totalW = (count * sz) + ((count-1) * spacing)
     local textH = 0
     if p.showText then textH = (p.textSize or 11) + abs(p.textYOffset or -2) end
@@ -147,8 +149,10 @@ local function LayoutIcons()
     end
     local g = _layoutGeom
     g.pt, g.startX, g.yOff, g.sz, g.spacing, g.alpha, g.fixed = pt, startX, yOff, sz, spacing, p.opacity or 1.0, fixed
+    if p.iconShape and p.iconShape ~= "none" then g.iconH = iconH
+    elseif g.iconH then g.iconH = nil end
     for i, btn in ipairs(allIcons) do
-        btn:SetSize(sz, sz)
+        btn:SetSize(sz, iconH)
         btn:SetAlpha(p.opacity or 1.0)
         -- This layout is OOC-only, so treating every entry as protected also
         -- covers the provider/main secure buttons without needing pool scans.
@@ -159,20 +163,22 @@ local function LayoutIcons()
         btn:SetPoint(pt, iconAnchor, pt, startX + (i-1)*(sz+spacing), yOff)
     end
     -- Size the anchor to the row so the unlock mode overlay covers it.
-    ResizeAnchorCentered(totalW, sz + textH)
+    ResizeAnchorCentered(totalW, iconH + textH)
 end
 
 local function ShowIcon(iconIdx, m)
     local btn = GetOrCreateIcon(iconIdx)
     btn._dismissKey = m.dismissKey or nil
     btn._petCycleTotal = m.petCycleTotal or nil
+    btn._requestKey = m.requestKey or nil
+    btn._requestName = m.requestName or nil
     -- Right-click is passed through to whatever's behind (e.g. camera drag)
     -- for every other reminder; only a multi-pet cycle button claims it.
     -- Left-click is passed through too on a groupmate's raid buff the player
-    -- cannot cast: nothing it could do (the middle-click dismiss stays).
-    -- Click-routing changes are combat-protected, same as the attribute
-    -- writes below, so this only ever runs OOC.
-    local receiver = EABR.IsReceiverRaidBuff(m)
+    -- cannot cast, unless Click to Request Buff gives it one (the
+    -- middle-click dismiss stays). Click-routing changes are combat-protected,
+    -- same as the attribute writes below, so this only ever runs OOC.
+    local receiver = EABR.IsReceiverRaidBuff(m) and not m.requestKey
     if not InCombat() then
         local pass = (receiver and 1 or 0) + (m.petCycleTotal and 0 or 2)
         if btn._passButtons ~= pass then
@@ -278,8 +284,9 @@ do
                     end
                     if isMissing then
                         local e = AcquireEntry()
+                        local sname = _G._EABR_SpellName(buff.castSpell, buff.name)
                         e.spellID = buff.castSpell
-                        e.label = ShortLabel(_G._EABR_SpellName(buff.castSpell, buff.name))
+                        e.label = ShortLabel(sname)
                         if buff.check == "huntersMark" then e.unit = "target" end
                         e.cat = "raidbuff"; e.data = buff
                         e.dismissKey = buff.key and ("raidbuff:" .. buff.key) or nil
@@ -288,10 +295,14 @@ do
                             e.groupTotal = groupTotal
                         end
                         if doReceiver then
-                            -- Receiver reminders are informational: texture
-                            -- mode, no click action.
+                            -- Receiver reminders: texture mode, no cast; a
+                            -- left-click may ask the group for the buff.
                             e.mode = "texture"
                             e.texture = Tex(buff.castSpell)
+                            if rb.requestOnClick then
+                                e.requestKey = buff.key
+                                e.requestName = sname
+                            end
                         else
                             e.mode = "spell"
                         end
@@ -882,6 +893,10 @@ local specialsActive = EABR.SectionShows(EABR.SpecialsWhere(co, specialFields an
                 e.label = EllesmereUI.L("HS")
                 e.cat = "consumable"
                 e.dismissKey = "consumable:healthstone"
+                if db.profile.raidBuffs.requestOnClick and GetPlayerClass() ~= "WARLOCK" then
+                    e.requestKey = "healthstone"
+                    e.requestName = EllesmereUI.L("Healthstones")
+                end
                 missing[#missing+1] = e
             end
         end

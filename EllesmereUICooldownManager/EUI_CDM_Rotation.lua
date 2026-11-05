@@ -362,11 +362,14 @@ function ns.RefreshItemCountOOCBars()
     local p = ECME.db and ECME.db.profile
     local bars = p and p.cdmBars and p.cdmBars.bars
     if not bars or not ns.RefreshCDMIconAppearance then return end
+    local any
     for _, bd in ipairs(bars) do
         if bd.itemCountOOC and bd.key then
             ns.RefreshCDMIconAppearance(bd.key)
+            any = true
         end
     end
+    if any then ns._RefreshNativeHealthstoneCounts() end
 end
 
 -- TAINT LAW (field-proven 2026-08-31, 24x error burst in the field): NEVER

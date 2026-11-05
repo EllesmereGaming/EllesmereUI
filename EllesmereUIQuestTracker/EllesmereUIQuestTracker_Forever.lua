@@ -57,14 +57,15 @@ end
 
 -------------------------------------------------------------------------------
 -- Gamepad interface style: Blizzard's SmartNavigation drives the tracker from
--- secure code, so watch list edits (whose synchronous handlers rewrite its
--- navigation and can empty a list under D-pad focus) and the recolors in the
--- block hover hook stand down. Decided once logged in; a later style switch
--- stands the tools down too and asks for a reload, once.
+-- secure code, so where that navigation can still be tainted
+-- (EllesmereUI.PadTaintStandDown) watch list edits (whose synchronous handlers
+-- rewrite its navigation and can empty a list under D-pad focus) and the
+-- recolors in the block hover hook stand down. Decided once logged in; a later
+-- style switch stands the tools down too and asks for a reload, once.
 -------------------------------------------------------------------------------
 local standDown, styleAsked
 local function StandDown()
-    if standDown == nil then standDown = EllesmereUI.PadGamepadUI() end
+    if standDown == nil then standDown = EllesmereUI.PadTaintStandDown() end
     return standDown
 end
 EQT.QuestToolsStandDown = StandDown
@@ -484,7 +485,7 @@ end
 
 -- A style switch since login: the tools stand down until a reload.
 local function StyleCheck()
-    if styleAsked or EllesmereUI.PadGamepadUI() == StandDown() then return end
+    if styleAsked or EllesmereUI.PadTaintStandDown() == StandDown() then return end
     styleAsked = true
     standDown = true
     EQT.ApplyQuestWatches()
@@ -867,7 +868,7 @@ function EQT.ColorObjectiveLines(block)
     if not lines then return end
     local progress, dim = Cfg("objProgressColor"), Cfg("objDimCompleted")
     local questID = type(block.id) == "number" and block.id
-    if not ((progress or dim) and questID) or StandDown() or EllesmereUI.PadGamepadUI() then
+    if not ((progress or dim) and questID) or StandDown() or EllesmereUI.PadTaintStandDown() then
         if next(colored) == nil then return end
         for _, line in pairs(lines) do
             local fs = line.Text

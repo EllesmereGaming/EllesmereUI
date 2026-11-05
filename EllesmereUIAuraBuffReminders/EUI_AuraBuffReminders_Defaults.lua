@@ -74,6 +74,7 @@ end
 local defaults = {
     profile = {
         display = {
+            iconShape = "none",
             remindersEnabled = true,
             glowType = 0,
             scale = 1.0,
@@ -127,6 +128,11 @@ local defaults = {
             -- buff I provide; iAmMissing = remind when I lack a buff a
             -- groupmate could give me (receiver view, off by default).
             showWhen = { othersMissing = true, iAmMissing = false },
+            -- Left-click a receiver reminder (or Healthstone) to ask the
+            -- group for it; requestCustom sends requestText (it holds the
+            -- "[spell]" token) instead of the default line.
+            requestOnClick = true,
+            requestCustom = false,
             -- One reminder sound for the whole section (nil = silent),
             -- played once when a reminder newly appears.
         },
@@ -191,6 +197,7 @@ if EABR.FOREVER then
         gatherClassTrack = true,  -- an active class tracking also hides it
         treasure = false,   -- Find Treasure reminder (Dwarf); opt-in, it shows while it is off
         wellFed = false,    -- Well Fed reminder; opt-in, matched by aura name (every food has its own spell ID)
+        mageArmor = false,  -- Mage armor reminder (Mage); opt-in, it shows while no Frost/Ice/Mage Armor rank is up
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added
         customGroups = {},  -- { name = string, ids = { spell IDs } }: one reminder while none of ids is active

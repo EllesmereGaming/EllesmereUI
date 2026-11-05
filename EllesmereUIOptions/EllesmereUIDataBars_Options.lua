@@ -2850,6 +2850,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             local typeRows = {}
+            -- Travel: its three click dropdowns, set by the row loop below.
+            local travelClickDD
             if b.type == "audio" then
                 typeRows = {
                     { type = "dropdown", text = "Audio Channel",
@@ -3074,66 +3076,118 @@ initFrame:SetScript("OnEvent", function(self)
                     MkToggle("Uppercase Text", "useUppercase", "Renders the spec text in uppercase."),
                 }
             elseif b.type == "travel" then
-                -- Hearthstone dropdown: "random" or a specific owned entry
-                -- from the shared pool (ns.TravelHearthstoneIDs). hsChoice
-                -- nil derives from the legacy randomizeHs boolean, which is
-                -- kept mirrored on write for old readers/exports.
-                local hsValues = { random = "Random Hearthstone" }
-                local hsOrder = { "random" }
-                do
-                    local pool = ns.TravelHearthstoneIDs
-                    local usable = ns.TravelIsUsable
-                    local owned = {}
-                    if pool and usable then
-                        for _, id in ipairs(pool) do
-                            if usable(id) then owned[#owned + 1] = id end
+                local function ChoiceOf(btn) return ns.TravelClickChoice(s, btn) end
+                -- Houses arrive asynchronously: the page refresh lists them (the refill below).
+                ns.TravelRequestHouseList(function()
+                    if EllesmereUI:GetActiveModule() == "EllesmereUIDataBars" then EllesmereUI:RefreshPage() end
+                end)
+                -- Fills values / order in place: a built dropdown keeps reading these tables.
+                local function BuildClickValues(btn, values, order)
+                    wipe(values); wipe(order)
+                    if btn == 3 then values.none = "None"; order[1] = "none" end
+                    values.random = "Random Hearthstone"; order[#order + 1] = "random"
+                    local cur = ChoiceOf(btn)
+                    -- A saved house missing from the list (not loaded yet, or sold) stays listed as "Home".
+                    local houses = ns.TravelHouseChoices()
+                    local curIsHouse = type(cur) == "string" and cur:find("house:", 1, true) == 1
+                    if #houses > 0 or curIsHouse then
+                        order[#order + 1] = "---house"
+                        for _, house in ipairs(houses) do
+                            values[house.key] = house.name
+                            order[#order + 1] = house.key
+                        end
+                        if curIsHouse and not values[cur] then
+                            values[cur] = "Home"
+                            order[#order + 1] = cur
                         end
                     end
-                    -- Keep the current pick listed even if it went unowned,
-                    -- so the dropdown shows its label instead of a blank.
-                    local cur = s.hsChoice
-                    if cur == nil then cur = s.randomizeHs and "random" or 6948 end
-                    if type(cur) == "number" then
-                        local seen = false
-                        for _, id in ipairs(owned) do
-                            if id == cur then seen = true; break end
+                    local curPlaced = type(cur) ~= "number"
+                    local groups = {
+                        { key = "---travel", ids = ns.TravelExtraIDs, usable = ns.TravelExtraUsable },
+                        { key = "---hearth", ids = ns.TravelHearthstoneIDs, usable = ns.TravelIsUsable },
+                    }
+                    for gi, g in ipairs(groups) do
+                        local list, curInGroup = {}, false
+                        if g.ids and g.usable then
+                            for _, id in ipairs(g.ids) do
+                                if id == cur then curInGroup = true end
+                                if g.usable(id) and id ~= cur then list[#list + 1] = id end
+                            end
                         end
-                        if not seen then owned[#owned + 1] = cur end
-                    end
-                    local names = {}
-                    for _, id in ipairs(owned) do
-                        local n
-                        if C_ToyBox and C_ToyBox.GetToyInfo then
-                            local _, tn = C_ToyBox.GetToyInfo(id)
-                            n = tn
+                        -- Keep the current pick listed even if it went unowned,
+                        -- so the dropdown shows its label instead of a blank.
+                        if not curPlaced and (curInGroup or gi == #groups) then
+                            list[#list + 1] = cur
+                            curPlaced = true
                         end
-                        if not n and C_Item and C_Item.GetItemInfo then
-                            n = C_Item.GetItemInfo(id)
+                        if #list > 0 then
+                            local names = {}
+                            for _, id in ipairs(list) do
+                                names[id] = ns.TravelEntryName(id) or ("Item " .. id)
+                            end
+                            table.sort(list, function(a, z) return names[a] < names[z] end)
+                            order[#order + 1] = g.key
+                            for _, id in ipairs(list) do
+                                values[id] = names[id]
+                                order[#order + 1] = id
+                            end
                         end
-                        names[id] = n or ("Item " .. id)
                     end
-                    table.sort(owned, function(x, y) return names[x] < names[y] end)
-                    for _, id in ipairs(owned) do
-                        hsValues[id] = names[id]
-                        hsOrder[#hsOrder + 1] = id
-                    end
+                    return values, order
                 end
-                typeRows = {
-                    { type = "dropdown", text = "Left Click",
-                      tooltip = "Which hearthstone the left click uses. Random Hearthstone picks a random owned variant each cast. Right click always rolls a random one.",
-                      values = hsValues, order = hsOrder,
-                      getValue = function()
-                          local c = s.hsChoice
-                          if c == nil then c = s.randomizeHs and "random" or 6948 end
-                          return c
-                      end,
-                      setValue = function(v)
-                          s.hsChoice = v
-                          s.randomizeHs = (v == "random")
-                          Apply()
-                      end },
+                local CLICK_LABELS = { "Left Click", "Right Click", "Middle Click" }
+                local CLICK_KEYS = { "hsChoice", "hsChoiceRight", "hsChoiceMiddle" }
+                local CLICK_TIPS = {
+                    "Where left-clicking the block takes you.",
+                    "Where right-clicking the block takes you.",
+                    "Where middle-clicking the block takes you.",
                 }
-                if travelIconCfg then table.insert(typeRows, 1, travelIconCfg) end
+                local TEXT_LABELS = { "Left Click Text", "Right Click Text", "Middle Click Text" }
+                local TEXT_KEYS = { "textLeft", "textRight", "textMiddle" }
+                local TEXT_VALUES = { location = "Destination", smart = "Cooldown Else Destination",
+                                      both = "Destination and Cooldown", cooldown = "Cooldown Only", none = "None" }
+                local TEXT_ORDER = { "location", "smart", "both", "cooldown", "none" }
+                typeRows = {}
+                local clickVals, clickOrd = {}, {}
+                for btn = 1, 3 do
+                    local vals, ord = BuildClickValues(btn, {}, {})
+                    clickVals[btn], clickOrd[btn] = vals, ord
+                    typeRows[#typeRows + 1] = { type = "dropdown", text = CLICK_LABELS[btn],
+                      tooltip = CLICK_TIPS[btn],
+                      values = vals, order = ord,
+                      getValue = function() return ChoiceOf(btn) end,
+                      setValue = function(v)
+                          s[CLICK_KEYS[btn]] = v
+                          -- Mirrored for old readers/exports of the legacy boolean.
+                          if btn == 1 then s.randomizeHs = (v == "random") end
+                          Apply(); EllesmereUI:RefreshPage()
+                      end }
+                    typeRows[#typeRows + 1] = { type = "dropdown", text = TEXT_LABELS[btn],
+                      tooltip = "What the bar shows for this click.",
+                      values = TEXT_VALUES, order = TEXT_ORDER,
+                      getValue = function() return ns.TravelClickTextMode(s, btn) end,
+                      setValue = function(v) s[TEXT_KEYS[btn]] = v; Apply() end,
+                      disabled = function() return ChoiceOf(btn) == "none" end,
+                      disabledTooltip = "Set this click to something other than None.",
+                      rawTooltip = true }
+                end
+                -- Last, so each click keeps its choice and text on one row.
+                if travelIconCfg then typeRows[#typeRows + 1] = travelIconCfg end
+                -- A house list that arrived after the build: refill the three menus in place.
+                if not EllesmereUI._prebuilding then
+                    travelClickDD = {}
+                    local clickDD, listGen = travelClickDD, ns.TravelHouseListGen()
+                    EllesmereUI.RegisterWidgetRefresh(function()
+                        local gen = ns.TravelHouseListGen()
+                        if gen == listGen then return end
+                        listGen = gen
+                        for btn = 1, 3 do
+                            BuildClickValues(btn, clickVals[btn], clickOrd[btn])
+                            local dd = clickDD[btn]
+                            if dd and dd._invalidateMenu then dd._invalidateMenu() end
+                        end
+                    end)
+                end
             elseif b.type == "micromenu" then
                 -- Align Content returns here as a type row (its shared-row
                 -- slot hosts the Enable Text toggle instead): anchors the
@@ -3374,6 +3428,8 @@ initFrame:SetScript("OnEvent", function(self)
                 local rightCfg = typeRows[k + 1]
                 if not rightCfg then rightCfg = { type = "label", text = "" } end
                 row, h = W:DualRow(parent, y, typeRows[k], rightCfg);  y = y - h
+                -- Travel: the first three rows hold the click dropdowns on their left.
+                if travelClickDD and k <= 5 then travelClickDD[(k + 1) / 2] = row._leftRegion._control end
                 if b.type == "supplies" and k == 1 and not EllesmereUI._prebuilding then
                     local region = row._leftRegion
                     if region._control then region._control:Hide() end
@@ -3714,6 +3770,53 @@ initFrame:SetScript("OnEvent", function(self)
                     leftRgn._control = cbDD
                     leftRgn._lastInline = nil
                     if cbDDRefresh then EllesmereUI.RegisterWidgetRefresh(cbDDRefresh) end
+                end
+
+                local notesRow
+                notesRow, h = W:DualRow(parent, y,
+                    { type = "toggle", text = "Show Guild Notes",
+                      tooltip = "Shows each online member's public note after their name in the Guild tooltip.",
+                      getValue = function() return s.showGuildNotes == true end,
+                      setValue = function(v)
+                          s.showGuildNotes = v and true or false
+                          Apply(); EllesmereUI:RefreshPage()
+                      end },
+                    EllesmereUI.BlankRowCfg());  y = y - h
+                if not EllesmereUI._prebuilding then
+                    local rgn = notesRow._leftRegion
+                    local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                        rgn, notesRow:GetFrameLevel() + 3,
+                        function()
+                            local c = s.guildNoteColor
+                            if not c then return 0.925, 0.839, 0.447 end
+                            return c.r or 0.925, c.g or 0.839, c.b or 0.447
+                        end,
+                        function(r, g, b2)
+                            s.guildNoteColor = { r = r, g = g, b = b2 }
+                            Apply()
+                        end,
+                        false, 20)
+                    PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
+                    rgn._lastInline = swatch
+                    local block = CreateFrame("Frame", nil, swatch)
+                    block:SetAllPoints()
+                    block:SetFrameLevel(swatch:GetFrameLevel() + 10)
+                    block:EnableMouse(true)
+                    block:SetScript("OnEnter", function()
+                        EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Show Guild Notes"))
+                    end)
+                    block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    local function UpdateState()
+                        if s.showGuildNotes == true then
+                            swatch:SetAlpha(1)
+                            block:Hide()
+                        else
+                            swatch:SetAlpha(0.3)
+                            block:Show()
+                        end
+                    end
+                    EllesmereUI.RegisterWidgetRefresh(function() updateSwatch(); UpdateState() end)
+                    UpdateState()
                 end
             end
 

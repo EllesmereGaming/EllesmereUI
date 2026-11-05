@@ -613,9 +613,9 @@ local function LeaderAnnounces()
     if not addon.Player:IsSame(addon.Player:GetFullName("player"), addon.GetGroupLeader()) then
         return false
     end
-    local delegate = addon.Config:LootMaster()
-    if not delegate then return false end
-    return not (heardLM and addon.Player:IsSame(heardLM, delegate))
+    local promote = addon.Config:LootMaster()
+    if not promote then return false end
+    return not (heardLM and addon.Player:IsSame(heardLM, promote))
 end
 
 
@@ -625,17 +625,17 @@ end
 
 
 
-local function IsOwnDelegate(name)
+local function IsOwnPromote(name)
     if not name or not IsInGroup() then return false end
     if not addon.Player:IsSame(addon.Player:GetFullName("player"), addon.GetGroupLeader()) then
         return false
     end
-    local delegate = addon.Config:LootMaster()
-    return delegate ~= nil and addon.Player:IsSame(delegate, name)
+    local promote = addon.Config:LootMaster()
+    return promote ~= nil and addon.Player:IsSame(promote, name)
 end
 
 
-function Council:ForgetDelegateHeard() heardLM = nil end
+function Council:ForgetPromoteHeard() heardLM = nil end
 
 
 function Demoted(config, sender)
@@ -669,7 +669,7 @@ local appliedDigest
 
 function Council:Broadcast(force, target)
 
-    if not MayAuthor() and not (target and IsOwnDelegate(target)) then return false end
+    if not MayAuthor() and not (target and IsOwnPromote(target)) then return false end
     if IsInGroup() and not addon.Comms.InHomeGroup() then return false end
 
     local payload, rankNames, rankPayload, rankOf = Council:Resolve()
@@ -978,7 +978,7 @@ local function AnswerAsks()
 
     if not MayBroadcast() then
         for _, name in ipairs(list) do
-            if IsOwnDelegate(name) then
+            if IsOwnPromote(name) then
                 MarkAnswered({ name })
                 Council:Broadcast(true, name)
             end
@@ -1029,7 +1029,7 @@ local function OnSyncRequest(_, sender)
 
 
     if not addon.Comms.InHomeGroup() then return end
-    if not MayBroadcast() and not IsOwnDelegate(sender) then return end
+    if not MayBroadcast() and not IsOwnPromote(sender) then return end
     Collect(sender)
 end
 
@@ -1055,7 +1055,7 @@ local RELAY_KEPT_FOR = 12 * 60 * 60
 
 
 
-function Council:NoteLeaderDelegate(from, lootMaster)
+function Council:NoteLeaderPromote(from, lootMaster)
     if not addon.db or not IsInGroup() or IsAuthor() then return end
     if not addon.Player:IsSame(from, addon.GetGroupLeader()) then return end
     if lootMaster ~= false and (type(lootMaster) ~= "string" or IsSecret(lootMaster)
@@ -1069,16 +1069,16 @@ function Council:NoteLeaderDelegate(from, lootMaster)
         return
     end
     leaderLM = { from = from, lootMaster = lootMaster }
-    local delegate = lootMaster and addon.Player:Get(lootMaster)
+    local promote = lootMaster and addon.Player:Get(lootMaster)
     addon.db.councilRelayKept = {
         owner = UnitGUID("player"), at = GetServerTime(),
         leader = addon.Player:Get(from).guid or from,
-        lootMaster = delegate and (delegate.guid or lootMaster) or false,
+        lootMaster = promote and (promote.guid or lootMaster) or false,
     }
 end
 
 
-local function LeaderDelegate(leader)
+local function LeaderPromote(leader)
     if leaderLM and addon.Player:IsSame(leaderLM.from, leader) then return leaderLM.lootMaster end
     local kept = addon.db and addon.db.councilRelayKept
     if type(kept) ~= "table" or kept.owner ~= UnitGUID("player") then return nil end
@@ -1088,7 +1088,7 @@ local function LeaderDelegate(leader)
     return kept.lootMaster
 end
 
-local function ForgetLeaderDelegate()
+local function ForgetLeaderPromote()
     leaderLM = nil
     if addon.db then addon.db.councilRelayKept = nil end
 end
@@ -1104,10 +1104,10 @@ local function MayApplyCouncil(sender, args)
     if syncAsks < LEADER_SILENT_ASKS then return false end
     if not addon.Player:IsSame(named, sender) then return false end
     local leader = addon.GetGroupLeader()
-    local delegate = leader and LeaderDelegate(leader)
-    if type(delegate) ~= "string" or not addon.Player:IsSame(delegate, named) then
+    local promote = leader and LeaderPromote(leader)
+    if type(promote) ~= "string" or not addon.Player:IsSame(promote, named) then
         addon.Log:D("Council", "refusing a council relayed by", tostring(sender),
-            "- the leader named", tostring(delegate))
+            "- the leader named", tostring(promote))
         return false
     end
     addon.Log:I("Council", "the leader has not answered - taking the council relayed by",
@@ -1129,7 +1129,7 @@ local function OnCouncil(args, sender)
     local fromLeader = leader and addon.Player:IsSame(sender, leader)
     local config = type(args.config) == "table" and args.config or nil
     if fromLeader and config and config.lootMaster ~= nil then
-        Council:NoteLeaderDelegate(sender, config.lootMaster)
+        Council:NoteLeaderPromote(sender, config.lootMaster)
     end
 
     if wasAuthor and not Demoted(config, sender) then
@@ -1208,24 +1208,24 @@ function Council:Init()
 
 
 
-    local function ForgetDelegation(why)
+    local function ForgetPromotion(why)
         if not addon.db.lootMaster then return end
         addon.db.lootMaster = nil
         addon.InvalidateMasterLooter()
-        addon.Log:I("Council", "loot delegation forgotten -", why)
+        addon.Log:I("Council", "loot promotion forgotten -", why)
         if addon.Callbacks then addon.Callbacks:Fire("CouncilChanged") end
     end
 
 
 
-    local function InheritDelegation()
+    local function InheritPromotion()
         if not addon.Config:HasShared() then return end
-        local delegate = addon.Config:LootMaster()
-        local keep = not (addon.db.raidPrompt and addon.db.raidPrompt.dropDelegationOnLead)
-        if not keep then delegate = nil end
-        addon.db.lootMaster = delegate
-        addon.Log:I("Council", "promoted - loot delegation",
-            delegate and "kept" or "cleared", tostring(delegate))
+        local promote = addon.Config:LootMaster()
+        local keep = not (addon.db.raidPrompt and addon.db.raidPrompt.dropPromotionOnLead)
+        if not keep then promote = nil end
+        addon.db.lootMaster = promote
+        addon.Log:I("Council", "promoted - loot promotion",
+            promote and "kept" or "cleared", tostring(promote))
         if addon.Callbacks then addon.Callbacks:Fire("CouncilChanged") end
     end
 
@@ -1234,8 +1234,8 @@ function Council:Init()
     f:SetScript("OnEvent", function()
         C_Timer.After(3, function()
             if not IsInGroup() then
-                ForgetDelegation("not in a group")
-                ForgetLeaderDelegate()
+                ForgetPromotion("not in a group")
+                ForgetLeaderPromote()
             elseif addon.Loot and addon.Loot.CheckLootMaster then
 
 
@@ -1251,15 +1251,15 @@ function Council:Init()
         for name in pairs(diff.left or {}) do answeredAt[AskKey(name)] = nil end
         if not diff.inGroup then
             addon.Config:ClearShared("left the group")
-            ForgetDelegation("left the group")
+            ForgetPromotion("left the group")
             heardLM, appliedDigest = nil, nil
-            ForgetLeaderDelegate()
+            ForgetLeaderPromote()
             answeredAt, answeredCount = {}, 0
         elseif diff.leaderChanged and addon.Player:IsSame(addon.Player:GetFullName("player"),
             addon.GetGroupLeader()) then
 
 
-            InheritDelegation()
+            InheritPromotion()
             addon.Config:ClearShared("we are the group leader now")
             appliedDigest = nil
         end

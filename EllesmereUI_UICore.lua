@@ -436,7 +436,7 @@ end
 local function ResolveThemeColor(theme)
     theme = EllesmereUI._ResolveFactionTheme(theme)
     if theme == "Class Colored" then
-        local clr = EllesmereUI.CLASS_COLOR_MAP[EllesmereUI._playerClass]
+        local clr = EllesmereUI.GetRawClassColor(EllesmereUI._playerClass)
         if clr then return clr.r, clr.g, clr.b end
         return EllesmereUI.DEFAULT_ACCENT_R, EllesmereUI.DEFAULT_ACCENT_G, EllesmereUI.DEFAULT_ACCENT_B
     elseif theme == "Custom Color" then
@@ -556,7 +556,7 @@ function EllesmereUI.ResolveProfileAccent(profileData)
     local acc = profileData and profileData.euiAccent
     -- 1) per-profile
     if acc and acc.useClass then
-        local c = EllesmereUI.CLASS_COLOR_MAP[EllesmereUI._playerClass]
+        local c = EllesmereUI.GetRawClassColor(EllesmereUI._playerClass)
         if c then return true, c.r, c.g, c.b end
     end
     if acc and acc.custom then
@@ -565,7 +565,7 @@ function EllesmereUI.ResolveProfileAccent(profileData)
     end
     -- 2) frozen global root -- ONLY when the profile has no explicit euiAccent. An explicit per-profile opt-out (useClass=false, no custom yet) must NOT fall through to the global class color; it drops to the global custom/theme terminal below, matching the displayed Custom swatch state.
     if (not acc) and EllesmereUIDB and EllesmereUIDB.useClassAccentColor then
-        local c = EllesmereUI.CLASS_COLOR_MAP[EllesmereUI._playerClass]
+        local c = EllesmereUI.GetRawClassColor(EllesmereUI._playerClass)
         if c then return true, c.r, c.g, c.b end
     end
     local gca = EllesmereUIDB and EllesmereUIDB.customAccentColor
@@ -588,7 +588,7 @@ end
 
 --- Class color for the current player
 EllesmereUI.GetPlayerClassColor = function()
-    local clr = EllesmereUI.CLASS_COLOR_MAP[EllesmereUI._playerClass]
+    local clr = EllesmereUI.GetRawClassColor(EllesmereUI._playerClass)
     if clr then return clr.r, clr.g, clr.b end
     return EllesmereUI.DEFAULT_ACCENT_R, EllesmereUI.DEFAULT_ACCENT_G, EllesmereUI.DEFAULT_ACCENT_B
 end
@@ -1266,6 +1266,22 @@ do
             return s
         end
 
+        -- The Name Format a unit's name takes:
+        --     mode = EllesmereUI.UnitNameFormat(mode, unit)
+        -- WoW Forever: First Name and Last Name part a character's name from
+        -- its surname, so they shape players' names only; a mob's, an NPC's or
+        -- a pet's name stays whole ("Rot Hide Gnoll" never reads "Rot"). Any
+        -- other mode, and a nil unit (an options preview), comes back as given.
+        -- Retail returns every mode as given: its player names are one word,
+        -- so there these two modes only ever shorten other names.
+        function EllesmereUI.UnitNameFormat(mode, unit)
+            if IS_FOREVER and unit and (mode == "first" or mode == "last") then
+                local isPlayer = UnitIsPlayer(unit)
+                if issecretvalue(isPlayer) or not isPlayer then return nil end
+            end
+            return mode
+        end
+
         -- The Name Format choices, for every dropdown that sets one:
         --     values, order, getValue, setValue = EllesmereUI.NameFormatMenu(get, set, opts)
         -- get() returns the saved value; set(v) receives "first", "last",
@@ -1278,6 +1294,8 @@ do
         -- a pick, a red line in the count popup). Options pages only.
         --     EllesmereUI.NameFormatCogRow(get, set, opts)
         -- A settings-cog dropdown row over the same; "full" arrives as nil.
+        -- opts.label replaces the row's "Name Format", opts.tooltip shows on
+        -- its dropdown.
         local LABELS = { first = "First Name", last = "Last Name", full = "Full Name", abbr = "Abbreviated" }
         local ORDER = { "full", "first", "last", "abbr", "custom" }
         local MAX_COUNT = 99
@@ -1337,7 +1355,8 @@ do
         function EllesmereUI.NameFormatCogRow(get, set, opts)
             local values, order, getValue, setValue = EllesmereUI.NameFormatMenu(get,
                 function(v) set((v ~= "full") and v or nil) end, opts)
-            return { type = "dropdown", label = "Name Format", values = values, order = order,
+            return { type = "dropdown", label = opts and opts.label or "Name Format",
+                tooltip = opts and opts.tooltip, values = values, order = order,
                 ddWidth = MENU_W, get = getValue, set = setValue }
         end
     end
@@ -1412,6 +1431,8 @@ end -- IS_FOREVER
 --    WatchPad(owner, fn)    fn(padOn) once per burst of PadConnected() edges
 --    UnwatchPad(owner)      stop following; the last one drops the events
 --    PadGamepadUI()         WoW Forever's Gamepad interface style is on
+--    PadTaintStandDown()    that style is on and its navigation still lets an
+--                           addon hook taint it (clients before 1.60.1 70707)
 --    RaiseGamePadCursor()   gamepad pointer on at a user-requested open
 --    RegisterPadFrame(f)    a NAMED, hidden window root we own joins the
 --                           controller cursor, once (never HUD frames)
@@ -1459,11 +1480,24 @@ do
         return style ~= nil and types ~= nil and style.GetCurrentStyle() == types.Gamepad
     end
 
+    -- The stand-downs that exist only because that style's navigation made a
+    -- protected call in the same execution as a hook of ours on a Blizzard
+    -- frame (or an open of a Blizzard panel from our click) ask this one.
+    -- Since 1.60.1 (70707) Blizzard_GamepadSmartNavigation runs its entry
+    -- points securely and calls frame callbacks through securecallfunction,
+    -- from its SecureHelper (the SmartNavigationSecureHelper frame, built as
+    -- the addon loads at startup), so those features run under the style on
+    -- such a client. Features a controller cannot drive keep PadGamepadUI().
+    local function PadTaintStandDown()
+        return PadGamepadUI() and _G.SmartNavigationSecureHelper == nil
+    end
+
     EllesmereUI.PadCP        = PadCP
     EllesmereUI.PadNative    = PadNative
     EllesmereUI.PadInUse     = PadInUse
     EllesmereUI.PadConnected = PadConnected
     EllesmereUI.PadGamepadUI = PadGamepadUI
+    EllesmereUI.PadTaintStandDown = PadTaintStandDown
 
     -- Following PadConnected(): one shared watcher for every feature that hides
     -- or shows something with the controller. Its frame is built at the first

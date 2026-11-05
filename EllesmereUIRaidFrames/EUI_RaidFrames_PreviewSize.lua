@@ -145,7 +145,8 @@ ns._ShowSizePreview = function(tier)
     -- the tier footprint's growth-derived corner pins at the base
     -- footprint's same corner plus the tier offset, via the shared
     -- ns._RFTierTopLeft -- the preview lands exactly where live lands.
-    local px, py = ns._RFTierTopLeft(totalW, totalH, unitGrowth, groupGrowth, tierOX, tierOY)
+    local centered = ns._RFGroupCentered(ov, groupGrowth)
+    local px, py = ns._RFTierTopLeft(totalW, totalH, unitGrowth, groupGrowth, tierOX, tierOY, centered)
     if px then
         container:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", PixelSnap(px), PixelSnap(py))
     else
@@ -163,6 +164,10 @@ ns._ShowSizePreview = function(tier)
     -- 2- or 3-group prefix would place the preview on the wrong side of the
     -- box for LEFT/UP growth. The extra slots are simply not drawn.
     local gSlots, minX, maxY = ns._RFGroupFlow(groupGrowth, groupW, groupH, gs, max(numGroups, MOVER_GROUPS))
+    -- Center Groups: the tier's full group count centered in the box, as live
+    -- (which centers up to the last group holding members, in both modes).
+    local shiftX, shiftY = 0, 0
+    if centered then shiftX, shiftY = ns._RFCenterShift(gSlots, numGroups) end
 
     local groupOrder = s.customGroupOrder and not s.mergeGroups
         and ns._RFValidatedGroupOrder(s.groupOrder)
@@ -288,8 +293,8 @@ ns._ShowSizePreview = function(tier)
 
         -- Group origin (TOPLEFT-relative, adjusted for growth direction)
         local displaySlot = sizePreviewSlotByGroup and sizePreviewSlotByGroup[groupIdx + 1] or groupIdx
-        local gx = gSlots[displaySlot][1] - minX
-        local gy = gSlots[displaySlot][2] - maxY
+        local gx = gSlots[displaySlot][1] - minX + shiftX
+        local gy = gSlots[displaySlot][2] - maxY + shiftY
 
         -- Unit offset within group (TOPLEFT-normalized, matching RefreshPreview)
         local ux = unitIdx * uStepX - minUX

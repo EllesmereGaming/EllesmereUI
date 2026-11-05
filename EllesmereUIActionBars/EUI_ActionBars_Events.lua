@@ -386,6 +386,38 @@ function ns.UpdateChargeNumbersVisibility(btn, chargeCd, cdInfo, chargeInfo)
     end
 end
 
+-- Main-cooldown number visibility on a "Show numbers for cooldowns" change
+-- (Bar Appearance's Cooldown Numbers row writes the CVar). Blizzard sets it per
+-- button from its button events frame, whose list ours leave (see the
+-- ActionBarButtonEventsFrame note in EUI_ActionBars_Secure.lua), so our buttons
+-- only took it from the template OnLoad and a toggle waited for a reload. As
+-- ActionButton_UpdateCooldownNumberHidden, on every action bar's buttons, Never
+-- bars included; an un-hide queues the font patch as the charge path does.
+function ns.ApplyCooldownNumbersHidden()
+    local hide = not GetCVarBool("countdownForCooldowns")
+    local queued = false
+    for _, info in ipairs(BAR_CONFIG) do
+        local btns = not info.isStance and not info.isPetBar and barButtons[info.key]
+        if btns then
+            for i = 1, #btns do
+                local btn = btns[i]
+                local cd = btn.cooldown
+                if cd then
+                    cd:SetHideCountdownNumbers(hide)
+                    if not hide and not EFD(cd).cdFontStamp then
+                        EAB_VTABLE.CooldownFonts.pending[btn] = true
+                        queued = true
+                    end
+                end
+            end
+        end
+    end
+    if queued and not EAB_VTABLE.CooldownFonts.timerScheduled then
+        EAB_VTABLE.CooldownFonts.timerScheduled = true
+        C_Timer_After(0, EAB_VTABLE.CooldownFonts.FlushPatch)
+    end
+end
+
 -- Full per-button visual refresh for slot CONTENT changes (spec swap,
 -- drag-drop: slot numbers stay, contents change -- force-less UpdateAction
 -- short-circuits on that exact case). NEVER route through the mixin's
@@ -1866,6 +1898,11 @@ do
                 end
                 return
             end
+            -- Cooldown numbers switched on or off: every action bar's main
+            -- countdown at once (the charge countdowns follow in the bar loop).
+            if event == "CVAR_UPDATE" and arg1 == "countdownForCooldowns" then
+                ns.ApplyCooldownNumbersHidden()
+            end
             if event == "PLAYER_ENTERING_WORLD"
                or (next(ns._abLoCShown) and (event == "ACTIONBAR_PAGE_CHANGED"
                    or event == "UPDATE_BONUS_ACTIONBAR" or event == "UPDATE_SHAPESHIFT_FORM"
@@ -2459,7 +2496,8 @@ do
                         elseif event == "CVAR_UPDATE" then
                             -- "Show numbers for cooldowns" toggled: re-apply
                             -- recharge-number visibility to every charge cooldown
-                            -- immediately (main cooldown numbers update natively). Only
+                            -- immediately (the main cooldowns took theirs from
+                            -- ns.ApplyCooldownNumbersHidden before this loop). Only
                             -- buttons that already own a charge cooldown pay the fetch,
                             -- so unrelated CVAR_UPDATEs stay near-free.
                             for _, btn in ipairs(btns) do

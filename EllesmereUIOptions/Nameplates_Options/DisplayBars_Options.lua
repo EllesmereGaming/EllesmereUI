@@ -21,7 +21,7 @@ local function BuildDisplayBars(parent, y, ctx)
     local defaults, displayCastIcons, hbtOrder, hbtValues = env.defaults, env.displayCastIcons, env.hbtOrder, env.hbtValues
     local LazyColorPreviewBar, npImpCastGlowDesc, optState, pairs = env.LazyColorPreviewBar, env.npImpCastGlowDesc, env.optState, env.pairs
     local plates, PP, RefreshAllPlates, SECTION_CASTBAR = env.plates, env.PP, env.RefreshAllPlates, env.SECTION_CASTBAR
-    local UpdatePreview = env.UpdatePreview
+    local UpdatePreview, npCastTargetGlowDesc = env.UpdatePreview, env.npCastTargetGlowDesc
     local asFallback, atFallback, AuraDurationVal, CogPopupOpen = ctx.asFallback, ctx.atFallback, ctx.AuraDurationVal, ctx.CogPopupOpen
     local LiveApplyAuraText, RefreshAllTextures, ShowCogPopup = ctx.LiveApplyAuraText, ctx.RefreshAllTextures, ctx.ShowCogPopup
     local timerPosOrder, timerPosValues = ctx.timerPosOrder, ctx.timerPosValues
@@ -551,7 +551,8 @@ local function BuildDisplayBars(parent, y, ctx)
         })
     end
 
-    -- Important Cast Glow: shared glow controls (cast bar = bar host) + preview
+    -- Important Cast Glow | Cast Targets You Glow: shared glow controls (cast bar = bar
+    -- host) + preview
     do
         local GO = EllesmereUI.GlowOptions
         local impDesc = npImpCastGlowDesc
@@ -560,33 +561,39 @@ local function BuildDisplayBars(parent, y, ctx)
         impGlowRow, h = W:DualRow(parent, y,
             GO.DropdownSpec(impDesc, "Important Cast Glow",
                 "Show a glow on the cast bar when the enemy is casting a spell Blizzard marks as important."),
-            { type="toggle", text="Casts In Front of Nameplates",
-              tooltip="Forces all casts to be shown in front of nameplates for visual clarity",
-              getValue=function() return DBVal("castOverlayEnabled") == true end,
-              setValue=function(v)
-                DB().castOverlayEnabled = v
-                ns.RefreshAllSettings()
-              end });  y = y - h
+            GO.DropdownSpec(npCastTargetGlowDesc, "Cast Targets You Glow",
+                "Show a glow on the cast bar when the enemy's cast is targeting you."));  y = y - h
 
         if not EllesmereUI._prebuilding then
-            local leftRgn = impGlowRow._leftRegion
-            GO.AttachInline(leftRgn, impDesc)
-            -- Icon-sized preview in the inline chain (the right half is a real
-            -- setting); -12: the widest FlipBook styles overhang ~8px per side.
-            local pv = GO.BuildPreview(leftRgn, impDesc, {
-                bar = false, width = 26, height = 26,
-                icon = function() return displayCastIcons[optState._previewCastIconIdx or 1] end,
-                anchor = leftRgn._lastInline, x = -12,
-            })
-            if pv then
-                pv:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-                leftRgn._lastInline = pv
+            -- Icon-sized preview in each inline chain; -12: the widest FlipBook
+            -- styles overhang ~8px per side.
+            local function AttachGlow(rgn, desc)
+                GO.AttachInline(rgn, desc)
+                local pv = GO.BuildPreview(rgn, desc, {
+                    bar = false, width = 26, height = 26,
+                    icon = function() return displayCastIcons[optState._previewCastIconIdx or 1] end,
+                    anchor = rgn._lastInline, x = -12,
+                })
+                if pv then
+                    pv:SetFrameLevel(rgn:GetFrameLevel() + 5)
+                    rgn._lastInline = pv
+                end
             end
+            AttachGlow(impGlowRow._leftRegion, impDesc)
+            AttachGlow(impGlowRow._rightRegion, npCastTargetGlowDesc)
         end
     end
 
     -- Row 3: Focus Text Reminders (CDM only, left) | Show Interrupted Flash Effect (always present, a core cast bar setting): when CDM is loaded, Focus Text Reminders fills the left slot and flash takes the right; otherwise flash takes the left slot itself.
+    -- Casts In Front of Nameplates follows in the next free slot.
     do
+        local inFrontCfg = { type="toggle", text="Casts In Front of Nameplates",
+            tooltip="Forces all casts to be shown in front of nameplates for visual clarity",
+            getValue=function() return DBVal("castOverlayEnabled") == true end,
+            setValue=function(v)
+                DB().castOverlayEnabled = v
+                ns.RefreshAllSettings()
+            end }
         local function flashOff()
             local db = DB()
             local on = db and db.interruptedFlashEnabled
@@ -640,10 +647,11 @@ local function BuildDisplayBars(parent, y, ctx)
                 flashCfg
             );  y = y - h
             swatchRegion = row3._rightRegion
+            _, h = W:DualRow(parent, y, inFrontCfg, EllesmereUI.BlankRowCfg());  y = y - h
         else
             row3, h = W:DualRow(parent, y,
                 flashCfg,
-                { type = "label", text = "" }
+                inFrontCfg
             );  y = y - h
             swatchRegion = row3._leftRegion
         end
@@ -746,12 +754,16 @@ local function BuildDisplayBars(parent, y, ctx)
     if not EllesmereUI._prebuilding then
         local leftRgn = targetGlowRow._leftRegion
         if leftRgn._control then leftRgn._control:Hide() end
+        -- The WoW Forever style offers Highlight alone: the other three are
+        -- locked there (their getters read off, so they draw nothing).
+        local function fvLocked() return EllesmereUI.BlizzStyle.Forever("nameplates") end
+        local function fvTip() return EllesmereUI.L("Not available in the WoW Forever style.") end
         local glowItems = {
-            { key = "ellesmereui", label = "EUI Glow" },
-            { key = "borderColor", label = "Border Color" },
+            { key = "ellesmereui", label = "EUI Glow", lockedFn = fvLocked, lockedTooltip = fvTip },
+            { key = "borderColor", label = "Border Color", lockedFn = fvLocked, lockedTooltip = fvTip },
             { key = "highlight",   label = "Highlight" },
             { key = "borderSize",  label = "Border Size",
-              tooltip = "Change Size in the Cogwheel" },
+              tooltip = "Change Size in the Cogwheel", lockedFn = fvLocked, lockedTooltip = fvTip },
         }
         local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
             leftRgn, 170, leftRgn:GetFrameLevel() + 2,
@@ -860,6 +872,7 @@ local function BuildDisplayBars(parent, y, ctx)
                         UpdatePreview()
                       end },
                     { type="slider", label="Glow Opacity", min=0, max=100, step=1,
+                      disabled=fvLocked, disabledTooltip=fvTip, rawTooltip=true,
                       get=function() return math.floor((ns.GetTargetGlowAlpha() * 100) + 0.5) end,
                       set=function(v)
                         DB().targetGlowAlpha = v / 100
@@ -883,7 +896,11 @@ local function BuildDisplayBars(parent, y, ctx)
                         UpdatePreview()
                       end,
                       disabled=function() return not ns.GetTargetGlowBorderSize() end,
-                      disabledTooltip="Border Size Target Effect" },
+                      disabledTooltip=function()
+                        if fvLocked() then return fvTip() end
+                        return "Border Size Target Effect"
+                      end,
+                      rawTooltip=fvLocked },
                 },
             })
             refreshTargetHighlightCog = highlightCogBtn and highlightCogBtn._euiCogState
@@ -2002,8 +2019,21 @@ local function BuildDisplayBars(parent, y, ctx)
                     sizeSet = function(v) DB().castNameSize = v; ns.RefreshAllSettings(); UpdatePreview() end,
                     sizeMin = 6, sizeMax = 20, sizeLabel = EllesmereUI.L("Size"),
                     sizeFirst = true,
-                    widthGet = function() return DBVal("castNameWidthPct") or defaults.castNameWidthPct end,
-                    widthSet = function(v) DB().castNameWidthPct = v; ns.RefreshAllSettings(); UpdatePreview() end,
+                    -- Combined text has its own width; the name's applies while separate.
+                    widthGet = function()
+                        if DBVal("castCombineNameTarget") == true then
+                            return DBVal("castCombinedWidthPct") or defaults.castCombinedWidthPct
+                        end
+                        return DBVal("castNameWidthPct") or defaults.castNameWidthPct
+                    end,
+                    widthSet = function(v)
+                        if DBVal("castCombineNameTarget") == true then
+                            DB().castCombinedWidthPct = v
+                        else
+                            DB().castNameWidthPct = v
+                        end
+                        ns.RefreshAllSettings(); UpdatePreview()
+                    end,
                     wrapGet = function() return DBVal("castNameWrap") == true end,
                     wrapSet = function(v) DB().castNameWrap = v; ns.RefreshAllSettings(); UpdatePreview() end,
                     toggleLabel = "Combine Spell Name and Target",

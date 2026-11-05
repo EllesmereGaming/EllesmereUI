@@ -563,6 +563,107 @@ local function CreateStatusBar(parent, name, w, h, borderSize, borderR, borderG,
     return bar
 end
 
+-- Shared through I so the update chunk needs only one local for this feature.
+local PipTextureHelpers = {}
+
+function PipTextureHelpers.SetRange(pip, x0, x1, span, orientation)
+    if span <= 0 or x1 <= x0 then return end
+    pip._continuousStart, pip._continuousEnd = x0 / span, x1 / span
+    pip._continuousOrientation = orientation
+    PipTextureHelpers.SetCoordinates(pip, pip._fill)
+end
+
+function PipTextureHelpers.SetCoordinates(pip, tex)
+    local first, last = pip._continuousStart, pip._continuousEnd
+    if pip._continuousOrientation == "VERTICAL_UP" then
+        tex:SetTexCoord(last, 0, first, 0, last, 1, first, 1)
+    elseif pip._continuousOrientation == "VERTICAL_DOWN" or pip._continuousOrientation == "VERTICAL" then
+        tex:SetTexCoord(first, 1, last, 1, first, 0, last, 0)
+    else
+        tex:SetTexCoord(first, last, 0, 1)
+    end
+end
+
+function PipTextureHelpers.Configure(pip, x0, x1, span, orientation)
+    if span <= 0 or x1 <= x0 then
+        if pip._continuousStart then PipTextureHelpers.Reset(pip) end
+        return
+    end
+    pip._continuousPath = EllesmereUI.ResolveTexturePath(
+        _G._ERB_BarTextures, pip._texKey, "Interface\\Buttons\\WHITE8x8")
+    PipTextureHelpers.SetRange(pip, x0, x1, span, orientation)
+end
+
+function PipTextureHelpers.Reset(pip)
+    local function Restore(bar)
+        if not (bar and bar._continuousClip) then return end
+        bar._continuousClip:Hide()
+        local fill = bar:GetStatusBarTexture()
+        if fill then
+            fill:SetVertexColor(bar:GetStatusBarColor())
+            if pip._fillOp and pip._fillOp < 1 then fill:SetAlpha(pip._fillOp) end
+        end
+    end
+    Restore(pip._rechargeBar)
+    Restore(pip._secretBar)
+    Restore(pip._secretThreshBar)
+    Restore(pip._bandResetBar)
+    if pip._bandBars then
+        for k = 1, #pip._bandBars do Restore(pip._bandBars[k]) end
+    end
+    pip._fill:SetTexCoord(0, 1, 0, 1)
+    pip._continuousStart, pip._continuousEnd = nil, nil
+    pip._continuousOrientation, pip._continuousPath = nil, nil
+end
+
+-- A native StatusBar rewrites its UVs on value changes. Clip a full pip slice
+-- to its moving fill instead; anchors accept secret geometry without reading it.
+function PipTextureHelpers.DrawFill(pip, bar)
+    if not (pip._continuousStart and bar and bar:IsShown()) then return end
+    local fill = bar:GetStatusBarTexture()
+    if not fill then return end
+    local clip = bar._continuousClip
+    if not clip then
+        clip = CreateFrame("Frame", nil, bar)
+        clip:SetClipsChildren(true)
+        local canvas = CreateFrame("Frame", nil, clip)
+        canvas:SetAllPoints(pip._fill)
+        local tex = canvas:CreateTexture(nil, "ARTWORK")
+        tex:SetAllPoints()
+        tex:SetSnapToPixelGrid(false)
+        tex:SetTexelSnappingBias(0)
+        clip._canvas, clip._fill = canvas, tex
+        bar._continuousClip = clip
+    end
+    if clip._nativeFill ~= fill then
+        clip:ClearAllPoints()
+        clip:SetAllPoints(fill)
+        clip._nativeFill = fill
+    end
+    local level = bar:GetFrameLevel()
+    if clip._level ~= level then
+        clip:SetFrameLevel(level)
+        clip._canvas:SetFrameLevel(level)
+        clip._level = level
+    end
+    local tex = clip._fill
+    if clip._path ~= pip._continuousPath then
+        tex:SetTexture(pip._continuousPath)
+        clip._path, clip._first = pip._continuousPath, nil
+    end
+    if clip._first ~= pip._continuousStart or clip._last ~= pip._continuousEnd
+        or clip._orientation ~= pip._continuousOrientation then
+        PipTextureHelpers.SetCoordinates(pip, tex)
+        clip._first, clip._last, clip._orientation = pip._continuousStart,
+            pip._continuousEnd, pip._continuousOrientation
+    end
+    tex:SetVertexColor(bar:GetStatusBarColor())
+    if pip._fillOp and pip._fillOp < 1 then tex:SetAlpha(pip._fillOp) end
+    if pip._blizzMask then ns.ERB_MaskTex(tex, pip._blizzMask) end
+    fill:SetAlpha(0)
+    clip:Show()
+end
+
 -- Create a single pip (for combo points, holy power, etc.)
 local function CreatePip(parent, w, h, idx, borderSize, borderR, borderG, borderB, borderA)
     local pip = CreateFrame("Frame", nil, parent)
@@ -812,4 +913,5 @@ I.IsSpecDisabled, I.IsVerticalOrientation = IsSpecDisabled, IsVerticalOrientatio
 I.MakePixelBorder, I.OrientedSize, I.pips = MakePixelBorder, OrientedSize, pips
 I.runeFrames, I.secondaryBarTicks = runeFrames, secondaryBarTicks
 I.secondaryPipTicks, I.SmoothBarAnimate = secondaryPipTicks, SmoothBarAnimate
+I.PipTextureHelpers = PipTextureHelpers
 I.broken = false

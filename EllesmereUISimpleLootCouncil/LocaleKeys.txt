@@ -125,6 +125,7 @@
 %s also sent you their config. Accept or decline the open offer from %s first, then ask them to send it again.
 %s and %s
 %s asked for the response guide.
+%s auto-promotion
 %s award changed to %s
 %s award changed to %s (%s)
 %s award to %s withdrawn
@@ -150,7 +151,6 @@
 %s is not in your group.
 %s is not on the council.
 %s is now the group's Master Looter.
-%s is running Simple Loot Council for this raid.
 %s is still in %s's bags, but its trade window has ended, so it can no longer be traded to %s - it was NOT delivered. Re-award or strike it.
 %s is still in %s's bags, but its trade window has ended, so it cannot be awarded. Right-click it in the council list to remove it from the run.
 %s left %s's bags without a trade to %s - it was NOT delivered. Re-award or strike it.
@@ -208,9 +208,11 @@
 %sNot in force|r - another player is Loot Master.
 %s\n\n%s
 '%s' could be any of: %s
+(%s stored)
 (Awarded to you)
 (Owed to %s)
 (Owed)
+(Promoted)
 (assigned)
 (difficulty %d)
 (difficulty %d, %s track)
@@ -232,7 +234,6 @@ AWARDED
 Accept
 Accept replaces your own. Decline leaves yours as they are.
 Accepting also activates the group-loot funnel.
-Accepting also activates your group-loot funnel.
 Actions
 Acts only on definite class or armour restrictions.
 Add
@@ -254,6 +255,7 @@ Allow whispered loot responses
 Alt / Main
 Alt of %s
 Alts
+Always join automatically
 Appearance available
 Apr
 Are you sure you want to disable SLC for this run?
@@ -280,7 +282,7 @@ Award reason
 Awarded
 Awarded to %s
 Awarded to %s - awaiting trade
-Become the Loot Master yourself when made group leader. Off: the previous leader's delegate keeps loot until you run /slc lootmaster clear.
+Become the Loot Master yourself when made group leader. Off: the previous leader's promote keeps loot until you run /slc lootmaster clear.
 BiS
 Big
 Bonus Roll
@@ -365,12 +367,11 @@ Disable your guild loot funnel guard?
 Disabled
 Display guard only - every client still holds the voter list.
 Do you want to remove this character as an alt?
-Don't ask again - just take part
 Don't auto-pass on transmog
 Done
 Drop
 Drop only, keep history
-Drop prior Loot Master delegation when passed lead
+Drop prior Loot Master promotion when passed lead
 Drop this obligation?
 Duplicate award history entries have been merged. They were caused by a bug that recorded every award twice.
 Each distinct one once. Off: they are still recorded in /slc log. Log to chat shows everything either way.
@@ -446,6 +447,10 @@ Items
 Items appear here when you are holding something that was awarded to someone else.
 Items cannot be removed once the run has started.
 Jan
+Join %s's Loot Council?
+Join & Auto-Pass
+Join the Loot Council?
+Joining automatically passes your group-loot rolls so the council can distribute items. You can still be awarded loot.
 Jul
 Jun
 Keep SLC active when you are passed lead?
@@ -473,14 +478,15 @@ Loading item...
 Log to chat
 Loot Awarded
 Loot Master
+Loot Master promotion cleared.
 Loot Master reset to the group leader: %s
 Loot Master set to %s for this raid
 Loot Master's bags
 Loot Master: %s
-Loot Master: %s (delegated)
 Loot Master: %s (group leader)
+Loot Master: %s (promoted)
 Loot Master: %s (the group's Master Looter)
-Loot Master: %s |cff73716C(delegated)|r
+Loot Master: %s |cff73716C(promoted)|r
 Loot Master: %s, %s
 Loot awards
 Loot council
@@ -583,6 +589,8 @@ Players
 Posts when the awarded item is physically handed over.
 Posts when the council asks the whole group to roll. This is the only way a raider whose addon is not working can take part: their popup never opens, so the line in chat is the request.
 Prevents auto-pass when this source would teach you a new appearance, whatever its armour type.
+Promote
+Promote Loot Master
 Proposed items
 Pulls
 Put %s back into the run?\n\nRaiders see it again and the council can award it.
@@ -606,6 +614,7 @@ Ranks
 Re-award
 Re-award it, or undo the award, to clear it.
 Re-award to this player
+Re-promote %s as the Loot Master of this raid, or clear your Loot Master promotion?
 Reading %d of %d rows...
 Record award history
 Record group attendance
@@ -670,6 +679,7 @@ Right-click: stop tracking
 Right-click: undo award
 Roll
 Roll  (%d left)
+Roll Normally
 Roll requests
 Rolled
 Rolls
@@ -742,13 +752,11 @@ Stored by name, so it is matched as typed. The next time this player is in your 
 TIME TO RESPOND
 TIME UP
 Take part in the active SLC group?
-Taking part means this addon passes your group-loot rolls on your behalf, so the council can distribute the item instead. You still respond and can still be awarded it.
 Tank
 Testing
 That item is not up for loot. Whisper 'help' for the list.
 The Loot Master declined your start request.
 The Loot Master has been told. This clears when they re-award or undo it.
-The Loot Master is running Simple Loot Council for this raid.
 The Loot Master posts one line when an award is made, changed or withdrawn.
 The Measured Boss %d
 The addon whose imported wishlists and sims the council reads.
@@ -847,7 +855,7 @@ Your guild has no rank called this - it was renamed or removed. It confers nothi
 Your untouched response buttons now read in your language. Buttons you renamed, recoloured or added were kept.
 a bare number then '%s' reads as chat - silent. '#N' or a link would get a reply.
 a character cannot be their own main
-a delegation lasts for this raid - it is forgotten when you leave the group
+a promotion is remembered after you leave - when you lead a raid with them in it, you are asked to promote again
 a run is active - /slc end ends it for everyone first.
 a run is active - only the Loot Master can end it.
 a run is already active
@@ -929,8 +937,6 @@ current boss and encounter log
 current run state
 debug chat output off
 debug chat output on
-delegate loot
-delegated for this raid
 deleted %d award record.
 deleted %d award records.
 developer and diagnostic commands
@@ -1078,6 +1084,9 @@ perf [start [label] / stop / all]
 pick between 1 and %d items: /slc ftest %d
 pick between 1 and %d items: /slc test %d
 ping [bytes]
+promote loot
+promoted for this raid
+prompt <lootmaster / raider / guard>
 pseudo [on / off]
 pseudo-locale test mode is already off.
 pseudo-locale test mode is already on.
@@ -1118,6 +1127,7 @@ season start set to %s
 send the response guide to the raid
 session / sess
 shift-click an item into the command: /slc additem <link>
+show a group question, answers do nothing
 show or hide the minimap button
 simulated run of 1-%d items from %d rare dungeon boss drops that WoW: Forever serves; no argument gives 3
 simulated run started with %d item; awards will not be saved or traded
@@ -1179,6 +1189,7 @@ usage: /slc council add||remove <Name>
 usage: /slc ftest [<count>]
 usage: /slc lootmaster <Name-Realm>  ||  /slc lootmaster clear
 usage: /slc lootmaster <Name>  ||  /slc lootmaster clear
+usage: /slc prompt lootmaster / raider / guard
 usage: /slc pseudo [on||off]
 usage: /slc test <item link> [from [heroic] <boss>], ...
 usage: /slc test [<count>] or /slc test <item link>, ...

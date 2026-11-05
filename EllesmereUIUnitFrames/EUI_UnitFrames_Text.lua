@@ -304,6 +304,11 @@ if EllesmereUI.IS_FOREVER then
     end
 end
 
+-- Health, max health and absorb values without a decimal config: the global
+-- Number Format for valueType (EllesmereUI_NumberFormat.lua).
+ns.AbbreviateValue = EllesmereUI.AbbreviateValue
+EllesmereUI.RegisterNumberFormatCallback(function() ns.RefreshAllUnitNames() end)
+
 -- Health Short always abbreviates from 1,000 with one decimal.
 function ns.AbbreviateShortHealth(hp)
     if not ns._shortHealthAbbrevConfig then
@@ -341,7 +346,7 @@ function ns.ApplyTextDecimalGlobals()
         end
         _G._EUI_TextDecimals = true
         -- "Only Show for % Health": decimal on PERCENT, health/absorb VALUES whole --
-        -- withhold the abbreviate configs (values fall back to plain AbbreviateNumbers)
+        -- withhold the abbreviate configs (values follow the Number Format, ns.AbbreviateValue)
         -- while _EUI_TextDecimals stays true for percents.
         local percentOnly = db.profile.showDecimalPercentOnly
         _G._EUI_AbbrevDecimalCfg = ns._decimalAbbrevConfig
@@ -388,7 +393,9 @@ do
   -- current value takes it, so Health # / Max # names the status once
   -- ("DEAD / 150 K"). shortHealth (healthshort): always one decimal with an
   -- uppercase K/M/B (ns.AbbreviateShortHealth), whatever the decimal options say.
-  local function MakeAbbrevHP(getHP, status, shortHealth)
+  -- valueType: the Number Format type without a decimal config; boss frames
+  -- read "bossHealth" instead.
+  local function MakeAbbrevHP(getHP, status, shortHealth, valueType)
     return function(unit)
       if not unit or not UnitExists(unit) then return "" end
       if status then
@@ -398,17 +405,19 @@ do
       local hp = getHP(unit) or 0
       if shortHealth then return ns.AbbreviateShortHealth(hp) end
       local cfg = _G._EUI_AbbrevDecimalCfg
+      local boss = IS_BOSS_UNIT[unit]
       -- Boss frames use the 2-decimal config when "Show 2 for Boss" is on.
-      if _G._EUI_BossExtraDecimal and IS_BOSS_UNIT[unit] then
+      if _G._EUI_BossExtraDecimal and boss then
         cfg = _G._EUI_AbbrevDecimalCfg2
       end
-      return cfg and AbbreviateNumbers(hp, cfg) or AbbreviateNumbers(hp)
+      if cfg then return AbbreviateNumbers(hp, cfg) end
+      return ns.AbbreviateValue(hp, boss and "bossHealth" or valueType)
     end
   end
 
-  TagFns.curhpshort = MakeAbbrevHP(UnitHealth, true)
+  TagFns.curhpshort = MakeAbbrevHP(UnitHealth, true, nil, "health")
   TagFns.healthshort = MakeAbbrevHP(UnitHealth, true, true)
-  TagFns.maxhpshort = MakeAbbrevHP(UnitHealthMax)
+  TagFns.maxhpshort = MakeAbbrevHP(UnitHealthMax, nil, nil, "maxHealth")
 end
 
 do
@@ -956,11 +965,15 @@ do
         if not u or not UnitExists(u) then return "" end
         return sf("%s", C_StringUtil.TruncateWhenZero(UnitGetTotalAbsorbs(u) or 0))
     end
+    -- An absorb amount abbreviated: Show Decimal on Health Text's table while it
+    -- is on, else the Number Format.
+    local function AbbrevAbsorb(v)
+        local cfg = _G._EUI_AbbrevDecimalCfg
+        return cfg and AbbreviateNumbers(v, cfg) or ns.AbbreviateValue(v, "absorb")
+    end
     P.absorbshort = function(u)
         if not u or not UnitExists(u) then return "" end
-        local cfg = _G._EUI_AbbrevDecimalCfg
-        return cfg and AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0, cfg)
-            or AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0)
+        return AbbrevAbsorb(UnitGetTotalAbsorbs(u) or 0)
     end
     P.healabsorb = function(u)
         if not u or not UnitExists(u) then return "" end
@@ -968,10 +981,21 @@ do
     end
     P.healabsorbshort = function(u)
         if not u or not UnitExists(u) then return "" end
-        local cfg = _G._EUI_AbbrevDecimalCfg
-        return cfg and AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0, cfg)
-            or AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0)
+        return AbbrevAbsorb(UnitGetTotalHealAbsorbs(u) or 0)
     end
+    -- [absorb:abr], [healabsorb:abr]: empty at zero like the full tags. The presets
+    -- above keep "0" because ApplyAbsorbGate clips their whole zone instead.
+    local IsZeroValue = EllesmereUI.IsZeroValue
+    local function AbsorbShortTag(get)
+        return function(u)
+            if not u or not UnitExists(u) then return "" end
+            local v = get(u) or 0
+            if IsZeroValue(v) then return "" end
+            return AbbrevAbsorb(v)
+        end
+    end
+    P.absorbshorttag = AbsorbShortTag(UnitGetTotalAbsorbs)
+    P.healabsorbshorttag = AbsorbShortTag(UnitGetTotalHealAbsorbs)
     P.group = function(u)
         if not IsInRaid() then return "" end
         local idx = UnitInRaid(u)
@@ -1077,6 +1101,7 @@ do
         [P.perpp] = "pp", [P.curpp] = "pp", [P.maxpp] = "pp", [P.curppfull] = "pp", [P.maxppfull] = "pp",
         [P.absorb] = "abs", [P.absorbshort] = "abs",
         [P.healabsorb] = "habs", [P.healabsorbshort] = "habs",
+        [P.absorbshorttag] = "abs", [P.healabsorbshorttag] = "habs",
         [P.name] = "id", [P.level] = "id", [P.levelcol] = "id", [P.levelcolall] = "id",
     }
     -- The tags' Name Format modifiers ([name:abbr]): they shape the plain name,
@@ -1100,8 +1125,8 @@ do
         ["hp:max:abr"] = P.maxhpshort, ["hp:pct"] = P.perhp,
         ["pp"] = P.curppfull, ["pp:abr"] = P.curpp, ["pp:max"] = P.maxppfull,
         ["pp:max:abr"] = P.maxpp, ["pp:pct"] = P.perpp,
-        ["absorb"] = P.absorb, ["absorb:abr"] = P.absorbshort,
-        ["healabsorb"] = P.healabsorb, ["healabsorb:abr"] = P.healabsorbshort,
+        ["absorb"] = P.absorb, ["absorb:abr"] = P.absorbshorttag,
+        ["healabsorb"] = P.healabsorb, ["healabsorb:abr"] = P.healabsorbshorttag,
         ["name"] = P.name, ["name:first"] = P.namefirst, ["name:last"] = P.namelast, ["name:abbr"] = P.nameabbr,
         ["target"] = P.tgtname, ["target:first"] = P.tgtfirst, ["target:last"] = P.tgtlast, ["target:abbr"] = P.tgtabbr,
         ["level"] = P.level, ["group"] = P.group,
@@ -1167,8 +1192,11 @@ do
     -- Target shortens both names. ShortName passes a secret name through whole
     -- and caches the short forms, so a zone repainted on every health tick
     -- builds no strings. A mode's twins are made the first time a slot uses it.
+    -- Each twin asks EllesmereUI.UnitNameFormat for the unit whose name it
+    -- shows (WoW Forever: First / Last Name leave a non-player's name whole).
     do
-        local short, nameFn, tgtFn = EllesmereUI.ShortName, P.name, P.tgtname
+        local short, unitMode = EllesmereUI.ShortName, EllesmereUI.UnitNameFormat
+        local nameFn, tgtFn = P.name, P.tgtname
         local twinsByMode = {}
         local base = ns.ContentToZone
         function ns.ContentToZone(content, prefix, settings)
@@ -1178,8 +1206,10 @@ do
                 local twins = twinsByMode[mode]
                 if not twins then
                     twins = {
-                        [nameFn] = function(u) return short(nameFn(u), mode) end,
-                        [tgtFn]  = function(u) return short(tgtFn(u), mode) end,
+                        [nameFn] = function(u) return short(nameFn(u), unitMode(mode, u)) end,
+                        [tgtFn]  = function(u)
+                            return short(tgtFn(u), unitMode(mode, u and (u .. "target")))
+                        end,
                     }
                     twinsByMode[mode] = twins
                 end

@@ -919,6 +919,7 @@ initFrame:SetScript("OnEvent", function(self)
     local optState = {}
     optState.showCombatIndicatorPreview = false
     optState.showHealAbsorbPreview      = false  -- eyeball toggle for the Heal Absorb Style preview
+    optState.showMaxHealthPreview       = false  -- eyeball toggle for the Max Health Style preview
     optState.showDispelOverlayPreview   = false  -- eyeball toggle for the player dispel overlay preview
     -- Preview hover-highlight hint text (shared across Single/Multi tabs)
     optState._ufPreviewHintFS_display = nil  -- hint FontString for the Main Frames page
@@ -1461,6 +1462,15 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        if pFrame._previewBg then
+            local bgc = isDetached and s.detachedPortraitBgColor
+            if bgc then
+                pFrame._previewBg:SetColorTexture(bgc.r, bgc.g, bgc.b, bgc.a or 1)
+            else
+                pFrame._previewBg:SetColorTexture(0.082, 0.082, 0.082, 1)
+            end
+        end
+
         local texList = {}
         if pFrame._previewTex then table.insert(texList, pFrame._previewTex) end
         if pFrame._previewBg then table.insert(texList, pFrame._previewBg) end
@@ -1890,6 +1900,10 @@ initFrame:SetScript("OnEvent", function(self)
         healAbsorbColor      = { player=true, target=true, focus=true },
         healAbsorbEdgeMode   = { player=true, target=true, focus=true },
         healAbsorbBgOpacity  = { player=true, target=true, focus=true },
+        maxHealthStyle       = { player=true, target=true, focus=true },
+        maxHealthOpacity     = { player=true, target=true, focus=true },
+        maxHealthColor       = { player=true, target=true, focus=true },
+        maxHealthBgOpacity   = { player=true, target=true, focus=true },
         healPrediction       = { player=true, target=true, focus=true },
         healPredOpacity      = { player=true, target=true, focus=true },
         healPredOverheal     = { player=true, target=true, focus=true },
@@ -1957,6 +1971,8 @@ initFrame:SetScript("OnEvent", function(self)
         castbarKickTickEnabled     = { target=true, focus=true },
         castbarImportantGlow       = { target=true, focus=true },
         castCombineNameTarget      = { target=true, focus=true },
+        castFullCraftTime          = { player=true },
+        castFitSpellName           = { player=true, target=true, focus=true },
         showClassPowerBar    = { player=true },
         lockClassPowerToFrame= { player=true },
         classPowerStyle      = { player=true },

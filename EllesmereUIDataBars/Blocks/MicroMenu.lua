@@ -266,9 +266,14 @@ end
 -- WoW Forever splits the spellbook and the talents into two micro buttons. Its
 -- PlayerSpellsMicroButton still exists but opens the frame on whichever tab was last
 -- shown, so there the spell entry clicks the spellbook's own button and a Talents entry follows it.
+-- Forever Essentials' routes come first: they open its Classic Spellbook and
+-- Classic Talents while those are on and click these buttons otherwise. The
+-- glyphs still come from the buttons themselves.
 if EllesmereUI.IS_FOREVER then
-    MM_MICRO_BUTTON_NAMES.spell  = "SpellbookMicroButton"
-    MM_MICRO_BUTTON_NAMES.talent = "TalentMicroButton"
+    MM_MICRO_BUTTON_NAMES.spell  = { "EUI_SpellbookRoute", "SpellbookMicroButton" }
+    MM_MICRO_BUTTON_NAMES.talent = { "EUI_TalentsRoute", "TalentMicroButton" }
+    MM_ART_BUTTON.spell  = "SpellbookMicroButton"
+    MM_ART_BUTTON.talent = "TalentMicroButton"
     for i, def in ipairs(mmButtonDefs) do
         if def.key == 'spell' then
             def.label = SPELLBOOK or 'Spellbook'
@@ -730,7 +735,7 @@ local function MMBuildSocialTip()
     ns.Tip_AddDouble(L["RIGHT_CLICK"],      L["WHISPER"],      1, 1, 1, ar, ag, ab)
 end
 
-local function MMBuildGuildTip()
+local function MMBuildGuildTip(s)
     local ar, ag, ab = ns.GetAccent()
     ns.Tip_AddLine(" ")
     if not IsInGuild() then
@@ -747,9 +752,18 @@ local function MMBuildGuildTip()
     local gName = GetGuildInfo("player")
     if gName then ns.Tip_AddLine("|cff00ff00" .. gName .. "|r") end
 
+    local noteFmt
+    if s.showGuildNotes == true then
+        local c = s.guildNoteColor
+        local nr, ng, nb = 0.925, 0.839, 0.447
+        if c then nr, ng, nb = c.r or nr, c.g or ng, c.b or nb end
+        noteFmt = format(" |cffffffff(|r|cff%02x%02x%02x%%s|r|cffffffff)|r",
+            floor(nr * 255 + 0.5), floor(ng * 255 + 0.5), floor(nb * 255 + 0.5))
+    end
+
     local shown, hidden = 0, 0
     for i = 1, GetNumGuildMembers() do
-        local name, _, _, level, _, zone, _, _, isOnline, status, class = GetGuildRosterInfo(i)
+        local name, _, _, level, _, zone, note, _, isOnline, status, class = GetGuildRosterInfo(i)
         if isOnline and shown >= MM_TIP_MAX_ROWS then
             hidden = hidden + 1
         elseif isOnline then
@@ -763,6 +777,10 @@ local function MMBuildGuildTip()
             local cn  = name and name:match("[^-]+") or "?"
             -- Left plain (no |c): the class color rides the left-color args so the hover recolor to accent shows, like the M+ teleport rows.
             local left  = format("%s  %s %s", level or "", cn, st)
+            -- Own color codes: the note keeps its color under the hover accent.
+            if noteFmt and note and note ~= "" then
+                left = left .. format(noteFmt, note)
+            end
             local fname = name
             ns.Tip_AddClickable(left, zone or "", function(mouseButton)
                 if not fname then return end
@@ -970,7 +988,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         end
 
         if name == 'social' then pcall(MMBuildSocialTip) end
-        if name == 'guild'  then pcall(MMBuildGuildTip)  end
+        if name == 'guild'  then pcall(MMBuildGuildTip, D()) end
 
         ns.Tip_Show()
     end

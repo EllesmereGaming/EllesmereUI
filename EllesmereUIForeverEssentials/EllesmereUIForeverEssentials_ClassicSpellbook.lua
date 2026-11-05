@@ -4,12 +4,14 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  EllesmereUIForeverEssentials_ClassicSpellbook.lua  (WoW Forever only)
 --  The vanilla spellbook, drawn with the client's own art: school tabs down
 --  the right side and twelve spells a page, plus the game's search box and
---  spellbook options. The spellbook key opens it in place of the Talents &
---  Spellbook window, which the micro menu still opens. The window and its
+--  spellbook options. The spellbook key and the micro menu's Spellbook button
+--  open it in place of the Talents & Spellbook window (the button only out of
+--  combat: in combat the game opens its own window). The window and its
 --  buttons are protected and its pages are turned by restricted snippets, so
 --  the key, the tabs and the page arrows work in combat. A search or an
 --  option changed in combat applies when the fight ends: only code that runs
---  out of combat can hand the snippets a new list of spells.
+--  out of combat can hand the snippets a new list of spells. The QoL Shifter
+--  moves it like the game's windows.
 -------------------------------------------------------------------------------
 local _, module = ...
 
@@ -425,6 +427,17 @@ local TOGGLE_SNIPPET = [[
     if book:IsShown() then book:Hide() else book:Show() end
 ]]
 
+-- The micro menu's Spellbook button opens the book too, through a click layer
+-- of ours over it (module.MicroClickLayer). An addon's click cannot show the
+-- protected book in combat, so from a fight's start to its end the layer lets
+-- the clicks through to the game's button, which opens its own window.
+local microLayer
+-- Our other panels that open the spellbook (the Data Bars micro menu block,
+-- Quickdraw) click EUI_SpellbookRoute: a secure click that goes to the book's
+-- toggle while the feature is on and to the game's Spellbook micro button
+-- otherwise, so it works in combat either way. Made at load, out of combat.
+local route
+
 local function Build()
     if book then return end
     book = CreateFrame("Frame", "EUI_ClassicSpellbook", UIParent, "SecureHandlerShowHideTemplate")
@@ -505,6 +518,32 @@ local function Build()
     ]])
     book.prev = NewArrow("Prev", 50, -1)
     book.next = NewArrow("Next", 314, 1)
+    if EllesmereUI._ShifterAdopt then EllesmereUI._ShifterAdopt("EUI_ClassicSpellbook") end
+end
+
+-- The click layer's click: out of combat, where an addon may show the book.
+local function MicroToggle()
+    if not book or InCombatLockdown() then return end
+    if book:IsShown() then book:Hide() else book:Show() end
+end
+
+local function MicroClicksBack()
+    if microLayer then microLayer:SetMouseClickEnabled(true) end
+end
+
+-- The route clicks the book's toggle while the feature is on, else the game's
+-- micro button. Out of combat only (Apply defers itself).
+local function AimRoute(on)
+    if not route then return end
+    local target = on and toggle or _G.SpellbookMicroButton
+    if route:GetAttribute("clickbutton") ~= target then route:SetAttribute("clickbutton", target) end
+end
+
+if not InCombatLockdown() then
+    route = CreateFrame("Button", "EUI_SpellbookRoute", UIParent, "SecureActionButtonTemplate")
+    route:SetAttribute("type", "click")
+    route:SetAttribute("useOnKeyDown", false)
+    AimRoute(false)
 end
 
 -------------------------------------------------------------------------------
@@ -541,6 +580,11 @@ local function OnEvent(_, event)
             book.prev:SetEnabled(true)
             book.next:SetEnabled(true)
         end
+        -- The game's own window opens from the micro button until the fight ends.
+        if microLayer then
+            microLayer:SetMouseClickEnabled(false)
+            EllesmereUI.CombatQueue.Defer(QUEUE_KEY .. "Micro", MicroClicksBack)
+        end
     elseif book:IsShown() then
         Refresh()
     else
@@ -555,6 +599,8 @@ local function Apply()
     end
     if events then events:UnregisterAllEvents() end
     if not F.Enabled() then
+        if microLayer then microLayer:Hide() end
+        AimRoute(false)
         if book then book:Hide() end
         Bind()
         return
@@ -564,6 +610,14 @@ local function Apply()
         events:SetScript("OnEvent", OnEvent)
     end
     Build()
+    AimRoute(true)
+    if not microLayer and not EllesmereUI.PadTaintStandDown() then
+        microLayer = module.MicroClickLayer("SpellbookMicroButton", MicroToggle)
+    end
+    if microLayer then
+        microLayer:SetMouseClickEnabled(true)
+        microLayer:Show()
+    end
     events:RegisterEvent("SPELLS_CHANGED")
     events:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
     events:RegisterEvent("UPDATE_BINDINGS")

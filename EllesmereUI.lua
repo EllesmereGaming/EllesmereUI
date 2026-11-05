@@ -1522,6 +1522,39 @@ EllesmereUI.ABSORB_STYLE_NAMES = {
 EllesmereUI.ABSORB_STYLE_ORDER = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeStripes", "largeStripesR", "pixelsShield", "pixelsShieldEdge", "pixelsShieldFill" }
 EllesmereUI.HEAL_ABSORB_STYLE_ORDER = { "none", "striped", "stripedReversed", "stripedThick", "stripedThickR", "clean", "blizzard", "largeOutlinedStripes", "largeOutlinedStripesR", "largeStripes", "largeStripesR", "pixelsShield" }
 
+-- Max Health Style: the temporary max health loss overlay of the Raid & Party
+-- Frames and the Unit Frames. Its own stripes, or any style the calling module's
+-- resolver knows (resolveTex(style, fallback): its built-ins and SharedMedia).
+-- Plain Striped tiles here, unlike on the absorbs; the pre-colored heal absorb
+-- styles draw untinted. Sets the fill's texture, tint, opacity and layer and
+-- returns it; the caller owns the fill rotation, any mask and the backing.
+EllesmereUI.MAX_HEALTH_STRIPES_TEX = "Interface\\AddOns\\EllesmereUI\\media\\textures\\shields\\striped-maxhp.png"
+EllesmereUI.MAX_HEALTH_COLOR = { r = 0.7, g = 0.1, b = 0.1 }
+do
+    local UNTINTED = { healBlizzModern = true, largeOutlinedStripes = true, largeOutlinedStripesR = true }
+    local WHITE = { r = 1, g = 1, b = 1 }
+    function EllesmereUI.ApplyMaxHealthStyle(bar, style, settings, resolveTex)
+        local tex, tiled
+        if style == "maxHealthStripes" then
+            tex, tiled = EllesmereUI.MAX_HEALTH_STRIPES_TEX, true
+        else
+            tex = resolveTex(style, "Interface\\Buttons\\WHITE8X8")
+            tiled = style == "striped" or EllesmereUI.ABSORB_TILED_STYLES[style] == true
+        end
+        local mc = UNTINTED[style] and WHITE or (settings and settings.maxHealthColor) or EllesmereUI.MAX_HEALTH_COLOR
+        bar:SetStatusBarTexture(tex)
+        bar:SetStatusBarColor(mc.r or 0.7, mc.g or 0.1, mc.b or 0.1,
+            settings and (settings.maxHealthOpacity or 100) / 100 or 1)
+        local fill = bar:GetStatusBarTexture()
+        if fill then
+            fill:SetDrawLayer("ARTWORK", 3)
+            fill:SetHorizTile(tiled)
+            fill:SetVertTile(tiled)
+        end
+        return fill
+    end
+end
+
 -- Numeric constants
 EllesmereUI.TEXT_WHITE_R = STYLE.TEXT_WHITE_R
 EllesmereUI.TEXT_WHITE_G = STYLE.TEXT_WHITE_G
@@ -2399,6 +2432,16 @@ do
         return false
     end
 
+    -- Hearthstone toys are account-wide, but the Draenic Hologem works only for
+    -- draenei and lightforged draenei: owning it is not enough on other races.
+    local function CanUseHearthToy(id)
+        if id ~= 210455 then return true end
+        local _, race = UnitRace("player")
+        if issecretvalue(race) then return false end
+        return race == "Draenei" or race == "LightforgedDraenei"
+    end
+    EllesmereUI.CanUseHearthToy = CanUseHearthToy
+
     -- Resolve slot 1: For Shamans with Astral Recall known:
     --   In M+/raid combat -> always Astral Recall (no CD checks, no secret values)
     --   If any owned toy is on CD -> Astral Recall (shorter CD)
@@ -2419,7 +2462,7 @@ do
         local owned = {}
         for _, id in ipairs(HEARTH_TOYS) do
             local hasToy = PlayerHasToy and PlayerHasToy(id)
-            if hasToy then
+            if hasToy and CanUseHearthToy(id) then
                 owned[#owned + 1] = id
             end
         end
@@ -2747,7 +2790,8 @@ EllesmereUI._IS_STANDALONE  = IS_STANDALONE
 --               units, the mover extends BELOW the frame (a boss cast bar,
 --               the Blizzard Style cast bar text box)
 --    getInsets  (function(key) -> l, r, t, b)  visual insets from the frame's
---               box to the rect the mover outlines (Blizzard Style unit frames)
+--               box to the rect the mover outlines (Blizzard Style unit frames;
+--               negative reaches outside it: the minimap's square frame)
 --    detachedMover (boolean) the frame refuses dependents (it carries a
 --               forbidden layout aspect), so the mover takes its screen spot by
 --               absolute anchor instead of anchoring to it
@@ -2832,7 +2876,7 @@ if not EllesmereUI.ResolveThemeColor then
     EllesmereUI.ResolveThemeColor = function(theme)
         theme = ResolveFactionTheme(theme)
         if theme == "Class Colored" then
-            local clr = CLASS_COLOR_MAP[playerClass]
+            local clr = (EllesmereUI.GetRawClassColor and EllesmereUI.GetRawClassColor(playerClass)) or CLASS_COLOR_MAP[playerClass]
             if clr then return clr.r, clr.g, clr.b end
             return DEFAULT_ACCENT_R, DEFAULT_ACCENT_G, DEFAULT_ACCENT_B
         elseif theme == "Custom Color" then
@@ -2870,7 +2914,7 @@ if not EllesmereUI.ResolveActiveAccent then
         local acc = p and p.euiAccent
         -- 1) per-profile euiAccent
         if acc and acc.useClass then
-            local c = CLASS_COLOR_MAP[playerClass]
+            local c = (EllesmereUI.GetRawClassColor and EllesmereUI.GetRawClassColor(playerClass)) or CLASS_COLOR_MAP[playerClass]
             if c then return c.r, c.g, c.b end
         end
         if acc and acc.custom then
@@ -2879,7 +2923,7 @@ if not EllesmereUI.ResolveActiveAccent then
         end
         -- 2) frozen global root (only when no explicit per-profile euiAccent)
         if (not acc) and db and db.useClassAccentColor then
-            local c = CLASS_COLOR_MAP[playerClass]
+            local c = (EllesmereUI.GetRawClassColor and EllesmereUI.GetRawClassColor(playerClass)) or CLASS_COLOR_MAP[playerClass]
             if c then return c.r, c.g, c.b end
         end
         local gca = db and db.customAccentColor
@@ -3264,7 +3308,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.7.2"
+EllesmereUI.VERSION = "9.7.6"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

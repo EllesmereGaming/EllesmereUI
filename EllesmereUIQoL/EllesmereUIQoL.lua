@@ -249,27 +249,19 @@ qolFrame:SetScript("OnEvent", function(self)
     do
         local busy = false
 
-        -- Clears pending mount fanfare: narrows the journal filter to
-        -- collected-only for the sweep, then restores the snapshot.
+        -- Walks all mount IDs so journal filters cannot hide a pending mount.
         local function AckMountAlerts()
             if not C_MountJournal then return false end
             local pending = C_MountJournal.GetNumMountsNeedingFanfare
                 and C_MountJournal.GetNumMountsNeedingFanfare()
             if not pending or pending <= 0 then return false end
 
-            local snapshot = {}
-            for i = LE_MOUNT_JOURNAL_FILTER_COLLECTED, LE_MOUNT_JOURNAL_FILTER_UNUSABLE do
-                snapshot[i] = C_MountJournal.GetCollectedFilterSetting(i) and true or false
-                C_MountJournal.SetCollectedFilterSetting(i, i == LE_MOUNT_JOURNAL_FILTER_COLLECTED)
-            end
-            for i = 1, C_MountJournal.GetNumDisplayedMounts() do
-                local id = C_MountJournal.GetDisplayedMountID(i)
-                if id and C_MountJournal.NeedsFanfare(id) then
+            for _, id in ipairs(C_MountJournal.GetMountIDs()) do
+                if C_MountJournal.NeedsFanfare(id) then
                     C_MountJournal.ClearFanfare(id)
+                    pending = pending - 1
+                    if pending == 0 then break end
                 end
-            end
-            for i = LE_MOUNT_JOURNAL_FILTER_COLLECTED, LE_MOUNT_JOURNAL_FILTER_UNUSABLE do
-                C_MountJournal.SetCollectedFilterSetting(i, snapshot[i])
             end
             return true
         end
@@ -315,21 +307,22 @@ qolFrame:SetScript("OnEvent", function(self)
             if not (EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections) then return end
             if busy then return end
             busy = true
+            -- Fanfare only: calling the micro button alert functions from here
+            -- taints them and blocks SetAvatarTexture in the Communities list.
             C_Timer.After(0.2, function()
                 busy = false
-                local changed = AckMountAlerts() or AckPetAlerts() or AckToyAlerts()
-                if changed then
-                    if CollectionsMicroButton and MainMenuMicroButton_HideAlert then
-                        MainMenuMicroButton_HideAlert(CollectionsMicroButton)
-                    end
-                    if CollectionsMicroButton_SetAlertShown then
-                        CollectionsMicroButton_SetAlertShown(false)
-                    end
-                end
+                local mounts = AckMountAlerts()
+                local pets = AckPetAlerts()
+                if not (mounts or pets) then AckToyAlerts() end
             end)
         end
 
-        EllesmereUI._applyAutoUnwrap = function() end
+        -- Runs during PLAYER_LOGIN, before Blizzard's PLAYER_ENTERING_WORLD
+        -- check, so the Collections button does not raise the unopened alert.
+        if EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections then
+            AckMountAlerts()
+            AckPetAlerts()
+        end
 
         hooksecurefunc("MainMenuMicroButton_ShowAlert", function(_, text)
             if not (EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections) then return end
@@ -338,11 +331,26 @@ qolFrame:SetScript("OnEvent", function(self)
             end
         end)
 
+        -- The collection events are registered only while the option is on.
         local f = CreateFrame("Frame")
-        f:RegisterEvent("PLAYER_LOGIN")
-        f:RegisterEvent("NEW_MOUNT_ADDED")
-        f:RegisterEvent("NEW_PET_ADDED")
-        f:RegisterEvent("NEW_TOY_ADDED")
+        local function SyncUnwrapEvents()
+            local on = EllesmereUIDB and EllesmereUIDB.autoUnwrapCollections
+            if on then
+                f:RegisterEvent("NEW_MOUNT_ADDED")
+                f:RegisterEvent("NEW_PET_ADDED")
+                f:RegisterEvent("NEW_TOY_ADDED")
+            else
+                f:UnregisterEvent("NEW_MOUNT_ADDED")
+                f:UnregisterEvent("NEW_PET_ADDED")
+                f:UnregisterEvent("NEW_TOY_ADDED")
+            end
+            return on
+        end
+        -- The options toggle: switching on also unwraps what is already pending.
+        EllesmereUI._applyAutoUnwrap = function()
+            if SyncUnwrapEvents() then DismissCollectionAlerts() end
+        end
+        if SyncUnwrapEvents() then f:RegisterEvent("PLAYER_LOGIN") end
         f:SetScript("OnEvent", function(self, event)
             if event == "PLAYER_LOGIN" then
                 self:UnregisterEvent("PLAYER_LOGIN")

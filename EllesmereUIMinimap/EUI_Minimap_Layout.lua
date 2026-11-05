@@ -52,6 +52,9 @@ I.clockBgSetters[#I.clockBgSetters + 1] = function(v) clockBg = v end
 -- at load: a file behind this one would have to import the function.
 local MO_Evaluate
 
+-- Calendar invite alert: defined below BuildCustomIndicators, which calls them.
+local SyncCalendarInvites, DismissCalendarInvites
+
 -- The Great Vault and M+ Portal buttons, built in BuildCustomIndicators.
 local _greatVaultBtn = nil
 local _portalBtn = nil
@@ -96,7 +99,7 @@ local function BuildCustomIndicators(minimap)
     local trackBaseLeave = _customIndicators.tracking:GetScript("OnLeave")
     _customIndicators.tracking:SetScript("OnEnter", function(self)
         if trackBaseEnter then trackBaseEnter(self) end
-        if not GetFFD(self).freeMoveJustDragged and EllesmereUI.ShowWidgetTooltip then
+        if not GetFFD(self).freeMoveJustDragged then
             EllesmereUI.ShowWidgetTooltip(self, "Tracking", { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
         end
     end)
@@ -111,6 +114,7 @@ local function BuildCustomIndicators(minimap)
     _customIndicators.calendar = CreateIndicatorBtn("_gameTime", minimap,
         calPrefix .. "-Up", calPrefix .. "-Mouseover", calPrefix .. "-Down",
         function()
+            DismissCalendarInvites()
             if ToggleCalendar then ToggleCalendar() end
         end)
     _customIndicators.calendar._calDay = calDay
@@ -119,13 +123,19 @@ local function BuildCustomIndicators(minimap)
     _customIndicators.calendar:SetScript("OnEnter", function(self)
         if calBaseEnter then calBaseEnter(self) end
         if GetFFD(self).freeMoveJustDragged then return end
+        -- While the invite alert shows, the tooltip says why (as Blizzard's does).
+        if self._invite and self._invite:IsShown() then
+            EllesmereUI.ShowWidgetTooltip(self, GAMETIME_TOOLTIP_CALENDAR_INVITES,
+                { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
+            return
+        end
         local lockoutEntries
         if not (EllesmereUI.InProtectedInstance()) then
             lockoutEntries = GetCalendarLockoutEntries()
         end
         if lockoutEntries then
             ShowCalendarTooltip(self, lockoutEntries)
-        elseif EllesmereUI.ShowWidgetTooltip then
+        else
             EllesmereUI.ShowWidgetTooltip(self, "Calendar", { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
         end
     end)
@@ -143,8 +153,15 @@ local function BuildCustomIndicators(minimap)
     _customIndicators.mail:SetScript("OnEnter", function(self)
         if EBS._HVRevealMapHover then EBS._HVRevealMapHover() end
         if mailBaseEnter then mailBaseEnter(self) end
-        if not GetFFD(self).freeMoveJustDragged and EllesmereUI.ShowWidgetTooltip then
-            EllesmereUI.ShowWidgetTooltip(self, HAVE_MAIL or "New Mail", { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
+        if not GetFFD(self).freeMoveJustDragged then
+            local label = HAVE_MAIL
+            -- Up to three latest senders, as Blizzard's own mail icon lists them
+            -- (our button replaces it, so without this the names are lost).
+            local senders = GetLatestThreeSenders and { GetLatestThreeSenders() } or nil
+            if senders and #senders > 0 then
+                label = HAVE_MAIL_FROM .. "\n" .. table.concat(senders, "\n")
+            end
+            EllesmereUI.ShowWidgetTooltip(self, label, { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
         end
     end)
     _customIndicators.mail:SetScript("OnLeave", function(self)
@@ -159,7 +176,7 @@ local function BuildCustomIndicators(minimap)
     local craftBaseLeave = _customIndicators.crafting:GetScript("OnLeave")
     _customIndicators.crafting:SetScript("OnEnter", function(self)
         if craftBaseEnter then craftBaseEnter(self) end
-        if not GetFFD(self).freeMoveJustDragged and EllesmereUI.ShowWidgetTooltip then
+        if not GetFFD(self).freeMoveJustDragged then
             local label = "Crafting Orders"
             if C_CraftingOrders and C_CraftingOrders.GetPersonalOrdersInfo then
                 local infos = C_CraftingOrders.GetPersonalOrdersInfo()
@@ -185,11 +202,12 @@ local function BuildCustomIndicators(minimap)
         EllesmereUI.HideWidgetTooltip()
     end)
 
-    -- Not under WoW Forever's Gamepad interface style: its navigation takes over a
-    -- panel opened from our insecure click and makes protected calls, so the open is
-    -- blocked (and the blocked-action popup can freeze the client). Every reader
-    -- guards on the nil button.
-    if not EllesmereUI.PadGamepadUI() then
+    -- Not under WoW Forever's Gamepad interface style where its navigation can still
+    -- be tainted (EllesmereUI.PadTaintStandDown): it takes over a panel opened from
+    -- our insecure click and makes protected calls, so the open is blocked (and the
+    -- blocked-action popup can freeze the client). Every reader guards on the nil
+    -- button.
+    if not EllesmereUI.PadTaintStandDown() then
     -- Friends Online button
     _customIndicators.friends = CreateIndicatorBtn("_friends", minimap,
         FRIENDS_ATLAS, FRIENDS_ATLAS, nil,
@@ -199,7 +217,7 @@ local function BuildCustomIndicators(minimap)
                 return
             end
             -- Switched to that style mid-session: opening the panel from here is blocked.
-            if EllesmereUI.PadGamepadUI() then return end
+            if EllesmereUI.PadTaintStandDown() then return end
             ToggleFriendsFrame()
         end)
     -- Not in INDICATOR_ATLAS_RATIO, so the icon uses inset anchoring; desaturated idle.
@@ -227,7 +245,7 @@ local function BuildCustomIndicators(minimap)
         HideFriendsTooltip()
     end)
 
-    end -- not PadGamepadUI
+    end -- not PadTaintStandDown
 
     -- Great Vault + M+ Portal buttons: built once, anchored in LayoutIndicatorFrames.
     -- Neither exists on WoW Forever (no vault, no keystone portals): the buttons are
@@ -257,7 +275,89 @@ local function HideBlizzardIndicators()
     end
 end
 
+-------------------------------------------------------------------------------
+--  Calendar invite alert: the pulsing notice Blizzard's own calendar button
+--  shows for pending invites, which our button replaces, so it is on whenever
+--  Calendar is shown. Same rules as Blizzard's: it shows when the pending count
+--  rises while the calendar is closed, clicking the button dismisses it until
+--  another invite arrives, and it clears once no invite is pending.
+--  With Calendar hidden the event frame stays inert; the notice is built on
+--  first show.
+-------------------------------------------------------------------------------
+local _inviteEvents = CreateFrame("Frame")
+local _inviteListening = false  -- its two events are registered
+local _inviteSeen = 0  -- pending count already alerted (or dismissed)
+
+local function SetInviteShown(cal, show)
+    if show and not cal._invite then
+        -- Own child frame, so the pulse fades only the notice, never the day icon.
+        local invite = CreateFrame("Frame", nil, cal)
+        invite:SetAllPoints(cal)
+        invite:SetFrameLevel(cal:GetFrameLevel() + 2)
+        invite:Hide()
+        local glow = invite:CreateTexture(nil, "OVERLAY", nil, 1)
+        glow:SetTexture("Interface\\Calendar\\EventNotificationGlow")
+        glow:SetBlendMode("ADD")
+        glow:SetPoint("TOPLEFT", invite, "TOPLEFT", -6, 6)
+        glow:SetPoint("BOTTOMRIGHT", invite, "BOTTOMRIGHT", 6, -6)
+        local notice = invite:CreateTexture(nil, "OVERLAY", nil, 2)
+        notice:SetTexture("Interface\\Calendar\\EventNotification")
+        notice:SetTexCoord(0.03125, 0.6484375, 0.03125, 0.8671875)
+        notice:SetAllPoints(invite)
+        -- Fade out and back in, a full cycle every two seconds; runs only while shown.
+        local pulse = invite:CreateAnimationGroup()
+        pulse:SetLooping("BOUNCE")
+        local fade = pulse:CreateAnimation("Alpha")
+        fade:SetFromAlpha(1)
+        fade:SetToAlpha(0)
+        fade:SetDuration(1)
+        fade:SetSmoothing("IN_OUT")
+        invite:SetScript("OnShow", function() pulse:Play() end)
+        invite:SetScript("OnHide", function() pulse:Stop() end)
+        cal._invite = invite
+    end
+    if cal._invite then cal._invite:SetShown(show) end
+end
+
+SyncCalendarInvites = function()
+    local cal = _customIndicators.calendar
+    if not cal then return end
+    local mp = EBS.db and EBS.db.profile.minimap
+    local on = mp and not mp.hideGameTime or false
+    if on ~= _inviteListening then
+        _inviteListening = on
+        if on then
+            _inviteEvents:RegisterEvent("CALENDAR_UPDATE_PENDING_INVITES")
+            _inviteEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+        else
+            _inviteEvents:UnregisterAllEvents()
+        end
+    end
+    if not on then
+        _inviteSeen = 0
+        SetInviteShown(cal, false)
+        return
+    end
+    local pending = C_Calendar.GetNumPendingInvites() or 0
+    -- Answering an invite lowers the count: the next new one must alert again.
+    if pending < _inviteSeen then _inviteSeen = pending end
+    if pending == 0 then
+        _inviteSeen = 0
+        SetInviteShown(cal, false)
+    elseif pending > _inviteSeen and not (CalendarFrame and CalendarFrame:IsShown()) then
+        _inviteSeen = pending
+        SetInviteShown(cal, true)
+    end
+end
+_inviteEvents:SetScript("OnEvent", function() SyncCalendarInvites() end)
+
+DismissCalendarInvites = function()
+    local cal = _customIndicators.calendar
+    if cal then SetInviteShown(cal, false) end
+end
+
 local function SyncIndicatorVisibility()
+    SyncCalendarInvites()
     local indicator = MinimapCluster and MinimapCluster.IndicatorFrame
     if _customIndicators.mail then
         local hasMail = false

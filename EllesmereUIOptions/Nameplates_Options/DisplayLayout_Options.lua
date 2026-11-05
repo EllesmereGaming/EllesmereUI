@@ -1900,6 +1900,9 @@ local function BuildDisplayLayout(parent, y, ctx)
                 or cogPopup._ListDD("dd2", opts.dropdown2Values or {})
             if cogPopup._d2DD and cogPopup._d2DD ~= d2DD then cogPopup._d2DD:Hide() end
             cogPopup._d2DD = d2DD
+            -- The Name Format control is shared by every slot: its tooltip is
+            -- set again on each show.
+            if opts.dropdown2NameFormat then d2DD._ttText = opts.dropdown2Tooltip end
             d2DD._refreshLabel()
             d2DD:Show()
             cogPopup._d2Label:SetText(EllesmereUI.L(opts.dropdown2Label or ""))
@@ -2954,6 +2957,11 @@ local function BuildDisplayLayout(parent, y, ctx)
                 local nfKey = slotKey .. "NameFormat"
                 cogOpts.dropdown2Label = "Name Format"
                 cogOpts.dropdown2NameFormat = true
+                -- WoW Forever: First / Last Name skip non-players there
+                -- (EllesmereUI.UnitNameFormat), the other modes do not.
+                if EllesmereUI.IS_FOREVER == true then
+                    cogOpts.dropdown2Tooltip = "First Name and Last Name only change players' names; Abbreviated and Character Count change every name."
+                end
                 cogOpts.dropdown2Get = function() return DBVal(nfKey) or "full" end
                 cogOpts.dropdown2Set = function(v)
                     DB()[nfKey] = (v ~= "full") and v or nil
