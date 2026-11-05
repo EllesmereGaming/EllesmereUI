@@ -153,7 +153,7 @@ end
 -------------------------------------------------------------------------------
 -- Lines: one pooled Button per row (zone header, quest title, objective).
 -------------------------------------------------------------------------------
-local OnLineClick, OnLineEnter, OnLineLeave, ToggleFocus, SyncItems, HideOverlay  -- defined below
+local OnLineClick, OnLineEnter, OnLineLeave, ToggleFocus, SyncItems, HideOverlay, Queue  -- defined below
 
 -- Outline and shadow follow the Fonts page's Module Outline.
 local function StyleText(fs, size)
@@ -192,6 +192,7 @@ local function AcquireLine(kind, id, text, x, y, width, key)
     if l.flash and l.key ~= key then l.flash:Stop() end
     l.key = key
     if l.focus and kind ~= "quest" then l.focus:Hide() end
+    if l.bar then l.bar:Hide() end
     -- Only a changed row is measured or moved.
     local wrap = Cfg(kind == "obj" and "customWrapObjectives" or "customWrapTitles") ~= false
     if l.lastText ~= text or l.lastWidth ~= width or l.lastWrap ~= wrap then
@@ -239,6 +240,10 @@ end
 -------------------------------------------------------------------------------
 local OBJ_RGB = OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Normal or { r = 0.8, g = 0.8, b = 0.8 }
 local DONE_RGB = OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Complete or { r = 0.6, g = 0.6, b = 0.6 }
+
+-- questID -> seconds left, refreshed each render.
+local timeLeft = {}
+local ticking = false
 
 local function TitleRGB(questID, complete)
     if questID == C_SuperTrack.GetSuperTrackedQuestID() then return EQT.GetFocusRGB() end
@@ -432,8 +437,7 @@ local function AddObjectives(questID, y, width, x)
         l.text:SetTextColor(r, g, b, 1)
         return y + h + gap
     end
-    local objectives = C_QuestLog.GetQuestObjectives(questID)
-    if not objectives then return y end
+    local objectives = C_QuestLog.GetQuestObjectives(questID) or {}
     -- First sight of a quest records its texts without flashing.
     local prev = Cfg("customFlashUpdates") and prevObj[questID]
     if Cfg("customFlashUpdates") and not prev then prev = {}; prevObj[questID] = prev end
@@ -453,6 +457,69 @@ local function AddObjectives(questID, y, width, x)
         end
     end
     return y
+end
+
+-- Quest timer (Blizzard shows it in QuestTimerFrame, hidden with its muted tracker).
+-- Shown in any state, collapsed or complete included.
+-- Color: Blizzard's timer bar ramp, white > yellow (66% left) > red (33% left).
+local function TimerRGB(pct)
+    if pct > 0.66 then return 1, 1, 1 end
+    if pct > 0.33 then return 1, 1, (pct - 0.33) / 0.33 end
+    return 1, pct / 0.33, 0
+end
+
+local BAR_H = 3
+
+-- Thin bar under the timer text, lazily made on the line; AcquireLine hides it.
+local function TimerBar(l)
+    local bar = l.bar
+    if bar then return bar end
+    bar = CreateFrame("StatusBar", nil, l)
+    bar:SetHeight(BAR_H)
+    bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    bar:SetMinMaxValues(0, 1)
+    -- 1px dark border, then the track.
+    local border = bar:CreateTexture(nil, "BACKGROUND", nil, -1)
+    border:SetPoint("TOPLEFT", -1, 1)
+    border:SetPoint("BOTTOMRIGHT", 1, -1)
+    border:SetColorTexture(0, 0, 0, 0.9)
+    local bg = bar:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.15, 0.15, 0.15, 0.8)
+    l.bar = bar
+    return bar
+end
+
+-- Width of the "- " prefix in the line's font, to align the bar with the text.
+local function DashWidth(l, text)
+    l.text:SetText("- ")
+    local w = l.text:GetStringWidth()
+    l.text:SetText(text)
+    return w
+end
+
+local function AddTimer(questID, y, width, x)
+    local left = timeLeft[questID]
+    if not left then return y end
+    local total = C_QuestLog.GetTimeAllowed(questID)
+    local pct = (total and total > 0) and math.min(left / total, 1) or nil
+    local text = "- " .. (TIME_REMAINING or "Time remaining:") .. " " .. SecondsToClock(left)
+    local l, h = AcquireLine("obj", questID, text, x, y, width - x)
+    local r, g, b = TimerRGB(pct or 1)
+    l.text:SetTextColor(r, g, b, 1)
+    y = y + h + (Cfg("customObjSpacing") or 1)
+    -- No total known: text only.
+    if not pct then return y end
+    local bar = TimerBar(l)
+    local dash = DashWidth(l, text)
+    bar:ClearAllPoints()
+    bar:SetPoint("TOPLEFT", l, "BOTTOMLEFT", dash, -2)
+    bar:SetWidth(math.max(l.text:GetStringWidth() - dash, 1))
+    bar:SetValue(pct)
+    -- Fill: Skin.lua's timer colors, gold, red under 33%.
+    if pct > 0.33 then bar:SetStatusBarColor(1, 0.82, 0.2) else bar:SetStatusBarColor(1, 0.3, 0.3) end
+    bar:Show()
+    return y + BAR_H + 4
 end
 
 -------------------------------------------------------------------------------
@@ -560,6 +627,15 @@ local function Render()
     frame:SetMouseMotionEnabled(HoverWanted() and true or false)
     if not Cfg("customFlashUpdates") then wipe(prevObj) end
     itemN = 0
+    wipe(timeLeft)
+    for _, t in ipairs(C_QuestLog.GetQuestTimers() or {}) do
+        if t.questID and t.questTimer then timeLeft[t.questID] = t.questTimer end
+    end
+    -- ponytail: full re-render each second while a timer runs; rows are cached, so only the timer line changes.
+    if next(timeLeft) and not ticking then
+        ticking = true
+        C_Timer.After(1, function() ticking = false; Queue() end)
+    end
     BuildList()
     local collapsed = CharDB().ctCollapsed
     local width = (Cfg("customWidth") or 260) - PAD * 2 - BAR_GAP
@@ -622,6 +698,7 @@ local function Render()
                     shut = collapsed[questID]
                 end
                 if not shut then y = AddObjectives(questID, y, width, objX) end
+                y = AddTimer(questID, y, width, objX)
                 if item then y = math.max(y, top + itemSize + 2) end
                 y = y + (Cfg("customQuestSpacing") or 4)
             end
@@ -648,7 +725,7 @@ local function Render()
     SyncItems()
 end
 
-local function Queue()
+function Queue()
     if pending then return end
     pending = true
     C_Timer.After(0, Render)
