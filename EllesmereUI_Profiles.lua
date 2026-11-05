@@ -2072,6 +2072,7 @@ do
         "customTooltips", "tooltipFontScale", "tooltipPlayerTitles",
         "tooltipItemLevel", "tooltipMythicScore", "tooltipShowMount",
         "tooltipShowGuildRank", "tooltipShowTarget", "tooltipShowMode",
+        "tooltipShowRarity",
         "tooltipShowModifier", "tooltipGrowthDirection",
         "tooltipLevelColor", "tooltipClassLineColor", "tooltipFactionColor",
         "tooltipGuildmateColor", "tooltipCompactLevel", "tooltipAFKTag",
