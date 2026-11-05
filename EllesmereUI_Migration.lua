@@ -2367,6 +2367,26 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- Close Bags on Mail Close became the Mailbox row of Auto Close Bags.
+EllesmereUI.RegisterMigration({
+    id          = "bags_mail_close_to_auto_close_v1",
+    scope       = "global",
+    description = "Move the retired Close Bags on Mail Close off state into every profile's Auto Close Bags.",
+    body = function(ctx)
+        local db = ctx.db
+        if db.mailCloseBags == false and db.profiles then
+            for _, profData in pairs(db.profiles) do
+                if not profData.addons then profData.addons = {} end
+                local bags = profData.addons.EllesmereUIBags
+                if not bags then bags = {}; profData.addons.EllesmereUIBags = bags end
+                if not bags.bagAutoCloseWindows then bags.bagAutoCloseWindows = {} end
+                bags.bagAutoCloseWindows.mail = false
+            end
+        end
+        db.mailCloseBags = nil
+    end,
+})
+
 -- Guardian Druid Ironfur bar ships ON (DEFAULTS.secondary.guardianIronfurBar=true)
 -- for new installs; existing users expect no class resource bar, so pin every
 -- already-existing profile OFF. Runs at parent ADDON_LOADED BEFORE any child NewDB

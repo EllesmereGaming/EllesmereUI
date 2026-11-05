@@ -1233,6 +1233,30 @@ initFrame:SetScript("OnEvent", function(self)
                   end }
             ); y = y - h
 
+            -- Auto Open Bags | Auto Close Bags: absent or true = selected
+            local autoRow
+            autoRow, h = W:DualRow(parent, y,
+                { type="label", text="Auto Open Bags" },
+                { type="label", text="Auto Close Bags" }
+            ); y = y - h
+            local function AutoWindowsDropdown(rgn, setting)
+                local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    rgn, 210, rgn:GetFrameLevel() + 2,
+                    BagsNS.BAG_AUTO_WINDOWS,
+                    function(key) return BagsNS.BagAutoWindowOn(setting, key) end,
+                    function(key, v)
+                        local t = db.profile[setting]
+                        if not t then t = {}; db.profile[setting] = t end
+                        if v then t[key] = nil else t[key] = false end
+                    end)
+                PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._control = cbDD
+                rgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+            end
+            AutoWindowsDropdown(autoRow._leftRegion, "bagAutoOpenWindows")
+            AutoWindowsDropdown(autoRow._rightRegion, "bagAutoCloseWindows")
+
             -- Slot Count Format | Separate Reagent Slots
             _, h = W:DualRow(parent, y,
                 { type="dropdown", text="Slot Count Format",
