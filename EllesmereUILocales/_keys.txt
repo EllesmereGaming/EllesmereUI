@@ -1619,6 +1619,7 @@ Tier %d
 Tier (%d)
 Tier ?
 Tier ??
+Time Played
 Time Warp (Mage)
 Time this level: %s
 Time this session: %s
