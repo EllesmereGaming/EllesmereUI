@@ -737,7 +737,7 @@ local function BuildNameplatePreview(parent, parentW)
         if not mask and ok(B.bar) then
             mask = health:CreateMaskTexture()
             mask:SetAtlas(B.bar)
-            mask:SetAllPoints(health)
+            ns.NP_SeatBarMask(mask, health)
             previewGlow.blizzMask = mask
         end
         if mask then

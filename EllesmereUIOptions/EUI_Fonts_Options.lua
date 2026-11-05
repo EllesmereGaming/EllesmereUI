@@ -1010,13 +1010,25 @@ local function TileQuestTracker(parent, y, W, tile)
           setValue = function(v)
               local p = db(); if not p then return end
               p.font = v
+              -- The custom tracker (WoW Forever) restyles live.
+              if ns.UseCustomTracker and ns.UseCustomTracker() then
+                  EllesmereUI.InvalidateFontCache()
+                  QTApply()
+                  return
+              end
               FontReload()
           end });  y = y - h
     _, h = W:DualRow(parent, y,
         size("Header Font Size", "headerFontSize", 13),
         size("Title Font Size", "titleFontSize", 12));  y = y - h
-    _, h = W:DualRow(parent, y,
-        size("Objective Font Size", "objectiveFontSize", 10), BLANK());  y = y - h
+    if ns.UseCustomTracker and ns.UseCustomTracker() then
+        _, h = W:DualRow(parent, y,
+            size("Objective Font Size", "objectiveFontSize", 10),
+            size("Zone Header Font Size", "customZoneFontSize", 13));  y = y - h
+    else
+        _, h = W:DualRow(parent, y,
+            size("Objective Font Size", "objectiveFontSize", 10), BLANK());  y = y - h
+    end
     return y
 end
 

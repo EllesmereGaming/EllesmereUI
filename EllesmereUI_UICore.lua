@@ -1161,7 +1161,8 @@ end
 --      EllesmereUI.WithSurname(UnitName(unit))
 --  Retail gets the first value back unchanged. A secret name (protected
 --  content) comes back as is, first name only: it cannot be inspected or
---  joined. Your own surname follows Blizzard's show-surname preference.
+--  joined. Your own surname follows Blizzard's show-surname preference unless
+--  ignorePreference is set.
 --  Joined names are cached per name pair, so repaints build no strings.
 -------------------------------------------------------------------------------
 do
@@ -1170,12 +1171,12 @@ do
         and Constants.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR or " "
     local joined = {}   -- [name][surname] = the display string
 
-    function EllesmereUI.WithSurname(name, surname)
+    function EllesmereUI.WithSurname(name, surname, ignorePreference)
         if not IS_FOREVER then return name end
         if issecretvalue(name) or issecretvalue(surname) then return name end
         if type(name) ~= "string" or type(surname) ~= "string" or surname == "" then return name end
         local PI = C_PlayerInfo
-        if PI and PI.ShouldDisplaySurname and not PI.ShouldDisplaySurname() then
+        if not ignorePreference and PI and PI.ShouldDisplaySurname and not PI.ShouldDisplaySurname() then
             local myName, mySurname = (UnitNameUnmodified or UnitName)("player")
             if name == myName and surname == mySurname then return name end
         end
@@ -1266,6 +1267,22 @@ do
             return s
         end
 
+        -- The Name Format a unit's name takes:
+        --     mode = EllesmereUI.UnitNameFormat(mode, unit)
+        -- WoW Forever: First Name and Last Name part a character's name from
+        -- its surname, so they shape players' names only; a mob's, an NPC's or
+        -- a pet's name stays whole ("Rot Hide Gnoll" never reads "Rot"). Any
+        -- other mode, and a nil unit (an options preview), comes back as given.
+        -- Retail returns every mode as given: its player names are one word,
+        -- so there these two modes only ever shorten other names.
+        function EllesmereUI.UnitNameFormat(mode, unit)
+            if IS_FOREVER and unit and (mode == "first" or mode == "last") then
+                local isPlayer = UnitIsPlayer(unit)
+                if issecretvalue(isPlayer) or not isPlayer then return nil end
+            end
+            return mode
+        end
+
         -- The Name Format choices, for every dropdown that sets one:
         --     values, order, getValue, setValue = EllesmereUI.NameFormatMenu(get, set, opts)
         -- get() returns the saved value; set(v) receives "first", "last",
@@ -1278,6 +1295,8 @@ do
         -- a pick, a red line in the count popup). Options pages only.
         --     EllesmereUI.NameFormatCogRow(get, set, opts)
         -- A settings-cog dropdown row over the same; "full" arrives as nil.
+        -- opts.label replaces the row's "Name Format", opts.tooltip shows on
+        -- its dropdown.
         local LABELS = { first = "First Name", last = "Last Name", full = "Full Name", abbr = "Abbreviated" }
         local ORDER = { "full", "first", "last", "abbr", "custom" }
         local MAX_COUNT = 99
@@ -1337,7 +1356,8 @@ do
         function EllesmereUI.NameFormatCogRow(get, set, opts)
             local values, order, getValue, setValue = EllesmereUI.NameFormatMenu(get,
                 function(v) set((v ~= "full") and v or nil) end, opts)
-            return { type = "dropdown", label = "Name Format", values = values, order = order,
+            return { type = "dropdown", label = opts and opts.label or "Name Format",
+                tooltip = opts and opts.tooltip, values = values, order = order,
                 ddWidth = MENU_W, get = getValue, set = setValue }
         end
     end

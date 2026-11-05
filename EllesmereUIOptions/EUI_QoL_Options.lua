@@ -1263,6 +1263,16 @@ initFrame:SetScript("OnEvent", function(self)
                         if not EllesmereUIDB then EllesmereUIDB = {} end
                         EllesmereUIDB.durWarnThreshold = v
                       end },
+                    EllesmereUI.IS_FOREVER and { type="toggle", label="Ignore Thrown Weapons",
+                      tooltip="Thrown weapons spend one durability per throw, so their durability counts remaining throws rather than wear. When enabled, an equipped thrown weapon does not trigger the warning.",
+                      get=function()
+                        return EllesmereUIDB and EllesmereUIDB.durWarnIgnoreThrown == true or false
+                      end,
+                      set=function(v)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.durWarnIgnoreThrown = v and true or nil
+                        if EllesmereUI._syncDurWarnEvents then EllesmereUI._syncDurWarnEvents() end
+                      end } or nil,
                 },
                 icon = EllesmereUI.DIRECTIONS_ICON, gap = 9, disabled = durOff, disabledTooltip = "Low Durability Warning",
             })

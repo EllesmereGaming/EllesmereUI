@@ -1319,6 +1319,16 @@ local function XPBarCanShow(s)
     return not ns.XPBarAtMaxLevel() and not (IsXPUserDisabled and IsXPUserDisabled())
 end
 
+-- The time played this level, as of now: stored, then shown.
+local function XPSetLevelTime(levelTime)
+    xpLvl, xpLvlBase, xpLvlStamp = UnitLevel("player"), levelTime, GetTime()
+    local frame = dataBarFrames.XPBar
+    if frame then
+        XPSyncLevelEvents(frame)
+        if frame:IsVisible() then XPRepaint(frame, "nc") end
+    end
+end
+
 -- /played, at most once per session: while Time This Level is in use and
 -- armed (the bar can show) and its time is unknown (or for another level).
 -- The game prints its two /played lines in chat for that one request; the
@@ -1330,7 +1340,8 @@ local function XPRequestPlayed(frame)
     if xpLvlBase and xpLvl == UnitLevel("player") then return end
     if ns.XPBarAtMaxLevel() or (IsXPUserDisabled and IsXPUserDisabled()) then return end
     xpLvlAsked = true
-    if RequestTimePlayed then RequestTimePlayed() end
+    local _, levelTime = EllesmereUI.RequestTimePlayed()
+    if levelTime then XPSetLevelTime(levelTime) end
 end
 
 -- PLAYER_LEVEL_UP (the bar's own event frame): the new level starts at no
@@ -1576,12 +1587,7 @@ xpTextEv:SetScript("OnEvent", function(self, event, arg1, arg2)
     if event == "TIME_PLAYED_MSG" then
         -- arg2: the time played this level, as of now.
         if type(arg2) ~= "number" then return end
-        xpLvl, xpLvlBase, xpLvlStamp = UnitLevel("player"), arg2, GetTime()
-        local frame = dataBarFrames.XPBar
-        if frame then
-            XPSyncLevelEvents(frame)
-            if frame:IsVisible() then XPRepaint(frame, "nc") end
-        end
+        XPSetLevelTime(arg2)
     elseif event == "PLAYER_LOGOUT" then
         -- Also fires on /reload, before SavedVariables are written.
         if xpLvlBase then
