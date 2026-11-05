@@ -3496,6 +3496,12 @@ local function ScheduleBankRefresh()
     end)
 end
 
+-- Bags closed by hand: a later open is the player's, so it outlives the bank.
+-- Alt-Z also fires OnHide but leaves IsShown true.
+EUI_Bags:HookScript("OnHide", function(self)
+    if not self:IsShown() then EUI_Bank._autoOpenedBags = false end
+end)
+
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("BANKFRAME_OPENED")
 eventFrame:RegisterEvent("BANKFRAME_CLOSED")

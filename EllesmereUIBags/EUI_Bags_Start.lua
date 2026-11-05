@@ -576,9 +576,27 @@ local function StartAddon()
         SmartToggleBags()
     end)
 
-    hooksecurefunc("OpenAllBags", function()
-        if not EUI_Bags:IsVisible() then ToggleEUI() end
+    -- Window that auto-opened the bags (merchant, mail, auction house, ...)
+    local bagsOpener
+    hooksecurefunc("OpenAllBags", function(frame)
+        if not EUI_Bags:IsVisible() then
+            bagsOpener = frame
+            ToggleEUI()
+        end
         KillBlizzard()
+    end)
+    -- Close with that window; frame is nil for non-window closes
+    hooksecurefunc("CloseAllBags", function(frame)
+        if not frame or frame ~= bagsOpener then return end
+        bagsOpener = nil
+        -- Close Bags on Mail Close turned off: they stay open
+        if frame == _G.MailFrame and EllesmereUIDB and EllesmereUIDB.mailCloseBags == false then return end
+        if EUI_Bags:IsShown() then CloseBags() end
+    end)
+    -- Closed by hand: a later open is the player's, so it stays open.
+    -- Alt-Z also fires OnHide but leaves IsShown true.
+    EUI_Bags:HookScript("OnHide", function(self)
+        if not self:IsShown() then bagsOpener = nil end
     end)
     end -- not ns.PadUIStandDown()
 
