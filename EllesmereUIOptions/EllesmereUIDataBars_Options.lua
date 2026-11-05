@@ -101,7 +101,7 @@ initFrame:SetScript("OnEvent", function(self)
         profession = 120, travel = 40, micromenu = 340, currency = 90, spacer = 40,
         durability = 70, combat = 105, profession2 = 120, greatvault = 100,
         location = 140, coords = 70, crests = 160, ilvl = 70, supplies = 70,
-        bags = 50, mplussummary = 150,
+        bags = 50, mplussummary = 150, timeplayed = 60,
     }
 
     ---------------------------------------------------------------------------
@@ -3325,6 +3325,11 @@ initFrame:SetScript("OnEvent", function(self)
                 typeRows = {
                     MkToggle("Hide When Empty", "hideWhenEmpty",
                         "Removes the block from the bar until a Mythic+ run has been recorded."),
+                }
+            elseif b.type == "timeplayed" then
+                typeRows = {
+                    MkToggle("Always Show Total", "alwaysTotal",
+                        "Shows this character's total time played instead of the time played at the current level."),
                 }
             elseif b.type == "ilvl" then
                 -- Prefix rides the Icon Color row's right slot above.

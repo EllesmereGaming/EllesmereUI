@@ -1188,7 +1188,11 @@ local function RevertPositions()
             local bar = UM.GetBarFrame(barKey)
             if bar then
                 local snap = snapshotPositions[barKey]
-                if snap and not snap._fromLiveFrame then
+                local revElem = registeredElements[barKey]
+                if revElem and revElem.noInitHook then
+                    -- Self-positioning: its own authority, from the restored save.
+                    if revElem.applyPosition then pcall(revElem.applyPosition, barKey) end
+                elseif snap and not snap._fromLiveFrame then
                     if not UM.ApplyCenterPosition(barKey, snap) then
                         pcall(function()
                             EllesmereUI.ClearFramePoints(bar)
