@@ -861,6 +861,8 @@ Layout changed: Unlock Mode closed, unsaved layout changes discarded.
 Leader Rating
 Learn %1$d skill for %2$s
 Learn %1$d skills for %2$s
+Leatrix Plus has chat and minimap features that conflict with EllesmereUI. Disable any chat or minimap related options within Leatrix Plus to stay compatible.
+Leatrix Plus options that are on:
 Leave Quick Actions.
 Leave combat to enable visiting.
 Left
@@ -1619,6 +1621,7 @@ Tier %d
 Tier (%d)
 Tier ?
 Tier ??
+Time Played
 Time Warp (Mage)
 Time this level: %s
 Time this session: %s
