@@ -1943,6 +1943,13 @@ initFrame:SetScript("OnEvent", function(self)
             "Fonts\\MORPHEUS.TTF",
             "Fonts\\skurri.ttf",
         }
+        for i = #fctFontOrder, 2, -1 do
+            local k = fctFontOrder[i]
+            if k ~= "---" and not EllesmereUI.CombatTextFontCoversLocale(k) then
+                table.remove(fctFontOrder, i)
+            end
+        end
+        if fctFontOrder[#fctFontOrder] == "---" then fctFontOrder[#fctFontOrder] = nil end
         EllesmereUI.AppendSharedMediaFonts(fctFontValues, fctFontOrder)
 
         -- Combat Text (checkbox dropdown + size cog) | Combat Text Font. The
@@ -1982,7 +1989,8 @@ initFrame:SetScript("OnEvent", function(self)
               tooltipOpts={ color={1, 0.3, 0.3} },
               values = fctFontValues, order = fctFontOrder,
               getValue=function()
-                return (EllesmereUIDB and EllesmereUIDB.fctFont) or "default"
+                local v = EllesmereUIDB and EllesmereUIDB.fctFont
+                return v and EllesmereUI.CombatTextFontCoversLocale(v) and v or "default"
               end,
               setValue=function(v)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
