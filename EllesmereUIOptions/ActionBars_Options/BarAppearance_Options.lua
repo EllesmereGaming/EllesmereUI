@@ -1831,18 +1831,25 @@ local function BuildBarAppearance(parent, y, ctx)
 
             if selKey == "MainBar" then
                 local lRgn = pagingRow._leftRegion
-                local pagingOff = function() return not (SGet("showPagingArrows") or false) end
+                local function RelayoutArrows()
+                    if ns.LayoutPagingFrame then ns.LayoutPagingFrame() end
+                end
+                -- Open with Paging Arrows off too: the arrows still show there
+                -- while the bar is paged, unless Show While Paged is off.
                 EllesmereUI.BuildInlineCog(lRgn, {
                     title = "Paging Arrow Settings",
                     anchorTo = lRgn._control,
-                    disabled = pagingOff, disabledTooltip = "Paging Arrows",
                     rows = {
+                        { type="toggle", label="Show While Paged",
+                          tooltip="Shows the arrows while you have switched this bar to another page, even with Paging Arrows off.",
+                          get=function() return SGet("pagingArrowsWhilePaged") ~= false end,
+                          set=function(v) SSet("pagingArrowsWhilePaged", v, RelayoutArrows) end,
+                          disabled=function() return SGet("showPagingArrows") and true or false end,
+                          disabledTooltip="Paging Arrows", requireState="disabled" },
                         { type="toggle", label="Show Arrows on Right",
                           get=function() return SGet("pagingArrowsRight") or false end,
                           set=function(v)
-                              SSet("pagingArrowsRight", v, function()
-                                  if ns.LayoutPagingFrame then ns.LayoutPagingFrame() end
-                              end)
+                              SSet("pagingArrowsRight", v, RelayoutArrows)
                               SUpdatePreviewAndResize()
                           end },
                     },

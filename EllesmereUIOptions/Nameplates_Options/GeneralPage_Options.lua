@@ -321,12 +321,16 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             disabledTooltip = "Show EUI Friendly Player Nameplates",
             title = "Name Text Settings",
             rows = {
+                -- WoW Forever names it for players, as Forever Essentials' Name
+                -- Format section does (it only ever shaped players' names).
                 EllesmereUI.NameFormatCogRow(
                     function() return DBVal("friendlyNameFormat") end,
                     function(v)
                         DB().friendlyNameFormat = v
                         ns.NP_SyncFriendlyNameFormat()
-                    end),
+                    end,
+                    EllesmereUI.IS_FOREVER == true and { label = "Player Name Format",
+                        tooltip = "Friendly player names on nameplates, in both modes." } or nil),
                 { type = "toggle", label = "Show Level",
                   get = function() return DBVal("friendlyShowLevel") == true end,
                   set = function(v)

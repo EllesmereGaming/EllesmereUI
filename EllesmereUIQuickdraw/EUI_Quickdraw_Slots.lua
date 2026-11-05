@@ -149,7 +149,8 @@ end
 -------------------------------------------------------------------------------
 --  Dynamic Profession: a dynamicprofession slot names a POSITION (1/2 = the
 --  two primary professions in GetProfessions order, 3/4/5 = Cooking, Fishing,
---  Archaeology), resolved live to that profession's opener spell, or with
+--  Archaeology; on WoW Forever 5 is First Aid, which holds that third
+--  GetProfessions slot there), resolved live to that profession's opener spell, or with
 --  slot.extra its second non-passive spell. slot.specialization resolves the
 --  first known specialization ability for Mining, Herbalism, or Skinning.
 --  Unlearned positions and professions with no second ability resolve to nil
@@ -233,7 +234,16 @@ ns.ProfessionPositionName = function(index, extra, specialization)
     local base
     if index == 3 then base = COOKING or "Cooking"
     elseif index == 4 then base = FISHING or "Fishing"
-    elseif index == 5 then base = ARCHAEOLOGY or "Archaeology"
+    elseif index == 5 then
+        -- WoW Forever's professions book reads GetProfessions as prof1, prof2,
+        -- First Aid, fishing, cooking: there the position is First Aid, named
+        -- by its skill line (129) as the client spells it.
+        if EllesmereUI.IS_FOREVER then
+            base = C_TradeSkillUI.GetTradeSkillDisplayName(129)
+            if type(base) ~= "string" or base == "" then base = EllesmereUI.L("First Aid") end
+        else
+            base = ARCHAEOLOGY or "Archaeology"
+        end
     else base = EllesmereUI.Lf("Profession %1$d", index or 0)
     end
     if specialization then
@@ -397,17 +407,19 @@ do
     -- Forever also splits the spellbook and the talents into two micro
     -- buttons. Its combined button still exists but opens on whichever tab
     -- was last shown, so there the spellbook entry clicks the spellbook's own
-    -- button and a Talents entry follows it.
+    -- button and a Talents entry follows it. Forever Essentials' routes come
+    -- first: they open its Classic Spellbook and Classic Talents while those
+    -- are on and click the micro buttons otherwise.
     if EllesmereUI.IS_FOREVER then
         for _, def in ipairs(PANELS) do
             if def.key == "greatvault" then def.fire = nil end
         end
         for i, def in ipairs(PANELS) do
             if def.key == "spellbook" then
-                def.button, def.label, def.default = "SpellbookMicroButton", "SPELLBOOK", "Spellbook"
+                def.button, def.label, def.default = { "EUI_SpellbookRoute", "SpellbookMicroButton" }, "SPELLBOOK", "Spellbook"
                 tinsert(PANELS, i + 1, { key = "talents",
                     icon = ART .. "menu-achievements.png",
-                    button = "TalentMicroButton",
+                    button = { "EUI_TalentsRoute", "TalentMicroButton" },
                     label = "TALENTS",                  default = "Talents" })
                 break
             end

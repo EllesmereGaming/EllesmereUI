@@ -1303,6 +1303,7 @@ function ns.RepopulateFromBlizzard(fromRequest)
             SaveCurrentSpecProfile()
         end
     end)
+    return true
 end
 
 -------------------------------------------------------------------------------
@@ -1315,6 +1316,10 @@ end
 --  during combat. A profile installer that writes
 --  Blizzard CDM layouts calls it before its ReloadUI. Requests are kept per
 --  character, by the game's own spec IDs, in EllesmereUIDB.cdmRepopulatePending.
+--  EllesmereUI.GetCDMRepopulateStatus([specID]) tells the installer how a
+--  request went: "pending" while queued, then "done" with the time and the
+--  Blizzard layout ID the run read (EllesmereUIDB.cdmRepopulateDone, cleared by
+--  a new request for that spec), or nil when no run finished.
 -------------------------------------------------------------------------------
 local function LiveSpecID()
     local index = C_SpecializationInfo.GetSpecialization()
@@ -1353,8 +1358,33 @@ function EllesmereUI.RequestCDMRepopulate(specIDs)
     local charKey = ns.GetCharKey()
     local mine = pending[charKey] or {}
     pending[charKey] = mine
-    for _, id in ipairs(ids) do mine[id] = true end
+    -- A new request's status starts over: an older run's record never stands
+    -- in for this one.
+    local done = EllesmereUIDB.cdmRepopulateDone
+    local runs = done and done[charKey]
+    for _, id in ipairs(ids) do
+        mine[id] = true
+        if runs then runs[id] = nil end
+    end
+    if runs and not next(runs) then done[charKey] = nil end
+    if done and not next(done) then EllesmereUIDB.cdmRepopulateDone = nil end
     return true
+end
+
+-- "pending" while the spec (default: the live one) is queued for this
+-- character; "done", time(), layoutID once its queued run finished (layoutID
+-- nil when no saved Blizzard layout was active); nil otherwise.
+function EllesmereUI.GetCDMRepopulateStatus(specID)
+    if not EllesmereUIDB then return nil end
+    if specID == nil then specID = LiveSpecID() end
+    if not IsSpecID(specID) then return nil end
+    local charKey = ns.GetCharKey()
+    local pending = EllesmereUIDB.cdmRepopulatePending
+    if pending and pending[charKey] and pending[charKey][specID] then return "pending" end
+    local done = EllesmereUIDB.cdmRepopulateDone
+    local run = done and done[charKey] and done[charKey][specID]
+    if run then return "done", run.time, run.layoutID end
+    return nil
 end
 
 -- Runs the live spec's queued repopulate, if any. Called a frame after the
@@ -1382,7 +1412,14 @@ function ns.RunQueuedRepopulate()
     mine[id] = nil
     if not next(mine) then pending[charKey] = nil end
     if not next(pending) then EllesmereUIDB.cdmRepopulatePending = nil end
-    ns.RepopulateFromBlizzard(true)
+    -- Recorded only once the run finished (GetCDMRepopulateStatus).
+    if ns.RepopulateFromBlizzard(true) then
+        local done = EllesmereUIDB.cdmRepopulateDone or {}
+        EllesmereUIDB.cdmRepopulateDone = done
+        local runs = done[charKey] or {}
+        done[charKey] = runs
+        runs[id] = { time = time(), layoutID = ns.GetActiveCDMLayoutID() }
+    end
 end
 
 I.CDMFirstLoginCapture = CDMFirstLoginCapture
