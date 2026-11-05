@@ -80,6 +80,25 @@ for _, inCombat in ipairs({ false, true }) do
     assert(member.point == groupPoint, "saved position broke the group anchor")
 end
 
+-- A self-positioning element stays on its own placement through a match.
+combat = false
+local selfPlaced, selfApplied, selfLinked = frame(), 0, false
+env.EllesmereUI.IsUnlockAnchored = function() return selfLinked end
+elements.selfPlaced = { getFrame = function() return selfPlaced end, noInitHook = true,
+    loadPosition = function() return position end,
+    applyPosition = function() selfApplied = selfApplied + 1 end,
+    setWidth = function(_, width) selfPlaced.width = width end,
+    setHeight = function(_, height) selfPlaced.height = height end }
+selfPlaced.point = groupPoint
+MatchH.ApplyWidthMatch("selfPlaced", "player")
+MatchH.ApplyHeightMatch("selfPlaced", "player")
+assert(selfPlaced.width == 300 and selfPlaced.height == 30, "match must still apply")
+assert(selfPlaced.point == groupPoint, "match applied the stored CENTER")
+assert(selfApplied == 2, "match must use the element's own placement")
+selfLinked = true
+MatchH.ApplyWidthMatch("selfPlaced", "player")
+assert(selfApplied == 2, "a linked element is placed by its anchor")
+
 -- Group anchors and independent bars still accept saved positions.
 for _, key in ipairs({ "anchor", "independent" }) do
     assert(UM.ApplyCenterPosition(key, position) == true)
