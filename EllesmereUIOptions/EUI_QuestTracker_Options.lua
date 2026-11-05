@@ -622,7 +622,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Preview through the module so the peon FileDataIDs play correctly.
         sndValues._menuOpts.iconOnClick = EQT.PlaySoundKey
         local announceCfg = { type="toggle", text="Announce Progress",
-              tooltip="Posts your quest progress to party or instance chat, never in raids.",
+              tooltip="Posts each quest objective you complete to party or instance chat, with a link to the quest. Never in raids.",
               getValue=function() return Cfg("announceProgress") or false end,
               setValue=function(v) Set("announceProgress", v); ApplyProgress() end }
         local objSoundCfg = { type="dropdown", text="Objective Complete Sound", values=sndValues, order=sndOrder,

@@ -423,7 +423,10 @@ end
 
 -- Read-only access for the custom tracker: snapshot the log once per pass,
 -- then area, filter and sort against it. No watch edits.
-EQT.QuestLogSnapshot = Snapshot
+function EQT.QuestLogSnapshot()
+    Snapshot()
+    return logList, logHeader
+end
 EQT.QuestInArea = InArea
 function EQT.IsQuestFiltered(questID)
     return FilterOn() and IsFiltered(questID, C_SuperTrack.GetSuperTrackedQuestID())
@@ -730,17 +733,24 @@ local function ProgressOn()
         or Cfg("announceProgress")
 end
 
--- Party or instance group only; never raids, never in chat lockdown.
+-- A finished objective, with a quest link. Party or instance group only; never
+-- raids, never in chat lockdown.
 local function Announce(questID, text)
     if not Cfg("announceProgress") or not text or text == "" then return end
+    local quest = GetQuestLink(questID) or C_QuestLog.GetTitleForQuestID(questID) or ""
+    local msg = "[EUI] " .. quest .. ": " .. text
+    -- Dev mode: local chat frame only, so it can be tested solo.
+    if EllesmereUI.IsDevModeActive() then
+        EllesmereUI.Print(msg)
+        return
+    end
     if IsInRaid() then return end
     local chatType
     if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then chatType = "INSTANCE_CHAT"
     elseif IsInGroup(LE_PARTY_CATEGORY_HOME) then chatType = "PARTY"
     else return end
     if C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then return end
-    local title = C_QuestLog.GetTitleForQuestID(questID) or ""
-    C_ChatInfo.SendChatMessage("[EUI] " .. title .. ": " .. text, chatType)
+    C_ChatInfo.SendChatMessage(msg, chatType)
 end
 
 -- Records the quest's current counts. Returns false when it has no data yet.
@@ -762,15 +772,14 @@ local function CheckQuest(questID)
     local objDone = false
     for i, obj in ipairs(objectives) do
         local n = obj.numFulfilled or 0
-        if prev[i] and n > prev[i] then
+        if prev[i] and n > prev[i] and obj.finished then
             Announce(questID, obj.text)
-            if obj.finished then objDone = true end
+            objDone = true
         end
         prev[i] = n
     end
     local done = C_QuestLog.IsComplete(questID) == true
     if done and not prev.done then
-        Announce(questID, QUEST_COMPLETE or "Complete")
         PlaySoundKey(Cfg("soundQuest"))
     elseif objDone then
         PlaySoundKey(Cfg("soundObjective"))

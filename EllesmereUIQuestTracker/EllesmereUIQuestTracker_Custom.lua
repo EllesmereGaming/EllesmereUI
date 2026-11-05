@@ -85,19 +85,23 @@ end
 -- Quest list: watched quests in watch order (Blizzard's order), then quests
 -- under the current zone header when zone auto-track is on, then pinned ones.
 -------------------------------------------------------------------------------
--- Stable sort of order by rank(questID), lowest first.
-local function StableSortBy(rank)
-    local pos = {}
-    for i, questID in ipairs(order) do pos[questID] = i end
-    table.sort(order, function(a, b)
-        local ra, rb = rank(a), rank(b)
-        if ra ~= rb then return ra < rb end
-        return pos[a] < pos[b]
-    end)
+local listPos, listRank, zoneRank = {}, {}, {}
+
+local function ByRank(a, b)
+    local ra, rb = listRank[a], listRank[b]
+    if ra ~= rb then return ra < rb end
+    return listPos[a] < listPos[b]
+end
+
+-- Stable sort of order by listRank, lowest first.
+local function SortByRank()
+    wipe(listPos)
+    for i, questID in ipairs(order) do listPos[questID] = i end
+    table.sort(order, ByRank)
 end
 
 local function BuildList()
-    wipe(order); wipe(zoneOf); wipe(seen)
+    wipe(order); wipe(seen); wipe(listRank)
     local db = CharDB()
     local untracked, pinned = db.ctUntracked, db.ctPinned
     local watched = seen
@@ -109,17 +113,13 @@ local function BuildList()
         end
     end
     -- One log snapshot per pass; filters and sort keys read it too.
-    EQT.QuestLogSnapshot()
+    local log
+    log, zoneOf = EQT.QuestLogSnapshot()
     local auto = EQT.AutoTrackOn()
-    local zone
-    for i = 1, C_QuestLog.GetNumQuestLogEntries() do
-        local info = C_QuestLog.GetInfo(i)
-        if info and info.isHeader then
-            zone = info.title
-        elseif info and info.questID then
-            local questID = info.questID
-            zoneOf[questID] = zone
-            if pinned[questID] or (auto and EQT.QuestInArea(info, zone)) then
+    for _, info in ipairs(log) do
+        local questID = info.questID
+        if questID and not info.isHeader then
+            if pinned[questID] or (auto and EQT.QuestInArea(info, zoneOf[questID])) then
                 if not watched[questID] and not untracked[questID]
                    and not info.isHidden and not info.isTask and not info.isBounty then
                     order[#order + 1] = questID
@@ -135,16 +135,19 @@ local function BuildList()
     end
     EQT.SortQuestList(order)
     if next(pinned) then
-        StableSortBy(function(q) return pinned[q] and 0 or 1 end)
+        for _, questID in ipairs(order) do listRank[questID] = pinned[questID] and 0 or 1 end
+        SortByRank()
     end
     if not Cfg("customGroupByZone") then return end
     -- Zones in order of their first quest.
-    local zoneRank, n = {}, 0
+    wipe(zoneRank)
+    local n = 0
     for _, questID in ipairs(order) do
         local z = zoneOf[questID] or ""
         if not zoneRank[z] then n = n + 1; zoneRank[z] = n end
+        listRank[questID] = zoneRank[z]
     end
-    StableSortBy(function(q) return zoneRank[zoneOf[q] or ""] end)
+    SortByRank()
 end
 
 -------------------------------------------------------------------------------
@@ -182,21 +185,32 @@ local function AcquireLine(kind, id, text, x, y, width, key)
     if l.kind ~= kind or l.gen ~= fontGen then
         l.kind, l.gen = kind, fontGen
         StyleText(l.text, Cfg(SIZE_KEY[kind]) or SIZE_DEF[kind])
+        l:EnableMouse(kind ~= "obj")
+        l.lastText = nil
     end
     l.id = id
     if l.flash and l.key ~= key then l.flash:Stop() end
     l.key = key
-    if l.focus then l.focus:Hide() end
-    l:EnableMouse(kind ~= "obj")
-    l.text:SetWordWrap(Cfg(kind == "obj" and "customWrapObjectives" or "customWrapTitles") ~= false)
-    l.text:SetWidth(width)
-    l.text:SetText(text)
-    local h = math.ceil(l.text:GetStringHeight())
-    l:SetSize(width, h)
-    l:ClearAllPoints()
-    l:SetPoint("TOPLEFT", child, "TOPLEFT", x, -y)
+    if l.focus and kind ~= "quest" then l.focus:Hide() end
+    -- Only a changed row is measured or moved.
+    local wrap = Cfg(kind == "obj" and "customWrapObjectives" or "customWrapTitles") ~= false
+    if l.lastText ~= text or l.lastWidth ~= width or l.lastWrap ~= wrap then
+        l.lastText, l.lastWidth, l.lastWrap = text, width, wrap
+        l.text:SetWordWrap(wrap)
+        l.text:SetWidth(width)
+        l.text:SetText(text)
+        l.lastH = math.ceil(l.text:GetStringHeight())
+        -- Font not ready: measure again next pass.
+        if l.lastH <= 0 then l.lastText = nil end
+        l:SetSize(width, l.lastH)
+    end
+    if l.lastX ~= x or l.lastY ~= y then
+        l.lastX, l.lastY = x, y
+        l:ClearAllPoints()
+        l:SetPoint("TOPLEFT", child, "TOPLEFT", x, -y)
+    end
     l:Show()
-    return l, h
+    return l, l.lastH
 end
 
 -- Update flash: a white band that fades in and out behind the row.
@@ -252,10 +266,12 @@ local function ObjectiveRGBA(obj)
 end
 
 -- "[12+] Title (Elite)", as Blizzard's Forever tracker writes it.
+local titleInfo = {}
+
 local function QuestTitle(questID)
     local title = C_QuestLog.GetTitleForQuestID(questID) or ""
-    local prefix = QuestUtilsOverrides.GetQuestTitlePrefix({
-        questID = questID, difficultyLevel = C_QuestLog.GetQuestDifficultyLevel(questID) })
+    titleInfo.questID, titleInfo.difficultyLevel = questID, C_QuestLog.GetQuestDifficultyLevel(questID)
+    local prefix = QuestUtilsOverrides.GetQuestTitlePrefix(titleInfo)
     local tag = QuestUtilsOverrides.GetQuestTagText(questID)
     return (prefix or "") .. title .. (tag and (" " .. tag) or "")
 end
@@ -376,6 +392,9 @@ local function ShowFocusButton(line, questID, complete, size)
     local b = FocusButton(line)
     local focused = questID == C_SuperTrack.GetSuperTrackedQuestID()
     b.id = questID
+    b:Show()
+    if b.lastSize == size and b.lastFocused == focused and b.lastComplete == complete then return end
+    b.lastSize, b.lastFocused, b.lastComplete = size, focused, complete
     b:SetSize(size, size)
     local art = size * 1.6
     b.ring:SetSize(art, art)
@@ -393,7 +412,6 @@ local function ShowFocusButton(line, questID, complete, size)
     end
     b.glow:SetSize(art * 1.25, art * 1.25)
     b.glow:SetShown(focused)
-    b:Show()
 end
 
 local function AddObjectives(questID, y, width, x)
@@ -425,7 +443,7 @@ local function AddObjectives(questID, y, width, x)
             if obj.type == "progressbar" then
                 text = text .. " (" .. math.floor(GetQuestProgressBarPercent(questID) or 0) .. "%)"
             end
-            l, h = AcquireLine("obj", questID, "- " .. text, x, y, w, questID .. ":" .. i)
+            l, h = AcquireLine("obj", questID, "- " .. text, x, y, w, questID * 100 + i)
             l.text:SetTextColor(ObjectiveRGBA(obj))
             if prev then
                 if prev[i] and prev[i] ~= text then Flash(l) end
@@ -444,7 +462,7 @@ end
 -- layout change waits for combat to end; buttons keep their spot and item.
 -------------------------------------------------------------------------------
 local itemLayer
-local items, itemWant = {}, {}
+local items, itemWant, itemN = {}, {}, 0  -- itemWant: pooled, first itemN in use
 local cdRegistered = false
 
 -- Tooltip side facing the screen centre, away from the edge.
@@ -495,7 +513,7 @@ end
 
 -- Shows a button for each wanted item whose title row is fully in view.
 function SyncItems()
-    if not itemLayer or (#items == 0 and #itemWant == 0) then return end
+    if not itemLayer or (#items == 0 and itemN == 0) then return end
     if InCombatLockdown() then
         ns.CombatQueue.Defer("EQT_CustomItems", SyncItems)
         return
@@ -503,17 +521,25 @@ function SyncItems()
     local n = 0
     local top, bottom = scroll:GetTop(), scroll:GetBottom()
     if frame:IsVisible() and top then
-        for _, w in ipairs(itemWant) do
+        for i = 1, itemN do
+            local w = itemWant[i]
             local l = w.line
             local lt, lr = l:GetTop(), l:GetRight()
             if lt and lt <= top + 0.5 and lt - w.size >= bottom - 0.5 then
                 n = n + 1
                 local b = ItemButton(n)
                 local s = l:GetEffectiveScale() / b:GetEffectiveScale()
-                b:SetSize(w.size * s, w.size * s)
-                b:ClearAllPoints()
-                b:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", (lr + 4) * s, lt * s)
-                b:SetAttribute("item", "item:" .. w.itemID)
+                local x, y, size = (lr + 4) * s, lt * s, w.size * s
+                if b.lastX ~= x or b.lastY ~= y or b.lastSize ~= size then
+                    b.lastX, b.lastY, b.lastSize = x, y, size
+                    b:SetSize(size, size)
+                    b:ClearAllPoints()
+                    b:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, y)
+                end
+                if b.itemID ~= w.itemID then
+                    b.itemID = w.itemID
+                    b:SetAttribute("item", "item:" .. w.itemID)
+                end
                 b.questID = w.questID
                 b.icon:SetTexture(w.tex)
                 b.count:SetText((w.charges and w.charges > 1) and w.charges or "")
@@ -533,7 +559,7 @@ local function Render()
     HideOverlay()
     frame:SetMouseMotionEnabled(HoverWanted() and true or false)
     if not Cfg("customFlashUpdates") then wipe(prevObj) end
-    wipe(itemWant)
+    itemN = 0
     BuildList()
     local collapsed = CharDB().ctCollapsed
     local width = (Cfg("customWidth") or 260) - PAD * 2 - BAR_GAP
@@ -571,16 +597,23 @@ local function Render()
                     if logIndex then link, tex, charges, showDone = GetQuestLogSpecialItemInfo(logIndex) end
                     local itemID = link and tonumber(link:match("item:(%d+)"))
                     if itemID and (not complete or showDone) then
-                        item = { itemID = itemID, tex = tex, charges = charges,
-                                 questID = questID, size = itemSize }
+                        itemN = itemN + 1
+                        item = itemWant[itemN]
+                        if not item then item = {}; itemWant[itemN] = item end
+                        item.itemID, item.tex, item.charges = itemID, tex, charges
+                        item.questID, item.size = questID, itemSize
                     end
                 end
                 local itemW = item and itemSize + 8 or 0
                 local top = y
                 local l, h = AcquireLine("quest", questID, QuestTitle(questID), titleX, y, width - titleX - itemW)
                 l.text:SetTextColor(TitleRGB(questID, complete))
-                if focusSize > 0 then ShowFocusButton(l, questID, complete, focusSize) end
-                if item then item.line = l; itemWant[#itemWant + 1] = item end
+                if focusSize > 0 then
+                    ShowFocusButton(l, questID, complete, focusSize)
+                elseif l.focus then
+                    l.focus:Hide()
+                end
+                if item then item.line = l end
                 y = y + h + 2
                 local shut
                 if complete and collapseDone then
@@ -989,6 +1022,12 @@ local function AutoHidden()
     return false
 end
 
+-- The tracker can hide mid-fight: Hide When In Raid, or a combat visibility rule.
+local function CanHideInCombat()
+    local _, instanceType = IsInInstance()
+    return instanceType == "raid" or EllesmereUI.VisDependsOnCombat(EQT.DB(), "visibility")
+end
+
 local function Blocked()
     return Cfg("enabled") == false or EQT.IsSuppressed() or AutoHidden()
 end
@@ -1013,8 +1052,14 @@ local EVENTS = {
 
 evt:SetScript("OnEvent", function(_, event, questID, added)
     if event == "PLAYER_REGEN_DISABLED" then
-        -- Lockdown starts after this event: last chance to hide the overlay.
-        HideOverlay()
+        -- InCombatLockdown() is already true here, but protected writes stay
+        -- legal until this handler returns: last chance to hide secure buttons,
+        -- which would otherwise stay clickable on a hidden tracker.
+        if overlay then overlay:Hide() end
+        if CanHideInCombat() then
+            for _, b in ipairs(items) do b:Hide() end
+            ns.CombatQueue.Defer("EQT_CustomItems", SyncItems)
+        end
         return
     elseif event == "BAG_UPDATE_COOLDOWN" then
         for _, b in ipairs(items) do
@@ -1058,6 +1103,12 @@ function EQT.InitCustom()
     EQT.ApplyMasterHeaderVisibility = Noop
     EQT.QueueResize         = Noop
     EQT.ResizeBGToContent   = Noop
+    -- Profile swap: the new profile's width and spot.
+    EQT.SyncPosition        = function()
+        frame:SetWidth(Cfg("customWidth") or 260)
+        if not EllesmereUI._unlockActive then Place() end
+        Queue()
+    end
 
     for _, e in ipairs(EVENTS) do evt:RegisterEvent(e) end
     EllesmereUI.RegisterVisibilityUpdater(UpdateVisibility)
@@ -1069,9 +1120,12 @@ function EQT.InitCustom()
     end
 
     EllesmereUI:RegisterUnlockElements({ EllesmereUI.MakeUnlockElement({
-        key      = "EQT_CustomTracker",
+        key      = "EQT_Tracker",
         label    = "Quest Tracker",
+        group    = "Quest Tracker",
+        order    = 560,
         getFrame = function() return frame end,
+        isHidden = function() return not Cfg("enabled") end,
         getSize  = function() return frame:GetWidth(), frame:GetHeight() end,
         setWidth = function(_, w)
             EQT.Set("customWidth", math.max(150, math.floor(w + 0.5)))

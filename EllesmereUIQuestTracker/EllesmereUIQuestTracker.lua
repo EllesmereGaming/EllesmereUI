@@ -187,7 +187,8 @@ local function TryInit()
         if EQT.InitVisibility then EQT.InitVisibility() end
     end
     if EQT.InitQoL        then EQT.InitQoL()        end
-    if EQT.InitPosition   then EQT.InitPosition()   end
+    -- The custom tracker has its own mover; this one drives Blizzard's frame.
+    if EQT.InitPosition and not ns.UseCustomTracker() then EQT.InitPosition() end
     loader:UnregisterAllEvents()
 end
 
