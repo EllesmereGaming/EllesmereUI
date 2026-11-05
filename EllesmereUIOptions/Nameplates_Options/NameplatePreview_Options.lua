@@ -2121,7 +2121,7 @@ local function BuildNameplatePreview(parent, parentW)
             castParts.nameFS:Hide()
         else
             local pt, xb, jh = ns.GetCastTextAnchor(pvNameSide, pvShowTimer and pvTimerSide == pvNameSide, pvTimerW, false)
-            castParts.nameFS:SetWidth(pvCombine and (barW * 0.80) or pvNameTextW)
+            castParts.nameFS:SetWidth(pvCombine and (barW * (DBVal("castCombinedWidthPct") or defaults.castCombinedWidthPct) / 100) or pvNameTextW)
             castParts.nameFS:SetJustifyH(jh)
             castParts.nameFS:SetPoint(pt, cast, pt, xb + cnOX, cnOY)
             castParts.nameFS:Show()

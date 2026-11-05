@@ -216,18 +216,23 @@ EBS._MinimapStyle = function()
         -- exists): the EllesmereUI look's square map in that frame, so the
         -- module renders "eui" and every stock site stands down, the
         -- variant's ring pieces with them. Forever Circle ("circle") is the
-        -- variant as it is; anything else is Forever Square, the default.
-        EBS._fvSquare = fv and m.foreverBorder ~= "circle" and EllesmereUI.ForeverHeavyOK() or false
+        -- variant as it is, Slim Square ("slim") the slim square below;
+        -- anything else is Forever Square, the default.
+        local fvSlim = fv and m.foreverBorder == "slim"
+        EBS._fvSquare = fv and not fvSlim and m.foreverBorder ~= "circle" and EllesmereUI.ForeverHeavyOK() or false
         -- Plain Blizzard Style on the Forever client has a Border Style of
         -- its own (blizzBorder): Square, the default there, is the same
         -- square map in the slim bronze line (EBS._sqSlim) instead of the
         -- heavy frame; "circle" is the variant's Forever Circle exactly
         -- (EBS._bzCircle: the variant's pieces render, while the published
         -- getters still name Blizzard Style). EBS._fvSquare reads true under
-        -- either square.
-        EBS._sqSlim = v == "blizzard" and not fv and EllesmereUI.IS_FOREVER == true
-            and m.blizzBorder ~= "circle" and EllesmereUI.ForeverBorderOK() or false
+        -- either square. The variant's own Slim Square is that slim square.
+        EBS._sqSlim = (fvSlim or (v == "blizzard" and not fv and EllesmereUI.IS_FOREVER == true
+            and m.blizzBorder ~= "circle")) and EllesmereUI.ForeverBorderOK() or false
         EBS._bzCircle = v == "blizzard" and not fv and EllesmereUI.IS_FOREVER == true and not EBS._sqSlim
+        -- The look the profile's flags name (published MinimapForever), before
+        -- a square renders it as the EllesmereUI layout.
+        EBS._fvLook = fv
         if EBS._bzCircle then fv = true end
         if EBS._sqSlim then EBS._fvSquare = true end
         if EBS._fvSquare then v, fv = "eui", false end
@@ -280,7 +285,8 @@ EllesmereUI._ModuleNS[ADDON_NAME].MinimapStyle = function()
     return v
 end
 EllesmereUI._ModuleNS[ADDON_NAME].MinimapForever = function()
-    return (EBS._MinimapForever() and not EBS._bzCircle) or (EBS._MinimapFvSquare() and not EBS._sqSlim)
+    if EBS._styleLatch == nil then EBS._MinimapStyle() end
+    return EBS._fvLook == true
 end
 -- The options page: a square frame renders this session, and the shape the
 -- map renders.
@@ -298,7 +304,11 @@ EllesmereUI._ModuleNS[ADDON_NAME].MinimapFvBorderChanged = function(m)
     if type(m) == "table" and not m.useClassicStyle and m.useBlizzardStyle
        and EllesmereUI.IS_FOREVER == true then
         if m.useForeverStyle == true then
-            if m.foreverBorder ~= "circle" and EllesmereUI.ForeverHeavyOK() then sq = "heavy" end
+            if m.foreverBorder == "slim" then
+                if EllesmereUI.ForeverBorderOK() then sq = "slim" end
+            elseif m.foreverBorder ~= "circle" and EllesmereUI.ForeverHeavyOK() then
+                sq = "heavy"
+            end
         elseif m.blizzBorder ~= "circle" and EllesmereUI.ForeverBorderOK() then
             sq = "slim"
         end
@@ -469,8 +479,9 @@ end
 -- ForeverHeavy at the window scale, as the chat and Damage Meters windows
 -- wear it) in place of the EllesmereUI border. The rim's outer edge sits
 -- EBS.FV_SQUARE_OUT past the map's edge, so the map's square corners lie
--- inside the rim's corner cuts; the map keeps its footprint (unlock mode)
--- and the elements inside it step in past the rim (EBS._FvInsideXY). While
+-- inside the rim's corner cuts; unlock mode's mover outlines the frame
+-- (MoverInsets in EUI_Minimap_Lifecycle.lua) and the elements inside the
+-- map step in past the rim (EBS._FvInsideXY). While
 -- the zone text shows, the frame keeps the windows' title bar over the map
 -- (the rim's outer edge EBS.FV_SQUARE_TITLE above the map's top, the bar's
 -- divider on that edge) and the zone text rides the bar's band (fvTitleSlot,
@@ -484,7 +495,8 @@ end
 -- piece mouse-transparent. Built once; re-anchored every pass, as the border
 -- host is (the map's deferred reparent). A queue eye Action Bars parks off
 -- the frame's corner follows a resize.
--- Blizzard Style's Square on the Forever client (EBS._sqSlim) is the same
+-- Blizzard Style's Square on the Forever client, and the WoW Forever look's
+-- Slim Square (EBS._sqSlim), is the same
 -- map and layout in the slim bronze line (EllesmereUI.ForeverBorder, the
 -- shipped art): the line's outer edge EBS.FV_SLIM_OUT past the map's sides
 -- and bottom, so the map's square corners lie under the line's corner cuts,

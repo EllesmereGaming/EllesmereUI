@@ -247,6 +247,50 @@ end
 
 _G._EUI_BuildBattleResPage = BuildBattleResPage
 
+-- Live preview hidden per tracker for this session only (a preview toggle is
+-- never saved): shown again after a /reload.
+local previewHidden = {}
+local function PreviewHidden(key)
+    return previewHidden[key] == true
+end
+local function SetPreviewHidden(key, hidden)
+    previewHidden[key] = hidden or nil
+end
+
+-- Inline eye left of a row's control: shows/hides that tracker's live preview.
+local function AttachPreviewEye(rgn, key, showTip, hideTip, setOwner, owner)
+    local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+    local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
+    local eyeBtn = CreateFrame("Button", nil, rgn)
+    eyeBtn:SetSize(26, 26)
+    eyeBtn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+    eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+    EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
+    rgn._lastInline = eyeBtn
+    local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+    EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
+    eyeTex:SetAllPoints()
+    local function RefreshEye()
+        eyeTex:SetTexture(PreviewHidden(key) and EYE_VISIBLE or EYE_INVISIBLE)
+    end
+    RefreshEye()
+    eyeBtn:SetScript("OnClick", function(self)
+        SetPreviewHidden(key, not PreviewHidden(key))
+        RefreshEye()
+        local fn = _G[setOwner]
+        if fn then fn((not PreviewHidden(key)) and owner or nil) end
+        if self:IsMouseOver() then self:GetScript("OnEnter")(self) end
+    end)
+    eyeBtn:SetScript("OnEnter", function(self)
+        EllesmereUI.SetGlyphAlpha(self, 0.7)
+        EllesmereUI.ShowWidgetTooltip(self, PreviewHidden(key) and showTip or hideTip)
+    end)
+    eyeBtn:SetScript("OnLeave", function(self)
+        EllesmereUI.SetGlyphAlpha(self, 0.4)
+        EllesmereUI.HideWidgetTooltip()
+    end)
+end
+
 -- Section-only builder for embedding in the Keys, Logs & Brez tab.
 -- Returns total height consumed.
 _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
@@ -265,12 +309,12 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
     -- pages and re-shows the wrapper without re-running this builder, so without it
     -- the preview would arm on the first visit only.
     if not EllesmereUI._prebuilding and _G._EUI_BattleRes_SetPreviewOwner then
-        _G._EUI_BattleRes_SetPreviewOwner(parent)
+        _G._EUI_BattleRes_SetPreviewOwner((not PreviewHidden("brez")) and parent or nil)
         if not parent._brPreviewHooked then
             parent._brPreviewHooked = true
             parent:HookScript("OnShow", function()
                 if _G._EUI_BattleRes_SetPreviewOwner then
-                    _G._EUI_BattleRes_SetPreviewOwner(parent)
+                    _G._EUI_BattleRes_SetPreviewOwner((not PreviewHidden("brez")) and parent or nil)
                 end
             end)
             parent:HookScript("OnHide", function()
@@ -315,6 +359,10 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
           disabled=TextModeOn,
           disabledTooltip=ICON_ROWS_TIP,
           swatches = MakeBorderColorSwatches() })
+    if not EllesmereUI._prebuilding then
+        AttachPreviewEye(row._leftRegion, "brez", "Show Battle Res preview",
+            "Hide Battle Res preview", "_EUI_BattleRes_SetPreviewOwner", parent)
+    end
     y = y - h
 
     row, h = W:DualRow(parent, y,
@@ -586,12 +634,12 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
     -- pages and re-shows the wrapper without re-running this builder, so without it
     -- the preview would arm on the first visit only.
     if not EllesmereUI._prebuilding and _G._EUI_Bloodlust_SetPreviewOwner then
-        _G._EUI_Bloodlust_SetPreviewOwner(parent)
+        _G._EUI_Bloodlust_SetPreviewOwner((not PreviewHidden("lust")) and parent or nil)
         if not parent._blPreviewHooked then
             parent._blPreviewHooked = true
             parent:HookScript("OnShow", function()
                 if _G._EUI_Bloodlust_SetPreviewOwner then
-                    _G._EUI_Bloodlust_SetPreviewOwner(parent)
+                    _G._EUI_Bloodlust_SetPreviewOwner((not PreviewHidden("lust")) and parent or nil)
                 end
             end)
             parent:HookScript("OnHide", function()
@@ -636,6 +684,10 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
           setValue=function(v) BL_Set("shape", v); BL_Refresh() end },
         { type="multiSwatch", text="Border Color",
           swatches = MakeBloodlustBorderColorSwatches() })
+    if not EllesmereUI._prebuilding then
+        AttachPreviewEye(row._leftRegion, "lust", "Show Bloodlust preview",
+            "Hide Bloodlust preview", "_EUI_Bloodlust_SetPreviewOwner", parent)
+    end
     y = y - h
 
     row, h = W:DualRow(parent, y,

@@ -1829,6 +1829,10 @@ do
                         local f = self._edgeFill
                         if not f.on then return end
                         for i = 1, 4 do f[i]:SetVertexColor(cr, cg, cb, 1) end
+                        -- A colour read back from a border tinted with a secret (a nameplate's
+                        -- off-tank threat colour) arrives secret: written above, but its alpha
+                        -- cannot be compared, so the fill keeps its opacity state.
+                        if issecretvalue and issecretvalue(ca) then return end
                         local opaque = (ca or 1) >= 0.999
                         if f.opaque ~= opaque then
                             f.opaque = opaque

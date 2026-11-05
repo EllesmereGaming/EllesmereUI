@@ -50,8 +50,9 @@ local SATED_DEBUFFS = {
     390435,  -- Exhaustion (Fury of the Aspects)
 }
 
+local _, ns = ...
+
 local SHAPE_MASKS = EllesmereUI.SHAPE_MASKS
-local SHAPE_BORDERS = EllesmereUI.SHAPE_BORDERS
 local BORDER_PX = { none = 0, thin = 1, normal = 2, heavy = 3, strong = 4 }
 
 -------------------------------------------------------------------------------
@@ -173,6 +174,9 @@ local function _snapOff(v)
     return v
 end
 
+-- Custom-shape outline, shared with the Battle Res icon (EllesmereUIQoL_BattleRes.lua).
+local _applyShapeOutline = ns.QoL_ApplyShapeOutline
+
 -- Border for one icon layer: PP edge strips for "none"/"cropped", the
 -- shape-matching atlas (shapeTex) otherwise. Applied to the debuff icon AND to
 -- the 40s buff overlay, whose opaque icon would otherwise cover the debuff
@@ -184,6 +188,7 @@ local function _applyBorder(host, shapeTex, level)
 
     if shape == "none" or shape == "cropped" then
         shapeTex:Hide()
+        _applyShapeOutline(host, nil, 0)
         if PP then
             if not PP.GetBorders(host) then PP.CreateBorder(host, 0, 0, 0, 1, 1, "OVERLAY", 2) end
             local brd = PP.GetBorders(host)
@@ -200,19 +205,9 @@ local function _applyBorder(host, shapeTex, level)
     end
 
     if PP and PP.GetBorders(host) then PP.HideBorder(host) end
-    local borderPath = SHAPE_BORDERS[shape]
-    if borderPath and bs > 0 then
-        local bsp = _snapOff(bs)
-        shapeTex:SetTexture(borderPath)
-        shapeTex:ClearAllPoints()
-        shapeTex:SetPoint("TOPLEFT", host, "TOPLEFT", -bsp, bsp)
-        shapeTex:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", bsp, -bsp)
-        local r, g, b, a = _resolveBorderColor()
-        shapeTex:SetVertexColor(r, g, b, a)
-        shapeTex:Show()
-    else
-        shapeTex:Hide()
-    end
+    shapeTex:Hide()
+    local r, g, b, a = _resolveBorderColor()
+    _applyShapeOutline(host, shape, bs, r, g, b, a)
 end
 
 -- Configure the buff overlay (texture coords + optional shape mask) so it
@@ -636,7 +631,6 @@ local _state = {
     encounterIsRaid = false,
     inChallenge     = false,
 }
-local ns = select(2, ...)
 
 -------------------------------------------------------------------------------
 --  Visibility / text

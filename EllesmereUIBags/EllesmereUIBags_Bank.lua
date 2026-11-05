@@ -648,10 +648,11 @@ do
         end)
     end)
 
-    -- Deposit Warbound Items / Deposit Reagents button (center)
+    -- Deposit Warbound Items / Deposit Reagents button, left of Withdraw so a long
+    -- warband total pushes it along instead of overlapping it.
     local depositItemsBtn = CreateFrame("Button", nil, footer)
     depositItemsBtn:SetHeight(18)
-    depositItemsBtn:SetPoint("CENTER", footer, "CENTER", 0, 0)
+    depositItemsBtn:SetPoint("RIGHT", withdrawMoneyBtn, "LEFT", -8, 0)
     depositItemsBtn:EnableMouse(true)
 
     local depositItemsLabel = depositItemsBtn:CreateFontString(nil, "OVERLAY")
@@ -3232,9 +3233,9 @@ function BuildBankSidebar()
     -- Update header item count
     if EUI_Bank._headerItemCount then
         if _warbandOnly then
-            EUI_Bank._headerItemCount:SetText(EllesmereUI.Lf("%d / %d Items", warbUsed, warbTotal))
+            EUI_Bank._headerItemCount:SetText(EllesmereUI.Lf("%d / %d Slots", warbUsed, warbTotal))
         else
-            EUI_Bank._headerItemCount:SetText(EllesmereUI.Lf("%d / %d Items", charUsed + warbUsed, charTotal + warbTotal))
+            EUI_Bank._headerItemCount:SetText(EllesmereUI.Lf("%d / %d Slots", charUsed + warbUsed, charTotal + warbTotal))
         end
     end
 

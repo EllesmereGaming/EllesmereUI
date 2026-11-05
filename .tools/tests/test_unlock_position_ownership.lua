@@ -45,6 +45,8 @@ local function loadBlock(source)
     chunk()
 end
 
+loadBlock((block(arg[1] or "EUI_UnlockMode_Positions.lua",
+    "local function PositionHeld", "\nend") .. "\nend"):gsub("^local ", ""))
 loadBlock(block(arg[1] or "EUI_UnlockMode_Positions.lua",
     "UM.ApplyCenterPosition = function", "\nend") .. "\nend")
 loadBlock(block("EUI_UnlockMode_Anchors.lua",

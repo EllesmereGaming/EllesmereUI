@@ -30,6 +30,18 @@ local function StopHMPreviewOnHide()
     end
 end
 
+local pgEyeOnHide
+local function StopPGPreviewOnHide()
+    if not (ns._pgPreview and ns.PG_SetPreview) then return end
+    ns.PG_SetPreview(false)
+    local eyes = ns._eye
+    if eyes then
+        for _, eye in pairs(eyes) do
+            if eye.refreshPGEye then eye.refreshPGEye() end
+        end
+    end
+end
+
 local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderOff, CustomBorderOffTip)
     local env = ns._RFO_OptEnv
     local db, floor, IsPreviewOff, MissingGlowDesc = env.db, env.floor, env.IsPreviewOff, env.MissingGlowDesc
@@ -64,8 +76,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             eyeBtn:SetPoint("LEFT", indicatorHeader, "BOTTOMLEFT", 85, 8)
         end
         eyeBtn:SetFrameLevel(indicatorHeader:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
 
         -- On ns so the preview can read it.
@@ -74,11 +87,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         local function RefreshIndicatorEye()
             if IsPreviewOff() then
                 eyeTex:SetTexture(EYE_VISIBLE)
-                eyeBtn:SetAlpha(0.15)
+                EllesmereUI.SetGlyphAlpha(eyeBtn, 0.15)
                 return
             end
             eyeTex:SetTexture(ns._indicatorsVisible and EYE_INVISIBLE or EYE_VISIBLE)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         end
         EYE.refreshIndicatorEye = RefreshIndicatorEye
         RefreshIndicatorEye()
@@ -108,11 +121,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
                 return
             end
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, ns._indicatorsVisible and "Hide indicators on preview" or "Show indicators on preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            if not IsPreviewOff() then self:SetAlpha(0.4) end
+            if not IsPreviewOff() then EllesmereUI.SetGlyphAlpha(self, 0.4) end
             EllesmereUI.HideWidgetTooltip()
         end)
     end  -- close do (indicators eyeball)
@@ -449,13 +462,20 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         bottomright = "Bottom Right",
     }
     local rolePositionOrder = EllesmereUI.POSITION_GRID_ORDER
+    -- Attach Role Icons (Top Name Bar section) takes over the role icon's placement
+    local function RoleAttached()
+        return SVal("roleIconOnNameBar", false) and SVal("topNameBarEnabled", false)
+    end
     local roleRow2
     -- Party Frames kit: role, ready check and leader take the stock spots
     -- (their offset cogs stay live).
     roleRow2, h = W:DualRow(parent, y,
         ns.RF_PartyKitGate({ type="dropdown", text="Role Position", values=rolePositionValues, order=rolePositionOrder,
-          disabled=function() return not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none" end,
-          disabledTooltip="Role Icons",
+          disabled=function()
+              return RoleAttached() or (not SVal("roleText", false) and SVal("roleIconStyle", "modern") == "none")
+          end,
+          disabledTooltip=function() return RoleAttached() and "Attach Role Icons" or "Role Icons" end,
+          requireState=function() return RoleAttached() and "disabled" or nil end,
           getValue=function() return SVal("roleIconPosition", "bottomleft") end,
           setValue=function(v) SSet("roleIconPosition", v) end }),
         { type="slider", text="Role Icon Size", min=8, max=30, step=1,
@@ -468,6 +488,8 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         EllesmereUI.BuildInlineCog(rgn, {
             icon = EllesmereUI.DIRECTIONS_ICON,
             title = "Role Icon Offset",
+            disabled = RoleAttached,
+            disabledTooltip = "Attach Role Icons", requireState = "disabled",
             rows = {
                 { type="slider", label="Offset X", min=-50, max=50, step=1,
                   get=function() return SVal("roleIconOffsetX", 0) end,
@@ -920,8 +942,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             eyeBtn:SetPoint("LEFT", dispelHeader, "BOTTOMLEFT", 85, 8)
         end
         eyeBtn:SetFrameLevel(dispelHeader:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
 
         if ns._dispelsVisible == nil then ns._dispelsVisible = false end
@@ -929,11 +952,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         local function RefreshDispelEye()
             if IsPreviewOff() then
                 eyeTex:SetTexture(EYE_VISIBLE)
-                eyeBtn:SetAlpha(0.15)
+                EllesmereUI.SetGlyphAlpha(eyeBtn, 0.15)
                 return
             end
             eyeTex:SetTexture(ns._dispelsVisible and EYE_INVISIBLE or EYE_VISIBLE)
-            eyeBtn:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         end
         EYE.refreshDispelEye = RefreshDispelEye
         RefreshDispelEye()
@@ -955,11 +978,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 EllesmereUI.ShowWidgetTooltip(self, "Enable preview to use")
                 return
             end
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, ns._dispelsVisible and "Hide dispels on preview" or "Show dispels on preview")
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            if not IsPreviewOff() then self:SetAlpha(0.4) end
+            if not IsPreviewOff() then EllesmereUI.SetGlyphAlpha(self, 0.4) end
             EllesmereUI.HideWidgetTooltip()
         end)
     end  -- close do (dispels eyeball)
@@ -970,8 +993,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         full     = "Full Overlay",
         gradient = "Gradient Overlay",
         gradient_sharp = "Gradient Sharp",
+        gradient_reverse = "Gradient Sharp Reverse",
     }
-    local dispelOverlayOrder = { "none", "fill", "full", "gradient", "gradient_sharp" }
+    local dispelOverlayOrder = { "none", "fill", "full", "gradient", "gradient_sharp", "gradient_reverse" }
 
     _, h = W:DualRow(parent, y,
         { type="dropdown", text="Dispel Overlay", values=dispelOverlayValues, order=dispelOverlayOrder,
@@ -1239,6 +1263,35 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 return 1, 1, 1, 1
             end,
             function() end, "class", false, "Class Color")
+    end
+
+    -- Attach Role Icons: the role icon sits on this bar, placed by the arrow cog
+    local tnbRow4
+    tnbRow4, h = W:DualRow(parent, y,
+        { type="toggle", text="Attach Role Icons",
+          tooltip="Places role icons on the Top Name Bar, in the same spot on every frame whether or not it shows a power bar.",
+          getValue=function() return SVal("roleIconOnNameBar", false) end,
+          setValue=function(v) SSet("roleIconOnNameBar", v); EllesmereUI:RefreshPage() end },
+        EllesmereUI.BlankRowCfg());  y = y - h
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(tnbRow4._leftRegion, {
+            icon = EllesmereUI.DIRECTIONS_ICON,
+            title = "Role Icon Position",
+            disabled = function() return not SVal("roleIconOnNameBar", false) end,
+            disabledTooltip = "Attach Role Icons",
+            rows = {
+                { type="dropdown", label="Position",
+                  values=EllesmereUI.POSITION_GRID_VALUES, order=EllesmereUI.POSITION_GRID_ORDER,
+                  get=function() return SVal("roleNameBarPosition", "left") end,
+                  set=function(v) SSet("roleNameBarPosition", v) end },
+                { type="slider", label="Offset X", min=-50, max=50, step=1,
+                  get=function() return SVal("roleNameBarOffsetX", 0) end,
+                  set=function(v) SSet("roleNameBarOffsetX", v) end },
+                { type="slider", label="Offset Y", min=-50, max=50, step=1,
+                  get=function() return SVal("roleNameBarOffsetY", 0) end,
+                  set=function(v) SSet("roleNameBarOffsetY", v) end },
+            },
+        })
     end
     end   -- close Top Name Bar hidden-while-disabled gate
 
@@ -1929,8 +1982,9 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         eyeBtn:SetPoint("RIGHT", rgn._lastInline, "LEFT", -4, 0)
         rgn._lastInline = eyeBtn
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints(); eyeTex:SetTexture(EYE_VISIBLE)
         local function RefreshHMEye()
             eyeTex:SetTexture(ns._hmPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -1941,16 +1995,180 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             RefreshHMEye()
         end)
         eyeBtn:SetScript("OnEnter", function(s)
-            s:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(s, 0.7)
             EllesmereUI.ShowWidgetTooltip(s, ns._hmPreview and "Hide the preview" or "Preview the display at its position")
         end)
         eyeBtn:SetScript("OnLeave", function(s)
-            s:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(s, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
         if not hmEyeOnHide then
             hmEyeOnHide = true
             EllesmereUI:RegisterOnHide(StopHMPreviewOnHide)
+        end
+    end
+
+    -- Player Group Label: raid tab only, party has no groups.
+    if not optState._partyCtx then
+        local function PGS()
+            local p = db.profile
+            if not p.playerGroup then p.playerGroup = {} end
+            return p.playerGroup
+        end
+        local function PGRefresh()
+            if ns.PG_Apply then ns.PG_Apply() end
+        end
+        local function PGOff() return not PGS().enabled end
+        local function PGModeSwatches(modeKey, colorKey)
+            local function Mode() return PGS()[modeKey] or "accent" end
+            local function Pick(m)
+                return function()
+                    PGS()[modeKey] = m
+                    PGRefresh()
+                    EllesmereUI:RefreshPage()
+                end
+            end
+            local function Alpha(m)
+                return function() return (Mode() == m) and 1 or 0.3 end
+            end
+            return {
+                { tooltip = "Custom Color", hasAlpha = true, refreshAlpha = Alpha("custom"),
+                  getValue = function()
+                      local c = ns._PGCustomColor(colorKey)
+                      return c.r, c.g, c.b, c.a or 1
+                  end,
+                  setValue = function(r, g, b, a)
+                      PGS()[colorKey] = { r = r, g = g, b = b, a = a }
+                      PGRefresh()
+                  end,
+                  onClick = function(self)
+                      if Mode() ~= "custom" then
+                          Pick("custom")()
+                      elseif self._eabOrigClick then
+                          self._eabOrigClick(self)
+                      end
+                  end },
+                { tooltip = "Class Colored", hasAlpha = false, refreshAlpha = Alpha("class"),
+                  getValue = function()
+                      local c = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+                      if c then return c.r, c.g, c.b, 1 end
+                      return 1, 1, 1, 1
+                  end,
+                  setValue = function() end,
+                  onClick = Pick("class") },
+                { tooltip = "Accent Colored", hasAlpha = false, refreshAlpha = Alpha("accent"),
+                  getValue = function()
+                      local r, g, b = EllesmereUI.ResolveActiveAccent()
+                      return r or 1, g or 1, b or 1, 1
+                  end,
+                  setValue = function() end,
+                  onClick = Pick("accent") },
+            }
+        end
+        local pgRow
+        pgRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Player Group Label",
+              tooltip="Shows your raid group number in its own movable frame. Position it in Unlock Mode.",
+              getValue=function() return PGS().enabled and true or false end,
+              setValue=function(v)
+                  PGS().enabled = v
+                  if not v then ns._pgPreview = nil end
+                  PGRefresh()
+                  -- The mover's isHidden verdict changed: re-register.
+                  if ns._RFRegisterUnlock then ns._RFRegisterUnlock() end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="multiSwatch", text="Group Label Text Color",
+              disabled=PGOff, disabledTooltip="Player Group Label",
+              swatches=PGModeSwatches("textColorMode", "textColor") }
+        );  y = y - h
+        _, h = W:DualRow(parent, y,
+            { type="multiSwatch", text="Group Label Background",
+              disabled=PGOff, disabledTooltip="Player Group Label",
+              swatches = {
+                { tooltip = "Background", hasAlpha = true,
+                  getValue = function()
+                      local c = select(3, ns._PGStyle())
+                      return c.r, c.g, c.b, c.a or 1
+                  end,
+                  setValue = function(r, g, b, a)
+                      PGS().bgColor = { r = r, g = g, b = b, a = a }
+                      PGRefresh()
+                  end },
+              } },
+            { type="multiSwatch", text="Group Label Border Color",
+              disabled=PGOff, disabledTooltip="Player Group Label",
+              swatches=PGModeSwatches("borderColorMode", "borderColor") }
+        );  y = y - h
+        if not EllesmereUI._prebuilding then
+            local rgn = pgRow._leftRegion
+            local function SizeRow(label, key)
+                return { type="slider", label=label, min=0, max=200, step=1,
+                  tooltip="0 sizes the frame to the text plus padding.",
+                  get=function() return PGS()[key] or 0 end,
+                  set=function(v)
+                      PGS()[key] = (v > 0) and v or nil
+                      PGRefresh()
+                  end }
+            end
+            EllesmereUI.BuildInlineCog(rgn, {
+                title = "Player Group Label",
+                disabled = PGOff, disabledTooltip = "Player Group Label",
+                rows = {
+                    { type="dropdown", label="Text Format",
+                      values={ number="3", full=GROUP_NUMBER:format(3) },
+                      order={ "number", "full" },
+                      get=function() return PGS().format == "full" and "full" or "number" end,
+                      set=function(k) PGS().format = k; PGRefresh() end },
+                    { type="slider", label="Text Size", min=6, max=40, step=1,
+                      get=function() return (ns._PGStyle()) end,
+                      set=function(v) PGS().textSize = v; PGRefresh() end },
+                    { type="slider", label="Padding", min=0, max=20, step=1,
+                      get=function() return PGS().padding or 4 end,
+                      set=function(v) PGS().padding = v; PGRefresh() end },
+                    SizeRow("Width", "width"),
+                    SizeRow("Height", "height"),
+                    { type="slider", label="Border Size", min=0, max=4, step=1,
+                      get=function() return (select(4, ns._PGStyle())) end,
+                      set=function(v) PGS().borderSize = v; PGRefresh() end },
+                },
+            })
+
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
+            local eyeBtn = CreateFrame("Button", nil, rgn)
+            eyeBtn:SetSize(26, 26)
+            eyeBtn:SetPoint("RIGHT", rgn._lastInline, "LEFT", -4, 0)
+            rgn._lastInline = eyeBtn
+            eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
+            local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+            EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
+            eyeTex:SetAllPoints(); eyeTex:SetTexture(EYE_VISIBLE)
+            local function RefreshPGEye()
+                eyeTex:SetTexture(ns._pgPreview and EYE_INVISIBLE or EYE_VISIBLE)
+                eyeBtn:SetEnabled(not PGOff())
+                EllesmereUI.SetGlyphAlpha(eyeBtn, PGOff() and 0.15 or 0.4)
+            end
+            EYE.refreshPGEye = RefreshPGEye
+            EllesmereUI.RegisterWidgetRefresh(RefreshPGEye)
+            RefreshPGEye()
+            eyeBtn:SetScript("OnClick", function()
+                if ns.PG_SetPreview then ns.PG_SetPreview(not ns._pgPreview) end
+                RefreshPGEye()
+            end)
+            eyeBtn:SetScript("OnEnter", function(s)
+                EllesmereUI.SetGlyphAlpha(s, 0.7)
+                EllesmereUI.ShowWidgetTooltip(s, ns._pgPreview and "Hide the preview" or "Preview the label at its position")
+            end)
+            eyeBtn:SetScript("OnLeave", function(s)
+                EllesmereUI.SetGlyphAlpha(s, 0.4)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+            if not pgEyeOnHide then
+                pgEyeOnHide = true
+                EllesmereUI:RegisterOnHide(StopPGPreviewOnHide)
+            end
         end
     end
 

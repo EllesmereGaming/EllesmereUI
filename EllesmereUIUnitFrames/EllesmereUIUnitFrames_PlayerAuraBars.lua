@@ -306,7 +306,7 @@ end
 -- (mirrors EllesmereUIActionBars.lua's SHAPE_BTN_EXPAND).
 local PAB_SHAPE_EXPAND = 8
 local function PabShapeActive(shape)
-    return shape ~= nil and shape ~= "none"
+    return shape ~= nil and shape ~= "none" and shape ~= "cropped"
 end
 
 -- Shape borders only render two visually distinct states at aura-icon sizes, same as
@@ -330,6 +330,18 @@ local function PabSnap(x)
     local PP = EllesmereUI.PP
     if x == 0 or PP.mult == 1 then return x end
     return PP.FromPixels(PP.ToPixels(x))
+end
+
+-- Shared by the PAB chunks and options without adding main-chunk locals or
+-- depending on Cooldown Manager being enabled. Matches its per-side crop.
+function ns.PAB_CropPercent(cfg)
+    local pct = tonumber(cfg and cfg.iconCropPercent) or 10
+    if pct < 5 then pct = 5 elseif pct > 25 then pct = 25 end
+    return pct
+end
+
+function ns.PAB_CroppedHeight(size, cfg)
+    return math.floor(size * (1 - 2 * ns.PAB_CropPercent(cfg) / 100) + 0.5)
 end
 
 -- On ns, not file locals. The need

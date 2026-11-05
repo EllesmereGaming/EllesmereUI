@@ -72,11 +72,14 @@ ns.WB = WB
 local L = {
     LEFT_CLICK           = "|cffFFFFFFLeft Click:|r",
     RIGHT_CLICK          = "|cffFFFFFFRight Click:|r",
+    MIDDLE_CLICK         = "|cffFFFFFFMiddle Click:|r",
     SHIFT_MIDDLE_CLICK   = "|cffFFFFFFShift + Middle Click:|r",
     SHIFT_LEFT_CLICK     = "|cffFFFFFFShift + Left Click:|r",
     CTRL_LEFT_CLICK      = "|cffFFFFFFCtrl + Left Click:|r",
     CTRL_RIGHT_CLICK     = "|cffFFFFFFCtrl + Right Click:|r",
-    CTRL_ALT_LEFT_CLICK  = "|cffFFFFFFCtrl + Alt + Left Click:|r",
+    CTRL_SHIFT_RIGHT_CLICK = "|cffFFFFFFCtrl + Shift + Right Click:|r",
+    CTRL_ALT_LEFT_CLICK  = "|cffFFFFFFCtrl + Alt + Left Click a Name:|r",
+    SHIFT_HOVER          = "|cffFFFFFFShift + Hover:|r",
     YOU_HAVE_MAIL        = "You've Got Mail!",
     SERVER_TIME          = "Server time",
     SAVED_INSTANCES      = "Saved Raid(s)",
@@ -107,7 +110,9 @@ local L = {
     FREE                 = "Free",
     OPEN_CURRENCIES      = "Open Currencies",
     RESET_SESSION        = "Reset Session",
+    RESET_ALL_DATA       = "Reset All Data",
     REMOVE_CHARACTER     = "Remove Character",
+    SHOW_EVERY_CHARACTER = "Show Every Character",
     PLUS_N_MORE          = "+ %d more",
     TRAVEL_COOLDOWNS     = "Travel Cooldowns",
     HEARTHSTONE          = "Hearthstone",
@@ -116,6 +121,12 @@ local L = {
     MYTHIC_TELEPORTS     = "Mythic+ Teleports",
     USE_HEARTHSTONE      = "Use Hearthstone",
     RANDOM_HEARTHSTONE   = "Random Hearthstone",
+    RETURN_FROM_HOME     = "Return from Home",
+    RETURN_AVAILABLE     = "Return available",
+    HOME_ALLIANCE        = "Home (A)",
+    HOME_HORDE           = "Home (H)",
+    TRAVEL_ARCANTINA     = "Arcantina",
+    TRAVEL_MOONGLADE     = "Moonglade",
     CURRENT_SPEC         = "Current Specialization",
     CHANGE_SPEC          = "Change Specialization",
     CHANGE_SPEC_SHORT    = "Change Spec",
@@ -230,10 +241,23 @@ ns.BLOCK_TYPES = {
     { key = "crests",     label = "Crests" },
     { key = "ilvl",       label = "Item Level" },
     { key = "greatvault", label = "Great Vault" },
+    { key = "mplussummary", label = "M+ Summary",
+      available = function() return EllesmereUI._MythicRuns ~= nil end },
     { key = "audio",      label = "Audio" },
     { key = "ldb",        label = "Broker Plugin" },
     { key = "spacer",     label = "Spacer" },
 }
+
+-- The types the picker offers: one with available() only while it answers
+-- true (M+ Summary needs Mythic+ Tools loaded). Asked when the picker is built,
+-- after login, once every module has loaded. A bar saved with one keeps it.
+function ns.OfferedBlockTypes()
+    local out = {}
+    for _, t in ipairs(ns.BLOCK_TYPES) do
+        if not t.available or t.available() then out[#out + 1] = t end
+    end
+    return out
+end
 
 ns.BLOCK_DEFAULTS = {
     clock      = { localTime = true, twentyFour = true, showMail = true, showResting = true, fontSizeClock = nil, fontSizeInfo = nil },
@@ -264,6 +288,7 @@ ns.BLOCK_DEFAULTS = {
                    hideEmpty = false, reverse = false },
     ilvl       = { prefix = "short", value = "equipped", precision = 0 },
     greatvault = {},
+    mplussummary = { hideWhenEmpty = false },
     audio      = { channel = "master" },
     -- Broker plugin: one block type for every LibDataBroker data source, picked
     -- by name (source). stripColors defaults ON -- broker text arrives full of
@@ -277,13 +302,14 @@ ns.BLOCK_DEFAULTS = {
 -- Factories are registered by Blocks\*.lua.
 ns.BlockFactories = {}
 
--- WoW Forever has no Great Vault, no season crests and one spec per class with
--- nothing to switch: those blocks leave the picker (BLOCK_TYPES), the add path
--- refuses them (no default, so the Bottom Info Bar template skips its spec
--- block) and their Blocks\*.lua files return before registering a factory, so
--- a bar saved with one shows an empty slot there instead of erroring.
+-- WoW Forever has no Great Vault, no season crests, no Mythic+ Tools runs and
+-- one spec per class with nothing to switch: those blocks leave the picker
+-- (BLOCK_TYPES), the add path refuses them (no default, so the Bottom Info Bar
+-- template skips its spec block) and their Blocks\*.lua files return before
+-- registering a factory, so a bar saved with one shows an empty slot there
+-- instead of erroring.
 if EllesmereUI.IS_FOREVER then
-    local FOREVER_OFF = { greatvault = true, crests = true, spec = true }
+    local FOREVER_OFF = { greatvault = true, crests = true, spec = true, mplussummary = true }
     table.insert(ns.BLOCK_TYPES, #ns.BLOCK_TYPES, { key = "supplies", label = "Class Resources" })
     ns.BLOCK_DEFAULTS.supplies = { showIcon = true }
     for i = #ns.BLOCK_TYPES, 1, -1 do
@@ -405,7 +431,7 @@ end
 -- any locale-specific algorithm (e.g. CJK wan/yi grouping) live in the
 -- shared EllesmereUI_NumberFormat.lua, so every module abbreviates the same way.
 local function GoldDisplay(val, abbreviate, forceEnglish)
-    if abbreviate then return EllesmereUI.AbbreviateNumber(val, forceEnglish) end
+    if abbreviate then return EllesmereUI.AbbreviateNumberFixed(val, forceEnglish) end
     return BreakUpLargeNumbers and BreakUpLargeNumbers(val) or tostring(val)
 end
 
@@ -1026,6 +1052,7 @@ do
         d.action = nil
         d.actionToy = nil
         d.actionMacro = nil
+        d.actionHouse = nil
         d._padBand = nil
         d.onClick = nil
         d.onWheel = nil
@@ -1059,6 +1086,7 @@ do
         d.action = nil
         d.actionToy = nil
         d.actionMacro = nil
+        d.actionHouse = nil
         d._padBand = nil
         d.onClick = nil
         d.onWheel = nil
@@ -1089,6 +1117,7 @@ do
         d.action = nil
         d.actionToy = nil
         d.actionMacro = nil
+        d.actionHouse = nil
         d._padBand = nil
         d.onClick = nil
         d.onWheel = nil
@@ -1128,6 +1157,14 @@ do
     function ns.Tip_AddMacroActionDouble(left, right, macrotext, lr, lg, lb, rr, rg, rb)
         if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and macrotext then
             data[dataCount].actionMacro = macrotext
+        end
+    end
+
+    -- Click-to-teleport HOUSE row: same overlay/degrade contract. house is a HouseInfo
+    -- whose GUIDs the caller checked are not secret; returnTrip fires returnhome instead.
+    function ns.Tip_AddHouseActionDouble(left, right, house, returnTrip, lr, lg, lb, rr, rg, rb)
+        if ns.Tip_AddDouble(left, right, lr, lg, lb, rr, rg, rb) and house then
+            data[dataCount].actionHouse = { house = house, returnTrip = returnTrip }
         end
     end
 
@@ -1257,7 +1294,7 @@ do
                 -- Clickable (or pad-marked) rows carry 2px of breathing room
                 -- above and below the text; the padded band is the rect the
                 -- overlay button and its hover wash cover.
-                if d.action or d.actionToy or d.actionMacro or d._padBand then h = h + 4 end
+                if d.action or d.actionToy or d.actionMacro or d.actionHouse or d._padBand then h = h + 4 end
                 d._h = h
             end
         end
@@ -1289,7 +1326,7 @@ do
                     left:SetWordWrap(true)
                     left:SetWidth(innerW)
                     local h = left:GetStringHeight() or FONT_SIZE
-                    if d.action or d.actionToy or d.actionMacro or d._padBand then h = h + 4 end
+                    if d.action or d.actionToy or d.actionMacro or d.actionHouse or d._padBand then h = h + 4 end
                     d._h = h
                 end
             end
@@ -1311,7 +1348,7 @@ do
             -- Text sits 4px into a clickable row's padded band (centered);
             -- d._y keeps the band's top so the overlay covers all of it.
             local ty = y
-            if d.action or d.actionToy or d.actionMacro or d._padBand then ty = y - 2 end
+            if d.action or d.actionToy or d.actionMacro or d.actionHouse or d._padBand then ty = y - 2 end
             row.left:ClearAllPoints()
             row.left:SetPoint("TOPLEFT", tip, "TOPLEFT", PAD, ty)
             if d.r then
@@ -1345,7 +1382,7 @@ do
         if not InCombatLockdown() then
             for i = 1, dataCount do
                 local d = data[i]
-                if d.action or d.actionToy or d.actionMacro then
+                if d.action or d.actionToy or d.actionMacro or d.actionHouse then
                     interactive = true
                     -- Re-attach the host: REGEN_DISABLED detaches it (and the
                     -- buttons) from the tip at every combat start.
@@ -1360,6 +1397,10 @@ do
                     local b = AcquireActionButton()
                     -- Pooled reuse swaps type + payload; the unused payload is
                     -- cleared so a recycled button can never fire a stale one.
+                    local h = d.actionHouse and not d.actionHouse.returnTrip and d.actionHouse.house
+                    b:SetAttribute("house-neighborhood-guid", h and h.neighborhoodGUID or nil)
+                    b:SetAttribute("house-guid", h and h.houseGUID or nil)
+                    b:SetAttribute("house-plot-id", h and h.plotID or nil)
                     if d.action then
                         b:SetAttribute("type", "spell")
                         b:SetAttribute("spell", d.action)
@@ -1369,6 +1410,11 @@ do
                         b:SetAttribute("type", "toy")
                         b:SetAttribute("toy", d.actionToy)
                         b:SetAttribute("spell", nil)
+                        b:SetAttribute("macrotext", nil)
+                    elseif d.actionHouse then
+                        b:SetAttribute("type", d.actionHouse.returnTrip and "returnhome" or "teleporthome")
+                        b:SetAttribute("spell", nil)
+                        b:SetAttribute("toy", nil)
                         b:SetAttribute("macrotext", nil)
                     else
                         b:SetAttribute("type", "macro")

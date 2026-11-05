@@ -137,7 +137,7 @@ local function CreatePreviewFrame(index, party)
     forwardBar:SetPoint("BOTTOMLEFT", health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
     forwardBar:SetWidth(health:GetWidth())
     forwardBar:SetHeight(health:GetHeight())
-    -- Match backfill: absorb above heal absorb/heal pred and max health.
+    -- Match backfill (the heal prediction draws over it at this level, as live).
     forwardBar:SetFrameLevel(health:GetFrameLevel() + 3)
     forwardBar:SetMinMaxValues(0, 100)
     forwardBar:Hide()
@@ -216,7 +216,7 @@ local function CreatePreviewFrame(index, party)
         hp:SetPoint("BOTTOMLEFT", health:GetStatusBarTexture(), "BOTTOMRIGHT", 0, 0)
         hp:SetWidth(health:GetWidth())
         hp:SetHeight(health:GetHeight())
-        hp:SetFrameLevel(health:GetFrameLevel() + 1)
+        hp:SetFrameLevel(health:GetFrameLevel() + 3)  -- over the absorb, as live
         hp:SetMinMaxValues(0, 100)
         hp:Hide()
         f._healPredBar = hp
@@ -225,7 +225,7 @@ local function CreatePreviewFrame(index, party)
     -- Reduced max health bar (preview): black bg + red striped overlay on right side
     do
         local rmh = CreateFrame("StatusBar", nil, health)
-        rmh:SetStatusBarTexture("Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png")
+        rmh:SetStatusBarTexture(EllesmereUI.MAX_HEALTH_STRIPES_TEX)
         local rmhFill = rmh:GetStatusBarTexture()
         if rmhFill then
             rmhFill:SetDrawLayer("ARTWORK", 3)
@@ -430,7 +430,7 @@ local function CreatePreviewFrame(index, party)
     -- Dispel border
     local dispelBdrFrame = CreateFrame("Frame", nil, f)
     dispelBdrFrame:SetAllPoints(health)
-    dispelBdrFrame:SetFrameLevel(f:GetFrameLevel() + 10)
+    dispelBdrFrame:SetFrameLevel(f:GetFrameLevel() + ns.LVL_RAISE - 1)
     dispelBdrFrame:Hide()
     if PP then PP.CreateBorder(dispelBdrFrame, 0.2, 0.6, 1, 1, 2) end
 

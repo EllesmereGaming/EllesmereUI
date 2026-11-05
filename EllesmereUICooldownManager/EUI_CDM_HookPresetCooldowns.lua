@@ -23,31 +23,63 @@ local ApplyItemQualityPip = I.ApplyItemQualityPip
 
 -- ---------------------------------------------------------------------------
 -- Dynamic potion display for every pot preset carrying a displayOrder (Light's
--- Potential, Potion of Recklessness, health). The preset icon resolves to the best
--- variant actually in bags (preset.displayOrder, best first) and shows THAT variant's
--- icon, exact bag count, and tooltip -- 2 Fleeting pots show "2" even with 50 regular
--- ones in the bank of another rank. With the profile-level "Swap Combat Potions
--- When Missing" toggle on, a preset whose own family is fully out of bags resolves the
--- partner families' chains instead. Identity is untouched (frame key, assigned-spell key,
--- saved settings and active states all stay on the preset's primary item; only the
--- DISPLAY resolves, so a running swipe survives the icon swapping variants).
--- Re-resolution is generation-gated: bag events, the options toggle, and profile
--- changes bump/miss the gate; steady-state 10Hz ticks cost one compare.
+-- Potential, Potion of Recklessness, Liquid Luster, health). The preset icon resolves
+-- to the best variant actually in bags (preset.displayOrder, best first) and shows
+-- THAT variant's icon, exact bag count, and tooltip -- 2 Fleeting pots show "2" even
+-- with 50 regular ones in the bank of another rank. A combat potion icon walks its
+-- families in the order its Combat Potion Icon menu saved (customActiveStates[key]
+-- .potOrder, nil = the preset's own order) and, while its Swap Combat Pots When
+-- Missing is on (potSwap; nil reads the old profile-wide switch), a family fully out
+-- of bags falls through to the next. Identity is untouched (frame key, assigned-spell
+-- key, saved settings and active states all stay on the entry's primary item; only
+-- the DISPLAY resolves, so a running swipe survives the icon swapping variants).
+-- Re-resolution is generation-gated: bag events, the menu's writes, and profile
+-- changes bump/miss the gate; steady-state 10Hz ticks cost a few compares.
 local PotSwap = {}
 do
-    local byKey, byPrimary, chains
+    local byPrimary, chains, chainByItem
+    local famByKey = {}
+    for _, fam in ipairs(ns.COMBAT_POTION_FAMILIES or {}) do famByKey[fam.key] = fam end
 
-    function PotSwap.Enabled()
+    -- The profile-wide switch the Extras section used to hold: the default of an
+    -- icon whose own Swap Combat Pots When Missing was never set.
+    function PotSwap.LegacySwap()
         local p = ECME and ECME.db and ECME.db.profile
         return (p and p.cdmBars and p.cdmBars.swapPotionsWhenMissing) == true
     end
 
-    local function PresetByKey(key)
-        if not byKey then
-            byKey = {}
-            for _, pr in ipairs(ns.CDM_ITEM_PRESETS or {}) do byKey[pr.key] = pr end
+    -- An icon's two Combat Potion Icon settings, from its customActiveStates entry
+    -- (the per-icon menu's store, keyed by the entry key): swap on or off, and the
+    -- family order as saved ("light,reck,luster") or nil. Plain reads, no allocation.
+    function PotSwap.Settings(itemID)
+        local cas = ns.GetCustomActiveState(-itemID)
+        local swap = cas and cas.potSwap
+        if swap == nil then swap = PotSwap.LegacySwap() end
+        local order = cas and cas.potOrder
+        if type(order) ~= "string" then order = nil end
+        return swap == true, order
+    end
+
+    -- The family keys in the order an icon walks them: the saved order's valid keys,
+    -- then every family it leaves out, in the preset's own order. Allocates: the
+    -- chain memo below and the options menu are its callers.
+    function PotSwap.Order(preset, orderStr)
+        local out, seen = {}, {}
+        if orderStr then
+            for k in string.gmatch(orderStr, "[^,]+") do
+                if famByKey[k] and not seen[k] then
+                    seen[k] = true
+                    out[#out + 1] = k
+                end
+            end
         end
-        return byKey[key]
+        for _, k in ipairs(preset.potDefaultOrder or {}) do
+            if famByKey[k] and not seen[k] then
+                seen[k] = true
+                out[#out + 1] = k
+            end
+        end
+        return out
     end
 
     -- Preset for a pot's PRIMARY item id (nil for every non-pot preset).
@@ -61,38 +93,41 @@ do
         return byPrimary[itemID]
     end
 
-    -- Ordered id list to walk for a preset: own displayOrder, with the partner
-    -- families' appended IN swapWith ORDER while the swap toggle is on (list of
-    -- keys; a plain string still works). Static data, built once per preset;
-    -- the live toggle read just picks which cached list to return.
-    function PotSwap.Chain(preset)
-        if not chains then chains = {} end
-        local c = chains[preset]
-        if not c then
-            c = { own = preset.displayOrder }
-            local sw = preset.swapWith
-            if sw then
-                local keys = (type(sw) == "table") and sw or { sw }
-                local both
-                for k = 1, #keys do
-                    local partner = PresetByKey(keys[k])
-                    if partner and partner.displayOrder then
-                        if not both then
-                            both = {}
-                            for i = 1, #preset.displayOrder do both[#both + 1] = preset.displayOrder[i] end
-                        end
-                        for i = 1, #partner.displayOrder do both[#both + 1] = partner.displayOrder[i] end
-                    end
-                end
-                c.both = both
-            end
-            chains[preset] = c
-        end
-        return (c.both and PotSwap.Enabled()) and c.both or c.own
-    end
-
     PotSwap.gen = 1
     function PotSwap.Bump() PotSwap.gen = PotSwap.gen + 1 end
+
+    -- Ordered item ids an icon walks: for a combat potion, the first family's
+    -- displayOrder with every later family's appended while the icon swaps; for
+    -- any other pot preset its own displayOrder. One table per distinct answer,
+    -- shared by every icon that resolves to it, memoized per item key against the
+    -- generation and the two settings, so the polls (FakeActive) never rebuild it.
+    function PotSwap.Chain(preset, itemID)
+        if not preset.potFamily then return preset.displayOrder end
+        local swap, orderStr = PotSwap.Settings(itemID)
+        if not chainByItem then chainByItem = {} end
+        local m = chainByItem[itemID]
+        if m and m.gen == PotSwap.gen and m.swap == swap and m.order == orderStr then
+            return m.chain
+        end
+        local keys = PotSwap.Order(preset, orderStr)
+        local sig = (swap and "1" or "0") .. table.concat(keys, ",")
+        if not chains then chains = {} end
+        local chain = chains[sig]
+        if not chain then
+            chain = {}
+            for i = 1, (swap and #keys or math.min(1, #keys)) do
+                local fam = famByKey[keys[i]]
+                local list = fam and fam.preset.displayOrder
+                if list then
+                    for j = 1, #list do chain[#chain + 1] = list[j] end
+                end
+            end
+            chains[sig] = chain
+        end
+        if not m then m = {}; chainByItem[itemID] = m end
+        m.gen, m.swap, m.order, m.chain = PotSwap.gen, swap, orderStr, chain
+        return chain
+    end
 
     -- Resolve + stamp a pot-preset frame's display variant. Returns the display
     -- item id, or nil when the frame is not a resolving pot preset (every other
@@ -104,12 +139,13 @@ do
     function PotSwap.Ensure(f)
         local preset = f._presetData
         if not (preset and preset.displayOrder and f._presetItemID == preset.itemID) then return nil end
-        local en = PotSwap.Enabled()
-        if f._potResolveGen == PotSwap.gen and f._potResolveSwap == en then
+        local swap, orderStr = PotSwap.Settings(f._presetItemID)
+        if f._potResolveGen == PotSwap.gen and f._potResolveSwap == swap
+           and f._potResolveOrder == orderStr then
             return f._displayItemID
         end
-        f._potResolveGen, f._potResolveSwap = PotSwap.gen, en
-        local chain = PotSwap.Chain(preset)
+        f._potResolveGen, f._potResolveSwap, f._potResolveOrder = PotSwap.gen, swap, orderStr
+        local chain = PotSwap.Chain(preset, f._presetItemID)
         local id, count
         for i = 1, #chain do
             local c = C_Item.GetItemCount(chain[i], false, true) or 0
@@ -129,30 +165,82 @@ do
         return id
     end
 end
--- FakeActive (cooldown-state poll + cast-trigger mapping) reads the swap-aware
--- chain for a pot preset's primary item id; nil for anything else.
+-- FakeActive (cooldown-state poll + cast-trigger mapping) reads the chain for a
+-- pot preset's primary item id; nil for anything else.
 ns.GetPresetPotChain = function(itemID)
     local pr = PotSwap.ByPrimary(itemID)
-    return pr and PotSwap.Chain(pr) or nil
+    return pr and PotSwap.Chain(pr, itemID) or nil
 end
--- Options toggle: force every pot frame to re-resolve on the next pass.
+-- The per-icon menu: a Combat Potion Icon write forces every pot frame to
+-- re-resolve on the next pass.
 ns._BumpPotResolveGen = PotSwap.Bump
+-- The per-icon menu's reads: the old profile-wide swap switch (the default of an
+-- icon whose own is unset) and an icon's family order from its saved string.
+ns.PotSwapLegacyDefault = PotSwap.LegacySwap
+ns.PotOrderFor = PotSwap.Order
 
--- True when this frame IS the preset rather than one specific variant of it.
--- The picker only ever stores -(preset.itemID), so a frame sitting on an ALT id
--- can only have come from the user typing that exact item id into Custom Item
--- ID -- they asked for that rank, not for the family.
+-- The options preview: the art an item entry's icon shows in game and the item
+-- its tooltip names, so the preview slot matches the live bar. A frame under the
+-- key on that bar answers first (the preset's own frame with its resolved
+-- variant painted, or Blizzard's own row with Blizzard's art); with none up, the
+-- variant PotSwap would resolve from the bags; else the primary item.
+-- Options-time only.
+function ns.ItemEntryPreview(barKey, key)
+    local itemID = -key
+    local icons = barKey and ns.cdmBarIcons and ns.cdmBarIcons[barKey]
+    if icons then
+        for i = 1, #icons do
+            local f = icons[i]
+            local fc = f and _ecmeFC[f]
+            if fc and fc.spellID == key then
+                local tex = f._tex or f.Icon
+                local art = tex and tex.GetTexture and tex:GetTexture()
+                if art then return art, f._displayItemID or itemID end
+                break
+            end
+        end
+    end
+    local pr = PotSwap.ByPrimary(itemID)
+    if pr then
+        local chain = PotSwap.Chain(pr, itemID)
+        for i = 1, #chain do
+            if (C_Item.GetItemCount(chain[i], false, true) or 0) > 0 then
+                return C_Item.GetItemIconByID(chain[i]) or C_Item.GetItemIconByID(itemID), chain[i]
+            end
+        end
+    end
+    return C_Item.GetItemIconByID(itemID), itemID
+end
+
+-- Count (charges included) of an item preset's item: its own count, else, for the
+-- preset's PRIMARY item only, the sum of the family alts. Returns total and the
+-- first owned id. The picker only ever stores -(preset.itemID), so a frame
+-- sitting on an ALT id can only have come from the user typing that exact item id
+-- into Custom Item ID -- they asked for that rank, not for the family.
 -- Frames still carry _presetData either way: the preset icon and the keybind
--- fallback (which deliberately answers across ranks) want it. Only the
--- family-wide reads below are primary-only -- summing the family's bag counts
--- made a hand-added rank-2 pot report its rank-1 siblings as its own count,
--- point _itemCdSource at a sibling's cooldown and, with Hide Items if Missing
--- on, stay on the bar while the user owned none of it. Two such entries then
--- showed the same count off the same art (ranks share an icon), which reads as
--- one pot tracked twice. Mirrors PotSwap.Ensure's own primary check.
-local function IsPresetFamilyFrame(f)
-    local pd = f and f._presetData
-    return (pd and pd.altItemIDs and f._presetItemID == pd.itemID) and true or false
+-- fallback (which deliberately answers across ranks) want it. Only this
+-- family-wide read is primary-only -- summing the family's bag counts made a
+-- hand-added rank-2 pot report its rank-1 siblings as its own count, point
+-- _itemCdSource at a sibling's cooldown and, with Hide Items if Missing on, stay
+-- on the bar while the user owned none of it. Two such entries then showed the
+-- same count off the same art (ranks share an icon), which reads as one pot
+-- tracked twice. Mirrors PotSwap.Ensure's own primary check. On ns: 200-local cap.
+function ns._ItemPresetCount(pd, itemID)
+    local total = C_Item.GetItemCount(itemID, false, true) or 0
+    local owned = total > 0 and itemID or nil
+    if total == 0 and pd and pd.altItemIDs and itemID == pd.itemID then
+        for _, altID in ipairs(pd.altItemIDs) do
+            local c = C_Item.GetItemCount(altID, false, true) or 0
+            total = total + c
+            if not owned and c > 0 then owned = altID end
+        end
+    end
+    return total, owned
+end
+
+-- That count for a non-pot item preset frame. On ns: 200-local cap.
+function ns._ReadItemPresetCount(f)
+    return ns._ItemPresetCount(f._presetData, f._presetItemID)
 end
 
 -- Pact of Gluttony (386689) decides which stone the player conjures: with it only
@@ -166,19 +254,66 @@ function ns._HealthstoneHiddenByPact(itemID)
     return not pact
 end
 
--- Count (charges included) of a non-pot item preset frame: the primary id, else the
--- sum of the family alts. Returns total and first owned id. On ns: 200-local cap.
-function ns._ReadItemPresetCount(f)
-    local total = C_Item.GetItemCount(f._presetItemID, false, true) or 0
-    local owned = total > 0 and f._presetItemID or nil
-    if total == 0 and IsPresetFamilyFrame(f) then
-        for _, altID in ipairs(f._presetData.altItemIDs) do
-            local c = C_Item.GetItemCount(altID, false, true) or 0
-            total = total + c
-            if not owned and c > 0 then owned = altID end
+-- Blizzard's native Healthstone and Demonic Healthstone rows show no count of
+-- their own: each shows its preset's count, read as the preset icon reads it.
+-- On ns: 200-local cap.
+do
+    local hooked = setmetatable({}, { __mode = "k" })
+    local inCombat = false
+    local CI = ns._internals
+    CI.inCombatSetters[#CI.inCombatSetters + 1] = function(v) inCombat = v end
+
+    -- The stone preset an entry key stands for, else nil.
+    local function StonePreset(key)
+        local p = key and ns.ItemPresetForKey(key)
+        if p and (p.key == "healthstone" or p.key == "demonic_healthstone") then return p end
+    end
+
+    local function Apply(frame)
+        local fc = _ecmeFC[frame]
+        local cc = frame.ChargeCount
+        local fs = cc and cc.Current
+        -- Pooled frames: the cdID check drops a frame Blizzard re-used before the next reanchor.
+        local p = fc and fs and fc.healthstoneCdID and frame.cooldownID == fc.healthstoneCdID
+            and StonePreset(fc.spellID)
+        if not p then return end
+        local bd = fc.barKey and barDataByKey[fc.barKey]
+        local show = not bd or bd.showItemCount ~= false
+        if show and bd and bd.itemCountOOC and inCombat then show = false end
+        local count = show and ns._ItemPresetCount(p, p.itemID) or 0
+        if count > 0 then
+            fs:SetText(count)
+            cc:Show()
+        else
+            fs:SetText("")
+            cc:Hide()
         end
     end
-    return total, owned
+
+    function ns._ClaimNativeHealthstone(frame, cdID)
+        local fc = _ecmeFC[frame]
+        if not (fc and StonePreset(fc.spellID)) then return end
+        fc.healthstoneCdID = cdID
+        ns._nativeHealthstoneClaimed = true
+        if not hooked[frame] and frame.RefreshSpellChargeInfo then
+            hooked[frame] = true
+            hooksecurefunc(frame, "RefreshSpellChargeInfo", Apply)
+        end
+        Apply(frame)
+    end
+
+    function ns._RefreshNativeHealthstoneCounts()
+        if not ns._nativeHealthstoneClaimed then return end
+        for vi = 1, 2 do
+            local viewer = I.GetViewerFrame(vi)
+            local pool = viewer and viewer.itemFramePool
+            if pool and pool.EnumerateActive then
+                for frame in pool:EnumerateActive() do
+                    Apply(frame)
+                end
+            end
+        end
+    end
 end
 
 -- Guard: after ENCOUNTER_END clears item-preset caches, subsequent events
@@ -481,7 +616,7 @@ local function ProcessPresetCooldowns()
                     if not f._cdSeeded then
                         f._cdSeeded = true
                         if not (start and dur and dur > 1.5) then
-                            local list = dispID and PotSwap.Chain(f._presetData)
+                            local list = dispID and PotSwap.Chain(f._presetData, f._presetItemID)
                                 or (f._presetData and f._presetData.altItemIDs)
                             if list then
                                 for i = 1, #list do
@@ -666,6 +801,7 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
     end
     -- Infrequent events: handle immediately and return
     if event == "BAG_UPDATE_DELAYED" then
+        ns._RefreshNativeHealthstoneCounts()
         -- Loot-storm cap (probe-proven capture #12: mob-farming loot fires
         -- this in bursts, and each fire re-armed variant re-resolves + chain
         -- walks + bag-count scans -- the drain's dominant real cost). At
@@ -687,6 +823,7 @@ _racialCdListener:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
         return
     end
     if event == "BAG_UPDATE_COOLDOWN" then
+        ns._RefreshNativeHealthstoneCounts()
         -- Charge-only item count changes (a used Healthstone charge, a Soulwell
         -- refill) move no bag contents, so no BAG_UPDATE fires; a used charge
         -- lands with this event, after the cast arm already read the old count.

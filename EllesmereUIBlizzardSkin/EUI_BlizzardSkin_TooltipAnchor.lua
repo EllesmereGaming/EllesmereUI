@@ -361,8 +361,15 @@ do
         ApplyFixedAnchor(tooltip, parent)
     end)
     -- Every explicit tooltip build starts with SetOwner, which runs BEFORE the SetDefaultAnchor post-hook re-arms the flag, so explicitly-anchored uses (bags, other addons) never get their anchors rewritten.
-    hooksecurefunc(GameTooltip, "SetOwner", function()
+    hooksecurefunc(GameTooltip, "SetOwner", function(self)
         _fixedArmed = false
+        if not anchorFrame or self:IsForbidden() then return end
+        -- Left on our box, Blizzard's next restricted SetPoint fails with an anchor family error.
+        -- pcall'd: an owner's forbidden layout aspect restricts the tooltip without
+        -- IsForbidden reporting it (see _ttUsable), and this runs on every SetOwner.
+        local ok, _, relTo = pcall(self.GetPoint, self, 1)
+        if not ok or (issecretvalue and issecretvalue(relTo)) then return end
+        if relTo == anchorFrame then self:ClearAllPoints() end
     end)
     hooksecurefunc(GameTooltip, "SetPoint", function(tt)
         if _fixedEnforcing or not _fixedArmed then return end

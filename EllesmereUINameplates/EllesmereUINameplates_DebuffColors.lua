@@ -915,6 +915,10 @@ end
 -- One sensor per debuff spell, shared by every row that names it.
 local function CreateNameBundle(plate)
     local kit = Kit(plate)
+    -- Nothing of Color Name draws on the kit's host: hide the tints and border
+    -- copies a Missing row left there in another mode, or they show again
+    -- whenever the gate opens for the name's own Missing rows.
+    HideLooks(kit)
     local nk = NameKit(plate, kit)
     local b = { config = config, kit = kit, nameKit = nk, containers = {} }
     kit.used = 0

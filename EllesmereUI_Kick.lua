@@ -228,7 +228,9 @@ function EllesmereUI.GetSecureMenuProxy(frame)
         proxyCounter = proxyCounter + 1
         proxyName = "EUISecureMenuProxy" .. proxyCounter
         proxy = CreateFrame("Button", proxyName, frame, "SecureActionButtonTemplate")
-        proxy:SetSize(1, 1)
+        -- The menu's owner: WoW Forever's Gamepad interface style places the
+        -- menu beside the owner's rect, which an unanchored frame does not have.
+        proxy:SetAllPoints(frame)
         proxy:SetAlpha(0)
         proxy:EnableMouse(false)          -- never catches real mouse; only the secure click delegate reaches it
         proxy:RegisterForClicks("AnyUp")

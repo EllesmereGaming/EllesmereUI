@@ -249,8 +249,10 @@ local function ApplyContainerAnchorAndGrowth(container, parent, cfg, grid)
     if directionChanged then container:Hide() end
 
     local size = PabSnap(cfg.iconSize or 32)
+    local height = cfg.iconShape == "cropped"
+        and PabSnap(ns.PAB_CroppedHeight(cfg.iconSize or 32, cfg)) or size
     container:ClearAllPoints()
-    container:SetSize(size, size)
+    container:SetSize(size, height)
     container:SetPoint(containerAnchor, parent, containerAnchor, 0, 0)
     AK.SetContainerAnchor(container, spec.layout.anchorPoint)
     AK.SetContainerAxis(container, vertical)
@@ -518,6 +520,8 @@ do
         end
         return n
     end
+    -- Unit Frames widens the player buff row by the same cells.
+    ns.PAB_ActiveEnchantCount = ActiveEnchantCount
 
     -- Aura cap for the Buffs bar: "Max Icons" is the whole bar's budget, so the
     -- cells actually showing come off it and the rendered total stays at the

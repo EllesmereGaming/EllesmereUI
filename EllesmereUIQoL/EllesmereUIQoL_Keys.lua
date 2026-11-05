@@ -168,7 +168,8 @@ end
 
 local function QueryPartyKeys()
     if not LibKeystone then return end
-    if IsInGroup() then LibKeystone.Request("PARTY") end
+    -- A party of your own: PARTY from a Dungeon Finder group alone only brings back "You aren't in a party."
+    if IsInGroup(LE_PARTY_CATEGORY_HOME) then LibKeystone.Request("PARTY") end
     LibKeystone.Request("GUILD")
 end
 

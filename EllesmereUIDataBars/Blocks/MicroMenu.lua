@@ -730,7 +730,7 @@ local function MMBuildSocialTip()
     ns.Tip_AddDouble(L["RIGHT_CLICK"],      L["WHISPER"],      1, 1, 1, ar, ag, ab)
 end
 
-local function MMBuildGuildTip()
+local function MMBuildGuildTip(s)
     local ar, ag, ab = ns.GetAccent()
     ns.Tip_AddLine(" ")
     if not IsInGuild() then
@@ -747,9 +747,18 @@ local function MMBuildGuildTip()
     local gName = GetGuildInfo("player")
     if gName then ns.Tip_AddLine("|cff00ff00" .. gName .. "|r") end
 
+    local noteFmt
+    if s.showGuildNotes == true then
+        local c = s.guildNoteColor
+        local nr, ng, nb = 0.925, 0.839, 0.447
+        if c then nr, ng, nb = c.r or nr, c.g or ng, c.b or nb end
+        noteFmt = format(" |cffffffff(|r|cff%02x%02x%02x%%s|r|cffffffff)|r",
+            floor(nr * 255 + 0.5), floor(ng * 255 + 0.5), floor(nb * 255 + 0.5))
+    end
+
     local shown, hidden = 0, 0
     for i = 1, GetNumGuildMembers() do
-        local name, _, _, level, _, zone, _, _, isOnline, status, class = GetGuildRosterInfo(i)
+        local name, _, _, level, _, zone, note, _, isOnline, status, class = GetGuildRosterInfo(i)
         if isOnline and shown >= MM_TIP_MAX_ROWS then
             hidden = hidden + 1
         elseif isOnline then
@@ -763,6 +772,10 @@ local function MMBuildGuildTip()
             local cn  = name and name:match("[^-]+") or "?"
             -- Left plain (no |c): the class color rides the left-color args so the hover recolor to accent shows, like the M+ teleport rows.
             local left  = format("%s  %s %s", level or "", cn, st)
+            -- Own color codes: the note keeps its color under the hover accent.
+            if noteFmt and note and note ~= "" then
+                left = left .. format(noteFmt, note)
+            end
             local fname = name
             ns.Tip_AddClickable(left, zone or "", function(mouseButton)
                 if not fname then return end
@@ -970,7 +983,7 @@ ns.BlockFactories.micromenu = function(blockCfg, slot, content, barCtx)
         end
 
         if name == 'social' then pcall(MMBuildSocialTip) end
-        if name == 'guild'  then pcall(MMBuildGuildTip)  end
+        if name == 'guild'  then pcall(MMBuildGuildTip, D()) end
 
         ns.Tip_Show()
     end

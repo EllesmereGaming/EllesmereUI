@@ -1644,6 +1644,7 @@ local function CreateDMWindow(winIdx)
         -- re-pointed at whatever source holds the player's rank.
         local classFile = src.classFilename
         local specIcon = src.specIconID
+        if issecretvalue(specIcon) then specIcon = nil end  -- WoW Forever 1.60.1: always secret
         if classFile ~= W._stickyClassCache or specIcon ~= W._stickySpecCache then
             W._stickyClassCache = classFile
             W._stickySpecCache = specIcon
@@ -1828,6 +1829,7 @@ local function CreateDMWindow(winIdx)
                         -- and the row kept the previous player's spec icon.
                         local classFile = src.classFilename
                         local specIcon = src.specIconID
+                        if issecretvalue(specIcon) then specIcon = nil end  -- WoW Forever 1.60.1: always secret
                         if classFile ~= bar._cachedClass or specIcon ~= bar._cachedSpecIcon then
                             bar._cachedClass = classFile
                             bar._cachedSpecIcon = specIcon

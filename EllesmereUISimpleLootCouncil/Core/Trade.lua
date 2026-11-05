@@ -671,7 +671,7 @@ end
 
 
 
-local OTHERS_MAX_AGE = 2 * 60 * 60
+local OTHERS_MAX_AGE = 4 * 60 * 60
 
 local function OthersKey(runId, session)
     return tostring(runId) .. "|" .. tostring(session)

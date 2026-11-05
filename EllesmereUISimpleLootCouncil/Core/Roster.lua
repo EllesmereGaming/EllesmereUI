@@ -298,9 +298,9 @@ function addon.GetMasterLooter(fresh)
 
     local result = addon.GetGameMasterLooter()
 
-    local delegate = not result and addon.Config and addon.Config:LootMaster()
-    if delegate then
-        local record = addon.Player:Get(delegate)
+    local promote = not result and addon.Config and addon.Config:LootMaster()
+    if promote then
+        local record = addon.Player:Get(promote)
         if record.fullName then
 
 
@@ -322,7 +322,7 @@ end
 function addon.InvalidateMasterLooter()
     cachedML, cachedAt = nil, 0
     if addon.Loot and addon.Loot.CheckLootMaster then
-        addon.Loot:CheckLootMaster("delegation changed")
+        addon.Loot:CheckLootMaster("promotion changed")
     end
 end
 
@@ -332,8 +332,8 @@ function addon.IsMasterLooter(who)
     local leader = addon.GetGroupLeader()
     if leader and addon.Player:IsSame(who, leader) then return true end
 
-    local delegate = addon.Config and addon.Config:LootMaster()
-    if delegate and addon.Player:IsSame(who, delegate) then return true end
+    local promote = addon.Config and addon.Config:LootMaster()
+    if promote and addon.Player:IsSame(who, promote) then return true end
 
     local game = addon.GetGameMasterLooter()
     if game and addon.Player:IsSame(who, game) then return true end
@@ -343,7 +343,7 @@ end
 
 
 
-function addon.IsLootDelegated()
+function addon.IsLootPromoted()
     local current = addon.GetMasterLooter()
     local leader = addon.GetGroupLeader()
     if not current or not leader then return false end
@@ -365,12 +365,41 @@ local function GroupShape()
     if IsInRaid() then return nil end
     return IsInGroup() and "party" or "solo"
 end
+local function SaveGroupTest()
+    local store = addon.db and addon.db.raidPrompt
+    if not store then return end
+    if type(store.groupTest) ~= "table" then store.groupTest = {} end
+    store.groupTest[addon.Player:GetFullName("player")] = groupTest
+    if next(store.groupTest) == nil then store.groupTest = nil end
+end
 function addon.GroupTestActive()
-    if groupTest and groupTest ~= GroupShape() then groupTest = nil end
+    if groupTest and groupTest ~= GroupShape() then
+        groupTest = nil
+        SaveGroupTest()
+    end
     return groupTest ~= nil
 end
 function addon.SetGroupTest(on)
     groupTest = on and GroupShape() or nil
+    SaveGroupTest()
+end
+
+
+function addon.RestoreGroupTest()
+    local store = addon.db and addon.db.raidPrompt
+    if groupTest or not store or type(store.groupTest) ~= "table" then return end
+    local me = addon.Player:GetFullName("player")
+    local saved = store.groupTest[me]
+    if not saved then return end
+    if saved ~= GroupShape() then
+        SaveGroupTest()
+        addon.Log:I("Roster", "active test not restored - saved for a", tostring(saved))
+        return
+    end
+    groupTest = saved
+    addon.Log:I("Roster", "active test restored in a", saved)
+    if saved == "solo" then addon.Loot:ApplyHandling(true, me, false, true) end
+    addon.Chat.Print(T["active test is on: sessions work here. Nothing starts by itself. /slc activetest off turns it off."])
 end
 
 function addon.PlayerIsMasterLooter()

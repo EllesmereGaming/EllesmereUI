@@ -528,6 +528,12 @@ function ECME:OnEnable()
                 -- Blizzard's data actually becomes ready on a slow login and never try
                 -- again. Catch up now.
                 if ns.QueueReanchor then ns.QueueReanchor() end
+                -- A queued repopulate that reached its settled pass before the
+                -- layouts loaded runs now, a frame on, once every viewer shows them.
+                if ns._repopAwaitsLayouts then
+                    ns._repopAwaitsLayouts = nil
+                    C_Timer.After(0, ns.RunQueuedRepopulate)
+                end
             end
         end)
     end

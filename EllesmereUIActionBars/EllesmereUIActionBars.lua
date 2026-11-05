@@ -8,7 +8,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  + _childupdate-eab-page with explicit action attrs.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.PadTaintStandDown) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local EAB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.EAB = EAB
@@ -539,6 +539,11 @@ local defaults = {
         -- (default, unchanged behavior), 2 = flat tint over the whole button
         -- instead, 3 = both. The overlay leaves the button edge free for the
         -- proc glow, which is the point of offering it.
+        -- Optional custom Assisted Highlight glows are purely additive. A value
+        -- of 0 keeps the existing assistGlowStyle path and its current behavior.
+        assistGlowType = 0,
+        assistGlowColor = { r = 0.15, g = 0.5, b = 1 },
+        assistGlowUseClassColor = false,
         assistGlowStyle = 1,
         -- On Cropped bars, size the glow ring to the button's rectangle
         -- instead of scaling the square art by width. Off = today's ring.
@@ -578,6 +583,12 @@ for _, info in ipairs(BAR_CONFIG) do
         buttonHeight = 0,
         mouseoverEnabled = false,
         mouseoverAlpha = 1,
+        -- Optional Advanced Fade layer. OFF preserves native upstream alpha behavior.
+        advancedFadeEnabled = false,
+        fadeMaxAlpha = 1,
+        fadeInSpeed = 0.15,
+        fadeOutSpeed = 0.15,
+        fadeConditions = {},
         combatShowEnabled = false,
         combatHideEnabled = false,
         housingHideEnabled = false,
@@ -690,6 +701,12 @@ for _, info in ipairs(EXTRA_BARS) do
     defaults.profile.bars[info.key] = {
         mouseoverEnabled = false,
         mouseoverAlpha = 1,
+        -- Optional Advanced Fade layer. OFF preserves native upstream alpha behavior.
+        advancedFadeEnabled = false,
+        fadeMaxAlpha = 1,
+        fadeInSpeed = 0.15,
+        fadeOutSpeed = 0.15,
+        fadeConditions = {},
         combatShowEnabled = false,
         combatHideEnabled = false,
         housingHideEnabled = false,

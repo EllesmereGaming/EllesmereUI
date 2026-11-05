@@ -38,6 +38,10 @@ ns._oorAlpha = 1  -- cached out-of-range alpha; 1 = inert
 -- Out of Combat Opacity: plates of mobs not in combat fade to outOfCombatAlpha (0-100).
 -- 100 = OFF. Target and kept focus are exempt.
 ns._oocAlpha = 1
+-- Full Opacity While Casting: a casting plate skips the Non-Target fade (Out of Combat and
+-- out-of-range still apply). Important-only gates it on the cast's possibly SECRET important flag.
+ns._ntCastFull = false
+ns._ntCastImportantOnly = false
 
 -- Applies the correct root alpha to ONE plate. Value-guarded via _ntCurAlpha so redundant
 -- SetAlpha calls are skipped and pooled frames reset cheaply (nil = never faded).
@@ -52,12 +56,33 @@ function ns.NT_Apply(plate)
        and not UnitIsUnit(unit, "player") then
         a = nt
     end
+    -- Out of Combat and out-of-range fades, which casting never lifts.
+    local rest = plate._oorCurAlpha or 1
     local ooc = ns._oocAlpha
     if ooc < 1 and not UnitAffectingCombat(unit) and not UnitIsUnit(unit, "target")
        and not (ns._ntKeepFocus and UnitIsUnit(unit, "focus")) then
-        a = a * ooc
+        rest = rest * ooc
     end
-    a = a * (plate._oorCurAlpha or 1)
+    if a < 1 and ns._ntCastFull and ns._castingPlates[plate] then
+        if ns._ntCastImportantOnly then
+            -- The flag may be SECRET, so the write is change-checked on its numeric
+            -- inputs; NotifyCastStarted drops them when a new cast brings a new flag.
+            local lo = a * rest
+            if plate._ntCurAlpha ~= -1 or plate._ntBoolHi ~= rest or plate._ntBoolLo ~= lo then
+                local imp = plate._castImportant
+                if type(imp) == "nil" then imp = false end
+                -- Never a plain number: the next numeric apply always writes.
+                plate._ntCurAlpha = -1
+                plate._ntBoolHi, plate._ntBoolLo = rest, lo
+                -- A SECRET flag makes the plate root's alpha secret for the session: never
+                -- compare its GetAlpha() or a child's GetEffectiveAlpha().
+                plate:SetAlphaFromBoolean(imp, rest, lo)
+            end
+            return
+        end
+        a = 1
+    end
+    a = a * rest
     if (plate._ntCurAlpha or 1) ~= a then
         plate._ntCurAlpha = a
         plate:SetAlpha(a)
@@ -77,6 +102,8 @@ function ns.NT_RefreshSetting()
     if v < 0 then v = 0 elseif v > 100 then v = 100 end
     ns._ntAlpha = v / 100
     ns._ntKeepFocus = not (p and p.nonTargetKeepFocus == false)
+    ns._ntCastFull = (p and p.nonTargetCastFull) == true
+    ns._ntCastImportantOnly = (p and p.nonTargetCastImportantOnly) == true
     local wasOn = ns._oocAlpha < 1
     v = tonumber(p and p.outOfCombatAlpha) or 100
     if v < 0 then v = 0 elseif v > 100 then v = 100 end
@@ -213,6 +240,10 @@ local _castColorTicker
 local function NotifyCastStarted(plate)
     if plate then
         ns._castingPlates[plate] = true
+        if ns._ntCastFull and ns._ntAlpha < 1 then
+            plate._ntBoolHi = nil
+            ns.NT_Apply(plate)
+        end
         -- Arm the 10Hz cast-timer ticker (engine-slept between fires; self-stops at cast end)
         -- and paint ONCE synchronously, or the ticker's first fire alone leaves text blank 0.1s.
         if plate.cast and plate.cast._timerTicker then
@@ -238,7 +269,10 @@ local function NotifyCastStarted(plate)
     end
 end
 local function NotifyCastEnded(plate)
-    if plate then ns._castingPlates[plate] = nil end
+    if plate then
+        ns._castingPlates[plate] = nil
+        if ns._ntCastFull and ns._ntAlpha < 1 then ns.NT_Apply(plate) end
+    end
     activeCastCount = activeCastCount - 1
     if activeCastCount <= 0 then
         activeCastCount = 0

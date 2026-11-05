@@ -30,6 +30,15 @@ EABR.WELL_FED = 19705
 -- Dirge's Chops, Blessed Sunfruit and its juice): counted by ID, since their names are
 -- shared with other buffs (Mana Regeneration is also Mageblood Potion's).
 EABR.FOOD_BUFFS = { 18192, 18194, 22730, 25661, 18125, 18141 }
+-- WoW Forever Mage armors: the three lines, ranks weakest first, the lines
+-- ordered weakest to strongest. Only one can be up and any of them satisfies
+-- the reminder; the icon and the click follow the line last seen up (its
+-- strongest rank this character knows), else the strongest line known.
+EABR.MAGE_ARMORS = {
+    { 168, 7300, 7301 },            -- Frost Armor 1-3
+    { 7302, 7320, 10219, 10220 },   -- Ice Armor 1-4
+    { 6117, 22782, 22783 },         -- Mage Armor 1-3
+}
 
 local _B = {}  -- beacon state table, populated later
 -- The two spellbook checks Blizzard's IsPlayerSpell / IsSpellKnown wrap, called

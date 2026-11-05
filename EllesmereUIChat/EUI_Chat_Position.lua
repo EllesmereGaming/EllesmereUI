@@ -136,10 +136,31 @@ local function EMChatSizeDelta()
     return abs(w - size.w) > 1 or abs(h - size.h) > 1
 end
 
+-- Where each of UIParent's nine points sits in a rect: its share of the
+-- width from the left edge and of the height from the bottom edge.
+local POINT_FRAC = {
+    BOTTOMLEFT = { 0, 0 },   BOTTOM = { 0.5, 0 },   BOTTOMRIGHT = { 1, 0 },
+    LEFT       = { 0, 0.5 }, CENTER = { 0.5, 0.5 }, RIGHT       = { 1, 0.5 },
+    TOPLEFT    = { 0, 1 },   TOP    = { 0.5, 1 },   TOPRIGHT    = { 1, 1 },
+}
+
+-- The screen's size in ChatFrame1's units, the units of its anchor offsets
+-- and rect reads.
+local function ChatScreenSize(cf1)
+    local k = UIParent:GetEffectiveScale() / cf1:GetEffectiveScale()
+    return UIParent:GetWidth() * k, UIParent:GetHeight() * k
+end
+
+-- The screen point the player picked for chat's saved spot (Unlock Mode's
+-- Relative to Screen), nil while unset: the spot then keeps the form its
+-- last save gave it.
+local function ChatScreenChoice(cfg)
+    local p = cfg and cfg.chatScreenPoint
+    return (p and POINT_FRAC[p]) and p or nil
+end
+
 -- The single anchor that places chat from the saved position, pixel-snapped
--- as every apply places it: point, relPoint, x, y (nil while unsaved). A
--- centre anchor snaps against the dimensions the rect carries: the saved size
--- once there is one.
+-- as every apply places it: point, relPoint, x, y (nil while unsaved).
 local function ChatAnchorTarget(cfg, cf1)
     local pos = cfg.chatPosition
     local px, py = pos and pos.x, pos and pos.y
@@ -148,14 +169,20 @@ local function ChatAnchorTarget(cfg, cf1)
     local PPa = EllesmereUI and EllesmereUI.PP
     if PPa then
         local es = cf1:GetEffectiveScale()
-        if pos.point == "CENTER" and relPoint == "CENTER" and PPa.SnapCenterForDim then
-            local size = cfg.chatSize
-            local dimW = size and size.w or cf1:GetWidth() or 0
-            local dimH = size and size.h or cf1:GetHeight() or 0
-            px = PPa.SnapCenterForDim(px, dimW, es)
-            py = PPa.SnapCenterForDim(py, dimH, es)
-        elseif PPa.SnapForES then
+        -- Per axis: an offset that places the frame's middle (the centre, TOP
+        -- and BOTTOM across, LEFT and RIGHT up) snaps against the dimension
+        -- the rect carries, the saved size once there is one, so both edges
+        -- land on pixels; an edge offset snaps to whole pixels.
+        local f = POINT_FRAC[pos.point]
+        local size = cfg.chatSize
+        if f and f[1] == 0.5 then
+            px = PPa.SnapCenterForDim(px, size and size.w or cf1:GetWidth() or 0, es)
+        else
             px = PPa.SnapForES(px, es)
+        end
+        if f and f[2] == 0.5 then
+            py = PPa.SnapCenterForDim(py, size and size.h or cf1:GetHeight() or 0, es)
+        else
             py = PPa.SnapForES(py, es)
         end
     end
@@ -336,6 +363,16 @@ local function SetChatTarget(i, point, relPoint, x, y)
     t.point, t.relPoint, t.x, t.y = point, relPoint, x, y
 end
 
+-- The corner opposite each corner anchor, and the signs of the saved size
+-- that reach it from there (y grows upward): a corner position's second
+-- anchor, against the same point of UIParent.
+local SIZE_CORNER = {
+    BOTTOMLEFT  = { "TOPRIGHT",     1,  1 },
+    TOPLEFT     = { "BOTTOMRIGHT",  1, -1 },
+    TOPRIGHT    = { "BOTTOMLEFT",  -1, -1 },
+    BOTTOMRIGHT = { "TOPLEFT",     -1,  1 },
+}
+
 -- ChatFrame1 already carries exactly the first n target anchors (GetPoint
 -- returns the anchor definitions, never a lagging rect), within Edit Mode's
 -- own anchor tolerance. A secret read counts as a mismatch.
@@ -394,31 +431,29 @@ local function ApplyChatPosition()
     local sizeLane = size and size.w and size.h and EMChatSizeDelta()
     local point, relPoint, px, py = ChatAnchorTarget(cfg, cf1)
     if not point then return end
-    local n, composed = 1, false
-    if sizeLane and point == "CENTER" and relPoint == "CENTER" then
-        -- CENTER-form saves (unlock mode Save & Exit) compose the rect around
-        -- the centre outright. A lone CENTER anchor would resolve on the
-        -- frame's explicit size for a tick, and the canonicalize below would
-        -- read the corner of THAT rect -- landing the chat half the size delta
-        -- away from where it was dropped.
-        SetChatTarget(1, "TOPLEFT", "CENTER", px - size.w / 2, py + size.h / 2)
-        SetChatTarget(2, "BOTTOMRIGHT", "CENTER", px + size.w / 2, py - size.h / 2)
-        n, composed = 2, true
+    local n = 1
+    local frac = POINT_FRAC[point]
+    if sizeLane and frac and not SIZE_CORNER[point] then
+        -- Centre and edge-middle forms compose the rect around their point
+        -- outright. A lone anchor there would resolve on the frame's explicit
+        -- size for a tick, and the canonicalize below would read the corner
+        -- of THAT rect -- landing the chat half the size delta away from
+        -- where it was dropped.
+        SetChatTarget(1, "TOPLEFT", relPoint, px - frac[1] * size.w, py + (1 - frac[2]) * size.h)
+        SetChatTarget(2, "BOTTOMRIGHT", relPoint, px + (1 - frac[1]) * size.w, py - frac[2] * size.h)
+        n = 2
     else
         SetChatTarget(1, point, relPoint, px, py)
-        if sizeLane then
-            if point == "BOTTOMLEFT" and relPoint == "BOTTOMLEFT" then
-                SetChatTarget(2, "TOPRIGHT", "BOTTOMLEFT", px + size.w, py + size.h)
-                n, composed = 2, true
-            elseif point == "TOPLEFT" and relPoint == "TOPLEFT" then
-                -- TOPLEFT-form positions compose the size anchor directly. A
-                -- single-anchor apply would leave the rect on the frame's
-                -- explicit (Edit Mode, stale) size until the deferred normalize
-                -- below lands -- a window where a late Edit Mode pass baked the
-                -- old size in.
-                SetChatTarget(2, "BOTTOMRIGHT", "TOPLEFT", px + size.w, py - size.h)
-                n, composed = 2, true
-            end
+        -- Corner positions compose the size anchor at the opposite corner. A
+        -- single-anchor apply would leave the rect on the frame's explicit
+        -- (Edit Mode, stale) size until the deferred normalize below lands --
+        -- a window where a late Edit Mode pass baked the old size in, and the
+        -- normalize would save the corner of THAT rect. Any corner can arrive:
+        -- an unlock mode nudge saves whichever anchor GetPoint lists first.
+        local opp = sizeLane and SIZE_CORNER[point]
+        if opp then
+            SetChatTarget(2, opp[1], relPoint, px + opp[2] * size.w, py + opp[3] * size.h)
+            n = 2
         end
     end
     -- Compare-gated: once Edit Mode's own apply lands on our anchors (the
@@ -433,10 +468,13 @@ local function ApplyChatPosition()
             SetFramePoint(cf1, t.point, UIParent, t.relPoint, t.x, t.y)
         end
     end
-    if sizeLane and (not composed or point ~= "BOTTOMLEFT") and not ns._chatCanonPending then
-        -- Canonicalize foreign forms to BOTTOMLEFT once the rect resolves,
-        -- so every later apply composes on the fast path. One pass pending at
-        -- a time: every apply in between lands in the same pass.
+    local canonTo = ChatScreenChoice(cfg) or (sizeLane and "BOTTOMLEFT")
+    if canonTo and (point ~= canonTo or relPoint ~= canonTo) and not ns._chatCanonPending then
+        -- Canonicalize once the rect resolves to the form chat keeps: the
+        -- player's Relative to Screen point, else BOTTOMLEFT while the size
+        -- rides a second corner, so every later apply composes on the fast
+        -- path. One pass pending at a time: every apply in between lands in
+        -- the same pass.
         ns._chatCanonPending = true
         C_Timer.After(0, CanonicalizeChatPosition)
     end
@@ -486,15 +524,53 @@ CanonicalizeChatPosition = function()
         return
     end
     ns._chatCanonLaps = nil
-    local l, b = cf1:GetLeft(), cf1:GetBottom()
+    local l, b, r, t = cf1:GetLeft(), cf1:GetBottom(), cf1:GetRight(), cf1:GetTop()
     local issecret = _G.issecretvalue
-    if not (l and b) or (issecret and (issecret(l) or issecret(b))) then return end
-    cfg2.chatPosition = { point = "BOTTOMLEFT", relPoint = "BOTTOMLEFT", x = l, y = b }
+    if not (l and b and r and t) or (issecret and (issecret(l) or issecret(b)
+        or issecret(r) or issecret(t))) then
+        return
+    end
+    -- The frame's point at its spot, measured from the same point of the
+    -- screen (BOTTOMLEFT: the rect's own left and bottom).
+    local target = ChatScreenChoice(cfg2) or "BOTTOMLEFT"
+    local f = POINT_FRAC[target]
+    local sw, sh = ChatScreenSize(cf1)
+    cfg2.chatPosition = { point = target, relPoint = target,
+        x = l + f[1] * (r - l - sw), y = b + f[2] * (t - b - sh) }
     ApplyChatPosition()
 end
 
 ECHAT.ApplyChatPosition = ApplyChatPosition
 ns._EMChatSizeDelta = EMChatSizeDelta
+
+-- Unlock Mode's Relative to Screen for chat (the cog): the point of the
+-- screen chat's saved spot is measured from. Unset, it is the point the saved
+-- spot uses. A pick only names it: the next apply (in a session, its close)
+-- re-expresses the spot from it, where chat already stands.
+function ns.GetChatScreenPoint()
+    local cfg = ECHAT.DB()
+    local p = ChatScreenChoice(cfg)
+    if p then return p end
+    local pos = cfg and cfg.chatPosition
+    local rel = pos and (pos.relPoint or pos.point)
+    return (rel and POINT_FRAC[rel]) and rel or "BOTTOMLEFT"
+end
+
+function ns.SetChatScreenPoint(point)
+    local cfg = ECHAT.DB()
+    if not (cfg and POINT_FRAC[point]) then return end
+    cfg.chatScreenPoint = point
+    if not EllesmereUI._unlockActive then ApplyChatPosition() end
+end
+
+-- The left and bottom edges a saved spot puts a w x h chat at, in
+-- ChatFrame1's units (nil for a point it does not know).
+function ns.ChatSavedLeftBottom(pos, w, h, cf1)
+    local fp, fr = POINT_FRAC[pos.point], POINT_FRAC[pos.relPoint or pos.point]
+    if not (fp and fr and pos.x and pos.y) then return nil end
+    local sw, sh = ChatScreenSize(cf1)
+    return fr[1] * sw + pos.x - fp[1] * w, fr[2] * sh + pos.y - fp[2] * h
+end
 
 -- Re-assert after an Edit Mode layout apply in the SAME frame: a one-shot
 -- OnUpdate on a frame of ours (hidden while idle) runs after this frame's
@@ -847,6 +923,8 @@ ns._BuildMainChatResizeGrip = BuildMainChatResizeGrip
 -- element's onLiveMove after each placement: re-add the opposite corner
 -- from the anchor DEFINITION (GetPoint returns the SetPoint arguments, never
 -- a lagging rect) so the frame keeps its size through the whole session.
+-- The placed anchor can be any corner, edge middle or the centre: a nudge
+-- re-places whichever anchor GetPoint lists first, the size corner included.
 -- Idempotent -- a frame already carrying two points is left alone.
 local function KeepMainChatSizeCorner()
     local cfg = ECHAT.DB()
@@ -861,18 +939,14 @@ local function KeepMainChatSizeCorner()
     if type(x) ~= "number" or type(y) ~= "number" then return end
     relPoint = relPoint or point
     local w, h = size.w, size.h
-    if point == "TOPLEFT" then
-        SetFramePoint(cf1, "BOTTOMRIGHT", UIParent, relPoint, x + w, y - h)
-    elseif point == "BOTTOMLEFT" then
-        SetFramePoint(cf1, "TOPRIGHT", UIParent, relPoint, x + w, y + h)
-    elseif point == "TOPRIGHT" then
-        SetFramePoint(cf1, "BOTTOMLEFT", UIParent, relPoint, x - w, y + h)
-    elseif point == "BOTTOMRIGHT" then
-        SetFramePoint(cf1, "TOPLEFT", UIParent, relPoint, x - w, y - h)
-    elseif point == "CENTER" then
+    local opp = SIZE_CORNER[point]
+    local frac = POINT_FRAC[point]
+    if opp then
+        SetFramePoint(cf1, opp[1], UIParent, relPoint, x + opp[2] * w, y + opp[3] * h)
+    elseif frac then
         ClearFramePoints(cf1)
-        SetFramePoint(cf1, "TOPLEFT", UIParent, relPoint, x - w / 2, y + h / 2)
-        SetFramePoint(cf1, "BOTTOMRIGHT", UIParent, relPoint, x + w / 2, y - h / 2)
+        SetFramePoint(cf1, "TOPLEFT", UIParent, relPoint, x - frac[1] * w, y + (1 - frac[2]) * h)
+        SetFramePoint(cf1, "BOTTOMRIGHT", UIParent, relPoint, x + (1 - frac[1]) * w, y - frac[2] * h)
     end
 end
 ns._KeepMainChatSizeCorner = KeepMainChatSizeCorner

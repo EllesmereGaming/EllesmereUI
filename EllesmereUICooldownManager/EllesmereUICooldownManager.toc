@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: A CDM replacement focused on performance, customizations and alerts.
 ## Author: Ellesmere
-## Version: 9.7
+## Version: 9.7.5
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUICooldownManagerDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -55,5 +55,6 @@ EllesmereUICdmFakeActive.lua
 EllesmereUICdmRPTSync.lua
 EllesmereUICdmTalentConditions.lua
 EllesmereUICdmStanceBar.lua
+EUI_CDM_ForeverAntiClip.lua
 
 # Options

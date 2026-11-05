@@ -327,6 +327,21 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                         DB().friendlyNameFormat = v
                         ns.NP_SyncFriendlyNameFormat()
                     end),
+                { type = "toggle", label = "Show Level",
+                  get = function() return DBVal("friendlyShowLevel") == true end,
+                  set = function(v)
+                    DB().friendlyShowLevel = v and true or false
+                    if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                  end },
+                { type = "toggle", label = "Color Level by Difficulty",
+                  disabled = function() return DBVal("friendlyShowLevel") ~= true end,
+                  disabledTooltip = "This option requires Show Level",
+                  rawTooltip = true,
+                  get = function() return DBVal("friendlyLevelDiffColor") == true end,
+                  set = function(v)
+                    DB().friendlyLevelDiffColor = v and true or false
+                    if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                  end },
                 { type = "toggle", label = "Show <> Around Guild",
                   disabled = subtitleGuildOff,
                   disabledTooltip = "This option requires Subtitle Text to include the Guild Name",
@@ -579,9 +594,10 @@ local function BuildGeneralPage(pageName, parent, yOffset)
         eyeBtn:SetSize(26, 26)
         eyeBtn:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
         eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-        eyeBtn:SetAlpha(0.4)
+        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         leftRgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshEyeIcon()
             eyeTex:SetTexture(ns._hitboxOverlayShown and EYE_INVISIBLE or EYE_VISIBLE)
@@ -592,11 +608,11 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             RefreshEyeIcon()
         end)
         eyeBtn:SetScript("OnEnter", function(self)
-            self:SetAlpha(0.7)
+            EllesmereUI.SetGlyphAlpha(self, 0.7)
             EllesmereUI.ShowWidgetTooltip(self, "Show/Hide Hitbox Overlay", { width = 175 })
         end)
         eyeBtn:SetScript("OnLeave", function(self)
-            self:SetAlpha(0.4)
+            EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
         -- Auto-hide the overlay when the options panel closes (hook once).
@@ -909,8 +925,28 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             suffixFS:SetText(EllesmereUI.L("(Percent)"))
         end
     end
-    -- Inline cog on Non-Target Opacity: focus exclusion toggle, which Out of
-    -- Combat Opacity (Extras) reads too.
+    -- Inline cog on Scale Target Nameplate: the enemy type scales.
+    if not EllesmereUI._prebuilding then
+        local function TypeScaleRow(label, key, tip)
+            return { type="slider", label=label, tooltip=tip, min=25, max=125, step=5,
+                get=function() return DBVal(key) or defaults[key] end,
+                set=function(v)
+                    DB()[key] = v
+                    if ns.NP_RefreshTypeScaleSetting then ns.NP_RefreshTypeScaleSetting() end
+                end }
+        end
+        EllesmereUI.BuildInlineCog(tfScaleRow._leftRegion, {
+            title = "Scale Target Nameplate",
+            rows = {
+                TypeScaleRow("Minor Enemy Scale (Percent)", "minorEnemyScale",
+                    "Scales the nameplates of minor and trivial enemies; 100% = no change."),
+                TypeScaleRow("Non-Elite Enemy Scale (Percent)", "nonEliteEnemyScale",
+                    "Scales the nameplates of non-elite enemies in dungeons only; 100% = no change."),
+            },
+        })
+    end
+    -- Inline cog on Non-Target Opacity: the focus exemption, which Out of Combat
+    -- Opacity (Extras) reads too, and the casting one.
     if not EllesmereUI._prebuilding then
         local function ntOff()
             return (DBVal("nonTargetAlpha") or 100) >= 100 and (DBVal("outOfCombatAlpha") or 100) >= 100
@@ -926,6 +962,22 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                   get=function() return DBVal("nonTargetKeepFocus") ~= false end,
                   set=function(v)
                     DB().nonTargetKeepFocus = v
+                    if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
+                  end },
+                -- One dropdown over nonTargetCastFull + nonTargetCastImportantOnly.
+                { type="dropdown", label="Full Opacity While Casting",
+                  values={ off = "Off", all = "All Casts", important = "Important Casts" },
+                  order={ "off", "all", "important" },
+                  tooltip="A casting enemy's nameplate skips Non-Target Opacity while the cast lasts.",
+                  disabled=function() return (DBVal("nonTargetAlpha") or 100) >= 100 end,
+                  disabledTooltip="Non-Target Opacity below 100",
+                  get=function()
+                    if DBVal("nonTargetCastFull") ~= true then return "off" end
+                    return DBVal("nonTargetCastImportantOnly") == true and "important" or "all"
+                  end,
+                  set=function(v)
+                    DB().nonTargetCastFull = v ~= "off"
+                    DB().nonTargetCastImportantOnly = v == "important"
                     if ns.NT_RefreshSetting then ns.NT_RefreshSetting() end
                   end },
             },

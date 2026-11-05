@@ -304,6 +304,11 @@ if EllesmereUI.IS_FOREVER then
     end
 end
 
+-- Health, max health and absorb values without a decimal config: the global
+-- Number Format for valueType (EllesmereUI_NumberFormat.lua).
+ns.AbbreviateValue = EllesmereUI.AbbreviateValue
+EllesmereUI.RegisterNumberFormatCallback(function() ns.RefreshAllUnitNames() end)
+
 -- Health Short always abbreviates from 1,000 with one decimal.
 function ns.AbbreviateShortHealth(hp)
     if not ns._shortHealthAbbrevConfig then
@@ -341,7 +346,7 @@ function ns.ApplyTextDecimalGlobals()
         end
         _G._EUI_TextDecimals = true
         -- "Only Show for % Health": decimal on PERCENT, health/absorb VALUES whole --
-        -- withhold the abbreviate configs (values fall back to plain AbbreviateNumbers)
+        -- withhold the abbreviate configs (values follow the Number Format, ns.AbbreviateValue)
         -- while _EUI_TextDecimals stays true for percents.
         local percentOnly = db.profile.showDecimalPercentOnly
         _G._EUI_AbbrevDecimalCfg = ns._decimalAbbrevConfig
@@ -388,7 +393,9 @@ do
   -- current value takes it, so Health # / Max # names the status once
   -- ("DEAD / 150 K"). shortHealth (healthshort): always one decimal with an
   -- uppercase K/M/B (ns.AbbreviateShortHealth), whatever the decimal options say.
-  local function MakeAbbrevHP(getHP, status, shortHealth)
+  -- valueType: the Number Format type without a decimal config; boss frames
+  -- read "bossHealth" instead.
+  local function MakeAbbrevHP(getHP, status, shortHealth, valueType)
     return function(unit)
       if not unit or not UnitExists(unit) then return "" end
       if status then
@@ -398,17 +405,19 @@ do
       local hp = getHP(unit) or 0
       if shortHealth then return ns.AbbreviateShortHealth(hp) end
       local cfg = _G._EUI_AbbrevDecimalCfg
+      local boss = IS_BOSS_UNIT[unit]
       -- Boss frames use the 2-decimal config when "Show 2 for Boss" is on.
-      if _G._EUI_BossExtraDecimal and IS_BOSS_UNIT[unit] then
+      if _G._EUI_BossExtraDecimal and boss then
         cfg = _G._EUI_AbbrevDecimalCfg2
       end
-      return cfg and AbbreviateNumbers(hp, cfg) or AbbreviateNumbers(hp)
+      if cfg then return AbbreviateNumbers(hp, cfg) end
+      return ns.AbbreviateValue(hp, boss and "bossHealth" or valueType)
     end
   end
 
-  TagFns.curhpshort = MakeAbbrevHP(UnitHealth, true)
+  TagFns.curhpshort = MakeAbbrevHP(UnitHealth, true, nil, "health")
   TagFns.healthshort = MakeAbbrevHP(UnitHealth, true, true)
-  TagFns.maxhpshort = MakeAbbrevHP(UnitHealthMax)
+  TagFns.maxhpshort = MakeAbbrevHP(UnitHealthMax, nil, nil, "maxHealth")
 end
 
 do
@@ -597,7 +606,7 @@ ns.NICK_ADDON = addonName:find("Standalone") and addonName or "EllesmereUI"
 
 -- Resolve a unit's display name through MethodInternal's authoritative surface
 -- choice for known Method players, then the normal provider order: NSAPI ->
--- TimelineReminders -> LiquidAPI, then the raw unit name. Each
+-- TimelineReminders -> LiquidAPI -> CustomNames, then the raw unit name. Each
 -- external call is pcall-wrapped so a misbehaving API can never break names.
 --
 -- SECRET-SAFE: an enemy unit's UnitName is secret in protected content and any Lua op
@@ -663,6 +672,15 @@ function ns.ResolveUnitNickname(unit)
             display = dn
         end
     end
+    -- CustomNames (LibStub library): UnitName returns the custom name, or the raw
+    -- name when none is set, so dn ~= name keeps the WithSurname path.
+    if not display and not nameSecret and ns._customNames then
+        local ok, dn = pcall(ns._customNames.UnitName, unit)
+        if ok and type(dn) == "string"
+           and not (issecretvalue and issecretvalue(dn)) and dn ~= "" and dn ~= name then
+            display = dn
+        end
+    end
     if display then return display end
     return EllesmereUI.WithSurname(name, surname)
 end
@@ -722,7 +740,7 @@ do
     end)
 end
 
--- Provider callbacks. MethodInternal uses the addon-loaded callback; NSAPI and
+-- Provider callbacks. MethodInternal and CustomNames use the addon-loaded callback; NSAPI and
 -- TimelineReminders retry on PLAYER_LOGIN/PLAYER_ENTERING_WORLD. Registrant key MUST
 -- be "EllesmereUIUnitFrames", not "EllesmereUI": Raid Frames owns that key and
 -- CallbackHandler keys registrations by it, so reuse would clobber one module. The
@@ -773,6 +791,27 @@ do
         end)
     end
     EventUtil.ContinueOnAddOnLoaded("MethodInternal", RegisterMethodInternal)
+    -- CustomNames fires one callback per character, so a BattleTag rename or an
+    -- import arrives as a burst: repaint once on the next frame. Nothing waits for
+    -- it unless it is installed and enabled for this character.
+    if C_AddOns.IsAddOnLoaded("CustomNames") or C_AddOns.IsAddOnLoadable("CustomNames") then
+        EventUtil.ContinueOnAddOnLoaded("CustomNames", function()
+            local CN = LibStub("CustomNames", true)
+            if not (CN and CN.UnitName and CN.RegisterCallback) or ns._customNames then return end
+            ns._customNames = CN
+            local pending
+            local function Flush() pending = nil; RefreshNames() end
+            local function QueueRefresh()
+                if pending then return end
+                pending = true
+                C_Timer.After(0, Flush)
+            end
+            CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Added", QueueRefresh)
+            CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Update", QueueRefresh)
+            CN.RegisterCallback("EllesmereUIUnitFrames", "Name_Removed", QueueRefresh)
+            RefreshNames()
+        end)
+    end
 end
 
 -- "Name > Target" is built from FOUR tags so the (possibly SECRET) target name is never
@@ -926,11 +965,15 @@ do
         if not u or not UnitExists(u) then return "" end
         return sf("%s", C_StringUtil.TruncateWhenZero(UnitGetTotalAbsorbs(u) or 0))
     end
+    -- An absorb amount abbreviated: Show Decimal on Health Text's table while it
+    -- is on, else the Number Format.
+    local function AbbrevAbsorb(v)
+        local cfg = _G._EUI_AbbrevDecimalCfg
+        return cfg and AbbreviateNumbers(v, cfg) or ns.AbbreviateValue(v, "absorb")
+    end
     P.absorbshort = function(u)
         if not u or not UnitExists(u) then return "" end
-        local cfg = _G._EUI_AbbrevDecimalCfg
-        return cfg and AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0, cfg)
-            or AbbreviateNumbers(UnitGetTotalAbsorbs(u) or 0)
+        return AbbrevAbsorb(UnitGetTotalAbsorbs(u) or 0)
     end
     P.healabsorb = function(u)
         if not u or not UnitExists(u) then return "" end
@@ -938,10 +981,21 @@ do
     end
     P.healabsorbshort = function(u)
         if not u or not UnitExists(u) then return "" end
-        local cfg = _G._EUI_AbbrevDecimalCfg
-        return cfg and AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0, cfg)
-            or AbbreviateNumbers(UnitGetTotalHealAbsorbs(u) or 0)
+        return AbbrevAbsorb(UnitGetTotalHealAbsorbs(u) or 0)
     end
+    -- [absorb:abr], [healabsorb:abr]: empty at zero like the full tags. The presets
+    -- above keep "0" because ApplyAbsorbGate clips their whole zone instead.
+    local IsZeroValue = EllesmereUI.IsZeroValue
+    local function AbsorbShortTag(get)
+        return function(u)
+            if not u or not UnitExists(u) then return "" end
+            local v = get(u) or 0
+            if IsZeroValue(v) then return "" end
+            return AbbrevAbsorb(v)
+        end
+    end
+    P.absorbshorttag = AbsorbShortTag(UnitGetTotalAbsorbs)
+    P.healabsorbshorttag = AbsorbShortTag(UnitGetTotalHealAbsorbs)
     P.group = function(u)
         if not IsInRaid() then return "" end
         local idx = UnitInRaid(u)
@@ -1047,6 +1101,7 @@ do
         [P.perpp] = "pp", [P.curpp] = "pp", [P.maxpp] = "pp", [P.curppfull] = "pp", [P.maxppfull] = "pp",
         [P.absorb] = "abs", [P.absorbshort] = "abs",
         [P.healabsorb] = "habs", [P.healabsorbshort] = "habs",
+        [P.absorbshorttag] = "abs", [P.healabsorbshorttag] = "habs",
         [P.name] = "id", [P.level] = "id", [P.levelcol] = "id", [P.levelcolall] = "id",
     }
     -- The tags' Name Format modifiers ([name:abbr]): they shape the plain name,
@@ -1070,8 +1125,8 @@ do
         ["hp:max:abr"] = P.maxhpshort, ["hp:pct"] = P.perhp,
         ["pp"] = P.curppfull, ["pp:abr"] = P.curpp, ["pp:max"] = P.maxppfull,
         ["pp:max:abr"] = P.maxpp, ["pp:pct"] = P.perpp,
-        ["absorb"] = P.absorb, ["absorb:abr"] = P.absorbshort,
-        ["healabsorb"] = P.healabsorb, ["healabsorb:abr"] = P.healabsorbshort,
+        ["absorb"] = P.absorb, ["absorb:abr"] = P.absorbshorttag,
+        ["healabsorb"] = P.healabsorb, ["healabsorb:abr"] = P.healabsorbshorttag,
         ["name"] = P.name, ["name:first"] = P.namefirst, ["name:last"] = P.namelast, ["name:abbr"] = P.nameabbr,
         ["target"] = P.tgtname, ["target:first"] = P.tgtfirst, ["target:last"] = P.tgtlast, ["target:abbr"] = P.tgtabbr,
         ["level"] = P.level, ["group"] = P.group,

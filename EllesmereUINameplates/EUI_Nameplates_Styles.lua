@@ -495,6 +495,11 @@ function ns.NP_ApplyBlizzBarArt(plate)
             plate.targetHighlight:AddMaskTexture(mask)
             plate._blizzMaskedTarget = true
         end
+        if plate.castTintInt and not plate._blizzMaskedCastTints then
+            plate.castTintInt:AddMaskTexture(mask)
+            plate.castTintUnint:AddMaskTexture(mask)
+            plate._blizzMaskedCastTints = true
+        end
     end
     ns.NP_BlizzBarShadow(health, nil, mask)
 end
@@ -932,6 +937,7 @@ local function ApplyHealthBarTexture(plate)
     if plate.absorb and plate._absFill ~= health:GetStatusBarTexture() then
         ns.NP_LayoutAbsorbBars(plate, health, plate._absEdge)
     end
+    if plate.castTintInt then ns.NP_LayoutCastTints(plate) end
     -- Blizzard Style: the user's fill under the stock background art, plus
     -- the bar's inner shadow (re-sized here on every appearance pass). The
     -- classic plate is the bare fill inside its 1px edge (the border path).
@@ -991,6 +997,8 @@ function ns.NP_ApplyRounding(plate, part, cornersOnly)
         HP_TEX[4], HP_TEX[5] = plate.highlight, plate.targetHighlight
         HP_TEX[6] = ab and ab:GetStatusBarTexture()
         HP_TEX[7] = fw and fw:GetStatusBarTexture()
+        -- Color Casting Enemies tints (built on first use, nil until then)
+        HP_TEX[8], HP_TEX[9] = plate.castTintUnint, plate.castTintInt
         -- The Target, Focus and Hover Texture overlays: one texture in each of
         -- their clip frames (built on first use, nil until then)
         HP_ROOTS[1], HP_ROOTS[2] = plate.targetClipFill, plate.targetClipBg
@@ -1006,7 +1014,7 @@ function ns.NP_ApplyRounding(plate, part, cornersOnly)
             and last.style == style and last.shape == shape
         if same then
             local lt, lr = last.tex, last.roots
-            for i = 1, 7 do
+            for i = 1, 9 do
                 if lt[i] ~= HP_TEX[i] then same = false; break end
             end
             if same then
@@ -1023,7 +1031,7 @@ function ns.NP_ApplyRounding(plate, part, cornersOnly)
             end
             last.radius, last.style, last.shape = radius, style, shape
             local lt, lr = last.tex, last.roots
-            for i = 1, 7 do lt[i] = HP_TEX[i] end
+            for i = 1, 9 do lt[i] = HP_TEX[i] end
             for i = 1, 6 do lr[i] = HP_ROOTS[i] end
         end
     end

@@ -328,7 +328,7 @@ local function TileUnitFrames(parent, y, W, tile)
     -- UF's own dropdown copy drops the separator.
     local hbtValues, hbtOrder = CopyBarDD(ns.healthBarTextureNames, ns.healthBarTextureOrder, ns.healthBarTextures, true)
 
-    -- The module's own lists (ns, EllesmereUIUnitFrames.lua), copied: the
+    -- The module's own lists (ns, EUI_UnitFrames_Absorb.lua), copied: the
     -- SharedMedia tail is appended into them.
     local absorbStyleValues = CopyTable(ns.ABSORB_STYLE_NAMES)
     local absorbStyleOrder = CopyTable(ns.ABSORB_STYLE_ORDER)
@@ -478,7 +478,7 @@ local function TileRaidFrames(parent, y, W, tile)
         background = function(key)
             if not key or key == "---" or key == "none" then return nil end
             if key == "blizzardModern" then return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex("striped"), modernSwatch end
-            if key == "maxHealthStripes" then return "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png" end
+            if key == "maxHealthStripes" then return EllesmereUI.MAX_HEALTH_STRIPES_TEX end
             return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex(key) or nil
         end,
     }

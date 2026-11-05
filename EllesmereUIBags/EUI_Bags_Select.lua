@@ -585,6 +585,13 @@ function EUI_Bags:SyncHeaderIcons()
         self._sellJunkBtn:SetShown(junkOn and _openItemPanels.merchant == true)
     end
     if not junkOn and self._junkMode then ExitAssignSelectMode() end
+    -- The leftmost shown icon bounds the title and item count (FitHeaderText)
+    local edge = prev
+    if junkOn and self._junkBtn then
+        edge = self._sellJunkBtn:IsShown() and self._sellJunkBtn or self._junkBtn
+    end
+    self._hdrEdge = edge
+    self:FitHeaderText()
 end
 
 -- The slots one Sell Junk sweep may sell, gathered once as bag * 1000 + slot

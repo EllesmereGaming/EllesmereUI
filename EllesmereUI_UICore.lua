@@ -436,7 +436,7 @@ end
 local function ResolveThemeColor(theme)
     theme = EllesmereUI._ResolveFactionTheme(theme)
     if theme == "Class Colored" then
-        local clr = EllesmereUI.CLASS_COLOR_MAP[EllesmereUI._playerClass]
+        local clr = EllesmereUI.GetRawClassColor(EllesmereUI._playerClass)
         if clr then return clr.r, clr.g, clr.b end
         return EllesmereUI.DEFAULT_ACCENT_R, EllesmereUI.DEFAULT_ACCENT_G, EllesmereUI.DEFAULT_ACCENT_B
     elseif theme == "Custom Color" then
@@ -556,7 +556,7 @@ function EllesmereUI.ResolveProfileAccent(profileData)
     local acc = profileData and profileData.euiAccent
     -- 1) per-profile
     if acc and acc.useClass then
-        local c = EllesmereUI.CLASS_COLOR_MAP[EllesmereUI._playerClass]
+        local c = EllesmereUI.GetRawClassColor(EllesmereUI._playerClass)
         if c then return true, c.r, c.g, c.b end
     end
     if acc and acc.custom then
@@ -565,7 +565,7 @@ function EllesmereUI.ResolveProfileAccent(profileData)
     end
     -- 2) frozen global root -- ONLY when the profile has no explicit euiAccent. An explicit per-profile opt-out (useClass=false, no custom yet) must NOT fall through to the global class color; it drops to the global custom/theme terminal below, matching the displayed Custom swatch state.
     if (not acc) and EllesmereUIDB and EllesmereUIDB.useClassAccentColor then
-        local c = EllesmereUI.CLASS_COLOR_MAP[EllesmereUI._playerClass]
+        local c = EllesmereUI.GetRawClassColor(EllesmereUI._playerClass)
         if c then return true, c.r, c.g, c.b end
     end
     local gca = EllesmereUIDB and EllesmereUIDB.customAccentColor
@@ -588,7 +588,7 @@ end
 
 --- Class color for the current player
 EllesmereUI.GetPlayerClassColor = function()
-    local clr = EllesmereUI.CLASS_COLOR_MAP[EllesmereUI._playerClass]
+    local clr = EllesmereUI.GetRawClassColor(EllesmereUI._playerClass)
     if clr then return clr.r, clr.g, clr.b end
     return EllesmereUI.DEFAULT_ACCENT_R, EllesmereUI.DEFAULT_ACCENT_G, EllesmereUI.DEFAULT_ACCENT_B
 end
@@ -1412,6 +1412,8 @@ end -- IS_FOREVER
 --    WatchPad(owner, fn)    fn(padOn) once per burst of PadConnected() edges
 --    UnwatchPad(owner)      stop following; the last one drops the events
 --    PadGamepadUI()         WoW Forever's Gamepad interface style is on
+--    PadTaintStandDown()    that style is on and its navigation still lets an
+--                           addon hook taint it (clients before 1.60.1 70707)
 --    RaiseGamePadCursor()   gamepad pointer on at a user-requested open
 --    RegisterPadFrame(f)    a NAMED, hidden window root we own joins the
 --                           controller cursor, once (never HUD frames)
@@ -1459,11 +1461,24 @@ do
         return style ~= nil and types ~= nil and style.GetCurrentStyle() == types.Gamepad
     end
 
+    -- The stand-downs that exist only because that style's navigation made a
+    -- protected call in the same execution as a hook of ours on a Blizzard
+    -- frame (or an open of a Blizzard panel from our click) ask this one.
+    -- Since 1.60.1 (70707) Blizzard_GamepadSmartNavigation runs its entry
+    -- points securely and calls frame callbacks through securecallfunction,
+    -- from its SecureHelper (the SmartNavigationSecureHelper frame, built as
+    -- the addon loads at startup), so those features run under the style on
+    -- such a client. Features a controller cannot drive keep PadGamepadUI().
+    local function PadTaintStandDown()
+        return PadGamepadUI() and _G.SmartNavigationSecureHelper == nil
+    end
+
     EllesmereUI.PadCP        = PadCP
     EllesmereUI.PadNative    = PadNative
     EllesmereUI.PadInUse     = PadInUse
     EllesmereUI.PadConnected = PadConnected
     EllesmereUI.PadGamepadUI = PadGamepadUI
+    EllesmereUI.PadTaintStandDown = PadTaintStandDown
 
     -- Following PadConnected(): one shared watcher for every feature that hides
     -- or shows something with the controller. Its frame is built at the first
