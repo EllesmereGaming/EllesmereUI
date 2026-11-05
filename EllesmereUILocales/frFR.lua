@@ -6235,3 +6235,7 @@ L["Countdown to Soul"] = "Compte à rebours avant Âme des arcanes"
 L["Inside Soul"] = "Pendant Âme des arcanes"
 L["Last Barrage"] = "Dernier Barrage"
 L["This option requires Countdown Format to count GCDs inside Arcane Soul."] = "Cette option nécessite que le format du compte à rebours compte les GCD pendant Âme des arcanes."
+-- Show Waypoints in the World (EllesmereUIForeverEssentials_InGameNavigation.lua)
+L["Show Waypoints in the World"] = "Afficher les points de repère dans le monde"
+L["Shows the game's own waypoint marker in the world: an icon with the distance, and an arrow at the screen edge while the destination is out of sight. It goes away when you get close."] = "Affiche le marqueur de repère du jeu dans le monde : une icône avec la distance, et une flèche au bord de l'écran tant que la destination est hors de vue. Il disparaît quand vous vous en approchez."
+L["Close the world map first."] = "Fermez d'abord la carte du monde."
