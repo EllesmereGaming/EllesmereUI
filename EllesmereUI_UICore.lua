@@ -1161,7 +1161,8 @@ end
 --      EllesmereUI.WithSurname(UnitName(unit))
 --  Retail gets the first value back unchanged. A secret name (protected
 --  content) comes back as is, first name only: it cannot be inspected or
---  joined. Your own surname follows Blizzard's show-surname preference.
+--  joined. Your own surname follows Blizzard's show-surname preference unless
+--  ignorePreference is set.
 --  Joined names are cached per name pair, so repaints build no strings.
 -------------------------------------------------------------------------------
 do
@@ -1170,12 +1171,12 @@ do
         and Constants.CharacterNameSeparatorConsts.CHARACTERNAME_SURNAME_SEPARATOR or " "
     local joined = {}   -- [name][surname] = the display string
 
-    function EllesmereUI.WithSurname(name, surname)
+    function EllesmereUI.WithSurname(name, surname, ignorePreference)
         if not IS_FOREVER then return name end
         if issecretvalue(name) or issecretvalue(surname) then return name end
         if type(name) ~= "string" or type(surname) ~= "string" or surname == "" then return name end
         local PI = C_PlayerInfo
-        if PI and PI.ShouldDisplaySurname and not PI.ShouldDisplaySurname() then
+        if not ignorePreference and PI and PI.ShouldDisplaySurname and not PI.ShouldDisplaySurname() then
             local myName, mySurname = (UnitNameUnmodified or UnitName)("player")
             if name == myName and surname == mySurname then return name end
         end

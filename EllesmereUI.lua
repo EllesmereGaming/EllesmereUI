@@ -1218,6 +1218,35 @@ end
 
 local function lerp(a, b, t) return a + (b - a) * t end
 
+-- Shared /played: every module asks here, so modules share one request and its
+-- reply, and the game prints its two chat lines as rarely as possible. Returns
+-- total and this-level seconds when a reply for this level is known. Otherwise
+-- returns nothing and requests; the caller's own TIME_PLAYED_MSG gets the reply.
+do
+    local PENDING_SECONDS = 10  -- after this a reply counts as lost; a call asks again
+    local frame, pendingAt, total, level, at, charLevel
+
+    function EllesmereUI.RequestTimePlayed()
+        local now = GetTime()
+        if total and charLevel == UnitLevel("player") then
+            return total + (now - at), level + (now - at)
+        end
+        if not RequestTimePlayed or (pendingAt and now - pendingAt < PENDING_SECONDS) then return end
+        if not frame then
+            frame = CreateFrame("Frame")
+            frame:SetScript("OnEvent", function(self, _, totalTime, levelTime)
+                if type(totalTime) ~= "number" or type(levelTime) ~= "number" then return end
+                total, level, at, charLevel = totalTime, levelTime, GetTime(), UnitLevel("player")
+                pendingAt = nil
+                self:UnregisterEvent("TIME_PLAYED_MSG")
+            end)
+        end
+        pendingAt = now
+        frame:RegisterEvent("TIME_PLAYED_MSG")
+        RequestTimePlayed()
+    end
+end
+
 -- Realm a character roster groups by. Forever is realmless: the ruleset name.
 function EllesmereUI.RealmGroupName()
     if not EllesmereUI.IS_FOREVER then return GetRealmName() end

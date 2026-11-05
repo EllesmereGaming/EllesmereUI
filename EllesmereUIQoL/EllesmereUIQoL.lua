@@ -3248,10 +3248,24 @@ do
         end
         if InCombatLockdown() then return end
 
+        -- WoW Forever: each throw spends one point of a thrown weapon's
+        -- durability, so it counts remaining throws rather than wear.
+        local thrownSlot
+        if EllesmereUI.IS_FOREVER and EllesmereUIDB.durWarnIgnoreThrown == true then
+            local rangedSlot = GetInventorySlotInfo("RangedSlot")
+            local itemID = rangedSlot and GetInventoryItemID("player", rangedSlot)
+            if itemID then
+                local _, _, _, _, _, classID, subclassID = C_Item.GetItemInfoInstant(itemID)
+                if classID == Enum.ItemClass.Weapon and subclassID == Enum.ItemWeaponSubclass.Thrown then
+                    thrownSlot = rangedSlot
+                end
+            end
+        end
+
         local lowestDur = 100
         for slot = 1, 18 do
             local cur, mx = GetInventoryItemDurability(slot)
-            if cur and mx and mx > 0 then
+            if cur and mx and mx > 0 and slot ~= thrownSlot then
                 local pct = (cur / mx) * 100
                 if pct < lowestDur then lowestDur = pct end
             end

@@ -243,6 +243,7 @@ ns.BLOCK_TYPES = {
     { key = "greatvault", label = "Great Vault" },
     { key = "mplussummary", label = "M+ Summary",
       available = function() return EllesmereUI._MythicRuns ~= nil end },
+    { key = "timeplayed", label = "Time Played" },
     { key = "audio",      label = "Audio" },
     { key = "ldb",        label = "Broker Plugin" },
     { key = "spacer",     label = "Spacer" },
@@ -289,6 +290,7 @@ ns.BLOCK_DEFAULTS = {
     ilvl       = { prefix = "short", value = "equipped", precision = 0 },
     greatvault = {},
     mplussummary = { hideWhenEmpty = false },
+    timeplayed = { alwaysTotal = false },
     audio      = { channel = "master" },
     -- Broker plugin: one block type for every LibDataBroker data source, picked
     -- by name (source). stripColors defaults ON -- broker text arrives full of
