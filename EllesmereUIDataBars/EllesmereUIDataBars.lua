@@ -2335,6 +2335,8 @@ function ns.ApplyBar(id)
     end
 
     ApplyBarPosition(id)
+    -- Back onto its unlock anchor (nil until the unlock core is built).
+    if EllesmereUI.ReapplyUnlockAnchor then EllesmereUI.ReapplyUnlockAnchor("EDB_" .. id) end
     ApplyThemeToHost(rec.bar, cfg.theme, cfg.barTexture, not cfg.hideBorder)
 
     -- Reconcile block instances against cfg.blocks
@@ -2728,16 +2730,31 @@ do
         end
     end
 
+    -- UIParent:SetScale (login, scale slider) fires no event: follow its size.
+    -- One pass per frame.
+    local sizeQueued
+    local function OnUIParentSized()
+        if sizeQueued then return end
+        sizeQueued = true
+        C_Timer.After(0, function()
+            sizeQueued = false
+            OnDispEvent()
+        end)
+    end
+
     function dispRuntime.UpdateEventRegistration()
         if AnyFullBar() then
             if not dispFrame then
-                dispFrame = CreateFrame("Frame")
+                dispFrame = CreateFrame("Frame", nil, UIParent)
+                dispFrame:SetAllPoints(UIParent)
                 dispFrame:SetScript("OnEvent", OnDispEvent)
             end
             dispFrame:RegisterEvent("DISPLAY_SIZE_CHANGED")
             dispFrame:RegisterEvent("UI_SCALE_CHANGED")
+            dispFrame:SetScript("OnSizeChanged", OnUIParentSized)
         elseif dispFrame then
             dispFrame:UnregisterAllEvents()
+            dispFrame:SetScript("OnSizeChanged", nil)
         end
     end
 end
