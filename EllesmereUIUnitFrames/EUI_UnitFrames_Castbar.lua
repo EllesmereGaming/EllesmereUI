@@ -667,8 +667,10 @@ local function ApplyUnitFrameCastColor(castbar)
         -- shield wash below would cover the texture. The fold is secret-safe.
         local ev = C_CurveUtil.EvaluateColorValueFromBoolean
         local uninterruptible = GetCastbarUninterruptible(castbar)
+        -- Vertex alpha is the texture's alpha: keep Fill Opacity (and idle 0), not 1.
         castbar.castTintLayer:SetVertexColor(ev(uninterruptible, uc.r, r),
-            ev(uninterruptible, uc.g, g), ev(uninterruptible, uc.b, b), 1)
+            ev(uninterruptible, uc.g, g), ev(uninterruptible, uc.b, b),
+            castbar._castTintOn and (castbar._fillOp or 1) or 0)
         -- Same alpha as the ReloadFrames SetStatusBarColor sites.
         local baseA = ((settings and settings.castFillOpacity or 100) < 100) and 0
             or (db and db.profile.castbarOpacity or 1)
