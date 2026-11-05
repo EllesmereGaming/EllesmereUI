@@ -2705,13 +2705,17 @@ local dispRuntime = {}
 do
     local dispFrame
 
-    local function AnyFullBar()
+    -- Full-length and edge-snapped bars are placed from UIParent's size.
+    local function FollowsScreen(cfg)
+        return cfg.lengthMode == "full" or (cfg.snapEdge and cfg.snapEdge ~= "none")
+    end
+
+    local function AnyScreenBar()
         local profile = ns.GetProfile()
         if not profile then return false end
         local bars = profile.bars
         for i = 1, #bars do
-            if not ns.VisIsNever(bars[i])
-               and bars[i].lengthMode == "full" then
+            if not ns.VisIsNever(bars[i]) and FollowsScreen(bars[i]) then
                 return true
             end
         end
@@ -2724,7 +2728,7 @@ do
         ns.WipeFitCache()
         local bars = profile.bars
         for i = 1, #bars do
-            if bars[i].lengthMode == "full" then
+            if FollowsScreen(bars[i]) then
                 ns.ApplyBar(bars[i].id)
             end
         end
@@ -2743,7 +2747,7 @@ do
     end
 
     function dispRuntime.UpdateEventRegistration()
-        if AnyFullBar() then
+        if AnyScreenBar() then
             if not dispFrame then
                 dispFrame = CreateFrame("Frame", nil, UIParent)
                 dispFrame:SetAllPoints(UIParent)
