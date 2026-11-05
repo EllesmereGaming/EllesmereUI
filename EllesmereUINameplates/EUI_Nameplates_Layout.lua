@@ -749,7 +749,8 @@ do
     end
     -- Name Format (text-slot cog): one word, initials or a Character Count;
     -- unset shows the name whole. Keys are prebuilt; the split and its cache
-    -- live in EllesmereUI.ShortName.
+    -- live in EllesmereUI.ShortName. unit: whose name it is (on WoW Forever,
+    -- First / Last Name leave a non-player's name whole; nil = the preview).
     do
         local NAME_FORMAT_KEYS = {
             textSlotTop  = "textSlotTopNameFormat",  textSlotRight  = "textSlotRightNameFormat",
@@ -758,9 +759,10 @@ do
             textSlotBottomRight = "textSlotBottomRightNameFormat",
         }
         local short = EllesmereUI.ShortName
-        function ns.NP_FormatName(name, slotKey)
+        function ns.NP_FormatName(name, slotKey, unit)
             local key = slotKey and NAME_FORMAT_KEYS[slotKey]
             local mode = key and p and p[key]
+            if mode then mode = EllesmereUI.UnitNameFormat(mode, unit) end
             if mode then return short(name, mode) end
             return name
         end
@@ -805,7 +807,7 @@ do
     local function Name(u, slotKey)
         local name = EllesmereUI.WithSurname(UnitName(u))
         if type(name) == "nil" then return "" end
-        return ns.NP_FormatName(name, slotKey)
+        return ns.NP_FormatName(name, slotKey, u)
     end
     -- Tag modifiers shape the plain name. They do not also apply the slot's Name Format.
     local function Shaped(mode)
@@ -1042,12 +1044,17 @@ ns.GetTargetGlowStyle = GetTargetGlowStyle
 -- migration: each toggle returns its own stored key when set, else derives from targetGlowStyle
 -- (stays in defaults so the fallback source is always present). Mapping: ellesmereui ->
 -- EllesmereUI; vibrant -> EllesmereUI + Border Color; none -> nothing. On ns (local budget).
+-- The WoW Forever style marks its target with Highlight alone: EUI Glow, Border
+-- Color and Border Size read off there whatever the profile holds (the saved
+-- choices stay for the other styles).
 function ns.GetTargetGlowEllesmereUI()
+    if ns.NP_Forever() then return false end
     if p and p.targetGlowEllesmereUI ~= nil then return p.targetGlowEllesmereUI end
     local style = (p and p.targetGlowStyle) or defaults.targetGlowStyle
     return style == "ellesmereui" or style == "vibrant"
 end
 function ns.GetTargetGlowBorderColor()
+    if ns.NP_Forever() then return false end
     if p and p.targetGlowBorderColor ~= nil then return p.targetGlowBorderColor end
     local style = (p and p.targetGlowStyle) or defaults.targetGlowStyle
     return style == "vibrant"
@@ -1057,6 +1064,7 @@ function ns.GetTargetGlowHighlight()
     return false  -- no legacy equivalent
 end
 function ns.GetTargetGlowBorderSize()
+    if ns.NP_Forever() then return false end
     if p and p.targetGlowBorderSize ~= nil then return p.targetGlowBorderSize end
     return false  -- no legacy equivalent
 end

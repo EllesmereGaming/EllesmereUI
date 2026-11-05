@@ -1169,6 +1169,12 @@ function EAB:FinishSetup()
             if nForms ~= _gridState.spellsForms then
                 _gridState.spellsForms = nForms
                 LayoutBar("StanceBar")
+                -- A newly learned form's button was parked while its slot had no
+                -- form, statehidden set: LayoutBar shows it again but leaves that
+                -- mark, and Blizzard's stance bar update on the next form change
+                -- (its UpdateShownButtons, run on the reused StanceButtons) hides
+                -- every button still carrying it. The AlwaysShow pass owns it.
+                self:ApplyAlwaysShowButtons("StanceBar")
                 self:RefreshRuntimeVisibility() -- re-eval stance bar show/hide
             end
             -- Content-signature gate: SPELLS_CHANGED also fires mid-combat on

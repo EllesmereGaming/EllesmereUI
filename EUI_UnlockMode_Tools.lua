@@ -1244,7 +1244,9 @@ local BLIZZ_OWNED_OVERLAY_DEFS = {
     -- then enforced against Edit Mode via the chat module's anchor guard).
     { label = "Micro Menu",    frame = function() return _G.MicroMenuContainer end },
     { label = "Bags",          frame = function() return _G.BagsBar end },
-    { label = "Encounter Bar", frame = function() return _G.PlayerPowerBarAlt end, showAlways = true, fallbackW = 240, fallbackH = 36, yOffset = 44 },
+    -- On WoW Forever only while the bar itself shows: no stand-in box over an
+    -- empty spot.
+    { label = "Encounter Bar", frame = function() return _G.PlayerPowerBarAlt end, showAlways = EllesmereUI.IS_FOREVER ~= true, fallbackW = 240, fallbackH = 36, yOffset = 44 },
     { label = "Buffs",         frame = function() return _G.BuffFrame end },
     { label = "Debuffs",       frame = function() return _G.DebuffFrame end },
     -- Blizzard Edit Mode's default tooltip anchor. EUI permanently owns the default

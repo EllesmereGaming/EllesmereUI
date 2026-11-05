@@ -217,50 +217,68 @@ function EABR.FvTrackingState()
     return EABR._fvTreasureUp, EABR._fvClassUp
 end
 
--- A cast-on-click reminder for a WoW Forever tracking spell (gathering, Find
--- Treasure).
-function EABR.FvSpellEntry(missing, id, dismissKey)
+-- A cast-on-click reminder for a WoW Forever spell (gathering, Find Treasure,
+-- the mage armors), labelled with the spell's name unless a label is given.
+function EABR.FvSpellEntry(missing, id, dismissKey, label)
     local e = AcquireEntry()
     e.mode = "spell"; e.spellID = id
-    e.label = ShortLabel(SpellName(id) or tostring(id))
+    e.label = label or ShortLabel(SpellName(id) or tostring(id))
     e.cat = "forever"; e.dismissKey = dismissKey
     missing[#missing+1] = e
 end
 
+-- Whether any rank of one mage armor line is up (ids: the one-slot lookup).
+local function ArmorUp(line, ids)
+    for j = 1, #line do
+        ids[1] = line[j]
+        if PlayerHasAuraByID(ids) then return true end
+    end
+    return false
+end
+
 -- Mage armors (WoW Forever): one reminder while no rank of Frost Armor, Ice
 -- Armor or Mage Armor is up. Only one of them can be active, so the rank found
--- up both clears the reminder and records its line (fo.lastArmor): the icon and
--- the click then follow the armor the mage last had on, with no event of its
--- own (the player's UNIT_AURA already drives the refresh). Nothing up casts the
--- strongest rank known of that line, else the strongest line known. Reads the
--- same per-ID lookups one list pass would, stopping at the one that is up.
-function EABR.CollectMageArmor(missing, fo, auraLock, ids)
+-- up both clears the reminder and records its line for this character
+-- (EllesmereUIDB.mageArmorByChar by EllesmereUI.CharKey: a profile is shared by
+-- every character on it). The icon and the click then follow the armor the
+-- character last had on, with no event of its own (the player's UNIT_AURA
+-- already drives the refresh). Nothing up casts the strongest rank known of
+-- that line, else the strongest line known. The recorded line is read first:
+-- the armor up is nearly always the last one seen.
+function EABR.CollectMageArmor(missing, auraLock, ids)
     local lines = EABR.MAGE_ARMORS
-    local readable = true
+    local store = EllesmereUIDB.mageArmorByChar
+    local key = EABR._armorKey
+    if not key then
+        key = EllesmereUI.CharKey("-", store)
+        EABR._armorKey = key
+    end
+    local first = lines[store and key and store[key]]
+    if first and ArmorUp(first, ids) then return end
+    local readable = not (auraLock and first and not EABR.FvRanksReadable(first))
     for i = 1, #lines do
         local line = lines[i]
-        for j = 1, #line do
-            ids[1] = line[j]
-            if PlayerHasAuraByID(ids) then fo.lastArmor = i; return end
+        if line ~= first then
+            if ArmorUp(line, ids) then
+                if key then
+                    if not store then store = {}; EllesmereUIDB.mageArmorByChar = store end
+                    store[key] = i
+                end
+                return
+            end
+            if auraLock and not EABR.FvRanksReadable(line) then readable = false end
         end
-        if auraLock and not EABR.FvRanksReadable(line) then readable = false end
     end
     -- Under the aura lock an unreadable rank would read absent: say nothing.
     if not readable then return end
-    local last = lines[fo.lastArmor]
-    local id = last and EABR.FvHighest(last)
+    local id = first and EABR.FvHighest(first)
     if not id then
         for i = #lines, 1, -1 do
             id = EABR.FvHighest(lines[i])
             if id then break end
         end
     end
-    if not id then return end
-    local e = AcquireEntry()
-    e.mode = "spell"; e.spellID = id
-    e.label = EllesmereUI.L("Armor")
-    e.cat = "forever"; e.dismissKey = "forever:magearmor"
-    missing[#missing+1] = e
+    if id then EABR.FvSpellEntry(missing, id, "forever:magearmor", EllesmereUI.L("Armor")) end
 end
 
 -- WoW Forever collector: the Camp Benefits campfire buff, Well Fed (any food
@@ -342,7 +360,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
         end
     end
     if fo.mageArmor and open and GetPlayerClass() == "MAGE" then
-        EABR.CollectMageArmor(missing, fo, auraLock, ids)
+        EABR.CollectMageArmor(missing, auraLock, ids)
     end
     local groups = fo.customGroups
     if groups and groups[1] and not restricted then

@@ -133,6 +133,33 @@ function ns.Feature(dbKey, defaults, defaultPos)
 end
 
 -------------------------------------------------------------------------------
+--  Micro menu click layer (Classic Spellbook, Classic Talents)
+-------------------------------------------------------------------------------
+-- A plain button of ours over one of the game's micro buttons, for a window of
+-- ours that stands in for the one the button opens. The game runs no secure
+-- snippet wrapped on these buttons (they are not explicitly protected), so the
+-- layer takes their left and right clicks instead. It is a child of the micro
+-- button, so it shows, hides and fades with it; hover passes through to the
+-- button (its tooltip and highlight), and so do the middle and side mouse
+-- buttons, which Quick Keybind mode binds there. A click does nothing while
+-- the game has the button disabled. Built out of combat, since its mouse
+-- routing is blocked in combat on every frame; nil without the button.
+function ns.MicroClickLayer(microName, onClick)
+    local micro = _G[microName]
+    if not micro or InCombatLockdown() then return nil end
+    local layer = CreateFrame("Button", nil, micro)
+    layer:SetAllPoints(micro)
+    layer:SetFrameLevel(micro:GetFrameLevel() + 5)
+    layer:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    layer:SetPropagateMouseMotion(true)
+    layer:SetPassThroughButtons("MiddleButton", "Button4", "Button5")
+    layer:SetScript("OnClick", function()
+        if micro:IsEnabled() then onClick() end
+    end)
+    return layer
+end
+
+-------------------------------------------------------------------------------
 --  Auctionator prices (Loot Feed, Junk Items)
 -------------------------------------------------------------------------------
 -- Auctionator's API, while that addon is loaded.

@@ -5,8 +5,9 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  The vanilla talent window, drawn with the client's own art: one tree a
 --  tab, talents on a grid with their ranks and prerequisite arrows. Points
 --  are staged with a click and spent with Learn, as the game's own window
---  does. The talents key opens it in place of the Talents & Spellbook window,
---  which the micro menu still opens. Active spec only.
+--  does. The talents key and the micro menu's Talents button open it in place
+--  of the Talents & Spellbook window. The QoL Shifter moves it like the game's
+--  windows. Active spec only.
 -------------------------------------------------------------------------------
 local _, module = ...
 
@@ -14,7 +15,7 @@ local SIZE = 32           -- talent button
 local STEP = 63           -- between talents on the grid
 local LEFT, TOP = 35, 20  -- first talent, inside the tree area
 local VIEW_W, VIEW_H = 296, 332
-local BESIDE = 392        -- clears the spellbook and the tabs on its right side
+local GAP = 8             -- beside the spellbook, past the tabs on its right side
 local ART = "Interface\\TalentFrame\\"
 local QUEUE_KEY = "ClassicTalentsBind"
 local TOGGLE_NAME = "EUI_ClassicTalentsToggle"
@@ -44,6 +45,8 @@ local ARROW_LEFT = { 0.5, 1, 0 }
 local F = module.Feature("classicTalents", { enabled = false })
 
 local win, toggle
+local microLayer  -- the click layer over the micro menu's Talents button (see Setup)
+local route       -- EUI_TalentsRoute (see Setup)
 local trees = {}  -- { groupID, name, nodes = { nodeID, ... } } in tree order
 local tree = 1    -- the selected tree
 local staged = {} -- [nodeID] = points staged here and not yet learned
@@ -550,14 +553,23 @@ local function Build()
         QueuePaint()
     end)
     EllesmereUI.RegisterEscapeClose(win, { cursor = true })
+    if EllesmereUI._ShifterAdopt then EllesmereUI._ShifterAdopt("EUI_ClassicTalents") end
 end
 
--- At the left of the screen, or beside the Classic Spellbook while that is open.
+-- Beside the Classic Spellbook while that is open and in its place while it is
+-- closed, hanging from the book (the Shifter may have moved it); at the left of
+-- the screen without one. A spot saved in the Shifter wins over all of these.
 local function Place()
     if not win then return end
     local book = EUI_ClassicSpellbook
     win:ClearAllPoints()
-    win:SetPoint("TOPLEFT", UIParent, "TOPLEFT", book and book:IsShown() and BESIDE or 0, -104)
+    if not book then
+        win:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, -104)
+    elseif book:IsShown() then
+        win:SetPoint("TOPLEFT", book, "TOPRIGHT", GAP, 0)
+    else
+        win:SetPoint("TOPLEFT", book, "TOPLEFT")
+    end
 end
 
 local function Close()
@@ -578,6 +590,19 @@ end
 -------------------------------------------------------------------------------
 --  Setup
 -------------------------------------------------------------------------------
+-- The micro menu's Talents button opens the window too, through a click layer
+-- of ours over it (module.MicroClickLayer), in combat as well: the window is a
+-- plain frame. Our other panels that open the talents (the Data Bars micro
+-- menu block, Quickdraw) click EUI_TalentsRoute: a secure click that goes to
+-- the window's toggle while the feature is on and to the game's Talents micro
+-- button otherwise. Made at load, out of combat; aimed by Bind.
+if not InCombatLockdown() then
+    route = CreateFrame("Button", "EUI_TalentsRoute", UIParent, "SecureActionButtonTemplate")
+    route:SetAttribute("type", "click")
+    route:SetAttribute("useOnKeyDown", false)
+    route:SetAttribute("clickbutton", _G.TalentMicroButton)
+end
+
 -- The talents key clicks the toggle while the feature is on. Setting an
 -- override fires UPDATE_BINDINGS itself, so unchanged keys are left alone.
 local function Bind()
@@ -585,19 +610,25 @@ local function Bind()
         EllesmereUI.CombatQueue.Defer(QUEUE_KEY, Bind)
         return
     end
-    if not toggle then
-        if not F.Enabled() then return end
+    local on = F.Enabled()
+    if on and not toggle then
         toggle = CreateFrame("Button", TOGGLE_NAME, UIParent)
         toggle:SetScript("OnClick", Toggle)
         toggle:SetScript("OnEvent", Bind)
     end
-    local on = F.Enabled()
+    local target = on and toggle or _G.TalentMicroButton
+    if route and route:GetAttribute("clickbutton") ~= target then route:SetAttribute("clickbutton", target) end
+    if not toggle then return end
     if on then
         toggle:RegisterEvent("UPDATE_BINDINGS")
+        if not microLayer and not EllesmereUI.PadTaintStandDown() then
+            microLayer = module.MicroClickLayer("TalentMicroButton", Toggle)
+        end
     else
         toggle:UnregisterAllEvents()
         if win then win:Hide() end
     end
+    if microLayer then microLayer:SetShown(on) end
     local keys = on and table.concat({ GetBindingKey("TOGGLETALENTS") }, " ") or ""
     if keys == boundKeys then return end
     boundKeys = keys
