@@ -1728,14 +1728,14 @@ end
 
 
 function History:DeleteEntries(ids)
-    local removed, last, dirty, gone = 0, nil, {}, {}
+    local removed, last, dirty, gone, rows = 0, nil, {}, {}, {}
     for _, id in ipairs(ids or {}) do
         local store, key, entry, segKey, tag = FindStoredEntry(id)
         if store then
             store[key] = nil
             local native = store == addon.db.history or tag == "h"
 
-            if native then struck[key] = true end
+            if native then struck[key] = true; rows[#rows + 1] = entry end
             Forget(native and "history" or "imported", key)
             if segKey then dirty[segKey] = true else gone[entry] = true end
             removed = removed + 1
@@ -1747,12 +1747,16 @@ function History:DeleteEntries(ids)
     if next(dirty) then CommitSegs(dirty) end
     Unindex(gone)
     if addon.Snapshot then addon.Snapshot:Prune() end
+
+    if addon.Storage and addon.Storage.ForgetOwnAwards then addon.Storage:ForgetOwnAwards(rows) end
     if removed == 1 then
         addon.Log:I("History", "deleted", tostring(last.id), "from", last.source or "slc")
     else
         addon.Log:I("History", "deleted", removed, "entries")
     end
     addon.Callbacks:Fire("HistoryChanged", "deleted", removed == 1 and last or nil)
+
+    if addon.Trade and addon.Trade.UndoDeletedAwards then addon.Trade:UndoDeletedAwards(rows) end
     return removed
 end
 
@@ -1819,8 +1823,13 @@ end
 
 
 function History:Clear()
-    local removed = History:Count()
-    for id in pairs(addon.db.history or {}) do Forget("history", id) end
+    local removed, rows = History:Count(), {}
+    for id, entry in pairs(addon.db.history or {}) do
+        Forget("history", id)
+        rows[#rows + 1] = entry
+    end
+
+    if addon.Storage and addon.Storage.ForgetOwnAwards then addon.Storage:ForgetOwnAwards(rows) end
     History:ClearArchived("history")
     addon.db.history = {}
     Reindex()

@@ -576,13 +576,80 @@ function Storage:GetWon()
     return store
 end
 
-function Storage:RecordWon(link)
+
+function Storage:RecordWon(link, runId, session)
     if type(link) ~= "string" or not addon.db then return end
     if type(addon.db.wonCopies) ~= "table" then addon.db.wonCopies = {} end
     local store = addon.db.wonCopies
     if #store >= WON_MAX then table.remove(store, 1) end
-    store[#store + 1] = { link = link, addedAt = GetServerTime() }
+    store[#store + 1] = { link = link, addedAt = GetServerTime(), r = runId, s = session }
     addon.Log:D("Storage", "won copy recorded", link)
+end
+
+local function AwardKey(runId, session)
+    return tostring(runId) .. "|" .. tostring(session)
+end
+
+
+
+function Storage:ForgetOwnAwards(rows)
+    if not addon.db or type(addon.db.itemStorage) ~= "table" then return 0 end
+    local keys
+    for _, row in ipairs(rows or {}) do
+        if type(row) == "table" and row.runId and row.session
+            and addon.Player:IsSelf(row.winner) then
+            keys = keys or {}
+            keys[AwardKey(row.runId, row.session)] = true
+        end
+    end
+    if not keys then return 0 end
+
+    local removed, ledger = 0, addon.db.itemStorage
+    for i = #ledger, 1, -1 do
+        local args = ledger[i].args
+        if ledger[i].category == Storage.KEPT and type(args) == "table"
+            and keys[AwardKey(args.runId, args.session)] then
+            addon.Log:I("Storage", "kept record dropped with its history row", ledger[i].link)
+            table.remove(ledger, i)
+            removed = removed + 1
+        end
+    end
+    local won = addon.db.wonCopies
+    if type(won) == "table" then
+        for i = #won, 1, -1 do
+            local entry = won[i]
+            if type(entry) == "table" and entry.r and keys[AwardKey(entry.r, entry.s)] then
+                addon.Log:I("Storage", "won record dropped with its history row", entry.link)
+                table.remove(won, i)
+                removed = removed + 1
+            end
+        end
+    end
+    if removed > 0 and addon.Callbacks then addon.Callbacks:Fire("StorageChanged") end
+    return removed
+end
+
+
+
+function Storage:ClearOwnLabel(link, kept)
+    if type(link) ~= "string" or not addon.db then return false end
+    local list = kept and addon.db.itemStorage or addon.db.wonCopies
+    if type(list) ~= "table" then return false end
+    local id = ItemID(link)
+    for _, exact in ipairs({ true, false }) do
+        for i = #list, 1, -1 do
+            local entry = list[i]
+            if type(entry) == "table" and (not kept or entry.category == Storage.KEPT)
+                and (exact and ItemsMatch(entry.link, link)
+                    or not exact and id and ItemID(entry.link) == id) then
+                table.remove(list, i)
+                addon.Log:I("Storage", kept and "kept" or "won", "record cleared from the bags list", entry.link)
+                if addon.Callbacks then addon.Callbacks:Fire("StorageChanged") end
+                return true
+            end
+        end
+    end
+    return false
 end
 
 
@@ -1080,10 +1147,10 @@ function Storage:Init()
 
     if wonListening then return end
     wonListening = true
-    addon.Callbacks:Register("ItemDelivered", function(_, winner, item)
+    addon.Callbacks:Register("ItemDelivered", function(session, winner, item, runId)
         if type(item) == "table" and not item.simulated and winner
             and addon.Player:IsSelf(winner) then
-            Storage:RecordWon(item.link)
+            Storage:RecordWon(item.link, runId, session)
         end
     end)
 end

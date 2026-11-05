@@ -305,6 +305,7 @@ Choose a week, then a night to narrow it. Choose players or a guild rank to remo
 Choose which guild ranks count as raiders. Remembered per guild.
 Class
 Clear
+Clear \"Awarded to you\"
 Clear all
 Clear all attendance
 Clear attendance
@@ -348,6 +349,7 @@ Data & history
 Dec
 Decline
 Delete
+Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does.
 Delete %s awarded to %s?\n\nThis only changes your local history and cannot be undone.
 Delete all
 Delete entry
