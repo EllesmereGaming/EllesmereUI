@@ -202,11 +202,12 @@ local function BuildCustomIndicators(minimap)
         EllesmereUI.HideWidgetTooltip()
     end)
 
-    -- Not under WoW Forever's Gamepad interface style: its navigation takes over a
-    -- panel opened from our insecure click and makes protected calls, so the open is
-    -- blocked (and the blocked-action popup can freeze the client). Every reader
-    -- guards on the nil button.
-    if not EllesmereUI.PadGamepadUI() then
+    -- Not under WoW Forever's Gamepad interface style where its navigation can still
+    -- be tainted (EllesmereUI.PadTaintStandDown): it takes over a panel opened from
+    -- our insecure click and makes protected calls, so the open is blocked (and the
+    -- blocked-action popup can freeze the client). Every reader guards on the nil
+    -- button.
+    if not EllesmereUI.PadTaintStandDown() then
     -- Friends Online button
     _customIndicators.friends = CreateIndicatorBtn("_friends", minimap,
         FRIENDS_ATLAS, FRIENDS_ATLAS, nil,
@@ -216,7 +217,7 @@ local function BuildCustomIndicators(minimap)
                 return
             end
             -- Switched to that style mid-session: opening the panel from here is blocked.
-            if EllesmereUI.PadGamepadUI() then return end
+            if EllesmereUI.PadTaintStandDown() then return end
             ToggleFriendsFrame()
         end)
     -- Not in INDICATOR_ATLAS_RATIO, so the icon uses inset anchoring; desaturated idle.
@@ -244,7 +245,7 @@ local function BuildCustomIndicators(minimap)
         HideFriendsTooltip()
     end)
 
-    end -- not PadGamepadUI
+    end -- not PadTaintStandDown
 
     -- Great Vault + M+ Portal buttons: built once, anchored in LayoutIndicatorFrames.
     -- Neither exists on WoW Forever (no vault, no keystone portals): the buttons are

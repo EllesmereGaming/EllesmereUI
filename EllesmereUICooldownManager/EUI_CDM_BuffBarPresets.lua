@@ -28,14 +28,17 @@ I.assignDirtySetters[#I.assignDirtySetters + 1] = function(v) _tbbAssignDirty = 
 --  Stacks Helper (reads Blizzard child Applications frame)
 -------------------------------------------------------------------------------
 -- Applications count for a Blizzard child, avoiding the aura-instance query where
--- possible: the child's auraDataCached table reads without erroring on every client,
--- its applications field is plain on live and secret under the 12.1 combat
+-- possible: the child's auraDataCached table usually reads without erroring, its
+-- applications field is plain on live and secret under the 12.1 combat
 -- restriction, and both feed StatusBar:SetValue/FontString:SetText natively. The
--- instance-id query is the fallback for an unpopulated cache and HARD-ERRORS on 12.1
--- restricted units, hence the pcall and the secret-iid guard.
+-- cache can also be a secret TABLE (Blizzard fills it from aura queries that hide
+-- the whole aura while the unit's auras are restricted), which cannot be indexed,
+-- so it reads as an unpopulated cache. The instance-id query is the fallback for an
+-- unpopulated cache and HARD-ERRORS on 12.1 restricted units, hence the pcall and
+-- the secret-iid guard.
 local function ReadStackApplications(blzChild)
     local ad = blzChild.auraDataCached
-    if ad and ad.applications then return ad.applications end
+    if not issecretvalue(ad) and ad and ad.applications then return ad.applications end
     local auraInstID = blzChild.auraInstanceID
     local auraUnit = blzChild.auraDataUnit
     if auraInstID and auraUnit and not issecretvalue(auraInstID) then

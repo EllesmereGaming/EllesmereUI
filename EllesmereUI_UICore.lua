@@ -1412,6 +1412,8 @@ end -- IS_FOREVER
 --    WatchPad(owner, fn)    fn(padOn) once per burst of PadConnected() edges
 --    UnwatchPad(owner)      stop following; the last one drops the events
 --    PadGamepadUI()         WoW Forever's Gamepad interface style is on
+--    PadTaintStandDown()    that style is on and its navigation still lets an
+--                           addon hook taint it (clients before 1.60.1 70707)
 --    RaiseGamePadCursor()   gamepad pointer on at a user-requested open
 --    RegisterPadFrame(f)    a NAMED, hidden window root we own joins the
 --                           controller cursor, once (never HUD frames)
@@ -1459,11 +1461,24 @@ do
         return style ~= nil and types ~= nil and style.GetCurrentStyle() == types.Gamepad
     end
 
+    -- The stand-downs that exist only because that style's navigation made a
+    -- protected call in the same execution as a hook of ours on a Blizzard
+    -- frame (or an open of a Blizzard panel from our click) ask this one.
+    -- Since 1.60.1 (70707) Blizzard_GamepadSmartNavigation runs its entry
+    -- points securely and calls frame callbacks through securecallfunction,
+    -- from its SecureHelper (the SmartNavigationSecureHelper frame, built as
+    -- the addon loads at startup), so those features run under the style on
+    -- such a client. Features a controller cannot drive keep PadGamepadUI().
+    local function PadTaintStandDown()
+        return PadGamepadUI() and _G.SmartNavigationSecureHelper == nil
+    end
+
     EllesmereUI.PadCP        = PadCP
     EllesmereUI.PadNative    = PadNative
     EllesmereUI.PadInUse     = PadInUse
     EllesmereUI.PadConnected = PadConnected
     EllesmereUI.PadGamepadUI = PadGamepadUI
+    EllesmereUI.PadTaintStandDown = PadTaintStandDown
 
     -- Following PadConnected(): one shared watcher for every feature that hides
     -- or shows something with the controller. Its frame is built at the first
