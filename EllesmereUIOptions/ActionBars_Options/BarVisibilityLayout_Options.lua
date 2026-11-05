@@ -178,11 +178,12 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
                 -- Available in EVERY visibility mode (unlike Show During
                 -- Drag, whose behavior IS the default outside Never). It
                 -- greys out while WoW Forever's Gamepad interface style is
-                -- on, and while the runtime has stood it down for the
-                -- session (EAB._sbOff).
+                -- on where its navigation can still be tainted
+                -- (EllesmereUI.PadTaintStandDown), and while the runtime has
+                -- stood it down for the session (EAB._sbOff).
                 return { type="toggle", label="Show When Spellbook Is Open",
                   tooltip="While the spellbook or macro panel is open, this bar appears so you can drag abilities onto it.",
-                  disabled=function() return EAB._sbOff == true or EllesmereUI.PadGamepadUI() end,
+                  disabled=function() return EAB._sbOff == true or EllesmereUI.PadTaintStandDown() end,
                   disabledTooltip="This option does not work with the Gamepad interface style (after switching away from it, reload to use it).",
                   rawTooltip=true,
                   get=function() return SB().spellbookShow == true end,

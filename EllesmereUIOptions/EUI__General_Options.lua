@@ -234,6 +234,17 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "9.7.5",
+        mini = true,
+        fixes = {
+            { module = "Action Bars", text = "Turning Cooldown Numbers on or off now updates your bars at once instead of after a reload." },
+            { module = "Chat", text = "With Input on Top and Blizzard's IM chat style, the empty space above your messages now closes while you aren't typing, and links on the top line can be clicked." },
+            { module = "Cooldown Manager", text = "Buffs set to Also Show Below, buffs with a Stack Count glow and Stack Based Bar Tracking Bars no longer cause Lua errors in combat when the game hides an aura's details from addons." },
+            { module = "Cooldown Manager", forever = true, text = "The Anti-Clip Glow no longer causes Lua errors in combat when the game hides an aura's details from addons; that aura shows no glow there." },
+            { module = "General", forever = true, text = "Blizzard Skins+ window and tooltip skins, friend tiles, the Minimap Friends button, the Chat Menu icon, /cd, the Quest Tracker tools and the Action Bars spellbook, macro and flyout extras now work with the Gamepad interface style, since the 1.60.1 update stops addon hooks from blocking its navigation." },
+        },
+    },
+    {
         version = "9.7.4",
         thanks = true,
         heroes = {
@@ -1268,153 +1279,6 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Unlock Mode", text = "Unlock Mode now comes back after combat even when another fight starts within half a second of the first one ending." },
             { module = "Localization", text = "German, Korean, Traditional Chinese and Brazilian Portuguese translations updated for the latest options, and more tooltip, Damage Meters, minimap friends list and Raid & Party Frames labels now show in your language." },
         },
-        thanks = true,
-    },
-    {
-        version = "9.6.1",
-        features = {
-            {
-                -- The New Spell Group slot in the WOW FOREVER section (Forever only).
-                forever = true,
-                module = "AuraBuff Reminders",
-                title  = "Spell Groups",
-                desc   = "One reminder for buffs that replace each other, like armors or aspects: it shows while none of the group's spells is active",
-                nav    = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables",
-                           section = "WOW FOREVER", highlight = "New Spell Group" } or nil,
-            },
-            {
-                -- A row of the condition picker; the link opens the Conditional Overrides list.
-                module = "General",
-                title  = "Party Condition",
-                desc   = "Conditional overrides can now apply while you are in a party (a group that is not a raid), inside instances or out",
-                nav    = { module = "_EUIProfiles", page = "Overrides",
-                           preSelect = function() EllesmereUI._overridesTabMode = "cond" end },
-            },
-            {
-                -- Retail only (the module does not load on WoW Forever). The switch is in the
-                -- Premade Groups list's Group Settings menu, so the link lands on the module's page.
-                module = "Group Finder",
-                title  = "Dungeon Keystone Level",
-                desc   = "Each dungeon square in Premade Groups can show your best keystone level this season, colored by its score (Group Settings menu)",
-                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIGroupFinder", page = "Premade Search",
-                           section = "GROUP FINDER", highlight = "Enable Group Finder" } or nil,
-            },
-            {
-                -- A row in the Bar Texture and Cast Bar Texture cogs (also on Global Settings > Textures).
-                module = "Nameplates",
-                title  = "Textured Background",
-                desc   = "Enemy nameplate health and cast bar backgrounds can use the bar's own texture, tinted by the background color",
-                nav    = { module = "EllesmereUINameplates", page = "Display",
-                           section = "STYLE", highlight = "Bar Texture" },
-            },
-            {
-                -- A row in the Filter Quests cog, built while Experimental Quest Tools is on
-                -- (the link lands on the TRACKING section until then).
-                forever = true,
-                module = "Quest Tracker",
-                title  = "Quest Filter Button",
-                desc   = "An optional button on the Quests header turns Filter Quests on and off",
-                nav    = EllesmereUI.IS_FOREVER and { module = "EllesmereUIQuestTracker", page = "Quest Tracker",
-                           section = "TRACKING", highlight = "Filter Quests" } or nil,
-            },
-            {
-                -- Display-only rename of EllesmereUIRaidFrames; its main tab reads Raid.
-                module = "Raid & Party Frames",
-                title  = "New Name",
-                desc   = "Raid Frames is now called Raid & Party Frames, since it covers your party frames too; its main tab is now Raid",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Frames" },
-            },
-            {
-                -- The OVERRIDES section of the Buff and Debuff Manager sidebars.
-                module = "Raid & Party Frames",
-                title  = "Override List",
-                desc   = "The Buff and Debuff Manager sidebars list the overrides that have their own manager; click one to edit it",
-                nav    = { module = "EllesmereUIRaidFrames", page = "Buff Manager" },
-            },
-            {
-                -- The last rows of the cast bar's Fill Color cog.
-                module = "Resource Bars",
-                title  = "Uninterruptible Color Override",
-                desc   = "Casts that cannot be interrupted can fill the cast bar in their own color, set in its Fill Color cog",
-                nav    = { module = "EllesmereUIResourceBars", page = "Cast Bar",
-                           section = "DISPLAY", highlight = "Fill Color" },
-            },
-            {
-                -- Follows the Resource Bars row of Global Settings > Style (Forever only).
-                forever = true,
-                module = "Resource Bars",
-                title  = "Swing Timer Styles",
-                desc   = "The swing timer now follows your Resource Bars style, wearing the Blizzard, WoW Forever or Classic WoW UI frame like the other bars",
-                nav    = EllesmereUI.IS_FOREVER and { module = "EllesmereUIResourceBars", page = "Swing Timer",
-                           section = "DISPLAY" } or nil,
-            },
-            {
-                -- Retail only: a choice of the Power Type row, built for Balance Druids
-                -- (WoW Forever has no specs).
-                module = "Resource Bars",
-                title  = "Balance Mana (Always)",
-                desc   = "Balance Druids can keep the Power Bar on Mana in every form, Cat and Bear Form included, a new Power Type choice",
-                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars",
-                           section = "POWER BAR", highlight = "Power Type" } or nil,
-            },
-            {
-                -- The preview header of the Class, Power and Health Bars page; each
-                -- section title carries its bar's eye.
-                module = "Resource Bars",
-                title  = "Bar Previews",
-                desc   = "The Class, Power and Health Bars page now previews your power and health bars too, each with an eye to hide it",
-                nav    = { module = "EllesmereUIResourceBars", page = "Class, Power and Health Bars" },
-            },
-            {
-                -- A row in the Bar Texture cog (also on Mini Frames; the cast bars' is on Global Settings > Textures).
-                module = "Unit Frames",
-                title  = "Textured Background",
-                desc   = "Health, power and cast bar backgrounds can use the bar's own texture, tinted by the background color",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames",
-                           section = "DISPLAY", highlight = "Bar Texture" },
-            },
-            {
-                -- Retail only: a choice of the player's Power Type row, built for Balance
-                -- Druids (WoW Forever has no specs).
-                module = "Unit Frames",
-                title  = "Balance Astral Power",
-                desc   = "Balance Druids can show Astral Power on the player power bar in every form except Cat and Bear Form, a new Power Type choice",
-                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIUnitFrames", page = "Main Frames",
-                           section = "POWER BAR", highlight = "Power Type",
-                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end; EllesmereUI._pendingUnitSelect = "player" end } or nil,
-            },
-        },
-        fixes = {
-            { module = "Action Bars", text = "Attack, Shoot and Auto Shot buttons flash again while active, and stop flashing and lose their highlight as soon as they stop." },
-            { module = "Action Bars", text = "Your pet's Attack button stops flashing as soon as your pet stops attacking." },
-            { forever = true, module = "Action Bars", text = "Fixed combat errors that could stop logging out, the game menu and your action bar buttons from working until a reload." },
-            { module = "Action Bars", text = "Turning Use Blizzard's Rep Bars back on now asks for a reload, which keeps Blizzard's XP and reputation bars from slowing the game and causing errors in combat." },
-            { forever = true, module = "AuraBuff Reminders", text = "Custom spell reminders no longer show for a buff you already have while the game is hiding aura details from addons." },
-            { module = "Bags", text = "The bag window stutters less when it opens, updates or you search, and the search now updates once you pause typing." },
-            { module = "Blizzard Skins+", text = "The Character Sheet's character model and item level, enchant and upgrade text no longer go missing behind the sheet's background." },
-            { module = "Blizzard Skins+", text = "The Equipment Manager's set icon popup now matches the skinned Character Sheet." },
-            { module = "Cooldown Manager", text = "Blizzard's swing timers and the other frames stacked above your action bars no longer move up the screen in combat when your cooldowns update." },
-            { module = "Damage Meters", text = "After an earlier fight, the meter now keeps filling when a teammate pulls before you or when you zone into a fight your group is already in." },
-            { module = "Damage Meters", text = "Spell History now lists the healthstones and potions you use." },
-            { module = "General", text = "Removed a brief freeze when combat ends, most noticeable after a boss dies." },
-            { module = "General", text = "Cooldown Manager, Nameplates, Resource Bars, Unit Frames and Quality of Life's Movement Alert use less CPU in combat." },
-            { module = "Group Finder", text = "The leaver mark on a group member's icon in Premade Groups is no longer hidden under their spec or class icon." },
-            { module = "Minimap", text = "Addon buttons in the grouped flyout no longer turn dark after you click them." },
-            { module = "Nameplates", text = "Stacking Speed and Top Screen Inset now keep your setting after a game restart." },
-            { module = "Nameplates", text = "Health and cast bar background colors now update right away when you switch profiles." },
-            { module = "Nameplates", text = "The Honor Portrait faction icon now shows the unit's honor level badge inside it, as Blizzard's frames do." },
-            { module = "Quality of Life", text = "Hide Talking Head hides the speaker's 3D portrait again." },
-            { module = "Quality of Life", text = "The Movement Alert now plays your chosen sound when a movement spell is ready." },
-            { module = "Quality of Life", text = "Changing form no longer makes the Movement Alert announce a spell that is still on cooldown." },
-            { module = "Quest Tracker", text = "Quests added to the tracker no longer flash Blizzard's quest icon for a moment while Show Quest Icons is off." },
-            { module = "Raid & Party Frames", text = "Click Casting no longer causes a brief freeze when a bound spell swaps, such as Holy Armaments." },
-            { module = "Raid & Party Frames", text = "The Buff Manager preview now follows each indicator's Show In setting, showing Raid Only and Party Only indicators only when it previews those frames." },
-            { module = "Resource Bars", text = "Hiding the Class Resource bar or its text in Moonkin Form (Enable/Disable per Form) now works." },
-            { module = "Unit Frames", text = "A cast bar's pushback now shows its added time in full beside the countdown, and repeated pushbacks add up correctly." },
-            { module = "Unit Frames", text = "The faction indicator's Honor Portrait style now shows the unit's honor level badge inside it, as Blizzard's frames do." },
-            { module = "Localization", text = "Spanish (Spain), German, Korean, Brazilian Portuguese and Traditional Chinese translations updated for the latest options." },
-        },
-        -- Closing thank-you; its "contributors" word links to the Legends contributors box.
         thanks = true,
     },
 }

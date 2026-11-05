@@ -116,6 +116,16 @@ local function EnsureChatStateCallbacks()
         if not PermanentEditBox(eb) then return end
         ECHAT.RefreshInputTopStrips()
     end, "EUI_Chat_InputTopHide")
+    -- IM Style keeps a closed box shown, so there the strip follows the focus
+    -- (ECHAT.InputTopStripActive) and is re-derived on both focus edges.
+    EventRegistry:RegisterCallback("ChatFrame.OnEditBoxFocusGained", function(_, eb)
+        if not PermanentEditBox(eb) or not ECHAT.InputOnTop(ECHAT.DB()) then return end
+        ECHAT.RefreshInputTopStrips()
+    end, "EUI_Chat_InputTopFocusIn")
+    EventRegistry:RegisterCallback("ChatFrame.OnEditBoxFocusLost", function(_, eb)
+        if not PermanentEditBox(eb) or not ECHAT.InputOnTop(ECHAT.DB()) then return end
+        ECHAT.RefreshInputTopStrips()
+    end, "EUI_Chat_InputTopFocusOut")
 
     -- Sent-line capture for the Up/Down recall history. Blizzard triggers
     -- this from SendText, sequenced AFTER ParseText has stripped any slash
