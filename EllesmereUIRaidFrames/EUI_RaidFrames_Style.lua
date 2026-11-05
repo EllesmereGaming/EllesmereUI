@@ -741,14 +741,14 @@ local function StyleButton(button)
             ns.RF_KitSpot(d.kitG.role, roleIcon, button, s.roleIconOffsetX, s.roleIconOffsetY)
             return
         end
-        -- The position key uppercases directly to a valid anchor point, so all
-        -- 9 positions resolve like the Marker Position dropdown.
         -- Attach Role Icons: the name bar's rect is the same with or without a power bar
         if s.roleIconOnNameBar and s.topNameBarEnabled and d.topNameBar then
             local pos = (s.roleNameBarPosition or "left"):upper()
             roleIcon:SetPoint(pos, d.topNameBar, pos, s.roleNameBarOffsetX or 0, s.roleNameBarOffsetY or 0)
             return
         end
+        -- The position key uppercases directly to a valid anchor point, so all
+        -- 9 positions resolve like the Marker Position dropdown.
         local pos = (s.roleIconPosition or "bottomleft"):upper()
         roleIcon:SetPoint(pos, health, pos, s.roleIconOffsetX or 0, s.roleIconOffsetY or 0)
     end

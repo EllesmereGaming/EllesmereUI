@@ -3163,7 +3163,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             itemHeight = 28,
             background = function(key)
                 if not key or key == "---" or key == "none" then return nil end
-                if key == "maxHealthStripes" then return ns.UF_MAXHP_STRIPES end
+                if key == "maxHealthStripes" then return EllesmereUI.MAX_HEALTH_STRIPES_TEX end
                 return ns.ResolveAbsorbStyleTex and ns.ResolveAbsorbStyleTex(key) or nil
             end,
         }
@@ -3649,7 +3649,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         UpdateHealAbsorbBarSwatchVis()
     end
 
-    -- Max Health Style (+ swatch, eyeball, backing cog) | Max Health Opacity: Raid Frames
+    -- Max Health Style (+ eyeball, swatch, backing cog) | Max Health Opacity: Raid Frames
     -- parity; the overlay is always on the bar's far end. Boss frames use Target's.
     local maxHealthRow
     maxHealthRow, h = W:DualRow(parent, y,
@@ -3663,18 +3663,9 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
           setValue=function(v) SSetSupported("maxHealthOpacity", v) end });  y = y - h
     SApplySupport(maxHealthRow._leftRegion, "maxHealthStyle")
     SApplySupport(maxHealthRow._rightRegion, "maxHealthOpacity")
+    -- Inline order as on the Heal Absorb row: the eyeball, the swatch, then the cog.
     if not EllesmereUI._prebuilding then
         local rgn = maxHealthRow._leftRegion
-        EllesmereUI.BuildInlineCog(rgn, {
-            title = "Max Health Rendering",
-            disabled = function() return SValSupported("maxHealthStyle", "none") == "none" end,
-            disabledTooltip = "Max Health Style",
-            rows = {
-                { type="slider", label="Backing Opacity", min=0, max=100, step=1,
-                  get=function() return SValSupported("maxHealthBgOpacity", 100) end,
-                  set=function(v) SSetSupported("maxHealthBgOpacity", v) end },
-            },
-        })
         -- Eyeball: shows a reduced maximum on the preview (session-only flag).
         local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
         local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
@@ -3731,6 +3722,16 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         end
         RegisterWidgetRefresh(UpdateMaxHealthSwatchVis)
         UpdateMaxHealthSwatchVis()
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Max Health Rendering",
+            disabled = function() return SValSupported("maxHealthStyle", "none") == "none" end,
+            disabledTooltip = "Max Health Style",
+            rows = {
+                { type="slider", label="Backing Opacity", min=0, max=100, step=1,
+                  get=function() return SValSupported("maxHealthBgOpacity", 100) end,
+                  set=function(v) SSetSupported("maxHealthBgOpacity", v) end },
+            },
+        })
     end
 
     -- Row 5: Heal Prediction (+ your / others' color swatches) | Prediction Opacity

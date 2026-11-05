@@ -16,6 +16,7 @@ local GetTime = GetTime
 local pcall = pcall
 local abs = math.abs
 local min = math.min
+local ANTI_CLIP = ns.CDM_ANTI_CLIP
 
 local _pandemicState, FormatTime = I._pandemicState, I.FormatTime
 local LifebloomPandemic, _tbbWake = I.LifebloomPandemic, I._tbbWake
@@ -590,13 +591,19 @@ function ns.UpdateTrackedBuffBarTimers()
 
                     -- Pandemic glow: the ShowPandemicStateFrame hook sets _pandemicState.
                     -- Requires the user to enable pandemic alerts in Blizzard CDM settings.
+                    -- WoW Forever: the anti-clip glow instead (EUI_CDM_ForeverAntiClip.lua).
                     if _anyPandemic and cfg.pandemicGlow then
-                        local inPandemic = blzChild and _pandemicState[blzChild]
-                        -- Fallback for auras Blizzard never pandemic-flags (currently only
-                        -- Lifebloom). bar._isLifebloom is cached after the first resolve, so a
-                        -- bar known not to be Lifebloom costs one table read and skips.
-                        if not inPandemic and blzChild and bar._isLifebloom ~= false then
-                            inPandemic = LifebloomPandemic(bar, blzChild)
+                        local inPandemic
+                        if ANTI_CLIP then
+                            inPandemic = blzChild and ns.CDM_AntiClip and ns.CDM_AntiClip(blzChild)
+                        else
+                            inPandemic = blzChild and _pandemicState[blzChild]
+                            -- Fallback for auras Blizzard never pandemic-flags (currently only
+                            -- Lifebloom). bar._isLifebloom is cached after the first resolve, so a
+                            -- bar known not to be Lifebloom costs one table read and skips.
+                            if not inPandemic and blzChild and bar._isLifebloom ~= false then
+                                inPandemic = LifebloomPandemic(bar, blzChild)
+                            end
                         end
                         -- TBBs always show OUR glow (Blizzard Default included): the native
                         -- PandemicIcon lives on the hidden blzChild frame, not our visible TBB bar.

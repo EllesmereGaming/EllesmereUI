@@ -77,7 +77,7 @@ do
         local masked = ns.IconShapeMasked(p)
         local zoom = (p and p.iconZoom) or 0.07
         local crop = shape == "cropped" and ns.CropPercent(p) or 0
-        local inset = masked and ((p and p.borderSize) or 1) >= 4 and 1 or 0
+        local inset = masked and ((p and p.borderSize) or 1) > 0 and 1 or 0
         local state = f._eabrShape
         if not state then
             if shape == "none" and not (p and p.iconZoom) then return end
@@ -142,12 +142,11 @@ do
         return panel and EllesmereUI.Glows.PANEL_EXTRA or nil
     end
 
+    -- Secure icons are skipped in combat (ApplyIconBorder); the combat-end
+    -- refresh lays them out again with the shape.
     function ns.RefreshIconShapes()
-        -- One shared-queue job; default profiles never create it or register events.
-        EllesmereUI.CombatQueue.Defer("ABR:icon-shape", function()
-            I.EABR.ApplyAllIconBorders()
-            if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
-        end)
+        I.EABR.ApplyAllIconBorders()
+        if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
     end
 end
 
@@ -234,7 +233,7 @@ do
             -- Clearing rectangular art at size zero also hides its host.
             if not border:IsShown() then border:Show() end
             EllesmereUI.PP:ApplyMaskedShapeBorder(border, nil,
-                EllesmereUI.SHAPE_BORDERS[p.iconShape], size >= 4 and 7 or 0, r, g, b, a)
+                EllesmereUI.SHAPE_BORDERS[p.iconShape], size > 0 and 7 or 0, r, g, b, a)
             return
         elseif f._eabrShape then
             EllesmereUI.PP:HideMaskedShapeBorder(border)

@@ -362,7 +362,8 @@ do
         if not frame then return end
         local index = IsInRaid() and UnitInRaid("player")
         local group = index and select(3, GetRaidRosterInfo(index))
-        if not index then
+        -- Out of a raid, or a roster read mid-update that has no group for you yet.
+        if not index or type(group) == "nil" then
             if not ns._pgPreview then
                 frame:Hide()
                 shown = nil
@@ -405,7 +406,7 @@ do
         local fs = frame.text
         ApplyFont(fs, size)
         fs:SetTextColor(tc.r, tc.g, tc.b, tc.a or 1)
-        fmt = full and (GROUP_NUMBER or "Group %d") or "%d"
+        fmt = full and GROUP_NUMBER or "%d"
         local w, h = pg.width, pg.height
         if not (w and h) then
             -- The widest group, so the size never changes with the number.

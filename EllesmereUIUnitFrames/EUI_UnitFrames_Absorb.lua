@@ -727,53 +727,19 @@ function ns.UF_HealPredApply(frame, unitKey, s)
 end
 
 -------------------------------------------------------------------------------
---  Blizzard Glow Line (opt-in per unit, s.absorbGlowLine; player, target and
---  focus, and boss frames through the Target styling they draw absorbs with).
---  A soft line on the shield's edge next to current health. Placement
---  (g.ge), resolved by the settings pass:
---    1 = Overlay: the current-health seam, moving to the overshield's inner
---        edge while overshielding (the bar's far end with Show Overshield Never);
---    2 = Overlay with Show Overshield From Left: the seam, moving to the
---        from-left overshield's edge;
---    3 = Overlay Reverse: the shield's inner end, which always meets health;
---    5 = the far-edge placement (From Right Edge; From Left Edge on a reverse
---        fill): the shield's inner end, only while it reaches current health.
---  The origin-edge placement and a vertical fill draw nothing.
---  Cost: off builds nothing and the absorb painter pays one field test. The
---  host, gate bar, lines and the clamp calculator are built on first enable.
---  On, the seam line self-gates off the secret absorb through its gate bar,
---  and the overshield boolean (the calculator's Missing Health clamp) flips
---  the lines through their host frames' boolean alpha. Placements that read
---  it join the opt-in "absglow" channel (the unit's health changes), and the
---  flip returns at once while no shield is up. Anchors and art are set by
---  the settings pass and after a retexture, never per paint.
---  On ns: this chunk sits at the Lua 5.1 local ceiling.
+--  Max Health Style (opt-in per unit, s.maxHealthStyle; player, target and
+--  focus, where Blizzard's own frames draw max health loss, and boss frames
+--  through Target's): the part of the maximum a debuff took, as a styled
+--  overlay on the health bar's far end (Raid Frames parity; the look is
+--  EllesmereUI.ApplyMaxHealthStyle). Only loss is drawn. Off builds nothing;
+--  on, the opt-in "maxhp" channel repaints it on the unit's max health events.
 -------------------------------------------------------------------------------
--- Max Health Style (Raid Frames parity) where Blizzard draws max health loss: player,
--- target, focus; boss frames take target's. Opt-in channel, nothing built while None.
 ns.UF_MAXHP_UNITS = { player = true, target = true, focus = true }
-ns.UF_MAXHP_STRIPES = "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png"
-ns.UF_MAXHP_COLOR = { r = 0.7, g = 0.1, b = 0.1 }
 
 -- Texture, tint, opacity and the black backing; shared with the options preview.
 function ns.UF_ApplyMaxHealthStyle(bar, style, s, mask)
-    local tex, tiled
-    if style == "maxHealthStripes" then
-        tex, tiled = ns.UF_MAXHP_STRIPES, true
-    else
-        tex = ns.ResolveAbsorbStyleTex(style, "Interface\\Buttons\\WHITE8X8")
-        tiled = ns.ABSORB_TILED_STYLES[style] == true
-    end
-    local mc = (s and s.maxHealthColor) or ns.UF_MAXHP_COLOR
-    -- The "Large Outlined Stripes" styles are pre-colored; render them untinted.
-    if style == "largeOutlinedStripes" or style == "largeOutlinedStripesR" then mc = COLOR_WHITE end
-    bar:SetStatusBarTexture(tex)
-    bar:SetStatusBarColor(mc.r or 0.7, mc.g or 0.1, mc.b or 0.1, ((s and s.maxHealthOpacity) or 100) / 100)
-    local fill = bar:GetStatusBarTexture()
+    local fill = EllesmereUI.ApplyMaxHealthStyle(bar, style, s, ns.ResolveAbsorbStyleTex)
     if fill then
-        fill:SetDrawLayer("ARTWORK", 3)
-        fill:SetHorizTile(tiled)
-        fill:SetVertTile(tiled)
         if mask then
             pcall(fill.RemoveMaskTexture, fill, mask)
             fill:AddMaskTexture(mask)
@@ -795,20 +761,15 @@ function ns.UF_OrientMaxHealth(bar, isReversed, isVert)
     ns.ApplyFillRotation(bar)
 end
 
--- The maxhp channel's painter: loss only (gain is not drawn, as on Blizzard's
--- frames); a secret percent goes straight to the bar.
+-- The maxhp channel's painter. The API returns a plain fraction of the maximum
+-- (never secret, never nil); only loss is drawn, as on Blizzard's frames.
 function ns.UF_PaintMaxHp(frame, unit)
     local hpe = frame.HealthPrediction
     local ab = hpe and hpe.damageAbsorb
     local bar = ab and ab._maxHp
     if not (bar and ab._maxHpOn) then return end
     local pct = GetUnitTotalModifiedMaxHealthPercent(unit)
-    if pct == nil then
-        bar:Hide()
-    elseif issecretvalue and issecretvalue(pct) then
-        bar:SetValue(pct)
-        bar:Show()
-    elseif pct > 0 then
+    if pct > 0 then
         bar:SetValue(math.min(pct, 1))
         bar:Show()
     else
@@ -832,7 +793,7 @@ function ns.UF_MaxHpApply(frame, unitKey)
     end
     local style = (s and s.maxHealthStyle) or "none"
     local bar = ab._maxHp
-    if style == "none" or not GetUnitTotalModifiedMaxHealthPercent then
+    if style == "none" then
         if ab._maxHpOn then
             ab._maxHpOn = false
             bar:Hide()
@@ -858,6 +819,29 @@ function ns.UF_MaxHpApply(frame, unitKey)
     ns.UF_PaintMaxHp(frame, frame._euiUnit or unitKey)
 end
 
+-------------------------------------------------------------------------------
+--  Blizzard Glow Line (opt-in per unit, s.absorbGlowLine; player, target and
+--  focus, and boss frames through the Target styling they draw absorbs with).
+--  A soft line on the shield's edge next to current health. Placement
+--  (g.ge), resolved by the settings pass:
+--    1 = Overlay: the current-health seam, moving to the overshield's inner
+--        edge while overshielding (the bar's far end with Show Overshield Never);
+--    2 = Overlay with Show Overshield From Left: the seam, moving to the
+--        from-left overshield's edge;
+--    3 = Overlay Reverse: the shield's inner end, which always meets health;
+--    5 = the far-edge placement (From Right Edge; From Left Edge on a reverse
+--        fill): the shield's inner end, only while it reaches current health.
+--  The origin-edge placement and a vertical fill draw nothing.
+--  Cost: off builds nothing and the absorb painter pays one field test. The
+--  host, gate bar, lines and the clamp calculator are built on first enable.
+--  On, the seam line self-gates off the secret absorb through its gate bar,
+--  and the overshield boolean (the calculator's Missing Health clamp) flips
+--  the lines through their host frames' boolean alpha. Placements that read
+--  it join the opt-in "absglow" channel (the unit's health changes), and the
+--  flip returns at once while no shield is up. Anchors and art are set by
+--  the settings pass and after a retexture, never per paint.
+--  On ns: this chunk sits at the Lua 5.1 local ceiling.
+-------------------------------------------------------------------------------
 ns.UF_GLOW_LINE_ART = EllesmereUI.AbsorbGlow.art
 ns.UF_GlowLineWidth = EllesmereUI.AbsorbGlow.Width
 

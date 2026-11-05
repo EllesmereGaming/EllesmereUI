@@ -225,7 +225,7 @@ local function CreatePreviewFrame(index, party)
     -- Reduced max health bar (preview): black bg + red striped overlay on right side
     do
         local rmh = CreateFrame("StatusBar", nil, health)
-        rmh:SetStatusBarTexture("Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png")
+        rmh:SetStatusBarTexture(EllesmereUI.MAX_HEALTH_STRIPES_TEX)
         local rmhFill = rmh:GetStatusBarTexture()
         if rmhFill then
             rmhFill:SetDrawLayer("ARTWORK", 3)

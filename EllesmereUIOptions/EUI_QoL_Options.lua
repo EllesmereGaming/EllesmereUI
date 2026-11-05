@@ -1716,7 +1716,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Inline cog on Rested Indicator (left region) for X/Y offsets
+        -- Inline cog on Rested Indicator (left region): Animated, Size, X/Y offsets
         if not EllesmereUI._prebuilding then
             local leftRgn = restedRow._leftRegion
             local function ApplyRestIndicatorPos()
@@ -1727,7 +1727,7 @@ initFrame:SetScript("OnEvent", function(self)
                 return not EllesmereUIDB or EllesmereUIDB.showRestedIndicator ~= true
             end
             EllesmereUI.BuildInlineCog(leftRgn, {
-                title = "Rested Indicator Position",
+                title = "Rested Indicator",
                 rows = {
                     { type="toggle", label="Animated",
                       tooltip="Shows the animated rest icon from Blizzard's player frame instead of the ZZZ text.",
@@ -1737,7 +1737,6 @@ initFrame:SetScript("OnEvent", function(self)
                           EllesmereUIDB.restedIndicatorAnimated = v
                           local pf = _G["EllesmereUIUnitFrames_Player"]
                           if pf and pf._restUpdate then pf._restUpdate() end
-                          EllesmereUI:RefreshPage()
                       end },
                     { type="slider", label="Size", min=12, max=64, step=1,
                       disabled=function() return not (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimated == true) end,

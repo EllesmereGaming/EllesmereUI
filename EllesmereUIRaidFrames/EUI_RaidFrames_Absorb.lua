@@ -141,31 +141,12 @@ ns.ApplyHealAbsorbStyle = function(haBar, style, settings)
     ns.RF_ApplyFillRotation(haBar)
 end
 
--- Reduced max-health overlay style: the heal-absorb texture set plus a dedicated "Max Health
--- Stripes" texture; always right-anchored (caller sets ReverseFill). Swatch tints, slider =
--- texture opacity (backing opacity is the caller's). Pre-colored styles force white.
+-- Reduced max-health overlay style (EllesmereUI.ApplyMaxHealthStyle, shared with the Unit
+-- Frames): always right-anchored (caller sets ReverseFill). Swatch tints, slider = texture
+-- opacity (backing opacity is the caller's).
 ns.ApplyMaxHealthStyle = function(bar, style, settings)
     if not bar then return end
-    style = style or "maxHealthStripes"
-    local tex, tiled
-    if style == "maxHealthStripes" then
-        tex = "Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png"
-        tiled = true
-    else
-        tex = ns.ResolveAbsorbStyleTex(style, "Interface\\Buttons\\WHITE8X8")
-        tiled = (style == "striped" or style == "stripedReversed" or style == "stripedThick" or style == "stripedThickR" or style == "largeStripes" or style == "largeStripesR" or style == "largeOutlinedStripes" or style == "largeOutlinedStripesR" or style == "pixelsShieldFill")
-    end
-    local alpha = settings and (settings.maxHealthOpacity or 100) / 100 or 1
-    local mc = settings and settings.maxHealthColor or { r = 0.7, g = 0.1, b = 0.1 }
-    if style == "healBlizzModern" or style == "largeOutlinedStripes" or style == "largeOutlinedStripesR" then mc = { r = 1, g = 1, b = 1 } end
-    bar:SetStatusBarTexture(tex)
-    bar:SetStatusBarColor(mc.r or 0.7, mc.g or 0.1, mc.b or 0.1, alpha)
-    local fill = bar:GetStatusBarTexture()
-    if fill then
-        fill:SetDrawLayer("ARTWORK", 3)
-        fill:SetHorizTile(tiled)
-        fill:SetVertTile(tiled)
-    end
+    EllesmereUI.ApplyMaxHealthStyle(bar, style or "maxHealthStripes", settings, ns.ResolveAbsorbStyleTex)
     ns.RF_ApplyFillRotation(bar)
 end
 
@@ -619,7 +600,7 @@ local function CreateAbsorbBar(button, healthBar)
 
     -- Reduced max health bar: black bg + red striped overlay on the right side (forward-declared above for ReanchorAbsorbToFill).
     reducedBar = CreateFrame("StatusBar", nil, healthBar)
-    reducedBar:SetStatusBarTexture("Interface\\AddOns\\EllesmereUIRaidFrames\\Media\\striped-maxhp.png")
+    reducedBar:SetStatusBarTexture(EllesmereUI.MAX_HEALTH_STRIPES_TEX)
     local rmhFill = reducedBar:GetStatusBarTexture()
     if rmhFill then
         rmhFill:SetDrawLayer("ARTWORK", 3)

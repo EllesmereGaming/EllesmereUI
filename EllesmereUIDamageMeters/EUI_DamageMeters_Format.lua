@@ -499,8 +499,9 @@ local function ResolveIcon(src, iconTex, barH)
         iconTex:SetTexture(src.specIconID)
         iconTex:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
     elseif style == "spec" then
+        -- WoW Forever hides specIconID (always secret since 1.60.1): the class icon below stands in.
         local specIcon = src.specIconID
-        if specIcon and type(specIcon) == "number" and specIcon ~= 0 then
+        if specIcon and not IsSecret(specIcon) and type(specIcon) == "number" and specIcon ~= 0 then
             iconTex:SetTexture(specIcon)
             iconTex:SetTexCoord(zoom, 1 - zoom, zoom, 1 - zoom)
             iconTex:SetSize(barH, barH)

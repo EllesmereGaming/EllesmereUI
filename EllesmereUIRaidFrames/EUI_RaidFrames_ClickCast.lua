@@ -618,11 +618,9 @@ local function ComputeKnownSignature()
         end
     end
     -- The Dispels macro casts Command Demon only while it overrides to Singe Magic.
-    if hasDispel and select(2, UnitClass("player")) == "WARLOCK" and C_Spell.GetOverrideSpell then
+    if hasDispel and select(2, UnitClass("player")) == "WARLOCK" then
         watchCommandDemon = true
-        local o = C_Spell.GetOverrideSpell(119898)
-        if issecretvalue and issecretvalue(o) then o = nil end
-        sigParts[#sigParts + 1] = "|" .. tostring(o or 0)
+        sigParts[#sigParts + 1] = "|" .. (C_Spell.GetOverrideSpell(119898) or 0)
     end
     return table.concat(sigParts)
 end
@@ -1089,8 +1087,9 @@ local function BuildBaseMacroText(binding)
             -- silently fail on non-English clients. Fall back to sp.name only if
             -- the API is unavailable/empty.
             local castID = sp.id
-            -- A sacrificed Imp's Singe Magic is reachable only through Command Demon's override.
-            if sp.pet and C_Spell.GetOverrideSpell and C_Spell.GetSpellName then
+            -- Singe Magic goes through Command Demon while that overrides to it (Imp
+            -- out or sacrificed): a sacrificed Imp's is reachable no other way.
+            if sp.pet then
                 local commandName = C_Spell.GetSpellName(C_Spell.GetOverrideSpell(119898) or 119898)
                 if commandName and commandName == C_Spell.GetSpellName(sp.id) then
                     castID = 119898
@@ -4126,7 +4125,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
 
             local toggleInner = popupW - INSET2 * 2
-            local toggleBtnW = floor(toggleInner / 4) - 2
+            -- Four tabs and three 3px gaps fill the row exactly.
+            local toggleBtnW = (toggleInner - 9) / 4
 
             local spellToggle = CreateFrame("Button", nil, popup)
             spellToggle:SetSize(toggleBtnW, 26)

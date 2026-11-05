@@ -397,6 +397,8 @@ do
         if issecretvalue(rate) or type(rate) ~= "number" or rate <= 0 then rate = 1 end
         return exp, rate
     end
+    -- The WoW Forever anti-clip glow reads it too (EUI_CDM_ForeverAntiClip.lua).
+    ns.ReadAuraExpiration = ReadExpiration
 
     local function Disarm(fc)
         if fc._missingTimer then fc._missingTimer:Cancel(); fc._missingTimer = nil end

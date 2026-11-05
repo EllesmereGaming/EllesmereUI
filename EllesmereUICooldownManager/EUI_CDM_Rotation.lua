@@ -369,7 +369,7 @@ function ns.RefreshItemCountOOCBars()
             any = true
         end
     end
-    if any and ns._RefreshNativeHealthstoneCounts then ns._RefreshNativeHealthstoneCounts() end
+    if any then ns._RefreshNativeHealthstoneCounts() end
 end
 
 -- TAINT LAW (field-proven 2026-08-31, 24x error burst in the field): NEVER

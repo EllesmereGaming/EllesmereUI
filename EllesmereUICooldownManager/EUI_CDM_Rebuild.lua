@@ -1011,6 +1011,10 @@ BuildAllCDMBars = function()
     -- Every full rebuild re-evaluates the FocusKick demand gate, so assigning the first kick spell (or removing the last) flips the feature family on/off live.
     if ns.RefreshFocusKickProxies then ns.RefreshFocusKickProxies() end
 
+    -- WoW Forever: the anti-clip glow (a bar's Pandemic Glow there) listens to
+    -- your casts only while a bar uses it (EUI_CDM_ForeverAntiClip.lua).
+    if ns.CDM_AntiClipSync then ns.CDM_AntiClipSync() end
+
     -- Match pads follow each bar's border settings: a bar whose pad changed is
     -- re-pushed through its matches once, deferred (compare-only here).
     if EllesmereUI.MatchPadChanged then

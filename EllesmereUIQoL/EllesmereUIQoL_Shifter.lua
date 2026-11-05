@@ -252,9 +252,6 @@ local function PointFrac(p)
     return x, y
 end
 
--- Offset from one point of a w x h box to another: a mover saves where one
--- point of its box is, and the frame it places may hang from another (so a
--- frame that grows keeps that edge where the player put it).
 -- Whether a window placed at its saved position would overlap CharacterFrame
 -- (screen-absolute units, so Shifter scaling on either frame is accounted for).
 local function SavedPosOverlaps(frame, pos, cf)
@@ -270,6 +267,9 @@ local function SavedPosOverlaps(frame, pos, cf)
     return left < cr * cs and left + w > cl * cs and bottom < ct * cs and bottom + h > cb * cs
 end
 
+-- Offset from one point of a w x h box to another: a mover saves where one
+-- point of its box is, and the frame it places may hang from another (so a
+-- frame that grows keeps that edge where the player put it).
 local function AnchorShift(point, anchor, w, h)
     local px, py = PointFrac(point)
     local ax, ay = PointFrac(anchor)
@@ -596,7 +596,7 @@ local function RedockCompanions()
     for i = 1, #dockedCompanions do
         local c = dockedCompanions[i]
         if c.frame:IsShown() and c.shouldDock() then
-            if not Secured(c.frame) and not c.noStrata then c.frame:SetFrameStrata("DIALOG") end
+            if c.liftStrata and not Secured(c.frame) then c.frame:SetFrameStrata("DIALOG") end
             c.dock()
             if not Secured(c.frame) then c.frame:Raise() end
         end
@@ -613,6 +613,8 @@ local function HookFrame(frame, name)
     hookedFrames[#hookedFrames + 1] = { frame = frame, name = name }
 
     if SECURE_PATH[name] then ffd._shSecure = true end
+    -- Lifted over a moved CharacterFrame by strata and Raise, or by Raise alone (NO_STRATA_LIFT).
+    local liftStrata = not NO_STRATA_LIFT[name]
 
     -- Wheel arming rides panel visibility (WheelArm.Note): registry frames
     -- are all top-level closable panels, so OnShow/OnHide track exactly the
@@ -787,7 +789,7 @@ local function HookFrame(frame, name)
             -- Strata writes are INSECURE: on a protected frame (PVEFrame)
             -- they taint its whole tree, exactly like the SetMovable call
             -- that caused the original secret-value incident. Skip them.
-            if not Secured(frame) and not NO_STRATA_LIFT[name] then frame:SetFrameStrata(defaultStrata) end
+            if liftStrata and not Secured(frame) then frame:SetFrameStrata(defaultStrata) end
         end)
         frame:HookScript("OnShow", function()
             if not IsEnabled() then return end
@@ -796,13 +798,13 @@ local function HookFrame(frame, name)
                 -- CharacterFrame -- a docked frame no longer does. Protected
                 -- frames therefore get position-only docking; strata and
                 -- Raise are insecure writes that would taint their tree.
-                if not Secured(frame) and not NO_STRATA_LIFT[name] then frame:SetFrameStrata("DIALOG") end
+                if liftStrata and not Secured(frame) then frame:SetFrameStrata("DIALOG") end
                 DockToCharacterFrame()
                 if not Secured(frame) then frame:Raise() end
             end
         end)
         dockedCompanions[#dockedCompanions + 1] = { frame = frame, shouldDock = ShouldDock,
-            dock = DockToCharacterFrame, noStrata = NO_STRATA_LIFT[name] }
+            dock = DockToCharacterFrame, liftStrata = liftStrata }
     elseif name == "CharacterFrame" then
         -- CharacterFrame itself isn't a companion, but every companion's dock
         -- is relative to IT -- so a scale or position change here is exactly
@@ -824,7 +826,6 @@ local function HookFrame(frame, name)
         -- they taint its whole tree (the PVEFrame SetMovable incident) -- those stay at
         -- Blizzard strata, possibly buried but never tainted.
         local defaultStrata = frame:GetFrameStrata()
-        local liftStrata = not NO_STRATA_LIFT[name]
         frame:HookScript("OnHide", function()
             if liftStrata and not Secured(frame) then frame:SetFrameStrata(defaultStrata) end
         end)
