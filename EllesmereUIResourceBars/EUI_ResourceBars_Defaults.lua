@@ -177,6 +177,7 @@ local DEFAULTS = {
             hashWidth   = 1,
             hashColorR  = 1, hashColorG = 1, hashColorB = 1, hashColorA = 0.7,
             expandIfNoResource = false,
+            bossPacingEnabled = false,
             -- Shift elements anchored to the power bar when the spec has no primary
             -- power (e.g. BM/MM Hunter, Focus shows as class resource). "None"/"Up"/
             -- "Down", visual-only.
