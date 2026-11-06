@@ -68,6 +68,7 @@ local stale = false   -- skipped a render while hidden
 local fontGen = 1
 local inEncounter = false
 local prevObj = {}    -- questID -> objective texts last shown (update flashes)
+local rowHooks, hookW = {}, 0  -- public row hooks; hookW: width they reserve
 
 -------------------------------------------------------------------------------
 -- Per-character state: untracked = removed from our list by the player,
@@ -204,6 +205,9 @@ local function AcquireLine(kind, id, text, x, y, width, key)
     if l.flash and l.key ~= key then l.flash:Stop() end
     l.key = key
     if l.focus and kind ~= "quest" then l.focus:Hide() end
+    if l.slots and kind ~= "quest" then
+        for _, s in ipairs(l.slots) do s:Hide() end
+    end
     if l.bar then l.bar:Hide() end
     -- Only a changed row is measured or moved.
     local wrap = Cfg(kind == "obj" and "customWrapObjectives" or "customWrapTitles") ~= false
@@ -683,7 +687,7 @@ function SyncItems()
                 n = n + 1
                 local b = ItemButton(n)
                 local s = l:GetEffectiveScale() / b:GetEffectiveScale()
-                local x, y, size = (lr + 4) * s, lt * s, w.size * s
+                local x, y, size = (lr + hookW + 4) * s, lt * s, w.size * s
                 if b.lastX ~= x or b.lastY ~= y or b.lastSize ~= size then
                     b.lastX, b.lastY, b.lastSize = x, y, size
                     b:SetSize(size, size)
@@ -703,6 +707,30 @@ function SyncItems()
         end
     end
     for i = n + 1, #items do items[i]:Hide() end
+end
+
+-------------------------------------------------------------------------------
+-- Row hooks (public, EllesmereUI.RegisterQuestTrackerRow): other addons add
+-- their own icons or buttons to quest title rows. Each hook gets its own slot
+-- frame per row, right of the title, its reserved width wide. Developer
+-- guide: PLUGINS_API.md.
+-------------------------------------------------------------------------------
+local function RunRowHooks(l, questID)
+    local slots = l.slots
+    if not slots then slots = {}; l.slots = slots end
+    for i, h in ipairs(rowHooks) do
+        local s = slots[i]
+        if not s then
+            s = CreateFrame("Frame", nil, l)
+            s:SetPoint("TOPLEFT", l, "TOPRIGHT", h.x, 0)
+            s:SetPoint("BOTTOMLEFT", l, "BOTTOMRIGHT", h.x, 0)
+            s:SetWidth(h.width)
+            slots[i] = s
+        end
+        s:Show()
+        local ok, err = pcall(h.fn, s, questID, l.text)
+        if not ok then geterrorhandler()(err) end
+    end
 end
 
 local function Render()
@@ -775,8 +803,9 @@ local function Render()
                 local itemW = item and itemSize + 8 or 0
                 if y == 0 then y = focusRise end
                 local top = y
-                local l, h = AcquireLine("quest", questID, QuestTitle(questID), titleX, y, width - titleX - itemW)
+                local l, h = AcquireLine("quest", questID, QuestTitle(questID), titleX, y, width - titleX - itemW - hookW)
                 l.text:SetTextColor(TitleRGB(questID, complete))
+                if rowHooks[1] then RunRowHooks(l, questID) end
                 if focusSize > 0 then
                     ShowFocusButton(l, questID, complete, focusSize)
                 elseif l.focus then
@@ -827,6 +856,24 @@ function Queue()
     C_Timer.After(0, Render)
 end
 EQT.RefreshCustom = Queue
+
+-- Public: fn(slot, questID, titleFontString) runs for each quest title row on
+-- every render. width (0-64, default 0) is kept free right of the title.
+local HOOK_MAX_W = 64
+function EllesmereUI.RegisterQuestTrackerRow(id, fn, width)
+    if type(id) ~= "string" or id == "" or type(fn) ~= "function" then return false end
+    for _, h in ipairs(rowHooks) do
+        if h.id == id then return false end
+    end
+    width = math.max(0, math.min(math.floor(tonumber(width) or 0), HOOK_MAX_W))
+    rowHooks[#rowHooks + 1] = { id = id, fn = fn, width = width, x = hookW }
+    hookW = hookW + width
+    Queue()
+    return true
+end
+
+-- Public: re-render the tracker, for a hook whose own state changed.
+EllesmereUI.RefreshQuestTrackerRows = Queue
 
 -------------------------------------------------------------------------------
 -- Interaction. Nothing here touches Blizzard's tracker, the watch list, the
