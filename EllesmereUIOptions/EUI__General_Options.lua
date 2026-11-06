@@ -670,13 +670,13 @@ EllesmereUI._WHATSNEW_PATCHES = {
                            section = "DISPELS", highlight = "Dispel Overlay" },
             },
             {
-                -- The Duration Text cog on the Cast Bar page; the Unit Frames player cast bar has it in its
-                -- Duration cog (both clients).
+                -- The Craft Batches dropdown on the Cast Bar page; the Unit Frames player cast bar has
+                -- Full Craft Time in its Duration cog (both clients).
                 module = "Resource Bars",
                 title  = "Full Craft Time",
-                desc   = "While crafting several items, the player cast bar can count down the whole batch and show the craft count, here and on Unit Frames",
+                desc   = "While crafting several items, the player cast bar can count down the whole batch and show the craft count, or merge the batch into one bar, here and on Unit Frames",
                 nav    = { module = "EllesmereUIResourceBars", page = "Cast Bar",
-                           section = "DISPLAY", highlight = "Duration Text" },
+                           section = "DISPLAY", highlight = "Craft Batches" },
             },
             {
                 -- The power bar's Fill Color row on the player frame (both clients).
