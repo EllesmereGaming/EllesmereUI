@@ -578,8 +578,8 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot, quality)
 
     local cats = self:GetCategories()
 
-    -- Reagent bag items always go to the Reagent Bag category
-    if bag == 5 then
+    -- Reagent bag items go to the Reagent Bag category unless it is off
+    if bag == 5 and not (BP().bagDisabledCategories or _emptyP)["Reagent Bag"] then
         for i, cat in ipairs(cats) do
             if cat.isReagentBag then return i end
         end
@@ -1204,9 +1204,10 @@ end
 --                  claim the item. bag and slot are nil for another character's
 --                  items; quality may be nil. The first claim by order wins.
 --  Items the user filed or marked, junk (grey items while the Junk Marker is
---  on) and reagent / special bag items are not offered to providers. A change
---  repaints the bags once, on the next frame. A provider cannot register,
---  unregister or ask for a repaint from inside its own classify call.
+--  on), special bag items and, while the Reagent Bag category is on, reagent
+--  bag items are not offered to providers. A change repaints the bags once,
+--  on the next frame. A provider cannot register, unregister or ask for a
+--  repaint from inside its own classify call.
 -------------------------------------------------------------------------------
 -- One repaint for every change made in a frame: a request shows a hidden frame
 -- whose next update hides it, then repaints the bags and an open bank. bagsOnly:
