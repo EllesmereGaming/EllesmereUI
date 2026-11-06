@@ -2422,6 +2422,7 @@ end
 --                         character's birthday
 --    cdmCachedBarSizes    Cooldown Manager bar sizes cached per character
 --    bagCurrencyByChar    Bags' tracked currencies per character
+--    bagPinnedByChar      Bags' pinned items per character
 --    mageArmorByChar      AuraBuff Reminders (WoW Forever): the mage armor
 --                         each character last had up
 --    global               friend groups: the groups, their order and colours,
@@ -2462,6 +2463,7 @@ local FULL_EXPORT_EXCLUDED = {
     raidHoroscope         = true,
     cdmCachedBarSizes     = true,
     bagCurrencyByChar     = true,
+    bagPinnedByChar       = true,
     mageArmorByChar       = true,
     global                = true,
     cogSeen               = true,

@@ -16,7 +16,7 @@ local GetItemInfo = C_Item.GetItemInfo
 local EUI = EllesmereUI
 
 local _bankRouted, BP, GetFont, IsGearItem = I._bankRouted, I.BP, I.GetFont, I.IsGearItem
-local NormalizePinKey, bagSlots = I.NormalizePinKey, I.bagSlots
+local NormalizePinKey, PinnedItems, bagSlots = I.NormalizePinKey, I.PinnedItems, I.bagSlots
 local itemSlots, reagentSlots = I.itemSlots, I.reagentSlots
 local CreateInsetBorder, SetInsetBorderColor = I.CreateInsetBorder, I.SetInsetBorderColor
 
@@ -90,9 +90,8 @@ local function SlotMiddleClick(self, button)
         if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
         return
     end
-    if not EllesmereUIDB then EllesmereUIDB = {} end
-    if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
-    local pinned = EllesmereUIDB.bagPinnedItems
+    local pinned = PinnedItems(true)
+    if not pinned then return end
     local itemLink = C_Container.GetContainerItemLink(bagID, slotID)
     local isGear = IsGearItem(itemLink)
     -- Pin key is the normalized itemID+bonusIDs identity (distinguishes
@@ -264,7 +263,7 @@ function EUI_Bags:WarmSlotPool(msBudget)
         EUI_Bags._poolShort = true
     elseif listMode then
         -- Pinned and Recent repeat their items as extra rows
-        local pinned = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+        local pinned = PinnedItems()
         if pinned then for _ in pairs(pinned) do total = total + 1 end end
         if EUI_Bags._recentItems then
             for _ in pairs(EUI_Bags._recentItems) do total = total + 1 end

@@ -470,6 +470,14 @@ initFrame:SetScript("OnEvent", function(self)
                               db.profile.bagDimPinnedInOneBag = v
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
+                        { type="toggle", label="Pins per Character",
+                          tooltip="Each character keeps its own pinned items. A character uses the shared pins until it pins or unpins something.",
+                          get=function() return EllesmereUIDB and EllesmereUIDB.bagPinsPerCharacter == true end,
+                          set=function(v)
+                              if not EllesmereUIDB then EllesmereUIDB = {} end
+                              EllesmereUIDB.bagPinsPerCharacter = v or nil
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
                     },
                 })
             end
@@ -1315,6 +1323,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- Wipe per-character data from root DB
             if EllesmereUIDB then
                 EllesmereUIDB.bagPinnedItems = nil
+                EllesmereUIDB.bagPinnedByChar = nil
+                EllesmereUIDB.bagPinsPerCharacter = nil
                 EllesmereUIDB.bagItemAssignments = nil
                 EllesmereUIDB.bagJunkPrev = nil
                 -- Legacy gold stores: they stay on disk until a gold module loads and absorbs them.

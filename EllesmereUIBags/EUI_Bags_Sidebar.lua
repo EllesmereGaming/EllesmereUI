@@ -21,7 +21,7 @@ local SetBagFont, ClearGroupOrder, HEADER_H = I.SetBagFont, I.ClearGroupOrder, I
 local ResortAfterGroupChange, SIDEBAR_BTN_H = I.ResortAfterGroupChange, I.SIDEBAR_BTN_H
 local SIDEBAR_ICON_SIZE, SIDEBAR_INDENT = I.SIDEBAR_ICON_SIZE, I.SIDEBAR_INDENT
 local SIDEBAR_PAD, SIDEBAR_W_COLLAPSED = I.SIDEBAR_PAD, I.SIDEBAR_W_COLLAPSED
-local SIDEBAR_W_EXPANDED = I.SIDEBAR_W_EXPANDED
+local SIDEBAR_W_EXPANDED, PinnedItems = I.SIDEBAR_W_EXPANDED, I.PinnedItems
 local SetSelectedCategoryIndex = I.SetSelectedCategoryIndex
 local SetSelectedGroupName = I.SetSelectedGroupName
 
@@ -828,7 +828,7 @@ local function PadCategoryEntries(root, btn, cat, catIdx, isGroupHeader, isGroup
 
     -- Pinned Items: every pinned item in the bags, once per pin key.
     if cat.isPinned then
-        local pinned = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+        local pinned = PinnedItems()
         local seen
         for bag = 0, 5 do
             for slot = 1, (pinned and C_Container.GetContainerNumSlots(bag) or 0) do
@@ -841,7 +841,7 @@ local function PadCategoryEntries(root, btn, cat, catIdx, isGroupHeader, isGroup
                         seen[key] = true
                         local itemID = info.itemID
                         rows[#rows + 1] = { text = link or tostring(itemID), fn = function()
-                            local p = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+                            local p = PinnedItems(true)
                             if p then p[key] = nil; p[itemID] = nil end
                             EUI_Bags:RefreshInventory()
                         end }
