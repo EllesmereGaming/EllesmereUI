@@ -250,6 +250,41 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
 
     _, h = W:Spacer(parent, y, 20); y = y - h
 
+    -- PASTE COMMANDS (/euipaste, runtime in EllesmereUIQoL_PasteCommands.lua)
+    _, h = W:SectionHeader(parent, "PASTE COMMANDS", y); y = y - h
+
+    _, h = W:DualRow(parent, y,
+        { type    = "toggle",
+          text    = "Enable /euipaste Command",
+          tooltip = "Adds /euipaste (and /paste when no other addon uses it): paste several addon slash commands, such as /way lines, and run them at once.",
+          getValue = function() return EllesmereUIDB and EllesmereUIDB.pasteCommands == true end,
+          setValue = function(v)
+              if not EllesmereUIDB then return end
+              EllesmereUIDB.pasteCommands = v or nil
+              EllesmereUI:RefreshPage()
+              EllesmereUI:ShowConfirmPopup({
+                  title = "Reload Required",
+                  message = "Changing the /euipaste command requires a reload to update slash command registration.",
+                  confirmText = "Reload",
+                  cancelText = "Later",
+                  reload    = true,
+              })
+          end },
+        { type    = "labeledButton",
+          text    = "Action Bar Macro",
+          buttonText = "Create Macro",
+          width   = 130,
+          tooltip = "Creates an account macro named EUI_Paste that opens the paste window and puts it on your cursor. Click an action bar slot to place it.",
+          -- The runtime exists only after a reload with the command enabled.
+          disabled = function() return not EllesmereUI._createPasteMacro end,
+          disabledTooltip = "Enable /euipaste Command",
+          onClick = function()
+              if EllesmereUI._createPasteMacro then EllesmereUI._createPasteMacro() end
+          end }
+    ); y = y - h
+
+    _, h = W:Spacer(parent, y, 20); y = y - h
+
     ---------------------------------------------------------------------------
     --  AUTO COMBAT LOGGING
     ---------------------------------------------------------------------------
