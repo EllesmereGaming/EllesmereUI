@@ -16,6 +16,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --        quiet    = true,                       -- no offer to apply at login
 --        usage    = true,                       -- the page shows CPU and memory
 --        categories = { "Name", ... },          -- the categories made here
+--        backup   = { defaults, overrides },    -- the choices before this edit
+--                                                 -- (see "Editing" below)
 --        catOf    = { [addon] = "Name" | false }, -- where an addon was put by hand
 --                                                 -- (false: uncategorized); absent = the
 --                                                 -- category its own .toc declares
@@ -186,6 +188,8 @@ end
 
 -- Stages and saves this character's changes; they apply at the reload that follows.
 function AM.ApplyNative()
+    local s = Store()
+    if s then s.backup = nil end -- the edit is kept: it is what applies
     local guid = UnitGUID("player")
     local list = AM.Pending()
     for _, p in ipairs(list) do
@@ -471,11 +475,73 @@ local function Offer()
     })
 end
 
+-------------------------------------------------------------------------------
+--  Editing
+--  A change made in the window only counts once applied: opening it keeps a
+--  copy of the choices (in the profile, so a reload that skips "Apply and
+--  Reload" finds it too), closing it asks to apply and reload, and anything
+--  else puts the copy back. A change that needs no reload here (another
+--  character's) is kept.
+-------------------------------------------------------------------------------
+local function Copy(t)
+    local out = {}
+    for k, v in pairs(t) do out[k] = v end
+    return out
+end
+
+local function Same(a, b)
+    for k, v in pairs(a) do if b[k] ~= v then return false end end
+    for k, v in pairs(b) do if a[k] ~= v then return false end end
+    return true
+end
+
+function AM.BeginEdit()
+    local s = Store()
+    if not s or s.backup then return end
+    local overrides = {}
+    for key, c in pairs(s.chars) do overrides[key] = Copy(c.overrides or {}) end
+    s.backup = { defaults = Copy(s.defaults), overrides = overrides }
+end
+
+-- The choices differ from the copy.
+function AM.Edited()
+    local s = Store()
+    local b = s and s.backup
+    if not b then return false end
+    if not Same(b.defaults, s.defaults) then return true end
+    for key, c in pairs(s.chars) do
+        if not Same(b.overrides[key] or {}, c.overrides or {}) then return true end
+    end
+    for key, o in pairs(b.overrides) do
+        if not s.chars[key] and next(o) then return true end
+    end
+    return false
+end
+
+function AM.Discard()
+    local s = Store()
+    local b = s and s.backup
+    if not b then return end
+    s.defaults = b.defaults
+    for key, c in pairs(s.chars) do c.overrides = b.overrides[key] or {} end
+    s.backup = nil
+end
+
+function AM.EndEdit(keep)
+    if keep then
+        local s = Store()
+        if s then s.backup = nil end
+    else
+        AM.Discard()
+    end
+end
+
 local boot = CreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:SetScript("OnEvent", function(self)
     self:UnregisterAllEvents()
     local s = Store()
+    if s and s.backup then AM.Discard() end -- reloaded without applying
     if not (s and s.enabled) then return end
     Remember(s)
     if s.menu then AM.HookMenu() end
