@@ -789,7 +789,7 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
     local function BuildBorder()
         if borderBuilt then return end
         borderBuilt = true
-        local T = CS.BRD_THICK
+        local T = PP.Scale(CS.BRD_THICK)
 
         local wt = swatch:CreateTexture(nil, "BORDER")
         wt:SetColorTexture(1, 1, 1, 1)
