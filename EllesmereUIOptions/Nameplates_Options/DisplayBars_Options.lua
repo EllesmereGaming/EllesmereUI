@@ -122,7 +122,6 @@ local function BuildDisplayBars(parent, y, ctx)
         local rightRgn = castBarHeightRow._rightRegion
         EllesmereUI.BuildInlineCog(rightRgn, {
             anchorTo = rightRgn._control,
-            icon = EllesmereUI.RESIZE_ICON,
             disabled = castIconOff,
             disabledTooltip = "Spell Icon",
             title = "Spell Icon Settings",
@@ -346,15 +345,9 @@ local function BuildDisplayBars(parent, y, ctx)
             end
             UpdatePreview()
         end
-        local ctSwatch, ctUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, ctColorGet, ctColorSet, nil, 20)
-        PP.Point(ctSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
-        leftRgn._lastInline = ctSwatch
-        EllesmereUI.RegisterWidgetRefresh(function() ctUpdateSwatch() end)
 
         -- Inline cog for Cast Timer Size / X / Y
         EllesmereUI.BuildInlineCog(leftRgn, {
-            anchorTo = ctSwatch, gap = 6,
-            icon = EllesmereUI.RESIZE_ICON,
             isOpen = CogPopupOpen,
             show = function(self)
                 ShowCogPopup(self, {
@@ -370,6 +363,10 @@ local function BuildDisplayBars(parent, y, ctx)
                 })
             end,
         })
+        local ctSwatch, ctUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, ctColorGet, ctColorSet, nil, 20)
+        PP.Point(ctSwatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+        leftRgn._lastInline = ctSwatch
+        EllesmereUI.RegisterWidgetRefresh(function() ctUpdateSwatch() end)
     end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -802,50 +799,6 @@ local function BuildDisplayBars(parent, y, ctx)
         leftRgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
 
-        -- Inline Border Color swatch: edits targetBorderColor (default white), tints the custom border; dimmed+non-interactive unless Border Color is checked.
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
-            function() local c = ns.GetTargetBorderColor(); return c.r, c.g, c.b end,
-            function(r, g, b)
-                DB().targetBorderColor = { r = r, g = g, b = b }
-                for _, plate in pairs(plates) do plate:ApplyTarget() end
-                for _, fp in pairs(ns.friendlyPlates) do fp:ApplyTarget() end
-                UpdatePreview()
-            end, nil, 20)
-        PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -8, 0)
-        leftRgn._lastInline = swatch
-        -- Tooltip so the swatch's purpose is clear (shown while interactive, i.e. Border Color on).
-        swatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, "Border Color") end)
-        swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        refreshTargetBorderSwatch = function()
-            local off = not ns.GetTargetGlowBorderColor()
-            swatch:SetAlpha(off and 0.15 or 1)
-            swatch:EnableMouse(not off)
-            updateSwatch()
-        end
-        EllesmereUI.RegisterWidgetRefresh(refreshTargetBorderSwatch)
-        refreshTargetBorderSwatch()
-
-        -- Inline Glow Color swatch: edits targetGlowColor (default the signature blue), tints the EUI background glow; dimmed+non-interactive unless EUI Glow is checked.
-        local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
-            function() local c = ns.GetTargetGlowColor(); return c.r, c.g, c.b end,
-            function(r, g, b)
-                DB().targetGlowColor = { r = r, g = g, b = b }
-                for _, plate in pairs(plates) do plate:ApplyTarget() end
-                UpdatePreview()
-            end, nil, 20)
-        PP.Point(glowSwatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
-        leftRgn._lastInline = glowSwatch
-        glowSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(glowSwatch, "Glow Color") end)
-        glowSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        refreshTargetGlowSwatch = function()
-            local off = not ns.GetTargetGlowEllesmereUI()
-            glowSwatch:SetAlpha(off and 0.15 or 1)
-            glowSwatch:EnableMouse(not off)
-            updateGlowSwatch()
-        end
-        EllesmereUI.RegisterWidgetRefresh(refreshTargetGlowSwatch)
-        refreshTargetGlowSwatch()
-
         -- Inline cog "More Effects": Highlight color/opacity + Glow opacity; enabled when Highlight OR EUI Glow is on (Glow Opacity reachable whenever the glow is active).
         do
             local function highlightCogOff()
@@ -905,9 +858,81 @@ local function BuildDisplayBars(parent, y, ctx)
             })
             refreshTargetHighlightCog = highlightCogBtn and highlightCogBtn._euiCogState
         end
+
+        -- Inline Border Color swatch: edits targetBorderColor (default white), tints the custom border; dimmed+non-interactive unless Border Color is checked.
+        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
+            function() local c = ns.GetTargetBorderColor(); return c.r, c.g, c.b end,
+            function(r, g, b)
+                DB().targetBorderColor = { r = r, g = g, b = b }
+                for _, plate in pairs(plates) do plate:ApplyTarget() end
+                for _, fp in pairs(ns.friendlyPlates) do fp:ApplyTarget() end
+                UpdatePreview()
+            end, nil, 20)
+        PP.Point(swatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+        leftRgn._lastInline = swatch
+        -- Tooltip so the swatch's purpose is clear (shown while interactive, i.e. Border Color on).
+        swatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, "Border Color") end)
+        swatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        refreshTargetBorderSwatch = function()
+            local off = not ns.GetTargetGlowBorderColor()
+            swatch:SetAlpha(off and 0.15 or 1)
+            swatch:EnableMouse(not off)
+            updateSwatch()
+        end
+        EllesmereUI.RegisterWidgetRefresh(refreshTargetBorderSwatch)
+        refreshTargetBorderSwatch()
+
+        -- Inline Glow Color swatch: edits targetGlowColor (default the signature blue), tints the EUI background glow; dimmed+non-interactive unless EUI Glow is checked.
+        local glowSwatch, updateGlowSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
+            function() local c = ns.GetTargetGlowColor(); return c.r, c.g, c.b end,
+            function(r, g, b)
+                DB().targetGlowColor = { r = r, g = g, b = b }
+                for _, plate in pairs(plates) do plate:ApplyTarget() end
+                UpdatePreview()
+            end, nil, 20)
+        PP.Point(glowSwatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+        leftRgn._lastInline = glowSwatch
+        glowSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(glowSwatch, "Glow Color") end)
+        glowSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        refreshTargetGlowSwatch = function()
+            local off = not ns.GetTargetGlowEllesmereUI()
+            glowSwatch:SetAlpha(off and 0.15 or 1)
+            glowSwatch:EnableMouse(not off)
+            updateGlowSwatch()
+        end
+        EllesmereUI.RegisterWidgetRefresh(refreshTargetGlowSwatch)
+        refreshTargetGlowSwatch()
     end
 
-    -- Inline Custom + Class color swatches on Target Arrows (custom adjacent to the control, class to its left); click to switch, inactive swatch dims, both gray out when arrows off.
+    -- Inline cog (arrow scale), beside the control; the swatches sit left of it
+    do
+        local rightRgn = targetGlowRow._rightRegion
+        local arrowOff = function() return DBVal("showTargetArrows") ~= true end
+        EllesmereUI.BuildInlineCog(rightRgn, {
+            disabled = arrowOff,
+            disabledTooltip = "Target Arrows",
+            title = "Arrow Scale",
+            rows = {
+                { type="slider", label="Scale", min=0.5, max=3.0, step=0.1,
+                  get=function() return DBVal("targetArrowScale") or defaults.targetArrowScale or 1.0 end,
+                  set=function(v)
+                    DB().targetArrowScale = v
+                    local _scKey = DBVal("targetArrowStyle") or (DBVal("targetArrowDouble") and "double") or "simple"
+                    local _scW = (ns.TARGET_ARROW_STYLES[_scKey] or ns.TARGET_ARROW_STYLES.simple).w
+                    for _, plate in pairs(plates) do
+                        local sc = v
+                        local aw = math.floor(_scW * sc + 0.5)
+                        local ah = math.floor(16 * sc + 0.5)
+                        if plate.leftArrow then PP.Size(plate.leftArrow, aw, ah) end
+                        if plate.rightArrow then PP.Size(plate.rightArrow, aw, ah) end
+                    end
+                    UpdatePreview()
+                  end },
+            },
+        })
+    end
+
+    -- Inline Custom + Class color swatches on Target Arrows (custom adjacent to the cog, class to its left); click to switch, inactive swatch dims, both gray out when arrows off.
     do
         local rightRgn = targetGlowRow._rightRegion
         local arrowOff = function() return DBVal("showTargetArrows") ~= true end
@@ -930,7 +955,7 @@ local function BuildDisplayBars(parent, y, ctx)
                 for _, plate in pairs(plates) do plate:ApplyTarget() end
                 UpdatePreview(); refreshArrowSwatches()
             end, nil, 20)
-        PP.Point(customSwatch, "RIGHT", rightRgn._control, "LEFT", -8, 0)
+        PP.Point(customSwatch, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
         local origCustomClick = customSwatch:GetScript("OnClick")
         customSwatch:SetScript("OnClick", function(self, ...)
             if arrowOff() then return end
@@ -961,35 +986,6 @@ local function BuildDisplayBars(parent, y, ctx)
         refreshArrowSwatches()
     end
 
-    -- Inline cog (arrow scale), to the left of the swatches
-    do
-        local rightRgn = targetGlowRow._rightRegion
-        local arrowOff = function() return DBVal("showTargetArrows") ~= true end
-        EllesmereUI.BuildInlineCog(rightRgn, {
-            icon = EllesmereUI.RESIZE_ICON,
-            disabled = arrowOff,
-            disabledTooltip = "Target Arrows",
-            title = "Arrow Scale",
-            rows = {
-                { type="slider", label="Scale", min=0.5, max=3.0, step=0.1,
-                  get=function() return DBVal("targetArrowScale") or defaults.targetArrowScale or 1.0 end,
-                  set=function(v)
-                    DB().targetArrowScale = v
-                    local _scKey = DBVal("targetArrowStyle") or (DBVal("targetArrowDouble") and "double") or "simple"
-                    local _scW = (ns.TARGET_ARROW_STYLES[_scKey] or ns.TARGET_ARROW_STYLES.simple).w
-                    for _, plate in pairs(plates) do
-                        local sc = v
-                        local aw = math.floor(_scW * sc + 0.5)
-                        local ah = math.floor(16 * sc + 0.5)
-                        if plate.leftArrow then PP.Size(plate.leftArrow, aw, ah) end
-                        if plate.rightArrow then PP.Size(plate.rightArrow, aw, ah) end
-                    end
-                    UpdatePreview()
-                  end },
-            },
-        })
-    end
-
     -- Eye icon to the left of the Target Glow Style dropdown to toggle glow on preview
     -- (none in the search pre-build: it indexes nothing, and the row is a stand-in there)
     if not EllesmereUI._prebuilding then
@@ -1002,7 +998,6 @@ local function BuildDisplayBars(parent, y, ctx)
         eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
         EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshTargetGlowEye()
             if optState.showTargetGlowPreview then
@@ -1193,33 +1188,7 @@ local function BuildDisplayBars(parent, y, ctx)
           end,
           order=ovtOrder });  y = y - h
 
-    -- Inline Target Texture color swatch
-    if not EllesmereUI._prebuilding then
-        local leftRgn = textureDualRow._leftRegion
-        local targetTexColorGet = function()
-            local c = (DB() and DB().targetOverlayColor) or defaults.targetOverlayColor
-            return c.r, c.g, c.b
-        end
-        local targetTexColorSet = function(r, g, b)
-            DB().targetOverlayColor = { r = r, g = g, b = b }
-            RefreshAllPlates()
-            if targetPrev and targetPrev.UpdateOverlay then targetPrev.UpdateOverlay() end
-        end
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, targetTexColorGet, targetTexColorSet, nil, 20)
-        PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
-        leftRgn._lastInline = swatch
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = isTargetTextureNone() or isTargetNoTint()
-            swatch:SetAlpha(off and 0.15 or 1)
-            swatch:EnableMouse(not off)
-            updateSwatch()
-        end)
-        local off = isTargetTextureNone() or isTargetNoTint()
-        swatch:SetAlpha(off and 0.15 or 1)
-        swatch:EnableMouse(not off)
-    end
-
-    -- Inline Target Texture cog (Opacity + No Tint), to the left of the swatch
+    -- Inline Target Texture cog (Opacity + No Tint), beside the control; the swatch sits left of it
     if not EllesmereUI._prebuilding then
         local leftRgn = textureDualRow._leftRegion
         EllesmereUI.BuildInlineCog(leftRgn, {
@@ -1257,33 +1226,33 @@ local function BuildDisplayBars(parent, y, ctx)
         })
     end
 
-    -- Inline Focus Texture color swatch
+    -- Inline Target Texture color swatch
     if not EllesmereUI._prebuilding then
-        local rightRgn = textureDualRow._rightRegion
-        local focusTexColorGet = function()
-            local c = (DB() and DB().focusOverlayColor) or defaults.focusOverlayColor
+        local leftRgn = textureDualRow._leftRegion
+        local targetTexColorGet = function()
+            local c = (DB() and DB().targetOverlayColor) or defaults.targetOverlayColor
             return c.r, c.g, c.b
         end
-        local focusTexColorSet = function(r, g, b)
-            DB().focusOverlayColor = { r = r, g = g, b = b }
+        local targetTexColorSet = function(r, g, b)
+            DB().targetOverlayColor = { r = r, g = g, b = b }
             RefreshAllPlates()
-            if focusPrev and focusPrev.UpdateOverlay then focusPrev.UpdateOverlay() end
+            if targetPrev and targetPrev.UpdateOverlay then targetPrev.UpdateOverlay() end
         end
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, focusTexColorGet, focusTexColorSet, nil, 20)
-        PP.Point(swatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
-        rightRgn._lastInline = swatch
+        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, targetTexColorGet, targetTexColorSet, nil, 20)
+        PP.Point(swatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+        leftRgn._lastInline = swatch
         EllesmereUI.RegisterWidgetRefresh(function()
-            local off = isFocusTextureNone() or isFocusNoTint()
+            local off = isTargetTextureNone() or isTargetNoTint()
             swatch:SetAlpha(off and 0.15 or 1)
             swatch:EnableMouse(not off)
             updateSwatch()
         end)
-        local off = isFocusTextureNone() or isFocusNoTint()
+        local off = isTargetTextureNone() or isTargetNoTint()
         swatch:SetAlpha(off and 0.15 or 1)
         swatch:EnableMouse(not off)
     end
 
-    -- Inline Focus Texture cog (Opacity + No Tint), to the left of the swatch
+    -- Inline Focus Texture cog (Opacity + No Tint), beside the control; the swatch sits left of it
     if not EllesmereUI._prebuilding then
         local rightRgn = textureDualRow._rightRegion
         EllesmereUI.BuildInlineCog(rightRgn, {
@@ -1317,6 +1286,32 @@ local function BuildDisplayBars(parent, y, ctx)
                   end },
             },
         })
+    end
+
+    -- Inline Focus Texture color swatch
+    if not EllesmereUI._prebuilding then
+        local rightRgn = textureDualRow._rightRegion
+        local focusTexColorGet = function()
+            local c = (DB() and DB().focusOverlayColor) or defaults.focusOverlayColor
+            return c.r, c.g, c.b
+        end
+        local focusTexColorSet = function(r, g, b)
+            DB().focusOverlayColor = { r = r, g = g, b = b }
+            RefreshAllPlates()
+            if focusPrev and focusPrev.UpdateOverlay then focusPrev.UpdateOverlay() end
+        end
+        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, focusTexColorGet, focusTexColorSet, nil, 20)
+        PP.Point(swatch, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+        rightRgn._lastInline = swatch
+        EllesmereUI.RegisterWidgetRefresh(function()
+            local off = isFocusTextureNone() or isFocusNoTint()
+            swatch:SetAlpha(off and 0.15 or 1)
+            swatch:EnableMouse(not off)
+            updateSwatch()
+        end)
+        local off = isFocusTextureNone() or isFocusNoTint()
+        swatch:SetAlpha(off and 0.15 or 1)
+        swatch:EnableMouse(not off)
     end
 
     -- Target Preview ---- Focus Preview
@@ -1487,46 +1482,6 @@ local function BuildDisplayBars(parent, y, ctx)
         rightRgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(hvDDRefresh)
 
-        -- Inline Border Color swatch: dimmed unless Border Color is checked.
-        local hvBSwatch, hvUpdateBSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-            function() local c = ns.GetHoverBorderColor(); return c.r, c.g, c.b end,
-            function(r, g, b)
-                DB().hoverBorderColor = { r = r, g = g, b = b }
-                ns.RefreshHoverEffect()
-            end, nil, 20)
-        PP.Point(hvBSwatch, "RIGHT", rightRgn._control, "LEFT", -8, 0)
-        rightRgn._lastInline = hvBSwatch
-        hvBSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hvBSwatch, "Border Color") end)
-        hvBSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        refreshHoverBorderSwatch = function()
-            local off = not ns.GetHoverGlowBorderColor()
-            hvBSwatch:SetAlpha(off and 0.15 or 1)
-            hvBSwatch:EnableMouse(not off)
-            hvUpdateBSwatch()
-        end
-        EllesmereUI.RegisterWidgetRefresh(refreshHoverBorderSwatch)
-        refreshHoverBorderSwatch()
-
-        -- Inline Glow Color swatch: dimmed unless EUI Glow is checked.
-        local hvGSwatch, hvUpdateGSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-            function() local c = ns.GetHoverGlowColor(); return c.r, c.g, c.b end,
-            function(r, g, b)
-                DB().hoverGlowColor = { r = r, g = g, b = b }
-                ns.RefreshHoverEffect()
-            end, nil, 20)
-        PP.Point(hvGSwatch, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-        rightRgn._lastInline = hvGSwatch
-        hvGSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hvGSwatch, "Glow Color") end)
-        hvGSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        refreshHoverGlowSwatch = function()
-            local off = not ns.GetHoverGlowEllesmereUI()
-            hvGSwatch:SetAlpha(off and 0.15 or 1)
-            hvGSwatch:EnableMouse(not off)
-            hvUpdateGSwatch()
-        end
-        EllesmereUI.RegisterWidgetRefresh(refreshHoverGlowSwatch)
-        refreshHoverGlowSwatch()
-
         -- Inline cog "More Effects": Highlight color/opacity (the legacy
         -- hoverColor/hoverAlpha keys) + Glow Opacity + Border Size.
         do
@@ -1583,6 +1538,46 @@ local function BuildDisplayBars(parent, y, ctx)
             })
             refreshHoverCog = hoverCogBtn and hoverCogBtn._euiCogState
         end
+
+        -- Inline Border Color swatch: dimmed unless Border Color is checked.
+        local hvBSwatch, hvUpdateBSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
+            function() local c = ns.GetHoverBorderColor(); return c.r, c.g, c.b end,
+            function(r, g, b)
+                DB().hoverBorderColor = { r = r, g = g, b = b }
+                ns.RefreshHoverEffect()
+            end, nil, 20)
+        PP.Point(hvBSwatch, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+        rightRgn._lastInline = hvBSwatch
+        hvBSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hvBSwatch, "Border Color") end)
+        hvBSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        refreshHoverBorderSwatch = function()
+            local off = not ns.GetHoverGlowBorderColor()
+            hvBSwatch:SetAlpha(off and 0.15 or 1)
+            hvBSwatch:EnableMouse(not off)
+            hvUpdateBSwatch()
+        end
+        EllesmereUI.RegisterWidgetRefresh(refreshHoverBorderSwatch)
+        refreshHoverBorderSwatch()
+
+        -- Inline Glow Color swatch: dimmed unless EUI Glow is checked.
+        local hvGSwatch, hvUpdateGSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
+            function() local c = ns.GetHoverGlowColor(); return c.r, c.g, c.b end,
+            function(r, g, b)
+                DB().hoverGlowColor = { r = r, g = g, b = b }
+                ns.RefreshHoverEffect()
+            end, nil, 20)
+        PP.Point(hvGSwatch, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+        rightRgn._lastInline = hvGSwatch
+        hvGSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hvGSwatch, "Glow Color") end)
+        hvGSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        refreshHoverGlowSwatch = function()
+            local off = not ns.GetHoverGlowEllesmereUI()
+            hvGSwatch:SetAlpha(off and 0.15 or 1)
+            hvGSwatch:EnableMouse(not off)
+            hvUpdateGSwatch()
+        end
+        EllesmereUI.RegisterWidgetRefresh(refreshHoverGlowSwatch)
+        refreshHoverGlowSwatch()
 
         -- Inline Hover Texture cog (Full alpha on empty part of bar), left of the dropdown; disabled while set to None.
         local leftRgn = hoverRow._leftRegion
@@ -1711,7 +1706,6 @@ local function BuildDisplayBars(parent, y, ctx)
         local leftRgn = classResourceRow2._leftRegion
         EllesmereUI.BuildInlineCog(leftRgn, {
             anchorTo = leftRgn._control,
-            icon = EllesmereUI.DIRECTIONS_ICON,
             disabled = classPowerDisabled,
             disabledTooltip = "Show Class Resource",
             isOpen = CogPopupOpen,
@@ -1746,7 +1740,7 @@ local function BuildDisplayBars(parent, y, ctx)
             ns.RefreshClassPower(); UpdatePreview()
           end });  y = y - h
 
-    -- Row 4: Shape | Border (inline color swatch + thickness cog on Border)
+    -- Row 4: Shape | Border (inline thickness cog + color swatch on Border)
     local classResourceRow4
     classResourceRow4, h = W:DualRow(parent, y,
         { type="dropdown", text="Shape",
@@ -1770,7 +1764,7 @@ local function BuildDisplayBars(parent, y, ctx)
             EllesmereUI:RefreshPage()
           end });  y = y - h
 
-    -- Inline border color swatch + thickness cog on the Border toggle
+    -- Inline thickness cog + border color swatch on the Border toggle
     if not EllesmereUI._prebuilding then
         local rgn = classResourceRow4._rightRegion
         local function borderOff()
@@ -1784,8 +1778,20 @@ local function BuildDisplayBars(parent, y, ctx)
             DB().classPowerBorderColor = { r = r, g = g, b = b, a = 1 }
             ns.RefreshClassPower(); UpdatePreview()
         end
+
+        EllesmereUI.BuildInlineCog(rgn, {
+            disabled = borderOff,
+            disabledTooltip = "Border",
+            title = "Border Settings",
+            rows = {
+                { type="slider", label="Thickness", min=1, max=4, step=1,
+                  get=function() return DBVal("classPowerBorderSize") or defaults.classPowerBorderSize end,
+                  set=function(v) DB().classPowerBorderSize = v; ns.RefreshClassPower(); UpdatePreview() end },
+            },
+        })
+
         local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, colorGet, colorSet, nil, 20)
-        PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -12, 0)
+        PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
         EllesmereUI.RegisterWidgetRefresh(function()
             local off = borderOff()
@@ -1796,18 +1802,6 @@ local function BuildDisplayBars(parent, y, ctx)
         local off = borderOff()
         swatch:SetAlpha(off and 0.15 or 1)
         swatch:EnableMouse(not off)
-
-        EllesmereUI.BuildInlineCog(rgn, {
-            icon = EllesmereUI.RESIZE_ICON, gap = 9,
-            disabled = borderOff,
-            disabledTooltip = "Border",
-            title = "Border Settings",
-            rows = {
-                { type="slider", label="Thickness", min=1, max=4, step=1,
-                  get=function() return DBVal("classPowerBorderSize") or defaults.classPowerBorderSize end,
-                  set=function(v) DB().classPowerBorderSize = v; ns.RefreshClassPower(); UpdatePreview() end },
-            },
-        })
     end
     end   -- close Class Resource hidden-while-disabled gate
 
@@ -1864,13 +1858,8 @@ local function BuildDisplayBars(parent, y, ctx)
                 DB()[kind .. "DurationTextColor"] = { r = r, g = g, b = b }
                 RefreshDuration()
             end
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(region, region:GetFrameLevel() + 5, colorGet, colorSet, nil, 20)
-            PP.Point(swatch, "RIGHT", region._control, "LEFT", -12, 0)
-            region._lastInline = swatch
-            EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
 
             EllesmereUI.BuildInlineCog(region, {
-                icon = EllesmereUI.RESIZE_ICON, gap = 9,
                 title = cfg.title,
                 rows = {
                     { type="slider", label="Size", min=6, max=20, step=1,
@@ -1884,6 +1873,10 @@ local function BuildDisplayBars(parent, y, ctx)
                       set=function(v) DB()[kind .. "DurationTextY"] = v; RefreshDuration() end },
                 },
             })
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(region, region:GetFrameLevel() + 5, colorGet, colorSet, nil, 20)
+            PP.Point(swatch, "RIGHT", region._lastInline or region._control, "LEFT", -8, 0)
+            region._lastInline = swatch
+            EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
         end
 
         local durationRow1
@@ -1921,14 +1914,9 @@ local function BuildDisplayBars(parent, y, ctx)
             LiveApplyAuraText()
             UpdatePreview()
         end
-        local asSwatch, asUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, asColorGet, asColorSet, nil, 20)
-        PP.Point(asSwatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
-        rightRgn._lastInline = asSwatch
-        EllesmereUI.RegisterWidgetRefresh(function() asUpdateSwatch() end)
 
         -- RIGHT: Aura Stacks inline cog (Size / X / Y)
         EllesmereUI.BuildInlineCog(rightRgn, {
-            icon = EllesmereUI.RESIZE_ICON, gap = 9,
             title = "Aura Stacks Settings",
             rows = {
                 { type="slider", label="Size", min=6, max=20, step=1,
@@ -1954,6 +1942,10 @@ local function BuildDisplayBars(parent, y, ctx)
                   end },
             },
         })
+        local asSwatch, asUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, asColorGet, asColorSet, nil, 20)
+        PP.Point(asSwatch, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+        rightRgn._lastInline = asSwatch
+        EllesmereUI.RegisterWidgetRefresh(function() asUpdateSwatch() end)
         end
     end
 
@@ -1999,14 +1991,9 @@ local function BuildDisplayBars(parent, y, ctx)
             end
             UpdatePreview()
         end
-        local snSwatch, snUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, snColorGet, snColorSet, nil, 20)
-        PP.Point(snSwatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
-        EllesmereUI.RegisterWidgetRefresh(function() snUpdateSwatch() end)
 
         -- LEFT: Spell Name inline cog for X/Y offset
         EllesmereUI.BuildInlineCog(leftRgn, {
-            chain = false, anchorTo = snSwatch, gap = 6,
-            icon = EllesmereUI.RESIZE_ICON,
             isOpen = CogPopupOpen,
             show = function(self)
                 ShowCogPopup(self, {
@@ -2047,12 +2034,38 @@ local function BuildDisplayBars(parent, y, ctx)
                 })
             end,
         })
+        local snSwatch, snUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, snColorGet, snColorSet, nil, 20)
+        PP.Point(snSwatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+        leftRgn._lastInline = snSwatch
+        EllesmereUI.RegisterWidgetRefresh(function() snUpdateSwatch() end)
 
         -- RIGHT: Spell Target inline double swatch (custom + class colored)
         local rightRgn = spellNameRow._rightRegion
         local ctrl = rightRgn._control
 
-        -- Class colored swatch (rightmost)
+        -- RIGHT: Spell Target inline cog for X/Y offset
+        EllesmereUI.BuildInlineCog(rightRgn, {
+            isOpen = CogPopupOpen,
+            show = function(self)
+                ShowCogPopup(self, {
+                    title = EllesmereUI.L("Spell Target Settings"),
+                    xGet = function() return DBVal("castTargetOffsetX") or defaults.castTargetOffsetX end,
+                    xSet = function(v) DB().castTargetOffsetX = v; ns.RefreshAllSettings(); UpdatePreview() end,
+                    yGet = function() return DBVal("castTargetOffsetY") or defaults.castTargetOffsetY end,
+                    ySet = function(v) DB().castTargetOffsetY = v; ns.RefreshAllSettings(); UpdatePreview() end,
+                    sizeGet = function() return DBVal("castTargetSize") or defaults.castTargetSize end,
+                    sizeSet = function(v) DB().castTargetSize = v; ns.RefreshAllSettings(); UpdatePreview() end,
+                    sizeMin = 6, sizeMax = 20, sizeLabel = EllesmereUI.L("Size"),
+                    sizeFirst = true,
+                    widthGet = function() return DBVal("castTargetWidthPct") or defaults.castTargetWidthPct end,
+                    widthSet = function(v) DB().castTargetWidthPct = v; ns.RefreshAllSettings(); UpdatePreview() end,
+                    wrapGet = function() return DBVal("castTargetWrap") == true end,
+                    wrapSet = function(v) DB().castTargetWrap = v; ns.RefreshAllSettings(); UpdatePreview() end,
+                })
+            end,
+        })
+
+        -- Class colored swatch (beside the cog)
         local ccGet = function()
             local _, ct = UnitClass("player")
             if ct and RAID_CLASS_COLORS[ct] then
@@ -2062,7 +2075,7 @@ local function BuildDisplayBars(parent, y, ctx)
             return 1, 1, 1
         end
         local ccSwatch, ccUpdate = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, ccGet, function() end, nil, 20)
-        PP.Point(ccSwatch, "RIGHT", ctrl, "LEFT", -12, 0)
+        PP.Point(ccSwatch, "RIGHT", rightRgn._lastInline or ctrl, "LEFT", -8, 0)
         ccSwatch:SetScript("OnClick", function()
             DB().castTargetClassColor = true
             for _, plate in pairs(plates) do plate:UpdateHealth() end
@@ -2081,6 +2094,7 @@ local function BuildDisplayBars(parent, y, ctx)
         end
         local stSwatch, stUpdate = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, stColorGet, stColorSet, nil, 20)
         PP.Point(stSwatch, "RIGHT", ccSwatch, "LEFT", -9, 0)
+        rightRgn._lastInline = stSwatch
         stSwatch._eabOrigClick = stSwatch:GetScript("OnClick")
         stSwatch:SetScript("OnClick", function(self)
             local db = DB()
@@ -2111,30 +2125,6 @@ local function BuildDisplayBars(parent, y, ctx)
         if isCC == nil then isCC = defaults.castTargetClassColor end
         stSwatch:SetAlpha(isCC and 0.3 or 1)
         ccSwatch:SetAlpha(isCC and 1 or 0.3)
-
-        -- RIGHT: Spell Target inline cog for X/Y offset
-        EllesmereUI.BuildInlineCog(rightRgn, {
-            chain = false, anchorTo = stSwatch, gap = 6,
-            icon = EllesmereUI.RESIZE_ICON,
-            isOpen = CogPopupOpen,
-            show = function(self)
-                ShowCogPopup(self, {
-                    title = EllesmereUI.L("Spell Target Settings"),
-                    xGet = function() return DBVal("castTargetOffsetX") or defaults.castTargetOffsetX end,
-                    xSet = function(v) DB().castTargetOffsetX = v; ns.RefreshAllSettings(); UpdatePreview() end,
-                    yGet = function() return DBVal("castTargetOffsetY") or defaults.castTargetOffsetY end,
-                    ySet = function(v) DB().castTargetOffsetY = v; ns.RefreshAllSettings(); UpdatePreview() end,
-                    sizeGet = function() return DBVal("castTargetSize") or defaults.castTargetSize end,
-                    sizeSet = function(v) DB().castTargetSize = v; ns.RefreshAllSettings(); UpdatePreview() end,
-                    sizeMin = 6, sizeMax = 20, sizeLabel = EllesmereUI.L("Size"),
-                    sizeFirst = true,
-                    widthGet = function() return DBVal("castTargetWidthPct") or defaults.castTargetWidthPct end,
-                    widthSet = function(v) DB().castTargetWidthPct = v; ns.RefreshAllSettings(); UpdatePreview() end,
-                    wrapGet = function() return DBVal("castTargetWrap") == true end,
-                    wrapSet = function(v) DB().castTargetWrap = v; ns.RefreshAllSettings(); UpdatePreview() end,
-                })
-            end,
-        })
     end
     y = y - h
 

@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local GetSpecialization = (C_SpecializationInfo and C_SpecializationInfo.GetSpecialization) or GetSpecialization
 local addonName, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.AbsorbGlow and EllesmereUI.SetCraftBatch and EllesmereUI.FitCastName and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard frame suppression hides through the parent's HideFrame, the player absorb glow line is the parent's AbsorbGlow, the player cast bar's Full Craft Time is the parent's SetCraftBatch, Show Full Spell Name is the parent's FitCastName, and the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, and the Name Format asks its UnitNameFormat)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.AbsorbGlow and EllesmereUI.SetCraftBatch and EllesmereUI.FitCastName and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.PadGamepadUI and EllesmereUI.SetEditModeChildInert) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard frame suppression hides through the parent's HideFrame, the player absorb glow line is the parent's AbsorbGlow, the player cast bar's Full Craft Time is the parent's SetCraftBatch, Show Full Spell Name is the parent's FitCastName, and the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, and the Name Format asks its UnitNameFormat, and the WoW Forever gamepad target menu keeps Blizzard's TargetFrame live through its PadGamepadUI and SetEditModeChildInert)
 EllesmereUI._ModuleNS[addonName] = ns  -- LOD options files read this module ns via the registry
 
 local math_floor, math_ceil, math_max, math_min, math_abs =
@@ -31,6 +31,7 @@ do
     local hiddenParent = CreateFrame("Frame", nil, UIParent)
     hiddenParent:Hide()
     local pendingParent, looseFrames, hookedFrames = {}, {}, {}
+    local homeParent = {}   -- frame -> the parent it is kept in, when not hiddenParent
     local bossHandled = false
 
     -- Combat fallback: protected frames can't reparent in lockdown; park here, sweep at regen (mirrors stock lib).
@@ -40,13 +41,14 @@ do
             ns.CombatQueue.Defer("HiddenParentSweep", SweepLooseFrames)
             return
         end
-        for f in pairs(looseFrames) do f:SetParent(hiddenParent) end
+        for f in pairs(looseFrames) do f:SetParent(homeParent[f] or hiddenParent) end
         wipe(looseFrames)
     end
 
     local function ApplyHiddenParent(frame)
         pendingParent[frame] = nil
-        if frame:GetParent() == hiddenParent then return end
+        local home = homeParent[frame] or hiddenParent
+        if frame:GetParent() == home then return end
         if EditModeManagerFrame and EditModeManagerFrame:IsShown() then
             pendingParent[frame] = true
             C_Timer.After(0.25, function() ApplyHiddenParent(frame) end)
@@ -54,7 +56,7 @@ do
             looseFrames[frame] = true
             ns.CombatQueue.Defer("HiddenParentSweep", SweepLooseFrames)
         else
-            frame:SetParent(hiddenParent)
+            frame:SetParent(home)
         end
     end
 
@@ -62,23 +64,25 @@ do
         if child then child:UnregisterAllEvents() end
     end
 
-    local function HandleFrame(frame, doNotReparent)
+    -- keepShown: the frame stays shown in its home parent (homeParent[frame]).
+    local function HandleFrame(frame, doNotReparent, keepShown)
         if type(frame) == "string" then frame = _G[frame] end
         if not frame then return end
         frame:UnregisterAllEvents()
-        EllesmereUI.HideFrame(frame)
+        if not keepShown then EllesmereUI.HideFrame(frame) end
         if not doNotReparent then
-            frame:SetParent(hiddenParent)
+            frame:SetParent(homeParent[frame] or hiddenParent)
             if not hookedFrames[frame] then
                 hookedFrames[frame] = true
                 hooksecurefunc(frame, "SetParent", function(self, parent)
-                    if parent ~= hiddenParent and not pendingParent[self] then
+                    if parent ~= (homeParent[self] or hiddenParent) and not pendingParent[self] then
                         pendingParent[self] = true
                         C_Timer.After(0, function() ApplyHiddenParent(self) end)
                     end
                 end)
             end
         end
+        if keepShown then frame:Show() end
         Unreg(frame.healthBar or frame.healthbar or frame.HealthBar
             or (frame.HealthBarsContainer and frame.HealthBarsContainer.healthBar))
         Unreg(frame.manabar or frame.ManaBar)
@@ -114,6 +118,32 @@ do
     -- ComboFrame, see InitializeFrames).
     ns.UF_HideBlizzardFrame = HandleFrame
 
+    -- WoW Forever's Gamepad interface style: the gamepad bar's inspect button
+    -- (Y / Triangle) opens the target menu with Blizzard's TargetFrame as its
+    -- owner, and a menu closes the first frame its owner is not visible. Under
+    -- that style (decided as the target frame is hidden, at login) TargetFrame
+    -- is kept shown in an alpha 0 holder instead of the hidden parent, its
+    -- events still off and nothing of it taking the mouse; the menu opens at
+    -- Blizzard's TargetFrame spot. Owner sign-off 2026-11-05 for the children
+    -- (off only, never turned back on): the health and mana bars' hover, and
+    -- the aura container, which re-parses while shown. InitializeFrames also
+    -- suppresses its target-of-target child (ns.UF_TargetMenuOwner).
+    local function KeepTargetMenuOwner(tf)
+        local holder = CreateFrame("Frame", nil, UIParent)
+        holder:SetAlpha(0)
+        homeParent[tf] = holder
+        HandleFrame(tf, false, true)
+        tf:EnableMouse(false)
+        local main = tf.TargetFrameContent and tf.TargetFrameContent.TargetFrameContentMain
+        local bars = main and main.HealthBarsContainer
+        if bars and bars.HealthBar then bars.HealthBar:EnableMouseMotion(false) end
+        if main and main.ManaBar then main.ManaBar:EnableMouseMotion(false) end
+        local auras = tf.GetAuraContainer and tf:GetAuraContainer()
+        if auras then auras:Hide() end
+        EllesmereUI.SetEditModeChildInert(tf.Selection, true)
+        ns.UF_TargetMenuOwner = true
+    end
+
     function ns.UF_HideBlizzard(unit)
         if not unit then return end
         if unit == "player" then
@@ -122,7 +152,14 @@ do
         elseif unit == "pet" then
             HandleFrame(PetFrame)
         elseif unit == "target" then
-            HandleFrame(TargetFrame)
+            -- Once kept for the gamepad menu, a repeat call has nothing to do.
+            if not ns.UF_TargetMenuOwner then
+                if EllesmereUI.PadGamepadUI() and TargetFrame then
+                    KeepTargetMenuOwner(TargetFrame)
+                else
+                    HandleFrame(TargetFrame)
+                end
+            end
         elseif unit == "focus" then
             HandleFrame(FocusFrame)
         elseif unit:match("boss%d?$") then
@@ -227,6 +264,10 @@ local defaults = {
         -- Custom enemy reaction colors (empty = use Blizzard FACTION_BAR_COLORS).
         -- Keys: hostile (reactions 1-3), neutral (4), friendly (5-8), tapped.
         enemyColors = {},
+        -- Targeting Sound Effects: Blizzard's target / lost-target sounds,
+        -- which its parked TargetFrame no longer plays (Lifecycle). On by
+        -- default on WoW Forever only.
+        targetSounds = (EllesmereUI.IS_FOREVER == true) and true or false,
         player = {
             frameWidth = 181,
             healthHeight = 46,

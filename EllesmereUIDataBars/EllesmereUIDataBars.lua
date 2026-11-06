@@ -61,7 +61,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --       preview strip re-solves from the block measurements that pass settled.
 
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI._Pool) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.RequestTimePlayed and EllesmereUI.FormatDuration) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Time Played block asks /played through RequestTimePlayed and formats through FormatDuration)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -441,7 +441,9 @@ end
 -- in columns (tooltip) or separate lines (vertical bar) -- a single formatted
 -- string can't, since the proportional font makes "9g" and "1 234g" different
 -- widths and everything after the first drifts. Buffer is reused;
--- Tip_AddColumns copies it, so one buffer serves all rows.
+-- Tip_AddColumns copies it, so one buffer serves all rows. Silver and copper
+-- follow showSmall, and always come while there is no gold, as in FormatMoney
+-- (an amount under 1 gold never reads a bare 0g).
 local _moneyTokens = {}
 
 function ns.MoneyTokens(amount, showSmall, coinIcons, coloured, abbreviate, forceEnglish)
@@ -449,7 +451,7 @@ function ns.MoneyTokens(amount, showSmall, coinIcons, coloured, abbreviate, forc
     wipe(_moneyTokens)
     local gold = floor(amount / DENOMINATIONS[1].divisor)
     _moneyTokens[1] = GoldDisplay(gold, abbreviate, forceEnglish) .. CoinMarker(1, coinIcons, coloured)
-    if showSmall ~= false then
+    if showSmall ~= false or gold == 0 then
         local silver = floor((amount % DENOMINATIONS[1].divisor) / DENOMINATIONS[2].divisor)
         _moneyTokens[2] = silver .. CoinMarker(2, coinIcons, coloured)
         _moneyTokens[3] = (amount % DENOMINATIONS[2].divisor) .. CoinMarker(3, coinIcons, coloured)
@@ -2742,16 +2744,17 @@ do
         end
     end
 
-    -- UIParent:SetScale (login, scale slider) fires no event: follow its size.
-    -- One pass per frame.
+    -- UIParent:SetScale (login, scale slider) fires no event: follow its size too.
+    -- The two events and the size change all land in one pass on the next frame.
     local sizeQueued
+    local function FlushSized()
+        sizeQueued = false
+        OnDispEvent()
+    end
     local function OnUIParentSized()
         if sizeQueued then return end
         sizeQueued = true
-        C_Timer.After(0, function()
-            sizeQueued = false
-            OnDispEvent()
-        end)
+        C_Timer.After(0, FlushSized)
     end
 
     function dispRuntime.UpdateEventRegistration()
@@ -2759,7 +2762,7 @@ do
             if not dispFrame then
                 dispFrame = CreateFrame("Frame", nil, UIParent)
                 dispFrame:SetAllPoints(UIParent)
-                dispFrame:SetScript("OnEvent", OnDispEvent)
+                dispFrame:SetScript("OnEvent", OnUIParentSized)
             end
             dispFrame:RegisterEvent("DISPLAY_SIZE_CHANGED")
             dispFrame:RegisterEvent("UI_SCALE_CHANGED")

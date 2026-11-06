@@ -184,11 +184,54 @@ function ns.RFO_BuildTextDisplay(W, parent, y, opts)
         Apply()
     end
 
-    -- Swatches (Custom nearest the dropdown, then Class, Accent, Power), the
-    -- colour mode accessor and the cog of one shown text. The level is drawn in
-    -- the name's colour: no swatches of its own.
+    -- The cog (nearest the dropdown), the swatches left of it (Custom first,
+    -- then Class, Accent, Power) and the colour mode accessor of one shown
+    -- text. The level is drawn in the name's colour: no swatches of its own.
     local function Decorate(rgn, cell)
         local t = cell.text
+        local rows = {
+            { type = "slider", label = "Size", min = 6, max = 26, step = 1,
+              get = function() return SVal(t.size, 10) end,
+              set = function(v) env.SSet(t.size, v) end },
+            { type = "slider", label = "X Offset", min = -500, max = 500, step = 1,
+              get = function() return SVal(t.x, 0) end,
+              set = function(v) env.SSet(t.x, v) end },
+            { type = "slider", label = "Y Offset", min = -500, max = 500, step = 1,
+              get = function() return SVal(t.y, 0) end,
+              set = function(v) env.SSet(t.y, v) end },
+        }
+        -- The name length is shared by every name text of the view (Name Format
+        -- has its own row: it shapes the Top Name Bar too).
+        local showsName = t.kind == "name"
+        if t.kind == "custom" then
+            local parsed = EllesmereUI.TextTags.Parse(ns.RF_TextTags, SVal(t.fmt))
+            showsName = parsed and parsed.has and parsed.has.name and true or false
+        end
+        if showsName then
+            rows[#rows + 1] = { type = "slider", label = "Max Characters (0=off)", min = 0, max = 30, step = 1,
+                get = function() return SVal("nameMaxLength", 15) end,
+                set = function(v) env.SSet("nameMaxLength", v) end }
+        end
+        -- Show Above Icons: the name's own key; every other text follows it until set here.
+        if t.kind == "name" then
+            rows[#rows + 1] = { type = "toggle", label = "Show Above Icons",
+                tooltip = "Render the name above buff and debuff icons. Texts without a setting of their own follow it.",
+                get = function() return SVal(t.above, false) and true or false end,
+                set = function(v) env.SSet(t.above, v) end }
+        else
+            rows[#rows + 1] = { type = "toggle", label = "Show Above Icons",
+                tooltip = "Render this text above buff and debuff icons. Follows the name's setting until changed here.",
+                get = function()
+                    local v = SVal(t.above)
+                    if v == nil then v = SVal("nameTextAboveIcons", false) end
+                    return v and true or false
+                end,
+                set = function(v) env.SSet(t.above, v) end }
+        end
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = EllesmereUI.Lf("%1$s Settings", EllesmereUI.L(t.label)),
+            rows = rows,
+        })
         if t.kind ~= "level" then
             local modeKey = t.cm
             local function AddSwatch(getColor, setColor, mode, opensPicker, tooltip)
@@ -252,49 +295,6 @@ function ns.RFO_BuildTextDisplay(W, parent, y, opts)
                 setValue = function(v) env.SSet(modeKey, v) end,
             })
         end
-        local rows = {
-            { type = "slider", label = "Size", min = 6, max = 26, step = 1,
-              get = function() return SVal(t.size, 10) end,
-              set = function(v) env.SSet(t.size, v) end },
-            { type = "slider", label = "X Offset", min = -500, max = 500, step = 1,
-              get = function() return SVal(t.x, 0) end,
-              set = function(v) env.SSet(t.x, v) end },
-            { type = "slider", label = "Y Offset", min = -500, max = 500, step = 1,
-              get = function() return SVal(t.y, 0) end,
-              set = function(v) env.SSet(t.y, v) end },
-        }
-        -- The name length is shared by every name text of the view (Name Format
-        -- has its own row: it shapes the Top Name Bar too).
-        local showsName = t.kind == "name"
-        if t.kind == "custom" then
-            local parsed = EllesmereUI.TextTags.Parse(ns.RF_TextTags, SVal(t.fmt))
-            showsName = parsed and parsed.has and parsed.has.name and true or false
-        end
-        if showsName then
-            rows[#rows + 1] = { type = "slider", label = "Max Characters (0=off)", min = 0, max = 30, step = 1,
-                get = function() return SVal("nameMaxLength", 15) end,
-                set = function(v) env.SSet("nameMaxLength", v) end }
-        end
-        -- Show Above Icons: the name's own key; every other text follows it until set here.
-        if t.kind == "name" then
-            rows[#rows + 1] = { type = "toggle", label = "Show Above Icons",
-                tooltip = "Render the name above buff and debuff icons. Texts without a setting of their own follow it.",
-                get = function() return SVal(t.above, false) and true or false end,
-                set = function(v) env.SSet(t.above, v) end }
-        else
-            rows[#rows + 1] = { type = "toggle", label = "Show Above Icons",
-                tooltip = "Render this text above buff and debuff icons. Follows the name's setting until changed here.",
-                get = function()
-                    local v = SVal(t.above)
-                    if v == nil then v = SVal("nameTextAboveIcons", false) end
-                    return v and true or false
-                end,
-                set = function(v) env.SSet(t.above, v) end }
-        end
-        EllesmereUI.BuildInlineCog(rgn, {
-            title = EllesmereUI.Lf("%1$s Settings", EllesmereUI.L(t.label)),
-            rows = rows,
-        })
     end
 
     -- Shown texts in grid order (a shared position: in text order).

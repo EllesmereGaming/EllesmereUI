@@ -87,9 +87,9 @@ EllesmereUI.RB_COLOURS       = RB_COLOURS
 -- opts: width, height (nil = fit the content: textTop, the text, gap, the
 -- button and btnBottom), text (already translated, so the call site keeps its
 -- literal key for the locale extractor),
--- onOkay, arrow ("top", the default: the box sits below its target; "left":
--- the box sits right of it), arrowOffset (px along that edge from its
--- centre), pp (default PanelPP), strata (default FULLSCREEN_DIALOG; false
+-- onOkay, arrow ("top", the default: the box sits below its target; "bottom":
+-- the box sits above it; "left": the box sits right of it), arrowOffset (px
+-- along that edge from its centre), pp (default PanelPP), strata (default FULLSCREEN_DIALOG; false
 -- keeps the parent's), level (default 200), font (a path; default the panel
 -- font), fontFlags (with font; default none), fontSize (12), textTop (17),
 -- textInset (30), spacing (6), gap (12, text to button with a fitted height),
@@ -138,6 +138,10 @@ function EllesmereUI.BuildTipCallout(parent, opts)
         clip:SetSize(TIP_ARROW, TIP_ARROW * 2)
         clip:SetPoint("RIGHT", tip, "LEFT", 1, off)
         holder:SetPoint("CENTER", clip, "RIGHT", 0, 0)
+    elseif opts.arrow == "bottom" then
+        clip:SetSize(TIP_ARROW * 2, TIP_ARROW)
+        clip:SetPoint("TOP", tip, "BOTTOM", off, 1)
+        holder:SetPoint("CENTER", clip, "TOP", 0, 0)
     else
         clip:SetSize(TIP_ARROW * 2, TIP_ARROW)
         clip:SetPoint("BOTTOM", tip, "TOP", off, -1)

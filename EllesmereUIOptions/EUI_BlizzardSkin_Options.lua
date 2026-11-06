@@ -91,7 +91,7 @@ initFrame:SetScript("OnEvent", function(self)
             }
             EllesmereUI.BuildInlineCog(left, {
                 title = "Border Options", rows = popupRows,
-                icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = left._control,
+                anchorTo = left._control,
                 disabled = disabledFn,
                 disabledTooltip = prefix == "tooltip" and "Reskin Tooltip" or "Reskin Popups and Menus",
             })
@@ -400,7 +400,7 @@ initFrame:SetScript("OnEvent", function(self)
                 return not (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor)
             end
             EllesmereUI.BuildInlineCog(leftRgn, {
-                icon = EllesmereUI.DIRECTIONS_ICON, gap = 9,
+                gap = 9,
                 disabled = ttCursorOff,
                 disabledTooltip = "Anchor to Cursor",
                 title = "Cursor Tooltip Position",
@@ -624,7 +624,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if EllesmereUI._applyTooltipBuffs then EllesmereUI._applyTooltipBuffs() end
             end
             EllesmereUI.BuildInlineCog(ttStackRow._rightRegion, {
-                icon = EllesmereUI.DIRECTIONS_ICON, gap = 9,
+                gap = 9,
                 disabled = ttBuffsOff,
                 disabledTooltip = function()
                     return ttReskinOff() and "Reskin Tooltip" or "Show Player Buffs"
@@ -873,7 +873,7 @@ initFrame:SetScript("OnEvent", function(self)
                 return not (not EllesmereUIDB or EllesmereUIDB.reskinWidgetBars ~= false)
             end
             EllesmereUI.BuildInlineCog(lrgn, {
-                icon = EllesmereUI.RESIZE_ICON, anchorTo = lrgn._control,
+                anchorTo = lrgn._control,
                 disabled = CogOff, disabledTooltip = "Reskin Widget Bars",
                 tip = "Smallest on-screen size a reskinned bar is drawn at.\n\n" ..
                     "Widget bars on a nameplate inherit that nameplate's scale, so " ..
@@ -925,7 +925,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Countdown text color swatch + style cog (left of it) on the Show Queue Timer toggle.
+        -- Style cog + countdown text color swatch (left of it) on the Show Queue Timer toggle.
         if timerRgn and not EllesmereUI._prebuilding then
             local PP = EllesmereUI.PanelPP
             local QT = EllesmereUI.QUEUE_TIMER
@@ -940,21 +940,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB[key] = v
                 if EllesmereUI.RefreshQueueTimerStyle then EllesmereUI.RefreshQueueTimerStyle() end
             end
-
-            local qtSwatch, qtSwatchRefresh = EllesmereUI.BuildColorSwatch(timerRgn,
-                timerRgn:GetFrameLevel() + 5,
-                function()
-                    local c = EllesmereUIDB and EllesmereUIDB.queueTimerTextColor
-                    return (c and c.r) or QT.TEXT_R, (c and c.g) or QT.TEXT_G, (c and c.b) or QT.TEXT_B
-                end,
-                function(r, g, b) Set("queueTimerTextColor", { r = r, g = g, b = b }) end,
-                false, 20)
-            PP.Point(qtSwatch, "RIGHT", timerRgn._lastInline or timerRgn._control, "LEFT", -9, 0)
-            timerRgn._lastInline = qtSwatch
-            qtSwatch:HookScript("OnEnter", function(self)
-                EllesmereUI.ShowWidgetTooltip(self, "Countdown Text Color")
-            end)
-            qtSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
             EllesmereUI.BuildInlineCog(timerRgn, {
                 disabled = timerOff,
@@ -973,6 +958,21 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) Set("queueTimerTextOffsetY", v) end },
                 },
             })
+
+            local qtSwatch, qtSwatchRefresh = EllesmereUI.BuildColorSwatch(timerRgn,
+                timerRgn:GetFrameLevel() + 5,
+                function()
+                    local c = EllesmereUIDB and EllesmereUIDB.queueTimerTextColor
+                    return (c and c.r) or QT.TEXT_R, (c and c.g) or QT.TEXT_G, (c and c.b) or QT.TEXT_B
+                end,
+                function(r, g, b) Set("queueTimerTextColor", { r = r, g = g, b = b }) end,
+                false, 20)
+            PP.Point(qtSwatch, "RIGHT", timerRgn._lastInline or timerRgn._control, "LEFT", -8, 0)
+            timerRgn._lastInline = qtSwatch
+            qtSwatch:HookScript("OnEnter", function(self)
+                EllesmereUI.ShowWidgetTooltip(self, "Countdown Text Color")
+            end)
+            qtSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
             -- Called at build time too: the refresh list only runs on page show.
             local function UpdQueueTimerState()
@@ -1241,7 +1241,6 @@ initFrame:SetScript("OnEvent", function(self)
 
         if not EllesmereUI._prebuilding then
             local cogBtn = EllesmereUI.BuildInlineCog(enchGemRow._leftRegion, {
-                icon = EllesmereUI.RESIZE_ICON,
                 title = "Enchant Text",
                 rows = {
                     { type="slider", label="Text Size", min=6, max=20, step=1,
@@ -1626,7 +1625,6 @@ initFrame:SetScript("OnEvent", function(self)
         -- the enchants show as text.
         if not EllesmereUI._prebuilding then
             local cogBtn = EllesmereUI.BuildInlineCog(themedInspectSheetRow._rightRegion, {
-                icon = EllesmereUI.RESIZE_ICON,
                 title = "Enchant Text",
                 disabled = function() return EllesmereUIDB and EllesmereUIDB.themedInspectSheet == false end,
                 disabledTooltip = "Inspect Sheet",
@@ -3766,24 +3764,9 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) CBSetStyle("borderSize", v) end,
               disabled = Off, disabledTooltip = GATE_REQ });  y = y - h
 
-        -- BuildInlineSwatches, not a hand-rolled BuildColorSwatch: it is the house form for
-        -- a swatch riding on a control half. It anchors through PP.Point, registers the
-        -- swatch's refresh so a profile switch repaints it, and builds the greyed-out block
-        -- plus tooltip from opts.disabled.
         if not EllesmereUI._prebuilding then
-            EllesmereUI.BuildInlineSwatches(fontBorderRow._leftRegion, {
-                { getValue = function() local r, g, b = CBColor("textColor"); return r, g, b, 1 end,
-                  setValue = function(r, g, b) CBSetStyle("textColor", { r=r, g=g, b=b }) end,
-                  -- Two reasons this swatch can be dead, so the tip is resolved per reason.
-                  disabled = function() return Off() or CBVal("followBlizzardColor") == true end,
-                  disabledTooltip = function()
-                      return Off() and GATE_REQ or "Follow Blizzard Default Color"
-                  end,
-                  requireState = function() return Off() and "enabled" or "disabled" end },
-            }, { disabled = Off, disabledTooltip = GATE_REQ })
-
-            -- Built AFTER the swatch on purpose: BuildInlineSwatches chains _lastInline, so a
-            -- cog made afterwards lands to its left rather than on top of it.
+            -- Built BEFORE the swatch on purpose: the cog sits beside the control, and
+            -- BuildInlineSwatches chains _lastInline, so the swatch lands to its left.
             EllesmereUI.BuildInlineCog(fontBorderRow._leftRegion, {
                 disabled = Off,
                 disabledTooltip = GATE_REQ,
@@ -3806,6 +3789,21 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
+
+            -- BuildInlineSwatches, not a hand-rolled BuildColorSwatch: it is the house form for
+            -- a swatch riding on a control half. It anchors through PP.Point, registers the
+            -- swatch's refresh so a profile switch repaints it, and builds the greyed-out block
+            -- plus tooltip from opts.disabled.
+            EllesmereUI.BuildInlineSwatches(fontBorderRow._leftRegion, {
+                { getValue = function() local r, g, b = CBColor("textColor"); return r, g, b, 1 end,
+                  setValue = function(r, g, b) CBSetStyle("textColor", { r=r, g=g, b=b }) end,
+                  -- Two reasons this swatch can be dead, so the tip is resolved per reason.
+                  disabled = function() return Off() or CBVal("followBlizzardColor") == true end,
+                  disabledTooltip = function()
+                      return Off() and GATE_REQ or "Follow Blizzard Default Color"
+                  end,
+                  requireState = function() return Off() and "enabled" or "disabled" end },
+            }, { disabled = Off, disabledTooltip = GATE_REQ })
 
             EllesmereUI.BuildInlineSwatches(fontBorderRow._rightRegion, {
                 { getValue = function() return CBColor("borderColor") end,
@@ -4013,7 +4011,6 @@ initFrame:SetScript("OnEvent", function(self)
         -- turning it off hands the slider the current automatic size.
         if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineCog(wsRow._leftRegion, {
-                icon = EllesmereUI.RESIZE_ICON,
                 title = "Whirling Surge Icon",
                 disabled = EDR_WSOff, disabledTooltip = "Show Whirling Surge",
                 rows = {
@@ -4232,7 +4229,6 @@ initFrame:SetScript("OnEvent", function(self)
         )
         if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(speedTextRow._rightRegion, {
-            icon = EllesmereUI.RESIZE_ICON,
             title = "Speed Text Position",
             rows = {
                 { type = "slider", label = "Size",     min = 6,    max = 32,  step = 1,

@@ -2818,7 +2818,8 @@ local function CreateMover(barKey)
     local ICON_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
     local ARROW_ICON  = ICON_PATH .. "eui-arrow.png"
     local ARROW_RIGHT_ICON = ICON_PATH .. "right-arrow.png"
-    local COGS_ICON   = EllesmereUI.COGS_ICON or (ICON_PATH .. "cogs-3.png")
+    -- The cogwheel art (EllesmereUI.COGS_ICON is the settings panel's cog).
+    local COGS_ICON   = ICON_PATH .. "cogs-3.png"
     local ACT_SZ = 22       -- cog button size
     local ACT_PAD = 3       -- gap between cog and dropdown
     local DD_W = 150        -- dropdown width

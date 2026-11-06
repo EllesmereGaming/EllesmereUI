@@ -123,10 +123,11 @@ local function SetupOptionsPanel()
         -- other callers -- styles changed by overrides, profile switch, or
         -- import land here.
         RealiseClassPowerStyle()
-        -- Threat watchers: a profile switch or spec override changes the
-        -- saved toggles without calling their setters.
+        -- Threat watchers and the targeting sounds: a profile switch or spec
+        -- override changes the saved toggles without calling their setters.
         ns.SyncPlayerThreat()
         if ns.SyncThreatPct then ns.SyncThreatPct() end
+        ns.UF_SyncTargetSounds()
     end
     reloadThrottle:SetScript("OnUpdate", function(self)
         self:Hide()

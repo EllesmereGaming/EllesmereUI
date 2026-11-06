@@ -1295,7 +1295,9 @@ local function AnchorNPContainer(container, kind, plate, slotVal)
             or (slotVal == "topleft" and "left" or "right")
         local corner = (slotVal == "topleft") and "BOTTOMLEFT" or "BOTTOMRIGHT"
         local healthCorner = (slotVal == "topleft") and "TOPLEFT" or "TOPRIGHT"
-        container:SetPoint(corner, plate.health, healthCorner, xOff, debuffY + cpPush + yOff)
+        -- Above the corner's Top Left / Top Right text while it shows one.
+        container:SetPoint(corner, plate.health, healthCorner, xOff,
+            debuffY + cpPush + ns.NP_TopCornerLift(slotVal) + yOff)
         anchorPoint = corner
         if growth == "up" then
             gH = (slotVal == "topleft") and "RIGHT" or "LEFT"
@@ -1402,12 +1404,12 @@ local function PositionLockout(plate, f, slotVal)
         else
             f:SetPoint("BOTTOMLEFT", plate.health, "BOTTOMRIGHT", sideOff + xOff, yOff)
         end
-    else -- topleft / topright
+    else -- topleft / topright (above the corner's text while it shows one)
         local debuffY = (ns.GetDebuffYOffset and ns.GetDebuffYOffset()) or 2
         local cpPush = ns.NP_ClassPowerTopPush and ns.NP_ClassPowerTopPush(plate) or 0
         local corner = (slotVal == "topleft") and "BOTTOMLEFT" or "BOTTOMRIGHT"
         local hc = (slotVal == "topleft") and "TOPLEFT" or "TOPRIGHT"
-        f:SetPoint(corner, plate.health, hc, xOff, debuffY + cpPush + yOff)
+        f:SetPoint(corner, plate.health, hc, xOff, debuffY + cpPush + ns.NP_TopCornerLift(slotVal) + yOff)
     end
 end
 
@@ -2124,6 +2126,9 @@ local function GeoFP()
         ns.GetDebuffYOffset and ns.GetDebuffYOffset() or 0,
         ns.GetSideAuraXOffset and ns.GetSideAuraXOffset() or 0,
         PVal("textSlotTop"), PVal("topleftSlotGrowth"), PVal("toprightSlotGrowth"),
+        -- The corner rows rise above a Top Left / Top Right text (its element, Size, Y
+        -- offset and the name Y offset, all in the lift).
+        ns.NP_TopCornerLift("topleft"), ns.NP_TopCornerLift("topright"),
         -- Raise Strata feeds the (generation-guarded) layout pass, so its
         -- toggles must flip the geometry fingerprint like everything else.
         ns.GetSlotRaiseStrata and ns.GetSlotRaiseStrata(ds) or false,

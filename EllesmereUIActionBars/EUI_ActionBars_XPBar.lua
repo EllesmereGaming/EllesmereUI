@@ -965,17 +965,7 @@ local function FmtPct(v)
 end
 
 -- A duration: 3d 4h, 1h 24m, 22m.
-local function FmtDur(sec)
-    local m = floor((sec > 0 and sec or 0) / 60)
-    local h = floor(m / 60)
-    if h >= 24 then
-        local d = floor(h / 24)
-        return format(EllesmereUI.L("%dd %dh"), d, h - d * 24)
-    elseif h > 0 then
-        return format(EllesmereUI.L("%dh %dm"), h, m - h * 60)
-    end
-    return format(EllesmereUI.L("%dm"), m)
-end
+local FmtDur = EllesmereUI.FormatDuration
 
 -- This character's entry in EllesmereUIDB.xpBarChars (create: build it, and
 -- the store, when missing). nil while the player's GUID cannot be read.

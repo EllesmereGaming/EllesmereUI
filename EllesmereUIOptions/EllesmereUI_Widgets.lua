@@ -25,6 +25,7 @@ local isRussian = GetLocale() == "ruRU"
 local SolidTex         = EllesmereUI.SolidTex
 local MakeFont         = EllesmereUI.MakeFont
 local MakeBorder       = EllesmereUI.MakeBorder
+local MakeRoundedBorder = EllesmereUI.MakeRoundedBorder
 local DisablePixelSnap = EllesmereUI.DisablePixelSnap
 local RowBg            = EllesmereUI.RowBg
 local lerp             = EllesmereUI.lerp
@@ -87,6 +88,48 @@ local CB = {
     BRD_A = EllesmereUI.CB_BRD_A, ACT_BRD_A = EllesmereUI.CB_ACT_BRD_A,
 }
 
+-- The toggle's and slider's round shapes, drawn texel to pixel on a pixel
+-- layer (EllesmereUI_RoundedCorners.lua; packed into a table to reduce the
+-- upvalue count). Each fit sizes its art in whole pixels for the layer's
+-- scale and sets a piece again only when its size moved.
+local PX = {
+    Layer = EllesmereUI.MakePixelLayer,
+    Pill = EllesmereUI.SetPillArt,
+    Circle = EllesmereUI.SetCircleArt,
+}
+-- Toggle: the track's width and height, the knob's pad and size (two pads
+-- off the height keep its parity, so the knob sits centred on a whole
+-- pixel); L.apply re-places the knob.
+function PX.ToggleFit(L, k)
+    local w, h = L.parent:GetSize()
+    local hp, wp = math.floor(h * k + 0.5), math.floor(w * k + 0.5)
+    local pad = math.max(1, math.floor(L.pad * k + 0.5))
+    if hp == L.hp and wp == L.wp and pad == L.padPx then return end
+    L.hp, L.wp, L.padPx = hp, wp, pad
+    local d = math.max(2, hp - 2 * pad)
+    L.d = d
+    PX.Pill(L.track, hp)
+    PX.Circle(L.knob, d)
+    L.knob:SetSize(d, d)
+    L.apply()
+end
+-- Slider: the track and fill pills' height and the thumb's circle (its
+-- texture and the blocker behind it, on the thumb in the track's units).
+function PX.SliderFit(L, k)
+    local h = math.floor(L.trackRef:GetHeight() * k + 0.5)
+    if h ~= L.hp then
+        L.hp = h
+        PX.Pill(L.track, h)
+        PX.Pill(L.fill, h)
+    end
+    local d = math.floor(L.thumbRef:GetWidth() * k + 0.5)
+    if d ~= L.d then
+        L.d = d
+        PX.Circle(L.thumb, d)
+        PX.Circle(L.blocker, d)
+    end
+end
+
 -------------------------------------------------------------------------------
 
 --  BuildToggleControl(parent, frameLevel, getValue, setValue, opts)
@@ -139,70 +182,41 @@ local function BuildToggleControl(parent, frameLevel, getValue, setValue, opts)
     RealPP.Size(toggle, TOGGLE_W, TOGGLE_H)
     toggle:SetFrameLevel(frameLevel)
 
-    local tBg = SolidTex(toggle, "BACKGROUND", offTR, offTG, offTB, offTA)
-    DisablePixelSnap(tBg)
-    tBg:SetAllPoints()
-
-    -- PanelPP for knob offsets: SetPoint coords are relative to the toggle (panel coordinate space).
-    local PanelPP = EllesmereUI.PanelPP or RealPP
-    local snappedPad = PanelPP.Scale(KNOB_PAD)
-
-    local knob = toggle:CreateTexture(nil, "ARTWORK")
-    DisablePixelSnap(knob)
-    knob:SetColorTexture(offKR, offKG, offKB, offKA)
-
-    -- Two-point vertical anchoring: knob top/bottom sit exactly snappedPad from the track edges (no independent size calc); width is set explicitly from snapped track height minus the two pads so the knob stays square.
-    local snappedTrackH = PanelPP.Scale(TOGGLE_H)
-    local snappedTrackW = PanelPP.Scale(TOGGLE_W)
-    local knobSz = snappedTrackH - snappedPad * 2
-
-    -- OFF = left edge, ON = right edge. Raw offsets, no PP.Scale. POS_ON is computed at SetKnobPos time from the toggle's actual rendered width so it matches the real right edge despite any RealPP/PanelPP scale mismatch.
-    local POS_OFF = snappedPad
-    local POS_ON  = 0  -- computed dynamically in SetKnobPos
-
-    -- Raw SetPoint (bypass PP snapping); TOPLEFT + BOTTOMLEFT with explicit width gives an equal vertical gap.
-    local function SetKnobPos(xOff)
-        knob:ClearAllPoints()
-        knob:SetPoint("TOPLEFT", toggle, "TOPLEFT", xOff, -snappedPad)
-        knob:SetPoint("BOTTOMLEFT", toggle, "BOTTOMLEFT", xOff, snappedPad)
-        knob:SetWidth(knobSz)
-    end
-
-    local function GetPosOn()
-        local w = toggle:GetWidth()
-        if w and w > 0 then
-            return w - snappedPad - knobSz
-        end
-        return snappedTrackW - snappedPad - knobSz
-    end
+    -- The track (a pill) and the knob (a circle) are white art on a pixel
+    -- layer, coloured through their vertex colour: round edges crisp at every
+    -- Window Scale, the knob placed in whole pixels (PX.ToggleFit sizes them).
+    local L = PX.Layer(toggle, PX.ToggleFit)
+    local layer = L._frame
+    local tBg = layer:CreateTexture(nil, "BACKGROUND")
+    tBg:SetAllPoints(layer)
+    local knob = layer:CreateTexture(nil, "ARTWORK")
+    L.track, L.knob, L.pad = tBg, knob, KNOB_PAD
 
     local animProgress = getValue() and 1 or 0
     local animTarget   = animProgress
     local ANIM_DUR = 0.075
 
+    -- OFF = the knob one pad in from the left edge, ON = one pad in from the
+    -- right, in whole pixels between them.
     local function ApplyVisual(p)
-        local posOn = GetPosOn()
-        local xOff = lerp(POS_OFF, posOn, p)
-        -- Round mid-animation only; at endpoints use pre-snapped values so effective-scale rounding can't shift the knob.
-        if p > 0 and p < 1 then
-            local es = toggle:GetEffectiveScale()
-            if es and es > 0 then
-                xOff = math.floor(xOff * es + 0.5) / es
-            end
+        local pad = L.padPx
+        if pad then
+            knob:ClearAllPoints()
+            knob:SetPoint("TOPLEFT", layer, "TOPLEFT", math.floor(lerp(pad, L.wp - pad - L.d, p) + 0.5), -pad)
         end
-        SetKnobPos(xOff)
-        tBg:SetColorTexture(
+        tBg:SetVertexColor(
             lerp(offTR, ELLESMERE_GREEN.r, p),
             lerp(offTG, ELLESMERE_GREEN.g, p),
             lerp(offTB, ELLESMERE_GREEN.b, p),
             lerp(offTA, onTA, p))
-        knob:SetColorTexture(
+        knob:SetVertexColor(
             lerp(offKR, onKR, p),
             lerp(offKG, onKG, p),
             lerp(offKB, onKB, p),
             lerp(offKA, onKA, p))
-        DisablePixelSnap(knob)
     end
+    L.apply = function() ApplyVisual(animProgress) end
+    L:Fit()
     ApplyVisual(animProgress)
 
     -- The click handlers stand down after the setter when it rebuilt the page and
@@ -458,6 +472,9 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         setValue = function(...)
             -- Spec Overrides auto-capture (see BuildToggleControl): dropdown button sits inside the host slot's region.
             local snap = EllesmereUI._SOAttribution(ddBtn)
+            -- The slot's Apply to link stays a few seconds after the pick (read before
+            -- the setter, which may rebuild the page).
+            EllesmereUI._SyncPickNotice(ddBtn)
             _r(...)
             EllesmereUI._settingsChanged = true
             EllesmereUI._NotifySettingWrite(ddBtn, snap)
@@ -520,8 +537,9 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         menu:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -2)
     end
     menu:Hide()
-    SolidTex(menu, "BACKGROUND", mBgR, mBgG, mBgB, mBgA):SetAllPoints()
-    MakeBorder(menu, mBrR, mBrG, mBrB, mBrA, PP)
+    local menuBg = SolidTex(menu, "BACKGROUND", mBgR, mBgG, mBgB, mBgA)
+    menuBg:SetAllPoints()
+    MakeRoundedBorder(menu, mBrR, mBrG, mBrB, mBrA, menuBg, nil, true)
 
     if _moSearchable then
         -- Options panel is Expressway-locked by design; EllesmereUI.EXPRESSWAY is locale-aware (CJK/Cyrillic get the system glyph font). The user's global font intentionally never restyles the settings UI.
@@ -539,6 +557,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         local sBg = searchEdit:CreateTexture(nil, "BACKGROUND")
         sBg:SetAllPoints()
         sBg:SetColorTexture(0, 0, 0, 0.4)
+        EllesmereUI.RoundBody(searchEdit, sBg)
         searchPlaceholder = searchEdit:CreateFontString(nil, "OVERLAY")
         searchPlaceholder:SetFont(fontPath, 11, "")
         searchPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.6)
@@ -601,8 +620,9 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                 flyout:SetClampedToScreen(true)
                 flyout:SetSize(menuW, 10)
                 flyout:Hide()
-                SolidTex(flyout, 'BACKGROUND', mBgR, mBgG, mBgB, mBgA):SetAllPoints()
-                MakeBorder(flyout, mBrR, mBrG, mBrB, mBrA, PP)
+                local flyBg = SolidTex(flyout, 'BACKGROUND', mBgR, mBgG, mBgB, mBgA)
+                flyBg:SetAllPoints()
+                MakeRoundedBorder(flyout, mBrR, mBrG, mBrB, mBrA, flyBg, nil, true)
                 item._flyout = flyout
                 if not menu._flyouts then menu._flyouts = {} end
                 menu._flyouts[#menu._flyouts + 1] = flyout
@@ -995,8 +1015,16 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         menu:SetHeight((_menuOpts and _menuOpts.maxHeight or DD_MAX_HEIGHT) + searchPad)
 
         local sf = CreateFrame("ScrollFrame", nil, menu)
-        sf:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, -searchPad)
-        sf:SetPoint("BOTTOMRIGHT", menu, "BOTTOMRIGHT", 0, 0)
+        -- inset: the controller step strips' height (0 without them). An edge
+        -- the scroll area would touch keeps 1 unit, so a scrolled row's text
+        -- (no mask takes a font string) stops at the border instead of
+        -- running over it.
+        local function PlaceScroll(inset)
+            local top = searchPad + inset
+            sf:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, -(top > 0 and top or 1))
+            sf:SetPoint("BOTTOMRIGHT", menu, "BOTTOMRIGHT", 0, inset > 0 and inset or 1)
+        end
+        PlaceScroll(0)
         sf:SetFrameLevel(menu:GetFrameLevel() + 1)
         sf:EnableMouseWheel(true)
         sf:SetScrollChild(innerContainer)
@@ -1140,9 +1168,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
                     padDown = MakePadStep(1, "BOTTOM", 0)
                 end
                 padUp:SetShown(show); padDown:SetShown(show)
-                local inset = show and PAD_STEP_H or 0
-                sf:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, -searchPad - inset)
-                sf:SetPoint("BOTTOMRIGHT", menu, "BOTTOMRIGHT", 0, inset)
+                PlaceScroll(show and PAD_STEP_H or 0)
             end
 
             -- Controller cursor: scroll the row it is about to land on into view;
@@ -1519,13 +1545,26 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
     PP.Size(trackFrame, trackW, 20)
     trackFrame:SetFrameLevel(parent:GetFrameLevel() + 1)
 
-    local trackDark = SolidTex(trackFrame, "BACKGROUND", trkR, trkG, trkB, trkA)
+    -- trackDark and trackFill only measure, never draw (the drag reads
+    -- trackDark's left edge, the thumb rides trackFill's right edge); the
+    -- pills on a pixel layer draw them, round-ended and crisp at every Window
+    -- Scale, the fill's right end under the thumb.
+    local trackDark = SolidTex(trackFrame, "BACKGROUND", 0, 0, 0, 0)
     PP.Size(trackDark, trackW, trackH)
     PP.Point(trackDark, "CENTER", trackFrame, "CENTER", 0, 0)
 
-    local trackFill = SolidTex(trackFrame, "BORDER", ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, SL.FILL_A)
+    local trackFill = SolidTex(trackFrame, "BORDER", 0, 0, 0, 0)
     PP.Height(trackFill, trackH)
     PP.Point(trackFill, "LEFT", trackDark, "LEFT", 0, 0)
+
+    local L = PX.Layer(trackFrame, PX.SliderFit)
+    local trackPill = L._frame:CreateTexture(nil, "BACKGROUND")
+    trackPill:SetAllPoints(trackDark)
+    trackPill:SetVertexColor(trkR, trkG, trkB, trkA)
+    local fillPill = L._frame:CreateTexture(nil, "BORDER")
+    fillPill:SetPoint("TOPLEFT", trackDark, "TOPLEFT", 0, 0)
+    fillPill:SetPoint("BOTTOMRIGHT", trackFill, "BOTTOMRIGHT", 0, 0)
+    fillPill:SetVertexColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, SL.FILL_A)
 
     local thumb = CreateFrame("Button", nil, trackFrame)
     PP.Size(thumb, thumbSz, thumbSz)
@@ -1539,9 +1578,14 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
     thumbBlockerFrame:SetIgnoreParentAlpha(true)
     local thumbBlocker = thumbBlockerFrame:CreateTexture(nil, "BACKGROUND")
     thumbBlocker:SetAllPoints()
-    thumbBlocker:SetColorTexture(DARK_BG.r, DARK_BG.g, DARK_BG.b, 1)
-    local thumbTex = SolidTex(thumb, "ARTWORK", ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+    thumbBlocker:SetVertexColor(DARK_BG.r, DARK_BG.g, DARK_BG.b, 1)
+    -- The thumb and its blocker are circles (white art, vertex colour).
+    local thumbTex = thumb:CreateTexture(nil, "ARTWORK")
     thumbTex:SetAllPoints()
+    thumbTex:SetVertexColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+    L.track, L.fill, L.thumb, L.blocker = trackPill, fillPill, thumbTex, thumbBlocker
+    L.trackRef, L.thumbRef = trackDark, thumb
+    L:Fit()
 
     local valBox = CreateFrame("EditBox", nil, parent)
     PP.Size(valBox, inputW, inputH)
@@ -1552,8 +1596,9 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
     valBox:SetJustifyH("CENTER")
     valBox:SetFont(EXPRESSWAY, inputFontSz, "")
     valBox:SetTextColor(TEXT_DIM_R, TEXT_DIM_G, TEXT_DIM_B, TEXT_DIM_A)
-    SolidTex(valBox, "BACKGROUND", SL.INPUT_R, SL.INPUT_G, SL.INPUT_B, inputAlpha):SetAllPoints()
-    MakeBorder(valBox, BORDER_R, BORDER_G, BORDER_B, SL.INPUT_BRD_A, PP)
+    local valBg = SolidTex(valBox, "BACKGROUND", SL.INPUT_R, SL.INPUT_G, SL.INPUT_B, inputAlpha)
+    valBg:SetAllPoints()
+    MakeRoundedBorder(valBox, BORDER_R, BORDER_G, BORDER_B, SL.INPUT_BRD_A, valBg)
 
     local function FormatVal(v)
         if step >= 1 then return tostring(math.floor(v + 0.5))
@@ -1857,8 +1902,8 @@ local function BuildSliderCore(parent, trackW, trackH, thumbSz, inputW, inputH, 
         if v then
             currentVal = v; rawDragVal = v; UpdateSliderVisual(v)
         end
-        trackFill:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, SL.FILL_A)
-        thumbTex:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+        fillPill:SetVertexColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, SL.FILL_A)
+        thumbTex:SetVertexColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
     end
     RegisterWidgetRefresh(RefreshSlider)
 
@@ -2166,7 +2211,7 @@ local function BuildDropdownControl(parent, ddW, fLevel, values, order, getValue
     ddBtn:SetFrameLevel(fLevel)
     local ddBg = SolidTex(ddBtn, "BACKGROUND", DD_BG_R, DD_BG_G, DD_BG_B, DD_BG_A)
     ddBg:SetAllPoints()
-    local ddBrd = MakeBorder(ddBtn, 1, 1, 1, DD_BRD_A, PP)
+    local ddBrd = MakeRoundedBorder(ddBtn, 1, 1, 1, DD_BRD_A, ddBg)
     -- The value's resting alpha is the text colour's, the channel the hover
     -- colours (RD_DD_COLOURS) write, so a hover and leave land back on it.
     local ddLbl = MakeFont(ddBtn, 13, nil, 1, 1, 1, DD_TXT_A)
@@ -2739,7 +2784,7 @@ function EllesmereUI.ShowPickMenu(anchor, opts)
         local bg = menu:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.067, 0.067, 0.067, 0.98)
-        EllesmereUI.MakeBorder(menu, 1, 1, 1, 0.2)
+        MakeRoundedBorder(menu, 1, 1, 1, 0.2, bg, nil, true)
 
         local catcher = CreateFrame("Button", nil, EllesmereUI.OverlayParent())
         catcher:SetAllPoints(UIParent)

@@ -667,53 +667,8 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
           end,
         },
         decorate=function(rgn)
-            -- Inline color swatches + cog on Left Text: Custom + Class (CDM Border Size pattern)
+            -- Inline cog + color swatches on Left Text: Custom + Class (CDM Border Size pattern)
             if not EllesmereUI._prebuilding then
-                local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
-                    rgn, rgn:GetFrameLevel() + 5,
-                    function()
-                        local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
-                        if cc then return cc.r, cc.g, cc.b end
-                        return 1, 1, 1
-                    end,
-                    function() end, nil, 20)
-                PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                classSw:SetScript("OnClick", function()
-                    if MVal("leftTextContent", "name") == "none" then return end
-                    MSet("leftTextClassColor", true); EllesmereUI:RefreshPage()
-                end)
-                classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
-                classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local swGet = function()
-                    return MVal("leftTextColorR", 1), MVal("leftTextColorG", 1), MVal("leftTextColorB", 1)
-                end
-                local swSet = function(r, g, b)
-                    settingsTable.leftTextColorR = r; settingsTable.leftTextColorG = g; settingsTable.leftTextColorB = b
-                    ReloadAndUpdate()
-                end
-                local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
-                PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
-                rgn._lastInline = sw
-                local origClick = sw:GetScript("OnClick")
-                sw:SetScript("OnClick", function(self, ...)
-                    if MVal("leftTextContent", "name") == "none" then return end
-                    if MVal("leftTextClassColor", false) then
-                        MSet("leftTextClassColor", false); EllesmereUI:RefreshPage(); return
-                    end
-                    if origClick then origClick(self, ...) end
-                end)
-                sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
-                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local function UpdSwatches()
-                    local isNone = MVal("leftTextContent", "name") == "none"
-                    local isClass = MVal("leftTextClassColor", false)
-                    sw:SetAlpha((isClass or isNone) and 0.3 or 1)
-                    classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
-                end
-                RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
-                UpdSwatches()
-
                 EllesmereUI.BuildInlineCog(rgn, {
                     disabled = function() return MVal("leftTextContent", "name") == "none" end,
                     disabledTooltip = "This option requires a text selection other than none.",
@@ -778,6 +733,51 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                           disabledTooltip="This option only applies when Target is selected." },
                                         }),
                 })
+
+                local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
+                    rgn, rgn:GetFrameLevel() + 5,
+                    function()
+                        local _, classFile = UnitClass("player")
+                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        if cc then return cc.r, cc.g, cc.b end
+                        return 1, 1, 1
+                    end,
+                    function() end, nil, 20)
+                PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                classSw:SetScript("OnClick", function()
+                    if MVal("leftTextContent", "name") == "none" then return end
+                    MSet("leftTextClassColor", true); EllesmereUI:RefreshPage()
+                end)
+                classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
+                classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local swGet = function()
+                    return MVal("leftTextColorR", 1), MVal("leftTextColorG", 1), MVal("leftTextColorB", 1)
+                end
+                local swSet = function(r, g, b)
+                    settingsTable.leftTextColorR = r; settingsTable.leftTextColorG = g; settingsTable.leftTextColorB = b
+                    ReloadAndUpdate()
+                end
+                local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
+                PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
+                rgn._lastInline = sw
+                local origClick = sw:GetScript("OnClick")
+                sw:SetScript("OnClick", function(self, ...)
+                    if MVal("leftTextContent", "name") == "none" then return end
+                    if MVal("leftTextClassColor", false) then
+                        MSet("leftTextClassColor", false); EllesmereUI:RefreshPage(); return
+                    end
+                    if origClick then origClick(self, ...) end
+                end)
+                sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
+                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdSwatches()
+                    local isNone = MVal("leftTextContent", "name") == "none"
+                    local isClass = MVal("leftTextClassColor", false)
+                    sw:SetAlpha((isClass or isNone) and 0.3 or 1)
+                    classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
+                end
+                RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
+                UpdSwatches()
             end
         end,
     }
@@ -794,53 +794,8 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
           end,
         },
         decorate=function(rgn)
-            -- Inline color swatches + cog on Right Text: Custom + Class (CDM Border Size pattern)
+            -- Inline cog + color swatches on Right Text: Custom + Class (CDM Border Size pattern)
             if not EllesmereUI._prebuilding then
-                local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
-                    rgn, rgn:GetFrameLevel() + 5,
-                    function()
-                        local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
-                        if cc then return cc.r, cc.g, cc.b end
-                        return 1, 1, 1
-                    end,
-                    function() end, nil, 20)
-                PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                classSw:SetScript("OnClick", function()
-                    if MVal("rightTextContent", "none") == "none" then return end
-                    MSet("rightTextClassColor", true); EllesmereUI:RefreshPage()
-                end)
-                classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
-                classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local swGet = function()
-                    return MVal("rightTextColorR", 1), MVal("rightTextColorG", 1), MVal("rightTextColorB", 1)
-                end
-                local swSet = function(r, g, b)
-                    settingsTable.rightTextColorR = r; settingsTable.rightTextColorG = g; settingsTable.rightTextColorB = b
-                    ReloadAndUpdate()
-                end
-                local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
-                PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
-                rgn._lastInline = sw
-                local origClick = sw:GetScript("OnClick")
-                sw:SetScript("OnClick", function(self, ...)
-                    if MVal("rightTextContent", "none") == "none" then return end
-                    if MVal("rightTextClassColor", false) then
-                        MSet("rightTextClassColor", false); EllesmereUI:RefreshPage(); return
-                    end
-                    if origClick then origClick(self, ...) end
-                end)
-                sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
-                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local function UpdSwatches()
-                    local isNone = MVal("rightTextContent", "none") == "none"
-                    local isClass = MVal("rightTextClassColor", false)
-                    sw:SetAlpha((isClass or isNone) and 0.3 or 1)
-                    classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
-                end
-                RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
-                UpdSwatches()
-
                 EllesmereUI.BuildInlineCog(rgn, {
                     disabled = function() return MVal("rightTextContent", "none") == "none" end,
                     disabledTooltip = "This option requires a text selection other than none.",
@@ -905,19 +860,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                           disabledTooltip="This option only applies when Target is selected." },
                                         }),
                 })
-            end
-        end,
-    }
-    textSlots[3] = { key="centerText", position="Center Text", default="none",
-        cfg={ type="dropdown", text="Center Text", values=healthTextValues, order=(unitKey == "boss") and healthTextOrderBoss or healthTextOrder,
-          getValue=function() return MVal("centerTextContent", "none") end,
-          setValue=function(v)
-            settingsTable.centerTextContent = v
-            ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
-          end },
-        decorate=function(rgn)
-            -- Inline color swatches + cog on Center Text: Custom + Class (CDM Border Size pattern)
-            if not EllesmereUI._prebuilding then
+
                 local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
                     rgn, rgn:GetFrameLevel() + 5,
                     function()
@@ -929,16 +872,16 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                     function() end, nil, 20)
                 PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 classSw:SetScript("OnClick", function()
-                    if MVal("centerTextContent", "none") == "none" then return end
-                    MSet("centerTextClassColor", true); EllesmereUI:RefreshPage()
+                    if MVal("rightTextContent", "none") == "none" then return end
+                    MSet("rightTextClassColor", true); EllesmereUI:RefreshPage()
                 end)
                 classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
                 classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 local swGet = function()
-                    return MVal("centerTextColorR", 1), MVal("centerTextColorG", 1), MVal("centerTextColorB", 1)
+                    return MVal("rightTextColorR", 1), MVal("rightTextColorG", 1), MVal("rightTextColorB", 1)
                 end
                 local swSet = function(r, g, b)
-                    settingsTable.centerTextColorR = r; settingsTable.centerTextColorG = g; settingsTable.centerTextColorB = b
+                    settingsTable.rightTextColorR = r; settingsTable.rightTextColorG = g; settingsTable.rightTextColorB = b
                     ReloadAndUpdate()
                 end
                 local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
@@ -946,23 +889,35 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                 rgn._lastInline = sw
                 local origClick = sw:GetScript("OnClick")
                 sw:SetScript("OnClick", function(self, ...)
-                    if MVal("centerTextContent", "none") == "none" then return end
-                    if MVal("centerTextClassColor", false) then
-                        MSet("centerTextClassColor", false); EllesmereUI:RefreshPage(); return
+                    if MVal("rightTextContent", "none") == "none" then return end
+                    if MVal("rightTextClassColor", false) then
+                        MSet("rightTextClassColor", false); EllesmereUI:RefreshPage(); return
                     end
                     if origClick then origClick(self, ...) end
                 end)
                 sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
                 sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 local function UpdSwatches()
-                    local isNone = MVal("centerTextContent", "none") == "none"
-                    local isClass = MVal("centerTextClassColor", false)
+                    local isNone = MVal("rightTextContent", "none") == "none"
+                    local isClass = MVal("rightTextClassColor", false)
                     sw:SetAlpha((isClass or isNone) and 0.3 or 1)
                     classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
                 end
                 RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
                 UpdSwatches()
-
+            end
+        end,
+    }
+    textSlots[3] = { key="centerText", position="Center Text", default="none",
+        cfg={ type="dropdown", text="Center Text", values=healthTextValues, order=(unitKey == "boss") and healthTextOrderBoss or healthTextOrder,
+          getValue=function() return MVal("centerTextContent", "none") end,
+          setValue=function(v)
+            settingsTable.centerTextContent = v
+            ReloadAndUpdate(); EllesmereUI:RefreshPage(true)
+          end },
+        decorate=function(rgn)
+            -- Inline cog + color swatches on Center Text: Custom + Class (CDM Border Size pattern)
+            if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildInlineCog(rgn, {
                     disabled = function() return MVal("centerTextContent", "none") == "none" end,
                     disabledTooltip = "This option requires a text selection other than none.",
@@ -1027,6 +982,51 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                           disabledTooltip="This option only applies when Target is selected." },
                                         }),
                 })
+
+                local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
+                    rgn, rgn:GetFrameLevel() + 5,
+                    function()
+                        local _, classFile = UnitClass("player")
+                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        if cc then return cc.r, cc.g, cc.b end
+                        return 1, 1, 1
+                    end,
+                    function() end, nil, 20)
+                PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                classSw:SetScript("OnClick", function()
+                    if MVal("centerTextContent", "none") == "none" then return end
+                    MSet("centerTextClassColor", true); EllesmereUI:RefreshPage()
+                end)
+                classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
+                classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local swGet = function()
+                    return MVal("centerTextColorR", 1), MVal("centerTextColorG", 1), MVal("centerTextColorB", 1)
+                end
+                local swSet = function(r, g, b)
+                    settingsTable.centerTextColorR = r; settingsTable.centerTextColorG = g; settingsTable.centerTextColorB = b
+                    ReloadAndUpdate()
+                end
+                local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
+                PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
+                rgn._lastInline = sw
+                local origClick = sw:GetScript("OnClick")
+                sw:SetScript("OnClick", function(self, ...)
+                    if MVal("centerTextContent", "none") == "none" then return end
+                    if MVal("centerTextClassColor", false) then
+                        MSet("centerTextClassColor", false); EllesmereUI:RefreshPage(); return
+                    end
+                    if origClick then origClick(self, ...) end
+                end)
+                sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
+                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdSwatches()
+                    local isNone = MVal("centerTextContent", "none") == "none"
+                    local isClass = MVal("centerTextClassColor", false)
+                    sw:SetAlpha((isClass or isNone) and 0.3 or 1)
+                    classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
+                end
+                RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
+                UpdSwatches()
             end
         end,
     }
@@ -1041,51 +1041,6 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
             decorate=function(rgn)
                 -- Extra Text retains the boss-only Alignment setting.
                 if unitKey == "boss" and not EllesmereUI._prebuilding then
-                    local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
-                        rgn, rgn:GetFrameLevel() + 5,
-                        function()
-                            local _, classFile = UnitClass("player")
-                            local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
-                            if cc then return cc.r, cc.g, cc.b end
-                            return 1, 1, 1
-                        end,
-                        function() end, nil, 20)
-                    PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                    classSw:SetScript("OnClick", function()
-                        if MVal("extraTextContent", "none") == "none" then return end
-                        MSet("extraTextClassColor", true); EllesmereUI:RefreshPage()
-                    end)
-                    classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
-                    classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                    local swGet = function()
-                        return MVal("extraTextColorR", 1), MVal("extraTextColorG", 1), MVal("extraTextColorB", 1)
-                    end
-                    local swSet = function(r, g, b)
-                        settingsTable.extraTextColorR = r; settingsTable.extraTextColorG = g; settingsTable.extraTextColorB = b
-                        ReloadAndUpdate()
-                    end
-                    local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
-                    PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
-                    rgn._lastInline = sw
-                    local swOrigClick = sw:GetScript("OnClick")
-                    sw:SetScript("OnClick", function(self, ...)
-                        if MVal("extraTextContent", "none") == "none" then return end
-                        if MVal("extraTextClassColor", false) then
-                            MSet("extraTextClassColor", false); EllesmereUI:RefreshPage(); return
-                        end
-                        if swOrigClick then swOrigClick(self, ...) end
-                    end)
-                    sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
-                    sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                    local function UpdSwatches()
-                        local isNone = MVal("extraTextContent", "none") == "none"
-                        local isClass = MVal("extraTextClassColor", false)
-                        sw:SetAlpha((isClass or isNone) and 0.3 or 1)
-                        classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
-                    end
-                    RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
-                    UpdSwatches()
-
                     EllesmereUI.BuildInlineCog(rgn, {
                         disabled = function() return MVal("extraTextContent", "none") == "none" end,
                         disabledTooltip = "This option requires a text selection other than none.",
@@ -1154,6 +1109,51 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                               disabledTooltip="This option only applies when Target is selected." },
                                             }),
                     })
+
+                    local classSw, classSwUp = EllesmereUI.BuildColorSwatch(
+                        rgn, rgn:GetFrameLevel() + 5,
+                        function()
+                            local _, classFile = UnitClass("player")
+                            local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                            if cc then return cc.r, cc.g, cc.b end
+                            return 1, 1, 1
+                        end,
+                        function() end, nil, 20)
+                    PP.Point(classSw, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                    classSw:SetScript("OnClick", function()
+                        if MVal("extraTextContent", "none") == "none" then return end
+                        MSet("extraTextClassColor", true); EllesmereUI:RefreshPage()
+                    end)
+                    classSw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(classSw, "Class Colored") end)
+                    classSw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    local swGet = function()
+                        return MVal("extraTextColorR", 1), MVal("extraTextColorG", 1), MVal("extraTextColorB", 1)
+                    end
+                    local swSet = function(r, g, b)
+                        settingsTable.extraTextColorR = r; settingsTable.extraTextColorG = g; settingsTable.extraTextColorB = b
+                        ReloadAndUpdate()
+                    end
+                    local sw, swUp = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, swGet, swSet, nil, 20)
+                    PP.Point(sw, "RIGHT", classSw, "LEFT", -8, 0)
+                    rgn._lastInline = sw
+                    local swOrigClick = sw:GetScript("OnClick")
+                    sw:SetScript("OnClick", function(self, ...)
+                        if MVal("extraTextContent", "none") == "none" then return end
+                        if MVal("extraTextClassColor", false) then
+                            MSet("extraTextClassColor", false); EllesmereUI:RefreshPage(); return
+                        end
+                        if swOrigClick then swOrigClick(self, ...) end
+                    end)
+                    sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Custom Colored") end)
+                    sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    local function UpdSwatches()
+                        local isNone = MVal("extraTextContent", "none") == "none"
+                        local isClass = MVal("extraTextClassColor", false)
+                        sw:SetAlpha((isClass or isNone) and 0.3 or 1)
+                        classSw:SetAlpha((isClass and not isNone) and 1 or 0.3)
+                    end
+                    RegisterWidgetRefresh(function() swUp(); classSwUp(); UpdSwatches() end)
+                    UpdSwatches()
                 end
             end,
         }
@@ -1363,6 +1363,13 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
             ns.UFO_AddCustomFormatAccessor(pwrTextRow._leftRegion, "Power Text", "powerText",
                 MVal("powerTextFormat", "perpp"), function() return settingsTable end, ReloadAndUpdate)
         end
+        -- Show % cog on Power Text (left)
+        if not EllesmereUI._prebuilding then
+            local rgn = pwrTextRow._leftRegion
+            EllesmereUI.BuildInlineCog(rgn, ns.UFO_PowerTextCog(MVal, MSet,
+                { none = true, curpp = true },
+                function(v) MSet("powerShowPercent", v) end))
+        end
         -- Inline Text Color swatches on Power Text (left): Custom + Power Colored,
         -- mutually exclusive (mirrors Main Frames' Text Color multiSwatch). Custom
         -- click: first clears power-colored (selecting custom), second opens the
@@ -1416,18 +1423,10 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
             RegisterWidgetRefresh(function() customSwUp(); powerSwUp(); UpdSwatches() end)
             UpdSwatches()
         end
-        -- Show % cog on Power Text (left)
-        if not EllesmereUI._prebuilding then
-            local rgn = pwrTextRow._leftRegion
-            EllesmereUI.BuildInlineCog(rgn, ns.UFO_PowerTextCog(MVal, MSet,
-                { none = true, curpp = true },
-                function(v) MSet("powerShowPercent", v) end))
-        end
         -- Size + X/Y offsets cog on Text Position (right)
         if not EllesmereUI._prebuilding then
             local rgn = pwrTextRow._rightRegion
             EllesmereUI.BuildInlineCog(rgn, {
-                icon = EllesmereUI.RESIZE_ICON,
                 disabled = function() return MVal("powerPercentText", "none") == "none" end,
                 disabledTooltip = "This option requires a text position other than none.",
                 title = "Text Position",
@@ -1767,7 +1766,6 @@ function ns.UFO_BuildPetOptions(W, parent, y)
                 EllesmereUI.BlankRowCfg());  yy = yy - hh
             if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildInlineCog(posRow._leftRegion, {
-                    icon = EllesmereUI.DIRECTIONS_ICON,
                     disabled = happyOff, disabledTooltip = "Show Happiness",
                     title = "Happiness Position",
                     rows = {
@@ -1871,11 +1869,11 @@ function ns.UFO_BuildPetOptions(W, parent, y)
         if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineCog(buffRow._leftRegion, { disabled=buffsOff, disabledTooltip="Buffs Location",
                 title="Buff Settings", rows=ns.UFO_AuraSettingsRows("buff", PGet, PSet, 40, 4) })
-            EllesmereUI.BuildInlineCog(buffRow._rightRegion, { icon=EllesmereUI.DIRECTIONS_ICON, disabled=buffsOff,
+            EllesmereUI.BuildInlineCog(buffRow._rightRegion, { disabled=buffsOff,
                 disabledTooltip="Buffs Location", title="Buff Position", rows=ns.UFO_AuraPositionRows("buff", PGet, PSet) })
             EllesmereUI.BuildInlineCog(debuffRow._leftRegion, { disabled=debuffsOff, disabledTooltip="Debuffs Location",
                 title="Debuff Settings", rows=ns.UFO_AuraSettingsRows("debuff", PGet, PSet, 20, 10) })
-            EllesmereUI.BuildInlineCog(debuffRow._rightRegion, { icon=EllesmereUI.DIRECTIONS_ICON, disabled=debuffsOff,
+            EllesmereUI.BuildInlineCog(debuffRow._rightRegion, { disabled=debuffsOff,
                 disabledTooltip="Debuffs Location", title="Debuff Position", rows=ns.UFO_AuraPositionRows("debuff", PGet, PSet) })
         end
     end
@@ -2110,7 +2108,6 @@ function ns.UFO_BuildBossOptions(W, parent, y)
         if not EllesmereUI._prebuilding then
             local leftRgn = simpleBuffRow._leftRegion
             EllesmereUI.BuildInlineCog(leftRgn, {
-                icon = EllesmereUI.DIRECTIONS_ICON,
                 disabled = function() return ns.GetBossSimpleBuffMode(db.profile.boss) == "none" end,
                 disabledTooltip = "Simple Buff Display",
                 title = "Simple Buff Position",
@@ -2147,28 +2144,6 @@ function ns.UFO_BuildBossOptions(W, parent, y)
             -- Inline Duration + Stack swatches mirroring the regular Buff Text Size
             -- swatches (same keys); greyed + disabled on this row cog's condition.
             local buffOff = function() return BossBuffLocationActive() or ns.GetBossSimpleBuffMode(db.profile.boss) == "none" end
-            do
-                local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                    function() local c = db.profile.boss.buffCooldownTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                    function(r, g, b) db.profile.boss.buffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
-                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Duration Text Color") end)
-                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-                rightRgn._lastInline = sw
-                local function apply() upd(); local o = buffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
-                apply(); EllesmereUI.RegisterWidgetRefresh(apply)
-            end
-            do
-                local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                    function() local c = db.profile.boss.buffStackTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                    function(r, g, b) db.profile.boss.buffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
-                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Stack Text Color") end)
-                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-                rightRgn._lastInline = sw
-                local function apply() upd(); local o = buffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
-                apply(); EllesmereUI.RegisterWidgetRefresh(apply)
-            end
             EllesmereUI.BuildInlineCog(rightRgn, { disabled = buffOff, disabledTooltip = "Simple Buff Display",
                 title = "Duration & Stack",
                 rows = {
@@ -2197,6 +2172,28 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                       set=function(v) db.profile.boss.buffStackTextOffsetY = v; ReloadAndUpdate() end },
                 },
             })
+            do
+                local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
+                    function() local c = db.profile.boss.buffCooldownTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
+                    function(r, g, b) db.profile.boss.buffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Duration Text Color") end)
+                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+                rightRgn._lastInline = sw
+                local function apply() upd(); local o = buffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
+                apply(); EllesmereUI.RegisterWidgetRefresh(apply)
+            end
+            do
+                local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
+                    function() local c = db.profile.boss.buffStackTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
+                    function(r, g, b) db.profile.boss.buffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Stack Text Color") end)
+                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+                rightRgn._lastInline = sw
+                local function apply() upd(); local o = buffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
+                apply(); EllesmereUI.RegisterWidgetRefresh(apply)
+            end
         end
         -- (Show Duration toggle lives inside the Duration & Stack cog above.)
 
@@ -2254,7 +2251,6 @@ function ns.UFO_BuildBossOptions(W, parent, y)
         if not EllesmereUI._prebuilding then
             local leftRgn = simpleRow._leftRegion
             EllesmereUI.BuildInlineCog(leftRgn, {
-                icon = EllesmereUI.DIRECTIONS_ICON,
                 disabled = function() return ns.GetBossSimpleDebuffMode(db.profile.boss) == "none" end,
                 disabledTooltip = "Simple Debuff Display",
                 title = "Simple Debuff Position",
@@ -2293,28 +2289,6 @@ function ns.UFO_BuildBossOptions(W, parent, y)
             -- Size swatches (same keys); greyed + disabled on this row cog's
             -- condition.
             local debuffOff = function() return BossDebuffLocationActive() or ns.GetBossSimpleDebuffMode(db.profile.boss) == "none" end
-            do
-                local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                    function() local c = db.profile.boss.debuffCooldownTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                    function(r, g, b) db.profile.boss.debuffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
-                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Duration Text Color") end)
-                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-                rightRgn._lastInline = sw
-                local function apply() upd(); local o = debuffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
-                apply(); EllesmereUI.RegisterWidgetRefresh(apply)
-            end
-            do
-                local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                    function() local c = db.profile.boss.debuffStackTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                    function(r, g, b) db.profile.boss.debuffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
-                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Stack Text Color") end)
-                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-                rightRgn._lastInline = sw
-                local function apply() upd(); local o = debuffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
-                apply(); EllesmereUI.RegisterWidgetRefresh(apply)
-            end
             EllesmereUI.BuildInlineCog(rightRgn, { disabled = debuffOff, disabledTooltip = "Simple Debuff Display",
                 title = "Duration & Stack",
                 rows = {
@@ -2343,6 +2317,28 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                       set=function(v) db.profile.boss.debuffStackTextOffsetY = v; ReloadAndUpdate() end },
                 },
             })
+            do
+                local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
+                    function() local c = db.profile.boss.debuffCooldownTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
+                    function(r, g, b) db.profile.boss.debuffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Duration Text Color") end)
+                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+                rightRgn._lastInline = sw
+                local function apply() upd(); local o = debuffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
+                apply(); EllesmereUI.RegisterWidgetRefresh(apply)
+            end
+            do
+                local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
+                    function() local c = db.profile.boss.debuffStackTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
+                    function(r, g, b) db.profile.boss.debuffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Stack Text Color") end)
+                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+                rightRgn._lastInline = sw
+                local function apply() upd(); local o = debuffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
+                apply(); EllesmereUI.RegisterWidgetRefresh(apply)
+            end
         end
         -- (Show Duration toggle lives inside the Duration & Stack cog above.)
 
@@ -2445,7 +2441,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
               getValue=function() return db.profile.boss.buffCooldownTextSize or 10 end,
               setValue=function(v) db.profile.boss.buffCooldownTextSize = v; ReloadAndUpdate() end });  yy = yy - hh
         if not EllesmereUI._prebuilding then  -- Directions cog on Buff Size (X/Y cluster offset)
-            EllesmereUI.BuildInlineCog(bossAuraSizeRow._leftRegion, { icon = EllesmereUI.DIRECTIONS_ICON, disabled = bossBuffSizeOff, title = "Buff Position", rows = {
+            EllesmereUI.BuildInlineCog(bossAuraSizeRow._leftRegion, { disabled = bossBuffSizeOff, title = "Buff Position", rows = {
                 { type="slider", label="Offset X", min=-200, max=200, step=1,
                   get=function() return db.profile.boss.buffOffsetX or 0 end,
                   set=function(v) db.profile.boss.buffOffsetX = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
@@ -2474,28 +2470,6 @@ function ns.UFO_BuildBossOptions(W, parent, y)
             local PP = EllesmereUI.PanelPP
             local rightRgn = bossAuraSizeRow._rightRegion
             local buffOff = function() return not BossBuffLocationActive() end
-            do
-                local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                    function() local c = db.profile.boss.buffCooldownTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                    function(r, g, b) db.profile.boss.buffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
-                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Duration Text Color") end)
-                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-                rightRgn._lastInline = sw
-                local function apply() upd(); local o = buffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
-                apply(); EllesmereUI.RegisterWidgetRefresh(apply)
-            end
-            do
-                local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                    function() local c = db.profile.boss.buffStackTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                    function(r, g, b) db.profile.boss.buffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
-                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Stack Text Color") end)
-                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-                rightRgn._lastInline = sw
-                local function apply() upd(); local o = buffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
-                apply(); EllesmereUI.RegisterWidgetRefresh(apply)
-            end
             EllesmereUI.BuildInlineCog(rightRgn, { disabled = buffOff, disabledTooltip = "Buffs Location",
                 title = "Duration & Stack",
                 rows = {
@@ -2524,6 +2498,28 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                       set=function(v) db.profile.boss.buffStackTextOffsetY = v; ReloadAndUpdate() end },
                 },
             })
+            do
+                local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
+                    function() local c = db.profile.boss.buffCooldownTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
+                    function(r, g, b) db.profile.boss.buffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Duration Text Color") end)
+                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+                rightRgn._lastInline = sw
+                local function apply() upd(); local o = buffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
+                apply(); EllesmereUI.RegisterWidgetRefresh(apply)
+            end
+            do
+                local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
+                    function() local c = db.profile.boss.buffStackTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
+                    function(r, g, b) db.profile.boss.buffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Stack Text Color") end)
+                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+                rightRgn._lastInline = sw
+                local function apply() upd(); local o = buffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
+                apply(); EllesmereUI.RegisterWidgetRefresh(apply)
+            end
         end
         end   -- close buff sizing row hidden-while-None gate
 
@@ -2574,7 +2570,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                   getValue=function() return db.profile.boss.debuffCooldownTextSize or 10 end,
                   setValue=function(v) db.profile.boss.debuffCooldownTextSize = v; ReloadAndUpdate() end });  yy = yy - hh
             if not EllesmereUI._prebuilding then  -- Directions cog on Debuff Size (X/Y cluster offset)
-                EllesmereUI.BuildInlineCog(textSizeRow._leftRegion, { icon = EllesmereUI.DIRECTIONS_ICON, disabled = bossDebuffSizeOff, title = "Debuff Position", rows = {
+                EllesmereUI.BuildInlineCog(textSizeRow._leftRegion, { disabled = bossDebuffSizeOff, title = "Debuff Position", rows = {
                     { type="slider", label="Offset X", min=-200, max=200, step=1,
                       get=function() return db.profile.boss.debuffOffsetX or 0 end,
                       set=function(v) db.profile.boss.debuffOffsetX = v; ReloadAndUpdate(); if ns.RefreshBossPreviewDebuffs then ns.RefreshBossPreviewDebuffs() end end },
@@ -2603,28 +2599,6 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                 -- Size slider; greyed + mouse-disabled on the same condition as
                 -- the row's cog.
                 local debuffOff = function() return not BossDebuffLocationActive() end
-                do
-                    local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                        function() local c = db.profile.boss.debuffCooldownTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                        function(r, g, b) db.profile.boss.debuffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
-                    sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Duration Text Color") end)
-                    sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                    PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-                    rightRgn._lastInline = sw
-                    local function apply() upd(); local o = debuffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
-                    apply(); EllesmereUI.RegisterWidgetRefresh(apply)
-                end
-                do
-                    local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
-                        function() local c = db.profile.boss.debuffStackTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
-                        function(r, g, b) db.profile.boss.debuffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
-                    sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Stack Text Color") end)
-                    sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                    PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-                    rightRgn._lastInline = sw
-                    local function apply() upd(); local o = debuffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
-                    apply(); EllesmereUI.RegisterWidgetRefresh(apply)
-                end
                 EllesmereUI.BuildInlineCog(rightRgn, { disabled = debuffOff, disabledTooltip = "Debuffs Location",
                     title = "Duration & Stack",
                     rows = {
@@ -2656,6 +2630,28 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                 -- Disabled while Simple Debuff Display is active: simple mode
                 -- uses its own (simpleDebuff*) cooldown text, so the regular
                 -- debuff Duration & Stack controls do not apply.
+                do
+                    local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
+                        function() local c = db.profile.boss.debuffCooldownTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
+                        function(r, g, b) db.profile.boss.debuffCooldownTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                    sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Duration Text Color") end)
+                    sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+                    rightRgn._lastInline = sw
+                    local function apply() upd(); local o = debuffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
+                    apply(); EllesmereUI.RegisterWidgetRefresh(apply)
+                end
+                do
+                    local sw, upd = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5,
+                        function() local c = db.profile.boss.debuffStackTextColor; if c then return c.r, c.g, c.b end; return 1, 1, 1 end,
+                        function(r, g, b) db.profile.boss.debuffStackTextColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+                    sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, "Stack Text Color") end)
+                    sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                    PP.Point(sw, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+                    rightRgn._lastInline = sw
+                    local function apply() upd(); local o = debuffOff(); sw:SetAlpha(o and 0.3 or 1); sw:EnableMouse(not o) end
+                    apply(); EllesmereUI.RegisterWidgetRefresh(apply)
+                end
             end
             end   -- close debuff sizing row hidden-while-None gate
 
@@ -2717,7 +2713,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                 end
                 if not EllesmereUI._prebuilding then
                     local rgn=borderRow._leftRegion
-                    local btn = EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON, title="Border Options", rows={
+                    local btn = EllesmereUI.BuildInlineCog(rgn, { title="Border Options", rows={
                         { type="slider",label="Shift X",min=-10,max=10,step=1,
                           get=function() local v=B.auraBorderTextureShiftX;if v~=nil then return v end;local _,_,x=EllesmereUI.GetBorderDefaults("unitframes",B.auraBorderTexture or "solid",B.auraBorderSize or 1);return x end,
                           set=function(v) B.auraBorderTextureShiftX=v==0 and nil or v;ReloadAndUpdate() end },
@@ -3033,43 +3029,6 @@ function ns.UFO_BuildBossOptions(W, parent, y)
               disabledTooltip="Show Cast Bar",
               getValue=function() return B.castbarHeight or 14 end,
               setValue=function(v) B.castbarHeight = v; ReloadAndUpdate() end });  yy = yy - hh
-        -- Enemy cast colors on Show Cast Bar (left region), matching target/focus.
-        if not EllesmereUI._prebuilding then
-            local rgn = castMainRow._leftRegion
-            local function AddCastColorSwatch(tooltip, colorKey, fallback, disabledFn)
-                local sw, updateSw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                    function()
-                        local c = B[colorKey] or fallback
-                        return c.r, c.g, c.b, 1
-                    end,
-                    function(r, g, b)
-                        B[colorKey] = { r=r, g=g, b=b }
-                        ReloadAndUpdate()
-                    end, false, 20)
-                sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, tooltip) end)
-                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                rgn._lastInline = sw
-                castColorSwatches[#castColorSwatches + 1] = { sw = sw, enabledAlpha = disabledFn
-                    and function() return disabledFn() and 0.3 or 1 end }
-                if disabledFn then
-                    local function Update()
-                        local off = disabledFn()
-                        sw:SetAlpha(off and 0.3 or 1)
-                        sw:EnableMouse(not off)
-                        if updateSw then updateSw() end
-                    end
-                    Update()
-                    EllesmereUI.RegisterWidgetRefresh(Update)
-                end
-            end
-            AddCastColorSwatch("Interrupt Ready Mid-Cast", "castbarInterruptMidCastColor",
-                { r=0.318, g=0.820, b=0.357 },
-                function() return B.castbarInterruptMidCastEnabled ~= true end)
-            AddCastColorSwatch("Interrupt on CD", "castbarInterruptReadyColor", { r=0.92, g=0.35, b=0.20 })
-            AddCastColorSwatch("Uninterruptible Cast", "castbarUninterruptibleColor", { r=0.5, g=0.5, b=0.5 })
-            AddCastColorSwatch("Interruptible Cast", "castbarFillColor", { r=0.863, g=0.820, b=0.639 })
-        end
         -- Inline settings cog matching target/focus, plus boss positioning.
         if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineCog(castMainRow._leftRegion, {
@@ -3113,6 +3072,43 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                       set=function(v) B.castBorderCustom = v; ReloadAndUpdate(); EllesmereUI:RefreshPage(true) end },
                 },
             })
+        end
+        -- Enemy cast colors on Show Cast Bar (left region), matching target/focus.
+        if not EllesmereUI._prebuilding then
+            local rgn = castMainRow._leftRegion
+            local function AddCastColorSwatch(tooltip, colorKey, fallback, disabledFn)
+                local sw, updateSw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                    function()
+                        local c = B[colorKey] or fallback
+                        return c.r, c.g, c.b, 1
+                    end,
+                    function(r, g, b)
+                        B[colorKey] = { r=r, g=g, b=b }
+                        ReloadAndUpdate()
+                    end, false, 20)
+                sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, tooltip) end)
+                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                rgn._lastInline = sw
+                castColorSwatches[#castColorSwatches + 1] = { sw = sw, enabledAlpha = disabledFn
+                    and function() return disabledFn() and 0.3 or 1 end }
+                if disabledFn then
+                    local function Update()
+                        local off = disabledFn()
+                        sw:SetAlpha(off and 0.3 or 1)
+                        sw:EnableMouse(not off)
+                        if updateSw then updateSw() end
+                    end
+                    Update()
+                    EllesmereUI.RegisterWidgetRefresh(Update)
+                end
+            end
+            AddCastColorSwatch("Interrupt Ready Mid-Cast", "castbarInterruptMidCastColor",
+                { r=0.318, g=0.820, b=0.357 },
+                function() return B.castbarInterruptMidCastEnabled ~= true end)
+            AddCastColorSwatch("Interrupt on CD", "castbarInterruptReadyColor", { r=0.92, g=0.35, b=0.20 })
+            AddCastColorSwatch("Uninterruptible Cast", "castbarUninterruptibleColor", { r=0.5, g=0.5, b=0.5 })
+            AddCastColorSwatch("Interruptible Cast", "castbarFillColor", { r=0.863, g=0.820, b=0.639 })
         end
 
         -- Rows 2-4 are HIDDEN entirely while Show Cast Bar is off (the
@@ -3213,7 +3209,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
             rgn._lastInline = sw
         end
 
-        -- Row 4: Spell Name (dropdown + swatch + Size/X/Y cog) | Duration (same)
+        -- Row 4: Spell Name (dropdown + Size/X/Y cog + swatch) | Duration (same)
         local castTextRow
         castTextRow, hh = Ww:DualRow(pp, yy,
             { type="dropdown", text="Spell Name",
@@ -3246,14 +3242,9 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                 end
                 ReloadAndUpdate(); EllesmereUI:RefreshPage()
               end });  yy = yy - hh
-        -- Spell Name (left): color swatch + Size/X/Y cog
+        -- Spell Name (left): Size/X/Y cog + color swatch
         if not EllesmereUI._prebuilding then
             local rgn = castTextRow._leftRegion
-            local sw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                function() local c = B.castSpellNameColor or { r=1, g=1, b=1 }; return c.r, c.g, c.b end,
-                function(r, g, b) B.castSpellNameColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
-            sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = sw
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Spell Name",
                 rows = {
@@ -3268,15 +3259,15 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                       set=function(v) B.castSpellNameY = v; ReloadAndUpdate() end },
                 },
             })
+            local sw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                function() local c = B.castSpellNameColor or { r=1, g=1, b=1 }; return c.r, c.g, c.b end,
+                function(r, g, b) B.castSpellNameColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+            sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = sw
         end
-        -- Duration (right): color swatch + Size/X/Y cog
+        -- Duration (right): Size/X/Y cog + color swatch
         if not EllesmereUI._prebuilding then
             local rgn = castTextRow._rightRegion
-            local sw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                function() local c = B.castDurationColor or { r=1, g=1, b=1 }; return c.r, c.g, c.b end,
-                function(r, g, b) B.castDurationColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
-            sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = sw
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Duration",
                 rows = {
@@ -3291,6 +3282,11 @@ function ns.UFO_BuildBossOptions(W, parent, y)
                       set=function(v) B.castDurationY = v; ReloadAndUpdate() end },
                 },
             })
+            local sw = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                function() local c = B.castDurationColor or { r=1, g=1, b=1 }; return c.r, c.g, c.b end,
+                function(r, g, b) B.castDurationColor = { r=r, g=g, b=b }; ReloadAndUpdate() end, false, 20)
+            sw:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = sw
         end
         -- Custom Border Style rows (the Cast Bar cog's opt-in): one table
         -- styles all five boss cast bars; no unlock element, no sync links.

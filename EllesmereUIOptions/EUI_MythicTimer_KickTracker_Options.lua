@@ -338,7 +338,7 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
               setValue=SetPosition });  y = y - h
         if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineCog(row._rightRegion, { tip = "Position Offsets",
-                title = "Position Offsets", icon = EllesmereUI.DIRECTIONS_ICON,
+                title = "Position Offsets",
                 disabled = PlatesOff, disabledTooltip = REQ_PLATES,
                 rows = {
                     { type="slider", label="X Offset", min=-100, max=100, step=1,

@@ -2593,7 +2593,7 @@ function EUI_Bank:RefreshBank()
             btn:EnableMouse(true)
             btn._emptyBg:Hide()
             if btn.icon then btn.icon:Show() end
-            btn:SetItemButtonTexture(info.iconFileID)
+            ns.SetSlotIcon(btn, info.iconFileID)
             btn:SetItemButtonCount(info.stackCount)
             local quality = info.quality or 1
             SetItemButtonDesaturated(btn, info.isLocked or (desatJunk and (quality == 0

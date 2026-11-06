@@ -595,9 +595,9 @@ initFrame:SetScript("OnEvent", function(self)
                 ---------------------------------------------------------------------------
                 _, h = W:SectionHeader(parent, "DISPLAY (GRID / COMPACT)", y); y = y - h
 
-                -- Show Item Level: Never / Default Colors / Custom Colored (+ inline
-                -- swatch, live only under Custom Colored, and the Gear Track Rank cog
-                -- left of it) | Item Level Text Size. A view over the saved keys:
+                -- Show Item Level: Never / Default Colors / Custom Colored (+ the Gear
+                -- Track Rank cog and an inline swatch left of it, live only under
+                -- Custom Colored) | Item Level Text Size. A view over the saved keys:
                 -- showItemlevelInBags (false = Never) and itemlevelUseCustomColor
                 -- (Custom Colored); viewing the page writes nothing.
                 local function IlvlMode()
@@ -633,11 +633,25 @@ initFrame:SetScript("OnEvent", function(self)
                       end }
                 ); y = y - h
 
-                -- Show Item Level's inlines: the Custom Colored swatch nearest the
-                -- control, then the cog left of it (Show Gear Track Rank, live while
-                -- item levels show: the rank only renders beside them).
+                -- Show Item Level's inlines: the cog nearest the control (Show Gear
+                -- Track Rank, live while item levels show: the rank only renders
+                -- beside them), then the Custom Colored swatch left of it.
                 if not EllesmereUI._prebuilding then
                     local rgn = ilvlRow._leftRegion
+                    EllesmereUI.BuildInlineCog(rgn, {
+                        disabled = function() return db.profile.showItemlevelInBags == false end,
+                        disabledTooltip = "Show Item Level",
+                        title = "Item Level Options",
+                        rows = {
+                            { type="toggle", label="Show Gear Track Rank",
+                              get=function() return db.profile.bagShowTrackRank or false end,
+                              set=function(v)
+                                  db.profile.bagShowTrackRank = v
+                                  if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                              end },
+                        },
+                    })
+
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
                         function()
                             local c = db.profile.itemlevelCustomColor
@@ -648,7 +662,7 @@ initFrame:SetScript("OnEvent", function(self)
                             db.profile.itemlevelCustomColor = { r = r, g = g, b = b }
                             if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                         end, false, 20)
-                    swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+                    swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                     rgn._lastInline = swatch
                     local swatchBlock = CreateFrame("Frame", nil, swatch)
                     swatchBlock:SetAllPoints()
@@ -666,20 +680,6 @@ initFrame:SetScript("OnEvent", function(self)
                     UpdateIlvlSwatch()
                     EllesmereUI.RegisterWidgetRefresh(UpdateIlvlSwatch)
                     EllesmereUI.RegisterWidgetRefresh(updateSwatch)
-
-                    EllesmereUI.BuildInlineCog(rgn, {
-                        disabled = function() return db.profile.showItemlevelInBags == false end,
-                        disabledTooltip = "Show Item Level",
-                        title = "Item Level Options",
-                        rows = {
-                            { type="toggle", label="Show Gear Track Rank",
-                              get=function() return db.profile.bagShowTrackRank or false end,
-                              set=function(v)
-                                  db.profile.bagShowTrackRank = v
-                                  if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
-                              end },
-                        },
-                    })
                 end
 
                 -- Show BoE / Warbound Text (+ inline cog: Text Size) | Item Count Text Size
@@ -715,7 +715,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Same for every region-chrome block below.
                 if not EllesmereUI._prebuilding then
                     EllesmereUI.BuildInlineCog(bindRow._leftRegion, {
-                        icon = EllesmereUI.RESIZE_ICON, chain = false,
+                        chain = false,
                         disabled = function() return not db.profile.bagDisplayBindType end,
                         disabledTooltip = "Show BoE / Warbound Text",
                         title = "BoE / Warbound Text Options",
@@ -758,7 +758,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Inline cog (RESIZE) on Show Set Name on Gear: text size
                     if not EllesmereUI._prebuilding then
                         EllesmereUI.BuildInlineCog(setNameRow._leftRegion, {
-                            icon = EllesmereUI.RESIZE_ICON, chain = false,
+                            chain = false,
                             disabled = function() return db.profile.bagShowSetGearName ~= true end,
                             disabledTooltip = "Show Set Name on Gear",
                             title = "Set Name Text Options",
