@@ -2153,7 +2153,6 @@ do
         "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel", "merchantBulkBuy",
         "merchantExpand", "merchantCols", "merchantRows",
         "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
-        "mailCloseBags",
         -- Friends List card (WoW Forever: the friend tiles and auto-accept)
         "friendsListCard",
     })

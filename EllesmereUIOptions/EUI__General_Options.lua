@@ -681,8 +681,6 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 module = "Blizzard Skins+",
                 title  = "Close Bags on Mail Close",
                 desc   = "Closing the mailbox also closes your bags; on by default, in the Mail card's settings",
-                nav    = { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins",
-                           section = "GENERAL", highlight = "Close Bags on Mail Close" },
             },
             {
                 -- The DataBars page, where blocks are added (retail only: the block is not offered on
