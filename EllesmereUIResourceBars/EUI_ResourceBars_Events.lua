@@ -570,7 +570,12 @@ local function OnEvent(self, event, ...)
         local unit = ...
         if unit == "player" and castBarFrame and castBarFrame._casting then
             local name, _, _, startTimeMS, endTimeMS = UnitCastingInfo("player")
-            if name then
+            if name and castBarFrame._craftMerge then
+                -- Merged craft batch: shift the batch end by the pushback.
+                local tail = castBarFrame._endTime - castBarFrame._craftCastEnd
+                castBarFrame._craftCastEnd = endTimeMS / 1000
+                castBarFrame._endTime = castBarFrame._craftCastEnd + tail
+            elseif name then
                 castBarFrame._startTime = startTimeMS / 1000
                 castBarFrame._endTime = endTimeMS / 1000
                 castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
