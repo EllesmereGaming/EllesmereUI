@@ -21,6 +21,7 @@ local ReadPalette, CycleNext, CycleSteps = I.ReadPalette, I.CycleNext, I.CycleSt
 local MARKER_NAMES, MarkerIcon = I.MARKER_NAMES, I.MarkerIcon
 local RANDOM_FAVORITE_MOUNT, SpecIndexFor = I.RANDOM_FAVORITE_MOUNT, I.SpecIndexFor
 local WORLD_MARKER_ENGINE, SetUsableSlots = I.WORLD_MARKER_ENGINE, I.SetUsableSlots
+local MAX_SLOTS = I.MAX_SLOTS or 20
 
 -- Assigned below with the usability filter; EllesmereUIQuickdraw.lua holds
 -- the forward declaration ChildSlots reads through.
@@ -240,6 +241,30 @@ end
 -- ones go).
 local usableMemo = setmetatable({}, { __mode = "k" })
 
+-- Campsite Items: one entry standing for every campsite accessory in the
+-- bags. WoW Forever's professions make these and they are placed by a
+-- campfire (their use spell needs the "Camping Fire" spell focus, 2341, in
+-- the client's own data, build 1.60.1.70425). UsableSlots puts one item cell per
+-- accessory the character carries in its place, up to the menu's cap.
+local CAMPSITE_ITEMS = {
+    278030, 279938, 279940, 279941, 279943, 279944, 279945, 279947, 279948,
+    279949, 279950, 279951, 279952, 279955, 279956, 279957, 279959, 279960,
+    279962, 279964, 279965, 279966, 279967, 279968, 279969, 279970, 279972,
+    279973, 279976, 279978, 279979, 279982, 279985, 279987, 279988, 279989,
+    279990,
+}
+local CAMPSITE_ICON = 135805 -- the game's campfire (Basic Campfire's icon)
+ns.CAMPSITE_ITEMS = CAMPSITE_ITEMS
+
+local function CampsiteOwned()
+    local out = {}
+    if not (C_Item and C_Item.GetItemCount) then return out end
+    for _, id in ipairs(CAMPSITE_ITEMS) do
+        if C_Item.GetItemCount(id) > 0 then out[#out + 1] = id end
+    end
+    return out
+end
+
 -- KnownForm, SpellKnownHere and SlotUsable are private to UsableSlots, and
 -- are scoped so they cost no main-chunk local: as one file the module's main
 -- chunk was at Lua's ceiling of 200 locals, and merging two features into it
@@ -282,6 +307,8 @@ local function SlotUsable(slot)
         return SpecIndexFor(slot) ~= nil
     elseif k == "dynamicprofession" then
         return ns.ProfessionSpellFor(slot) ~= nil
+    elseif k == "campsite" then
+        return #CampsiteOwned() > 0
     elseif k == "spell" then
         return SpellKnownHere(tonumber(slot.id))
     elseif k == "macro" then
@@ -326,19 +353,34 @@ function UsableSlots(palette, p)
     for i = 1, #slots do
         local slot = slots[i]
         local keep
-        if slot.kind == "palette" then
+        if slot.kind == "campsite" then
+            -- Never drawn itself: the accessories carried right now take
+            -- its place (a view; the stored entry stays one entry).
+            if not out then
+                out = {}
+                for j = 1, i - 1 do out[j] = slots[j] end
+            end
+            for _, id in ipairs(CampsiteOwned()) do
+                if #out >= MAX_SLOTS then break end
+                out[#out + 1] = { kind = "item", id = id }
+            end
+            keep = false
+        elseif slot.kind == "palette" then
             local child = ChildIndex(slot)
             keep = not child or ns.PaletteActive(child)
         else
             keep = all or SlotUsable(slot)
         end
-        if not keep then
+        if keep == false and slot.kind == "campsite" then
+            -- Already expanded above.
+        elseif not keep then
             if not out then
                 out = {}
                 for j = 1, i - 1 do out[j] = slots[j] end
             end
         elseif out then
-            out[#out + 1] = slot
+            -- Campsite Items may have filled the menu up to its cap.
+            if #out < MAX_SLOTS then out[#out + 1] = slot end
         end
     end
     usableMemo[palette] = out or slots
@@ -364,7 +406,8 @@ local function ResolveAction(slot, p)
     -- A palette opens entries; it never fires one. Returning nothing is what
     -- makes a release on the parent itself a cancel, which is the only sensible
     -- reading of "you stopped on the door rather than going through it".
-    if k == "palette" then return nil end
+    -- Campsite Items is never a cell of its own (UsableSlots expands it).
+    if k == "palette" or k == "campsite" then return nil end
 
     if k == "spell" then
         if type(slot.id) ~= "number" then return nil end
@@ -668,6 +711,9 @@ local function SlotDisplay(slot)
     if k == "spell" then
         local info = C_Spell.GetSpellInfo(slot.id)
         if info then return info.iconID or QUESTION_MARK, info.name end
+
+    elseif k == "campsite" then
+        return CAMPSITE_ICON, EllesmereUI.L("Campsite Items")
 
     elseif k == "item" then
         if type(slot.id) ~= "number" then return QUESTION_MARK, slot.name end

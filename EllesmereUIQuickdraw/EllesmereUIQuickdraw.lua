@@ -848,7 +848,7 @@ end
 
 function ns.PaletteActive(index)
     local context = ns.PaletteContext(index)
-    if context and not ns.ContextActive(context) then return false end
+    if context and not ns.ContextActive(context, index) then return false end
     local specs = ns.PaletteSpecs(index)
     if not specs then return true end
     for id in pairs(specs) do

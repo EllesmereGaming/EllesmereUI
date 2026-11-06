@@ -42,6 +42,8 @@ local BINDING_PREFIX = I.BINDING_PREFIX
 --
 --  aura   the spell ID of the player aura that says the context is on
 --  icon   the hint's texture (the aura's own icon)
+--  buff   the spell ID of the reward the situation gives, for a menu set to
+--         stand down while the player already has it (Hide When Buffed)
 --  label  the options dropdown's name for it
 --  seed   what a still-empty menu is given when the context is picked; the
 --         player fills it from there like any other menu
@@ -52,8 +54,17 @@ local CONTEXTS = {
         -- (measured on WoW Forever, 2026-11-05).
         aura  = 1283391,
         icon  = 7808147,
+        -- Camp Benefits, the hour-long reward of a camp (same build).
+        buff  = 1229741,
         label = "Near a Campfire",
         seed  = {
+            -- Cooking, by position (the menu's Professions entries): every
+            -- recipe the game makes wait for a fire is a cooking one, and a
+            -- character without Cooking simply does not see it.
+            { kind = "dynamicprofession", index = 3 },
+            -- The campsite accessories carried right now (the professions'
+            -- pieces placed by a campfire), one cell each.
+            { kind = "campsite" },
             { kind = "emote", token = "SIT" },
             { kind = "emote", token = "HELLO" },
             -- Purple Dust Pouch, the toy that turns a campfire purple. Hidden
@@ -69,8 +80,29 @@ ns.CONTEXTS, ns.CONTEXT_ORDER = CONTEXTS, CONTEXT_ORDER
 local active = {}
 local fighting = false
 
-function ns.ContextActive(key)
-    return active[key] == true
+-- Hide When Buffed (palette.contextSkipBuff): the menu stands down while the
+-- player has the context's reward with more than palette.contextSkipMinutes
+-- left (0: whenever it is up). Returns whether it stands down, and when not
+-- for a timed reason, how many seconds until it would come back.
+local function StandsDown(index, def)
+    local p = P()
+    local pal = p and index and p.palettes and p.palettes[index]
+    if type(pal) ~= "table" or not pal.contextSkipBuff or not def.buff then return false end
+    local get = C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID
+    local aura = get and get(def.buff)
+    if not aura then return false end
+    local minutes = tonumber(pal.contextSkipMinutes) or 0
+    local exp = aura.expirationTime
+    if minutes <= 0 or type(exp) ~= "number" or exp == 0 then return true end
+    local over = exp - GetTime() - minutes * 60
+    if over > 0 then return true, over end
+    return false
+end
+
+function ns.ContextActive(key, index)
+    if active[key] ~= true then return false end
+    if index and StandsDown(index, CONTEXTS[key]) then return false end
+    return true
 end
 
 local function Measure(def)
@@ -89,7 +121,39 @@ end
 local HINT_SIZE = 36
 local hint = CreateFrame("Button", "EUIQuickdrawContextHint", UIParent)
 hint:SetSize(HINT_SIZE, HINT_SIZE)
-hint:SetPoint("CENTER", UIParent, "CENTER", 0, -170)
+-- Its place: below the middle of the screen until moved by hand (below;
+-- profile.contextHintPos, CENTER offsets).
+local HINT_X, HINT_Y = 0, -170
+local function PlaceHint()
+    local p = P()
+    local pos = p and p.contextHintPos
+    hint:ClearAllPoints()
+    hint:SetPoint("CENTER", UIParent, "CENTER",
+        (pos and pos.x) or HINT_X, (pos and pos.y) or HINT_Y)
+end
+PlaceHint()
+
+-- Shift + Left-Click and drag moves it, the house way (the Damage Meters
+-- strips, the minimap buttons).
+hint:SetMovable(true)
+hint:SetClampedToScreen(true)
+hint:SetScript("OnMouseDown", function(self, button)
+    if button == "LeftButton" and IsShiftKeyDown() and not InCombatLockdown() then
+        self.dragging = true
+        self:StartMoving()
+    end
+end)
+hint:SetScript("OnMouseUp", function(self)
+    if not self.dragging then return end
+    self.dragging = nil
+    self:StopMovingOrSizing()
+    local cx, cy = self:GetCenter()
+    local ux, uy = UIParent:GetCenter()
+    local p = P()
+    if p and cx and ux then p.contextHintPos = { x = cx - ux, y = cy - uy } end
+    PlaceHint()
+    self.dragged = true -- the click this release makes opens nothing
+end)
 hint:SetFrameStrata("MEDIUM")
 hint:RegisterForClicks("LeftButtonUp")
 hint:Hide()
@@ -170,6 +234,8 @@ local function OpenFromHint(index)
         ns.Close()
         return
     end
+    -- What the bags hold now (Campsite Items is a view on them).
+    if I.usableMemo then wipe(I.usableMemo) end
     ns.Open(index)
     if not view:GetFrame():IsShown() then return end
     pickerFor = index
@@ -178,6 +244,10 @@ end
 
 hint:SetScript("OnClick", function(self)
     GameTooltip:Hide()
+    if self.dragged or IsShiftKeyDown() then
+        self.dragged = nil
+        return
+    end
     if self.palette then OpenFromHint(self.palette) end
 end)
 -- Below the hint and its key: the menu opens round the cursor, which is on it.
@@ -188,6 +258,7 @@ hint:SetScript("OnEnter", function(self)
     GameTooltip:SetPoint("TOP", self, "BOTTOM", 0, -18)
     GameTooltip:SetText(EllesmereUI.L(CONTEXTS[self.contextKey].label))
     GameTooltip:AddLine(EllesmereUI.L("Click to open this menu."), 1, 1, 1, true)
+    GameTooltip:AddLine(EllesmereUI.L("Reposition this element with Shift+Click and Drag."), 0.7, 0.7, 0.7, true)
     GameTooltip:Show()
 end)
 hint:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -228,6 +299,10 @@ ns.UpdateContextHint = UpdateHint
 -------------------------------------------------------------------------------
 --  Following the signal
 -------------------------------------------------------------------------------
+-- Which context menus are up for grabs, as one string: a menu standing down
+-- for Hide When Buffed changes it without any context flipping.
+local lastReach = ""
+local recheck -- the pending timer for a reward running down past its limit
 local function Evaluate()
     local changed = false
     local readable = not fighting and not InCombatLockdown()
@@ -238,6 +313,21 @@ local function Evaluate()
             changed = true
         end
     end
+    local reach, soonest = "", nil
+    for i = 1, PaletteCount() do
+        local key = ns.PaletteContext(i)
+        if key and active[key] then
+            local down, wait = StandsDown(i, CONTEXTS[key])
+            reach = reach .. (down and "0" or "1")
+            if wait and (not soonest or wait < soonest) then soonest = wait end
+        end
+    end
+    if reach ~= lastReach then
+        lastReach = reach
+        changed = true
+    end
+    if recheck then recheck:Cancel(); recheck = nil end
+    if soonest then recheck = C_Timer.NewTimer(soonest + 0.5, Evaluate) end
     if changed then
         -- KeyTarget reads ns.PaletteActive, which reads the contexts: the
         -- binding signature moves with them, so this rebinds only on a flip.
@@ -249,7 +339,11 @@ end
 
 local eventFrame = CreateFrame("Frame")
 eventFrame:SetScript("OnEvent", function(_, event)
-    if event == "PLAYER_REGEN_DISABLED" then
+    if event == "BAG_UPDATE_DELAYED" then
+        -- Campsite Items follows the bags while a context menu is up for grabs.
+        if next(active) then RequestPush() end
+        return
+    elseif event == "PLAYER_REGEN_DISABLED" then
         fighting = true
     elseif event == "PLAYER_REGEN_ENABLED" then
         fighting = false
@@ -271,6 +365,7 @@ end
 
 -- Reached from ns.Refresh and OnEnable.
 function ns.ContextRefresh()
+    PlaceHint() -- a profile switch brings its own spot
     local on = Wanted()
     if on ~= eventsOn then
         eventsOn = on
@@ -279,6 +374,7 @@ function ns.ContextRefresh()
             eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
             eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
             eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+            eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
             fighting = InCombatLockdown() and true or false
         else
             eventFrame:UnregisterAllEvents()

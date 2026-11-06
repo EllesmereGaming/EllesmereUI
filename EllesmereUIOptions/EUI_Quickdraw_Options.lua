@@ -3502,6 +3502,39 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - BuildApplyRow(parent, y, paletteCount > 1)
         -- Context, below it: when the menu loads (EUI_Quickdraw_Context.lua).
         y = y - BuildContextRow(parent, y)
+        -- Hide When Buffed, for a menu with a context whose situation gives a
+        -- reward (EUI_Quickdraw_Context.lua, StandsDown).
+        do
+            local ctx = ns.PaletteContext(editPalette)
+            local def = ctx and ns.CONTEXTS and ns.CONTEXTS[ctx]
+            if def and def.buff then
+                local idx = editPalette
+                local buffName = C_Spell.GetSpellName(def.buff) or "?"
+                local function Pal() return Palette(idx) end
+                local function skipOff() local pal = Pal(); return not (pal and pal.contextSkipBuff) end
+                _, h = W:DualRow(parent, y,
+                    { type="toggle", text="Hide When Buffed",
+                      tooltip=EllesmereUI.Lf("Leaves this menu out while you already have %s.", buffName),
+                      disabled=Disabled, disabledTooltip="This option requires the module to be enabled",
+                      getValue=function() local pal = Pal(); return pal and pal.contextSkipBuff == true end,
+                      setValue=function(v)
+                          local pal = Pal(); if not pal then return end
+                          pal.contextSkipBuff = v or nil
+                          ns.ContextRefresh(); Refresh(); EllesmereUI:RefreshPage()
+                      end },
+                    { type="slider", text="Unless Under (min)", min=0, max=60, step=5,
+                      tooltip=EllesmereUI.Lf("The menu comes back once %s has fewer minutes left than this. 0: hidden for as long as it lasts.", buffName),
+                      disabled=function() return Disabled() or skipOff() end,
+                      disabledTooltip="Hide When Buffed",
+                      getValue=function() local pal = Pal(); return pal and tonumber(pal.contextSkipMinutes) or 0 end,
+                      setValue=function(v)
+                          local pal = Pal(); if not pal then return end
+                          pal.contextSkipMinutes = (v and v > 0) and v or nil
+                          ns.ContextRefresh(); Refresh()
+                      end }
+                ); y = y - h
+            end
+        end
 
         -----------------------------------------------------------------------
         --  LAYOUT
