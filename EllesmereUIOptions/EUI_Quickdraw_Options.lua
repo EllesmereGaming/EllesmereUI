@@ -246,9 +246,9 @@ initFrame:SetScript("OnEvent", function(self)
     -- May menu idx share the key owner holds? Only when idx can never load
     -- together with owner or with any menu already sharing it.
     local function CanShareWith(idx, owner)
-        if not ns.PalettesExclusive(idx, owner) then return false end
+        if not ns.PalettesMayShare(idx, owner) then return false end
         for _, s in ipairs(Sharers(owner)) do
-            if s ~= idx and not ns.PalettesExclusive(idx, s) then return false end
+            if s ~= idx and not ns.PalettesMayShare(idx, s) then return false end
         end
         return true
     end
@@ -286,9 +286,9 @@ initFrame:SetScript("OnEvent", function(self)
         for owner = 1, PaletteCount() do
             local kept = {}
             for _, s in ipairs(Sharers(owner)) do
-                local ok = ns.PalettesExclusive(s, owner)
+                local ok = ns.PalettesMayShare(s, owner)
                 for _, k in ipairs(kept) do
-                    if ok and not ns.PalettesExclusive(s, k) then ok = false end
+                    if ok and not ns.PalettesMayShare(s, k) then ok = false end
                 end
                 if ok then
                     kept[#kept + 1] = s
@@ -2151,7 +2151,23 @@ initFrame:SetScript("OnEvent", function(self)
         return ns.PanelSlots and ns.PanelSlots(false) or {}
     end
 
+    -- A context's starter actions (EUI_Quickdraw_Context.lua), the toys only
+    -- when owned. Adding it also sets the context (SetContext, below).
+    local function ContextSlots(key)
+        return function()
+            local def = ns.CONTEXTS and ns.CONTEXTS[key]
+            local out = {}
+            for _, s in ipairs(def and def.seed or {}) do
+                if s.kind ~= "toy" or (PlayerHasToy and PlayerHasToy(s.id)) then
+                    out[#out + 1] = EllesmereUI.Lite.DeepCopy(s)
+                end
+            end
+            return out
+        end
+    end
+
     local PALETTE_PRESETS = {
+        { label = "Near a Campfire", build = ContextSlots("campfire"), context = "campfire" },
         { label = "Interface Panels", build = InterfacePanelSlots },
         { label = "Target Markers", build = TargetMarkerSlots },
         { label = "World Markers",  build = WorldMarkerSlots },
@@ -2174,6 +2190,8 @@ initFrame:SetScript("OnEvent", function(self)
     --  the new palette will hold; the Add button opens a chooser instead --
     --  empty, or seeded from one of the presets above.
     ---------------------------------------------------------------------------
+
+    local SetContext -- filled in by the Context row below
 
     -- slots comes in already built (the chooser built it to decide whether to
     -- offer the preset at all), and each table in it is fresh from the
@@ -2199,6 +2217,12 @@ initFrame:SetScript("OnEvent", function(self)
         end
         editPalette = count + 1
         HidePicker()
+        -- A context preset sets its context too (and the shared key); that
+        -- rebuilds the page.
+        if palette and preset and preset.context and SetContext then
+            SetContext(count + 1, preset.context)
+            return
+        end
         RebuildPage()
     end
 
@@ -3211,6 +3235,71 @@ initFrame:SetScript("OnEvent", function(self)
         return ROW_H
     end
 
+    -- "Context": when the edited menu loads (palette.context, a key of
+    -- ns.CONTEXTS; none is always). Picking one gives a still-empty menu the
+    -- context's starter actions, and a menu with no key of its own the key of
+    -- the first everyday menu that has one, which it then takes over while the
+    -- context is on (KeyTarget). The player builds the menu from there.
+    SetContext = function(idx, key)
+        local pal = Palette(idx)
+        if not pal then return end
+        local def = key ~= "" and ns.CONTEXTS and ns.CONTEXTS[key]
+        pal.context = def and key or nil
+        if def then
+            if type(pal.slots) ~= "table" or #pal.slots == 0 then
+                pal.slots = EllesmereUI.Lite.DeepCopy(def.seed or {})
+            end
+            if not GetBindingKey(BINDING_PREFIX .. idx) and not ns.ShareOwner(idx) then
+                for owner = 1, PaletteCount() do
+                    if owner ~= idx and not ns.ShareOwner(owner) and not ns.PaletteContext(owner) then
+                        local k1 = GetBindingKey(BINDING_PREFIX .. owner)
+                        if k1 and CanShareWith(idx, owner) then
+                            pal.keyShare = owner
+                            EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "Quickdraw:|r " .. EllesmereUI.Lf("%1$s now shares %2$s with %3$s.",
+                                MenuName(idx), GetBindingText(k1) or k1, MenuName(owner)))
+                            break
+                        end
+                    end
+                end
+            end
+        end
+        CheckShares()
+        Refresh()
+        RebuildPage()
+    end
+
+    local function BuildContextRow(parent, y)
+        local PPQ = EllesmereUI.PanelPP
+        local curIdx = editPalette
+        local ROW_H = 50
+        if EllesmereUI._prebuilding then return ROW_H end
+        local contentPad = EllesmereUI.CONTENT_PAD or 45
+        local rowFrame = CreateFrame("Frame", nil, parent)
+        PPQ.Size(rowFrame, parent:GetWidth() - contentPad * 2, ROW_H)
+        PPQ.Point(rowFrame, "TOPLEFT", parent, "TOPLEFT", contentPad, y)
+
+        local DD_W, GAP = 180, 12
+        local values, order = { [""] = "Always" }, { "" }
+        for _, key in ipairs(ns.CONTEXT_ORDER or {}) do
+            values[key] = ns.CONTEXTS[key].label
+            order[#order + 1] = key
+        end
+        local label = EllesmereUI.MakeFont(rowFrame, 14, nil, 1, 1, 1)
+        label:SetText(EllesmereUI.L("Context"))
+        label:SetTextColor(1, 1, 1, 0.6)
+        local dd = EllesmereUI.BuildDropdownControl(
+            rowFrame, DD_W, rowFrame:GetFrameLevel() + 2, values, order,
+            function() return ns.PaletteContext(curIdx) or "" end,
+            function(key) SetContext(curIdx, key) end)
+        dd._ttText = "Load this action menu only in this situation. It takes over the key it shares while the situation lasts."
+        EllesmereUI.RegisterWidgetRefresh(function() dd._refreshLabel() end)
+
+        local totalW = label:GetStringWidth() + GAP + DD_W
+        label:SetPoint("LEFT", rowFrame, "CENTER", -totalW / 2, 0)
+        dd:SetPoint("LEFT", label, "RIGHT", GAP, 0)
+        return ROW_H
+    end
+
     ---------------------------------------------------------------------------
     --  Build Page
     ---------------------------------------------------------------------------
@@ -3411,6 +3500,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- Assign to Spec, and beside it Apply All Settings From while there is
         -- another menu to copy from.
         y = y - BuildApplyRow(parent, y, paletteCount > 1)
+        -- Context, below it: when the menu loads (EUI_Quickdraw_Context.lua).
+        y = y - BuildContextRow(parent, y)
 
         -----------------------------------------------------------------------
         --  LAYOUT

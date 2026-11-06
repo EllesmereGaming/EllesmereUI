@@ -845,7 +845,15 @@ end
 -- (Assign to Spec); while it does not, the first palette that shares its keys
 -- and loads, if any -- the options page shares a key only between palettes
 -- that never load together. nil: the keys open nothing this spec.
+--
+-- A sharer with a context (EUI_Quickdraw_Context.lua) comes first: it loads
+-- only while its context is on, and for that long the key is its.
 local function KeyTarget(i, count)
+    for j = 1, count do
+        if j ~= i and ns.ShareOwner(j) == i and ns.PaletteContext(j) and ns.PaletteActive(j) then
+            return j
+        end
+    end
     if ns.PaletteActive(i) then return i end
     for j = 1, count do
         if j ~= i and ns.ShareOwner(j) == i and ns.PaletteActive(j) then return j end
@@ -1147,6 +1155,8 @@ function ns.Refresh()
 
     ns.UpdateBindings()
     SetEventsEnabled(EventsWanted())
+    -- Follows the switch and the menus' contexts the same way.
+    if ns.ContextRefresh then ns.ContextRefresh() end
 
     -- After UpdateBindings, which is what a DISABLE has to reach to take the
     -- override bindings back down, and before anything that costs something:
@@ -1243,6 +1253,8 @@ function EQD:OnEnable()
     PushAllPalettes()
     activeSig = ActiveSig()
     SetEventsEnabled(true)
+    if ns.ContextRefresh then ns.ContextRefresh() end
 end
 
+I.RequestPush = RequestPush
 I.broken = false

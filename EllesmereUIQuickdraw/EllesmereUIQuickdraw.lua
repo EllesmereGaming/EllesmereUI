@@ -835,7 +835,20 @@ function ns.PaletteSpecs(index)
     return specs
 end
 
+-- A palette's context (EUI_Quickdraw_Context.lua), or nil for always. A key
+-- no context table knows reads as always, so a profile saved by a later
+-- build keeps working here.
+function ns.PaletteContext(index)
+    local p = P()
+    local palette = p and index and p.palettes and p.palettes[index]
+    local key = type(palette) == "table" and palette.context
+    if type(key) ~= "string" or not (ns.CONTEXTS and ns.CONTEXTS[key]) then return nil end
+    return key
+end
+
 function ns.PaletteActive(index)
+    local context = ns.PaletteContext(index)
+    if context and not ns.ContextActive(context) then return false end
     local specs = ns.PaletteSpecs(index)
     if not specs then return true end
     for id in pairs(specs) do
@@ -865,6 +878,15 @@ function ns.PalettesExclusive(a, b)
         if sb[id] then return false end
     end
     return true
+end
+
+-- May palettes a and b share a key? When they never load together, or when
+-- exactly one of them has a context: KeyTarget gives the key to that one
+-- while its context is on and to the other the rest of the time.
+function ns.PalettesMayShare(a, b)
+    local ca, cb = ns.PaletteContext(a), ns.PaletteContext(b)
+    if (ca ~= nil) ~= (cb ~= nil) then return true end
+    return ns.PalettesExclusive(a, b)
 end
 
 -- The palette whose key palette `index` shares, or nil for its own. A share
