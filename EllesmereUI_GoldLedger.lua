@@ -7,10 +7,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  FULL_EXPORT_EXCLUDED keeps this key out of full-account exports too).
 --
 --  EllesmereUIDB.goldLedger = {
---      chars    = { ["Name-Realm"] = { money, class, name, realm, updated } },
+--      chars    = { [guid] = { money, class, name, realm, updated } },
 --      warband  = { money, updated },    -- nil until first successful read
 --      tracking = false,                 -- only present when switched off
 --  }
+--  By GUID: WoW Forever first names are not the whole name, and a rename keeps
+--  it. Entries from older builds sit under "Name-Realm" until that character
+--  next logs in.
 --  money is copper. A character's entry is only ever written by that character
 --  while it is online, so an offline entry is its balance at logout.
 --
@@ -125,13 +128,11 @@ local function Build()
         return ledger
     end
 
-    --- "Name-Realm" for the current character (Forever: "Name-Ruleset"), or nil when either part is unknown
-    --- (an "Unknown" placeholder would file the balance under a key no later
-    --- session can match).
+    --- The current character's GUID, or nil while it cannot be read.
     function GL.CharKey()
-        local name, realm = UnitName("player"), EUI.RealmGroupName()
-        if not name or not realm then return nil end
-        return name .. "-" .. realm
+        local guid = UnitGUID("player")
+        if not guid or (issecretvalue and issecretvalue(guid)) then return nil end
+        return guid
     end
 
     -- The only places the modules touch the money APIs. A secret or non-number
@@ -180,13 +181,18 @@ local function Build()
         local key = GL.CharKey()
         if not key then return money end
         local chars = GL.Data().chars
-        -- Forever: drop the entry an older build filed under the realm name.
-        local oldKey = UnitName("player") .. "-" .. (GetRealmName() or "")
-        if oldKey ~= key then chars[oldKey] = nil end
+        -- Drop the entries older builds filed under "Name-Realm".
+        local short = UnitName("player")
+        if short then
+            chars[short .. "-" .. (EUI.RealmGroupName() or "")] = nil
+            chars[short .. "-" .. (GetRealmName() or "")] = nil
+        end
         local e = chars[key]
         if not e then e = {}; chars[key] = e end
         local _, class = UnitClass("player")
-        e.money, e.class, e.name, e.realm, e.updated = money, class, UnitName("player"), EUI.RealmGroupName(), time()
+        -- The full name whatever the show-surname preference.
+        local name, surname = (UnitNameUnmodified or UnitName)("player")
+        e.money, e.class, e.name, e.realm, e.updated = money, class, EUI.WithSurname(name, surname, true), EUI.RealmGroupName(), time()
         return money
     end
 
