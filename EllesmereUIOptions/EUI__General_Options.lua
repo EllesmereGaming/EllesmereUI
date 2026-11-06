@@ -234,6 +234,26 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "9.7.8",
+        mini = true,
+        features = {
+            {
+                -- The Width | Max Height and Grow Direction | Scrollbar rows of CUSTOM TRACKER on the
+                -- Quest Tracker page, and the swatches on its Group Quests by Zone toggle (WoW Forever only).
+                module  = "Quest Tracker",
+                forever = true,
+                title   = "Custom Tracker Layout Options",
+                desc    = "New Width and Max Height sliders, a Grow Direction that can stack quests upward from the tracker's bottom edge, and accent or custom colors for its zone headers",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIQuestTracker", page = "Quest Tracker", section = "CUSTOM TRACKER", highlight = "Grow Direction" } or nil,
+            },
+        },
+        fixes = {
+            { module = "Quest Tracker", forever = true, text = "The Custom Quest Tracker is now on by default only while your Quest Tracker style is EllesmereUI. With Blizzard Style, Classic WoW UI or the WoW Forever look you are back on Blizzard's tracker unless you turn the custom one on." },
+            { module = "Quest Tracker", forever = true, text = "The Custom Quest Tracker now starts where Blizzard's tracker was, at its width and height; if you never moved it, it takes that spot once after this update." },
+            { module = "Quest Tracker", forever = true, text = "In Unlock Mode the Custom Quest Tracker now shows the whole area it can grow into, and leaving without saving no longer changes its max height." },
+        },
+    },
+    {
         version = "9.7.7",
         thanks = true,
         heroes = {
@@ -1093,27 +1113,6 @@ EllesmereUI._WHATSNEW_PATCHES = {
         },
         thanks = true,
     },
-    {
-        version = "9.6.8",
-        mini = true,
-        features = {
-            {
-                -- The Mail card of Window Skins (retail only: its ALT LIST section is not built on WoW Forever).
-                module = "Blizzard Skins+",
-                title  = "Mail Alt List",
-                desc   = "Turn on Show Alt List in the Mail card to list your alts beside Send Mail: click one to address the mail, right-click to ignore it",
-                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIBlizzardSkin", page = "Blizzard Window Skins",
-                           section = "ALT LIST", highlight = "Show Alt List" } or nil,
-            },
-        },
-        fixes = {
-            { module = "AuraBuff Reminders", text = "Reminders no longer look up your map on every refresh, which steers clear of a game bug in Murder Row." },
-            { module = "Cooldown Manager", text = "Proc glows work as they did before 9.6.7 again: buff icons no longer light up with proc glows the Buff Glow setting could not turn off, and a proc no longer replaces the Active State Glow." },
-            { module = "Mythic+ Tools", text = "Other Mythic+ timer addons no longer trigger the incompatible addon warning while EllesmereUI's own Mythic+ Timer is turned off, and the warning now says how to turn it off." },
-            { module = "Profiles & Presets", text = "The Window Skins part of an imported profile string now applies only the Window Skins settings it carries." },
-            { module = "Localization", text = "Brazilian Portuguese, German, Korean and Traditional Chinese translations updated for the latest options, and a non-English game client now loads only its own language's translations at login instead of all ten, so EUI Options Language there greys out the ones it no longer loads." },
-        },
-    },
 }
 
 -------------------------------------------------------------------------------
@@ -1315,6 +1314,8 @@ initFrame:SetScript("OnEvent", function(self)
             if oldGlobal then
                 savedFriends = {
                     friendGroups = oldGlobal.friendGroups,
+                    friendGroupsByTag = oldGlobal.friendGroupsByTag,
+                    friendGroupsTagMigrated = oldGlobal.friendGroupsTagMigrated,
                     friendAssignments = oldGlobal.friendAssignments,
                     friendGroupOrder = oldGlobal.friendGroupOrder,
                     friendGroupColors = oldGlobal.friendGroupColors,

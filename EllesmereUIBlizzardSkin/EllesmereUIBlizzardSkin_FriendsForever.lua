@@ -26,6 +26,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  settings on the card (EllesmereUIDB.friendsListCard): the EllesmereUI
 --  tiles on the Social UI window's friend cards while the card is skinned,
 --  and auto-accepting group invites from friends whatever the card's skin.
+--  The card's Custom Friends List (off until picked) is the parent's
+--  EllesmereUI_FriendsList.lua, started here after the tiles: rows of our own
+--  over Blizzard's list, for the Tile Height and friend groups.
 --
 --  Cost: a one-time pass at login on frames that already exist, then one
 --  font pass per row initialisation (Blizzard's own, on rows it recycles),
@@ -173,6 +176,8 @@ local CARD_DEFAULTS = {
     enabled = true, showClassIcons = true, iconStyle = "modern", classColorNames = true,
     factionBanners = false, showRegionIcons = true,
     autoAcceptFriendInvites = false, autoAcceptGuildInvites = false,
+    -- The custom friends list (EllesmereUI_FriendsList.lua): off until picked
+    customList = false, tileHeight = 46, showUngrouped = true,
 }
 local cardView = setmetatable({}, { __index = function(_, k)
     local t = EllesmereUIDB and EllesmereUIDB.friendsListCard
@@ -195,6 +200,7 @@ function ns.FriendsCardSet(k, v)
         EllesmereUI.FriendsKit.SyncAutoAccept(CardSettings)
     else
         EllesmereUI.FriendsKit.RedecorateTiles()
+        EllesmereUI.FriendsList.Refresh()
     end
 end
 
@@ -202,6 +208,7 @@ end
 function ns.FriendsCardRefresh()
     EllesmereUI.FriendsKit.SyncAutoAccept(CardSettings)
     EllesmereUI.FriendsKit.RedecorateTiles()
+    EllesmereUI.FriendsList.Refresh()
 end
 
 -- The kit hooks the card mixin at PLAYER_LOGIN, before any card exists. The
@@ -215,5 +222,7 @@ boot:SetScript("OnEvent", function(self)
     Kit.SyncAutoAccept(CardSettings)
     if EllesmereUI.GetBlizzWindowStyle(WIN) ~= "off" then
         Kit.StartTiles({ Settings = CardSettings, style = "eui", fontKey = "blizzardSkin" })
+        -- The custom friends list draws with the tiles' host: after them
+        EllesmereUI.FriendsList.Start()
     end
 end)
