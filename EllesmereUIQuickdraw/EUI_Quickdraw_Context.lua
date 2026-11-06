@@ -99,8 +99,12 @@ local function StandsDown(index, def)
     return false
 end
 
+-- Dismissed by hand (a right click on the hint): the context stays off until
+-- the player leaves the situation; the next one brings it back.
+local dismissed = {}
+
 function ns.ContextActive(key, index)
-    if active[key] ~= true then return false end
+    if active[key] ~= true or dismissed[key] then return false end
     if index and StandsDown(index, CONTEXTS[key]) then return false end
     return true
 end
@@ -155,7 +159,7 @@ hint:SetScript("OnMouseUp", function(self)
     self.dragged = true -- the click this release makes opens nothing
 end)
 hint:SetFrameStrata("MEDIUM")
-hint:RegisterForClicks("LeftButtonUp")
+hint:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 hint:Hide()
 local hintIcon = hint:CreateTexture(nil, "ARTWORK")
 hintIcon:SetAllPoints()
@@ -242,10 +246,19 @@ local function OpenFromHint(index)
     picker:Show()
 end
 
-hint:SetScript("OnClick", function(self)
+hint:SetScript("OnClick", function(self, button)
     GameTooltip:Hide()
     if self.dragged or IsShiftKeyDown() then
         self.dragged = nil
+        return
+    end
+    if button == "RightButton" then
+        -- Dismissed until the player leaves: the menu it opened closes, the
+        -- key goes back to its everyday menu and the hint goes away.
+        if InCombatLockdown() or not self.contextKey then return end
+        dismissed[self.contextKey] = true
+        if pickerFor and ns.Close then ns.Close() end
+        ns.ContextRefresh()
         return
     end
     if self.palette then OpenFromHint(self.palette) end
@@ -258,6 +271,7 @@ hint:SetScript("OnEnter", function(self)
     GameTooltip:SetPoint("TOP", self, "BOTTOM", 0, -18)
     GameTooltip:SetText(EllesmereUI.L(CONTEXTS[self.contextKey].label))
     GameTooltip:AddLine(EllesmereUI.L("Click to open this menu."), 1, 1, 1, true)
+    GameTooltip:AddLine(EllesmereUI.L("Right-Click to dismiss it until you leave."), 0.7, 0.7, 0.7, true)
     GameTooltip:AddLine(EllesmereUI.L("Reposition this element with Shift+Click and Drag."), 0.7, 0.7, 0.7, true)
     GameTooltip:Show()
 end)
@@ -308,6 +322,8 @@ local function Evaluate()
     local readable = not fighting and not InCombatLockdown()
     for key, def in pairs(CONTEXTS) do
         local on = readable and Measure(def) or false
+        -- Left for real (not a fight hiding it): a dismissal ends here.
+        if readable and not on then dismissed[key] = nil end
         if (active[key] == true) ~= on then
             active[key] = on or nil
             changed = true
@@ -318,7 +334,7 @@ local function Evaluate()
         local key = ns.PaletteContext(i)
         if key and active[key] then
             local down, wait = StandsDown(i, CONTEXTS[key])
-            reach = reach .. (down and "0" or "1")
+            reach = reach .. ((down or dismissed[key]) and "0" or "1")
             if wait and (not soonest or wait < soonest) then soonest = wait end
         end
     end
