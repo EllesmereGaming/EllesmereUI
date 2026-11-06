@@ -788,6 +788,18 @@ local function SetupTitleLayout(block)
     if fs.SetWidth then fs:SetWidth(220) end
 end
 
+-- WoW Forever wraps tracker titles in a difficulty color code while the
+-- showQuestDifficultyColor CVar is on, and an inline code beats SetTextColor.
+-- Only the focused title drops it; Blizzard sets every title again on the
+-- next update, so the color comes back once the focus moves on.
+local IS_FOREVER = EllesmereUI.IS_FOREVER
+local function StripTitleColorCodes(fs)
+    local text = fs:GetText()
+    if not text or issecretvalue(text) then return end
+    local plain = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|cn[^:]*:", ""):gsub("|r", "")
+    if plain ~= text then fs:SetText(plain) end
+end
+
 -- Lightweight color-only refresh. Called on hover (OnEnter/OnLeave) and
 -- from the stamped fast-path in SkinBlock.
 local function ApplyFocusHighlight(block)
@@ -801,6 +813,7 @@ local function ApplyFocusHighlight(block)
     local r, g, b
     if isFocus then
         r, g, b = GetFocusRGB()
+        if IS_FOREVER then StripTitleColorCodes(fs) end
     elseif isDone then
         r, g, b = GetCompletedRGB()
     else
@@ -808,6 +821,11 @@ local function ApplyFocusHighlight(block)
     end
     fs:SetTextColor(r, g, b)
 end
+
+-- Shared with the custom tracker (Custom.lua).
+EQT.GetFont = GetFont
+EQT.GetTitleRGB, EQT.GetCompletedRGB, EQT.GetFocusRGB = GetTitleRGB, GetCompletedRGB, GetFocusRGB
+EQT.GetHeaderRGB, EQT.GetLineRGB = GetHeaderRGB, GetLineRGB
 
 -- Skip all skinning work when the tracker is force-hidden (M+, raid, arena).
 -- Uses the cached suppression flag only (set by ApplySuppression /
@@ -1567,6 +1585,38 @@ EQT.ApplyTrackerMouse = function(on)
     end
     -- WoW Forever's filter toggle (nil on retail).
     MouseOff(EQT.FilterToggle)
+end
+
+-- Custom tracker (WoW Forever): Blizzard's tracker stays shown but alpha 0 and
+-- click-through, never skinned. No Hide(): its OnHide relayouts the right
+-- managed frame container from our execution. Blocks are laid out before
+-- AddBlock, so the hook catches their lines and right-edge buttons too.
+function EQT.MuteBlizzardTracker()
+    local otf = _G.ObjectiveTrackerFrame
+    if not otf then return end
+    otf:SetAlpha(0)
+    -- Blizzard (Edit Mode, managed frames) and unlock mode set alpha back.
+    hooksecurefunc(otf, "SetAlpha", function(self, a)
+        if a ~= 0 then self:SetAlpha(0) end
+    end)
+    EQT.ApplyTrackerMouse(false)
+    local function hook(tracker)
+        if _hookedTrackers[tracker] or SharesWidgetPool(tracker) or not tracker.AddBlock then return end
+        _hookedTrackers[tracker] = true
+        hooksecurefunc(tracker, "AddBlock", function(_, block)
+            if block then ApplyBlockMouse(block) end
+        end)
+    end
+    EachTracker(hook)
+    if otf.AddModule then
+        hooksecurefunc(otf, "AddModule", function(_, module)
+            if not module then return end
+            C_Timer.After(0, function()
+                hook(module)
+                TrackerMouseOff(module)
+            end)
+        end)
+    end
 end
 
 -------------------------------------------------------------------------------

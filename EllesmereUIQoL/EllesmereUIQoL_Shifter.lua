@@ -30,6 +30,7 @@ local PRELOADED = {
     "DressUpFrame",
     "BankFrame",
     "MailFrame",
+    "OpenMailFrame",          -- the window of one opened mail
     "GossipFrame",
     "QuestFrame",
     "MerchantFrame",

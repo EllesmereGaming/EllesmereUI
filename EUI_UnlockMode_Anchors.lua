@@ -833,7 +833,12 @@ function MatchH.ApplyWidthMatch(sourceKey, targetKey)
                 _propagatingMatch = true; EllesmereUI._propagatingMatch = true
                 pcall(sourceElem.setWidth, sourceKey, targetW)
                 _propagatingMatch = false; EllesmereUI._propagatingMatch = false
-                if sourceElem.loadPosition then
+                if sourceElem.noInitHook then
+                    -- Self-positioning: its own authority, never the stored CENTER.
+                    if sourceElem.applyPosition and not EllesmereUI.IsUnlockAnchored(sourceKey) then
+                        pcall(sourceElem.applyPosition, sourceKey)
+                    end
+                elseif sourceElem.loadPosition then
                     local pos = sourceElem.loadPosition(sourceKey)
                     if pos and pos.point == "CENTER" and pos.relPoint == "CENTER" then
                         UM.ApplyCenterPosition(sourceKey, pos)
@@ -918,7 +923,12 @@ function MatchH.ApplyHeightMatch(sourceKey, targetKey)
                 _propagatingMatch = true; EllesmereUI._propagatingMatch = true
                 pcall(sourceElem.setHeight, sourceKey, targetH)
                 _propagatingMatch = false; EllesmereUI._propagatingMatch = false
-                if sourceElem.loadPosition then
+                if sourceElem.noInitHook then
+                    -- Self-positioning: its own authority, never the stored CENTER.
+                    if sourceElem.applyPosition and not EllesmereUI.IsUnlockAnchored(sourceKey) then
+                        pcall(sourceElem.applyPosition, sourceKey)
+                    end
+                elseif sourceElem.loadPosition then
                     local pos = sourceElem.loadPosition(sourceKey)
                     if pos and pos.point == "CENTER" and pos.relPoint == "CENTER" then
                         UM.ApplyCenterPosition(sourceKey, pos)

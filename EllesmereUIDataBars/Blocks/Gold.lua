@@ -42,6 +42,19 @@ local goldEventFrame
 -- Account-level store shared with Bags: EllesmereUI.GetGoldLedger() (EllesmereUI_GoldLedger.lua).
 local GL = EllesmereUI.GetGoldLedger()
 
+-- Under 1 Gold: on by default on WoW Forever, off on retail.
+function ns.GoldSmallUnderGold(dg)
+    local v = dg.smallUnderGold
+    if v == nil then return EllesmereUI.IS_FOREVER == true end
+    return v == true
+end
+
+-- Silver and copper shown for this amount: always with Show Silver and Copper,
+-- else below 1 gold when Under 1 Gold is on.
+local function ShowSmallFor(dg, amount)
+    return dg.showSmall == true or ((amount or 0) < 10000 and ns.GoldSmallUnderGold(dg))
+end
+
 -- Drop a character the player no longer has (renamed, deleted, transferred).
 local function GoldForgetCharacter(key)
     GL.Forget(key)
@@ -168,7 +181,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
             local innerW = max(30, slotW - 8)
             -- One token per coin, one coin per line. Coin Colored tints the suffix letters
             -- (nothing to tint once Coin Icons is on, so the two compose); hovering drops it so the accent wash reads.
-            local lines = ns.MoneyTokens(money, dg.showSmall == true, ci,
+            local lines = ns.MoneyTokens(money, ShowSmallFor(dg, money), ci,
                 blockCfg.useCoinColor == true and not mouseOver, ab, fe)
             local startSize = min(fontSize, max(10, floor(CONTENT_BASE * 0.52 + 0.5)))
             local goldFontSize = startSize
@@ -338,7 +351,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         local charCount, unlisted = 0, 0
         if showChars then
             local store = GL.Data().chars
-            -- The list holds store KEYS ("Name-Realm"): a delete needs the key, and the entry itself does not carry one.
+            -- The list holds store KEYS (GUIDs): a delete needs the key, and the entry itself does not carry one.
             local selfKey = GL.CharKey()
             -- Roster shows only balances above 10,000 gold (copper threshold) plus the live char; filtered chars still count into the total.
             -- WoW Forever has no floor: its vanilla balances rarely come near one.
@@ -381,7 +394,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
                             local cc = RAID_CLASS_COLORS[char.class]; cr, cg, cb = cc.r, cc.g, cc.b
                         end
                         local label = char.name or "?"
-                        local tokens = ns.MoneyTokens(char.money, sm, ci, true)
+                        local tokens = ns.MoneyTokens(char.money, ShowSmallFor(D(), char.money), ci, true)
                         -- Every row gets the same hover affordance; the live character's
                         -- click is inert (it re-saves on every money event, so a delete returns instantly).
                         ns.Tip_AddClickableColumns(label, tokens, function(mouseButton)
@@ -404,7 +417,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
             local wband = GL.Data().warband
             local wbank = wband and wband.money
             if wbank and wbank > 0 then
-                ns.Tip_AddColumns(EllesmereUI.L("Warbank"), ns.MoneyTokens(wbank, sm, ci, true), 1, 0.82, 0)
+                ns.Tip_AddColumns(EllesmereUI.L("Warbank"), ns.MoneyTokens(wbank, ShowSmallFor(D(), wbank), ci, true), 1, 0.82, 0)
                 total = total + wbank
             end
             ns.Tip_AddLine(" ")

@@ -243,6 +243,7 @@ ns.BLOCK_TYPES = {
     { key = "greatvault", label = "Great Vault" },
     { key = "mplussummary", label = "M+ Summary",
       available = function() return EllesmereUI._MythicRuns ~= nil end },
+    { key = "timeplayed", label = "Time Played" },
     { key = "audio",      label = "Audio" },
     { key = "ldb",        label = "Broker Plugin" },
     { key = "spacer",     label = "Spacer" },
@@ -289,6 +290,7 @@ ns.BLOCK_DEFAULTS = {
     ilvl       = { prefix = "short", value = "equipped", precision = 0 },
     greatvault = {},
     mplussummary = { hideWhenEmpty = false },
+    timeplayed = { alwaysTotal = false },
     audio      = { channel = "master" },
     -- Broker plugin: one block type for every LibDataBroker data source, picked
     -- by name (source). stripColors defaults ON -- broker text arrives full of
@@ -2335,6 +2337,8 @@ function ns.ApplyBar(id)
     end
 
     ApplyBarPosition(id)
+    -- Back onto its unlock anchor (nil until the unlock core is built).
+    if EllesmereUI.ReapplyUnlockAnchor then EllesmereUI.ReapplyUnlockAnchor("EDB_" .. id) end
     ApplyThemeToHost(rec.bar, cfg.theme, cfg.barTexture, not cfg.hideBorder)
 
     -- Reconcile block instances against cfg.blocks
@@ -2405,6 +2409,12 @@ function ns.ApplyBar(id)
 
     ns.RequestLayout(id)
     if AfterBarStateChange then AfterBarStateChange() end
+    -- Enabled after registration: getFrame was nil, so install the unlock hooks
+    -- and bring held followers to the bar.
+    if wasDisabled and ns._edbUnlockRegistered then
+        ns.RegisterAllUnlockElements()
+        if EllesmereUI.PropagateAnchorChain then EllesmereUI.PropagateAnchorChain("EDB_" .. id) end
+    end
 end
 
 -- Theme-only fast path (live slider / swatch feedback).
@@ -2703,13 +2713,17 @@ local dispRuntime = {}
 do
     local dispFrame
 
-    local function AnyFullBar()
+    -- Full-length and edge-snapped bars are placed from UIParent's size.
+    local function FollowsScreen(cfg)
+        return cfg.lengthMode == "full" or (cfg.snapEdge and cfg.snapEdge ~= "none")
+    end
+
+    local function AnyScreenBar()
         local profile = ns.GetProfile()
         if not profile then return false end
         local bars = profile.bars
         for i = 1, #bars do
-            if not ns.VisIsNever(bars[i])
-               and bars[i].lengthMode == "full" then
+            if not ns.VisIsNever(bars[i]) and FollowsScreen(bars[i]) then
                 return true
             end
         end
@@ -2722,22 +2736,37 @@ do
         ns.WipeFitCache()
         local bars = profile.bars
         for i = 1, #bars do
-            if bars[i].lengthMode == "full" then
+            if FollowsScreen(bars[i]) then
                 ns.ApplyBar(bars[i].id)
             end
         end
     end
 
+    -- UIParent:SetScale (login, scale slider) fires no event: follow its size.
+    -- One pass per frame.
+    local sizeQueued
+    local function OnUIParentSized()
+        if sizeQueued then return end
+        sizeQueued = true
+        C_Timer.After(0, function()
+            sizeQueued = false
+            OnDispEvent()
+        end)
+    end
+
     function dispRuntime.UpdateEventRegistration()
-        if AnyFullBar() then
+        if AnyScreenBar() then
             if not dispFrame then
-                dispFrame = CreateFrame("Frame")
+                dispFrame = CreateFrame("Frame", nil, UIParent)
+                dispFrame:SetAllPoints(UIParent)
                 dispFrame:SetScript("OnEvent", OnDispEvent)
             end
             dispFrame:RegisterEvent("DISPLAY_SIZE_CHANGED")
             dispFrame:RegisterEvent("UI_SCALE_CHANGED")
+            dispFrame:SetScript("OnSizeChanged", OnUIParentSized)
         elseif dispFrame then
             dispFrame:UnregisterAllEvents()
+            dispFrame:SetScript("OnSizeChanged", nil)
         end
     end
 end
@@ -2762,6 +2791,15 @@ local function MakeBarElement(barId, orderIdx)
     local cfgNow = cfgOf()
     local label = "DataBar " .. barId
     if cfgNow and cfgNow.name then label = cfgNow.name end
+    -- Unlock resize: ApplyBar moved the bar to its stored spot, so return it to
+    -- the mover. Snapped and anchored bars keep their edge or link.
+    local function holdAtMover(cfg)
+        if cfg.snapEdge and cfg.snapEdge ~= "none" then return end
+        local key = "EDB_" .. barId
+        if EllesmereUI._unlockActive and not EllesmereUI.IsUnlockAnchored(key) then
+            EllesmereUI.RepositionBarToMover(key)
+        end
+    end
     return EllesmereUI.MakeUnlockElement({
         key      = "EDB_" .. barId,
         label    = label,
@@ -2789,11 +2827,14 @@ local function MakeBarElement(barId, orderIdx)
         savePos  = function(_, pt, rpt, x, y)
             local cfg = cfgOf()
             if not cfg then return end
+            local sp = cfg.savedPos
+            local moved = not (sp and sp.point == pt and (sp.relPoint or sp.point) == rpt
+                and sp.x == x and sp.y == y)
             cfg.savedPos = { point = pt, relPoint = rpt, x = x, y = y }
-            -- Any manual move un-snaps the bar: it is no longer flush to
-            -- the edge, so the setting reverting to None reflects reality
-            -- (and applyPos would otherwise fight the drag).
-            if cfg.snapEdge and cfg.snapEdge ~= "none" then
+            -- A real move un-snaps the bar: it is no longer flush to the edge,
+            -- so the setting reverting to None reflects reality (and applyPos
+            -- would otherwise fight the drag). A Cancel restores the same spot.
+            if moved and cfg.snapEdge and cfg.snapEdge ~= "none" then
                 cfg.snapEdge = "none"
             end
         end,
@@ -2827,6 +2868,7 @@ local function MakeBarElement(barId, orderIdx)
                 cfg.length = w
             end
             ns.ApplyBar(barId)
+            holdAtMover(cfg)
         end,
         setHeight = function(_, h)
             local cfg = cfgOf()
@@ -2840,6 +2882,7 @@ local function MakeBarElement(barId, orderIdx)
                 cfg.thickness = h
             end
             ns.ApplyBar(barId)
+            holdAtMover(cfg)
         end,
         isHidden = function()
             return cfgOf() == nil
@@ -2863,6 +2906,7 @@ function ns.RegisterAllUnlockElements()
     if #elements > 0 then
         EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIDataBars")
     end
+    ns._edbUnlockRegistered = true
 end
 
 -------------------------------------------------------------------------------

@@ -23,6 +23,19 @@ local ADDON_NAME, ns = ...
 local K = {}
 ns.BlockKit = K
 
+-- Max-level check with layered fallbacks, matching the Action Bars XP bar's:
+-- the Is* helpers are nil-guarded, so client API churn can silently disable
+-- them -- a plain numeric compare against the expansion max level backstops
+-- the check.
+function K.AtMaxLevel()
+    local level = UnitLevel("player") or 0
+    if IsPlayerAtEffectiveMaxLevel and IsPlayerAtEffectiveMaxLevel() then return true end
+    if IsLevelAtEffectiveMaxLevel and IsLevelAtEffectiveMaxLevel(level) then return true end
+    local maxLevel = (GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion())
+        or (GetMaxPlayerLevel and GetMaxPlayerLevel())
+    return (maxLevel and level >= maxLevel) or false
+end
+
 -- One knob: icon -> content spacing for every icon-bearing block.
 local ICON_GAP = 8
 

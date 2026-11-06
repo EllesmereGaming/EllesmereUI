@@ -2153,7 +2153,6 @@ do
         "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel", "merchantBulkBuy",
         "merchantExpand", "merchantCols", "merchantRows",
         "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
-        "mailCloseBags",
         -- Friends List card (WoW Forever: the friend tiles and auto-accept)
         "friendsListCard",
     })
@@ -2412,6 +2411,7 @@ end
 --    goldLedger           cross-character and warband gold record
 --    qolUpgradeCalcChars  Upgrade Calculator per-character cache
 --    xpBarChars           XP bar session clock, XP rate and time this level
+--    timePlayedChars      Time Played block: each character's total played time
 --    questWatchChars      WoW Forever quest tools: quests each character's
 --                         filters and auto-track moved
 --    mailAltRoster        the Mail card's Alt List: every character recorded
@@ -2441,6 +2441,7 @@ local FULL_EXPORT_EXCLUDED = {
     warbandGold           = true,
     qolUpgradeCalcChars   = true,
     xpBarChars            = true,
+    timePlayedChars       = true,
     restoreOnUninstall    = true,
     gfxBackup             = true,
     friendlyPlateVisSaved = true,
