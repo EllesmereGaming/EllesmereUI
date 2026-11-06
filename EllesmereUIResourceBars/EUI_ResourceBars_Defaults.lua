@@ -45,6 +45,41 @@ end
 -- then DeepMergeDefaults on a different class refills it with the wrong color.
 local CUSTOM_FILL_DEFAULT = { 1, 1, 1 }
 
+-- Mirror Timers (EUI_ResourceBars_MirrorTimer.lua): one bar's defaults; the
+-- three bars differ only in their place and fill colour. A fresh table per
+-- call. OFF by default: nothing is built, registered or hidden until a bar
+-- is turned on.
+local function MirrorTimerDefaults(anchorY, r, g, b)
+    return {
+        enabled       = false,
+        width         = 200,
+        height        = 20,
+        anchorX       = 0,
+        anchorY       = anchorY,
+        fillR = r, fillG = g, fillB = b, fillA = 1,
+        gradientEnabled = false,
+        gradientR     = 0.20, gradientG = 0.20, gradientB = 0.80, gradientA = 1,
+        gradientDir   = "HORIZONTAL",
+        texture       = "none",
+        showSpark     = false,
+        labelSide     = "left",  labelSize = 11, labelX = 0, labelY = 0,
+        labelR = 1, labelG = 1, labelB = 1, labelA = 1,
+        timeSide      = "right", timeSize  = 11, timeX  = 0, timeY  = 0,
+        timeR  = 1, timeG  = 1, timeB  = 1, timeA  = 1,
+        lowWarn       = false,   -- red and blinking once lowWarnAt percent is left
+        lowWarnAt     = 30,      -- percent of the bar left where the warning starts
+        hideBlizzard  = true,    -- Blizzard's bar for this timer goes invisible while this one is on
+        showUnderNumbers = false, -- countdowns: kept on under the game's golden numbers
+        borderSize    = 1,
+        borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
+        borderTexture = "solid",
+        cornerRadius  = 0,       -- rounded corners (EllesmereUI_RoundedCorners.lua)
+        bgR           = 0, bgG = 0, bgB = 0, bgA = 0.7,
+        frameStrata   = "MEDIUM",
+        unlockPos     = nil,
+    }
+end
+
 local DEFAULTS = {
     profile = {
         -- Blizzard Style (Global Settings > Style) for the health, power and
@@ -463,6 +498,15 @@ local DEFAULTS = {
             visHideNoTarget = false,
             visHideNoEnemy = false,
             unlockPos     = nil,
+        },
+        -- Mirror Timers: the Breath, Fatigue and Feign Death bars, each with its
+        -- own settings and mover, set from the Cast Bar page's bar selector.
+        mirrorTimer = {
+            breath  = MirrorTimerDefaults(300, 0, 0.5, 1),
+            fatigue = MirrorTimerDefaults(270, 1, 0.9, 0),
+            feign   = MirrorTimerDefaults(240, 1, 0.7, 0),
+            pvp     = MirrorTimerDefaults(210, 0.8, 0.1, 0.1),
+            countdown = MirrorTimerDefaults(180, 1, 0.8, 0.2),
         },
         -- Sunfury Arcane Mage Arcane Soul callout (EUI_ResourceBars_ArcaneSoul.lua).
         -- Flat colour keys per module convention; OFF by default, and nothing at
