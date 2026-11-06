@@ -376,13 +376,16 @@ initFrame:SetScript("OnEvent", function(self)
     -- change of at least one physical pixel (the header snaps to them).
     -- Silent: a resize here must move the page down, not scroll it under the header.
     function PreviewBar.SizeHeader(hdr, baseH)
+        -- A preview in the Cast Bar page's body frame sits below the bar
+        -- selector: the header is that much taller than the body.
+        local off = hdr._hdrTopOffset or 0
         -- The hint's dismiss fade sizes the header to this: never another page's.
-        _headerBaseH = baseH
+        _headerBaseH = baseH + off
         local want = baseH + ((_previewHintFS and _previewHintFS:IsShown()) and 35 or 0)
         local es = hdr:GetEffectiveScale()
         local px = (es > 0) and (EllesmereUI.PP.perfect / es) or 1
         if math.abs(hdr:GetHeight() - want) < px * 0.5 then return end
-        EllesmereUI:SetContentHeaderHeightSilent(want)
+        EllesmereUI:SetContentHeaderHeightSilent(want + off)
     end
 
     -- nil while the bar can show in the preview, else the eye's tooltip
@@ -4850,6 +4853,97 @@ initFrame:SetScript("OnEvent", function(self)
             UpdateGCDPreview()
         end
 
+        -- Mirror Timers preview (Breath / Fatigue / Feign Death, picked from the
+        -- Cast Bar page's bar selector): one sample bar styled from its own
+        -- settings with the very code the live bar uses (ns.MT_BuildBar,
+        -- ns.MT_ApplyLook, ns.MT_Paint), at a sample fill -- inside the Low
+        -- Warning range while that is on, so its colour shows. Static: no pulse.
+        local MT_PREVIEW_H = 80
+        local mpf = {}
+
+        local function UpdateMirrorPreview(building)
+            local p = DB()
+            local id = mpf.id
+            local cfg = p and p.mirrorTimer and id and p.mirrorTimer[id]
+            local K = id and ns.MT_KIND_BY_ID and ns.MT_KIND_BY_ID[id]
+            if not (cfg and K and mpf.obj) then return end
+            local container = mpf.container
+            local hdr = container:GetParent()
+
+            local rawW = cfg.width or 200
+            local PAD = EllesmereUI.CONTENT_PAD
+            local availW = ((mpf.hdrW or hdr:GetWidth()) - PAD * 2) / mpf.scale
+            local fitScale = 1
+            if rawW > availW and rawW > 0 and availW > 0 then fitScale = availW / rawW end
+            container:SetScale(mpf.scale * fitScale)
+            local cScale = container:GetEffectiveScale()
+            if cScale <= 0 then cScale = 1 end
+            local onePx = EllesmereUI.PP.perfect / cScale
+            local function Snap(val) return math.floor(val / onePx + 0.5) * onePx end
+            container:SetSize(Snap(rawW), Snap(cfg.height or 20))
+            container:ClearAllPoints(); container:SetPoint("CENTER", hdr, "CENTER", 0, 0)
+
+            ns.MT_ApplyLook(mpf.obj, cfg, onePx)
+            mpf.obj.label:SetText(ns.MT_Name(K))
+            local frac = K.sampleFrac
+            if cfg.lowWarn then frac = math.min(frac, (cfg.lowWarnAt or 30) / 100 * 0.6) end
+            ns.MT_Paint(mpf.obj, cfg, frac, 60 * frac, false, true)
+
+            -- After the paint, which sets the bar's own alpha.
+            local on = cfg.enabled and true or false
+            PreviewBar.Lock(container, on, mpf.hits)
+            if not building then
+                PreviewBar.HintFor(on, hdr)
+                PreviewBar.SizeHeader(hdr, MT_PREVIEW_H)
+            end
+        end
+        env.UpdateMirrorPreview = UpdateMirrorPreview
+
+        -- The header builder for one bar (id: breath, fatigue or feign).
+        env.MirrorPreviewBuilder = function(id)
+            return function(hdr, hdrW)
+                HintBuildStart(PAGE_CASTBAR, hdr)
+                local p = DB()
+                if not (p and p.mirrorTimer and p.mirrorTimer[id] and ns.MT_BuildBar) then return 0 end
+                mpf.id = id
+                mpf.scale = UIParent:GetEffectiveScale() / hdr:GetEffectiveScale()
+
+                local container = CreateFrame("Frame", nil, hdr)
+                container:SetPoint("CENTER", hdr, "CENTER", 0, 0)
+                container:SetScale(mpf.scale)
+                mpf.container = container
+                local obj = { frame = container }
+                ns.MT_BuildBar(obj, CreateFrame)
+                mpf.obj = obj
+
+                wipe(_hitOverlays)
+                local lvl = container:GetFrameLevel() + 20
+                local function TextHit(fs, key)
+                    local hit = CreateFrame("Frame", nil, container)
+                    hit:SetPoint("TOPLEFT", fs, "TOPLEFT", -2, 2)
+                    hit:SetPoint("BOTTOMRIGHT", fs, "BOTTOMRIGHT", 2, -2)
+                    return CreateHitOverlay(hit, key, lvl + 5)
+                end
+                mpf.hits = {
+                    CreateHitOverlay(container, "mirrorBar", lvl),
+                    TextHit(obj.label, "mirrorLabel"),
+                    TextHit(obj.time, "mirrorTime"),
+                }
+
+                mpf.hdrW = hdrW
+                UpdateMirrorPreview(true)
+                mpf.hdrW = nil
+
+                _headerBaseH = MT_PREVIEW_H
+                return MT_PREVIEW_H + PlaceHint(hdr, p.mirrorTimer[id].enabled)
+            end
+        end
+
+        env.RestoreMirrorPreview = function()
+            if not IsPreviewHintDismissed() then RehomeHint(PAGE_CASTBAR) end
+            UpdateMirrorPreview()
+        end
+
         -- Totem Bar preview: sample icons in the Totem Bar layout (Icon Size,
         -- Spacing, Orientation, border, timer), static like the Cast Bar's.
         -- WoW Forever shamans with the Call Totem Bar on get its six buttons
@@ -5087,6 +5181,70 @@ initFrame:SetScript("OnEvent", function(self)
         end
     end
 
+
+    -- Cast Bar page bar selector: the Player Cast Bar, then the three Mirror
+    -- Timers bars (Breath, Fatigue, Feign Death), the way Action Bars' Bar
+    -- Display page picks a bar. A dropdown on top of the header, the picked
+    -- bar's preview below it in a body frame (hdr._hdrTopOffset is the room
+    -- the dropdown takes: PreviewBar.SizeHeader adds it back), and the page
+    -- under it is that bar's.
+    do
+        local env = ns._ERB_OptEnv
+        local SEL_H = 54
+        local SEL_VALUES = { cast = "Player Cast Bar" }
+        for _, K in ipairs(ns.MT_KINDS or {}) do SEL_VALUES[K.id] = ns.MT_Name(K) end
+        local SEL_ORDER = { "cast" }
+        for _, K in ipairs(ns.MT_KINDS or {}) do SEL_ORDER[#SEL_ORDER + 1] = K.id end
+        local sel = "cast"
+
+        -- Unlock Mode "Element Options" pre-selects a bar: direct setter plus a
+        -- pending value consumed at the page build (the action bar path).
+        EllesmereUI._setCastBarSel = function(v) if SEL_VALUES[v] then sel = v end end
+        env.CastSelection = function()
+            local pending = EllesmereUI._pendingCastBarSel
+            if pending then
+                EllesmereUI._pendingCastBarSel = nil
+                if SEL_VALUES[pending] then sel = pending end
+            end
+            return sel
+        end
+
+        local function WithSelector(inner)
+            return function(hdr, hdrW)
+                local DD_H = 34
+                local ddBtn = EllesmereUI.BuildDropdownControl(
+                    hdr, 350, hdr:GetFrameLevel() + 5,
+                    SEL_VALUES, SEL_ORDER,
+                    function() return sel end,
+                    function(v)
+                        if v == sel then return end
+                        sel = v
+                        -- The rebuild builds this header as well.
+                        EllesmereUI:RefreshPage(true)
+                    end)
+                PP.Point(ddBtn, "TOP", hdr, "TOP", 0, -20)
+                ddBtn:SetHeight(DD_H)
+
+                local body = CreateFrame("Frame", nil, hdr)
+                body:SetPoint("TOPLEFT", hdr, "TOPLEFT", 0, -SEL_H)
+                body:SetPoint("BOTTOMRIGHT", hdr, "BOTTOMRIGHT", 0, 0)
+                body._hdrTopOffset = SEL_H
+                local h = inner(body, hdrW)
+                _headerBaseH = _headerBaseH + SEL_H
+                return h + SEL_H
+            end
+        end
+
+        local castHeader = WithSelector(env._castBarPreviewBuilder)
+        env._castBarPreviewBuilder = castHeader
+        local mirrorHeaders = {}
+        env.CastHeaderBuilder = function()
+            if sel == "cast" then return castHeader end
+            mirrorHeaders[sel] = mirrorHeaders[sel] or WithSelector(env.MirrorPreviewBuilder(sel))
+            return mirrorHeaders[sel]
+        end
+    end
+
     -- Register the module
     EllesmereUI:RegisterModule("EllesmereUIResourceBars", {
         title       = "Resource Bars",
@@ -5098,6 +5256,11 @@ initFrame:SetScript("OnEvent", function(self)
             if pageName == PAGE_DISPLAY then
                 return ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
             elseif pageName == PAGE_CASTBAR then
+                -- The bar selector's pick: the Player Cast Bar, or a Mirror Timers bar.
+                local s = ns._ERB_OptEnv.CastSelection()
+                if s ~= "cast" then
+                    return ns.ERB_BuildMirrorTimerPage(pageName, parent, yOffset, s)
+                end
                 return ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
             elseif pageName == PAGE_GCD then
                 return ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
@@ -5111,7 +5274,7 @@ initFrame:SetScript("OnEvent", function(self)
             if pageName == PAGE_DISPLAY then
                 return _previewHeaderBuilder
             elseif pageName == PAGE_CASTBAR then
-                return _castBarPreviewBuilder
+                return ns._ERB_OptEnv.CastHeaderBuilder()
             elseif pageName == PAGE_GCD then
                 return ns._ERB_OptEnv._gcdPreviewBuilder
             elseif pageName == PAGE_TOTEM then
@@ -5151,6 +5314,9 @@ initFrame:SetScript("OnEvent", function(self)
                 if _headerBaseH > 0 then
                     EllesmereUI:SetContentHeaderHeightSilent(_headerBaseH + (dismissed and 0 or 35))
                 end
+            elseif pageName == PAGE_CASTBAR and ns._ERB_OptEnv.CastSelection() ~= "cast" then
+                -- A Mirror Timers bar picked in the bar selector
+                ns._ERB_OptEnv.RestoreMirrorPreview()
             elseif pageName == PAGE_CASTBAR then
                 -- Randomize cast bar preview fill each time the tab is opened
                 _castBarPreviewFill = math.random(30, 85) / 100
