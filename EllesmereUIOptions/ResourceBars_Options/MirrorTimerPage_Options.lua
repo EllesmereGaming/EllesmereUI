@@ -315,6 +315,19 @@ function ns.ERB_BuildMirrorTimerPage(pageName, parent, yOffset, id)
     Sync(sparkRow._leftRegion, "Apply Show Spark to all Bars", { "showSpark" })
     Sync(sparkRow._rightRegion, "Apply Hide Blizzard Bar to all Bars", { "hideBlizzard" })
 
+    -- The countdowns (Battle Start, Group Countdown): the bar steps aside for
+    -- the game's big numbers, as the game's own bar does, unless this keeps it.
+    if K.numbersAt then
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Show Under the Golden Numbers",
+              tooltip = EllesmereUI.Lf("Keeps this bar on screen once the game switches to its big golden numbers (under %d seconds). Off, they show alone, as in the default UI.", K.numbersAt),
+              disabled = off, disabledTooltip = TIP,
+              getValue = function() local c = C(); return c and c.showUnderNumbers == true end,
+              setValue = Set("showUnderNumbers") },
+            { type = "label", text = "" }
+        );  y = y - h
+    end
+
     _, h = W:Spacer(parent, y, 16);  y = y - h
 
     ---------------------------------------------------------------------------

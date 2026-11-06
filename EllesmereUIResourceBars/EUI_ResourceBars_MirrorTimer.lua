@@ -57,12 +57,17 @@ local START_TYPES = Enum and Enum.StartTimerType
 local START_KIND = {}  -- timer type -> kind
 if START_TYPES and START_TYPES.PvPBeginTimer then
     KINDS[#KINDS + 1] = { id = "pvp", unlock = "ERB_MirrorPvP", name = "Battle Start", sampleFrac = 0.55,
-        order = 512, timers = {}, startType = START_TYPES.PvPBeginTimer }
+        order = 512, timers = {}, startType = START_TYPES.PvPBeginTimer, numbersAt = 11 }
 end
 if START_TYPES and START_TYPES.PlayerCountdown then
     KINDS[#KINDS + 1] = { id = "countdown", unlock = "ERB_MirrorCountdown", name = "Group Countdown",
-        sampleFrac = 0.5, order = 513, timers = {}, startType = START_TYPES.PlayerCountdown, keepOnWorld = true }
+        sampleFrac = 0.5, order = 513, timers = {}, startType = START_TYPES.PlayerCountdown, keepOnWorld = true,
+        numbersAt = 31 }
 end
+-- numbersAt: the seconds left where the game swaps its bar for its golden
+-- numbers (its TimerTracker's mediumMarker for that type). Ours steps aside
+-- there too, so they show alone, unless Show Under the Golden Numbers
+-- (showUnderNumbers) keeps it up to the end.
 for _, K in ipairs(KINDS) do
     if K.startType then START_KIND[K.startType] = K end
 end
@@ -496,7 +501,7 @@ end
 local function UpdateVisibility(K)
     if not K.built then return end
     local cfg = Cfg(K.id)
-    local on = cfg and cfg.enabled and (K.sample or K.active) and true or false
+    local on = cfg and cfg.enabled and (K.sample or (K.active and not K.active.underNumbers)) and true or false
     EllesmereUI.SetElementVisibility(K.frame, on)
 end
 
@@ -572,6 +577,10 @@ local ticker = EllesmereUI.Tick.NewAnimTicker(tickFrame, function()
                 -- gates open.
                 if a.endTime and ms <= 0 then
                     K.active = nil
+                    UpdateVisibility(K)
+                elseif a.endTime and K.numbersAt and not a.underNumbers
+                       and cfg and not cfg.showUnderNumbers and ms < K.numbersAt * 1000 then
+                    a.underNumbers = true
                     UpdateVisibility(K)
                 end
             end
