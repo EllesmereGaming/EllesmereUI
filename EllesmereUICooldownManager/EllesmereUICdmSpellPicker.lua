@@ -1868,8 +1868,11 @@ end
 --- the layout when active / a placeholder when inactive -- like the buffs bar,
 --- just on CD/util. Blizzard's CDM stays the source of truth, so auras, DoTs,
 --- totems and pet-summons all work with no detection code. NOT a custom
---- injected spell -- Phase 3 must never draw its own frame for it. Additive:
---- only our own data table is written (variant-keyed).
+--- injected spell -- Phase 3 draws no frame of its own over Blizzard's; only a
+--- Custom Spell ID Blizzard does not track (customSpellIDs tag, no hosted frame
+--- or placeholder on the bar) is drawn by an aura icon of ours
+--- (EUI_CDM_AuraIcons.lua). Additive: only our own data table is written
+--- (variant-keyed).
 function ns.AddBuffToCDUtilBar(barKey, spellID)
     if type(spellID) ~= "number" or spellID <= 0 then return false end
     local sd = ns.GetBarSpellData(barKey)

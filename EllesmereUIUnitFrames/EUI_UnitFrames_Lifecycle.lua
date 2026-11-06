@@ -96,6 +96,8 @@ local function EnableBody()
         ns.SyncPlayerThreat()
         if ns.SyncThreatPct then ns.SyncThreatPct() end
     end)
+    -- After InitializeFrames, which decided the target frame's source.
+    ns.UF_SyncTargetSounds()
 end
 
 do
@@ -124,6 +126,53 @@ do
             ns._eufEnablePending = true
         end
         -- Incompatible addon detection is handled globally by EllesmereUI
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Targeting Sound Effects (db.profile.targetSounds: on by default on WoW
+--  Forever, off on retail). Blizzard
+--  plays the target and lost-target sounds from its own TargetFrame (its
+--  PLAYER_TARGET_CHANGED handler and its OnHide), which this module parks with
+--  its events off whenever our target frame, or none, replaces it. This plays
+--  them the same way; with Blizzard's frame in use (Frame Source Blizzard
+--  Default) it plays them itself. The event is registered only while on.
+--  (do-block: no persistent file-level locals.)
+-------------------------------------------------------------------------------
+do
+    local ev = CreateFrame("Frame")
+    local hadTarget = false
+    ev:SetScript("OnEvent", function()
+        if UnitExists("target") then
+            hadTarget = true
+            if C_PlayerInteractionManager.IsReplacingUnit() then return end
+            if UnitIsEnemy("target", "player") then
+                PlaySound(SOUNDKIT.IG_CREATURE_AGGRO_SELECT)
+            elseif UnitIsFriend("player", "target") then
+                PlaySound(SOUNDKIT.IG_CHARACTER_NPC_SELECT)
+            else
+                PlaySound(SOUNDKIT.IG_CREATURE_NEUTRAL_SELECT)
+            end
+        elseif hadTarget then
+            hadTarget = false
+            -- A soft target going away plays nothing, as on Blizzard's frame.
+            if not IsTargetLoose() then
+                PlaySound(SOUNDKIT.INTERFACE_SOUND_LOST_TARGET_UNIT, nil, true)
+            end
+        end
+    end)
+
+    -- Login, the options toggle and every reload pass (a profile switch or
+    -- override changes the saved toggle without its setter).
+    function ns.UF_SyncTargetSounds()
+        local on = db and db.profile.targetSounds == true
+            and ns.GetUnitFrameSource("target") ~= "blizzard"
+        if on then
+            hadTarget = UnitExists("target") and true or false
+            ev:RegisterEvent("PLAYER_TARGET_CHANGED")
+        else
+            ev:UnregisterEvent("PLAYER_TARGET_CHANGED")
+        end
     end
 end
 

@@ -1063,7 +1063,7 @@ function EUI_BagsReagent:RefreshInventory()
             SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
         else
             if btn.icon then btn.icon:Show() end
-            btn:SetItemButtonTexture(data.info.iconFileID)
+            ns.SetSlotIcon(btn, data.info.iconFileID)
             btn:SetItemButtonCount(data.info.stackCount)
             SetItemButtonDesaturated(btn, data.info.isLocked)
             local filtered = data.info.isFiltered

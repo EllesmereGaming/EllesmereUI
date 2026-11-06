@@ -180,7 +180,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
     local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
     ddBg:SetAllPoints()
     ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-    local ddBrd = EllesmereUI.MakeBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+    local ddBrd = EllesmereUI.MakeRoundedBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, ddBg)
     local ddLbl = ddBtn:CreateFontString(nil, "OVERLAY")
     -- Options panel is Expressway-locked by design (locale-aware: CJK/Cyrillic get the system glyph font). The user's global font intentionally does not restyle the settings UI.
     local fontPath = EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
@@ -429,7 +429,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             local mBg = menu:CreateTexture(nil, "BACKGROUND")
             mBg:SetAllPoints()
             mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-            EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+            EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, mBg, nil, true)
         end
         local ppScale = EllesmereUI.GetPopupScale() or 1
         menu:SetScale(ppScale)
@@ -512,6 +512,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 local sBg = searchEdit:CreateTexture(nil, "BACKGROUND")
                 sBg:SetAllPoints()
                 sBg:SetColorTexture(0, 0, 0, 0.4)
+                EllesmereUI.RoundBody(searchEdit, sBg)
                 searchPlaceholder = searchEdit:CreateFontString(nil, "OVERLAY")
                 searchPlaceholder:SetFont(fontPath, 11, "")
                 searchPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.6)
@@ -915,6 +916,8 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 -- The slot the write belongs to, taken before the setter runs: a
                 -- setter that rebuilds the page can dress ddBtn for another slot.
                 local snap = opts.notifyWrites and EllesmereUI._SOAttribution(ddBtn) or nil
+                -- The slot's Apply to link stays a few seconds after the pick.
+                EllesmereUI._SyncPickNotice(ddBtn)
                 if negBox and ShowLaneLocked() then
                     setFn(item.key, not getFn(item.key, true), true)
                 else
@@ -926,6 +929,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 negBox:SetScript("OnClick", function()
                     if RowLocked() then return end
                     local snap = opts.notifyWrites and EllesmereUI._SOAttribution(ddBtn) or nil
+                    EllesmereUI._SyncPickNotice(ddBtn)
                     setFn(item.key, not getFn(item.key, true), true)
                     AfterToggle(snap)
                 end)
@@ -1588,7 +1592,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
     local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
     ddBg:SetAllPoints()
     ddBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-    local ddBrd = EllesmereUI.MakeBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+    local ddBrd = EllesmereUI.MakeRoundedBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, ddBg)
     local ddLbl = ddBtn:CreateFontString(nil, "OVERLAY")
     ddLbl:SetFont(fontPath, 13, "")
     ddLbl:SetTextColor(1, 1, 1, EllesmereUI.DD_TXT_A)
@@ -1648,7 +1652,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
         local mBg = menu:CreateTexture(nil, "BACKGROUND")
         mBg:SetAllPoints()
         mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-        EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+        EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, mBg, nil, true)
         -- Controller cursor: the list blocks what is under it but is not a stop itself;
         -- Cancel clicks the dropdown button (it toggles the list closed).
         if EllesmereUI.PadCP() then
@@ -1993,7 +1997,7 @@ function EllesmereUI.BuildSliderDropdown(parentFrame, ddW, fLevel, items, opts)
     ddBtn:SetFrameLevel(fLevel)
     local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
     ddBg:SetAllPoints()
-    local ddBrd = EllesmereUI.MakeBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+    local ddBrd = EllesmereUI.MakeRoundedBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, ddBg)
     local ddLbl = ddBtn:CreateFontString(nil, "OVERLAY")
     ddLbl:SetFont(fontPath, 13, "")
     ddLbl:SetJustifyH("LEFT")
@@ -2055,7 +2059,7 @@ function EllesmereUI.BuildSliderDropdown(parentFrame, ddW, fLevel, items, opts)
         local mBg = menu:CreateTexture(nil, "BACKGROUND")
         mBg:SetAllPoints()
         mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA)
-        EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+        EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, mBg, nil, true)
 
         refreshers = {}
         for i, item in ipairs(items) do

@@ -1471,8 +1471,10 @@ local function InitializeFrames()
     -- Blizzard's target-of-target is a child of TargetFrame. When the target frame
     -- itself is EUI or hidden, TargetFrame is already disabled so the child is gone
     -- with it. Only needs suppressing when the target uses Blizzard's live frame but
-    -- the user does NOT want Blizzard's ToT (EUI or hidden) -- else both would show.
-    if totFrameSource ~= "blizzard" and targetFrameSource == "blizzard" then
+    -- the user does NOT want Blizzard's ToT (EUI or hidden) -- else both would show,
+    -- or while TargetFrame is kept shown for the WoW Forever gamepad target menu
+    -- (ns.UF_TargetMenuOwner): the child, a clickable unit button, would take clicks.
+    if (totFrameSource ~= "blizzard" and targetFrameSource == "blizzard") or ns.UF_TargetMenuOwner then
         SuppressBlizzardChildFrame(TargetFrame and TargetFrame.totFrame)
     end
 

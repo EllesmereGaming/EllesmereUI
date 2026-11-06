@@ -17,7 +17,7 @@ local function Cfg(k) return EQT.Cfg(k) end
 -- Defaults, merged into the module's table before its DB is made at login.
 do
     local qt = ns.QT_DEFAULTS.profile.questTracker
-    qt.customTracker           = false  -- reload-gated; position in customPos
+    qt.customTracker           = true   -- reload-gated; position in customPos
     qt.customGroupByZone       = true
     qt.customDifficultyColor   = true
     qt.customWidth             = 260
@@ -26,7 +26,7 @@ do
     qt.customZoneFontSize      = 13
     qt.customQuestSpacing      = 4
     qt.customObjSpacing        = 1
-    qt.customFocusClick        = false     -- focus buttons + menu entry
+    qt.customFocusClick        = true      -- focus buttons + menu entry
     qt.customWrapTitles        = true      -- off: one line, cut with "..."
     qt.customWrapObjectives    = true
     qt.customScrollbar         = "always"  -- always / hover / hidden
@@ -42,7 +42,7 @@ local HEADER_H = 24
 local BAR_W    = 3    -- scrollbar track width
 local BAR_GAP  = 6    -- space kept for the track right of the text
 local OBJ_IND  = 10   -- objective indent
-local FOCUS_GAP = 4   -- focus button to title
+local FOCUS_GAP = 6   -- focus button to title
 local WHEEL    = 40
 
 -- Inert until InitCustom registers events (zero cost while off).
@@ -67,7 +67,6 @@ local prevObj = {}    -- questID -> objective texts last shown (update flashes)
 local charDB
 local function CharDB()
     if charDB then return charDB end
-    if not EllesmereUIDB then EllesmereUIDB = {} end
     local all = EllesmereUIDB.questTrackerChars
     if type(all) ~= "table" then all = {}; EllesmereUIDB.questTrackerChars = all end
     local guid = UnitGUID("player")
@@ -187,6 +186,7 @@ local function AcquireLine(kind, id, text, x, y, width, key)
         StyleText(l.text, Cfg(SIZE_KEY[kind]) or SIZE_DEF[kind])
         l:EnableMouse(kind ~= "obj")
         l.lastText = nil
+        l.dashW = nil  -- a timer bar's indent, measured in this font
     end
     l.id = id
     if l.flash and l.key ~= key then l.flash:Stop() end
@@ -240,10 +240,6 @@ end
 -------------------------------------------------------------------------------
 local OBJ_RGB = OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Normal or { r = 0.8, g = 0.8, b = 0.8 }
 local DONE_RGB = OBJECTIVE_TRACKER_COLOR and OBJECTIVE_TRACKER_COLOR.Complete or { r = 0.6, g = 0.6, b = 0.6 }
-
--- questID -> seconds left, refreshed each render.
-local timeLeft = {}
-local ticking = false
 
 local function TitleRGB(questID, complete)
     if questID == C_SuperTrack.GetSuperTrackedQuestID() then return EQT.GetFocusRGB() end
@@ -437,7 +433,8 @@ local function AddObjectives(questID, y, width, x)
         l.text:SetTextColor(r, g, b, 1)
         return y + h + gap
     end
-    local objectives = C_QuestLog.GetQuestObjectives(questID) or {}
+    local objectives = C_QuestLog.GetQuestObjectives(questID)
+    if not objectives then return y end
     -- First sight of a quest records its texts without flashing.
     local prev = Cfg("customFlashUpdates") and prevObj[questID]
     if Cfg("customFlashUpdates") and not prev then prev = {}; prevObj[questID] = prev end
@@ -459,67 +456,127 @@ local function AddObjectives(questID, y, width, x)
     return y
 end
 
--- Quest timer (Blizzard shows it in QuestTimerFrame, hidden with its muted tracker).
--- Shown in any state, collapsed or complete included.
--- Color: Blizzard's timer bar ramp, white > yellow (66% left) > red (33% left).
+-------------------------------------------------------------------------------
+-- Quest timers. Blizzard shows them in QuestTimerFrame, a child of its muted
+-- tracker, so they went with it. Render puts a timer line under each listed
+-- quest with a running timer, collapsed or complete included, and a bar under
+-- the text when the quest's total time is known; while one shows, a tick
+-- repaints only those lines, just after each displayed second changes.
+-------------------------------------------------------------------------------
+local timerEnd = {}                -- questID -> GetTime() its timer runs out at
+local timerLines, timerN = {}, 0   -- the timer lines the last render placed
+local tickArmed = false
+local TimerTick                    -- defined below
+local BAR_H = 5
+-- Fill: gold, red under a third of the time left (the skin's timer colours).
+local TIMER_FILL, TIMER_LOW = { 1, 0.82, 0.2 }, { 1, 0.3, 0.3 }
+
+-- Blizzard's timer ramp: white, yellow under two thirds left, red under one.
 local function TimerRGB(pct)
     if pct > 0.66 then return 1, 1, 1 end
     if pct > 0.33 then return 1, 1, (pct - 0.33) / 0.33 end
     return 1, pct / 0.33, 0
 end
 
-local BAR_H = 3
+local function TimerText(left)
+    return "- " .. TIME_REMAINING .. " " .. SecondsToClock(left)
+end
 
--- Thin bar under the timer text, lazily made on the line; AcquireLine hides it.
+-- The bar under a timer line: a track in the shared pixel border, made once
+-- per line (AcquireLine hides it).
 local function TimerBar(l)
     local bar = l.bar
     if bar then return bar end
     bar = CreateFrame("StatusBar", nil, l)
     bar:SetHeight(BAR_H)
-    bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    bar:SetStatusBarTexture("Interface\Buttons\WHITE8X8")
     bar:SetMinMaxValues(0, 1)
-    -- 1px dark border, then the track.
-    local border = bar:CreateTexture(nil, "BACKGROUND", nil, -1)
-    border:SetPoint("TOPLEFT", -1, 1)
-    border:SetPoint("BOTTOMRIGHT", 1, -1)
-    border:SetColorTexture(0, 0, 0, 0.9)
     local bg = bar:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.15, 0.15, 0.15, 0.8)
+    EllesmereUI.PP.CreateBorder(bar, 0, 0, 0, 0.9, 1, "OVERLAY", 1)
     l.bar = bar
     return bar
 end
 
--- Width of the "- " prefix in the line's font, to align the bar with the text.
-local function DashWidth(l, text)
-    l.text:SetText("- ")
-    local w = l.text:GetStringWidth()
-    l.text:SetText(text)
-    return w
+-- Repaints one timer line. False when its new text no longer fits the row it
+-- was laid out in: a full render places it again.
+local function PaintTimer(l, now)
+    local left = timerEnd[l.timerQuest] - now
+    if left < 0 then left = 0 end
+    local text = TimerText(left)
+    if l.lastText ~= text then
+        l.text:SetText(text)
+        l.lastText = text
+        if math.ceil(l.text:GetStringHeight()) ~= l.lastH then return false end
+    end
+    local total = l.timerTotal
+    local pct = total and math.min(left / total, 1) or 1
+    l.text:SetTextColor(TimerRGB(pct))
+    local bar = total and l.bar
+    if bar then
+        bar:SetWidth(math.max(l.text:GetStringWidth() - l.dashW, 1))
+        bar:SetValue(pct)
+        local c = pct > 0.33 and TIMER_FILL or TIMER_LOW
+        bar:SetStatusBarColor(c[1], c[2], c[3])
+    end
+    return true
+end
+
+-- The next tick lands just after the soonest displayed second changes
+-- (SecondsToClock floors).
+local function ArmTick(now)
+    if tickArmed or timerN == 0 then return end
+    local wait = 1
+    for i = 1, timerN do
+        local left = timerEnd[timerLines[i].timerQuest] - now
+        if left > 0 then
+            local frac = left - math.floor(left)
+            if frac < wait then wait = frac end
+        end
+    end
+    tickArmed = true
+    C_Timer.After(wait + 0.02, TimerTick)
+end
+
+TimerTick = function()
+    tickArmed = false
+    if timerN == 0 or not frame then return end
+    -- Hidden: stop; the show renders again and the tick comes back with it.
+    if not frame:IsShown() then stale = true; return end
+    local now = GetTime()
+    for i = 1, timerN do
+        if not PaintTimer(timerLines[i], now) then Queue(); return end
+    end
+    ArmTick(now)
 end
 
 local function AddTimer(questID, y, width, x)
-    local left = timeLeft[questID]
-    if not left then return y end
-    local total = C_QuestLog.GetTimeAllowed(questID)
-    local pct = (total and total > 0) and math.min(left / total, 1) or nil
-    local text = "- " .. (TIME_REMAINING or "Time remaining:") .. " " .. SecondsToClock(left)
-    local l, h = AcquireLine("obj", questID, text, x, y, width - x)
-    local r, g, b = TimerRGB(pct or 1)
-    l.text:SetTextColor(r, g, b, 1)
+    local ends = timerEnd[questID]
+    if not ends then return y end
+    local now = GetTime()
+    local l, h = AcquireLine("obj", questID, TimerText(math.max(ends - now, 0)), x, y, width - x)
     y = y + h + (Cfg("customObjSpacing") or 1)
-    -- No total known: text only.
-    if not pct then return y end
-    local bar = TimerBar(l)
-    local dash = DashWidth(l, text)
-    bar:ClearAllPoints()
-    bar:SetPoint("TOPLEFT", l, "BOTTOMLEFT", dash, -2)
-    bar:SetWidth(math.max(l.text:GetStringWidth() - dash, 1))
-    bar:SetValue(pct)
-    -- Fill: Skin.lua's timer colors, gold, red under 33%.
-    if pct > 0.33 then bar:SetStatusBarColor(1, 0.82, 0.2) else bar:SetStatusBarColor(1, 0.3, 0.3) end
-    bar:Show()
-    return y + BAR_H + 4
+    local total = C_QuestLog.GetTimeAllowed(questID)
+    l.timerQuest = questID
+    l.timerTotal = (total and total > 0) and total or nil
+    timerN = timerN + 1
+    timerLines[timerN] = l
+    if l.timerTotal then
+        local bar = TimerBar(l)
+        if not l.dashW then
+            -- The "- " prefix's width in the line's font: the bar starts under the text.
+            l.text:SetText("- ")
+            l.dashW = l.text:GetStringWidth()
+            l.text:SetText(l.lastText)
+        end
+        bar:ClearAllPoints()
+        bar:SetPoint("TOPLEFT", l, "BOTTOMLEFT", l.dashW, -1)
+        bar:Show()
+        y = y + BAR_H + 2
+    end
+    PaintTimer(l, now)
+    return y
 end
 
 -------------------------------------------------------------------------------
@@ -627,14 +684,14 @@ local function Render()
     frame:SetMouseMotionEnabled(HoverWanted() and true or false)
     if not Cfg("customFlashUpdates") then wipe(prevObj) end
     itemN = 0
-    wipe(timeLeft)
-    for _, t in ipairs(C_QuestLog.GetQuestTimers() or {}) do
-        if t.questID and t.questTimer then timeLeft[t.questID] = t.questTimer end
-    end
-    -- ponytail: full re-render each second while a timer runs; rows are cached, so only the timer line changes.
-    if next(timeLeft) and not ticking then
-        ticking = true
-        C_Timer.After(1, function() ticking = false; Queue() end)
+    wipe(timerEnd)
+    timerN = 0
+    local timers = C_QuestLog.GetQuestTimers()
+    if timers then
+        local now = GetTime()
+        for _, t in ipairs(timers) do
+            if t.questID and t.questTimer then timerEnd[t.questID] = now + t.questTimer end
+        end
     end
     BuildList()
     local collapsed = CharDB().ctCollapsed
@@ -646,9 +703,14 @@ local function Render()
     if not collapsed.all then
         local group = Cfg("customGroupByZone")
         -- Focus buttons take a column left of the titles.
-        local focusSize = Cfg("customFocusClick") and (Cfg("titleFontSize") or 12) + 6 or 0
-        -- The art overhangs the button by 0.3x each side; keep it off the clip edge.
-        local titleX = focusSize > 0 and focusSize * 1.3 + FOCUS_GAP or 0
+        local titleSize = Cfg("titleFontSize") or 12
+        local focusSize = Cfg("customFocusClick") and titleSize + 6 or 0
+        -- The art overhangs the button by 0.3x each side; keep it off the clip edge, less 2
+        -- (the ring's outer edge is the atlas padding).
+        local titleX = focusSize > 0 and focusSize * 1.3 - 2 + FOCUS_GAP or 0
+        -- It also rises above its title: the button sits (size - font) / 2 higher and the
+        -- focused glow reaches 0.5x past it. A quest on the first row starts that far down.
+        local focusRise = focusSize > 0 and math.ceil((focusSize - titleSize) / 2 + focusSize * 0.5) or 0
         local objX = math.max(OBJ_IND, titleX)
         local collapseDone = Cfg("customCollapseCompleted")
         local doneOpen = CharDB().ctDoneOpen
@@ -681,6 +743,7 @@ local function Render()
                     end
                 end
                 local itemW = item and itemSize + 8 or 0
+                if y == 0 then y = focusRise end
                 local top = y
                 local l, h = AcquireLine("quest", questID, QuestTitle(questID), titleX, y, width - titleX - itemW)
                 l.text:SetTextColor(TitleRGB(questID, complete))
@@ -723,6 +786,7 @@ local function Render()
         if cdRegistered then evt:RegisterEvent("BAG_UPDATE_COOLDOWN") else evt:UnregisterEvent("BAG_UPDATE_COOLDOWN") end
     end
     SyncItems()
+    ArmTick(GetTime())
 end
 
 function Queue()
@@ -775,24 +839,28 @@ end
 -- For the details window (Details.lua).
 EQT.CustomQuestActions = { Focus = ToggleFocus, Untrack = Untrack, Abandon = Abandon }
 
+local function Disabled() return true end
+local MENU_OPTS = { fontKey = "questTracker" }
+
+-- The quest's title heads the menu as a disabled row.
 local function ShowMenu(owner, questID)
-    MenuUtil.CreateContextMenu(owner, function(_, root)
-        root:CreateTitle(C_QuestLog.GetTitleForQuestID(questID) or "")
-        if Cfg("customFocusClick") then
-            local focused = C_SuperTrack.GetSuperTrackedQuestID() == questID
-            root:CreateButton(focused and STOP_SUPER_TRACK_QUEST or SUPER_TRACK_QUEST,
-                function() ToggleFocus(questID) end)
-        end
-        root:CreateButton(CharDB().ctPinned[questID] and "Unpin" or "Pin to Top",
-            function() TogglePin(questID) end)
-        root:CreateButton(OBJECTIVES_STOP_TRACKING, function() Untrack(questID) end)
-        if IsInGroup() and C_QuestLog.IsPushableQuest(questID) then
-            root:CreateButton(SHARE_QUEST, function()
-                QuestLogPushQuest(C_QuestLog.GetLogIndexForQuestID(questID))
-            end)
-        end
-        root:CreateButton(ABANDON_QUEST_ABBREV, function() Abandon(questID) end)
-    end)
+    local items = { { text = C_QuestLog.GetTitleForQuestID(questID) or "", noLoc = true, isDisabled = Disabled } }
+    if Cfg("customFocusClick") then
+        local focused = C_SuperTrack.GetSuperTrackedQuestID() == questID
+        items[#items + 1] = { text = focused and STOP_SUPER_TRACK_QUEST or SUPER_TRACK_QUEST, noLoc = true,
+            onClick = function() ToggleFocus(questID) end }
+    end
+    items[#items + 1] = { noLoc = true,
+        text = CharDB().ctPinned[questID] and EllesmereUI.L("Unpin") or EllesmereUI.L("Pin to Top"),
+        onClick = function() TogglePin(questID) end }
+    items[#items + 1] = { text = OBJECTIVES_STOP_TRACKING, noLoc = true, onClick = function() Untrack(questID) end }
+    if IsInGroup() and C_QuestLog.IsPushableQuest(questID) then
+        items[#items + 1] = { text = SHARE_QUEST, noLoc = true, onClick = function()
+            QuestLogPushQuest(C_QuestLog.GetLogIndexForQuestID(questID))
+        end }
+    end
+    items[#items + 1] = { text = ABANDON_QUEST_ABBREV, noLoc = true, onClick = function() Abandon(questID) end }
+    EllesmereUI.ShowContextMenu(owner, items, MENU_OPTS)
 end
 
 local function ToggleCollapsed(key)
@@ -924,7 +992,12 @@ function OnLineEnter(self)
     if IsInGroup() then
         GameTooltip:SetQuestPartyProgress(self.id)
     else
-        GameTooltip:SetHyperlink(GetQuestLink(self.id))
+        local link = GetQuestLink(self.id)
+        if link then
+            GameTooltip:SetHyperlink(link)
+        else
+            GameTooltip:SetText(C_QuestLog.GetTitleForQuestID(self.id) or "")
+        end
     end
     AddRewards(self.id, self)
     GameTooltip:Show()
@@ -1094,15 +1167,33 @@ local function AutoHidden()
     local _, instanceType = IsInInstance()
     if instanceType == "arena" then return true end
     if instanceType == "raid" then
-        return Cfg("hideInRaidMode") == "always" or inEncounter
+        local mode = Cfg("hideInRaidMode")
+        return mode == "always" or (mode ~= "never" and inEncounter)
     end
     return false
 end
 
--- The tracker can hide mid-fight: Hide When In Raid, or a combat visibility rule.
+-- Visibility options that cannot change during a fight.
+local FIGHT_STATIC = {
+    visOnlyInstances = true, visHideInstances = true,
+    visOnlyDungeons  = true, visHideDungeons  = true,
+    visOnlyHousing   = true, visHideHousing   = true,
+    visOnlyResting   = true, visHideResting   = true,
+}
+
+-- The tracker can hide mid-fight: Hide When In Raid (unless Never), a combat or
+-- group rule, or any other visibility option (target, mounted, vehicle, Party Mode).
 local function CanHideInCombat()
     local _, instanceType = IsInInstance()
-    return instanceType == "raid" or EllesmereUI.VisDependsOnCombat(EQT.DB(), "visibility")
+    if instanceType == "raid" and Cfg("hideInRaidMode") ~= "never" then return true end
+    local db = EQT.DB()
+    if EllesmereUI.VisDependsOnCombat(db, "visibility") then return true end
+    local sel = EllesmereUI.GetVisibilitySelection(db, "visibility")
+    if sel.in_raid or sel.in_party or sel.solo then return true end
+    for _, k in ipairs(EllesmereUI.VIS_OPT_KEYS) do
+        if db[k] and not FIGHT_STATIC[k] then return true end
+    end
+    return false
 end
 
 local function Blocked()
@@ -1192,9 +1283,7 @@ function EQT.InitCustom()
     EllesmereUI.RegisterMouseoverTarget(frame, function()
         return not Blocked() and EllesmereUI.VisWantsMouseover(EQT.DB(), "visibility")
     end)
-    if EllesmereUI.RegAccent then
-        EllesmereUI.RegAccent({ type = "callback", fn = EQT.RestyleAll })
-    end
+    EllesmereUI.RegAccent({ type = "callback", fn = EQT.RestyleAll })
 
     EllesmereUI:RegisterUnlockElements({ EllesmereUI.MakeUnlockElement({
         key      = "EQT_Tracker",
@@ -1203,6 +1292,8 @@ function EQT.InitCustom()
         order    = 560,
         getFrame = function() return frame end,
         isHidden = function() return not Cfg("enabled") end,
+        -- One spot for every spec, like Blizzard's tracker under this key.
+        noSpecLayout = true,
         getSize  = function() return frame:GetWidth(), frame:GetHeight() end,
         setWidth = function(_, w)
             EQT.Set("customWidth", math.max(150, math.floor(w + 0.5)))

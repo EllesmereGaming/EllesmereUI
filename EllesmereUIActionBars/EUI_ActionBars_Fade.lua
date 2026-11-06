@@ -61,23 +61,27 @@ local function BarAlphaFrame(key, info)
 end
 
 -------------------------------------------------------------------------------
---  Advanced Fade: an optional per-bar alpha layer. A bar whose
---  advancedFadeEnabled is not true never reaches it: Visibility, Bar Opacity
---  and the mouseover fade stay that bar's only alpha writers. On a bar that
---  has it on, the layer runs after those writers and only moves the alpha
---  between the resting value and the condition value; Visibility still
---  decides whether the bar shows at all.
+--  Advanced Fade: an optional per-bar alpha layer, on while at least one of the
+--  bar's conditions (advancedFadeConditions) is checked; none checked, the
+--  default, is off. A bar with none never reaches it: Visibility, Bar Opacity
+--  and the mouseover fade stay that bar's only alpha writers. On a bar with
+--  one, the layer runs after those writers and only moves the alpha between
+--  the resting value and Advanced Fade Opacity (fadeMaxAlpha); Visibility
+--  still decides whether the bar shows at all.
 -------------------------------------------------------------------------------
+-- WoW Forever has no skyriding: its options leave the condition out, so a
+-- profile from retail that carries it is not on for it there.
+local FLYING_COUNTS = not EllesmereUI.IS_FOREVER
 function EAB_VTABLE.Hover.AdvancedFadeEnabled(s)
-    return s and s.advancedFadeEnabled == true
-end
-
-function EAB_VTABLE.Hover.HasCustomFade(s)
-    if not EAB_VTABLE.Hover.AdvancedFadeEnabled(s) then return false end
-    local c = s.fadeConditions
+    local c = s and s.advancedFadeConditions
     return type(c) == "table" and (c.combat or c.party or c.raid or c.instance
-        or c.mounted or c.flying or c.target or c.enemy_target or c.mouseover) and true or false
+        or c.mounted or (FLYING_COUNTS and c.flying) or c.target or c.enemy_target
+        or c.mouseover) and true or false
 end
+-- The hooks' gate asks the same question.
+EAB_VTABLE.Hover.HasCustomFade = EAB_VTABLE.Hover.AdvancedFadeEnabled
+-- For the options page (Bar Opacity repaints the layer of a bar that has it on).
+EAB.AdvancedFadeOn = EAB_VTABLE.Hover.AdvancedFadeEnabled
 
 function EAB_VTABLE.Hover.AdvancedFadeHovered(state)
     return state and (state.isHovered == true or state.fadeDir == "in") or false
@@ -88,7 +92,7 @@ end
 -- exactly as the same lane does on the Visibility row.
 function EAB_VTABLE.Hover.CustomFadeConditionMet(barKey, s)
     if not EAB_VTABLE.Hover.AdvancedFadeEnabled(s) then return false end
-    local c = s.fadeConditions
+    local c = s.advancedFadeConditions
     if type(c) ~= "table" then return false end
 
     if c.mouseover and EAB_VTABLE.Hover.AdvancedFadeHovered(hoverStates[barKey]) then return true end
@@ -114,9 +118,6 @@ end
 function EAB_VTABLE.Hover.RefreshCustomFadeBar(barKey, animate, force)
     local s = EAB_VTABLE.Hover.GetSettings(barKey)
     if not EAB_VTABLE.Hover.AdvancedFadeEnabled(s) then return false end
-
-    local enabled = EAB_VTABLE.Hover.HasCustomFade(s)
-    if not enabled and not force then return false end
 
     -- Temporary surfacing modes remain authoritative over alpha rules.
     local spellbookForced = (_gridState._sbNeverForced and _gridState._sbNeverForced[barKey])
@@ -156,7 +157,7 @@ function EAB_VTABLE.Hover.RefreshCustomFadeBar(barKey, animate, force)
     end
 
     local target = base
-    if enabled and EAB_VTABLE.Hover.CustomFadeConditionMet(barKey, s) then
+    if EAB_VTABLE.Hover.CustomFadeConditionMet(barKey, s) then
         target = s.fadeMaxAlpha
         if target == nil then target = 1 end
     end
@@ -169,7 +170,7 @@ function EAB_VTABLE.Hover.RefreshCustomFadeBar(barKey, animate, force)
     local current = _fadeAlpha[frame] or 1
     if current == target then return true end
     StopFade(frame, current)
-    if animate and enabled and abs(current - target) >= 0.01 then
+    if animate and abs(current - target) >= 0.01 then
         local duration = hoverHidden and (s.mouseoverSpeed or 0.15)
             or ((target > current) and (s.fadeInSpeed or 0.15) or (s.fadeOutSpeed or 0.15))
         if duration < 0.01 then duration = 0.01 end
@@ -215,17 +216,17 @@ function EAB:RefreshAllCustomFade(animate, force)
     if not any and not force then return end
     for _, info in ipairs(ALL_BARS) do
         local s = self.db.profile.bars[info.key]
-        -- force means restore/re-evaluate every ENABLED Advanced Fade bar (including
-        -- one with an empty condition set), never a disabled/native bar.
-        if s and s.advancedFadeEnabled == true and (force or EAB_VTABLE.Hover.HasCustomFade(s)) then
+        -- Only bars with a condition checked; force repaints even a bar whose
+        -- last target still stands, never a native bar.
+        if EAB_VTABLE.Hover.AdvancedFadeEnabled(s) then
             EAB_VTABLE.Hover.RefreshCustomFadeBar(info.key, animate, force and true or false)
         end
     end
 end
 
--- The one-time handoff when a bar's toggle goes off: stops an Advanced Fade
--- still in flight and paints the alpha the mouseover fade would show this
--- instant. No saved Visibility or Opacity setting is touched.
+-- The one-time handoff when a bar is left with no condition checked: stops an
+-- Advanced Fade still in flight and paints the alpha the mouseover fade would
+-- show this instant. No saved Visibility or Opacity setting is touched.
 function EAB_VTABLE.Hover.ReleaseAdvancedFadeBar(barKey)
     local s = EAB_VTABLE.Hover.GetSettings(barKey)
     if not s then return end
@@ -254,18 +255,19 @@ function EAB_VTABLE.Hover.ReleaseAdvancedFadeBar(barKey)
     if barKey == "MainBar" then SyncPagingAlpha(target) end
 end
 
--- A toggle change rebuilds no Visibility driver and writes no other setting:
--- on arms the layer's hooks, off runs the one-time alpha handoff above.
+-- A change to a bar's conditions (or a copy of them) rebuilds no Visibility
+-- driver and writes no other setting: a first condition arms the layer's
+-- hooks, a bar left with none runs the one-time alpha handoff above.
 function EAB:RefreshAdvancedFadeEnabled(changed)
     if type(changed) == "string" then
         local s = self.db.profile.bars[changed]
-        if s and s.advancedFadeEnabled ~= true then
+        if s and not EAB_VTABLE.Hover.AdvancedFadeEnabled(s) then
             EAB_VTABLE.Hover.ReleaseAdvancedFadeBar(changed)
         end
     elseif type(changed) == "table" then
         for _, barKey in ipairs(changed) do
             local s = self.db.profile.bars[barKey]
-            if s and s.advancedFadeEnabled ~= true then
+            if s and not EAB_VTABLE.Hover.AdvancedFadeEnabled(s) then
                 EAB_VTABLE.Hover.ReleaseAdvancedFadeBar(barKey)
             end
         end
@@ -274,8 +276,8 @@ function EAB:RefreshAdvancedFadeEnabled(changed)
     self:RefreshCustomFadeGate()
 
     -- While a bar still has a condition, the mouseover refresh runs and its
-    -- post-hook layers the Advanced Fade onto the enabled bars; with every
-    -- toggle off the handoff above was all there was to do.
+    -- post-hook layers the Advanced Fade onto those bars; with none left
+    -- anywhere the handoff above was all there was to do.
     if self._anyCustomFade then
         self:RefreshMouseover()
     end
@@ -559,9 +561,9 @@ function EAB:RefreshMouseover(onlyHoverGated)
     end
 end
 
--- The Advanced Fade hooks are installed once, the first time a bar with the
--- layer on has a Fade Condition; a session whose bars never pick one runs the
--- alpha functions above with no hook on them at all.
+-- The Advanced Fade hooks are installed once, the first time a bar has a
+-- condition checked; a session whose bars never pick one runs the alpha
+-- functions above with no hook on them at all.
 function EAB:EnsureAdvancedFadeHooks()
     if self._advancedFadeHooksInstalled then return end
     self._advancedFadeHooksInstalled = true

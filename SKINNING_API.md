@@ -69,12 +69,22 @@ changes the user makes apply to your frames live where possible.
 
 ## Reference
 
-`S.apiVersion` is `3`. The API only ever grows; existing functions and their
+`S.apiVersion` is `4`. The API only ever grows; existing functions and their
 signatures will not change. Version 2 added `S.SetTabSelection`; check
 `S.apiVersion >= 2` (or `S.SetTabSelection`) before calling it, so your skin
 still works for players on an older EllesmereUI. Version 3 added the
 `S.EditBox` options; an older EllesmereUI ignores them (the box keeps its
-border and gets no padding), so they need no check.
+border and gets no padding), so they need no check. Version 4 added
+`S.ItemButton`; check `S.ItemButton` before calling it and fall back to
+`S.SquareIcon` on an older EllesmereUI:
+
+```lua
+if S.ItemButton then
+    S.ItemButton(button)
+else
+    S.SquareIcon(button.icon, button, true)
+end
+```
 
 ### Containers
 
@@ -101,7 +111,8 @@ border and gets no padding), so they need no check.
 | `S.SetTabSelection(tab, selected)` | Overrides which of your `S.Tab` tabs looks selected, for tabs your addon switches itself: `true` / `false` show it selected or not, `nil` returns to the tab's own selection. Visual only: the tab's real selection state is never touched. (apiVersion 2) |
 | `S.CloseButton(button)` | House close (X) glyph. |
 | `S.PageButton(button, "<" or ">")` | House prev/next page arrows. |
-| `S.SquareIcon(iconTexture [, parentFrame])` | Squares an icon's baked bevel (texcoord crop). Pass the icon's parent frame to also draw a 1px black border around it. |
+| `S.SquareIcon(iconTexture [, parentFrame [, quality]])` | Squares an icon's baked bevel (texcoord crop). Pass the icon's parent frame to also draw a 1px border around it: black, or with `quality = true` the item's rarity color, read off the button's quality ring (`IconBorder`). On an item button's own icon the crop survives `SetItemButtonTexture`, and the rounded corner mask WoW Forever's item buttons carry is removed so the icon can be squared; any other masked icon is left as it is. For whole item slots prefer `S.ItemButton`. |
+| `S.ItemButton(button [, opts])` | House item slot for an item button (bag, bank and inventory slots; the `ItemButton` family): the icon squared on a dark slot, a 1px border in the item's rarity color (black for common items and empty slots) that follows `SetItemButtonQuality`, and a flat hover. Only the slot frame art and the round quality ring are faded; the count, the cooldown and every overlay (search, context, profession quality, quest, junk, upgrade, new item glow) stay as they are. The icon stays square through `SetItemButtonTexture` on every client. `opts.icon` names the icon texture when it is not the button's `Icon`, `icon` or `<name>IconTexture`. Call it once per button; a later call repaints the border, for a button whose quality ring you color yourself instead of through `SetItemButtonQuality`. (apiVersion 4) |
 | `S.SortHeaderBar(list)` | Flattens a ScrollBox column-header bar (auction-house style lists). |
 
 ### Text and bars

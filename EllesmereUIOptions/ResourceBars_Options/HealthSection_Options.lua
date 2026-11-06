@@ -164,38 +164,6 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         );  y = y - h
         if not EllesmereUI._prebuilding then
             local rgn = absorbRow._leftRegion
-            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
-                rgn, absorbRow:GetFrameLevel() + 3,
-                function()
-                    local c = cfg(); local col = c and c[k.color]
-                    if col then return col.r or k.r, col.g or k.g, col.b or k.b, 1 end
-                    return k.r, k.g, k.b, 1
-                end,
-                function(r, g, b)
-                    local c = cfg(); if not c then return end
-                    c[k.color] = { r = r, g = g, b = b }; RefreshHealth()
-                end, false, 20)
-            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = swatch
-            EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
-            -- Blocked while the style is None, and for the outlined stripes, which carry their own colours.
-            local swBlock = CreateFrame("Frame", nil, swatch)
-            swBlock:SetAllPoints()
-            swBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
-            swBlock:EnableMouse(true)
-            swBlock:SetScript("OnEnter", function()
-                local tip = styleOff() and EllesmereUI.DisabledTooltip(styleText) or "This style uses its own colors"
-                EllesmereUI.ShowWidgetTooltip(swatch, tip)
-            end)
-            swBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function UpdateSwatchDis()
-                local st = styleOf()
-                local dis = st == "none" or st == "largeOutlinedStripes" or st == "largeOutlinedStripesR"
-                swatch:SetAlpha(dis and 0.3 or 1)
-                if dis then swBlock:Show() else swBlock:Hide() end
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateSwatchDis)
-            UpdateSwatchDis()
             do
                 local isHeal = k.key == "healAbsorb"
                 local edgeKey = isHeal and "healAbsorbEdgeMode" or "absorbEdgeMode"
@@ -289,6 +257,38 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                     end
                 end)
             end
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, absorbRow:GetFrameLevel() + 3,
+                function()
+                    local c = cfg(); local col = c and c[k.color]
+                    if col then return col.r or k.r, col.g or k.g, col.b or k.b, 1 end
+                    return k.r, k.g, k.b, 1
+                end,
+                function(r, g, b)
+                    local c = cfg(); if not c then return end
+                    c[k.color] = { r = r, g = g, b = b }; RefreshHealth()
+                end, false, 20)
+            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+            EllesmereUI.RegisterWidgetRefresh(function() updateSwatch() end)
+            -- Blocked while the style is None, and for the outlined stripes, which carry their own colours.
+            local swBlock = CreateFrame("Frame", nil, swatch)
+            swBlock:SetAllPoints()
+            swBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            swBlock:EnableMouse(true)
+            swBlock:SetScript("OnEnter", function()
+                local tip = styleOff() and EllesmereUI.DisabledTooltip(styleText) or "This style uses its own colors"
+                EllesmereUI.ShowWidgetTooltip(swatch, tip)
+            end)
+            swBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdateSwatchDis()
+                local st = styleOf()
+                local dis = st == "none" or st == "largeOutlinedStripes" or st == "largeOutlinedStripesR"
+                swatch:SetAlpha(dis and 0.3 or 1)
+                if dis then swBlock:Show() else swBlock:Hide() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateSwatchDis)
+            UpdateSwatchDis()
         end
     end
 
@@ -431,21 +431,6 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         if not EllesmereUI._prebuilding and not ns.ERB_ClassicBorderRow() then
             local rgn = hpBsRow._rightRegion
             local ctrl = rgn._control
-            local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
-                rgn, hpBsRow:GetFrameLevel() + 3,
-                function()
-                    local c = cfg()
-                    return (c and c.borderR or 0), (c and c.borderG or 0),
-                           (c and c.borderB or 0), (c and c.borderA or 1)
-                end,
-                function(r, g, b, a)
-                    local c = cfg(); if not c then return end
-                    c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
-                    SmoothRefresh(); EllesmereUI:RefreshPage()
-                end,
-                true, 20)
-            PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            rgn._lastInline = borderSwatch  -- the Corner Radius cog chains left of the swatch
             -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
             -- border size control. The stock styles keep the bars square.
             if not EllesmereUI._prebuilding then
@@ -469,6 +454,21 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                        function(v) local c = cfg(); if not c then return end; c.cornerMask = v; RebuildHealth() end),
                 })
             end
+            local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, hpBsRow:GetFrameLevel() + 3,
+                function()
+                    local c = cfg()
+                    return (c and c.borderR or 0), (c and c.borderG or 0),
+                           (c and c.borderB or 0), (c and c.borderA or 1)
+                end,
+                function(r, g, b, a)
+                    local c = cfg(); if not c then return end
+                    c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
+                    SmoothRefresh(); EllesmereUI:RefreshPage()
+                end,
+                true, 20)
+            PP.Point(borderSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+            rgn._lastInline = borderSwatch  -- left of the Corner Radius cog
             EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
             local swBlock = CreateFrame("Frame", nil, borderSwatch)
             swBlock:SetAllPoints()
@@ -485,7 +485,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
         end
         if not EllesmereUI._prebuilding then
             local rgn = hpBsRow._leftRegion
-            local cogBtn = EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+            local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
                 title = "Border Options",
                 rows = {
                     { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
@@ -616,6 +616,32 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
               c.fillOpacity = v; RebuildHealth()
           end }
     );  y = y - h
+    -- Fill Color inline cog: gradient settings
+    if not EllesmereUI._prebuilding then
+        local rgn = healthBorderRow._rightRegion
+        EllesmereUI.BuildInlineCog(rgn, {
+            disabled = function() local c = cfg(); return c and not c.enabled end,
+            disabledTooltip = "Health Bar",
+            title = "Fill Settings",
+            rows = {
+                { type = "toggle", label = "Enable Gradient",
+                  get = function() local c = cfg(); return c and c.gradientEnabled end,
+                  set = function(v)
+                      local c = cfg(); if not c then return end
+                      c.gradientEnabled = v; RebuildHealth()
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type = "dropdown", label = "Gradient Direction",
+                  values = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" },
+                  order = { "HORIZONTAL", "VERTICAL" },
+                  get = function() local c = cfg(); return c and c.gradientDir or "HORIZONTAL" end,
+                  set = function(v)
+                      local c = cfg(); if not c then return end
+                      c.gradientDir = v; RebuildHealth()
+                  end },
+            },
+        })
+    end
     -- Fill Color inline swatches: gradient end / custom / class
     if not EllesmereUI._prebuilding then
     EllesmereUI.BuildInlineSwatches(healthBorderRow._rightRegion, {
@@ -709,32 +735,6 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
                 return (p.secondary.barAlpha or 1) == v and (p.primary.barAlpha or 1) == v
             end,
             flashTargets = function() return { ctx.syncRows.healthOpacity, ctx.syncRows.classOpacity, ctx.syncRows.powerOpacity } end,
-        })
-    end
-    -- Fill Color inline cog: gradient settings
-    if not EllesmereUI._prebuilding then
-        local rgn = healthBorderRow._rightRegion
-        EllesmereUI.BuildInlineCog(rgn, {
-            disabled = function() local c = cfg(); return c and not c.enabled end,
-            disabledTooltip = "Health Bar",
-            title = "Fill Settings",
-            rows = {
-                { type = "toggle", label = "Enable Gradient",
-                  get = function() local c = cfg(); return c and c.gradientEnabled end,
-                  set = function(v)
-                      local c = cfg(); if not c then return end
-                      c.gradientEnabled = v; RebuildHealth()
-                      EllesmereUI:RefreshPage()
-                  end },
-                { type = "dropdown", label = "Gradient Direction",
-                  values = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" },
-                  order = { "HORIZONTAL", "VERTICAL" },
-                  get = function() local c = cfg(); return c and c.gradientDir or "HORIZONTAL" end,
-                  set = function(v)
-                      local c = cfg(); if not c then return end
-                      c.gradientDir = v; RebuildHealth()
-                  end },
-            },
         })
     end
 
@@ -849,7 +849,7 @@ function ns.ERB_BuildHealthSection(parent, y, ctx)
     -- Health Text inline cog: anchor + x/y offsets
     if not EllesmereUI._prebuilding then
         local rgn = healthTextSizeRow._leftRegion
-        local cogBtn = EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+        local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local c = cfg(); return c and not c.enabled end,
             disabledTooltip = "Health Bar",
             title = "Health Text",

@@ -398,7 +398,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
     -- Inline cog for border shift / layering (left region)
     if not EllesmereUI._prebuilding then
         local rgn = sharedScaleBorderRow._leftRegion
-        local cogBtn = EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+        local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
             title = "Border Options",
             rows = {
                 { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
@@ -662,21 +662,6 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
         local ctrl = leftRgn._control
         local PP = EllesmereUI.PP
 
-        -- Border color (with alpha)
-        local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
-            leftRgn, sharedScaleBorderRow:GetFrameLevel() + 3,
-            function()
-                local c = SGet("borderColor") or { r = 0, g = 0, b = 0 }
-                return c.r, c.g, c.b, SVal("borderAlpha", 1)
-            end,
-            function(r, g, b, a)
-                UNIT_DB_MAP[optState.selectedUnit]().borderColor = { r=r, g=g, b=b }
-                UNIT_DB_MAP[optState.selectedUnit]().borderAlpha = a
-                ReloadAndUpdate()
-            end,
-            true, 20)
-        PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-        leftRgn._lastInline = borderSwatch  -- the Corner Radius cog chains left of the swatch
         -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
         -- border size control.
         if not EllesmereUI._prebuilding then
@@ -695,6 +680,22 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                     "Detached Power Bar"),
             })
         end
+
+        -- Border color (with alpha), left of the Corner Radius cog
+        local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
+            leftRgn, sharedScaleBorderRow:GetFrameLevel() + 3,
+            function()
+                local c = SGet("borderColor") or { r = 0, g = 0, b = 0 }
+                return c.r, c.g, c.b, SVal("borderAlpha", 1)
+            end,
+            function(r, g, b, a)
+                UNIT_DB_MAP[optState.selectedUnit]().borderColor = { r=r, g=g, b=b }
+                UNIT_DB_MAP[optState.selectedUnit]().borderAlpha = a
+                ReloadAndUpdate()
+            end,
+            true, 20)
+        PP.Point(borderSwatch, "RIGHT", leftRgn._lastInline or ctrl, "LEFT", -8, 0)
+        leftRgn._lastInline = borderSwatch
         borderSwatch:SetScript("OnEnter", function()
             EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border")
         end)
@@ -1566,7 +1567,6 @@ function ns.UFO_BuildPortraitSection(parent, y, ctx)
     if not EllesmereUI._prebuilding then
         local posRgn = sharedSizePosRow._rightRegion
         EllesmereUI.BuildInlineCog(posRgn, {
-            icon = EllesmereUI.DIRECTIONS_ICON,
             disabled = function() return SVal("portraitStyle", "attached") ~= "detached" end,
             disabledTooltip = "This option requires Portrait Mode to be set to Detached.",
             title = "Portrait Position Offsets",
@@ -2054,7 +2054,6 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
     if not EllesmereUI._prebuilding then
         local posRgn = sharedBtbToggleRow._rightRegion
         EllesmereUI.BuildInlineCog(posRgn, {
-            icon = EllesmereUI.DIRECTIONS_ICON,
             disabled = function() local pos = SVal("btbPosition", "bottom"); return not SVal("bottomTextBar", false) or (pos ~= "detached_top" and pos ~= "detached_bottom") end,
             disabledTooltip = function() return not SVal("bottomTextBar", false) and "Text Bar" or "This option requires a detached position to be active." end,
             title = "Detached Position Offsets",
@@ -2223,6 +2222,64 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
         ns.UFO_AddCustomFormatAccessor(sharedBtbTextRow._rightRegion, "BTB Right Text", "btbRight",
             SVal("btbRightContent", "none"), ctx.SDB, apply)
     end
+    -- Cogwheel on BTB Left Text
+    if not EllesmereUI._prebuilding then
+        local btbLRgn = sharedBtbTextRow._leftRegion
+        EllesmereUI.BuildInlineCog(btbLRgn, {
+            disabled = function() return not SVal("bottomTextBar", false) or SVal("btbLeftContent", "none") == "none" end,
+            disabledTooltip = function() return not SVal("bottomTextBar", false) and "Text Bar" or "This option requires a text selection other than none." end,
+            title = "BTB Left Text Settings",
+            rows = ns.UF_NameFormatRows("btbLeft", "none", SVal, SSet, {
+                { type="slider", label="Size", min=8, max=100, step=1,
+                  get=function() return SVal("btbLeftSize", 11) end,
+                  set=function(v) SSet("btbLeftSize", v); UpdatePreview() end },
+                { type="slider", label="X Offset", min=-100, max=100, step=1,
+                  get=function() return SVal("btbLeftX", 0) end,
+                  set=function(v) SSet("btbLeftX", v); UpdatePreview() end },
+                { type="slider", label="Y Offset", min=-60, max=60, step=1,
+                  get=function() return SVal("btbLeftY", 0) end,
+                  set=function(v) SSet("btbLeftY", v); UpdatePreview() end },
+                { type="slider", label="Width %", min=20, max=200, step=5,
+                  get=function() return SVal("btbLeftWidthPct", 100) end,
+                  set=function(v) SSet("btbLeftWidthPct", v); UpdatePreview() end },
+                { type="multiswatch", label="Indicator Color",
+                  disabled=function() return SVal("btbLeftContent","none") ~= "nametotarget" end,
+                  disabledTooltip="Only applies when Name > Target is selected.",
+                  swatches = {
+                    { tooltip = "Custom Colored", hasAlpha = false,
+                      getValue = function() local c = SVal("btbLeftTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                      setValue = function(r, g, b) SSet("btbLeftTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                      onClick = function(self)
+                          if SVal("btbLeftTargetSepClassColor", false) then
+                              SSet("btbLeftTargetSepClassColor", false); UpdatePreview()
+                              return
+                          end
+                          if self._eabOrigClick then self._eabOrigClick(self) end
+                      end,
+                      refreshAlpha = function() return SVal("btbLeftTargetSepClassColor", false) and 0.3 or 1 end },
+                    { tooltip = "Class Colored", hasAlpha = false,
+                      getValue = function()
+                          local _, ct = UnitClass("player")
+                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                          if cc then return cc.r, cc.g, cc.b end
+                          return 1, 1, 1
+                      end,
+                      setValue = function() end,
+                      onClick = function() SSet("btbLeftTargetSepClassColor", true); UpdatePreview() end,
+                      refreshAlpha = function() return SVal("btbLeftTargetSepClassColor", false) and 1 or 0.3 end },
+                  } },
+                { type="input", label="Separator", inputWidth=60,
+                  get=function() return SVal("btbLeftTargetSep", ">") end,
+                  set=function(v)
+                      v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                      if v == "" then v = ">" end
+                      SSet("btbLeftTargetSep", v); UpdatePreview()
+                  end,
+                  disabled=function() return SVal("btbLeftContent","none") ~= "nametotarget" end,
+                  disabledTooltip="Only applies when Name > Target is selected." },
+                                }),
+        })
+    end
     -- Inline color swatches on BTB Left Text: Custom + Class (CDM Border Size
     -- pattern). Power Color stays in the cog; the three modes are mutually exclusive.
     if not EllesmereUI._prebuilding then
@@ -2298,41 +2355,41 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
         RegisterWidgetRefresh(function() blUpdateSwatch(); blUpdateClassSwatch(); blUpdatePowerSwatch(); UpdateBlSwatches() end)
         UpdateBlSwatches()
     end
-    -- Cogwheel on BTB Left Text
+    -- Cogwheel on BTB Right Text
     if not EllesmereUI._prebuilding then
-        local btbLRgn = sharedBtbTextRow._leftRegion
-        EllesmereUI.BuildInlineCog(btbLRgn, {
-            disabled = function() return not SVal("bottomTextBar", false) or SVal("btbLeftContent", "none") == "none" end,
+        local btbRRgn = sharedBtbTextRow._rightRegion
+        EllesmereUI.BuildInlineCog(btbRRgn, {
+            disabled = function() return not SVal("bottomTextBar", false) or SVal("btbRightContent", "none") == "none" end,
             disabledTooltip = function() return not SVal("bottomTextBar", false) and "Text Bar" or "This option requires a text selection other than none." end,
-            title = "BTB Left Text Settings",
-            rows = ns.UF_NameFormatRows("btbLeft", "none", SVal, SSet, {
+            title = "BTB Right Text Settings",
+            rows = ns.UF_NameFormatRows("btbRight", "none", SVal, SSet, {
                 { type="slider", label="Size", min=8, max=100, step=1,
-                  get=function() return SVal("btbLeftSize", 11) end,
-                  set=function(v) SSet("btbLeftSize", v); UpdatePreview() end },
+                  get=function() return SVal("btbRightSize", 11) end,
+                  set=function(v) SSet("btbRightSize", v); UpdatePreview() end },
                 { type="slider", label="X Offset", min=-100, max=100, step=1,
-                  get=function() return SVal("btbLeftX", 0) end,
-                  set=function(v) SSet("btbLeftX", v); UpdatePreview() end },
+                  get=function() return SVal("btbRightX", 0) end,
+                  set=function(v) SSet("btbRightX", v); UpdatePreview() end },
                 { type="slider", label="Y Offset", min=-60, max=60, step=1,
-                  get=function() return SVal("btbLeftY", 0) end,
-                  set=function(v) SSet("btbLeftY", v); UpdatePreview() end },
+                  get=function() return SVal("btbRightY", 0) end,
+                  set=function(v) SSet("btbRightY", v); UpdatePreview() end },
                 { type="slider", label="Width %", min=20, max=200, step=5,
-                  get=function() return SVal("btbLeftWidthPct", 100) end,
-                  set=function(v) SSet("btbLeftWidthPct", v); UpdatePreview() end },
+                  get=function() return SVal("btbRightWidthPct", 100) end,
+                  set=function(v) SSet("btbRightWidthPct", v); UpdatePreview() end },
                 { type="multiswatch", label="Indicator Color",
-                  disabled=function() return SVal("btbLeftContent","none") ~= "nametotarget" end,
+                  disabled=function() return SVal("btbRightContent","none") ~= "nametotarget" end,
                   disabledTooltip="Only applies when Name > Target is selected.",
                   swatches = {
                     { tooltip = "Custom Colored", hasAlpha = false,
-                      getValue = function() local c = SVal("btbLeftTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
-                      setValue = function(r, g, b) SSet("btbLeftTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                      getValue = function() local c = SVal("btbRightTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                      setValue = function(r, g, b) SSet("btbRightTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
                       onClick = function(self)
-                          if SVal("btbLeftTargetSepClassColor", false) then
-                              SSet("btbLeftTargetSepClassColor", false); UpdatePreview()
+                          if SVal("btbRightTargetSepClassColor", false) then
+                              SSet("btbRightTargetSepClassColor", false); UpdatePreview()
                               return
                           end
                           if self._eabOrigClick then self._eabOrigClick(self) end
                       end,
-                      refreshAlpha = function() return SVal("btbLeftTargetSepClassColor", false) and 0.3 or 1 end },
+                      refreshAlpha = function() return SVal("btbRightTargetSepClassColor", false) and 0.3 or 1 end },
                     { tooltip = "Class Colored", hasAlpha = false,
                       getValue = function()
                           local _, ct = UnitClass("player")
@@ -2341,17 +2398,17 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
                           return 1, 1, 1
                       end,
                       setValue = function() end,
-                      onClick = function() SSet("btbLeftTargetSepClassColor", true); UpdatePreview() end,
-                      refreshAlpha = function() return SVal("btbLeftTargetSepClassColor", false) and 1 or 0.3 end },
+                      onClick = function() SSet("btbRightTargetSepClassColor", true); UpdatePreview() end,
+                      refreshAlpha = function() return SVal("btbRightTargetSepClassColor", false) and 1 or 0.3 end },
                   } },
                 { type="input", label="Separator", inputWidth=60,
-                  get=function() return SVal("btbLeftTargetSep", ">") end,
+                  get=function() return SVal("btbRightTargetSep", ">") end,
                   set=function(v)
                       v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
                       if v == "" then v = ">" end
-                      SSet("btbLeftTargetSep", v); UpdatePreview()
+                      SSet("btbRightTargetSep", v); UpdatePreview()
                   end,
-                  disabled=function() return SVal("btbLeftContent","none") ~= "nametotarget" end,
+                  disabled=function() return SVal("btbRightContent","none") ~= "nametotarget" end,
                   disabledTooltip="Only applies when Name > Target is selected." },
                                 }),
         })
@@ -2430,64 +2487,6 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
         end
         RegisterWidgetRefresh(function() brUpdateSwatch(); brUpdateClassSwatch(); brUpdatePowerSwatch(); UpdateBrSwatches() end)
         UpdateBrSwatches()
-    end
-    -- Cogwheel on BTB Right Text
-    if not EllesmereUI._prebuilding then
-        local btbRRgn = sharedBtbTextRow._rightRegion
-        EllesmereUI.BuildInlineCog(btbRRgn, {
-            disabled = function() return not SVal("bottomTextBar", false) or SVal("btbRightContent", "none") == "none" end,
-            disabledTooltip = function() return not SVal("bottomTextBar", false) and "Text Bar" or "This option requires a text selection other than none." end,
-            title = "BTB Right Text Settings",
-            rows = ns.UF_NameFormatRows("btbRight", "none", SVal, SSet, {
-                { type="slider", label="Size", min=8, max=100, step=1,
-                  get=function() return SVal("btbRightSize", 11) end,
-                  set=function(v) SSet("btbRightSize", v); UpdatePreview() end },
-                { type="slider", label="X Offset", min=-100, max=100, step=1,
-                  get=function() return SVal("btbRightX", 0) end,
-                  set=function(v) SSet("btbRightX", v); UpdatePreview() end },
-                { type="slider", label="Y Offset", min=-60, max=60, step=1,
-                  get=function() return SVal("btbRightY", 0) end,
-                  set=function(v) SSet("btbRightY", v); UpdatePreview() end },
-                { type="slider", label="Width %", min=20, max=200, step=5,
-                  get=function() return SVal("btbRightWidthPct", 100) end,
-                  set=function(v) SSet("btbRightWidthPct", v); UpdatePreview() end },
-                { type="multiswatch", label="Indicator Color",
-                  disabled=function() return SVal("btbRightContent","none") ~= "nametotarget" end,
-                  disabledTooltip="Only applies when Name > Target is selected.",
-                  swatches = {
-                    { tooltip = "Custom Colored", hasAlpha = false,
-                      getValue = function() local c = SVal("btbRightTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
-                      setValue = function(r, g, b) SSet("btbRightTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
-                      onClick = function(self)
-                          if SVal("btbRightTargetSepClassColor", false) then
-                              SSet("btbRightTargetSepClassColor", false); UpdatePreview()
-                              return
-                          end
-                          if self._eabOrigClick then self._eabOrigClick(self) end
-                      end,
-                      refreshAlpha = function() return SVal("btbRightTargetSepClassColor", false) and 0.3 or 1 end },
-                    { tooltip = "Class Colored", hasAlpha = false,
-                      getValue = function()
-                          local _, ct = UnitClass("player")
-                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
-                          if cc then return cc.r, cc.g, cc.b end
-                          return 1, 1, 1
-                      end,
-                      setValue = function() end,
-                      onClick = function() SSet("btbRightTargetSepClassColor", true); UpdatePreview() end,
-                      refreshAlpha = function() return SVal("btbRightTargetSepClassColor", false) and 1 or 0.3 end },
-                  } },
-                { type="input", label="Separator", inputWidth=60,
-                  get=function() return SVal("btbRightTargetSep", ">") end,
-                  set=function(v)
-                      v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                      if v == "" then v = ">" end
-                      SSet("btbRightTargetSep", v); UpdatePreview()
-                  end,
-                  disabled=function() return SVal("btbRightContent","none") ~= "nametotarget" end,
-                  disabledTooltip="Only applies when Name > Target is selected." },
-                                }),
-        })
     end
     -- Sync icons: BTB Left Text (left) and BTB Right Text (right)
     if not EllesmereUI._prebuilding then
@@ -2593,6 +2592,64 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
         ns.UFO_AddCustomFormatAccessor(sharedBtbCenterRow._leftRegion, "BTB Center Text", "btbCenter",
             SVal("btbCenterContent", "none"), ctx.SDB, function() ReloadAndUpdate(); UpdatePreview() end)
     end
+    -- Cogwheel on BTB Center Text
+    if not EllesmereUI._prebuilding then
+        local btbCRgn = sharedBtbCenterRow._leftRegion
+        EllesmereUI.BuildInlineCog(btbCRgn, {
+            disabled = function() return not SVal("bottomTextBar", false) or SVal("btbCenterContent", "none") == "none" end,
+            disabledTooltip = function() return not SVal("bottomTextBar", false) and "Text Bar" or "This option requires a text selection other than none." end,
+            title = "BTB Center Text Settings",
+            rows = ns.UF_NameFormatRows("btbCenter", "none", SVal, SSet, {
+                { type="slider", label="Size", min=8, max=100, step=1,
+                  get=function() return SVal("btbCenterSize", 11) end,
+                  set=function(v) SSet("btbCenterSize", v); UpdatePreview() end },
+                { type="slider", label="X Offset", min=-100, max=100, step=1,
+                  get=function() return SVal("btbCenterX", 0) end,
+                  set=function(v) SSet("btbCenterX", v); UpdatePreview() end },
+                { type="slider", label="Y Offset", min=-60, max=60, step=1,
+                  get=function() return SVal("btbCenterY", 0) end,
+                  set=function(v) SSet("btbCenterY", v); UpdatePreview() end },
+                { type="slider", label="Width %", min=20, max=200, step=5,
+                  get=function() return SVal("btbCenterWidthPct", 100) end,
+                  set=function(v) SSet("btbCenterWidthPct", v); UpdatePreview() end },
+                { type="multiswatch", label="Indicator Color",
+                  disabled=function() return SVal("btbCenterContent","none") ~= "nametotarget" end,
+                  disabledTooltip="Only applies when Name > Target is selected.",
+                  swatches = {
+                    { tooltip = "Custom Colored", hasAlpha = false,
+                      getValue = function() local c = SVal("btbCenterTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
+                      setValue = function(r, g, b) SSet("btbCenterTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
+                      onClick = function(self)
+                          if SVal("btbCenterTargetSepClassColor", false) then
+                              SSet("btbCenterTargetSepClassColor", false); UpdatePreview()
+                              return
+                          end
+                          if self._eabOrigClick then self._eabOrigClick(self) end
+                      end,
+                      refreshAlpha = function() return SVal("btbCenterTargetSepClassColor", false) and 0.3 or 1 end },
+                    { tooltip = "Class Colored", hasAlpha = false,
+                      getValue = function()
+                          local _, ct = UnitClass("player")
+                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                          if cc then return cc.r, cc.g, cc.b end
+                          return 1, 1, 1
+                      end,
+                      setValue = function() end,
+                      onClick = function() SSet("btbCenterTargetSepClassColor", true); UpdatePreview() end,
+                      refreshAlpha = function() return SVal("btbCenterTargetSepClassColor", false) and 1 or 0.3 end },
+                  } },
+                { type="input", label="Separator", inputWidth=60,
+                  get=function() return SVal("btbCenterTargetSep", ">") end,
+                  set=function(v)
+                      v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                      if v == "" then v = ">" end
+                      SSet("btbCenterTargetSep", v); UpdatePreview()
+                  end,
+                  disabled=function() return SVal("btbCenterContent","none") ~= "nametotarget" end,
+                  disabledTooltip="Only applies when Name > Target is selected." },
+                                }),
+        })
+    end
     -- Inline color swatches on BTB Center Text: Custom + Class (Power Color stays in
     -- the cog; the three modes are mutually exclusive).
     if not EllesmereUI._prebuilding then
@@ -2667,64 +2724,6 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
         end
         RegisterWidgetRefresh(function() bcUpdateSwatch(); bcUpdateClassSwatch(); bcUpdatePowerSwatch(); UpdateBcSwatches() end)
         UpdateBcSwatches()
-    end
-    -- Cogwheel on BTB Center Text
-    if not EllesmereUI._prebuilding then
-        local btbCRgn = sharedBtbCenterRow._leftRegion
-        EllesmereUI.BuildInlineCog(btbCRgn, {
-            disabled = function() return not SVal("bottomTextBar", false) or SVal("btbCenterContent", "none") == "none" end,
-            disabledTooltip = function() return not SVal("bottomTextBar", false) and "Text Bar" or "This option requires a text selection other than none." end,
-            title = "BTB Center Text Settings",
-            rows = ns.UF_NameFormatRows("btbCenter", "none", SVal, SSet, {
-                { type="slider", label="Size", min=8, max=100, step=1,
-                  get=function() return SVal("btbCenterSize", 11) end,
-                  set=function(v) SSet("btbCenterSize", v); UpdatePreview() end },
-                { type="slider", label="X Offset", min=-100, max=100, step=1,
-                  get=function() return SVal("btbCenterX", 0) end,
-                  set=function(v) SSet("btbCenterX", v); UpdatePreview() end },
-                { type="slider", label="Y Offset", min=-60, max=60, step=1,
-                  get=function() return SVal("btbCenterY", 0) end,
-                  set=function(v) SSet("btbCenterY", v); UpdatePreview() end },
-                { type="slider", label="Width %", min=20, max=200, step=5,
-                  get=function() return SVal("btbCenterWidthPct", 100) end,
-                  set=function(v) SSet("btbCenterWidthPct", v); UpdatePreview() end },
-                { type="multiswatch", label="Indicator Color",
-                  disabled=function() return SVal("btbCenterContent","none") ~= "nametotarget" end,
-                  disabledTooltip="Only applies when Name > Target is selected.",
-                  swatches = {
-                    { tooltip = "Custom Colored", hasAlpha = false,
-                      getValue = function() local c = SVal("btbCenterTargetSepColor", nil) if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end return 1, 1, 1 end,
-                      setValue = function(r, g, b) SSet("btbCenterTargetSepColor", { r=r, g=g, b=b }); UpdatePreview() end,
-                      onClick = function(self)
-                          if SVal("btbCenterTargetSepClassColor", false) then
-                              SSet("btbCenterTargetSepClassColor", false); UpdatePreview()
-                              return
-                          end
-                          if self._eabOrigClick then self._eabOrigClick(self) end
-                      end,
-                      refreshAlpha = function() return SVal("btbCenterTargetSepClassColor", false) and 0.3 or 1 end },
-                    { tooltip = "Class Colored", hasAlpha = false,
-                      getValue = function()
-                          local _, ct = UnitClass("player")
-                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
-                          if cc then return cc.r, cc.g, cc.b end
-                          return 1, 1, 1
-                      end,
-                      setValue = function() end,
-                      onClick = function() SSet("btbCenterTargetSepClassColor", true); UpdatePreview() end,
-                      refreshAlpha = function() return SVal("btbCenterTargetSepClassColor", false) and 1 or 0.3 end },
-                  } },
-                { type="input", label="Separator", inputWidth=60,
-                  get=function() return SVal("btbCenterTargetSep", ">") end,
-                  set=function(v)
-                      v = tostring(v or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", "")
-                      if v == "" then v = ">" end
-                      SSet("btbCenterTargetSep", v); UpdatePreview()
-                  end,
-                  disabled=function() return SVal("btbCenterContent","none") ~= "nametotarget" end,
-                  disabledTooltip="Only applies when Name > Target is selected." },
-                                }),
-        })
     end
     -- Cogwheel on Class Icon for size/location/x/y
     if not EllesmereUI._prebuilding then
@@ -2959,7 +2958,6 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
         EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         ciRgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshCombatEye()
             eyeTex:SetTexture(optState.showCombatIndicatorPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2978,40 +2976,6 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
             EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
-
-        -- Inline color swatch for custom color. Same order and spacing as
-        -- the Heal Absorb Style row above: eye, swatch, cog at -8 gaps,
-        -- with the swatch dimmed + click-blocked (never hidden, so the
-        -- inline chain keeps its spacing) when the color doesn't apply.
-        local combatSwatch = EllesmereUI.BuildColorSwatch(ciRgn, ciRgn:GetFrameLevel() + 5,
-            function()
-                local cc = SGetSupported("combatIndicatorCustomColor")
-                cc = cc or { r=1, g=1, b=1 }
-                return cc.r, cc.g, cc.b, 1
-            end,
-            function(r, g, b)
-                UNIT_DB_MAP[optState.selectedUnit]().combatIndicatorCustomColor = { r=r, g=g, b=b }
-                ReloadAndUpdate(); UpdatePreview()
-            end, false, 20)
-        combatSwatch:SetPoint("RIGHT", ciRgn._lastInline or ciRgn._control, "LEFT", -8, 0)
-        ciRgn._lastInline = combatSwatch
-        local combatSwatchBlock = CreateFrame("Frame", nil, combatSwatch)
-        combatSwatchBlock:SetAllPoints()
-        combatSwatchBlock:SetFrameLevel(combatSwatch:GetFrameLevel() + 10)
-        combatSwatchBlock:EnableMouse(true)
-        combatSwatchBlock:Hide()
-        local function UpdateSwatchVisibility()
-            local colorMode = SValSupported("combatIndicatorColor", "custom")
-            local style = SValSupported("combatIndicatorStyle", "class")
-            -- All custom combat icons (combat0..5) are shown as-is, so the custom-
-            -- color swatch doesn't apply to them.
-            local isRawIcon = style:find("^combat%d") and true or false
-            local usable = colorMode == "custom" and style ~= "none" and not isRawIcon
-            combatSwatch:SetAlpha(usable and 1 or 0.3)
-            if usable then combatSwatchBlock:Hide() else combatSwatchBlock:Show() end
-        end
-        UpdateSwatchVisibility()
-        RegisterWidgetRefresh(UpdateSwatchVisibility)
 
         -- Cog popup for combat indicator settings
         -- "healthbar" is the long-standing stored value for centered-on-health-bar,
@@ -3051,6 +3015,40 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
                   set=function(v) SSetSupported("combatIndicatorY", v); ReloadAndUpdate(); UpdatePreview() end },
             },
         })
+
+        -- Inline color swatch for custom color. Same order and spacing as
+        -- the Heal Absorb Style row above: eye, cog, swatch at -8 gaps,
+        -- with the swatch dimmed + click-blocked (never hidden, so the
+        -- inline chain keeps its spacing) when the color doesn't apply.
+        local combatSwatch = EllesmereUI.BuildColorSwatch(ciRgn, ciRgn:GetFrameLevel() + 5,
+            function()
+                local cc = SGetSupported("combatIndicatorCustomColor")
+                cc = cc or { r=1, g=1, b=1 }
+                return cc.r, cc.g, cc.b, 1
+            end,
+            function(r, g, b)
+                UNIT_DB_MAP[optState.selectedUnit]().combatIndicatorCustomColor = { r=r, g=g, b=b }
+                ReloadAndUpdate(); UpdatePreview()
+            end, false, 20)
+        combatSwatch:SetPoint("RIGHT", ciRgn._lastInline or ciRgn._control, "LEFT", -8, 0)
+        ciRgn._lastInline = combatSwatch
+        local combatSwatchBlock = CreateFrame("Frame", nil, combatSwatch)
+        combatSwatchBlock:SetAllPoints()
+        combatSwatchBlock:SetFrameLevel(combatSwatch:GetFrameLevel() + 10)
+        combatSwatchBlock:EnableMouse(true)
+        combatSwatchBlock:Hide()
+        local function UpdateSwatchVisibility()
+            local colorMode = SValSupported("combatIndicatorColor", "custom")
+            local style = SValSupported("combatIndicatorStyle", "class")
+            -- All custom combat icons (combat0..5) are shown as-is, so the custom-
+            -- color swatch doesn't apply to them.
+            local isRawIcon = style:find("^combat%d") and true or false
+            local usable = colorMode == "custom" and style ~= "none" and not isRawIcon
+            combatSwatch:SetAlpha(usable and 1 or 0.3)
+            if usable then combatSwatchBlock:Hide() else combatSwatchBlock:Show() end
+        end
+        UpdateSwatchVisibility()
+        RegisterWidgetRefresh(UpdateSwatchVisibility)
     end
     end -- _showAbsorbsCombat
 
@@ -3070,7 +3068,6 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
         EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         rgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshEye()
             eyeTex:SetTexture(eyes[key] and EllesmereUI.EYE_INVISIBLE_ICON or EllesmereUI.EYE_VISIBLE_ICON)
@@ -3112,7 +3109,7 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
         local rgn = sharedAddRow4._rightRegion
         local rmPosValues = { ["left"]="Left", ["center"]="Center", ["right"]="Right" }
         local rmPosOrder  = { "left", "center", "right" }
-        EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON, disabled = raidMarkerOff, disabledTooltip = "Raid Marker",
+        EllesmereUI.BuildInlineCog(rgn, { disabled = raidMarkerOff, disabledTooltip = "Raid Marker",
             title = "Raid Marker Settings",
             rows = {
                 { type="dropdown", label="Position", values=rmPosValues, order=rmPosOrder,
@@ -3470,6 +3467,22 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
         end
         ns._ufAddPvEye(factionRow._leftRegion, "faction", "faction indicator")
         parent._ufFactionRow = factionRow
+    end
+
+    -- Row 6: Targeting Sound Effects | blank (target only; one setting for the
+    -- profile). Blizzard's own target frame plays them itself, so the row greys
+    -- out while the Target frame is on Blizzard Default.
+    if optState.selectedUnit == "target" then
+        local soundRow
+        soundRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Targeting Sound Effects",
+              tooltip="Plays the game's sounds when you select or lose a target.",
+              disabled=function() return ns.GetUnitFrameSource("target") == "blizzard" end,
+              disabledTooltip="Blizzard's target frame plays these sounds itself.", rawTooltip=true,
+              getValue=function() return db.profile.targetSounds == true end,
+              setValue=function(v) db.profile.targetSounds = v; ns.UF_SyncTargetSounds() end },
+            EllesmereUI.BlankRowCfg())
+        y = y - h
     end
 
     return y, sharedAddHeader, sharedAddRow1, sharedAddRow4, sharedAddRow5

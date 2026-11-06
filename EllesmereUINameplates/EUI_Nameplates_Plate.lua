@@ -546,12 +546,17 @@ end
 -- content via the cache.
 -- Anchors one bar-slot font string. A bottom slot hangs under the health bar's
 -- corner and drops below the cast bar while one shows (AnchorBottomTexts
--- re-runs this on every cast show / hide).
+-- re-runs this on every cast show / hide). A top corner slot sits over the
+-- bar's corner at the Top text's height, above the class power pips while they
+-- show (AnchorTopCornerTexts re-runs this with the name's re-anchor).
 function NameplateFrame:PlaceSlotText(fs, slot, txOff, tyOff)
     fs:ClearAllPoints()
     if slot.bottom then
         local drop = (self.cast:IsShown() and self._castDrop) or 0
         PP.Point(fs, slot.anchor, self.health, slot.point, slot.xOff + txOff, drop - 2 + tyOff)
+    elseif slot.top then
+        PP.Point(fs, slot.anchor, self.health, slot.point, slot.xOff + txOff,
+            4 + GetNameYOffset() + GetClassPowerTopPush(self) + tyOff)
     elseif slot.anchor == "CENTER" then
         fs:SetPoint("CENTER", self.health, "CENTER", txOff, tyOff)
     else
@@ -571,6 +576,24 @@ function NameplateFrame:AnchorBottomTexts()
             local txOff = (p and p[slot.xKey]) or 0
             local tyOff = (p and p[slot.yKey]) or 0
             if key == "name" and si == 4 and self._nameRaidMarkerShown then
+                txOff = txOff + ((p and p.nameRaidMarkerSize) or defaults.nameRaidMarkerSize or 14) + 3
+            end
+            self:PlaceSlotText(fs, slot, txOff, tyOff)
+        end
+    end
+end
+-- The class power push changed (RefreshNamePosition): re-anchor whatever the top
+-- corner slots hold. Runs only while a top corner slot is in use (ns._npTopCornerUsed).
+function NameplateFrame:AnchorTopCornerTexts()
+    local T = ns._npTopCornerFS
+    for si = 6, 7 do
+        local slot = HP_BAR_SLOTS[si]
+        local key = T[si - 5]
+        local fs = key and self[key]
+        if fs then
+            local txOff = (p and p[slot.xKey]) or 0
+            local tyOff = (p and p[slot.yKey]) or 0
+            if key == "name" and si == 6 and self._nameRaidMarkerShown then
                 txOff = txOff + ((p and p.nameRaidMarkerSize) or defaults.nameRaidMarkerSize or 14) + 3
             end
             self:PlaceSlotText(fs, slot, txOff, tyOff)
@@ -702,14 +725,14 @@ function NameplateFrame:AddCustomText(ca, slotKey, slot)
         fs:SetJustifyH("CENTER")
     end
     fs:SetTextColor(sr, sg, sb, 1)
-    -- Width: the bottom slots never truncate. A text naming the unit ends where the
+    -- Width: the corner slots never truncate. A text naming the unit ends where the
     -- name would (the bar left by the other bar texts, or on Top the room the name
     -- has there, kept current by UpdateNameWidth), scaled by Width %; any other text
     -- is boxed only below 100% (the health loop).
-    local bottom = slot and slot.bottom
+    local corner = slot and slot.corner
     local w = 0
     if not slot then self._cuTopName = (c and c.has.name) and true or nil end
-    if not bottom then
+    if not corner then
         local wpct = (p and p[slotKey .. "WidthPct"]) or 100
         if c and c.has.name then
             w = math.max((slot and ns.NP_BarRestWidth(slotKey)
@@ -719,7 +742,7 @@ function NameplateFrame:AddCustomText(ca, slotKey, slot)
         end
     end
     fs:SetWidth(w)
-    local wrap = (not bottom and p and p[slotKey .. "Wrap"]) and true or false
+    local wrap = (not corner and p and p[slotKey .. "Wrap"]) and true or false
     fs:SetWordWrap(wrap)
     fs:SetMaxLines(wrap and 2 or 1)
     if w > 0 then ns.ReflowFontString(fs) end
@@ -796,7 +819,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
             ca[ci].element = element
             ca[ci].fs = fs
             ca[ci].slotKey = slot.key
-            ca[ci].bottom = slot.bottom or false
+            ca[ci].corner = slot.corner or false
         elseif element == "healthNumber" then
             local fs = self.hpNumber
             fs:SetParent(ns.SlotTextHost(self, slot.key, slotStrata))
@@ -810,7 +833,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
             ca[ci].element = element
             ca[ci].fs = fs
             ca[ci].slotKey = slot.key
-            ca[ci].bottom = slot.bottom or false
+            ca[ci].corner = slot.corner or false
         elseif IsComboHealthText(element) then
             local fs = self.hpText
             fs:SetParent(ns.SlotTextHost(self, slot.key, slotStrata))
@@ -824,7 +847,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
             ca[ci].element = element
             ca[ci].fs = fs
             ca[ci].slotKey = slot.key
-            ca[ci].bottom = slot.bottom or false
+            ca[ci].corner = slot.corner or false
         elseif element == "level" or element == "targetOfTarget" then
             -- Standalone level / Target of Target: own FontString, NOT in the health slot
             -- cache (level content is static per unit -- written here and by UpdateName on
@@ -838,10 +861,10 @@ function NameplateFrame:ApplyHealthTextAppearance()
             fs:SetJustifyH(slot.justify or slot.anchor)
             fs:SetTextColor(sr, sg, sb, 1)
             if isLevel and self.unit then fs:SetText(ns.GetUnitLevelText(self.unit)) end
-            -- The bottom slots never truncate: no Width % or Wrap there.
-            local lwpct = (not slot.bottom and p and p[slot.key .. "WidthPct"]) or 100
+            -- The corner slots never truncate: no Width % or Wrap there.
+            local lwpct = (not slot.corner and p and p[slot.key .. "WidthPct"]) or 100
             fs:SetWidth(lwpct < 100 and (GetHealthBarWidth() * lwpct / 100) or 0)
-            local lwrap = (not slot.bottom and p and p[slot.key .. "Wrap"]) and true or false
+            local lwrap = (not slot.corner and p and p[slot.key .. "Wrap"]) and true or false
             fs:SetWordWrap(lwrap)
             fs:SetMaxLines(lwrap and 2 or 1)
             fs:Show()
@@ -877,7 +900,7 @@ function NameplateFrame:ApplyHealthTextAppearance()
         ca[ci].element = topElement
         ca[ci].fs = fs
         ca[ci].slotKey = "textSlotTop"
-        ca[ci].bottom = false
+        ca[ci].corner = false
     elseif topElement == "level" or topElement == "targetOfTarget" then
         -- Standalone level / Target of Target in the top slot: same shape as the
         -- health block above, on its own font string, no cache entry.
@@ -926,11 +949,11 @@ function NameplateFrame:ApplyHealthTextAppearance()
         -- 100 = unconstrained (SetWidth 0 = auto-size): a width box on a single-point-anchored
         -- FontString ignores SetJustifyH and would re-centre a right/left value, so only box
         -- it when narrowed.
-        -- The bottom slots never truncate: no Width % or Wrap there.
-        local wpct = (not e.bottom and p and e.slotKey and p[e.slotKey .. "WidthPct"]) or 100
+        -- The corner slots never truncate: no Width % or Wrap there.
+        local wpct = (not e.corner and p and e.slotKey and p[e.slotKey .. "WidthPct"]) or 100
         e.fs:SetWidth(wpct < 100 and (barW * wpct / 100) or 0)
         local wrap = false
-        if not e.bottom and p and e.slotKey and p[e.slotKey .. "Wrap"] ~= nil then wrap = p[e.slotKey .. "Wrap"] end
+        if not e.corner and p and e.slotKey and p[e.slotKey .. "Wrap"] ~= nil then wrap = p[e.slotKey .. "Wrap"] end
         e.fs:SetWordWrap(wrap)
         e.fs:SetMaxLines(wrap and 2 or 1)
     end

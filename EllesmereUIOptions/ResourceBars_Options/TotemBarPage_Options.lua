@@ -205,7 +205,7 @@ local function BuildTotemSection(parent, y, S)
         -- disabled with the section's controls while the bar is off
         if not EllesmereUI._prebuilding then
             local rgn = bsRow._leftRegion
-            local cogBtn = EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+            local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
                 disabled = totemOff, disabledTooltip = req, rawTooltip = raw,
                 title = "Border Options",
                 rows = {

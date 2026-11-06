@@ -165,7 +165,6 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
     if not EllesmereUI._prebuilding then
         local offsetX, offsetY = BorderOffsets("borderTexture")
         EllesmereUI.BuildInlineCog(borderRow._leftRegion, { title = "Border Options",
-            icon = EllesmereUI.DIRECTIONS_ICON,
             disabled = function() return off() or SolidBorder() end,
             disabledTooltip = "This option requires a textured border.",
             rows = {
@@ -277,7 +276,7 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
           setValue = function(v) FT.Cfg().showTotal = v end }
     );  y = y - h
     EllesmereUI.BuildInlineCog(textRow._leftRegion, { title = "Time Text Settings", rows = TextCogRows("time"),
-        icon = EllesmereUI.DIRECTIONS_ICON, gap = 9, disabledTooltip = "Show Time",
+        gap = 9, disabledTooltip = "Show Time",
         disabled = function() return off() or FT.Get("timeText") == "none" end })
 
     local exitRow
@@ -293,7 +292,7 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
           setValue = function(v) Set("earlyExit", v); EllesmereUI:RefreshPage() end }
     );  y = y - h
     EllesmereUI.BuildInlineCog(exitRow._leftRegion, { title = "Name Text Settings", rows = TextCogRows("dest"),
-        icon = EllesmereUI.DIRECTIONS_ICON, gap = 9, disabledTooltip = "Show Names",
+        gap = 9, disabledTooltip = "Show Names",
         disabled = function() return off() or FT.Get("destText") == "none" end })
     local offsetX, offsetY = BorderOffsets("exitBorder", function()
         return not FT.Get("exitBorder") or not FT.Get("exitBorderCustom") or FT.Get("borderSize") == 0 or SolidBorder()

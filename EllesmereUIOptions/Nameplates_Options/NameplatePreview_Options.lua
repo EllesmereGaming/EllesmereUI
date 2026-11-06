@@ -1578,9 +1578,9 @@ local function BuildNameplatePreview(parent, parentW)
                 local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
                 raidFrame:SetPoint("LEFT", health, "RIGHT", sideOff + castIconRightPush + FullPush("right", rmYOff, rmSize) + rmXOff, rmYOff)
             elseif rmPos == "topleft" then
-                raidFrame:SetPoint("BOTTOMLEFT", health, "TOPLEFT", rmXOff, cpPush + rmYOff)
+                raidFrame:SetPoint("BOTTOMLEFT", health, "TOPLEFT", rmXOff, cpPush + ns.NP_TopCornerLift("topleft", DB()) + rmYOff)
             elseif rmPos == "topright" then
-                raidFrame:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", rmXOff, cpPush + rmYOff)
+                raidFrame:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", rmXOff, cpPush + ns.NP_TopCornerLift("topright", DB()) + rmYOff)
             elseif rmPos == "bottom" then
                 raidFrame:SetPoint("TOP", cast, "BOTTOM", rmXOff, -2 + rmYOff)
             end
@@ -1615,9 +1615,9 @@ local function BuildNameplatePreview(parent, parentW)
                 local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
                 classIcon:SetPoint("LEFT", health, "RIGHT", sideOff + castIconRightPush + FullPush("right", clYOff, reIconSz) + clXOff, clYOff)
             elseif clPos == "topleft" then
-                classIcon:SetPoint("BOTTOMLEFT", health, "TOPLEFT", clXOff, 2 + cpPush + clYOff)
+                classIcon:SetPoint("BOTTOMLEFT", health, "TOPLEFT", clXOff, 2 + cpPush + ns.NP_TopCornerLift("topleft", DB()) + clYOff)
             elseif clPos == "topright" then
-                classIcon:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", clXOff, 2 + cpPush + clYOff)
+                classIcon:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", clXOff, 2 + cpPush + ns.NP_TopCornerLift("topright", DB()) + clYOff)
             elseif clPos == "bottom" then
                 classIcon:SetPoint("TOP", cast, "BOTTOM", clXOff, -2 + clYOff)
             end
@@ -1660,7 +1660,7 @@ local function BuildNameplatePreview(parent, parentW)
             if fcPos == "top" then
                 factionTopExtent = debuffY + fcSz + fcY
             elseif fcPos == "topleft" or fcPos == "topright" then
-                factionTopExtent = 2 + fcSz + fcY
+                factionTopExtent = 2 + fcSz + ns.NP_TopCornerLift(fcPos, DB()) + fcY
             end
             if fcPos == "top" then
                 factionIcon:SetPoint("BOTTOM", health, "TOP", fcX, debuffY + cpPush + fcY)
@@ -1671,9 +1671,9 @@ local function BuildNameplatePreview(parent, parentW)
                 local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
                 factionIcon:SetPoint("LEFT", health, "RIGHT", sideOff + castIconRightPush + FullPush("right", fcY, fcSz) + fcX, fcY)
             elseif fcPos == "topleft" then
-                factionIcon:SetPoint("BOTTOMLEFT", health, "TOPLEFT", fcX, 2 + cpPush + fcY)
+                factionIcon:SetPoint("BOTTOMLEFT", health, "TOPLEFT", fcX, 2 + cpPush + ns.NP_TopCornerLift("topleft", DB()) + fcY)
             elseif fcPos == "topright" then
-                factionIcon:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", fcX, 2 + cpPush + fcY)
+                factionIcon:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", fcX, 2 + cpPush + ns.NP_TopCornerLift("topright", DB()) + fcY)
             elseif fcPos == "bottom" then
                 factionIcon:SetPoint("TOP", cast, "BOTTOM", fcX, -2 + fcY)
             end
@@ -1826,10 +1826,12 @@ local function BuildNameplatePreview(parent, parentW)
                 or (element == "healthNumber") and hpNumber
                 or (element == "level") and lvlText
                 or (element == "targetOfTarget") and pf._totFS or hpText
-            -- Bottom slots anchor by a top corner; justify by its side.
-            hfs:SetJustifyH((point == "TOPLEFT" and "LEFT") or (point == "TOPRIGHT" and "RIGHT") or point)
-            -- The bottom slots never truncate (no Width % or Wrap), as live.
+            -- Corner slots anchor by a corner of their own; justify by its side.
+            hfs:SetJustifyH(((point == "TOPLEFT" or point == "BOTTOMLEFT") and "LEFT")
+                or ((point == "TOPRIGHT" or point == "BOTTOMRIGHT") and "RIGHT") or point)
+            -- The corner slots never truncate (no Width % or Wrap), as live.
             local noClip = slotKey == "textSlotBottomLeft" or slotKey == "textSlotBottomRight"
+                or slotKey == "textSlotTopLeft" or slotKey == "textSlotTopRight"
             local hwpct = (not noClip and slotKey and DBVal(slotKey .. "WidthPct")) or 100
             local hw = 0
             if namesUnit and not noClip then
@@ -1900,7 +1902,9 @@ local function BuildNameplatePreview(parent, parentW)
             local hwpct = (slotKey and DBVal(slotKey .. "WidthPct")) or 100
             local hw = 0
             if namesUnit then
-                hw = math.max(barW * hwpct / 100, 20)
+                -- Centred between the Top Left / Top Right texts, as live.
+                hw = math.max((barW - 2 * math.max(ns.NP_TopCornerTextWidth("textSlotTopLeft", DB()),
+                    ns.NP_TopCornerTextWidth("textSlotTopRight", DB()))) * hwpct / 100, 20)
             elseif hwpct < 100 then
                 hw = barW * hwpct / 100
             end
@@ -1949,8 +1953,9 @@ local function BuildNameplatePreview(parent, parentW)
             nameFS:SetParent(healthTextFrame)
             nameFS:SetPoint(point, health, anchor, xOff + txOff + markerShift, tyOff)
             nameFS:SetJustifyH(justify)
-            if nameSlotKey == "textSlotBottomLeft" or nameSlotKey == "textSlotBottomRight" then
-                -- Under the bar the name never truncates (no width box, one line), as live.
+            if nameSlotKey == "textSlotBottomLeft" or nameSlotKey == "textSlotBottomRight"
+                or nameSlotKey == "textSlotTopLeft" or nameSlotKey == "textSlotTopRight" then
+                -- On a corner of the bar the name never truncates (no width box, one line), as live.
                 nameFS:SetWidth(0)
                 nameFS:SetWordWrap(false)
                 nameFS:SetMaxLines(1)
@@ -1989,7 +1994,9 @@ local function BuildNameplatePreview(parent, parentW)
             nameFS:SetParent(topTextFrame)
             nameFS:SetPoint("BOTTOM", health, "TOP", topXOff + (pvNameMarkerReserve * 0.5), 4 + nameYOff + cpPush + topYOff)
             nameFS:SetJustifyH("CENTER")
-            local nameW = barW - pvNameMarkerReserve
+            -- Centred between the Top Left / Top Right texts, as live.
+            local nameW = barW - pvNameMarkerReserve - 2 * math.max(ns.NP_TopCornerTextWidth("textSlotTopLeft", DB()),
+                ns.NP_TopCornerTextWidth("textSlotTopRight", DB()))
             if rmPos ~= "none" and showRM then
                 nameW = nameW - 2 * (rmSize - 2) - 7
             end
@@ -2059,6 +2066,24 @@ local function BuildNameplatePreview(parent, parentW)
             -- Read by the preview height below (a table field: no new pf.Update local).
             previewGlow.botTextH = ext
         end
+        -- Process the top corner slots: over the health bar's top corners at the Top
+        -- text's height, above the class power pips while the preview shows them, as live.
+        do
+            for i = 1, 2 do
+                local key = (i == 1) and "textSlotTopLeft" or "textSlotTopRight"
+                local el = DBVal(key) or defaults[key]
+                local corner = (i == 1) and "LEFT" or "RIGHT"
+                local c = previewGlow.slotColor(key)
+                local sz = DBVal(key .. "Size") or defaults[key .. "Size"]
+                local tx = DBVal(key .. "XOffset") or 0
+                local ty = 4 + nameYOff + cpPush + (DBVal(key .. "YOffset") or 0)
+                if ns.IsNameElement(el) then
+                    PlaceNameInBar("TOP" .. corner, "BOTTOM" .. corner, 0, corner, tx, ty, sz, c.r, c.g, c.b, key)
+                elseif el ~= "none" then
+                    PlaceHealthInBar(el, "TOP" .. corner, "BOTTOM" .. corner, tx, ty, sz, c.r, c.g, c.b, key)
+                end
+            end
+        end
         -- Preview sample for whichever name-family variant is slotted (player level stands in for mob level), run after slot branches so text re-flows under the new justify (SetJustifyH alone won't re-flow it). The name slot's key carries its Level | Name part colours.
         ns.SetNameElementText(nameFS,
             (ns.IsNameElement(slotTop) and slotTop)
@@ -2067,6 +2092,8 @@ local function BuildNameplatePreview(parent, parentW)
             or (ns.IsNameElement(slotCenter) and slotCenter)
             or (ns.IsNameElement(slotBL) and slotBL)
             or (ns.IsNameElement(slotBR) and slotBR)
+            or (ns.IsNameElement(DBVal("textSlotTopLeft")) and DBVal("textSlotTopLeft"))
+            or (ns.IsNameElement(DBVal("textSlotTopRight")) and DBVal("textSlotTopRight"))
             or "enemyName",
             -- The slot's Name Format, as live.
             ns.NP_FormatName(EllesmereUI.L("Enemy Name Text"), pvNameSlotKey), "player", pvNameSlotKey)
@@ -2226,7 +2253,8 @@ local function BuildNameplatePreview(parent, parentW)
                 local growth = DBVal("topleftSlotGrowth") or defaults.topleftSlotGrowth
                 local idx = index - 1  -- 0 for icon 1, never moves
                 local baseX = sxOff
-                local baseY = debuffY + cpPush + syOff
+                -- Above the Top Left text while one shows, as live.
+                local baseY = debuffY + cpPush + ns.NP_TopCornerLift("topleft", DB()) + syOff
                 if growth == "up" then
                     frame:SetPoint("BOTTOMLEFT", health, "TOPLEFT", baseX, baseY + idx * slotSpacingV)
                 elseif growth == "right" then
@@ -2238,7 +2266,8 @@ local function BuildNameplatePreview(parent, parentW)
                 local growth = DBVal("toprightSlotGrowth") or defaults.toprightSlotGrowth
                 local idx = index - 1  -- 0 for icon 1, never moves
                 local baseX = sxOff
-                local baseY = debuffY + cpPush + syOff
+                -- Above the Top Right text while one shows, as live.
+                local baseY = debuffY + cpPush + ns.NP_TopCornerLift("topright", DB()) + syOff
                 if growth == "up" then
                     frame:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", baseX, baseY + idx * slotSpacingV)
                 elseif growth == "left" then
@@ -2520,7 +2549,8 @@ local function BuildNameplatePreview(parent, parentW)
                     if (DBVal(slotVal .. "SlotGrowth") or defaults[slotVal .. "SlotGrowth"]) == "up" then
                         stackH = (count - 1) * (spacing - sz + iconH)
                     end
-                    cornerExtent = math.max(cornerExtent, debuffY + sz + stackH + yOff)
+                    cornerExtent = math.max(cornerExtent,
+                        debuffY + ns.NP_TopCornerLift(slotVal, DB()) + sz + stackH + yOff)
                 end
             end
             addAura(debuffSlotVal, PV_CONST.DEBUFF_COUNT, debuffSz, debuffH, debuffSpacing, debuffYOff)
@@ -2528,13 +2558,20 @@ local function BuildNameplatePreview(parent, parentW)
             addAura(ccSlotVal, PV_CONST.CC_COUNT, ccSz, ccH, ccSpacing, ccYOff)
             if showRM then
                 if rmPos == "top" then cornerExtent = math.max(cornerExtent, debuffY + rmSize + rmYOff)
-                elseif isCorner(rmPos) then cornerExtent = math.max(cornerExtent, rmSize + rmYOff) end
+                elseif isCorner(rmPos) then
+                    cornerExtent = math.max(cornerExtent, ns.NP_TopCornerLift(rmPos, DB()) + rmSize + rmYOff)
+                end
             end
             if showCL then
                 if clPos == "top" then cornerExtent = math.max(cornerExtent, debuffY + reIconSz + clYOff)
-                elseif isCorner(clPos) then cornerExtent = math.max(cornerExtent, 2 + reIconSz + clYOff) end
+                elseif isCorner(clPos) then
+                    cornerExtent = math.max(cornerExtent, 2 + ns.NP_TopCornerLift(clPos, DB()) + reIconSz + clYOff)
+                end
             end
             cornerExtent = math.max(cornerExtent, factionTopExtent)
+            -- The Top Left / Top Right texts themselves (their top over the bar).
+            cornerExtent = math.max(cornerExtent, ns.NP_TopCornerLift("topleft", DB()),
+                ns.NP_TopCornerLift("topright", DB()))
             -- Only include name text height when something is actually in the top slot
             local topTextH = (slotTop ~= "none") and (topFontSz + 4 + nameYOff + topYOff) or 0
             -- Only add debuffY gap when an aura occupies the center "top" position or the top text slot is used

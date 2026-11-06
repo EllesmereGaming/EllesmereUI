@@ -29,15 +29,22 @@ local VSlotW           = K.VSlotW
 local MaybeRelayout    = K.MaybeRelayout
 local AttachTextOffset = K.AttachTextOffset
 local BlockColorOf     = K.BlockColorOf
+local IsSecret         = EllesmereUI.IsSecret
+local FmtDur           = EllesmereUI.FormatDuration
 
 -------------------------------------------------------------------------------
 --  TIME PLAYED
 --
---  The server only gives played time through /played, so a request runs once
---  per UI load while a block is enabled (EllesmereUI.RequestTimePlayed, shared
---  with the XP bar), and the game prints its two lines in chat.
+--  The server only gives played time through /played, and the game prints its
+--  two lines in chat for each request. A login asks once while a block is
+--  enabled (EllesmereUI.RequestTimePlayed, shared with the XP bar). A /reload
+--  asks nothing: the time saved at PLAYER_LOGOUT (which fires on /reload too)
+--  is taken back at the next load's first PLAYER_ENTERING_WORLD, plus the
+--  seconds the reload took (/played counts on through a reload).
 --  Totals live in EllesmereUIDB.timePlayedChars, outside the profile:
 --      [guid] = { name, realm, class, level, total }  -- total in seconds
+--  plus, from PLAYER_LOGOUT until the next load's first PLAYER_ENTERING_WORLD,
+--  lvlTime (the seconds at this level) and at (the GetTime() both are as of).
 --  By GUID: WoW Forever first names are not the whole name, and a rename keeps it.
 -------------------------------------------------------------------------------
 local liveInsts = {}
@@ -46,22 +53,13 @@ local eventFrame = CreateFrame("Frame")
 local baseTotal, baseLevel, baseAt
 local baseCharLevel
 local lastMinutes   -- the heartbeat's last seen minute counters
+-- A /reload takes seconds: a saved time older than this is not taken back
+-- (an earlier session's, or a reload that ran long), and the load asks.
+local RELOAD_WINDOW = 120
+local reloadPending -- a saved time waits for the first PLAYER_ENTERING_WORLD
 
 local function PlayedTotal() return baseTotal + (GetTime() - baseAt) end
 local function PlayedLevel() return baseLevel + (GetTime() - baseAt) end
-
--- A duration: 3d 4h, 1h 24m, 22m.
-local function FmtDur(sec)
-    local m = floor(sec / 60)
-    local h = floor(m / 60)
-    if h >= 24 then
-        local d = floor(h / 24)
-        return format(EllesmereUI.L("%dd %dh"), d, h - d * 24)
-    elseif h > 0 then
-        return format(EllesmereUI.L("%dh %dm"), h, m - h * 60)
-    end
-    return format(EllesmereUI.L("%dm"), m)
-end
 
 local function Store()
     local db = EllesmereUIDB
@@ -73,7 +71,7 @@ end
 -- This character's store key; nil while the GUID cannot be read.
 local function CharGUID()
     local guid = UnitGUID("player")
-    if not guid or (issecretvalue and issecretvalue(guid)) then return nil end
+    if not guid or IsSecret(guid) then return nil end
     return guid
 end
 
@@ -122,12 +120,51 @@ local function SetPlayed(total, level)
 end
 
 local function RequestPlayed()
+    -- Not before the first PLAYER_ENTERING_WORLD has looked at a saved time.
+    if reloadPending then return end
     SetPlayed(EllesmereUI.RequestTimePlayed())
+end
+
+-- PLAYER_LOGOUT (on /reload too): the time as of now, for the next load.
+local function SaveReload()
+    if not baseTotal then return end
+    SaveCharacter()
+    local store, key = Store(), CharGUID()
+    local e = store and key and store[key]
+    if e then e.lvlTime, e.at = PlayedLevel(), GetTime() end
+end
+
+-- The load's first PLAYER_ENTERING_WORLD: a /reload takes this character's
+-- saved time back; every saved time is dropped, so none outlives this load.
+local function TakeReload(isReloadingUi)
+    reloadPending = nil
+    local db = EllesmereUIDB
+    local store = type(db) == "table" and db.timePlayedChars
+    if type(store) == "table" then
+        local me, now = CharGUID(), GetTime()
+        for key, e in pairs(store) do
+            if type(e) == "table" and e.at ~= nil then
+                local at, lvlTime = e.at, e.lvlTime
+                e.at, e.lvlTime = nil, nil
+                if isReloadingUi and key == me and type(at) == "number" and type(lvlTime) == "number"
+                    and type(e.total) == "number" and e.level == UnitLevel("player")
+                    and at <= now and now - at < RELOAD_WINDOW then
+                    SetPlayed(e.total + (now - at), lvlTime + (now - at))
+                end
+            end
+        end
+    end
+    if next(liveInsts) and not baseTotal then RequestPlayed() end
 end
 
 eventFrame:SetScript("OnEvent", function(_, event, arg1, arg2)
     if event == "TIME_PLAYED_MSG" then
         SetPlayed(arg1, arg2)
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        eventFrame:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        TakeReload(arg2)
+    elseif event == "PLAYER_LOGOUT" then
+        SaveReload()
     elseif baseTotal then
         -- PLAYER_LEVEL_UP: the new level starts at no time played.
         baseTotal, baseLevel, baseAt, baseCharLevel = PlayedTotal(), 0, GetTime(), arg1
@@ -140,6 +177,7 @@ local function SyncEvents()
     if next(liveInsts) then
         eventFrame:RegisterEvent("TIME_PLAYED_MSG")
         eventFrame:RegisterEvent("PLAYER_LEVEL_UP")
+        eventFrame:RegisterEvent("PLAYER_LOGOUT")
         ns.RegisterHeartbeat("timeplayed", OnHeartbeat)
         -- A level-up while no block was enabled also makes the level time stale.
         if not baseTotal or baseCharLevel ~= UnitLevel("player") then
@@ -148,8 +186,27 @@ local function SyncEvents()
     else
         -- Keeps the record current up to the moment the last block goes.
         SaveCharacter()
-        eventFrame:UnregisterAllEvents()
+        -- A first PLAYER_ENTERING_WORLD still owed stays: it drops the saved time.
+        eventFrame:UnregisterEvent("TIME_PLAYED_MSG")
+        eventFrame:UnregisterEvent("PLAYER_LEVEL_UP")
+        eventFrame:UnregisterEvent("PLAYER_LOGOUT")
         ns.UnregisterHeartbeat("timeplayed")
+    end
+end
+
+-- A load after one that saved its time waits for its first
+-- PLAYER_ENTERING_WORLD, which tells a /reload from a login, before it asks.
+do
+    local db = EllesmereUIDB
+    local store = type(db) == "table" and db.timePlayedChars
+    if type(store) == "table" and not IsLoggedIn() then
+        for _, e in pairs(store) do
+            if type(e) == "table" and e.at ~= nil then
+                reloadPending = true
+                eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+                break
+            end
+        end
     end
 end
 

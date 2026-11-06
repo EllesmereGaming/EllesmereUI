@@ -207,7 +207,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) Set("customItemButtons", v); RefreshAll() end })
             y = y - h
 
-            -- Flash Objective Updates | blank
+            -- Flash Objective Updates | Quest Click
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Flash Objective Updates",
                   tooltip="Briefly highlights an objective when its progress changes.",
@@ -239,9 +239,9 @@ initFrame:SetScript("OnEvent", function(self)
               onChanged = function() RefreshAll() end,
               onOptionChanged = function() RefreshAll() end },
             { type="dropdown", text="Hide When In Raid",
-              tooltip="Always: hide the tracker the whole time you are in a raid.\nBoss Combat: keep it visible and only hide during boss encounters.",
-              values = { always = "Always", boss = "Boss Combat" },
-              order  = { "always", "boss" },
+              tooltip="Always: hide the tracker the whole time you are in a raid.\nBoss Combat: keep it visible and only hide during boss encounters.\nNever: keep it visible in raids; only the Visibility options hide it.",
+              values = { always = "Always", boss = "Boss Combat", never = "Never" },
+              order  = { "always", "boss", "never" },
               getValue=function() return Cfg("hideInRaidMode") or "boss" end,
               setValue=function(v) Set("hideInRaidMode", v); if EQT.UpdateVisibility then EQT.UpdateVisibility() end end })
         y = y - h
@@ -263,22 +263,9 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local rgn = bgRow._leftRegion
             local ctrl = rgn._control
-            local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
-                rgn, bgRow:GetFrameLevel() + 3,
-                function()
-                    return (Cfg("bgR") or 0), (Cfg("bgG") or 0), (Cfg("bgB") or 0)
-                end,
-                function(r, g, b)
-                    Set("bgR", r); Set("bgG", g); Set("bgB", b)
-                    if EQT.ApplyBackground then EQT.ApplyBackground() end
-                end,
-                false, 20)
-            PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
             -- The custom tracker can hide its background until hovered.
             if CUSTOM then
                 EllesmereUI.BuildInlineCog(rgn, {
-                    anchorTo = bgSwatch,
                     title = "Background Settings",
                     rows = {
                         { type="toggle", label="Show Only When Hovered",
@@ -292,6 +279,19 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
             end
+            local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
+                rgn, bgRow:GetFrameLevel() + 3,
+                function()
+                    return (Cfg("bgR") or 0), (Cfg("bgG") or 0), (Cfg("bgB") or 0)
+                end,
+                function(r, g, b)
+                    Set("bgR", r); Set("bgG", g); Set("bgB", b)
+                    if EQT.ApplyBackground then EQT.ApplyBackground() end
+                end,
+                false, 20)
+            PP.Point(bgSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+            rgn._lastInline = bgSwatch
+            EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
         end
         y = y - h
 

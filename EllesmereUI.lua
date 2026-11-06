@@ -190,7 +190,7 @@ local STYLE = {
     SL_FILL_A = 0.75,                                      -- filled portion alpha (colour = accent)
     SL_INPUT_R = 0.030, SL_INPUT_G = 0.023, SL_INPUT_B = 0.018, -- input box background (darker than bg, stays as-is)
     SL_INPUT_A = 0.25,                                     -- input box alpha (all sliders)
-    SL_INPUT_BRD_A = 0.02,                                 -- input box border alpha (white)
+    SL_INPUT_BRD_A = 0.12,                                 -- input box border alpha (white; a visible outline, dimmer than a dropdown's)
 
     -- Multi-widget slider overrides  (applied additively in BuildSliderCore)
     MW_INPUT_ALPHA_BOOST = 0.15,                           -- additive alpha boost for multi-widget input fields
@@ -1247,6 +1247,19 @@ do
     end
 end
 
+-- A duration in whole minutes: 3d 4h, 1h 24m, 22m (a negative one reads 0m).
+function EllesmereUI.FormatDuration(sec)
+    local m = math.floor((sec > 0 and sec or 0) / 60)
+    local h = math.floor(m / 60)
+    if h >= 24 then
+        local d = math.floor(h / 24)
+        return string.format(EllesmereUI.L("%dd %dh"), d, h - d * 24)
+    elseif h > 0 then
+        return string.format(EllesmereUI.L("%dh %dm"), h, m - h * 60)
+    end
+    return string.format(EllesmereUI.L("%dm"), m)
+end
+
 -- Realm a character roster groups by. Forever is realmless: the ruleset name.
 function EllesmereUI.RealmGroupName()
     if not EllesmereUI.IS_FOREVER then return GetRealmName() end
@@ -1335,7 +1348,9 @@ EllesmereUI.TEXT_SECTION     = TEXT_SECTION
 EllesmereUI.CS              = CS
 
 -- Shared icon paths
-EllesmereUI.COGS_ICON       = MEDIA_PATH .. "icons\\cogs-3.png"
+-- The settings cog (the inline cog's default, owner 2026-11-05); Unlock Mode's
+-- mover cog keeps the cogwheel art.
+EllesmereUI.COGS_ICON       = MEDIA_PATH .. "icons\\settings.png"
 EllesmereUI.UNDO_ICON       = MEDIA_PATH .. "icons\\undo.png"
 EllesmereUI.RESIZE_ICON     = MEDIA_PATH .. "icons\\eui-resize-5.png"
 EllesmereUI.DIRECTIONS_ICON = MEDIA_PATH .. "icons\\eui-directions.png"
@@ -3337,7 +3352,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.7.6"
+EllesmereUI.VERSION = "9.7.7"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -3419,8 +3434,9 @@ EllesmereUI._RunConflictCheck = function()
         -- conflict list: { addon, label, targets, message, moduleCheck }
         --   targets = "all" or a table of Ellesmere folder names
         --   message = optional custom popup message override
-        --   moduleCheck = optional function returning true if the specific sub-module is active
-        --     (used for per-module conflicts: minimap, friends, chat, etc.)
+        --   moduleCheck = optional function returning true while the conflict applies: an
+        --     EllesmereUI sub-feature is on (HoverCast, the Mythic+ Timer, the Character Sheet
+        --     skin), or a clashing option is on in the other addon
         -- Blizzard UI Enhanced has sub-features stored as flags on EllesmereUIDB; conflicts against a specific sub-feature only fire when that feature is actually enabled.
         local function BlizzardSkinSubEnabled(key)
             if not EllesmereUIDB then return true end
@@ -3723,6 +3739,8 @@ SlashCmdList.EUIRESETHINT = function()
             EllesmereUIDB.bmIconHintDismissed = nil
             EllesmereUIDB.cdmButtonTipSeen = nil
             EllesmereUIDB.bagCategoryTipSeen = nil
+            EllesmereUIDB.inlineCogTipSeen = nil
+            EllesmereUIDB.cogSeen = nil
         end
         EllesmereUI.Print("|cff00ff00[EllesmereUI]|r All hints reset. /reload to see them again.")
     end)

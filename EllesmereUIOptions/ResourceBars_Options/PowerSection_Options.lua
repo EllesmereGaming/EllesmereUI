@@ -198,21 +198,6 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
         if not EllesmereUI._prebuilding and not ns.ERB_ClassicBorderRow() then
             local rgn = pwrBsRow._rightRegion
             local ctrl = rgn._control
-            local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
-                rgn, pwrBsRow:GetFrameLevel() + 3,
-                function()
-                    local c = cfg()
-                    return (c and c.borderR or 0), (c and c.borderG or 0),
-                           (c and c.borderB or 0), (c and c.borderA or 1)
-                end,
-                function(r, g, b, a)
-                    local c = cfg(); if not c then return end
-                    c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
-                    SmoothRefresh(); EllesmereUI:RefreshPage()
-                end,
-                true, 20)
-            PP.Point(borderSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            rgn._lastInline = borderSwatch  -- the Corner Radius cog chains left of the swatch
             -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
             -- border size control. The stock styles keep the bars square.
             if not EllesmereUI._prebuilding then
@@ -236,6 +221,21 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                        function(v) local c = cfg(); if not c then return end; c.cornerMask = v; RebuildPower() end),
                 })
             end
+            local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, pwrBsRow:GetFrameLevel() + 3,
+                function()
+                    local c = cfg()
+                    return (c and c.borderR or 0), (c and c.borderG or 0),
+                           (c and c.borderB or 0), (c and c.borderA or 1)
+                end,
+                function(r, g, b, a)
+                    local c = cfg(); if not c then return end
+                    c.borderR, c.borderG, c.borderB, c.borderA = r, g, b, a
+                    SmoothRefresh(); EllesmereUI:RefreshPage()
+                end,
+                true, 20)
+            PP.Point(borderSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+            rgn._lastInline = borderSwatch  -- left of the Corner Radius cog
             EllesmereUI.RegisterWidgetRefresh(function() updateBorderSwatch() end)
             local swBlock = CreateFrame("Frame", nil, borderSwatch)
             swBlock:SetAllPoints()
@@ -253,7 +253,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
         if not EllesmereUI._prebuilding then
             local rgn = pwrBsRow._leftRegion
             local sepValues, sepOrder = ns.ERB_SeparatorArtValues(true)
-            local cogBtn = EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+            local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
                 title = "Border Options",
                 rows = {
                     { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
@@ -462,6 +462,31 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
               c.fillOpacity = v; RebuildPower()
           end }
     );  y = y - h
+    if not EllesmereUI._prebuilding then
+        local rgn = powerBorderRow._rightRegion
+        EllesmereUI.BuildInlineCog(rgn, {
+            disabled = function() local c = cfg(); return c and not c.enabled end,
+            disabledTooltip = powerDisTip,
+            title = "Fill Settings",
+            rows = {
+                { type = "toggle", label = "Enable Gradient",
+                  get = function() local c = cfg(); return c and c.gradientEnabled end,
+                  set = function(v)
+                      local c = cfg(); if not c then return end
+                      c.gradientEnabled = v; RebuildPower()
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type = "dropdown", label = "Gradient Direction",
+                  values = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" },
+                  order = { "HORIZONTAL", "VERTICAL" },
+                  get = function() local c = cfg(); return c and c.gradientDir or "HORIZONTAL" end,
+                  set = function(v)
+                      local c = cfg(); if not c then return end
+                      c.gradientDir = v; RebuildPower()
+                  end },
+            },
+        })
+    end
     -- Fill Color inline swatches: gradient end / custom / power
     if not EllesmereUI._prebuilding then
     -- Spender Colors paint the fill flat once a row names a spell, as the bar does
@@ -573,31 +598,6 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
                 return (p.secondary.barAlpha or 1) == v and (p.health.barAlpha or 1) == v
             end,
             flashTargets = function() return { ctx.syncRows.powerOpacity, ctx.syncRows.classOpacity, ctx.syncRows.healthOpacity } end,
-        })
-    end
-    if not EllesmereUI._prebuilding then
-        local rgn = powerBorderRow._rightRegion
-        EllesmereUI.BuildInlineCog(rgn, {
-            disabled = function() local c = cfg(); return c and not c.enabled end,
-            disabledTooltip = powerDisTip,
-            title = "Fill Settings",
-            rows = {
-                { type = "toggle", label = "Enable Gradient",
-                  get = function() local c = cfg(); return c and c.gradientEnabled end,
-                  set = function(v)
-                      local c = cfg(); if not c then return end
-                      c.gradientEnabled = v; RebuildPower()
-                      EllesmereUI:RefreshPage()
-                  end },
-                { type = "dropdown", label = "Gradient Direction",
-                  values = { HORIZONTAL = "Horizontal", VERTICAL = "Vertical" },
-                  order = { "HORIZONTAL", "VERTICAL" },
-                  get = function() local c = cfg(); return c and c.gradientDir or "HORIZONTAL" end,
-                  set = function(v)
-                      local c = cfg(); if not c then return end
-                      c.gradientDir = v; RebuildPower()
-                  end },
-            },
         })
     end
 
@@ -757,7 +757,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
     -- Power Text inline cog: percent sign, anchor, x/y offsets
     if not EllesmereUI._prebuilding then
         local rgn = powerTextSizeRow._leftRegion
-        local cogBtn = EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+        local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local c = cfg(); return c and not c.enabled end,
             disabledTooltip = "Power Bar",
             title = "Power Text",
