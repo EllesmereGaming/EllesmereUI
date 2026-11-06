@@ -8,6 +8,7 @@
 ## Version: 9.7.8
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIGroupFinderDB
+## SavedVariablesPerCharacter: EllesmereUIGroupFinderCharDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Runtime. The settings page lives in the LoadOnDemand EllesmereUIOptions addon

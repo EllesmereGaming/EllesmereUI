@@ -225,6 +225,11 @@ local function Widen(f)
     for i = 1, 4 do f["generalPlaystyle" .. i] = true end
 end
 
+-- keep this character's picks so another character's don't carry over
+function XF.Remember(f)
+    if f then ns.SetCharBlizzFilter(Picks(f)) end
+end
+
 function XF.GetFilter()
     local f = C_LFGList.GetAdvancedFilter()
     local p = f and DimOn() and Cfg().dimPicks
@@ -241,9 +246,37 @@ local function Apply(f)
         Widen(f)
     end
     C_LFGList.SaveAdvancedFilter(f)
+    XF.Remember(f)
     pending = true
     Paint()
     PaintRefresh()
+end
+
+-- once per session: put back this character's picks, or blizzard's defaults the first time
+function XF.RestoreCharFilter()
+    if XF.filterRestored then return end
+    local f = C_LFGList.GetAdvancedFilter()
+    if not f then return end
+    local saved = ns.CharBlizzFilter()
+    if type(saved) == "table" then
+        for _, k in ipairs(PICK_KEYS) do f[k] = saved[k] end
+    else
+        local wide = AllDungeonGroups()
+        if #wide == 0 then return end
+        Widen(f)
+    end
+    XF.filterRestored = true
+    -- dimmed keeps the picks with us and blizzard's search wide
+    local c = Cfg()
+    if DimOn() then
+        if type(c.dimPicks) ~= "table" then c.dimPicks = Picks(f) end
+        Widen(f)
+    elseif type(c.dimPicks) == "table" then
+        for _, k in ipairs(PICK_KEYS) do f[k] = c.dimPicks[k] end
+        c.dimPicks = nil
+    end
+    C_LFGList.SaveAdvancedFilter(f)
+    XF.Remember(f)
 end
 
 local function ToggleDungeon(gid)
@@ -992,6 +1025,7 @@ function ns.DimFiltersChanged()
         c.dimPicks = nil
     end
     C_LFGList.SaveAdvancedFilter(f)
+    XF.Remember(f)
     pending = true
     Paint()
     PaintRefresh()
@@ -3586,6 +3620,7 @@ XF.SEARCH_LEFT = { "BackButton", "BackToGroupButton" }
 
 -- first show asks for this season's m+ maps
 function XF.PanelShown()
+    XF.RestoreCharFilter()
     if not XF.mapInfoAsked then
         XF.mapInfoAsked = true
         if C_MythicPlus and C_MythicPlus.RequestMapInfo then C_MythicPlus.RequestMapInfo() end
@@ -4098,6 +4133,7 @@ ns.LayoutViewer = LayoutViewer
 local function Init()
     SP = LFGListFrame and LFGListFrame.SearchPanel
     if not SP then return end
+    XF.RestoreCharFilter()
     SP:HookScript("OnShow", XF.PanelShown)
     local CS = LFGListFrame.CategorySelection
     if CS then
@@ -4151,6 +4187,7 @@ local function Init()
         prevResults = (prevCategory == SP.categoryID) and seenResults or nil
         prevCategory = SP.categoryID
         seenResults = {}
+        if XF.filterRestored then XF.Remember(C_LFGList.GetAdvancedFilter()) end
         pending = false
         StartCooldown(CD_SEARCH)
         if SP:IsVisible() then Paint() end

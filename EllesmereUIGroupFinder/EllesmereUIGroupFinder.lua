@@ -75,10 +75,43 @@ end
 local readOnly = { search = setmetatable({}, { __index = DEFAULTS, __newindex = function() end }),
                    apps   = setmetatable({}, { __index = APPS_DEFAULTS, __newindex = function() end }) }
 
-function ns.Cfg()
+local function Search()
     local p = Profile()
     return p and p.search or readOnly.search
 end
+
+-- filters belong to the character, everything else to the profile
+local FILTER_KEYS = {}
+for _, k in ipairs({ "ratingOn", "ratingValue", "regions", "delves", "delveTiers", "bosses", "raidDiffs",
+    "raidPlaystyles", "raidRoles", "partyFit", "notDeclined", "hasLust", "hasBrez", "extraMyClass",
+    "extraExpr", "extraRolesAny", "roleCounts", "dimPicks" }) do FILTER_KEYS[k] = true end
+
+local charDB
+local function CharFilters() return charDB and charDB.filters end
+
+local cfg = setmetatable({}, {
+    __index = function(_, k)
+        if FILTER_KEYS[k] then
+            local f = CharFilters()
+            return f and f[k]
+        end
+        return Search()[k]
+    end,
+    __newindex = function(_, k, v)
+        if FILTER_KEYS[k] then
+            local f = CharFilters()
+            if f then f[k] = v end
+            return
+        end
+        Search()[k] = v
+    end,
+})
+
+function ns.Cfg() return cfg end
+
+-- blizzard's dungeon picks for this character, nil until saved once
+function ns.CharBlizzFilter() return charDB and charDB.blizz end
+function ns.SetCharBlizzFilter(t) if charDB then charDB.blizz = t end end
 
 function ns.AppsCfg()
     local p = Profile()
@@ -93,10 +126,24 @@ end
 
 function ns.ResetSettings()
     if db then db:ResetProfile() end
+    if charDB then wipe(charDB.filters) end
 end
 
 function GF:OnInitialize()
     db = EllesmereUI.Lite.NewDB("EllesmereUIGroupFinderDB", { profile = { search = DEFAULTS, apps = APPS_DEFAULTS } })
+    if type(EllesmereUIGroupFinderCharDB) ~= "table" then EllesmereUIGroupFinderCharDB = {} end
+    charDB = EllesmereUIGroupFinderCharDB
+    if type(charDB.filters) ~= "table" then
+        -- first login after the move: this character takes the profile's old filters, the rest start clean
+        charDB.filters = {}
+        local s = Profile() and Profile().search
+        if s then
+            for k in pairs(FILTER_KEYS) do
+                charDB.filters[k] = s[k]
+                s[k] = nil
+            end
+        end
+    end
 end
 
 function GF:OnEnable()
