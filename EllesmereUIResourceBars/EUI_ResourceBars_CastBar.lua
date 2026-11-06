@@ -1374,6 +1374,7 @@ function ns.ShowIdleCastBar()
     castBarFrame._nativeFill = nil
     castBarFrame._cstKey = nil
     castBarFrame._craftMerge, castBarFrame._craftCastEnd = nil, nil
+    ns.ERB_CraftStopWatch(false)
     if ns._rawFillDriver then ns._rawFillDriver:Hide() end
     if castBarFrame._castUninterruptible or castBarFrame._channelPaint then
         castBarFrame._castUninterruptible = nil
@@ -1490,6 +1491,7 @@ OnCastStart = function()
     castBarFrame._castID = barID
     if merge then
         castBarFrame._craftMerge = true
+        ns.ERB_CraftStopWatch(true)
         castBarFrame._craftCastEnd = endTimeMS / 1000
         castBarFrame._startTime = batchStart
         castBarFrame._endTime = endTimeMS / 1000 + castBarFrame._craftExtra
@@ -1642,7 +1644,11 @@ end
 local function OnCastFailed(eventCastID)
     if not castBarFrame then return end
     if not castBarFrame._casting then return end
-    if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then return end
+    if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then
+        -- Merged craft batch: a cancelled craft can report another ID; end it
+        -- once nothing is casting.
+        if not castBarFrame._craftMerge or UnitCastingInfo("player") then return end
+    end
     castBarFrame._casting = false
     castBarFrame._castID = nil
     ns.ShowIdleCastBar()
@@ -1811,6 +1817,27 @@ do
             end
             watch:RegisterUnitEvent("UNIT_SPELLCAST_INTERRUPTIBLE", "player")
             watch:RegisterUnitEvent("UNIT_SPELLCAST_NOT_INTERRUPTIBLE", "player")
+        elseif watch then
+            watch:UnregisterAllEvents()
+        end
+    end
+end
+
+-- Merge Craft Casts: a cancelled batch (movement, Escape) ends the merged bar.
+-- Watched only while a merged batch is on the bar.
+do
+    local watch
+    function ns.ERB_CraftStopWatch(on)
+        if on then
+            if not watch then
+                watch = CreateFrame("Frame")
+                watch:SetScript("OnEvent", function()
+                    if castBarFrame and castBarFrame._craftMerge and not UnitCastingInfo("player") then
+                        OnCastStop()
+                    end
+                end)
+            end
+            watch:RegisterEvent("UPDATE_TRADESKILL_CAST_STOPPED")
         elseif watch then
             watch:UnregisterAllEvents()
         end
