@@ -12,16 +12,28 @@ if not EllesmereUI.IS_FOREVER then return end
 -------------------------------------------------------------------------------
 local _, ns = ...
 local EQT = ns.EQT
+local IsSecret = EllesmereUI.IsSecret
 local function Cfg(k) return EQT.Cfg(k) end
 
+-- The tracker's width, and the height it grows to before it scrolls: the
+-- values a new profile starts on, and the range a user can set.
+local DEF_WIDTH, DEF_HEIGHT = 260, 450
+local WIDTH_MIN, WIDTH_MAX = 150, 600
+local HEIGHT_MIN, HEIGHT_MAX = 100, 1200
+-- Its Unlock Mode element: the key Blizzard's tracker has when this one is off.
+local UNLOCK_KEY = "EQT_Tracker"
+
 -- Defaults, merged into the module's table before its DB is made at login.
+-- Whether this tracker is used at all has no default here: the loader's
+-- ns.CustomTrackerWanted decides it from the profile's style and pick.
+-- Its spot is customPos (none until one is taken or saved).
 do
     local qt = ns.QT_DEFAULTS.profile.questTracker
-    qt.customTracker           = true   -- reload-gated; position in customPos
     qt.customGroupByZone       = true
     qt.customDifficultyColor   = true
-    qt.customWidth             = 260
-    qt.customMaxHeight         = 450
+    qt.customWidth             = DEF_WIDTH
+    qt.customMaxHeight         = DEF_HEIGHT
+    qt.customGrowUp            = false     -- grows up from its bottom edge
     qt.customCollapseCompleted = false
     qt.customZoneFontSize      = 13
     qt.customQuestSpacing      = 4
@@ -250,6 +262,24 @@ local function TitleRGB(questID, complete)
     end
     return EQT.GetTitleRGB()
 end
+
+-- Zone headers: the colour picked on Group Quests by Zone (the accent or a
+-- custom colour); with no pick, the Header Color. The fourth return is true
+-- while that colour is the accent.
+local function ZoneRGB()
+    local c = EQT.DB()
+    local accent = c.customZoneUseAccent
+    if accent == nil then
+        local r, g, b = EQT.GetHeaderRGB()
+        return r, g, b, not (c.headerShowClassColor or c.headerUseAccent == false)
+    end
+    if accent then
+        local a = EllesmereUI.ELLESMERE_GREEN
+        return a.r, a.g, a.b, true
+    end
+    return c.customZoneR or 1, c.customZoneG or 1, c.customZoneB or 1, false
+end
+EQT.CustomZoneRGB = ZoneRGB
 
 local function ObjectiveRGBA(obj)
     local r, g, b = OBJ_RGB.r, OBJ_RGB.g, OBJ_RGB.b
@@ -695,7 +725,7 @@ local function Render()
     end
     BuildList()
     local collapsed = CharDB().ctCollapsed
-    local width = (Cfg("customWidth") or 260) - PAD * 2 - BAR_GAP
+    local width = (Cfg("customWidth") or DEF_WIDTH) - PAD * 2 - BAR_GAP
     child:SetWidth(width)
     used = 0
     local y = 0
@@ -715,7 +745,7 @@ local function Render()
         local collapseDone = Cfg("customCollapseCompleted")
         local doneOpen = CharDB().ctDoneOpen
         local lastZone
-        local hr, hg, hb = EQT.GetHeaderRGB()
+        local zr, zg, zb = ZoneRGB()
         for _, questID in ipairs(order) do
             local zone = zoneOf[questID] or OTHER or "Other"
             if group and zone ~= lastZone then
@@ -723,7 +753,7 @@ local function Render()
                 if y > 0 then y = y + 6 end
                 local mark = collapsed["z:" .. zone] and "+ " or ""
                 local l, h = AcquireLine("zone", zone, mark .. zone, 0, y, width)
-                l.text:SetTextColor(hr, hg, hb, 1)
+                l.text:SetTextColor(zr, zg, zb, 1)
                 y = y + h + 3
             end
             if not (group and collapsed["z:" .. zone]) then
@@ -775,9 +805,11 @@ local function Render()
 
     contentH = y
     child:SetHeight(math.max(y, 1))
-    local maxH = Cfg("customMaxHeight") or 450
+    local maxH = Cfg("customMaxHeight") or DEF_HEIGHT
     local body = y > 0 and (y + PAD) or 0
-    local h = math.min(HEADER_H + body, maxH)
+    -- Unlock Mode shows the whole area the tracker may grow into, so its
+    -- mover and Height row match what is being set.
+    local h = EllesmereUI._unlockActive and maxH or math.min(HEADER_H + body, maxH)
     viewH = math.max(h - HEADER_H - PAD, 0)
     frame:SetHeight(h)
     UpdateThumb()
@@ -1038,35 +1070,168 @@ local function SavedPos()
     return p and p.point and p or { point = "TOPRIGHT", relPoint = "TOPRIGHT", x = -80, y = -280 }
 end
 
--- Anchor fractions per point, for re-anchoring a saved position by its top.
+-- Anchor fractions per point, for re-anchoring a saved position by the edge
+-- the tracker keeps in place.
 local HX = { LEFT = 0, CENTER = 0.5, RIGHT = 1, TOP = 0.5, BOTTOM = 0.5,
              TOPLEFT = 0, TOPRIGHT = 1, BOTTOMLEFT = 0, BOTTOMRIGHT = 1 }
 local VY = { TOP = 1, CENTER = 0.5, BOTTOM = 0, LEFT = 0.5, RIGHT = 0.5,
              TOPLEFT = 1, TOPRIGHT = 1, BOTTOMLEFT = 0, BOTTOMRIGHT = 0 }
+-- The same horizontal point on the other vertical edge.
+local OTHER_EDGE = { TOPLEFT = "BOTTOMLEFT", TOP = "BOTTOM", TOPRIGHT = "BOTTOMRIGHT",
+                     BOTTOMLEFT = "TOPLEFT", BOTTOM = "TOP", BOTTOMRIGHT = "TOPRIGHT" }
 
--- Same spot, anchored by the frame's top edge so height changes grow down.
--- Unlock mode hands back CENTER points; the current size places the top.
-local function TopAnchored(p)
+-- Grow Direction: the tracker keeps its top edge and grows down, or keeps its
+-- bottom edge and grows up.
+local function GrowsUp() return Cfg("customGrowUp") == true end
+
+-- Same spot, anchored by the edge the tracker keeps, so a height change grows
+-- away from it. A spot on the other edge is that edge of the same area (the
+-- width by the max height): both directions fill one box, from opposite
+-- ends. Unlock Mode hands back CENTER points; the current size places the edge.
+local function Anchored(p)
     local point, rel = p.point, p.relPoint or p.point
-    if VY[point] == 1 or not (HX[point] and HX[rel]) then return p end
+    local up = GrowsUp()
+    local vy = VY[point]
+    if vy == (up and 0 or 1) or not (HX[point] and HX[rel]) then return p end
+    if OTHER_EDGE[point] then
+        local maxH = Cfg("customMaxHeight") or DEF_HEIGHT
+        return { point = OTHER_EDGE[point], relPoint = rel,
+                 x = p.x or 0, y = (p.y or 0) + (up and -maxH or maxH) }
+    end
+    if not frame then return p end
     local px = UIParent:GetWidth() * HX[rel] + (p.x or 0)
     local py = UIParent:GetHeight() * VY[rel] + (p.y or 0)
-    return { point = "TOPLEFT", relPoint = "BOTTOMLEFT",
-             x = px - frame:GetWidth() * HX[point],
-             y = py + frame:GetHeight() * (1 - VY[point]) }
+    local left = px - frame:GetWidth() * HX[point]
+    if up then
+        return { point = "BOTTOMLEFT", relPoint = "BOTTOMLEFT", x = left, y = py - frame:GetHeight() * vy }
+    end
+    return { point = "TOPLEFT", relPoint = "BOTTOMLEFT", x = left, y = py + frame:GetHeight() * (1 - vy) }
 end
 
+-- The saved spot by the edge the tracker keeps: what Unlock Mode reads and
+-- places it by at login.
+local function GrowSpot() return Anchored(SavedPos()) end
+
 local function Place()
-    local p = TopAnchored(SavedPos())
+    local p = GrowSpot()
     frame:ClearAllPoints()
     frame:SetPoint(p.point, UIParent, p.relPoint or p.point, p.x or 0, p.y or 0)
+    -- Linked to another element in Unlock Mode: back onto that link.
+    EllesmereUI.ReapplyOwnAnchor(UNLOCK_KEY)
     SyncItems()
+end
+
+-------------------------------------------------------------------------------
+-- Starting place. With no spot saved, the tracker takes the place and size of
+-- Blizzard's tracker, which it replaces (muted, but still placed by Edit
+-- Mode), so turning it on does not move the quest list. Under the EllesmereUI
+-- look that tracker's background ran from 6 left of it (19 with Blizzard's
+-- quest icons shown) to 11 right of it, and began under the master header
+-- while that header was hidden; a stock style showed the tracker's own box.
+-------------------------------------------------------------------------------
+local SKIN_LEFT, SKIN_LEFT_ICONS, SKIN_RIGHT = 6, 19, 11
+local SEED_TRIES = 10    -- then the fallback spot stands until the next login
+local seedWait = false   -- a spot is still to be taken from Blizzard's tracker
+local seedTries, seedQueued = 0, false
+local worldReady = false -- the first PLAYER_ENTERING_WORLD has come
+
+-- Blizzard's tracker stands where it will stay: the world has loaded (at
+-- login the right-side frames are still settling before that) and Edit Mode
+-- has placed its systems.
+local function BlizzardPlaced()
+    local otf = _G.ObjectiveTrackerFrame
+    return worldReady and otf ~= nil and (not otf.IsInitialized or otf:IsInitialized())
+end
+
+-- Left, top, width and height of that panel in UIParent units; nothing until
+-- Edit Mode has placed Blizzard's tracker, or while its rect cannot be read.
+local function BlizzardPanel()
+    if not BlizzardPlaced() then return end
+    local otf = _G.ObjectiveTrackerFrame
+    local left, top, w, h = otf:GetLeft(), otf:GetTop(), otf:GetWidth(), otf:GetHeight()
+    local scale, ui = otf:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    if not (left and top and w and h and scale and ui) then return end
+    if IsSecret(left) or IsSecret(top) or IsSecret(w) or IsSecret(h) or IsSecret(scale) then return end
+    if w < 1 or h < 1 or ui <= 0 then return end
+    local s = scale / ui
+    if EQT.Blizz() then return left * s, top * s, w * s, h * s end
+    local padLeft = Cfg("showQuestIcons") and SKIN_LEFT_ICONS or SKIN_LEFT
+    local panelTop = top
+    local header = otf.HeaderMenu or otf.Header
+    if header and EQT.ShouldHideMasterHeader() then
+        local bottom = header:GetBottom()
+        if bottom and not IsSecret(bottom) and bottom < top then panelTop = bottom end
+    end
+    return (left - padLeft) * s, panelTop * s, (w + padLeft + SKIN_RIGHT) * s, (h - (top - panelTop)) * s
+end
+
+-- Takes the spot from Blizzard's tracker, and its width and height while ours
+-- are still the ones a new profile starts on. False while it has no place.
+local function TakeBlizzardSpot()
+    local left, top, w, h = BlizzardPanel()
+    if not left then return false end
+    local c = EQT.DB()
+    if (c.customWidth or DEF_WIDTH) == DEF_WIDTH then
+        c.customWidth = Clamp(math.floor(w + 0.5), WIDTH_MIN, WIDTH_MAX)
+    end
+    if (c.customMaxHeight or DEF_HEIGHT) == DEF_HEIGHT then
+        c.customMaxHeight = Clamp(math.floor(h + 0.5), HEIGHT_MIN, HEIGHT_MAX)
+    end
+    -- The panel's top edge; growing up, the bottom edge of the same area.
+    c.customPos = Anchored({ point = "TOPLEFT", relPoint = "BOTTOMLEFT",
+                             x = math.floor(left + 0.5), y = math.floor(top + 0.5) })
+    return true
+end
+
+-- The profile's spot and width, the spot taken from Blizzard's tracker first
+-- when the profile has none. Until that tracker is placed (it is not yet at
+-- login) the frame sits at the fallback spot; Edit Mode's layout event, heard
+-- only while a spot is still to be taken, moves it once (SeedSoon).
+local function ApplySpot()
+    local wait = Cfg("customPos") == nil and not TakeBlizzardSpot()
+    if wait ~= seedWait then
+        seedWait = wait
+        if wait then
+            seedTries = 0
+            evt:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
+        else
+            evt:UnregisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
+        end
+    end
+    frame:SetWidth(Cfg("customWidth") or DEF_WIDTH)
+    if EllesmereUI._unlockActive then
+        frame:SetHeight(Cfg("customMaxHeight") or DEF_HEIGHT)
+    else
+        Place()
+    end
+    Queue()
+end
+
+-- Edit Mode has placed its systems, or the world or the quest log has loaded:
+-- one more try a frame later, once every handler of that event has run. A
+-- placed tracker whose rect still cannot be read stops the tries after a
+-- few; the fallback spot then stands until the next login.
+local function SeedSoon()
+    if not seedWait or seedQueued then return end
+    seedQueued = true
+    C_Timer.After(0, function()
+        seedQueued = false
+        if not seedWait then return end
+        ApplySpot()
+        if seedWait and BlizzardPlaced() then
+            seedTries = seedTries + 1
+            if seedTries >= SEED_TRIES then
+                seedWait = false
+                evt:UnregisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
+            end
+        end
+    end)
 end
 
 local function BuildFrame()
     frame = CreateFrame("Frame", "EUI_CustomQuestTracker", UIParent)
     frame:SetFrameStrata("LOW")
-    frame:SetWidth(Cfg("customWidth") or 260)
+    frame:SetWidth(Cfg("customWidth") or DEF_WIDTH)
     frame:SetHeight(HEADER_H)
     frame:SetClampedToScreen(Cfg("forceOnScreen") == true)
     frame:SetScript("OnShow", function()
@@ -1154,7 +1319,7 @@ local function BuildFrame()
     end)
     thumb:SetScript("OnMouseUp", function(self) self:SetScript("OnUpdate", nil); UpdateHover() end)
 
-    Place()
+    ApplySpot()
     ApplyBackground()
     RefreshFonts()
 end
@@ -1234,6 +1399,9 @@ evt:SetScript("OnEvent", function(_, event, questID, added)
             if b:IsShown() then UpdateItemCooldown(b) end
         end
         return
+    elseif event == "EDIT_MODE_LAYOUTS_UPDATED" then
+        SeedSoon()
+        return
     elseif event == "QUEST_WATCH_LIST_CHANGED" then
         -- Tracking it again in the quest log brings it back.
         if questID and added then CharDB().ctUntracked[questID] = nil end
@@ -1245,9 +1413,11 @@ evt:SetScript("OnEvent", function(_, event, questID, added)
         db.ctPinned[questID] = nil
         prevObj[questID] = nil
     elseif event == "ENCOUNTER_START" or event == "ENCOUNTER_END" or event == "PLAYER_ENTERING_WORLD" then
+        if event == "PLAYER_ENTERING_WORLD" then worldReady = true end
         inEncounter = event == "ENCOUNTER_START"
         UpdateVisibility()
     end
+    if seedWait then SeedSoon() end
     Queue()
 end)
 
@@ -1271,12 +1441,9 @@ function EQT.InitCustom()
     EQT.ApplyMasterHeaderVisibility = Noop
     EQT.QueueResize         = Noop
     EQT.ResizeBGToContent   = Noop
-    -- Profile swap: the new profile's width and spot.
-    EQT.SyncPosition        = function()
-        frame:SetWidth(Cfg("customWidth") or 260)
-        if not EllesmereUI._unlockActive then Place() end
-        Queue()
-    end
+    -- Profile swap, and the options page's Width and Max Height: the
+    -- profile's width, height and spot.
+    EQT.SyncPosition        = ApplySpot
 
     for _, e in ipairs(EVENTS) do evt:RegisterEvent(e) end
     EllesmereUI.RegisterVisibilityUpdater(UpdateVisibility)
@@ -1285,8 +1452,12 @@ function EQT.InitCustom()
     end)
     EllesmereUI.RegAccent({ type = "callback", fn = EQT.RestyleAll })
 
+    -- Unlock Mode keeps the edge the tracker grows away from: its own answer
+    -- in place of the one Blizzard's tracker has under this key.
+    EllesmereUI.GetQuestTrackerGrowDir = function() return GrowsUp() and "UP" or "DOWN" end
+
     EllesmereUI:RegisterUnlockElements({ EllesmereUI.MakeUnlockElement({
-        key      = "EQT_Tracker",
+        key      = UNLOCK_KEY,
         label    = "Quest Tracker",
         group    = "Quest Tracker",
         order    = 560,
@@ -1294,26 +1465,63 @@ function EQT.InitCustom()
         isHidden = function() return not Cfg("enabled") end,
         -- One spot for every spec, like Blizzard's tracker under this key.
         noSpecLayout = true,
-        getSize  = function() return frame:GetWidth(), frame:GetHeight() end,
+        -- Width, and the height the tracker may grow to: in Unlock Mode the
+        -- frame fills that whole area (Render), so the mover outlines it.
+        getSize  = function()
+            return Cfg("customWidth") or DEF_WIDTH, Cfg("customMaxHeight") or DEF_HEIGHT
+        end,
+        -- Unlock Mode also calls these with no size, to lay the element out again.
         setWidth = function(_, w)
-            EQT.Set("customWidth", math.max(150, math.floor(w + 0.5)))
-            frame:SetWidth(EQT.Cfg("customWidth"))
+            if w then EQT.Set("customWidth", Clamp(math.floor(w + 0.5), WIDTH_MIN, WIDTH_MAX)) end
+            frame:SetWidth(Cfg("customWidth") or DEF_WIDTH)
             Queue()
         end,
         setHeight = function(_, h)
-            EQT.Set("customMaxHeight", math.max(HEADER_H * 2, math.floor(h + 0.5)))
+            if h then EQT.Set("customMaxHeight", Clamp(math.floor(h + 0.5), HEIGHT_MIN, HEIGHT_MAX)) end
+            if EllesmereUI._unlockActive then frame:SetHeight(Cfg("customMaxHeight") or DEF_HEIGHT) end
             Queue()
         end,
         savePos  = function(_, point, relPoint, x, y)
             if not point then return end
-            EQT.Set("customPos", TopAnchored({ point = point, relPoint = relPoint, x = x, y = y }))
+            EQT.Set("customPos", Anchored({ point = point, relPoint = relPoint, x = x, y = y }))
             if not EllesmereUI._unlockActive then Place() end
         end,
-        loadPos  = SavedPos,
-        clearPos = function() EQT.Set("customPos", nil); Place() end,
+        loadPos  = GrowSpot,
+        -- Back to its starting place: where Blizzard's tracker sits.
+        clearPos = function() EQT.Set("customPos", nil); ApplySpot(); Place() end,
         applyPos = Place,
     }) }, "EllesmereUIQuestTracker")
 
+    -- Unlock Mode outlines the whole area the tracker may fill; a closed
+    -- session takes it back to the height of its quests. A drag leaves the
+    -- frame on Unlock Mode's own anchor, so it first goes back onto the edge
+    -- it keeps.
+    EllesmereUI:RegisterUnlockModeListener("EllesmereUIQuestTracker", function(active)
+        if active then
+            frame:SetHeight(Cfg("customMaxHeight") or DEF_HEIGHT)
+        else
+            Place()
+        end
+        Render()
+    end)
+
     UpdateVisibility()
     Queue()
+end
+
+-- The options page's sliders: the width and height a user can set.
+function EQT.CustomSizeRange()
+    return WIDTH_MIN, WIDTH_MAX, HEIGHT_MIN, HEIGHT_MAX
+end
+
+-- The options page's Grow Direction. The saved spot moves to the other edge
+-- of the same area, so the tracker fills the box it had from its other end,
+-- and a later Max Height change leaves the edge it keeps where it is.
+function EQT.SetCustomGrowUp(up)
+    up = up and true or false
+    if GrowsUp() == up then return end
+    EQT.Set("customGrowUp", up)
+    local p = Cfg("customPos")
+    if p and p.point then EQT.Set("customPos", Anchored(p)) end
+    if frame then ApplySpot() end
 end

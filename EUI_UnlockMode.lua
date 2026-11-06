@@ -193,7 +193,9 @@ if not EllesmereUI.NotifyElementResized then
         if anchors and anchors[key] and anchors[key].target then return end
 
         local growDir
-        if key == "EQT_Tracker" then growDir = "DOWN"
+        if key == "EQT_Tracker" then
+            local get = EllesmereUI.GetQuestTrackerGrowDir
+            growDir = get and get() or "DOWN"
         elseif key:sub(1, 4) == "CDM_" then
             local rawKey = key:sub(5)
             local cdm = EllesmereUI.Lite and EllesmereUI.Lite.GetAddon and EllesmereUI.Lite.GetAddon("EllesmereUICooldownManager", true)

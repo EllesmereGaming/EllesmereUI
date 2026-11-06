@@ -1779,6 +1779,51 @@ initFrame:SetScript("OnEvent", function(self)
                 "Shows a map icon of the friend's region if they are not playing within your region")
         );  y = y - h
 
+        -- Custom Friends List | Tile Height: rows of our own over Blizzard's
+        -- list (EllesmereUI_FriendsList.lua). Like the tiles it draws with,
+        -- it stands down under Blizz Default. No row while the list is held
+        -- back (FriendsList.HELD).
+        if not EllesmereUI.FriendsList.HELD then
+        local function listOff()
+            return tilesOff() or ns.FriendsCardGet("customList") ~= true
+        end
+        local function listOffWhy()
+            return tilesOff() and "Friends List: Blizz Default" or "Custom Friends List"
+        end
+        local function listOffState()
+            return tilesOff() and "disabled" or "enabled"
+        end
+        local tileMin, tileMax = EllesmereUI.FriendsList.TileRange()
+        row, h = W:DualRow(parent, y,
+            tileGate({ type="toggle", text="Custom Friends List",
+              tooltip="EllesmereUI's own friends list, with a tile height you choose and friend groups. Right click a friend to set its group.",
+              getValue=function() return ns.FriendsCardGet("customList") == true end,
+              setValue=function(v)
+                  ns.FriendsCardSet("customList", v)
+                  EllesmereUI:RefreshPage()  -- the Tile Height slider and the cog
+              end }),
+            { type="slider", text="Tile Height", min=tileMin, max=tileMax, step=1,
+              tooltip="The height of each friend in the custom friends list. Shorter tiles show fewer lines.",
+              disabled = listOff, disabledTooltip = listOffWhy, requireState = listOffState,
+              getValue=function() return ns.FriendsCardGet("tileHeight") end,
+              setValue=function(v) ns.FriendsCardSet("tileHeight", v) end }
+        );  y = y - h
+
+        -- Show Ungrouped Friends in a cog on Custom Friends List: it only
+        -- extends that list, so the cog blocks while the toggle is off.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(row._leftRegion, {
+                title = "Custom Friends List",
+                rows = {
+                    { type="toggle", label="Show Ungrouped Friends",
+                      get=function() return ns.FriendsCardGet("showUngrouped") ~= false end,
+                      set=function(v) ns.FriendsCardSet("showUngrouped", v) end },
+                },
+                disabled = listOff, disabledTooltip = listOffWhy, requireState = listOffState,
+            })
+        end
+        end -- not FriendsList.HELD
+
         _, h = WSCardSection(parent, "QUALITY OF LIFE", y);  y = y - h
 
         -- Auto-Accept Friend Invites
@@ -2817,6 +2862,8 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinSocialUI = v
             end,
             buildContent = EllesmereUI.IS_FOREVER and BuildFriendsCardContent or nil,
+            searchText = EllesmereUI.IS_FOREVER and not EllesmereUI.FriendsList.HELD
+                and { "Custom Friends List", "Tile Height" } or nil,
         },
         {
             key   = "queuestatus",
