@@ -4624,11 +4624,21 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     subFS:SetPoint("TOP", titleFS, "BOTTOM", 0, -4)
     subFS:SetText(subtitle)
 
+    -- An empty editable box needs a visible field to paste into.
+    if not readOnly then
+        local field = CreateFrame("Frame", nil, popup)
+        field:SetPoint("TOPLEFT",     popup, "TOPLEFT",     14, -52)
+        field:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -14, 46)
+        field:SetFrameLevel(popup:GetFrameLevel() + 1)
+        EllesmereUI.SolidTex(field, "BACKGROUND", 0, 0, 0, 0.3):SetAllPoints()
+        EllesmereUI.MakeBorder(field, 1, 1, 1, 0.12, EllesmereUI.PanelPP)
+    end
+
     -- ScrollFrame containing the EditBox
     local sf = CreateFrame("ScrollFrame", nil, popup)
     sf:SetPoint("TOPLEFT",     popup, "TOPLEFT",     20, -58)
     sf:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -20, 52)
-    sf:SetFrameLevel(popup:GetFrameLevel() + 1)
+    sf:SetFrameLevel(popup:GetFrameLevel() + 2)
     sf:EnableMouseWheel(true)
 
     local sc = CreateFrame("Frame", nil, sf)
@@ -4888,13 +4898,13 @@ end
 -------------------------------------------------------------------------------
 --  Import Popup
 -------------------------------------------------------------------------------
-function EllesmereUI:ShowImportPopup(onImport, title, subtitle)
+function EllesmereUI:ShowImportPopup(onImport, title, subtitle, confirmLabel)
     local dimmer, editBox = BuildStringPopup(
         title or "Import Profile",
         subtitle or "Paste an EllesmereUI profile string below",
         false,
         function(str) if onImport then onImport(str) end end,
-        "Import")
+        confirmLabel or "Import")
 
     dimmer:Show()
     C_Timer.After(0.05, function() editBox:SetFocus() end)
