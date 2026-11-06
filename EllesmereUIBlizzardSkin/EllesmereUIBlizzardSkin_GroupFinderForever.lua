@@ -54,7 +54,8 @@ local function FadeLFGArt(fr, depth)
     local regions = { fr:GetRegions() }
     for i = 1, #regions do
         local r = regions[i]
-        local a = r.GetAtlas and r:GetAtlas()
+        -- Result rows' class and role icons carry secret atlases in instances.
+        local a = r.GetAtlas and EllesmereUI.PlainString(r:GetAtlas())
         if a then
             local la = a:lower()
             for _, w in ipairs(LFG_FADE) do
