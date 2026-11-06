@@ -2828,13 +2828,29 @@ initFrame:SetScript("OnEvent", function(self)
                       setValue = function(v)
                           s.showSmall = v and true or false
                           Apply()
+                          -- Re-checks the Silver and Copper cog's disabled state.
+                          EllesmereUI:RefreshPage()
                       end }
                 end
                 if b.type == "travel" and EllesmereUI.IS_FOREVER then
                     travelIconCfg = iconColorCfg
                 else
-                    _, h = W:DualRow(parent, y,
+                    local iconRow
+                    iconRow, h = W:DualRow(parent, y,
                         iconColorCfg, iconRowRight);  y = y - h
+                    if b.type == "gold" then
+                        EllesmereUI.BuildInlineCog(iconRow._rightRegion, { icon = EllesmereUI.COGS_ICON,
+                            title = "Silver and Copper",
+                            disabled = function() return s.showSmall == true end,
+                            disabledTooltip = "Show Silver and Copper already shows them everywhere.",
+                            rows = {
+                                { type = "toggle", label = "Under 1 Gold",
+                                  tooltip = "Shows silver and copper on amounts below 1 gold, so they do not read 0g.",
+                                  get = function() return ns.GoldSmallUnderGold(s) end,
+                                  set = function(v) s.smallUnderGold = v and true or false; Apply() end },
+                            },
+                        })
+                    end
                 end
             end
 
