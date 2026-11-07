@@ -39,6 +39,30 @@ EABR.MAGE_ARMORS = {
     { 7302, 7320, 10219, 10220 },   -- Ice Armor 1-4
     { 6117, 22782, 22783 },         -- Mage Armor 1-3
 }
+if EABR.FOREVER then
+    EABR.FV_WEAPON_BUFFS = {
+        { key = "instant", name = "Instant Poison", imbue = true, class = "ROGUE", items = { 6947, 6949, 6950, 8926, 8927, 8928 } },
+        { key = "deadly", name = "Deadly Poison", imbue = true, class = "ROGUE", items = { 2892, 2893, 8984, 8985, 20844 } },
+        { key = "crippling", name = "Crippling Poison", imbue = true, class = "ROGUE", items = { 3775, 3776 } },
+        { key = "mindnumbing", name = "Mind-numbing Poison", imbue = true, class = "ROGUE", items = { 5237, 6951, 9186 } },
+        { key = "wound", name = "Wound Poison", imbue = true, class = "ROGUE", items = { 10918, 10920, 10921, 10922 } },
+        { key = "windfury", imbue = true, class = "SHAMAN", spells = { 8232, 8235, 10486, 16362 } },
+        { key = "flametongue", imbue = true, class = "SHAMAN", spells = { 8024, 8027, 8030, 16339, 16341, 16342 } },
+        { key = "frostbrand", imbue = true, class = "SHAMAN", spells = { 8033, 8038, 10456, 16355, 16356 } },
+        { key = "rockbiter", imbue = true, class = "SHAMAN", spells = { 8017, 8018, 8019, 10399, 16314, 16315, 16316 } },
+        { key = "firestone", name = "Firestone", imbue = true, class = "WARLOCK", items = { 1254, 13699, 13700, 13701 } },
+        { key = "spellstone", name = "Spellstone", imbue = true, class = "WARLOCK", items = { 5522, 13602, 13603 } },
+        { key = "sharpening", name = "Sharpening Stone", weapon = "BLADED", items = { 2862, 287978, 2863, 2871, 7964, 12404 } },
+        { key = "weightstone", name = "Weightstone", weapon = "BLUNT", items = { 3239, 3240, 3241, 7965, 12643 } },
+        { key = "elemental", name = "Elemental Sharpening Stone", items = { 18262, 287980 } },
+        { key = "wizardoil", name = "Wizard Oil", items = { 20744, 20746, 287979, 20750, 20749 } },
+        { key = "manaoil", name = "Mana Oil", items = { 20745, 20747, 20748 } },
+        { key = "shadowoil", name = "Shadow Oil", items = { 3824 } },
+        { key = "frostoil", name = "Frost Oil", items = { 3829 } },
+        { key = "blessedoil", name = "Blessed Wizard Oil", items = { 23123 } },
+        { key = "consecrated", name = "Consecrated Sharpening Stone", items = { 23122 } },
+    }
+end
 
 local _B = {}  -- beacon state table, populated later
 -- The two spellbook checks Blizzard's IsPlayerSpell / IsSpellKnown wrap, called

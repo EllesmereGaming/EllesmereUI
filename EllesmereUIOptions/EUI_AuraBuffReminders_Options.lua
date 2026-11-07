@@ -1875,20 +1875,83 @@ initFrame:SetScript("OnEvent", function(self)
                 })
             end
 
-            -- Mage Armors | (empty): built for a Mage only, so no other class
-            -- sees a row or a shift. Its own row, so the custom spells below
-            -- (packed from their own first slot) never land in the empty one.
-            if MAGE then
-                _, h = W:DualRow(parent, y,
-                    { type="toggle", text="Mage Armors",
-                      tooltip="Reminds you when no Frost Armor, Ice Armor or Mage Armor is up.\nThe icon is the one you last had on; click it to cast it.",
-                      getValue=function() local f = FDB(); return f and f.mageArmor == true end,
-                      setValue=function(v)
-                          local f = FDB(); if not f then return end; f.mageArmor = v
+            local weaponRow
+            weaponRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Weapon Buffs",
+                  tooltip="Reminds you when a weapon has no poison, imbue, stone or oil.\nClick the icon to apply one from your bags.",
+                  getValue=function() local f = FDB(); return f and f.weapon == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.weapon = v
+                      RefreshAll()
+                      EllesmereUI:RefreshPage()
+                  end },
+                MAGE and { type="toggle", text="Mage Armors",
+                  tooltip="Reminds you when no Frost Armor, Ice Armor or Mage Armor is up.\nThe icon is the one you last had on; click it to cast it.",
+                  getValue=function() local f = FDB(); return f and f.mageArmor == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.mageArmor = v
+                      RefreshAll()
+                  end } or EllesmereUI.BlankRowCfg()
+            );  y = y - h
+
+            if not EllesmereUI._prebuilding then
+                local class = select(2, UnitClass("player"))
+                local function Choices(isImbue)
+                    local values, order = { auto = "Auto", off = "Off" }, { "auto", "off" }
+                    for _, b in ipairs(_G._EABR_FV_WEAPON_BUFFS or {}) do
+                        if (b.imbue == true) == isImbue and (not b.class or b.class == class) then
+                            values[b.key] = b.name or _G._EABR_SpellName(b.spells[#b.spells], b.key)
+                            order[#order + 1] = b.key
+                        end
+                    end
+                    return values, order
+                end
+                local function HandRow(label, field, values, order)
+                    return { type="dropdown", label=label, values=values, order=order, ddWidth=200,
+                      get=function()
+                          local f = FDB(); local t = f and f.weaponHands and f.weaponHands[class]
+                          return t and t[field] or "auto"
+                      end,
+                      set=function(v)
+                          local f = FDB(); if not f then return end
+                          f.weaponHands = f.weaponHands or {}
+                          local t = f.weaponHands[class]
+                          if not t then t = {}; f.weaponHands[class] = t end
+                          t[field] = v ~= "auto" and v or nil
                           RefreshAll()
-                      end },
-                    EllesmereUI.BlankRowCfg()
-                );  y = y - h
+                      end }
+                end
+                local imbueValues, imbueOrder = Choices(true)
+                local tempValues, tempOrder = Choices(false)
+                local hasImbues = #imbueOrder > 2
+                local rogue = class == "ROGUE"
+                local offHand = not CanDualWield or CanDualWield()
+                local rows = {}
+                if hasImbues then rows[#rows + 1] = HandRow(rogue and "Main Hand Poison" or "Main Hand Imbue", "mhImbue", imbueValues, imbueOrder) end
+                rows[#rows + 1] = HandRow("Main Hand Stone or Oil", "mhTemp", tempValues, tempOrder)
+                if offHand then
+                    if hasImbues then rows[#rows + 1] = HandRow(rogue and "Off Hand Poison" or "Off Hand Imbue", "ohImbue", imbueValues, imbueOrder) end
+                    rows[#rows + 1] = HandRow("Off Hand Stone or Oil", "ohTemp", tempValues, tempOrder)
+                end
+                rows[#rows + 1] = { type="dropdown", label="Rank to Use", ddWidth=200,
+                  values={ high = "Highest Owned", low = "Lowest Owned" }, order={ "high", "low" },
+                  get=function() local f = FDB(); return f and f.weaponLowRank and "low" or "high" end,
+                  set=function(v) local f = FDB(); if f then f.weaponLowRank = v == "low"; RefreshAll() end end }
+                rows[#rows + 1] = { type="toggle", label="Hide When None in Bags",
+                  tooltip="Hides a reminder when you have none of its item in your bags.\nOff: a chosen item still shows, greyed out. Auto only ever picks items you have.",
+                  get=function() local f = FDB(); return not f or f.weaponHideNoItem ~= false end,
+                  set=function(v) local f = FDB(); if f then f.weaponHideNoItem = v; RefreshAll() end end }
+                rows[#rows + 1] = { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
+                  tooltip="Show a reminder before a poison, imbue, stone or oil runs out.\n0 = only once it has run out.\n1-10 = when it has less than this many minutes left.",
+                  get=function() local f = FDB(); return f and f.weaponShowBelow or 1 end,
+                  set=function(v) local f = FDB(); if f then f.weaponShowBelow = v; RefreshAll() end end }
+                EllesmereUI.BuildInlineCog(weaponRow._leftRegion, {
+                    title = "Weapon Buffs",
+                    disabled = function() local f = FDB(); return not (f and f.weapon == true) end,
+                    disabledTooltip = "Weapon Buffs",
+                    minWidth = 320,
+                    rows = rows,
+                })
             end
 
             -- Add Custom Spell, paired with the tracked spells
