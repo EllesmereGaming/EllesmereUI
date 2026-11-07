@@ -1424,6 +1424,7 @@ end
 -- Spell ranks exist only on WoW Forever (retail's subtext is "Racial" and the
 -- like), so the option and this read are Forever-only.
 function ns.CastDisplayName(cb, name, spellID)
+    name = EllesmereUI.CleanCastName(name)
     if cb.showSpellRank and spellID and EllesmereUI.IS_FOREVER then
         local rank = C_Spell.GetSpellSubtext(spellID)
         if rank and rank ~= "" then return name .. " (" .. rank .. ")" end
