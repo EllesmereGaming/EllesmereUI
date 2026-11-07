@@ -288,6 +288,8 @@ local function SlotUsable(slot)
         return GetMacroInfo(slot.name or slot.id) ~= nil
     elseif k == "outfit" then
         return ns.OutfitInfo(slot) ~= nil
+    elseif k == "equipmentset" then
+        return ns.EquipmentSetInfo(slot) ~= nil
     elseif k == "panel" then
         -- The one kind whose availability is the CLIENT's rather than the
         -- character's: Housing arrived in 12.0 and the Shop is not in every
@@ -392,6 +394,11 @@ local function ResolveAction(slot, p)
         local info = ns.OutfitInfo(slot)
         if not info then return nil end
         return "outfit", "outfit-index", info.playerFacingOutfitIndex
+
+    elseif k == "equipmentset" then
+        local name = ns.EquipmentSetInfo(slot)
+        if not name then return nil end
+        return "equipmentset", "equipmentset", name
 
     elseif k == "macro" then
         -- Stored by name so reordering the macro list doesn't repoint the
@@ -684,6 +691,10 @@ local function SlotDisplay(slot)
         local info = ns.OutfitInfo(slot)
         return ns.OutfitIcon(info) or ns.OutfitIcon(slot) or QUESTION_MARK,
                (info and info.name) or slot.name or "Outfit"
+
+    elseif k == "equipmentset" then
+        local name, icon = ns.EquipmentSetInfo(slot)
+        return icon or slot.icon or QUESTION_MARK, name or slot.name or "Equipment Set"
 
     elseif k == "macro" then
         local nameOrIndex = slot.name or slot.id
@@ -1087,6 +1098,9 @@ local function SlotUsability(slot)
 
     elseif k == "outfit" then
         return InCombatLockdown() and "UNUSABLE" or nil
+
+    elseif k == "equipmentset" then
+        if InCombatLockdown() or not ns.EquipmentSetInfo(slot) then return "UNUSABLE" end
 
     elseif k == "mount" or k == "lastmount" or k == "randommount" then
         -- The Mount Journal's own answer, the one behind its Summon button's

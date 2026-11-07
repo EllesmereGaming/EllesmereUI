@@ -1065,6 +1065,7 @@ function SetEventsEnabled(on)
         EQD:RegisterEvent("UPDATE_MACROS", RequestPush)
         -- Re-resolve player-facing indexes after outfits change order.
         EQD:RegisterEvent("TRANSMOG_OUTFITS_CHANGED", RequestPush)
+        EQD:RegisterEvent("EQUIPMENT_SETS_CHANGED", RequestPush)
         -- Which world markers are down, for a menu that is open while they
         -- move. That is SOMEBODY ELSE's doing: firing an entry closes the menu,
         -- so the presser never sees their own pip change. It is worth the one
@@ -1132,6 +1133,7 @@ function SetEventsEnabled(on)
         EQD:UnregisterEvent("SPELLS_CHANGED")
         EQD:UnregisterEvent("UPDATE_MACROS")
         EQD:UnregisterEvent("TRANSMOG_OUTFITS_CHANGED")
+        EQD:UnregisterEvent("EQUIPMENT_SETS_CHANGED")
         EQD:UnregisterEvent("RAID_TARGET_UPDATE")
         EQD:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     end

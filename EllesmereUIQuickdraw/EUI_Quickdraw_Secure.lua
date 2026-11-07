@@ -944,6 +944,7 @@ local SNIPPET_PRE = [==[
     self:SetAttribute("macrotext", nil)
     self:SetAttribute("toy", nil)
     self:SetAttribute("outfit-index", nil)
+    self:SetAttribute("equipmentset", nil)
     -- "action" is the marker sweep's key, and type="raidtarget" falls back to
     -- "toggle" when it is unset -- so a sweep left behind would turn the next
     -- raidtarget slot into a clear-all of the whole group.
