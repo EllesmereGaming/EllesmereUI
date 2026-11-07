@@ -204,6 +204,8 @@ local function BuildLadder()
                     and (not C_Spell.IsSpellHarmful or C_Spell.IsSpellHarmful(sid)) then
                     local sinfo = C_Spell.GetSpellInfo(sid)
                     local maxR = sinfo and sinfo.maxRange
+                    -- Ranges can read as float noise (23.999998 for a 24 yd spell): whole yards.
+                    if type(maxR) == "number" then maxR = math.floor(maxR + 0.5) end
                     -- A charge/leap-style spell with a nonzero minRange answers
                     -- IsSpellInRange false both beyond maxRange AND inside its
                     -- own dead zone (e.g. a gap-closer unusable under ~8yd) --
