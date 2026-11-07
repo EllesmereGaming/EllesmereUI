@@ -201,7 +201,7 @@ if EABR.FOREVER then
         weapon = false,
         weaponLowRank = false,
         weaponHideNoItem = true,
-        weaponShowBelow = 0,
+        weaponShowBelow = 1,
         weaponHands = {},
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added

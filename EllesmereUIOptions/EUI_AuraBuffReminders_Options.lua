@@ -1942,7 +1942,7 @@ initFrame:SetScript("OnEvent", function(self)
                   set=function(v) local f = FDB(); if f then f.weaponHideNoItem = v; RefreshAll() end end }
                 rows[#rows + 1] = { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
                   tooltip="Show a reminder before a poison, imbue, stone or oil runs out.\n0 = only once it has run out.\n1-10 = when it has less than this many minutes left.",
-                  get=function() local f = FDB(); return f and f.weaponShowBelow or 0 end,
+                  get=function() local f = FDB(); return f and f.weaponShowBelow or 1 end,
                   set=function(v) local f = FDB(); if f then f.weaponShowBelow = v; RefreshAll() end end }
                 EllesmereUI.BuildInlineCog(weaponRow._leftRegion, {
                     title = "Weapon Buffs",

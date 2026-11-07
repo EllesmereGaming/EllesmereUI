@@ -384,7 +384,7 @@ function EABR.CollectForeverWeapons(missing, fo, class)
     if not (C_Item.GetWeaponEnchantInfo and Enum.WeaponSlot and Enum.ItemEnchantType) then return end
     local hands = fo.weaponHands and fo.weaponHands[class]
     local low, hideNoItem = fo.weaponLowRank == true, fo.weaponHideNoItem ~= false
-    local showBelow = fo.weaponShowBelow or 0
+    local showBelow = fo.weaponShowBelow or 1
     local warnSec = showBelow > 0 and showBelow * 60 or nil
     for i = 1, #FV_HANDS do
         local hand = FV_HANDS[i]
