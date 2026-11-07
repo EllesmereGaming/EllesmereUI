@@ -1925,11 +1925,14 @@ initFrame:SetScript("OnEvent", function(self)
                 local tempValues, tempOrder = Choices(false)
                 local hasImbues = #imbueOrder > 2
                 local rogue = class == "ROGUE"
+                local offHand = not CanDualWield or CanDualWield()
                 local rows = {}
                 if hasImbues then rows[#rows + 1] = HandRow(rogue and "Main Hand Poison" or "Main Hand Imbue", "mhImbue", imbueValues, imbueOrder) end
                 rows[#rows + 1] = HandRow("Main Hand Stone or Oil", "mhTemp", tempValues, tempOrder)
-                if hasImbues then rows[#rows + 1] = HandRow(rogue and "Off Hand Poison" or "Off Hand Imbue", "ohImbue", imbueValues, imbueOrder) end
-                rows[#rows + 1] = HandRow("Off Hand Stone or Oil", "ohTemp", tempValues, tempOrder)
+                if offHand then
+                    if hasImbues then rows[#rows + 1] = HandRow(rogue and "Off Hand Poison" or "Off Hand Imbue", "ohImbue", imbueValues, imbueOrder) end
+                    rows[#rows + 1] = HandRow("Off Hand Stone or Oil", "ohTemp", tempValues, tempOrder)
+                end
                 rows[#rows + 1] = { type="dropdown", label="Rank to Use", ddWidth=200,
                   values={ high = "Highest Owned", low = "Lowest Owned" }, order={ "high", "low" },
                   get=function() local f = FDB(); return f and f.weaponLowRank and "low" or "high" end,
