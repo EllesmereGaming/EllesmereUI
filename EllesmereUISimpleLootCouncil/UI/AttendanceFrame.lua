@@ -237,7 +237,7 @@ local function ShowRowTooltip(row, data)
     S.SideTooltip(row)
     if data.kind == "player" then
         S.TooltipSection(GameTooltip, T["Player"])
-        GameTooltip:AddLine(data.name, 1, 1, 1)
+        GameTooltip:AddLine(addon.Player:DisplayName(data.name), 1, 1, 1)
         if not data.night.memberKills then
             GameTooltip:AddLine(T["Kills were not counted per player when this night was recorded."],
                 0.45, 0.44, 0.42, true)
