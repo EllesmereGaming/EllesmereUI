@@ -26,6 +26,15 @@ local WORLD_MARKER_ENGINE, SetUsableSlots = I.WORLD_MARKER_ENGINE, I.SetUsableSl
 -- the forward declaration ChildSlots reads through.
 local UsableSlots
 
+-- Forever gives each spell rank its own id; resolve to the highest known one, as /cast does.
+local function TopRank(id)
+    if not EllesmereUI.IS_FOREVER or type(id) ~= "number" then return id end
+    local info = C_Spell.GetSpellInfo(id)
+    local top = info and C_Spell.GetSpellInfo(info.name)
+    if top and top.spellID ~= id and IsPlayerSpell(top.spellID) then return top.spellID end
+    return id
+end
+
 -------------------------------------------------------------------------------
 --  Dynamic Rez
 --
@@ -366,7 +375,7 @@ local function ResolveAction(slot, p)
 
     if k == "spell" then
         if type(slot.id) ~= "number" then return nil end
-        return "spell", "spell", slot.id
+        return "spell", "spell", TopRank(slot.id)
 
     elseif k == "dynamicprofession" then
         -- Resolved to the CURRENT position's spell every time the
@@ -661,7 +670,7 @@ local function SlotDisplay(slot)
     local k = slot.kind
 
     if k == "spell" then
-        local info = C_Spell.GetSpellInfo(slot.id)
+        local info = C_Spell.GetSpellInfo(TopRank(slot.id))
         if info then return info.iconID or QUESTION_MARK, info.name end
 
     elseif k == "item" then
@@ -889,7 +898,7 @@ ns.SlotDisplay = SlotDisplay
 local function SlotSpellID(slot)
     if not slot then return nil end
     if slot.kind == "spell" then
-        return type(slot.id) == "number" and slot.id or nil
+        return type(slot.id) == "number" and TopRank(slot.id) or nil
     elseif slot.kind == "dynamicrez" then
         return Rez.SpellNow()
     elseif slot.kind == "dynamicprofession" then
