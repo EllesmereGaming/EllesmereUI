@@ -15,6 +15,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  tabs[i] are the i-th bank tab. pets and keystones keep their full link,
 --  since their string alone can't name them.
 --  key = "Name-Realm" (EllesmereUI.RealmGroupName), same as the gold ledger.
+--  wow forever: a bank tab is a bag put in a bank slot (up to 9), so its size
+--  follows that bag and a tab with no bag saves as false. no warband bank there.
 --
 --  both switches are account-wide (EllesmereUIDB.bagOfflineBank /
 --  .bagTooltipCounts), like the data. read only: a bag saves after
@@ -23,7 +25,6 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
 local ns = select(2, ...)
-if EUI.IS_FOREVER then return end  -- retail bank tabs only
 
 local _emptyP = {}
 local function Acct() return _G.EllesmereUIDB or _emptyP end
@@ -116,6 +117,8 @@ function Offline.Char(key)
     return Offline.Store().chars[key]
 end
 function Offline.Warband() return Offline.Store().warband end
+-- forever has no warband bank
+function Offline.HasWarband() return not EUI.IS_FOREVER end
 function Offline.Rev() return rev end
 
 -- something changed, so the viewer and tooltip index catch up. patched: the
@@ -223,7 +226,7 @@ local Patch  -- below, with the tooltip index
 -------------------------------------------------------------------------------
 local BAGS = { 0, 1, 2, 3, 4, 5 }
 local CHAR_BANK, WARBAND_BANK = {}, {}
-for i = 1, 6 do
+for i = 1, EUI.IS_FOREVER and 9 or 6 do
     local id = Enum.BagIndex["CharacterBankTab_" .. i]
     if id then CHAR_BANK[#CHAR_BANK + 1] = id end
 end
@@ -253,8 +256,9 @@ local function SaveList(list, ids, pos, field, owner, meta)
                 local m = meta[i]
                 new.name, new.icon = m and m.name, m and m.icon
             end
-            -- bag slots can be empty (false); unbought bank tabs just stay unsaved
-            if not new and not meta then new = false end
+            -- bag slots can be empty (false), so can a bought forever tab with
+            -- its bag taken out. unbought bank tabs just stay unsaved
+            if not new and (not meta or meta[i]) then new = false end
             if new ~= nil and not Same(list[i], new) then
                 Patch(list[i], new, field, owner)
                 list[i] = new
@@ -293,7 +297,7 @@ local function SaveBanks()
         end
     end
     local locked = C_Bank and C_Bank.FetchBankLockedReason and C_Bank.FetchBankLockedReason(Enum.BankType.Account)
-    if locked == nil then
+    if locked == nil and Offline.HasWarband() then
         local w = Offline.Store().warband
         w.time = time()
         if SaveList(w.tabs, WARBAND_BANK, WARBAND_POS, nil, nil, Meta(Enum.BankType.Account) or {}) then changed = true end
@@ -337,6 +341,11 @@ ev:SetScript("OnEvent", function(_, event, arg)
     elseif event == "BAG_CONTAINER_UPDATE" then
         MarkAll(BAGS)
         Queue(true, false)
+        -- forever: a bag went in or out of a bank tab
+        if atCharBank and EUI.IS_FOREVER then
+            MarkAll(CHAR_BANK)
+            Queue(false, true)
+        end
     elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then
         if arg == PIT.Banker or arg == PIT.AccountBanker then
             atBank, atCharBank = true, arg == PIT.Banker
