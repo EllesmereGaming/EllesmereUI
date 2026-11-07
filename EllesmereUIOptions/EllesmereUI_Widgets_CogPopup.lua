@@ -64,12 +64,34 @@ end
 --  page pool), not per call: one anchor button opens one live popup. Two popups
 --  built from separate calls and opened from the same button would share the
 --  frame, the later open dressing it for its own rows.
+--
+--  Sections, in place of opts.rows:
+--  opts.sections = { { title = "Slot", rows = { ... }, hidden = fn, stackLast = true }, ... }
+--  opts.columnsFrom (2): from this many shown sections on, each shown section
+--      takes a column of its own, its title (accent) on top, side by side with
+--      a 1px divider between columns, opts.maxColumns (4) per band and further
+--      sections in a band below. Each column measures its own labels and sizes
+--      its sliders as a one-column popup does (opts.minWidth applies per column).
+--  Below columnsFrom the shown sections' rows stack in one column with no
+--      titles, stackLast sections after the others: the popup an opts.rows
+--      popup with those rows would be.
+--  A section shows while its hidden (if any) returns false and one of its rows
+--  shows. Rows take every field they take in opts.rows. The popup is clamped to
+--  the screen.
 -------------------------------------------------------------------------------
 local function BuildCogPopup(opts)
+    -- Every row the popup can show: opts.rows, or the rows of every section in order.
+    local allRows = opts.rows
+    if opts.sections then
+        allRows = {}
+        for _, sec in ipairs(opts.sections) do
+            for _, row in ipairs(sec.rows) do allRows[#allRows + 1] = row end
+        end
+    end
     -- Spec Overrides capture: a cog's settings belong to its hosting slot -- ONE setting, captured whole. When the call site passes captureRegion (the DualRow half-region the cog sits in), every row with get/set joins that slot's capture group.
     -- row.noCapture opts a single row out (same flag DualRow honors): a popup can mix capturing rows with rows that must not capture (settings stored per palette rather than under a flat key).
-    if opts.captureRegion and EllesmereUI.AddCaptureAccessor and opts.rows then
-        for _, row in ipairs(opts.rows) do
+    if opts.captureRegion and EllesmereUI.AddCaptureAccessor and allRows then
+        for _, row in ipairs(allRows) do
             if row.get and row.set and not row.noCapture
                and row.type ~= "button" and row.type ~= "reorder"
                and row.type ~= "reordercheck" then
@@ -105,16 +127,34 @@ local function BuildCogPopup(opts)
     -- popup with such rows builds one frame per set of shown rows (cached, so
     -- a flip back reuses it) and swaps to the matching one when a change made
     -- inside it flips a row; a popup without them builds once, as always.
+    -- A section's hidden takes part the same way.
     local dynamic = false
-    if opts.rows then
-        for _, row in ipairs(opts.rows) do
+    if allRows then
+        for _, row in ipairs(allRows) do
             if row.hidden then dynamic = true; break end
+        end
+    end
+    if opts.sections and not dynamic then
+        for _, sec in ipairs(opts.sections) do
+            if sec.hidden then dynamic = true; break end
         end
     end
     local variants = dynamic and {} or nil
     local function HiddenSig()
         if not dynamic then return "" end
         local sig = ""
+        if opts.sections then
+            for si, sec in ipairs(opts.sections) do
+                if sec.hidden and sec.hidden() then
+                    sig = sig .. "s" .. si .. ","
+                else
+                    for ri, row in ipairs(sec.rows) do
+                        if row.hidden and row.hidden() then sig = sig .. si .. "." .. ri .. "," end
+                    end
+                end
+            end
+            return sig
+        end
         for i, row in ipairs(opts.rows) do
             if row.hidden and row.hidden() then sig = sig .. i .. "," end
         end
@@ -131,8 +171,8 @@ local function BuildCogPopup(opts)
     local function PopupRows()
         if popupRowsMade then return popupRows end
         popupRowsMade = true
-        if not opts.rows then return nil end
-        for _, row in ipairs(opts.rows) do
+        if not allRows then return nil end
+        for _, row in ipairs(allRows) do
             if row.set then
                 local _s = row.set
                 local function NotifyingSet(...)
@@ -156,15 +196,65 @@ local function BuildCogPopup(opts)
     local function CreatePopup(sig, anchorBtn)
         local rowWidgets = {}  -- per-row refresh info
         -- The rows this frame shows (all of them without row.hidden), each with
-        -- this popup's notifying setter (popupRows).
-        local rows = {}
+        -- this popup's notifying setter (popupRows), and the columns they fill:
+        -- col = { measure = the rows its width is measured from, title,
+        -- first, last = its rows' range in rows }; colStart[i] = the column
+        -- rows[i] starts. A rows popup is one column with no title.
+        local rows, cols, colStart = {}, {}, {}
         local notifying = PopupRows()
-        for _, row in ipairs(opts.rows) do
-            if not (dynamic and row.hidden and row.hidden()) then
-                rows[#rows + 1] = (notifying and notifying[row]) or row
+        local multi = false  -- one column per shown section
+        if not opts.sections then
+            for _, row in ipairs(opts.rows) do
+                if not (dynamic and row.hidden and row.hidden()) then
+                    rows[#rows + 1] = (notifying and notifying[row]) or row
+                end
+            end
+            cols[1] = { measure = opts.rows }
+        else
+            local shown = {}
+            for _, sec in ipairs(opts.sections) do
+                if not (sec.hidden and sec.hidden()) then
+                    for _, row in ipairs(sec.rows) do
+                        if not (row.hidden and row.hidden()) then shown[#shown + 1] = sec; break end
+                    end
+                end
+            end
+            multi = #shown > 0 and #shown >= (opts.columnsFrom or 2)
+            if not multi then
+                -- One column: stackLast sections after the others.
+                local order = {}
+                for _, sec in ipairs(shown) do
+                    if not sec.stackLast then order[#order + 1] = sec end
+                end
+                for _, sec in ipairs(shown) do
+                    if sec.stackLast then order[#order + 1] = sec end
+                end
+                shown = order
+                cols[1] = { measure = {} }
+            end
+            for _, sec in ipairs(shown) do
+                local col = cols[1]
+                if multi then
+                    col = { measure = sec.rows, title = sec.title, first = #rows + 1 }
+                    cols[#cols + 1] = col
+                    colStart[#rows + 1] = col
+                else
+                    for _, row in ipairs(sec.rows) do col.measure[#col.measure + 1] = row end
+                end
+                for _, row in ipairs(sec.rows) do
+                    if not (row.hidden and row.hidden()) then
+                        rows[#rows + 1] = (notifying and notifying[row]) or row
+                    end
+                end
+                col.last = #rows
             end
         end
-        -- Measure slider labels to find maxLblW
+        if not multi then
+            colStart[1] = cols[1]
+            cols[1].first, cols[1].last = 1, #rows
+        end
+        -- Measure slider labels to find maxLblW: per column, each sizing its
+        -- sliders and its width as a one-column popup does
         local tmpFS = measureFS
         if not tmpFS then
             tmpFS = UIParent:CreateFontString(nil, "OVERLAY")
@@ -173,49 +263,97 @@ local function BuildCogPopup(opts)
         tmpFS:SetFont(EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 11, "")
         tmpFS:Show()
         local COG_DD_W = 130
-        local maxLblW = 0
-        -- Widest label + dropdown pair (a dropdown or checkbox-list row may ask
-        -- for a wider control with row.ddWidth; every other row uses COG_DD_W).
-        local maxDDNeed = COG_DD_W
-        for _, row in ipairs(opts.rows) do
-            if row.type == "slider" or row.type == "input" then
-                tmpFS:SetText(EllesmereUI.L(row.label))
-                local w = tmpFS:GetStringWidth()
-                if w > maxLblW then maxLblW = w end
-            elseif row.type == "dropdown" or row.type == "segmented" or row.type == "reordercheck" then
-                tmpFS:SetText(EllesmereUI.L(row.label))
-                local w = tmpFS:GetStringWidth() + (((row.type == "dropdown" or row.type == "reordercheck") and row.ddWidth) or COG_DD_W)
-                if w > maxDDNeed then maxDDNeed = w end
+        for _, col in ipairs(cols) do
+            local maxLblW = 0
+            -- Widest label + dropdown pair (a dropdown or checkbox-list row may ask
+            -- for a wider control with row.ddWidth; every other row uses COG_DD_W).
+            local maxDDNeed = COG_DD_W
+            for _, row in ipairs(col.measure) do
+                if row.type == "slider" or row.type == "input" then
+                    tmpFS:SetText(EllesmereUI.L(row.label))
+                    local w = tmpFS:GetStringWidth()
+                    if w > maxLblW then maxLblW = w end
+                elseif row.type == "dropdown" or row.type == "segmented" or row.type == "reordercheck" then
+                    tmpFS:SetText(EllesmereUI.L(row.label))
+                    local w = tmpFS:GetStringWidth() + (((row.type == "dropdown" or row.type == "reordercheck") and row.ddWidth) or COG_DD_W)
+                    if w > maxDDNeed then maxDDNeed = w end
+                end
             end
+            if maxLblW < 10 then maxLblW = 60 end
+
+            local SLIDER_LEFT = SIDE_PAD + maxLblW + LABEL_SLIDER_GAP
+            local TARGET_W = opts.minWidth or 260
+            local SLIDER_W = math.max(80, TARGET_W - SLIDER_LEFT - SLIDER_INPUT_GAP - INPUT_W - SIDE_PAD)
+            local POPUP_W = math.max(opts.minWidth or MIN_POPUP_W, SLIDER_LEFT + SLIDER_W + SLIDER_INPUT_GAP + INPUT_W + SIDE_PAD)
+            -- Widen for dropdown rows (label + gap + dropdown + padding)
+            local ddNeeded = SIDE_PAD + maxDDNeed + LABEL_SLIDER_GAP + SIDE_PAD
+            if ddNeeded > POPUP_W then POPUP_W = ddNeeded end
+            if opts.minWidth and opts.minWidth > POPUP_W then POPUP_W = opts.minWidth end
+            -- Stretch the track to fill a widened popup so no gap opens between the slider and its value box. Gated on minWidth so un-widened cog popups keep their original slider width.
+            if opts.minWidth then
+                SLIDER_W = math.max(SLIDER_W, POPUP_W - SLIDER_LEFT - SLIDER_INPUT_GAP - INPUT_W - SIDE_PAD)
+            end
+            -- A column also fits its title, in whole units (its divider sits on them).
+            if multi then
+                if col.title then
+                    tmpFS:SetText(EllesmereUI.L(col.title))
+                    local tw = SIDE_PAD + tmpFS:GetStringWidth() + SIDE_PAD
+                    if tw > POPUP_W then POPUP_W = tw end
+                end
+                POPUP_W = math.ceil(POPUP_W)
+            end
+            col.sliderLeft, col.sliderW, col.w = SLIDER_LEFT, SLIDER_W, POPUP_W
         end
         tmpFS:Hide()
-        if maxLblW < 10 then maxLblW = 60 end
+        local SLIDER_LEFT, SLIDER_W, POPUP_W = cols[1].sliderLeft, cols[1].sliderW, cols[1].w
 
-        local SLIDER_LEFT = SIDE_PAD + maxLblW + LABEL_SLIDER_GAP
-        local TARGET_W = opts.minWidth or 260
-        local SLIDER_W = math.max(80, TARGET_W - SLIDER_LEFT - SLIDER_INPUT_GAP - INPUT_W - SIDE_PAD)
-        local POPUP_W = math.max(opts.minWidth or MIN_POPUP_W, SLIDER_LEFT + SLIDER_W + SLIDER_INPUT_GAP + INPUT_W + SIDE_PAD)
-        -- Widen for dropdown rows (label + gap + dropdown + padding)
-        local ddNeeded = SIDE_PAD + maxDDNeed + LABEL_SLIDER_GAP + SIDE_PAD
-        if ddNeeded > POPUP_W then POPUP_W = ddNeeded end
-        if opts.minWidth and opts.minWidth > POPUP_W then POPUP_W = opts.minWidth end
-        -- Stretch the track to fill a widened popup so no gap opens between the slider and its value box. Gated on minWidth so un-widened cog popups keep their original slider width.
-        if opts.minWidth then
-            SLIDER_W = math.max(SLIDER_W, POPUP_W - SLIDER_LEFT - SLIDER_INPUT_GAP - INPUT_W - SIDE_PAD)
-        end
-
-        local totalH = TOP_PAD + TITLE_H + TITLE_GAP
-        for i, row in ipairs(rows) do
-            if i > 1 then totalH = totalH + GAP end
+        local function RowH(row)
             if row.type == "toggle" or row.type == "segmented" then
-                totalH = totalH + TOGGLE_ROW_H
+                return TOGGLE_ROW_H
             elseif row.type == "dropdown" or row.type == "reorder" or row.type == "reordercheck" then
-                totalH = totalH + DROPDOWN_ROW_H
+                return DROPDOWN_ROW_H
             elseif row.type == "button" then
-                totalH = totalH + ROW_H + 4
-            else
-                totalH = totalH + ROW_H
+                return ROW_H + 4
             end
+            return ROW_H
+        end
+        -- Column titles: their height and the gap under them; the gap between bands.
+        local HDR_H, HDR_GAP, BAND_GAP = 12, 6, GAP * 2
+        local totalH = TOP_PAD + TITLE_H + TITLE_GAP
+        local contentBottom  -- columns: the last band's bottom
+        if not multi then
+            cols[1].y = -totalH
+            for i, row in ipairs(rows) do
+                if i > 1 then totalH = totalH + GAP end
+                totalH = totalH + RowH(row)
+            end
+        else
+            -- Bands of up to opts.maxColumns columns side by side, a 1px divider
+            -- between columns: a band is as tall as its tallest column, the
+            -- popup as wide as its widest band.
+            local perBand = math.max(1, opts.maxColumns or 4)
+            local x, band = 0, nil
+            POPUP_W = 0
+            for ci, col in ipairs(cols) do
+                local h = col.title and (HDR_H + HDR_GAP) or 0
+                for i = col.first, col.last do
+                    if i > col.first then h = h + GAP end
+                    h = h + RowH(rows[i])
+                end
+                if (ci - 1) % perBand == 0 then
+                    if band then totalH = totalH + band.h + BAND_GAP end
+                    band = { y = -totalH, h = 0 }
+                    x = 0
+                else
+                    x = x + 1  -- the divider
+                end
+                col.x, col.y, col.band = x, band.y, band
+                x = x + col.w
+                if x > POPUP_W then POPUP_W = x end
+                if h > band.h then band.h = h end
+            end
+            totalH = totalH + band.h
+            contentBottom = -totalH
         end
         totalH = totalH + TOP_PAD
 
@@ -251,14 +389,46 @@ local function BuildCogPopup(opts)
         titleFS:SetPoint("TOP", pf, "TOP", 0, -TOP_PAD)
         titleFS:SetText(EllesmereUI.L(opts.title or ""))
 
+        -- A sections popup can be wide: it stays on screen.
+        if opts.sections then pf:SetClampedToScreen(true) end
+        -- The frame each column's rows anchor to: the popup itself for one
+        -- column; per column, a frame whose top-left sits at the column's
+        -- origin on the popup's top edge, with the dividers between columns
+        -- (and across the popup between bands).
+        if multi then
+            local prevBand
+            for _, col in ipairs(cols) do
+                local a = CreateFrame("Frame", nil, pf)
+                a:SetPoint("TOPLEFT", pf, "TOPLEFT", col.x, 0)
+                a:SetSize(col.w, totalH)
+                col.anchor = a
+                if prevBand then
+                    local div = SolidTex(pf, "BORDER", BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15)
+                    PP.DisablePixelSnap(div)
+                    if col.band == prevBand then
+                        PP.Point(div, "TOPLEFT", pf, "TOPLEFT", col.x - 1, col.y)
+                        PP.Size(div, 1, col.band.h)
+                    else
+                        PP.Point(div, "TOPLEFT", pf, "TOPLEFT", 1, col.y + BAND_GAP / 2)
+                        PP.Size(div, POPUP_W - 2, 1)
+                    end
+                end
+                prevBand = col.band
+            end
+        else
+            cols[1].anchor = pf
+        end
+
         local curY = -(TOP_PAD + TITLE_H + TITLE_GAP)
+        -- The column the rows below are built in: its frame and width.
+        local ca, COL_W = pf, POPUP_W
         -- A dropdown-height row's disabled overlay (row.disabled set): dims the row,
         -- blocks it and explains the lock; the refresh shows it while disabled.
         local function RowDisabledOverlay(row, y)
             if not row.disabled then return nil end
             local dis = CreateFrame("Frame", nil, pf)
-            dis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, y)
-            dis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, y)
+            dis:SetPoint("TOPLEFT", ca, "TOPLEFT", 1, y)
+            dis:SetPoint("TOPRIGHT", ca, "TOPRIGHT", -1, y)
             dis:SetHeight(DROPDOWN_ROW_H)
             dis:SetFrameLevel(pf:GetFrameLevel() + 10)
             dis:EnableMouse(true)
@@ -274,13 +444,24 @@ local function BuildCogPopup(opts)
             return dis
         end
         for i, row in ipairs(rows) do
-            if i > 1 then curY = curY - GAP end
+            local col = colStart[i]
+            if col then
+                -- A column's first row: the column's frame, widths, top and title.
+                ca, COL_W, SLIDER_LEFT, SLIDER_W, curY = col.anchor, col.w, col.sliderLeft, col.sliderW, col.y
+                if col.title then
+                    local hdr = MakeFont(pf, 11, nil, ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b)
+                    hdr:SetText(EllesmereUI.L(col.title))
+                    hdr:SetPoint("TOPLEFT", ca, "TOPLEFT", SIDE_PAD, curY)
+                    EllesmereUI.RegAccent({ type = "callback", obj = hdr, fn = function(r, g, b) hdr:SetTextColor(r, g, b) end })
+                    curY = curY - HDR_H - HDR_GAP
+                end
+            elseif i > 1 then curY = curY - GAP end
 
             if row.type == "slider" then
                 local srow = PixelizeSliderCfg(row)
                 local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
                 lbl:SetText(EllesmereUI.L(row.label))
-                lbl:SetPoint("LEFT", pf, "TOPLEFT", SIDE_PAD, curY - ROW_H / 2 - 1)
+                lbl:SetPoint("LEFT", ca, "TOPLEFT", SIDE_PAD, curY - ROW_H / 2 - 1)
 
                 if row.tooltip then
                     local hitFrame = CreateFrame("Frame", nil, pf)
@@ -298,15 +479,15 @@ local function BuildCogPopup(opts)
 
                 local track, valBox, updateVisual = BuildSliderCore(pf, SLIDER_W, 4, 12, INPUT_W, ROW_H, 11, POPUP_INPUT_A,
                     srow.min, srow.max, srow.step, srow.get, srow.set, true)
-                track:SetPoint("LEFT", pf, "TOPLEFT", SLIDER_LEFT, curY - ROW_H / 2)
+                track:SetPoint("LEFT", ca, "TOPLEFT", SLIDER_LEFT, curY - ROW_H / 2)
                 valBox:ClearAllPoints()
-                valBox:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
+                valBox:SetPoint("RIGHT", ca, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
 
                 local sliderDis
                 if row.disabled then
                     sliderDis = CreateFrame("Frame", nil, pf)
-                    sliderDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
-                    sliderDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
+                    sliderDis:SetPoint("TOPLEFT", ca, "TOPLEFT", 1, curY)
+                    sliderDis:SetPoint("TOPRIGHT", ca, "TOPRIGHT", -1, curY)
                     sliderDis:SetHeight(ROW_H)
                     sliderDis:SetFrameLevel(pf:GetFrameLevel() + 10)
                     sliderDis:EnableMouse(true)
@@ -327,7 +508,7 @@ local function BuildCogPopup(opts)
             elseif row.type == "toggle" then
                 local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
                 lbl:SetText(EllesmereUI.L(row.label))
-                lbl:SetPoint("LEFT", pf, "TOPLEFT", SIDE_PAD, curY - TOGGLE_ROW_H / 2 - 1)
+                lbl:SetPoint("LEFT", ca, "TOPLEFT", SIDE_PAD, curY - TOGGLE_ROW_H / 2 - 1)
 
                 if row.tooltip then
                     local hitFrame = CreateFrame("Frame", nil, pf)
@@ -344,7 +525,7 @@ local function BuildCogPopup(opts)
                 end
 
                 local cogToggle, _, cogSnap = BuildToggleControl(pf, pf:GetFrameLevel() + 2, row.get, function(v) row.set(v) end, { sizeRatio = 0.8, noAnim = true })
-                cogToggle:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - TOGGLE_ROW_H / 2)
+                cogToggle:SetPoint("RIGHT", ca, "TOPRIGHT", -SIDE_PAD, curY - TOGGLE_ROW_H / 2)
 
                 local function UpdateToggleVisual() cogSnap() end
                 UpdateToggleVisual()
@@ -358,8 +539,8 @@ local function BuildCogPopup(opts)
                 local toggleDis
                 if row.disabled then
                     toggleDis = CreateFrame("Frame", nil, pf)
-                    toggleDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
-                    toggleDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
+                    toggleDis:SetPoint("TOPLEFT", ca, "TOPLEFT", 1, curY)
+                    toggleDis:SetPoint("TOPRIGHT", ca, "TOPRIGHT", -1, curY)
                     toggleDis:SetHeight(TOGGLE_ROW_H)
                     toggleDis:SetFrameLevel(pf:GetFrameLevel() + 10)
                     toggleDis:EnableMouse(true)
@@ -379,7 +560,7 @@ local function BuildCogPopup(opts)
             elseif row.type == 'dropdown' then
                 local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
                 lbl:SetText(EllesmereUI.L(row.label))
-                lbl:SetPoint('LEFT', pf, 'TOPLEFT', SIDE_PAD, curY - DROPDOWN_ROW_H / 2 - 1)
+                lbl:SetPoint('LEFT', ca, 'TOPLEFT', SIDE_PAD, curY - DROPDOWN_ROW_H / 2 - 1)
 
                 -- Cog-popup dropdowns render 10% smaller than the panel dropdowns.
                 local DD_SCALE = 0.9
@@ -390,7 +571,7 @@ local function BuildCogPopup(opts)
                 ddBtn:SetScale(DD_SCALE)
                 ddBtn:ClearAllPoints()
                 -- Offsets divided by DD_SCALE so the scaled control still lands flush-right and vertically centered: SetScale multiplies a frame's own anchor offsets by its scale.
-                ddBtn:SetPoint('RIGHT', pf, 'TOPRIGHT', -SIDE_PAD / DD_SCALE, (curY - DROPDOWN_ROW_H / 2) / DD_SCALE)
+                ddBtn:SetPoint('RIGHT', ca, 'TOPRIGHT', -SIDE_PAD / DD_SCALE, (curY - DROPDOWN_ROW_H / 2) / DD_SCALE)
                 if row.tooltip then ddBtn._ttText = row.tooltip; ddBtn._ttOpts = row.tooltipOpts end
                 -- Propagate popup scale and the 10% reduction to the lazily-built menu so the open list matches the shrunk control.
                 ddBtn:HookScript('OnClick', function(self)
@@ -413,7 +594,7 @@ local function BuildCogPopup(opts)
             elseif row.type == 'reordercheck' then
                 local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
                 lbl:SetText(EllesmereUI.L(row.label))
-                lbl:SetPoint('LEFT', pf, 'TOPLEFT', SIDE_PAD, curY - DROPDOWN_ROW_H / 2 - 1)
+                lbl:SetPoint('LEFT', ca, 'TOPLEFT', SIDE_PAD, curY - DROPDOWN_ROW_H / 2 - 1)
 
                 local items = type(row.items) == "function" and row.items() or row.items or {}
                 local ddBtn, refresh
@@ -441,7 +622,7 @@ local function BuildCogPopup(opts)
                 local DD_SCALE = 0.9
                 ddBtn:SetScale(DD_SCALE)
                 ddBtn:ClearAllPoints()
-                ddBtn:SetPoint('RIGHT', pf, 'TOPRIGHT', -SIDE_PAD / DD_SCALE, (curY - DROPDOWN_ROW_H / 2) / DD_SCALE)
+                ddBtn:SetPoint('RIGHT', ca, 'TOPRIGHT', -SIDE_PAD / DD_SCALE, (curY - DROPDOWN_ROW_H / 2) / DD_SCALE)
                 ddBtn:HookScript('OnClick', function(self)
                     if self._ddMenu then
                         self._ddMenu:SetFrameStrata(pf:GetFrameStrata())
@@ -455,7 +636,7 @@ local function BuildCogPopup(opts)
             elseif row.type == 'segmented' then
                 local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
                 lbl:SetText(EllesmereUI.L(row.label))
-                lbl:SetPoint('LEFT', pf, 'TOPLEFT', SIDE_PAD, curY - TOGGLE_ROW_H / 2 - 1)
+                lbl:SetPoint('LEFT', ca, 'TOPLEFT', SIDE_PAD, curY - TOGGLE_ROW_H / 2 - 1)
 
                 local seg, _seg2, segRefresh = EllesmereUI.BuildSegmentedControl({
                     parent     = pf,
@@ -471,13 +652,13 @@ local function BuildCogPopup(opts)
                     end,
                 })
                 seg:ClearAllPoints()
-                seg:SetPoint('RIGHT', pf, 'TOPRIGHT', -SIDE_PAD, curY - TOGGLE_ROW_H / 2)
+                seg:SetPoint('RIGHT', ca, 'TOPRIGHT', -SIDE_PAD, curY - TOGGLE_ROW_H / 2)
 
                 local segDis
                 if row.disabled then
                     segDis = CreateFrame("Frame", nil, pf)
-                    segDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
-                    segDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
+                    segDis:SetPoint("TOPLEFT", ca, "TOPLEFT", 1, curY)
+                    segDis:SetPoint("TOPRIGHT", ca, "TOPRIGHT", -1, curY)
                     segDis:SetHeight(TOGGLE_ROW_H)
                     segDis:SetFrameLevel(pf:GetFrameLevel() + 10)
                     segDis:EnableMouse(true)
@@ -497,7 +678,7 @@ local function BuildCogPopup(opts)
             elseif row.type == 'colorpicker' then
                 local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
                 lbl:SetText(EllesmereUI.L(row.label))
-                lbl:SetPoint('LEFT', pf, 'TOPLEFT', SIDE_PAD, curY - ROW_H / 2 - 1)
+                lbl:SetPoint('LEFT', ca, 'TOPLEFT', SIDE_PAD, curY - ROW_H / 2 - 1)
 
                 if row.tooltip then
                     local hitFrame = CreateFrame("Frame", nil, pf)
@@ -521,7 +702,7 @@ local function BuildCogPopup(opts)
                     end,
                     row.hasAlpha, 20)
                 cpSwatch:ClearAllPoints()
-                cpSwatch:SetPoint('RIGHT', pf, 'TOPRIGHT', -SIDE_PAD, curY - ROW_H / 2)
+                cpSwatch:SetPoint('RIGHT', ca, 'TOPRIGHT', -SIDE_PAD, curY - ROW_H / 2)
 
                 -- Disabled: blocking overlays on label + swatch (inline swatch pattern)
                 local cpSwBlock, cpLblBlock
@@ -570,7 +751,7 @@ local function BuildCogPopup(opts)
                 -- Cog-row form of the main-page multiSwatch slot: label + N swatches right-to-left from the right edge; click one or the other, the inactive one dims. Same swatch spec: getValue/setValue/hasAlpha/tooltip/onClick (original picker click stashed on _eabOrigClick)/refreshAlpha.
                 local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
                 lbl:SetText(EllesmereUI.L(row.label))
-                lbl:SetPoint('LEFT', pf, 'TOPLEFT', SIDE_PAD, curY - ROW_H / 2 - 1)
+                lbl:SetPoint('LEFT', ca, 'TOPLEFT', SIDE_PAD, curY - ROW_H / 2 - 1)
 
                 local MSW_GAP = 8
                 local mswX = -SIDE_PAD
@@ -589,7 +770,7 @@ local function BuildCogPopup(opts)
                         end,
                         sc.hasAlpha, 20)
                     swatch:ClearAllPoints()
-                    swatch:SetPoint('RIGHT', pf, 'TOPRIGHT', mswX, curY - ROW_H / 2)
+                    swatch:SetPoint('RIGHT', ca, 'TOPRIGHT', mswX, curY - ROW_H / 2)
                     mswX = mswX - 20 - MSW_GAP
                     if sc.onClick then
                         swatch._eabOrigClick = swatch:GetScript('OnClick')
@@ -620,8 +801,8 @@ local function BuildCogPopup(opts)
                 local mswDis
                 if row.disabled then
                     mswDis = CreateFrame("Frame", nil, pf)
-                    mswDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
-                    mswDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
+                    mswDis:SetPoint("TOPLEFT", ca, "TOPLEFT", 1, curY)
+                    mswDis:SetPoint("TOPRIGHT", ca, "TOPRIGHT", -1, curY)
                     mswDis:SetHeight(ROW_H)
                     mswDis:SetFrameLevel(pf:GetFrameLevel() + 10)
                     mswDis:EnableMouse(true)
@@ -643,7 +824,7 @@ local function BuildCogPopup(opts)
             elseif row.type == 'input' then
                 local lbl = MakeFont(pf, 11, nil, 1, 1, 1); lbl:SetAlpha(0.6)
                 lbl:SetText(EllesmereUI.L(row.label))
-                lbl:SetPoint("LEFT", pf, "TOPLEFT", SIDE_PAD, curY - ROW_H / 2 - 1)
+                lbl:SetPoint("LEFT", ca, "TOPLEFT", SIDE_PAD, curY - ROW_H / 2 - 1)
 
                 if row.tooltip then
                     local hitFrame = CreateFrame("Frame", nil, pf)
@@ -670,7 +851,7 @@ local function BuildCogPopup(opts)
                 if not commitOnBlur then
                     saveBtn = CreateFrame("Button", nil, pf)
                     saveBtn:SetSize(SAVE_W, ROW_H - 4)
-                    saveBtn:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
+                    saveBtn:SetPoint("RIGHT", ca, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
                     saveBtn:SetFrameLevel(pf:GetFrameLevel() + 3)
                     saveBg = SolidTex(saveBtn, "BACKGROUND", EG.r, EG.g, EG.b, 0.85)
                     saveBg:SetAllPoints()
@@ -688,7 +869,7 @@ local function BuildCogPopup(opts)
                 local box = CreateFrame("EditBox", nil, pf)
                 box:SetSize(inputW, ROW_H - 4)
                 if commitOnBlur then
-                    box:SetPoint("RIGHT", pf, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
+                    box:SetPoint("RIGHT", ca, "TOPRIGHT", -SIDE_PAD, curY - ROW_H / 2)
                 else
                     box:SetPoint("RIGHT", saveBtn, "LEFT", -SAVE_GAP, 0)
                 end
@@ -743,8 +924,8 @@ local function BuildCogPopup(opts)
                 local inputDis
                 if row.disabled then
                     inputDis = CreateFrame("Frame", nil, pf)
-                    inputDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
-                    inputDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
+                    inputDis:SetPoint("TOPLEFT", ca, "TOPLEFT", 1, curY)
+                    inputDis:SetPoint("TOPRIGHT", ca, "TOPRIGHT", -1, curY)
                     inputDis:SetHeight(ROW_H)
                     inputDis:SetFrameLevel(pf:GetFrameLevel() + 10)
                     inputDis:EnableMouse(true)
@@ -765,8 +946,8 @@ local function BuildCogPopup(opts)
             elseif row.type == 'button' then
                 local BTN_ROW_H = ROW_H + 4
                 local btn = CreateFrame("Button", nil, pf)
-                PP.Size(btn, POPUP_W - SIDE_PAD * 2, BTN_ROW_H)
-                PP.Point(btn, "TOP", pf, "TOPLEFT", POPUP_W / 2, curY)
+                PP.Size(btn, COL_W - SIDE_PAD * 2, BTN_ROW_H)
+                PP.Point(btn, "TOP", ca, "TOPLEFT", COL_W / 2, curY)
                 btn:SetFrameLevel(pf:GetFrameLevel() + 2)
                 local btnBg = SolidTex(btn, "BACKGROUND", 0.18, 0.18, 0.18, 0.85)
                 btnBg:SetAllPoints()
@@ -785,10 +966,10 @@ local function BuildCogPopup(opts)
 
             elseif row.type == 'reorder' then
                 -- Full-width dropdown button opening a drag-to-reorder menu (hint label + draggable rows), matching the raid/party "Sort By" reorder section.
-                local RR_W = POPUP_W - SIDE_PAD * 2
+                local RR_W = COL_W - SIDE_PAD * 2
                 local ddBtn = CreateFrame("Button", nil, pf)
                 ddBtn:SetSize(RR_W, DROPDOWN_ROW_H - 2)
-                ddBtn:SetPoint("TOP", pf, "TOPLEFT", POPUP_W / 2, curY - 1)
+                ddBtn:SetPoint("TOP", ca, "TOPLEFT", COL_W / 2, curY - 1)
                 ddBtn:SetFrameLevel(pf:GetFrameLevel() + 2)
                 local rBg = SolidTex(ddBtn, "BACKGROUND", EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
                 rBg:SetAllPoints()
@@ -1055,8 +1236,8 @@ local function BuildCogPopup(opts)
                 local reorderDis
                 if row.disabled then
                     reorderDis = CreateFrame("Frame", nil, pf)
-                    reorderDis:SetPoint("TOPLEFT", pf, "TOPLEFT", 1, curY)
-                    reorderDis:SetPoint("TOPRIGHT", pf, "TOPRIGHT", -1, curY)
+                    reorderDis:SetPoint("TOPLEFT", ca, "TOPLEFT", 1, curY)
+                    reorderDis:SetPoint("TOPRIGHT", ca, "TOPRIGHT", -1, curY)
                     reorderDis:SetHeight(DROPDOWN_ROW_H)
                     reorderDis:SetFrameLevel(pf:GetFrameLevel() + 12)
                     reorderDis:EnableMouse(true)
@@ -1075,7 +1256,8 @@ local function BuildCogPopup(opts)
                 curY = curY - DROPDOWN_ROW_H
             end
         end
-
+        -- Columns: the footer goes under the last band.
+        if multi then curY = contentBottom end
 
         if opts.footer and opts.footer.unlockKey then
             local footerY = curY - 10

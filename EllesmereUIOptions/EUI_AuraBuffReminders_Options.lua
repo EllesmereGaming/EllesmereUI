@@ -630,13 +630,19 @@ initFrame:SetScript("OnEvent", function(self)
         { key="in_combat",         label="In Combat" },
     }
     -- WoW Forever buckets: vanilla dungeons report Normal difficulty and its
-    -- raids the legacy 40/20-player ids (mapped in the core file), so the
-    -- Forever section offers three locations plus the combat gate.
+    -- raids the legacy 40/20-player ids (mapped in the core file), so Raid
+    -- Buffs there offers three locations plus the combat gate.
     local FOREVER_WHERE_ITEMS = {
         { key="open_world",        label="Open World" },
         { key="dungeon_nonmythic", label="Dungeons" },
         { key="raid_normal_lfr",   label="Raids" },
         { key="in_combat",         label="In Combat" },
+    }
+    -- The WoW Forever section never shows in combat: no combat gate to offer
+    local FOREVER_SECTION_WHERE_ITEMS = {
+        { key="open_world",        label="Open World" },
+        { key="dungeon_nonmythic", label="Dungeons" },
+        { key="raid_normal_lfr",   label="Raids" },
     }
     local SHOWWHEN_ITEMS = {
         { key="othersMissing", label="Others are missing my buff" },
@@ -1811,7 +1817,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Where to Show | Reminder Sound
             _, h = SectionControlRow(parent, y, {
-                whereStore = FWhere, whereItems = FOREVER_WHERE_ITEMS,
+                whereStore = FWhere, whereItems = FOREVER_SECTION_WHERE_ITEMS,
                 whereTooltip = "Pick which content the WoW Forever reminders appear in.\nRested areas (cities and inns) always stay hidden.",
                 soundSec = FDB, soundField = "sectionSound",
                 onChange = RefreshAll,

@@ -27,12 +27,24 @@ local WORLD_MARKER_ENGINE, SetUsableSlots = I.WORLD_MARKER_ENGINE, I.SetUsableSl
 local UsableSlots
 
 -- Forever gives each spell rank its own id; resolve to the highest known one, as /cast does.
-local function TopRank(id)
-    if not EllesmereUI.IS_FOREVER or type(id) ~= "number" then return id end
-    local info = C_Spell.GetSpellInfo(id)
-    local top = info and C_Spell.GetSpellInfo(info.name)
-    if top and top.spellID ~= id and IsPlayerSpell(top.spellID) then return top.spellID end
-    return id
+-- Kept per stored id until the next push (PushAllPalettes wipes it, and SPELLS_CHANGED
+-- requests one); a lookup made before the spell's data loaded is not kept.
+local TopRank
+do
+    local memo = {}
+    function ns.WipeRankCache() wipe(memo) end
+    TopRank = function(id)
+        if not EllesmereUI.IS_FOREVER or type(id) ~= "number" then return id end
+        local hit = memo[id]
+        if hit then return hit end
+        local info = C_Spell.GetSpellInfo(id)
+        local top = info and C_Spell.GetSpellInfo(info.name)
+        if not top then return id end
+        local out = id
+        if top.spellID ~= id and C_SpellBook.IsSpellKnown(top.spellID) then out = top.spellID end
+        memo[id] = out
+        return out
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -257,8 +269,8 @@ do
 -- Is this one spell id in either of this character's books, player or pet?
 local function KnownForm(sid)
     return (sid and sid > 0)
-        and (IsPlayerSpell(sid)
-             or (C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook
+        and (C_SpellBook.IsSpellKnown(sid)
+             or (C_SpellBook.IsSpellKnownOrInSpellBook
                  and C_SpellBook.IsSpellKnownOrInSpellBook(sid)))
         or false
 end

@@ -783,8 +783,11 @@ initFrame:SetScript("OnEvent", function(self)
                 for i = li.itemIndexOffset + 1, li.itemIndexOffset + li.numSpellBookItems do
                     local info = C_SpellBook.GetSpellBookItemInfo(i, bank)
                     -- FutureSpell (a rank not learned yet) falls out here too:
-                    -- only Spell and Flyout are handled.
-                    if info and not info.isPassive and not info.isOffSpec then
+                    -- only Spell and Flyout are handled. On WoW Forever the book
+                    -- holds every learned rank, and an entry casts the highest
+                    -- known one, so a lower rank would only repeat its spell's row.
+                    if info and not info.isPassive and not info.isOffSpec
+                       and not (EllesmereUI.IS_FOREVER and C_SpellBook.IsSpellBookItemLowRank(i, bank)) then
                         if info.itemType == Enum.SpellBookItemType.Spell then
                             -- actionID, not spellID: for a spell actionID is the
                             -- BASE id while spellID is whatever override is up

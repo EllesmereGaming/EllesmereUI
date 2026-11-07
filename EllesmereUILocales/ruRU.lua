@@ -1411,9 +1411,12 @@ L["Set (Verb)"]                  = "Установить"
 -- == Friends List Options (from EUI_Friends_Options.lua) ==========================
 L["Class Icon Theme"]            = "Тема иконок классов"
 L["Class Color Names"]           = "Имена цветом класса"
+L["Class Colored Names"]         = "Имена цветом класса"
 L["Enable Accent Colors"]        = "Включить цвета акцентов"
 L["Enable Faction Banners"]      = "Включить знамена фракций"
+L["Faction Banners"]             = "Знамена фракций"
 L["Show Region Icons"]           = "Показывать иконки регионов"
+L["Region Icons"]                = "Иконки регионов"
 L["Auto-Accept Friend Invites"]  = "Автоприем приглашений от друзей"
 
 -- == Region Names (for friend region tooltips) =================================
@@ -4541,3 +4544,15 @@ L["Shift + Scroll"] = "Shift + прокрутка"
 L["Ctrl + Scroll"] = "Ctrl + прокрутка"
 L["Alt + Scroll"] = "Alt + прокрутка"
 L["Scroll with the chosen modifier to cycle overlapping frames in Unlock Mode."] = "Прокручивайте колесо с выбранным модификатором, чтобы переключаться между перекрывающимися рамками в режиме «Фиксаторы»."
+
+-- Nameplates Core Positions cog
+L["Slot"] = "Слот"
+
+-- Bags Pinned Items cog
+L["Hide Items in Their Categories"] = "Скрывать предметы в их категориях"
+L["Dim Items in OneBag/MultiBag"] = "Затемнять предметы в OneBag/MultiBag"
+L["Dims pinned items in their bag slots, since they also show in Pinned Items."] = "Затемняет закрепленные предметы в ячейках сумок, так как они также показаны в разделе «Закрепленные предметы»."
+
+-- Quest Tracker Title Difficulty Colors
+L["Title Difficulty Colors"] = "Цвета сложности заголовков"
+L["Colors quest titles by difficulty for your level. This is the game's own option, so its quest log follows it too."] = "Окрашивает названия заданий по сложности для вашего уровня. Это собственная настройка игры, поэтому журнал заданий тоже её учитывает."

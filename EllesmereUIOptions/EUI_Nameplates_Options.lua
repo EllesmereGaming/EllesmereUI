@@ -76,9 +76,11 @@ initFrame:SetScript("OnEvent", function(self)
     local pcall = pcall
     local pairs = pairs
 
-    -- Preview font setter: mirrors SetFSFont shadow logic for direct SetFont calls
+    -- Preview font setter: the plates' own font families (SetFSFont), so a
+    -- preview name, title or cast target draws as on a live plate. Every font
+    -- write to a preview text goes through it, never a plain SetFont.
     local function SetPVFont(fs, fontPath, size, flags)
-        EllesmereUI.ApplyModuleFont(fs, fontPath, size, "nameplates", flags)
+        EllesmereUI.ApplyModuleFontFamily(fs, fontPath, size, "nameplates", flags)
     end
     local floor = math.floor
     local NAME_RAID_MARKER_GAP = 3
@@ -188,6 +190,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- Raid marker hidden by default, toggled via eye icon; optState fields so both the preview and the Display page can access them.
     optState.showRaidMarkerPreview = false
     optState.showClassificationPreview = false
+    optState.showQuestTextPreview = false
     optState.showTargetGlowPreview = false
     optState.showAbsorbPreview = false
 
@@ -446,6 +449,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         local function SetElementAtPosition(pos, element)
+            -- The Quest Objective Text view reads the Rare/Quest slot and its Quest
+            -- half: fix its own keys before either can move.
+            ns.NP_MaterializeQuestText(DB())
             if element == "none" then
                 -- Clear: find whatever element is at this position and move it to "none"
                 local db = DB()
@@ -454,6 +460,7 @@ initFrame:SetScript("OnEvent", function(self)
                         db[key] = "none"
                     end
                 end
+                if ns.NP_GetQuestTextSlot(db) == pos then db.questTextSlot = "none" end
                 return
             end
             -- "Debuffs + CC" rides the debuff slot key; the two entries differ only by debuffIncludeCC.
@@ -618,13 +625,17 @@ initFrame:SetScript("OnEvent", function(self)
             return nil
         end
 
-        -- Resolve a dynamic click mapping for icon elements Core Positions row
-        local function ResolveCoreMapping(element)
-            local pos = FindCorePosForElement(element)
-            if not pos then return { section = coreHeader, target = coreRow1 } end
+        -- Resolve a dynamic click mapping to the Core Positions row of a position
+        -- (the first row while the element sits in none)
+        local function ResolveCorePos(pos)
+            if not pos or pos == "none" then return { section = coreHeader, target = coreRow1 } end
             local info = ctx.corePosToRegion[pos]
             if not info then return { section = coreHeader, target = coreRow1 } end
             return { section = coreHeader, target = info[1], slotSide = (info[2] == "_leftRegion") and "left" or "right" }
+        end
+        -- The same for the slot holding an icon element
+        local function ResolveCoreMapping(element)
+            return ResolveCorePos(FindCorePosForElement(element))
         end
 
         local clickMappings = {
@@ -663,6 +674,8 @@ initFrame:SetScript("OnEvent", function(self)
             ccIcon       = function() return ResolveCoreMapping("ccs") end,
             raidMarker   = function() return ResolveCoreMapping("raidmarker") end,
             classIcon    = function() return ResolveCoreMapping("classification") end,
+            -- The Quest Objective Text's effective slot.
+            questText    = function() return ResolveCorePos(ns.NP_GetQuestTextSlot(DB())) end,
             -- Combined with Rare/Quest, the badge's settings live on that row.
             factionIcon  = function()
                 if DB().classificationIncludeFaction then return ResolveCoreMapping("classification") end
@@ -897,6 +910,10 @@ initFrame:SetScript("OnEvent", function(self)
             if pv._factionIcon then
                 pv._factionOverlay = CreateHitOverlay(pv._factionIcon, "factionIcon")
                 pv._factionOverlay:SetShown(pv._factionIcon:IsShown())
+            end
+            -- Quest Objective Text sample (its child, so it shows and hides with it)
+            if pv._questTextFrame then
+                CreateHitOverlay(pv._questTextFrame, "questText")
             end
             -- Class resource pips wrapper button spanning all visible pips
             local cpOverlay

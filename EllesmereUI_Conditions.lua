@@ -66,13 +66,14 @@ EllesmereUI.CONDITIONS = {
       requires = DarkModeMasterOn,
       tooltip = "Active while Dark Mode is on.",
       requiresHint = "Check every Dark Mode in Global Settings > Colors, except Class Resource Bar, to use this condition." },
-    -- WoW Forever only: the Gamepad interface style has no retail counterpart
-    -- (PadGamepadUI reads false there), so retail never offers the condition.
-    { id = "gamepad",      label = "Gamepad Mode",
-      requires = function() return EllesmereUI.IS_FOREVER == true end,
-      tooltip = "Active while WoW Forever's Gamepad interface style is on.",
-      requiresHint = "Available on WoW Forever only." },
 }
+-- WoW Forever only: its Gamepad interface style has no retail counterpart
+-- (PadGamepadUI reads false there), so retail lists no row or icon for it; a
+-- group imported there with it checked simply never matches on it.
+if EllesmereUI.IS_FOREVER == true then
+    EllesmereUI.CONDITIONS[#EllesmereUI.CONDITIONS + 1] = { id = "gamepad", label = "Gamepad Mode",
+        tooltip = "Active while WoW's gamepad interface is on." }
+end
 
 local INSTANCE_COND = {
     party = "dungeon",

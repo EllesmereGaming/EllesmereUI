@@ -1274,6 +1274,7 @@ function EllesmereUI:ShowInputPopup(opts)
                 popup._flashEmpty()
                 return
             end
+            if popup._closePicker then popup._closePicker() end
             local shown, cb = popup._handle, popup._onConfirmCb
             if cb then
                 if popup._cbRow:IsShown() then cb(txt, popup._cbChecked) else cb(txt) end
@@ -1322,6 +1323,61 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._info._tip = opts.infoTooltip
     popup._info._tipOpts = opts.infoTooltipOpts
     popup._info:SetShown(opts.infoTooltip ~= nil)
+    -- Optional colour swatch left of the input (opts.swatch = { get, onClick,
+    -- tooltip }), built on its first use. It is painted from get() -> r, g, b
+    -- as the popup shows and each time the caller's onClick(swatch, repaint)
+    -- calls repaint(). The caller opens the colour picker, and an open one
+    -- closes with the popup: before a confirm runs its callback, and when the
+    -- popup is dismissed (so the picker's own cancel comes first).
+    local sw = opts.swatch
+    if sw and not popup._swatch then
+        local swatch = CreateFrame("Button", nil, popup)
+        PanelPP.Size(swatch, 20, 20)
+        PanelPP.Point(swatch, "RIGHT", popup._inputFrame, "LEFT", -8, 0)
+        swatch:SetFrameLevel(popup:GetFrameLevel() + 3)
+        local fill = SolidTex(swatch, "ARTWORK", 1, 1, 1, 1)
+        fill:SetAllPoints()
+        MakeBorder(swatch, 1, 1, 1, 0.9)
+        popup._paintSwatch = function()
+            local o = popup._swatchOpts
+            if not o then return end
+            local r, g, b = o.get()
+            fill:SetColorTexture(r or 1, g or 1, b or 1, 1)
+        end
+        popup._closePicker = function()
+            local picker = popup._swatchOpts and EllesmereUI._colorPickerPopup
+            if picker and picker:IsShown() then picker:Hide() end
+        end
+        swatch:SetScript("OnClick", function(self)
+            local o = popup._swatchOpts
+            if o and o.onClick then o.onClick(self, popup._paintSwatch) end
+        end)
+        swatch:SetScript("OnEnter", function(self)
+            local o = popup._swatchOpts
+            if o and o.tooltip then
+                self._tipShown = true
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(o.tooltip))
+            end
+        end)
+        local function SwatchLeave(self)
+            if self._tipShown then
+                self._tipShown = nil
+                EllesmereUI.HideWidgetTooltip()
+            end
+        end
+        swatch:SetScript("OnLeave", SwatchLeave)
+        swatch:SetScript("OnHide", SwatchLeave)
+        popup._dimmer:HookScript("OnHide", popup._closePicker)
+        popup._swatch = swatch
+    end
+    popup._swatchOpts = sw
+    if popup._swatch then
+        popup._swatch:SetShown(sw ~= nil)
+        if sw then popup._paintSwatch() end
+        -- The info badge steps left of a shown swatch
+        popup._info:ClearAllPoints()
+        PanelPP.Point(popup._info, "RIGHT", sw and popup._swatch or popup._inputFrame, "LEFT", -8, 0)
+    end
     popup._msg:SetText(EllesmereUI.L(opts.message or ""))
     popup._placeholder:SetText(EllesmereUI.L(opts.placeholder or "Enter name..."))
     popup._cancelBtn._lbl:SetText(EllesmereUI.L(opts.cancelText or "Cancel"))

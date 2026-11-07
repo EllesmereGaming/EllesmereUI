@@ -333,7 +333,7 @@ do
     for _, op in ipairs({ "=", "~=", "&&", "||", "!" }) do HUE[op] = cmp end
 end
 local function Hex(c) return string.format("|cff%02x%02x%02x", c[1] * 255, c[2] * 255, c[3] * 255) end
-local BAD_HEX = "|cffff5555"
+local BAD_HEX = EllesmereUI.COLOR_CODES.BAD
 
 local function Colorize(text)
     local out, i, n = {}, 1, #text
@@ -436,7 +436,7 @@ local function BuildHelp(panel, K, onClick)
                         local lines = {}
                         for _, ex in ipairs(spec.examples) do
                             -- starts with a color code so the tooltip keeps our colors
-                            lines[#lines + 1] = "|cffffffff|r" .. Colorize(ex[1]) .. "   |cff8f8f8f" .. ex[2] .. "|r"
+                            lines[#lines + 1] = "|cffffffff|r" .. Colorize(ex[1]) .. "   " .. EllesmereUI.COLOR_CODES.DIM .. ex[2] .. "|r"
                         end
                         K.Tip(self, EllesmereUI.Lf("%1$s Examples", spec.title), unpack(lines))
                     end)
@@ -540,7 +540,7 @@ local function Paint(K)
     elseif f then
         status:SetText("|cff66dd66" .. EllesmereUI.L("Filtering with this expression.") .. "|r")
     else
-        status:SetText("|cffff5555" .. (err or EllesmereUI.L("can't read that")) .. "|r")
+        status:SetText(BAD_HEX .. (err or EllesmereUI.L("can't read that")) .. "|r")
     end
 end
 

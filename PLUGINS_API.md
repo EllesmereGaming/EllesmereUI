@@ -274,11 +274,14 @@ register here as well.
 - `id`: your addon's folder name. One registration per id.
 - `fn(slot, questID, title)`: runs for every quest title row each time the
   tracker redraws.
-  - `slot` is a frame of your own on that row, right of the title text,
+  - `slot` is a frame of your own at the right end of that row's title
+    (titles are left-aligned, so a short one leaves a gap before it),
     `width` wide and as tall as the title. Put your icons and buttons on it
     (create them once, keyed by `slot`). It hides when the row stops showing
     a quest, and is reused for other quests, so set everything from
-    `questID` on each call.
+    `questID` on each call. Never put a secure (protected) frame on it, such
+    as a `SecureActionButtonTemplate` button: the tracker moves and hides its
+    rows in combat, which a protected child would block.
   - `title` is the row's title FontString, for reading its font, color or
     text width. Read-only: don't change it.
 - `width`: pixels kept free right of the title for your slot, 0 to 64,
@@ -293,8 +296,10 @@ The tracker redraws on quest log, watch and settings changes. When your own
 state changes, call `EllesmereUI.RefreshQuestTrackerRows()` to redraw it.
 
 Both functions exist only on WoW Forever with the Quest Tracker module
-loaded, so test for them first. Your callback only runs while the user has
-the Custom Quest Tracker on; Blizzard's tracker is used otherwise.
+loaded, so test for them first. Your addon can load before that module:
+register at `PLAYER_LOGIN`, or list `EllesmereUIQuestTracker` in your TOC's
+`## OptionalDeps`. Your callback only runs while the user has the Custom
+Quest Tracker on; Blizzard's tracker is used otherwise.
 
 ```lua
 if EllesmereUI and EllesmereUI.RegisterQuestTrackerRow then

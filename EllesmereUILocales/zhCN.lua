@@ -4672,12 +4672,14 @@ L["Custom friends list with groups, notes, and realm grouping."] = "带有分组
 L["Enable Accent Colors"] = "启用强调色"
 L["Enable Faction Banners"] = "启用阵营横幅"
 L["Europe"] = "欧洲"
+L["Faction Banners"] = "阵营横幅"
 L["Ignored"] = "已屏蔽"
 L["In App"] = "在应用中"
 L["Invite Friend..."] = "邀请好友..."
 L["Korea"] = "韩国"
 L["North America"] = "北美"
 L["Online"] = "在线"
+L["Region Icons"] = "区域图标"
 L["Russia"] = "俄罗斯"
 L["Show Region Icons"] = "显示区域图标"
 L["South America"] = "南美"
@@ -9752,7 +9754,6 @@ L["WHISPER_BNET"] = "战网密语"
 L["WORLD"] = "世界"
 L["WOW_TOKEN"] = "魔兽世界代币"
 L["YOU_HAVE_MAIL"] = "你有新邮件"
-L["(the source is always included)"] = "（来源始终包含）"
 L[" Absorb Style"] = " 吸收样式"
 L[" Bar Texture"] = " 条纹理"
 L[" Bars"] = " 条"
@@ -12745,6 +12746,22 @@ L["World Map Fade"] = "世界地图淡出"
 L["Your companion pet comes back after loading screens, flights and deaths, from your favorites or this character's own"] = "你的同伴宠物会在读取界面、飞行和死亡后自动回来，来源可以是你的收藏夹，也可以是该角色自己的收藏"
 L["Your pet's Attack button stops flashing as soon as your pet stops attacking."] = "你的宠物一停止攻击，其“攻击”按钮就会停止闪烁。"
 L["Your spellbook and talent keys can open the classic spellbook and talent window instead of Talents & Spellbook. The spellbook's tabs and pages work in combat, and talent points you spend count only once you press Learn."] = "你的法术书和天赋快捷键可以打开经典法术书和天赋窗口，而不是“天赋与法术书”。法术书的标签页和页面在战斗中也可使用，你投入的天赋点只有在按下“学习”后才会生效。"
+
+-- Nameplates Core Positions cog
+L["Quest Objective Text"] = "任务目标文本"
+L["Slot"] = "位置"
+L["Also shows inside dungeons, raids and other instances."] = "在地城、团队副本和其他副本中也会显示。"
+L["Size of the quest progress text."] = "任务进度文本的大小。"
+
+-- Bags Pinned Items cog
+L["Hide Items in Their Categories"] = "在所属类别中隐藏物品"
+L["Dim Items in OneBag/MultiBag"] = "在整合/多背包中调暗物品"
+L["Dims pinned items in their bag slots, since they also show in Pinned Items."] = "固定物品也会显示在“固定物品”中，因此在背包格子中调暗显示。"
+
+-- Quest Tracker Title Difficulty Colors
+L["Title Difficulty Colors"] = "标题难度颜色"
+L["Colors quest titles by difficulty for your level. This is the game's own option, so its quest log follows it too."] = "按任务相对于你等级的难度为任务标题着色。这是游戏自身的选项，因此任务日志也会遵循。"
+
 
 
 --2026.11.07补充

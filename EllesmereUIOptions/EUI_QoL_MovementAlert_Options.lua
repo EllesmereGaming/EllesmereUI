@@ -430,11 +430,14 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
         local leftRgn = enableRow._leftRegion
         local classItems = {}
         for _, cf in ipairs(CLASS_ORDER) do
-            local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[cf]
-            local name = (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[cf])
-                or (cf:sub(1, 1):upper() .. cf:sub(2):lower())
-            local hex = color and color.colorStr or "ffffffff"
-            classItems[#classItems + 1] = { key = cf, label = "|c" .. hex .. name .. "|r" }
+            -- WoW Forever lists only the classes it has.
+            if not EllesmereUI.IS_FOREVER or EllesmereUI.FOREVER_CLASS_SPEC[cf] then
+                local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[cf]
+                local name = (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[cf])
+                    or (cf:sub(1, 1):upper() .. cf:sub(2):lower())
+                local hex = color and color.colorStr or "ffffffff"
+                classItems[#classItems + 1] = { key = cf, label = "|c" .. hex .. name .. "|r" }
+            end
         end
         local cbDD, cbDDRefresh
         cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
@@ -733,8 +736,11 @@ local function BuildMovementAlertPage(pageName, parent, yOffset)
             local info = C_Spell and C_Spell.GetSpellInfo(primary)
             -- WoW Forever: 781 is vanilla's threat drop, not a movement spell, and
             -- the tracker skips it there; it stays a preset id so a saved override
-            -- is never shown as a custom cell.
-            if info and info.name and not (EllesmereUI.IS_FOREVER and primary == 781) then
+            -- is never shown as a custom cell. Classes Forever does not have list
+            -- no presets there.
+            local fvSkip = EllesmereUI.IS_FOREVER
+                and (primary == 781 or not EllesmereUI.FOREVER_CLASS_SPEC[preset.class])
+            if info and info.name and not fvSkip then
                 local dupKey = preset.class .. ":" .. info.name
                 local existing = byClassName[dupKey]
                 if existing then

@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- applications bar. Nothing hooks in until it's enabled.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.Lite and EllesmereUI.HELD_BACK_ADDONS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.Lite and EllesmereUI.HELD_BACK_ADDONS and EllesmereUI.SetFontFamily) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (group titles, applicant names and notes take font families through SetFontFamily)
 -- Held back from this release (EllesmereUI.HELD_BACK_ADDONS): nothing runs,
 -- and with no namespace published the options page never registers.
 if EllesmereUI.HELD_BACK_ADDONS[ADDON_NAME] then return end
@@ -16,7 +16,7 @@ ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
 local DEFAULTS = {
     padding          = 12,
-    nameColors       = true,
+    nameColors       = false,
     classTooltip     = true,
     leaderRating     = true,
     leaderCrown      = true,
@@ -113,6 +113,20 @@ function ns.Cfg() return cfg end
 function ns.CharBlizzFilter() return charDB and charDB.blizz end
 function ns.SetCharBlizzFilter(t) if charDB then charDB.blizz = t end end
 
+-- the results and applicant lists' display settings, in the profile (read-only
+-- until the profile's ready)
+local ownListRO = setmetatable({}, { __newindex = function() end })
+function ns.OwnListDB()
+    local p = Profile()
+    if not p then return ownListRO end
+    local t = p.ownList
+    if type(t) ~= "table" then
+        t = {}
+        p.ownList = t
+    end
+    return t
+end
+
 function ns.AppsCfg()
     local p = Profile()
     return p and p.apps or readOnly.apps
@@ -134,15 +148,18 @@ function GF:OnInitialize()
     if type(EllesmereUIGroupFinderCharDB) ~= "table" then EllesmereUIGroupFinderCharDB = {} end
     charDB = EllesmereUIGroupFinderCharDB
     if type(charDB.filters) ~= "table" then
-        -- first login after the move: this character takes the profile's old filters, the rest start clean
-        charDB.filters = {}
+        -- a character's first login with filters of its own: it starts from a
+        -- copy of the profile's, which stay for the characters that log in later
+        local filters = {}
         local s = Profile() and Profile().search
         if s then
             for k in pairs(FILTER_KEYS) do
-                charDB.filters[k] = s[k]
-                s[k] = nil
+                local v = s[k]
+                if type(v) == "table" then v = CopyTable(v) end
+                filters[k] = v
             end
         end
+        charDB.filters = filters
     end
 end
 

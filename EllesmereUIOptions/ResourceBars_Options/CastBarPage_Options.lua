@@ -924,7 +924,7 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
     -- Craft Batches is stored as fullCraftTime (text) and mergeCrafts (bar + text).
     _, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Craft Batches",
-          tooltip = "While crafting several items at once. Full Time Text: the duration text shows the time left for the whole batch and the spell text shows the craft count. Merge Bar: also one cast bar spans the whole batch instead of refilling for every craft.",
+          tooltip = "How the cast bar shows a batch of crafts.",
           disabled = castOff,
           disabledTooltip = "Player Cast Bar",
           values = { off = "Off", text = "Full Time Text", merge = "Merge Bar" },

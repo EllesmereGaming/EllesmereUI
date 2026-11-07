@@ -454,11 +454,20 @@ initFrame:SetScript("OnEvent", function(self)
                               db.profile.bagPinnedInOneBag = v
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
-                        { type="toggle", label="Hide from Other Categories",
+                        { type="toggle", label="Hide Items in Their Categories",
                           tooltip="Pinned items show only in Pinned Items, not in their categories or Recent Items.",
                           get=function() return db.profile.bagHidePinnedInCategories == true end,
                           set=function(v)
                               db.profile.bagHidePinnedInCategories = v
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                        { type="toggle", label="Dim Items in OneBag/MultiBag",
+                          tooltip="Dims pinned items in their bag slots, since they also show in Pinned Items.",
+                          disabled=function() return db.profile.bagPinnedInOneBag == false end,
+                          disabledTooltip="Show in OneBag/MultiBag",
+                          get=function() return db.profile.bagDimPinnedInOneBag == true end,
+                          set=function(v)
+                              db.profile.bagDimPinnedInOneBag = v
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
                     },

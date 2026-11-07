@@ -1032,9 +1032,10 @@ local function SkinStructure(card)
 
     d.classIcon = card:CreateTexture(nil, "ARTWORK", nil, 2)
 
+    -- The three lines show friends' names and notes: font families (a family
+    -- draws the scripts the chosen font lacks), never a plain SetFont.
     d.name = card:CreateFontString(nil, "OVERLAY")
-    EllesmereUI.PrimeFontShadow(d.name, true)
-    d.name:SetFont(FontPath(), TILE_NAME_SIZE, "")
+    EllesmereUI.SetFontFamily(d.name, FontPath(), TILE_NAME_SIZE, "", true)
     d.name:SetJustifyH("LEFT")
     d.name:SetWordWrap(false)
     -- Horizontal inset is re-resolved per paint in PaintCard (it follows the
@@ -1043,15 +1044,13 @@ local function SkinStructure(card)
 
     -- Character name + level, its own line under the Battle.net name.
     d.charLine = card:CreateFontString(nil, "OVERLAY")
-    EllesmereUI.PrimeFontShadow(d.charLine, true)
-    d.charLine:SetFont(FontPath(), TILE_CHAR_SIZE, "")
+    EllesmereUI.SetFontFamily(d.charLine, FontPath(), TILE_CHAR_SIZE, "", true)
     d.charLine:SetJustifyH("LEFT")
     d.charLine:SetWordWrap(false)
     d.charLine:SetPoint("TOPLEFT", d.name, "BOTTOMLEFT", 0, TILE_LINE_GAP)
 
     d.info = card:CreateFontString(nil, "OVERLAY")
-    EllesmereUI.PrimeFontShadow(d.info, true)
-    d.info:SetFont(FontPath(), TILE_INFO_SIZE, "")
+    EllesmereUI.SetFontFamily(d.info, FontPath(), TILE_INFO_SIZE, "", true)
     d.info:SetJustifyH("LEFT")
     d.info:SetWordWrap(false)
     -- Anchored per paint: it follows charLine when there is one, otherwise the

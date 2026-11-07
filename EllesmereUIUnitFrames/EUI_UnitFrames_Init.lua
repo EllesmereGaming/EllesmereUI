@@ -939,9 +939,11 @@ local function InitializeFrames()
             combat:ClearAllPoints()
 
             -- "healthbar" is the stored value shown as "Center" in the dropdown;
-            -- "center" is a render alias for it.
-            if pos == "portrait" and pf.Portrait then
-                combat:SetPoint("CENTER", pf.Portrait, "CENTER", ox, oy)
+            -- "center" is a render alias for it. Portrait with no portrait shown
+            -- takes the health bar's top-left corner (ns.UF_PortraitShown).
+            local bd = pf.Portrait and pf.Portrait.backdrop
+            if pos == "portrait" and bd and ns.UF_PortraitShown(ps) then
+                combat:SetPoint("CENTER", bd, "CENTER", ox, oy)
             elseif pos == "textbar" then
                 combat:SetPoint("CENTER", pf._btb or pf, "CENTER", ox, oy)
             elseif pos == "healthbar" or pos == "center" then
@@ -1088,7 +1090,8 @@ local function InitializeFrames()
                 local leader = uf._leaderIndicator
                 leader:SetSize(sz, sz)
                 leader:ClearAllPoints()
-                if pos == "portrait" and uf.Portrait and uf.Portrait.backdrop then
+                if pos == "portrait" and uf.Portrait and uf.Portrait.backdrop
+                    and ns.UF_PortraitShown(settings) then
                     leader:SetPoint("CENTER", uf.Portrait.backdrop, "CENTER", ox, oy)
                 else
                     local anchor =
@@ -1224,7 +1227,8 @@ local function InitializeFrames()
                 local tex = uf._eliteIndicator
                 tex:SetSize(sz, sz)
                 tex:ClearAllPoints()
-                if pos == "portrait" and uf.Portrait and uf.Portrait.backdrop then
+                if pos == "portrait" and uf.Portrait and uf.Portrait.backdrop
+                    and ns.UF_PortraitShown(settings) then
                     tex:SetPoint("CENTER", uf.Portrait.backdrop, "CENTER", ox, oy)
                 else
                     local anchor =
@@ -1422,11 +1426,9 @@ local function InitializeFrames()
                 local tex = uf._factionIndicator
                 tex:SetSize(sz, sz)
                 tex:ClearAllPoints()
-                -- Same visibility rule as the frame layout (Blizzard/Classic Style
-                -- always carries its portrait): never centre on a hidden backdrop.
-                local pStyle = settings.portraitStyle or db.profile.portraitStyle or "attached"
-                local portraitOn = ns.UF_Blizz() or (pStyle ~= "none" and settings.showPortrait ~= false)
-                if pos == "portrait" and portraitOn and uf.Portrait and uf.Portrait.backdrop then
+                -- Never centred on a hidden backdrop (ns.UF_PortraitShown).
+                if pos == "portrait" and ns.UF_PortraitShown(settings)
+                    and uf.Portrait and uf.Portrait.backdrop then
                     tex:SetPoint("CENTER", uf.Portrait.backdrop, "CENTER", ox, oy)
                 else
                     local anchor =

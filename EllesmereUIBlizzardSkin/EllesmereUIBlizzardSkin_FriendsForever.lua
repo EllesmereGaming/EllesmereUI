@@ -26,9 +26,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  settings on the card (EllesmereUIDB.friendsListCard): the EllesmereUI
 --  tiles on the Social UI window's friend cards while the card is skinned,
 --  and auto-accepting group invites from friends whatever the card's skin.
---  The card's Custom Friends List (off until picked) is the parent's
---  EllesmereUI_FriendsList.lua, started here after the tiles: rows of our own
---  over Blizzard's list, for the Tile Height and friend groups.
+--  The custom friends list, the parent's EllesmereUI_FriendsList.lua, starts
+--  here after the tiles, so it runs while the card is skinned (EllesmereUI or
+--  Modern): rows of our own over Blizzard's list, for the card's Tile Height
+--  and friend groups.
 --
 --  Cost: a one-time pass at login on frames that already exist, then one
 --  font pass per row initialisation (Blizzard's own, on rows it recycles),
@@ -59,8 +60,10 @@ local function SkinListRow(btn)
         WSkin.White(btn.Title)
         return
     end
-    if btn.name then WSkin.Font(btn.name) end
-    if btn.info then WSkin.Font(btn.info) end
+    -- A friend's or ignored player's name and its info line (place, broadcast):
+    -- font families, which draw the scripts the house font lacks
+    if btn.name then WSkin.FontFamily(btn.name) end
+    if btn.info then WSkin.FontFamily(btn.info) end
 end
 
 -- The rows are recycled by the scroll box: the frames alive now, then every
@@ -103,7 +106,7 @@ local function SkinFriends()
         local bn = hdr.BattlenetFrame or _G.FriendsFrameBattlenetFrame
         if bn then
             WSkin.FadeRegions(bn)
-            if bn.Tag then WSkin.Font(bn.Tag); WSkin.White(bn.Tag) end
+            if bn.Tag then WSkin.FontFamily(bn.Tag); WSkin.White(bn.Tag) end
             if bn.UnavailableLabel then WSkin.Font(bn.UnavailableLabel) end
             local bf = bn.BroadcastFrame
             if bf then
@@ -176,8 +179,9 @@ local CARD_DEFAULTS = {
     enabled = true, showClassIcons = true, iconStyle = "modern", classColorNames = true,
     factionBanners = false, showRegionIcons = true,
     autoAcceptFriendInvites = false, autoAcceptGuildInvites = false,
-    -- The custom friends list (EllesmereUI_FriendsList.lua): off until picked
-    customList = false, tileHeight = 46, showUngrouped = true,
+    -- The custom friends list (EllesmereUI_FriendsList.lua): the tile height
+    -- starts at that list's own default
+    tileHeight = select(3, EllesmereUI.FriendsList.TileRange()),
 }
 local cardView = setmetatable({}, { __index = function(_, k)
     local t = EllesmereUIDB and EllesmereUIDB.friendsListCard

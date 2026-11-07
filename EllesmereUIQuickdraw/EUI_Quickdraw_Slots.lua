@@ -295,9 +295,7 @@ function ns.EquipmentSetSlots()
     local out = {}
     local owner = EquipmentSetOwner()
     if not owner then return out end
-    local ok, ids = pcall(C_EquipmentSet.GetEquipmentSetIDs)
-    if not ok or type(ids) ~= "table" then return out end
-    for _, id in ipairs(ids) do
+    for _, id in ipairs(C_EquipmentSet.GetEquipmentSetIDs()) do
         local name, icon = C_EquipmentSet.GetEquipmentSetInfo(id)
         if name then
             out[#out + 1] = { kind = "equipmentset", id = id, owner = owner,

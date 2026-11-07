@@ -1063,6 +1063,7 @@ L["Class Colored Bar Interactions"] = "Interactions de barre colorées par class
 L["Class Colored Fill"]         = "Remplissage coloré par classe"
 L["Class Colored Glow"]         = "Lueur colorée par classe"
 L["Class Colored"]              = "Coloré par classe"
+L["Class Colored Names"]        = "Noms en couleur de classe"
 L["Class Colors"]               = "Couleurs de classe"
 L["Class Icon Settings"]        = "Réglages de l'icône de classe"
 L["Class Icon Theme"]           = "Thème de l'icône de classe"
@@ -1757,6 +1758,7 @@ L["FRAME SIZES"]                = "TAILLES DES CADRES"
 L["FRAMES"]                     = "CADRES"
 L["FRIENDLY BOSS FRAMES"]       = "CADRES DE BOSS ALLIÉS"
 L["Faction (Auto)"]             = "Faction (auto)"
+L["Faction Banners"]            = "Bannières de faction"
 L["Fade"]                       = "Fondu"
 L["Fade Right"]                 = "Fondu à droite"
 L["Fades boss frames when the boss is out of range of your spells. Set to 100% to disable the fade."] = "Estompe les cadres de boss lorsque le boss est hors de portée de vos sorts. Réglez sur 100 % pour désactiver le fondu."
@@ -3160,6 +3162,7 @@ L["Refresh using tooltip scan data."] = "Actualiser à partir des données d'ana
 L["Refresh using tooltip scan data.\nFor exact costs, use |cffffffff'Update at Upgrader'|r\nwhile at an Item Upgrade NPC."] = "Actualiser à partir des données d'analyse d'infobulle.\nPour les coûts exacts, utilisez |cffffffff« Mettre à jour chez l'améliorateur »|r\nauprès d'un PNJ d'amélioration d'objet."
 L["Refulgent Weightstone"]      = "Pierre de lest éclatante"
 L["Refulgent Whetstone"]        = "Pierre à aiguiser éclatante"
+L["Region Icons"]               = "Icônes de région"
 L["Regrowth"]                   = "Rétablissement"
 L["Rejuvenation"]               = "Récupération"
 L["Relic"]                      = "Relique"
@@ -6231,3 +6234,15 @@ L["Countdown to Soul"] = "Compte à rebours avant Âme des arcanes"
 L["Inside Soul"] = "Pendant Âme des arcanes"
 L["Last Barrage"] = "Dernier Barrage"
 L["This option requires Countdown Format to count GCDs inside Arcane Soul."] = "Cette option nécessite que le format du compte à rebours compte les GCD pendant Âme des arcanes."
+
+-- Nameplates Core Positions cog
+L["Slot"] = "Emplacement"
+
+-- Bags Pinned Items cog
+L["Hide Items in Their Categories"] = "Masquer les objets dans leurs catégories"
+L["Dim Items in OneBag/MultiBag"] = "Atténuer les objets dans OneBag/MultiBag"
+L["Dims pinned items in their bag slots, since they also show in Pinned Items."] = "Atténue les objets épinglés dans leurs emplacements de sac, puisqu'ils apparaissent aussi dans Objets épinglés."
+
+-- Quest Tracker Title Difficulty Colors
+L["Title Difficulty Colors"] = "Couleurs de difficulté des titres"
+L["Colors quest titles by difficulty for your level. This is the game's own option, so its quest log follows it too."] = "Colore les titres des quêtes selon leur difficulté pour votre niveau. C'est l'option du jeu lui-même, le journal de quêtes la suit donc aussi."

@@ -677,6 +677,8 @@ local function PushAllPalettes()
     wipe(usableMemo)
     -- Same lifecycle, same reason -- see the Dynamic Profession section.
     if ns.WipeProfessionCache then ns.WipeProfessionCache() end
+    -- And the WoW Forever top spell ranks (TopRank in EUI_Quickdraw_Actions.lua).
+    ns.WipeRankCache()
     for i = 1, PaletteCount() do PushPalette(i) end
 end
 

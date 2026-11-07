@@ -1735,113 +1735,85 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Friends List card content (WoW Forever only, where the Friends List
     --  module never loads): what that module offers retail's friends list,
-    --  from the shared friends kit, on the card's own settings
-    --  (EllesmereUIDB.friendsListCard through ns.FriendsCardGet / Set, in
-    --  EllesmereUIBlizzardSkin_FriendsForever.lua). The tiles stand down
-    --  under Blizz Default; auto-accept runs whatever the skin.
+    --  from the shared friends kit, and the custom friends list's Tile Height,
+    --  on the card's own settings (EllesmereUIDB.friendsListCard through
+    --  ns.FriendsCardGet / Set, in EllesmereUIBlizzardSkin_FriendsForever.lua).
+    --  The tiles and the custom list stand down under Blizz Default;
+    --  auto-accept runs whatever the skin.
     ---------------------------------------------------------------------------
     local function BuildFriendsCardContent(parent, y)
         local W = EllesmereUI.Widgets
         local _, row, h
         local Kit = EllesmereUI.FriendsKit
 
+        local TILES_OFF = "Friends List: Blizz Default"
         local function tilesOff()
             return EllesmereUI.GetBlizzWindowStyle("socialui") == "off"
         end
         local function tileGate(cfg)
             cfg.disabled = tilesOff
-            cfg.disabledTooltip = "Friends List: Blizz Default"
+            cfg.disabledTooltip = TILES_OFF
             cfg.requireState = "disabled"
             return cfg
-        end
-        local function toggle(text, key, tooltip)
-            return tileGate({ type="toggle", text=text, tooltip=tooltip,
-                getValue=function() return ns.FriendsCardGet(key) == true end,
-                setValue=function(v) ns.FriendsCardSet(key, v) end })
         end
 
         _, h = WSCardSection(parent, "DISPLAY", y);  y = y - h
 
-        -- Class Icon Theme | Class Color Names
-        _, h = W:DualRow(parent, y,
+        -- Tile Height | Tile Features. The height is the custom friends
+        -- list's (EllesmereUI_FriendsList.lua), which draws with the tiles.
+        local tileMin, tileMax = EllesmereUI.FriendsList.TileRange()
+        row, h = W:DualRow(parent, y,
+            tileGate({ type="slider", text="Tile Height", min=tileMin, max=tileMax, step=1,
+              tooltip="The height of each friend in the custom friends list. Shorter tiles show fewer lines.",
+              getValue=function() return ns.FriendsCardGet("tileHeight") end,
+              setValue=function(v) ns.FriendsCardSet("tileHeight", v) end }),
+            tileGate({ type="dropdown", text="Tile Features",
+              values={ __placeholder="..." }, order={ "__placeholder" },
+              getValue=function() return "__placeholder" end, setValue=function() end })
+        );  y = y - h
+
+        -- Tile Features: one checkbox dropdown over the three tile switches,
+        -- each still its own key, in place of the row's placeholder.
+        if not EllesmereUI._prebuilding then
+            local rgn = row._rightRegion
+            if rgn._control then rgn._control:Hide() end
+            local dd, refresh = EllesmereUI.BuildVisOptsCBDropdown(rgn, 220, rgn:GetFrameLevel() + 2,
+                {
+                    { key="factionBanners", label="Faction Banners" },
+                    { key="showRegionIcons", label="Region Icons",
+                      tooltip="Shows a map icon of the friend's region if they are not playing within your region" },
+                    { key="classColorNames", label="Class Colored Names" },
+                },
+                function(key) return ns.FriendsCardGet(key) == true end,
+                function(key, v) ns.FriendsCardSet(key, v and true or false) end,
+                nil, nil, nil, nil, nil,
+                { disabled = tilesOff, disabledTooltip = TILES_OFF, requireState = "disabled" })
+            EllesmereUI.PanelPP.Point(dd, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = dd
+            rgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(refresh)
+        end
+
+        -- Class Icon Theme | Auto-Accept Friend Invites
+        row, h = W:DualRow(parent, y,
             tileGate({ type="dropdown", text="Class Icon Theme",
               values = Kit.ICON_STYLE_VALUES,
               order  = Kit.ICON_STYLE_ORDER,
               getValue=function() return ns.FriendsCardGet("iconStyle") end,
               setValue=function(v) ns.FriendsCardSet("iconStyle", v) end }),
-            toggle("Class Color Names", "classColorNames")
-        );  y = y - h
-
-        -- Enable Faction Banners | Show Region Icons
-        _, h = W:DualRow(parent, y,
-            toggle("Enable Faction Banners", "factionBanners"),
-            toggle("Show Region Icons", "showRegionIcons",
-                "Shows a map icon of the friend's region if they are not playing within your region")
-        );  y = y - h
-
-        -- Custom Friends List | Tile Height: rows of our own over Blizzard's
-        -- list (EllesmereUI_FriendsList.lua). Like the tiles it draws with,
-        -- it stands down under Blizz Default. No row while the list is held
-        -- back (FriendsList.HELD).
-        if not EllesmereUI.FriendsList.HELD then
-        local function listOff()
-            return tilesOff() or ns.FriendsCardGet("customList") ~= true
-        end
-        local function listOffWhy()
-            return tilesOff() and "Friends List: Blizz Default" or "Custom Friends List"
-        end
-        local function listOffState()
-            return tilesOff() and "disabled" or "enabled"
-        end
-        local tileMin, tileMax = EllesmereUI.FriendsList.TileRange()
-        row, h = W:DualRow(parent, y,
-            tileGate({ type="toggle", text="Custom Friends List",
-              tooltip="EllesmereUI's own friends list, with a tile height you choose and friend groups. Right click a friend to set its group.",
-              getValue=function() return ns.FriendsCardGet("customList") == true end,
-              setValue=function(v)
-                  ns.FriendsCardSet("customList", v)
-                  EllesmereUI:RefreshPage()  -- the Tile Height slider and the cog
-              end }),
-            { type="slider", text="Tile Height", min=tileMin, max=tileMax, step=1,
-              tooltip="The height of each friend in the custom friends list. Shorter tiles show fewer lines.",
-              disabled = listOff, disabledTooltip = listOffWhy, requireState = listOffState,
-              getValue=function() return ns.FriendsCardGet("tileHeight") end,
-              setValue=function(v) ns.FriendsCardSet("tileHeight", v) end }
-        );  y = y - h
-
-        -- Show Ungrouped Friends in a cog on Custom Friends List: it only
-        -- extends that list, so the cog blocks while the toggle is off.
-        if not EllesmereUI._prebuilding then
-            EllesmereUI.BuildInlineCog(row._leftRegion, {
-                title = "Custom Friends List",
-                rows = {
-                    { type="toggle", label="Show Ungrouped Friends",
-                      get=function() return ns.FriendsCardGet("showUngrouped") ~= false end,
-                      set=function(v) ns.FriendsCardSet("showUngrouped", v) end },
-                },
-                disabled = listOff, disabledTooltip = listOffWhy, requireState = listOffState,
-            })
-        end
-        end -- not FriendsList.HELD
-
-        _, h = WSCardSection(parent, "QUALITY OF LIFE", y);  y = y - h
-
-        -- Auto-Accept Friend Invites
-        row, h = W:DualRow(parent, y,
             { type="toggle", text="Auto-Accept Friend Invites",
               tooltip="Auto-accepts all group invites from people on your friends list",
               getValue=function() return ns.FriendsCardGet("autoAcceptFriendInvites") == true end,
               setValue=function(v)
                   ns.FriendsCardSet("autoAcceptFriendInvites", v)
                   EllesmereUI:RefreshPage()  -- the guildmate cog's disabled state
-              end },
-            EllesmereUI.BlankRowCfg()
+              end }
         );  y = y - h
 
         -- Guildmates in a cog on Auto-Accept Friend Invites: it only extends
         -- that feature, so the cog blocks while the toggle is off.
         if not EllesmereUI._prebuilding then
-            EllesmereUI.BuildInlineCog(row._leftRegion, {
+            EllesmereUI.BuildInlineCog(row._rightRegion, {
                 title = "Auto Accept Settings",
                 rows = {
                     { type="toggle", label="Accept Invites from Guildmates",
@@ -2862,8 +2834,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinSocialUI = v
             end,
             buildContent = EllesmereUI.IS_FOREVER and BuildFriendsCardContent or nil,
-            searchText = EllesmereUI.IS_FOREVER and not EllesmereUI.FriendsList.HELD
-                and { "Custom Friends List", "Tile Height" } or nil,
+            searchText = EllesmereUI.IS_FOREVER and { "Tile Height", "Tile Features" } or nil,
         },
         {
             key   = "queuestatus",

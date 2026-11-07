@@ -289,24 +289,23 @@ end
 -- spell of its rank family is (EABR.ForeverFamily). Entries are display-only
 -- textures carrying the spell for the tooltip, except the two trackers and the
 -- mage armors, whose click casts the spell; presence goes through
--- PlayerHasAuraByID, so combat falls back to the pre-pull snapshot exactly
--- like the Auras section. Camp Benefits, Well Fed, the mage armors and the
--- trackers are skipped in combat and in PvP. The one-slot id table, the
--- cached families, the kept minimap answer and the dismiss-key memo keep the
--- pass allocation-free.
-function EABR.CollectForever(missing, inInstance, inPvP, restricted)
+-- PlayerHasAuraByID. The section shows nothing in combat (its Where to Show
+-- offers no In Combat entry: always unchecked), and Camp Benefits, Well Fed,
+-- the mage armors and the trackers nothing in PvP either. The one-slot id
+-- table, the cached families, the kept minimap answer and the dismiss-key
+-- memo keep the pass allocation-free.
+function EABR.CollectForever(missing, inInstance, inPvP)
     local fo = db.profile.forever
-    local shows = fo and EABR.SectionShows(fo.whereToShow, inInstance)
+    local shows = fo and not InCombat() and EABR.SectionShows(fo.whereToShow, inInstance)
     -- Class trackers and Find Treasure are read from the minimap, whose event
     -- is listened to only while a reminder that reads it can show.
     EABR.FvSyncTrackingEvent(shows and not inPvP
         and ((fo.gather == true and fo.gatherClassTrack ~= false) or fo.treasure == true) or false)
     if not shows then return end
-    local open = not inPvP and not restricted
-    -- Out of combat under the aura lock a secret aura reads absent, so an aura
-    -- reminder shows only while none of its spells is secret (combat reads the
-    -- pre-pull snapshot instead).
-    local auraLock = not restricted and EllesmereUI.AuraKit.AurasRestricted()
+    local open = not inPvP
+    -- Under the aura lock a secret aura reads absent, so an aura reminder
+    -- shows only while none of its spells is secret.
+    local auraLock = EllesmereUI.AuraKit.AurasRestricted()
     local ids = EABR._foreverIDs
     if not ids then ids = {}; EABR._foreverIDs = ids end
     if fo.camp ~= false and open then
@@ -363,7 +362,7 @@ function EABR.CollectForever(missing, inInstance, inPvP, restricted)
         EABR.CollectMageArmor(missing, auraLock, ids)
     end
     local groups = fo.customGroups
-    if groups and groups[1] and not restricted then
+    if groups and groups[1] then
         EABR.CollectForeverGroups(missing, groups)
     end
     local custom = fo.customIDs
@@ -669,7 +668,7 @@ local function Refresh()
     if EABR.FOREVER then
         if remindersOn then
             EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
-            EABR.CollectForever(missing, inInstance, inPvP, restricted)
+            EABR.CollectForever(missing, inInstance, inPvP)
         else
             EABR.FvStandDown()
         end

@@ -6512,12 +6512,14 @@ L["Custom friends list with groups, notes, and realm grouping."] = "그룹, 메�
 L["Enable Accent Colors"] = "강조 색상 활성화"
 L["Enable Faction Banners"] = "진영 배너 활성화"
 L["Europe"] = "유럽"
+L["Faction Banners"] = "진영 배너"
 L["Ignored"] = "무시됨"
 L["In App"] = "앱 사용 중"
 L["Invite Friend..."] = "친구 초대..."
 L["Korea"] = "한국"
 L["North America"] = "북미"
 L["Online"] = "접속 중"
+L["Region Icons"] = "지역 아이콘"
 L["Russia"] = "러시아"
 L["Show Region Icons"] = "지역 아이콘 표시"
 L["South America"] = "남미"
@@ -12990,6 +12992,21 @@ L["Are you sure you're gay?"] = "Are you sure you're gay?"
 L["Are you sure you're not gay?"] = "Are you sure you're not gay?"
 L["You're already gay"] = "You're already gay"
 L["You're already straight"] = "You're already straight"
+
+-- Nameplates Core Positions cog
+L["Quest Objective Text"] = "퀘스트 목표 텍스트"
+L["Slot"] = "슬롯"
+L["Also shows inside dungeons, raids and other instances."] = "던전, 공격대 및 기타 인스턴스에서도 표시합니다."
+L["Size of the quest progress text."] = "퀘스트 진행 텍스트의 크기입니다."
+
+-- Bags Pinned Items cog
+L["Hide Items in Their Categories"] = "해당 카테고리에서 아이템 숨기기"
+L["Dim Items in OneBag/MultiBag"] = "통합/멀티 가방에서 아이템 어둡게 표시"
+L["Dims pinned items in their bag slots, since they also show in Pinned Items."] = "고정된 아이템은 고정한 아이템에도 표시되므로 가방 칸에서 어둡게 표시합니다."
+
+-- Quest Tracker Title Difficulty Colors
+L["Title Difficulty Colors"] = "제목 난이도 색상"
+L["Colors quest titles by difficulty for your level. This is the game's own option, so its quest log follows it too."] = "퀘스트 제목을 내 레벨 기준 난이도에 따라 색칠합니다. 게임 자체 옵션이므로 퀘스트 목록에도 적용됩니다."
 
 -- =========================================================================
 -- 전체 설정: 숫자 표기 형식 (Global Settings > Numbers)

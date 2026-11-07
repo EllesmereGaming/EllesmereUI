@@ -14,9 +14,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  bags[i] is bag i - 1 (false when that bag slot's empty), bank[i] and
 --  tabs[i] are the i-th bank tab. pets and keystones keep their full link,
 --  since their string alone can't name them.
---  key = "Name-Realm" (EllesmereUI.RealmGroupName), same as the gold ledger.
---  wow forever: a bank tab is a bag put in a bank slot (up to 9), so its size
---  follows that bag and a tab with no bag saves as false. no warband bank there.
+--  key = "Name-Realm" (EllesmereUI.CharKey).
+--  wow forever: keyed by guid like the gold ledger, since a first name isn't
+--  unique there, and the name keeps its surname. a bank tab is a bag put in a
+--  bank slot (up to 9), so its size follows that bag and a tab with no bag
+--  saves as false. no warband bank there.
 --
 --  both switches are account-wide (EllesmereUIDB.bagOfflineBank /
 --  .bagTooltipCounts), like the data. read only: a bag saves after
@@ -102,7 +104,10 @@ function Offline.Store()
     return db
 end
 
-local function OwnKey() return EUI.CharKey("-") end
+local function OwnKey()
+    if EUI.IS_FOREVER then return EUI.GetGoldLedger().CharKey() end
+    return EUI.CharKey("-")
+end
 Offline.CurrentKey = OwnKey
 
 -- a class's colour code, custom class colours included
@@ -168,7 +173,13 @@ local function MyEntry()
     local c = chars[key]
     if not c then c = {}; chars[key] = c end
     local _, class = UnitClass("player")
-    c.name, c.realm, c.class, c.level = UnitName("player"), EUI.RealmGroupName(), class, UnitLevel("player")
+    local name = UnitName("player")
+    if EUI.IS_FOREVER then
+        -- the full name whatever the show-surname preference, as the gold ledger keeps it
+        local first, surname = (UnitNameUnmodified or UnitName)("player")
+        name = EUI.WithSurname(first, surname, true)
+    end
+    c.name, c.realm, c.class, c.level = name, EUI.RealmGroupName(), class, UnitLevel("player")
     -- a rename keeps the guid: its old entry goes and the bank moves over (the
     -- bags save again at once). a new character under a reused name has another
     -- guid and starts empty. a realm transfer gets a new guid too, so its old
@@ -257,8 +268,8 @@ local function SaveList(list, ids, pos, field, owner, meta)
                 new.name, new.icon = m and m.name, m and m.icon
             end
             -- bag slots can be empty (false), so can a bought forever tab with
-            -- its bag taken out. unbought bank tabs just stay unsaved
-            if not new and (not meta or meta[i]) then new = false end
+            -- no bag in it. unbought bank tabs just stay unsaved
+            if not new and (not meta or (EUI.IS_FOREVER and meta[i])) then new = false end
             if new ~= nil and not Same(list[i], new) then
                 Patch(list[i], new, field, owner)
                 list[i] = new

@@ -252,7 +252,8 @@ local function Apply(f)
     PaintRefresh()
 end
 
--- once per session: put back this character's picks, or blizzard's defaults the first time
+-- once per session: put back this character's picks. The first time, the
+-- character keeps the picks blizzard holds now (the account's, from before)
 function XF.RestoreCharFilter()
     if XF.filterRestored then return end
     local f = C_LFGList.GetAdvancedFilter()
@@ -260,10 +261,6 @@ function XF.RestoreCharFilter()
     local saved = ns.CharBlizzFilter()
     if type(saved) == "table" then
         for _, k in ipairs(PICK_KEYS) do f[k] = saved[k] end
-    else
-        local wide = AllDungeonGroups()
-        if #wide == 0 then return end
-        Widen(f)
     end
     XF.filterRestored = true
     -- dimmed keeps the picks with us and blizzard's search wide
@@ -1069,6 +1066,8 @@ local function Refilter()
     XF.NewPass()
     if ns.ExtraRefilter then ns.ExtraRefilter() end  -- our results list
     if not (SP and SP:IsVisible()) then return end
+    -- blizzard's rows hidden under ours stay as they are
+    if ns.OwnListActive and ns.OwnListActive() then return end
     local box = SP.ScrollBox
     if box and box.ForEachFrame then box:ForEachFrame(XF.RefilterEntry) end
 end
@@ -1426,6 +1425,9 @@ end
 local function DecorateEntry(entry)
     local resultID = entry and entry.resultID
     if not resultID or not SP or not SP:IsVisible() then return end
+    -- our results list covers blizzard's: its hidden rows are left alone
+    -- (ns.RedecorateRows catches them up when it hands the panel back)
+    if ns.OwnListActive and ns.OwnListActive() then return end
     local fd = FFD[entry]
     if not fd then
         fd = {}
@@ -1458,7 +1460,7 @@ local function DecorateEntry(entry)
     -- name colour (blizzard already reds declined ones).
     local delisted, censored = info.isDelisted, info.censored
     if IsSecret(delisted) or IsSecret(censored) then XF.ClearIcons(entry) return end
-    if Opt("nameColors") and entry.Name and not delisted and not censored then
+    if Cfg().nameColors == true and entry.Name and not delisted and not censored then
         local _, appStatus = C_LFGList.GetApplicationInfo(resultID)
         local declined = appStatus == "declined" or appStatus == "declined_full" or appStatus == "declined_delisted"
         if declined or LockedOut(ai, resultID) then
@@ -1512,7 +1514,7 @@ ns.GFSpecIcon = SpecIcon
 -- the name colour a row gets (nil = blizzard's own): red when declined or
 -- locked out, green when new since the last search
 function ns.GFNameColor(resultID, info, ai)
-    if not Opt("nameColors") then return nil end
+    if Cfg().nameColors ~= true then return nil end
     local delisted, censored = info.isDelisted, info.censored
     if IsSecret(delisted) or IsSecret(censored) or delisted or censored then return nil end
     local _, appStatus = C_LFGList.GetApplicationInfo(resultID)
@@ -1530,6 +1532,14 @@ function XF.Redecorate()
     local box = SP.ScrollBox
     if box and box.ForEachFrame then box:ForEachFrame(DecorateEntry) end
     if ns.ExtraRedecorate then ns.ExtraRedecorate() end
+end
+
+-- our results list handed the panel back: blizzard's rows take their look
+function ns.RedecorateRows()
+    XF.NewPass()
+    if not (SP and SP:IsVisible()) then return end
+    local box = SP.ScrollBox
+    if box and box.ForEachFrame then box:ForEachFrame(DecorateEntry) end
 end
 
 -- tooltip hint while a click would cancel your oldest application.

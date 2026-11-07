@@ -13,11 +13,12 @@ local function ReadSource(name)
 end
 local LOADER_SRC = ReadSource("EllesmereUIQuestTracker/EllesmereUIQuestTracker.lua")
 local CUSTOM_SRC = ReadSource("EllesmereUIQuestTracker/EllesmereUIQuestTracker_Custom.lua")
+local AUDIO_SRC = ReadSource("EllesmereUIQuestTracker/EllesmereUIQuestTracker_QuestAudio.lua")
 
--- The widget methods the two files call: a mock frame answers those, and any
+-- The widget methods the files call: a mock frame answers those, and any
 -- other field that was never set reads nil, as on a real frame
 local METHODS = {}
-for _, src in ipairs({ LOADER_SRC, CUSTOM_SRC }) do
+for _, src in ipairs({ LOADER_SRC, CUSTOM_SRC, AUDIO_SRC }) do
     for name in src:gmatch(":([%a_][%w_]*)%s*%(") do METHODS[name] = true end
 end
 
@@ -74,6 +75,7 @@ function InCombatLockdown() return false end
 function IsInInstance() return false, "none" end
 function UnitGUID() return "Player-1" end
 function GetTime() return 0 end
+function Clamp(v, lo, hi) return math.min(math.max(v, lo), hi) end
 TRACKER_HEADER_QUESTS = "Quests"
 SlashCmdList = {}
 C_AddOns = { IsAddOnLoaded = function() return true end }
@@ -467,19 +469,21 @@ EQT.AutoTrackOn = function() return false end
 EQT.IsQuestFiltered = function() return false end
 EQT.SortQuestList = function() end
 EQT.GetTitleRGB = function() return 1, 1, 1 end
-cfg.customDifficultyColor, cfg.customFocusClick, cfg.customGroupByZone = false, false, false
+EQT.TitleDifficultyOn = function() return false end
+EQT.QuestDifficultyRGB = function() return 1, 1, 1 end
+cfg.customFocusClick, cfg.customGroupByZone = false, false
 cfg.customWidth = 260
 frame._shown = true
 
 local seen, slotOf = {}, {}
 local Register = EllesmereUI.RegisterQuestTrackerRow
 assert(Register("Bad", function() error("hook error") end) == true)
-assert(Register("Spoken", function(slot, questID, title)
+assert(Register("TestRows", function(slot, questID, title)
     seen[#seen + 1] = questID
     slotOf[questID] = slot
     assert(title and title._kind == "CreateFontString", "no title FontString")
 end, 999) == true)
-assert(Register("Spoken", function() end) == false, "a taken id registered twice")
+assert(Register("TestRows", function() end) == false, "a taken id registered twice")
 assert(Register(nil, function() end) == false and Register("X", nil) == false)
 
 local reported = 0
@@ -504,6 +508,86 @@ EllesmereUI.RefreshQuestTrackerRows()
 RunTimers()
 assert(#seen == 2 and not slot._shown and row.kind == "zone", "a zone header kept a hook's slot")
 assert(slotOf[101] ~= slot and slotOf[101]._shown)
+cfg.customGroupByZone = false
+
+-------------------------------------------------------------------------------
+--  7. The quest audio bridge (EllesmereUIQuestTracker_QuestAudio.lua) on these
+--     rows: the voice-over addon's Play button in its slot on a quest it
+--     voices, none on one it does not, bound once per quest
+-------------------------------------------------------------------------------
+local bound = {}
+VoiceOver = { QuestOverlayUI = {
+    ShowsTrackerButton = function(_, questID) return questID == 101 end,
+    BindPlayButton = function(_, b, questID) b.questID = questID; bound[#bound + 1] = questID end,
+    SetPlayButtonState = function() end,
+    FollowQueue = function() end,
+} }
+Spoken = {
+    DressBoxButton = function(_, b) function b:SetBox(atlas) self._box = atlas end end,
+    RegisterCallback = function() end,
+}
+ns.UseCustomTracker = function() return true end
+local bootAt = #frames + 1
+assert(loadstring(AUDIO_SRC, "=EllesmereUIQuestTracker_QuestAudio.lua"))("EllesmereUIQuestTracker", ns)
+local boot = frames[bootAt]
+boot._scripts.OnEvent(boot, "PLAYER_LOGIN")
+RunTimers()
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+-- The bridge's slot is the third hook's (after Bad and TestRows).
+local function PlayButtonOn(questID)
+    local r = slotOf[questID]._parent
+    local s = r.slots and r.slots[3]
+    if s then
+        for _, f in ipairs(frames) do
+            if f._parent == s and f._box then return f, r end
+        end
+    end
+    return nil, r
+end
+local play, r101 = PlayButtonOn(101)
+assert(play and play._shown and play.questID == 101, "no Play button on a voiced quest's row")
+assert(#bound == 1 and bound[1] == 101, "the Play button was not bound once to its quest")
+assert(r101._w == 260 - 16 - 6 - 64 - 16, "the bridge's width was not taken off the title")
+assert(PlayButtonOn(102) == nil, "a Play button on a quest without audio")
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(#bound == 1, "a redraw bound the Play button again")
+
+-------------------------------------------------------------------------------
+--  8. A render that changes the tracker's height puts it back on its Unlock
+--     Mode link in that render; one that keeps the height does not, nor does a
+--     render while Unlock Mode is open
+-------------------------------------------------------------------------------
+cfg.customGroupByZone = true
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+reapplied = 0
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(reapplied == 0, "a render that kept the height re-applied the link")
+-- a quest in a new zone: a zone header and a quest row more
+local zones = { [101] = "Elwynn", [102] = "Elwynn", [103] = "Westfall" }
+EQT.QuestLogSnapshot = function() return {}, zones end
+local before = frame._h
+quests[3] = 103
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(frame._h > before, "the new zone did not grow the tracker")
+assert(reapplied == 1 and reappliedKey == "EQT_Tracker", "a height change did not re-apply the link")
+-- turned in: back to the old height, the link re-applied again
+quests[3] = nil
+reapplied = 0
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(frame._h == before and reapplied == 1, "a shrink did not re-apply the link")
+-- Unlock Mode places the tracker itself
+EllesmereUI._unlockActive = true
+reapplied = 0
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(reapplied == 0, "a render in Unlock Mode re-applied the link")
+EllesmereUI._unlockActive = false
 cfg.customGroupByZone = false
 
 RunTimers()

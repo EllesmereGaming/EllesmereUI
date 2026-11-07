@@ -1895,7 +1895,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         local tbgc = s.topNameBarBgColor or { r=17/255, g=17/255, b=17/255 }
         tnbBg:SetColorTexture(tbgc.r, tbgc.g, tbgc.b, (s.topNameBarBgOpacity or 80) / 100)
         local tnbText = tnb:CreateFontString(nil, "OVERLAY")
-        tnbText:SetFont(fontPath, s.topNameBarTextSize or 11, outline)
+        -- The player's name: a font family, with no shadow as a plain SetFont.
+        EllesmereUI.SetFontFamily(tnbText, fontPath, s.topNameBarTextSize or 11, outline, false)
         tnbText:SetWordWrap(false)
         if lvlAttach then
             tnbText:SetFormattedText(lvlAttach[1], ns._RFPreviewLevel(), playerName)

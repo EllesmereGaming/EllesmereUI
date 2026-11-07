@@ -3469,6 +3469,15 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
         parent._ufFactionRow = factionRow
     end
 
+    -- Row 6: Rested Indicator | blank (player only): Quality of Life's EXTRAS
+    -- row mirrored, the same account-wide settings (EllesmereUI.RestedIndicatorCfg).
+    if optState.selectedUnit == "player" then
+        local restRow
+        restRow, h = W:DualRow(parent, y, EllesmereUI.RestedIndicatorCfg(), EllesmereUI.BlankRowCfg())
+        y = y - h
+        EllesmereUI.BuildRestedIndicatorCog(restRow._leftRegion)
+    end
+
     -- Row 6: Targeting Sound Effects | blank (target only; one setting for the
     -- profile). Blizzard's own target frame plays them itself, so the row greys
     -- out while the Target frame is on Blizzard Default.

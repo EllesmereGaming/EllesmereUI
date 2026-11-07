@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local addon, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.Glows and EllesmereUI.Glows.FlatKeys and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, and the Name Format asks its UnitNameFormat)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.Glows and EllesmereUI.Glows.FlatKeys and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.SetFontObjectFace and EllesmereUI.SnapshotFontObject and EllesmereUI.RestoreFontObject) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, the Name Format asks its UnitNameFormat, the plate texts take font families through its ApplyModuleFontFamily / SetFontFamily, and the friendly name-only fonts change through its SetFontObjectFace / SnapshotFontObject / RestoreFontObject)
 EllesmereUI._ModuleNS[addon] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -23,10 +23,14 @@ local function GetFont() return EllesmereUI.GetFontPath("nameplates") end
 -- explicit-flag path too, so aura literals are covered.
 local function GetNPOutline() return EllesmereUI.GetFontOutlineFlag("nameplates") end
 local function GetNPUseShadow() return EllesmereUI.GetFontUseShadow("nameplates") end
+-- Every plate text takes a font family (names, guilds, titles and cast targets can be
+-- other players' writing): the chosen font draws what it can, Blizzard's Cyrillic,
+-- Korean and Chinese faces the rest. Once a string has its family, every later font
+-- write to it goes through this helper (or SetFontFamily), never a plain SetFont.
 local function SetFSFont(fs, size, flags)
   -- "Never Show Slug": gates the explicit-flag path so hardcoded aura
   -- "OUTLINE, SLUG" literals drop the slug (body text is gated at the source).
-  EllesmereUI.ApplyModuleFont(fs, nil, size or 11, "nameplates", EllesmereUI.SlugFlag(flags or GetNPOutline()))
+  EllesmereUI.ApplyModuleFontFamily(fs, nil, size or 11, "nameplates", EllesmereUI.SlugFlag(flags or GetNPOutline()))
 end
 
 ns.GetFont = GetFont
@@ -131,6 +135,10 @@ function ns._appendDisplayPresetKeys(t)
         "raidMarkerPos", "classificationSlot", "classificationShowInInstances",
         "factionSlot", "classificationIncludeFaction",
         "classificationHideRare", "classificationHideQuest",
+        -- Core Positions elements (no defaults: unset reads the views in Layout.lua).
+        "debuffCoreSize", "buffCoreSize", "ccCoreSize", "raidMarkerCoreSize",
+        "rareCoreSize", "questCoreSize", "factionCoreSize", "questTextSlot",
+        "rareShowInInstances", "questShowInInstances", "questTextShowInInstances",
         "castNameSize", "castNameColor", "castCombineNameTarget",
         "castTargetSize", "castTargetClassColor", "castTargetColor",
         "showCastTimer", "castTimerSize", "castTimerColor", "targetScale", "minorEnemyScale", "nonEliteEnemyScale",
@@ -404,7 +412,10 @@ local defaults = {
     raidMarkerPos = "topright",
     raidMarkerSize = 24,
     classificationSlot = "topleft",
-    classificationShowInInstances = false,  -- Rare/Quest "Show In Instances" (slot cog): lifts the open-world-only gate in UpdateClassification + IsQuestMob
+    -- The fallback of the Elite/Rare, Quest and Quest Objective Text Show In Instances
+    -- keys (rareShowInInstances / questShowInInstances / questTextShowInInstances, no
+    -- defaults: ns.NP_ShowInInstances). WoW Forever: on.
+    classificationShowInInstances = (EllesmereUI.IS_FOREVER == true) and true or false,
     -- Faction badge (Horde/Alliance), a Core Positions slot element; rules in ns.NP_FactionBadge.
     factionSlot = "none",
     factionStyle = "pvp",  -- Icon Style: a key of EllesmereUI.FACTION_ART
@@ -518,8 +529,11 @@ local defaults = {
     focusCastHeight = 100,
     questMobColorEnabled = false,
     questMobColor = { r = 0.157, g = 0.855, b = 0.475 },
+    -- Read only by the Quest Objective Text view (ns.NP_LegacyQuestText) while questTextSlot
+    -- is unset: on, the text takes the Quest Indicator's slot. Its WoW Forever default is
+    -- what shows the text on a fresh Forever profile. No UI writes it.
     replaceQuestIconWithObjective = (EllesmereUI.IS_FOREVER == true) and true or false,
-    questObjectiveTextSize = 14,
+    questObjectiveTextSize = 14,  -- the Quest Objective Text element's Text Size
     showCastIcon = true,
     castIconScale = 1,
     castIconOffsetX = 0,
@@ -565,7 +579,8 @@ local defaults = {
     castTargetGlowSpeed = 4,
     castTargetGlowBackground = false,
     castTargetGlowBackgroundColor = { r = 0, g = 0, b = 0 },
-    -- Core Positions: slot-based size + XY offsets
+    -- Core Positions: per-slot XY offsets. <pos>SlotSize is the fallback of each element's
+    -- own size key (debuffCoreSize, raidMarkerCoreSize, ..., no defaults: ns.NP_ElementSize).
     topSlotSize = 26,        topSlotXOffset = 0,      topSlotYOffset = 0,      topSlotRaiseStrata = false,
     rightSlotSize = 24,      rightSlotXOffset = 0,    rightSlotYOffset = 0,    rightSlotRaiseStrata = false,
     leftSlotSize = 24,       leftSlotXOffset = 0,     leftSlotYOffset = 0,     leftSlotRaiseStrata = false,

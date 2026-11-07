@@ -1125,12 +1125,14 @@ L["Custom friends list with groups, notes, and realm grouping."] = "Lista de ami
 L["Enable Accent Colors"] = "Ativar cores de destaque"
 L["Enable Faction Banners"] = "Ativar estandartes de facção"
 L["Europe"] = "Europa"
+L["Faction Banners"] = "Estandartes de facção"
 L["Ignored"] = "Ignorados"
 L["In App"] = "In App"
 L["Invite Friend..."] = "Convidar amigo..."
 L["Korea"] = "Coreia"
 L["North America"] = "América do Norte"
 L["Online"] = "Online"
+L["Region Icons"] = "Ícones de região"
 L["Russia"] = "Rússia"
 L["Set Border Size above 0"] = "Defina o Tamanho da Borda acima de 0"
 L["Set Status Message"] = "Definir mensagem de status"
@@ -10383,3 +10385,18 @@ L["Turn on Auto Deposit/Withdraw first."] = "Ative Depositar/Sacar automaticamen
 L["WARBAND GOLD"] = "OURO DO BANDO DE GUERRA"
 L["When you open the bank, gold moves between this character and your warband bank so the character keeps the Amount. Gold above it is deposited, and gold missing is withdrawn, as far as the warband bank holds it. Applies to all characters."] = "Ao abrir o banco, o ouro é movido entre este personagem e o banco do bando de guerra para que o personagem mantenha a Quantidade. O ouro acima dela é depositado, e o que faltar é sacado, até onde o banco do bando de guerra tiver. Vale para todos os personagens."
 L["Withdrew %1$s from the warband bank."] = "%1$s sacado do banco do bando de guerra."
+
+-- Nameplates Core Positions cog
+L["Quest Objective Text"] = "Texto de Objetivo de Missão"
+L["Slot"] = "Slot"
+L["Also shows inside dungeons, raids and other instances."] = "Também aparece em masmorras, raides e outras instâncias."
+L["Size of the quest progress text."] = "Tamanho do texto de progresso da missão."
+
+-- Bags Pinned Items cog
+L["Hide Items in Their Categories"] = "Ocultar Itens em Suas Categorias"
+L["Dim Items in OneBag/MultiBag"] = "Escurecer Itens na Bolsa Única/MultiBolsa"
+L["Dims pinned items in their bag slots, since they also show in Pinned Items."] = "Escurece os itens fixados nos espaços da bolsa, já que eles também aparecem em Itens fixados."
+
+-- Quest Tracker Title Difficulty Colors
+L["Title Difficulty Colors"] = "Cores de Dificuldade do Título"
+L["Colors quest titles by difficulty for your level. This is the game's own option, so its quest log follows it too."] = "Colore os títulos das missões pela dificuldade para o seu nível. É a opção do próprio jogo, então o registro de missões também a segue."
