@@ -486,5 +486,5 @@ end)
 SLASH_EUIKTINTRO1 = "/euiktintro"
 SlashCmdList["EUIKTINTRO"] = function()
     if EllesmereUIDB then EllesmereUIDB.kickTrackerIntroShown = nil end
-    EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r Kick Tracker announcement reset. It fires on your next /reload.")
+    EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. EllesmereUI.L("EllesmereUI:|r Kick Tracker announcement reset. It fires on your next /reload."))
 end
