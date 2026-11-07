@@ -914,12 +914,13 @@ end
 
 -- Own loot only: the *_SELF lines, the multiple-item formats (link and count)
 -- first, since the single-item ones match their lines too. The flag: the
--- tracker counts it (a pushed item, bought or a quest reward, shows but is no
--- gain).
+-- tracker counts it (a pushed item, bought or a quest reward, and a crafted one
+-- show but are no gain).
 local ITEM_KEYS = {
     { "LOOT_ITEM_SELF_MULTIPLE", true }, { "LOOT_ITEM_SELF", true },
     { "LOOT_ITEM_PUSHED_SELF_MULTIPLE", false }, { "LOOT_ITEM_PUSHED_SELF", false },
     { "LOOT_ITEM_BONUS_ROLL_SELF_MULTIPLE", true }, { "LOOT_ITEM_BONUS_ROLL_SELF", true },
+    { "LOOT_ITEM_CREATED_SELF_MULTIPLE", false }, { "LOOT_ITEM_CREATED_SELF", false },
 }
 
 -- Forever sends some loot lines, like fishing and crafting, with a plain [Name] instead of a link.
