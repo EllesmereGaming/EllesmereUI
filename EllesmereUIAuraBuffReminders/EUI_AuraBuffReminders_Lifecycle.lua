@@ -199,6 +199,7 @@ function EABR:OnEnable()
     _G._EABR_FLASK_ITEMS = FLASK_ITEMS
     _G._EABR_FOOD_ITEMS = FOOD_ITEMS
     _G._EABR_WEAPON_ENCHANT_CHOICES = WEAPON_ENCHANT_CHOICES
+    _G._EABR_FV_WEAPON_BUFFS = EABR.FV_WEAPON_BUFFS
     -- _EABR_TALENT_REMINDER_ZONES set by EllesmereUIABR_TalentReminders.lua
 
     local STRATA_VALUES = EllesmereUI.FRAME_STRATA_LABELS
@@ -801,6 +802,20 @@ if EABR.FOREVER then
             mainFrame:RegisterEvent("MINIMAP_UPDATE_TRACKING")
         else
             mainFrame:UnregisterEvent("MINIMAP_UPDATE_TRACKING")
+        end
+    end
+    function EABR.FvSyncWeaponEvents(want)
+        if want == (EABR._fvWeaponEv or false) then return end
+        EABR._fvWeaponEv = want
+        if want then
+            InvalidateItemCountCache()
+            mainFrame:RegisterEvent("WEAPON_ENCHANT_CHANGED")
+            mainFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+            mainFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+        else
+            mainFrame:UnregisterEvent("WEAPON_ENCHANT_CHANGED")
+            mainFrame:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED")
+            mainFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
         end
     end
 else

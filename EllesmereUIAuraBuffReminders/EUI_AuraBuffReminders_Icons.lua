@@ -400,6 +400,7 @@ local function ShowCombatIcon(m)
         f._text:Hide()
     end
     EABR.ApplyEatingVisual(f, m)
+    EABR.ApplyIconExpiry(f, m)
     EABR.ApplyIconTooltipData(f, m)
     EABR.ApplyIconQuality(f, (not m.isEating) and m.qualityAtlas or nil)
     if m.groupTotal then
@@ -520,6 +521,7 @@ local function ShowCursorIcon(iconIdx, m)
         f._text:Hide()
     end
     EABR.ApplyEatingVisual(f, m)
+    EABR.ApplyIconExpiry(f, m)
     EABR.ApplyIconTooltipData(f, m)
     EABR.ApplyIconQuality(f, (not m.isEating) and m.qualityAtlas or nil)
     if m.groupTotal then
@@ -1208,6 +1210,32 @@ function EABR.ApplyEatingVisual(f, m)
     f:SetScript("OnUpdate", EABR.EatingTick)
 end
 
+function EABR.ApplyIconExpiry(f, m)
+    local expireAt = m and m.expireAt
+    local binding = f._expiryBinding
+    if not expireAt then
+        if binding then binding:SetEnabled(false) end
+        return
+    end
+    if not (C_DurationUtil and C_DurationUtil.CreateDurationTextBinding) then return end
+    local count = EABR.CreateIconCountOverlay(f)
+    if not binding then
+        f._expiryDuration = C_DurationUtil.CreateDuration()
+        binding = C_DurationUtil.CreateDurationTextBinding()
+        binding:SetFontString(count)
+        binding:SetDuration(f._expiryDuration)
+        local fmt = EllesmereUI.AuraKit.GetDurationFormatter(false)
+        if fmt then binding:SetFormatter(fmt) end
+        f._expiryBinding = binding
+    end
+    local p = db and db.profile.display
+    SetABRFont(count, ResolveFontPath(), max(14, floor(((p and p.textSize) or 11) * 1.15)))
+    count:SetTextColor(1, 1, 1, 1)
+    f._expiryDuration:SetTimeFromEnd(expireAt, m.expireTotal)
+    binding:SetEnabled(true)
+    count:Show()
+end
+
 local function GetOrCreateIcon(index)
     if iconPool[index] then return iconPool[index] end
     -- SecureActionButtonTemplate for click-to-cast in combat
@@ -1336,6 +1364,7 @@ do
         e.tooltipItem = nil
         e.cat = nil; e.data = nil; e.dismissKey = nil; e.petCycleTotal = nil
         e.isEating = nil; e.eatingExpirationTime = nil
+        e.expireAt = nil; e.expireTotal = nil
         e.qualityAtlas = nil
         e.bagCount = nil
         e.substitute = nil
