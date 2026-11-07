@@ -891,13 +891,6 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
                       local p = DB(); if not p then return end
                       p.castBar.timerY = v; RefreshCast()
                   end },
-                { type = "toggle", label = "Full Craft Time",
-                  tooltip = "While crafting several items at once, the duration text shows the time left for the whole batch and the spell text shows the craft count.",
-                  get = function() local p = DB(); return p and p.castBar.fullCraftTime end,
-                  set = function(v)
-                      local p = DB(); if not p then return end
-                      p.castBar.fullCraftTime = v
-                  end },
             },
         })
     end
@@ -927,9 +920,25 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
     end
 
 
-    -- Row 5: Show Spell Rank (spell ranks exist only on WoW Forever)
-    if EllesmereUI.IS_FOREVER then
+    -- Row 5: Craft Batches, plus Show Spell Rank (spell ranks exist only on WoW Forever)
+    -- Craft Batches is stored as fullCraftTime (text) and mergeCrafts (bar + text).
     _, h = W:DualRow(parent, y,
+        { type = "dropdown", text = "Craft Batches",
+          tooltip = "While crafting several items at once. Full Time Text: the duration text shows the time left for the whole batch and the spell text shows the craft count. Merge Bar: also one cast bar spans the whole batch instead of refilling for every craft.",
+          disabled = castOff,
+          disabledTooltip = "Player Cast Bar",
+          values = { off = "Off", text = "Full Time Text", merge = "Merge Bar" },
+          order = { "off", "text", "merge" },
+          getValue = function()
+              local p = DB(); if not p then return "off" end
+              return p.castBar.mergeCrafts and "merge" or p.castBar.fullCraftTime and "text" or "off"
+          end,
+          setValue = function(v)
+              local p = DB(); if not p then return end
+              p.castBar.fullCraftTime = v == "text"
+              p.castBar.mergeCrafts = v == "merge"
+          end },
+        EllesmereUI.IS_FOREVER and
         { type = "toggle", text = "Show Spell Rank",
           tooltip = "Appends the spell's rank to the spell name, for spells that have one.",
           disabled = function()
@@ -941,10 +950,9 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
           setValue = function(v)
               local p = DB(); if not p then return end
               p.castBar.showSpellRank = v
-          end },
-        EllesmereUI.BlankRowCfg()
+          end }
+        or EllesmereUI.BlankRowCfg()
     );  y = y - h
-    end -- IS_FOREVER
 
 
     -- MARKS section

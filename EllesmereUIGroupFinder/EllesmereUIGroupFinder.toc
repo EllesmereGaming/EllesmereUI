@@ -3,15 +3,21 @@
 ## Title: |cff0cd29fEllesmereUI|r Group Finder
 ## Category: |cff0cd29fEllesmere|rUI
 ## Group: EllesmereUI
-## Notes: Premade Group search filters, listing, and application tools.
+## Notes: Premade Group search filters, group list, applicant list, and application tools.
 ## Author: Ellesmere
 ## Version: 9.7.8
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIGroupFinderDB
+## SavedVariablesPerCharacter: EllesmereUIGroupFinderCharDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Runtime. The settings page lives in the LoadOnDemand EllesmereUIOptions addon
 # (EUI_GroupFinder_Options.lua), like every other module.
 EllesmereUIGroupFinder.lua
+EUI_GroupFinder_Regions.lua
 EUI_GroupFinder_Search.lua
 EUI_GroupFinder_Applications.lua
+EUI_GroupFinder_Extras.lua
+EUI_GroupFinder_Expressions.lua
+EUI_GroupFinder_ResultsList.lua
+EUI_GroupFinder_ApplicantList.lua
