@@ -886,7 +886,7 @@ end
 EllesmereUI.RefreshQuestTrackerRows = Queue
 
 -------------------------------------------------------------------------------
--- Interaction. Nothing here touches Blizzard's tracker, the watch list, the
+-- Interaction. Untrack also drops a quest-log watch; nothing touches Blizzard's tracker, the
 -- super-track or the world map (opening it from addon code taints its pins:
 -- SetPassThroughButtons blocked in combat, tested 2026-10-17). Untrack is our
 -- list's own; a modified click that untracks reaches Blizzard's own quest header
@@ -896,6 +896,8 @@ local function Untrack(questID)
     local db = CharDB()
     db.ctUntracked[questID] = true
     db.ctPinned[questID] = nil
+    -- A quest the player tracked in the quest log leaves Blizzard's watch list too.
+    if C_QuestLog.GetQuestWatchType(questID) ~= nil then C_QuestLog.RemoveQuestWatch(questID) end
     Queue()
 end
 
