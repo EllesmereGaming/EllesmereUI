@@ -116,6 +116,13 @@ local function ApplyAll()
     -- the engine's SetPoint hook.
     ns.PartySpin_Refresh()
 
+    -- Register with Masque after sizing and layout, since AddButton skins immediately.
+    EAB_VTABLE.RegisterMasqueButtons()
+    if ns.MasqueGroup then
+        EAB:ApplyPushedTextures()
+        EAB:ApplyHighlightTextures()
+    end
+
     -- Paging drivers are built at setup and rebuilt by the options controls; a
     -- profile swap or spec override apply changes paging settings with neither,
     -- so re-check here. Unchanged bars are skipped (see RebuildBarPaging).

@@ -180,6 +180,7 @@ local function RegisterWithUnlockMode()
             -- paints with; nil for custom shapes (their ring sits inside the
             -- button), stock looks and non-square icons.
             getMatchPad = function()
+                if ns.MasqueOwnsBar(info.key) then return nil end
                 local p = EAB.db and EAB.db.profile
                 if not (p and p.squareIcons) or ns.AB_Style() ~= "eui" then return nil end
                 local s = p.bars[info.key]
@@ -204,7 +205,7 @@ local function RegisterWithUnlockMode()
                 if stride < 1 then stride = 1 end
                 local isVert   = (s.orientation == "vertical")
                 local pad      = s.buttonPadding or 2
-                local shape    = ns.AB_LayoutShape(s)
+                local shape    = ns.AB_LayoutShape(s, info.key)
                 local cols     = isVert and numRows or stride
                 local PP = EllesmereUI and EllesmereUI.PP
                 local onePx = PP and PP.mult or 1
@@ -244,7 +245,7 @@ local function RegisterWithUnlockMode()
                 if stride < 1 then stride = 1 end
                 local isVert   = (s.orientation == "vertical")
                 local pad      = s.buttonPadding or 2
-                local shape    = ns.AB_LayoutShape(s)
+                local shape    = ns.AB_LayoutShape(s, info.key)
                 local rows     = isVert and stride or numRows
                 local PP = EllesmereUI and EllesmereUI.PP
                 local onePx = PP and PP.mult or 1
