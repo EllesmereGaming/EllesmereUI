@@ -642,7 +642,7 @@ local ZONE_PIN, ZONE_ASSIGN = 1, 2
 -- One pass's groups and cells, reused across passes (entries past the counts are stale)
 local gN, cN = 0, 0
 local gLabel, gHint, gInter, gClear, gSize, gW, gLi = {}, {}, {}, {}, {}, {}, {}
-local gZone, gKey, gPlanW = {}, {}, {}
+local gZone, gKey, gPlanW, gReag = {}, {}, {}, {}
 local cData = {}
 -- A counted label per group index and what it was made from, so an
 -- unchanged label makes no string
@@ -660,7 +660,7 @@ local function CountLabel(g, a, b, n)
     return text
 end
 
-local function AddGroup(label, hint, interactive, clear, zone, key)
+local function AddGroup(label, hint, interactive, clear, zone, key, reagent)
     gN = gN + 1
     gLabel[gN] = (label and label ~= "") and label or false
     gHint[gN] = hint or false
@@ -668,6 +668,7 @@ local function AddGroup(label, hint, interactive, clear, zone, key)
     gClear[gN] = clear and true or false
     gZone[gN] = zone or false
     gKey[gN] = key or false
+    gReag[gN] = reagent and true or false
     gSize[gN] = 0
 end
 
@@ -687,11 +688,12 @@ end
 -- buckets) | "exp" (expansion buckets) | "pinned" | "recent". assignKey: the
 -- category a drop zone over the section's blocks assigns to. keepEmpty: show
 -- the name even with no cells. hint: a flat group's label tooltip line (the
--- single Pinned / Recent views).
+-- single Pinned / Recent views). reagent: a Reagent Bag section (no Reagent
+-- Bag Icon on its cells).
 -- A nested section becomes one group per bucket; the first is named
 -- "<section>: <bucket>", the others by their bucket. Labels end in their
 -- item count.
-function ns.CompactBagsSection(name, items, kind, assignKey, keepEmpty, hint)
+function ns.CompactBagsSection(name, items, kind, assignKey, keepEmpty, hint, reagent)
     local count = #items
     local pin = kind == "pinned"
     local zone = false
@@ -706,7 +708,7 @@ function ns.CompactBagsSection(name, items, kind, assignKey, keepEmpty, hint)
             local bItems = bucket.items
             local bn = #bItems
             if bn > 0 then
-                AddGroup(CountLabel(gN + 1, first and name, bucket.label, bn), false, false, false, zone, assignKey)
+                AddGroup(CountLabel(gN + 1, first and name, bucket.label, bn), false, false, false, zone, assignKey, reagent)
                 for j = 1, bn do AddCell(bItems[j]) end
                 first = false
             end
@@ -724,7 +726,7 @@ function ns.CompactBagsSection(name, items, kind, assignKey, keepEmpty, hint)
     -- An empty section is dropped, but the Pinned block and an assignable
     -- category stay as a label-only block (a drop target)
     if count == 0 and not pin and not assignKey and not keepEmpty then return end
-    AddGroup(name ~= "" and CountLabel(gN + 1, false, name, count) or false, hint, false, clear, zone, assignKey)
+    AddGroup(name ~= "" and CountLabel(gN + 1, false, name, count) or false, hint, false, clear, zone, assignKey, reagent)
     for j = 1, count do AddCell(items[j]) end
 end
 
@@ -946,7 +948,7 @@ function ns.CompactBagsPlace(child, startX, startY, columns, slotIdx)
     local cellX, cellY = out.cellX, out.cellY
     local ci = 0
     for g = 1, n do
-        local interactive = gInter[g]
+        local interactive, reagent = gInter[g], gReag[g]
         for _ = 1, gSize[g] do
             ci = ci + 1
             slotIdx = slotIdx + 1
@@ -955,7 +957,7 @@ function ns.CompactBagsPlace(child, startX, startY, columns, slotIdx)
             local btn = GetOrCreateSlot(slotIdx)
             if btn then
                 btn:GetParent():SetParent(child)
-                RenderButton(btn, cData[ci], slotIdx, 0, 0, startX + cellX[ci], cellY[ci], columns, interactive)
+                RenderButton(btn, cData[ci], slotIdx, 0, 0, startX + cellX[ci], cellY[ci], columns, interactive, reagent)
             end
         end
     end

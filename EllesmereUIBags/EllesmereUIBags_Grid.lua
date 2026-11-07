@@ -39,9 +39,12 @@ local PreCacheSortFields = ns.PreCacheSortFields
 local VisualSortCompare = ns.VisualSortCompare
 local RecentCompare = ns.RecentCompare
 local MergeDuplicates = ns.MergeDuplicates
+local REAGENT_BADGES = EUI.BAG_REAGENT_BADGES
 local ApplySavedOrder = ns.ApplySavedOrder
 -- Junk Marker state, read once per RenderGridView pass for every RenderButton
 local junkOn = false
+-- Reagent Bag Icon state, read once per pass by ReadReagentBadge (badgeStyle nil = off)
+local badgeStyle, badgeSize
 -- Compact display state, read once per RenderGridView pass
 local compactOn = false
 local BuildExpansionBuckets = ns.BuildExpansionBuckets
@@ -158,6 +161,44 @@ local function PaintJunkState(btn, info, markerJunk)
     end
 end
 
+-- Reads the Reagent Bag Icon settings for a render pass; true while an icon is chosen.
+local function ReadReagentBadge()
+    local p = BP()
+    badgeStyle = REAGENT_BADGES.styles[p.bagReagentBadge]
+    if not badgeStyle then return false end
+    local v = tonumber(p.bagReagentBadgeSize)
+    badgeSize = v and math.max(8, math.min(24, math.floor(v + 0.5))) or 12
+    return true
+end
+ns.ReadReagentBadge = ReadReagentBadge  -- shared with EllesmereUIBags_List.lua
+
+-- Reagent Bag Icon badge, top-right of anchor (default btn), 3px past the corner like
+-- the Junk coin; created on first show. show needs a ReadReagentBadge pass that
+-- returned true. scale: the List view's smaller icon column (10 of the grid's 12).
+local function PaintReagentBadge(btn, show, anchor, scale)
+    local badge = btn._reagentBadge
+    if show then
+        if not badge then
+            badge = (btn._textOverlay or btn):CreateTexture(nil, "OVERLAY", nil, 5)
+            badge:SetPoint("TOPRIGHT", anchor or btn, "TOPRIGHT", 3, 3)
+            btn._reagentBadge = badge
+        end
+        local size = scale and math.floor(badgeSize * scale + 0.5) or badgeSize
+        if badge._size ~= size then
+            badge._size = size
+            badge:SetSize(size, size)
+        end
+        if badge._style ~= badgeStyle then
+            badge._style = badgeStyle
+            badge:SetAtlas(badgeStyle.atlas)
+        end
+        badge:Show()
+    elseif badge then
+        badge:Hide()
+    end
+end
+ns.PaintReagentBadge = PaintReagentBadge  -- shared with EllesmereUIBags_List.lua
+
 -- Mark mode repaints the one slot it toggled
 function ns.GridPaintJunk(btn, info)
     PaintJunkState(btn, info, EUI_CategoryManager:IsJunk(info.itemID, info.quality or 1))
@@ -166,7 +207,8 @@ end
 -------------------------------------------------------------------------------
 --  RenderButton
 -------------------------------------------------------------------------------
-local function RenderButton(btn, data, _, col, row, startX, currentY, _, interactiveEmpties)
+-- reagentSection: the button sits in a Reagent Bag section (no Reagent Bag Icon there)
+local function RenderButton(btn, data, _, col, row, startX, currentY, _, interactiveEmpties, reagentSection)
     local parent = btn:GetParent()
     parent:ClearAllPoints()
     parent:SetPoint("TOPLEFT", startX + (col * (SLOT_SIZE + SPACING)), currentY - (row * (SLOT_SIZE + SPACING)))
@@ -210,6 +252,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         if btn._fvQuestBorder then btn._fvQuestBorder:Hide() end
         if btn._questMarker then btn._questMarker:Hide() end
         if btn._junkCoin then btn._junkCoin:Hide() end
+        if btn._reagentBadge then btn._reagentBadge:Hide() end
         if btn.Cooldown then btn.Cooldown:Clear() end
         if btn.ItemLevelText then btn.ItemLevelText:SetText("") end
         if btn.KeystoneText then btn.KeystoneText:SetText("") end
@@ -231,6 +274,10 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
 
         local quality = data.info.quality or 1
         PaintJunkState(btn, data.info, junkOn and EUI_CategoryManager:IsJunk(data.info.itemID, quality))
+        if badgeStyle or btn._reagentBadge then
+            -- The OneBag / MultiBag bag sections (interactiveEmpties) hold bag 5 only in their Reagent Bag section
+            PaintReagentBadge(btn, badgeStyle and data.bag == 5 and not (reagentSection or interactiveEmpties))
+        end
 
         -- Search misses, and a pinned item in a OneBag / MultiBag bag section
         -- (the interactive slot sections) while Dim Items in OneBag/MultiBag
@@ -485,6 +532,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
     local view = EUI_CategoryManager:GetViewByIndex(selectedCategoryIndex)
     junkOn = EUI_CategoryManager:IsJunkMarkerEnabled()
     compactOn = EUI_Bags.IsCompactMode() == true
+    ReadReagentBadge()
 
     -- 5. Render grid into scroll child
     for _, btn in pairs(itemSlots) do
@@ -560,7 +608,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
         end
     end
 
-    local function RenderItemBlock(blockItems)
+    local function RenderItemBlock(blockItems, reagentSection)
         local n = #blockItems
         for j, data in ipairs(blockItems) do
             slotIdx = slotIdx + 1
@@ -569,7 +617,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                 btn:GetParent():SetParent(child)
                 local col = (j - 1) % columns
                 local row = math.floor((j - 1) / columns)
-                RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
+                RenderButton(btn, data, slotIdx, col, row, startX, curY, columns, nil, reagentSection)
             end
         end
         local remainder = n % columns
@@ -1066,7 +1114,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
         local headerIdx = 0
         local expSubIdx = 0
 
-        local function RenderSection(sectionName, sectionItems, isUserCreated, showPinAdd, alwaysShow, assignCatIdx, nestByExpansion)
+        local function RenderSection(sectionName, sectionItems, isUserCreated, showPinAdd, alwaysShow, assignCatIdx, nestByExpansion, reagentSection)
             local itemCount = #sectionItems
             if itemCount == 0 and not isUserCreated and not showPinAdd and not alwaysShow then return end
 
@@ -1095,7 +1143,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                 end
                 local kind = (showPinAdd and "pinned") or (alwaysShow and "recent")
                     or (useSlotNest and "slot") or (useExpNest and "exp") or "flat"
-                ns.CompactBagsSection(label, sectionItems, kind, assignKey)
+                ns.CompactBagsSection(label, sectionItems, kind, assignKey, nil, nil, reagentSection)
                 return
             end
 
@@ -1166,7 +1214,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                             SetBagFont(sh._label, math.max(8, catTitleSize - 2))
                             sh:Show()
                             curY = curY - 18
-                            RenderItemBlock(buck.items)
+                            RenderItemBlock(buck.items, reagentSection)
                             -- Place assign "+" after the first bucket's items (newest expansion)
                             if showAssign and not assignShown then
                                 assignShown = true
@@ -1213,7 +1261,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                     btn:GetParent():SetParent(child)
                     local col = (j - 1) % columns
                     local row = math.floor((j - 1) / columns)
-                    RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
+                    RenderButton(btn, data, slotIdx, col, row, startX, curY, columns, nil, reagentSection)
                 end
             end
 
@@ -1360,7 +1408,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                         catItems = folded or catItems
                     end
                     local isUserCreated = cat.isUserCreated
-                    RenderSection(cat.name, catItems, isUserCreated, cat.isPinned, cat.isRecent, ci, true)
+                    RenderSection(cat.name, catItems, isUserCreated, cat.isPinned, cat.isRecent, ci, true, cat.isReagentBag)
                 end
             end
         end
@@ -1750,7 +1798,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                 elseif selCat and selCat.isRecent then
                     hint = EllesmereUI.L("Extra quickview display, your items are also in their category")
                 end
-                ns.CompactBagsSection(headerName or "", displayItems, useSlotNest and "slot" or "flat", aKey, true, hint)
+                ns.CompactBagsSection(headerName or "", displayItems, useSlotNest and "slot" or "flat", aKey, true, hint, selCat and selCat.isReagentBag)
             elseif useSlotNest then
                 local expSubIdx = 0
                 local buckets = BuildSlotBuckets(displayItems)
@@ -1767,7 +1815,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                     btn:GetParent():SetParent(child)
                     local col = (i - 1) % columns
                     local row = math.floor((i - 1) / columns)
-                    RenderButton(btn, data, slotIdx, col, row, startX, curY, columns)
+                    RenderButton(btn, data, slotIdx, col, row, startX, curY, columns, nil, selCat and selCat.isReagentBag)
                 end
             end
 

@@ -716,9 +716,13 @@ end
 -------------------------------------------------------------------------------
 --  Render
 -------------------------------------------------------------------------------
+-- Reagent Bag Icon on, read once per RenderListView pass for every RenderRow
+local reagentBadgeOn = false
+
 -- dim: a pinned item in a OneBag / MultiBag bag section while Dim Items in
--- OneBag/MultiBag is on (the grid's search-miss alpha).
-local function RenderRow(btn, data, cols, rowW, x, y, stripe, dim)
+-- OneBag/MultiBag is on (the grid's search-miss alpha). reagentSection: a
+-- Reagent Bag section (no Reagent Bag Icon there).
+local function RenderRow(btn, data, cols, rowW, x, y, stripe, dim, reagentSection)
     -- Bags and bank share the column tables at their own row widths: a bank
     -- batch painted after a bags refresh re-lays them out for its width.
     if rowW ~= _lastRowW then LayoutColumns(rowW) end
@@ -814,6 +818,9 @@ local function RenderRow(btn, data, cols, rowW, x, y, stripe, dim)
         end
     end
     btn._textOverlay:SetShown(btn._lvIcon:IsShown())
+    if reagentBadgeOn or btn._reagentBadge then
+        ns.PaintReagentBadge(btn, reagentBadgeOn and data.bag == 5 and not reagentSection, btn._lvIcon, 10 / 12)
+    end
     EUI_Bags.RunItemOverlays(btn, data)
     -- Tooltip requery after the slot re-assignment (see RenderButton)
     if GameTooltip:IsOwned(btn) and btn.UpdateTooltip then btn:UpdateTooltip() end
@@ -908,6 +915,7 @@ function ns.RenderListView(items, opts)
     local cats = EUI_CategoryManager:GetCategories()
     local hidden = opts.allItems and BP().bagHiddenInAllItems or _emptyP
     local rowW = opts.rowW
+    reagentBadgeOn = ns.ReadReagentBadge()
 
     -- Bucket: section key (category index, "pinned" or "junk") -> sub label -> items.
     -- Slot views key sections by bag ID (0-5), or "main" for OneBag's bags 0-4.
@@ -1069,6 +1077,9 @@ function ns.RenderListView(items, opts)
             s._line:SetPoint("RIGHT", ns.ShowRecentClearButton(s), "LEFT", -6, 0)
         end
         y = y - h
+        -- Reagent Bag sections: OneBag / MultiBag bag sections (bag 5 only in its own) and the category
+        local reag = (slotView and b.key ~= "pinned" and b.key ~= "recent")
+            or (not slotView and type(b.key) == "number" and cats[b.key] and cats[b.key].isReagentBag)
         table.sort(b.subList, SubCompare)
         for _, sl in ipairs(b.subList) do
             if collapsed then break end
@@ -1086,7 +1097,7 @@ function ns.RenderListView(items, opts)
                     btn:GetParent():SetParent(child)
                     if d.info then
                         RenderRow(btn, d, cols, rowW, x, y, i % 2 == 0,
-                            d._pinDim and b.key ~= "pinned" and b.key ~= "recent")
+                            d._pinDim and b.key ~= "pinned" and b.key ~= "recent", reag)
                     else
                         RenderEmptyRow(btn, cols, d, rowW, x, y, i % 2 == 0)
                     end

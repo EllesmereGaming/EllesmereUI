@@ -430,6 +430,30 @@ local function ReleaseAllSlotTables()
     _activeSlotN = 0
 end
 
+-- Reagent Bag Icon choices (bagReagentBadge, bagReagentBadgeSize).
+local REAGENT_BADGES = {
+    order = { "none",
+              "goldleaf", "goldnugget", "goldhammer", "profession",
+              "wqherbalism", "wqmining", "wqskinning", "wqalchemy", "wqtailoring", "wqleatherworking",
+              "wqenchanting", "wqblacksmithing", "wqengineering" },
+    styles = {
+        goldleaf         = { atlas = "Professions_Tracking_Herb", label = "Golden Leaf" },
+        goldnugget       = { atlas = "Professions_Tracking_Ore", label = "Gold Nugget" },
+        goldhammer       = { atlas = "Professions-Crafting-Orders-Icon", label = "Golden Hammer" },
+        profession       = { atlas = "profession", label = "Profession" },
+        wqherbalism      = { atlas = "worldquest-icon-herbalism", label = "Herbalism" },
+        wqmining         = { atlas = "worldquest-icon-mining", label = "Mining" },
+        wqskinning       = { atlas = "worldquest-icon-skinning", label = "Skinning" },
+        wqalchemy        = { atlas = "worldquest-icon-alchemy", label = "Alchemy" },
+        wqtailoring      = { atlas = "worldquest-icon-tailoring", label = "Tailoring" },
+        wqleatherworking = { atlas = "worldquest-icon-leatherworking", label = "Leatherworking" },
+        wqenchanting     = { atlas = "worldquest-icon-enchanting", label = "Enchanting" },
+        wqblacksmithing  = { atlas = "worldquest-icon-blacksmithing", label = "Blacksmithing" },
+        wqengineering    = { atlas = "worldquest-icon-engineering", label = "Engineering" },
+    },
+}
+EUI.BAG_REAGENT_BADGES = REAGENT_BADGES  -- also read by EllesmereUIBags_Grid.lua and the Bags options page
+
 -- Merge duplicate non-gear items by itemLink within an already-ordered list.
 -- itemLink encodes stats/bonuses, so items with different stats stay separate.
 -- Must run AFTER ApplySavedOrder so the first occurrence in visual order wins.
@@ -440,6 +464,8 @@ end
 -- writes _mergedCount back onto a canonical slot table, both break.
 -- The result must not outlive the render pass that produced it: the copies come
 -- from the slot pool and are recycled by ReleaseAllSlotTables on the next refresh.
+-- Reagent bag keys of one MergeDuplicates call while a Reagent Bag Icon is on (reused)
+local _seenReag = {}
 local function MergeDuplicates(items)
     -- Record what this paint was built with, so the bags OnShow can tell that
     -- the state changed while they were hidden and repaint (see OnShow).
@@ -453,11 +479,14 @@ local function MergeDuplicates(items)
     -- OnShow repaints when the marks were wiped by the close that hid them.
     EUI_Bags._paintedUnmerged = (unmerged ~= nil and next(unmerged) ~= nil) or nil
     local seen = {}
+    -- Reagent Bag Icon on: reagent bag stacks merge only with each other.
+    local seenReag = REAGENT_BADGES.styles[BP().bagReagentBadge] and wipe(_seenReag) or seen
     local out = {}
     for _, data in ipairs(items) do
         local key = data.itemLink
         if key and not IsGearCategory(data.categoryIndex or 0) and not (unmerged and unmerged[key]) then
-            local idx = seen[key]
+            local into = data.bag == 5 and seenReag or seen
+            local idx = into[key]
             if idx then
                 local prev = out[idx]
                 if not prev._mergedCount then
@@ -475,7 +504,7 @@ local function MergeDuplicates(items)
                 prev._mergedCount = prev._mergedCount + (data.info.stackCount or 1)
             else
                 out[#out + 1] = data
-                seen[key] = #out
+                into[key] = #out
             end
         else
             out[#out + 1] = data
