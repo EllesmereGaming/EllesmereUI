@@ -1235,3 +1235,12 @@ L["promote loot"] = "promover o líder do saque"
 L["promoted for this raid"] = "promovido para este raide"
 L["show a group question, answers do nothing"] = "mostrar uma pergunta de grupo, as respostas não fazem nada"
 L["the council window did not open for this boss kill: %s"] = "a janela do conselho não abriu nesta morte de chefe: %s"
+
+-- == Simple Loot Council 1.0.6 strings, from the Simple Loot Council standalone translations ==
+L["Clear \"Awarded to you\""] = "Limpar \"Atribuído a você\""
+L["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."] = "Excluir %s atribuído a %s?\n\nEle ainda não foi negociado, então isso também desfaz a atribuição: ele sai de \"Saque para negociar\" e do histórico de cada membro da raide, como faz \"Desfazer\"."
+L["usage: /slc prompt lootmaster / raider / guard"] = "uso: /slc prompt lootmaster / raider / guard"
+
+-- == Simple Loot Council 1.0.7 strings, from the Simple Loot Council standalone translations ==
+L["Seen in your group and stored by player id, so a rename will not lose them."] = "Visto no seu grupo e armazenado pelo ID do jogador, então uma troca de nome não os perde."
+L["Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename."] = "Armazenado pelo nome, então é comparado como foi digitado. Na próxima vez que este jogador estiver no seu grupo, ele vira um ID permanente e sobrevive a uma troca de nome."
