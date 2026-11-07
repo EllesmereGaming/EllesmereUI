@@ -47,6 +47,13 @@ do
     end
 end
 
+-- The spell a spell entry casts: exactly its stored rank when picked from a
+-- lower one (slot.rankPinned, Forever only), the highest known rank otherwise.
+local function SlotRank(slot)
+    if slot.rankPinned and EllesmereUI.IS_FOREVER and type(slot.id) == "number" then return slot.id end
+    return TopRank(slot.id)
+end
+
 -------------------------------------------------------------------------------
 --  Dynamic Rez
 --
@@ -387,7 +394,7 @@ local function ResolveAction(slot, p)
 
     if k == "spell" then
         if type(slot.id) ~= "number" then return nil end
-        return "spell", "spell", TopRank(slot.id)
+        return "spell", "spell", SlotRank(slot)
 
     elseif k == "dynamicprofession" then
         -- Resolved to the CURRENT position's spell every time the
@@ -682,8 +689,18 @@ local function SlotDisplay(slot)
     local k = slot.kind
 
     if k == "spell" then
-        local info = C_Spell.GetSpellInfo(TopRank(slot.id))
-        if info then return info.iconID or QUESTION_MARK, info.name end
+        local id = SlotRank(slot)
+        local info = C_Spell.GetSpellInfo(id)
+        if info then
+            local name = info.name
+            -- A pinned rank is named with it ("Shadow Bolt (Rank 3)"); nothing
+            -- else tells it from the entry that follows the highest rank.
+            if slot.rankPinned and EllesmereUI.IS_FOREVER then
+                local sub = C_Spell.GetSpellSubtext(id)
+                if sub and sub ~= "" then name = name .. " (" .. sub .. ")" end
+            end
+            return info.iconID or QUESTION_MARK, name
+        end
 
     elseif k == "item" then
         if type(slot.id) ~= "number" then return QUESTION_MARK, slot.name end
@@ -910,7 +927,7 @@ ns.SlotDisplay = SlotDisplay
 local function SlotSpellID(slot)
     if not slot then return nil end
     if slot.kind == "spell" then
-        return type(slot.id) == "number" and TopRank(slot.id) or nil
+        return type(slot.id) == "number" and SlotRank(slot) or nil
     elseif slot.kind == "dynamicrez" then
         return Rez.SpellNow()
     elseif slot.kind == "dynamicprofession" then
@@ -1164,6 +1181,10 @@ local function SlotFromCursor()
         -- that would store a slot number as a spellID and silently create a
         -- slot that casts the wrong thing.
         if type(c) ~= "number" then return nil end
+        -- A lower rank than the highest known one is kept as that rank.
+        if EllesmereUI.IS_FOREVER and TopRank(c) ~= c then
+            return { kind = "spell", id = c, rankPinned = true }
+        end
         return { kind = "spell", id = c }
 
     elseif cursorType == "item" then
