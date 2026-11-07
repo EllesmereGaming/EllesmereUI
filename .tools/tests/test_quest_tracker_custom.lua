@@ -47,6 +47,7 @@ local function MakeObj(kind, parent)
         if k == "GetHeight" then return function(self) return self._h end end
         if k == "GetEffectiveScale" then return function(self) return self._scale end end
         if k == "GetFrameLevel" then return function() return 1 end end
+        if k == "GetStringHeight" then return function() return 12 end end
         if k == "GetAlpha" then return function() return 1 end end
         if k == "SetPoint" then return function(self, ...) self._point = { ... } end end
         if k == "RegisterEvent" then return function(self, e) self._events[e] = true end end
@@ -441,6 +442,69 @@ IsZone(1, 1, 1, false, "a custom pick with no colour yet")
 cfg.customZoneR, cfg.customZoneG, cfg.customZoneB = 0.2, 0.5, 0.9
 IsZone(0.2, 0.5, 0.9, false, "a custom pick")
 cfg.customZoneUseAccent, cfg.customZoneR, cfg.customZoneG, cfg.customZoneB = nil, nil, nil, nil
+
+-------------------------------------------------------------------------------
+--  6. Row hooks (EllesmereUI.RegisterQuestTrackerRow): a slot per hook on each
+--     quest title row, the reserved width taken off the title
+-------------------------------------------------------------------------------
+local quests = { 101, 102 }
+C_QuestLog = {
+    GetQuestTimers = function() return nil end,
+    GetNumQuestWatches = function() return #quests end,
+    GetQuestIDForQuestWatchIndex = function(i) return quests[i] end,
+    IsComplete = function() return false end,
+    IsFailed = function() return false end,
+    GetTitleForQuestID = function(id) return "Quest " .. id end,
+    GetQuestDifficultyLevel = function() return 1 end,
+    GetQuestObjectives = function() return {} end,
+    GetNumQuestLogEntries = function() return 0, #quests end,
+    GetMaxNumQuestsCanAccept = function() return 25 end,
+}
+C_SuperTrack = { GetSuperTrackedQuestID = function() return 0 end }
+QuestUtilsOverrides = { GetQuestTitlePrefix = function() end, GetQuestTagText = function() end }
+EQT.QuestLogSnapshot = function() return {}, { [101] = "Elwynn", [102] = "Elwynn" } end
+EQT.AutoTrackOn = function() return false end
+EQT.IsQuestFiltered = function() return false end
+EQT.SortQuestList = function() end
+EQT.GetTitleRGB = function() return 1, 1, 1 end
+cfg.customDifficultyColor, cfg.customFocusClick, cfg.customGroupByZone = false, false, false
+cfg.customWidth = 260
+frame._shown = true
+
+local seen, slotOf = {}, {}
+local Register = EllesmereUI.RegisterQuestTrackerRow
+assert(Register("Bad", function() error("hook error") end) == true)
+assert(Register("Spoken", function(slot, questID, title)
+    seen[#seen + 1] = questID
+    slotOf[questID] = slot
+    assert(title and title._kind == "CreateFontString", "no title FontString")
+end, 999) == true)
+assert(Register("Spoken", function() end) == false, "a taken id registered twice")
+assert(Register(nil, function() end) == false and Register("X", nil) == false)
+
+local reported = 0
+geterrorhandler = function() return function() reported = reported + 1 end end
+RunTimers()
+-- one render
+wipe(seen); reported = 0
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(#seen == 2 and seen[1] == 101 and seen[2] == 102, "the hook missed a quest row")
+assert(reported == 2, "a hook error was not reported per row")
+local slot = slotOf[101]
+assert(slot._w == 64 and slot._shown, "the width is not capped at 64")
+local row = slot._parent
+assert(row._w == 260 - 16 - 6 - 64, "the reserved width was not taken off the title")
+assert(slot._point[1] == "BOTTOMLEFT" and slot._point[2] == row and slot._point[4] == 0)
+
+-- the row turned into a zone header: its slots hide
+cfg.customGroupByZone = true
+wipe(seen)
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(#seen == 2 and not slot._shown and row.kind == "zone", "a zone header kept a hook's slot")
+assert(slotOf[101] ~= slot and slotOf[101]._shown)
+cfg.customGroupByZone = false
 
 RunTimers()
 print("quest tracker custom harness: ok")
