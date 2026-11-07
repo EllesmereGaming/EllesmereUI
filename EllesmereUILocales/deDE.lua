@@ -7724,7 +7724,7 @@ L["Swap again on a spec change in an instance."] = "Wechselt erneut, wenn Du in 
 L["Swap Combat Pots When Missing"] = "Kampftränke wechseln wenn fehlend"
 L["Swap Light/Reckless Pots When Missing"] = "Licht-/Kühnheitstränke wechseln, wenn sie fehlen"
 L["Swaps gear and talents as you change content."] = "Wechselt Ausrüstung und Talente, sobald Du andere Inhalte betrittst."
-L["Swaps new spell ranks onto your action bars."] = "Tauscht neue Zauberränge auf Deinen Aktionsleisten aus."
+L["Swaps new spell ranks, yours and your pet's, onto your action bars."] = "Tauscht neue Zauberränge, Deine und die Deines Begleiters, auf Deinen Aktionsleisten aus."
 L["Swatch 1"] = "Farbfeld 1"
 L["Sweeping Strikes"] = "Weitreichende Stöße"
 L["swimming"] = "schwimmend"
@@ -9275,3 +9275,6 @@ L["Dims pinned items in their bag slots, since they also show in Pinned Items."]
 -- Quest Tracker Title Difficulty Colors
 L["Title Difficulty Colors"] = "Titelfarben nach Schwierigkeit"
 L["Colors quest titles by difficulty for your level. This is the game's own option, so its quest log follows it too."] = "Färbt Questtitel nach ihrer Schwierigkeit für Deine Stufe. Das ist die eigene Option des Spiels, daher folgt auch das Questlog."
+
+-- Group Finder Hide Applicant Info
+L["Note"] = "Notiz"

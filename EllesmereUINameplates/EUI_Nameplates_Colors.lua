@@ -976,12 +976,12 @@ local function GetReactionColor(unit, castSeen)
         end
     end
     -- 5. Neutral (colored as an enemy while in combat with them). OUTSIDE dungeons keeps its
-    -- high priority; IN dungeons deferred to just above the enemy fallback (step 10d) so
-    -- mob-type/threat colors win on neutral dungeon units and neutral becomes near-last resort.
+    -- high priority while it carries no health-bar threat data; IN dungeons, and with that
+    -- data anywhere, deferred to just above the enemy fallback (step 10d) so mob-type/threat
+    -- colors win on it and neutral becomes the near-last resort.
     local reaction = UnitReaction(unit, "player")
     local isNeutral = (reaction and reaction == 4)
         or (UnitCanAttack("player", unit) and not UnitIsEnemy(unit, "player"))
-    -- A neutral unit with health-bar threat data defers to 10d too, so threat colors reach it.
     if isNeutral and not ns._inDungeon and not isThreatUnit then
         return ResolveNeutralColor(unit)
     end
@@ -1010,8 +1010,9 @@ local function GetReactionColor(unit, castSeen)
     local classification = UnitClassification(unit)
     -- Simple Coloring When Not In M+ (inline cog on Enemy Types): outside 5-man dungeons, collapse the
     -- mob-type colors (Mini Enemies, Spell Casters, Mini-Bosses, Bosses) into flat owBasicColor
-    -- at the enemy fallback (step 11). Neutral unaffected (already returned at step 5 outside
-    -- dungeons). Same dungeon gate as Mini Coloring M+ Only (ns._inDungeon).
+    -- at the enemy fallback (step 11). Neutral unaffected (it returns at step 5 outside dungeons,
+    -- or at 10d, above the fallback, while it carries health-bar threat data). Same dungeon gate
+    -- as Mini Coloring M+ Only (ns._inDungeon).
     local owBasic = false
     if not ns._inDungeon then
         owBasic = defaults.owBasicColoring
@@ -1122,13 +1123,11 @@ local function GetReactionColor(unit, castSeen)
        and (classification == "normal" or classification == "minus" or classification == "trivial") then
         local thae = defaults.tankHasAggroEnabled
         if db.tankHasAggroEnabled ~= nil then thae = db.tankHasAggroEnabled end
-        -- Neutral + mini-enemy: neutral coloring wins over the trash color, EXCEPT for a tank
-        -- holding aggro with Tank Has Aggro enabled -- that viewer falls through so step 9
-        -- paints the has-aggro color; otherwise in-combat neutral blocks threat coloring and
-        -- neutral mobs stay enemy-red for tanks. Other viewers: neutral beats trash/DPS
-        -- carve-out/Caster (7b sits above step 8). Non-trash neutral units defer to 10d.
-        local tankAggroPending = isThreatUnit and _isTankRole and threatStatus >= 3 and thae
-        if isNeutral and not tankAggroPending and not isThreatUnit then
+        -- Neutral + mini-enemy: neutral coloring wins over the trash color while the unit
+        -- carries no health-bar threat data (out of combat, or threat colors off). In combat
+        -- with them on it falls through like a hostile unit, so the threat and Mini Enemies
+        -- colors reach neutral trash too. Non-trash neutral units defer to 10d.
+        if isNeutral and not isThreatUnit then
             ns._reactionCastTier = nil
             return ResolveNeutralColor(unit)
         end
@@ -1217,8 +1216,9 @@ local function GetReactionColor(unit, castSeen)
         local c = (p and p.miniEnemy) or _C("enemyInCombat")
         return MaybeDarken(c.r, c.g, c.b, inCombat)
     end
-    -- 10d. Neutral, deferred (dungeons only -- step 5 skipped it there): a neutral unit
-    -- matching no mob-type/threat color lands here, just above the generic enemy fallback.
+    -- 10d. Neutral, deferred (in dungeons, where step 5 skips it, and anywhere while it carries
+    -- health-bar threat data): a neutral unit matching no mob-type/threat color lands here,
+    -- just above the generic enemy fallback.
     if isNeutral then
         ns._reactionCastTier = nil
         return ResolveNeutralColor(unit)

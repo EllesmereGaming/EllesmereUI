@@ -42,7 +42,9 @@ end
 -- Hover text, read fresh: state, damage share, loyalty trend and diet.
 function ns.UF_PetHappinessOnEnter(self)
     -- Faded out with its frame (the pet mirrors the player frame's alpha and
-    -- mouseover mode rests at 0): an unseen icon shows no tooltip.
+    -- mouseover mode rests at 0): an unseen icon shows no tooltip. An alpha the
+    -- client withholds (secret, or no value at all when it refuses alpha
+    -- access) shows it, as on a visible icon.
     local a = self:GetEffectiveAlpha()
     if type(a) == "number" and not issecretvalue(a) and a < 0.05 then return end
     local happiness, dmg, loyalty = C_PetInfo.GetPetHappiness()

@@ -722,13 +722,17 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     end
 
     -- WoW Forever (its only registrations): a new rank joins the custom spells'
-    -- rank families on the next pass (EABR.ForeverFamily), and the minimap's
-    -- trackers are read again (EABR.FvTrackingState).
+    -- rank families on the next pass (EABR.ForeverFamily), the minimap's
+    -- trackers are read again (EABR.FvTrackingState), and a gear change
+    -- outside the two weapon slots is ignored.
     if e == "LEARNED_SPELL_IN_SKILL_LINE" then
         EABR._fvFamDirty = true
         EABR._fvTrackDirty = true
     elseif e == "MINIMAP_UPDATE_TRACKING" then
         EABR._fvTrackDirty = true
+    elseif e == "PLAYER_EQUIPMENT_CHANGED" and arg1 ~= 16 and arg1 ~= 17 then
+        -- Weapon Buffs (its only registration): only a weapon slot matters.
+        return
     end
 
     -- All other events: just refresh

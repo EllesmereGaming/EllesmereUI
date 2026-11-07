@@ -326,11 +326,12 @@ local REMAINING = { TANK = "TANK_REMAINING", HEALER = "HEALER_REMAINING", DAMAGE
 local G, R, Y = { 0.1, 1, 0.1 }, { 1, 0.25, 0.25 }, { 1, 0.82, 0 }
 -- blizzard's strings have color codes baked in, strip them
 local function Plain(t) return t and (t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) end
--- the game dropped some of these globals (LFG_LIST_APP_DELISTED...): localize the fallback
+-- blizzard has no delisted or failed string (its list shows Declined / Cancelled), so the fallback
+-- goes through L
 local function St(text, fallback, c) return { Plain(text) or EllesmereUI.L(fallback), c[1], c[2], c[3] } end
 local STATUS = {
     applied           = St(LFG_LIST_PENDING, "Pending", G),
-    invited           = St(LFG_LIST_INVITED, "Invited", G),
+    invited           = St(LFG_LIST_APP_INVITED, "Invited", G),
     inviteaccepted    = St(LFG_LIST_APP_INVITE_ACCEPTED, "Invite Accepted", G),
     invitedeclined    = St(LFG_LIST_APP_INVITE_DECLINED, "Invite Declined", R),
     declined          = St(LFG_LIST_APP_DECLINED, "Declined", R),

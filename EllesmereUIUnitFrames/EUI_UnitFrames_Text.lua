@@ -1105,22 +1105,23 @@ do
         [P.name] = "id", [P.level] = "id", [P.levelcol] = "id", [P.levelcolall] = "id",
     }
     -- The tags' Name Format modifiers ([name:abbr]): they shape the plain name,
-    -- whatever the slot's own Name Format says.
-    local function Shaped(piece, mode)
+    -- whatever the slot's own Name Format says. [name:last] and [target:last]
+    -- show nothing for your own unit while your name is your first name alone
+    -- (OwnSurnameHidden: WoW Forever, Blizzard's My Surname off).
+    local function Shaped(piece, mode, ofTarget)
+        if mode ~= "last" then
+            return function(unit)
+                return EllesmereUI.ShortName(piece(unit), mode)
+            end
+        end
         return function(unit)
+            if EllesmereUI.OwnSurnameHidden(ofTarget and unit and (unit .. "target") or unit) then return "" end
             return EllesmereUI.ShortName(piece(unit), mode)
         end
     end
     for _, mode in ipairs({ "first", "last", "abbr" }) do
         P["name" .. mode] = Shaped(P.name, mode)
-        if mode == "last" then
-            local shaped = P.namelast
-            P.namelast = function(unit)
-                if EllesmereUI.OwnSurnameHidden(unit) then return "" end
-                return shaped(unit)
-            end
-        end
-        P["tgt" .. mode] = Shaped(P.tgtname, mode)
+        P["tgt" .. mode] = Shaped(P.tgtname, mode, true)
         PIECE_READS[P["name" .. mode]] = "id"
     end
 

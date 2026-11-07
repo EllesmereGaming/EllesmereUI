@@ -899,7 +899,9 @@ do
 
     -- [name] and [target], plain or with a Name Format modifier ([name:abbr]):
     -- fmt, when given, takes the place of the text's Name Format, so the cap
-    -- still comes last and nicknames stay whole.
+    -- still comes last and nicknames stay whole. [name:last] and [target:last]
+    -- show nothing for your own unit while your name is your first name alone
+    -- (OwnSurnameHidden: WoW Forever, Blizzard's My Surname off).
     local function NamePiece(key, fmt)
         local sample = SCHEMA[key].sample
         return function(unit, s, pv)
@@ -925,6 +927,7 @@ do
             if not unit then return sample end
             local tunit = targetOf[unit]
             if not UnitExists(tunit) then return "" end
+            if fmt == "last" and EllesmereUI.OwnSurnameHidden(tunit) then return "" end
             local name = UnitName(tunit)
             if issecretvalue(name) then return name end
             return ResolveDisplayName(tunit, false, s, fmt)

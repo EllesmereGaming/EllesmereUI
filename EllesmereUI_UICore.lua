@@ -1232,8 +1232,9 @@ do
         return full
     end
 
-    -- Your own unit on WoW Forever while Blizzard's "My Surname" (UnitSurnameOwn) is off:
-    -- a [name:last] tag renders nothing then, so "[name:first] [name:last]" shows the first name.
+    -- True for your own unit on WoW Forever while Blizzard's "My Surname" (UnitSurnameOwn)
+    -- is off, when your name is your first name alone: the [name:last] and [target:last]
+    -- tags show nothing for it, so "[name:first] [name:last]" reads as the first name.
     function EllesmereUI.OwnSurnameHidden(unit)
         if not IS_FOREVER or not unit then return false end
         local PI = C_PlayerInfo

@@ -71,6 +71,7 @@ local function Load(forever)
         AbbreviateValue = function(v) return tostring(v) end,
         IsZeroValue = function(v) return v == 0 end,
         UnitNameFormat = function(mode) return mode end,
+        OwnSurnameHidden = function() return false end,
         ShortName = function(name) return name end,
         -- The font family helpers the stale-parent guard asks for (no text is drawn here).
         ApplyModuleFontFamily = function() end,

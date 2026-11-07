@@ -411,16 +411,19 @@ end
 -- WoW Forever collector: the Camp Benefits campfire buff, Well Fed (any food
 -- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS), the gathering
 -- and Find Treasure trackers, a Mage's armors (EABR.CollectMageArmor), the
--- user's spell groups (EABR.CollectForeverGroups) and custom spell IDs,
--- absence only (no expiry thresholds). A custom ID counts as up while any
+-- weapon buffs (EABR.CollectForeverWeapons), the user's spell groups
+-- (EABR.CollectForeverGroups) and custom spell IDs. All are absence only but
+-- the weapon buffs, which also show their Show Below minutes before running
+-- out (the one-shot duration refresh). A custom ID counts as up while any
 -- spell of its rank family is (EABR.ForeverFamily). Entries are display-only
--- textures carrying the spell for the tooltip, except the two trackers and the
--- mage armors, whose click casts the spell; presence goes through
--- PlayerHasAuraByID. The section shows nothing in combat (its Where to Show
--- offers no In Combat entry: always unchecked), and Camp Benefits, Well Fed,
--- the mage armors and the trackers nothing in PvP either. The one-slot id
--- table, the cached families, the kept minimap answer and the dismiss-key
--- memo keep the pass allocation-free.
+-- textures carrying the spell for the tooltip, except the two trackers, the
+-- mage armors and the weapon buffs, whose click casts the spell or applies
+-- the item; presence goes through PlayerHasAuraByID. The section shows
+-- nothing in combat (its Where to Show offers no In Combat entry: always
+-- unchecked), and Camp Benefits, Well Fed, the mage armors and the trackers
+-- nothing in PvP either. The one-slot id table, the cached families, the kept
+-- minimap answer and the dismiss-key memo keep the pass allocation-free; the
+-- weapon pass reads the game's enchant lists, a table per weapon.
 function EABR.CollectForever(missing, inInstance, inPvP)
     local fo = db.profile.forever
     local shows = fo and not InCombat() and EABR.SectionShows(fo.whereToShow, inInstance)

@@ -235,7 +235,8 @@ local DISPELLABLE = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.D
 -- "helpful auras that show on enemy nameplates even if non-stealable" -- the
 -- purpose-built enemy-buff curation token (source-verified 2026-08-16).
 local IMPORTANT = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.Important
--- "Dispellable By Me" (npEnemyBuffDispelByMe, retail, nil = off): Only Dispellable narrows to the group's own dispels.
+-- "Dispellable By Me" (npEnemyBuffDispelByMe, retail, nil = off): Only
+-- Dispellable narrows to the group's own dispels.
 local RAID_DISPELLABLE = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.RaidPlayerDispellable
 
 -- Effective glow state: the Dispel Glow setting AND the player's offensive
@@ -1035,7 +1036,8 @@ end
 -- keeps the union overlap-free), narrowed to IMPORTANT in Important mode and
 -- whole in Show All mode, parked at 0 in Dispellable mode. Important mode
 -- therefore shows important OR dispellable, Show All every buff, and
--- Dispellable the glow group alone. All are composed filter STRINGS with
+-- Dispellable the glow group alone (on retail Dispellable By Me narrows it to
+-- the group's own dispels: BuffDispelByMe). All are composed filter STRINGS with
 -- INCLUDE_NAME_PLATE_ONLY (matches Blizzard's own buffFilterString) --
 -- C-evaluated, so the split holds on secret enemy data in instanced PvP and
 -- the glow needs no per-aura signal (the machinery #1509 deleted). The
@@ -1047,7 +1049,8 @@ local function BuffMode()
     return "important"
 end
 
--- Only Dispellable with "Dispellable By Me" on (retail only; Important and Show All never read it).
+-- Only Dispellable with "Dispellable By Me" on (retail only; Important and
+-- Show All never read it).
 local function BuffDispelByMe()
     return not EllesmereUI.IS_FOREVER and RAID_DISPELLABLE ~= nil and BuffMode() == "dispellable"
         and PVal("npEnemyBuffDispelByMe") == true

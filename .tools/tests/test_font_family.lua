@@ -53,6 +53,7 @@ local function NewFont(face, size, flags)
     return setmetatable({ _face = face, _size = size, _flags = flags }, FontMT)
 end
 function FontMT:GetFont() return self._face, self._size, self._flags end
+-- On a family this sets only the family's own font, never a member, as in game (owner probe 2026-11-07).
 function FontMT:SetFont(face, size, flags)
     assert(type(face) == "string" and type(size) == "number" and size > 0, "a bad SetFont on a font object")
     assert(type(flags) == "string", "a font object's SetFont takes flags")
@@ -469,23 +470,33 @@ CheckMember(blz, "russian", CYR, 18, "", "Poppins x1.5")
 CheckMember(blz, "korean", KO, 16.5, "", "Poppins x1.5")
 CheckMember(blz, "simplifiedchinese", ZHCN, 19.5, "", "Poppins x1.5")
 CheckMember(blz, "traditionalchinese", ZHTW, 19.5, "OUTLINE", "Poppins x1.5")
-assert(blz._face == FRIZ and blz._size == 12, "the family object's own SetFont was used")
+-- the family's own font (what GetFont reads and copies take) follows: the client's alphabet takes the face
+local function CheckOwn(obj, face, size, flags, what)
+    assert(obj._face == face and Near(obj._size, size) and obj._flags == flags, what .. ": the own font is "
+        .. tostring(obj._face) .. " " .. tostring(obj._size) .. " " .. tostring(obj._flags))
+end
+CheckOwn(blz, POP, 18, "", "Poppins x1.5")
+assert(snap.own and snap.own.face == FRIZ and snap.own.size == 12, "the snapshot lacks the own font")
 E.RestoreFontObject(blz, snap)
 for _, a in ipairs(ALPHABETS) do
     local s = StockSpec()[a]
     CheckMember(blz, a, s[1], s[2], s[3], "restored")
 end
+CheckOwn(blz, FRIZ, 12, "", "restored")
 E.SetFontObjectFace(blz, EXP, nil, nil, nil)
 CheckMember(blz, "roman", EXP, 12, "", "Expressway")
 CheckMember(blz, "russian", EXP, 12, "", "Expressway")
 CheckMember(blz, "korean", KO, 11, "", "Expressway")
+CheckOwn(blz, EXP, 12, "", "Expressway")
 E.SetFontObjectFace(blz, nil, 10, "OUTLINE", 3)
 CheckMember(blz, "roman", EXP, 10, "OUTLINE", "size and flags")
 CheckMember(blz, "russian", EXP, 10, "OUTLINE", "size and flags")
 CheckMember(blz, "korean", KO, 10, "OUTLINE", "size and flags")
 CheckMember(blz, "traditionalchinese", ZHTW, 10, "OUTLINE", "size and flags")
+CheckOwn(blz, EXP, 10, "OUTLINE", "size and flags")
 E.RestoreFontObject(blz, snap)
 CheckMember(blz, "traditionalchinese", ZHTW, 13, "OUTLINE", "restored again")
+CheckOwn(blz, FRIZ, 12, "", "restored again")
 
 local plain = StubCreateFont("GameFontPlainFaceTest")
 plain:SetFont(FRIZ, 10, "OUTLINE")
@@ -515,11 +526,13 @@ E.SetFontObjectFace(blz, POP, nil, nil, nil)
 CheckMember(blz, "simplifiedchinese", POP, 13, "", "zhCN")
 CheckMember(blz, "russian", CYR, 12, "", "zhCN")
 CheckMember(blz, "traditionalchinese", ZHTW, 13, "OUTLINE", "zhCN")
+CheckOwn(blz, POP, 12, "", "zhCN")
 E = Load("ruRU")
 blz = BlizzardFamily("SystemFont_FaceTestRU", StockSpec())
 E.SetFontObjectFace(blz, POP, nil, nil, nil)
 CheckMember(blz, "russian", POP, 12, "", "ruRU")
 CheckMember(blz, "korean", KO, 11, "", "ruRU")
+CheckOwn(blz, POP, 12, "", "ruRU")
 
 -------------------------------------------------------------------------------
 --  7. The game text passes: our families skipped, Blizzard's member by member
@@ -543,6 +556,8 @@ CheckMember(blz, "roman", POP, 13.2, "", "game text pass")
 CheckMember(blz, "russian", CYR, 13.2, "", "game text pass")
 CheckMember(blz, "korean", KO, 12.1, "", "game text pass")
 CheckMember(blz, "traditionalchinese", ZHTW, 14.3, "OUTLINE", "game text pass")
+CheckOwn(blz, POP, 13.2, "", "game text pass")
+CheckOwn(child, POP, 13.2, "", "game text pass, an object on its parent's members")
 CheckMember(plain, "roman", POP, 11, "", "game text pass, plain")
 for _, a in ipairs(ALPHABETS) do
     local m = ours._members[a]
@@ -557,6 +572,7 @@ E.ApplyGlobalFontToGameText()
 assert(STANDARD_TEXT_FONT == FRIZ, "scale alone set the standard font")
 CheckMember(blz, "roman", FRIZ, 14.4, "", "scale only")
 CheckMember(blz, "korean", KO, 13.2, "", "scale only")
+CheckOwn(blz, FRIZ, 14.4, "", "scale only")
 
 -- the module failsafe: face and outline member by member, sizes kept, ours skipped
 E = Load("enUS", {
@@ -571,6 +587,7 @@ E.ApplyModuleFontFailsafe()
 CheckMember(GameTooltipText, "roman", POP, 12, "OUTLINE, SLUG", "failsafe")
 CheckMember(GameTooltipText, "russian", CYR, 12, "OUTLINE, SLUG", "failsafe")
 CheckMember(GameTooltipText, "korean", KO, 11, "OUTLINE, SLUG", "failsafe")
+CheckOwn(GameTooltipText, POP, 12, "OUTLINE, SLUG", "failsafe")
 CheckMember(GameTooltipHeaderText, "roman", POP, 14, "OUTLINE, SLUG", "failsafe, plain")
 for _, a in ipairs(ALPHABETS) do
     local m = ours._members[a]

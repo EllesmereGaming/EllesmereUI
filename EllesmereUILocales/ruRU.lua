@@ -4556,3 +4556,6 @@ L["Dims pinned items in their bag slots, since they also show in Pinned Items."]
 -- Quest Tracker Title Difficulty Colors
 L["Title Difficulty Colors"] = "Цвета сложности заголовков"
 L["Colors quest titles by difficulty for your level. This is the game's own option, so its quest log follows it too."] = "Окрашивает названия заданий по сложности для вашего уровня. Это собственная настройка игры, поэтому журнал заданий тоже её учитывает."
+
+-- Group Finder Hide Applicant Info
+L["Note"] = "Прим."

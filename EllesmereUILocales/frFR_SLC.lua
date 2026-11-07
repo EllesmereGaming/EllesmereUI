@@ -525,7 +525,6 @@ L["Not a rank in this guild"] = "Pas un grade de cette guilde"
 L["Not confirmed"] = "Non confirmé"
 L["Not detected"] = "Non détecté"
 L["Not looted yet"] = "Pas encore ramassé"
-L["Note"] = true
 L["Note: %s"] = "Note : %s"
 L["Nothing in your bags is inside its trade window."] = "Rien dans vos sacs n'est encore dans son délai d'échange."
 L["Nothing owed"] = "Rien n'est dû"

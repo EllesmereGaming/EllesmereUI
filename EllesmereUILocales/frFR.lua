@@ -6247,6 +6247,9 @@ L["Dims pinned items in their bag slots, since they also show in Pinned Items."]
 L["Title Difficulty Colors"] = "Couleurs de difficulté des titres"
 L["Colors quest titles by difficulty for your level. This is the game's own option, so its quest log follows it too."] = "Colore les titres des quêtes selon leur difficulté pour votre niveau. C'est l'option du jeu lui-même, le journal de quêtes la suit donc aussi."
 
+-- Group Finder Hide Applicant Info
+L["Note"] = true
+
 -- == Forever Essentials (9.8)====================================
 L["ACTIVE STANCE, FORM, ASPECT & AURA"] = "POSTURE, FORME, ASPECT & AURA ACTIFS"
 L["Auto Uprank Spells"] = "Mise à jour automatique des sorts"
@@ -6615,3 +6618,13 @@ L["spell known"] = "sort connu"
 L["stealthed"] = "camouflé"
 L["swimming"] = "en train de nager"
 L["Free-Slot Threshold"] = "Seuil d'emplacement libre"
+
+-- Forever Essentials: the current wording of settings translated above
+L["Auto Uprank Spells on Bars"] = "Mise à jour automatique des sorts sur les barres"
+L["Swaps new spell ranks, yours and your pet's, onto your action bars."] = "Remplace les nouveaux rangs de sorts, les vôtres et ceux de votre familier, sur vos barres d'action."
+L["Classic Windows"] = "Fenêtres Vanilla"
+L["Choose which windows open in their classic version."] = "Choisissez les fenêtres qui s'ouvrent dans leur version vanilla."
+L["Your spellbook key and the micro menu's Spellbook button open the vanilla spellbook."] = "Votre raccourci de grimoire et le bouton Grimoire du micro-menu ouvrent le grimoire vanilla."
+L["Your talents key and the micro menu's Talents button open the vanilla talent window."] = "Votre raccourci de talents et le bouton Talents du micro-menu ouvrent la fenêtre de talents vanilla."
+L["Checked modules show players' first names. A module checked in both lists shows the full name."] = "Les modules cochés affichent le prénom des joueurs. Un module coché dans les deux listes affiche le nom complet."
+L["Checked modules show players' last names. A module checked in both lists shows the full name."] = "Les modules cochés affichent le nom des joueurs. Un module coché dans les deux listes affiche le nom complet."

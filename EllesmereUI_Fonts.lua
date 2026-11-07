@@ -489,8 +489,10 @@ end
 --  and every later write to it goes through SetFontFamily, never SetFont,
 --  ApplyModuleFont, ApplyIconTextFont or PrimeFontShadow.
 --  Blizzard's own font OBJECTS (families or plain) change member by member
---  through SetFontObjectFace, never through a family object's own SetFont, whose
---  effect on its other alphabets is not defined.
+--  through SetFontObjectFace. A family object's own SetFont changes only its own
+--  font, the one GetFont() reads and copies take (Blizzard's guild chat copies the
+--  main chat window's), never a member; SetFontObjectFace sets it too, where the
+--  client's own alphabet takes the face.
 --  Built once per path / size / flags / shadow; a hit reads four table fields and
 --  builds nothing. Table fields, not file-scope locals (200-local limit).
 -------------------------------------------------------------------------------
@@ -503,6 +505,9 @@ EllesmereUI._FONT_CLIENT_ALPHABET = ({ koKR = "korean", zhCN = "simplifiedchines
     zhTW = "traditionalchinese" })[GetLocale()]
 -- On a Russian client the russian member keeps the path, as every text in Russian draws with it.
 EllesmereUI._FONT_CLIENT_RU = (GetLocale() == "ruRU")
+-- The alphabet the client's own language draws with.
+EllesmereUI._FONT_CLIENT_OWN = EllesmereUI._FONT_CLIENT_ALPHABET
+    or (EllesmereUI._FONT_CLIENT_RU and "russian") or "roman"
 EllesmereUI._FONT_CYR_FILE = "Fonts\\FRIZQT___CYR.TTF"
 -- path -> size -> flags ("" for none) -> shadow (true / false) -> family, or false
 -- when the client has no families or the creation failed (never retried).
@@ -722,10 +727,10 @@ function EllesmereUI._FontObjectFaceInto(obj, path, size, flags, scale, done)
                 EllesmereUI._SetFontMemberFace(member, face, size, flags, scale, done)
             end
         end
-        -- The object's own font too: GetFont reads it, and copies of it (the guild chat
-        -- copies the chat font) take it. Only where the client's own alphabet draws the face.
-        local own = EllesmereUI._FONT_CLIENT_ALPHABET or (EllesmereUI._FONT_CLIENT_RU and "russian") or "roman"
-        if not path or EllesmereUI._FontMemberTakesPath(own, path) then
+        -- The family's own font as well (it changes no member): GetFont() reads it and
+        -- copies take it (the guild chat copies the main chat window's font). Only
+        -- where the client's own alphabet takes the face.
+        if not path or EllesmereUI._FontMemberTakesPath(EllesmereUI._FONT_CLIENT_OWN, path) then
             EllesmereUI._SetFontMemberFace(obj, path, size, flags, scale, done)
         end
     else
@@ -746,11 +751,14 @@ function EllesmereUI.SetFontObjectFace(obj, path, size, flags, scale)
     EllesmereUI._FontObjectFaceInto(obj, path, size, flags, scale, done)
 end
 
--- Each member's (or a plain object's) face, size and flags, for RestoreFontObject.
+-- Each member's (or a plain object's) face, size and flags, and a family's own
+-- font, for RestoreFontObject.
 function EllesmereUI.SnapshotFontObject(obj)
     if not (obj and type(obj) == "table" and obj.GetFont) then return nil end
     local snap = {}
     if EllesmereUI._FontObjectIsFamily(obj) then
+        local ownFace, ownSize, ownFlags = obj:GetFont()
+        snap.own = { face = ownFace, size = ownSize, flags = ownFlags }
         local alphabets = EllesmereUI._FONT_ALPHABETS
         for i = 1, #alphabets do
             local ok, member = pcall(obj.GetFontObjectForAlphabet, obj, alphabets[i])
@@ -779,6 +787,7 @@ function EllesmereUI.RestoreFontObject(obj, snap)
         EllesmereUI._RestoreFontMember(obj, snap.plain)
         return
     end
+    EllesmereUI._RestoreFontMember(obj, snap.own)
     local alphabets = EllesmereUI._FONT_ALPHABETS
     for i = 1, #alphabets do
         local s = snap[alphabets[i]]
