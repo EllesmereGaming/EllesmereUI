@@ -202,17 +202,21 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
 
-                -- offline bank (not on wow forever). account-wide, like the data it saves
+                -- offline bank. account-wide, like the data it saves
                 local Offline = BagsNS and BagsNS.Offline
                 if Offline then
                     _, h = W:SectionHeader(parent, "OFFLINE BANK", y); y = y - h
                     _, h = W:DualRow(parent, y,
                         { type="toggle", text="Offline Bank",
-                          tooltip="Saves each character's bags and bank, and the warband bank, when you see them. Use the person button by the bags or bank title to see another character's bags or bank, and Bank in the bags sidebar for their bank or the warband bank, from anywhere. Applies to all characters.",
+                          tooltip=EllesmereUI.IS_FOREVER
+                              and "Saves each character's bags and bank when you see them. Use the person button by the bags or bank title to see another character's bags or bank, and Bank in the bags sidebar for their bank, from anywhere. Applies to all characters."
+                              or "Saves each character's bags and bank, and the warband bank, when you see them. Use the person button by the bags or bank title to see another character's bags or bank, and Bank in the bags sidebar for their bank or the warband bank, from anywhere. Applies to all characters.",
                           getValue=function() return Offline.Enabled() end,
                           setValue=function(v) Offline.Set("bagOfflineBank", v) end },
                         { type="toggle", text="Tooltip Item Counts",
-                          tooltip="Item tooltips list how many of that item each of your characters has in their bags and bank, plus the warband bank. Applies to all characters.",
+                          tooltip=EllesmereUI.IS_FOREVER
+                              and "Item tooltips list how many of that item each of your characters has in their bags and bank. Applies to all characters."
+                              or "Item tooltips list how many of that item each of your characters has in their bags and bank, plus the warband bank. Applies to all characters.",
                           getValue=function() return Offline.CountsEnabled() end,
                           setValue=function(v) Offline.Set("bagTooltipCounts", v) end }
                     ); y = y - h

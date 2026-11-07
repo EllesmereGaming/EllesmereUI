@@ -20,7 +20,7 @@ local EUI = EllesmereUI
 local ns = select(2, ...)
 local Offline = ns.Offline
 local I = ns._bagsInternals
-if not (Offline and I) then return end  -- wow forever, or a bags file didn't load
+if not (Offline and I) then return end  -- a bags file didn't load
 
 local GetItemInfo, GetItemInfoInstant = C_Item.GetItemInfo, C_Item.GetItemInfoInstant
 local _emptyP = {}
@@ -262,7 +262,7 @@ local function PaintTabs(v)
         t.line:SetColorTexture(r, g, b, 1)
         t.line:SetShown(on)
         -- the bank window lists the tabs in its sidebar instead
-        t:SetShown(v.mode == "bank" and not v.side)
+        t:SetShown(v.mode == "bank" and not v.side and (t.key ~= "warband" or Offline.HasWarband()))
     end
 end
 
@@ -990,7 +990,9 @@ if EUI_Bank then
             if first > 1 then entries[first].split = true end
         end
         Add("bank", EllesmereUI.L("All Bank Tabs"), EllesmereUI.L("OneBank"), 413587, 1542860, c and c.bank, "CharacterBankTab_")
-        Add("warband", EllesmereUI.L("All Warbank Tabs"), EllesmereUI.L("OneWarbank"), 1542854, 1542854, Offline.Warband().tabs, "AccountBankTab_")
+        if Offline.HasWarband() then
+            Add("warband", EllesmereUI.L("All Warbank Tabs"), EllesmereUI.L("OneWarbank"), 1542854, 1542854, Offline.Warband().tabs, "AccountBankTab_")
+        end
 
         local collapsed = BP().bankSidebarCollapsed
         local w = side:GetWidth()
