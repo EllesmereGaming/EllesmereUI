@@ -373,7 +373,9 @@ end
 -- ["Name-RealmGroup"] = { name, class, bind, readyAt }. readyAt is a time()
 -- stamp (0 = ready): item cooldowns keep running while logged out, so an alt's
 -- row counts down from what it last saved. A character saves itself on each
--- block refresh while the setting is on; a secret (combat) read saves nothing.
+-- block refresh while the setting is on, but writes only when its bind or
+-- ready time changed (the refresh runs every second while the tooltip or a
+-- cooldown shows); a secret (combat) read saves nothing.
 local function TravelHearthStore()
     local db = _G.EllesmereUIDB
     if type(db) ~= "table" then return nil end
@@ -385,22 +387,35 @@ local function TravelHearthStore()
     return store
 end
 
+-- This character's key, built once a session, and what it last wrote.
+local _myHearthKey, _savedBind, _savedReadyAt
 local function TravelSaveMyHearth()
     local store = TravelHearthStore()
-    local key = store and EllesmereUI.CharKey and EllesmereUI.CharKey("-", store)
-    if not key then return end
+    if not store then return end
+    if not _myHearthKey then
+        _myHearthKey = EllesmereUI.CharKey and EllesmereUI.CharKey("-", store)
+        if not _myHearthKey then return end
+    end
     local cd, known = TravelGetPrimaryCooldown()
     if not known then return end
-    local e = store[key]
+    local bind = GetBindLocation()
+    local readyAt = (cd > 0) and (time() + cd) or 0
+    local e = store[_myHearthKey]
+    -- Unchanged: same bind, same ready time give or take a second of drift.
+    if type(e) == "table" and bind == _savedBind and _savedReadyAt
+       and math.abs(readyAt - _savedReadyAt) <= 1 then
+        return
+    end
     if type(e) ~= "table" then
         e = {}
-        store[key] = e
+        store[_myHearthKey] = e
     end
     local _, class = UnitClass("player")
     e.name = UnitName("player")
     e.class = class
-    e.bind = GetBindLocation()
-    e.readyAt = (cd > 0) and (time() + cd) or 0
+    e.bind = bind
+    e.readyAt = readyAt
+    _savedBind, _savedReadyAt = bind, readyAt
 end
 
 -- The other characters' rows, sorted by name (reused buffers: the open tooltip
@@ -412,7 +427,7 @@ local function TravelAltSort(a, z) return (a.name or "") < (z.name or "") end
 local function TravelAddAltRows(ar, ag, ab, onRemoved)
     local store = TravelHearthStore()
     if not store then return 0 end
-    local mine = EllesmereUI.CharKey and EllesmereUI.CharKey("-")
+    local mine = _myHearthKey or (EllesmereUI.CharKey and EllesmereUI.CharKey("-"))
     local n = 0
     wipe(_altKeyOf)
     for key, e in pairs(store) do
