@@ -810,6 +810,7 @@ do
     -- Tag modifiers shape the plain name. They do not also apply the slot's Name Format.
     local function Shaped(mode)
         return function(u)
+            if mode == "last" and EllesmereUI.OwnSurnameHidden(u) then return "" end
             local name = EllesmereUI.WithSurname(UnitName(u))
             if type(name) == "nil" then return "" end
             return EllesmereUI.ShortName(name, mode)
