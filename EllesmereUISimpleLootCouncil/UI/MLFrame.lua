@@ -784,6 +784,15 @@ local function BuildColumns(forCompact)
                 if sa == sb then return 0 end
                 return sa < sb and -1 or 1
             end,
+
+            tiebreak = function(a, b)
+                local ra = a.candidate and tonumber(a.candidate.roll)
+                local rb = b.candidate and tonumber(b.candidate.roll)
+                if ra == rb then return 0 end
+                if ra == nil then return 1 end
+                if rb == nil then return -1 end
+                return ra > rb and -1 or 1
+            end,
             render = function(cell, row)
                 local text, colour = ResolveResponse(row.candidate)
                 local candidate = row.candidate
@@ -2357,6 +2366,23 @@ function MLFrame:ShowResponse(forced)
 end
 
 
+
+function MLFrame:AlertResponse()
+    if not CM.ready or not CM.Ensure() or not (CM.responseOn and CM.ResponseSeat()) then
+        return
+    end
+    if not frame:IsShown() then
+        C_Timer.After(0, function() MLFrame:ShowResponse(true) end)
+    elseif CM.pulsing or CM.tab == "response" then
+        addon.Style.PlayNotification("responseTab")
+    else
+
+        CM.leftResponseAt = GetTime() - CM.PULSE_AFTER
+        CM.SyncPulse()
+    end
+end
+
+
 function MLFrame:ResponseHost()
     if not CM.ResponseSeat() or not CM.Ensure() then return nil end
     return CM.responseHost
@@ -2943,7 +2969,8 @@ function CM.SyncPulse()
     if not frame or not frame.Tabs.SetTabPulse then return end
     local due = CM.responseOn and CM.ResponseSeat() and CM.tab ~= "response"
         and CM.leftResponseAt ~= nil and GetTime() - CM.leftResponseAt >= CM.PULSE_AFTER
-    frame.Tabs:SetTabPulse("response", due and true or false)
+    CM.pulsing = due and true or false
+    frame.Tabs:SetTabPulse("response", CM.pulsing)
 end
 
 function CM.PlaceTimer(response)

@@ -428,6 +428,12 @@ function Player:WhisperTarget(name)
 end
 
 
+function Player:DisplayName(name)
+    if not Player.IS_FOREVER or self:IsGUID(name) then return name end
+    return self:WhisperTarget(name)
+end
+
+
 
 function Player:FromChat(sender)
     if not Player.IS_FOREVER or type(sender) ~= "string" or sender == ""

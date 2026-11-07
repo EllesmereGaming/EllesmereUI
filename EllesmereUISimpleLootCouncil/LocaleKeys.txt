@@ -305,6 +305,7 @@ Choose a week, then a night to narrow it. Choose players or a guild rank to remo
 Choose which guild ranks count as raiders. Remembered per guild.
 Class
 Clear
+Clear \"Awarded to you\"
 Clear all
 Clear all attendance
 Clear attendance
@@ -348,6 +349,7 @@ Data & history
 Dec
 Decline
 Delete
+Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does.
 Delete %s awarded to %s?\n\nThis only changes your local history and cannot be undone.
 Delete all
 Delete entry
@@ -692,6 +694,7 @@ SLC is currently inactive
 SLC is now active for this group
 SLC stays active for this raid - you were handed loot while it was in use.
 Seen in your group and stored by player id, so a rename or a realm transfer will not lose them.
+Seen in your group and stored by player id, so a rename will not lose them.
 Selected ranks join your council automatically. Selections are per guild. If a rank is renamed, select its new name.
 Semicolon (;) - Excel in German, French and more
 Send as whisper
@@ -749,6 +752,7 @@ Status
 Stop tracking %s as owed to %s?\n\nIt can no longer be traded. History is left alone - this only removes it from Loot to Trade.
 Stop tracking %s as owed to %s?\n\nThe item stays in your bags and history is left alone - this only removes it from Loot to Trade.
 Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename or a realm transfer.
+Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename.
 TIME TO RESPOND
 TIME UP
 Take part in the active SLC group?

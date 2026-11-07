@@ -489,7 +489,7 @@ local function ShowRowTooltip(row, data)
 
     if data.kind == "player" then
         S.TooltipSection(GameTooltip, T["Raider"])
-        GameTooltip:AddLine(data.member.fullName, 1, 1, 1)
+        GameTooltip:AddLine(addon.Player:DisplayName(data.member.fullName), 1, 1, 1)
         if data.member.className then
             GameTooltip:AddDoubleLine(T["Class"], data.member.className,
                 0.64, 0.63, 0.60, 1, 1, 1)

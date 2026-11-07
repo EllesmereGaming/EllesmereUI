@@ -235,6 +235,7 @@ function Schema.QualifiedName(fullName, colourOf)
     fullName = addon.Player:CanonicalName(fullName) or fullName
     local character, realm = fullName:match("^([^-]+)(%-.*)$")
     character = character or fullName
+    if addon.IsForever then realm = nil end
 
     local record = addon.Player:Get(fullName)
     local colour = record and record.classFile and colourOf(record.classFile)
@@ -289,11 +290,16 @@ local function DescribeCouncilEntry(entry, present)
     end
     local pending = entry.pending
     return T["Council Member"], {
-        { text = entry.fullName or entry.identity or "?" },
+        { text = addon.Player:DisplayName(entry.fullName or entry.identity or "?") },
         { text = pending and T["Not confirmed"] or T["Confirmed"], tone = pending and "accent" or "good" },
+
         { text = pending
-            and T["Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename or a realm transfer."]
-            or T["Seen in your group and stored by player id, so a rename or a realm transfer will not lose them."],
+            and (addon.IsForever
+                and T["Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename."]
+                or T["Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename or a realm transfer."])
+            or (addon.IsForever
+                and T["Seen in your group and stored by player id, so a rename will not lose them."]
+                or T["Seen in your group and stored by player id, so a rename or a realm transfer will not lose them."]),
             wrap = true },
 
         { text = T["In your group now"], value = present and T["yes"] or T["no"] },
