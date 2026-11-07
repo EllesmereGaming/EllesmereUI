@@ -1,5 +1,4 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
-if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- retail only: WoW Forever's mail window is its own build (gamepad navigation, surnames); the Mail card's ALT LIST section is not built there
 -------------------------------------------------------------------------------
 --  EllesmereUIBlizzardSkin_MailAlts.lua
 --  The Mail card's Alt List (opt-in, EllesmereUIDB.mailAltList): beside the
@@ -12,6 +11,10 @@ if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- retail only: WoW Fo
 --  The card also keeps Shown Characters (EllesmereUIDB.mailAltHidden, by
 --  player GUID) and, in the toggle's cog, Sort By (mailAltListSort), Max
 --  Characters Shown (mailAltListMax) and Minimum Level (mailAltListMinLevel).
+--  The cog in the title opens the list's own menu, on the spot: the ignored
+--  characters shown too (dimmed and marked, this session only), Sort By, Max
+--  Characters Shown and Minimum Level. A right click on an ignored character
+--  offers Show This Character Again. Nothing here opens the EllesmereUI options.
 --
 --  The roster, EllesmereUIDB.mailAltRoster (by player GUID, which a rename
 --  keeps), is written at every login and logout even while the list is off
@@ -38,32 +41,44 @@ if EllesmereUI and EllesmereUI.IS_FOREVER then return end -- retail only: WoW Fo
 --     suggestions open when the player had started typing (Tab or the arrows
 --     can then pick one; a typed key or Escape refreshes or closes them).
 --
+--  WoW Forever (no realms, surnames): a character is kept with its surname,
+--  UnitName's second return there, and mail addresses it as "Name Surname"
+--  (the first name alone is refused); its "realm" is the ruleset
+--  (EllesmereUI.RealmGroupName), and only characters of the same ruleset and
+--  faction can be mailed, so the others are left out or dimmed. The letter
+--  window's close runs InboxFrame:Update there, not InboxFrame_Update.
+--
 --  The panel's look is latched at login with the mail window's own skin
 --  (which applies at login, its style changes needing a reload): EllesmereUI
 --  and Modern draw the window theme (eui <-> modern repaints live), Blizz
---  Default draws Blizzard's own DefaultPanelTemplate.
+--  Default draws Blizzard's own DefaultPanelTemplate (on WoW Forever, the
+--  game's plain dialog box, and Forever's class icons).
 -------------------------------------------------------------------------------
 local _, ns = ...
 local WSkin = ns.WSkin
 if not WSkin then return end
 
 local EUI = EllesmereUI
+local FOREVER = EUI.IS_FOREVER
 local Theme = WSkin.Theme
 local IsSecret, PlainString = EUI.IsSecret, EUI.PlainString
 local wipe, sort = wipe, table.sort
 
 local DEFAULT_MAX, DEFAULT_MIN_LEVEL, DEFAULT_SORT = 10, 1, "recent"
 local MAX_ROWS   = 20       -- the Max Characters Shown slider's top
-local PANEL_W    = 170
+-- WoW Forever lists "Name Surname": a wider panel.
+local PANEL_W    = EllesmereUI.IS_FOREVER and 200 or 170
 local ROW_H      = 22
 local ICON_SIZE  = 16
 local LIST_PAD   = 4        -- above the first row and below the last
 local EMPTY_PAD  = 10       -- around the empty-list note
 local LIMITED_ALPHA = 0.55  -- a row that takes Warbound items only
+local IGNORED_ALPHA = 0.45  -- an ignored character, shown on request
 -- The two looks' geometry: the title band's height, the list's side inset and
 -- the gap to the window beside it (Blizzard's metal corners reach past their frame).
 local EUI_TOP, EUI_INSET, EUI_GAP       = 25, 1, 4
 local BLIZZ_TOP, BLIZZ_INSET, BLIZZ_GAP = 21, 8, 10
+local FOREVER_TOP, FOREVER_INSET        = 28, 8   -- the dialog box: title inside its border
 local EUI_CLASS_ICONS   = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\modern.tga"
 local BLIZZ_CLASS_ICONS = "Interface\\GLUES\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES"
 local SHELL_ART         = "Interface\\AddOns\\EllesmereUI\\media\\modern_blizz.png"
@@ -84,7 +99,10 @@ local sortRoster                  -- the roster the comparators read during one 
 local menuGuid                    -- the row the right-click menu was opened on
 local myGuid                      -- this character, read at login (never in its own list)
 local paintedGen, paintedFaction  -- the class colour palette and faction the list was painted with
-local MENU
+local MENU, IGNORED_MENU, Changed
+local showIgnored = false         -- the title's right click: ignored characters listed too (this session)
+local ignoredShown = {}           -- player GUIDs of the ignored characters in the shown list
+local ignoredCount = 0            -- ignored characters this page could mail
 
 -------------------------------------------------------------------------------
 --  Settings and the roster
@@ -125,13 +143,15 @@ end
 local function RecordPlayer()
     local guid = PlainString(UnitGUID("player"))
     if guid then myGuid = guid end
-    local name = PlainString((UnitName("player")))
-    local realm = PlainString(GetRealmName())
+    local name, surname = UnitName("player")
+    name = PlainString(name)
+    local realm = PlainString(FOREVER and EUI.RealmGroupName() or GetRealmName())
     local _, class = UnitClass("player")
     class = PlainString(class)
     if not (guid and name and realm and class) then return end
-    -- The realm as mail addresses it ("Area52"): the normalized name.
-    local realmKey = PlainString(GetNormalizedRealmName()) or (realm:gsub("[%s%-]", ""))
+    -- The realm as mail addresses it ("Area52"): the normalized name. WoW
+    -- Forever has none: the ruleset groups the characters.
+    local realmKey = FOREVER and realm or PlainString(GetNormalizedRealmName()) or (realm:gsub("[%s%-]", ""))
     local roster = Roster()
     if not roster then return end
     local e = roster[guid]
@@ -140,6 +160,7 @@ local function RecordPlayer()
         roster[guid] = e
     end
     e.name, e.realm, e.realmKey, e.class = name, realm, realmKey, class
+    if FOREVER then e.surname = PlainString(surname) end
     local level = UnitLevel("player")
     if type(level) == "number" and not IsSecret(level) and level > 0 then e.level = level end
     local faction = PlainString((UnitFactionGroup("player")))
@@ -163,12 +184,18 @@ end
 --  Minimum Level. Any mail reaches this realm or a connected one, either
 --  faction; Warbound items reach every character on the account.
 -------------------------------------------------------------------------------
+-- This character's realm key, as RecordPlayer stores it.
+local function OwnRealmKey()
+    if FOREVER then return PlainString(EUI.RealmGroupName()) end
+    return PlainString(GetNormalizedRealmName())
+end
+
 local function ConnectedRealms()
     if connected then return connected end
-    local own = PlainString(GetNormalizedRealmName())
+    local own = OwnRealmKey()
     local set = {}
     if own then set[own] = true end
-    local list = C_AutoComplete.GetAutoCompleteRealms()
+    local list = not FOREVER and C_AutoComplete.GetAutoCompleteRealms()
     if type(list) == "table" then
         for i = 1, #list do
             local r = PlainString(list[i])
@@ -200,7 +227,8 @@ local SORTS = { recent = ByRecent, level = ByLevel, name = ByName }
 
 local function Collect()
     wipe(shown)
-    mailable = 0
+    wipe(ignoredShown)
+    mailable, ignoredCount = 0, 0
     local roster = Roster()
     local faction = PlainString((UnitFactionGroup("player")))
     paintedFaction = faction
@@ -209,18 +237,34 @@ local function Collect()
     local me = myGuid or PlainString(UnitGUID("player"))
     local hidden = Hidden()
     local minLevel = NumberSetting("mailAltListMinLevel", DEFAULT_MIN_LEVEL)
+    -- WoW Forever: another ruleset is out of reach altogether.
+    local own = FOREVER and OwnRealmKey()
     for guid, e in pairs(roster) do
-        if guid ~= me and type(e) == "table" and type(e.name) == "string" and e.realmKey then
+        if guid ~= me and type(e) == "table" and type(e.name) == "string" and e.realmKey
+           and (not own or e.realmKey == own) then
             mailable = mailable + 1
-            if not (hidden and hidden[guid]) and (e.level or 0) >= minLevel then
+            if hidden and hidden[guid] then
+                ignoredCount = ignoredCount + 1
+                if showIgnored then ignoredShown[guid] = true end
+            elseif (e.level or 0) >= minLevel then
                 shown[#shown + 1] = guid
             end
         end
     end
+    local comparator = SORTS[Setting("mailAltListSort", DEFAULT_SORT)] or ByRecent
     sortRoster = roster
-    sort(shown, SORTS[Setting("mailAltListSort", DEFAULT_SORT)] or ByRecent)
-    sortRoster = nil
+    sort(shown, comparator)
     for i = #shown, Clamp(NumberSetting("mailAltListMax", DEFAULT_MAX), 1, MAX_ROWS) + 1, -1 do shown[i] = nil end
+    -- The ignored ones, when asked: after the others, up to the list's top.
+    if showIgnored then
+        local extra = {}
+        for guid in pairs(ignoredShown) do extra[#extra + 1] = guid end
+        sort(extra, comparator)
+        for i = 1, #extra do
+            if #shown >= MAX_ROWS then ignoredShown[extra[i]] = nil else shown[#shown + 1] = extra[i] end
+        end
+    end
+    sortRoster = nil
 end
 
 -------------------------------------------------------------------------------
@@ -236,8 +280,12 @@ local function RowEnter(self)
     local head = e.name
     if self._foreign then head = head .. " - " .. (e.realm or e.realmKey) end
     local text = EUI.HexColor(c.r, c.g, c.b) .. head .. "|r\n" .. Describe(e)
+    if self._ignored then
+        text = text .. "\n" .. EllesmereUI.L("Ignored: right-click to show it again.")
+    end
     if self._limited then
-        text = text .. "\n" .. EllesmereUI.L("Only Warbound items can be mailed to this character.")
+        text = text .. "\n" .. (FOREVER and EllesmereUI.L("Your mail cannot reach the other faction.")
+            or EllesmereUI.L("Only Warbound items can be mailed to this character."))
     end
     EUI.ShowWidgetTooltip(self, text .. "\n" .. EUI.COLOR_CODES.DIM
         .. EllesmereUI.L("Click to mail, right-click for options.") .. "|r",
@@ -252,7 +300,7 @@ local function RowClick(self, button)
     if not self._guid then return end
     if button == "RightButton" then
         menuGuid = self._guid
-        EUI.ShowContextMenu(self, MENU)
+        EUI.ShowContextMenu(self, self._ignored and IGNORED_MENU or MENU)
         return
     end
     local box = SendMailNameEditBox
@@ -301,7 +349,14 @@ end
 
 local function DressIcon(tex, class)
     local coords
-    if blizzLook then
+    if blizzLook and FOREVER then
+        -- WoW Forever: its own class icons (the character-create sheet there
+        -- is laid out differently from retail's coordinates).
+        tex:SetTexCoord(0, 1, 0, 1)
+        tex:SetAtlas("classicon-" .. tostring(class):lower())
+        tex:Show()
+        return
+    elseif blizzLook then
         coords = CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[class]
         if coords then tex:SetTexture(BLIZZ_CLASS_ICONS) end
     else
@@ -348,9 +403,25 @@ local function Build()
     -- Named: a frame of ours the window skin's art sweeps leave alone.
     if blizzLook then
         topH, inset, gap = BLIZZ_TOP, BLIZZ_INSET, BLIZZ_GAP
-        panel = CreateFrame("Frame", "EllesmereUIMailAltList", SendMailFrame, "DefaultPanelTemplate")
-        panel:SetTitleOffsets(6, -6)
-        title = panel:GetTitleText()
+        if FOREVER then
+            -- WoW Forever: its frame borders are built for a portrait and a
+            -- close button (their top corners stand above the frame), so the
+            -- list takes the game's plain dialog box instead.
+            topH, inset = FOREVER_TOP, FOREVER_INSET
+            panel = CreateFrame("Frame", "EllesmereUIMailAltList", SendMailFrame, "BackdropTemplate")
+            panel:SetBackdrop({
+                bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
+                edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+                tile = true, tileSize = 32, edgeSize = 24,
+                insets = { left = 6, right = 6, top = 6, bottom = 6 },
+            })
+            title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            title:SetPoint("TOP", panel, "TOP", 0, -10)
+        else
+            panel = CreateFrame("Frame", "EllesmereUIMailAltList", SendMailFrame, "DefaultPanelTemplate")
+            panel:SetTitleOffsets(6, -6)
+            title = panel:GetTitleText()
+        end
     else
         topH, inset, gap = EUI_TOP, EUI_INSET, EUI_GAP
         panel = CreateFrame("Frame", "EllesmereUIMailAltList", SendMailFrame)
@@ -379,6 +450,47 @@ local function Build()
         WSkin.OnStylesChanged(PaintBackdrop)
     end
     title:SetText(EllesmereUI.L("Alts"))
+    -- A cog in the title band: the list's own menu, on the spot.
+    local cog = CreateFrame("Button", nil, panel)
+    cog:SetSize(14, 14)
+    local cogY = blizzLook and (FOREVER and -17 or -11) or -(topH / 2)
+    cog:SetPoint("RIGHT", panel, "TOPRIGHT", -(inset + 6), cogY)
+    cog:SetNormalTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\cogs.png")
+    cog:GetNormalTexture():SetAlpha(0.6)
+    cog:SetHighlightTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\cogs.png", "ADD")
+    cog:SetScript("OnClick", function(self)
+        EUI.HideWidgetTooltip()
+        local function Set(key, value)
+            if EllesmereUIDB then EllesmereUIDB[key] = value end
+            Changed()
+        end
+        local sort = Setting("mailAltListSort", DEFAULT_SORT)
+        local function SortItem(value, label)
+            return { text = label, isActive = sort == value, onClick = function() Set("mailAltListSort", value) end }
+        end
+        EUI.ShowContextMenu(self, {
+            { text = showIgnored and "Hide Ignored Characters" or "Show Ignored Characters",
+              onClick = function()
+                  showIgnored = not showIgnored
+                  Changed()
+              end },
+            "---",
+            { text = "Sort By", children = {
+                SortItem("recent", "Last Played"), SortItem("level", "Level"), SortItem("name", "Name"),
+            } },
+            { text = "Max Characters Shown", isInput = true, min = 1,
+              getValue = function() return Clamp(NumberSetting("mailAltListMax", DEFAULT_MAX), 1, MAX_ROWS) end,
+              setValue = function(v) Set("mailAltListMax", Clamp(v, 1, MAX_ROWS)) end },
+            { text = "Minimum Level", isInput = true, min = 1,
+              getValue = function() return NumberSetting("mailAltListMinLevel", DEFAULT_MIN_LEVEL) end,
+              setValue = function(v) Set("mailAltListMinLevel", Clamp(v, 1, GetMaxLevelForLatestExpansion())) end },
+        })
+    end)
+    cog:SetScript("OnEnter", function(self)
+        EUI.ShowWidgetTooltip(self, EllesmereUI.L("Alts") .. "\n" .. EUI.COLOR_CODES.DIM
+            .. EllesmereUI.L("Click for the list's options.") .. "|r", { anchor = "right", justify = "LEFT" })
+    end)
+    cog:SetScript("OnLeave", RowLeave)
     panel:SetWidth(PANEL_W)
     panel:SetClampedToScreen(true)
     -- It hangs outside the window: a click on its empty parts stays off the world.
@@ -399,8 +511,9 @@ Paint = function()
     paintedGen = EUI._dmGen
     Collect()
     local roster = Roster()
-    local own = PlainString(GetNormalizedRealmName())
+    local own = OwnRealmKey()
     local realms = ConnectedRealms()
+    local myFaction = FOREVER and paintedFaction
     local n = #shown
     for i = 1, n do
         local guid = shown[i]
@@ -408,17 +521,34 @@ Paint = function()
         local r = rows[i] or NewRow(i)
         local foreign = e.realmKey ~= own
         -- Any mail reaches this realm or a connected one, either faction;
-        -- another realm takes Warbound items only and shows dimmed.
-        local limited = not realms[e.realmKey]
-        r._guid, r._foreign, r._limited = guid, foreign, limited
-        -- Mail addresses another realm's character as "Name-Realm".
-        r._target = foreign and (e.name .. "-" .. e.realmKey) or e.name
+        -- another realm takes Warbound items only and shows dimmed. WoW
+        -- Forever: the same ruleset only (Collect), and the same faction.
+        local limited
+        if FOREVER then
+            limited = myFaction ~= nil and e.faction ~= nil and e.faction ~= myFaction
+        else
+            limited = not realms[e.realmKey]
+        end
+        local ignored = ignoredShown[guid] == true
+        r._guid, r._foreign, r._limited, r._ignored = guid, foreign, limited, ignored
+        -- Mail addresses another realm's character as "Name-Realm", and a
+        -- WoW Forever character by its full name, "Name Surname".
+        if FOREVER then
+            r._target = e.surname and (e.name .. " " .. e.surname) or e.name
+        else
+            r._target = foreign and (e.name .. "-" .. e.realmKey) or e.name
+        end
         DressIcon(r._icon, e.class)
         local c = EUI.GetClassColor(e.class)
-        r._name:SetText(foreign and (e.name .. FOREIGN_SERVER_LABEL) or e.name)
+        if FOREVER then
+            r._name:SetText(e.surname and (e.name .. " " .. e.surname) or e.name)
+        else
+            r._name:SetText(foreign and (e.name .. FOREIGN_SERVER_LABEL) or e.name)
+        end
+        if ignored then r._name:SetText(r._name:GetText() .. " " .. EUI.COLOR_CODES.DIM .. EllesmereUI.L("(ignored)") .. "|r") end
         r._name:SetTextColor(c.r, c.g, c.b)
         r._lvl:SetText(e.level or "")
-        r:SetAlpha(limited and LIMITED_ALPHA or 1)
+        r:SetAlpha(ignored and IGNORED_ALPHA or (limited and LIMITED_ALPHA or 1))
         r:Show()
     end
     local owner = EUI._WidgetTooltipOwner()
@@ -426,7 +556,7 @@ Paint = function()
         local r = rows[i]
         if owner == r then EUI.HideWidgetTooltip(true) end
         r:Hide()
-        r._guid, r._target, r._limited = nil, nil, nil
+        r._guid, r._target, r._limited, r._ignored = nil, nil, nil, nil
     end
     local h
     if n > 0 then
@@ -435,11 +565,12 @@ Paint = function()
     else
         emptyNote:SetText(mailable == 0
             and EllesmereUI.L("Log into your other characters to list them here.")
-            or EllesmereUI.L("Your other characters are hidden by Shown Characters or Minimum Level."))
+            or (EllesmereUI.L("Your other characters are hidden by Shown Characters or Minimum Level.")
+                .. (ignoredCount > 0 and ("\n" .. EllesmereUI.L("The cog shows the ignored ones.")) or "")))
         emptyNote:Show()
         h = topH + EMPTY_PAD * 2 + math.ceil(emptyNote:GetStringHeight())
     end
-    if blizzLook then h = h + 2 end   -- the frame's bottom edge
+    if blizzLook then h = h + (FOREVER and 8 or 2) end   -- the frame's bottom edge
     panel:SetHeight(h)
     if bgArt then WSkin.CoverFit(bgArt, PANEL_W, h) end
     if owner then ReplayHover() end
@@ -501,7 +632,7 @@ end
 
 -- A change from the right-click menu: the list, and the open options page's
 -- Shown Characters summary.
-local function Changed()
+Changed = function()
     dirty = true
     if panel and panel:IsVisible() then
         Paint()
@@ -557,6 +688,16 @@ MENU = {
       end },
 }
 
+-- An ignored character (shown on request): undo the ignore, or forget it.
+IGNORED_MENU = {
+    { text = "Show This Character Again",
+      tooltip = "Lists it again, as if ticked in Shown Characters.",
+      onClick = function()
+          if menuGuid then SetShown(menuGuid, true); Changed() end
+      end },
+    MENU[2],
+}
+
 -------------------------------------------------------------------------------
 --  Hooks: tab switches and the letter window
 -------------------------------------------------------------------------------
@@ -570,10 +711,18 @@ local function OnInboxUpdate()
 end
 
 local function HookMail()
-    if hooked or type(_G.MailFrameTab_OnClick) ~= "function" or type(_G.InboxFrame_Update) ~= "function" then return end
+    if hooked or type(_G.MailFrameTab_OnClick) ~= "function" then return end
+    -- WoW Forever's inbox is a mixin: its update is InboxFrame:Update.
+    local inbox = _G.InboxFrame
+    local mixinUpdate = type(_G.InboxFrame_Update) ~= "function" and inbox and type(inbox.Update) == "function"
+    if type(_G.InboxFrame_Update) ~= "function" and not mixinUpdate then return end
     hooked = true
     hooksecurefunc("MailFrameTab_OnClick", OnTab)
-    hooksecurefunc("InboxFrame_Update", OnInboxUpdate)
+    if mixinUpdate then
+        hooksecurefunc(inbox, "Update", OnInboxUpdate)
+    else
+        hooksecurefunc("InboxFrame_Update", OnInboxUpdate)
+    end
 end
 
 local function Install()
@@ -622,7 +771,7 @@ function ns.MailAlts.Entries()
                 class = e.class, level = e.level, faction = e.faction }
         end
     end
-    local own = GetRealmName()
+    local own = FOREVER and EUI.RealmGroupName() or GetRealmName()
     sort(out, function(a, b)
         if a.realm ~= b.realm then
             if a.realm == own then return true end
