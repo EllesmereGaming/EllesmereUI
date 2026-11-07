@@ -84,6 +84,14 @@ end
 --  instead of :Hide() so the frame stays in the layout engine with valid bounds.
 --  Sub-widgets (icons, text, glows) inside these frames still use :Hide()/:Show().
 -------------------------------------------------------------------------------
+-- The client names the quest-object cast "Opening - No Text"; cast bars show
+-- the plain "Opening". A secret or non-string name is returned as it is.
+function EllesmereUI.CleanCastName(name)
+    if issecretvalue(name) or type(name) ~= "string" then return name end
+    local clean = name:gsub("%s*%-%s*No Text$", "")
+    return clean ~= "" and clean or name
+end
+
 function EllesmereUI.SetElementVisibility(frame, visible)
     if not frame then return end
     if visible then
