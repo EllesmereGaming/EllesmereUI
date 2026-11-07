@@ -288,6 +288,10 @@ local function SlotUsable(slot)
         return GetMacroInfo(slot.name or slot.id) ~= nil
     elseif k == "outfit" then
         return ns.OutfitInfo(slot) ~= nil
+    elseif k == "emote" then
+        -- A token this client has no command for: saved on another build, or
+        -- by an emote since retired. It would fire nothing.
+        return ns.EmoteCommand(slot) ~= nil
     elseif k == "panel" then
         -- The one kind whose availability is the CLIENT's rather than the
         -- character's: Housing arrived in 12.0 and the Shop is not in every
@@ -538,6 +542,14 @@ local function ResolveAction(slot, p)
         -- that keeps a cycle predictable.
         local steps = CycleSteps(k)
         return "macro", "macrotext", steps[CycleNext(slot)], "macro"
+
+    elseif k == "emote" then
+        -- The client's own command for the token, in the client's language;
+        -- see the Emotes block in EUI_Quickdraw_Slots.lua. Aimed at the target
+        -- when there is one, exactly as the typed command would be.
+        local text = ns.EmoteCommand(slot)
+        if not text then return nil end
+        return "macro", "macrotext", text, "macro"
     end
 
     return nil
@@ -700,6 +712,10 @@ local function SlotDisplay(slot)
         -- slot.icon may be a { atlas = ... } table (the Pings preset stores
         -- one verbatim); SetIconTexture/ApplyIconCrop render both forms.
         return slot.icon or QUESTION_MARK, slot.name or "Macro"
+
+    elseif k == "emote" then
+        -- One glyph for every emote; PaintCell writes the name onto it.
+        return ns.EMOTE_ICON, ns.EmoteName(slot) or "Emote"
 
     elseif k == "dynamicrez" then
         -- The spell it would cast, not a fixed emblem: the entry is worth
