@@ -871,6 +871,81 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
+        -- Dialog Keys | Dialog Key keybind (EllesmereUIQoL_DialogKeys.lua),
+        -- retail and WoW Forever.
+        do
+            local dialogKeysRow
+            dialogKeysRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Dialog Keys",
+                  tooltip="Answer NPC windows with the keyboard. The Dialog Key presses Accept, Continue or Complete Quest, or a gossip window's top choice, and number keys (top row or numpad) press a numbered choice. Use the cog to turn the number keys off, or to let the Dialog Key confirm Abandon Quest. Off in combat.",
+                  getValue=function()
+                      return EllesmereUIDB and EllesmereUIDB.dialogKeys or false
+                  end,
+                  setValue=function(v)
+                      if not EllesmereUIDB then EllesmereUIDB = {} end
+                      EllesmereUIDB.dialogKeys = v
+                      if EllesmereUI._applyDialogKeys then EllesmereUI._applyDialogKeys() end
+                      EllesmereUI:RefreshPage()  -- update the key picker's disabled state
+                  end },
+                { type="label", text="Dialog Key" }
+            );  y = y - h
+
+            -- Cog on Dialog Keys (left slot): Number Keys (on by default) and
+            -- Confirm Popups (off by default). Key picker in the label's slot:
+            -- never set = Space; right-click unbinds it (false), leaving only
+            -- the number keys.
+            if not EllesmereUI._prebuilding then
+                local function dialogKeysOff()
+                    return not (EllesmereUIDB and EllesmereUIDB.dialogKeys)
+                end
+                EllesmereUI.BuildInlineCog(dialogKeysRow._leftRegion, {
+                    title = "Dialog Keys Settings",
+                    rows = {
+                        { type="toggle", label="Number Keys",
+                          tooltip="Number keys 1-9 and 0, on the top row or the numpad, press the numbered choice. A quest ready to turn in shows its number in gold. Turn off to leave the keys to your action bars.",
+                          get=function()
+                              return not (EllesmereUIDB and EllesmereUIDB.dialogKeysNumbers == false)
+                          end,
+                          set=function(v)
+                              if not EllesmereUIDB then EllesmereUIDB = {} end
+                              EllesmereUIDB.dialogKeysNumbers = v
+                              if EllesmereUI._applyDialogKeys then EllesmereUI._applyDialogKeys() end
+                          end },
+                        { type="toggle", label="Confirm Popups",
+                          tooltip="The Dialog Key also presses Yes on Abandon Quest. Never on popups the game or other players send you, like summons, invites or duels.",
+                          get=function()
+                              return EllesmereUIDB and EllesmereUIDB.dialogKeysPopups == true
+                          end,
+                          set=function(v)
+                              if not EllesmereUIDB then EllesmereUIDB = {} end
+                              EllesmereUIDB.dialogKeysPopups = v
+                              if EllesmereUI._applyDialogKeys then EllesmereUI._applyDialogKeys() end
+                          end },
+                    },
+                    gap = 9, disabled = dialogKeysOff, disabledTooltip = "Dialog Keys",
+                })
+
+                local rgn = dialogKeysRow._rightRegion
+                local kbBtn, refresh = EllesmereUI.BuildKeybindButton(rgn, {
+                    w = 140, h = 30, font = 13,
+                    get = function()
+                        local k = EllesmereUIDB and EllesmereUIDB.dialogKeysKey
+                        if k == nil then return "SPACE" end
+                        return k or nil
+                    end,
+                    set = function(fullKey)
+                        if not EllesmereUIDB then EllesmereUIDB = {} end
+                        EllesmereUIDB.dialogKeysKey = fullKey or false
+                        if EllesmereUI._applyDialogKeys then EllesmereUI._applyDialogKeys() end
+                    end,
+                    disabled = dialogKeysOff,
+                    disabledTip = "Dialog Keys",
+                })
+                PP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
+                EllesmereUI.RegisterWidgetRefresh(refresh)
+            end
+        end
+
         -- Type /cd to open Blizzard CDM | AH Current Expansion Only. The AH
         -- filter is not offered on WoW Forever (its runtime block does not
         -- exist there), so that slot is blank there.
@@ -2603,6 +2678,10 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.autoGossipShiftSkip = nil
                 EllesmereUIDB.autoGossipDisableInstance = nil
                 EllesmereUIDB.autoGossipIgnoreTrivial = nil
+                EllesmereUIDB.dialogKeys = false
+                EllesmereUIDB.dialogKeysKey = nil
+                EllesmereUIDB.dialogKeysNumbers = nil
+                EllesmereUIDB.dialogKeysPopups = nil
                 EllesmereUIDB.skipCinematics = false
                 EllesmereUIDB.skipCinematicsAuto = false
                 EllesmereUIDB.autoFillDelete = false
@@ -2718,6 +2797,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyPersistSignupNote then EllesmereUI._applyPersistSignupNote() end
             if EllesmereUI._applyQuickLoot then EllesmereUI._applyQuickLoot() end
             if EllesmereUI._applyAutoGossip then EllesmereUI._applyAutoGossip() end
+            if EllesmereUI._applyDialogKeys then EllesmereUI._applyDialogKeys() end
             if EllesmereUI._applyInstanceResetAnnounce then EllesmereUI._applyInstanceResetAnnounce() end
             if EllesmereUI._applyAutoOpenContainers then EllesmereUI._applyAutoOpenContainers() end
             if EllesmereUI._ShutdownShifter then EllesmereUI._ShutdownShifter() end
