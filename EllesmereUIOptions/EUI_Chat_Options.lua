@@ -1314,6 +1314,41 @@ initFrame:SetScript("OnEvent", function(self)
         -- -- INPUT FIELD -------------------------------------------------------
         _, h = W:SectionHeader(parent, "INPUT FIELD", y); y = y - h
 
+        -- Optional main-chat / horizontal DataBar integration.
+        if not STOCK or FV then
+            local values, order = { ["none"] = "None" }, { "none" }
+            local bars = EllesmereUI._ModuleNS["EllesmereUIDataBars"]
+            if bars and bars.BarsInOrder then
+                for _, bar in ipairs(bars.BarsInOrder()) do
+                    if bar.orientation ~= "V" then
+                        values[bar.id] = bar.name or tostring(bar.id)
+                        order[#order + 1] = bar.id
+                    end
+                end
+            end
+            local function refreshDock()
+                if ECHAT.RefreshDataBarDock then ECHAT.RefreshDataBarDock() end
+            end
+            local dockRow
+            dockRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Chat on DataBar",
+                  tooltip="Match the main chat to a horizontal DataBar. While typing, the input covers the bar. Turning this off restores the saved chat layout.",
+                  getValue=function() return Cfg("dataBarDock") == true end,
+                  setValue=function(v) Set("dataBarDock", v); refreshDock() end },
+                EllesmereUI.BlankRowCfg())
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(dockRow._leftRegion, {
+                    title = "Chat DataBar",
+                    rows = {
+                        { type="dropdown", label="DataBar", values=values, order=order,
+                          get=function() return Cfg("dataBarDockID") or "none" end,
+                          set=function(v) Set("dataBarDockID", v); refreshDock() end },
+                    },
+                })
+            end
+            y = y - h
+        end
+
         -- Stock styles keep Blizzard's own input box, its height and place.
         -- WoW Forever's box is ours, always below: its height alone.
         if not STOCK or FV then

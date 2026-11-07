@@ -1913,6 +1913,12 @@ end
 --  Live registry + bar factory
 -------------------------------------------------------------------------------
 local live = {}
+-- Read-only geometry endpoint for optional chat docking.
+function ns.GetChatDockBar(id)
+    local rec = live[id]
+    local cfg = ns.GetBar(id)
+    if rec and rec.enabled and cfg and cfg.orientation ~= "V" then return rec.bar end
+end
 ns._live = live
 ns._moEligible = {}
 
@@ -2045,6 +2051,7 @@ local function ApplyBarPosition(id)
     else
         bar:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx, cy)
     end
+    if ns.ChatDockChanged then ns.ChatDockChanged(id) end
 end
 
 local function EnsureSlot(rec, blockCfg)
@@ -2177,6 +2184,7 @@ function ns.RequestLayout(id)
         local r = live[id]
         if r then r.layoutQueued = false end
         ApplyLayout(id)
+        if ns.ChatDockChanged then ns.ChatDockChanged(id) end
     end)
 end
 
@@ -2789,6 +2797,7 @@ AfterBarStateChange = function()
     dispRuntime.UpdateEventRegistration()
     ns.UpdateAllBarVisibility()
     if ns.RefreshMicroMenuHider then ns.RefreshMicroMenuHider() end
+    if ns.ChatDockChanged then ns.ChatDockChanged() end
 end
 
 -------------------------------------------------------------------------------
@@ -2835,6 +2844,9 @@ local function MakeBarElement(barId, orderIdx)
             local rec = live[barId]
             if rec and rec.bar then return rec.bar:GetSize() end
             return 0, 0
+        end,
+        onLiveMove = function()
+            if ns.ChatDockChanged then ns.ChatDockChanged(barId) end
         end,
         savePos  = function(_, pt, rpt, x, y)
             local cfg = cfgOf()
@@ -3350,6 +3362,7 @@ function WB:OnDisable()
             rec.enabled = false
         end
     end
+    if ns.ChatDockChanged then ns.ChatDockChanged() end
 end
 
 -------------------------------------------------------------------------------

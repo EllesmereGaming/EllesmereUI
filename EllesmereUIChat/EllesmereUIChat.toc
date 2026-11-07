@@ -41,3 +41,4 @@ EllesmereUIChat_Forever.lua
 # Session scrollback: bridge-tail capture (formatted lines), replay into our
 # message frames (open world only)
 EllesmereUIChat_SessionHistory.lua
+EllesmereUIChat_DataBar.lua
