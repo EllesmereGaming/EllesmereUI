@@ -1056,7 +1056,7 @@ end
 function CB.ShowPreview(parent, onResize)
     if not preview then
         preview = NewBubble()
-        preview.text:SetText("The quick brown fox jumps over the lazy dog.")
+        preview.text:SetText(EllesmereUI.L("The quick brown fox jumps over the lazy dog."))
     end
     preview:SetParent(parent)
     preview:SetFrameStrata(parent:GetFrameStrata())
