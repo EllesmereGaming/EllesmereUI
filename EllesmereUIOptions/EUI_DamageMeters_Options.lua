@@ -218,7 +218,7 @@ initFrame:SetScript("OnEvent", function(self)
                       get=function() return Cfg("windowBorderBehind") or false end,
                       set=function(v) Set("windowBorderBehind", v); ApplyWindowBrd() end },
                 },
-                icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = rgn._control,
+                anchorTo = rgn._control,
             })
             if directionBtn then EllesmereUI.BlizzStyle.BlockInline("damagemeters", directionBtn, 0.15) end
         end
@@ -436,24 +436,6 @@ initFrame:SetScript("OnEvent", function(self)
               min = 20, max = 30, step = 1,
               getValue = function() return Cfg("hdrIconSize") or 22 end,
               setValue = function(v) Set("hdrIconSize", v); ApplyHdr() end })
-        if not EllesmereUI._prebuilding then
-            local rgn, ctrl = hdrBorderRow._leftRegion, hdrBorderRow._leftRegion._control
-            local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
-                rgn, hdrBorderRow:GetFrameLevel() + 3,
-                function()
-                    local c = Cfg("hdrBottomBorderColor") or {}
-                    return c.r or 0, c.g or 0, c.b or 0, c.a or 1
-                end,
-                function(r, g, b, a)
-                    Set("hdrBottomBorderColor", { r=r, g=g, b=b, a=a or 1 })
-                    ApplyHdr()
-                end,
-                true, 20)
-            PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
-            EllesmereUI.BlizzStyle.BlockInline("damagemeters", swatch)
-            rgn._lastInline = swatch
-        end
         if not EllesmereUI._prebuilding and EllesmereUI.GetBorderCompanion(Cfg("windowBorderTexture"), "sepH") then
             EllesmereUI.BuildInlineCog(hdrBorderRow._leftRegion, EllesmereUI.BlizzStyle.Gate("damagemeters", {
                 title = "Header Settings",
@@ -470,10 +452,38 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             }))
         end
+        if not EllesmereUI._prebuilding then
+            local rgn, ctrl = hdrBorderRow._leftRegion, hdrBorderRow._leftRegion._control
+            local swatch, refreshSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, hdrBorderRow:GetFrameLevel() + 3,
+                function()
+                    local c = Cfg("hdrBottomBorderColor") or {}
+                    return c.r or 0, c.g or 0, c.b or 0, c.a or 1
+                end,
+                function(r, g, b, a)
+                    Set("hdrBottomBorderColor", { r=r, g=g, b=b, a=a or 1 })
+                    ApplyHdr()
+                end,
+                true, 20)
+            PP.Point(swatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+            EllesmereUI.RegisterWidgetRefresh(refreshSwatch)
+            EllesmereUI.BlizzStyle.BlockInline("damagemeters", swatch)
+            rgn._lastInline = swatch
+        end
         -- Inline dual swatches on Icon Size: right = Custom, left = Accent
         if not EllesmereUI._prebuilding then
             local rgn = hdrBorderRow._rightRegion
             local ctrl = rgn._control
+
+            -- Inline cog: icon visibility
+            EllesmereUI.BuildInlineCog(rgn, {
+                title = "Icon Visibility",
+                rows = {
+                    { type = "toggle", label = "Mouseover Icons",
+                      get = function() return Cfg("hdrMouseoverIcons") or false end,
+                      set = function(v) Set("hdrMouseoverIcons", v); ApplyHdr() end },
+                },
+            })
 
             local customSwatch, updateCustom = EllesmereUI.BuildColorSwatch(
                 rgn, hdrBorderRow:GetFrameLevel() + 3,
@@ -489,7 +499,7 @@ initFrame:SetScript("OnEvent", function(self)
                     EllesmereUI:RefreshPage()
                 end,
                 false, 20)
-            PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            PP.Point(customSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
             local origIconClick = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self, ...)
                 if Cfg("iconColorUseAccent") then
@@ -526,17 +536,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.ShowWidgetTooltip(accentSwatch, "Accent Color")
             end)
             accentSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            -- Inline cog: icon visibility
-            EllesmereUI.BuildInlineCog(rgn, {
-                title = "Icon Visibility",
-                rows = {
-                    { type = "toggle", label = "Mouseover Icons",
-                      get = function() return Cfg("hdrMouseoverIcons") or false end,
-                      set = function(v) Set("hdrMouseoverIcons", v); ApplyHdr() end },
-                },
-                anchorTo = accentSwatch,
-            })
+            rgn._lastInline = accentSwatch
 
             -- Classic WoW UI paints every header icon with vanilla art that
             -- carries its own colours, and WoW Forever tints the glyphs its
@@ -576,6 +576,19 @@ initFrame:SetScript("OnEvent", function(self)
             local rgn = hdrRow2._leftRegion
             local ctrl = rgn._control
 
+            -- Inline cog: header text X/Y offset
+            EllesmereUI.BuildInlineCog(rgn, {
+                title = "Title Position",
+                rows = {
+                    { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
+                      get = function() return Cfg("hdrTextOffX") or 0 end,
+                      set = function(v) Set("hdrTextOffX", v); ApplyHdr() end },
+                    { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
+                      get = function() return Cfg("hdrTextOffY") or 0 end,
+                      set = function(v) Set("hdrTextOffY", v); ApplyHdr() end },
+                },
+            })
+
             local customSwatch, updateCustom = EllesmereUI.BuildColorSwatch(
                 rgn, hdrRow2:GetFrameLevel() + 3,
                 function()
@@ -589,7 +602,7 @@ initFrame:SetScript("OnEvent", function(self)
                     ApplyHdr(); EllesmereUI:RefreshPage()
                 end,
                 false, 20)
-            PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            PP.Point(customSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
             local origHdrTextClick = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self, ...)
                 if Cfg("hdrTextUseAccent") ~= false then
@@ -623,20 +636,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.ShowWidgetTooltip(accentSwatch, "Accent Color")
             end)
             accentSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            -- Inline cog: header text X/Y offset
-            EllesmereUI.BuildInlineCog(rgn, {
-                title = "Title Position",
-                rows = {
-                    { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
-                      get = function() return Cfg("hdrTextOffX") or 0 end,
-                      set = function(v) Set("hdrTextOffX", v); ApplyHdr() end },
-                    { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
-                      get = function() return Cfg("hdrTextOffY") or 0 end,
-                      set = function(v) Set("hdrTextOffY", v); ApplyHdr() end },
-                },
-                icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = accentSwatch,
-            })
+            rgn._lastInline = accentSwatch
 
             local function refreshHdrText()
                 updateCustom(); updateAccent()
@@ -900,7 +900,7 @@ initFrame:SetScript("OnEvent", function(self)
                           ApplyBrd()
                       end },
                 },
-                icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = rgn._control,
+                anchorTo = rgn._control,
             })
             -- Always visible: the popup hosts the Custom Icon Border toggle,
             -- which must stay reachable for the solid style too (the shift
@@ -1011,7 +1011,7 @@ initFrame:SetScript("OnEvent", function(self)
                       end,
                       set = function(v) Set("iconBorderTextureShiftY", v == 0 and nil or v); ApplyIconBrd() end },
                 },
-                icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = rgn._control,
+                anchorTo = rgn._control,
             })
             local function UpdateCogVis()
                 local tex = Cfg("iconBorderTexture") or "solid"
@@ -1207,6 +1207,36 @@ initFrame:SetScript("OnEvent", function(self)
             local rgn = btRow._leftRegion
             local ctrl = rgn._control
 
+            -- Inline cog: left text X/Y offsets (live via ns.ApplyBarTextOffsets),
+            -- headed by the Name Format (players' names; in combat other players'
+            -- names are secret and show whole).
+            local leftRows = {
+                { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
+                  get = function() return Cfg("leftTextOffsetX") or 0 end,
+                  set = function(v)
+                      Set("leftTextOffsetX", v)
+                      if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
+                  end },
+                { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
+                  get = function() return Cfg("leftTextOffsetY") or 0 end,
+                  set = function(v)
+                      Set("leftTextOffsetY", v)
+                      if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
+                  end },
+            }
+            local nameFormat = EllesmereUI.NameFormatCogRow(
+                function() return Cfg("nameFormat") end,
+                function(v)
+                    Set("nameFormat", v)
+                    ns.RefreshNames()
+                end)
+            nameFormat.tooltip = "Other players' names show in full during combat."
+            table.insert(leftRows, 1, nameFormat)
+            EllesmereUI.BuildInlineCog(rgn, {
+                title = "Left Text",
+                rows = leftRows,
+            })
+
             local customSwatch, updateCustom = EllesmereUI.BuildColorSwatch(
                 rgn, btRow:GetFrameLevel() + 3,
                 function()
@@ -1220,7 +1250,7 @@ initFrame:SetScript("OnEvent", function(self)
                     Refresh(); EllesmereUI:RefreshPage()
                 end,
                 false, 20)
-            PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            PP.Point(customSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
             local origClick = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self, ...)
                 if Cfg("leftTextUseClassColor") then
@@ -1256,6 +1286,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.ShowWidgetTooltip(classSwatch, "Class Color")
             end)
             classSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            rgn._lastInline = classSwatch
 
             local function refreshLeft()
                 updateCustom(); updateClass()
@@ -1265,42 +1296,30 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI.RegisterWidgetRefresh(refreshLeft)
             refreshLeft()
-
-            -- Inline cog: left text X/Y offsets (live via ns.ApplyBarTextOffsets),
-            -- headed by the Name Format (players' names; in combat other players'
-            -- names are secret and show whole).
-            local leftRows = {
-                { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
-                  get = function() return Cfg("leftTextOffsetX") or 0 end,
-                  set = function(v)
-                      Set("leftTextOffsetX", v)
-                      if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
-                  end },
-                { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
-                  get = function() return Cfg("leftTextOffsetY") or 0 end,
-                  set = function(v)
-                      Set("leftTextOffsetY", v)
-                      if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
-                  end },
-            }
-            local nameFormat = EllesmereUI.NameFormatCogRow(
-                function() return Cfg("nameFormat") end,
-                function(v)
-                    Set("nameFormat", v)
-                    ns.RefreshNames()
-                end)
-            nameFormat.tooltip = "Other players' names show in full during combat."
-            table.insert(leftRows, 1, nameFormat)
-            EllesmereUI.BuildInlineCog(rgn, {
-                title = "Left Text",
-                rows = leftRows,
-                anchorTo = classSwatch, chain = false,
-            })
         end
         -- Right text inline swatches
         if not EllesmereUI._prebuilding then
             local rgn = btRow._rightRegion
             local ctrl = rgn._control
+
+            -- Inline cog: right text X/Y offsets (live via ns.ApplyBarTextOffsets)
+            EllesmereUI.BuildInlineCog(rgn, {
+                title = "Right Text",
+                rows = {
+                    { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
+                      get = function() return Cfg("rightTextOffsetX") or 0 end,
+                      set = function(v)
+                          Set("rightTextOffsetX", v)
+                          if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
+                      end },
+                    { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
+                      get = function() return Cfg("rightTextOffsetY") or 0 end,
+                      set = function(v)
+                          Set("rightTextOffsetY", v)
+                          if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
+                      end },
+                },
+            })
 
             local customSwatch, updateCustom = EllesmereUI.BuildColorSwatch(
                 rgn, btRow:GetFrameLevel() + 3,
@@ -1316,7 +1335,7 @@ initFrame:SetScript("OnEvent", function(self)
                     Refresh(); EllesmereUI:RefreshPage()
                 end,
                 false, 20)
-            PP.Point(customSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            PP.Point(customSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
             local origClick = customSwatch:GetScript("OnClick")
             customSwatch:SetScript("OnClick", function(self, ...)
                 if Cfg("rightTextUseClassColor") or Cfg("rightTextUseThreatGradient") then
@@ -1378,27 +1397,6 @@ initFrame:SetScript("OnEvent", function(self)
                       Refresh(); EllesmereUI:RefreshPage()
                   end },
             }, { size = 20 })
-            local valueAnchor = rgn._lastInline
-
-            -- Inline cog: right text X/Y offsets (live via ns.ApplyBarTextOffsets)
-            EllesmereUI.BuildInlineCog(rgn, {
-                title = "Right Text",
-                rows = {
-                    { type = "slider", label = "X Offset", min = -20, max = 20, step = 1,
-                      get = function() return Cfg("rightTextOffsetX") or 0 end,
-                      set = function(v)
-                          Set("rightTextOffsetX", v)
-                          if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
-                      end },
-                    { type = "slider", label = "Y Offset", min = -20, max = 20, step = 1,
-                      get = function() return Cfg("rightTextOffsetY") or 0 end,
-                      set = function(v)
-                          Set("rightTextOffsetY", v)
-                          if ns.ApplyBarTextOffsets then ns.ApplyBarTextOffsets() end
-                      end },
-                },
-                anchorTo = valueAnchor, chain = false,
-            })
         end
         y = y - h
 
@@ -1551,7 +1549,6 @@ initFrame:SetScript("OnEvent", function(self)
                       get = function() return Cfg("standaloneTimerStrata") or "HIGH" end,
                       set = function(v) Set("standaloneTimerStrata", v); ApplySAT() end },
                 },
-                icon = EllesmereUI.RESIZE_ICON,
             })
         end
         y = y - h

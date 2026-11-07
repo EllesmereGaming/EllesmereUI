@@ -2593,7 +2593,7 @@ function EUI_Bank:RefreshBank()
             btn:EnableMouse(true)
             btn._emptyBg:Hide()
             if btn.icon then btn.icon:Show() end
-            btn:SetItemButtonTexture(info.iconFileID)
+            ns.SetSlotIcon(btn, info.iconFileID)
             btn:SetItemButtonCount(info.stackCount)
             local quality = info.quality or 1
             SetItemButtonDesaturated(btn, info.isLocked or (desatJunk and (quality == 0
@@ -3496,6 +3496,12 @@ local function ScheduleBankRefresh()
     end)
 end
 
+-- Bags closed by hand: a later open is the player's, so it outlives the bank.
+-- Alt-Z also fires OnHide but leaves IsShown true.
+EUI_Bags:HookScript("OnHide", function(self)
+    if not self:IsShown() then EUI_Bank._autoOpenedBags = false end
+end)
+
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("BANKFRAME_OPENED")
 eventFrame:RegisterEvent("BANKFRAME_CLOSED")
@@ -3546,7 +3552,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
             ns.PadSidebarSync(sidebarHdr, sidebarSF, sidebarChild, "bankSidebarCollapsed", on)
         end
         -- Auto-open bags alongside bank if not already visible
-        if EUI_Bags and not EUI_Bags:IsVisible() then
+        if EUI_Bags and not EUI_Bags:IsVisible() and ns.BagAutoWindowOn("bagAutoOpenWindows", "bank") then
             EUI_Bags:Show()
             if EUI_Bags.RefreshInventory then EUI_Bags:RefreshInventory() end
             EUI_Bank._autoOpenedBags = true
@@ -3590,7 +3596,8 @@ eventFrame:SetScript("OnEvent", function(_, event)
         EUI_Bags.ClearSearch()
         EUI_Bank:Hide()
         -- Auto-close bags if we auto-opened them
-        if EUI_Bank._autoOpenedBags and EUI_Bags and EUI_Bags:IsVisible() then
+        if EUI_Bank._autoOpenedBags and EUI_Bags and EUI_Bags:IsVisible()
+            and ns.BagAutoWindowOn("bagAutoCloseWindows", "bank") then
             EUI_Bags:Hide()
         end
         EUI_Bank._autoOpenedBags = false

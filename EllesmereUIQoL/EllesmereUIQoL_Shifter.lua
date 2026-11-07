@@ -30,6 +30,7 @@ local PRELOADED = {
     "DressUpFrame",
     "BankFrame",
     "MailFrame",
+    "OpenMailFrame",          -- the window of one opened mail
     "GossipFrame",
     "QuestFrame",
     "MerchantFrame",
@@ -882,6 +883,30 @@ local function TryHook(name)
     if frame and frame.HookScript then HookFrame(frame, name) end
 end
 
+-- Windows of our own modules that are built after login (Forever Essentials'
+-- classic spellbook and talent window): each module hands its window over by
+-- name as it builds it, and an enable later in the session hooks the ones
+-- already handed over. Placed at once, since such a window can first open in
+-- combat, when a protected one cannot be moved.
+local adopted = {}
+
+local function HookAdopted(name)
+    if EllesmereUI.PadGamepadUI() then return end
+    local frame = _G[name]
+    if not (frame and frame.HookScript) then return end
+    HookFrame(frame, name)
+    if not InCombatLockdown() then
+        ApplyScale(frame, name)
+        ApplyPosition(frame, name)
+    end
+end
+
+function EllesmereUI._ShifterAdopt(name)
+    if adopted[name] then return end
+    adopted[name] = true
+    if IsEnabled() then HookAdopted(name) end
+end
+
 -------------------------------------------------------------------------------
 --  Loot windows via Unlock Mode movers
 --
@@ -1465,6 +1490,7 @@ local function InitShifter()
     if next(pendingAddons) then
         eventFrame:RegisterEvent("ADDON_LOADED")
     end
+    for name in pairs(adopted) do HookAdopted(name) end
     -- Scroll-wheel scaling: the modifier listener is owned by WheelArm.Sync
     -- and registered ONLY while a registered panel is open -- with everything
     -- closed a modifier press never enters Lua. Called here (not just on

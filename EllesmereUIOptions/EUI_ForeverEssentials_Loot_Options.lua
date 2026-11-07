@@ -305,7 +305,6 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
                 set = function(v) LF.Cfg()[key] = v; LF.ApplyStyle() end }
         end
         EllesmereUI.BuildInlineCog(borderRow._leftRegion, { title = "Border Options",
-            icon = EllesmereUI.DIRECTIONS_ICON,
             disabled = function()
                 local tex = LF.Get("borderTexture")
                 return borderOff() or not tex or tex == "solid" or tex == ""

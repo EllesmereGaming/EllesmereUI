@@ -1421,8 +1421,8 @@ local function BuildSidebar()
     local sbBg = SolidTex(sidebarSearchFrame, "BACKGROUND",
         EllesmereUI.SL_INPUT_R, EllesmereUI.SL_INPUT_G, EllesmereUI.SL_INPUT_B, EllesmereUI.SL_INPUT_A + 0.10)
     sbBg:SetAllPoints()
-    local sbBrd = MakeBorder(sidebarSearchFrame,
-        EllesmereUI.BORDER_R, EllesmereUI.BORDER_G, EllesmereUI.BORDER_B, 0.10)
+    local sbBrd = EllesmereUI.MakeRoundedBorder(sidebarSearchFrame,
+        EllesmereUI.BORDER_R, EllesmereUI.BORDER_G, EllesmereUI.BORDER_B, 0.10, sbBg)
 
     local sbEdit = CreateFrame("EditBox", nil, sidebarSearchFrame)
     sbEdit:SetAllPoints()
@@ -3003,9 +3003,9 @@ local function BuildFooter(rightW, rightX)
         PanelPP.Size(btn, w, h)
         PanelPP.Point(btn, anchorPoint, anchorTo, anchorRel, ax, ay)
         btn:SetFrameLevel(parent:GetFrameLevel() + 1)
-        local brd = MakeBorder(btn, brdR, brdG, brdB, brdA, PanelPP)
         local bg = SolidTex(btn, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, .92)
         bg:SetAllPoints()
+        local brd = EllesmereUI.MakeRoundedBorder(btn, brdR, brdG, brdB, brdA, bg)
         local lbl = MakeFont(btn, 13, nil, textR, textG, textB)
         lbl:SetAlpha(textA); lbl:SetPoint("CENTER"); lbl:SetText(EllesmereUI.L(label))
         btn._label = lbl
@@ -3145,7 +3145,8 @@ local function BuildFooter(rightW, rightX)
                 eb:SetJustifyH("CENTER")
                 local ebBg = SolidTex(eb, "BACKGROUND", 0.112, 0.105, 0.098, 1)
                 ebBg:SetPoint("TOPLEFT", -6, 4); ebBg:SetPoint("BOTTOMRIGHT", 6, -4)
-                MakeBorder(eb, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.02)
+                EllesmereUI.RoundBody(eb, ebBg)
+                EllesmereUI.MakeRoundedBorder(eb, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.02)
                 eb:SetScript("OnEscapePressed", function(self) self:ClearFocus(); HideLinkPopup() end)
                 eb:SetScript("OnMouseUp", function(self) self:HighlightText() end)
                 linkPopup:EnableMouse(true)
@@ -3231,9 +3232,9 @@ local function BuildFooter(rightW, rightX)
         PanelPP.Size(btn, DONE_BTN_W, FOOTER_BTN_H)
         PanelPP.Point(btn, "BOTTOMRIGHT", footerFrame, "BOTTOMRIGHT", -FOOTER_PAD, FOOTER_Y)
         btn:SetFrameLevel(footerFrame:GetFrameLevel() + 1)
-        local brd = MakeBorder(btn, ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 0.7, PanelPP)
         local bg = SolidTex(btn, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, .92)
         bg:SetAllPoints()
+        local brd = EllesmereUI.MakeRoundedBorder(btn, ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 0.7, bg)
         local lbl = MakeFont(btn, 13, nil, ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b)
         lbl:SetAlpha(0.7); lbl:SetPoint("CENTER"); lbl:SetText(EllesmereUI.L("Close"))
         -- Hover animation reads from ELLESMERE_GREEN live
@@ -3394,7 +3395,7 @@ BuildTabs = function(pageNames, disabledPages, disabledTooltips)
 
         local searchBg = SolidTex(searchFrame, "BACKGROUND", STYLE.SL_INPUT_R, STYLE.SL_INPUT_G, STYLE.SL_INPUT_B, STYLE.SL_INPUT_A + 0.10)
         searchBg:SetAllPoints()
-        local searchBrd = MakeBorder(searchFrame, STYLE.BORDER_R, STYLE.BORDER_G, STYLE.BORDER_B, 0.10)
+        local searchBrd = EllesmereUI.MakeRoundedBorder(searchFrame, STYLE.BORDER_R, STYLE.BORDER_G, STYLE.BORDER_B, 0.10, searchBg)
 
         local editBox = CreateFrame("EditBox", nil, searchFrame)
         editBox:SetAllPoints()
@@ -5634,7 +5635,7 @@ end
 --  (a module can opt out of the latter with searchPrebuild = false).
 --  Developer guide: PLUGINS_API.md.
 -------------------------------------------------------------------------------
-EllesmereUI.PLUGIN_API_VERSION = 3
+EllesmereUI.PLUGIN_API_VERSION = 4
 
 do
     local PREFIX          = EUI_NS.PLUGIN_PREFIX

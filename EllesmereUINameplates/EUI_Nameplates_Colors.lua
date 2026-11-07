@@ -461,13 +461,17 @@ ns._npSlotLevelFS = {}  -- plate font string keys painted in level mode
 ns._npSlotLevelCK = {}  -- parallel: the owning slot's colour key (unreadable-level fallback)
 -- Materialized with the class flags: the font string key each bottom slot owns
 -- (false = none, or a later slot rewrites that shared font string), whether
--- either owns one (the cast show / hide re-anchor runs only then), and the slot
--- showing Target of Target (false = none; its UNIT_TARGET registration follows
--- it) plus whether that slot is in class mode. _npToTUnits caches "<unit>target".
--- _npCustomTgt: a custom text reads [target] (UNIT_TARGET follows it too).
--- _npTgtTexts: either is shown, the one gate of every target-text trigger.
+-- either owns one (the cast show / hide re-anchor runs only then), the same for
+-- the top corner slots (their re-anchor follows the class power push with the
+-- name's), and the slot showing Target of Target (false = none; its UNIT_TARGET
+-- registration follows it) plus whether that slot is in class mode. _npToTUnits
+-- caches "<unit>target". _npCustomTgt: a custom text reads [target] (UNIT_TARGET
+-- follows it too). _npTgtTexts: either is shown, the one gate of every target-text
+-- trigger.
 ns._npBottomFS = { false, false }
 ns._npBottomUsed = false
+ns._npTopCornerFS = { false, false }
+ns._npTopCornerUsed = false
 ns._npToTSlot = false
 ns._npToTClass = false
 ns._npToTColorKey = nil
@@ -475,10 +479,12 @@ ns._npToTUnits = {}
 ns._npCustomTgt = false
 ns._npTgtTexts = false
 do
-    -- The order ApplyHealthTextAppearance lays the slots out in (bar slots, then top):
-    -- the last slot writing a shared font string owns it.
+    -- The order ApplyHealthTextAppearance lays the slots out in (the HP_BAR_SLOTS
+    -- entries, then Top): the last slot writing a shared font string owns it.
+    -- Indexes 4, 5 are the bottom corners, 6, 7 the top corners.
     local SLOTS = { "textSlotRight", "textSlotLeft", "textSlotCenter",
-        "textSlotBottomLeft", "textSlotBottomRight", "textSlotTop" }
+        "textSlotBottomLeft", "textSlotBottomRight", "textSlotTopLeft", "textSlotTopRight",
+        "textSlotTop" }
     local owner, ownerSlot, lastIdx = {}, {}, {}
     local COLOR_KEY = {}  -- slot -> its colour key (prebuilt for UpdateToT and the painter)
     for i = 1, #SLOTS do COLOR_KEY[SLOTS[i]] = SLOTS[i] .. "Color" end
@@ -505,7 +511,7 @@ do
         ns._npToTSlot = false
         ns._npToTClass = false
         ns._npCustomTgt = false
-        local B = ns._npBottomFS
+        local B, T = ns._npBottomFS, ns._npTopCornerFS
         -- The name is placed in FindNameSlot's slot (the first holding one), the
         -- other shared font strings by the last slot writing them.
         local nameSlot = ns.FindNameSlot()
@@ -527,6 +533,7 @@ do
             end
             if key then lastIdx[key] = i end
             if i == 4 or i == 5 then B[i - 3] = key or false end
+            if i == 6 or i == 7 then T[i - 5] = key or false end
         end
         for b = 1, 2 do
             if B[b] == "name" then
@@ -534,10 +541,16 @@ do
             elseif B[b] and lastIdx[B[b]] ~= b + 3 then
                 B[b] = false
             end
+            if T[b] == "name" then
+                if nameSlot ~= SLOTS[b + 5] then T[b] = false end
+            elseif T[b] and lastIdx[T[b]] ~= b + 5 then
+                T[b] = false
+            end
         end
         ns._npToTColorKey = ns._npToTSlot and COLOR_KEY[ns._npToTSlot] or nil
         ns._npTgtTexts = (ns._npToTSlot or ns._npCustomTgt) and true or false
         ns._npBottomUsed = (B[1] or B[2]) and true or false
+        ns._npTopCornerUsed = (T[1] or T[2]) and true or false
         for key, mode in pairs(owner) do
             if mode == "class" then
                 L[#L + 1] = key

@@ -256,6 +256,25 @@ local function ResolveFontName(fontName)
 end
 EllesmereUI.ResolveFontName = ResolveFontName
 
+-- Floating combat text is in the client's language, not EUI's display language. On a
+-- glyph-restricted client, a Combat Text Font key counts only if it can draw that script:
+-- a SharedMedia font or a Blizzard file LSM registers (LSM keeps just the ones flagged
+-- for the client), or a FONT_CYRILLIC face on ruRU.
+function EllesmereUI.CombatTextFontCoversLocale(key)
+    local locale = GetLocale()
+    if not EllesmereUI.LocaleGlyphFont(locale) or key:match("^smf:") then return true end
+    if locale == "ruRU" then
+        for name, file in pairs(EllesmereUI.FONT_FILES) do
+            if EllesmereUI.FONT_CYRILLIC[name] and key == MEDIA_PATH .. "fonts\\" .. file then return true end
+        end
+    end
+    local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+    for _, path in pairs(LSM and LSM:HashTable("font") or {}) do
+        if path == key then return true end
+    end
+    return false
+end
+
 -- Per-module font overrides: all state stored on the EllesmereUI table
 -- to stay under the 200-local / 60-upvalue Lua 5.1 caps.
 EllesmereUI._addonKeyToFolder = {

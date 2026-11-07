@@ -1753,15 +1753,10 @@ initFrame:SetScript("OnEvent", function(self)
         end
         local btn = EllesmereUI.BuildInlineCog(rgn, {
             anchorTo = leftOf, tip = tooltip,
-            icon = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\glyph.tga",
             title = title, bgAlpha = 1,
             frameStrata = "FULLSCREEN_DIALOG", frameLevel = 500,
             rows = rows,
         })
-        if not btn then return end
-        -- Crop the DRUID cell out of the class glyph sheet.
-        btn._icon:SetDesaturated(true)
-        btn._icon:SetTexCoord(0.375, 0.5, 0, 0.125)
         return btn
     end
     -- The L() literals keep both popup titles in the static locale key list: .tools/extract-locale-keys.sh only sees literal string arguments.
@@ -2004,7 +1999,7 @@ initFrame:SetScript("OnEvent", function(self)
         local inBg = input:CreateTexture(nil, "BACKGROUND")
         inBg:SetAllPoints()
         inBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-        EllesmereUI.MakeBorder(input, 1, 1, 1, 0.08, PP)
+        EllesmereUI.MakeRoundedBorder(input, 1, 1, 1, 0.08, inBg)
         row.input = input
 
         -- Commit on focus loss. Enter clears focus -> triggers this; Escape sets _cancelCommit so leaving the field discards the typed text.
@@ -2301,7 +2296,7 @@ initFrame:SetScript("OnEvent", function(self)
             input:SetMaxLetters(7)
             local inBg = input:CreateTexture(nil, "BACKGROUND"); inBg:SetAllPoints()
             inBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-            EllesmereUI.MakeBorder(input, 1, 1, 1, 0.08, PP)
+            EllesmereUI.MakeRoundedBorder(input, 1, 1, 1, 0.08, inBg)
             row.input = input
 
             -- Drag grip: list order = priority, so rows are draggable
@@ -3189,7 +3184,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local ibg = ib:CreateTexture(nil, "BACKGROUND")
                 ibg:SetAllPoints()
                 ibg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-                EllesmereUI.MakeBorder(ib, 1, 1, 1, 0.08, PP)
+                EllesmereUI.MakeRoundedBorder(ib, 1, 1, 1, 0.08, ibg)
                 return ib
             end
 

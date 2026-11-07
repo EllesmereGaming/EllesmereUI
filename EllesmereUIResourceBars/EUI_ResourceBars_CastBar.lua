@@ -1100,7 +1100,10 @@ SetUpdateCastBar(function(dt)
     if castBarFrame._casting or castBarFrame._empowering then
         -- Safety: if cast/empower ran 1s past expected end, force stop.
         -- Catches missed EMPOWER_STOP events under network desync.
-        if castBarFrame._endTime and now > castBarFrame._endTime + 1 then
+        -- A merged craft batch checks the current craft's end, so a batch
+        -- stopped between crafts goes idle too.
+        local overrunAt = castBarFrame._craftCastEnd or castBarFrame._endTime
+        if overrunAt and now > overrunAt + 1 then
             OnCastStop()
             return
         end
@@ -1370,6 +1373,8 @@ function ns.ShowIdleCastBar()
     castBarFrame._bar:SetValue(0)
     castBarFrame._nativeFill = nil
     castBarFrame._cstKey = nil
+    castBarFrame._craftMerge, castBarFrame._craftCastEnd = nil, nil
+    ns.ERB_CraftStopWatch(false)
     if ns._rawFillDriver then ns._rawFillDriver:Hide() end
     if castBarFrame._castUninterruptible or castBarFrame._channelPaint then
         castBarFrame._castUninterruptible = nil
@@ -1468,15 +1473,35 @@ OnCastStart = function()
 
     local name, _, _, startTimeMS, endTimeMS, isTradeSkill, _, notInterruptible, spellID, barID = UnitCastingInfo("player")
     if not name then return end
-    EllesmereUI.SetCraftBatch(castBarFrame, cb.fullCraftTime and cb.showTimer and isTradeSkill,
-        spellID, barID, (endTimeMS - startTimeMS) / 1000)
+    local castDurSec = (endTimeMS - startTimeMS) / 1000
+    EllesmereUI.SetCraftBatch(castBarFrame,
+        (cb.fullCraftTime or cb.mergeCrafts) and isTradeSkill,
+        spellID, barID, castDurSec)
 
+    -- Merge Craft Casts: one bar spans the whole batch. The batch start is kept
+    -- from the first craft (or backdated by the crafts done). _craftExtra becomes
+    -- 0 (queued time now lives in _endTime) so the craft timer reads the batch end.
+    local merge = cb.mergeCrafts and castBarFrame._craftExtra
+    local batchStart = merge and castBarFrame._craftMerge and castBarFrame._craftDone > 0
+        and castBarFrame._startTime
+        or startTimeMS / 1000 - (merge and castBarFrame._craftDone * castDurSec or 0)
     castBarFrame._casting = true
     castBarFrame._channeling = false
     castBarFrame._empowering = false
     castBarFrame._castID = barID
-    castBarFrame._startTime = startTimeMS / 1000
-    castBarFrame._endTime = endTimeMS / 1000
+    if merge then
+        castBarFrame._craftMerge = true
+        ns.ERB_CraftStopWatch(true)
+        castBarFrame._craftCastEnd = endTimeMS / 1000
+        castBarFrame._startTime = batchStart
+        castBarFrame._endTime = endTimeMS / 1000 + castBarFrame._craftExtra
+        castBarFrame._craftExtra = 0
+    else
+        castBarFrame._craftMerge = nil
+        castBarFrame._craftCastEnd = nil
+        castBarFrame._startTime = startTimeMS / 1000
+        castBarFrame._endTime = endTimeMS / 1000
+    end
     castBarFrame._spellName = name
     castBarFrame._spellID = spellID
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
@@ -1484,9 +1509,13 @@ OnCastStart = function()
         .. (castBarFrame._craftExtra and castBarFrame._craftCountSuffix or ""))
     ns.ERB_SetBlizzCastFill("cast")
     ns.ERB_CastOverrideStart(cb, notInterruptible)
-    if not ns.ApplyCastTimer("cast") then
-        local castDur = endTimeMS - startTimeMS
-        local initProgress = (castDur > 0) and ((GetTime() - startTimeMS / 1000) / (castDur / 1000)) or 0
+    -- The engine timer covers one cast only, so a merged batch fills from Lua.
+    if merge then
+        castBarFrame._nativeFill = nil
+    end
+    if merge or not ns.ApplyCastTimer("cast") then
+        local s, e = castBarFrame._startTime, castBarFrame._endTime
+        local initProgress = (e > s) and ((GetTime() - s) / (e - s)) or 0
         castBarFrame._bar:SetValue(min(max(initProgress, 0), 1))
     end
 
@@ -1538,6 +1567,7 @@ OnChannelStart = function()
     castBarFrame._channeling = true
     castBarFrame._empowering = false
     castBarFrame._craftExtra = nil
+    castBarFrame._craftMerge, castBarFrame._craftCastEnd = nil, nil
     castBarFrame._castID = channelCastID
     castBarFrame._startTime = startTimeMS / 1000
     castBarFrame._endTime = endTimeMS / 1000
@@ -1601,6 +1631,8 @@ local function OnCastComplete(eventCastID)
     if not castBarFrame then return end
     if not castBarFrame._casting then return end
     if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then return end
+    -- Merge Craft Casts: more crafts queued, keep the bar running into the next one.
+    if castBarFrame._craftMerge and (castBarFrame._craftLeft or 0) > 0 then return end
     castBarFrame._casting = false
     castBarFrame._castID = nil
     ns.ShowIdleCastBar()
@@ -1612,7 +1644,11 @@ end
 local function OnCastFailed(eventCastID)
     if not castBarFrame then return end
     if not castBarFrame._casting then return end
-    if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then return end
+    if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then
+        -- Merged craft batch: a cancelled craft can report another ID; end it
+        -- once nothing is casting.
+        if not castBarFrame._craftMerge or UnitCastingInfo("player") then return end
+    end
     castBarFrame._casting = false
     castBarFrame._castID = nil
     ns.ShowIdleCastBar()
@@ -1787,6 +1823,27 @@ do
     end
 end
 
+-- Merge Craft Casts: a cancelled batch (movement, Escape) ends the merged bar.
+-- Watched only while a merged batch is on the bar.
+do
+    local watch
+    function ns.ERB_CraftStopWatch(on)
+        if on then
+            if not watch then
+                watch = CreateFrame("Frame")
+                watch:SetScript("OnEvent", function()
+                    if castBarFrame and castBarFrame._craftMerge and not UnitCastingInfo("player") then
+                        OnCastStop()
+                    end
+                end)
+            end
+            watch:RegisterEvent("UPDATE_TRADESKILL_CAST_STOPPED")
+        elseif watch then
+            watch:UnregisterAllEvents()
+        end
+    end
+end
+
 -- Called for UNIT_SPELLCAST_EMPOWER_STOP.
 local function OnEmpowerStop(eventCastID)
     if not castBarFrame then return end
@@ -1905,6 +1962,7 @@ OnEmpowerStart = function()
     castBarFrame._channeling = false
     castBarFrame._empowering = true
     castBarFrame._craftExtra = nil
+    castBarFrame._craftMerge, castBarFrame._craftCastEnd = nil, nil
     castBarFrame._castID = empowerCastID
     castBarFrame._startTime = startTimeMS / 1000
     castBarFrame._endTime = endTimeMS / 1000

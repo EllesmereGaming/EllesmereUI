@@ -69,8 +69,8 @@ local function BuildCoreTextColoring(parent, y, W)
     -- dropdown, shown by the mode from the page refresh: Custom the slot colour,
     -- Hostility / Class the three shared NPC colours (Target of Target: the slot
     -- colour, used for an NPC target), Level Difficulty none. Level | Name and
-    -- Name | Level add a cog left of the shown swatches (beside the dropdown when
-    -- none show) with the name and level part colours (inline escapes on that part
+    -- Name | Level add a cog beside the dropdown, the shown swatches left of it,
+    -- with the name and level part colours (inline escapes on that part
     -- only; the rest of the text keeps the mode's colour). The NPC swatches are
     -- built only on a Hostility / Class half, so no other half traces the shared
     -- keys for Spec Overrides. Every write goes through the dropdown, a cog row or
@@ -88,64 +88,8 @@ local function BuildCoreTextColoring(parent, y, W)
             UpdatePreview()
         end
 
-        local anchor = rgn._lastInline or rgn._control
-        local gap = rgn._lastInline and -8 or -12
-        local custom, updateCustom = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-            function()
-                local c = (DB() and DB()[colorKey]) or defaults[colorKey]
-                return c.r, c.g, c.b
-            end,
-            function(r, g, b)
-                DB()[colorKey] = { r = r, g = g, b = b }
-                Apply()
-            end, nil, 20)
-        PP.Point(custom, "RIGHT", anchor, "LEFT", gap, 0)
-        custom:SetScript("OnEnter", function()
-            if isToT and Mode() == "class" then
-                EllesmereUI.ShowWidgetTooltip(custom, EllesmereUI.L("NPC Target Color"))
-            else
-                EllesmereUI.ShowWidgetTooltip(custom, EllesmereUI.L("Custom Color"))
-            end
-        end)
-        custom:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        rgn._lastInline = custom
-
-        -- Hostility / Class: Tapped / Neutral / Hostile left to right, Hostile in
-        -- the custom swatch's place.
-        local npc, npcUpd
-        if not isToT and Mode() == "class" then
-            npc, npcUpd = {}, {}
-            local prev, prevGap = anchor, gap
-            local function NPCSwatch(key, fallbackKey, tip)
-                local sw, upd = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
-                    function()
-                        local c = (DB() and DB()[key]) or defaults[fallbackKey]
-                        return c.r, c.g, c.b
-                    end,
-                    -- Read live by the per-unit painter, so a health colour pass repaints.
-                    function(r, g, b)
-                        DB()[key] = { r = r, g = g, b = b }
-                        RefreshAllPlates()
-                        UpdatePreview()
-                        for i = 1, #npcSwatchUpdates do npcSwatchUpdates[i]() end
-                    end, nil, 20)
-                PP.Point(sw, "RIGHT", prev, "LEFT", prevGap, 0)
-                prev, prevGap = sw, -8
-                sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, tip) end)
-                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                npc[#npc + 1] = sw
-                npcUpd[#npcUpd + 1] = upd
-                npcSwatchUpdates[#npcSwatchUpdates + 1] = upd
-                return sw
-            end
-            NPCSwatch("enemyNameHostileColor", "hostile", EllesmereUI.L("Hostile Color"))
-            NPCSwatch("enemyNameNeutralColor", "neutral", EllesmereUI.L("Neutral Color"))
-            -- Leftmost swatch (the label clamp's bound unless a cog follows).
-            rgn._lastInline = NPCSwatch("enemyNameTappedColor", "tapped", EllesmereUI.L("Tapped Color"))
-        end
-
-        -- Level | Name and Name | Level: the part colours on a cog left of the
-        -- swatches. It becomes the leftmost item, which the label clamp keeps clear of.
+        -- Level | Name and Name | Level: the part colours on a cog beside the
+        -- dropdown, built first so the swatches chain left of it.
         local cog
         if el == "levelName" or el == "nameLevel" then
             local nameOnKey, nameColorKey = slotKey .. "NameColorOn", slotKey .. "NameColor"
@@ -193,7 +137,62 @@ local function BuildCoreTextColoring(parent, y, W)
             })
         end
 
-        local cogLeftOf  -- what the cog sits beside; follows the swatches the mode shows
+        -- The custom swatch and the first NPC swatch (never shown together) both
+        -- sit beside the cog, or beside the dropdown on a half without one.
+        local anchor = rgn._lastInline or rgn._control
+        local gap = rgn._lastInline and -8 or -12
+        local custom, updateCustom = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+            function()
+                local c = (DB() and DB()[colorKey]) or defaults[colorKey]
+                return c.r, c.g, c.b
+            end,
+            function(r, g, b)
+                DB()[colorKey] = { r = r, g = g, b = b }
+                Apply()
+            end, nil, 20)
+        PP.Point(custom, "RIGHT", anchor, "LEFT", gap, 0)
+        custom:SetScript("OnEnter", function()
+            if isToT and Mode() == "class" then
+                EllesmereUI.ShowWidgetTooltip(custom, EllesmereUI.L("NPC Target Color"))
+            else
+                EllesmereUI.ShowWidgetTooltip(custom, EllesmereUI.L("Custom Color"))
+            end
+        end)
+        custom:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+        -- Hostility / Class: Tapped / Neutral / Hostile left to right, Hostile in
+        -- the custom swatch's place.
+        local npc, npcUpd
+        if not isToT and Mode() == "class" then
+            npc, npcUpd = {}, {}
+            local prev, prevGap = anchor, gap
+            local function NPCSwatch(key, fallbackKey, tip)
+                local sw, upd = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
+                    function()
+                        local c = (DB() and DB()[key]) or defaults[fallbackKey]
+                        return c.r, c.g, c.b
+                    end,
+                    -- Read live by the per-unit painter, so a health colour pass repaints.
+                    function(r, g, b)
+                        DB()[key] = { r = r, g = g, b = b }
+                        RefreshAllPlates()
+                        UpdatePreview()
+                        for i = 1, #npcSwatchUpdates do npcSwatchUpdates[i]() end
+                    end, nil, 20)
+                PP.Point(sw, "RIGHT", prev, "LEFT", prevGap, 0)
+                prev, prevGap = sw, -8
+                sw:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, tip) end)
+                sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                npc[#npc + 1] = sw
+                npcUpd[#npcUpd + 1] = upd
+                npcSwatchUpdates[#npcSwatchUpdates + 1] = upd
+                return sw
+            end
+            NPCSwatch("enemyNameHostileColor", "hostile", EllesmereUI.L("Hostile Color"))
+            NPCSwatch("enemyNameNeutralColor", "neutral", EllesmereUI.L("Neutral Color"))
+            NPCSwatch("enemyNameTappedColor", "tapped", EllesmereUI.L("Tapped Color"))
+        end
+
         local function ShowForMode()
             local m = Mode()
             local showCustom = m == "custom" or (isToT and m == "class")
@@ -206,14 +205,10 @@ local function BuildCoreTextColoring(parent, y, W)
                     npcUpd[i]()
                 end
             end
-            if cog then
-                local left = (npcOn and npc[#npc]) or (showCustom and custom) or rgn._control
-                if left ~= cogLeftOf then
-                    cogLeftOf = left
-                    cog:ClearAllPoints()
-                    PP.Point(cog, "RIGHT", left, "LEFT", -8, 0)
-                end
-            end
+            -- The label clamp's bound (read a frame after the build): the
+            -- leftmost item this mode shows, the cog when no swatch shows, the
+            -- dropdown itself on a half with neither.
+            rgn._lastInline = (npcOn and npc[#npc]) or (showCustom and custom) or cog
         end
         EllesmereUI.RegisterWidgetRefresh(ShowForMode)
         ShowForMode()

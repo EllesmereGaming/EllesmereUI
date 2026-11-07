@@ -1514,6 +1514,7 @@ local function BuildCDMLivePreview(parent, yOff)
                    and not (cdursUn and cdursUn[id])
                    and not (sdursUn and sdursUn[id])
                    and not (groupsUn and groupsUn[id])
+                   and not (ns.CDM_AuraIconKeeps and ns.CDM_AuraIconKeeps(id))
                    and not (IsPlayerSpell(id)
                         or IsPlayerSpell(NormalizeToBase(id))
                         or IsPlayerSpell(ResolveToLive(id))) then
@@ -1548,7 +1549,8 @@ local function BuildCDMLivePreview(parent, yOff)
                    and not (racialsFv and racialsFv[id])
                    and not (cdursFv and cdursFv[id])
                    and not (sdursFv and sdursFv[id])
-                   and not (groupsFv and groupsFv[id]) then
+                   and not (groupsFv and groupsFv[id])
+                   and not (ns.CDM_AuraIconKeeps and ns.CDM_AuraIconKeeps(id)) then
                     local base, live = NormalizeToBase(id), ResolveToLive(id)
                     if not (known(id) or known(base) or known(live)) then
                         if listedFv == nil then listedFv = ns.CDMForeverListedSet() or false end

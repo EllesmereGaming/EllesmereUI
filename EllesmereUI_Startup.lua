@@ -357,6 +357,7 @@ do
         local db = EllesmereUIDB
         local saved = db and db.fctFont
         if not saved or type(saved) ~= "string" or saved == "" then return end
+        if not EllesmereUI.CombatTextFontCoversLocale(saved) then return end
         local fontPath = saved
         local smName = saved:match("^smf:(.+)")
         if smName then

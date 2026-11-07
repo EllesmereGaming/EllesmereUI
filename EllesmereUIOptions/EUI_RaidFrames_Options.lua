@@ -320,7 +320,7 @@ function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
         { type="slider", label="Y Offset", min=-100, max=100, step=1,
           get=function() return PV("partyPortraitY", 0) end,
           set=function(v) PtSet("partyPortraitY", v) end },
-    }, icon = EllesmereUI.DIRECTIONS_ICON,
+    },
     disabled = function() return PV("partyPortraitStyle", "none") ~= "detached" end,
     disabledTooltip = "This option requires Portrait Mode to be set to Detached." })
 
@@ -614,7 +614,7 @@ function ns.RF_BuildPartyTargets(parent, y, W)
         { type="slider", label="Y Offset", min=-100, max=100, step=1,
           get=function() return PV("partyTargetOffsetY", 0) end,
           set=function(v) LaySet("partyTargetOffsetY", v) end },
-    }, icon = EllesmereUI.DIRECTIONS_ICON })
+    }})
     return y
 end
 

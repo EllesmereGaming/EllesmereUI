@@ -2260,6 +2260,41 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- Action Bars Advanced Fade lost its on/off switch (advancedFadeEnabled): a bar
+-- is on while one of its conditions is checked, and the conditions moved to a
+-- key of their own (advancedFadeConditions) so this pass can tell old data from
+-- new. A bar whose switch was on keeps its conditions; a bar whose switch was
+-- off (its conditions left over from before) starts with none, off as before.
+-- Both old keys go, so a second pass, or a profile born after the change (a
+-- fresh install's first profile reaches this pass unstamped), finds nothing.
+EllesmereUI.RegisterMigration({
+    id          = "ab_advanced_fade_conditions_v1",
+    scope       = "profile",
+    description = "Advanced Fade is on while a condition is checked: carry the conditions of bars whose switch was on to advancedFadeConditions and drop the switch and the old conditions key.",
+    body = function(ctx)
+        local ab = ctx.profile.addons and ctx.profile.addons.EllesmereUIActionBars
+        local abBars = ab and ab.bars
+        if type(abBars) ~= "table" then return end
+        for _, cfg in pairs(abBars) do
+            if type(cfg) == "table" and (cfg.advancedFadeEnabled ~= nil or cfg.fadeConditions ~= nil) then
+                local old = cfg.fadeConditions
+                if cfg.advancedFadeEnabled == true and type(old) == "table" then
+                    local out
+                    for k, v in pairs(old) do
+                        if v then
+                            out = out or {}
+                            out[k] = true
+                        end
+                    end
+                    if out then cfg.advancedFadeConditions = out end
+                end
+                cfg.advancedFadeEnabled = nil
+                cfg.fadeConditions = nil
+            end
+        end
+    end,
+})
+
 
 EllesmereUI.RegisterMigration({
     id          = "enhance_five_bar_off_existing_v1",
@@ -2364,6 +2399,26 @@ EllesmereUI.RegisterMigration({
         if bags.bagDefaultBagType ~= nil then return end  -- already migrated (idempotent)
         bags.bagDefaultBagType = (bags.bagDefaultOneBag == true) and "onebag" or "all"
         bags.bagDefaultOneBag = nil                       -- drop the legacy key
+    end,
+})
+
+-- Close Bags on Mail Close became the Mailbox row of Auto Close Bags.
+EllesmereUI.RegisterMigration({
+    id          = "bags_mail_close_to_auto_close_v1",
+    scope       = "global",
+    description = "Move the retired Close Bags on Mail Close off state into every profile's Auto Close Bags.",
+    body = function(ctx)
+        local db = ctx.db
+        if db.mailCloseBags == false and db.profiles then
+            for _, profData in pairs(db.profiles) do
+                if not profData.addons then profData.addons = {} end
+                local bags = profData.addons.EllesmereUIBags
+                if not bags then bags = {}; profData.addons.EllesmereUIBags = bags end
+                if not bags.bagAutoCloseWindows then bags.bagAutoCloseWindows = {} end
+                bags.bagAutoCloseWindows.mail = false
+            end
+        end
+        db.mailCloseBags = nil
     end,
 })
 

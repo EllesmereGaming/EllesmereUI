@@ -202,8 +202,12 @@ local function SkinChatFrame(cf)
         sidebar:SetPoint("TOPRIGHT", CFD(cf).bg, "TOPLEFT", 0, 0)
         sidebar:SetPoint("BOTTOMRIGHT", CFD(cf).bg, "BOTTOMLEFT", 0, 0)
         -- Stock column: MEDIUM, as Blizzard's own column buttons and the stock
-        -- panel (the chat frame's toplevel LOW art would draw over it).
-        sidebar:SetFrameStrata(ECHAT.SB_KIT and "MEDIUM" or cf:GetFrameStrata())
+        -- panel (the chat frame's toplevel LOW art would draw over it). WoW
+        -- Forever strips that art and keeps the chat frame's strata, as the
+        -- EllesmereUI look does: there Blizzard's chat menu button, seated
+        -- over our Chat Menu icon, takes no click while the column sits a
+        -- strata above the chat frame (field-measured).
+        sidebar:SetFrameStrata((ECHAT.SB_KIT and ns.ChatStockArt()) and "MEDIUM" or cf:GetFrameStrata())
         sidebar:SetFrameLevel(cf:GetFrameLevel() + 1)
 
         local sbBg = sidebar:CreateTexture(nil, "BACKGROUND")

@@ -153,7 +153,7 @@ local function ShowGoldTooltip(anchor)
         charList[#charList + 1] = { id = charID, data = data }
         totalGold = totalGold + data.money
     end
-    table.sort(charList, function(a, b) return a.id < b.id end)
+    table.sort(charList, function(a, b) return (a.data.name or a.id) < (b.data.name or b.id) end)
 
     local warbandGold = ledger.warband and ledger.warband.money
     -- An empty warband bank gets no row, as on the Data Bars Gold block.
@@ -174,7 +174,7 @@ local function ShowGoldTooltip(anchor)
         local goldFS = _goldTTRows[r][1]
         local cc = RAID_CLASS_COLORS[entry.data.class] or { r = 1, g = 1, b = 1 }
         local hex = string.format("%02x%02x%02x", cc.r * 255, cc.g * 255, cc.b * 255)
-        nameFS:SetText("|cff" .. hex .. StripRealm(entry.id) .. "|r")
+        nameFS:SetText("|cff" .. hex .. StripRealm(entry.data.name or entry.id) .. "|r")
         goldFS:SetText(FormatGoldOnly(entry.data.money))
         goldFS:SetTextColor(1, 1, 1, 1)
         nameFS:Show(); goldFS:Show()

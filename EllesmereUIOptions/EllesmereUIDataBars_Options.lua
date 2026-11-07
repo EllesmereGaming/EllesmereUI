@@ -101,7 +101,7 @@ initFrame:SetScript("OnEvent", function(self)
         profession = 120, travel = 40, micromenu = 340, currency = 90, spacer = 40,
         durability = 70, combat = 105, profession2 = 120, greatvault = 100,
         location = 140, coords = 70, crests = 160, ilvl = 70, supplies = 70,
-        bags = 50, mplussummary = 150,
+        bags = 50, mplussummary = 150, timeplayed = 60,
     }
 
     ---------------------------------------------------------------------------
@@ -390,7 +390,7 @@ initFrame:SetScript("OnEvent", function(self)
         local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
         ddBg:SetAllPoints()
         ddBg:SetColorTexture(DDS.BG_R, DDS.BG_G, DDS.BG_B, DDS.BG_A)
-        local ddBrd = EllesmereUI.MakeBorder(ddBtn, 1, 1, 1, DDS.BRD_A, EllesmereUI.PanelPP)
+        local ddBrd = EllesmereUI.MakeRoundedBorder(ddBtn, 1, 1, 1, DDS.BRD_A, ddBg)
         local ddLbl = EllesmereUI.MakeFont(ddBtn, 13, nil, 1, 1, 1, DDS.TXT_A)
         ddLbl:SetJustifyH("LEFT")
         ddLbl:SetWordWrap(false)
@@ -426,7 +426,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local bg = menu:CreateTexture(nil, "BACKGROUND")
                 bg:SetAllPoints()
                 bg:SetColorTexture(DDS.BG_R, DDS.BG_G, DDS.BG_B, DDS.BG_HA)
-                EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
+                EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, DDS.BRD_A, bg, nil, true)
                 menu._rows = {}
 
                 -- One bar row; its bar and selected state are set per open
@@ -1326,7 +1326,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local bg = menu:CreateTexture(nil, "BACKGROUND")
                 bg:SetAllPoints()
                 bg:SetColorTexture(DDS.BG_R, DDS.BG_G, DDS.BG_B, DDS.BG_HA)
-                EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
+                EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, DDS.BRD_A, bg, nil, true)
                 local rowY = -3
                 local function AddRow(text, onClick)
                     local row = CreateFrame("Button", nil, menu)
@@ -1473,7 +1473,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local bg = menu:CreateTexture(nil, "BACKGROUND")
                 bg:SetAllPoints()
                 bg:SetColorTexture(DDS.BG_R, DDS.BG_G, DDS.BG_B, DDS.BG_HA)
-                EllesmereUI.MakeBorder(menu, 1, 1, 1, DDS.BRD_A, PP)
+                EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, DDS.BRD_A, bg, nil, true)
                 menu._rows = {}
                 local mH = 4
                 for _, t in ipairs(ns.OfferedBlockTypes()) do
@@ -1842,7 +1842,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- is a set-once setting that should not cost a row.
         do
             local leftRgn = visRow._leftRegion
-            EllesmereUI.BuildInlineCog(leftRgn, { icon = EllesmereUI.COGS_ICON,
+            EllesmereUI.BuildInlineCog(leftRgn, {
                 title = "Bar Layer",
                 rows = {
                     { type = "dropdown", label = "Bar Strata",
@@ -2306,7 +2306,7 @@ initFrame:SetScript("OnEvent", function(self)
                 do
                     -- Text Position cog: offsets the TEXT only (factories
                     -- inject these into every text anchor; icons stay put).
-                    EllesmereUI.BuildInlineCog(alignRow._leftRegion, { icon = EllesmereUI.DIRECTIONS_ICON,
+                    EllesmereUI.BuildInlineCog(alignRow._leftRegion, {
                         title = "Text Position",
                         rows = {
                             { type = "slider", label = "X Offset", min = -50, max = 50, step = 1,
@@ -2334,7 +2334,7 @@ initFrame:SetScript("OnEvent", function(self)
 
                     -- Content Position cog (next to Content Scale): offsets
                     -- the WHOLE block content group, text included.
-                    EllesmereUI.BuildInlineCog(alignRow._rightRegion, { icon = EllesmereUI.DIRECTIONS_ICON,
+                    EllesmereUI.BuildInlineCog(alignRow._rightRegion, {
                         title = "Content Position",
                         rows = {
                             { type = "slider", label = "X Offset", min = -50, max = 50, step = 1,
@@ -3325,6 +3325,11 @@ initFrame:SetScript("OnEvent", function(self)
                 typeRows = {
                     MkToggle("Hide When Empty", "hideWhenEmpty",
                         "Removes the block from the bar until a Mythic+ run has been recorded."),
+                }
+            elseif b.type == "timeplayed" then
+                typeRows = {
+                    MkToggle("Always Show Total", "alwaysTotal",
+                        "Shows this character's total time played instead of the time played at the current level."),
                 }
             elseif b.type == "ilvl" then
                 -- Prefix rides the Icon Color row's right slot above.

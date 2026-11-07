@@ -699,6 +699,7 @@ local function BuildCogPopup(opts)
                 if row.inputJustify == "LEFT" then box:SetTextInsets(6, 6, 0, 0) end
                 local boxBg = SolidTex(box, "BACKGROUND", 0.12, 0.12, 0.12, 0.8)
                 boxBg:SetAllPoints()
+                EllesmereUI.RoundBody(box, boxBg)
                 box:SetText(row.get and row.get() or "")
                 -- Left-aligned text that overflows shows its start, not its end.
                 if row.inputJustify == "LEFT" then box:SetCursorPosition(0) end
@@ -791,7 +792,7 @@ local function BuildCogPopup(opts)
                 ddBtn:SetFrameLevel(pf:GetFrameLevel() + 2)
                 local rBg = SolidTex(ddBtn, "BACKGROUND", EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
                 rBg:SetAllPoints()
-                local rBrd = MakeBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+                local rBrd = EllesmereUI.MakeRoundedBorder(ddBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, rBg)
                 local rLbl = MakeFont(ddBtn, 12, nil, 1, 1, 1)
                 rLbl:SetAlpha(EllesmereUI.DD_TXT_A)
                 rLbl:SetJustifyH("LEFT"); rLbl:SetWordWrap(false); rLbl:SetMaxLines(1)
@@ -824,7 +825,7 @@ local function BuildCogPopup(opts)
                 if EllesmereUI.PadCP() then menu.CloseButton = ddBtn end
                 local mBg2 = SolidTex(menu, "BACKGROUND", EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.98)
                 mBg2:SetAllPoints()
-                MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+                EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, mBg2, nil, true)
                 menu:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -2)
                 ddBtn._ddMenu = menu  -- popup click-outside ignores menu interaction
 
@@ -1264,7 +1265,7 @@ local function BuildCogPopup(opts)
             local owner = popupOwner
             popupOwner = nil; pf._owner = nil
             -- Dim the anchor back to cog idle alpha; skipped via noOwnerDim when the anchor isn't a cog (e.g. a preview icon) and must not fade.
-            -- A hand-built glyph button (SetGlyphAlpha) goes back through its own painter.
+            -- A hand-built glyph button goes back to its idle alpha through SetGlyphAlpha.
             if owner and owner._euiCogState then owner._euiCogState()
             elseif owner and not opts.noOwnerDim then
                 if owner._glyphA then EllesmereUI.SetGlyphAlpha(owner, 0.4) else owner:SetAlpha(0.4) end

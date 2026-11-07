@@ -126,6 +126,45 @@ local function InstallAutoQuests()
             return
         end
 
+        -- The quest greeting: an NPC with quests and no gossip lists them as
+        -- Current Quests and Available Quests (common on WoW Forever). The same
+        -- order as the gossip above, by the greeting's own indexes.
+        if event == "QUEST_GREETING" then
+            if Cfg("autoTurnIn") and ShiftAllows("autoTurnIn") then
+                for i = 1, GetNumActiveQuests() do
+                    local _, isComplete = GetActiveTitle(i)
+                    if isComplete then
+                        SelectActiveQuest(i)
+                        return
+                    end
+                end
+            end
+            if Cfg("autoAccept") and ShiftAllows("autoAccept") then
+                local first, count = nil, 0
+                for i = 1, GetNumAvailableQuests() do
+                    local isTrivial, _, _, _, questID = GetAvailableQuestInfo(i)
+                    if not IsIgnoredQuest(questID, isTrivial) then
+                        count = count + 1
+                        first = first or i
+                    end
+                end
+                if first then
+                    if Cfg("autoAcceptPreventMulti") then
+                        local npcGUID = UnitGUID("npc")
+                        if count > 1 then
+                            autoPreventNPCGUID = npcGUID
+                        end
+                        if autoPreventNPCGUID ~= npcGUID then
+                            SelectAvailableQuest(first)
+                        end
+                    else
+                        SelectAvailableQuest(first)
+                    end
+                end
+            end
+            return
+        end
+
         -- QUEST_AUTOCOMPLETE handling removed: calling ShowQuestComplete() from addon
         -- execution runs Blizzard's quest-complete panel flow (ShowUIPanel, UIPanel
         -- attribute writes on WorldMapFrame) under our taint, and that state is read by
@@ -140,6 +179,15 @@ local function InstallAutoQuests()
             local questID = GetQuestID()
             if IsIgnoredQuest(questID, C_QuestLog.IsQuestTrivial(questID)) then return end
             AcceptQuest()
+        elseif event == "QUEST_PROGRESS" then
+            -- A turn-in that asks for items shows this page (Continue) before
+            -- the reward page. One that costs gold stays with the player, as
+            -- Blizzard asks before taking it.
+            if not Cfg("autoTurnIn") then return end
+            if not ShiftAllows("autoTurnIn") then return end
+            if IsQuestCompletable() and (GetQuestMoneyToGet() or 0) == 0 then
+                CompleteQuest()
+            end
         elseif event == "QUEST_COMPLETE" then
             if not Cfg("autoTurnIn") then return end
             if not ShiftAllows("autoTurnIn") then return end
@@ -159,12 +207,16 @@ local function InstallAutoQuests()
         registered = want
         if want then
             autoFrame:RegisterEvent("QUEST_DETAIL")
+            autoFrame:RegisterEvent("QUEST_PROGRESS")
             autoFrame:RegisterEvent("QUEST_COMPLETE")
             autoFrame:RegisterEvent("GOSSIP_SHOW")
+            autoFrame:RegisterEvent("QUEST_GREETING")
         else
             autoFrame:UnregisterEvent("QUEST_DETAIL")
+            autoFrame:UnregisterEvent("QUEST_PROGRESS")
             autoFrame:UnregisterEvent("QUEST_COMPLETE")
             autoFrame:UnregisterEvent("GOSSIP_SHOW")
+            autoFrame:UnregisterEvent("QUEST_GREETING")
         end
     end
     EQT.SyncAutoQuests()

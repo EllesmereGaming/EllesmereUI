@@ -556,6 +556,8 @@ local function RefreshCDMIconAppearance(barKey)
     -- re-applied here rather than in the icon loop -- and before the early-outs
     -- below, since a bar can hold custom auras and no icons of its own.
     if ns.RefreshAuraCustomStyle then ns.RefreshAuraCustomStyle(barKey) end
+    -- Our aura icons' slots wear the same look (EUI_CDM_AuraIcons.lua).
+    if ns.CDM_AuraIconsRestyle then ns.CDM_AuraIconsRestyle(barKey) end
     local icons = cdmBarIcons[barKey]
     if not icons then return end
 
