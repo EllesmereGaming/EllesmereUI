@@ -722,6 +722,12 @@ function EllesmereUI._FontObjectFaceInto(obj, path, size, flags, scale, done)
                 EllesmereUI._SetFontMemberFace(member, face, size, flags, scale, done)
             end
         end
+        -- The object's own font too: GetFont reads it, and copies of it (the guild chat
+        -- copies the chat font) take it. Only where the client's own alphabet draws the face.
+        local own = EllesmereUI._FONT_CLIENT_ALPHABET or (EllesmereUI._FONT_CLIENT_RU and "russian") or "roman"
+        if not path or EllesmereUI._FontMemberTakesPath(own, path) then
+            EllesmereUI._SetFontMemberFace(obj, path, size, flags, scale, done)
+        end
     else
         EllesmereUI._SetFontMemberFace(obj, path, size, flags, scale, done)
     end
