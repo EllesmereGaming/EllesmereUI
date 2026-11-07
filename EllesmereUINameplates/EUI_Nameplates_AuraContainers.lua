@@ -235,6 +235,8 @@ local DISPELLABLE = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.D
 -- "helpful auras that show on enemy nameplates even if non-stealable" -- the
 -- purpose-built enemy-buff curation token (source-verified 2026-08-16).
 local IMPORTANT = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.Important
+-- "Dispellable By Me" (npEnemyBuffDispelByMe, retail, nil = off): Only Dispellable narrows to the group's own dispels.
+local RAID_DISPELLABLE = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.RaidPlayerDispellable
 
 -- Effective glow state: the Dispel Glow setting AND the player's offensive
 -- dispel capability (the option promises "you can dispel this", and the
@@ -1045,12 +1047,18 @@ local function BuffMode()
     return "important"
 end
 
+-- Only Dispellable with "Dispellable By Me" on (retail only; Important and Show All never read it).
+local function BuffDispelByMe()
+    return not EllesmereUI.IS_FOREVER and RAID_DISPELLABLE ~= nil and BuffMode() == "dispellable"
+        and PVal("npEnemyBuffDispelByMe") == true
+end
+
 local function BuffFilterGlow()
     local t = { "HELPFUL", "INCLUDE_NAME_PLATE_ONLY" }
     -- Stale-client shape only: without the DISPELLABLE token the union cannot
     -- be expressed, so Important mode keeps the old curated single group.
     if BuffMode() == "important" and IMPORTANT and not DISPELLABLE then t[#t + 1] = IMPORTANT end
-    if DISPELLABLE then t[#t + 1] = DISPELLABLE end
+    if DISPELLABLE then t[#t + 1] = BuffDispelByMe() and RAID_DISPELLABLE or DISPELLABLE end
     return t
 end
 
@@ -2174,7 +2182,7 @@ local function CfgFP()
     -- with the container config rather than with the styles.
     return FP(PVal("maxDebuffs"), PVal("showAllDebuffs"), BuffMode(), NPB.Split(),
         PVal("debuffIncludeCC"), ns.NPF_FP(), PVal("hideBloodPlagueCopies") ~= false,
-        NPF_SunderOn())
+        NPF_SunderOn(), BuffDispelByMe())
 end
 
 local function ReanchorActive()
