@@ -3173,6 +3173,8 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 -- Last, so each click keeps its choice and text on one row.
                 if travelIconCfg then typeRows[#typeRows + 1] = travelIconCfg end
+                typeRows[#typeRows + 1] = MkToggle("Show Other Characters", "altHearths",
+                    "Lists your other characters' hearthstones in the tooltip: where each is bound and when it is ready. A character appears once it has logged in with this on.")
                 -- A house list that arrived after the build: refill the three menus in place.
                 if not EllesmereUI._prebuilding then
                     travelClickDD = {}
