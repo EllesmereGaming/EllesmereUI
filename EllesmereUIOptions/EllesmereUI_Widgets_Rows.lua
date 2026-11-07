@@ -19,6 +19,7 @@ local PP = EllesmereUI.PanelPP
 local SolidTex = EllesmereUI.SolidTex
 local MakeFont = EllesmereUI.MakeFont
 local MakeBorder = EllesmereUI.MakeBorder
+local MakeRoundedBorder = EllesmereUI.MakeRoundedBorder
 local RowBg = EllesmereUI.RowBg
 local MakeDropdownArrow = EllesmereUI.MakeDropdownArrow
 local RegisterWidgetRefresh = EllesmereUI.RegisterWidgetRefresh
@@ -711,7 +712,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                 box:SetJustifyH(centered and "CENTER" or "LEFT")
                 box:SetTextInsets(10, 10, 0, 0)
                 boxBg:SetColorTexture(0, 0, 0, 0.5)
-                MakeBorder(box, 1, 1, 1, 0.2)
+                MakeRoundedBorder(box, 1, 1, 1, 0.2, boxBg)
                 if cfg.placeholder then
                     local ph = box:CreateFontString(nil, "ARTWORK")
                     ph:SetFont(EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 11, "")
@@ -731,6 +732,7 @@ function WidgetFactory:DualRow(parent, yOffset, leftCfg, rightCfg)
                 box:SetJustifyH("CENTER")
                 box:SetTextInsets(4, 4, 0, 0)
                 boxBg:SetColorTexture(0.12, 0.12, 0.12, 0.85)
+                EllesmereUI.RoundBody(box, boxBg)
             end
             local function RefreshInput()
                 if box:HasFocus() then return end
@@ -1435,7 +1437,7 @@ function WidgetFactory:WideDropdown(parent, title, yOffset, values, getValue, se
     ddBtn:SetFrameLevel(frame:GetFrameLevel() + 1)
     local bg = SolidTex(ddBtn, "BACKGROUND", DD_BG_R, DD_BG_G, DD_BG_B, DD_BG_A)
     bg:SetAllPoints()
-    local brd = MakeBorder(ddBtn, 1, 1, 1, DD_BRD_A, PP)
+    local brd = MakeRoundedBorder(ddBtn, 1, 1, 1, DD_BRD_A, bg)
     -- Resting alpha on the text colour, the channel the hover colours write.
     local ddLbl = MakeFont(ddBtn, 13, nil, 1, 1, 1, DD_TXT_A)
     ddLbl:SetPoint("LEFT", ddBtn, "LEFT", 14, 0)

@@ -87,9 +87,9 @@ EllesmereUI.RB_COLOURS       = RB_COLOURS
 -- opts: width, height (nil = fit the content: textTop, the text, gap, the
 -- button and btnBottom), text (already translated, so the call site keeps its
 -- literal key for the locale extractor),
--- onOkay, arrow ("top", the default: the box sits below its target; "left":
--- the box sits right of it), arrowOffset (px along that edge from its
--- centre), pp (default PanelPP), strata (default FULLSCREEN_DIALOG; false
+-- onOkay, arrow ("top", the default: the box sits below its target; "bottom":
+-- the box sits above it; "left": the box sits right of it), arrowOffset (px
+-- along that edge from its centre), pp (default PanelPP), strata (default FULLSCREEN_DIALOG; false
 -- keeps the parent's), level (default 200), font (a path; default the panel
 -- font), fontFlags (with font; default none), fontSize (12), textTop (17),
 -- textInset (30), spacing (6), gap (12, text to button with a fitted height),
@@ -138,6 +138,10 @@ function EllesmereUI.BuildTipCallout(parent, opts)
         clip:SetSize(TIP_ARROW, TIP_ARROW * 2)
         clip:SetPoint("RIGHT", tip, "LEFT", 1, off)
         holder:SetPoint("CENTER", clip, "RIGHT", 0, 0)
+    elseif opts.arrow == "bottom" then
+        clip:SetSize(TIP_ARROW * 2, TIP_ARROW)
+        clip:SetPoint("TOP", tip, "BOTTOM", off, 1)
+        holder:SetPoint("CENTER", clip, "TOP", 0, 0)
     else
         clip:SetSize(TIP_ARROW * 2, TIP_ARROW)
         clip:SetPoint("BOTTOM", tip, "TOP", off, -1)
@@ -622,6 +626,7 @@ end
 --                        setValue(v) the whole number, floored at min (or 1)
 --    icon = texture      a cropped 16px icon before the label
 --    noLoc = true        the label as given (no L())
+--    desc = "..."        a small grey line under the label (as given, no L())
 --  opts (optional): below = true hangs the menu off `anchor`'s bottom-left edge
 --  instead of the cursor (the dropdown placement of the options widgets);
 --  minWidth widens the menu to the anchor's width so it reads as a dropdown.
@@ -950,6 +955,18 @@ local function CtxIcon(row)
     return icon
 end
 
+-- the small line under a label, made on first need
+local function CtxDesc(row)
+    local d = row._desc
+    if not d then
+        d = row:CreateFontString(nil, "OVERLAY")
+        d:SetJustifyH("LEFT")
+        d:SetWordWrap(false)
+        row._desc = d
+    end
+    return d
+end
+
 local function CtxLayout(panel, items, minW, fontKey)
     local look = panel._look
     if look.popupBorder and not panel._art and EllesmereUI._applyBlizzardConfiguredBorder
@@ -983,6 +1000,13 @@ local function CtxLayout(panel, items, minW, fontKey)
             local w = mfs:GetStringWidth() or 0
             if item.onRemove then w = w + 20 end
             if w > widest then widest = w end
+            if item.desc then
+                mfs:SetFont(fontPath, size - 2, outline)
+                mfs:SetText(item.desc)
+                w = mfs:GetStringWidth() or 0
+                if w > widest then widest = w end
+                mfs:SetFont(fontPath, size, outline)
+            end
             if item.icon then iconW = 22 end
         end
     end
@@ -1013,9 +1037,12 @@ local function CtxLayout(panel, items, minW, fontKey)
         if row._box then row._box:Hide() end
         if row._icon then row._icon:Hide() end
         if row._rm then row._rm:Hide() end
+        if row._desc then row._desc:Hide() end
+        local desc = type(item) == "table" and item.desc
         -- The label starts past the item's icon.
-        lbl:SetPoint("LEFT", row, "LEFT", look.left + ((type(item) == "table" and item.icon) and 22 or 0), 0)
-        local h = look.rowH
+        lbl:SetPoint("LEFT", row, "LEFT", look.left + ((type(item) == "table" and item.icon) and 22 or 0), desc and 6 or 0)
+        lbl:SetPoint("RIGHT", row, "RIGHT", look.right, desc and 6 or 0)
+        local h = desc and look.rowH + 10 or look.rowH
         if item == "---" then
             h = look.sepH
             row._item, row._disabled = nil, true
@@ -1025,6 +1052,15 @@ local function CtxLayout(panel, items, minW, fontKey)
         else
             row._item = item
             lbl:SetText(item.noLoc and item.text or L(item.text or ""))
+            if desc then
+                local d = CtxDesc(row)
+                d:SetFont(fontPath, size - 2, outline)
+                d:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -3)
+                d:SetPoint("RIGHT", row, "RIGHT", look.right, 0)
+                d:SetText(desc)
+                d:SetTextColor(1, 1, 1, (item.isDisabled and item.isDisabled()) and 0.25 or 0.5)
+                d:Show()
+            end
             if item.icon then
                 local ic = CtxIcon(row)
                 ic:SetPoint("LEFT", row, "LEFT", look.left, 0)

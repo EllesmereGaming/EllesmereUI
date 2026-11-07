@@ -1559,24 +1559,10 @@ local function BuildColorsPage(pageName, parent, yOffset)
           tooltip="Enemies not colored as Spell Casters take the Interruptible Caster or Uninterruptible Caster color once they cast a spell that can or cannot be interrupted." },
         EllesmereUI.BlankRowCfg());  y = y - h
 
-    -- Inline Interruptible / Uninterruptible swatches, then a cog with the mob types each applies to.
+    -- Inline cog with the mob types each applies to, then the Interruptible / Uninterruptible swatches.
     if not EllesmereUI._prebuilding then
         local rgn = castingRow._leftRegion
         local isCastingOff = function() return DBVal("castingEnemyColors") ~= true end
-        EllesmereUI.BuildInlineSwatches(rgn, {
-            { tooltip = "Interruptible Caster",
-              getValue = function() return DBColor("castingIntColor") end,
-              setValue = function(r, g, b)
-                DB().castingIntColor = { r = r, g = g, b = b }
-                RefreshAllPlates()
-              end },
-            { tooltip = "Uninterruptible Caster",
-              getValue = function() return DBColor("castingUnintColor") end,
-              setValue = function(r, g, b)
-                DB().castingUnintColor = { r = r, g = g, b = b }
-                RefreshAllPlates()
-              end },
-        }, { disabled = isCastingOff, disabledTooltip = "Color Casting Enemies" })
         local typeItems = {
             { key="Normal",   label="Normal / Trivial", fixed=true },
             { key="Elite",    label="Elite",            fixed=true },
@@ -1601,6 +1587,20 @@ local function BuildColorsPage(pageName, parent, yOffset)
                 TypeRow("Uninterruptible Applies To", "castingUnint"),
             },
         })
+        EllesmereUI.BuildInlineSwatches(rgn, {
+            { tooltip = "Interruptible Caster",
+              getValue = function() return DBColor("castingIntColor") end,
+              setValue = function(r, g, b)
+                DB().castingIntColor = { r = r, g = g, b = b }
+                RefreshAllPlates()
+              end },
+            { tooltip = "Uninterruptible Caster",
+              getValue = function() return DBColor("castingUnintColor") end,
+              setValue = function(r, g, b)
+                DB().castingUnintColor = { r = r, g = g, b = b }
+                RefreshAllPlates()
+              end },
+        }, { disabled = isCastingOff, disabledTooltip = "Color Casting Enemies" })
     end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -1766,7 +1766,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
         })
     end
 
-    -- Inline "No Aggro" color swatch next to the DPS toggle
+    -- Inline cog next to the DPS toggle, then the "No Aggro" color swatch left of it
     if not EllesmereUI._prebuilding then
         local rgn = nonTankRow._rightRegion
         local dpsNoAggroColorGet = function() return DBColor("dpsNoAggro") end
@@ -1774,13 +1774,9 @@ local function BuildColorsPage(pageName, parent, yOffset)
             DB().dpsNoAggro = { r = r, g = g, b = b }
             RefreshAllPlates()
         end
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, dpsNoAggroColorGet, dpsNoAggroColorSet, nil, 20)
-        PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -12, 0)
-        LockThreatSwatch(swatch, updateSwatch, isDpsNoAggroDisabled, 'DPS: Show Special "No Aggro" Color')
 
         -- Inline cog: independent "Override Mini-Boss colors" / "Override Caster colors" / "Override Boss colors" toggles promote the DPS No Aggro color above that single mob-type color (kept separate for contrast); dimmed while off.
         EllesmereUI.BuildInlineCog(rgn, {
-            chain = false, anchorTo = swatch,
             disabled = function() return threatNever() or isDpsNoAggroDisabled() or isThreatHealthOff() end,
             disabledTooltip = function()
                 if threatNever() then return "Show Threat Colors" end
@@ -1812,6 +1808,10 @@ local function BuildColorsPage(pageName, parent, yOffset)
                   set=function(v) DB().dpsNoAggroOverrideBoss = v; RefreshAllPlates() end },
             },
         })
+        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, dpsNoAggroColorGet, dpsNoAggroColorSet, nil, 20)
+        PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = swatch
+        LockThreatSwatch(swatch, updateSwatch, isDpsNoAggroDisabled, 'DPS: Show Special "No Aggro" Color')
     end
 
     -- Row 3: Classic Tank Aggro (left) ---- Tank: Show Special "Has Aggro" Color (right)
@@ -1857,7 +1857,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
         LockThreatSwatch(swatch, updateSwatch, isClassicTankAggroDisabled, "Classic Tank Aggro")
     end
 
-    -- Inline "Has Aggro" color swatch next to the tank Has Aggro toggle
+    -- Inline cog next to the tank Has Aggro toggle, then the "Has Aggro" color swatch left of it
     if not EllesmereUI._prebuilding then
         local rgn = tankAggroRow._rightRegion
         local tankAggroColorGet = function() return DBColor("tankHasAggro") end
@@ -1865,13 +1865,9 @@ local function BuildColorsPage(pageName, parent, yOffset)
             DB().tankHasAggro = { r = r, g = g, b = b }
             RefreshAllPlates()
         end
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, tankAggroColorGet, tankAggroColorSet, nil, 20)
-        PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -12, 0)
-        LockThreatSwatch(swatch, updateSwatch, isTankHasAggroDisabled, 'Tank: Show Special "Has Aggro" Color')
 
         -- Inline cog "Override Mini-Boss and Caster colors" promotes the tank has-aggro color above the mini-boss/caster priority steps; dimmed while Has Aggro is off.
         EllesmereUI.BuildInlineCog(rgn, {
-            chain = false, anchorTo = swatch,
             disabled = function() return threatNever() or isTankHasAggroDisabled() or isThreatHealthOff() end,
             disabledTooltip = function()
                 if threatNever() then return "Show Threat Colors" end
@@ -1896,6 +1892,10 @@ local function BuildColorsPage(pageName, parent, yOffset)
                   set=function(v) DB().tankHasAggroOverrideBoss = v; RefreshAllPlates() end },
             },
         })
+        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, tankAggroColorGet, tankAggroColorSet, nil, 20)
+        PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = swatch
+        LockThreatSwatch(swatch, updateSwatch, isTankHasAggroDisabled, 'Tank: Show Special "Has Aggro" Color')
     end
 
     -- Show Threat On: which parts of the plate carry the threat colors above. Border and

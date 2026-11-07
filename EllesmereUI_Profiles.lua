@@ -2153,7 +2153,6 @@ do
         "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel", "merchantBulkBuy",
         "merchantExpand", "merchantCols", "merchantRows",
         "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
-        "mailCloseBags",
         -- Friends List card (WoW Forever: the friend tiles and auto-accept)
         "friendsListCard",
     })
@@ -2415,6 +2414,8 @@ end
 --    timePlayedChars      Time Played block: each character's total played time
 --    questWatchChars      WoW Forever quest tools: quests each character's
 --                         filters and auto-track moved
+--    questTrackerChars    WoW Forever Custom Quest Tracker: each character's
+--                         untracked, collapsed, opened and pinned quests
 --    mailAltRoster        the Mail card's Alt List: every character recorded
 --    mailAltHidden        and the ones its Shown Characters leaves out
 --    raidHoroscope        Party Mode's Should I Raid Tonight?: each
@@ -2423,6 +2424,8 @@ end
 --    bagCurrencyByChar    Bags' tracked currencies per character
 --    mageArmorByChar      AuraBuff Reminders (WoW Forever): the mage armor
 --                         each character last had up
+--    global               friend groups: the groups, their order and colours,
+--                         and each friend's group by BattleTag
 --  (The upgrade-calc and gold blobs are what PRIVATE_ADDON_KEYS strips from
 --  normal strings, at their current top-level homes. The three legacy gold
 --  keys stay listed: until Bags or DataBars loads and absorbs them they are
@@ -2433,6 +2436,8 @@ end
 --    gfxBackup              Optimize My FPS and Graphics' Restore values
 --    friendlyPlateVisSaved  friendly plates hidden in a follower dungeon
 --    chatTellMuted          the whisper sound Chat muted
+--  And the inline cogs this user has opened (cogSeen: their notification dots
+--  stay for whoever imports the string).
 -------------------------------------------------------------------------------
 local FULL_EXPORT_TYPE = "fullaccount"
 local FULL_EXPORT_EXCLUDED = {
@@ -2449,6 +2454,7 @@ local FULL_EXPORT_EXCLUDED = {
     chatTellMuted         = true,
     groupFinderApps       = true,
     questWatchChars       = true,
+    questTrackerChars     = true,
     cdmRepopulatePending  = true,
     cdmRepopulateDone     = true,
     mailAltRoster         = true,
@@ -2457,6 +2463,8 @@ local FULL_EXPORT_EXCLUDED = {
     cdmCachedBarSizes     = true,
     bagCurrencyByChar     = true,
     mageArmorByChar       = true,
+    global                = true,
+    cogSeen               = true,
 }
 
 -- Root stores keyed by profile name (or character) describe the recipient's

@@ -87,7 +87,7 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
     -- Inline position cog (X/Y + unlock) on Enable
     if not EllesmereUI._prebuilding then
         local rgn = enableRow._leftRegion
-        EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+        EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local p = DB(); return p and not p.gcdBar.enabled end,
             disabledTooltip = "GCD Bar",
             title = "GCD Bar Position",
@@ -281,7 +281,7 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
         if not EllesmereUI._prebuilding then
             local rgn = bsRow._leftRegion
             local sepValues, sepOrder = ns.ERB_SeparatorArtValues(true)
-            local cogBtn = EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+            local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
                 title = "Border Options",
                 rows = {
                     { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,

@@ -455,7 +455,7 @@ local function BuildColorPickerPopup()
     hexBox:SetJustifyH("CENTER")
     local hbg = hexBox:CreateTexture(nil, "BACKGROUND")
     hbg:SetAllPoints(); hbg:SetColorTexture(0.213, 0.204, 0.196, 0.5)
-    MakeBorder(hexBox, 1, 1, 1, 0.04, PP)
+    EllesmereUI.MakeRoundedBorder(hexBox, 1, 1, 1, 0.04, hbg)
 
     local lastValidHex = "FFFFFF"
     local lastHexR, lastHexG, lastHexB = -1, -1, -1
@@ -510,7 +510,7 @@ local function BuildColorPickerPopup()
     opacityBox:SetNumeric(true); opacityBox:SetJustifyH("CENTER")
     local obg = opacityBox:CreateTexture(nil, "BACKGROUND")
     obg:SetAllPoints(); obg:SetColorTexture(0.213, 0.204, 0.196, 0.5)
-    MakeBorder(opacityBox, 1, 1, 1, 0.04, PP)
+    EllesmereUI.MakeRoundedBorder(opacityBox, 1, 1, 1, 0.04, obg)
 
     local lastOpacityPct = -1
     UpdateOpacityInput = function(a)
@@ -789,7 +789,7 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
     local function BuildBorder()
         if borderBuilt then return end
         borderBuilt = true
-        local T = CS.BRD_THICK
+        local T = PP.Scale(CS.BRD_THICK)
 
         local wt = swatch:CreateTexture(nil, "BORDER")
         wt:SetColorTexture(1, 1, 1, 1)

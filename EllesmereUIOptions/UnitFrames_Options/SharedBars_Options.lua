@@ -649,78 +649,6 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                     },
                 })
             end
-            -- Inline swatches on Left Text (CDM Border Size double-swatch pattern): class
-            -- sets leftTextClassColor, custom opens the picker and switches back from class.
-            if not EllesmereUI._prebuilding then
-                local leftRgn = rgn
-                local ltAnchor = leftRgn._lastInline or leftRgn._control
-                -- Class Colored swatch (nearest the control): shows the player's class color.
-                local ltClassSwatch, ltUpdateClassSwatch = EllesmereUI.BuildColorSwatch(
-                    leftRgn, leftRgn:GetFrameLevel() + 5,
-                    function()
-                        local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
-                        if cc then return cc.r, cc.g, cc.b end
-                        return 1, 1, 1
-                    end,
-                    function() end, nil, 20)
-                PP.Point(ltClassSwatch, "RIGHT", ltAnchor, "LEFT", -8, 0)
-                ltClassSwatch:SetScript("OnClick", function()
-                    if SVal("leftTextContent", "name") == "none" then return end
-                    -- Attribution read before the write: a setter that rebuilds the page
-                    -- may dress this swatch again for another slot.
-                    local snap = EllesmereUI._SOAttribution(ltClassSwatch)
-                    SSet("leftTextClassColor", true)
-                    -- Bespoke write: notify for exact Spec Overrides attribution (the
-                    -- forced RefreshPage below would otherwise resync-absorb it).
-                    EllesmereUI._NotifySettingWrite(ltClassSwatch, snap)
-                    UpdatePreview(); EllesmereUI:RefreshPage()
-                end)
-                ltClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltClassSwatch, "Class Colored") end)
-                ltClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                -- Custom Colored swatch (left of the class swatch): opens the color picker.
-                local ltSwGet = function()
-                    return SVal("leftTextColorR", 1), SVal("leftTextColorG", 1), SVal("leftTextColorB", 1)
-                end
-                local ltSwSet = function(r, g, b)
-                    SSet("leftTextColorR", r); SSet("leftTextColorG", g); SSet("leftTextColorB", b)
-                    UpdatePreview()
-                end
-                local ltSwatch, ltUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, ltSwGet, ltSwSet, nil, 20)
-                PP.Point(ltSwatch, "RIGHT", ltClassSwatch, "LEFT", -8, 0)
-                leftRgn._lastInline = ltSwatch
-                local ltOrigClick = ltSwatch:GetScript("OnClick")
-                ltSwatch:SetScript("OnClick", function(self, ...)
-                    if SVal("leftTextContent", "name") == "none" then return end
-                    if SVal("leftTextClassColor", false) then
-                        local snap = EllesmereUI._SOAttribution(self)
-                        SSet("leftTextClassColor", false)
-                        EllesmereUI._NotifySettingWrite(self, snap)
-                        UpdatePreview(); EllesmereUI:RefreshPage(); return
-                    end
-                    if ltOrigClick then ltOrigClick(self, ...) end
-                end)
-                ltSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltSwatch, "Custom Colored") end)
-                ltSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local function UpdateLtSwatches()
-                    local isNone = SVal("leftTextContent", "name") == "none"
-                    local isClass = SVal("leftTextClassColor", false)
-                    ltSwatch:SetAlpha((isClass or isNone) and 0.3 or 1)
-                    ltClassSwatch:SetAlpha((isClass and not isNone) and 1 or 0.3)
-                end
-                RegisterWidgetRefresh(function() ltUpdateSwatch(); ltUpdateClassSwatch(); UpdateLtSwatches() end)
-                UpdateLtSwatches()
-                -- The class-color mode flag is written only by bespoke swatch OnClicks (no
-                -- widget getter reads it), so Spec Overrides' read-trace can't link an
-                -- override to this row without a capture accessor declared explicitly.
-                if EllesmereUI.AddCaptureAccessor then
-                    EllesmereUI.AddCaptureAccessor(leftRgn, {
-                        type = "toggle", text = "Left Text Class Color",
-                        getValue = function() return SVal("leftTextClassColor", false) end,
-                        setValue = function(v) SSet("leftTextClassColor", v) end,
-                    })
-                end
-            end
             -- Cogwheel on Left Text (left region)
             if not EllesmereUI._prebuilding then
                 local leftRgn = rgn
@@ -789,6 +717,78 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                                         }),
                 })
             end
+            -- Inline swatches on Left Text (CDM Border Size double-swatch pattern): class
+            -- sets leftTextClassColor, custom opens the picker and switches back from class.
+            if not EllesmereUI._prebuilding then
+                local leftRgn = rgn
+                local ltAnchor = leftRgn._lastInline or leftRgn._control
+                -- Class Colored swatch (nearest the cog): shows the player's class color.
+                local ltClassSwatch, ltUpdateClassSwatch = EllesmereUI.BuildColorSwatch(
+                    leftRgn, leftRgn:GetFrameLevel() + 5,
+                    function()
+                        local _, classFile = UnitClass("player")
+                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        if cc then return cc.r, cc.g, cc.b end
+                        return 1, 1, 1
+                    end,
+                    function() end, nil, 20)
+                PP.Point(ltClassSwatch, "RIGHT", ltAnchor, "LEFT", -8, 0)
+                ltClassSwatch:SetScript("OnClick", function()
+                    if SVal("leftTextContent", "name") == "none" then return end
+                    -- Attribution read before the write: a setter that rebuilds the page
+                    -- may dress this swatch again for another slot.
+                    local snap = EllesmereUI._SOAttribution(ltClassSwatch)
+                    SSet("leftTextClassColor", true)
+                    -- Bespoke write: notify for exact Spec Overrides attribution (the
+                    -- forced RefreshPage below would otherwise resync-absorb it).
+                    EllesmereUI._NotifySettingWrite(ltClassSwatch, snap)
+                    UpdatePreview(); EllesmereUI:RefreshPage()
+                end)
+                ltClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltClassSwatch, "Class Colored") end)
+                ltClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                -- Custom Colored swatch (left of the class swatch): opens the color picker.
+                local ltSwGet = function()
+                    return SVal("leftTextColorR", 1), SVal("leftTextColorG", 1), SVal("leftTextColorB", 1)
+                end
+                local ltSwSet = function(r, g, b)
+                    SSet("leftTextColorR", r); SSet("leftTextColorG", g); SSet("leftTextColorB", b)
+                    UpdatePreview()
+                end
+                local ltSwatch, ltUpdateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, ltSwGet, ltSwSet, nil, 20)
+                PP.Point(ltSwatch, "RIGHT", ltClassSwatch, "LEFT", -8, 0)
+                leftRgn._lastInline = ltSwatch
+                local ltOrigClick = ltSwatch:GetScript("OnClick")
+                ltSwatch:SetScript("OnClick", function(self, ...)
+                    if SVal("leftTextContent", "name") == "none" then return end
+                    if SVal("leftTextClassColor", false) then
+                        local snap = EllesmereUI._SOAttribution(self)
+                        SSet("leftTextClassColor", false)
+                        EllesmereUI._NotifySettingWrite(self, snap)
+                        UpdatePreview(); EllesmereUI:RefreshPage(); return
+                    end
+                    if ltOrigClick then ltOrigClick(self, ...) end
+                end)
+                ltSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ltSwatch, "Custom Colored") end)
+                ltSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateLtSwatches()
+                    local isNone = SVal("leftTextContent", "name") == "none"
+                    local isClass = SVal("leftTextClassColor", false)
+                    ltSwatch:SetAlpha((isClass or isNone) and 0.3 or 1)
+                    ltClassSwatch:SetAlpha((isClass and not isNone) and 1 or 0.3)
+                end
+                RegisterWidgetRefresh(function() ltUpdateSwatch(); ltUpdateClassSwatch(); UpdateLtSwatches() end)
+                UpdateLtSwatches()
+                -- The class-color mode flag is written only by bespoke swatch OnClicks (no
+                -- widget getter reads it), so Spec Overrides' read-trace can't link an
+                -- override to this row without a capture accessor declared explicitly.
+                if EllesmereUI.AddCaptureAccessor then
+                    EllesmereUI.AddCaptureAccessor(leftRgn, {
+                        type = "toggle", text = "Left Text Class Color",
+                        getValue = function() return SVal("leftTextClassColor", false) end,
+                        setValue = function(v) SSet("leftTextClassColor", v) end,
+                    })
+                end
+            end
         end,
     }
     textSlots[2] = { key="rightText", position="Right Text", default="both",
@@ -854,73 +854,6 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                         onApply       = function(checkedKeys) ApplyRightTextTo(checkedKeys) end,
                     },
                 })
-            end
-            -- Inline swatches on Right Text (CDM Border Size double-swatch pattern): class
-            -- sets rightTextClassColor, custom opens the picker and switches back from class.
-            if not EllesmereUI._prebuilding then
-                local rightRgn = rgn
-                local rtAnchor = rightRgn._lastInline or rightRgn._control
-                local rtClassSwatch, rtUpdateClassSwatch = EllesmereUI.BuildColorSwatch(
-                    rightRgn, rightRgn:GetFrameLevel() + 5,
-                    function()
-                        local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
-                        if cc then return cc.r, cc.g, cc.b end
-                        return 1, 1, 1
-                    end,
-                    function() end, nil, 20)
-                PP.Point(rtClassSwatch, "RIGHT", rtAnchor, "LEFT", -8, 0)
-                rtClassSwatch:SetScript("OnClick", function()
-                    if SVal("rightTextContent", "both") == "none" then return end
-                    -- Attribution read before the write (see the Left Text swatch).
-                    local snap = EllesmereUI._SOAttribution(rtClassSwatch)
-                    SSet("rightTextClassColor", true)
-                    -- Bespoke write: notify for exact Spec Overrides attribution (the
-                    -- forced RefreshPage below would otherwise resync-absorb it).
-                    EllesmereUI._NotifySettingWrite(rtClassSwatch, snap)
-                    UpdatePreview(); EllesmereUI:RefreshPage()
-                end)
-                rtClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtClassSwatch, "Class Colored") end)
-                rtClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local rtSwGet = function()
-                    return SVal("rightTextColorR", 1), SVal("rightTextColorG", 1), SVal("rightTextColorB", 1)
-                end
-                local rtSwSet = function(r, g, b)
-                    SSet("rightTextColorR", r); SSet("rightTextColorG", g); SSet("rightTextColorB", b)
-                    UpdatePreview()
-                end
-                local rtSwatch, rtUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, rtSwGet, rtSwSet, nil, 20)
-                PP.Point(rtSwatch, "RIGHT", rtClassSwatch, "LEFT", -8, 0)
-                rightRgn._lastInline = rtSwatch
-                local rtOrigClick = rtSwatch:GetScript("OnClick")
-                rtSwatch:SetScript("OnClick", function(self, ...)
-                    if SVal("rightTextContent", "both") == "none" then return end
-                    if SVal("rightTextClassColor", false) then
-                        local snap = EllesmereUI._SOAttribution(self)
-                        SSet("rightTextClassColor", false)
-                        EllesmereUI._NotifySettingWrite(self, snap)
-                        UpdatePreview(); EllesmereUI:RefreshPage(); return
-                    end
-                    if rtOrigClick then rtOrigClick(self, ...) end
-                end)
-                rtSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtSwatch, "Custom Colored") end)
-                rtSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local function UpdateRtSwatches()
-                    local isNone = SVal("rightTextContent", "both") == "none"
-                    local isClass = SVal("rightTextClassColor", false)
-                    rtSwatch:SetAlpha((isClass or isNone) and 0.3 or 1)
-                    rtClassSwatch:SetAlpha((isClass and not isNone) and 1 or 0.3)
-                end
-                RegisterWidgetRefresh(function() rtUpdateSwatch(); rtUpdateClassSwatch(); UpdateRtSwatches() end)
-                UpdateRtSwatches()
-                -- Mirror of the Left Text class-flag accessor: see that comment.
-                if EllesmereUI.AddCaptureAccessor then
-                    EllesmereUI.AddCaptureAccessor(rightRgn, {
-                        type = "toggle", text = "Right Text Class Color",
-                        getValue = function() return SVal("rightTextClassColor", false) end,
-                        setValue = function(v) SSet("rightTextClassColor", v) end,
-                    })
-                end
             end
             -- Cogwheel on Right Text (right region)
             if not EllesmereUI._prebuilding then
@@ -990,6 +923,73 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                                         }),
                 })
             end
+            -- Inline swatches on Right Text (CDM Border Size double-swatch pattern): class
+            -- sets rightTextClassColor, custom opens the picker and switches back from class.
+            if not EllesmereUI._prebuilding then
+                local rightRgn = rgn
+                local rtAnchor = rightRgn._lastInline or rightRgn._control
+                local rtClassSwatch, rtUpdateClassSwatch = EllesmereUI.BuildColorSwatch(
+                    rightRgn, rightRgn:GetFrameLevel() + 5,
+                    function()
+                        local _, classFile = UnitClass("player")
+                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        if cc then return cc.r, cc.g, cc.b end
+                        return 1, 1, 1
+                    end,
+                    function() end, nil, 20)
+                PP.Point(rtClassSwatch, "RIGHT", rtAnchor, "LEFT", -8, 0)
+                rtClassSwatch:SetScript("OnClick", function()
+                    if SVal("rightTextContent", "both") == "none" then return end
+                    -- Attribution read before the write (see the Left Text swatch).
+                    local snap = EllesmereUI._SOAttribution(rtClassSwatch)
+                    SSet("rightTextClassColor", true)
+                    -- Bespoke write: notify for exact Spec Overrides attribution (the
+                    -- forced RefreshPage below would otherwise resync-absorb it).
+                    EllesmereUI._NotifySettingWrite(rtClassSwatch, snap)
+                    UpdatePreview(); EllesmereUI:RefreshPage()
+                end)
+                rtClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtClassSwatch, "Class Colored") end)
+                rtClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local rtSwGet = function()
+                    return SVal("rightTextColorR", 1), SVal("rightTextColorG", 1), SVal("rightTextColorB", 1)
+                end
+                local rtSwSet = function(r, g, b)
+                    SSet("rightTextColorR", r); SSet("rightTextColorG", g); SSet("rightTextColorB", b)
+                    UpdatePreview()
+                end
+                local rtSwatch, rtUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, rtSwGet, rtSwSet, nil, 20)
+                PP.Point(rtSwatch, "RIGHT", rtClassSwatch, "LEFT", -8, 0)
+                rightRgn._lastInline = rtSwatch
+                local rtOrigClick = rtSwatch:GetScript("OnClick")
+                rtSwatch:SetScript("OnClick", function(self, ...)
+                    if SVal("rightTextContent", "both") == "none" then return end
+                    if SVal("rightTextClassColor", false) then
+                        local snap = EllesmereUI._SOAttribution(self)
+                        SSet("rightTextClassColor", false)
+                        EllesmereUI._NotifySettingWrite(self, snap)
+                        UpdatePreview(); EllesmereUI:RefreshPage(); return
+                    end
+                    if rtOrigClick then rtOrigClick(self, ...) end
+                end)
+                rtSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(rtSwatch, "Custom Colored") end)
+                rtSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateRtSwatches()
+                    local isNone = SVal("rightTextContent", "both") == "none"
+                    local isClass = SVal("rightTextClassColor", false)
+                    rtSwatch:SetAlpha((isClass or isNone) and 0.3 or 1)
+                    rtClassSwatch:SetAlpha((isClass and not isNone) and 1 or 0.3)
+                end
+                RegisterWidgetRefresh(function() rtUpdateSwatch(); rtUpdateClassSwatch(); UpdateRtSwatches() end)
+                UpdateRtSwatches()
+                -- Mirror of the Left Text class-flag accessor: see that comment.
+                if EllesmereUI.AddCaptureAccessor then
+                    EllesmereUI.AddCaptureAccessor(rightRgn, {
+                        type = "toggle", text = "Right Text Class Color",
+                        getValue = function() return SVal("rightTextClassColor", false) end,
+                        setValue = function(v) SSet("rightTextClassColor", v) end,
+                    })
+                end
+            end
         end,
     }
     textSlots[3] = { key="centerText", position="Center Text", default="none",
@@ -1051,56 +1051,6 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                         onApply       = function(checkedKeys) ApplyCenterTextTo(checkedKeys) end,
                     },
                 })
-            end
-            -- Inline swatches on Center Text (CDM Border Size double-swatch pattern): class
-            -- sets centerTextClassColor, custom opens the picker and switches back from class.
-            if not EllesmereUI._prebuilding then
-                local ctrRgn = rgn
-                local ctAnchor = ctrRgn._lastInline or ctrRgn._control
-                local ctClassSwatch, ctUpdateClassSwatch = EllesmereUI.BuildColorSwatch(
-                    ctrRgn, ctrRgn:GetFrameLevel() + 5,
-                    function()
-                        local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
-                        if cc then return cc.r, cc.g, cc.b end
-                        return 1, 1, 1
-                    end,
-                    function() end, nil, 20)
-                PP.Point(ctClassSwatch, "RIGHT", ctAnchor, "LEFT", -8, 0)
-                ctClassSwatch:SetScript("OnClick", function()
-                    if SVal("centerTextContent", "none") == "none" then return end
-                    SSet("centerTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
-                end)
-                ctClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ctClassSwatch, "Class Colored") end)
-                ctClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local ctSwGet = function()
-                    return SVal("centerTextColorR", 1), SVal("centerTextColorG", 1), SVal("centerTextColorB", 1)
-                end
-                local ctSwSet = function(r, g, b)
-                    SSet("centerTextColorR", r); SSet("centerTextColorG", g); SSet("centerTextColorB", b)
-                    UpdatePreview()
-                end
-                local ctSwatch, ctUpdateSwatch = EllesmereUI.BuildColorSwatch(ctrRgn, ctrRgn:GetFrameLevel() + 5, ctSwGet, ctSwSet, nil, 20)
-                PP.Point(ctSwatch, "RIGHT", ctClassSwatch, "LEFT", -8, 0)
-                ctrRgn._lastInline = ctSwatch
-                local ctOrigClick = ctSwatch:GetScript("OnClick")
-                ctSwatch:SetScript("OnClick", function(self, ...)
-                    if SVal("centerTextContent", "none") == "none" then return end
-                    if SVal("centerTextClassColor", false) then
-                        SSet("centerTextClassColor", false); UpdatePreview(); EllesmereUI:RefreshPage(); return
-                    end
-                    if ctOrigClick then ctOrigClick(self, ...) end
-                end)
-                ctSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ctSwatch, "Custom Colored") end)
-                ctSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local function UpdateCtSwatches()
-                    local isNone = SVal("centerTextContent", "none") == "none"
-                    local isClass = SVal("centerTextClassColor", false)
-                    ctSwatch:SetAlpha((isClass or isNone) and 0.3 or 1)
-                    ctClassSwatch:SetAlpha((isClass and not isNone) and 1 or 0.3)
-                end
-                RegisterWidgetRefresh(function() ctUpdateSwatch(); ctUpdateClassSwatch(); UpdateCtSwatches() end)
-                UpdateCtSwatches()
             end
             -- Cogwheel on Center Text (left region)
             if not EllesmereUI._prebuilding then
@@ -1170,6 +1120,56 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                                         }),
                 })
             end
+            -- Inline swatches on Center Text (CDM Border Size double-swatch pattern): class
+            -- sets centerTextClassColor, custom opens the picker and switches back from class.
+            if not EllesmereUI._prebuilding then
+                local ctrRgn = rgn
+                local ctAnchor = ctrRgn._lastInline or ctrRgn._control
+                local ctClassSwatch, ctUpdateClassSwatch = EllesmereUI.BuildColorSwatch(
+                    ctrRgn, ctrRgn:GetFrameLevel() + 5,
+                    function()
+                        local _, classFile = UnitClass("player")
+                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        if cc then return cc.r, cc.g, cc.b end
+                        return 1, 1, 1
+                    end,
+                    function() end, nil, 20)
+                PP.Point(ctClassSwatch, "RIGHT", ctAnchor, "LEFT", -8, 0)
+                ctClassSwatch:SetScript("OnClick", function()
+                    if SVal("centerTextContent", "none") == "none" then return end
+                    SSet("centerTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
+                end)
+                ctClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ctClassSwatch, "Class Colored") end)
+                ctClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local ctSwGet = function()
+                    return SVal("centerTextColorR", 1), SVal("centerTextColorG", 1), SVal("centerTextColorB", 1)
+                end
+                local ctSwSet = function(r, g, b)
+                    SSet("centerTextColorR", r); SSet("centerTextColorG", g); SSet("centerTextColorB", b)
+                    UpdatePreview()
+                end
+                local ctSwatch, ctUpdateSwatch = EllesmereUI.BuildColorSwatch(ctrRgn, ctrRgn:GetFrameLevel() + 5, ctSwGet, ctSwSet, nil, 20)
+                PP.Point(ctSwatch, "RIGHT", ctClassSwatch, "LEFT", -8, 0)
+                ctrRgn._lastInline = ctSwatch
+                local ctOrigClick = ctSwatch:GetScript("OnClick")
+                ctSwatch:SetScript("OnClick", function(self, ...)
+                    if SVal("centerTextContent", "none") == "none" then return end
+                    if SVal("centerTextClassColor", false) then
+                        SSet("centerTextClassColor", false); UpdatePreview(); EllesmereUI:RefreshPage(); return
+                    end
+                    if ctOrigClick then ctOrigClick(self, ...) end
+                end)
+                ctSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(ctSwatch, "Custom Colored") end)
+                ctSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateCtSwatches()
+                    local isNone = SVal("centerTextContent", "none") == "none"
+                    local isClass = SVal("centerTextClassColor", false)
+                    ctSwatch:SetAlpha((isClass or isNone) and 0.3 or 1)
+                    ctClassSwatch:SetAlpha((isClass and not isNone) and 1 or 0.3)
+                end
+                RegisterWidgetRefresh(function() ctUpdateSwatch(); ctUpdateClassSwatch(); UpdateCtSwatches() end)
+                UpdateCtSwatches()
+            end
         end,
     }
     textSlots[4] = { key="extraText", position="Extra Text (full length)", default="none",
@@ -1233,56 +1233,6 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                         onApply       = function(checkedKeys) ApplyExtraTextTo(checkedKeys) end,
                     },
                 })
-            end
-            -- Inline swatches on Extra Text: class sets
-            -- extraTextClassColor, custom opens the picker.
-            if not EllesmereUI._prebuilding then
-                local etrRgn = rgn
-                local etAnchor = etrRgn._lastInline or etrRgn._control
-                local etClassSwatch, etUpdateClassSwatch = EllesmereUI.BuildColorSwatch(
-                    etrRgn, etrRgn:GetFrameLevel() + 5,
-                    function()
-                        local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
-                        if cc then return cc.r, cc.g, cc.b end
-                        return 1, 1, 1
-                    end,
-                    function() end, nil, 20)
-                PP.Point(etClassSwatch, "RIGHT", etAnchor, "LEFT", -8, 0)
-                etClassSwatch:SetScript("OnClick", function()
-                    if SVal("extraTextContent", "none") == "none" then return end
-                    SSet("extraTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
-                end)
-                etClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(etClassSwatch, "Class Colored") end)
-                etClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local etSwGet = function()
-                    return SVal("extraTextColorR", 1), SVal("extraTextColorG", 1), SVal("extraTextColorB", 1)
-                end
-                local etSwSet = function(r, g, b)
-                    SSet("extraTextColorR", r); SSet("extraTextColorG", g); SSet("extraTextColorB", b)
-                    UpdatePreview()
-                end
-                local etSwatch, etUpdateSwatch = EllesmereUI.BuildColorSwatch(etrRgn, etrRgn:GetFrameLevel() + 5, etSwGet, etSwSet, nil, 20)
-                PP.Point(etSwatch, "RIGHT", etClassSwatch, "LEFT", -8, 0)
-                etrRgn._lastInline = etSwatch
-                local etOrigClick = etSwatch:GetScript("OnClick")
-                etSwatch:SetScript("OnClick", function(self, ...)
-                    if SVal("extraTextContent", "none") == "none" then return end
-                    if SVal("extraTextClassColor", false) then
-                        SSet("extraTextClassColor", false); UpdatePreview(); EllesmereUI:RefreshPage(); return
-                    end
-                    if etOrigClick then etOrigClick(self, ...) end
-                end)
-                etSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(etSwatch, "Custom Colored") end)
-                etSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                local function UpdateEtSwatches()
-                    local isNone = SVal("extraTextContent", "none") == "none"
-                    local isClass = SVal("extraTextClassColor", false)
-                    etSwatch:SetAlpha((isClass or isNone) and 0.3 or 1)
-                    etClassSwatch:SetAlpha((isClass and not isNone) and 1 or 0.3)
-                end
-                RegisterWidgetRefresh(function() etUpdateSwatch(); etUpdateClassSwatch(); UpdateEtSwatches() end)
-                UpdateEtSwatches()
             end
             -- Cogwheel on Extra Text (Center row right region): Alignment + Size/X/Y
             if not EllesmereUI._prebuilding then
@@ -1355,6 +1305,56 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                           disabledTooltip="This option only applies when Target is selected." },
                                         }),
                 })
+            end
+            -- Inline swatches on Extra Text: class sets
+            -- extraTextClassColor, custom opens the picker.
+            if not EllesmereUI._prebuilding then
+                local etrRgn = rgn
+                local etAnchor = etrRgn._lastInline or etrRgn._control
+                local etClassSwatch, etUpdateClassSwatch = EllesmereUI.BuildColorSwatch(
+                    etrRgn, etrRgn:GetFrameLevel() + 5,
+                    function()
+                        local _, classFile = UnitClass("player")
+                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        if cc then return cc.r, cc.g, cc.b end
+                        return 1, 1, 1
+                    end,
+                    function() end, nil, 20)
+                PP.Point(etClassSwatch, "RIGHT", etAnchor, "LEFT", -8, 0)
+                etClassSwatch:SetScript("OnClick", function()
+                    if SVal("extraTextContent", "none") == "none" then return end
+                    SSet("extraTextClassColor", true); UpdatePreview(); EllesmereUI:RefreshPage()
+                end)
+                etClassSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(etClassSwatch, "Class Colored") end)
+                etClassSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local etSwGet = function()
+                    return SVal("extraTextColorR", 1), SVal("extraTextColorG", 1), SVal("extraTextColorB", 1)
+                end
+                local etSwSet = function(r, g, b)
+                    SSet("extraTextColorR", r); SSet("extraTextColorG", g); SSet("extraTextColorB", b)
+                    UpdatePreview()
+                end
+                local etSwatch, etUpdateSwatch = EllesmereUI.BuildColorSwatch(etrRgn, etrRgn:GetFrameLevel() + 5, etSwGet, etSwSet, nil, 20)
+                PP.Point(etSwatch, "RIGHT", etClassSwatch, "LEFT", -8, 0)
+                etrRgn._lastInline = etSwatch
+                local etOrigClick = etSwatch:GetScript("OnClick")
+                etSwatch:SetScript("OnClick", function(self, ...)
+                    if SVal("extraTextContent", "none") == "none" then return end
+                    if SVal("extraTextClassColor", false) then
+                        SSet("extraTextClassColor", false); UpdatePreview(); EllesmereUI:RefreshPage(); return
+                    end
+                    if etOrigClick then etOrigClick(self, ...) end
+                end)
+                etSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(etSwatch, "Custom Colored") end)
+                etSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function UpdateEtSwatches()
+                    local isNone = SVal("extraTextContent", "none") == "none"
+                    local isClass = SVal("extraTextClassColor", false)
+                    etSwatch:SetAlpha((isClass or isNone) and 0.3 or 1)
+                    etClassSwatch:SetAlpha((isClass and not isNone) and 1 or 0.3)
+                end
+                RegisterWidgetRefresh(function() etUpdateSwatch(); etUpdateClassSwatch(); UpdateEtSwatches() end)
+                UpdateEtSwatches()
             end
         end,
     }
@@ -1431,7 +1431,6 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     if not EllesmereUI._prebuilding then
         local posRgn = sharedPowerRow1._rightRegion
         EllesmereUI.BuildInlineCog(posRgn, {
-            icon = EllesmereUI.RESIZE_ICON,
             disabled = function()
                 if stockPower then return true end
                 local pos = SVal("powerPosition", "below"); return pos ~= "detached_top" and pos ~= "detached_bottom"
@@ -2004,7 +2003,6 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
               set=function(v) SSet("powerPercentY", v); UpdatePreview() end },
         }
         EllesmereUI.BuildInlineCog(ppRgn, {
-            icon = EllesmereUI.RESIZE_ICON,
             disabled = function() return SVal("powerPercentText", "none") == "none" end,
             disabledTooltip = "This option requires a text position other than none.",
             title = "Text Position",
@@ -2177,7 +2175,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     -- Cog for power border shift / layering (left region)
     if not EllesmereUI._prebuilding then
         local rgn = sharedPowerBorderRow._leftRegion
-        local cogBtn = EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+        local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
             title = "Power Border Options",
             rows = {
                 { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
@@ -2272,7 +2270,6 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
             rgn._lastInline = eyeBtn
             local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-            EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
             eyeTex:SetAllPoints()
             local function RefreshCostEye()
                 eyeTex:SetTexture(ns._ufShowPowerCostPreview and EllesmereUI.EYE_INVISIBLE_ICON or EllesmereUI.EYE_VISIBLE_ICON)
@@ -2363,7 +2360,6 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
             -- Cog: the Form Power bar's offsets.
             if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildInlineCog(powerTypeRow._leftRegion, {
-                    icon = EllesmereUI.RESIZE_ICON,
                     disabled = NoFormBar,
                     disabledTooltip = FORM_TIP, rawTooltip = true,
                     title = "Form Power Bar",
@@ -2400,6 +2396,19 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                       getValue=function() return FormVal("foreverFormTextPos", "powerPercentText", "none") end,
                       setValue=function(v) SetForm("foreverFormTextPos", v) end });  y = y - h
                 if not EllesmereUI._prebuilding then
+                    EllesmereUI.BuildInlineCog(formTextRow._leftRegion, {
+                        disabled = function()
+                            local fmt = FormVal("foreverFormTextFormat", "powerTextFormat", "perpp")
+                            return fmt == "none" or fmt == "curpp" or fmt == "curmaxpp"
+                        end,
+                        disabledTooltip = "This option is only available for formats that display a percentage.",
+                        title = "Form Power Text",
+                        rows = {
+                            { type="toggle", label="Show %",
+                              get=function() return FormVal("foreverFormShowPercent", "powerShowPercent", true) ~= false end,
+                              set=function(v) SetForm("foreverFormShowPercent", v) end },
+                        },
+                    })
                     -- Text colour: custom, or the form power's colour. Neither set
                     -- follows the power bar's Text Color.
                     local function FormPowerColored()
@@ -2446,21 +2455,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                           end,
                           refreshAlpha = function() return FormPowerColored() and 1 or 0.3 end },
                     })
-                    EllesmereUI.BuildInlineCog(formTextRow._leftRegion, {
-                        disabled = function()
-                            local fmt = FormVal("foreverFormTextFormat", "powerTextFormat", "perpp")
-                            return fmt == "none" or fmt == "curpp" or fmt == "curmaxpp"
-                        end,
-                        disabledTooltip = "This option is only available for formats that display a percentage.",
-                        title = "Form Power Text",
-                        rows = {
-                            { type="toggle", label="Show %",
-                              get=function() return FormVal("foreverFormShowPercent", "powerShowPercent", true) ~= false end,
-                              set=function(v) SetForm("foreverFormShowPercent", v) end },
-                        },
-                    })
                     EllesmereUI.BuildInlineCog(formTextRow._rightRegion, {
-                        icon = EllesmereUI.RESIZE_ICON,
                         disabled = function()
                             return FormVal("foreverFormTextPos", "powerPercentText", "none") == "none"
                         end,
@@ -2880,7 +2875,6 @@ function ns.UFO_BuildClassResourceSection(parent, y, ctx)
     if not EllesmereUI._prebuilding then
         local posRgn = row._leftRegion
         EllesmereUI.BuildInlineCog(posRgn, {
-            icon = EllesmereUI.DIRECTIONS_ICON,
             disabled = function() return SCPStyle() ~= "modern" or SValSupported("classPowerPosition", "top") == "above" end,
             disabledTooltip = function() return SCPStyle() ~= "modern" and "This option requires Class Resource to be set to Modern." or "This option requires a dropdown selection other than Above Health Bar" end,
             title = "Class Resource Position",
@@ -3231,7 +3225,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         return true
     end
 
-    -- Row 1: Absorb Style (+ color swatch + placement cog) | Absorb Opacity
+    -- Row 1: Absorb Style (+ placement cog + color swatch) | Absorb Opacity
     absorbRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Absorb Style", values=absorbStyleValues, order=absorbStyleOrder,
           getValue=function() return SValSupported("showPlayerAbsorb", "none") end,
@@ -3251,28 +3245,6 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
           setValue=function(v) SSetSupported("absorbOpacity", v) end });  y = y - h
     SApplySupport(absorbRow._leftRegion, "showPlayerAbsorb")
     SApplySupport(absorbRow._rightRegion, "absorbOpacity")
-    -- Inline color swatch for absorb color
-    if not EllesmereUI._prebuilding then
-        local rgn = absorbRow._leftRegion
-        local swatch = EllesmereUI.BuildColorSwatch(
-            rgn, absorbRow:GetFrameLevel() + 3,
-            function()
-                local c = SGetSupported("absorbColor")
-                if c then return c.r, c.g, c.b, 1 end
-                return 1, 1, 1, 1
-            end,
-            function(r, g, b)
-                UNIT_DB_MAP[optState.selectedUnit]().absorbColor = { r=r, g=g, b=b }
-                ReloadAndUpdate(); UpdatePreview()
-            end, false, 20)
-        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-        local function UpdateAbsorbSwatchVis()
-            swatch:SetAlpha(SValSupported("showPlayerAbsorb", "none") == "none" and 0.3 or 1)
-        end
-        RegisterWidgetRefresh(UpdateAbsorbSwatchVis)
-        UpdateAbsorbSwatchVis()
-    end
     -- Inline cog: absorb placement (overlay / right edge / left edge)
     do
         local rgn = absorbRow._leftRegion
@@ -3389,6 +3361,28 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             end
         end)
     end
+    -- Inline color swatch for absorb color
+    if not EllesmereUI._prebuilding then
+        local rgn = absorbRow._leftRegion
+        local swatch = EllesmereUI.BuildColorSwatch(
+            rgn, absorbRow:GetFrameLevel() + 3,
+            function()
+                local c = SGetSupported("absorbColor")
+                if c then return c.r, c.g, c.b, 1 end
+                return 1, 1, 1, 1
+            end,
+            function(r, g, b)
+                UNIT_DB_MAP[optState.selectedUnit]().absorbColor = { r=r, g=g, b=b }
+                ReloadAndUpdate(); UpdatePreview()
+            end, false, 20)
+        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = swatch
+        local function UpdateAbsorbSwatchVis()
+            swatch:SetAlpha(SValSupported("showPlayerAbsorb", "none") == "none" and 0.3 or 1)
+        end
+        RegisterWidgetRefresh(UpdateAbsorbSwatchVis)
+        UpdateAbsorbSwatchVis()
+    end
     -- Sync icon: Absorb Style + color swatch + cog settings across all frames
     if not EllesmereUI._prebuilding then
         local rgn = absorbRow._leftRegion
@@ -3415,7 +3409,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         })
     end
 
-    -- Row 2: Heal Absorb Style (+ color swatch + placement cog) | Heal Absorb Opacity
+    -- Row 2: Heal Absorb Style (+ placement cog + color swatch) | Heal Absorb Opacity
     healAbsorbRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Heal Absorb Style", values=absorbStyleValues,
           order=healAbsorbStyleOrder,
@@ -3449,7 +3443,6 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         rgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshHealEye()
             eyeTex:SetTexture(optState.showHealAbsorbPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -3468,38 +3461,6 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
-    end
-    -- Inline color swatch for heal absorb color
-    if not EllesmereUI._prebuilding then
-        local rgn = healAbsorbRow._leftRegion
-        local swatch = EllesmereUI.BuildColorSwatch(
-            rgn, healAbsorbRow:GetFrameLevel() + 3,
-            function()
-                local c = SGetSupported("healAbsorbColor")
-                if c then return c.r or 0.8, c.g or 0.15, c.b or 0.15, 1 end
-                return 0.8, 0.15, 0.15, 1
-            end,
-            function(r, g, b)
-                UNIT_DB_MAP[optState.selectedUnit]().healAbsorbColor = { r=r, g=g, b=b }
-                ReloadAndUpdate(); UpdatePreview()
-            end, false, 20)
-        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-        -- Blocking overlay: disabled for "none" and the pre-colored
-        -- "Large Outlined Stripes" heal styles (their texture is not tinted).
-        local swatchBlock = CreateFrame("Frame", nil, swatch)
-        swatchBlock:SetAllPoints()
-        swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
-        swatchBlock:EnableMouse(true)
-        swatchBlock:Hide()
-        local function UpdateHealAbsorbSwatchVis()
-            local st = SValSupported("healAbsorbStyle", "clean")
-            local off = (st == "none" or st == "largeOutlinedStripes" or st == "largeOutlinedStripesR")
-            swatch:SetAlpha(off and 0.3 or 1)
-            if off then swatchBlock:Show() else swatchBlock:Hide() end
-        end
-        RegisterWidgetRefresh(UpdateHealAbsorbSwatchVis)
-        UpdateHealAbsorbSwatchVis()
     end
     -- Inline cog: heal absorb placement (independent of shield absorb)
     do
@@ -3548,6 +3509,38 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
                 end
             end
         end)
+    end
+    -- Inline color swatch for heal absorb color
+    if not EllesmereUI._prebuilding then
+        local rgn = healAbsorbRow._leftRegion
+        local swatch = EllesmereUI.BuildColorSwatch(
+            rgn, healAbsorbRow:GetFrameLevel() + 3,
+            function()
+                local c = SGetSupported("healAbsorbColor")
+                if c then return c.r or 0.8, c.g or 0.15, c.b or 0.15, 1 end
+                return 0.8, 0.15, 0.15, 1
+            end,
+            function(r, g, b)
+                UNIT_DB_MAP[optState.selectedUnit]().healAbsorbColor = { r=r, g=g, b=b }
+                ReloadAndUpdate(); UpdatePreview()
+            end, false, 20)
+        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = swatch
+        -- Blocking overlay: disabled for "none" and the pre-colored
+        -- "Large Outlined Stripes" heal styles (their texture is not tinted).
+        local swatchBlock = CreateFrame("Frame", nil, swatch)
+        swatchBlock:SetAllPoints()
+        swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
+        swatchBlock:EnableMouse(true)
+        swatchBlock:Hide()
+        local function UpdateHealAbsorbSwatchVis()
+            local st = SValSupported("healAbsorbStyle", "clean")
+            local off = (st == "none" or st == "largeOutlinedStripes" or st == "largeOutlinedStripesR")
+            swatch:SetAlpha(off and 0.3 or 1)
+            if off then swatchBlock:Show() else swatchBlock:Hide() end
+        end
+        RegisterWidgetRefresh(UpdateHealAbsorbSwatchVis)
+        UpdateHealAbsorbSwatchVis()
     end
     -- Sync icon: Heal Absorb Style + color swatch + cog settings across all frames
     if not EllesmereUI._prebuilding then
@@ -3649,7 +3642,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         UpdateHealAbsorbBarSwatchVis()
     end
 
-    -- Max Health Style (+ eyeball, swatch, backing cog) | Max Health Opacity: Raid Frames
+    -- Max Health Style (+ eyeball, backing cog, swatch) | Max Health Opacity: Raid Frames
     -- parity; the overlay is always on the bar's far end. Boss frames use Target's.
     local maxHealthRow
     maxHealthRow, h = W:DualRow(parent, y,
@@ -3663,7 +3656,7 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
           setValue=function(v) SSetSupported("maxHealthOpacity", v) end });  y = y - h
     SApplySupport(maxHealthRow._leftRegion, "maxHealthStyle")
     SApplySupport(maxHealthRow._rightRegion, "maxHealthOpacity")
-    -- Inline order as on the Heal Absorb row: the eyeball, the swatch, then the cog.
+    -- Inline order as on the Heal Absorb row: the eyeball, the cog, then the swatch.
     if not EllesmereUI._prebuilding then
         local rgn = maxHealthRow._leftRegion
         -- Eyeball: shows a reduced maximum on the preview (session-only flag).
@@ -3676,7 +3669,6 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         rgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshMaxHealthEye()
             eyeTex:SetTexture(optState.showMaxHealthPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -3695,6 +3687,16 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
             EllesmereUI.SetGlyphAlpha(self, 0.4)
             EllesmereUI.HideWidgetTooltip()
         end)
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Max Health Rendering",
+            disabled = function() return SValSupported("maxHealthStyle", "none") == "none" end,
+            disabledTooltip = "Max Health Style",
+            rows = {
+                { type="slider", label="Backing Opacity", min=0, max=100, step=1,
+                  get=function() return SValSupported("maxHealthBgOpacity", 100) end,
+                  set=function(v) SSetSupported("maxHealthBgOpacity", v) end },
+            },
+        })
         -- Swatch tints the texture; blocked for None and the pre-colored styles.
         local swatch = EllesmereUI.BuildColorSwatch(
             rgn, maxHealthRow:GetFrameLevel() + 3,
@@ -3722,16 +3724,6 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         end
         RegisterWidgetRefresh(UpdateMaxHealthSwatchVis)
         UpdateMaxHealthSwatchVis()
-        EllesmereUI.BuildInlineCog(rgn, {
-            title = "Max Health Rendering",
-            disabled = function() return SValSupported("maxHealthStyle", "none") == "none" end,
-            disabledTooltip = "Max Health Style",
-            rows = {
-                { type="slider", label="Backing Opacity", min=0, max=100, step=1,
-                  get=function() return SValSupported("maxHealthBgOpacity", 100) end,
-                  set=function(v) SSetSupported("maxHealthBgOpacity", v) end },
-            },
-        })
     end
 
     -- Row 5: Heal Prediction (+ your / others' color swatches) | Prediction Opacity
@@ -3758,7 +3750,6 @@ function ns.UFO_BuildAbsorbsHealsSection(parent, y, ctx)
         EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         rgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshPredEye()
             eyeTex:SetTexture(ns._ufShowHealPredPreview and EllesmereUI.EYE_INVISIBLE_ICON or EllesmereUI.EYE_VISIBLE_ICON)

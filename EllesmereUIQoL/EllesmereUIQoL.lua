@@ -3250,8 +3250,9 @@ do
 
         -- WoW Forever: each throw spends one point of a thrown weapon's
         -- durability, so it counts remaining throws rather than wear.
+        -- Skipped unless the player turned Ignore Thrown Weapons off.
         local thrownSlot
-        if EllesmereUI.IS_FOREVER and EllesmereUIDB.durWarnIgnoreThrown == true then
+        if EllesmereUI.IS_FOREVER and EllesmereUIDB.durWarnIgnoreThrown ~= false then
             local rangedSlot = GetInventorySlotInfo("RangedSlot")
             local itemID = rangedSlot and GetInventoryItemID("player", rangedSlot)
             if itemID then

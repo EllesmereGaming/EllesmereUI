@@ -788,6 +788,18 @@ local function SetupTitleLayout(block)
     if fs.SetWidth then fs:SetWidth(220) end
 end
 
+-- WoW Forever wraps tracker titles in a difficulty color code while the
+-- showQuestDifficultyColor CVar is on, and an inline code beats SetTextColor.
+-- Only the focused title drops it; Blizzard sets every title again on the
+-- next update, so the color comes back once the focus moves on.
+local IS_FOREVER = EllesmereUI.IS_FOREVER
+local function StripTitleColorCodes(fs)
+    local text = fs:GetText()
+    if not text or issecretvalue(text) then return end
+    local plain = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|cn[^:]*:", ""):gsub("|r", "")
+    if plain ~= text then fs:SetText(plain) end
+end
+
 -- Lightweight color-only refresh. Called on hover (OnEnter/OnLeave) and
 -- from the stamped fast-path in SkinBlock.
 local function ApplyFocusHighlight(block)
@@ -801,6 +813,7 @@ local function ApplyFocusHighlight(block)
     local r, g, b
     if isFocus then
         r, g, b = GetFocusRGB()
+        if IS_FOREVER then StripTitleColorCodes(fs) end
     elseif isDone then
         r, g, b = GetCompletedRGB()
     else

@@ -1502,7 +1502,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        -- Row 2: Show Name (+ inline swatch + cog) | Show Item Count (+ cog)
+        -- Row 2: Show Name (+ inline cog + swatch) | Show Item Count (+ cog)
         local rowText
         rowText, h = W:DualRow(parent, y,
             { type="toggle", text="Show Name",
@@ -1584,33 +1584,9 @@ initFrame:SetScript("OnEvent", function(self)
             })
         end
 
-        -- Inline color swatch + cog on Show Name (left of row 2)
+        -- Inline cog + color swatch on Show Name (left of row 2)
         if not EllesmereUI._prebuilding then
             local rgn = rowText._leftRegion
-            local swatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel()+5,
-                function()
-                    local d = DDB()
-                    local tc = d and d.textColor or {r=1, g=1, b=1}
-                    return tc.r, tc.g, tc.b, 1
-                end,
-                function(r, g, b)
-                    local d = DDB(); if not d then return end
-                    d.textColor = {r=r, g=g, b=b}
-                    RefreshAll(); UpdatePreviewHeader()
-                end, false, 20)
-            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
-            rgn._lastInline = swatch
-
-            -- Disabled overlay for swatch when Show Name is off
-            local swatchBlock = CreateFrame("Frame", nil, swatch)
-            swatchBlock:SetAllPoints()
-            swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
-            swatchBlock:EnableMouse(true)
-            swatchBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Show Name"))
-            end)
-            swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
             -- Inline cog for name settings (font, size, anchor, x/y offset)
             local nameFontValues, nameFontOrder = EllesmereUI.BuildFontDropdownData()
             EllesmereUI.BuildInlineCog(rgn, {
@@ -1646,6 +1622,30 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
 
+            local swatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel()+5,
+                function()
+                    local d = DDB()
+                    local tc = d and d.textColor or {r=1, g=1, b=1}
+                    return tc.r, tc.g, tc.b, 1
+                end,
+                function(r, g, b)
+                    local d = DDB(); if not d then return end
+                    d.textColor = {r=r, g=g, b=b}
+                    RefreshAll(); UpdatePreviewHeader()
+                end, false, 20)
+            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+
+            -- Disabled overlay for swatch when Show Name is off
+            local swatchBlock = CreateFrame("Frame", nil, swatch)
+            swatchBlock:SetAllPoints()
+            swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            swatchBlock:EnableMouse(true)
+            swatchBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Show Name"))
+            end)
+            swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
             local function UpdateTextInlinesDisabled()
                 local d = DDB()
                 local off = not d or not d.showText
@@ -1679,7 +1679,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Inline DIRECTIONS cog on Icon Spacing (left of row 3) for Y offset
         if not EllesmereUI._prebuilding then
             local rgn = rowSliders._leftRegion
-            EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+            EllesmereUI.BuildInlineCog(rgn, {
                 title = "Layout Settings",
                 rows = {
                     { type="slider", label="Y Offset", min=-600, max=600, step=1,
@@ -2359,7 +2359,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateZoneBtnDisabled)
         end
 
-        -- Show Without Item in Bags | Ready Check Mana Warning (eye | cog | swatch inline)
+        -- Show Without Item in Bags | Ready Check Mana Warning (eye | swatch | cog inline)
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Show Without Item in Bags",
               tooltip="When on, augment rune/flask/food/weapon reminders still show (dimmed) when you have no matching item in your bags, as a prompt to restock.\nWhen off, they are hidden entirely if you don't carry the item.",
@@ -2376,7 +2376,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        -- Inline: eyeball | cog | color swatch on the mana warning toggle
+        -- Inline: eyeball | color swatch | cog on the mana warning toggle
         if not EllesmereUI._prebuilding then
             local leftRgn = row._rightRegion
             local function rcwOff()
@@ -2386,38 +2386,9 @@ initFrame:SetScript("OnEvent", function(self)
             local rcwPreviewShown = false
             local RefreshRcwEye  -- assigned below; cog offset sliders flip the eye on
 
-            -- Color swatch (rightmost inline, closest to toggle). Default shows
-            -- the brightened mana color the warning uses when no custom is set.
-            local swatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
-                function()
-                    local c = CDB()
-                    local col = c and c.rcManaWarnColor
-                    if col then return col.r, col.g, col.b, 1 end
-                    local mc = EllesmereUI.GetPowerColor("MANA")
-                    if mc then
-                        return math.min(mc.r * 1.5, 1), math.min(mc.g * 1.5, 1), math.min(mc.b * 1.5, 1), 1
-                    end
-                    return 0, 0.825, 1, 1
-                end,
-                function(r, g, b)
-                    local c = CDB(); if not c then return end
-                    c.rcManaWarnColor = { r = r, g = g, b = b }
-                    if _G._EABR_RCWarnApply then _G._EABR_RCWarnApply() end
-                end, false, 20)
-            swatch:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -12, 0)
-            leftRgn._lastInline = swatch
-
-            local swatchBlock = CreateFrame("Frame", nil, swatch)
-            swatchBlock:SetAllPoints()
-            swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
-            swatchBlock:EnableMouse(true)
-            swatchBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Ready Check Mana Warning"))
-            end)
-            swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            -- Cog: Text Size + X/Y Offset. Offset edits force the preview on
-            -- (and light the eye) so the warning is visible while moving it.
+            -- Cog (rightmost inline, closest to toggle): Text Size + X/Y Offset.
+            -- Offset edits force the preview on (and light the eye) so the
+            -- warning is visible while moving it.
             local function ShowPreviewFromCog()
                 rcwPreviewShown = true
                 if RefreshRcwEye then RefreshRcwEye() end
@@ -2453,7 +2424,37 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
 
-            -- Eye icon toggles a live preview (left of cog)
+            -- Color swatch (left of the cog). Default shows the brightened
+            -- mana color the warning uses when no custom is set.
+            local swatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
+                function()
+                    local c = CDB()
+                    local col = c and c.rcManaWarnColor
+                    if col then return col.r, col.g, col.b, 1 end
+                    local mc = EllesmereUI.GetPowerColor("MANA")
+                    if mc then
+                        return math.min(mc.r * 1.5, 1), math.min(mc.g * 1.5, 1), math.min(mc.b * 1.5, 1), 1
+                    end
+                    return 0, 0.825, 1, 1
+                end,
+                function(r, g, b)
+                    local c = CDB(); if not c then return end
+                    c.rcManaWarnColor = { r = r, g = g, b = b }
+                    if _G._EABR_RCWarnApply then _G._EABR_RCWarnApply() end
+                end, false, 20)
+            swatch:SetPoint("RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+            leftRgn._lastInline = swatch
+
+            local swatchBlock = CreateFrame("Frame", nil, swatch)
+            swatchBlock:SetAllPoints()
+            swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            swatchBlock:EnableMouse(true)
+            swatchBlock:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(swatch, EllesmereUI.DisabledTooltip("Ready Check Mana Warning"))
+            end)
+            swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            -- Eye icon toggles a live preview (left of the swatch)
             local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
             local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
             local eyeBtn = CreateFrame("Button", nil, leftRgn)
@@ -2463,7 +2464,6 @@ initFrame:SetScript("OnEvent", function(self)
             eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
             EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
             local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-            EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
             eyeTex:SetAllPoints()
             RefreshRcwEye = function()
                 eyeTex:SetTexture(rcwPreviewShown and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2677,7 +2677,7 @@ initFrame:SetScript("OnEvent", function(self)
         local zoneDDBg = zoneDDBtn:CreateTexture(nil, "BACKGROUND")
         zoneDDBg:SetAllPoints()
         zoneDDBg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
-        EllesmereUI.MakeBorder(zoneDDBtn, 1, 1, 1, 0.20, EllesmereUI.PanelPP)
+        EllesmereUI.MakeRoundedBorder(zoneDDBtn, 1, 1, 1, 0.20, zoneDDBg)
 
         local zoneDDLbl = zoneDDBtn:CreateFontString(nil, "OVERLAY")
         zoneDDLbl:SetFont(fontPath, 13, GetABROptOutline())
@@ -2708,7 +2708,7 @@ initFrame:SetScript("OnEvent", function(self)
         local popupBg = zonePopup:CreateTexture(nil, "BACKGROUND")
         popupBg:SetAllPoints()
         popupBg:SetColorTexture(0.098, 0.090, 0.082, 0.97)
-        EllesmereUI.MakeBorder(zonePopup, 1, 1, 1, 0.12, EllesmereUI.PanelPP)
+        EllesmereUI.MakeRoundedBorder(zonePopup, 1, 1, 1, 0.12, popupBg, nil, true)
 
         -- Search box at top of zone popup
         local zoneSearch = CreateFrame("EditBox", nil, zonePopup)
@@ -2724,6 +2724,7 @@ initFrame:SetScript("OnEvent", function(self)
         local zsBg = zoneSearch:CreateTexture(nil, "BACKGROUND")
         zsBg:SetAllPoints()
         zsBg:SetColorTexture(0, 0, 0, 0.4)
+        EllesmereUI.RoundBody(zoneSearch, zsBg)
         local zsPlaceholder = zoneSearch:CreateFontString(nil, "OVERLAY")
         zsPlaceholder:SetFont(fontPath, 11, "")
         zsPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.6)
@@ -2897,7 +2898,7 @@ initFrame:SetScript("OnEvent", function(self)
             local btnBg = btn:CreateTexture(nil, "BACKGROUND")
             btnBg:SetAllPoints()
             btnBg:SetColorTexture(0.103, 0.095, 0.088, 0.9)
-            EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.20, EllesmereUI.PanelPP)
+            EllesmereUI.MakeRoundedBorder(btn, 1, 1, 1, 0.20, btnBg)
             local btnLbl = btn:CreateFontString(nil, "OVERLAY")
             btnLbl:SetFont(fontPath, 13, GetABROptOutline())
             btnLbl:SetTextColor(1, 1, 1, 0.50)
@@ -2925,7 +2926,7 @@ initFrame:SetScript("OnEvent", function(self)
             local popBg = popup:CreateTexture(nil, "BACKGROUND")
             popBg:SetAllPoints()
             popBg:SetColorTexture(0.098, 0.090, 0.082, 0.97)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.12, EllesmereUI.PanelPP)
+            EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.12, popBg, nil, true)
 
             -- Search
             local search = CreateFrame("EditBox", nil, popup)
@@ -2941,6 +2942,7 @@ initFrame:SetScript("OnEvent", function(self)
             local sBg = search:CreateTexture(nil, "BACKGROUND")
             sBg:SetAllPoints()
             sBg:SetColorTexture(0, 0, 0, 0.4)
+            EllesmereUI.RoundBody(search, sBg)
             local sPh = search:CreateFontString(nil, "OVERLAY")
             sPh:SetFont(fontPath, 11, "")
             sPh:SetTextColor(0.5, 0.5, 0.5, 0.6)

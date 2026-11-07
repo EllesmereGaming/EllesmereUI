@@ -113,13 +113,16 @@ initFrame:SetScript("OnEvent", function(self)
             _, h = W:SectionHeader(parent, "CUSTOM TRACKER", y); y = y - h
             local function Off() return not CUSTOM end
 
-            -- Custom Quest Tracker | Group Quests by Zone
-            _, h = W:DualRow(parent, y,
+            -- Custom Quest Tracker | Group Quests by Zone. The toggle shows what
+            -- the profile asks for (its own pick, else on under the EllesmereUI
+            -- style alone); the tracker in use changes at the reload.
+            local zoneRow
+            zoneRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Custom Quest Tracker",
-                  tooltip="Replaces Blizzard's tracker with EllesmereUI's own quest tracker, which never touches Blizzard's tracker or watch list. Requires a UI reload.",
-                  getValue=function() return Cfg("customTracker") or false end,
+                  tooltip="Replaces Blizzard's tracker with EllesmereUI's own quest tracker, which never touches Blizzard's tracker or watch list. On by default under the EllesmereUI style. Requires a UI reload.",
+                  getValue=function() return ns.CustomTrackerWanted(DB()) end,
                   setValue=function(v)
-                      Set("customTracker", v)
+                      ns.SetCustomTrackerWanted(DB(), v)
                       EllesmereUI:ShowConfirmPopup({
                           title       = "Reload Required",
                           message     = "Switching quest trackers requires a UI reload to apply.",
@@ -132,7 +135,82 @@ initFrame:SetScript("OnEvent", function(self)
                   tooltip="Lists quests under their quest log zone headers. Click a zone to collapse it.",
                   disabled=Off, disabledTooltip="Custom Quest Tracker",
                   getValue=function() return Cfg("customGroupByZone") ~= false end,
-                  setValue=function(v) Set("customGroupByZone", v); RefreshAll() end })
+                  setValue=function(v) Set("customGroupByZone", v); RefreshAll(); EllesmereUI:RefreshPage() end })
+            y = y - h
+
+            -- Zone header colour, on the Group Quests by Zone slot: Custom
+            -- Colored | Accent Colored. With no pick the headers follow the
+            -- Header Color, so the lit swatch is the one they show now.
+            if not EllesmereUI._prebuilding then
+                local function ZoneAccent() return (select(4, EQT.CustomZoneRGB())) end
+                local function PickZone(accent)
+                    local was = Cfg("customZoneUseAccent")
+                    Set("customZoneUseAccent", accent)
+                    EQT.RefreshCustom()
+                    if was ~= accent then EllesmereUI:RefreshPage() end
+                end
+                EllesmereUI.BuildInlineSwatches(zoneRow._rightRegion, {
+                    { tooltip = "Custom Colored", hasAlpha = false,
+                      getValue = function()
+                          if Cfg("customZoneUseAccent") == nil and not ZoneAccent() then
+                              local r, g, b = EQT.CustomZoneRGB()
+                              return r, g, b
+                          end
+                          return Cfg("customZoneR") or 1, Cfg("customZoneG") or 1, Cfg("customZoneB") or 1
+                      end,
+                      setValue = function(r, g, b)
+                          Set("customZoneR", r); Set("customZoneG", g); Set("customZoneB", b)
+                          PickZone(false)
+                      end,
+                      onClick = function(self)
+                          if ZoneAccent() then PickZone(false); return end
+                          if self._eabOrigClick then self._eabOrigClick(self) end
+                      end,
+                      refreshAlpha = function() return ZoneAccent() and 0.3 or 1 end },
+                    { tooltip = "Accent Colored", hasAlpha = false,
+                      getValue = function() return EllesmereUI.ResolveActiveAccent() end,
+                      setValue = function() end,
+                      onClick = function() PickZone(true) end,
+                      refreshAlpha = function() return ZoneAccent() and 1 or 0.3 end },
+                }, { disabled = function() return Off() or Cfg("customGroupByZone") == false end,
+                     disabledTooltip = function() return Off() and "Custom Quest Tracker" or "Group Quests by Zone" end })
+            end
+
+            -- Width | Max Height (also the mover's size rows in Unlock Mode)
+            local wMin, wMax, hMin, hMax = EQT.CustomSizeRange()
+            local function ApplySize()
+                if EQT.SyncPosition then EQT.SyncPosition() end
+            end
+            _, h = W:DualRow(parent, y,
+                { type="slider", text="Width",
+                  min = wMin, max = wMax, step = 1,
+                  disabled=Off, disabledTooltip="Custom Quest Tracker",
+                  getValue=function() return Cfg("customWidth") or 260 end,
+                  setValue=function(v) Set("customWidth", v); ApplySize() end },
+                { type="slider", text="Max Height",
+                  tooltip="The tracker grows with your quests up to this height, then scrolls.",
+                  min = hMin, max = hMax, step = 1,
+                  disabled=Off, disabledTooltip="Custom Quest Tracker",
+                  getValue=function() return Cfg("customMaxHeight") or 450 end,
+                  setValue=function(v) Set("customMaxHeight", v); ApplySize() end })
+            y = y - h
+
+            -- Grow Direction | Scrollbar
+            _, h = W:DualRow(parent, y,
+                { type="dropdown", text="Grow Direction",
+                  tooltip="Which way the tracker grows as quests are added. Up keeps its bottom edge in place.",
+                  values = { DOWN = "Down", UP = "Up" },
+                  order  = { "DOWN", "UP" },
+                  disabled=Off, disabledTooltip="Custom Quest Tracker",
+                  getValue=function() return Cfg("customGrowUp") and "UP" or "DOWN" end,
+                  setValue=function(v) EQT.SetCustomGrowUp(v == "UP") end },
+                { type="dropdown", text="Scrollbar",
+                  tooltip="When the scrollbar shows while the list is taller than the tracker. The mouse wheel scrolls either way.",
+                  values = { always = "Always", hover = "Hovered", hidden = "Hidden" },
+                  order  = { "always", "hover", "hidden" },
+                  disabled=Off, disabledTooltip="Custom Quest Tracker",
+                  getValue=function() return Cfg("customScrollbar") or "always" end,
+                  setValue=function(v) Set("customScrollbar", v); RefreshAll() end })
             y = y - h
 
             -- Quest Difficulty Colors | Collapse Completed Quests
@@ -177,50 +255,44 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) Set("customWrapTitles", v); RefreshAll() end })
             y = y - h
 
-            -- Wrap Objectives | Scrollbar
+            -- Wrap Objectives | Zone Header Font Size
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Wrap Objectives",
                   tooltip="Long objectives wrap onto more lines. Off: one line, cut short with ...",
                   disabled=Off, disabledTooltip="Custom Quest Tracker",
                   getValue=function() return Cfg("customWrapObjectives") ~= false end,
                   setValue=function(v) Set("customWrapObjectives", v); RefreshAll() end },
-                { type="dropdown", text="Scrollbar",
-                  tooltip="When the scrollbar shows while the list is taller than the tracker. The mouse wheel scrolls either way.",
-                  values = { always = "Always", hover = "Hovered", hidden = "Hidden" },
-                  order  = { "always", "hover", "hidden" },
-                  disabled=Off, disabledTooltip="Custom Quest Tracker",
-                  getValue=function() return Cfg("customScrollbar") or "always" end,
-                  setValue=function(v) Set("customScrollbar", v); RefreshAll() end })
-            y = y - h
-
-            -- Zone Header Font Size | Quest Item Buttons
-            _, h = W:DualRow(parent, y,
                 { type="slider", text="Zone Header Font Size",
                   min = 8, max = 24, step = 1,
                   disabled=Off, disabledTooltip="Custom Quest Tracker",
                   getValue=function() return Cfg("customZoneFontSize") or 13 end,
-                  setValue=function(v) Set("customZoneFontSize", v); RefreshAll() end },
+                  setValue=function(v) Set("customZoneFontSize", v); RefreshAll() end })
+            y = y - h
+
+            -- Quest Item Buttons | Flash Objective Updates
+            _, h = W:DualRow(parent, y,
                 { type="toggle", text="Quest Item Buttons",
                   tooltip="Adds a button beside quests that have a usable item. In combat, buttons stay where they are until combat ends.",
                   disabled=Off, disabledTooltip="Custom Quest Tracker",
                   getValue=function() return Cfg("customItemButtons") or false end,
-                  setValue=function(v) Set("customItemButtons", v); RefreshAll() end })
-            y = y - h
-
-            -- Flash Objective Updates | blank
-            _, h = W:DualRow(parent, y,
+                  setValue=function(v) Set("customItemButtons", v); RefreshAll() end },
                 { type="toggle", text="Flash Objective Updates",
                   tooltip="Briefly highlights an objective when its progress changes.",
                   disabled=Off, disabledTooltip="Custom Quest Tracker",
                   getValue=function() return Cfg("customFlashUpdates") or false end,
-                  setValue=function(v) Set("customFlashUpdates", v); RefreshAll() end },
+                  setValue=function(v) Set("customFlashUpdates", v); RefreshAll() end })
+            y = y - h
+
+            -- Quest Click (the section's odd last slot)
+            _, h = W:DualRow(parent, y,
                 { type="dropdown", text="Quest Click",
                   tooltip="What left-clicking a quest does. Open Quest Details shows EllesmereUI's own details window and works in combat. Open Quest Log works out of combat only, for quests tracked in the quest log. Ctrl-click still collapses.",
                   values = { collapse = "Collapse", map = "Open Quest Log", details = "Open Quest Details" },
                   order  = { "collapse", "map", "details" },
                   disabled=Off, disabledTooltip="Custom Quest Tracker",
                   getValue=function() return Cfg("customClickAction") or "collapse" end,
-                  setValue=function(v) Set("customClickAction", v); RefreshAll() end })
+                  setValue=function(v) Set("customClickAction", v); RefreshAll() end },
+                EllesmereUI.BlankRowCfg())
             y = y - h
 
             y = y - 10
@@ -239,9 +311,9 @@ initFrame:SetScript("OnEvent", function(self)
               onChanged = function() RefreshAll() end,
               onOptionChanged = function() RefreshAll() end },
             { type="dropdown", text="Hide When In Raid",
-              tooltip="Always: hide the tracker the whole time you are in a raid.\nBoss Combat: keep it visible and only hide during boss encounters.",
-              values = { always = "Always", boss = "Boss Combat" },
-              order  = { "always", "boss" },
+              tooltip="Always: hide the tracker the whole time you are in a raid.\nBoss Combat: keep it visible and only hide during boss encounters.\nNever: keep it visible in raids; only the Visibility options hide it.",
+              values = { always = "Always", boss = "Boss Combat", never = "Never" },
+              order  = { "always", "boss", "never" },
               getValue=function() return Cfg("hideInRaidMode") or "boss" end,
               setValue=function(v) Set("hideInRaidMode", v); if EQT.UpdateVisibility then EQT.UpdateVisibility() end end })
         y = y - h
@@ -263,22 +335,9 @@ initFrame:SetScript("OnEvent", function(self)
         if not EllesmereUI._prebuilding then
             local rgn = bgRow._leftRegion
             local ctrl = rgn._control
-            local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
-                rgn, bgRow:GetFrameLevel() + 3,
-                function()
-                    return (Cfg("bgR") or 0), (Cfg("bgG") or 0), (Cfg("bgB") or 0)
-                end,
-                function(r, g, b)
-                    Set("bgR", r); Set("bgG", g); Set("bgB", b)
-                    if EQT.ApplyBackground then EQT.ApplyBackground() end
-                end,
-                false, 20)
-            PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-            EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
             -- The custom tracker can hide its background until hovered.
             if CUSTOM then
                 EllesmereUI.BuildInlineCog(rgn, {
-                    anchorTo = bgSwatch,
                     title = "Background Settings",
                     rows = {
                         { type="toggle", label="Show Only When Hovered",
@@ -292,6 +351,19 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
             end
+            local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
+                rgn, bgRow:GetFrameLevel() + 3,
+                function()
+                    return (Cfg("bgR") or 0), (Cfg("bgG") or 0), (Cfg("bgB") or 0)
+                end,
+                function(r, g, b)
+                    Set("bgR", r); Set("bgG", g); Set("bgB", b)
+                    if EQT.ApplyBackground then EQT.ApplyBackground() end
+                end,
+                false, 20)
+            PP.Point(bgSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+            rgn._lastInline = bgSwatch
+            EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
         end
         y = y - h
 

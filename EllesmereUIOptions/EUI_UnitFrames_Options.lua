@@ -325,7 +325,7 @@ function ns.UF_CastBorderRows(W, parent, y, getS, onChange, matchKey, sync)
             if v ~= Shift(key, isY) then s[key] = v end
             Changed()
         end
-        local cogBtn = EllesmereUI.BuildInlineCog(row._leftRegion, { icon = EllesmereUI.DIRECTIONS_ICON,
+        local cogBtn = EllesmereUI.BuildInlineCog(row._leftRegion, {
             title = "Border Options",
             rows = {
                 { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
@@ -580,7 +580,7 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
             if v ~= Shift(key, isY) then B[key] = v end
             onChange()
         end
-        local cogBtn = EllesmereUI.BuildInlineCog(row._leftRegion, { icon = EllesmereUI.DIRECTIONS_ICON,
+        local cogBtn = EllesmereUI.BuildInlineCog(row._leftRegion, {
             title = "Border Options",
             rows = {
                 { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
@@ -619,6 +619,26 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
     -- and blocked while inheriting or at 0.
     do
         local rgn = row._rightRegion
+        -- Corner Radius (EllesmereUI_RoundedCorners.lua): the boss table's own,
+        -- beside the control with the swatch left of it; while inheriting the
+        -- main frames' radius applies.
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Corner Radius", tip = "Corner Radius",
+            disabled = function() return Inheriting() or not EllesmereUI.RoundedStyleOK(B.borderTexture) end,
+            disabledTooltip = function()
+                if Inheriting() then return NEEDS_STYLE end
+                return "This option requires the Solid, Glow or Shadow border style."
+            end,
+            rows = EllesmereUI.RoundedJoinRow(EllesmereUI.RoundedCornerRows({
+                { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                  get = function() return Src().cornerRadius or 0 end,
+                  set = function(v) B.cornerRadius = v; onChange() end },
+            }, function() return Src().cornerMask end, function(v) B.cornerMask = v; onChange() end),
+                "Join Power Bar", "Rounds a detached power bar right above or below the frame as one shape with it.",
+                function() return B.cornerJoinPower end, function(v) B.cornerJoinPower = v; onChange() end,
+                function() local pos = B.powerPosition or "below"; return pos == "detached_top" or pos == "detached_bottom" end,
+                "Detached Power Bar"),
+        })
         local sw, updateSw = EllesmereUI.BuildColorSwatch(rgn, row:GetFrameLevel() + 3,
             function()
                 local s = Src()
@@ -654,25 +674,6 @@ function ns.UF_BossFrameBorderRows(W, parent, y, B, onChange)
         end
         EllesmereUI.RegisterWidgetRefresh(UpdateSw)
         UpdateSw()
-        -- Corner Radius (EllesmereUI_RoundedCorners.lua): the boss table's own,
-        -- left of the swatch; while inheriting the main frames' radius applies.
-        EllesmereUI.BuildInlineCog(rgn, {
-            title = "Corner Radius", tip = "Corner Radius",
-            disabled = function() return Inheriting() or not EllesmereUI.RoundedStyleOK(B.borderTexture) end,
-            disabledTooltip = function()
-                if Inheriting() then return NEEDS_STYLE end
-                return "This option requires the Solid, Glow or Shadow border style."
-            end,
-            rows = EllesmereUI.RoundedJoinRow(EllesmereUI.RoundedCornerRows({
-                { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
-                  get = function() return Src().cornerRadius or 0 end,
-                  set = function(v) B.cornerRadius = v; onChange() end },
-            }, function() return Src().cornerMask end, function(v) B.cornerMask = v; onChange() end),
-                "Join Power Bar", "Rounds a detached power bar right above or below the frame as one shape with it.",
-                function() return B.cornerJoinPower end, function(v) B.cornerJoinPower = v; onChange() end,
-                function() local pos = B.powerPosition or "below"; return pos == "detached_top" or pos == "detached_bottom" end,
-                "Detached Power Bar"),
-        })
     end
     return y0 - y
 end

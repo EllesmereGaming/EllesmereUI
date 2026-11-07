@@ -63,6 +63,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  when one of its inputs moved; the recolor hook is a lookup. The pixel grid
 --  watcher (EllesmereUI.RegisterPxReapply) re-fits the strip width and glow
 --  edge of every rounded owner after a UI scale change.
+--
+--  The settings controls' rounded shapes, drawn texel to pixel (see
+--  "Settings controls" at the end of this file): EllesmereUI.MakePixelLayer,
+--  EllesmereUI.SetPillArt / SetCircleArt (the toggle's track and knob, the
+--  slider's track, fill and thumb) and EllesmereUI.MakeRoundedBorder
+--  (MakeBorder's API: dropdowns and their lists, value boxes, cog boxes).
 -------------------------------------------------------------------------------
 if not EllesmereUI then return end
 
@@ -724,4 +730,234 @@ function EllesmereUI.RoundedSetCorners(owner, corners)
     if st.border then byBorder[st.border] = st end
     Refit(owner)
     return true
+end
+
+-------------------------------------------------------------------------------
+--  Settings controls: art drawn in physical pixels
+-------------------------------------------------------------------------------
+-- EllesmereUI.MakePixelLayer(parent, fit) returns a layer object L whose
+-- _frame is a frame over the parent (its level + 1, no mouse) that ignores
+-- the parent's scale and runs at one unit per physical pixel, so art on it
+-- lands texel to pixel at every Window Scale. fit(L, k), k = physical pixels
+-- per parent unit, sizes that art: at L:Fit() (the caller's, once its art
+-- exists), as the layer is shown, and after a Window Scale change while it
+-- shows; it sets a piece again only when that piece moved. L.onShow(L), when
+-- set, runs after the fit on every show. Frames and regions come from the
+-- options page pool where the parent is pooled; a layer the pool dresses
+-- again for another use drops out.
+-- Art (media/rounded/pill-<h>.tga and circle-<d>.tga, 2..48 texels,
+-- .tools/rounded-glow/make_pill_art.py): EllesmereUI.SetPillArt(tex, h), a
+-- stadium h px tall with round ends of radius h / 2, sliced, so drawn on a
+-- pixel layer at any width; EllesmereUI.SetCircleArt(tex, d), a circle d px
+-- across, unsliced, so on any frame where the region is d px square. White:
+-- the colour is the texture's vertex colour.
+local WEAK_K = { __mode = "k" }
+local layers = setmetatable({}, WEAK_K)   -- layer frame -> layer object
+local PILL = Paths("pill-%d.tga")
+local CIRCLE = Paths("circle-%d.tga")
+local ART_MIN, ART_MAX = 2, 48
+
+function EllesmereUI.SetPillArt(tex, h)
+    if h < ART_MIN then h = ART_MIN elseif h > ART_MAX then h = ART_MAX end
+    local m = floor(h / 2)
+    tex:SetTexture(PILL[h])
+    tex:SetTextureSliceMargins(m, 0, m, 0)
+    tex:SetTextureSliceMode(STRETCHED)
+end
+
+function EllesmereUI.SetCircleArt(tex, d)
+    if d < ART_MIN then d = ART_MIN elseif d > ART_MAX then d = ART_MAX end
+    tex:SetTexture(CIRCLE[d])
+end
+
+local function FitLayer(L)
+    local layer = L._frame
+    if L.gen ~= PoolDress(layer) then
+        layers[layer] = nil
+        return
+    end
+    local px = EllesmereUI.PP.perfect
+    if L.px ~= px then
+        L.px = px
+        layer:SetScale(px)
+    end
+    local k = L.parent:GetEffectiveScale() / px
+    if k > 0 then L.fit(L, k) end
+end
+
+local function LayerOnShow(self)
+    local L = layers[self]
+    if not L then return end
+    FitLayer(L)
+    if L.onShow and layers[self] then L.onShow(L) end
+end
+
+function EllesmereUI.MakePixelLayer(parent, fit)
+    local layer = POOL.CreateFrame("Frame", nil, parent)
+    layer:SetIgnoreParentScale(true)
+    layer:SetAllPoints(parent)
+    layer:SetFrameLevel(parent:GetFrameLevel() + 1)
+    layer:EnableMouse(false)
+    local L = { _frame = layer, parent = parent, fit = fit, gen = PoolDress(layer), Fit = FitLayer }
+    layers[layer] = L
+    layer:SetScript("OnShow", LayerOnShow)
+    return L
+end
+
+-- A Window Scale change: the shown layers re-fit once the panel settles.
+local function RefitLayers()
+    for layer, L in pairs(layers) do
+        if layer:IsVisible() then FitLayer(L) end
+    end
+end
+if not EllesmereUI._onScaleChanged then EllesmereUI._onScaleChanged = {} end
+EllesmereUI._onScaleChanged[#EllesmereUI._onScaleChanged + 1] = RefitLayers
+
+-- EllesmereUI.MakeRoundedBorder(parent, r, g, b, a, body, radius, clip) is the
+-- rounded form of EllesmereUI.MakeBorder for the settings controls, with the
+-- same API (_frame, :SetColor). The outline is a rounded fill with its inverse
+-- cut out 1 px in, on a pixel layer, so its edge stays exactly 1 px and its
+-- corners stay crisp at every Window Scale. radius (default 4) is in the
+-- parent's units and is drawn in whole pixels. body (optional): the parent's
+-- background texture, masked to the same shape in the parent's units (it
+-- keeps the mask through SetColorTexture). clip (dropdown lists): on every
+-- show, the textures in the scroll content of the parent's scroll frames take
+-- a mask of the shape 1 unit in, so a row scrolled to an edge keeps the
+-- corners round. Only scroll content, which sits inside the list by
+-- construction: a list's other children may lie outside it (a side submenu),
+-- where the mask would hide them.
+local OUTLINE_RADIUS = 4
+
+local function OutlineSetColor(self, r, g, b, a)
+    self._fill:SetVertexColor(r, g, b, a or 1)
+end
+
+-- The radius in whole pixels from the parent's scale (at most what the height
+-- holds) and the body's radius in the parent's units.
+local function FitOutline(o, k)
+    local parent = o.parent
+    local half = HalfSide(parent)
+    local r = floor(o.radius * k + 0.5)
+    if half then
+        local cap = floor(half * k - 0.5)
+        if r > cap then r = cap end
+    end
+    if r > MAX_RADIUS then r = MAX_RADIUS elseif r < 2 then r = 2 end
+    if o.r ~= r then
+        -- The hole is reshaped detached (a mask carries its texture before
+        -- it is added).
+        local fill, hole = o._fill, o.hole
+        if o.r then RemoveMask(fill, hole) end
+        o.r = r
+        SetRounded(fill, r, ALL_CORNERS)
+        local inner = r - 1
+        hole:SetTexture(ROUNDED_INV[inner * 16 + ALL_CORNERS], "CLAMPTOWHITE", "CLAMPTOWHITE")
+        hole:SetTextureSliceMargins(inner, inner, inner, inner)
+        hole:SetTextureSliceMode(STRETCHED)
+        AddMask(fill, hole)
+    end
+    local bm = o.bodyMask
+    if bm then
+        local br = o.radius
+        if half then
+            local cap = floor(half - 0.5)
+            if br > cap then br = cap end
+        end
+        if br < 1 then br = 1 end
+        if o.br ~= br then
+            if o.br then RemoveMask(o.body, bm) end
+            o.br = br
+            SetRounded(bm, br, ALL_CORNERS, "CLAMPTOBLACKADDITIVE")
+            AddMask(o.body, bm)
+        end
+    end
+end
+
+-- The clip walk (walks never nest): every texture in the scroll content of
+-- the parent's own scroll frames takes the inner mask once per pool dress
+-- (the pool's reset takes it off a texture it hands out again). Edit boxes
+-- are skipped (the engine makes some of their regions).
+local cMask, cSet
+local ClipFrame
+local function ClipRegions(...)
+    for i = 1, select("#", ...) do
+        local reg = select(i, ...)
+        if reg:GetObjectType() == "Texture" then
+            local g = PoolDress(reg) or 0
+            if cSet[reg] ~= g and AddMask(reg, cMask) then cSet[reg] = g end
+        end
+    end
+end
+local function ClipChildren(...)
+    for i = 1, select("#", ...) do ClipFrame((select(i, ...))) end
+end
+ClipFrame = function(f)
+    if f:GetObjectType() == "EditBox" then return end
+    ClipRegions(f:GetRegions())
+    ClipChildren(f:GetChildren())
+end
+local function ClipScrolls(...)
+    for i = 1, select("#", ...) do
+        local f = select(i, ...)
+        if f:GetObjectType() == "ScrollFrame" then
+            local content = f:GetScrollChild()
+            if content then ClipFrame(content) end
+        end
+    end
+end
+local function ClipContent(o)
+    cMask, cSet = o.innerMask, o.clipped
+    ClipScrolls(o.parent:GetChildren())
+    cMask, cSet = nil, nil
+end
+
+function EllesmereUI.MakeRoundedBorder(parent, r, g, b, a, body, radius, clip)
+    local o = EllesmereUI.MakePixelLayer(parent, FitOutline)
+    local layer = o._frame
+    local fill = layer:CreateTexture(nil, "BORDER", nil, 7)
+    fill:SetAllPoints(layer)
+    fill:SetVertexColor(r or 0, g or 0, b or 0, a or 1)
+    -- One unit is one pixel on the layer: 1 px in from every edge.
+    local hole = layer:CreateMaskTexture()
+    hole:SetPoint("TOPLEFT", layer, "TOPLEFT", 1, -1)
+    hole:SetPoint("BOTTOMRIGHT", layer, "BOTTOMRIGHT", -1, 1)
+    o._fill, o.hole, o.SetColor = fill, hole, OutlineSetColor
+    o.radius = radius or OUTLINE_RADIUS
+    if body then
+        local bm = parent:CreateMaskTexture()
+        bm:SetAllPoints(parent)
+        o.body, o.bodyMask = body, bm
+    end
+    if clip then
+        -- 1 unit in with a radius 1 unit smaller: the same arc centres, so
+        -- the rows' corners follow the outline as their sides do.
+        local im = parent:CreateMaskTexture()
+        im:SetPoint("TOPLEFT", parent, "TOPLEFT", 1, -1)
+        im:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -1, 1)
+        SetRounded(im, max(1, o.radius - 1), ALL_CORNERS, "CLAMPTOBLACKADDITIVE")
+        o.innerMask, o.clipped, o.onShow = im, setmetatable({}, WEAK_K), ClipContent
+    end
+    o:Fit()
+    return o
+end
+
+-- EllesmereUI.RoundBody(parent, body, radius): a background with no outline
+-- (a search field, an input with no border) rounded: body takes a mask of a
+-- rounded rect over its own rect, radius (default 4) in the parent's units,
+-- at most what the body's short side holds. The mask is the parent's, so body
+-- is the parent's texture or a descendant's; it keeps the mask through
+-- SetColorTexture. Returns the mask.
+function EllesmereUI.RoundBody(parent, body, radius)
+    radius = radius or OUTLINE_RADIUS
+    local half = HalfSide(body)
+    if half then
+        local cap = floor(half - 0.5)
+        if radius > cap then radius = cap end
+    end
+    if radius < 1 then return end
+    local m = parent:CreateMaskTexture()
+    m:SetAllPoints(body)
+    SetRounded(m, radius, ALL_CORNERS, "CLAMPTOBLACKADDITIVE")
+    AddMask(body, m)
+    return m
 end

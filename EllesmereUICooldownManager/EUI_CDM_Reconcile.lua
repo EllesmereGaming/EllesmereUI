@@ -538,7 +538,10 @@ function ns.ReconcileAssignedSpellDrops(barKey)
            and not (sdurs and sdurs[id])
            and not (groups and groups[id])
            and not (hosted and hosted[id]
-                    and not (hostedMarkerFor and hostedMarkerFor[id])) then
+                    and not (hostedMarkerFor and hostedMarkerFor[id]))
+           -- Drawn by an aura icon of ours (the WoW Forever Seals stand-in):
+           -- user-added like a racial, never "owned but not displayed".
+           and not (ns.CDM_AuraIconKeeps and ns.CDM_AuraIconKeeps(id)) then
             -- Plain Blizzard cooldown. Keep if still displayed OR if the
             -- player no longer HAS the spell (talented out): a talented-out
             -- cooldown must hold its rank so it returns to the SAME slot
@@ -1206,6 +1209,9 @@ function ns.RepopulateFromBlizzard(fromRequest)
         if id < 0 then return true end
         if sd.customSpellIDs and sd.customSpellIDs[id] then return true end
         if _myRacialsSet and _myRacialsSet[id] and not racialMoves then return true end
+        -- Drawn by an aura icon of ours (the WoW Forever Seals stand-in): no
+        -- Blizzard frame would bring it back.
+        if ns.CDM_AuraIconKeeps and ns.CDM_AuraIconKeeps(id) then return true end
         -- A positive id carrying a stored duration is one of OUR injected preset/custom buffs
         -- (Bloodlust/Heroism, potions, Time Spiral, custom buff IDs). Blizzard-tracked buffs are
         -- never written into assignedSpells with a duration, so this can only be a user-added entry -- preserve it. Presets predate the customSpellIDs flag, so the flag alone is not enough.

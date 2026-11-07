@@ -550,7 +550,7 @@ local function GetNameYOffset()
 end
 ns.GetNameYOffset = GetNameYOffset
 local textSlotKeys = { "textSlotTop", "textSlotRight", "textSlotLeft", "textSlotCenter",
-    "textSlotBottomLeft", "textSlotBottomRight" }
+    "textSlotBottomLeft", "textSlotBottomRight", "textSlotTopLeft", "textSlotTopRight" }
 ns.textSlotKeys = textSlotKeys
 -- The slots that share the bar's line for the name-width estimate.
 ns._npBarTextKeys = { "textSlotRight", "textSlotLeft", "textSlotCenter" }
@@ -757,6 +757,8 @@ do
             textSlotLeft = "textSlotLeftNameFormat", textSlotCenter = "textSlotCenterNameFormat",
             textSlotBottomLeft  = "textSlotBottomLeftNameFormat",
             textSlotBottomRight = "textSlotBottomRightNameFormat",
+            textSlotTopLeft     = "textSlotTopLeftNameFormat",
+            textSlotTopRight    = "textSlotTopRightNameFormat",
         }
         local short = EllesmereUI.ShortName
         function ns.NP_FormatName(name, slotKey, unit)
@@ -932,6 +934,35 @@ local function GetHealthBarWidth()
     return BAR_W + extra
 end
 ns.GetHealthBarWidth = GetHealthBarWidth
+
+-- The Top Left / Top Right texts sit on the bar's top corners, at the Top text's
+-- height. A Core Positions element on the same corner (the raid marker, the Rare/Quest
+-- indicator, the faction badge, an aura row, the cast lockout) rises by this to clear
+-- the text: the text's top above the bar, from its Size and Y offset (0 while the corner
+-- shows no text). pos: "topleft" / "topright". db: a profile to read instead of the live one.
+do
+    local CORNER_KEY = { topleft = "textSlotTopLeft", topright = "textSlotTopRight" }
+    function ns.NP_TopCornerLift(pos, db)
+        db = db or p
+        local key = CORNER_KEY[pos]
+        if not key then return 0 end
+        local el = (db and db[key]) or defaults[key]
+        if not ns.NP_ElementFSKey(el, key) then return 0 end
+        local size = (db and db[key .. "Size"]) or defaults[key .. "Size"] or 10
+        local y = (db and db[key .. "YOffset"]) or 0
+        local nameY = (db and db.nameYOffset) or defaults.nameYOffset or 0
+        return math.max(0, 4 + nameY + y + size)
+    end
+    -- The estimated width of a top corner's text, 0 while it shows none (a Top name
+    -- leaves room for the wider of the two on each side). db: as above.
+    function ns.NP_TopCornerTextWidth(key, db)
+        db = db or p
+        local el = (db and db[key]) or defaults[key]
+        if el == "custom" then return ns.NP_CustomWidth(key, db) end
+        if not ns.NP_ElementFSKey(el, key) or ns.IsNameElement(el) then return 0 end
+        return EstimateHealthTextWidth(el)
+    end
+end
 
 -- Y offset for plate content relative to the nameplate frame. Always 0: the Blizzard nameplate
 -- frame grows from its CENTER, not its base, so a taller SetNamePlateSize enlarges the hitbox

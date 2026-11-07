@@ -137,6 +137,30 @@ function ns.PinItemPool(pool, window, memoKey)
     for _, btn in pairs(pool) do PinItemButtonLevel(btn, level) end
 end
 
+-- WoW Forever's item buttons round the icon and the pushed art with the
+-- button's own Mask (retail's templates carry IconMask, stripped where the
+-- slots are skinned). The bags draw both square.
+local function DropMask(tex, m)
+    if not tex then return end
+    for i = tex:GetNumMaskTextures(), 1, -1 do
+        if tex:GetMaskTexture(i) == m then tex:RemoveMaskTexture(m) end
+    end
+end
+function ns.UnmaskItemButton(btn)
+    local m = btn.Mask
+    if not m then return end
+    DropMask(btn.icon, m)
+    DropMask(btn:GetPushedTexture(), m)
+end
+
+-- An item's icon on a slot. WoW Forever's SetItemButtonTexture resets the
+-- icon's crop on every call (retail's keeps it), so the zoom goes back on.
+function ns.SetSlotIcon(btn, texture)
+    btn:SetItemButtonTexture(texture)
+    local z = BP().bagItemIconZoom or 0.08
+    btn.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+end
+
 -- Flat look for a ContainerFrameItemButtonTemplate slot, plus the text overlay
 -- (above the cooldown swipe) with Count, ItemLevelText and BindTypeText.
 -- Methods only: writing properties onto Blizzard template sub-objects taints.
@@ -187,6 +211,7 @@ function ns.SkinItemButton(btn, opts)
         btn.IconMask:ClearAllPoints()
         btn.IconMask:SetSize(0.001, 0.001)
     end
+    ns.UnmaskItemButton(btn)
 
     if opts.cooldownFont and btn.Cooldown then
         local cdText = btn.Cooldown:GetRegions()

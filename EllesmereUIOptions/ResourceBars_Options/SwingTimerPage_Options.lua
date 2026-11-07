@@ -78,7 +78,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
     -- Inline position cog (X/Y + unlock) on Enable, as on the GCD Bar page
     if not EllesmereUI._prebuilding then
         local rgn = enableRow._leftRegion
-        EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+        EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local p = DB(); return p and not p.swingTimer.enabled end,
             disabledTooltip = ST_TIP,
             title = "Swing Timer Position",
@@ -148,7 +148,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
               get = function() local p = DB(); return p and p.swingTimer[key] or 0 end,
               set = function(v) local p = DB(); if not p then return end; p.swingTimer[key] = v; RefreshST() end }
         end
-        EllesmereUI.BuildInlineCog(stTextRow._rightRegion, { icon = EllesmereUI.DIRECTIONS_ICON,
+        EllesmereUI.BuildInlineCog(stTextRow._rightRegion, {
             disabled = stOff, disabledTooltip = ST_TIP,
             title = "Text Position",
             rows = {
@@ -268,11 +268,29 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
                 _, h = W:DualRow(parent, y, Gate(ocfgL), Gate(ocfgR));  y = y - h
             end
         end
-        -- Border color swatch on the size slider (right region), the Corner
-        -- Radius cog left of it; neither in the search pre-build (they index
+        -- Corner Radius cog on the size slider (right region), the Border color
+        -- swatch left of it; neither in the search pre-build (they index
         -- nothing, and the row is a stand-in there) nor on Classic WoW UI's
         -- frame size slider
         if not EllesmereUI._prebuilding and not stClassic then
+            -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
+            -- border size control. The stock styles keep the rows square.
+            EllesmereUI.BuildInlineCog(bsRow._rightRegion, {
+                title = "Corner Radius", tip = "Corner Radius",
+                disabled = function() if stOff() or stStock then return true end; local p = DB(); return not EllesmereUI.RoundedStyleOK(p and p.swingTimer.borderTexture) end,
+                disabledTooltip = function()
+                    if stStock then return EllesmereUI.BlizzStyle.Label("resourcebars") end
+                    if stOff() then return ST_TIP end
+                    return "This option requires the Solid, Glow or Shadow border style."
+                end,
+                requireState = function() return stStock and "disabled" or "enabled" end,
+                rows = EllesmereUI.RoundedCornerRows({
+                    { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                      get = function() local p = DB(); return p and p.swingTimer.cornerRadius or 0 end,
+                      set = function(v) local p = DB(); if not p then return end; p.swingTimer.cornerRadius = v; RefreshST() end },
+                }, function() local p = DB(); return p and p.swingTimer.cornerMask end,
+                   function(v) local p = DB(); if not p then return end; p.swingTimer.cornerMask = v; RefreshST() end),
+            })
             EllesmereUI.BuildInlineSwatches(bsRow._rightRegion, {
                 { tooltip = "Border Color", hasAlpha = true,
                   disabled = function()
@@ -294,28 +312,10 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
                       RefreshST(); EllesmereUI:RefreshPage()
                   end },
             }, { size = 20 })
-            -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
-            -- border size control. The stock styles keep the rows square.
-            EllesmereUI.BuildInlineCog(bsRow._rightRegion, {
-                title = "Corner Radius", tip = "Corner Radius",
-                disabled = function() if stOff() or stStock then return true end; local p = DB(); return not EllesmereUI.RoundedStyleOK(p and p.swingTimer.borderTexture) end,
-                disabledTooltip = function()
-                    if stStock then return EllesmereUI.BlizzStyle.Label("resourcebars") end
-                    if stOff() then return ST_TIP end
-                    return "This option requires the Solid, Glow or Shadow border style."
-                end,
-                requireState = function() return stStock and "disabled" or "enabled" end,
-                rows = EllesmereUI.RoundedCornerRows({
-                    { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
-                      get = function() local p = DB(); return p and p.swingTimer.cornerRadius or 0 end,
-                      set = function(v) local p = DB(); if not p then return end; p.swingTimer.cornerRadius = v; RefreshST() end },
-                }, function() local p = DB(); return p and p.swingTimer.cornerMask end,
-                   function(v) local p = DB(); if not p then return end; p.swingTimer.cornerMask = v; RefreshST() end),
-            })
         end
         if not EllesmereUI._prebuilding then
             local rgn = bsRow._leftRegion
-            local cogBtn = EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+            local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
                 title = "Border Options",
                 rows = {
                     { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,

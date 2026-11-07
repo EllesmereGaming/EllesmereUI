@@ -8,7 +8,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  + _childupdate-eab-page with explicit action attrs.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.PadTaintStandDown) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.PadTaintStandDown and EllesmereUI.PadGamepadUI and EllesmereUI.RequestTimePlayed and EllesmereUI.FormatDuration) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame; WoW Forever's Gamepad interface style is read through its PadGamepadUI and PadTaintStandDown; the XP bar's Time This Level asks /played through RequestTimePlayed and its time texts read FormatDuration)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local EAB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.EAB = EAB
@@ -583,12 +583,12 @@ for _, info in ipairs(BAR_CONFIG) do
         buttonHeight = 0,
         mouseoverEnabled = false,
         mouseoverAlpha = 1,
-        -- Optional Advanced Fade layer. OFF preserves native upstream alpha behavior.
-        advancedFadeEnabled = false,
+        -- Optional Advanced Fade layer: on while a condition is checked (none by
+        -- default, which keeps the native alpha behavior).
         fadeMaxAlpha = 1,
         fadeInSpeed = 0.15,
         fadeOutSpeed = 0.15,
-        fadeConditions = {},
+        advancedFadeConditions = {},
         combatShowEnabled = false,
         combatHideEnabled = false,
         housingHideEnabled = false,
@@ -704,12 +704,12 @@ for _, info in ipairs(EXTRA_BARS) do
     defaults.profile.bars[info.key] = {
         mouseoverEnabled = false,
         mouseoverAlpha = 1,
-        -- Optional Advanced Fade layer. OFF preserves native upstream alpha behavior.
-        advancedFadeEnabled = false,
+        -- Optional Advanced Fade layer: on while a condition is checked (none by
+        -- default, which keeps the native alpha behavior).
         fadeMaxAlpha = 1,
         fadeInSpeed = 0.15,
         fadeOutSpeed = 0.15,
-        fadeConditions = {},
+        advancedFadeConditions = {},
         combatShowEnabled = false,
         combatHideEnabled = false,
         housingHideEnabled = false,

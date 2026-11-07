@@ -737,20 +737,14 @@ end
 -- raids, never in chat lockdown.
 local function Announce(questID, text)
     if not Cfg("announceProgress") or not text or text == "" then return end
-    local quest = GetQuestLink(questID) or C_QuestLog.GetTitleForQuestID(questID) or ""
-    local msg = "[EUI] " .. quest .. ": " .. text
-    -- Dev mode: local chat frame only, so it can be tested solo.
-    if EllesmereUI.IsDevModeActive() then
-        EllesmereUI.Print(msg)
-        return
-    end
     if IsInRaid() then return end
     local chatType
     if IsInGroup(LE_PARTY_CATEGORY_INSTANCE) then chatType = "INSTANCE_CHAT"
     elseif IsInGroup(LE_PARTY_CATEGORY_HOME) then chatType = "PARTY"
     else return end
     if C_ChatInfo.InChatMessagingLockdown and C_ChatInfo.InChatMessagingLockdown() then return end
-    C_ChatInfo.SendChatMessage(msg, chatType)
+    local quest = GetQuestLink(questID) or C_QuestLog.GetTitleForQuestID(questID) or ""
+    C_ChatInfo.SendChatMessage("[EUI] " .. quest .. ": " .. text, chatType)
 end
 
 -- Records the quest's current counts. Returns false when it has no data yet.

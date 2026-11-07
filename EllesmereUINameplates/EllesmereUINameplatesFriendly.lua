@@ -67,14 +67,21 @@ local function IsFriendlyNPCEnabled()
     return fp and (fp.showFriendlyNPCs == true)
 end
 
--- Per-unit gate for friendly NPC nameplates. On top of our own toggle, respect
--- Blizzard's "NPC Names" filter via UnitShouldDisplayName(unit): it returns true
+-- Per-unit gate for friendly NPC nameplates. On top of our own toggle: with
+-- nameplateForceShowUnitName on (the Forever default; off in retail) Blizzard's
+-- plate skips the "NPC Names" filter, so take its UnitFrame's own decision.
+-- Otherwise respect the filter via UnitShouldDisplayName(unit): it returns true
 -- for the "desired" NPCs the game names (vendors, guards, quest givers, plus the
 -- current target/mouseover) and false for flavor NPCs the filter hides. Without
 -- this gate our overlay / custom plate would draw a name on NPCs the game
 -- intentionally leaves nameless. nil-guarded for safety.
 local function IsFriendlyNPCShownForUnit(unit)
     if not IsFriendlyNPCEnabled() then return false end
+    if GetCVarBool("nameplateForceShowUnitName") then
+        local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
+        local uf = nameplate and nameplate.UnitFrame
+        if uf and not uf:IsForbidden() then return uf:ShouldShowName() end
+    end
     if unit and UnitShouldDisplayName and not UnitShouldDisplayName(unit) then
         return false
     end

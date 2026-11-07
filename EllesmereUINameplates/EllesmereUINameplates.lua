@@ -41,16 +41,21 @@ _G.EllesmereNameplates_NS = ns
 local _npYOffsetState = setmetatable({}, { __mode = "k" })
 
 -- Health text bar slots; file scope to avoid per-call alloc in UpdateHealthValues.
--- The bottom slots hang under the health bar's corners (see PlaceSlotText); keep
--- them after the three bar slots, which are also read by index.
+-- The corner slots hang under the health bar's bottom corners (bottom) or over its
+-- top corners (top) and never truncate (corner); see PlaceSlotText. They follow the
+-- three bar slots, and every entry is also read by index (bottom 4, 5; top 6, 7).
 local HP_BAR_SLOTS = {
     { key = "textSlotRight",  anchor = "RIGHT",  point = "RIGHT",  xOff = -2 },
     { key = "textSlotLeft",   anchor = "LEFT",   point = "LEFT",   xOff = 4 },
     { key = "textSlotCenter", anchor = "CENTER", point = "CENTER", xOff = 0 },
     { key = "textSlotBottomLeft",  anchor = "TOPLEFT",  point = "BOTTOMLEFT",  xOff = 0, justify = "LEFT",  bottom = true,
-      xKey = "textSlotBottomLeftXOffset",  yKey = "textSlotBottomLeftYOffset" },
+      corner = true, xKey = "textSlotBottomLeftXOffset",  yKey = "textSlotBottomLeftYOffset" },
     { key = "textSlotBottomRight", anchor = "TOPRIGHT", point = "BOTTOMRIGHT", xOff = 0, justify = "RIGHT", bottom = true,
-      xKey = "textSlotBottomRightXOffset", yKey = "textSlotBottomRightYOffset" },
+      corner = true, xKey = "textSlotBottomRightXOffset", yKey = "textSlotBottomRightYOffset" },
+    { key = "textSlotTopLeft",  anchor = "BOTTOMLEFT",  point = "TOPLEFT",  xOff = 0, justify = "LEFT",  top = true,
+      corner = true, xKey = "textSlotTopLeftXOffset",  yKey = "textSlotTopLeftYOffset" },
+    { key = "textSlotTopRight", anchor = "BOTTOMRIGHT", point = "TOPRIGHT", xOff = 0, justify = "RIGHT", top = true,
+      corner = true, xKey = "textSlotTopRightXOffset", yKey = "textSlotTopRightYOffset" },
 }
 
 ns.NP_ABSORB_STYLE_TEX = {
@@ -86,11 +91,14 @@ function ns._appendDisplayPresetKeys(t)
         "textSlotCenterSize", "textSlotCenterXOffset", "textSlotCenterYOffset", "textSlotCenterStrata",
         "textSlotBottomLeftSize", "textSlotBottomLeftXOffset", "textSlotBottomLeftYOffset", "textSlotBottomLeftStrata",
         "textSlotBottomRightSize", "textSlotBottomRightXOffset", "textSlotBottomRightYOffset", "textSlotBottomRightStrata",
+        "textSlotTopLeftSize", "textSlotTopLeftXOffset", "textSlotTopLeftYOffset", "textSlotTopLeftStrata",
+        "textSlotTopRightSize", "textSlotTopRightXOffset", "textSlotTopRightYOffset", "textSlotTopRightStrata",
         "textSlotTopColor", "textSlotRightColor", "textSlotLeftColor", "textSlotCenterColor",
-        "textSlotBottomLeftColor", "textSlotBottomRightColor",
+        "textSlotBottomLeftColor", "textSlotBottomRightColor", "textSlotTopLeftColor", "textSlotTopRightColor",
         "threatColorHealth", "threatColorBorder", "threatColorName",
         "textSlotTopClassColor", "textSlotRightClassColor", "textSlotLeftClassColor", "textSlotCenterClassColor",
         "textSlotBottomLeftClassColor", "textSlotBottomRightClassColor",
+        "textSlotTopLeftClassColor", "textSlotTopRightClassColor",
         "textSlotTopColorMode", "textSlotTopNameColorOn", "textSlotTopNameColor",
         "textSlotTopLevelColorOn", "textSlotTopLevelColor", "textSlotTopLevelDiffOn",
         "textSlotRightColorMode", "textSlotRightNameColorOn", "textSlotRightNameColor",
@@ -103,6 +111,10 @@ function ns._appendDisplayPresetKeys(t)
         "textSlotBottomLeftLevelColorOn", "textSlotBottomLeftLevelColor", "textSlotBottomLeftLevelDiffOn",
         "textSlotBottomRightColorMode", "textSlotBottomRightNameColorOn", "textSlotBottomRightNameColor",
         "textSlotBottomRightLevelColorOn", "textSlotBottomRightLevelColor", "textSlotBottomRightLevelDiffOn",
+        "textSlotTopLeftColorMode", "textSlotTopLeftNameColorOn", "textSlotTopLeftNameColor",
+        "textSlotTopLeftLevelColorOn", "textSlotTopLeftLevelColor", "textSlotTopLeftLevelDiffOn",
+        "textSlotTopRightColorMode", "textSlotTopRightNameColorOn", "textSlotTopRightNameColor",
+        "textSlotTopRightLevelColorOn", "textSlotTopRightLevelColor", "textSlotTopRightLevelDiffOn",
         "tankHasAggroEnabled", "tankHasAggro", "classicTankAggro", "tankHasAggroOverrideMobType",
         "tankHasAggroOverrideBoss",
         "dpsHasAggro", "dpsNearAggro", "offTankAggroEnabled", "offTankAggro",
@@ -305,6 +317,8 @@ local defaults = {
     textSlotCenter = "none",
     textSlotBottomLeft = "none",
     textSlotBottomRight = "none",
+    textSlotTopLeft = "none",
+    textSlotTopRight = "none",
     showTargetArrows = false,
     targetArrowDouble = false,
     targetArrowScale = 1.0,
@@ -568,10 +582,13 @@ local defaults = {
     textSlotCenterSize = 10, textSlotCenterXOffset = 0, textSlotCenterYOffset = 0,
     textSlotBottomLeftSize = 10,  textSlotBottomLeftXOffset = 0,  textSlotBottomLeftYOffset = 0,
     textSlotBottomRightSize = 10, textSlotBottomRightXOffset = 0, textSlotBottomRightYOffset = 0,
+    textSlotTopLeftSize = 10,  textSlotTopLeftXOffset = 0,  textSlotTopLeftYOffset = 0,
+    textSlotTopRightSize = 10, textSlotTopRightXOffset = 0, textSlotTopRightYOffset = 0,
     -- Core Text Positions: slot-based strata (MEDIUM = the shared text tier)
     textSlotTopStrata = "MEDIUM",  textSlotRightStrata = "MEDIUM",
     textSlotLeftStrata = "MEDIUM", textSlotCenterStrata = "MEDIUM",
     textSlotBottomLeftStrata = "MEDIUM", textSlotBottomRightStrata = "MEDIUM",
+    textSlotTopLeftStrata = "MEDIUM", textSlotTopRightStrata = "MEDIUM",
     -- Core Text Positions: slot-based colors
     textSlotTopColor = { r = 1, g = 1, b = 1 },
     textSlotRightColor = { r = 1, g = 1, b = 1 },
@@ -579,11 +596,14 @@ local defaults = {
     textSlotCenterColor = { r = 1, g = 1, b = 1 },
     textSlotBottomLeftColor = { r = 1, g = 1, b = 1 },
     textSlotBottomRightColor = { r = 1, g = 1, b = 1 },
+    textSlotTopLeftColor = { r = 1, g = 1, b = 1 },
+    textSlotTopRightColor = { r = 1, g = 1, b = 1 },
     -- Core Text Positions: per-slot class colour flag, read only by ns.NP_SlotColorMode
     -- while the slot's Text Coloring mode (<slot>ColorMode, no default) is unset.
     textSlotTopClassColor = false, textSlotRightClassColor = false,
     textSlotLeftClassColor = false, textSlotCenterClassColor = false,
     textSlotBottomLeftClassColor = false, textSlotBottomRightClassColor = false,
+    textSlotTopLeftClassColor = false, textSlotTopRightClassColor = false,
     healthBarTexture = "none",  -- bar texture overlay
     castBarTexture = "none",
     healthTextureBg = false,  -- Textured Background (Bar Texture cog)

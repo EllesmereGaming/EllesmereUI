@@ -406,7 +406,7 @@ local function BuildBarAppearance(parent, y, ctx)
                 return ShownBorderDefaults(texture, thickness, step, px)
             end
             local offsetButton = EllesmereUI.BuildInlineCog(region, {
-                icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = region._control,
+                anchorTo = region._control,
                 title="Border Options",
                 captureRegion=region,
                 rows={
@@ -522,7 +522,7 @@ local function BuildBarAppearance(parent, y, ctx)
 
     do
         local region = bgMultiplierRow._leftRegion
-        EllesmereUI.BuildInlineCog(region, { icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = region._control,
+        EllesmereUI.BuildInlineCog(region, { anchorTo = region._control,
             title="Multiplier X Settings",
             captureRegion=region,
             rows={{ type="dropdown", label="Growth Direction",
@@ -537,7 +537,7 @@ local function BuildBarAppearance(parent, y, ctx)
 
     do
         local region = bgMultiplierRow._rightRegion
-        EllesmereUI.BuildInlineCog(region, { icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = region._control,
+        EllesmereUI.BuildInlineCog(region, { anchorTo = region._control,
             title="Multiplier Y Settings",
             captureRegion=region,
             rows={{ type="dropdown", label="Growth Direction",
@@ -745,7 +745,7 @@ local function BuildBarAppearance(parent, y, ctx)
                 return ShownBorderDefaults(tex, th, step, px)
             end
             local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
-                icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = rgn._control,
+                anchorTo = rgn._control,
                 title = "Border Options",
                 captureRegion = rgn,
                 rows = {
@@ -1987,23 +1987,7 @@ local function BuildBarAppearance(parent, y, ctx)
     do
         local rgn = keybindRow._rightRegion
         local ctrl = rgn._control
-        local kbSwatch, kbUpdateSwatch = EllesmereUI.BuildColorSwatch(
-            rgn, keybindRow:GetFrameLevel() + 3,
-            function()
-                local c = SGet("keybindFontColor")
-                if not c then return 1, 1, 1 end
-                return c.r, c.g, c.b
-            end,
-            function(r, g, b)
-                SSetColor("keybindFontColor", r, g, b, nil, function(k) EAB:ApplyFontsForBar(k) end)
-                SUpdatePreview()
-            end,
-            false, 20)
-        PP.Point(kbSwatch, "RIGHT", ctrl, "LEFT", -12, 0)
-        rgn._lastInline = kbSwatch
-        EllesmereUI.RegisterWidgetRefresh(function() kbUpdateSwatch() end)
-
-        EllesmereUI.BuildInlineCog(rgn, { anchorTo = kbSwatch, icon = EllesmereUI.DIRECTIONS_ICON,
+        EllesmereUI.BuildInlineCog(rgn, {
             title = "Keybind Text Offsets",
             rows = {
                 { type="dropdown", label="Position",
@@ -2030,6 +2014,22 @@ local function BuildBarAppearance(parent, y, ctx)
                   end },
             },
         })
+
+        local kbSwatch, kbUpdateSwatch = EllesmereUI.BuildColorSwatch(
+            rgn, keybindRow:GetFrameLevel() + 3,
+            function()
+                local c = SGet("keybindFontColor")
+                if not c then return 1, 1, 1 end
+                return c.r, c.g, c.b
+            end,
+            function(r, g, b)
+                SSetColor("keybindFontColor", r, g, b, nil, function(k) EAB:ApplyFontsForBar(k) end)
+                SUpdatePreview()
+            end,
+            false, 20)
+        PP.Point(kbSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+        rgn._lastInline = kbSwatch
+        EllesmereUI.RegisterWidgetRefresh(function() kbUpdateSwatch() end)
     end
 
     local macroRow
@@ -2154,23 +2154,7 @@ local function BuildBarAppearance(parent, y, ctx)
     do
         local rgn = macroRow._rightRegion
         local ctrl = rgn._control
-        local mcSwatch, mcUpdateSwatch = EllesmereUI.BuildColorSwatch(
-            rgn, macroRow:GetFrameLevel() + 3,
-            function()
-                local c = SGet("macroFontColor")
-                if not c then return 1, 1, 1 end
-                return c.r, c.g, c.b
-            end,
-            function(r, g, b)
-                SSetColor("macroFontColor", r, g, b, nil, function(k) EAB:ApplyFontsForBar(k) end)
-                SUpdatePreview()
-            end,
-            false, 20)
-        PP.Point(mcSwatch, "RIGHT", ctrl, "LEFT", -12, 0)
-        rgn._lastInline = mcSwatch
-        EllesmereUI.RegisterWidgetRefresh(function() mcUpdateSwatch() end)
-
-        EllesmereUI.BuildInlineCog(rgn, { anchorTo = mcSwatch, icon = EllesmereUI.DIRECTIONS_ICON,
+        EllesmereUI.BuildInlineCog(rgn, {
             title = "Macro Text Offsets",
             rows = {
                 { type="dropdown", label="Position",
@@ -2196,6 +2180,22 @@ local function BuildBarAppearance(parent, y, ctx)
                   end },
             },
         })
+
+        local mcSwatch, mcUpdateSwatch = EllesmereUI.BuildColorSwatch(
+            rgn, macroRow:GetFrameLevel() + 3,
+            function()
+                local c = SGet("macroFontColor")
+                if not c then return 1, 1, 1 end
+                return c.r, c.g, c.b
+            end,
+            function(r, g, b)
+                SSetColor("macroFontColor", r, g, b, nil, function(k) EAB:ApplyFontsForBar(k) end)
+                SUpdatePreview()
+            end,
+            false, 20)
+        PP.Point(mcSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+        rgn._lastInline = mcSwatch
+        EllesmereUI.RegisterWidgetRefresh(function() mcUpdateSwatch() end)
     end
 
     chargesRow, h = W:DualRow(parent, y,
@@ -2281,23 +2281,7 @@ local function BuildBarAppearance(parent, y, ctx)
     do
         local rgn = chargesRow._leftRegion
         local ctrl = rgn._control
-        local ctSwatch, ctUpdateSwatch = EllesmereUI.BuildColorSwatch(
-            rgn, chargesRow:GetFrameLevel() + 3,
-            function()
-                local c = SGet("countFontColor")
-                if not c then return 1, 1, 1 end
-                return c.r, c.g, c.b
-            end,
-            function(r, g, b)
-                SSetColor("countFontColor", r, g, b, nil, function(k) EAB:ApplyFontsForBar(k) end)
-                SUpdatePreview()
-            end,
-            false, 20)
-        PP.Point(ctSwatch, "RIGHT", ctrl, "LEFT", -12, 0)
-        rgn._lastInline = ctSwatch
-        EllesmereUI.RegisterWidgetRefresh(function() ctUpdateSwatch() end)
-
-        EllesmereUI.BuildInlineCog(rgn, { anchorTo = ctSwatch, icon = EllesmereUI.DIRECTIONS_ICON,
+        EllesmereUI.BuildInlineCog(rgn, {
             title = "Charges Text Offsets",
             rows = {
                 { type="dropdown", label="Position",
@@ -2323,6 +2307,22 @@ local function BuildBarAppearance(parent, y, ctx)
                   end },
             },
         })
+
+        local ctSwatch, ctUpdateSwatch = EllesmereUI.BuildColorSwatch(
+            rgn, chargesRow:GetFrameLevel() + 3,
+            function()
+                local c = SGet("countFontColor")
+                if not c then return 1, 1, 1 end
+                return c.r, c.g, c.b
+            end,
+            function(r, g, b)
+                SSetColor("countFontColor", r, g, b, nil, function(k) EAB:ApplyFontsForBar(k) end)
+                SUpdatePreview()
+            end,
+            false, 20)
+        PP.Point(ctSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+        rgn._lastInline = ctSwatch
+        EllesmereUI.RegisterWidgetRefresh(function() ctUpdateSwatch() end)
     end
 
     do
@@ -2396,23 +2396,7 @@ local function BuildBarAppearance(parent, y, ctx)
     do
         local rgn = chargesRow._rightRegion
         local ctrl = rgn._control
-        local cdSwatch, cdUpdateSwatch = EllesmereUI.BuildColorSwatch(
-            rgn, chargesRow:GetFrameLevel() + 3,
-            function()
-                local c = SGet("cooldownTextColor")
-                if not c then return 1, 1, 1 end
-                return c.r, c.g, c.b
-            end,
-            function(r, g, b)
-                SSetColor("cooldownTextColor", r, g, b, nil, function(k) EAB:ApplyCooldownFontsForBar(k) end)
-                SUpdatePreview()
-            end,
-            false, 20)
-        PP.Point(cdSwatch, "RIGHT", ctrl, "LEFT", -12, 0)
-        rgn._lastInline = cdSwatch
-        EllesmereUI.RegisterWidgetRefresh(function() cdUpdateSwatch() end)
-
-        EllesmereUI.BuildInlineCog(rgn, { anchorTo = cdSwatch, icon = EllesmereUI.DIRECTIONS_ICON,
+        EllesmereUI.BuildInlineCog(rgn, {
             title = "Cooldown Text",
             rows = {
                 { type="slider", label="X Offset", min=-150, max=150, step=1,
@@ -2435,6 +2419,22 @@ local function BuildBarAppearance(parent, y, ctx)
                   end },
             },
         })
+
+        local cdSwatch, cdUpdateSwatch = EllesmereUI.BuildColorSwatch(
+            rgn, chargesRow:GetFrameLevel() + 3,
+            function()
+                local c = SGet("cooldownTextColor")
+                if not c then return 1, 1, 1 end
+                return c.r, c.g, c.b
+            end,
+            function(r, g, b)
+                SSetColor("cooldownTextColor", r, g, b, nil, function(k) EAB:ApplyCooldownFontsForBar(k) end)
+                SUpdatePreview()
+            end,
+            false, 20)
+        PP.Point(cdSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+        rgn._lastInline = cdSwatch
+        EllesmereUI.RegisterWidgetRefresh(function() cdUpdateSwatch() end)
     end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h

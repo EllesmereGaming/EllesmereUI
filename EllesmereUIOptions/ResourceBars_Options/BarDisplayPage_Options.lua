@@ -53,7 +53,6 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
         end
         eyeBtn:SetFrameLevel(hdr:GetFrameLevel() + 5)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function Blocked()
             local p = DB()
@@ -295,32 +294,6 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
     if not EllesmereUI._prebuilding then
         local rgn = bgRow._rightRegion
         local ctrl = rgn._control
-        local bgSwatch, bgUpdateSwatch = EllesmereUI.BuildColorSwatch(
-            rgn, bgRow:GetFrameLevel() + 3,
-            function()
-                local p = DB()
-                if p and p.splitBg == true then
-                    return p.secondary.barBgR or 0, p.secondary.barBgG or 0,
-                           p.secondary.barBgB or 0
-                end
-                return (p and p.health.bgR or 0x11/255), (p and p.health.bgG or 0x11/255),
-                       (p and p.health.bgB or 0x11/255)
-            end,
-            function(r, g, b)
-                local p = DB(); if not p then return end
-                if p.splitBg == true then
-                    p.secondary.barBgR, p.secondary.barBgG, p.secondary.barBgB = r, g, b
-                else
-                    p.health.bgR, p.health.bgG, p.health.bgB = r, g, b
-                    p.primary.bgR, p.primary.bgG, p.primary.bgB = r, g, b
-                    p.secondary.barBgR, p.secondary.barBgG, p.secondary.barBgB = r, g, b
-                end
-                SmoothRefresh()
-                EllesmereUI:RefreshPage()
-            end,
-            nil, 20)
-        PP.Point(bgSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
-        EllesmereUI.RegisterWidgetRefresh(bgUpdateSwatch)
 
         -- Split cog. The feature is an options-side VIEW: the bars already read their own keys
         -- at runtime (health.bg*, primary.bg*, secondary.barBg*) and the unified row just writes
@@ -332,7 +305,6 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
         -- by the show wrapper on first open.
         local _, splitCogShow
         _, splitCogShow = EllesmereUI.BuildInlineCog(rgn, {
-            anchorTo = bgSwatch,
             title = "Background",
             minWidth = 290,
             rows = {
@@ -362,6 +334,34 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                   end },
             },
         })
+
+        local bgSwatch, bgUpdateSwatch = EllesmereUI.BuildColorSwatch(
+            rgn, bgRow:GetFrameLevel() + 3,
+            function()
+                local p = DB()
+                if p and p.splitBg == true then
+                    return p.secondary.barBgR or 0, p.secondary.barBgG or 0,
+                           p.secondary.barBgB or 0
+                end
+                return (p and p.health.bgR or 0x11/255), (p and p.health.bgG or 0x11/255),
+                       (p and p.health.bgB or 0x11/255)
+            end,
+            function(r, g, b)
+                local p = DB(); if not p then return end
+                if p.splitBg == true then
+                    p.secondary.barBgR, p.secondary.barBgG, p.secondary.barBgB = r, g, b
+                else
+                    p.health.bgR, p.health.bgG, p.health.bgB = r, g, b
+                    p.primary.bgR, p.primary.bgG, p.primary.bgB = r, g, b
+                    p.secondary.barBgR, p.secondary.barBgG, p.secondary.barBgB = r, g, b
+                end
+                SmoothRefresh()
+                EllesmereUI:RefreshPage()
+            end,
+            nil, 20)
+        PP.Point(bgSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+        rgn._lastInline = bgSwatch
+        EllesmereUI.RegisterWidgetRefresh(bgUpdateSwatch)
     end
 
     -- Split rows are built ONLY while the split is enabled, so the page is byte-identical for
@@ -633,7 +633,6 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
             local p = DB(); return not (p and p.secondary.blizzardClassArt)
         end
         EllesmereUI.BuildInlineCog(rgn, {
-            icon = EllesmereUI.RESIZE_ICON,
             disabled = artOff, disabledTooltip = "Blizzard Class Resource Art",
             title = "Blizzard Class Resource Art",
             rows = {
@@ -773,7 +772,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
         local function heightMatched()
             return EllesmereUI.GetHeightMatchTarget and EllesmereUI.GetHeightMatchTarget("ERB_Power")
         end
-        EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+        EllesmereUI.BuildInlineCog(rgn, {
             disabled = function()
                 local p = DB()
                 if not (p and p.primary.enabled and p.primary.expandIfNoResource) then return true end
@@ -802,7 +801,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
     -- Inline reposition cog on "Shift Elements if No Resource": Extra Y Offset
     if not EllesmereUI._prebuilding then
         local rgn = shiftRow._rightRegion
-        EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+        EllesmereUI.BuildInlineCog(rgn, {
             title = "Shift Offset",
             rows = {
                 { type = "slider", pixel = true, label = "Extra Y Offset", min = -50, max = 50, step = 1,
@@ -852,7 +851,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
     -- Inline reposition cog on "Shift Elements if No Power": Extra Y Offset
     if not EllesmereUI._prebuilding then
         local rgn = shiftRow2._leftRegion
-        EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+        EllesmereUI.BuildInlineCog(rgn, {
             title = "Shift Offset",
             rows = {
                 { type = "slider", pixel = true, label = "Extra Y Offset", min = -50, max = 50, step = 1,
@@ -1124,7 +1123,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                       end }); y = y - h
                 if not EllesmereUI._prebuilding then
                     -- Placement cog: position, gap, height, offsets
-                    EllesmereUI.BuildInlineCog(fdmRow._leftRegion, { icon = EllesmereUI.DIRECTIONS_ICON,
+                    EllesmereUI.BuildInlineCog(fdmRow._leftRegion, {
                         disabled = FdmOff,
                         disabledTooltip = FdmOffTip,
                         title = "Mana Bar",
@@ -1168,9 +1167,49 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                               end },
                         },
                     })
-                    -- Text colour, left of the Mana Bar Text dropdown: custom colour
-                    -- or the mana colour, like the Power Text swatches. The text cog
-                    -- below chains left of them.
+                    -- Text cog: the Power Text cog's options plus Text Size
+                    EllesmereUI.BuildInlineCog(fdmRow._rightRegion, {
+                        disabled = FdmTextDis,
+                        disabledTooltip = FdmTextDisTip,
+                        title = "Mana Bar Text",
+                        rows = {
+                            { type = "slider", label = "Text Size", min = 8, max = 24, step = 1,
+                              get = function() local t = FdmCfg(); return t and t.textSize or 8 end,
+                              set = function(v)
+                                  local t = FdmCfg(); if not t then return end
+                                  t.textSize = v; RefreshFDM()
+                              end },
+                            { type = "toggle", label = "Show %",
+                              get = function() local t = FdmCfg(); return (not t) or t.showPercent ~= false end,
+                              set = function(v)
+                                  local t = FdmCfg(); if not t then return end
+                                  t.showPercent = v; RefreshFDM()
+                              end },
+                            { type = "dropdown", label = "Anchor",
+                              values = { LEFT = "Left", CENTER = "Center", RIGHT = "Right" },
+                              order = { "LEFT", "CENTER", "RIGHT" },
+                              tooltip = "Anchor the text inside the bar. The X/Y offsets move it from there.",
+                              get = function() local t = FdmCfg(); return t and t.textAnchor or "CENTER" end,
+                              set = function(v)
+                                  local t = FdmCfg(); if not t then return end
+                                  t.textAnchor = v; RefreshFDM()
+                              end },
+                            { type = "slider", label = "X Offset", min = -100, max = 100, step = 1,
+                              get = function() local t = FdmCfg(); return t and t.textXOffset or 0 end,
+                              set = function(v)
+                                  local t = FdmCfg(); if not t then return end
+                                  t.textXOffset = v; RefreshFDM()
+                              end },
+                            { type = "slider", label = "Y Offset", min = -100, max = 100, step = 1,
+                              get = function() local t = FdmCfg(); return t and t.textYOffset or 0 end,
+                              set = function(v)
+                                  local t = FdmCfg(); if not t then return end
+                                  t.textYOffset = v; RefreshFDM()
+                              end },
+                        },
+                    })
+                    -- Text colour, left of the text cog: custom colour or the
+                    -- mana colour, like the Power Text swatches.
                     EllesmereUI.BuildInlineSwatches(fdmRow._rightRegion, {
                         { tooltip = "Custom Colored",
                           hasAlpha = true,
@@ -1214,47 +1253,6 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                               return (t and t.textCustomColored == false) and 1 or 0.3
                           end },
                     }, { disabled = FdmTextDis, disabledTooltip = FdmTextDisTip, size = 20 })
-                    -- Text cog: the Power Text cog's options plus Text Size
-                    EllesmereUI.BuildInlineCog(fdmRow._rightRegion, { icon = EllesmereUI.DIRECTIONS_ICON,
-                        disabled = FdmTextDis,
-                        disabledTooltip = FdmTextDisTip,
-                        title = "Mana Bar Text",
-                        rows = {
-                            { type = "slider", label = "Text Size", min = 8, max = 24, step = 1,
-                              get = function() local t = FdmCfg(); return t and t.textSize or 8 end,
-                              set = function(v)
-                                  local t = FdmCfg(); if not t then return end
-                                  t.textSize = v; RefreshFDM()
-                              end },
-                            { type = "toggle", label = "Show %",
-                              get = function() local t = FdmCfg(); return (not t) or t.showPercent ~= false end,
-                              set = function(v)
-                                  local t = FdmCfg(); if not t then return end
-                                  t.showPercent = v; RefreshFDM()
-                              end },
-                            { type = "dropdown", label = "Anchor",
-                              values = { LEFT = "Left", CENTER = "Center", RIGHT = "Right" },
-                              order = { "LEFT", "CENTER", "RIGHT" },
-                              tooltip = "Anchor the text inside the bar. The X/Y offsets move it from there.",
-                              get = function() local t = FdmCfg(); return t and t.textAnchor or "CENTER" end,
-                              set = function(v)
-                                  local t = FdmCfg(); if not t then return end
-                                  t.textAnchor = v; RefreshFDM()
-                              end },
-                            { type = "slider", label = "X Offset", min = -100, max = 100, step = 1,
-                              get = function() local t = FdmCfg(); return t and t.textXOffset or 0 end,
-                              set = function(v)
-                                  local t = FdmCfg(); if not t then return end
-                                  t.textXOffset = v; RefreshFDM()
-                              end },
-                            { type = "slider", label = "Y Offset", min = -100, max = 100, step = 1,
-                              get = function() local t = FdmCfg(); return t and t.textYOffset or 0 end,
-                              set = function(v)
-                                  local t = FdmCfg(); if not t then return end
-                                  t.textYOffset = v; RefreshFDM()
-                              end },
-                        },
-                    })
                 end
                 if SCP then
                     local costRow
@@ -1335,7 +1333,7 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
         -- Inline position cog (X/Y + unlock) on Enable, as on the GCD Bar page
         if not EllesmereUI._prebuilding then
             local rgn = asEnableRow._leftRegion
-            EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+            EllesmereUI.BuildInlineCog(rgn, {
                 disabled = function() local p = DB(); return p and not p.arcaneSoul.enabled end,
                 disabledTooltip = AS_TIP,
                 title = "Arcane Soul Position",

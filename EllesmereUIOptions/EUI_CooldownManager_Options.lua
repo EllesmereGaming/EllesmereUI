@@ -846,7 +846,7 @@ initFrame:SetScript("OnEvent", function(self)
             ddBtn:SetFrameLevel(headerFrame:GetFrameLevel() + 5)
             local ddBg  = ddBtn:CreateTexture(nil, "BACKGROUND")
             ddBg:SetAllPoints(); ddBg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
-            local ddBrd = EllesmereUI.MakeBorder(ddBtn, 1, 1, 1, mBrdA, EllesmereUI.PanelPP)
+            local ddBrd = EllesmereUI.MakeRoundedBorder(ddBtn, 1, 1, 1, mBrdA, ddBg)
             local ddLbl = ddBtn:CreateFontString(nil, "OVERLAY")
             ddLbl:SetFont(FONT_PATH, 13, GetCDMOptOutline())
             ddLbl:SetAlpha(mTxtA); ddLbl:SetJustifyH("LEFT")
@@ -869,7 +869,7 @@ initFrame:SetScript("OnEvent", function(self)
                 menu:SetPoint("TOPRIGHT", ddBtn, "BOTTOMRIGHT", 0, -2)
                 local bg2 = menu:CreateTexture(nil, "BACKGROUND")
                 bg2:SetAllPoints(); bg2:SetColorTexture(mBgR, mBgG, mBgB, mBgHA)
-                EllesmereUI.MakeBorder(menu, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, mBrdA, bg2, nil, true)
                 local mH = 4
                 local targets = BuildBGTargetList()
                 for _, t in ipairs(targets) do
@@ -1500,7 +1500,6 @@ initFrame:SetScript("OnEvent", function(self)
                                 eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
                                 EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
                                 local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-                                EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
                                 eyeTex:SetAllPoints()
                                 local function RefreshEye()
                                     eyeTex:SetTexture(_bgPreviewGlowActive[pvKey] and EYE_INVIS or EYE_VIS)
@@ -1920,17 +1919,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if BD().showKeybind ~= true then return "Show Keybind" end
             end
 
-            local kbSwatch, updateKbSwatch = EllesmereUI.BuildColorSwatch(
-                rgn, kbRow:GetFrameLevel() + 3,
-                function() return BD().keybindR or 1, BD().keybindG or 1, BD().keybindB or 1, BD().keybindA or 0.9 end,
-                function(r, g, b, a)
-                    BD().keybindR = r; BD().keybindG = g; BD().keybindB = b; BD().keybindA = a
-                    RefreshKeybindStyle()
-                end,
-                true, 20)
-            PP.Point(kbSwatch, "RIGHT", rgn._control, "LEFT", -8, 0)
-
-            EllesmereUI.BuildInlineCog(rgn, { anchorTo = kbSwatch, icon = EllesmereUI.RESIZE_ICON,
+            EllesmereUI.BuildInlineCog(rgn, {
                 title = "Keybind Text Settings",
                 disabled = function() return OffTip() ~= nil end,
                 disabledTooltip = OffTip,
@@ -2000,6 +1989,17 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
+
+            local kbSwatch, updateKbSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, kbRow:GetFrameLevel() + 3,
+                function() return BD().keybindR or 1, BD().keybindG or 1, BD().keybindB or 1, BD().keybindA or 0.9 end,
+                function(r, g, b, a)
+                    BD().keybindR = r; BD().keybindG = g; BD().keybindB = b; BD().keybindA = a
+                    RefreshKeybindStyle()
+                end,
+                true, 20)
+            PP.Point(kbSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = kbSwatch
 
             local swatchBlock = CreateFrame("Frame", nil, kbSwatch)
             swatchBlock:SetAllPoints()

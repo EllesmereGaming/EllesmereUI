@@ -696,6 +696,10 @@ end
 --- snap: the slot snapshot the factory took before the setter ran (optional;
 --- a detached one stands alone, with no frame).
 function EllesmereUI._NotifySettingWrite(frame, snap)
+    -- The written slot's inline cog takes notice (the cog notice in
+    -- EllesmereUI_Widgets_RowAddons.lua, defined once the options load).
+    local cogNotice = EllesmereUI._CogWriteNotice
+    if cogNotice then cogNotice(frame) end
     -- Conditional sessions capture through this path too. Without them in the gate they
     -- fall back to watcher/exit-sweep capture only, losing edits whenever a setter's
     -- forced refresh raises the resync absorb before a tick can attribute them.

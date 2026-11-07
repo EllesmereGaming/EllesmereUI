@@ -852,7 +852,6 @@ local function BuildXPBarPage(pageName, parent, yOffset)
         rows[#rows + 1] = RestedRow(stem, i)
         EllesmereUI.BuildInlineCog(rgn, {
             title = EntryLabel(e),
-            icon = EllesmereUI.DIRECTIONS_ICON,
             anchorTo = rgn._control,
             captureRegion = rgn,
             disabled = function() return EntryLocked(e) end,
@@ -1270,6 +1269,33 @@ local function BuildXPBarPage(pageName, parent, yOffset)
     if chrome then
         local rgn = questRow._leftRegion
         local function overlayOff() return _blizzDis() or not S().questOverlay end
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Quest XP Overlay",
+            captureRegion = rgn,
+            disabled = overlayOff,
+            disabledTooltip = function()
+                if _blizzDis() then return BLIZZ_DIS_TIP end
+                return "Quest XP Overlay"
+            end,
+            rawTooltip = _blizzDis,
+            rows = {
+                { type="toggle", label="Completed Quests Only",
+                  tooltip="Only counts quests that are ready to turn in.",
+                  get=function() return S().questOverlayCompleted end,
+                  set=function(v)
+                      S().questOverlayCompleted = v or nil
+                      ns.ApplyDataBarLayout(XP)
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="toggle", label="Current Zone Only",
+                  tooltip="Only counts quests in your current zone.",
+                  get=function() return S().questOverlayZone end,
+                  set=function(v)
+                      S().questOverlayZone = v or nil
+                      ns.ApplyDataBarLayout(XP)
+                  end },
+            },
+        })
         EllesmereUI.BuildInlineSwatches(rgn, {
             { tooltip = "Completed Color", hasAlpha = true,
               getValue = function() return ns.XPQuestColor(S(), true) end,
@@ -1299,33 +1325,6 @@ local function BuildXPBarPage(pageName, parent, yOffset)
                 return "Quest XP Overlay"
             end,
             rawTooltip = _blizzDis })
-        EllesmereUI.BuildInlineCog(rgn, {
-            title = "Quest XP Overlay",
-            captureRegion = rgn,
-            disabled = overlayOff,
-            disabledTooltip = function()
-                if _blizzDis() then return BLIZZ_DIS_TIP end
-                return "Quest XP Overlay"
-            end,
-            rawTooltip = _blizzDis,
-            rows = {
-                { type="toggle", label="Completed Quests Only",
-                  tooltip="Only counts quests that are ready to turn in.",
-                  get=function() return S().questOverlayCompleted end,
-                  set=function(v)
-                      S().questOverlayCompleted = v or nil
-                      ns.ApplyDataBarLayout(XP)
-                      EllesmereUI:RefreshPage()
-                  end },
-                { type="toggle", label="Current Zone Only",
-                  tooltip="Only counts quests in your current zone.",
-                  get=function() return S().questOverlayZone end,
-                  set=function(v)
-                      S().questOverlayZone = v or nil
-                      ns.ApplyDataBarLayout(XP)
-                  end },
-            },
-        })
     end
 
     return math.abs(y)
