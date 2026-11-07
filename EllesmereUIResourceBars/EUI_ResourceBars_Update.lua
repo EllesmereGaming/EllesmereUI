@@ -2691,8 +2691,25 @@ function ns.ERB_MissingWanted(cfg, powerType)
     return (EllesmereUI.VisOverrideValue(cfg) or cfg.visibility) ~= "never"
 end
 
+-- Step curves by floor: 1 below full, floor at full. Floor 0 hides the bar at
+-- full; a Fade Out of Combat reveal passes fade/barAlpha, so the bar rests at
+-- its faded opacity at full and returns to normal below it.
+local missingCurves = {}
+local function MissingCurve(floor)
+    floor = floor or 0
+    local c = missingCurves[floor]
+    if not c then
+        c = C_CurveUtil.CreateCurve()
+        c:SetType(Enum.LuaCurveType.Step)
+        c:AddPoint(0, 1)
+        c:AddPoint(1, floor)
+        missingCurves[floor] = c
+    end
+    return c
+end
+
 function ns.ERB_MissingPaint(bar)
-    local curve = ns.ERB_MissingCurve
+    local curve = MissingCurve(bar._missFloor)
     local pt = bar._missPower
     local a
     if pt then
@@ -2715,10 +2732,10 @@ end
 -- the parent to return to when the reveal ends (nil keeps the wrapper). park:
 -- held in the wrapper at alpha 0 instead (the druid strip while the Power Bar
 -- is revealed on energy with Show When Mana Missing off).
-function ns.ERB_MissingApply(bar, live, powerType, home, park)
+function ns.ERB_MissingApply(bar, live, powerType, home, park, floor)
     local w = bar._missWrap
     if not live and not park then
-        bar._missLive, bar._missParked = nil, nil
+        bar._missLive, bar._missParked, bar._missFloor = nil, nil, nil
         if w then w:SetAlpha(1) end
         local h = bar._missHome
         if h and bar:GetParent() ~= h then MissingRehome(bar, h) end
@@ -2740,14 +2757,8 @@ function ns.ERB_MissingApply(bar, live, powerType, home, park)
         return
     end
     bar._missParked = nil
-    if not ns.ERB_MissingCurve then
-        local c = C_CurveUtil.CreateCurve()
-        c:SetType(Enum.LuaCurveType.Step)
-        c:AddPoint(0, 1)
-        c:AddPoint(1, 0)
-        ns.ERB_MissingCurve = c
-    end
     bar._missLive = true
+    bar._missFloor = floor
     bar._missPower = powerType
     ns.ERB_MissingPaint(bar)
 end
@@ -2826,12 +2837,22 @@ local function UpdateVisibility()
         ERB._moEligible.health = (vis == "mouseover")
         if grp then ns._erbGrpH = (vis == true) and not healthBar._erbMouseTrack end
         local missing = avail and vis == false and hp.showWhenMissing and ns.ERB_MissingWanted(hp)
-        if missing or healthBar._missLive then ns.ERB_MissingApply(healthBar, missing) end
+        -- Shown outright but faded out of combat: Show When Missing lifts the
+        -- fade while health is below full (the bar's own alpha stays normal and
+        -- the wrapper curve carries the fade at full health).
+        local floor
+        if vis == true and hp.showWhenMissing and hp.oocFadeEnabled and not isInCombat then
+            local normal = hp.barAlpha or 1
+            if normal > 0 then floor = math.min(1, (hp.oocAlpha or 0.5) / normal) end
+        end
+        if missing or floor or healthBar._missLive then
+            ns.ERB_MissingApply(healthBar, (missing or floor ~= nil) and true or false, nil, nil, nil, floor)
+        end
         if missing then vis = true end
         if vis == true then
             healthBar:Show()
             EllesmereUI.SetElementVisibility(healthBar, true)
-            healthBar:SetAlpha(ns.ResolveBarAlpha(hp))
+            healthBar:SetAlpha(floor and (hp.barAlpha or 1) or ns.ResolveBarAlpha(hp))
         else
             EllesmereUI.SetElementVisibility(healthBar, false)
         end
