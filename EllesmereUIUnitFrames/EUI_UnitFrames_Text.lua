@@ -1113,6 +1113,13 @@ do
     end
     for _, mode in ipairs({ "first", "last", "abbr" }) do
         P["name" .. mode] = Shaped(P.name, mode)
+        if mode == "last" then
+            local shaped = P.namelast
+            P.namelast = function(unit)
+                if EllesmereUI.OwnSurnameHidden(unit) then return "" end
+                return shaped(unit)
+            end
+        end
         P["tgt" .. mode] = Shaped(P.tgtname, mode)
         PIECE_READS[P["name" .. mode]] = "id"
     end
