@@ -80,6 +80,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.flightTimer = nil
                 EllesmereUIDB.threatMeter = nil
                 EllesmereUIDB.lootFeed = nil
+                EllesmereUIDB.lootFeedHistory = nil
                 -- spellUprankChars, the ranks each character has had, is not a setting: it stays, so the
                 -- option turned on again swaps only ranks learned since
                 EllesmereUIDB.spellUprank = nil
