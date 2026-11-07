@@ -46,13 +46,17 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
 
     -- Display prefix: "Module: " on every entry, and "WoW Forever - " in the
     -- Forever theme's bronze ahead of it on entries flagged `forever = true`
-    -- (changes that apply on WoW Forever only), or the game patch in violet on
-    -- entries that apply from one retail patch on (`patch = "12.1.5"`), so the
-    -- note text itself never has to say where it applies. Sorting stays by
-    -- module, so a module's lines sit together whatever their tag.
+    -- (changes that apply on WoW Forever only), "Retail - " in blue on entries
+    -- flagged `retail = true` (changes that apply on retail only), shown on
+    -- WoW Forever alone, or the game patch in violet on entries that apply
+    -- from one retail patch on (`patch = "12.1.5"`), so the note text itself
+    -- never has to say where it applies. Sorting stays by module, so a
+    -- module's lines sit together whatever their tag.
     local FOREVER_TAG = "|cffdca77f" .. EllesmereUI.L("WoW Forever") .. "|r - "
+    local RETAIL_TAG = EllesmereUI.IS_FOREVER and ("|cff74b9ff" .. EllesmereUI.L("Retail") .. "|r - ") or nil
     local function PrefixOf(e)
-        local tag = (e.forever and FOREVER_TAG) or (e.patch and ("|cffa88bff" .. e.patch .. "|r - ")) or ""
+        local tag = (e.forever and FOREVER_TAG) or (e.retail and RETAIL_TAG)
+            or (e.patch and ("|cffa88bff" .. e.patch .. "|r - ")) or ""
         return tag .. ((e.module and EllesmereUI.L(e.module) .. ": ") or "")
     end
     -- Display title: "Module: Title" (see PrefixOf).

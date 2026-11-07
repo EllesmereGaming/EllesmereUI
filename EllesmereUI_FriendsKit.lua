@@ -788,8 +788,9 @@ Kit.ICON_STYLE_ORDER = {
 --  population, the click handler and the right-click menu. We own: paint.
 --
 --  A host starts it once per session (Kit.StartTiles) with its settings,
---  its look and its font; the host's settings page repaints through
---  Kit.RedecorateTiles.
+--  its look and its font, or for the custom friends list alone (cards =
+--  false: nothing here touches Blizzard's cards); the host's settings page
+--  repaints through Kit.RedecorateTiles.
 -------------------------------------------------------------------------------
 -- External weak-keyed state. Never write custom keys onto a Blizzard frame.
 local FFD, GetFFD = EllesmereUI.NewFrameData()
@@ -1032,9 +1033,10 @@ local function SkinStructure(card)
 
     d.classIcon = card:CreateTexture(nil, "ARTWORK", nil, 2)
 
+    -- The three lines show friends' names and notes: font families (a family
+    -- draws the scripts the chosen font lacks), never a plain SetFont.
     d.name = card:CreateFontString(nil, "OVERLAY")
-    EllesmereUI.PrimeFontShadow(d.name, true)
-    d.name:SetFont(FontPath(), TILE_NAME_SIZE, "")
+    EllesmereUI.SetFontFamily(d.name, FontPath(), TILE_NAME_SIZE, "", true)
     d.name:SetJustifyH("LEFT")
     d.name:SetWordWrap(false)
     -- Horizontal inset is re-resolved per paint in PaintCard (it follows the
@@ -1043,15 +1045,13 @@ local function SkinStructure(card)
 
     -- Character name + level, its own line under the Battle.net name.
     d.charLine = card:CreateFontString(nil, "OVERLAY")
-    EllesmereUI.PrimeFontShadow(d.charLine, true)
-    d.charLine:SetFont(FontPath(), TILE_CHAR_SIZE, "")
+    EllesmereUI.SetFontFamily(d.charLine, FontPath(), TILE_CHAR_SIZE, "", true)
     d.charLine:SetJustifyH("LEFT")
     d.charLine:SetWordWrap(false)
     d.charLine:SetPoint("TOPLEFT", d.name, "BOTTOMLEFT", 0, TILE_LINE_GAP)
 
     d.info = card:CreateFontString(nil, "OVERLAY")
-    EllesmereUI.PrimeFontShadow(d.info, true)
-    d.info:SetFont(FontPath(), TILE_INFO_SIZE, "")
+    EllesmereUI.SetFontFamily(d.info, FontPath(), TILE_INFO_SIZE, "", true)
     d.info:SetJustifyH("LEFT")
     d.info:SetWordWrap(false)
     -- Anchored per paint: it follows charLine when there is one, otherwise the
@@ -1722,7 +1722,10 @@ local activeDecorator
 -- h.Settings: returns the settings table (enabled, showClassIcons, iconStyle,
 -- classColorNames, factionBanners, showRegionIcons); h.style: "eui" paints
 -- the EllesmereUI tiles, any other look only decorates Blizzard's cards;
--- h.fontKey: the font the tiles take.
+-- h.fontKey: the font the tiles take; h.cards: false starts the host for the
+-- custom friends list alone (EllesmereUI_FriendsList.lua draws its rows with
+-- these pieces), with no hook on Blizzard's cards, which stay Blizzard's own.
+-- Such a host may start later in the session: it waits for no card.
 function Kit.StartTiles(h)
     if host then return end
     -- WoW Forever's Gamepad interface style navigates Blizzard's windows from
@@ -1731,6 +1734,7 @@ function Kit.StartTiles(h)
     -- navigation can still be tainted (EllesmereUI.PadTaintStandDown).
     if EllesmereUI.PadTaintStandDown() then return end
     host = h
+    if h.cards == false then return end
     if h.style ~= "eui" then
         -- Stock styles decorate whichever window Blizzard shows (the switch
         -- is server-side and can flip mid-session). Blizzard keeps its own

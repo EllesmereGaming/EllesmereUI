@@ -501,7 +501,7 @@ local function BuildBars()
             healthBar._text:SetTextColor(hp.textFillR or 1, hp.textFillG or 1, hp.textFillB or 1, hp.textFillA or 1)
         end
         healthBar:Show()
-        healthBar:SetAlpha(ns.ResolveBarAlpha(hp))
+        healthBar:SetAlpha(ns.ERB_MissingBarAlpha(healthBar, hp))
         ApplyBarOrientation(healthBar, hpOri)
         ns.ApplyFillOpacity(healthBar, hpOri, hp.fillOpacity)
         if IsSpecDisabled(hp) then
@@ -702,7 +702,7 @@ local function BuildBars()
         if hidePower then
             EllesmereUI.SetElementVisibility(primaryBar, false)
         else
-            primaryBar:SetAlpha(ns.ResolveBarAlpha(pp))
+            primaryBar:SetAlpha(ns.ERB_MissingBarAlpha(primaryBar, pp))
         end
         ApplyBarOrientation(primaryBar, ppOri)
         ns.ApplyFillOpacity(primaryBar, ppOri, pp.fillOpacity)

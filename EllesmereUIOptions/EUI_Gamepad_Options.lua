@@ -1,9 +1,10 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 -------------------------------------------------------------------------------
 --  EUI_Gamepad_Options.lua -- Global Settings > Gamepad. The settings that
---  apply only while a controller is connected and WoW's gamepad mode is on:
---  which action bars hide, and whether our cast bars hide (Blizzard's gamepad
---  interface draws its own cast bar). Every value lives in its module's
+--  apply only while a controller is connected and WoW's gamepad mode is on
+--  (on WoW Forever: while its Gamepad interface style is on, connected or not;
+--  EllesmereUI.PadModeOn): which action bars hide, and whether our cast bars
+--  hide (Blizzard's gamepad interface draws its own cast bar). Every value lives in its module's
 --  profile (Action Bars bars[key].gamepadHideBar, Unit Frames
 --  player.castbarGamepadHide, Resource Bars castBar.gamepadHide); this page
 --  only reads and writes them and calls the module's apply entry. It
@@ -93,6 +94,8 @@ function _G._EUI_BuildGamepadPage(pageName, parent, yOffset)
     local BLANK = EllesmereUI.BlankRowCfg
     local y = yOffset
     local _, h
+    -- WoW Forever: the page follows its Gamepad interface style, not a connected controller.
+    local FV = EllesmereUI.IS_FOREVER == true
 
     parent._showRowDivider = true
 
@@ -107,8 +110,13 @@ function _G._EUI_BuildGamepadPage(pageName, parent, yOffset)
         intro:SetPoint("TOPRIGHT", introHost, "TOPRIGHT", 0, -2)
         intro:SetJustifyH("CENTER")
         intro:SetWordWrap(true)
-        intro:SetText(EllesmereUI.L("Everything here applies only while a controller is connected and WoW's gamepad mode is on.") .. "\n"
-            .. EllesmereUI.L("Mouse and keyboard play is unaffected."))
+        if FV then
+            intro:SetText(EllesmereUI.L("Everything here applies only while WoW's gamepad interface is turned on in its Gamepad settings.") .. "\n"
+                .. EllesmereUI.L("Keyboard and mouse play is unaffected, even with a controller connected."))
+        else
+            intro:SetText(EllesmereUI.L("Everything here applies only while a controller is connected and WoW's gamepad mode is on.") .. "\n"
+                .. EllesmereUI.L("Mouse and keyboard play is unaffected."))
+        end
     end
     y = y - 48
 
@@ -124,7 +132,8 @@ function _G._EUI_BuildGamepadPage(pageName, parent, yOffset)
     local barRow
     barRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Hide Action Bars",
-          tooltip = "Checked bars hide while a controller is connected and gamepad mode is on, the way Visibility set to Never hides them.",
+          tooltip = FV and "Checked bars hide while WoW's gamepad interface is on, the way Visibility set to Never hides them."
+              or "Checked bars hide while a controller is connected and gamepad mode is on, the way Visibility set to Never hides them.",
           values = { __placeholder = "..." }, order = { "__placeholder" },
           getValue = function() return "__placeholder" end,
           setValue = function() end,
@@ -160,7 +169,8 @@ function _G._EUI_BuildGamepadPage(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Hide Unit Frames Cast Bar",
-          tooltip = "Hides the Unit Frames player cast bar while a controller is connected and gamepad mode is on. Blizzard's gamepad interface shows its own.",
+          tooltip = FV and "Hides the Unit Frames player cast bar while WoW's gamepad interface is on. Blizzard's gamepad interface shows its own."
+              or "Hides the Unit Frames player cast bar while a controller is connected and gamepad mode is on. Blizzard's gamepad interface shows its own.",
           getValue = function()
               local p = UFPlayer()
               return (p and p.castbarGamepadHide == true) or false
@@ -183,7 +193,8 @@ function _G._EUI_BuildGamepadPage(pageName, parent, yOffset)
               return "This option requires the Unit Frames player frame and its cast bar to be enabled"
           end },
         { type = "toggle", text = "Hide Resource Bars Cast Bar",
-          tooltip = "Hides the Resource & Cast Bars cast bar while a controller is connected and gamepad mode is on. Blizzard's gamepad interface shows its own.",
+          tooltip = FV and "Hides the Resource & Cast Bars cast bar while WoW's gamepad interface is on. Blizzard's gamepad interface shows its own."
+              or "Hides the Resource & Cast Bars cast bar while a controller is connected and gamepad mode is on. Blizzard's gamepad interface shows its own.",
           getValue = function()
               local cb = RBCast()
               return (cb and cb.gamepadHide == true) or false

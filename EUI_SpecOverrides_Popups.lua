@@ -1459,6 +1459,15 @@ function Cond.ShowPickerPopup(existing)
                     self._check:SetShown(p._staged[self._condID] and true or false)
                     p._syncKeyRow()
                 end)
+                -- A plain condition with a tooltip (WoW Forever's Gamepad Mode) shows it on hover.
+                if def.tooltip then
+                    row:SetScript("OnEnter", function(self)
+                        EllesmereUI.ShowWidgetTooltip(self, L(def.tooltip))
+                    end)
+                    row:SetScript("OnLeave", function()
+                        EllesmereUI.HideWidgetTooltip()
+                    end)
+                end
             end
             p._rows[#p._rows + 1] = row
             y = y - 26

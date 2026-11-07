@@ -52,11 +52,13 @@ end
 -- element that meets the target arrows' span ({ frame, y, h }: the frame, its
 -- bottom over the bar's bottom, its height), for the arrows to hug.
 -- cx: DBVal, defaults, barH, arrowH, debuffY, rows[id] = { list, count, sz, h,
--- gap, slot }, icons[id] = { frame, slot, sz } (a faction riding the Rare/Quest
--- indicator is slot "none" there), classFaction, factionFrame, sideEnd.
+-- gap, slot }, icons[id] = { frame, slot, sz } (sz: the element's height; a
+-- faction riding the Rare/Quest indicator is slot "none" there), classFaction,
+-- factionFrame, sideEnd. A saved order that holds "quest" but not "questtext"
+-- reads the Quest Objective Text right after the Quest Indicator, as live.
 local CHAIN_MEMBER = { debuffs = "debuffs", buffs = "buffs", ccs = "ccs", raidmarker = "raidmarker",
-    rare = "class", quest = "class", faction = "faction" }
-local CHAIN_DEFAULT = { "debuffs", "buffs", "ccs", "raidmarker", "rare", "quest", "faction" }
+    rare = "class", quest = "class", questtext = "qtext", faction = "faction" }
+local CHAIN_DEFAULT = { "debuffs", "buffs", "ccs", "raidmarker", "rare", "quest", "questtext", "faction" }
 local CHAIN_POS = { "top", "right", "left", "topright", "topleft", "bottom" }
 local function ChainPreview(cx)
     local DBVal, defaults = cx.DBVal, cx.defaults
@@ -75,8 +77,10 @@ local function ChainPreview(cx)
         end
         local src = DBVal(pos .. "SlotOrder")
         if type(src) == "string" then
+            local noQText = not string.find(src, "questtext", 1, true)
             for key in string.gmatch(src, "[^,]+") do
                 if CHAIN_MEMBER[key] then take(CHAIN_MEMBER[key]) end
+                if key == "quest" and noQText then take("qtext") end
             end
         end
         for i = 1, #CHAIN_DEFAULT do take(CHAIN_MEMBER[CHAIN_DEFAULT[i]]) end
@@ -640,6 +644,22 @@ local function BuildNameplatePreview(parent, parentW)
     local factionIcon = pf:CreateTexture(nil, "OVERLAY", nil, -1)  -- under classIcon when stacked
     factionIcon:SetSize(20, 20)
     factionIcon:Hide()
+    -- Quest Objective Text sample (Core Positions "Quest Objective Text" element):
+    -- a quest mob's progress text in a frame of its own, sized to the text, on the
+    -- live element's tier (health + 2). Its placement rides pf._qt (Update fills
+    -- pos, x, y, w, h and shown for the extent passes).
+    do
+        local f = CreateFrame("Frame", nil, pf)
+        f:SetFrameLevel(health:GetFrameLevel() + 2)
+        local fs = f:CreateFontString(nil, "OVERLAY")
+        SetPVFont(fs, FONT_PATH, 12, GetNPOptOutline())
+        fs:SetPoint("CENTER", f, "CENTER", 0, 0)
+        fs:SetJustifyH("CENTER")
+        fs:SetTextColor(1, 1, 1, 1)
+        fs:SetText("2/6")
+        f:Hide()
+        pf._qt = { frame = f, fs = fs, shown = false, pos = "none", x = 0, y = 0, w = 0, h = 0 }
+    end
 
     -- Cast bar (icon + bar fill health bar width)
     local cast = CreateFrame("StatusBar", nil, pf)
@@ -1465,13 +1485,13 @@ local function BuildNameplatePreview(parent, parentW)
             self._wrapPrev = wrapActive
         end
 
-        -- Icon sizes from slot-based system
+        -- Slots and each element's own icon size (its slot's size while unset), as live
         local debuffSlotVal = DBVal("debuffSlot") or defaults.debuffSlot
         local buffSlotVal   = DBVal("buffSlot")   or defaults.buffSlot
         local ccSlotVal     = DBVal("ccSlot")     or defaults.ccSlot
-        local debuffSz = (debuffSlotVal ~= "none") and (DBVal(debuffSlotVal .. "SlotSize") or defaults[debuffSlotVal .. "SlotSize"] or 26) or 26
-        local buffSz   = (buffSlotVal ~= "none") and (DBVal(buffSlotVal .. "SlotSize") or defaults[buffSlotVal .. "SlotSize"] or 24) or 24
-        local ccSz     = (ccSlotVal ~= "none") and (DBVal(ccSlotVal .. "SlotSize") or defaults[ccSlotVal .. "SlotSize"] or 24) or 24
+        local debuffSz = ns.NP_ElementSize("debuffs", DB())
+        local buffSz   = ns.NP_ElementSize("buffs", DB())
+        local ccSz     = ns.NP_ElementSize("ccs", DB())
 
         -- Aura tier as on the live plate: auras (800) sit below the text tier (900),
         -- unless the slot's Raise Strata lifts them to HIGH, above everything else.
@@ -1512,7 +1532,7 @@ local function BuildNameplatePreview(parent, parentW)
 
         -- Raid marker position and size (slot-based)
         local rmPos = DBVal("raidMarkerPos") or defaults.raidMarkerPos
-        local rmSize = (rmPos ~= "none") and (DBVal(rmPos .. "SlotSize") or defaults[rmPos .. "SlotSize"] or 24) or 24
+        local rmSize = ns.NP_ElementSize("raidmarker", DB())
         local rmXOff, rmYOff = 0, 0
         if rmPos ~= "none" then
             rmXOff = DBVal(rmPos .. "SlotXOffset") or 0
@@ -1596,13 +1616,16 @@ local function BuildNameplatePreview(parent, parentW)
             clXOff = DBVal(clPos .. "SlotXOffset") or 0
             clYOff = DBVal(clPos .. "SlotYOffset") or 0
         end
-        local reIconSz = (clPos ~= "none") and (DBVal(clPos .. "SlotSize") or defaults[clPos .. "SlotSize"] or 20) or 20
-        local showCL = optState.showClassificationPreview or optState._sliderDragShowClassification
         local hideRare = DBVal("classificationHideRare")
+        -- The elite sample at the Elite/Rare Indicator's own size, or the quest
+        -- mark it shows while that is off at the Quest Indicator's.
+        local reIconSz = ns.NP_ElementSize(hideRare and "quest" or "rare", DB())
+        local showCL = optState.showClassificationPreview or optState._sliderDragShowClassification
         classIcon:SetSize(reIconSz, reIconSz)
         -- Both halves off (the WoW Forever look's seed can leave that when the
-        -- Quest Indicator was already off): live plates draw nothing there.
-        if clPos == "none" or not showCL or (hideRare and DBVal("classificationHideQuest")) then
+        -- Quest Indicator was already off, and the Quest Objective Text can take
+        -- the Quest Indicator's place): live plates draw nothing there.
+        if clPos == "none" or not showCL or (hideRare and not ns.NP_QuestIconOn(DB())) then
             classIcon:Hide()
             if pf._classOverlay then pf._classOverlay:Hide() end
         else
@@ -1644,7 +1667,7 @@ local function BuildNameplatePreview(parent, parentW)
         else
             local fcX = DBVal(fcPos .. "SlotXOffset") or 0
             local fcY = DBVal(fcPos .. "SlotYOffset") or 0
-            local fcSz = DBVal(fcPos .. "SlotSize") or defaults[fcPos .. "SlotSize"] or 20
+            local fcSz = ns.NP_ElementSize("faction", DB())
             -- Sharing the slot with a showing Rare/Quest icon: stack behind it,
             -- overlapping by 40%, up or down in the Bottom slot (matches
             -- NameplateFrame:UpdateFaction).
@@ -1679,6 +1702,46 @@ local function BuildNameplatePreview(parent, parentW)
             end
             factionIcon:Show()
             if pf._factionOverlay then pf._factionOverlay:Show() end
+        end
+
+        -- Quest Objective Text sample, placed like the Rare/Quest icon above (its
+        -- hit overlay is the frame's child, so it shows and hides with it). The
+        -- name width, chain, arrow and height passes below read pf._qt.
+        do
+            local qt = pf._qt
+            local f = qt.frame
+            local pos = ns.NP_GetQuestTextSlot(DB())
+            qt.pos = pos
+            f:ClearAllPoints()
+            if pos == "none" or not optState.showQuestTextPreview then
+                qt.shown = false
+                f:Hide()
+            else
+                local x = DBVal(pos .. "SlotXOffset") or 0
+                local y = DBVal(pos .. "SlotYOffset") or 0
+                local fs = qt.fs
+                SetPVFont(fs, fontPath, ns.NP_QuestTextSize(DB()), npOutline)
+                local w = math.max(math.ceil(fs:GetStringWidth() or 0), 1)
+                local h = math.max(math.ceil(fs:GetStringHeight() or 0), 1)
+                f:SetSize(w, h)
+                if pos == "top" then
+                    f:SetPoint("BOTTOM", health, "TOP", x, debuffY + cpPush + y)
+                elseif pos == "left" then
+                    local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
+                    f:SetPoint("RIGHT", health, "LEFT", -sideOff - castIconLeftPush - FullPush("left", y, h) + x, y)
+                elseif pos == "right" then
+                    local sideOff = DBVal("sideAuraXOffset") or defaults.sideAuraXOffset
+                    f:SetPoint("LEFT", health, "RIGHT", sideOff + castIconRightPush + FullPush("right", y, h) + x, y)
+                elseif pos == "topleft" then
+                    f:SetPoint("BOTTOMLEFT", health, "TOPLEFT", x, 2 + cpPush + ns.NP_TopCornerLift("topleft", DB()) + y)
+                elseif pos == "topright" then
+                    f:SetPoint("BOTTOMRIGHT", health, "TOPRIGHT", x, 2 + cpPush + ns.NP_TopCornerLift("topright", DB()) + y)
+                elseif pos == "bottom" then
+                    f:SetPoint("TOP", cast, "BOTTOM", x, -2 + y)
+                end
+                qt.x, qt.y, qt.w, qt.h, qt.shown = x, y, w, h, true
+                f:Show()
+            end
         end
 
         -- Arrow positioning happens after all auras are placed (arrows sit OUTSIDE the auras).
@@ -2003,6 +2066,8 @@ local function BuildNameplatePreview(parent, parentW)
             if showCL and clPos ~= "none" then
                 nameW = nameW - (reIconSz + 4)
             end
+            -- The Quest Objective Text takes its own width, like the Rare/Quest icon.
+            if pf._qt.shown then nameW = nameW - (pf._qt.w + 4) end
             nameFS:SetWidth(math.max(nameW * pvNameWPct / 100, 20))
             nameFS:SetTextColor(topC.r, topC.g, topC.b, 1)
             nameFS:Show()
@@ -2447,7 +2512,7 @@ local function BuildNameplatePreview(parent, parentW)
             local cx = optState._pvChain
             if not cx then
                 cx = { rows = { debuffs = {}, buffs = {}, ccs = {} },
-                       icons = { raidmarker = {}, class = {}, faction = {} }, sideEnd = {} }
+                       icons = { raidmarker = {}, class = {}, qtext = {}, faction = {} }, sideEnd = {} }
                 optState._pvChain = cx
             end
             cx.DBVal, cx.defaults = DBVal, defaults
@@ -2460,11 +2525,15 @@ local function BuildNameplatePreview(parent, parentW)
             r.list, r.count, r.sz, r.h, r.gap, r.slot = ccs, PV_CONST.CC_COUNT, ccSz, ccH, ccGap, ccSlotVal
             r = cx.icons.raidmarker
             r.frame, r.slot, r.sz = raidFrame, rmPos, rmSize
+            -- The Rare/Quest member counts only while a half is on or the badge rides it (as live).
             r = cx.icons.class
-            r.frame, r.slot, r.sz = classIcon, clPos, reIconSz
+            r.frame, r.sz = classIcon, reIconSz
+            r.slot = (hideRare and not ns.NP_QuestIconOn(DB()) and not fcCombined) and "none" or clPos
+            r = cx.icons.qtext
+            r.frame, r.slot, r.sz = pf._qt.frame, pf._qt.pos, pf._qt.h
             r = cx.icons.faction
             r.frame, r.slot = factionIcon, fcCombined and "none" or fcPos
-            r.sz = (fcPos ~= "none") and (DBVal(fcPos .. "SlotSize") or defaults[fcPos .. "SlotSize"] or 20) or 20
+            r.sz = ns.NP_ElementSize("faction", DB())
             cx.classFaction, cx.factionFrame = fcCombined, factionIcon
             ChainPreview(cx)
         end
@@ -2498,20 +2567,25 @@ local function BuildNameplatePreview(parent, parentW)
             addAuraSide(debuffSlotVal, PV_CONST.DEBUFF_COUNT, debuffSz, debuffH, debuffSpacing, debuffXOff, debuffYOff)
             addAuraSide(buffSlotVal, PV_CONST.BUFF_COUNT, buffSz, buffH, buffSpacing, buffXOff, buffYOff)
             addAuraSide(ccSlotVal, PV_CONST.CC_COUNT, ccSz, ccH, ccSpacing, ccXOff, ccYOff)
-            -- Side icons (raid marker, classification, faction), each past its
-            -- own cast icon push.
-            local function addIcon(side, y, sz, xOff)
+            -- Side icons (raid marker, classification, Quest Objective Text,
+            -- faction), each past its own cast icon push; w: the element's width
+            -- (sz, its height, when nil).
+            local function addIcon(side, y, sz, xOff, w)
                 if side ~= "left" and side ~= "right" then return end
                 add(side, y, sz, sideOff + ((side == "left") and castIconLeftPush or castIconRightPush)
-                    + FullPush(side, y, sz) + sz + ((side == "left") and -xOff or xOff))
+                    + FullPush(side, y, sz) + (w or sz) + ((side == "left") and -xOff or xOff))
             end
             if raidFrame:IsShown() then addIcon(rmPos, rmYOff, rmSize, rmXOff) end
             if classIcon:IsShown() then addIcon(clPos, clYOff, reIconSz, clXOff) end
+            if pf._qt.shown then
+                local qt = pf._qt
+                addIcon(qt.pos, qt.y, qt.h, qt.x, qt.w)
+            end
             if factionIcon:IsShown() and (fcPos == "left" or fcPos == "right") then
                 -- Stacked behind a showing Rare/Quest icon it sits higher.
                 local fy = (DBVal(fcPos .. "SlotYOffset") or 0)
                     + ((fcCombined and classIcon:IsShown()) and math.floor(reIconSz * 0.6 + 0.5) or 0)
-                addIcon(fcPos, fy, DBVal(fcPos .. "SlotSize") or defaults[fcPos .. "SlotSize"] or 20,
+                addIcon(fcPos, fy, ns.NP_ElementSize("faction", DB()),
                     DBVal(fcPos .. "SlotXOffset") or 0)
             end
             -- A side chain's outermost element is hugged at its outer bottom corner,
@@ -2566,6 +2640,14 @@ local function BuildNameplatePreview(parent, parentW)
                 if clPos == "top" then cornerExtent = math.max(cornerExtent, debuffY + reIconSz + clYOff)
                 elseif isCorner(clPos) then
                     cornerExtent = math.max(cornerExtent, 2 + ns.NP_TopCornerLift(clPos, DB()) + reIconSz + clYOff)
+                end
+            end
+            -- The Quest Objective Text, placed like the Rare/Quest icon.
+            local qt = pf._qt
+            if qt.shown then
+                if qt.pos == "top" then cornerExtent = math.max(cornerExtent, debuffY + qt.h + qt.y)
+                elseif isCorner(qt.pos) then
+                    cornerExtent = math.max(cornerExtent, 2 + ns.NP_TopCornerLift(qt.pos, DB()) + qt.h + qt.y)
                 end
             end
             cornerExtent = math.max(cornerExtent, factionTopExtent)
@@ -2890,6 +2972,9 @@ local function BuildNameplatePreview(parent, parentW)
         if isBottomSlot(ccSlotVal) then bottomExtent = math.max(bottomExtent, ccSz + 2 - ccYOff) end
         if isBottomSlot(rmPos) and showRM then bottomExtent = math.max(bottomExtent, rmSize + 2 - rmYOff) end
         if isBottomSlot(clPos) and showCL then bottomExtent = math.max(bottomExtent, reIconSz + 2 - clYOff) end
+        if pf._qt.shown and isBottomSlot(pf._qt.pos) then
+            bottomExtent = math.max(bottomExtent, pf._qt.h + 2 - pf._qt.y)
+        end
         -- The Bottom Left / Bottom Right texts hang there too.
         bottomExtent = math.max(bottomExtent, previewGlow.botTextH or 0)
         totalH = totalH + bottomExtent
@@ -2991,6 +3076,7 @@ local function BuildNameplatePreview(parent, parentW)
     pf._raidFrame    = raidFrame
     pf._classIcon    = classIcon
     pf._factionIcon  = factionIcon
+    pf._questTextFrame = pf._qt.frame
     pf._health       = health
     pf._healthWrapper = healthWrapper
     pf._cpPips       = CP.pips

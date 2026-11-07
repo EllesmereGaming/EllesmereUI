@@ -2422,6 +2422,63 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- Bags' Hide Items in Their Categories (pinned items) defaults on for fresh
+-- installs and future profiles; every already-existing profile keeps it off
+-- unless its user had turned it on. Same mechanism as the Guardian Ironfur
+-- migration below.
+EllesmereUI.RegisterMigration({
+    id          = "bags_hide_pinned_existing_off_v1",
+    scope       = "global",
+    description = "Pin Bags' Hide Items in Their Categories OFF for existing users' profiles; fresh installs and future profiles inherit the new ON default.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        for _, profData in pairs(db.profiles) do
+            -- Only profiles with real child-addon data: an empty/stub profile
+            -- isn't an existing user's.
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local bags = profData.addons.EllesmereUIBags
+                if type(bags) ~= "table" then
+                    bags = {}
+                    profData.addons.EllesmereUIBags = bags
+                end
+                if bags.bagHidePinnedInCategories == nil then
+                    bags.bagHidePinnedInCategories = false
+                end
+            end
+        end
+    end,
+})
+
+-- WoW Forever: fresh installs and future profiles open the bags to MultiBag and
+-- start with Recent Items off; every already-existing profile keeps All Items and
+-- Recent Items on unless its user had changed them. Registered on the Forever
+-- client only, the one whose defaults changed.
+if EllesmereUI.IS_FOREVER == true then
+EllesmereUI.RegisterMigration({
+    id          = "bags_forever_defaults_existing_v1",
+    scope       = "global",
+    description = "Pin Bags' Default Selected Bag to All Items and Show Recent Items ON for existing WoW Forever profiles; fresh installs and future profiles inherit MultiBag and Recent Items off.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        for _, profData in pairs(db.profiles) do
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local bags = profData.addons.EllesmereUIBags
+                if type(bags) ~= "table" then
+                    bags = {}
+                    profData.addons.EllesmereUIBags = bags
+                end
+                if bags.bagShowRecentItems == nil then bags.bagShowRecentItems = true end
+                if bags.bagDefaultBagType == nil then bags.bagDefaultBagType = "all" end
+            end
+        end
+    end,
+})
+end
+
 -- Guardian Druid Ironfur bar ships ON (DEFAULTS.secondary.guardianIronfurBar=true)
 -- for new installs; existing users expect no class resource bar, so pin every
 -- already-existing profile OFF. Runs at parent ADDON_LOADED BEFORE any child NewDB
@@ -2476,6 +2533,35 @@ EllesmereUI.RegisterMigration({
                 if type(rb.secondary) ~= "table" then rb.secondary = {} end
                 if rb.secondary.protIgnorePainBar == nil then
                     rb.secondary.protIgnorePainBar = false
+                end
+            end
+        end
+    end,
+})
+
+-- Group Finder's Colored Group Names (search.nameColors) defaults off for fresh
+-- installs and future profiles; every already-existing profile keeps it on unless
+-- its user had turned it off. Same mechanism as the Guardian Ironfur migration.
+EllesmereUI.RegisterMigration({
+    id          = "groupfinder_name_colors_existing_on_v1",
+    scope       = "global",
+    description = "Pin Group Finder's Colored Group Names ON for existing users' profiles; fresh installs and future profiles inherit the new OFF default.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        for _, profData in pairs(db.profiles) do
+            -- Only profiles with real child-addon data: an empty/stub profile
+            -- isn't an existing user's.
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local gf = profData.addons.EllesmereUIGroupFinder
+                if type(gf) ~= "table" then
+                    gf = {}
+                    profData.addons.EllesmereUIGroupFinder = gf
+                end
+                if type(gf.search) ~= "table" then gf.search = {} end
+                if gf.search.nameColors == nil then
+                    gf.search.nameColors = true
                 end
             end
         end

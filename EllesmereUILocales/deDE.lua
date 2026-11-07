@@ -3627,6 +3627,7 @@ L["Extra Width"] = "Zusätzliche Breite"
 L["Extra"] = "Extra"
 L["Eye of the Storm"] = "Auge des Sturms"
 L["Faction (Auto)"] = "Fraktion (Auto)"
+L["Faction Banners"] = "Fraktionsbanner"
 L["Faction Color"] = "Fraktionsfarbe"
 L["Faction Icon Size"] = "Fraktionssymbolgröße"
 L["Faction Indicator Settings"] = "Fraktionsindikator Einstellungen"
@@ -6395,6 +6396,7 @@ L["Refulgent Weightstone"] = "Strahlender Gewichtsstein"
 L["Refulgent Whetstone"] = "Strahlender Wetzstein"
 L["Regen Ticks"] = "Regenerationsticks"
 L["Region"] = "Region"
+L["Region Icons"] = "Regionssymbole"
 L["Regrowth"] = "Nachwachsen"
 L["Regular Import"] = "Normaler Import"
 L["Rejuvenation"] = "Verjüngung"
@@ -7817,7 +7819,7 @@ L["Swap again on a spec change in an instance."] = "Wechselt erneut, wenn Du in 
 L["Swap Combat Pots When Missing"] = "Kampftränke wechseln wenn fehlend"
 L["Swap Light/Reckless Pots When Missing"] = "Licht-/Kühnheitstränke wechseln, wenn sie fehlen"
 L["Swaps gear and talents as you change content."] = "Wechselt Ausrüstung und Talente, sobald Du andere Inhalte betrittst."
-L["Swaps new spell ranks onto your action bars."] = "Tauscht neue Zauberränge auf Deinen Aktionsleisten aus."
+L["Swaps new spell ranks, yours and your pet's, onto your action bars."] = "Tauscht neue Zauberränge, Deine und die Deines Begleiters, auf Deinen Aktionsleisten aus."
 L["Swatch 1"] = "Farbfeld 1"
 L["Sweeping Strikes"] = "Weitreichende Stöße"
 L["swimming"] = "schwimmend"
@@ -9396,3 +9398,21 @@ L["Cast Bars"] = "Zauberleisten"
 L["Nameplate Icon"] = "Namensplaketten-Symbol"
 L["Nameplate Kick Icons use this to auto-assign kicks when a mob is first marked."] = "Namensplaketten-Kick-Symbole nutzen dies, um Unterbrechungen automatisch zuzuordnen, sobald ein Gegner markiert wird"
 L["Dismiss this warning"] = "Diese Warnung ausblenden"
+
+-- Nameplates Core Positions cog
+L["Quest Objective Text"] = "Questzieltext"
+L["Slot"] = "Platz"
+L["Also shows inside dungeons, raids and other instances."] = "Wird auch in Dungeons, Schlachtzügen und anderen Instanzen angezeigt."
+L["Size of the quest progress text."] = "Größe des Questfortschrittstextes."
+
+-- Bags Pinned Items cog
+L["Hide Items in Their Categories"] = "Gegenstände in ihren Kategorien ausblenden"
+L["Dim Items in OneBag/MultiBag"] = "Gegenstände in Einzeltasche/Mehrfachtasche abdunkeln"
+L["Dims pinned items in their bag slots, since they also show in Pinned Items."] = "Dunkelt angepinnte Gegenstände in ihren Taschenplätzen ab, da sie auch unter 'Angepinnte Gegenstände' angezeigt werden."
+
+-- Quest Tracker Title Difficulty Colors
+L["Title Difficulty Colors"] = "Titelfarben nach Schwierigkeit"
+L["Colors quest titles by difficulty for your level. This is the game's own option, so its quest log follows it too."] = "Färbt Questtitel nach ihrer Schwierigkeit für Deine Stufe. Das ist die eigene Option des Spiels, daher folgt auch das Questlog."
+
+-- Group Finder Hide Applicant Info
+L["Note"] = "Notiz"

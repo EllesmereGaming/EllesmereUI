@@ -999,6 +999,10 @@ end
 -- the Lua fill in UpdateCastBar when the duration API is unavailable or returns
 -- nil. Re-called from DELAYED/CHANNEL_UPDATE/EMPOWER_UPDATE so a mid-cast time
 -- change retargets the engine timer. Returns true when the timer is armed.
+-- kind "craft" is a merged craft batch (Craft Batches: Merge Bar): the cast's
+-- own duration covers one craft, so the bar takes a duration object of ours
+-- over the whole batch (_startTime to _endTime), set again at every craft
+-- start and pushback and never read back.
 ns.ApplyCastTimer = function(kind)
     if not castBarFrame then return end
     castBarFrame._nativeFill = nil
@@ -1014,6 +1018,17 @@ ns.ApplyCastTimer = function(kind)
     elseif kind == "empower" then
         -- true = include the hold-at-max window, matching the event mirrors
         durObj = UnitEmpoweredChannelDuration and UnitEmpoweredChannelDuration("player", true)
+        dir = Enum.StatusBarTimerDirection.ElapsedTime
+    elseif kind == "craft" then
+        local s, e = castBarFrame._startTime, castBarFrame._endTime
+        if e > s and C_DurationUtil and C_DurationUtil.CreateDuration then
+            durObj = castBarFrame._craftDur
+            if not durObj then
+                durObj = C_DurationUtil.CreateDuration()
+                castBarFrame._craftDur = durObj
+            end
+            durObj:SetTimeFromStart(s, e - s)
+        end
         dir = Enum.StatusBarTimerDirection.ElapsedTime
     else
         durObj = UnitCastingDuration and UnitCastingDuration("player")
@@ -1424,6 +1439,7 @@ end
 -- Spell ranks exist only on WoW Forever (retail's subtext is "Racial" and the
 -- like), so the option and this read are Forever-only.
 function ns.CastDisplayName(cb, name, spellID)
+    name = EllesmereUI.CleanCastName(name)
     if cb.showSpellRank and spellID and EllesmereUI.IS_FOREVER then
         local rank = C_Spell.GetSpellSubtext(spellID)
         if rank and rank ~= "" then return name .. " (" .. rank .. ")" end
@@ -1478,7 +1494,7 @@ OnCastStart = function()
         (cb.fullCraftTime or cb.mergeCrafts) and isTradeSkill,
         spellID, barID, castDurSec)
 
-    -- Merge Craft Casts: one bar spans the whole batch. The batch start is kept
+    -- Merge Bar: one bar spans the whole batch. The batch start is kept
     -- from the first craft (or backdated by the crafts done). _craftExtra becomes
     -- 0 (queued time now lives in _endTime) so the craft timer reads the batch end.
     local merge = cb.mergeCrafts and castBarFrame._craftExtra
@@ -1509,11 +1525,9 @@ OnCastStart = function()
         .. (castBarFrame._craftExtra and castBarFrame._craftCountSuffix or ""))
     ns.ERB_SetBlizzCastFill("cast")
     ns.ERB_CastOverrideStart(cb, notInterruptible)
-    -- The engine timer covers one cast only, so a merged batch fills from Lua.
-    if merge then
-        castBarFrame._nativeFill = nil
-    end
-    if merge or not ns.ApplyCastTimer("cast") then
+    -- The engine timer animates the fill (a merged batch over the whole
+    -- batch); the Lua fill is the fallback.
+    if not ns.ApplyCastTimer(merge and "craft" or "cast") then
         local s, e = castBarFrame._startTime, castBarFrame._endTime
         local initProgress = (e > s) and ((GetTime() - s) / (e - s)) or 0
         castBarFrame._bar:SetValue(min(max(initProgress, 0), 1))
@@ -1631,7 +1645,7 @@ local function OnCastComplete(eventCastID)
     if not castBarFrame then return end
     if not castBarFrame._casting then return end
     if not eventCastID or not castBarFrame._castID or eventCastID ~= castBarFrame._castID then return end
-    -- Merge Craft Casts: more crafts queued, keep the bar running into the next one.
+    -- Merge Bar: more crafts queued, keep the bar running into the next one.
     if castBarFrame._craftMerge and (castBarFrame._craftLeft or 0) > 0 then return end
     castBarFrame._casting = false
     castBarFrame._castID = nil
@@ -1823,7 +1837,7 @@ do
     end
 end
 
--- Merge Craft Casts: a cancelled batch (movement, Escape) ends the merged bar.
+-- Merge Bar: a cancelled batch (movement, Escape) ends the merged bar.
 -- Watched only while a merged batch is on the bar.
 do
     local watch
@@ -1894,8 +1908,9 @@ function ns.RB_SyncBlizzCastSuppress()
 end
 
 -- Hide While Using Gamepad (Global Settings > Gamepad): Blizzard's gamepad UI
--- draws its own player cast bar, so this one stands down while a controller is
--- connected. A runtime flag (ns._erbCastPadHidden) gates the cast starts and
+-- draws its own player cast bar, so this one stands down while
+-- EllesmereUI.PadModeOn says gamepad mode is on (WoW Forever's Gamepad
+-- interface style, elsewhere a connected controller). A runtime flag (ns._erbCastPadHidden) gates the cast starts and
 -- the idle pass the way `enabled` does; the saved `enabled` is never written,
 -- Blizzard's bar stays suppressed (handed back under WoW Forever's Gamepad
 -- interface style, ns.RB_SyncBlizzCastSuppress) and the frame keeps its
@@ -1915,7 +1930,7 @@ function ns.RB_ApplyGamepadCastbar(padOn)
     end
     local hide = false
     if want then
-        if padOn == nil then padOn = EllesmereUI.PadConnected() end
+        if padOn == nil then padOn = EllesmereUI.PadModeOn() end
         hide = padOn and true or false
     end
     if hide == (ns._erbCastPadHidden == true) then return end

@@ -1133,34 +1133,82 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Cast names: the client names the quest-object cast "Opening - No Text";
+--  cast bars show the plain "Opening". A secret or non-string name is returned
+--  as it is.
+-------------------------------------------------------------------------------
+function EllesmereUI.CleanCastName(name)
+    if issecretvalue(name) or type(name) ~= "string" then return name end
+    local clean = name:gsub("%s*%-%s*No Text$", "")
+    return clean ~= "" and clean or name
+end
+
+-------------------------------------------------------------------------------
 --  Show Full Spell Name (cast bars). Shrinks the spell name's font just enough
 --  for the whole name to fit the FontString's set width, and puts it back at
 --  baseSize for names that already fit. Measured on a private FontString that
 --  only ever holds clean text, so the cast text's own (possibly secret) metrics
 --  are never read. A secret name stays at baseSize and truncates as before.
+--  A name on one of our font families (EllesmereUI.SetFontFamily: it may hold a
+--  target's name) keeps a family at every size and is measured on one, so a
+--  Cyrillic, Korean or Chinese name is measured in the face that draws it.
 -------------------------------------------------------------------------------
 do
     local floor = math.floor
     local MIN_SIZE = 6
-    local measure
+    local measure, measureFam
+
+    -- fs's face, size and flags. A string on one of our families gives its roman
+    -- member's (the chosen font, whatever script the text holds), true, and
+    -- whether the family carries a shadow; any other string its own GetFont.
+    local function FontOf(fs)
+        local fo = fs:GetFontObject()
+        local set = EllesmereUI._fontFamilySet
+        if fo and set and set[fo] and fo.GetFontObjectForAlphabet then
+            local roman = fo:GetFontObjectForAlphabet("roman")
+            local face, size, flags
+            if roman then face, size, flags = roman:GetFont() end
+            if face then
+                local _, _, _, sa = fo:GetShadowColor()
+                return face, size, flags, true, (sa or 0) > 0
+            end
+        end
+        local face, size, flags = fs:GetFont()
+        return face, size, flags, false, false
+    end
+
+    -- Two measuring strings: a plain SetFont pins a string's face, so the one that
+    -- takes families never takes a plain font.
+    local function MeasureString(fam)
+        local m
+        if fam then m = measureFam else m = measure end
+        if not m then
+            m = UIParent:CreateFontString(nil, "BACKGROUND")
+            m:SetPoint("TOPLEFT", UIParent, "BOTTOMRIGHT", 100, -100)
+            m:SetAlpha(0)
+            if fam then measureFam = m else measure = m end
+        end
+        return m
+    end
 
     -- Width of a clean string in fs's font face (at size, or fs's own size).
     local function Measure(fs, str, size)
-        local font, cur, flags = fs:GetFont()
+        local font, cur, flags, isFam, shadow = FontOf(fs)
         if not font then return 0 end
-        if not measure then
-            measure = UIParent:CreateFontString(nil, "BACKGROUND")
-            measure:SetPoint("TOPLEFT", UIParent, "BOTTOMRIGHT", 100, -100)
-            measure:SetAlpha(0)
+        local fam = isFam and EllesmereUI.GetFontFamily(font, size or cur, flags, shadow)
+        local m = MeasureString(fam)
+        if fam then
+            m:SetFontObject(fam)
+        else
+            m:SetFont(font, size or cur, flags)
         end
-        measure:SetFont(font, size or cur, flags)
-        measure:SetText(str)
-        return measure:GetUnboundedStringWidth() or 0
+        m:SetText(str)
+        return m:GetUnboundedStringWidth() or 0
     end
     EllesmereUI.MeasureCastText = Measure
 
     function EllesmereUI.FitCastName(fs, str, baseSize)
-        local font, cur, flags = fs:GetFont()
+        local font, cur, flags, isFam, shadow = FontOf(fs)
         if not font then return end
         local size = baseSize
         local room = fs:GetWidth()
@@ -1173,7 +1221,13 @@ do
                 if size < MIN_SIZE then size = MIN_SIZE end
             end
         end
-        if cur ~= size then fs:SetFont(font, size, flags) end
+        if cur ~= size then
+            if isFam then
+                EllesmereUI.SetFontFamily(fs, font, size, flags, shadow)
+            else
+                fs:SetFont(font, size, flags)
+            end
+        end
     end
 end
 

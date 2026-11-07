@@ -71,12 +71,18 @@ local function ForeverCatalogue()
                 [29166] = { class = "DRUID" },  -- Innervate
             },
             coreheals = {
-                -- Renew (rank 2 primary: retail curates rank 1 unchecked)
+                -- Renew (rank 2 primary: retail curates rank 1 unchecked; 425268 to
+                -- 425277 are the class's second set of ranks 1 to 10)
                 [6074] = { class = "PRIEST", alts = { 139, 6075, 6076, 6077, 6078, 10927,
-                    10928, 10929, 25315 } },
+                    10928, 10929, 25315, 425268, 425269, 425270, 425271, 425272, 425273,
+                    425274, 425275, 425276, 425277 } },
                 -- Power Word: Shield (rank 2 primary: retail curates rank 1 unchecked)
                 [592] = { class = "PRIEST", alts = { 17, 600, 3747, 6065, 6066, 10898, 10899,
                     10900, 10901 } },
+                -- Prayer of Mending (ranks 401859 / 1240826 / 1240827; the buff lands
+                -- as 401877 / 1240848 / 1240849)
+                [401859] = { class = "PRIEST", alts = { 1240826, 1240827, 401877, 1240848,
+                    1240849 } },
                 -- Rejuvenation (rank 2 primary: retail curates rank 1 unchecked)
                 [1058] = { class = "DRUID", alts = { 774, 1430, 2090, 2091, 3627, 8910, 9839,
                     9840, 9841, 25299 } },
@@ -599,9 +605,13 @@ if EllesmereUI.IS_FOREVER == true then
         light = { names = { 19977, 25890 },
             single = { 19977, 19978, 19979 }, group = { 25890 },
             ids = { 19977, 19978, 19979, 26650, 25890 } },
+        -- beneficiaries: the classes the buff serves (every mana user,
+        -- hunters included); a family without it serves everyone.
         ai = { names = { 1459, 23028 },
             single = { 1459, 1460, 1461, 10156, 10157 }, group = { 23028 },
-            ids = { 1459, 1460, 1461, 10156, 10157, 13326, 16876, 364161, 23028 } },
+            ids = { 1459, 1460, 1461, 10156, 10157, 13326, 16876, 364161, 23028 },
+            beneficiaries = { DRUID = true, HUNTER = true, MAGE = true, PALADIN = true, PRIEST = true,
+                SHAMAN = true, WARLOCK = true } },
         bshout = { names = { 6673 },
             single = { 6673, 5242, 6192, 11549, 11550, 11551, 25289 }, group = {},
             ids = { 6673, 5242, 6192, 11549, 11550, 11551, 25289, 9128, 24438, 25101, 26043, 26099,

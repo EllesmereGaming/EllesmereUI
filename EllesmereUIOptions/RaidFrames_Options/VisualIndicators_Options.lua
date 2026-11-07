@@ -309,6 +309,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   items={
                       { key="missingBuffsFort",      label="Fortitude",        fixed=true },
                       { key="missingBuffsMark",      label="Mark of the Wild", fixed=true },
+                      { key="missingBuffsIntellect", label="Arcane Intellect", fixed=true },
                       { key="missingBuffsSpirit",    label="Spirit",           fixed=true },
                       { key="missingBuffsThorns",    label="Thorns",           fixed=true },
                       { key="missingBuffsSalvation", label="Salvation",        fixed=true },

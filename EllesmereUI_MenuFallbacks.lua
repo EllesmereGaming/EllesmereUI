@@ -72,10 +72,16 @@ local function AddBorder(frame)
     if c and c.SetFrameLevel then c:SetFrameLevel(frame:GetFrameLevel()) end
 end
 
-local function MakeText(parent, size, r, g, b)
+-- family: a text that shows other players' writing (house and owner names)
+-- takes the font as a font family, which draws the scripts the font lacks.
+local function MakeText(parent, size, r, g, b, family)
     local fs = parent:CreateFontString(nil, "OVERLAY")
-    EllesmereUI.PrimeFontShadow(fs, T.fontShadow)
-    fs:SetFont(T.fontPath, size, T.fontFlag or "")
+    if family then
+        EllesmereUI.SetFontFamily(fs, T.fontPath, size, T.fontFlag or "", T.fontShadow)
+    else
+        EllesmereUI.PrimeFontShadow(fs, T.fontShadow)
+        fs:SetFont(T.fontPath, size, T.fontFlag or "")
+    end
     fs:SetTextColor(r or 1, g or 1, b or 1, 1)
     return fs
 end
@@ -233,7 +239,7 @@ local function BuildList()
     hline:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
     hline:SetHeight(1)
 
-    titleText = MakeText(header, 14)
+    titleText = MakeText(header, 14, nil, nil, nil, true)
     titleText:SetPoint("LEFT", header, "LEFT", 12, 0)
     titleText:SetPoint("RIGHT", header, "RIGHT", -34, 0)
     titleText:SetJustifyH("LEFT")
@@ -256,12 +262,12 @@ local function BuildList()
         row:SetPoint("TOPRIGHT", f, "TOPRIGHT", -8, y)
         Panel(row, true)
 
-        row.name = MakeText(row, 13)
+        row.name = MakeText(row, 13, nil, nil, nil, true)
         row.name:SetPoint("TOPLEFT", row, "TOPLEFT", 10, -7)
         row.name:SetPoint("RIGHT", row, "RIGHT", -100, 0)
         row.name:SetJustifyH("LEFT")
 
-        row.info = MakeText(row, 11, 0.65, 0.65, 0.65)
+        row.info = MakeText(row, 11, 0.65, 0.65, 0.65, true)
         row.info:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 10, 7)
         row.info:SetPoint("RIGHT", row, "RIGHT", -100, 0)
         row.info:SetJustifyH("LEFT")

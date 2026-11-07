@@ -33,9 +33,14 @@ local BAGS_DEFAULTS = {
         bagHideSidebarIconsCollapsed = false, -- on: collapsed = no icon strip, the expand arrow sits by the title
         bankSidebarCollapsed  = false,
         bagShowPinnedItems    = true,
-        bagShowRecentItems    = true,
+        -- Profiles saved before these defaults carry their own value of
+        -- bagShowRecentItems, bagHidePinnedInCategories and bagDefaultBagType
+        -- (EllesmereUI_Migration.lua: bags_hide_pinned_existing_off_v1, and on
+        -- WoW Forever bags_forever_defaults_existing_v1).
+        bagShowRecentItems    = EllesmereUI.IS_FOREVER ~= true,   -- off on WoW Forever
         bagPinnedInOneBag     = true,
-        bagHidePinnedInCategories = false,
+        bagHidePinnedInCategories = true,
+        bagDimPinnedInOneBag  = false,   -- Dim Items in OneBag/MultiBag (the Pinned Items cog)
         bagRecentInOneBag     = false,
         bagShowRecentClear    = false,
         -- Bag Top Bar Icons: the header's Show Bags, Junk Marker, Quick Actions and Sort icons
@@ -44,7 +49,8 @@ local BAGS_DEFAULTS = {
         bagShowQuickIcon      = false,   -- Quick Actions: dim all but items a spell works on; click or Alt-click casts it
         bagShowSortIcon       = true,
         bagSortToBottom       = false,
-        bagDefaultBagType     = "all",   -- "all" | "onebag" | "multibag"
+        -- "all" | "onebag" | "multibag"; MultiBag on WoW Forever
+        bagDefaultBagType     = (EllesmereUI.IS_FOREVER == true) and "multibag" or "all",
         bagDefaultOneBag      = false,   -- legacy; migrated to bagDefaultBagType
         bagNestByExpansion    = false,
         bankNestByExpansion   = false,

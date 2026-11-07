@@ -993,3 +993,83 @@ function EllesmereUI.BuildPopupButton(parent, w, h, label, onClick)
     btn:SetScript("OnClick", onClick)
     return btn
 end
+
+-------------------------------------------------------------------------------
+--  Rested Indicator row
+--  The player frame's rest marker (ZZZ text, or Blizzard's animated rest
+--  icon), drawn by Unit Frames from account-wide keys. Quality of Life's
+--  EXTRAS row and its mirror in the Unit Frames player EXTRAS are this one
+--  toggle and cog, so both pages show the same settings, whichever of the
+--  two modules is loaded.
+--  RestedIndicatorCfg()            -> a fresh toggle config for a DualRow slot
+--  BuildRestedIndicatorCog(region) -> its inline cog on that slot's region
+-------------------------------------------------------------------------------
+local function RestPlayerFrame() return _G["EllesmereUIUnitFrames_Player"] end
+local function RestUpdate()
+    local pf = RestPlayerFrame()
+    if pf and pf._restUpdate then pf._restUpdate() end
+end
+local function RestPlace()
+    local pf = RestPlayerFrame()
+    if pf and pf._restPlace then pf._restPlace() end
+end
+local function RestSet(key, v)
+    if not EllesmereUIDB then EllesmereUIDB = {} end
+    EllesmereUIDB[key] = v
+end
+local function RestOff()
+    return not EllesmereUIDB or EllesmereUIDB.showRestedIndicator ~= true
+end
+
+function EllesmereUI.RestedIndicatorCfg()
+    return { type="toggle", text="Rested Indicator",
+      tooltip="Displays a ZZZ indicator on your player frame when you are in a resting area.",
+      getValue=function()
+        if not EllesmereUIDB then return true end
+        return EllesmereUIDB.showRestedIndicator == true
+      end,
+      setValue=function(v)
+        RestSet("showRestedIndicator", v)
+        RestUpdate()
+        EllesmereUI:RefreshPage()
+      end }
+end
+
+-- Animated, Size, X / Y Offset; greyed while the indicator is off. Builds
+-- nothing during the search pre-build.
+function EllesmereUI.BuildRestedIndicatorCog(region)
+    if EllesmereUI._prebuilding then return end
+    return EllesmereUI.BuildInlineCog(region, {
+        title = "Rested Indicator",
+        rows = {
+            { type="toggle", label="Animated",
+              tooltip="Shows the animated rest icon from Blizzard's player frame instead of the ZZZ text.",
+              get=function() return EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimated == true or false end,
+              set=function(v)
+                  RestSet("restedIndicatorAnimated", v)
+                  RestUpdate()
+              end },
+            { type="slider", label="Size", min=12, max=64, step=1,
+              disabled=function() return not (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimated == true) end,
+              disabledTooltip="Animated",
+              get=function() return (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimatedSize) or 24 end,
+              set=function(v)
+                  RestSet("restedIndicatorAnimatedSize", v)
+                  RestPlace()
+              end },
+            { type="slider", label="X Offset", min=-50, max=50, step=1,
+              get=function() return (EllesmereUIDB and EllesmereUIDB.restedIndicatorXOffset) or 0 end,
+              set=function(v)
+                  RestSet("restedIndicatorXOffset", v)
+                  RestPlace()
+              end },
+            { type="slider", label="Y Offset", min=-50, max=50, step=1,
+              get=function() return (EllesmereUIDB and EllesmereUIDB.restedIndicatorYOffset) or 0 end,
+              set=function(v)
+                  RestSet("restedIndicatorYOffset", v)
+                  RestPlace()
+              end },
+        },
+        gap = 9, disabled = RestOff, disabledTooltip = "Rested Indicator",
+    })
+end

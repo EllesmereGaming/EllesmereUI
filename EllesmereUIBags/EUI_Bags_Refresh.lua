@@ -740,11 +740,17 @@ function EUI_Bags:RefreshInventory()
     local showPinned = BP().bagShowPinnedItems ~= false
     local pinnedSet = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
     local hidePinned = BP().bagHidePinnedInCategories == true
+    -- Dim Items in OneBag/MultiBag: in those views (-1 / -2), while the Pinned
+    -- Items quickview shows there, a pinned item is drawn dimmed in its bag
+    -- section (the slot and row painters skip the quickview's own copy).
+    local dimPinned = (selectedCategoryIndex == -1 or selectedCategoryIndex == -2)
+        and BP().bagPinnedInOneBag ~= false and BP().bagDimPinnedInOneBag == true
     if pinnedCatIdx and pinnedSet and showPinned then
         local pinnedCount = 0
         for _, data in ipairs(tempItems) do
             if data.info and data.info.itemID and IsItemPinned(pinnedSet, data.itemLink, data.info.itemID) then
                 pinnedCount = pinnedCount + 1
+                if dimPinned then data._pinDim = true end
                 if hidePinned then
                     -- Keep the category for sorting and gear/stack handling.
                     data._pinnedOnly = true

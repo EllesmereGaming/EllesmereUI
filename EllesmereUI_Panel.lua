@@ -5635,7 +5635,7 @@ end
 --  (a module can opt out of the latter with searchPrebuild = false).
 --  Developer guide: PLUGINS_API.md.
 -------------------------------------------------------------------------------
-EllesmereUI.PLUGIN_API_VERSION = 4
+EllesmereUI.PLUGIN_API_VERSION = 5
 
 do
     local PREFIX          = EUI_NS.PLUGIN_PREFIX

@@ -644,6 +644,7 @@ initFrame:SetScript("OnEvent", function(self)
                     or (slot.kind == "randomhearth"
                         and "random hearthstone, rolled again on each open")
                     or (slot.kind == "panel" and "interface panel")
+                    or (slot.kind == "equipmentset" and "equipment set")
                     or (slot.kind == "spec" and "specialization")
                     -- Same icon and same name as a fixed spec entry on the
                     -- character that made it, so the caption is the only place
@@ -747,12 +748,23 @@ initFrame:SetScript("OnEvent", function(self)
     local function SpellEntries()
         local out, seen = {}, {}
         local bank = Enum.SpellBookSpellBank.Player
+        -- WoW Forever: names that have lower ranks, and each spell's top rank.
+        local ranked, tops = {}, {}
 
-        local function Add(spellID, name, icon)
-            if type(spellID) ~= "number" or seen[spellID] or not name then return end
-            seen[spellID] = true
-            out[#out + 1] = { icon = icon, name = name,
-                              slot = { kind = "spell", id = spellID } }
+        local function Add(spellID, name, icon, rankText)
+            local key = rankText and ("#" .. tostring(spellID)) or spellID
+            if type(spellID) ~= "number" or seen[key] or not name then return end
+            seen[key] = true
+            local entry = { icon = icon, name = name,
+                            slot = { kind = "spell", id = spellID } }
+            -- A rank row casts exactly that rank, and sorts below its spell's
+            -- own row (sortName, rankNum: see the picker's sort).
+            if rankText then
+                entry.name = name .. " (" .. rankText .. ")"
+                entry.sortName, entry.rankNum = name, tonumber(rankText:match("%d+")) or 0
+                entry.slot.rankPinned = true
+            end
+            out[#out + 1] = entry
         end
 
         -- Dynamic Rez ahead of the spellbook itself, the way the Mount Journal's
@@ -782,14 +794,37 @@ initFrame:SetScript("OnEvent", function(self)
                 for i = li.itemIndexOffset + 1, li.itemIndexOffset + li.numSpellBookItems do
                     local info = C_SpellBook.GetSpellBookItemInfo(i, bank)
                     -- FutureSpell (a rank not learned yet) falls out here too:
-                    -- only Spell and Flyout are handled.
+                    -- only Spell and Flyout are handled. On WoW Forever the book
+                    -- holds every learned rank: the spell's own row follows the
+                    -- highest known rank, and each rank also gets a row that
+                    -- casts exactly that rank.
                     if info and not info.isPassive and not info.isOffSpec then
                         if info.itemType == Enum.SpellBookItemType.Spell then
+                            local rankText
+                            if EllesmereUI.IS_FOREVER then
+                                rankText = info.subName
+                                if not rankText or rankText == "" then
+                                    rankText = C_Spell.GetSpellSubtext(info.actionID)
+                                end
+                                if rankText == "" then rankText = nil end
+                            end
                             -- actionID, not spellID: for a spell actionID is the
                             -- BASE id while spellID is whatever override is up
                             -- right now, and the base is what the game resolves
-                            -- overrides from when the button fires.
-                            Add(info.actionID, info.name, info.iconID)
+                            -- overrides from when the button fires. A lower rank
+                            -- whose text has not loaded would only repeat its
+                            -- spell's row.
+                            if EllesmereUI.IS_FOREVER and C_SpellBook.IsSpellBookItemLowRank(i, bank) then
+                                if rankText then
+                                    Add(info.actionID, info.name, info.iconID, rankText)
+                                    ranked[info.name] = true
+                                end
+                            else
+                                Add(info.actionID, info.name, info.iconID)
+                                if rankText then
+                                    tops[#tops + 1] = { info.actionID, info.name, info.iconID, rankText }
+                                end
+                            end
                         elseif info.itemType == Enum.SpellBookItemType.Flyout then
                             -- A flyout is not castable itself, so its known
                             -- slots are offered as individual spells.
@@ -805,6 +840,10 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
             end
+        end
+        -- The top rank of a spell with lower ones gets its own rank row too.
+        for _, t in ipairs(tops) do
+            if ranked[t[2]] then Add(t[1], t[2], t[3], t[4]) end
         end
         return out
     end
@@ -1178,6 +1217,15 @@ initFrame:SetScript("OnEvent", function(self)
         return out
     end
 
+    local function EquipmentSetEntries()
+        local out = {}
+        for _, slot in ipairs(ns.EquipmentSetSlots()) do
+            local icon, name = ns.SlotDisplay(slot)
+            out[#out + 1] = { icon = icon, name = name, slot = slot }
+        end
+        return out
+    end
+
     -- Every palette this one may open. Not a list of things the game owns, so
     -- it is rebuilt on each use rather than cached: adding a palette or filling
     -- one in has to show up here without reopening the picker.
@@ -1226,6 +1274,8 @@ initFrame:SetScript("OnEvent", function(self)
         { key = "battlepet", label = "Battle Pets",  build = PetEntries },
         { key = "outfit",    label = "Outfits",      build = OutfitEntries,
           keepOrder = true },
+        { key = "equipmentset", label = "Equipment Sets",
+          build = EquipmentSetEntries },
         -- keepOrder on both: the markers run star to skull, the order every
         -- marker menu in the game shows. noSearch on both too -- a fixed
         -- handful of rows has nothing worth filtering, and the nav strip
@@ -1730,7 +1780,10 @@ initFrame:SetScript("OnEvent", function(self)
             if not cat.keepOrder then
                 table.sort(list, function(a, b)
                     if (a.pin or false) ~= (b.pin or false) then return a.pin == true end
-                    return a.name < b.name
+                    -- WoW Forever's lower ranks follow their spell's row, highest first.
+                    local an, bn = a.sortName or a.name, b.sortName or b.name
+                    if an ~= bn then return an < bn end
+                    return (a.rankNum or math.huge) > (b.rankNum or math.huge)
                 end)
             end
             pickerLists[cat.key] = list
@@ -1931,6 +1984,13 @@ initFrame:SetScript("OnEvent", function(self)
     -- Keep Blizzard's order and report anything over the menu cap.
     local function OutfitSlots()
         local out = ns.OutfitSlots and ns.OutfitSlots() or {}
+        local dropped = math.max(0, #out - MAX_SLOTS)
+        for i = #out, MAX_SLOTS + 1, -1 do out[i] = nil end
+        return out, dropped
+    end
+
+    local function EquipmentSetSlots()
+        local out = ns.EquipmentSetSlots()
         local dropped = math.max(0, #out - MAX_SLOTS)
         for i = #out, MAX_SLOTS + 1, -1 do out[i] = nil end
         return out, dropped
@@ -2146,6 +2206,7 @@ initFrame:SetScript("OnEvent", function(self)
         { label = "Pings",          build = PingSlots },
         { label = "Hearthstones",   build = HearthstoneSlots },
         { label = "Outfits",        build = OutfitSlots },
+        { label = "Equipment Sets", build = EquipmentSetSlots },
         { label = "Teleports",      build = TeleportSlots },
         { label = "Potions",        build = PotionSlots },
         { label = "Druid Forms",    build = FormSlots },

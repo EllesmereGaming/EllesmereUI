@@ -575,6 +575,7 @@ local function OnEvent(self, event, ...)
                 local tail = castBarFrame._endTime - castBarFrame._craftCastEnd
                 castBarFrame._craftCastEnd = endTimeMS / 1000
                 castBarFrame._endTime = castBarFrame._craftCastEnd + tail
+                ns.ApplyCastTimer("craft")
             elseif name then
                 castBarFrame._startTime = startTimeMS / 1000
                 castBarFrame._endTime = endTimeMS / 1000

@@ -525,7 +525,6 @@ L["Not a rank in this guild"] = "Такого звания в этой гиль�
 L["Not confirmed"] = "Не подтверждено"
 L["Not detected"] = "Не обнаружено"
 L["Not looted yet"] = "Еще не подобрано"
-L["Note"] = "Прим."
 L["Note: %s"] = "Заметка: %s"
 L["Nothing in your bags is inside its trade window."] = "Ни один предмет в ваших сумках не находится в окне обмена."
 L["Nothing owed"] = "Передавать нечего"

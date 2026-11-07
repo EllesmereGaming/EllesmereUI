@@ -447,14 +447,30 @@ function WSkin.Inset(inset)
 end
 
 -- size (optional): the size to set; otherwise the string keeps its own (12 if none).
+-- A string already on one of our font families keeps it (WSkin.FontFamily), so a
+-- region walk never pins a name text that took a family.
 function WSkin.Font(fs, r, g, b, size)
     if not fs or not fs.GetFont or (fs.IsForbidden and fs:IsForbidden()) then return end
+    local fo = fs.GetFontObject and fs:GetFontObject()
+    if fo and EUI._fontFamilySet[fo] then return WSkin.FontFamily(fs, r, g, b, size) end
     local _, cur = fs:GetFont()
     if cur and issecretvalue(cur) then return end
     -- 12.0.7: shadows only render from a FontObject, never from instance
     -- SetShadowOffset. Prime BEFORE SetFont (SetFont then restores the face).
     EUI.PrimeFontShadow(fs, Theme.fontShadow)
     fs:SetFont(Theme.fontPath, size or cur or 12, Theme.fontFlag or "")
+    if r then fs:SetTextColor(r, g, b or r) end
+end
+
+-- WSkin.Font for a text that shows other players' writing (names, group titles,
+-- comments): the house font as a font family, which draws the scripts that font
+-- lacks. A string given a family takes every later font write through here,
+-- never through WSkin.Font (a plain SetFont pins the face for good).
+function WSkin.FontFamily(fs, r, g, b, size)
+    if not fs or not fs.GetFont or (fs.IsForbidden and fs:IsForbidden()) then return end
+    local _, cur = fs:GetFont()
+    if cur and issecretvalue(cur) then return end
+    EUI.SetFontFamily(fs, Theme.fontPath, size or cur or 12, Theme.fontFlag or "", Theme.fontShadow)
     if r then fs:SetTextColor(r, g, b or r) end
 end
 

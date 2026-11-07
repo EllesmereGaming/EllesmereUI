@@ -162,11 +162,17 @@ local function CreateBarFrame(info)
     -- fires this frame's insecure OnAttributeChanged -- the one clean owning
     -- edge to retire the filled lists and slot->button map so the next
     -- cooldown pass rebuilds against the new mapping.
-    frame:HookScript("OnAttributeChanged", function(_, name)
+    frame:HookScript("OnAttributeChanged", function(f, name)
         if name == "state-page" then
             ns._cdFilledDirty = true
             ns._slotBtnMapDirty = true
             ns._cdDirtyUntil = GetTime() + 2
+            -- Out-of-range coloring re-acquires the bar's new slots and the
+            -- proc glows re-scan (EUI_ActionBars_Range.lua / _Glows.lua): the
+            -- page is applied by now, which ACTIONBAR_PAGE_CHANGED's own
+            -- passes cannot rely on (it fires before the state driver runs)
+            if ns._eabRangePageEdge then ns._eabRangePageEdge(f._barKey) end
+            if ns._eabQueueGlowRescan then ns._eabQueueGlowRescan() end
         end
     end)
 

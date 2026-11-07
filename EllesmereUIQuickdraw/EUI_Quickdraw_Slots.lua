@@ -279,6 +279,32 @@ function ns.OutfitSlots()
     return out
 end
 
+-- Set IDs are character-local even when the palette is shared.
+local function EquipmentSetOwner()
+    local guid = UnitGUID("player")
+    if not issecretvalue(guid) then return guid end
+end
+
+function ns.EquipmentSetInfo(slot)
+    if type(slot.id) ~= "number" or type(slot.owner) ~= "string"
+        or slot.owner ~= EquipmentSetOwner() then return end
+    return C_EquipmentSet.GetEquipmentSetInfo(slot.id)
+end
+
+function ns.EquipmentSetSlots()
+    local out = {}
+    local owner = EquipmentSetOwner()
+    if not owner then return out end
+    for _, id in ipairs(C_EquipmentSet.GetEquipmentSetIDs()) do
+        local name, icon = C_EquipmentSet.GetEquipmentSetInfo(id)
+        if name then
+            out[#out + 1] = { kind = "equipmentset", id = id, owner = owner,
+                             name = name, icon = icon }
+        end
+    end
+    return out
+end
+
 -------------------------------------------------------------------------------
 --  Interface panels: one entry per Blizzard panel, so the whole micro menu
 --  fits on a ring and costs one keybind. A panel with a micro button fires as

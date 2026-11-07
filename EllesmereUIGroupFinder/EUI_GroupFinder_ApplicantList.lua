@@ -16,7 +16,7 @@ local HOME = LE_PARTY_CATEGORY_HOME
 local ROLES = { "TANK", "HEALER", "DAMAGER" }
 local ROLE_ATLAS = { TANK = "groupfinder-icon-role-micro-tank", HEALER = "groupfinder-icon-role-micro-heal",
     DAMAGER = "groupfinder-icon-role-micro-dps" }
-local TAG = "|cff0cd29fApplicant list:|r "
+local BAD = EllesmereUI.COLOR_CODES.BAD
 
 -- right to left from the buttons, the name takes what's left
 local SPEC_COL = { key = "spec", title = EllesmereUI.L("Spec"), w = 26 }
@@ -33,7 +33,7 @@ local function Readable(t) return type(t) == "table" and not Secret(t) and not (
 
 local AV, frame, head, body, thumb, empty, cover, raidRoles
 local VisibleCols
-local active, guard, queued = false, false, false
+local active, guard = false, false
 local blocks, list = {}, {}
 local cols, baseCols = COLS_BASE, COLS_BASE
 local entryActivity
@@ -42,7 +42,8 @@ local rowH, btnSize, btnRoom, iconPx = 36, 20, 50, 21
 local layoutKey
 local scrollPx = 0
 
-function ns.ApplicantListOn() return ns.Enabled() and ns.OwnListGet("applicantList") == true end
+-- the applicant list runs whenever the module does
+function ns.ApplicantListOn() return ns.Enabled() end
 
 -------------------------------------------------------------------------------
 --  reading
@@ -52,7 +53,7 @@ local function KeyText(s)
     if not Readable(s) then return "-" end
     local lvl, done = s.bestRunLevel, s.finishedSuccess
     if Secret(lvl) or Secret(done) or type(lvl) ~= "number" or lvl == 0 then return "-" end
-    return (done and "" or "|cffff5555") .. "+" .. lvl .. (done and "" or "|r")
+    return (done and "" or BAD) .. "+" .. lvl .. (done and "" or "|r")
 end
 
 local function ActiveActivity()
@@ -88,11 +89,19 @@ end
 local DECLINED = { declined = true, declined_full = true, declined_delisted = true, invitedeclined = true }
 
 -- blizzard's order: new ones at the bottom. a secret field keeps the order we got
+local isNew, order = {}, {}  -- by applicant, refilled by every collect
+local function ByOrder(a, b)
+    if isNew[a] ~= isNew[b] then return isNew[b] end
+    if order[a] ~= order[b] then return order[a] < order[b] end
+    return a < b
+end
 local function Collect()
     wipe(list)
+    wipe(isNew)
+    wipe(order)
     local apps = C_LFGList.GetApplicants()
     if not Readable(apps) then return end
-    local key, sortable = {}, true
+    local sortable = true
     for _, id in ipairs(apps) do
         local info = C_LFGList.GetApplicantInfo(id)
         if Readable(info) and not (DECLINED[info.applicationStatus] and not info.pendingApplicationStatus) then
@@ -100,24 +109,18 @@ local function Collect()
             if Secret(info.isNew) or Secret(info.displayOrderID) then
                 sortable = false
             else
-                key[id] = { new = info.isNew and true or false, ord = info.displayOrderID or 0 }
+                isNew[id] = info.isNew and true or false
+                order[id] = info.displayOrderID or 0
             end
         end
     end
     if not sortable then return end
-    table.sort(list, function(a, b)
-        local ka, kb = key[a], key[b]
-        if ka.new ~= kb.new then return kb.new end
-        if ka.ord ~= kb.ord then return ka.ord < kb.ord end
-        return a < b
-    end)
+    table.sort(list, ByOrder)
 end
 
 -------------------------------------------------------------------------------
 --  buttons
 -------------------------------------------------------------------------------
-local function Say(text) DEFAULT_CHAT_FRAME:AddMessage(TAG .. text) end
-
 local function DoInvite(id)
     PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
     C_LFGList.InviteApplicant(id)
@@ -209,7 +212,6 @@ local function WhisperLink(name)
 end
 
 local function LineMenu(line)
-    if not EUI.ShowContextMenu then return end
     local id = line:GetParent().applicantID
     if not id then return end
     local name = C_LFGList.GetApplicantMemberInfo(id, line.memberIdx)
@@ -255,7 +257,7 @@ local function PrivateTooltip(line, id)
     end
     local info = C_LFGList.GetApplicantInfo(id)
     local comment = Readable(info) and info.comment
-    if not ns.OwnListGet("applicantHideNote") and type(comment) == "string" and not Secret(comment) and comment ~= "" then
+    if not ns.OwnListGet("streamerNote") and type(comment) == "string" and not Secret(comment) and comment ~= "" then
         GameTooltip:AddLine(" ")
         local fc = LFG_LIST_COMMENT_FONT_COLOR
         GameTooltip:AddLine(string.format(LFG_LIST_COMMENT_FORMAT or "%s", comment), fc and fc.r or 0.6, fc and fc.g or 0.6, fc and fc.b or 0.6, true)
@@ -268,7 +270,7 @@ local function LineEnter(line)
     local id = line:GetParent().applicantID
     -- values can go secret between repaints, the next one hands over to blizzard's list
     if not (id and LFGListApplicantMember_OnEnter) or AnySecret() then return end
-    if ns.OwnListGet("applicantHideNote") or ns.OwnListGet("streamerNames")
+    if ns.OwnListGet("streamerNote") or ns.OwnListGet("streamerNames")
         or ns.OwnListGet("streamerRating") or ns.OwnListGet("streamerSpec") then
         PrivateTooltip(line, id)
     else
@@ -551,23 +553,29 @@ local function PaintRole(rb, role)
     end
 end
 
+-- a mark before the name, after the one placed before it (l.markPrev)
+local function After(l, tex, shown, x)
+    tex:SetShown(shown)
+    if not shown then return end
+    local anchor = l.markPrev
+    tex:ClearAllPoints()
+    tex:SetPoint("LEFT", anchor, anchor == l and "LEFT" or "RIGHT", anchor == l and x or 1, 0)
+    l.markPrev = tex
+end
+
 local function FillLine(l, id, k, grey, noTouch)
     local name, class, localClass, _, ilvl, _, tank, healer, damage, assigned, relation, score, pvpIlvl, _, _, specID, leaver = C_LFGList.GetApplicantMemberInfo(id, k)
     PlaceCells(l)
     PaintSpec(l, class, specID, grey)
-    FontSize(l.name, ns.OwnListSize("titleSize"))
+    -- the applicant's name: a font family (ns.OwnListNameFont), never FontSize
+    ns.OwnListNameFont(l.name, ns.OwnListSize("titleSize"))
     for _, fs in pairs(l.cells) do FontSize(fs, ns.OwnListSize("scoreSize")) end
     -- leaver, friend, name
-    local anchor, x = l, k > 1 and 18 or 6
-    local function After(tex, shown)
-        tex:SetShown(shown)
-        if not shown then return end
-        tex:ClearAllPoints()
-        tex:SetPoint("LEFT", anchor, anchor == l and "LEFT" or "RIGHT", anchor == l and x or 1, 0)
-        anchor = tex
-    end
-    After(l.leaver, not Secret(leaver) and leaver)
-    After(l.friend, not Secret(relation) and relation)
+    local x = k > 1 and 18 or 6
+    l.markPrev = l
+    After(l, l.leaver, not Secret(leaver) and leaver, x)
+    After(l, l.friend, not Secret(relation) and relation, x)
+    local anchor = l.markPrev
     -- region under the name when the row has the height for it
     local tag, tr, tg, tb, flag
     if not grey and ns.RegionTagOfName then tag, tr, tg, tb, flag = ns.RegionTagOfName(name) end
@@ -601,7 +609,12 @@ local function FillLine(l, id, k, grey, noTouch)
     if grey or not cc then l.name:SetTextColor(0.6, 0.6, 0.6) else l.name:SetTextColor(cc.r, cc.g, cc.b) end
 
     -- the roles they picked, the one they're down for lit up
-    local picked = {}
+    local picked = l.picked
+    if not picked then
+        picked = {}
+        l.picked = picked
+    end
+    wipe(picked)
     if tank then picked[#picked + 1] = "TANK" end
     if healer then picked[#picked + 1] = "HEALER" end
     if damage then picked[#picked + 1] = "DAMAGER" end
@@ -673,12 +686,12 @@ local function FillBlock(b, id, numAllowed, current, numInvited)
     for k = n + 1, #b.lines do b.lines[k]:Hide() end
     -- the applicant's note, the block only grows when there is one
     local comment, noteH = info.comment, 0
-    local hasNote = not grey and not ns.OwnListGet("applicantHideNote")
+    local hasNote = not grey and not ns.OwnListGet("streamerNote")
         and type(comment) == "string" and not Secret(comment) and comment ~= ""
     b.note:SetShown(hasNote)
     b.noteHit:SetShown(hasNote)
     if hasNote then
-        FontSize(b.note, ns.OwnListSize("lineSize"))
+        ns.OwnListNameFont(b.note, ns.OwnListSize("lineSize"))
         b.note:ClearAllPoints()
         b.note:SetPoint("TOPLEFT", b, "TOPLEFT", 6, -n * rowH)
         b.note:SetWidth(math.max(40, (body:GetWidth() or 200) - btnRoom - 8))
@@ -1069,7 +1082,7 @@ end
 local watch, watching
 local EVENTS = { "LFG_LIST_APPLICANT_LIST_UPDATED", "LFG_LIST_APPLICANT_UPDATED", "LFG_LIST_ACTIVE_ENTRY_UPDATE",
     "GROUP_ROSTER_UPDATE", "PARTY_LEADER_CHANGED", "PLAYER_ROLES_ASSIGNED", "PLAYER_REGEN_DISABLED",
-    "ADDON_RESTRICTION_STATE_CHANGED", "ADDON_ACTION_BLOCKED", "ADDON_ACTION_FORBIDDEN" }
+    "ADDON_RESTRICTION_STATE_CHANGED" }
 
 local function SyncEvents()
     local want = (ns.ApplicantListOn() and watch:IsVisible()) and true or false
@@ -1098,13 +1111,19 @@ ns.OwnListRefresh = function()
     ns.ApplicantListRefresh()
 end
 
+-- applicant events gather here: one refresh on the next frame, from a frame
+-- hidden again until the next event
+local refresher
 local function Queue()
-    if queued then return end
-    queued = true
-    C_Timer.After(0, function()
-        queued = false
-        ns.ApplicantListRefresh()
-    end)
+    if not refresher then
+        refresher = CreateFrame("Frame")
+        refresher:Hide()
+        refresher:SetScript("OnUpdate", function(self)
+            self:Hide()
+            ns.ApplicantListRefresh()
+        end)
+    end
+    refresher:Show()
 end
 
 if ns.WhenGroupFinder then
@@ -1124,13 +1143,7 @@ if ns.WhenGroupFinder then
             SyncEvents()
             SetActive(false)
         end)
-        watch:SetScript("OnEvent", function(_, event, _, func)
-            if event == "ADDON_ACTION_BLOCKED" or event == "ADDON_ACTION_FORBIDDEN" then
-                if type(func) == "string" and (func:find("Applicant") or func:find("ConvertToRaid")) then
-                    Say("|cffff5555blocked:|r " .. func)
-                end
-                return
-            end
+        watch:SetScript("OnEvent", function(_, event)
             -- combat can lift with no event of ours, look again once it's over
             if event == "PLAYER_REGEN_DISABLED" then ns.CombatQueue.Defer("applicantList", Queue) end
             Queue()

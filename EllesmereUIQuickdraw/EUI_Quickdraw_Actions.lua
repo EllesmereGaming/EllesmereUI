@@ -26,6 +26,34 @@ local WORLD_MARKER_ENGINE, SetUsableSlots = I.WORLD_MARKER_ENGINE, I.SetUsableSl
 -- the forward declaration ChildSlots reads through.
 local UsableSlots
 
+-- Forever gives each spell rank its own id; resolve to the highest known one, as /cast does.
+-- Kept per stored id until the next push (PushAllPalettes wipes it, and SPELLS_CHANGED
+-- requests one); a lookup made before the spell's data loaded is not kept.
+local TopRank
+do
+    local memo = {}
+    function ns.WipeRankCache() wipe(memo) end
+    TopRank = function(id)
+        if not EllesmereUI.IS_FOREVER or type(id) ~= "number" then return id end
+        local hit = memo[id]
+        if hit then return hit end
+        local info = C_Spell.GetSpellInfo(id)
+        local top = info and C_Spell.GetSpellInfo(info.name)
+        if not top then return id end
+        local out = id
+        if top.spellID ~= id and C_SpellBook.IsSpellKnown(top.spellID) then out = top.spellID end
+        memo[id] = out
+        return out
+    end
+end
+
+-- The spell a spell entry casts: exactly its stored rank when picked from a
+-- lower one (slot.rankPinned, Forever only), the highest known rank otherwise.
+local function SlotRank(slot)
+    if slot.rankPinned and EllesmereUI.IS_FOREVER and type(slot.id) == "number" then return slot.id end
+    return TopRank(slot.id)
+end
+
 -------------------------------------------------------------------------------
 --  Dynamic Rez
 --
@@ -248,8 +276,8 @@ do
 -- Is this one spell id in either of this character's books, player or pet?
 local function KnownForm(sid)
     return (sid and sid > 0)
-        and (IsPlayerSpell(sid)
-             or (C_SpellBook and C_SpellBook.IsSpellKnownOrInSpellBook
+        and (C_SpellBook.IsSpellKnown(sid)
+             or (C_SpellBook.IsSpellKnownOrInSpellBook
                  and C_SpellBook.IsSpellKnownOrInSpellBook(sid)))
         or false
 end
@@ -288,6 +316,8 @@ local function SlotUsable(slot)
         return GetMacroInfo(slot.name or slot.id) ~= nil
     elseif k == "outfit" then
         return ns.OutfitInfo(slot) ~= nil
+    elseif k == "equipmentset" then
+        return ns.EquipmentSetInfo(slot) ~= nil
     elseif k == "panel" then
         -- The one kind whose availability is the CLIENT's rather than the
         -- character's: Housing arrived in 12.0 and the Shop is not in every
@@ -364,7 +394,7 @@ local function ResolveAction(slot, p)
 
     if k == "spell" then
         if type(slot.id) ~= "number" then return nil end
-        return "spell", "spell", slot.id
+        return "spell", "spell", SlotRank(slot)
 
     elseif k == "dynamicprofession" then
         -- Resolved to the CURRENT position's spell every time the
@@ -392,6 +422,11 @@ local function ResolveAction(slot, p)
         local info = ns.OutfitInfo(slot)
         if not info then return nil end
         return "outfit", "outfit-index", info.playerFacingOutfitIndex
+
+    elseif k == "equipmentset" then
+        local name = ns.EquipmentSetInfo(slot)
+        if not name then return nil end
+        return "equipmentset", "equipmentset", name
 
     elseif k == "macro" then
         -- Stored by name so reordering the macro list doesn't repoint the
@@ -654,8 +689,18 @@ local function SlotDisplay(slot)
     local k = slot.kind
 
     if k == "spell" then
-        local info = C_Spell.GetSpellInfo(slot.id)
-        if info then return info.iconID or QUESTION_MARK, info.name end
+        local id = SlotRank(slot)
+        local info = C_Spell.GetSpellInfo(id)
+        if info then
+            local name = info.name
+            -- A pinned rank is named with it ("Shadow Bolt (Rank 3)"); nothing
+            -- else tells it from the entry that follows the highest rank.
+            if slot.rankPinned and EllesmereUI.IS_FOREVER then
+                local sub = C_Spell.GetSpellSubtext(id)
+                if sub and sub ~= "" then name = name .. " (" .. sub .. ")" end
+            end
+            return info.iconID or QUESTION_MARK, name
+        end
 
     elseif k == "item" then
         if type(slot.id) ~= "number" then return QUESTION_MARK, slot.name end
@@ -684,6 +729,10 @@ local function SlotDisplay(slot)
         local info = ns.OutfitInfo(slot)
         return ns.OutfitIcon(info) or ns.OutfitIcon(slot) or QUESTION_MARK,
                (info and info.name) or slot.name or "Outfit"
+
+    elseif k == "equipmentset" then
+        local name, icon = ns.EquipmentSetInfo(slot)
+        return icon or slot.icon or QUESTION_MARK, name or slot.name or "Equipment Set"
 
     elseif k == "macro" then
         local nameOrIndex = slot.name or slot.id
@@ -878,7 +927,7 @@ ns.SlotDisplay = SlotDisplay
 local function SlotSpellID(slot)
     if not slot then return nil end
     if slot.kind == "spell" then
-        return type(slot.id) == "number" and slot.id or nil
+        return type(slot.id) == "number" and SlotRank(slot) or nil
     elseif slot.kind == "dynamicrez" then
         return Rez.SpellNow()
     elseif slot.kind == "dynamicprofession" then
@@ -1088,6 +1137,9 @@ local function SlotUsability(slot)
     elseif k == "outfit" then
         return InCombatLockdown() and "UNUSABLE" or nil
 
+    elseif k == "equipmentset" then
+        if InCombatLockdown() or not ns.EquipmentSetInfo(slot) then return "UNUSABLE" end
+
     elseif k == "mount" or k == "lastmount" or k == "randommount" then
         -- The Mount Journal's own answer, the one behind its Summon button's
         -- "You can't mount here" line, indoors counted (checkIndoors): plain
@@ -1129,6 +1181,10 @@ local function SlotFromCursor()
         -- that would store a slot number as a spellID and silently create a
         -- slot that casts the wrong thing.
         if type(c) ~= "number" then return nil end
+        -- A lower rank than the highest known one is kept as that rank.
+        if EllesmereUI.IS_FOREVER and TopRank(c) ~= c then
+            return { kind = "spell", id = c, rankPinned = true }
+        end
         return { kind = "spell", id = c }
 
     elseif cursorType == "item" then

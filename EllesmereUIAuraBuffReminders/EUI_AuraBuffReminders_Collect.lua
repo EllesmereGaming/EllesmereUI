@@ -201,6 +201,7 @@ local function ShowIcon(iconIdx, m)
     local sz = floor(ICON_SIZE * baseScale + 0.5)
     ApplyGlow(btn, p, sz)
     EABR.ApplyEatingVisual(btn, m)
+    EABR.ApplyIconExpiry(btn, m)
     EABR.ApplyIconQuality(btn, (not m.isEating) and m.qualityAtlas or nil)
     if m.groupTotal then
         EABR.ApplyIconGroupCoverage(btn, m.groupHave, m.groupTotal)

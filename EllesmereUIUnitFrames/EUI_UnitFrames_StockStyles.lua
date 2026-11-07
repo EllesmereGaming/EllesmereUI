@@ -1424,13 +1424,15 @@ function ns.UF_BlizzLevelPass(frame)
     local s = GetSettingsForUnit(frame._euiBaseUnit or frame._euiUnit)
     -- Same face, outline and shadow as the unit name (and its size, unless
     -- the level has its own): the name's font object first (it carries the
-    -- shadow), then its face. The colour keeps the stock rules (set as an
-    -- instance text colour, never vertex-only).
+    -- shadow), then its face. A name on a font family gives its roman member's
+    -- face, the chosen font, whatever script the name holds. The colour keeps
+    -- the stock rules (set as an instance text colour, never vertex-only).
     local lt = frame.LeftText
     if lt then
-        local face, size, flags = lt:GetFont()
+        local fo = lt:GetFontObject()
+        local src = (fo and EllesmereUI._fontFamilySet[fo] and fo:GetFontObjectForAlphabet("roman")) or lt
+        local face, size, flags = src:GetFont()
         if face then
-            local fo = lt:GetFontObject()
             if fo then fs:SetFontObject(fo) end
             fs:SetFont(face, (s and s.blizzLevelSize) or size, flags)
         end

@@ -705,7 +705,9 @@ end
 -------------------------------------------------------------------------------
 --  Render
 -------------------------------------------------------------------------------
-local function RenderRow(btn, data, cols, rowW, x, y, stripe)
+-- dim: a pinned item in a OneBag / MultiBag bag section while Dim Items in
+-- OneBag/MultiBag is on (the grid's search-miss alpha).
+local function RenderRow(btn, data, cols, rowW, x, y, stripe, dim)
     -- Bags and bank share the column tables at their own row widths: a bank
     -- batch painted after a bags refresh re-lays them out for its width.
     if rowW ~= _lastRowW then LayoutColumns(rowW) end
@@ -717,6 +719,7 @@ local function RenderRow(btn, data, cols, rowW, x, y, stripe)
     btn:SetID(data.slot)
     parent:Show()
     btn:Show()
+    btn:SetAlpha(dim and 0.2 or 1)
     btn._stripe:SetShown(stripe and BP().bagListHideStripes ~= true)
 
     local info = data.info
@@ -831,6 +834,7 @@ local function RenderEmptyRow(btn, cols, d, rowW, x, y, stripe)
     btn:SetID(d.slot)
     parent:Show()
     btn:Show()
+    btn:SetAlpha(1)
     btn._stripe:SetShown(stripe and BP().bagListHideStripes ~= true)
     btn._lvIcon:Hide()
     for _, fs in pairs(btn._cells) do fs:Hide() end
@@ -1043,7 +1047,8 @@ function ns.RenderListView(items, opts)
                     _rowsUsed = _rowsUsed + 1
                     btn:GetParent():SetParent(child)
                     if d.info then
-                        RenderRow(btn, d, cols, rowW, x, y, i % 2 == 0)
+                        RenderRow(btn, d, cols, rowW, x, y, i % 2 == 0,
+                            d._pinDim and b.key ~= "pinned" and b.key ~= "recent")
                     else
                         RenderEmptyRow(btn, cols, d, rowW, x, y, i % 2 == 0)
                     end

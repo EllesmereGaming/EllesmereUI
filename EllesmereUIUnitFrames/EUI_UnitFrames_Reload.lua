@@ -1747,11 +1747,12 @@ ReloadFramesBody = function()
                 ns.ApplyBossBorderState(frame)
             end
 
-            -- Helper: set font on a FontString, using donor font for mini frames
+            -- Helper: set font on a FontString, using donor font for mini frames.
+            -- A font family, as SetFSFont gives.
             local function SetMiniFont(fs, sz)
                 if not fs or not fs.SetFont then return end
                 if isMiniFrame then
-                    EllesmereUI.ApplyModuleFont(fs, donorFontPath, sz or 12, "unitFrames")
+                    EllesmereUI.ApplyModuleFontFamily(fs, donorFontPath, sz or 12, "unitFrames")
                 else
                     SetFSFont(fs, sz)
                 end

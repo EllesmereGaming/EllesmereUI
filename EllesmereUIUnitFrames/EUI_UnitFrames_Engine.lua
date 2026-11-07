@@ -249,6 +249,8 @@ do
             return
         end
 
+        text = EllesmereUI.CleanCastName(text)
+
         element.delay = 0
         element.holdTime = 0
         element._euiTimeWait = 0

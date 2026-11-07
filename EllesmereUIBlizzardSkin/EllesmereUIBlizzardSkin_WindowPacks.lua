@@ -2446,11 +2446,13 @@ local function ApplyGuildPopup(pop, d)
     WSkin.AddBorder(pop)
     WSkin.Register(pop, true)
     if pop.CloseButton then WSkin.CloseButton(pop.CloseButton) end
+    -- The member detail popup's name and rank are player and guild writing: a
+    -- font family.
     local regions = { pop:GetRegions() }
     for i = 1, #regions do
         local r = regions[i]
         if r and r.IsObjectType and r:IsObjectType("FontString") then
-            WSkin.Font(r)
+            if r == pop.Name or r == pop.RankText then WSkin.FontFamily(r) else WSkin.Font(r) end
             WSkin.White(r)
         end
     end
@@ -4741,11 +4743,13 @@ local function SkinMailRow(row)
     end
     local name = row.GetName and row:GetName()
     if name then
+        -- Sender and subject show other players' writing: font families, which
+        -- draw the scripts the house font lacks
         local sender = _G[name .. "Sender"]
-        if sender then WSkin.Font(sender); WSkin.White(sender) end
+        if sender then WSkin.FontFamily(sender); WSkin.White(sender) end
         -- Subject is the item name for item mail: font only, no forced white, so Blizzard's item-quality color shows.
         local subject = _G[name .. "Subject"]
-        if subject then WSkin.Font(subject) end
+        if subject then WSkin.FontFamily(subject) end
     end
     if row.Button then SkinMailItemButton(row.Button) end
 end
@@ -4822,25 +4826,32 @@ local function SkinInvoiceText()
     end
 end
 
--- Letter body: force readable white + skin font on the SimpleHTML elements.
+-- Letter body: force readable white + skin font on the SimpleHTML elements. The
+-- body is another player's writing, so the font is a family (no shadow, as
+-- Blizzard's own mail font): the skin font draws what it has, the client's own
+-- faces the scripts it lacks. The colour goes on after the font.
 local function WhitenMailText()
     local html = _G.OpenMailBodyText
     if html and html.SetTextColor then
         local fp = Theme.fontPath
         local ff = Theme.fontFlag or ""
         for _, el in ipairs({ "P", "H1", "H2", "H3" }) do
-            pcall(html.SetTextColor, html, el, 1, 1, 1)
             if fp and html.GetFont then
                 local ok, _, sz = pcall(html.GetFont, html, el)
-                if ok and sz and not issecretvalue(sz) then
-                    pcall(html.SetFont, html, el, fp, sz, ff)
+                if ok and not issecretvalue(sz) and type(sz) == "number" then
+                    local fam = html.SetFontObject and EllesmereUI.GetFontFamily(fp, sz, ff, false)
+                    if not (fam and pcall(html.SetFontObject, html, el, fam)) then
+                        pcall(html.SetFont, html, el, fp, sz, ff)
+                    end
                 end
             end
+            pcall(html.SetTextColor, html, el, 1, 1, 1)
         end
     end
-    if _G.OpenMailSubject then WSkin.Font(_G.OpenMailSubject); WSkin.White(_G.OpenMailSubject) end
+    -- The letter's subject and sender: font families (other players' writing)
+    if _G.OpenMailSubject then WSkin.FontFamily(_G.OpenMailSubject); WSkin.White(_G.OpenMailSubject) end
     local sender = _G.OpenMailSender
-    if sender and sender.Name then WSkin.Font(sender.Name); WSkin.White(sender.Name) end
+    if sender and sender.Name then WSkin.FontFamily(sender.Name); WSkin.White(sender.Name) end
     SkinInvoiceText()
 end
 
@@ -12823,8 +12834,11 @@ function LP.SkinInvite(fr, roleChecks)
         end
     end
 
+    -- The group's title and the inviter's name are other players' writing: a font
+    -- family, set before the region walk (which keeps a string's family).
+    if fr.GroupName then WSkin.FontFamily(fr.GroupName) end
+    if n and _G[n .. "Text"] then WSkin.FontFamily(_G[n .. "Text"]) end
     LP.FontRegions(fr)
-    if n and _G[n .. "Text"] then WSkin.Font(_G[n .. "Text"]) end
 end
 
 WSkin.RegisterWindow({
@@ -13018,8 +13032,10 @@ function LP.SkinReadyCheck(fr)
     d.rcBtns = btns
     WSkin.ButtonsIn(fr)
 
+    -- The message names the player who started the check: a font family, set
+    -- before the region walk (which keeps a string's family).
+    if n and _G[n .. "Text"] then WSkin.FontFamily(_G[n .. "Text"]) end
     LP.FontRegions(fr)
-    if n and _G[n .. "Text"] then WSkin.Font(_G[n .. "Text"]) end
 
     -- Message + title for the geometry pass below. Resolved here, where the
     -- frame is in hand, and parked on FFD so the pass itself needs no lookups.
@@ -13096,6 +13112,9 @@ function LP.SkinReadyCheckList(fr)
     if body then WSkin.White(body) end
 
     WSkin.CommonChrome(fr)
+    -- The message (a region of this frame) names the player who started the
+    -- check: its font family before the region walk.
+    if body then WSkin.FontFamily(body) end
     LP.FontRegions(fr)
 
     -- The geometry pass keys off ReadyCheckFrame, and its capture needs the
@@ -13160,9 +13179,10 @@ function LP.SkinBNetToast(f)
 
     -- Font only, never color: ShowToast recolors these per toast type (account
     -- name blue, status grey, some of it as an inline color code), and the
-    -- stock colors read correctly on the dark shell.
+    -- stock colors read correctly on the dark shell. Font families: the lines
+    -- show a friend's names and broadcast, in any script.
     for _, k in ipairs({ "TopLine", "MiddleLine", "BottomLine", "DoubleLine" }) do
-        WSkin.Font(f[k])
+        WSkin.FontFamily(f[k])
     end
 
     if f.CloseButton then WSkin.CloseButton(f.CloseButton) end
@@ -13173,7 +13193,7 @@ function LP.SkinBNetToast(f)
     if tip then
         WSkin.Panel(tip)
         if tip.NineSlice then WSkin.FadeNineSlice(tip.NineSlice) end
-        if tip.Text then WSkin.Font(tip.Text) end
+        if tip.Text then WSkin.FontFamily(tip.Text) end
     end
 end
 
@@ -13603,8 +13623,9 @@ end
 function HP.SkinQueueEntry(entry)
     if not entry or entry:IsForbidden() then return end
     -- Title stays accent-colored by Blizzard for eligibility state; the rest
-    -- goes white so the panel reads as one block of house text.
-    if entry.Title then WSkin.Font(entry.Title) end
+    -- goes white so the panel reads as one block of house text. The title can
+    -- be a premade group's name: a font family.
+    if entry.Title then WSkin.FontFamily(entry.Title) end
     for _, k in ipairs({ "Status", "SubTitle", "TimeInQueue", "AverageWait", "ExtraText" }) do
         local fs = entry[k]
         if fs then WSkin.White(fs) end
@@ -14109,6 +14130,7 @@ HP.TRADE_EDGE = {
 -- window open, and a table literal in the loop header builds a fresh table
 -- each time for no reason.
 HP.TRADE_TEXTS = {
+    -- The two names first: HP.TradeTexts gives them font families
     "TradeFramePlayerNameText", "TradeFrameRecipientNameText",
     "TradeFramePlayerEnchantText", "TradeFrameRecipientEnchantText",
 }
@@ -14437,10 +14459,14 @@ end
 
 -- Both player names and both "Will not be traded" enchant captions. White,
 -- because they sit on the panel rather than on an item.
+-- The two names take font families (a player's name, in any script).
 function HP.TradeTexts()
-        for _, n in ipairs(HP.TRADE_TEXTS) do
+        for i, n in ipairs(HP.TRADE_TEXTS) do
             local fs = _G[n]
-            if fs then WSkin.Font(fs); WSkin.White(fs) end
+            if fs then
+                if i <= 2 then WSkin.FontFamily(fs) else WSkin.Font(fs) end
+                WSkin.White(fs)
+            end
         end
 end
 
@@ -14728,10 +14754,11 @@ function FC.SkinFrame(f)
         if spec then FC.SpecIcon(f, edge, spec, hb:GetHeight() + mb:GetHeight()) end
     end
 
-    -- Name white like the windows' titles; the bar texts keep their color.
+    -- Name white like the windows' titles; the bar texts keep their color. A
+    -- player's name, in any script: a font family.
     local nameFS = _G[name .. "Name"]
     if nameFS then
-        WSkin.Font(nameFS)
+        WSkin.FontFamily(nameFS)
         WSkin.White(nameFS)
     end
     for _, suffix in ipairs(FC.BAR_TEXTS) do WSkin.Font(_G[name .. suffix]) end

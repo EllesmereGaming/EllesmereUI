@@ -906,8 +906,9 @@ initFrame:SetScript("OnEvent", function(self)
     local floor = math.floor
     local abs = math.abs
 
-    local GetUFOptOutline = EllesmereUI.GetFontOutlineFlag
-    local SetPVFont = EllesmereUI.ApplyModuleFont
+    -- The preview's texts show names as the frames do, so they take a font
+    -- family as live; every font write to them goes through here.
+    local SetPVFont = EllesmereUI.ApplyModuleFontFamily
 
     ---------------------------------------------------------------------------
     --  Shared helpers
@@ -3018,7 +3019,7 @@ initFrame:SetScript("OnEvent", function(self)
         classPowerPosOrder = classPowerPosOrder, classPowerPosValues = classPowerPosValues, classPowerStyleOrder = classPowerStyleOrder,
         classPowerStyleValues = classPowerStyleValues, classThemeSubOrder = classThemeSubOrder, classThemeSubValues = classThemeSubValues,
         db = db, DebuffModeDropdownCfg = DebuffModeDropdownCfg, detPortraitShapeOrder = detPortraitShapeOrder,
-        detPortraitShapeValues = detPortraitShapeValues, frames = frames, GetUFOptOutline = GetUFOptOutline,
+        detPortraitShapeValues = detPortraitShapeValues, frames = frames,
         GROUP_UNIT_ORDER = GROUP_UNIT_ORDER, HideExhaustionRow = HideExhaustionRow, healthTextOrder = healthTextOrder, healthTextOrderBoss = healthTextOrderBoss,
         healthTextOrderPlayer = healthTextOrderPlayer, healthTextOrderTargetFocus = healthTextOrderTargetFocus, healthTextValues = healthTextValues,
         MINI_GROUP_ORDER = MINI_GROUP_ORDER, optState = optState, portraitArtOrder = portraitArtOrder,

@@ -167,12 +167,16 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         local okName, name = pcall(tt.GetName, tt)
         if not okName or not name then return end
         local nLines = tt.NumLines and tt:NumLines() or 30
+        -- Font families (lines show players' names, guilds and notes), with no
+        -- drop shadow, as the lines' own template font has none. A line already
+        -- on the family is left alone.
+        local SetFamily = EllesmereUI.SetFontFamily
         for i = (startFrom or 1), nLines do
             local left = _G[name .. "TextLeft" .. i]
             if not left then break end
-            left:SetFont(fp, (i == 1) and titleSize or bodySize, ol)
+            SetFamily(left, fp, (i == 1) and titleSize or bodySize, ol, false)
             local right = _G[name .. "TextRight" .. i]
-            if right then right:SetFont(fp, bodySize, ol) end
+            if right then SetFamily(right, fp, bodySize, ol, false) end
         end
     end
 
