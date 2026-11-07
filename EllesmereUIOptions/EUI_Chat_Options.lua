@@ -288,7 +288,7 @@ initFrame:SetScript("OnEvent", function(self)
             do
                 local rgn = borderRow._leftRegion
                 EllesmereUI.BuildInlineCog(rgn, {
-                    icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = rgn._control,
+                    anchorTo = rgn._control,
                     title = "Border Options",
                     captureRegion = rgn,
                     rows = {
@@ -1212,7 +1212,7 @@ initFrame:SetScript("OnEvent", function(self)
             do
                 local rgn = borderRow._leftRegion
                 EllesmereUI.BuildInlineCog(rgn, {
-                    icon = EllesmereUI.DIRECTIONS_ICON, chain = false,
+                    chain = false,
                     disabled = tabBordersDisabled,
                     disabledTooltip = TabBorderDisabledTip,
                     title="Tab Border Options", captureRegion=rgn,

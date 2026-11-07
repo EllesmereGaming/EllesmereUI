@@ -400,7 +400,7 @@ function GO.PopupRows(desc, styleLabel, hidePixel)
     return rows
 end
 
--- Color swatches and the Pixel Glow cog, chained left of the region's control.
+-- The Pixel Glow cog and the color swatches, chained left of the region's control (the cog closest).
 -- rgn = the DualRow half-region holding the style dropdown; colorRgn = an
 -- optional free half-region (a "Glow Color" label) that takes the swatches.
 -- A style-only lock (desc.styleDisabled) leaves both live.
@@ -455,8 +455,33 @@ function GO.AttachInline(rgn, desc, colorRgn)
 
     -- colorInCog: the row is too narrow for the swatches; they go in the cog.
     local colorInCog = desc.colorInCog and caps.mode
+
+    local cog
+    local rows = CogRows(desc)
+    if colorInCog then table.insert(rows, 1, ColorRow(desc, colorOff)) end
+    if #rows > 0 then
+        local hasExtra = (desc.cogRows and #desc.cogRows > 0) or colorInCog
+        cog = EllesmereUI.BuildInlineCog(rgn, {
+            title = "Glow Settings",
+            rows = rows,
+            captureRegion = rgn,
+            disabled = function()
+                if off() then return true end
+                return not hasExtra and not GO.IsPixel(desc)
+            end,
+            -- Whichever lock holds, as the sentence shown: the site's own
+            -- requirement, else a glow to set (rows beyond Pixel's), else Pixel Glow.
+            disabledTooltip = function()
+                if siteOff() then return EllesmereUI.ResolveDisabledTip(desc) end
+                if hasExtra then return EllesmereUI.DisabledTooltip(NO_STYLE_TIP) end
+                return EllesmereUI.DisabledTooltip("Pixel Glow")
+            end,
+            rawTooltip = true,
+        })
+    end
+
     if colorInCog then
-        -- The swatches are the cog's first row (below).
+        -- The swatches are the cog's first row (above).
     elseif caps.mode then
         local srgn = colorRgn or rgn
         local customSw, defaultSw, classSw = EllesmereUI.BuildTrioColorSwatch(srgn, level, {
@@ -476,7 +501,8 @@ function GO.AttachInline(rgn, desc, colorRgn)
         })
         local anchor = srgn._lastInline or srgn._control
         if anchor then
-            PP.Point(classSw, "RIGHT", anchor, "LEFT", -12, 0)
+            -- 8 left of the cog when it shares this half, else 12 left of the control.
+            PP.Point(classSw, "RIGHT", anchor, "LEFT", (cog and srgn == rgn) and -8 or -12, 0)
         else
             PP.Point(classSw, "RIGHT", srgn, "RIGHT", -20, 0)
         end
@@ -493,29 +519,6 @@ function GO.AttachInline(rgn, desc, colorRgn)
         end
         SyncColorLock()
         EllesmereUI.RegisterWidgetRefresh(SyncColorLock)
-    end
-
-    local rows = CogRows(desc)
-    if colorInCog then table.insert(rows, 1, ColorRow(desc, colorOff)) end
-    if #rows > 0 then
-        local hasExtra = (desc.cogRows and #desc.cogRows > 0) or colorInCog
-        EllesmereUI.BuildInlineCog(rgn, {
-            title = "Glow Settings",
-            rows = rows,
-            captureRegion = rgn,
-            disabled = function()
-                if off() then return true end
-                return not hasExtra and not GO.IsPixel(desc)
-            end,
-            -- Whichever lock holds, as the sentence shown: the site's own
-            -- requirement, else a glow to set (rows beyond Pixel's), else Pixel Glow.
-            disabledTooltip = function()
-                if siteOff() then return EllesmereUI.ResolveDisabledTip(desc) end
-                if hasExtra then return EllesmereUI.DisabledTooltip(NO_STYLE_TIP) end
-                return EllesmereUI.DisabledTooltip("Pixel Glow")
-            end,
-            rawTooltip = true,
-        })
     end
 end
 

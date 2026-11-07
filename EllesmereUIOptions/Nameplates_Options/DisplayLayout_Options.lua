@@ -35,11 +35,13 @@ local MOVE_RAW = { "Strata", "Color", "NameColorOn", "NameColor", "LevelColorOn"
                    "WidthPct", "Wrap", "PctDecimal", "NameFormat", "CustomFormat" }
 local MOVE_OFFSETS = { "XOffset", "YOffset" }
 
--- The six text positions in ns.textSlotKeys order: the order of the Core Text
--- Positions list, its position menus and the Core Text Coloring section
--- (CoreTextColoring_Options.lua reads this table at build time).
+-- The eight text positions, in the order of the Core Text Positions list, its
+-- position menus and the Core Text Coloring section (CoreTextColoring_Options.lua
+-- reads this table at build time).
 ns.NPO_TEXT_SLOTS = {
     { key = "textSlotTop",         label = "Top Text",          menu = "Top",          coloring = "Top Text Coloring" },
+    { key = "textSlotTopLeft",     label = "Top Left Text",     menu = "Top Left",     coloring = "Top Left Text Coloring" },
+    { key = "textSlotTopRight",    label = "Top Right Text",    menu = "Top Right",    coloring = "Top Right Text Coloring" },
     { key = "textSlotRight",       label = "Right Text",        menu = "Right",        coloring = "Right Text Coloring" },
     { key = "textSlotLeft",        label = "Left Text",         menu = "Left",         coloring = "Left Text Coloring" },
     { key = "textSlotCenter",      label = "Center Text",       menu = "Center",       coloring = "Center Text Coloring" },
@@ -223,41 +225,7 @@ local function BuildDisplayLayout(parent, y, ctx)
                 function(v) DB().cornerJoinCast = v; ns.RefreshBorder(); ns.RefreshCastBorder(); UpdatePreview() end),
         })
     end
-    -- Inline swatch on the Border dropdown: standard (Basic) border color, dimmed unless mode is Basic.
-    if not EllesmereUI._prebuilding then
-        local leftRgn = borderStyleRow._leftRegion
-        local function isBorderOff()
-            -- Off for None and Custom (standard border/color is inert then) -- only Basic uses it.
-            if EllesmereUI.BlizzStyle.Get("nameplates") then return true end
-            if DBVal("customBorderEnabled") then return true end
-            local v = DBVal("showBorder")
-            if v == nil then return not defaults.showBorder end
-            return not v
-        end
-        local borderColorGet = function()
-            local c = (DB() and DB().borderColor) or defaults.borderColor
-            return c.r, c.g, c.b
-        end
-        local borderColorSet = function(r, g, b)
-            DB().borderColor = { r = r, g = g, b = b }
-            ns.RefreshBorderColor()
-            UpdatePreview()
-        end
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, borderColorGet, borderColorSet, nil, 20)
-        PP.Point(swatch, "RIGHT", leftRgn._control, "LEFT", -12, 0)
-        leftRgn._lastInline = swatch
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = isBorderOff()
-            swatch:SetAlpha(off and 0.15 or 1)
-            swatch:EnableMouse(not off)
-            updateSwatch()
-        end)
-        local off = isBorderOff()
-        swatch:SetAlpha(off and 0.15 or 1)
-        swatch:EnableMouse(not off)
-    end
-
-    -- Inline cog on the Border region: opt-in "Wrap Around Castbar" (left of the colour swatch); dimmed only for "None" mode (wrap applies to both Basic and Custom).
+    -- Inline cog on the Border region: opt-in "Wrap Around Castbar" (beside the control; the colour swatch sits left of it); dimmed only for "None" mode (wrap applies to both Basic and Custom).
     if not EllesmereUI._prebuilding then
         local leftRgn = borderStyleRow._leftRegion
         local function wrapCogOff()
@@ -321,6 +289,40 @@ local function BuildDisplayLayout(parent, y, ctx)
             title = "Castbar Border",
             rows = wrapRows,
         })
+    end
+
+    -- Inline swatch on the Border dropdown: standard (Basic) border color, dimmed unless mode is Basic.
+    if not EllesmereUI._prebuilding then
+        local leftRgn = borderStyleRow._leftRegion
+        local function isBorderOff()
+            -- Off for None and Custom (standard border/color is inert then) -- only Basic uses it.
+            if EllesmereUI.BlizzStyle.Get("nameplates") then return true end
+            if DBVal("customBorderEnabled") then return true end
+            local v = DBVal("showBorder")
+            if v == nil then return not defaults.showBorder end
+            return not v
+        end
+        local borderColorGet = function()
+            local c = (DB() and DB().borderColor) or defaults.borderColor
+            return c.r, c.g, c.b
+        end
+        local borderColorSet = function(r, g, b)
+            DB().borderColor = { r = r, g = g, b = b }
+            ns.RefreshBorderColor()
+            UpdatePreview()
+        end
+        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5, borderColorGet, borderColorSet, nil, 20)
+        PP.Point(swatch, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+        leftRgn._lastInline = swatch
+        EllesmereUI.RegisterWidgetRefresh(function()
+            local off = isBorderOff()
+            swatch:SetAlpha(off and 0.15 or 1)
+            swatch:EnableMouse(not off)
+            updateSwatch()
+        end)
+        local off = isBorderOff()
+        swatch:SetAlpha(off and 0.15 or 1)
+        swatch:EnableMouse(not off)
     end
 
     -- Classic WoW UI only: the level, and the icon that replaces it on a
@@ -450,7 +452,6 @@ local function BuildDisplayLayout(parent, y, ctx)
             -- Shift offsets only apply to textured styles (row only exists when Custom is selected, so no enable gate needed).
             local function cbCogOff() return (DBVal("customBorderTexture") or defaults.customBorderTexture) == "solid" end
             EllesmereUI.BuildInlineCog(leftRgn, {
-                icon = EllesmereUI.DIRECTIONS_ICON or EllesmereUI.COGS_ICON,
                 disabled = cbCogOff,
                 disabledTooltip = "This option requires a textured border style",
                 title = "Border Options",
@@ -486,27 +487,8 @@ local function BuildDisplayLayout(parent, y, ctx)
             })
         end
 
-        -- Inline color swatch (with alpha) on the Custom Border Size region
-        if not EllesmereUI._prebuilding then
-            local rightRgn = customBorderRow._rightRegion
-            local cbColGet = function()
-                local c = (DB() and DB().customBorderColor) or defaults.customBorderColor
-                return c.r, c.g, c.b, (DBVal("customBorderAlpha") or defaults.customBorderAlpha or 1)
-            end
-            local cbColSet = function(r, g, b, a)
-                DB().customBorderColor = { r = r, g = g, b = b }
-                if a ~= nil then DB().customBorderAlpha = a end
-                ns.RefreshBorderColor()
-                UpdatePreview()
-            end
-            local cbSwatch, cbUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, cbColGet, cbColSet, true, 20)
-            PP.Point(cbSwatch, "RIGHT", rightRgn._control, "LEFT", -12, 0)
-            rightRgn._lastInline = cbSwatch
-            EllesmereUI.RegisterWidgetRefresh(function() cbUpdateSwatch() end)
-        end
-
-        -- "Icon Borders" cog on the Custom Border Size region, chained left of the colour
-        -- swatch above (built after it): the custom border on the aura icons and on the
+        -- "Icon Borders" cog on the Custom Border Size region, beside the control (the colour
+        -- swatch below chains left of it): the custom border on the aura icons and on the
         -- cast spell icon. A cog, not a row: both are niche, and the whole block exists
         -- only while Border = Custom. The if-body scopes its locals (builder budget).
         if not EllesmereUI._prebuilding then
@@ -564,6 +546,25 @@ local function BuildDisplayLayout(parent, y, ctx)
                       end },
                 },
             })
+        end
+
+        -- Inline color swatch (with alpha) on the Custom Border Size region
+        if not EllesmereUI._prebuilding then
+            local rightRgn = customBorderRow._rightRegion
+            local cbColGet = function()
+                local c = (DB() and DB().customBorderColor) or defaults.customBorderColor
+                return c.r, c.g, c.b, (DBVal("customBorderAlpha") or defaults.customBorderAlpha or 1)
+            end
+            local cbColSet = function(r, g, b, a)
+                DB().customBorderColor = { r = r, g = g, b = b }
+                if a ~= nil then DB().customBorderAlpha = a end
+                ns.RefreshBorderColor()
+                UpdatePreview()
+            end
+            local cbSwatch, cbUpdateSwatch = EllesmereUI.BuildColorSwatch(rightRgn, rightRgn:GetFrameLevel() + 5, cbColGet, cbColSet, true, 20)
+            PP.Point(cbSwatch, "RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+            rightRgn._lastInline = cbSwatch
+            EllesmereUI.RegisterWidgetRefresh(function() cbUpdateSwatch() end)
         end
     end
 
@@ -658,33 +659,6 @@ local function BuildDisplayLayout(parent, y, ctx)
         if ns.NP_BlizzOnly() then EllesmereUI.BlizzStyle.BlockInline("nameplates", cbSwatch) end
     end
 
-    -- Inline absorb color swatch (right of Row 2): white by default, tints every style except Blizzard (disabled there since Blizzard keeps its own coloring); mirrors the Focus Texture swatch's disabled pattern.
-    if not EllesmereUI._prebuilding then
-        local rgn = bgHoverRow._rightRegion
-        local acColorGet = function()
-            local c = (DB() and DB().absorbColor) or defaults.absorbColor or { r = 1, g = 1, b = 1 }
-            return c.r, c.g, c.b
-        end
-        local acColorSet = function(r, g, b)
-            DB().absorbColor = { r = r, g = g, b = b }
-            ns.ApplyAbsorbStyleAll()
-            UpdatePreview()
-        end
-        local acSwatch, acUpdateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, acColorGet, acColorSet, nil, 20)
-        PP.Point(acSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = acSwatch
-        local function absorbColorOff() return (DBVal("absorbStyle") or "blizzard") == "blizzard" end
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = absorbColorOff()
-            acSwatch:SetAlpha(off and 0.15 or 1)
-            acSwatch:EnableMouse(not off)
-            acUpdateSwatch()
-        end)
-        local off0 = absorbColorOff()
-        acSwatch:SetAlpha(off0 and 0.15 or 1)
-        acSwatch:EnableMouse(not off0)
-    end
-
     -- Inline "Absorb Settings" cog on the Absorb Style region (right of Row 2)
     if not EllesmereUI._prebuilding then
         local rgn = bgHoverRow._rightRegion
@@ -724,6 +698,33 @@ local function BuildDisplayLayout(parent, y, ctx)
         })
     end
 
+    -- Inline absorb color swatch (right of Row 2): white by default, tints every style except Blizzard (disabled there since Blizzard keeps its own coloring); mirrors the Focus Texture swatch's disabled pattern.
+    if not EllesmereUI._prebuilding then
+        local rgn = bgHoverRow._rightRegion
+        local acColorGet = function()
+            local c = (DB() and DB().absorbColor) or defaults.absorbColor or { r = 1, g = 1, b = 1 }
+            return c.r, c.g, c.b
+        end
+        local acColorSet = function(r, g, b)
+            DB().absorbColor = { r = r, g = g, b = b }
+            ns.ApplyAbsorbStyleAll()
+            UpdatePreview()
+        end
+        local acSwatch, acUpdateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, acColorGet, acColorSet, nil, 20)
+        PP.Point(acSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = acSwatch
+        local function absorbColorOff() return (DBVal("absorbStyle") or "blizzard") == "blizzard" end
+        EllesmereUI.RegisterWidgetRefresh(function()
+            local off = absorbColorOff()
+            acSwatch:SetAlpha(off and 0.15 or 1)
+            acSwatch:EnableMouse(not off)
+            acUpdateSwatch()
+        end)
+        local off0 = absorbColorOff()
+        acSwatch:SetAlpha(off0 and 0.15 or 1)
+        acSwatch:EnableMouse(not off0)
+    end
+
     -- Eye icon: toggle absorb preview on the preview nameplate
     if not EllesmereUI._prebuilding then
         local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
@@ -736,7 +737,6 @@ local function BuildDisplayLayout(parent, y, ctx)
         eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
         EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshAbsorbEye()
             if optState.showAbsorbPreview then
@@ -1616,9 +1616,9 @@ local function BuildDisplayLayout(parent, y, ctx)
                 self:SetScript("OnUpdate", nil)
                 local owner = LiveCogOwner()
                 cogPopupOwner, cogPopupOwnerGen = nil, nil
-                -- MakeCogIcon/MakeTextCogIcon buttons have no _euiCogState.
-                if owner and owner._euiCogState then owner._euiCogState()
-                elseif owner then EllesmereUI.SetGlyphAlpha(owner, 0.4) end
+                -- Every cog that opens this popup is a BuildInlineCog: its own
+                -- state pass dims it again.
+                if owner and owner._euiCogState then owner._euiCogState() end
             end)
 
             if EllesmereUI._mainFrame then
@@ -1900,6 +1900,9 @@ local function BuildDisplayLayout(parent, y, ctx)
                 or cogPopup._ListDD("dd2", opts.dropdown2Values or {})
             if cogPopup._d2DD and cogPopup._d2DD ~= d2DD then cogPopup._d2DD:Hide() end
             cogPopup._d2DD = d2DD
+            -- The Name Format control is shared by every slot: its tooltip is
+            -- set again on each show.
+            if opts.dropdown2NameFormat then d2DD._ttText = opts.dropdown2Tooltip end
             d2DD._refreshLabel()
             d2DD:Show()
             cogPopup._d2Label:SetText(EllesmereUI.L(opts.dropdown2Label or ""))
@@ -2343,34 +2346,22 @@ local function BuildDisplayLayout(parent, y, ctx)
 
     local function MakeCogIcon(row, regionKey, posKey, slotLabel)
         local rgn = row[regionKey]
-        local btn = CreateFrame("Button", nil, rgn)
-        btn:SetSize(26, 26)
-        btn:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = btn
+        -- The shared boxed cog; its click opens this page's popup (OpenCog below).
+        local OpenCog
+        local btn = EllesmereUI.BuildInlineCog(rgn, {
+            anchorTo = rgn._control,
+            disabled = function() return CorePosOffDisabled(posKey) end,
+            disabledTooltip = DISABLED_TIP, rawTooltip = true,
+            isOpen = CogPopupOpen,
+            show = function(self) OpenCog(self) end,
+        })
         -- The core eyes anchor to THIS, not _lastInline: the tracked-auras
         -- link below becomes _lastInline but is HIDDEN for the raid marker
         -- and rare/quest slots (the only slots the eyes land on), and a
         -- hidden frame keeps its width -- anchoring left of it stranded
         -- the eye far from the cog.
         rgn._coreCogBtn = btn
-        btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        EllesmereUI.SetGlyphAlpha(btn, 0.4)
-        local tex = btn:CreateTexture(nil, "OVERLAY")
-        tex:SetAllPoints()
-        tex:SetTexture(EllesmereUI.RESIZE_ICON)
-        EllesmereUI.AccentGlyph(btn, tex, "cog")
-        btn:SetScript("OnEnter", function(self)
-            if CorePosOffDisabled(posKey) then
-                EllesmereUI.ShowWidgetTooltip(self, DISABLED_TIP)
-            else
-                EllesmereUI.SetGlyphAlpha(self, 0.7)
-            end
-        end)
-        btn:SetScript("OnLeave", function(self)
-            EllesmereUI.HideWidgetTooltip()
-            if LiveCogOwner() ~= self then EllesmereUI.SetGlyphAlpha(self, CorePosOffDisabled(posKey) and 0.15 or 0.4) end
-        end)
-        btn:SetScript("OnClick", function(self)
+        OpenCog = function(self)
             if CorePosOffDisabled(posKey) then return end
             local sizeKey = posKey .. "SlotSize"
             local growthKey = posKey .. "SlotGrowth"
@@ -2554,12 +2545,7 @@ local function BuildDisplayLayout(parent, y, ctx)
             opts.raiseStrataGet = function() return DBVal(rsKey) and true or false end
             opts.raiseStrataSet = function(v) DB()[rsKey] = v and true or false; RefreshAllSlots(); UpdatePreview() end
             ShowCogPopup(self, opts)
-        end)
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = CorePosOffDisabled(posKey)
-            EllesmereUI.SetGlyphAlpha(btn, off and 0.15 or (LiveCogOwner() == btn and 0.7 or 0.4))
-        end)
-        if CorePosOffDisabled(posKey) then EllesmereUI.SetGlyphAlpha(btn, 0.15) end
+        end
 
         -- Edit Tracked Auras (slot filters): accent link left of the cog when this row holds a debuff-side aura element, opens the per-kind filter popup; refreshes on the same widget-refresh channel as the cog alpha.
             local link = CreateFrame("Button", nil, rgn)
@@ -2710,7 +2696,6 @@ local function BuildDisplayLayout(parent, y, ctx)
         eyeBtn:SetFrameLevel(parent:GetFrameLevel() + 10)
         EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshIcon()
             eyeTex:SetTexture(optState.showRaidMarkerPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2757,7 +2742,6 @@ local function BuildDisplayLayout(parent, y, ctx)
         eyeBtn:SetFrameLevel(parent:GetFrameLevel() + 10)
         EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshIcon()
             eyeTex:SetTexture(optState.showClassificationPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2877,28 +2861,15 @@ local function BuildDisplayLayout(parent, y, ctx)
 
     local function MakeTextCogIcon(row, regionKey, slotKey, slotLabel)
         local rgn = row[regionKey]
-        local btn = CreateFrame("Button", nil, rgn)
-        btn:SetSize(26, 26)
-        btn:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -9, 0)
-        rgn._lastInline = btn
-        btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        EllesmereUI.SetGlyphAlpha(btn, 0.4)
-        local tex = btn:CreateTexture(nil, "OVERLAY")
-        tex:SetAllPoints()
-        tex:SetTexture(EllesmereUI.RESIZE_ICON)
-        EllesmereUI.AccentGlyph(btn, tex, "cog")
-        btn:SetScript("OnEnter", function(self)
-            if TextPosDisabled(slotKey) then
-                EllesmereUI.ShowWidgetTooltip(self, TEXT_DISABLED_TIP)
-            else
-                EllesmereUI.SetGlyphAlpha(self, 0.7)
-            end
-        end)
-        btn:SetScript("OnLeave", function(self)
-            EllesmereUI.HideWidgetTooltip()
-            if LiveCogOwner() ~= self then EllesmereUI.SetGlyphAlpha(self, TextPosDisabled(slotKey) and 0.15 or 0.4) end
-        end)
-        btn:SetScript("OnClick", function(self)
+        -- The shared boxed cog; its click opens this page's popup (OpenCog below).
+        local OpenCog
+        local btn = EllesmereUI.BuildInlineCog(rgn, {
+            disabled = function() return TextPosDisabled(slotKey) end,
+            disabledTooltip = TEXT_DISABLED_TIP, rawTooltip = true,
+            isOpen = CogPopupOpen,
+            show = function(self) OpenCog(self) end,
+        })
+        OpenCog = function(self)
             if TextPosDisabled(slotKey) then return end
             local sizeKey = slotKey .. "Size"
             local cogOpts = {
@@ -2913,17 +2884,18 @@ local function BuildDisplayLayout(parent, y, ctx)
                 sizeLabel = "Size",
                 sizeFirst = true,
             }
-            -- Both name and health text here get Width % + Wrap (dedicated Wrap row). Name-family variants use the GLOBAL enemyName keys (one slot holds the name FontString at a time); health text uses PER-SLOT keys (100% = no clip) and keeps "Show % Decimal". The bottom slots never truncate, so they get neither.
-            local bottomSlot = slotKey == "textSlotBottomLeft" or slotKey == "textSlotBottomRight"
+            -- Both name and health text here get Width % + Wrap (dedicated Wrap row). Name-family variants use the GLOBAL enemyName keys (one slot holds the name FontString at a time); health text uses PER-SLOT keys (100% = no clip) and keeps "Show % Decimal". The corner slots never truncate, so they get neither.
+            local cornerSlot = slotKey == "textSlotBottomLeft" or slotKey == "textSlotBottomRight"
+                or slotKey == "textSlotTopLeft" or slotKey == "textSlotTopRight"
             if ns.IsNameElement(DBVal(slotKey)) then
-                if not bottomSlot then
+                if not cornerSlot then
                     cogOpts.widthGet = function() return DBVal("enemyNameWidthPct") or defaults.enemyNameWidthPct end
                     cogOpts.widthSet = function(v) DB().enemyNameWidthPct = v; ns.RefreshAllSettings(); UpdatePreview() end
                     cogOpts.wrapGet = function() return DBVal("enemyNameWrap") == true end
                     cogOpts.wrapSet = function(v) DB().enemyNameWrap = v; ns.RefreshAllSettings(); UpdatePreview() end
                 end
             else
-                if not bottomSlot then
+                if not cornerSlot then
                     local widthKey = slotKey .. "WidthPct"
                     local wrapKey = slotKey .. "Wrap"
                     cogOpts.widthGet = function() return DBVal(widthKey) or 100 end
@@ -2954,6 +2926,11 @@ local function BuildDisplayLayout(parent, y, ctx)
                 local nfKey = slotKey .. "NameFormat"
                 cogOpts.dropdown2Label = "Name Format"
                 cogOpts.dropdown2NameFormat = true
+                -- WoW Forever: First / Last Name skip non-players there
+                -- (EllesmereUI.UnitNameFormat), the other modes do not.
+                if EllesmereUI.IS_FOREVER == true then
+                    cogOpts.dropdown2Tooltip = "First Name and Last Name only change players' names; Abbreviated and Character Count change every name."
+                end
                 cogOpts.dropdown2Get = function() return DBVal(nfKey) or "full" end
                 cogOpts.dropdown2Set = function(v)
                     DB()[nfKey] = (v ~= "full") and v or nil
@@ -2968,12 +2945,7 @@ local function BuildDisplayLayout(parent, y, ctx)
                 ns.RefreshAllSettings(); UpdatePreview()
             end
             ShowCogPopup(self, cogOpts)
-        end)
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = TextPosDisabled(slotKey)
-            EllesmereUI.SetGlyphAlpha(btn, off and 0.15 or (LiveCogOwner() == btn and 0.7 or 0.4))
-        end)
-        if TextPosDisabled(slotKey) then EllesmereUI.SetGlyphAlpha(btn, 0.15) end
+        end
         return btn
     end
 

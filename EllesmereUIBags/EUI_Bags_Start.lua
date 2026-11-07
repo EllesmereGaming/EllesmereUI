@@ -434,14 +434,6 @@ local function StartAddon()
         -- Controller cursor: keep Blizzard's hidden bag frames closed too.
         if EUI.PadInUse() then ns.PadReleaseBlizzBags() end
     end
-    -- Close Bags on Mail Close, a setting of the Blizzard Skins+ Mail card (on
-    -- unless set false): like the rest of that card, only while that module is loaded.
-    local function CloseBagsForMail()
-        if EUI_Bags:IsShown() and not (EllesmereUIDB and EllesmereUIDB.mailCloseBags == false)
-            and EUI._ModuleNS.EllesmereUIBlizzardSkin then
-            CloseBags()
-        end
-    end
     local function ToggleEUI()
         if EUI_Bags:IsVisible() then
             CloseBags()
@@ -508,10 +500,12 @@ local function StartAddon()
     ns.ToggleBagsWithCharacterFrame()
 
     local _lastToggleTime = 0
+    local _visibleBeforeToggle = false
     local function SmartToggleBags()
         -- Debounce: Blizzard keybinds can fire both ToggleAllBags and C_Container.ToggleAllBags in the same frame, causing a double-toggle.
         if GetTime() == _lastToggleTime then return end
         _lastToggleTime = GetTime()
+        _visibleBeforeToggle = EUI_Bags:IsVisible()
         local enhancedEnabled = BP().enhancedBags ~= false
         if enhancedEnabled then ToggleEUI()
         else if OriginalToggleAllBags then OriginalToggleAllBags() end end
@@ -576,9 +570,34 @@ local function StartAddon()
         SmartToggleBags()
     end)
 
-    hooksecurefunc("OpenAllBags", function()
-        if not EUI_Bags:IsVisible() then ToggleEUI() end
+    -- Window that auto-opened the bags (merchant, mail, auction house, ...)
+    local bagsOpener
+    hooksecurefunc("OpenAllBags", function(frame)
+        -- Blizzard's OpenBackpack can call ToggleBackpack first, which already
+        -- flipped our window this frame: read its state from before that.
+        local wasVisible = EUI_Bags:IsVisible()
+        if _lastToggleTime == GetTime() then wasVisible = _visibleBeforeToggle end
+        local open = wasVisible or ns.BagAutoWindowOn("bagAutoOpenWindows", ns.BagAutoWindowKey(frame))
+        if open and not EUI_Bags:IsVisible() then
+            ToggleEUI()
+        elseif not open and EUI_Bags:IsVisible() then
+            CloseBags()
+        end
+        if open and not wasVisible then bagsOpener = frame end
         KillBlizzard()
+    end)
+    -- Close with that window; frame is nil for non-window closes
+    hooksecurefunc("CloseAllBags", function(frame)
+        if not frame or frame ~= bagsOpener then return end
+        bagsOpener = nil
+        if EUI_Bags:IsShown() and ns.BagAutoWindowOn("bagAutoCloseWindows", ns.BagAutoWindowKey(frame)) then
+            CloseBags()
+        end
+    end)
+    -- Closed by hand: a later open is the player's, so it stays open.
+    -- Alt-Z also fires OnHide but leaves IsShown true.
+    EUI_Bags:HookScript("OnHide", function(self)
+        if not self:IsShown() then bagsOpener = nil end
     end)
     end -- not ns.PadUIStandDown()
 
@@ -926,7 +945,6 @@ local function StartAddon()
             -- the interaction check reads closed.
             _snapshotReady = false
             C_Timer.After(0.5, SnapshotKnownIDs)
-            if event == "MAIL_CLOSED" then CloseBagsForMail() end
             -- No return: falls through to the ITEM_PANEL_EVENTS handling below.
         end
         if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
@@ -937,7 +955,6 @@ local function StartAddon()
                 _snapshotReady = false
                 C_Timer.After(0.5, SnapshotKnownIDs)
             end
-            if interactionType == Enum.PlayerInteractionType.MailInfo then CloseBagsForMail() end
             return
         end
         local panel = ITEM_PANEL_EVENTS[event]

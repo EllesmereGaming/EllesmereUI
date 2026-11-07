@@ -321,12 +321,16 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             disabledTooltip = "Show EUI Friendly Player Nameplates",
             title = "Name Text Settings",
             rows = {
+                -- WoW Forever names it for players, as Forever Essentials' Name
+                -- Format section does (it only ever shaped players' names).
                 EllesmereUI.NameFormatCogRow(
                     function() return DBVal("friendlyNameFormat") end,
                     function(v)
                         DB().friendlyNameFormat = v
                         ns.NP_SyncFriendlyNameFormat()
-                    end),
+                    end,
+                    EllesmereUI.IS_FOREVER == true and { label = "Player Name Format",
+                        tooltip = "Friendly player names on nameplates, in both modes." } or nil),
                 { type = "toggle", label = "Show Level",
                   get = function() return DBVal("friendlyShowLevel") == true end,
                   set = function(v)
@@ -498,7 +502,6 @@ local function BuildGeneralPage(pageName, parent, yOffset)
     -- Inline DIRECTIONS cog on Friendly Name Size: name-only vertical distance
     if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(npcRow._rightRegion, {
-            icon = EllesmereUI.DIRECTIONS_ICON,
             disabled = nameOnlyOff,
             title = "Name Distance",
             rows = {
@@ -597,7 +600,6 @@ local function BuildGeneralPage(pageName, parent, yOffset)
         EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
         leftRgn._lastInline = eyeBtn
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         local function RefreshEyeIcon()
             eyeTex:SetTexture(ns._hitboxOverlayShown and EYE_INVISIBLE or EYE_VISIBLE)
@@ -1027,7 +1029,6 @@ local function BuildGeneralPage(pageName, parent, yOffset)
     if not EllesmereUI._prebuilding then
         local rgn = tfFocusRow._rightRegion
         EllesmereUI.BuildInlineCog(rgn, {
-            icon = EllesmereUI.RESIZE_ICON,
             disabled = focusLetterOff,
             disabledTooltip = "Focus Letter",
             title = "Focus Letter",
@@ -1076,34 +1077,10 @@ local function BuildGeneralPage(pageName, parent, yOffset)
           end },
         { type="label", text="" }
     );  y = y - h
-    -- Inline color swatch (default light orange), beside the toggle
-    if not EllesmereUI._prebuilding then
-        local rgn = tfRangeRow._leftRegion
-        local rangeColorGet = function()
-            local c = (DB() and DB().rangeTextColor) or defaults.rangeTextColor
-            return c.r, c.g, c.b
-        end
-        local rangeColorSet = function(r, g, b)
-            DB().rangeTextColor = { r = r, g = g, b = b }
-            if ns.RangeText_Refresh then ns.RangeText_Refresh() end
-        end
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, rangeColorGet, rangeColorSet, nil, 20)
-        PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-        EllesmereUI.RegisterWidgetRefresh(function()
-            local off = tfRangeOff()
-            swatch:SetAlpha(off and 0.15 or 1)
-            swatch:EnableMouse(not off)
-            updateSwatch()
-        end)
-        swatch:SetAlpha(tfRangeOff() and 0.15 or 1)
-        swatch:EnableMouse(not tfRangeOff())
-    end
-    -- RESIZE cog: text size + X/Y offsets (mirrors the raid-marker cog), left of the swatch
+    -- RESIZE cog: text size + X/Y offsets (mirrors the raid-marker cog), beside the toggle
     if not EllesmereUI._prebuilding then
         local rgn = tfRangeRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
-            icon = EllesmereUI.RESIZE_ICON,
             disabled = tfRangeOff,
             disabledTooltip = "Distance to Target Text (Range)",
             title = "Distance Text",
@@ -1128,6 +1105,29 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                   end },
             },
         })
+    end
+    -- Inline color swatch (default light orange), left of the cog
+    if not EllesmereUI._prebuilding then
+        local rgn = tfRangeRow._leftRegion
+        local rangeColorGet = function()
+            local c = (DB() and DB().rangeTextColor) or defaults.rangeTextColor
+            return c.r, c.g, c.b
+        end
+        local rangeColorSet = function(r, g, b)
+            DB().rangeTextColor = { r = r, g = g, b = b }
+            if ns.RangeText_Refresh then ns.RangeText_Refresh() end
+        end
+        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, rangeColorGet, rangeColorSet, nil, 20)
+        PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = swatch
+        EllesmereUI.RegisterWidgetRefresh(function()
+            local off = tfRangeOff()
+            swatch:SetAlpha(off and 0.15 or 1)
+            swatch:EnableMouse(not off)
+            updateSwatch()
+        end)
+        swatch:SetAlpha(tfRangeOff() and 0.15 or 1)
+        swatch:EnableMouse(not tfRangeOff())
     end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -1197,7 +1197,6 @@ local function BuildGeneralPage(pageName, parent, yOffset)
         local function nameRaidMarkerOff() return DBVal("nameRaidMarkerEnabled") ~= true end
         local rgn = nameRaidMarkerRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
-            icon = EllesmereUI.RESIZE_ICON,
             disabled = nameRaidMarkerOff,
             disabledTooltip = "Name Raid Marker",
             title = "Name Raid Marker",
@@ -1239,7 +1238,6 @@ local function BuildGeneralPage(pageName, parent, yOffset)
         local function questObjOff() return DBVal("replaceQuestIconWithObjective") ~= true end
         local rgn = questObjRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
-            icon = EllesmereUI.RESIZE_ICON,
             disabled = questObjOff,
             disabledTooltip = "Replace Quest Icon with Objective",
             title = "Quest Objective",

@@ -197,7 +197,7 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
         local mBg = menu:CreateTexture(nil, "BACKGROUND")
         mBg:SetAllPoints()
         mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.96)
-        EllesmereUI.MakeBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+        EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, mBg, nil, true)
 
         -- "Apply" button at top -- styled like the footer Reset/Reload buttons (white, muted, fade hover)
         local applyRow = CreateFrame("Button", nil, menu)
@@ -434,6 +434,10 @@ end
 --  hovering it pulses the flash targets' borders. When opts.multiApply is
 --  provided, an additional " | Apply to Multiple" link appears next to "Apply
 --  to All" that opens a checkbox dropdown for selective application.
+--  Hover gate (owner 2026-11-05): on top of that, the link shows only while its
+--  slot (the region) is hovered, and stays while a dropdown list opened from
+--  the slot (its control's or the Multiple menu) is open; with the controller
+--  cursor loaded the gate stays open.
 --  opts = {
 --      region       = DualRow half-region (_leftRegion / _rightRegion),
 --      tooltip      = "Apply X to all Bars",          -- shown on subtext hover
@@ -453,6 +457,88 @@ local LABEL_Y_NORMAL  =  0   -- label vertical offset when synced
 local LABEL_Y_SHIFTED =  8   -- label vertical offset when desynced (shifted up)
 local SUBTEXT_Y       = -10  -- "Apply to All" vertical offset below center
 local ANIM_DUR        = 0.20 -- seconds for slide/fade transition
+local HOVER_DUR       = 0.15 -- seconds for the hover gate's fade
+-- The hover hit frame sits above the slot's own controls (the highest, an
+-- inline cog's disabled block, is 15 levels up).
+local HOVER_LEVEL     = 25
+
+-- Hover gate: the dropdown list the cursor may have left a slot for (a
+-- standard or checkbox dropdown's, or the Apply to Multiple menu).
+local function OpenList()
+    local m = EllesmereUI._openDropdownMenu
+    if m and m:IsShown() then return m end
+    m = _activeMultiApplyDropdown
+    if m and m:IsShown() then return m end
+end
+
+-- Links held shown by a dropdown list opened from their slot after the cursor
+-- left it: one hidden frame checks each frame while any is held and lets each
+-- go (its release) once its list closes.
+local held = {}   -- release fn -> list frame
+local heldFrame
+local function HeldTick(self)
+    local any = false
+    for release, list in pairs(held) do
+        if list:IsShown() then
+            any = true
+        else
+            held[release] = nil
+            release()
+        end
+    end
+    if not any then self:Hide() end
+end
+local function HoldUntilClosed(release, list)
+    held[release] = list
+    if not heldFrame then
+        heldFrame = _G.CreateFrame("Frame")
+        heldFrame:Hide()
+        heldFrame:SetScript("OnUpdate", HeldTick)
+    end
+    heldFrame:Show()
+end
+
+-- Linger: a pick from a dropdown in a slot (EllesmereUI._SyncPickNotice, which the
+-- dropdown widgets call before their setter runs) keeps that slot's link shown for
+-- LINGER_SECONDS whatever the hover says (the cursor is on the list, not the slot,
+-- as the pick lands). One link lingers at a time: a pick in another slot ends the
+-- last one. A page the pick rebuilds dresses the slot again, and its new link takes
+-- the linger over (same region, same label). At most one C_Timer.After is ever
+-- pending: a pick while one is pending only moves the deadline it checks.
+local LINGER_SECONDS = 3
+local linger = { region = nil, label = nil, set = nil, untilT = 0, pending = false }
+local function LingerTick()
+    linger.pending = false
+    local left = linger.untilT - GetTime()
+    if linger.set and left > 0.05 then
+        linger.pending = true
+        C_Timer.After(left, LingerTick)
+        return
+    end
+    local set = linger.set
+    linger.region, linger.label, linger.set = nil, nil, nil
+    if set then set(false) end
+end
+-- frame: the picked dropdown's button (its slot is found up to two parents up).
+function EllesmereUI._SyncPickNotice(frame)
+    local set
+    for _ = 1, 3 do
+        if type(frame) ~= "table" then return end
+        set = frame._euiSyncLinger
+        if set or not frame.GetParent then break end
+        frame = frame:GetParent()
+    end
+    if not set then return end
+    local prev, lbl = linger.set, frame._label
+    linger.region, linger.label, linger.set = frame, lbl and lbl:GetText(), set
+    linger.untilT = GetTime() + LINGER_SECONDS
+    if prev and prev ~= set then prev(false) end
+    set(true)
+    if not linger.pending then
+        linger.pending = true
+        C_Timer.After(LINGER_SECONDS, LingerTick)
+    end
+end
 
 local function BuildSyncIcon(opts)
     local region = opts.region
@@ -554,8 +640,14 @@ local function BuildSyncIcon(opts)
     --  State: track current animated position (0 = synced, 1 = desynced)
     -- ----------------------------------------------------------------
     local animState = opts.isSynced() and 0 or 1  -- start at correct state
+    -- Hover gate (see "Hover gate" below): multiplies the state above, 0 while
+    -- the slot is not hovered. The controller cursor moves no pointer, so with
+    -- it loaded the gate stays open and the state above alone decides.
+    local hoverGate = not EllesmereUI.PadCP()
+    local hoverState = hoverGate and 0 or 1
 
     local function ApplyState(s)
+        s = s * hoverState
         -- Force hidden when the parent widget is disabled
         local parentCfg = region._widgetCfg
         if parentCfg and parentCfg.disabled and parentCfg.disabled() then s = 0 end
@@ -634,6 +726,87 @@ local function BuildSyncIcon(opts)
     -- ----------------------------------------------------------------
     local function Redressed()
         return PoolGen(applyBtn) ~= dressGen or PoolIsIdle(applyBtn)
+    end
+
+    -- ----------------------------------------------------------------
+    --  Hover gate: on top of the sync state, which still decides whether the
+    --  link may show, the link shows only while its slot is hovered, and stays
+    --  while a dropdown list opened from the slot is open (until it closes).
+    --  A motion-only hit frame over the whole slot gives the slot's enter and
+    --  leave edges; clicks and motion pass through it to the controls beneath
+    --  (AttachSliderTooltip's pattern), so every control works as before.
+    -- ----------------------------------------------------------------
+    if hoverGate then
+        local hoverTarget = 0
+        local hoverFrame = CreateFrame("Frame", nil, region)
+        local function HoverStep(self, dt)
+            local dir = hoverTarget > hoverState and 1 or -1
+            hoverState = hoverState + dir * (dt / HOVER_DUR)
+            if (dir == 1 and hoverState >= hoverTarget) or (dir == -1 and hoverState <= hoverTarget) then
+                hoverState = hoverTarget
+                self:SetScript("OnUpdate", nil)
+            end
+            ApplyState(animState)
+        end
+        local function HoverTo(t)
+            hoverTarget = t
+            if hoverState ~= t then hoverFrame:SetScript("OnUpdate", HoverStep) end
+        end
+
+        local hit = CreateFrame("Frame", nil, region)
+        hit:SetAllPoints(region)
+        hit:SetFrameLevel(region:GetFrameLevel() + HOVER_LEVEL)
+        hit:SetMouseClickEnabled(false)
+        EllesmereUI.PadHint(hit, "nodeignore")
+        -- hovered: the cursor is on the slot. foreign: a list already open as the
+        -- cursor came in (another slot's). holding: this slot's list keeps it.
+        -- lingering: a dropdown pick in the slot keeps it (Linger above).
+        local hovered, foreign, holding, lingering = false, nil, false, false
+        local function Release()
+            holding = false
+            if Redressed() or hovered or lingering then return end
+            -- Closing a list under the cursor: the slot's enter is on its way.
+            if hit:IsMouseOver() then return end
+            HoverTo(0)
+        end
+        hit:SetScript("OnEnter", function()
+            if Redressed() then return end
+            hovered = true
+            if not holding then foreign = OpenList() end
+            HoverTo(1)
+        end)
+        hit:SetScript("OnLeave", function()
+            if Redressed() then return end
+            hovered = false
+            local list = OpenList()
+            if list and list ~= foreign then
+                holding = true
+                HoldUntilClosed(Release, list)
+                return
+            end
+            if lingering then return end
+            HoverTo(0)
+        end)
+        hit:SetPropagateMouseClicks(true)
+        hit:SetPropagateMouseMotion(true)
+        local function SetLinger(on)
+            if Redressed() then return end
+            lingering = on
+            if on then
+                HoverTo(1)
+            elseif not (hovered or holding) and not hit:IsMouseOver() then
+                HoverTo(0)
+            end
+        end
+        region._euiSyncLinger = SetLinger
+        -- The page a pick rebuilt: this slot's new link takes the linger over, shown
+        -- at once as the link it replaces was.
+        if linger.set and linger.region == region and linger.label == label:GetText() then
+            linger.set = SetLinger
+            lingering = true
+            hoverState, hoverTarget = 1, 1
+            ApplyState(animState)
+        end
     end
     EllesmereUI.RegisterWidgetRefresh(function()
         if Redressed() then return end

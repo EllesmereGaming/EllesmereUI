@@ -436,8 +436,10 @@ function ns.NP_BlizzBarShadow(bar, h, mask)
     if sh._h ~= h then
         sh._h = h
         local top, bottom, ends = math.max(2, math.floor(h * 0.2)), math.max(1, math.floor(h * 0.1)), math.max(2, math.floor(h * 0.15))
+        -- The bottom strip sits on the fill's bottom edge (ns.NP_SeatBarMask).
+        local lift = ns.NP_Forever() and ns.NP_FOREVER_FILL_LIFT or 0
         sh[1]:ClearAllPoints(); sh[1]:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0); sh[1]:SetPoint("TOPRIGHT", bar, "TOPRIGHT", 0, 0); sh[1]:SetHeight(top)
-        sh[2]:ClearAllPoints(); sh[2]:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0, 0); sh[2]:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0); sh[2]:SetHeight(bottom)
+        sh[2]:ClearAllPoints(); sh[2]:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0, lift); sh[2]:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, lift); sh[2]:SetHeight(bottom)
         sh[3]:ClearAllPoints(); sh[3]:SetPoint("TOPLEFT", bar, "TOPLEFT", 0, 0); sh[3]:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 0, 0); sh[3]:SetWidth(ends)
         sh[4]:ClearAllPoints(); sh[4]:SetPoint("TOPRIGHT", bar, "TOPRIGHT", 0, 0); sh[4]:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0); sh[4]:SetWidth(ends)
         for i = 1, 4 do sh[i]:Show() end
@@ -449,6 +451,20 @@ function ns.NP_BlizzBarShadow(bar, h, mask)
             sh[i]:AddMaskTexture(mask)
         end
         sh._mask = mask
+    end
+end
+-- The stock fill-footprint mask on a health bar: the whole bar, except under
+-- the WoW Forever variant, whose background art's bottom rim reaches a unit
+-- up over the bar's bottom edge (field-measured), so there the mask stops
+-- that far up and the fill meets the rim. Shared with the options preview.
+ns.NP_FOREVER_FILL_LIFT = 1
+function ns.NP_SeatBarMask(mask, health)
+    mask:ClearAllPoints()
+    if ns.NP_Forever() then
+        mask:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+        mask:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, ns.NP_FOREVER_FILL_LIFT)
+    else
+        mask:SetAllPoints(health)
     end
 end
 -- Health bar: the stock shadowed background hugging the bar the way the
@@ -477,7 +493,7 @@ function ns.NP_ApplyBlizzBarArt(plate)
     if not mask and ns.NP_AtlasOK(B.bar) then
         mask = health:CreateMaskTexture()
         mask:SetAtlas(B.bar)
-        mask:SetAllPoints(health)
+        ns.NP_SeatBarMask(mask, health)
         plate._blizzBarMask = mask
     end
     if mask then

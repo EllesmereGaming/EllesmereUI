@@ -633,7 +633,7 @@ function EllesmereUI:ShowConfirmPopup(opts)
             box:SetTextInsets(8, 8, 0, 0)
             box:SetMaxLetters(24)
             SolidTex(box, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
-            MakeBorder(box, 1, 1, 1, 0.12)
+            EllesmereUI.MakeRoundedBorder(box, 1, 1, 1, 0.12)
             box:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
             box:SetScript("OnTextChanged", function(self)
                 if not popup._typeGateOn then return end
@@ -1081,7 +1081,7 @@ function EllesmereUI:ShowInputPopup(opts)
 
         local iBg = SolidTex(inputFrame, "BACKGROUND", 0, 0, 0, 0.5)
         iBg:SetAllPoints()
-        local iBrd = MakeBorder(inputFrame, 1, 1, 1, 0.2)
+        local iBrd = EllesmereUI.MakeRoundedBorder(inputFrame, 1, 1, 1, 0.2, iBg)
 
         -- Red flash animation for empty-input validation
         local FLASH_DUR = 0.7

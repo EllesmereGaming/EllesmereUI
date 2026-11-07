@@ -154,6 +154,36 @@ EUI.OnUninstall(function()
     end
 end)
 
+-- Windows of the Auto Open / Auto Close Bags dropdowns. frame: Blizzard's name.
+do
+    local windows = {
+        { key = "merchant", label = "Merchant", frame = "MerchantFrame" },
+        { key = "mail", label = "Mailbox", frame = "MailFrame" },
+        { key = "bank", label = "Bank", frame = "BankFrame" },
+        { key = "auction", label = "Auction House", frame = "AuctionHouseFrame" },
+    }
+    if not EUI.IS_FOREVER then
+        windows[#windows + 1] = { key = "scrapper", label = "Scrapper", frame = "ScrappingMachineFrame" }
+        windows[#windows + 1] = { key = "itemInteraction", label = "Item Interaction", frame = "ItemInteractionFrame" }
+        windows[#windows + 1] = { key = "azerite", label = "Azerite Essences", frame = "AzeriteEssenceUI" }
+    end
+    ns.BAG_AUTO_WINDOWS = windows
+
+    local keyByName = {}
+    for _, w in ipairs(windows) do keyByName[w.frame] = w.key end
+    -- nil for a window not listed
+    function ns.BagAutoWindowKey(frame)
+        local name = frame and frame:GetName()
+        return name and keyByName[name]
+    end
+    -- setting: bagAutoOpenWindows or bagAutoCloseWindows, which hold false for an
+    -- unselected window. A window not listed is always on.
+    function ns.BagAutoWindowOn(setting, key)
+        local t = BP()[setting]
+        return not (key and t and t[key] == false)
+    end
+end
+
 -- Frame Strata: the layer of the bags and the bank. Unset reads the retired
 -- Allow Windows Over Bags toggle (off = High), so its choice carries over.
 function ns.BagFrameStrata()

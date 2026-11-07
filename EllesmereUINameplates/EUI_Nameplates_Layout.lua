@@ -550,7 +550,7 @@ local function GetNameYOffset()
 end
 ns.GetNameYOffset = GetNameYOffset
 local textSlotKeys = { "textSlotTop", "textSlotRight", "textSlotLeft", "textSlotCenter",
-    "textSlotBottomLeft", "textSlotBottomRight" }
+    "textSlotBottomLeft", "textSlotBottomRight", "textSlotTopLeft", "textSlotTopRight" }
 ns.textSlotKeys = textSlotKeys
 -- The slots that share the bar's line for the name-width estimate.
 ns._npBarTextKeys = { "textSlotRight", "textSlotLeft", "textSlotCenter" }
@@ -749,18 +749,22 @@ do
     end
     -- Name Format (text-slot cog): one word, initials or a Character Count;
     -- unset shows the name whole. Keys are prebuilt; the split and its cache
-    -- live in EllesmereUI.ShortName.
+    -- live in EllesmereUI.ShortName. unit: whose name it is (on WoW Forever,
+    -- First / Last Name leave a non-player's name whole; nil = the preview).
     do
         local NAME_FORMAT_KEYS = {
             textSlotTop  = "textSlotTopNameFormat",  textSlotRight  = "textSlotRightNameFormat",
             textSlotLeft = "textSlotLeftNameFormat", textSlotCenter = "textSlotCenterNameFormat",
             textSlotBottomLeft  = "textSlotBottomLeftNameFormat",
             textSlotBottomRight = "textSlotBottomRightNameFormat",
+            textSlotTopLeft     = "textSlotTopLeftNameFormat",
+            textSlotTopRight    = "textSlotTopRightNameFormat",
         }
         local short = EllesmereUI.ShortName
-        function ns.NP_FormatName(name, slotKey)
+        function ns.NP_FormatName(name, slotKey, unit)
             local key = slotKey and NAME_FORMAT_KEYS[slotKey]
             local mode = key and p and p[key]
+            if mode then mode = EllesmereUI.UnitNameFormat(mode, unit) end
             if mode then return short(name, mode) end
             return name
         end
@@ -805,7 +809,7 @@ do
     local function Name(u, slotKey)
         local name = EllesmereUI.WithSurname(UnitName(u))
         if type(name) == "nil" then return "" end
-        return ns.NP_FormatName(name, slotKey)
+        return ns.NP_FormatName(name, slotKey, u)
     end
     -- Tag modifiers shape the plain name. They do not also apply the slot's Name Format.
     local function Shaped(mode)
@@ -931,6 +935,35 @@ local function GetHealthBarWidth()
 end
 ns.GetHealthBarWidth = GetHealthBarWidth
 
+-- The Top Left / Top Right texts sit on the bar's top corners, at the Top text's
+-- height. A Core Positions element on the same corner (the raid marker, the Rare/Quest
+-- indicator, the faction badge, an aura row, the cast lockout) rises by this to clear
+-- the text: the text's top above the bar, from its Size and Y offset (0 while the corner
+-- shows no text). pos: "topleft" / "topright". db: a profile to read instead of the live one.
+do
+    local CORNER_KEY = { topleft = "textSlotTopLeft", topright = "textSlotTopRight" }
+    function ns.NP_TopCornerLift(pos, db)
+        db = db or p
+        local key = CORNER_KEY[pos]
+        if not key then return 0 end
+        local el = (db and db[key]) or defaults[key]
+        if not ns.NP_ElementFSKey(el, key) then return 0 end
+        local size = (db and db[key .. "Size"]) or defaults[key .. "Size"] or 10
+        local y = (db and db[key .. "YOffset"]) or 0
+        local nameY = (db and db.nameYOffset) or defaults.nameYOffset or 0
+        return math.max(0, 4 + nameY + y + size)
+    end
+    -- The estimated width of a top corner's text, 0 while it shows none (a Top name
+    -- leaves room for the wider of the two on each side). db: as above.
+    function ns.NP_TopCornerTextWidth(key, db)
+        db = db or p
+        local el = (db and db[key]) or defaults[key]
+        if el == "custom" then return ns.NP_CustomWidth(key, db) end
+        if not ns.NP_ElementFSKey(el, key) or ns.IsNameElement(el) then return 0 end
+        return EstimateHealthTextWidth(el)
+    end
+end
+
 -- Y offset for plate content relative to the nameplate frame. Always 0: the Blizzard nameplate
 -- frame grows from its CENTER, not its base, so a taller SetNamePlateSize enlarges the hitbox
 -- evenly above AND below the unit; anchoring content at the frame center needs no compensation.
@@ -1042,12 +1075,17 @@ ns.GetTargetGlowStyle = GetTargetGlowStyle
 -- migration: each toggle returns its own stored key when set, else derives from targetGlowStyle
 -- (stays in defaults so the fallback source is always present). Mapping: ellesmereui ->
 -- EllesmereUI; vibrant -> EllesmereUI + Border Color; none -> nothing. On ns (local budget).
+-- The WoW Forever style marks its target with Highlight alone: EUI Glow, Border
+-- Color and Border Size read off there whatever the profile holds (the saved
+-- choices stay for the other styles).
 function ns.GetTargetGlowEllesmereUI()
+    if ns.NP_Forever() then return false end
     if p and p.targetGlowEllesmereUI ~= nil then return p.targetGlowEllesmereUI end
     local style = (p and p.targetGlowStyle) or defaults.targetGlowStyle
     return style == "ellesmereui" or style == "vibrant"
 end
 function ns.GetTargetGlowBorderColor()
+    if ns.NP_Forever() then return false end
     if p and p.targetGlowBorderColor ~= nil then return p.targetGlowBorderColor end
     local style = (p and p.targetGlowStyle) or defaults.targetGlowStyle
     return style == "vibrant"
@@ -1057,6 +1095,7 @@ function ns.GetTargetGlowHighlight()
     return false  -- no legacy equivalent
 end
 function ns.GetTargetGlowBorderSize()
+    if ns.NP_Forever() then return false end
     if p and p.targetGlowBorderSize ~= nil then return p.targetGlowBorderSize end
     return false  -- no legacy equivalent
 end

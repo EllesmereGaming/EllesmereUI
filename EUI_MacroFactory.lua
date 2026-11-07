@@ -961,7 +961,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                 menuFrame:Hide()
                 local mBg = menuFrame:CreateTexture(nil, "BACKGROUND"); mBg:SetAllPoints()
                 mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_HA or 0.92)
-                EllesmereUI.MakeBorder(menuFrame, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+                EllesmereUI.MakeRoundedBorder(menuFrame, 1, 1, 1, EllesmereUI.DD_BRD_A, mBg, nil, true)
                 local mY = -4
 
                 -- Create/Delete action row
@@ -1123,7 +1123,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                             list:Hide()
                             local lBg = list:CreateTexture(nil, "BACKGROUND"); lBg:SetAllPoints()
                             lBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.98)
-                            EllesmereUI.MakeBorder(list, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+                            EllesmereUI.MakeRoundedBorder(list, 1, 1, 1, EllesmereUI.DD_BRD_A, lBg, nil, true)
                             for oi = 1, 8 do
                                 local oY = -2 - (oi - 1) * LRH
                                 local oR = CreateFrame("Button", nil, list)

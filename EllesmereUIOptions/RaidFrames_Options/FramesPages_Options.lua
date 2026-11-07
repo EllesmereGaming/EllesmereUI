@@ -38,7 +38,7 @@ local function BuildSortByControl(rgn, opts)
     local sBg = sortBtn:CreateTexture(nil, "BACKGROUND")
     sBg:SetAllPoints()
     sBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-    local sBrd = EllesmereUI.MakeBorder(sortBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+    local sBrd = EllesmereUI.MakeRoundedBorder(sortBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, sBg)
 
     local sLabel = EllesmereUI.MakeFont(sortBtn, 13, nil, 1, 1, 1)
     sLabel:SetAlpha(EllesmereUI.DD_TXT_A)
@@ -86,7 +86,7 @@ local function BuildSortByControl(rgn, opts)
     local mBg = menuFrame:CreateTexture(nil, "BACKGROUND")
     mBg:SetAllPoints()
     mBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.98)
-    EllesmereUI.MakeBorder(menuFrame, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+    EllesmereUI.MakeRoundedBorder(menuFrame, 1, 1, 1, EllesmereUI.DD_BRD_A, mBg, nil, true)
 
     -- Declared before OnShow: its OnUpdate suppresses click-away dismiss while a row is dragged.
     local dragRow, dsY, isDragging = nil, nil, false
@@ -473,7 +473,6 @@ local function BuildMainPage(pageName, parent, yOffset)
                     eyeBtn:SetPoint("RIGHT", sizeRow, "LEFT", -5, 0)
                     eyeBtn:SetFrameLevel(sizeRow:GetFrameLevel() + 5)
                     local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-                    EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
                     eyeTex:SetAllPoints()
 
                     -- Kept on ns until this tier's next build, which may never come
@@ -598,7 +597,6 @@ local function BuildMainPage(pageName, parent, yOffset)
                     }
                     local tb = TIER_BOUNDS[tier]
                     EllesmereUI.BuildInlineCog(rgn, {
-                        icon = EllesmereUI.DIRECTIONS_ICON,
                         title = EllesmereUI.Lf("%1$s Options", EllesmereUI.L(tierLabel)),
                         rows = {
                             { type="slider", label=tb.label, min=tb.min, max=tb.max, step=1,
@@ -863,7 +861,6 @@ local function BuildMainPage(pageName, parent, yOffset)
     if not EllesmereUI._prebuilding then
         local rgn = borderStyleRow._leftRegion
         local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
-            icon = EllesmereUI.DIRECTIONS_ICON,
             title = "Border Options",
             rows = {
                 { type="slider", label="Shift X", min=-10, max=10, step=1,
@@ -895,6 +892,18 @@ local function BuildMainPage(pageName, parent, yOffset)
     if not EllesmereUI._prebuilding then
         local rgn = borderStyleRow._rightRegion
         local lvl = borderStyleRow:GetFrameLevel() + 3
+        -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog beside
+        -- the control, the Border swatch left of it.
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Corner Radius", tip = "Corner Radius",
+            disabled = function() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end,
+            disabledTooltip = "This option requires the Solid, Glow or Shadow border style.",
+            rows = EllesmereUI.RoundedCornerRows({
+                { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                  get = function() return SVal("cornerRadius", 0) end,
+                  set = function(v) SSet("cornerRadius", v) end },
+            }, function() return SGet("cornerMask") end, function(v) SSet("cornerMask", v) end),
+        })
         local borderSwatch, updBorder = EllesmereUI.BuildColorSwatch(
             rgn, lvl,
             function()
@@ -909,18 +918,6 @@ local function BuildMainPage(pageName, parent, yOffset)
         borderSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(borderSwatch, "Border") end)
         borderSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
         EllesmereUI.RegisterWidgetRefresh(function() updBorder() end)
-        -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog left
-        -- of the Border swatch.
-        EllesmereUI.BuildInlineCog(rgn, {
-            title = "Corner Radius", tip = "Corner Radius",
-            disabled = function() return not EllesmereUI.RoundedStyleOK(SGet("borderTexture")) end,
-            disabledTooltip = "This option requires the Solid, Glow or Shadow border style.",
-            rows = EllesmereUI.RoundedCornerRows({
-                { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
-                  get = function() return SVal("cornerRadius", 0) end,
-                  set = function(v) SSet("cornerRadius", v) end },
-            }, function() return SGet("cornerMask") end, function(v) SSet("cornerMask", v) end),
-        })
     end
 
     -- Width Offset | Height Offset: the textured edge's outward offsets as their
@@ -1005,39 +1002,6 @@ local function BuildMainPage(pageName, parent, yOffset)
         rightRgn._control = cbDD
         rightRgn._lastInline = nil
 
-        -- Hover sits nearest the dropdown, Target to its left.
-        local lvl = hoverBordersRow:GetFrameLevel() + 3
-        local hoverSwatch, updHover = EllesmereUI.BuildColorSwatch(
-            rightRgn, lvl,
-            function()
-                local c = SGet("hoverBorderColor") or { r = 1, g = 1, b = 1 }
-                return c.r, c.g, c.b, SVal("hoverBorderAlpha", 1)
-            end,
-            function(r, g, b, a)
-                SWrite("hoverBorderColor", { r=r, g=g, b=b }); SWrite("hoverBorderAlpha", a); ReloadAndUpdate()
-            end, true, 20)
-        hoverSwatch:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
-        rightRgn._lastInline = hoverSwatch
-        hoverSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hoverSwatch, "Hover") end)
-        hoverSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-        local targetSwatch, updTarget = EllesmereUI.BuildColorSwatch(
-            rightRgn, lvl,
-            function()
-                local c = SGet("targetBorderColor") or { r = 1, g = 1, b = 1 }
-                return c.r, c.g, c.b, SVal("targetBorderAlpha", 1)
-            end,
-            function(r, g, b, a)
-                SWrite("targetBorderColor", { r=r, g=g, b=b }); SWrite("targetBorderAlpha", a); ReloadAndUpdate()
-            end, true, 20)
-        targetSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
-        rightRgn._lastInline = targetSwatch
-        targetSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(targetSwatch, "Target") end)
-        targetSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        -- Stock styles: the stock selection ring carries its own colour.
-        local targetBlocked = EllesmereUI.BlizzStyle
-            and EllesmereUI.BlizzStyle.BlockInline("raidframes", targetSwatch) or false
-
         -- Highlight thickness when borderless or compact; a drawn individual border is recolored.
         -- Exact pixel sizes (hover/targetBorderSizePx beside the steps) in the frame's
         -- border style; under a stock style the hover border draws solid, so the
@@ -1062,7 +1026,6 @@ local function BuildMainPage(pageName, parent, yOffset)
             setPx=function(v) SWrite("targetBorderSizePx", v) end,
             apply=ReloadAndUpdate })
         local hlCog = EllesmereUI.BuildInlineCog(rightRgn, {
-            icon = EllesmereUI.DIRECTIONS_ICON,
             title = "Highlight Border",
             rows = {
                 { type="slider", label="Hover Border Size", min=1, max=hoverPx.max, step=1,
@@ -1076,6 +1039,42 @@ local function BuildMainPage(pageName, parent, yOffset)
                   get=targetPx.getValue, set=targetPx.setValue },
             },
         })
+
+        -- Hover sits nearest the cog (the dropdown while the cog is hidden),
+        -- Target to its left.
+        local lvl = hoverBordersRow:GetFrameLevel() + 3
+        local hoverSwatch, updHover = EllesmereUI.BuildColorSwatch(
+            rightRgn, lvl,
+            function()
+                local c = SGet("hoverBorderColor") or { r = 1, g = 1, b = 1 }
+                return c.r, c.g, c.b, SVal("hoverBorderAlpha", 1)
+            end,
+            function(r, g, b, a)
+                SWrite("hoverBorderColor", { r=r, g=g, b=b }); SWrite("hoverBorderAlpha", a); ReloadAndUpdate()
+            end, true, 20)
+        hoverSwatch:SetPoint("RIGHT", rightRgn._lastInline or rightRgn._control, "LEFT", -8, 0)
+        local hoverAnchor = rightRgn._lastInline or rightRgn._control  -- memo: what Hover hangs from
+        rightRgn._lastInline = hoverSwatch
+        hoverSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(hoverSwatch, "Hover") end)
+        hoverSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+        local targetSwatch, updTarget = EllesmereUI.BuildColorSwatch(
+            rightRgn, lvl,
+            function()
+                local c = SGet("targetBorderColor") or { r = 1, g = 1, b = 1 }
+                return c.r, c.g, c.b, SVal("targetBorderAlpha", 1)
+            end,
+            function(r, g, b, a)
+                SWrite("targetBorderColor", { r=r, g=g, b=b }); SWrite("targetBorderAlpha", a); ReloadAndUpdate()
+            end, true, 20)
+        targetSwatch:SetPoint("RIGHT", rightRgn._lastInline, "LEFT", -8, 0)
+        rightRgn._lastInline = targetSwatch
+        targetSwatch:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(targetSwatch, "Target") end)
+        targetSwatch:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        -- Stock styles: the stock selection ring carries its own colour.
+        local targetBlocked = EllesmereUI.BlizzStyle
+            and EllesmereUI.BlizzStyle.BlockInline("raidframes", targetSwatch) or false
+
         local function UpdateHLCogVis()
             -- Under a stock style the EllesmereUI border is stood down, so
             -- the hover border draws on its own at this size.
@@ -1083,6 +1082,13 @@ local function BuildMainPage(pageName, parent, yOffset)
             if bs > 0 and not ns.RF_CompactOnTab(optState._partyCtx) then
                 hlCog:Hide()
             else hlCog:Show() end
+            -- The swatches close up on the dropdown while the cog is hidden.
+            local anchor = hlCog:IsShown() and hlCog or cbDD
+            if anchor ~= hoverAnchor then
+                hoverAnchor = anchor
+                hoverSwatch:ClearAllPoints()
+                hoverSwatch:SetPoint("RIGHT", anchor, "LEFT", -8, 0)
+            end
         end
         EllesmereUI.RegisterWidgetRefresh(UpdateHLCogVis)
         UpdateHLCogVis()

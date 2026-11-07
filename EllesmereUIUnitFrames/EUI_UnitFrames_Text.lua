@@ -1192,8 +1192,11 @@ do
     -- Target shortens both names. ShortName passes a secret name through whole
     -- and caches the short forms, so a zone repainted on every health tick
     -- builds no strings. A mode's twins are made the first time a slot uses it.
+    -- Each twin asks EllesmereUI.UnitNameFormat for the unit whose name it
+    -- shows (WoW Forever: First / Last Name leave a non-player's name whole).
     do
-        local short, nameFn, tgtFn = EllesmereUI.ShortName, P.name, P.tgtname
+        local short, unitMode = EllesmereUI.ShortName, EllesmereUI.UnitNameFormat
+        local nameFn, tgtFn = P.name, P.tgtname
         local twinsByMode = {}
         local base = ns.ContentToZone
         function ns.ContentToZone(content, prefix, settings)
@@ -1203,8 +1206,10 @@ do
                 local twins = twinsByMode[mode]
                 if not twins then
                     twins = {
-                        [nameFn] = function(u) return short(nameFn(u), mode) end,
-                        [tgtFn]  = function(u) return short(tgtFn(u), mode) end,
+                        [nameFn] = function(u) return short(nameFn(u), unitMode(mode, u)) end,
+                        [tgtFn]  = function(u)
+                            return short(tgtFn(u), unitMode(mode, u and (u .. "target")))
+                        end,
                     }
                     twinsByMode[mode] = twins
                 end

@@ -84,7 +84,7 @@ function NameplateFrame:UpdateName()
     local el = slot and GetTextSlot(slot) or "enemyName"
     local name = EllesmereUI.WithSurname(UnitName(unit))
     if type(name) == "string" then
-        name = ns.NP_FormatName(name, slot)  -- the slot's Name Format
+        name = ns.NP_FormatName(name, slot, unit)  -- the slot's Name Format
         ns.SetNameElementText(self.name, el, name, unit, slot)
         -- Debuff coloring's Color Name copies follow the text (RefreshNamePosition
         -- passes it on too).
@@ -100,7 +100,8 @@ end
 -- Places an icon of a Core Positions slot (the raid marker, the Rare/Quest indicator, the
 -- faction badge) by the slot's own rule: centred above the bar at Top, beside the bar at
 -- Left and Right (past the cast icon where the two meet), on the bar's top corners (lift:
--- the raid marker sits on the corner, the indicators 2 up), under the cast bar at Bottom.
+-- the raid marker sits on the corner, the indicators 2 up; above the corner's Top Left /
+-- Top Right text while it shows one), under the cast bar at Bottom.
 -- The Core Positions chain (ns.NP_CoreChain) places the first shown element of a shared
 -- slot with it too.
 local function PlaceSlotIcon(plate, f, pos, xOff, yOff, lift, sz)
@@ -115,9 +116,11 @@ local function PlaceSlotIcon(plate, f, pos, xOff, yOff, lift, sz)
         local iconPush = ns.NP_SideIconPush(plate, "right", yOff, sz)
         PP.Point(f, "LEFT", plate.health, "RIGHT", GetSideAuraXOffset() + iconPush + xOff, yOff)
     elseif pos == "topleft" then
-        PP.Point(f, "BOTTOMLEFT", plate.health, "TOPLEFT", xOff, lift + cpPush + yOff)
+        PP.Point(f, "BOTTOMLEFT", plate.health, "TOPLEFT", xOff,
+            lift + cpPush + ns.NP_TopCornerLift("topleft") + yOff)
     elseif pos == "topright" then
-        PP.Point(f, "BOTTOMRIGHT", plate.health, "TOPRIGHT", xOff, lift + cpPush + yOff)
+        PP.Point(f, "BOTTOMRIGHT", plate.health, "TOPRIGHT", xOff,
+            lift + cpPush + ns.NP_TopCornerLift("topright") + yOff)
     elseif pos == "bottom" then
         -- Below the cast bar, centered (the aura slots' "bottom" convention).
         PP.Point(f, "TOP", plate.cast, "BOTTOM", xOff, -2 + yOff)
@@ -317,10 +320,12 @@ function NameplateFrame:UpdateFaction(artOnly)
     if ns.NP_CoreChain then ns.NP_CoreChain(self, slot) end
 end
 -- The room a name has in the Top slot: the bar minus the raid marker, the Rare/Quest
--- indicator and the faction badge while they show. The Top Custom text naming the
--- unit takes it too (AddCustomText, then UpdateNameWidth keeps it current).
+-- indicator and the faction badge while they show, and minus the wider Top Left / Top
+-- Right text on each side (the name is centred between them). The Top Custom text
+-- naming the unit takes it too (AddCustomText, then UpdateNameWidth keeps it current).
 local function TopNameWidth(self, barW)
-    local nameW = barW
+    local nameW = barW - 2 * math.max(ns.NP_TopCornerTextWidth("textSlotTopLeft"),
+        ns.NP_TopCornerTextWidth("textSlotTopRight"))
     local rmPos = GetRaidMarkerPos()
     if rmPos ~= "none" and self.raidFrame:IsShown() then
         nameW = nameW - 2 * (GetRaidMarkerSize() - 2) - 7
@@ -349,8 +354,9 @@ function NameplateFrame:UpdateNameWidth()
         -- Above the bar: reserve a fixed slot for the inline raid marker.
         local nameW = TopNameWidth(self, barW) - nameMarkerReserve
         PP.Width(self.name, math.max(nameW * pct / 100, 20))
-    elseif nameSlot == "textSlotBottomLeft" or nameSlot == "textSlotBottomRight" then
-        -- Under the bar the name never truncates: no width box (auto-sized).
+    elseif nameSlot == "textSlotBottomLeft" or nameSlot == "textSlotBottomRight"
+        or nameSlot == "textSlotTopLeft" or nameSlot == "textSlotTopRight" then
+        -- On a corner of the bar the name never truncates: no width box (auto-sized).
         self.name:SetWidth(0)
     elseif nameSlot then
         -- Inside the bar: estimate how much space health text occupies in
@@ -448,9 +454,11 @@ function NameplateFrame:RefreshNamePosition(localOnly)
         PP.Point(self.name, "RIGHT", self.health, "RIGHT", -2 + txOff, tyOff)
         self.name:SetJustifyH("RIGHT")
         self.name:Show()
-    elseif nameSlot == "textSlotBottomLeft" or nameSlot == "textSlotBottomRight" then
+    elseif nameSlot == "textSlotBottomLeft" or nameSlot == "textSlotBottomRight"
+        or nameSlot == "textSlotTopLeft" or nameSlot == "textSlotTopRight" then
         local txOff, tyOff = GetTextSlotOffsets(nameSlot)
-        local slot = HP_BAR_SLOTS[(nameSlot == "textSlotBottomLeft") and 4 or 5]
+        local slot = HP_BAR_SLOTS[(nameSlot == "textSlotBottomLeft" and 4) or (nameSlot == "textSlotBottomRight" and 5)
+            or (nameSlot == "textSlotTopLeft" and 6) or 7]
         SetFSFont(self.name, GetTextSlotSize(nameSlot), GetNPOutline())
         self.name:SetParent(ns.SlotTextHost(self, nameSlot, nameStrata))
         self:PlaceSlotText(self.name, slot, txOff + ((slot.justify == "LEFT") and nameMarkerReserve or 0), tyOff)
@@ -472,7 +480,10 @@ function NameplateFrame:RefreshNamePosition(localOnly)
     -- settings refresh. Off = single line + ellipsis, on = up to two lines; reflow re-lays out.
     local nameWrap = defaults.enemyNameWrap
     if p and p.enemyNameWrap ~= nil then nameWrap = p.enemyNameWrap end
-    if nameSlot == "textSlotBottomLeft" or nameSlot == "textSlotBottomRight" then nameWrap = false end
+    if nameSlot == "textSlotBottomLeft" or nameSlot == "textSlotBottomRight"
+        or nameSlot == "textSlotTopLeft" or nameSlot == "textSlotTopRight" then
+        nameWrap = false
+    end
     self.name:SetWordWrap(nameWrap)
     self.name:SetNonSpaceWrap(false)
     self.name:SetMaxLines(nameWrap and 2 or 1)
@@ -495,6 +506,9 @@ function NameplateFrame:RefreshNamePosition(localOnly)
     end
     -- Debuff coloring's Color Name copies follow the name's host, font and wrapping.
     if ns.DebuffColors_NameChanged then ns.DebuffColors_NameChanged(self) end
+    -- The top corner texts sit at the name's height: they follow the class power
+    -- push with it (a target change runs this on the target's plate).
+    if ns._npTopCornerUsed then self:AnchorTopCornerTexts() end
     if localOnly then return end
     self:UpdateClassification()
     if not (p and p.classificationIncludeFaction) then self:UpdateFaction() end

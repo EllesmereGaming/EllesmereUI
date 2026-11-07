@@ -1,0 +1,4 @@
+The flag images in this folder are from Twemoji (https://github.com/twitter/twemoji),
+copyright Twitter, Inc. and other contributors, licensed under CC BY 4.0
+(https://creativecommons.org/licenses/by/4.0/).
+Changes: cropped to the flag and resized.

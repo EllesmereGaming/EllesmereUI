@@ -19,12 +19,19 @@ local movers, pendingPositions, SELECT_ELEMENT_ALPHA, SELECT_ELEMENT_FADE = UM.m
 --  Width/height matches apply immediately into the element's own settings.
 -------------------------------------------------------------------------------
 
+-- Blizzard's quest tracker grows down; a tracker of our own under the same
+-- key answers for itself.
+local function QuestTrackerGrowDir()
+    local get = EllesmereUI.GetQuestTrackerGrowDir
+    return get and get() or "DOWN"
+end
+
 -------------------------------------------------------------------------------
 --  Actual grow direction -- never nil; used by position math that needs the
 --  true anchor edge.
 -------------------------------------------------------------------------------
 local function GetBarGrowDirActual(barKey)
-    if barKey == "EQT_Tracker" then return "DOWN" end
+    if barKey == "EQT_Tracker" then return QuestTrackerGrowDir() end
     -- Via the owning module's resolver so menu/layout never disagree (clamps to orientation on read, not save).
     if barKey == "ERB_TotemBar" then
         if EllesmereUI.GetTotemGrowDir then return (EllesmereUI.GetTotemGrowDir()) end
@@ -64,7 +71,7 @@ end
 --  if default/unset. Action bar default "UP", CDM default nil (centered).
 -------------------------------------------------------------------------------
 local function GetBarGrowDir(barKey)
-    if barKey == "EQT_Tracker" then return "DOWN" end
+    if barKey == "EQT_Tracker" then return QuestTrackerGrowDir() end
     if barKey == "ERB_TotemBar" then
         if not EllesmereUI.GetTotemGrowDir then return "RIGHT" end
         local g = EllesmereUI.GetTotemGrowDir()
@@ -833,7 +840,12 @@ function MatchH.ApplyWidthMatch(sourceKey, targetKey)
                 _propagatingMatch = true; EllesmereUI._propagatingMatch = true
                 pcall(sourceElem.setWidth, sourceKey, targetW)
                 _propagatingMatch = false; EllesmereUI._propagatingMatch = false
-                if sourceElem.loadPosition then
+                if sourceElem.noInitHook then
+                    -- Self-positioning: its own authority, never the stored CENTER.
+                    if sourceElem.applyPosition and not EllesmereUI.IsUnlockAnchored(sourceKey) then
+                        pcall(sourceElem.applyPosition, sourceKey)
+                    end
+                elseif sourceElem.loadPosition then
                     local pos = sourceElem.loadPosition(sourceKey)
                     if pos and pos.point == "CENTER" and pos.relPoint == "CENTER" then
                         UM.ApplyCenterPosition(sourceKey, pos)
@@ -918,7 +930,12 @@ function MatchH.ApplyHeightMatch(sourceKey, targetKey)
                 _propagatingMatch = true; EllesmereUI._propagatingMatch = true
                 pcall(sourceElem.setHeight, sourceKey, targetH)
                 _propagatingMatch = false; EllesmereUI._propagatingMatch = false
-                if sourceElem.loadPosition then
+                if sourceElem.noInitHook then
+                    -- Self-positioning: its own authority, never the stored CENTER.
+                    if sourceElem.applyPosition and not EllesmereUI.IsUnlockAnchored(sourceKey) then
+                        pcall(sourceElem.applyPosition, sourceKey)
+                    end
+                elseif sourceElem.loadPosition then
                     local pos = sourceElem.loadPosition(sourceKey)
                     if pos and pos.point == "CENTER" and pos.relPoint == "CENTER" then
                         UM.ApplyCenterPosition(sourceKey, pos)

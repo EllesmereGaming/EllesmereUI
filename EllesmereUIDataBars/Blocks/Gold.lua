@@ -338,7 +338,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         local charCount, unlisted = 0, 0
         if showChars then
             local store = GL.Data().chars
-            -- The list holds store KEYS ("Name-Realm"): a delete needs the key, and the entry itself does not carry one.
+            -- The list holds store KEYS (GUIDs): a delete needs the key, and the entry itself does not carry one.
             local selfKey = GL.CharKey()
             -- Roster shows only balances above 10,000 gold (copper threshold) plus the live char; filtered chars still count into the total.
             -- WoW Forever has no floor: its vanilla balances rarely come near one.

@@ -1080,7 +1080,8 @@ initFrame:SetScript("OnEvent", function(self)
 
     -- Profession POSITIONS (DynamicSpecEntries counterpart): the five
     -- GetProfessions slots as openers, then the same five as second abilities,
-    -- then the two primary slots as gathering specialization abilities.
+    -- then the two primary slots as gathering specialization abilities (retail
+    -- only: WoW Forever's professions have no specializations).
     -- Unlearned or inapplicable positions resolve to nothing and go dark under
     -- Hide Unavailable Actions (see Dynamic Profession in EllesmereUIQuickdraw).
     local function DynamicProfessionEntries()
@@ -1096,7 +1097,7 @@ initFrame:SetScript("OnEvent", function(self)
             local icon = ns.SlotDisplay(slot)
             out[#out + 1] = { icon = icon, name = ns.ProfessionPositionName(i, true), slot = slot }
         end
-        for i = 1, 2 do
+        for i = 1, EllesmereUI.IS_FOREVER and 0 or 2 do
             local slot = { kind = "dynamicprofession", index = i, specialization = true }
             local icon = ns.SlotDisplay(slot)
             out[#out + 1] = {
@@ -1243,8 +1244,9 @@ initFrame:SetScript("OnEvent", function(self)
         { key = "spec",      label = "Specializations", build = AllSpecEntries,
           keepOrder = true, noSearch = true },
         -- keepOrder: Profession 1, Profession 2, Cooking, Fishing and
-        -- Archaeology in the fixed order the game lists them, then the same
-        -- five positions' second abilities. noSearch: ten rows.
+        -- Archaeology (First Aid on WoW Forever) in the fixed order the game
+        -- lists them, then the same five positions' second abilities.
+        -- noSearch: ten rows.
         { key = "profession", label = "Professions", build = DynamicProfessionEntries,
           keepOrder = true, noSearch = true },
         -- keepOrder: the panels run in the order the micro menu draws them,
@@ -1326,7 +1328,7 @@ initFrame:SetScript("OnEvent", function(self)
         local mbg = menu:CreateTexture(nil, "BACKGROUND")
         mbg:SetAllPoints()
         mbg:SetColorTexture(bgR, bgG, bgB, bgA)
-        EllesmereUI.MakeBorder(menu, 1, 1, 1, brdA, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, brdA, mbg, nil, true)
 
         menu.title = EllesmereUI.MakeFont(menu, 12, nil, 1, 1, 1, 0.9)
         menu.title:SetPoint("TOP", menu, "TOP", 0, -7)
@@ -1383,7 +1385,7 @@ initFrame:SetScript("OnEvent", function(self)
         local sBg = menu.search:CreateTexture(nil, "BACKGROUND")
         sBg:SetAllPoints()
         sBg:SetColorTexture(0, 0, 0, 0.4)
-        EllesmereUI.MakeBorder(menu.search, 1, 1, 1, 0.10, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(menu.search, 1, 1, 1, 0.10, sBg)
         menu.searchPH = menu.search:CreateFontString(nil, "OVERLAY")
         menu.searchPH:SetFont(FONT, 11, "")
         menu.searchPH:SetTextColor(0.5, 0.5, 0.5, 0.6)
@@ -1516,7 +1518,7 @@ initFrame:SetScript("OnEvent", function(self)
             local bg = box:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
             bg:SetColorTexture(0, 0, 0, 0.4)
-            EllesmereUI.MakeBorder(box, 1, 1, 1, 0.10, EllesmereUI.PP)
+            EllesmereUI.MakeRoundedBorder(box, 1, 1, 1, 0.10, bg)
             return box
         end
 
@@ -2604,7 +2606,7 @@ initFrame:SetScript("OnEvent", function(self)
         local bg = btn:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-        local brd = EllesmereUI.MakeBorder(btn, 1, 1, 1, EllesmereUI.DD_BRD_A, PPQ)
+        local brd = EllesmereUI.MakeRoundedBorder(btn, 1, 1, 1, EllesmereUI.DD_BRD_A, bg)
         -- The resting alpha is the text colour's, the channel the hover
         -- colours below write, so a hover and leave land back on it.
         local lbl = EllesmereUI.MakeFont(btn, 13, nil, 1, 1, 1, EllesmereUI.DD_TXT_A)
