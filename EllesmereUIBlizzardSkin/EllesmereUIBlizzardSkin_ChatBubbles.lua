@@ -167,13 +167,7 @@ end
 --  Secret-safe helpers
 -------------------------------------------------------------------------------
 
--- pcall'd as well as presence-tested: issecretvalue is absent on older clients, and the test
--- itself can raise.
-local function IsSecret(v)
-    if not issecretvalue then return false end
-    local ok, r = pcall(issecretvalue, v)
-    return ok and r or false
-end
+local IsSecret = EUI.IsSecret
 
 -- Upvalues instead of closures: these run once per incoming line and per candidate bubble,
 -- and a pcall'd closure would allocate every time.

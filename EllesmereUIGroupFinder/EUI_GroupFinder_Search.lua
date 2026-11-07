@@ -305,7 +305,7 @@ end
 -- the list comes from EUI_GroupFinder_Regions.lua (us regions, eu languages)
 local function Regions() return ns.RegionList() or XF.EMPTY end
 
-local function IsSecret(v) return issecretvalue and issecretvalue(v) or false end
+local IsSecret = EllesmereUI.IsSecret
 local function RegionsAvailable() return ns.RegionList() ~= nil end
 
 local function ChosenRegions()

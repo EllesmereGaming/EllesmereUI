@@ -171,6 +171,7 @@ C_LFGList = {
 }
 
 EllesmereUI = {
+    IsSecret = function(v) return v ~= nil and issecretvalue(v) end,
     HELD_BACK_ADDONS = {},
     L = function(s) return s end,
     Lf = function(s) return s end,

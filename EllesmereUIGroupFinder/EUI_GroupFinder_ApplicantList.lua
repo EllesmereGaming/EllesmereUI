@@ -28,7 +28,7 @@ local COLS_BASE = { SPEC_COL, ROLE_COL, ILVL_COL }
 local COLS_KEYS = { SPEC_COL, ROLE_COL, ILVL_COL, RATING_COL, KEY_COL }
 local COLS_PVP = { SPEC_COL, ROLE_COL, ILVL_COL, RATING_COL }
 
-local function Secret(v) return issecretvalue and issecretvalue(v) or false end
+local Secret = EllesmereUI.IsSecret
 local function Readable(t) return type(t) == "table" and not Secret(t) and not (canaccesstable and not canaccesstable(t)) end
 
 local AV, frame, head, body, thumb, empty, cover, raidRoles
