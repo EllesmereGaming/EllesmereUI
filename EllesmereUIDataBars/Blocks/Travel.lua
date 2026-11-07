@@ -952,6 +952,15 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             hearthIcon:SetSize(iconSz, iconSz)
             ns.ResetInlineText(hearthText, "LEFT")
             local tw = ns.SnapToPixelGrid(hearthText:GetStringWidth())
+            -- A counting timer sizes as all-zero digits and never shrinks, so the bar holds still.
+            if inst._barTimer then
+                hearthText:SetText((location:gsub("%d", "0")))
+                tw = max(tw, ns.SnapToPixelGrid(hearthText:GetStringWidth()), inst._trvPeakW or 0)
+                hearthText:SetText(location)
+                inst._trvPeakW = tw
+            else
+                inst._trvPeakW = nil
+            end
             if location == "" then tw = 0; gap = 0 end
             local totalW = min(slotW, iconSz + gap + tw + 4)
             content:SetSize(totalW, barH)
