@@ -1659,7 +1659,7 @@ L["When enabled, EUI relinquishes full control of friendly player nameplates to 
 
 -- == Unit Labels (from EUI_UnitFrames_Options.lua) ============================
 L["Player"]                        = "Игрок"
-L["Focus"]                         = "Концентрация"
+L["Focus"]                         = "Фокус"
 L["Target of Target"]              = "Цель цели"
 L["Focus Target"]                  = "Цель фокуса"
 L["Boss Frames"]                   = "Рамки боссов"
@@ -11899,3 +11899,5 @@ L["|cff00ff00[EllesmereUI]|r UI scale reset. /reload to re-snapshot from your Bl
 L["EllesmereUI:|r Kick Tracker announcement reset. It fires on your next /reload."] = "EllesmereUI:|r Объявление трекера прерываний сброшено. Оно появится после следующего /reload."
 L["|cff00ff98EllesmereUI:|r Video guides and tutorial tips reset. Badges are back; one-time popups will fire again."] = "|cff00ff98EllesmereUI:|r Видеогайды и обучающие подсказки сброшены. Значки вернулись, одноразовые окна появятся снова."
 L["|cff0cd29fEllesmereUI CDM:|r Cooldown Viewer settings are managed by EllesmereUI. Edit Mode changes are disabled."] = "|cff0cd29fEllesmereUI CDM:|r Настройками окон восстановления управляет EllesmereUI. Изменения в режиме редактирования отключены."
+L["Shadow (Border Style)"] = "Тень"
+L["Light (Strength)"] = "Слабый"
