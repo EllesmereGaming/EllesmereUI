@@ -1255,3 +1255,7 @@ L["the council window did not open for this boss kill: %s"] = "이번 우두머�
 L["Clear \"Awarded to you\""] = "'나에게 지급됨' 지우기"
 L["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."] = "%s (%s 님에게 지급됨) 기록을 삭제하시겠습니까?\n\n아직 거래되지 않았으므로 지급도 함께 취소됩니다. '지급 취소'와 마찬가지로 '거래할 전리품'과 모든 공격대원의 기록에서 사라집니다."
 L["usage: /slc prompt lootmaster / raider / guard"] = "사용법: /slc prompt lootmaster / raider / guard"
+
+-- == Simple Loot Council 1.0.7 strings, from the Simple Loot Council standalone translations ==
+L["Seen in your group and stored by player id, so a rename will not lose them."] = "파티에서 확인되어 플레이어 ID로 저장되었으므로, 이름 변경 후에도 유지됩니다."
+L["Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename."] = "이름으로 저장되어 입력한 그대로 비교합니다. 다음에 이 플레이어가 파티에 들어오면 고유 ID로 바뀌어 이름 변경 후에도 유지됩니다."

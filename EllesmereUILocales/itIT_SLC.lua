@@ -1243,3 +1243,7 @@ L["would ask whether to send the guide to the raid or by whisper:"] = "chiedereb
 L["Clear \"Awarded to you\""] = "Rimuovi \"Assegnato a te\""
 L["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."] = "Eliminare %s assegnato a %s?\n\nNon è ancora stato scambiato, quindi questo annulla anche l'assegnazione: esce da \"Bottino da commerciare\" e dalla cronologia di ogni membro dell'incursione, come fa \"Revoca\"."
 L["usage: /slc prompt lootmaster / raider / guard"] = "uso: /slc prompt lootmaster / raider / guard"
+
+-- == Simple Loot Council 1.0.7 strings, from the Simple Loot Council standalone translations ==
+L["Seen in your group and stored by player id, so a rename will not lose them."] = "Visto nel tuo gruppo e salvato tramite l'ID del giocatore, quindi un cambio di nome non lo fa perdere."
+L["Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename."] = "Salvato per nome, quindi viene confrontato come digitato. La prossima volta che questo giocatore sarà nel tuo gruppo diventerà un ID permanente e sopravviverà a un cambio di nome."
