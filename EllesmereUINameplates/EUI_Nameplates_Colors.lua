@@ -981,7 +981,8 @@ local function GetReactionColor(unit, castSeen)
     local reaction = UnitReaction(unit, "player")
     local isNeutral = (reaction and reaction == 4)
         or (UnitCanAttack("player", unit) and not UnitIsEnemy(unit, "player"))
-    if isNeutral and not ns._inDungeon then
+    -- A neutral unit with health-bar threat data defers to 10d too, so threat colors reach it.
+    if isNeutral and not ns._inDungeon and not isThreatUnit then
         return ResolveNeutralColor(unit)
     end
     -- 6. Enemy player class colors
@@ -1127,7 +1128,7 @@ local function GetReactionColor(unit, castSeen)
         -- neutral mobs stay enemy-red for tanks. Other viewers: neutral beats trash/DPS
         -- carve-out/Caster (7b sits above step 8). Non-trash neutral units defer to 10d.
         local tankAggroPending = isThreatUnit and _isTankRole and threatStatus >= 3 and thae
-        if isNeutral and not tankAggroPending then
+        if isNeutral and not tankAggroPending and not isThreatUnit then
             ns._reactionCastTier = nil
             return ResolveNeutralColor(unit)
         end
