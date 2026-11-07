@@ -1157,6 +1157,7 @@ function EABR.ClearEatingVisual(f)
         f._eabrEatingOnUpdate = nil
     end
     if f._count then f._count:Hide() end
+    if f._expiryBinding then f._expiryBinding:SetEnabled(false) end
     f._eabrEatingIcon = nil
 end
 
@@ -1393,6 +1394,7 @@ do
         else -- "texture"
             SetIconTexture(btn, m.texture, m.label)
             if m.spellID then btn._tooltipSpell = m.spellID end
+            if m.tooltipItem then btn._tooltipItem = m.tooltipItem end
         end
         btn._text:SetText(m.label or "")
         btn._icon:SetDesaturated(m.desaturated or false)

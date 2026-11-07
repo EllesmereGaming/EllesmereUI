@@ -1938,6 +1938,7 @@ initFrame:SetScript("OnEvent", function(self)
                   get=function() local f = FDB(); return f and f.weaponLowRank and "low" or "high" end,
                   set=function(v) local f = FDB(); if f then f.weaponLowRank = v == "low"; RefreshAll() end end }
                 rows[#rows + 1] = { type="toggle", label="Hide When None in Bags",
+                  tooltip="Hides a reminder when you have none of its item in your bags.\nOff: a chosen item still shows, greyed out. Auto only ever picks items you have.",
                   get=function() local f = FDB(); return not f or f.weaponHideNoItem ~= false end,
                   set=function(v) local f = FDB(); if f then f.weaponHideNoItem = v; RefreshAll() end end }
                 rows[#rows + 1] = { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,

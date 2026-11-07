@@ -351,7 +351,7 @@ local function FvNeeds(left, warnSec)
     return false
 end
 
-local function FvWeaponEntry(missing, hand, dismissKey, buff, spellID, itemID, hideNoItem, left)
+local function FvWeaponEntry(missing, hand, label, dismissKey, buff, spellID, itemID, hideNoItem, left)
     if buff.spells and not spellID then return end
     if buff.items and not itemID and hideNoItem then return end
     local e = AcquireEntry()
@@ -375,7 +375,7 @@ local function FvWeaponEntry(missing, hand, dismissKey, buff, spellID, itemID, h
         end
     end
     if left then e.expireAt = GetTime() + left; e.expireTotal = left end
-    e.label = ShortLabel(EllesmereUI.L(hand.label))
+    e.label = label
     e.cat = "forever"; e.dismissKey = dismissKey
     missing[#missing+1] = e
 end
@@ -386,19 +386,23 @@ function EABR.CollectForeverWeapons(missing, fo, class)
     local low, hideNoItem = fo.weaponLowRank == true, fo.weaponHideNoItem ~= false
     local showBelow = fo.weaponShowBelow or 1
     local warnSec = showBelow > 0 and showBelow * 60 or nil
+    local mhFull, ohFull = EllesmereUI.L(FV_HANDS[1].label), EllesmereUI.L(FV_HANDS[2].label)
+    local mhLabel, ohLabel = ShortLabel(mhFull), ShortLabel(ohFull)
+    if mhLabel == ohLabel then mhLabel, ohLabel = mhFull, ohFull end
     for i = 1, #FV_HANDS do
         local hand = FV_HANDS[i]
         local wcat = FvWeaponCategory(hand.slot)
         local ok, imbueLeft, tempLeft
         if wcat then ok, imbueLeft, tempLeft = FvWeaponEnchants(hand.ws) end
         if ok then
+            local label = i == 1 and mhLabel or ohLabel
             local buff, spellID, itemID = FvPick(hands and hands[hand.imbue], true, class, wcat, low)
             if buff and FvNeeds(imbueLeft, warnSec) then
-                FvWeaponEntry(missing, hand, hand.imbueKey, buff, spellID, itemID, hideNoItem, imbueLeft)
+                FvWeaponEntry(missing, hand, label, hand.imbueKey, buff, spellID, itemID, hideNoItem, imbueLeft)
             end
             buff, spellID, itemID = FvPick(hands and hands[hand.temp], false, class, wcat, low)
             if buff and FvNeeds(tempLeft, warnSec) then
-                FvWeaponEntry(missing, hand, hand.tempKey, buff, spellID, itemID, hideNoItem, tempLeft)
+                FvWeaponEntry(missing, hand, label, hand.tempKey, buff, spellID, itemID, hideNoItem, tempLeft)
             end
         end
     end
@@ -721,6 +725,10 @@ function EABR.FvStandDown()
     EABR.FvSyncGroupWatch(nil, false)
     EABR.FvSyncTrackingEvent(false)
     EABR.FvSyncWeaponEvents(false)
+    if EABR._durationTimer then
+        EABR._durationTimer:Cancel()
+        EABR._durationTimer = nil
+    end
 end
 
 local function Refresh()
