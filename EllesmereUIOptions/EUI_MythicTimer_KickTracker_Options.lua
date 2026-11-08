@@ -270,7 +270,7 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
             rgn, 220, rgn:GetFrameLevel() + 2, WhereItems(),
             WhereGet, WhereSet,
             nil, nil, nil, nil, nil, { disabled = Off, disabledTooltip = REQ, emptyLabel = "All" })
-        EllesmereUI.PP.Point(whereDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(whereDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = whereDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(whereRefresh)
@@ -385,7 +385,7 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
                 function(key) return Get(key, key ~= "desaturate") == true end,
                 function(key, v) Set(key, v and true or false) end,
                 nil, nil, nil, nil, nil, { disabled = PlatesOff, disabledTooltip = REQ_PLATES, emptyLabel = "None" })
-            EllesmereUI.PP.Point(fxDD, "RIGHT", fxRgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(fxDD, "RIGHT", fxRgn, "RIGHT", -20, 0)
             fxRgn._control = fxDD
             fxRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(fxRefresh)
@@ -533,7 +533,7 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
                 function(key) return Get(key, true) == true end,
                 function(key, v) Set(key, v and true or false) end,
                 nil, nil, nil, nil, nil, { disabled = BarsOff, disabledTooltip = REQ_BARS, emptyLabel = "None" })
-            EllesmereUI.PP.Point(elDD, "RIGHT", elRgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(elDD, "RIGHT", elRgn, "RIGHT", -20, 0)
             elRgn._control = elDD
             elRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(elRefresh)

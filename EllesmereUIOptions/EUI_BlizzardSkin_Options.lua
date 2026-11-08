@@ -3758,7 +3758,7 @@ initFrame:SetScript("OnEvent", function(self)
                 function(k) return CBVal(k) == true end,
                 function(k, v) CBSet(k, v) end,
                 nil, nil, nil, nil, nil, { disabled = Off, disabledTooltip = GATE_REQ })
-            PP.Point(chDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(chDD, "RIGHT", rgn, "RIGHT", -20, 0)
             rgn._control = chDD
             rgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(chDDRefresh)
@@ -3887,7 +3887,7 @@ initFrame:SetScript("OnEvent", function(self)
                     CBM.RefreshStyle()
                 end,
                 nil, nil, nil, nil, nil, { disabled = Off, disabledTooltip = GATE_REQ })
-            PP.Point(nmDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(nmDD, "RIGHT", rgn, "RIGHT", -20, 0)
             rgn._control = nmDD
             rgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(nmDDRefresh)

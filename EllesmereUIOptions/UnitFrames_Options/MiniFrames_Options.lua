@@ -184,7 +184,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                     ReloadAndUpdate()
                     if UpdateHBSwatchVis then UpdateHBSwatchVis() end
                 end)
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
             rightRgn._control = cbDD
             rightRgn._lastInline = nil
 
