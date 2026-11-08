@@ -197,7 +197,7 @@ local STYLE = {
     MW_TRACK_ALPHA_BOOST = 0.06,                           -- additive alpha boost for multi-widget slider track
 
     -- Toggle  (white + alpha for off states -- adapts to any background tint)
-    TG_OFF_R = 0.267, TG_OFF_G = 0.267, TG_OFF_B = 0.267,  -- track when OFF (#444)
+    TG_OFF_R = 0.267, TG_OFF_G = 0.267, TG_OFF_B = 0.267,  -- track when OFF
     TG_OFF_A = 0.65,                                       -- track OFF alpha
     TG_ON_A = 0.75,                                        -- track alpha at full ON (colour = accent)
     TG_KNOB_OFF_R = 1, TG_KNOB_OFF_G = 1, TG_KNOB_OFF_B = 1, -- knob when OFF (white + alpha)
@@ -1273,17 +1273,28 @@ function EllesmereUI.RealmGroupName()
     return GDAPI_REALMTYPE_NORMAL
 end
 
--- Per-character key "Name<sep>RealmGroupName". Moves a store's entry from the
--- old realm-name key (Forever only; retail keys match).
+-- Moves store[old] to store[key] unless key already holds an entry.
+local function AdoptCharEntry(store, old, key)
+    if old ~= key and store[old] ~= nil then
+        if store[key] == nil then store[key] = store[old] end
+        store[old] = nil
+    end
+end
+
+-- Per-character key "Name<sep>RealmGroupName". On Forever the first name alone
+-- is not unique, so Name is the full "First Surname", and a store's
+-- entry moves over from the older first-name and realm-name keys.
 function EllesmereUI.CharKey(sep, store)
     local name, group = UnitName("player"), EllesmereUI.RealmGroupName()
     if not name or not group then return nil end
-    local key = name .. sep .. group
-    if not EllesmereUI.IS_FOREVER then return key end
-    local old = name .. sep .. (GetRealmName() or "")
-    if type(store) == "table" and old ~= key and store[old] ~= nil then
-        if store[key] == nil then store[key] = store[old] end
-        store[old] = nil
+    if not EllesmereUI.IS_FOREVER then return name .. sep .. group end
+    local first, surname = (UnitNameUnmodified or UnitName)("player")
+    local full = EllesmereUI.WithSurname and EllesmereUI.WithSurname(first, surname, true)
+    if type(full) ~= "string" or full == "" then full = name end
+    local key = full .. sep .. group
+    if type(store) == "table" then
+        AdoptCharEntry(store, name .. sep .. (GetRealmName() or ""), name .. sep .. group)
+        AdoptCharEntry(store, name .. sep .. group, key)
     end
     return key
 end
