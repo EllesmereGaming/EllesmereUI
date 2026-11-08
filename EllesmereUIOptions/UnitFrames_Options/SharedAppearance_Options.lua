@@ -767,7 +767,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 end
                 ReloadAndUpdate()
             end)
-        PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
@@ -940,7 +940,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 end
                 if UpdateHBSwatchVis then UpdateHBSwatchVis() end
             end)
-        PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
         rightRgn._control = cbDD
         rightRgn._lastInline = nil
 
