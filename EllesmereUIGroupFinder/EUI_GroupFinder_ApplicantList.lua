@@ -218,6 +218,25 @@ local function LineMenu(line)
     if Secret(name) then name = nil end
     -- both of these print the name in chat
     local hidden = ns.OwnListGet("streamerNames")
+    -- names shown: blizzard's tagged menu, so other add-ons' entries (raider.io's
+    -- copy link and so on) still show. names hidden: ours, they'd show the name
+    if not hidden and MenuUtil and MenuUtil.CreateContextMenu then
+        MenuUtil.CreateContextMenu(line, function(_, root)
+            root:SetTag("MENU_LFG_FRAME_MEMBER_APPLY")
+            root:CreateTitle(name or "")
+            local w = root:CreateButton(WHISPER or "Whisper", function() WhisperLink(name) end)
+            root:CreateButton(LFG_LIST_REPORT_PLAYER or "Report Player", function() LFGList_ReportApplicant(id, name or "") end)
+            local ig = root:CreateButton(IGNORE_PLAYER or "Ignore Player", function()
+                C_FriendList.AddIgnore(name)
+                C_LFGList.DeclineApplicant(id)
+            end)
+            if not name then
+                w:SetEnabled(false)
+                ig:SetEnabled(false)
+            end
+        end)
+        return
+    end
     EUI.ShowContextMenu(line, {
         { text = WHISPER or "Whisper", noLoc = true,
           isDisabled = function() return hidden or not name end,
