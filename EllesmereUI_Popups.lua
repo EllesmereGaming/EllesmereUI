@@ -157,7 +157,8 @@ end
 
 -- Announcement action button, 38 tall: primary is bright, secondary dim. opts: w;
 -- secondary; hoverA (secondary border alpha on hover); hoverRGB {r,g,b} (secondary
--- hovers to that colour instead, border alpha 0.95). The caller anchors it.
+-- hovers to that colour instead, border alpha 0.95); square (the square outline,
+-- for a window that is square by design). The caller anchors it.
 function EllesmereUI.MakeActionButton(parent, font, text, r, g, b, opts)
     local secondary, hoverRGB = opts.secondary, opts.hoverRGB
     local btn = CreateFrame("Button", nil, parent)
@@ -166,7 +167,12 @@ function EllesmereUI.MakeActionButton(parent, font, text, r, g, b, opts)
     local bbg = btn:CreateTexture(nil, "BACKGROUND")
     bbg:SetAllPoints()
     bbg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
-    local brd = MakeBorder(btn, r, g, b, secondary and 0.35 or 0.9, PanelPP)
+    local brd
+    if opts.square then
+        brd = MakeBorder(btn, r, g, b, secondary and 0.35 or 0.9, PanelPP)
+    else
+        brd = EllesmereUI.MakeRoundedBorder(btn, r, g, b, secondary and 0.35 or 0.9, bbg)
+    end
     local lbl = btn:CreateFontString(nil, "OVERLAY")
     lbl:SetFont(font, 15, "")
     PanelPP.Point(lbl, "CENTER", btn, "CENTER", 0, 0)
@@ -194,7 +200,8 @@ end
 -- Fading popup button (confirm and input popups): 125x27; text and border lerp from the
 -- default to the hover colours over 0.1s. Exposes btn._lbl, btn._resetAnim and
 -- btn._setColors (new colours, same argument order as the defaults below).
-function EllesmereUI.MakePopupButton(parent, anchorPoint, anchorTo, anchorRef, xOff, yOff, defR, defG, defB, defA, hovR, hovG, hovB, hovA, bDefR, bDefG, bDefB, bDefA, bHovR, bHovG, bHovB, bHovA)
+-- square (optional): the square outline, for a window that is square by design.
+function EllesmereUI.MakePopupButton(parent, anchorPoint, anchorTo, anchorRef, xOff, yOff, defR, defG, defB, defA, hovR, hovG, hovB, hovA, bDefR, bDefG, bDefB, bDefA, bHovR, bHovG, bHovB, bHovA, square)
     local FADE_DUR = 0.1
     local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(125, 27)
@@ -203,7 +210,12 @@ function EllesmereUI.MakePopupButton(parent, anchorPoint, anchorTo, anchorRef, x
 
     local bg = SolidTex(btn, "BACKGROUND", 0, 0, 0, 0.5)
     bg:SetAllPoints()
-    local brd = MakeBorder(btn, bDefR, bDefG, bDefB, bDefA)
+    local brd
+    if square then
+        brd = MakeBorder(btn, bDefR, bDefG, bDefB, bDefA)
+    else
+        brd = EllesmereUI.MakeRoundedBorder(btn, bDefR, bDefG, bDefB, bDefA, bg)
+    end
 
     local lbl = MakeFont(btn, 12, nil, defR, defG, defB)
     lbl:SetAlpha(defA)
@@ -349,10 +361,11 @@ local function MakePopupCheckbox(popup, width)
     cbBox:SetFrameLevel(cbRow:GetFrameLevel() + 1)
     local cbBoxBg = SolidTex(cbBox, "BACKGROUND", 0.103, 0.095, 0.088, 1)
     cbBoxBg:SetAllPoints()
-    MakeBorder(cbBox, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.25)
+    EllesmereUI.MakeRoundedBorder(cbBox, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.25, cbBoxBg)
     local cbCheck = SolidTex(cbBox, "ARTWORK", EG.r, EG.g, EG.b, 1)
     cbCheck:SetPoint("TOPLEFT", 3, -3)
     cbCheck:SetPoint("BOTTOMRIGHT", -3, 3)
+    EllesmereUI.RoundBody(cbBox, cbCheck, 1)
     cbCheck:Hide()
 
     local cbLabel = MakeFont(cbRow, 11, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
@@ -1195,7 +1208,7 @@ function EllesmereUI:ShowInputPopup(opts)
         extraBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
         local extraBg = SolidTex(extraBtn, "BACKGROUND", 0, 0, 0, 0.5)
         extraBg:SetAllPoints()
-        MakeBorder(extraBtn, 1, 1, 1, 0.25)
+        EllesmereUI.MakeRoundedBorder(extraBtn, 1, 1, 1, 0.25, extraBg)
         local extraLbl = MakeFont(extraBtn, 12, nil, 1, 1, 1)
         extraLbl:SetAlpha(0.6)
         extraLbl:SetPoint("CENTER")
@@ -1340,7 +1353,7 @@ function EllesmereUI:ShowInputPopup(opts)
         swatch:SetFrameLevel(popup:GetFrameLevel() + 3)
         local fill = SolidTex(swatch, "ARTWORK", 1, 1, 1, 1)
         fill:SetAllPoints()
-        MakeBorder(swatch, 1, 1, 1, 0.9)
+        EllesmereUI.MakeRoundedBorder(swatch, 1, 1, 1, 0.9, fill)
         popup._paintSwatch = function()
             local o = popup._swatchOpts
             if not o then return end

@@ -211,7 +211,7 @@ local function BuildMultiApplyDropdown(anchorFrame, opts, flashTargets)
         local applyBg = applyRow:CreateTexture(nil, "BACKGROUND")
         applyBg:SetAllPoints()
         applyBg:SetColorTexture(DB_BG.r, DB_BG.g, DB_BG.b, 0.92)
-        local applyBrd = EllesmereUI.MakeBorder(applyRow, 1, 1, 1, 0.4, PP)
+        local applyBrd = EllesmereUI.MakeRoundedBorder(applyRow, 1, 1, 1, 0.4, applyBg)
 
         local applyLbl = applyRow:CreateFontString(nil, "OVERLAY")
         applyLbl:SetFont(fontPath, 12, "")

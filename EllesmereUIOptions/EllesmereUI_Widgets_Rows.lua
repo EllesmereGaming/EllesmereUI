@@ -18,7 +18,6 @@ local PoolGen = EllesmereUI._Pool.Gen
 local PP = EllesmereUI.PanelPP
 local SolidTex = EllesmereUI.SolidTex
 local MakeFont = EllesmereUI.MakeFont
-local MakeBorder = EllesmereUI.MakeBorder
 local MakeRoundedBorder = EllesmereUI.MakeRoundedBorder
 local RowBg = EllesmereUI.RowBg
 local MakeDropdownArrow = EllesmereUI.MakeDropdownArrow
@@ -177,7 +176,7 @@ function EllesmereUI.BuildKeybindButton(parent, opts)
     end
     local bg = SolidTex(btn, "BACKGROUND", DD_BG_R, DD_BG_G, DD_BG_B, DD_BG_A)
     bg:SetAllPoints()
-    btn._border = MakeBorder(btn, 1, 1, 1, DD_BRD_A, pp)
+    btn._border = MakeRoundedBorder(btn, 1, 1, 1, DD_BRD_A, bg)
     local lbl = MakeFont(btn, opts.font or 12, nil, 1, 1, 1)
     lbl:SetAlpha(DD_TXT_A)
     lbl:SetPoint("CENTER")

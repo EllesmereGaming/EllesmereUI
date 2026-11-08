@@ -2421,7 +2421,7 @@ initFrame:SetScript("OnEvent", function(self)
         local bbg = EllesmereUI.SolidTex(btn, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, 0.92)
         bbg:SetAllPoints()
         local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
-        local bbrd = EllesmereUI.MakeBorder(btn, EG.r, EG.g, EG.b, 0.5)
+        local bbrd = EllesmereUI.MakeRoundedBorder(btn, EG.r, EG.g, EG.b, 0.5, bbg)
         local blbl = EllesmereUI.MakeFont(btn, 13, nil, EG.r, EG.g, EG.b, 1)
         blbl:SetAlpha(0.8)
         blbl:SetPoint("CENTER")

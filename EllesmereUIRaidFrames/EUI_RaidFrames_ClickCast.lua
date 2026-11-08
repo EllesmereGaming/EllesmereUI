@@ -3147,7 +3147,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local kbBg = EllesmereUI.SolidTex(kbBtn, "BACKGROUND",
             EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
         kbBg:SetAllPoints()
-        kbBtn._border = EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+        kbBtn._border = EllesmereUI.MakeRoundedBorder(kbBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, kbBg)
         local kbLbl = EllesmereUI.MakeFont(kbBtn, 13, nil, 1, 1, 1)
         kbLbl:SetAlpha(EllesmereUI.DD_TXT_A)
         kbLbl:SetPoint("CENTER")
