@@ -338,6 +338,12 @@ end
 --  events (only registered while an option needs them)
 -------------------------------------------------------------------------------
 local PIT = Enum.PlayerInteractionType
+-- banker types: true for a character bank. some bankers open it as
+-- CharacterBanker (67) rather than Banker
+local BANKERS = {}
+if PIT.Banker then BANKERS[PIT.Banker] = true end
+if PIT.CharacterBanker then BANKERS[PIT.CharacterBanker] = true end
+if PIT.AccountBanker then BANKERS[PIT.AccountBanker] = false end
 local ev = CreateFrame("Frame")
 ev:SetScript("OnEvent", function(_, event, arg)
     if event == "BAG_UPDATE" then
@@ -358,13 +364,13 @@ ev:SetScript("OnEvent", function(_, event, arg)
             Queue(false, true)
         end
     elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then
-        if arg == PIT.Banker or arg == PIT.AccountBanker then
-            atBank, atCharBank = true, arg == PIT.Banker
+        if BANKERS[arg] ~= nil then
+            atBank, atCharBank = true, BANKERS[arg]
             MarkAll(CHAR_BANK); MarkAll(WARBAND_BANK)
             Queue(false, true)
         end
     elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
-        if arg == PIT.Banker or arg == PIT.AccountBanker then
+        if BANKERS[arg] ~= nil then
             Flush()  -- save before the contents go unreadable
             atBank, atCharBank = false, false
         end
