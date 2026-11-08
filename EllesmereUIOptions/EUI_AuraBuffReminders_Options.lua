@@ -1877,7 +1877,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
 
             local class = select(2, UnitClass("player"))
-            local classBuffs = not MAGE and _G._EABR_FV_CLASS_BUFFS and _G._EABR_FV_CLASS_BUFFS[class]
+            local classBuffs = not MAGE and _G._EABR_FvClassBuffs and _G._EABR_FvClassBuffs()[class]
             local weaponRow
             weaponRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Weapon Buffs",
@@ -1919,7 +1919,7 @@ initFrame:SetScript("OnEvent", function(self)
                             end
                         end
                         text, tip = b.label, table.concat(names, "\n")
-                        if b.own then tip = tip .. "\n\nOnly your own counts." end
+                        if b.own then tip = tip .. "\n\n" .. EllesmereUI.L("Only your own counts.") end
                     else
                         local line = b.lines[1]
                         text = _G._EABR_SpellName(line[#line], b.key)

@@ -249,32 +249,45 @@ function EABR.FvSpellEntry(missing, id, dismissKey, label)
     missing[#missing+1] = e
 end
 
--- Whether the player's own aura of a spell is up. A secret or unreadable
--- answer counts as up, so it never asks for a recast it cannot confirm.
-local function OwnAuraUp(id)
+-- Whether the player's own aura of a spell is up: true, false (absent or
+-- another caster's), or nil when a secret or unreadable answer cannot tell.
+local function OwnAuraState(id)
     local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
-    if not ok or isSecret(aura) then return true end
+    if not ok or isSecret(aura) then return nil end
     if aura == nil then return false end
-    return EABR._StrictAuraFromMe(aura) ~= false
+    local okMine, mine = pcall(EABR._StrictAuraFromMe, aura)
+    if not okMine or isSecret(mine) then return nil end
+    return mine
 end
 
--- Whether any rank in a list is up (ids: the one-slot lookup).
-local function RanksUp(ranks, ids, own)
+-- Whether any rank in a list is up (ids: the one-slot lookup): true, false,
+-- or nil while an own-only read cannot tell.
+local function RanksState(ranks, ids, own)
+    local unknown
     for j = 1, #ranks do
         if own then
-            if OwnAuraUp(ranks[j]) then return true end
+            local state = OwnAuraState(ranks[j])
+            if state then return true end
+            if state == nil then unknown = true end
         else
             ids[1] = ranks[j]
             if PlayerHasAuraByID(ids) then return true end
         end
     end
+    if unknown then return nil end
     return false
 end
 
-local function LineUp(lines, i, ids, also, own)
-    if RanksUp(lines[i], ids, own) then return true end
+local function LineState(lines, i, ids, also, own)
+    local state = RanksState(lines[i], ids, own)
+    if state then return true end
     local extra = also and also[i]
-    return extra and RanksUp(extra, ids, own) or false
+    if extra then
+        local extraState = RanksState(extra, ids, own)
+        if extraState then return true end
+        if extraState == nil then state = nil end
+    end
+    return state
 end
 
 local function LineReadable(lines, i, also)
@@ -284,23 +297,38 @@ end
 
 -- One reminder while no rank of any line is up (the mage armors, a class
 -- buff). Returns the index of the line up, which the caller records for this
--- character (a profile is shared by every character on it). The icon and the
--- click then follow the line last seen up, with no event of their own (the
--- player's UNIT_AURA already drives the refresh). Nothing up casts the
--- strongest rank known of that line, else the strongest line known. The
--- recorded line (last) is read first: the line up is nearly always it.
-local function CollectLines(missing, auraLock, ids, lines, last, dismissKey, label, also, own)
+-- character (a profile is shared by every character on it), or false while
+-- the reminder is held back without a line to record. The icon and the click
+-- then follow the line last seen up, with no event of their own (the player's
+-- UNIT_AURA already drives the refresh). Nothing up casts the strongest rank
+-- known of that line, else the strongest line known. The recorded line (last)
+-- is read first: the line up is nearly always it. own: only the player's own
+-- aura is found and recorded; anyCounts: another caster's still holds the
+-- reminder back, unrecorded.
+local function CollectLines(missing, auraLock, ids, lines, last, dismissKey, label, also, own, anyCounts)
     local first = lines[last] and last
-    if first and LineUp(lines, first, ids, also, own) then return first end
+    local unknown = false
+    if first then
+        local state = LineState(lines, first, ids, also, own)
+        if state then return first end
+        if state == nil then unknown = true end
+    end
     local readable = not (auraLock and first and not LineReadable(lines, first, also))
     for i = 1, #lines do
         if i ~= first then
-            if LineUp(lines, i, ids, also, own) then return i end
+            local state = LineState(lines, i, ids, also, own)
+            if state then return i end
+            if state == nil then unknown = true end
             if auraLock and not LineReadable(lines, i, also) then readable = false end
         end
     end
     -- Under the aura lock an unreadable rank would read absent: say nothing.
-    if not readable then return end
+    if unknown or not readable then return false end
+    if anyCounts then
+        for i = 1, #lines do
+            if LineState(lines, i, ids, also, false) then return false end
+        end
+    end
     local id = first and EABR.FvHighest(lines[first])
     if not id then
         for i = #lines, 1, -1 do
@@ -338,7 +366,7 @@ function EABR.CollectMageArmor(missing, auraLock, ids)
 end
 
 function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
-    local list = EABR.FV_CLASS_BUFFS[class]
+    local list = EABR.FvClassBuffs()[class]
     if not list then return end
     local picks = fo.classBuffPicks
     local store, key = CharStore("classBuffByChar")
@@ -352,7 +380,8 @@ function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
             if not dk then dk = "forever:class_" .. buff.key; buff.dismissKey = dk end
             local last = rec and rec[buff.key]
             local up = CollectLines(missing, auraLock, ids, buff.lines, last, dk,
-                buff.label and EllesmereUI.L(buff.label), buff.also, buff.own)
+                buff.label and EllesmereUI.L(buff.label), buff.also,
+                buff.own or buff.ownMemory, buff.ownMemory)
             if up and up ~= last and key and buff.lines[2] then
                 if not store then store = {}; EllesmereUIDB.classBuffByChar = store end
                 rec = store[key]
