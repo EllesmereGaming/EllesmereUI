@@ -158,31 +158,29 @@ end
 -- Sizes the box and the banner for a half screen width V (banner units at
 -- banner scale 100%, nil = no limit) and returns the half width the banner
 -- then needs: its art (whole slanted ends) or its - and + buttons, whichever
--- reaches farther. The box fills the right half out to the left half's edge;
--- the banner grows as far as the farther half moved
--- out from where CreateHUD put it, so Exit and Save & Exit keep their gaps.
--- When that does not fit: the box shrinks to BOX_MIN, then the banner only
--- keeps CreateHUD's minimum clearance.
+-- reaches farther. Exit and Save & Exit sit at the default inset (BuildFilter);
+-- the box evens out the two halves, those buttons included, so both keep the
+-- toggles' own gap to the chains, and the banner grows until they do.
+-- When that does not fit: the box shrinks to BOX_MIN, then the gap to the
+-- minimum clearance.
 local function Layout(hud, frame, V)
     local L = hud._hudLayout
     local half = BANNER_W / 2
     local wS, wC, wH = hud._magnetBtn:GetWidth(), hud._coordBtn:GetWidth(), hud._hoverBtn:GetWidth()
-    local upL = -L.upLeft + hud._gridBtn:GetWidth() + hud._darkOverlayBtn:GetWidth() + hud._flashBtn:GetWidth() + 2 * L.gapL
-    local upR = L.upRight + wS + L.gapR1 + wC + L.gapR2 + wH
-    local left = upL + wS + L.gapL
-    local fixed = L.upRight + ICON_SZ + BOX_GAP + L.gapL + wC + L.gapL + wH
-    local exit, save = hud._exitBtn, hud._saveBtn
-    local exitIn, saveIn = select(4, exit:GetPoint(1)), -select(4, save:GetPoint(1))
-    local function Outer(e) return math.max(half + e, half + e - math.min(exitIn, saveIn) + L.scaleBtnReach) end
-    local boxW = math.max(BOX_MIN, math.min(BOX_MAX, math.floor(left - fixed + 0.5)))
-    local e = math.max(0, left - upL, fixed + boxW - upR)
+    local left = -L.upLeft + wS + hud._gridBtn:GetWidth() + hud._darkOverlayBtn:GetWidth()
+        + hud._flashBtn:GetWidth() + 3 * L.gapL
+    local fixed = L.upRight + ICON_SZ + BOX_GAP + L.gapL + wC + L.gapL + wH + L.gapL + hud._infoBtn:GetWidth()
+    local exitW, saveW, edgeIn = hud._exitBtn:GetWidth(), hud._saveBtn:GetWidth(), L.edgeIn
+    local function Outer(e) return math.max(half + e, half + e - edgeIn + L.scaleBtnReach) end
+    local function Need(boxW, gap)
+        return math.max(0, left + gap + exitW + edgeIn - half, fixed + boxW + gap + saveW + edgeIn - half)
+    end
+    local boxW = math.max(BOX_MIN, math.min(BOX_MAX, math.floor(left + exitW - saveW - fixed + 0.5)))
+    local e = Need(boxW, L.gapL)
     if V and Outer(math.ceil(e)) > V then
         boxW = BOX_MIN
-        e = math.max(0, left - upL, fixed + boxW - upR)
-        if Outer(math.ceil(e)) > V then
-            e = math.max(0, left + L.clear + exitIn + exit:GetWidth() - half,
-                fixed + boxW + L.clear + saveIn + save:GetWidth() - half)
-        end
+        e = Need(boxW, L.gapL)
+        if Outer(math.ceil(e)) > V then e = Need(boxW, L.clear) end
     end
     e = math.ceil(e)
     hud:SetWidth(BANNER_W + 2 * e)
@@ -253,6 +251,17 @@ function UM.BuildFilter(hud, centerY)
     hud._coordBtn:SetPoint("LEFT", frame, "RIGHT", L.gapL, 0)
     hud._hoverBtn:ClearAllPoints()
     hud._hoverBtn:SetPoint("LEFT", hud._coordBtn, "RIGHT", L.gapL, 0)
+    hud._infoBtn:ClearAllPoints()
+    hud._infoBtn:SetPoint("LEFT", hud._hoverBtn, "RIGHT", L.gapL, 0)
+    -- Exit and Save & Exit at the default inset: Layout grows the banner around the
+    -- chains instead, so - and + keep clear of the slanted ends on both sides.
+    local exit, save = hud._exitBtn, hud._saveBtn
+    local _, _, _, _, exitY = exit:GetPoint(1)
+    local _, _, _, _, saveY = save:GetPoint(1)
+    exit:ClearAllPoints()
+    exit:SetPoint("LEFT", hud, "TOPLEFT", L.edgeIn, exitY)
+    save:ClearAllPoints()
+    save:SetPoint("RIGHT", hud, "TOPRIGHT", -L.edgeIn, saveY)
 
     -- The fit only changes with the screen, so it runs as the bar shows.
     local Fit = MakeFit(hud, frame)
@@ -300,8 +309,7 @@ function UM.BuildFilter(hud, centerY)
     end
     local function ShowTip(owner)
         -- Below the bar: above it is off screen, and on the bar the banner (level 900) covers it.
-        EllesmereUI.ShowWidgetTooltip(owner, EllesmereUI.L("Show only the elements whose name contains every word typed here. Escape clears it."),
-            { anchorPoint = "TOP", anchorTo = "BOTTOM", anchorY = -24 * hud:GetScale() })
+        UM.ShowBarTip(owner, EllesmereUI.L("Show only the elements whose name contains every word typed here. Escape clears it."))
     end
     box:SetScript("OnEnter", function(self)
         Border()

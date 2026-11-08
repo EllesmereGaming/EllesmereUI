@@ -285,11 +285,37 @@ local function WhisperLeader(leader)
     frame:AddMessage(EllesmereUI.Lf("Click to whisper the group leader: %1$s", link), 1, 0.82, 0)
 end
 
+-- blizzard's menu under blizzard's tag, so other add-ons' entries (raider.io's
+-- copy link and so on) still show. the owner is our row, which has resultID
+-- like blizzard's does
+local function TaggedMenu(anchor, id, info, leader)
+    MenuUtil.CreateContextMenu(anchor, function(_, root)
+        root:SetTag("MENU_LFG_FRAME_SEARCH_ENTRY")
+        root:CreateTitle(info.censored and CENSORED_LFG_GROUP_NAME or info.name or "")
+        local w = root:CreateButton(WHISPER_LEADER or "Whisper Leader", function() WhisperLeader(leader) end)
+        if leader then
+            w:SetTooltip(function(tip)
+                GameTooltip_AddNormalLine(tip, EllesmereUI.L("Prompts in chat to whisper the party leader."))
+            end)
+        else
+            w:SetEnabled(false)
+            w:SetTooltip(function(tip)
+                GameTooltip_SetTitle(tip, WHISPER or "Whisper")
+                GameTooltip_AddNormalLine(tip, LFG_LIST_MUST_SIGN_UP_TO_WHISPER or "Sign up to whisper the leader")
+            end)
+        end
+        root:CreateButton(LFG_LIST_REPORT_GROUP_FOR or "Report Group", function() LFGList_ReportListing(id, leader) end)
+        root:CreateButton(REPORT_GROUP_FINDER_ADVERTISEMENT or "Report Advertisement",
+            function() LFGList_ReportAdvertisement(id) end)
+    end)
+end
+
 function ns.OwnListMenu(anchor, id)
     local info = C_LFGList.GetSearchResultInfo(id)
     if not Readable(info) then return end
     local leader = info.leaderName
     if Secret(leader) then leader = nil end
+    if MenuUtil and MenuUtil.CreateContextMenu then return TaggedMenu(anchor, id, info, leader) end
     local items = {
         { text = WHISPER_LEADER or "Whisper Leader", noLoc = true,
           isDisabled = function() return not leader end,
@@ -1039,9 +1065,15 @@ local function HoldHidden(f, a)
     guard = false
 end
 
+-- a hidden sign up status (keys, encounters): our rows couldn't tell if a group can be picked
+local function AppSecret(id)
+    local _, status, pending = C_LFGList.GetApplicationInfo(id)
+    return Secret(status) or Secret(pending)
+end
+
 -- one result's secrecy, as AnySecret reads the whole list
 local function ResultSecret(id)
-    if Secret(id) then return true end
+    if Secret(id) or AppSecret(id) then return true end
     local info = C_LFGList.GetSearchResultInfo(id)
     return info ~= nil and (not Readable(info) or Secret(info.activityIDs) or Secret(info.isDelisted))
 end
@@ -1107,6 +1139,9 @@ local function Build()
     SP = LFGListFrame and LFGListFrame.SearchPanel
     if not (SP and SP.ScrollBox) then return end
     frame = CreateFrame("Frame", nil, SP)
+    -- shown only while active: a first visit to quests or custom never turns it
+    -- on, and a shown empty frame there took every click and scroll
+    frame:Hide()
     if LFGListSearchPanel_DoSearch then
         hooksecurefunc("LFGListSearchPanel_DoSearch", function() wipe(posOf); nextPos = 0; selected = nil end)
     end
@@ -1206,7 +1241,7 @@ function AnySecret()
     local res = SP and SP.results
     if type(res) ~= "table" then return false end
     for _, id in ipairs(res) do
-        if Secret(id) then return true end
+        if Secret(id) or AppSecret(id) then return true end
         local info = C_LFGList.GetSearchResultInfo(id)
         if info and (not Readable(info) or Secret(info.activityIDs) or Secret(info.isDelisted)) then return true end
     end
@@ -1250,6 +1285,14 @@ function ns.OwnListRefresh()
         end
     end
     if active then
+        -- stay over blizzard's faded list and button: if something raises them,
+        -- the mouse would go to rows nobody can see
+        local lv = SP.ScrollBox:GetFrameLevel() + 10
+        if frame:GetFrameLevel() < lv then frame:SetFrameLevel(lv) end
+        if signBtn then
+            lv = SP.SignUpButton:GetFrameLevel() + 5
+            if signBtn:GetFrameLevel() < lv then signBtn:SetFrameLevel(lv) end
+        end
         Collect()
         Paint()
     end
