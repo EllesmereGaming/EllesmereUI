@@ -542,7 +542,8 @@ ns.ResolveUnitNameColor = function(unit)
     if UnitIsPlayer(unit) or (UnitInPartyIsAI and UnitInPartyIsAI(unit)) then
         local _, class = UnitClass(unit)
         if not issecretvalue(class) and class then
-            local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[class]
+            -- The suite's Class Colors (custom colors, Class Color Darken), as the health bar.
+            local c = EllesmereUI.GetClassColor(class)
             if c then return c.r, c.g, c.b end
         end
         return nil
