@@ -13,6 +13,7 @@ local EUI = EllesmereUI
 
 local DUNGEONS, RAIDS = 2, 3
 local DELVES = GROUP_FINDER_CATEGORY_ID_DELVES or 121
+local QUESTS, CUSTOM = 1, GROUP_FINDER_CUSTOM_CATEGORY or 6
 local X_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
 local CANCEL_H = 18  -- smallest cancel square
 local GAP = 2
@@ -322,6 +323,20 @@ ns.RaidRoleColors = RR_COLORS
 local NEED_ATLAS = { TANK = "groupfinder-icon-role-micro-tank", HEALER = "groupfinder-icon-role-micro-heal",
     DAMAGER = "groupfinder-icon-role-micro-dps" }
 local REMAINING = { TANK = "TANK_REMAINING", HEALER = "HEALER_REMAINING", DAMAGER = "DAMAGER_REMAINING" }
+local PERSON_ICON = "|TInterface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png:0|t "
+-- the right side follows the activity's display type, as blizzard's rows do:
+-- member icons, role counts, a player count, or nothing
+local function MemberMode(ai, cap)
+    local DT = Enum.LFGListDisplayType
+    local dt = ai and ai.displayType
+    if DT and type(dt) == "number" and not Secret(dt) then
+        if dt == DT.RoleEnumerate or dt == DT.ClassEnumerate then return cap <= 5 and "icons" or "counts" end
+        if dt == DT.RoleCount then return "counts" end
+        if dt == DT.PlayerCount then return "players" end
+        if dt == DT.HideAll then return nil end
+    end
+    return cap > 5 and "counts" or "icons"
+end
 -- status text + colors
 local G, R, Y = { 0.1, 1, 0.1 }, { 1, 0.25, 0.25 }, { 1, 0.82, 0 }
 -- blizzard's strings have color codes baked in, strip them
@@ -426,6 +441,10 @@ local function MakeRow(i)
     r.status:SetJustifyH("RIGHT")
     r.score = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     r.score:SetJustifyH("RIGHT")
+    -- player count, for activities blizzard shows that way (custom groups)
+    r.players = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    r.players:SetJustifyH("RIGHT")
+    r.players:Hide()
     r.icons, r.crowns, r.rings, r.roles = {}, {}, {}, {}
     for k = 1, 5 do
         local t = r:CreateTexture(nil, "ARTWORK", nil, 2)
@@ -793,10 +812,11 @@ local function Fill(r, id)
     end
     table.sort(members, ByRole)
     local cap = ai and ai.maxNumPlayers or 5
+    local mode = MemberMode(ai, cap)
     -- open roles for the empty slots
     local needs = r.needs
     wipe(needs)
-    if ns.OwnListGet("missingIcons") ~= "none" and cap == 5 then
+    if ns.OwnListGet("missingIcons") ~= "none" and mode == "icons" and cap == 5 then
         local counts = C_LFGList.GetSearchResultMemberCounts(id)
         if Readable(counts) then
             for i = 1, #RR_ROLES do
@@ -838,7 +858,7 @@ local function Fill(r, id)
         if t._masked then t:RemoveMaskTexture(r.masks[k]); t._masked = nil end
         t:SetTexCoord(0, 1, 0, 1)
         t:SetDesaturated(false)
-        if cap > 5 then
+        if mode ~= "icons" then
             t:Hide()
         elseif m then
             local icon = specOn and m.spec and ns.GFSpecIcon and ns.GFSpecIcon(m.cls, m.spec)
@@ -907,7 +927,7 @@ local function Fill(r, id)
         end
     end
     -- raid role counts, rating to their left
-    local counts = cap > 5 and C_LFGList.GetSearchResultMemberCounts(id)
+    local counts = mode == "counts" and C_LFGList.GetSearchResultMemberCounts(id)
     if not Readable(counts) then counts = nil end
     local ellIcons = ns.OwnListGet("missingIcons") == "ellesmere"
     local x = -(r.pad or 6)
@@ -943,7 +963,20 @@ local function Fill(r, id)
             p.bg:Hide(); p.icon:Hide(); p.count:Hide()
         end
     end
-    if counts then
+    -- player count: a person and the number, rating to its left
+    local players = mode == "players" and n
+    if type(players) == "number" and not Secret(players) then
+        SetSize(r.players, fsz)
+        r.players:SetText(PERSON_ICON .. players)
+        r.players:ClearAllPoints()
+        r.players:SetPoint("RIGHT", r, "RIGHT", x, 0)
+        r.players:Show()
+        x = x - math.ceil(r.players:GetStringWidth() or 20) - 6
+    else
+        players = nil
+        r.players:Hide()
+    end
+    if counts or players then
         r.score:ClearAllPoints()
         r.score:SetPoint("RIGHT", r, "RIGHT", x - 6, 0)
         r.scoreRaid = true
@@ -1213,14 +1246,17 @@ function AnySecret()
     return false
 end
 
--- ours only on dungeon / raid / delve searches with readable results
+-- the categories our list covers
+local OURS = { [DUNGEONS] = true, [RAIDS] = true, [DELVES] = true, [QUESTS] = true, [CUSTOM] = true }
+
+-- ours on those searches with readable results
 function ns.OwnListRefresh()
     local want = ns.OwnListOn()
     if want and not frame then Build() end
     if not frame then return end
     local cat = SP.categoryID
     local secret = (GFNS.ExtraResultsSecret and GFNS.ExtraResultsSecret()) or AnySecret()
-    local now = want and SP:IsVisible() and (cat == DUNGEONS or cat == RAIDS or cat == DELVES) and not secret
+    local now = (want and SP:IsVisible() and OURS[cat] and not secret) and true or false
     if now ~= active then
         active = now
         local a = active and 0 or 1
