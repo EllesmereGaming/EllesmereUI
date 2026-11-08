@@ -270,12 +270,24 @@ local function PrefixedLine(text, shortenOn)
     end
 end
 
+-- Only the tooltips the player reads. Addons scan item stats through hidden
+-- tooltips of their own (Pawn's PawnPrivateTooltip1) and parse Blizzard's
+-- original lines, so rewriting those breaks them.
+local SHOWN_TIPS = {
+    GameTooltip = true,
+    ItemRefTooltip = true,
+    ShoppingTooltip1 = true,
+    ShoppingTooltip2 = true,
+    ItemRefShoppingTooltip1 = true,
+    ItemRefShoppingTooltip2 = true,
+}
+
 local function SimplifyStatsHook(tooltip)
     local shortenOn, colors = F.Get("shorten"), F.Get("colors")
     if not (shortenOn or colors) then return end
     if not tooltip or not tooltip.GetName then return end
     local ok, name = pcall(tooltip.GetName, tooltip)
-    if not ok or not name then return end
+    if not ok or not name or not SHOWN_TIPS[name] then return end
     if not statRules then BuildStatRules() end
     local equip = ITEM_SPELL_TRIGGER_ONEQUIP
     if type(equip) ~= "string" then return end
