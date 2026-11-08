@@ -323,7 +323,28 @@ ns.RaidRoleColors = RR_COLORS
 local NEED_ATLAS = { TANK = "groupfinder-icon-role-micro-tank", HEALER = "groupfinder-icon-role-micro-heal",
     DAMAGER = "groupfinder-icon-role-micro-dps" }
 local REMAINING = { TANK = "TANK_REMAINING", HEALER = "HEALER_REMAINING", DAMAGER = "DAMAGER_REMAINING" }
-local PERSON_ICON = "|TInterface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png:0|t "
+local PERSON_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png"
+local PLAYERS_COLOR = { 0.4, 0.4, 0.42 }
+-- a count circle's border, the same as the member icons get (ring when round,
+-- border style when square)
+local function CircleEdge(p, round, px, cr, cg, cb, tex, key)
+    p.ring:Hide()
+    p.edge:Hide()
+    if px <= 0 then return end
+    if round then
+        p.ring:ClearAllPoints()
+        p.ring:SetPoint("TOPLEFT", p.bg, "TOPLEFT", -px, px)
+        p.ring:SetPoint("BOTTOMRIGHT", p.bg, "BOTTOMRIGHT", px, -px)
+        p.ring:SetColorTexture(cr, cg, cb, 1)
+        p.ring:Show()
+    else
+        if p.edge._key ~= key then
+            p.edge._key = key
+            EUI.ApplyBorderStyle(p.edge, px, cr, cg, cb, 1, tex)
+        end
+        p.edge:Show()
+    end
+end
 -- the right side follows the activity's display type, as blizzard's rows do:
 -- member icons, role counts, a player count, or nothing
 local function MemberMode(ai, cap)
@@ -441,10 +462,6 @@ local function MakeRow(i)
     r.status:SetJustifyH("RIGHT")
     r.score = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     r.score:SetJustifyH("RIGHT")
-    -- player count, for activities blizzard shows that way (custom groups)
-    r.players = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    r.players:SetJustifyH("RIGHT")
-    r.players:Hide()
     r.icons, r.crowns, r.rings, r.roles = {}, {}, {}, {}
     for k = 1, 5 do
         local t = r:CreateTexture(nil, "ARTWORK", nil, 2)
@@ -483,9 +500,9 @@ local function MakeRow(i)
         c:Hide()
         r.crowns[k] = c
     end
-    -- raid role counts
+    -- raid role counts, and a 4th circle for a player count
     r.rr = {}
-    for k = 1, 3 do
+    for k = 1, 4 do
         local bg = r:CreateTexture(nil, "ARTWORK", nil, 1)
         local mask = r:CreateMaskTexture()
         mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
@@ -494,8 +511,17 @@ local function MakeRow(i)
         t:SetPoint("CENTER", bg)
         local c = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         c:SetJustifyH("CENTER")
-        bg:Hide(); t:Hide(); c:Hide()
-        r.rr[k] = { bg = bg, mask = mask, icon = t, count = c }
+        -- the member icons' borders: a ring behind round ones, a border frame on square ones
+        local ring = r:CreateTexture(nil, "ARTWORK", nil, 0)
+        local rm = r:CreateMaskTexture()
+        rm:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        rm:SetAllPoints(ring)
+        ring:AddMaskTexture(rm)
+        local edge = CreateFrame("Frame", nil, r)
+        edge:SetAllPoints(bg)
+        edge:EnableMouse(false)
+        bg:Hide(); t:Hide(); c:Hide(); ring:Hide(); edge:Hide()
+        r.rr[k] = { bg = bg, mask = mask, icon = t, count = c, ring = ring, edge = edge }
     end
     -- row art
     r.art = r:CreateTexture(nil, "BACKGROUND", nil, 7)
@@ -930,10 +956,11 @@ local function Fill(r, id)
     local counts = mode == "counts" and C_LFGList.GetSearchResultMemberCounts(id)
     if not Readable(counts) then counts = nil end
     local ellIcons = ns.OwnListGet("missingIcons") == "ellesmere"
-    local x = -(r.pad or 6)
+    local round = ns.OwnListGet("iconShape") ~= "square"
+    -- round rings sit outside the circle, so the first one steps in like the member icons
+    local x = -(r.pad or 6) - (round and bpx or 0)
     local isz = r.icons[1]:GetWidth() or 16
     local fsz = ns.OwnListSize("scoreSize")
-    local round = ns.OwnListGet("iconShape") ~= "square"
     for k = 3, 1, -1 do
         local p = r.rr[k]
         local role = RR_ROLES[k]
@@ -948,6 +975,7 @@ local function Fill(r, id)
             p.bg:ClearAllPoints()
             p.bg:SetPoint("RIGHT", r, "RIGHT", x, 0)
             p.bg:Show()
+            CircleEdge(p, round, bpx, br, bg, bb, btex, bkey)
             local tex = ellIcons and ns.RoleIconTex and ns.RoleIconTex(role)
             if tex then p.icon:SetTexture(tex) else p.icon:SetAtlas(NEED_ATLAS[role]) end
             local gsz = math.floor(isz * 0.7 + 0.5)
@@ -958,23 +986,36 @@ local function Fill(r, id)
             p.count:ClearAllPoints()
             p.count:SetPoint("BOTTOM", p.bg, "TOP", 0, 1)
             p.count:Show()
-            x = x - math.max(isz, math.ceil(p.count:GetStringWidth() or 8)) - 6
+            x = x - math.max(isz, math.ceil(p.count:GetStringWidth() or 8)) - 6 - (round and bpx * 2 or 0)
         else
-            p.bg:Hide(); p.icon:Hide(); p.count:Hide()
+            p.bg:Hide(); p.icon:Hide(); p.count:Hide(); p.ring:Hide(); p.edge:Hide()
         end
     end
-    -- player count: a person and the number, rating to its left
+    -- player count: a grey circle with a person, the number above, like the role counts
     local players = mode == "players" and n
+    local pc = r.rr[4]
     if type(players) == "number" and not Secret(players) then
-        SetSize(r.players, fsz)
-        r.players:SetText(PERSON_ICON .. players)
-        r.players:ClearAllPoints()
-        r.players:SetPoint("RIGHT", r, "RIGHT", x, 0)
-        r.players:Show()
-        x = x - math.ceil(r.players:GetStringWidth() or 20) - 6
+        pc.bg:SetColorTexture(PLAYERS_COLOR[1], PLAYERS_COLOR[2], PLAYERS_COLOR[3], 1)
+        if round and not pc.masked then pc.bg:AddMaskTexture(pc.mask); pc.masked = true
+        elseif not round and pc.masked then pc.bg:RemoveMaskTexture(pc.mask); pc.masked = nil end
+        pc.bg:SetSize(isz, isz)
+        pc.bg:ClearAllPoints()
+        pc.bg:SetPoint("RIGHT", r, "RIGHT", x, 0)
+        pc.bg:Show()
+        CircleEdge(pc, round, bpx, br, bg, bb, btex, bkey)
+        local gsz = math.floor(isz * 0.7 + 0.5)
+        pc.icon:SetTexture(PERSON_TEX)
+        pc.icon:SetSize(gsz, gsz)
+        pc.icon:Show()
+        SetSize(pc.count, fsz)
+        pc.count:SetText(players)
+        pc.count:ClearAllPoints()
+        pc.count:SetPoint("BOTTOM", pc.bg, "TOP", 0, 1)
+        pc.count:Show()
+        x = x - math.max(isz, math.ceil(pc.count:GetStringWidth() or 8)) - 6 - (round and bpx * 2 or 0)
     else
         players = nil
-        r.players:Hide()
+        pc.bg:Hide(); pc.icon:Hide(); pc.count:Hide(); pc.ring:Hide(); pc.edge:Hide()
     end
     if counts or players then
         r.score:ClearAllPoints()
