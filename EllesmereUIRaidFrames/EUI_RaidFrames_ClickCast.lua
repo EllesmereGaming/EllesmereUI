@@ -967,6 +967,27 @@ local function BuildRezLines(binding, guard, standalone, noItem)
     return lines
 end
 
+-- A macro binding's macro index, or nil. An account macro and a character
+-- macro may share a name, and GetMacroIndexByName then returns either one,
+-- so the binding's own tab is searched first: the character macros when it
+-- was picked from them (macroChar), else the account macros. The name lookup
+-- stays the fallback, for a macro that has since moved to the other tab.
+local function GetBindingMacroIndex(b)
+    local name = b.macroName
+    if not name then return nil end
+    local numAccount, numChar = GetNumMacros()
+    local first, last = 1, numAccount or 0
+    if b.macroChar then
+        first, last = MAX_ACCOUNT_MACROS + 1, MAX_ACCOUNT_MACROS + (numChar or 0)
+    end
+    for i = first, last do
+        if GetMacroInfo(i) == name then return i end
+    end
+    local idx = GetMacroIndexByName(name)
+    if idx and idx > 0 then return idx end
+    return nil
+end
+
 -- Builds base macrotext (no Smart Rez). Returns nil when no macro wrapping is
 -- needed (applied as a direct spell instead).
 local function BuildBaseMacroText(binding)
@@ -1027,10 +1048,8 @@ local function BuildBaseMacroText(binding)
         end
         return SpellCastLine(binding, "[" .. table.concat(conds, ",") .. guard .. "]")
     elseif binding.type == "macro" then
-        local macroName = binding.macroName
-        if not macroName then return nil end
-        local idx = GetMacroIndexByName(macroName)
-        if not idx or idx == 0 then return nil end
+        local idx = GetBindingMacroIndex(binding)
+        if not idx then return nil end
         local body = GetMacroBody(idx)
         if not body then return nil end
         if binding.oocOnly then
@@ -1254,8 +1273,8 @@ function ns.CC_GetBindingIcon(b)
         if info and info.iconID then return info.iconID end
     end
     if b.macroName then
-        local idx = GetMacroIndexByName(b.macroName)
-        if idx and idx > 0 then
+        local idx = GetBindingMacroIndex(b)
+        if idx then
             local _, iconTex = GetMacroInfo(idx)
             if iconTex then return iconTex end
         end
@@ -1601,13 +1620,10 @@ local function ResolveBinding(b)
         local rankID = PinnedRankID(b)
         return "spell", rankID and tostring(rankID) or ResolveCastSpellName(b), nil
     elseif b.type == "macro" then
-        local macroName = b.macroName
-        if macroName then
-            local idx = GetMacroIndexByName(macroName)
-            if idx and idx > 0 then
-                local body = GetMacroBody(idx)
-                return "macro", nil, body
-            end
+        local idx = GetBindingMacroIndex(b)
+        if idx then
+            local body = GetMacroBody(idx)
+            return "macro", nil, body
         end
         return nil, nil, nil
     end
@@ -4009,6 +4025,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                             hoverFriendly = true, hoverEnemy = true, rankPinned = hoveredItem.lowRank }
                     elseif hoveredItem.macroName then
                         binding = { type = "macro", macroName = hoveredItem.macroName,
+                            macroChar = hoveredItem.macroChar,
                             icon = hoveredItem.icon, key = captured, enabled = true,
                             hoverFriendly = true, hoverEnemy = true }
                     elseif hoveredItem.itemSlot then
@@ -4039,6 +4056,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                             hoverFriendly = true, hoverEnemy = true, rankPinned = hoveredItem.lowRank }
                     elseif hoveredItem.macroName then
                         binding = { type = "macro", macroName = hoveredItem.macroName,
+                            macroChar = hoveredItem.macroChar,
                             icon = hoveredItem.icon, key = captured, enabled = true,
                             hoverFriendly = true, hoverEnemy = true }
                     elseif hoveredItem.itemSlot then
@@ -4074,7 +4092,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 local mItems = {}
                 for _, m in ipairs(macros) do
                     local prefix = m.isGlobal and "" or "(C) "
-                    mItems[#mItems + 1] = { name = prefix .. m.name, icon = m.icon, macroName = m.name }
+                    mItems[#mItems + 1] = { name = prefix .. m.name, icon = m.icon, macroName = m.name,
+                        macroChar = not m.isGlobal or nil }
                 end
                 PopulateGridQB(mItems)
             else
@@ -4306,11 +4325,12 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 local mItems = {}
                 for _, m in ipairs(macros) do
                     local prefix = m.isGlobal and "" or "(C) "
-                    mItems[#mItems + 1] = { name = prefix .. m.name, icon = m.icon, macroName = m.name }
+                    mItems[#mItems + 1] = { name = prefix .. m.name, icon = m.icon, macroName = m.name,
+                        macroChar = not m.isGlobal or nil }
                 end
                 PopulateGrid(mItems, function(item)
                     ns.CC_AddSpecBinding({
-                        type = "macro", macroName = item.macroName, icon = item.icon,
+                        type = "macro", macroName = item.macroName, macroChar = item.macroChar, icon = item.icon,
                         enabled = true, oocOnly = false, hovercast = false,
                         -- Both reactions: see the global macro add above.
                         hoverFriendly = true, hoverEnemy = true,
