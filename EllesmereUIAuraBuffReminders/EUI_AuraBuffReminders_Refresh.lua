@@ -255,8 +255,7 @@ local function OwnAuraUp(id)
     local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
     if not ok or isSecret(aura) then return true end
     if aura == nil then return false end
-    local mine = aura.isFromPlayerOrPlayerPet
-    return isSecret(mine) or mine ~= false
+    return EABR._StrictAuraFromMe(aura) ~= false
 end
 
 -- Whether any rank in a list is up (ids: the one-slot lookup).
