@@ -300,8 +300,9 @@ function UM.BuildFilter(hud, centerY)
     end
     local function ShowTip(owner)
         -- Below the bar: above it is off screen, and on the bar the banner (level 900) covers it.
+        -- Left-aligned, so it never runs under the logo on the icon's left.
         EllesmereUI.ShowWidgetTooltip(owner, EllesmereUI.L("Show only the elements whose name contains every word typed here. Escape clears it."),
-            { anchorPoint = "TOP", anchorTo = "BOTTOM", anchorY = -24 * hud:GetScale() })
+            { anchorPoint = "TOPLEFT", anchorTo = "BOTTOMLEFT", anchorY = -24 * hud:GetScale() })
     end
     box:SetScript("OnEnter", function(self)
         Border()

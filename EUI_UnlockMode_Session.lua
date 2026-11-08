@@ -102,16 +102,27 @@ local function CreateHUD(parent)
     local GAP_L, GAP_R1, GAP_R2 = 20, 7, 2
 
     -- Helper: shared hover/click behavior for icon+label wrapper buttons
-    local function SetupToggleBtn(wrapper, iconTex, labelFS, getState, setState)
+    -- Toggle tooltip below the bar, level with the element filter's (EUI_UnlockMode_Filter.lua);
+    -- -23 because the toggles are 2px taller than the filter box. Aligned to the toggle's
+    -- outer edge: the banner (level 900) covers the tooltip, so it must not run under the logo.
+    local function ShowToggleTip(owner, tip)
+        local side = (owner:GetCenter() < UM.hudFrame:GetCenter()) and "RIGHT" or "LEFT"
+        EllesmereUI.ShowWidgetTooltip(owner, tip,
+            { anchorPoint = "TOP" .. side, anchorTo = "BOTTOM" .. side, anchorY = -23 * UM.hudFrame:GetScale() })
+    end
+
+    local function SetupToggleBtn(wrapper, iconTex, labelFS, getState, setState, tip)
         wrapper:SetScript("OnClick", function() setState() end)
-        wrapper:SetScript("OnEnter", function()
+        wrapper:SetScript("OnEnter", function(self)
             iconTex:SetAlpha(0.9)
             labelFS:SetTextColor(1, 1, 1, 0.9)
+            ShowToggleTip(self, tip)
         end)
         wrapper:SetScript("OnLeave", function()
             local a = getState() and HUD_ON_ALPHA or HUD_OFF_ALPHA
             iconTex:SetAlpha(a)
             labelFS:SetTextColor(1, 1, 1, a)
+            EllesmereUI.HideWidgetTooltip()
         end)
     end
 
@@ -158,14 +169,16 @@ local function CreateHUD(parent)
             end
         end
     end)
-    gridBtn:SetScript("OnEnter", function()
+    gridBtn:SetScript("OnEnter", function(self)
         gridTex:SetAlpha(0.9)
         gridLabel:SetTextColor(1, 1, 1, 0.9)
+        ShowToggleTip(self, EllesmereUI.L("Shows a grid to line elements up. Click to switch between dimmed, bright and off."))
     end)
     gridBtn:SetScript("OnLeave", function()
         local a = GridHudAlpha()
         gridTex:SetAlpha(a)
         gridLabel:SetTextColor(1, 1, 1, a)
+        EllesmereUI.HideWidgetTooltip()
     end)
     UM.hudFrame._gridBtn = gridBtn
 
@@ -201,7 +214,8 @@ local function CreateHUD(parent)
             darkOverlayLabel:SetTextColor(1, 1, 1, UM.darkOverlaysEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
             darkOverlayLabel:SetText(UM.darkOverlaysEnabled and EllesmereUI.L("Dark Overlays\nEnabled") or EllesmereUI.L("Dark Overlays\nDisabled"))
             ApplyDarkOverlays()
-        end)
+        end,
+        EllesmereUI.L("Gives every element a dark background with its name. Turn it off to see the real elements underneath."))
     UM.hudFrame._darkOverlayBtn = darkOverlayBtn
 
     ---------------------------------------------------------------
@@ -235,7 +249,8 @@ local function CreateHUD(parent)
             flashTex:SetAlpha(UM.flashlightEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
             flashLabel:SetTextColor(1, 1, 1, UM.flashlightEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
             flashLabel:SetText(UM.flashlightEnabled and EllesmereUI.L("Cursor Light\nEnabled") or EllesmereUI.L("Cursor Light\nDisabled"))
-        end)
+        end,
+        EllesmereUI.L("Lights up the grid lines around the cursor. Needs the grid lines to be on."))
     UM.hudFrame._flashBtn = flashBtn
 
     ---------------------------------------------------------------
@@ -274,7 +289,8 @@ local function CreateHUD(parent)
             for _, m in pairs(movers) do
                 if m._refreshSnapDD then m._refreshSnapDD() end
             end
-        end)
+        end,
+        EllesmereUI.L("Dragged elements snap to the edges and centers of the closest element."))
     UM.hudFrame._magnetBtn = magnetBtn
 
     ---------------------------------------------------------------
@@ -321,7 +337,8 @@ local function CreateHUD(parent)
                     end
                 end
             end
-        end)
+        end,
+        EllesmereUI.L("Shows the position of every element, not just the selected one."))
     UM.hudFrame._coordBtn = coordBtn
 
     ---------------------------------------------------------------
@@ -355,7 +372,8 @@ local function CreateHUD(parent)
             hoverTex:SetAlpha(hoverBarEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
             hoverLabel:SetTextColor(1, 1, 1, hoverBarEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
             hoverLabel:SetText(hoverBarEnabled and EllesmereUI.L("Hover Top Bar\nEnabled") or EllesmereUI.L("Hover Top Bar\nDisabled"))
-        end)
+        end,
+        EllesmereUI.L("Hides this bar until the cursor reaches the top of the screen. Hold Shift to hide it any time."))
     UM.hudFrame._hoverBtn = hoverBtn
 
     ---------------------------------------------------------------
