@@ -1879,6 +1879,47 @@ function ns.UFO_BuildPetOptions(W, parent, y)
         end
     end
 
+    -- CAST BAR, on the EllesmereUI pet frame only. Off by default; the bar is
+    -- built at login, so turning it on asks for a reload. Move it in Unlock Mode.
+    if ns.GetUnitFrameSource("pet") == "eui" then
+        local P = db.profile.pet
+        local function castOff() return P.showCastbar ~= true end
+        _, h = W:SectionHeader(parent, "CAST BAR", y);  y = y - h
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Cast Bar",
+              tooltip="Shows a cast bar for your pet's spells (e.g. Seduction). Turning it on needs a reload. Position it in Unlock Mode.",
+              getValue=function() return P.showCastbar == true end,
+              setValue=function(v)
+                  P.showCastbar = v
+                  ReloadAndUpdate()
+                  local pf = ns.frames and ns.frames.pet
+                  if v and pf and not pf.Castbar then
+                      EllesmereUI:ShowConfirmPopup({
+                          title = "Reload Required",
+                          message = "The pet cast bar is built at login. Reload to show it.",
+                          confirmText = "Reload Now",
+                          cancelText = "Later",
+                          reload = true,
+                      })
+                  end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="slider", text="Cast Bar Width", min=30, max=400, step=1,
+              disabled=castOff, disabledTooltip="Show Cast Bar",
+              getValue=function() return P.castbarWidth or 120 end,
+              setValue=function(v) P.castbarWidth = v; ReloadAndUpdate() end });  y = y - h
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Cast Bar Height", min=1, max=40, step=1,
+              disabled=castOff, disabledTooltip="Show Cast Bar",
+              getValue=function() return P.castbarHeight or 12 end,
+              setValue=function(v) P.castbarHeight = v; ReloadAndUpdate() end },
+            { type="toggle", text="Hide When Idle",
+              tooltip="Only show the cast bar while a cast is in progress.",
+              disabled=castOff, disabledTooltip="Show Cast Bar",
+              getValue=function() return P.castbarHideWhenInactive ~= false end,
+              setValue=function(v) P.castbarHideWhenInactive = v; ReloadAndUpdate() end });  y = y - h
+    end
+
     -- Store click targets for hover highlight system
     parent._ufClickTargets = {
         healthBar  = { section = displayHeader,  target = sizeRow },
