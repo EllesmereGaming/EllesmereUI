@@ -60,9 +60,15 @@ local UpdateDurationTicker  -- forward-declare; defined after RequestRefresh
 -- spellbook pass resolves every tracked ID, run again only after a spell is
 -- learned (LEARNED_SPELL_IN_SKILL_LINE sets _fvFamDirty) or when an ID joins
 -- the list; the families then serve every refresh as they are.
+local function PickerEnabled()
+    local display = db.profile.display
+    return display ~= nil and display.pickerEnabled == true
+end
+
 function EABR.ForeverFamily(id)
     local fams = EABR._fvFams
-    if not (fams and fams[id]) or EABR._fvFamDirty then
+    if not (fams and fams[id]) or EABR._fvFamDirty
+        or EABR._fvRanksEnabled ~= PickerEnabled() then
         EABR.BuildForeverFamilies()
         fams = EABR._fvFams
     end
@@ -71,6 +77,8 @@ end
 
 function EABR.BuildForeverFamilies()
     EABR._fvFamDirty = false
+    local pickerEnabled = PickerEnabled()
+    EABR._fvRanksEnabled = pickerEnabled
     local fams = EABR._fvFams
     if fams then wipe(fams) else fams = {}; EABR._fvFams = fams end
     -- The families with a rank in this character's spellbook (spell groups:
@@ -132,17 +140,49 @@ function EABR.BuildForeverFamilies()
             local kind, _, sid = C_SpellBook.GetSpellBookItemType(slot, bank)
             local into = kind == SPELL and sid and byName[C_Spell.GetSpellName(sid)]
             if into then
+                local cast = sid
+                if pickerEnabled then
+                    cast = known[into[1]] or {}
+                    if not tContains(cast, sid) then cast[#cast + 1] = sid end
+                end
                 for _, list in ipairs(into) do
                     local listed = false
                     for k = 1, #list do
                         if list[k] == sid then listed = true; break end
                     end
                     if not listed then list[#list + 1] = sid end
-                    known[list] = true
+                    known[list] = cast
                 end
             end
         end
     end
+end
+
+function EABR.ForeverGroupCastSpell(group, spellID, family)
+    local ranks
+    if group.ranksBySpell then
+        ranks = group.ranksBySpell[spellID]
+    else
+        family = family or (type(spellID) == "number" and SpellName(spellID) and EABR.ForeverFamily(spellID))
+        ranks = family and EABR._fvKnownFams[family]
+    end
+    if type(ranks) ~= "table" then return end
+    local settings = group.settings or group
+    local pinned = settings.castRanks and settings.castRanks[spellID]
+    if pinned then
+        for i, id in ipairs(ranks) do
+            if id == pinned then return id, ranks, i end
+        end
+    end
+    return ranks[#ranks], ranks, #ranks
+end
+
+local function SetForeverPickerSpell(entry, group, id)
+    entry.mode = "macro"
+    entry.macro = EABR.ForeverGroupCastMacro(id)
+    entry.spellID = id
+    entry.foreverGroup = group
+    entry.spellRank = EABR.ForeverSpellRank(id)
 end
 
 -- The click of a WoW Forever reminder that casts its spell by name (a spell
@@ -182,11 +222,8 @@ end
 -- secret, so a hidden aura is not read as absent. A group shows only for a
 -- character that knows one of its spells (a rank in the spellbook): groups are
 -- profile settings, so one made on another class shows nothing here. The icon
--- is the first such spell's and the click casts it on the player
--- (CastByName). Dismiss keys are per group table (weak), so removing or
--- renaming a group never hands its dismissal to another. A group made only of
--- spells the ticked class buffs track (coveredIDs / coveredNames, by ID or
--- name; nil in PvP and while none is ticked) stands down meanwhile.
+-- uses the selected spell or the first known member. Groups covered by
+-- enabled class buff reminders stand down.
 local function GroupCovered(spellIDs, ids, names)
     local any = false
     for _, spellID in ipairs(spellIDs) do
@@ -207,17 +244,31 @@ function EABR.CollectForeverGroups(missing, groups, coveredIDs, coveredNames)
         EABR._fvGroupN = 0
     end
     local aurasRestricted = EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted()
+    local pickerEnabled = PickerEnabled()
     for _, group in ipairs(groups) do
         local spellIDs = type(group) == "table" and group.ids
         if type(spellIDs) == "table" and not (coveredIDs and GroupCovered(spellIDs, coveredIDs, coveredNames)) then
-            local iconSpellID, hasActiveAura
+            local iconSpellID, castSpellID, hasActiveAura
+            local firstRanks, hasChoices
             local allAurasReadable = true
             for _, spellID in ipairs(spellIDs) do
                 local rankSpellIDs = type(spellID) == "number" and SpellName(spellID)
                     and EABR.ForeverFamily(spellID)
                 if rankSpellIDs then
-                    if not iconSpellID and EABR._fvKnownFams[rankSpellIDs] then iconSpellID = spellID end
-                    if PlayerHasAuraByID(rankSpellIDs) then hasActiveAura = true; break end
+                    if pickerEnabled then
+                        local knownSpellID, ranks = EABR.ForeverGroupCastSpell(group, spellID, rankSpellIDs)
+                        if knownSpellID then
+                            firstRanks = firstRanks or ranks
+                            if ranks ~= firstRanks then hasChoices = true end
+                            if not castSpellID or spellID == group.castSpellID then
+                                iconSpellID, castSpellID = knownSpellID, knownSpellID
+                            end
+                        end
+                    elseif not iconSpellID and EABR._fvKnownFams[rankSpellIDs] then
+                        iconSpellID = spellID
+                    end
+                    hasActiveAura = PlayerHasAuraByID(rankSpellIDs)
+                    if hasActiveAura then break end
                     if aurasRestricted and not EABR.FvRanksReadable(rankSpellIDs) then
                         allAurasReadable = false
                     end
@@ -232,8 +283,12 @@ function EABR.CollectForeverGroups(missing, groups, coveredIDs, coveredNames)
                 end
                 local entry = AcquireEntry()
                 local castName = SpellName(iconSpellID)
-                CastByName(entry, castName, iconSpellID)
                 entry.texture = Tex(iconSpellID)
+                if castSpellID then
+                    SetForeverPickerSpell(entry, hasChoices and group or nil, castSpellID)
+                else
+                    CastByName(entry, castName, iconSpellID)
+                end
                 entry.label = type(group.name) == "string" and group.name
                     or ShortLabel(castName)
                 entry.cat = "forever"; entry.dismissKey = dismissKey
@@ -274,6 +329,7 @@ function EABR.FvSpellEntry(missing, id, dismissKey, label)
     e.label = label or ShortLabel(SpellName(id) or tostring(id))
     e.cat = "forever"; e.dismissKey = dismissKey
     missing[#missing+1] = e
+    return e
 end
 
 -- Whether the player's own aura of a spell is up: true, false (absent or
@@ -363,7 +419,7 @@ local function CollectLines(missing, auraLock, ids, lines, last, dismissKey, lab
             if id then break end
         end
     end
-    if id then EABR.FvSpellEntry(missing, id, dismissKey, label) end
+    if id then return nil, EABR.FvSpellEntry(missing, id, dismissKey, label) end
 end
 
 local function CharStore(field)
@@ -445,6 +501,40 @@ function EABR.FvClassTracked(fo, class)
     return coveredIDs, coveredNames
 end
 
+local function ApplyClassBuffPicker(entry, fo, buff)
+    local saved = fo.classBuffActions
+    local settings = saved[buff.key]
+    if not settings then settings = {}; saved[buff.key] = settings end
+    local cache = EABR._fvClassPickerGroups
+    if not cache then cache = {}; EABR._fvClassPickerGroups = cache end
+    local group = cache[buff.key]
+    if not group or group.settings ~= settings then
+        group = { ids = {}, ranksBySpell = {}, settings = settings }
+        for _, line in ipairs(buff.lines) do
+            local ranks = {}
+            for _, id in ipairs(line) do
+                if C_SpellBook.IsSpellKnown(id) and SpellName(id) then ranks[#ranks + 1] = id end
+            end
+            if ranks[1] then
+                group.ids[#group.ids + 1] = line[1]
+                group.ranksBySpell[line[1]] = ranks
+            end
+        end
+        cache[buff.key] = group
+    end
+
+    local id = EABR.ForeverGroupCastSpell(group, settings.castSpellID)
+    if not id then
+        for _, spellID in ipairs(group.ids) do
+            if tContains(group.ranksBySpell[spellID], entry.spellID) then
+                id = EABR.ForeverGroupCastSpell(group, spellID)
+                break
+            end
+        end
+    end
+    if id then SetForeverPickerSpell(entry, group.ids[2] and group or nil, id) end
+end
+
 function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
     local list = EABR.FvClassBuffs()[class]
     if not list then return end
@@ -457,9 +547,10 @@ function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
             local dk = buff.dismissKey
             if not dk then dk = "forever:class_" .. buff.key; buff.dismissKey = dk end
             local last = rec and rec[buff.key]
-            local up = CollectLines(missing, auraLock, ids, buff.lines, last, dk,
+            local up, entry = CollectLines(missing, auraLock, ids, buff.lines, last, dk,
                 buff.label, buff.also,
                 buff.own or buff.ownMemory, buff.ownMemory)
+            if entry and PickerEnabled() then ApplyClassBuffPicker(entry, fo, buff) end
             if up and up ~= last and key and buff.lines[2] then
                 if not store then store = {}; EllesmereUIDB.classBuffByChar = store end
                 rec = store[key]

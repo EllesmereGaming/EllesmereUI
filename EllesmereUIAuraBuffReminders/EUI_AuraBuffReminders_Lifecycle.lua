@@ -729,6 +729,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     -- outside the two weapon slots is ignored.
     if e == "LEARNED_SPELL_IN_SKILL_LINE" then
         EABR._fvFamDirty = true
+        EABR._fvClassPickerGroups = nil
         EABR._fvTrackDirty = true
     elseif e == "MINIMAP_UPDATE_TRACKING" then
         EABR._fvTrackDirty = true

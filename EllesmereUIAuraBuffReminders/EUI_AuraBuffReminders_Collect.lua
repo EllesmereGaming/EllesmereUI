@@ -170,17 +170,18 @@ local function ShowIcon(iconIdx, m)
     local btn = GetOrCreateIcon(iconIdx)
     btn._dismissKey = m.dismissKey or nil
     btn._petCycleTotal = m.petCycleTotal or nil
+    btn._foreverGroup = m.foreverGroup
     btn._requestKey = m.requestKey or nil
     btn._requestName = m.requestName or nil
     -- Right-click is passed through to whatever's behind (e.g. camera drag)
-    -- for every other reminder; only a multi-pet cycle button claims it.
+    -- except on multi-pet cycle buttons and clickable spell groups.
     -- Left-click is passed through too on a groupmate's raid buff the player
     -- cannot cast, unless Click to Request Buff gives it one (the
     -- middle-click dismiss stays). Click-routing changes are combat-protected,
     -- same as the attribute writes below, so this only ever runs OOC.
     local receiver = EABR.IsReceiverRaidBuff(m) and not m.requestKey
     if not InCombat() then
-        local pass = (receiver and 1 or 0) + (m.petCycleTotal and 0 or 2)
+        local pass = (receiver and 1 or 0) + ((m.petCycleTotal or btn._foreverGroup) and 0 or 2)
         if btn._passButtons ~= pass then
             btn._passButtons = pass
             if pass == 3 then
@@ -208,7 +209,7 @@ local function ShowIcon(iconIdx, m)
     else
         EABR.ApplyIconBagCount(btn, (not m.isEating) and m.bagCount or nil,
             (not m.isEating) and m.desaturated or nil,
-            (not m.isEating) and m.substitute or nil)
+            (not m.isEating) and m.substitute or nil, m.spellRank)
     end
     if p.showText and not m.isEating then
         local tc = p.textColor or DEFAULT_TEXT_COLOR
