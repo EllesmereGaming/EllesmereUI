@@ -266,6 +266,16 @@ function ns.UF_RecolorTexts(frame, unit, s)
     end
 end
 
+-- Colors changed (EllesmereUI.ApplyColorsToOUF): texts are colored once when set,
+-- so the class-colored ones repaint here with the new palette.
+EllesmereUI._UFRecolorAllTexts = function()
+    local frames = I.frames
+    if not (frames and db) then return end
+    for unit in pairs(unitSettingsKey) do
+        if frames[unit] then ns.UF_RecolorTexts(frames[unit], unit) end
+    end
+end
+
 -- Bottom text bar frame: below the health+power area, above the castbar.
 local function CreateBottomTextBar(frame, unit, settings, anchorFrame, xOffset, overrideWidth)
     local btbH = settings.bottomTextBarHeight or 16
