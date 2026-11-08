@@ -359,7 +359,7 @@ Character Count
 Character Macros
 Chat recall is unavailable here. Use Alt+Up and Alt+Down.
 Check All
-Check the spelling or try a shorter word
+Check the spelling or try a different word
 Checked stats show in the on-screen block.
 Checked transforms are removed automatically when applied to you.
 Choose Buff

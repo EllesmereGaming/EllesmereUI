@@ -3846,22 +3846,37 @@ do
         end
         if not hint then
             hint = CreateFrame("Frame", nil, contentFrame)
-            PanelPP.Size(hint, 600, 60)
+            PanelPP.Size(hint, 600, 100)
+            -- Blizzard's own search box magnifier (SearchBoxTemplate).
+            local icon = hint:CreateTexture(nil, "ARTWORK")
+            icon:SetAtlas("common-search-magnifyingglass")
+            icon:SetDesaturated(true)
+            icon:SetVertexColor(TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, 0.6)
+            PanelPP.Size(icon, 24, 24)
+            PanelPP.Point(icon, "TOP", hint, "TOP", 0, 0)
             hint._text = MakeFont(hint, 14, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
-            hint._text:SetPoint("TOPLEFT", hint, "TOPLEFT", 0, 0)
-            hint._text:SetPoint("RIGHT", hint, "RIGHT", 0, 0)
-            hint._text:SetJustifyH("LEFT")
+            PanelPP.Point(hint._text, "TOPLEFT", hint, "TOPLEFT", 0, -34)
+            PanelPP.Point(hint._text, "TOPRIGHT", hint, "TOPRIGHT", 0, -34)
+            hint._text:SetJustifyH("CENTER")
             hint._text:SetWordWrap(false)
             local link = CreateFrame("Button", nil, hint)
-            link:SetPoint("TOPLEFT", hint._text, "BOTTOMLEFT", 0, -8)
+            link:SetPoint("TOP", hint._text, "BOTTOM", 0, -8)
             local linkFS = MakeFont(link, 13, nil, ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
-            linkFS:SetAlpha(0.8)
-            RegAccent({ type = "callback", fn = function(r, g, b) linkFS:SetTextColor(r, g, b, 1) end })
             linkFS:SetPoint("LEFT")
             linkFS:SetText(EllesmereUI.L("Search all modules"))
-            PanelPP.Size(link, linkFS:GetStringWidth() + 4, 18)
-            link:SetScript("OnEnter", function() linkFS:SetAlpha(1) end)
-            link:SetScript("OnLeave", function() linkFS:SetAlpha(0.8) end)
+            local arrow = link:CreateTexture(nil, "ARTWORK")
+            arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-right.png")
+            arrow:SetVertexColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+            PanelPP.Size(arrow, 12, 12)
+            PanelPP.Point(arrow, "LEFT", linkFS, "RIGHT", 4, 0)
+            RegAccent({ type = "callback", fn = function(r, g, b)
+                linkFS:SetTextColor(r, g, b, 1)
+                arrow:SetVertexColor(r, g, b, 1)
+            end })
+            PanelPP.Size(link, linkFS:GetStringWidth() + 16, 18)
+            link:SetAlpha(0.8)
+            link:SetScript("OnEnter", function() link:SetAlpha(1) end)
+            link:SetScript("OnLeave", function() link:SetAlpha(0.8) end)
             link:SetScript("OnClick", function()
                 local box = tabBar and tabBar._searchBox
                 local q = box and box:GetText() or ""
@@ -3879,7 +3894,7 @@ do
         local q = query:gsub("||", "|"):gsub("|", "||")
         hint._text:SetText(EllesmereUI.Lf("No results for %s", "\"" .. q .. "\""))
         hint:ClearAllPoints()
-        PanelPP.Point(hint, "TOPLEFT", contentFrame, "TOPLEFT", CONTENT_PAD, -20)
+        PanelPP.Point(hint, "TOP", contentFrame, "TOP", 0, -40)
         hint:SetFrameLevel(contentFrame:GetFrameLevel() + 20)
         hint:Show()
     end
@@ -4197,7 +4212,7 @@ function EllesmereUI:ApplyInlineSearch(query, skipHighlights)
     local visibleH = math.abs(y - startY)
     if #visibleSections == 0 and #visibleOrphans == 0 and query:match("%S") then
         SetInlineEmptyHint(query)
-        visibleH = 70
+        visibleH = 140
     end
     contentFrame:SetHeight(visibleH + 30)
 

@@ -1117,7 +1117,7 @@ local function EnsureSearchUI()
             local row = resultRows[1]
             local q = query:gsub("||", "|"):gsub("|", "||")
             row._label:SetText(EllesmereUI.Lf("No results for %s", "\"" .. q .. "\""))
-            row._sub:SetText(EllesmereUI.L("Check the spelling or try a shorter word"))
+            row._sub:SetText(EllesmereUI.L("Check the spelling or try a different word"))
             row._hl:SetColorTexture(1, 1, 1, 0)
             row:SetScript("OnClick", nil)
             row:EnableMouse(false)
