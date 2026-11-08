@@ -875,7 +875,11 @@ function ns.MigrateSpecToBarFilterModelV6()
     -- Step 2: build assignedSet from the LIVE bar list. Default bars
     -- (cooldowns/utility) contribute too -- their assignedSpells under the
     -- new model is "preferred order / explicit assignment" and stay visible.
+    -- WoW Forever: by name too (RankName above), custom spell IDs aside. A
+    -- frame reads as the highest rank known, while the layout can list any
+    -- rank of the spell.
     local assignedSet = {}
+    local assignedNames = RankName and {}
     for _, bd in ipairs(barList) do
         if bd.enabled and not bd.isGhostBar
            and bd.barType ~= "buffs" and bd.barType ~= "custom_buff"
@@ -885,6 +889,9 @@ function ns.MigrateSpecToBarFilterModelV6()
                 for _, sid in ipairs(bs.assignedSpells) do
                     if type(sid) == "number" and sid > 0 then
                         StoreVariantValue(assignedSet, sid, true, false)
+                        local n = assignedNames and not (bs.customSpellIDs and bs.customSpellIDs[sid])
+                            and RankName(sid)
+                        if n then assignedNames[n] = true end
                     end
                 end
             end
@@ -898,10 +905,14 @@ function ns.MigrateSpecToBarFilterModelV6()
     end
     if not ghostBs.assignedSpells then ghostBs.assignedSpells = {} end
 
+    -- WoW Forever: one ghost entry per spell, whatever its rank.
     local existingGhost = {}
+    local ghostNames = RankName and {}
     for _, sid in ipairs(ghostBs.assignedSpells) do
         if type(sid) == "number" and sid > 0 then
             StoreVariantValue(existingGhost, sid, true, false)
+            local n = ghostNames and RankName(sid)
+            if n then ghostNames[n] = true end
         end
     end
 
@@ -940,11 +951,13 @@ function ns.MigrateSpecToBarFilterModelV6()
     -- Walk the union, ghost anything that isn't already assigned or ghosted.
     local addedCount = 0
     for sid in pairs(sidUnion) do
-        local isAssigned = ResolveVariantValue(assignedSet, sid)
-        local isGhosted  = ResolveVariantValue(existingGhost, sid)
+        local name = RankName and RankName(sid)
+        local isAssigned = ResolveVariantValue(assignedSet, sid) or (name and assignedNames[name])
+        local isGhosted  = ResolveVariantValue(existingGhost, sid) or (name and ghostNames[name])
         if not isAssigned and not isGhosted then
             ghostBs.assignedSpells[#ghostBs.assignedSpells + 1] = sid
             StoreVariantValue(existingGhost, sid, true, false)
+            if name then ghostNames[name] = true end
             addedCount = addedCount + 1
         end
     end
