@@ -3833,7 +3833,60 @@ local function GetDropdownValueText(region)
     return tostring(val)
 end
 
+-- "No results" hint for the module search box, with a link that hands the
+-- query to the sidebar search. Built on first use, parented to the scroll
+-- child (not the page wrapper, so the filter never sees it). nil hides it.
+local SetInlineEmptyHint
+do
+    local hint
+    SetInlineEmptyHint = function(query)
+        if not query then
+            if hint then hint:Hide() end
+            return
+        end
+        if not hint then
+            hint = CreateFrame("Frame", nil, contentFrame)
+            PanelPP.Size(hint, 600, 60)
+            hint._text = MakeFont(hint, 14, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
+            hint._text:SetPoint("TOPLEFT", hint, "TOPLEFT", 0, 0)
+            hint._text:SetPoint("RIGHT", hint, "RIGHT", 0, 0)
+            hint._text:SetJustifyH("LEFT")
+            hint._text:SetWordWrap(false)
+            local link = CreateFrame("Button", nil, hint)
+            link:SetPoint("TOPLEFT", hint._text, "BOTTOMLEFT", 0, -8)
+            local linkFS = MakeFont(link, 13, nil, ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+            linkFS:SetAlpha(0.8)
+            RegAccent({ type = "callback", fn = function(r, g, b) linkFS:SetTextColor(r, g, b, 1) end })
+            linkFS:SetPoint("LEFT")
+            linkFS:SetText(EllesmereUI.L("Search all modules"))
+            PanelPP.Size(link, linkFS:GetStringWidth() + 4, 18)
+            link:SetScript("OnEnter", function() linkFS:SetAlpha(1) end)
+            link:SetScript("OnLeave", function() linkFS:SetAlpha(0.8) end)
+            link:SetScript("OnClick", function()
+                local box = tabBar and tabBar._searchBox
+                local q = box and box:GetText() or ""
+                -- Clear this box first: it restores the page and cancels its
+                -- debounce; then the sidebar search takes over the query.
+                if box then box:SetText(""); box:ClearFocus() end
+                local sb = EllesmereUI._sidebarSearchBox
+                if sb and q ~= "" then
+                    sb:SetText(q)
+                    sb:SetFocus()
+                    sb:SetCursorPosition(#q)
+                end
+            end)
+        end
+        local q = query:gsub("||", "|"):gsub("|", "||")
+        hint._text:SetText(EllesmereUI.Lf("No results for %s", "\"" .. q .. "\""))
+        hint:ClearAllPoints()
+        PanelPP.Point(hint, "TOPLEFT", contentFrame, "TOPLEFT", CONTENT_PAD, -20)
+        hint:SetFrameLevel(contentFrame:GetFrameLevel() + 20)
+        hint:Show()
+    end
+end
+
 function EllesmereUI:ApplyInlineSearch(query, skipHighlights)
+    SetInlineEmptyHint(nil)
     if not activeModule or not activePage then return end
     -- Active search force-expands every "Show Less Common" section (links hidden);
     -- clearing collapses back to session state. MUST run before the cache lookup below:
@@ -4142,6 +4195,10 @@ function EllesmereUI:ApplyInlineSearch(query, skipHighlights)
 
     -- Resize content to fit visible items only
     local visibleH = math.abs(y - startY)
+    if #visibleSections == 0 and #visibleOrphans == 0 and query:match("%S") then
+        SetInlineEmptyHint(query)
+        visibleH = 70
+    end
     contentFrame:SetHeight(visibleH + 30)
 
     if scrollFrame and scrollFrame.SetVerticalScroll then
