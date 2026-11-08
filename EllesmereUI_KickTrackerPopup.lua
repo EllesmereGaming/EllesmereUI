@@ -448,8 +448,7 @@ loader:SetScript("OnEvent", function(self, event, addonName)
             end
             -- Defer behind any older login announcement still pending or open
             -- (all retired today; the chain holds again if one is revived).
-            if EllesmereUI._styleLaunchIntroPending or EllesmereUI._launchVideoIntroPending
-               or EllesmereUI._groupFinderIntroPending then
+            if EllesmereUI._launchVideoIntroPending then
                 C_Timer.After(0.4, TryShow)
                 return
             end

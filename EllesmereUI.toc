@@ -97,14 +97,8 @@ EllesmereUI_FriendsKit.lua
 # tile height and friend groups (its hosts start it after the kit's tiles)
 EllesmereUI_FriendsList.lua
 EllesmereUI_FirstInstall.lua
-EllesmereUI_RaidFramesPopup.lua
-EllesmereUI_PatchNotesPopup.lua
-EllesmereUI_WindowSkinsPopup.lua
-EllesmereUI_SpecOverridesPopup.lua
 EllesmereUI_StyleCards.lua
 EllesmereUI_StyleChoicePopup.lua
-EllesmereUI_StyleLaunchPopup.lua
-EllesmereUI_GroupFinderPopup.lua
 EllesmereUI_KickTrackerPopup.lua
 EllesmereUI_VideoGuides.lua
 

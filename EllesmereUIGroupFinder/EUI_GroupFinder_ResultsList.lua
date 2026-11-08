@@ -16,7 +16,7 @@ local DELVES = GROUP_FINDER_CATEGORY_ID_DELVES or 121
 local X_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
 local CANCEL_H = 18  -- smallest cancel square
 local GAP = 2
-local function Secret(v) return issecretvalue and issecretvalue(v) or false end
+local Secret = EllesmereUI.IsSecret
 local function Readable(t) return type(t) == "table" and not Secret(t) and not (canaccesstable and not canaccesstable(t)) end
 
 -- display settings, in the profile (EllesmereUIGroupFinder.lua)
@@ -285,11 +285,37 @@ local function WhisperLeader(leader)
     frame:AddMessage(EllesmereUI.Lf("Click to whisper the group leader: %1$s", link), 1, 0.82, 0)
 end
 
+-- blizzard's menu under blizzard's tag, so other add-ons' entries (raider.io's
+-- copy link and so on) still show. the owner is our row, which has resultID
+-- like blizzard's does
+local function TaggedMenu(anchor, id, info, leader)
+    MenuUtil.CreateContextMenu(anchor, function(_, root)
+        root:SetTag("MENU_LFG_FRAME_SEARCH_ENTRY")
+        root:CreateTitle(info.censored and CENSORED_LFG_GROUP_NAME or info.name or "")
+        local w = root:CreateButton(WHISPER_LEADER or "Whisper Leader", function() WhisperLeader(leader) end)
+        if leader then
+            w:SetTooltip(function(tip)
+                GameTooltip_AddNormalLine(tip, EllesmereUI.L("Prompts in chat to whisper the party leader."))
+            end)
+        else
+            w:SetEnabled(false)
+            w:SetTooltip(function(tip)
+                GameTooltip_SetTitle(tip, WHISPER or "Whisper")
+                GameTooltip_AddNormalLine(tip, LFG_LIST_MUST_SIGN_UP_TO_WHISPER or "Sign up to whisper the leader")
+            end)
+        end
+        root:CreateButton(LFG_LIST_REPORT_GROUP_FOR or "Report Group", function() LFGList_ReportListing(id, leader) end)
+        root:CreateButton(REPORT_GROUP_FINDER_ADVERTISEMENT or "Report Advertisement",
+            function() LFGList_ReportAdvertisement(id) end)
+    end)
+end
+
 function ns.OwnListMenu(anchor, id)
     local info = C_LFGList.GetSearchResultInfo(id)
     if not Readable(info) then return end
     local leader = info.leaderName
     if Secret(leader) then leader = nil end
+    if MenuUtil and MenuUtil.CreateContextMenu then return TaggedMenu(anchor, id, info, leader) end
     local items = {
         { text = WHISPER_LEADER or "Whisper Leader", noLoc = true,
           isDisabled = function() return not leader end,

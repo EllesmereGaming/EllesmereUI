@@ -313,11 +313,12 @@ local USABLE_ORDER = { "USABLE" }
 -- The left column is a standard dropdown row (the glow's own Glow When); the
 -- right is a standard toggle row labelled "And"; while it is off the buff
 -- picker and its state grey out. Returns the new y.
-function ns.BuildBarGlowWhenRow(W, parent, y, entry, onChange)
+-- ownSid: the button's ability when the entry saves none (CDM icons).
+function ns.BuildBarGlowWhenRow(W, parent, y, entry, onChange, ownSid)
     local c = Cond(entry)
     local Paint  -- forward: the toggle repaints the right column
     local usable = entry.mode == "USABLE"
-    local sid = tonumber(usable and entry.actionSpellID or entry.spellID) or 0
+    local sid = tonumber(usable and (entry.actionSpellID or ownSid) or entry.spellID) or 0
     local ownName = (sid > 0) and SpellLabel(sid) or (usable and EllesmereUI.L("this ability") or "buff")
 
     local row, h = W:DualRow(parent, y,
@@ -519,7 +520,7 @@ end
 local ARROW_DOWN  = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-down3.png"
 local ARROW_RIGHT = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-right.png"
 
-function ns.BuildBarGlowHeader(parent, y, entry, aIdx)
+function ns.BuildBarGlowHeader(parent, y, entry, aIdx, ownSid)
     if not EllesmereUI._prebuilding then EllesmereUI._passReadSearchFlag = true end  -- reads the search flag below
     if EllesmereUI._prebuilding or EllesmereUI._lessCommonSearchActive then return y, true end
     local collapsed = entry.collapsed == true
@@ -551,7 +552,7 @@ function ns.BuildBarGlowHeader(parent, y, entry, aIdx)
     PaintArrow(1, 1, 1, 0.7)
 
     local usable = entry.mode == "USABLE"
-    local ico = ns.BarGlowSpellIcon(bar, 26, usable and entry.actionSpellID or entry.spellID)
+    local ico = ns.BarGlowSpellIcon(bar, 26, usable and (entry.actionSpellID or ownSid) or entry.spellID)
     ico:SetPoint("LEFT", arrow, "RIGHT", 11, 0)
     local title = EllesmereUI.MakeFont(bar, 13, nil, 1, 1, 1)
     title:SetPoint("LEFT", ico, "RIGHT", 10, 0)

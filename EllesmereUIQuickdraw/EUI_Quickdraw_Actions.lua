@@ -336,12 +336,25 @@ local function SlotUsable(slot)
     return true
 end
 
+-- Nested palette slots inside a nest fire nothing (one level), so they never count.
+local function NestOffersAny(child)
+    local palette = ReadPalette(child)
+    if not palette then return false end
+    local cp = I.PA(child)
+    local all = cp and cp.hideUnusable == false
+    for _, slot in ipairs(palette.slots) do
+        if slot.kind ~= "palette" and (all or SlotUsable(slot)) then return true end
+    end
+    return false
+end
+
 -- The entries of the palette this character can use ("Hide Unavailable
 -- Actions"). A view, never a mutation: returns the stored array itself while
 -- nothing is filtered, and a fresh dense array otherwise -- the stored slots
 -- keep every entry for the characters that CAN use them. A nested palette
--- that does not load in this spec (Assign to Spec) is left out whatever the
--- setting says; with it off, everything else stays.
+-- that does not load in this spec (Assign to Spec), or that would open with
+-- nothing this character can use under its own setting, is left out whatever
+-- this palette's setting says; with it off, everything else stays.
 function UsableSlots(palette, p)
     local slots = palette and palette.slots
     if not slots then return slots end
@@ -354,7 +367,7 @@ function UsableSlots(palette, p)
         local keep
         if slot.kind == "palette" then
             local child = ChildIndex(slot)
-            keep = not child or ns.PaletteActive(child)
+            keep = not child or (ns.PaletteActive(child) and NestOffersAny(child))
         else
             keep = all or SlotUsable(slot)
         end
