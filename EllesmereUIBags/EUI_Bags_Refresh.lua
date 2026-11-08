@@ -281,19 +281,25 @@ local function GripOnUpdate(grip)
     local cx, cy = GetCursorPosition()
     local es = grip:GetParent():GetEffectiveScale()
     local step = cfg.step
-    local dx = math.floor((cx / es - d.x) * d.sx + 0.5)
-    dx = math.max((cfg.minCols - d.cols) * step, math.min((d.maxCols - d.cols) * step, dx))
-    local cols = d.cols + math.floor(dx / step)
-    local bucket = math.floor(dx / (cfg.relayoutStep or step))
-    local h = math.floor(d.h + (d.y - cy / es) * d.sy + 0.5)
-    h = math.max(cfg.minH, math.min(d.maxH, h))
+    local dx, h = 0, d.h
+    if d.sx ~= 0 then
+        dx = math.floor((cx / es - d.x) * d.sx + 0.5)
+        dx = math.max((cfg.minCols - d.cols) * step, math.min((d.maxCols - d.cols) * step, dx))
+    end
+    if d.sy ~= 0 then
+        h = math.floor(d.h + (d.y - cy / es) * d.sy + 0.5)
+        h = math.max(cfg.minH, math.min(d.maxH, h))
+    end
     if dx == d.lastDX and h == d.lastH then return end
+    local bucket = math.floor(dx / (cfg.relayoutStep or step))
     local relayout = bucket ~= d.lastBucket
     d.lastDX, d.lastBucket, d.lastH = dx, bucket, h
-    cfg.save(cols, h)
+    cfg.save(d.sx ~= 0 and d.cols + math.floor(dx / step) or nil, d.sy ~= 0 and h or nil)
     if relayout then cfg.finish() end
-    -- After the refresh, which sets the snapped size
-    grip:GetParent():SetSize(d.frameW + dx, h)
+    -- After the refresh, which sets the snapped size; an edge this grip does not
+    -- move keeps the size the refresh gave it
+    local frame = grip:GetParent()
+    frame:SetSize(d.sx ~= 0 and d.frameW + dx or frame:GetWidth(), d.sy ~= 0 and h or frame:GetHeight())
 end
 
 local function GripOnMouseDown(grip, button)
@@ -383,7 +389,7 @@ end
 
 function GR.NewGrip(frame, at)
     local br = at == "BOTTOMRIGHT"
-    local size, pad = br and 18 or 12, br and 2 or 1
+    local size, pad = br and 18 or 8, br and 2 or 0
     local grip = GR.IconButton(frame, size, size, GR.RESIZE)
     grip._at = at
     grip:SetPoint(at, frame, at, GR.LEFT[at] and pad or -pad, GR.TOP[at] and -pad or pad)
@@ -457,7 +463,9 @@ local _bagGripCfg = {
     getCols = function() return BP().bagColumns or 12 end,
     getHeight = function() return math.floor(EUI_Bags:GetHeight() + 0.5) end,
     save = function(cols, h)
-        BP().bagColumns, BP().bagHeight = cols, h
+        local p = BP()
+        if cols then p.bagColumns = cols end
+        if h then p.bagHeight = h end
         if EUI_Bags._updateThumb then EUI_Bags._updateThumb() end
     end,
     finish = function() EUI_Bags:RefreshInventory() end,
@@ -490,7 +498,9 @@ local _bagListGripCfg = setmetatable({
     step = 1, relayoutStep = LIST_PITCH, minCols = 300,
     getCols = function() return BP().bagListWidth or GetColumns() * LIST_PITCH end,
     save = function(w, h)
-        BP().bagListWidth, BP().bagHeight = w, h
+        local p = BP()
+        if w then p.bagListWidth = w end
+        if h then p.bagHeight = h end
         if EUI_Bags._updateThumb then EUI_Bags._updateThumb() end
     end,
 }, { __index = _bagGripCfg })
@@ -558,6 +568,8 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     if autoSize or (EUI.IS_FOREVER and not userH) then
         local sc = EUI_Bags:GetScale(); if not sc or sc <= 0 then sc = 1 end
         local maxH = (UIParent:GetHeight() / sc) * 0.95
+        local _, roomH = ns.BagAnchor.Room()
+        if roomH then maxH = math.min(maxH, roomH) end
         local fitH = contentH + HEADER_H + currencyFooterH + 2
         local neededH
         if EUI.IS_FOREVER or EUI_Bags.IsCompactMode() then
@@ -605,6 +617,7 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     ns.ApplyWindowBackground(EUI_Bags.bg, EUI_Bags.bgOverlay)
     -- View may have changed under a held item (catch layer on / off)
     if EUI_Bags._syncDropTarget and GetCursorInfo() == "item" then EUI_Bags._syncDropTarget() end
+    ns.BagAnchor.Laid()
     ns.UpdateResizeGrip(EUI_Bags, EUI_Bags.IsListMode() and _bagListGripCfg or _bagGripCfg)
     -- the offline bank panel goes over the items (bank picked, or an alt)
     if ns.OfflinePanel then ns.OfflinePanel(sidebarW) end
@@ -997,6 +1010,8 @@ function EUI_Bags:RefreshInventory()
         local sbW = GetSidebarWidth()
         local sc = EUI_Bags:GetScale(); if not sc or sc <= 0 then sc = 1 end
         local maxGridW = (UIParent:GetWidth() / sc) * 0.95 - sbW - 30
+        local roomW = ns.BagAnchor.Room()
+        if roomW then maxGridW = math.min(maxGridW, roomW - sbW - 30) end
         local maxCols = math.max(baseCols, math.floor(maxGridW / (SLOT_SIZE + SPACING)))
         if ideal < baseCols then ideal = baseCols end
         if ideal > maxCols then ideal = maxCols end

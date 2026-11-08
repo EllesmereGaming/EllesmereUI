@@ -77,7 +77,7 @@ local function StartAddon()
     GoldLedger.Register("bags", OnGoldChanged)
 
     if ns.BagAnchor.On() then
-        ns.BagAnchor.Pin()
+        ns.BagAnchor.Start()
     elseif BP().bagsPosition then
         local pos = BP().bagsPosition
         EUI_Bags:SetPoint(pos.point, UIParent, pos.relativePoint, pos.x, pos.y)

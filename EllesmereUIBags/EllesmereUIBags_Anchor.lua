@@ -13,6 +13,8 @@ local CORNERS = { TOPLEFT = "Top Left", TOPRIGHT = "Top Right", BOTTOMLEFT = "Bo
 local Anchor = { KEY = UNLOCK_KEY }
 ns.BagAnchor = Anchor
 local frame, element
+local laidOut, dirty = false, false
+local bind, bindCorner
 
 function Anchor.On() return BP().bagAnchor == true end
 
@@ -47,15 +49,69 @@ local function SavedPos()
     return DefaultPos()
 end
 
-local function Place()
+local function Label()
+    return EllesmereUI.Lf("Bag Anchor (%1$s)", EllesmereUI.L(CORNERS[Anchor.Corner()]))
+end
+
+local function Linked()
+    local db = EllesmereUIDB and EllesmereUIDB.unlockAnchors
+    local info = db and db[UNLOCK_KEY]
+    return info and info.target and info or nil
+end
+
+local function Place(keepLink)
     if not frame then return end
     local p = SavedPos()
     frame:ClearAllPoints()
     frame:SetPoint(p.point, UIParent, p.relPoint or p.point, p.x, p.y)
-    if not EUI._unlockActive and EUI.IsUnlockAnchored and EUI.ReapplyOwnAnchor
-        and EUI.IsUnlockAnchored(UNLOCK_KEY) then
-        EUI.ReapplyOwnAnchor(UNLOCK_KEY)
+    local info = Linked()
+    if info and not EUI._unlockActive then
+        if keepLink and EUI._CaptureAnchorOffsets then
+            local ox, oy = EUI._CaptureAnchorOffsets(UNLOCK_KEY, info.target, info.side)
+            if ox ~= nil then info.offsetX, info.offsetY = ox, oy end
+        elseif EUI.ReapplyOwnAnchor then
+            EUI.ReapplyOwnAnchor(UNLOCK_KEY)
+        end
     end
+    if EUI.PropagateAnchorChain then EUI.PropagateAnchorChain(UNLOCK_KEY) end
+end
+
+local function Register()
+    if not EUI.RegisterUnlockElements then return end
+    if not element then
+        element = EUI.MakeUnlockElement({
+            key      = UNLOCK_KEY,
+            label    = Label(),
+            group    = "Bags",
+            order    = 620,
+            noResize = true,
+            isHidden = function() return not Anchor.On() end,
+            getFrame = function()
+                if not Anchor.On() then return nil end
+                return frame
+            end,
+            getSize  = function() return ANCHOR_W, ANCHOR_H end,
+            savePos  = function(_, point, relPoint, x, y)
+                if not point then return end
+                BP().bagAnchorPos = { point = point, relPoint = relPoint or point, x = x, y = y }
+                if not EUI._unlockActive then Place() end
+            end,
+            loadPos  = function()
+                if not Anchor.On() then return nil end
+                return SavedPos()
+            end,
+            clearPos = function()
+                BP().bagAnchorPos = nil
+                Place()
+            end,
+            applyPos = function()
+                if Anchor.On() then Place() end
+            end,
+        })
+    end
+    element.label = Label()
+    EUI:RegisterUnlockElements({ element }, "EllesmereUIBags")
+    if EUI.RefreshUnlockElementLabel then EUI.RefreshUnlockElementLabel(UNLOCK_KEY) end
 end
 
 local function Ensure()
@@ -64,123 +120,142 @@ local function Ensure()
     frame:SetSize(ANCHOR_W, ANCHOR_H)
     frame:EnableMouse(false)
     Place()
+    Register()
     return frame
 end
 
-local function WindowCorner(corner)
-    local l, r, t, b = EUI_Bags:GetLeft(), EUI_Bags:GetRight(), EUI_Bags:GetTop(), EUI_Bags:GetBottom()
+local function Scale() return EUI_Bags:GetEffectiveScale() / UIParent:GetEffectiveScale() end
+
+local function AnchoredRect()
+    local s = Scale()
+    local w, h = EUI_Bags:GetWidth() * s, EUI_Bags:GetHeight() * s
+    if bind == "hold" and frame and frame:GetLeft() then
+        local x = IsLeft(bindCorner) and frame:GetLeft() or frame:GetRight()
+        local y = IsBottom(bindCorner) and frame:GetBottom() or frame:GetTop()
+        return IsLeft(bindCorner) and x or x - w, IsBottom(bindCorner) and y or y - h, w, h
+    end
+    local l, b = EUI_Bags:GetLeft(), EUI_Bags:GetBottom()
     if not l then return nil end
-    return IsLeft(corner) and l or r, IsBottom(corner) and b or t
+    return l * s, b * s, w, h
 end
 
-local function Capture(corner)
-    local x, y = WindowCorner(corner)
-    if not x then BP().bagAnchorPos = nil; return end
-    local s = EUI_Bags:GetEffectiveScale() / UIParent:GetEffectiveScale()
-    x, y = x * s, y * s
+local function Capture(c)
+    local l, b, w, h = AnchoredRect()
+    if not l then BP().bagAnchorPos = nil; return end
+    local x, y = IsLeft(c) and l or l + w, IsBottom(c) and b or b + h
     local PP = EUI.PP
     if PP and PP.Snap then x, y = PP.Snap(x), PP.Snap(y) end
-    BP().bagAnchorPos = CenterPos(corner, x, y)
+    BP().bagAnchorPos = CenterPos(c, x, y)
 end
 
-function Anchor.Pin()
-    local c = Anchor.ActiveCorner()
-    if not c then return end
+local function PinTo(c)
     EUI_Bags:ClearAllPoints()
     EUI_Bags:SetPoint(c, Ensure(), c, 0, 0)
+    bind, bindCorner = "pin", c
+end
+
+local function HoldAt(c)
+    local l, r, t, b = EUI_Bags:GetLeft(), EUI_Bags:GetRight(), EUI_Bags:GetTop(), EUI_Bags:GetBottom()
+    if not l then return end
+    local x, y = IsLeft(c) and l or r, IsBottom(c) and b or t
+    local PP = EUI.PP
+    if PP and PP.Snap then x, y = PP.Snap(x), PP.Snap(y) end
+    EUI_Bags:ClearAllPoints()
+    EUI_Bags:SetPoint(c, UIParent, "BOTTOMLEFT", x, y)
+    bind, bindCorner = "hold", c
+end
+
+local function ApplyLegacy()
+    local pos = BP().bagsPosition
+    EUI_Bags:ClearAllPoints()
+    if pos then
+        EUI_Bags:SetPoint(pos.point, UIParent, pos.relativePoint, pos.x, pos.y)
+    else
+        EUI_Bags:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -50, 50)
+    end
+    bind, bindCorner = nil, nil
 end
 
 function Anchor.SaveSpot()
     local c = Anchor.ActiveCorner()
-    local x, y = WindowCorner(c or "TOPLEFT")
+    if c then HoldAt(c); return end
+    local x, y = EUI_Bags:GetLeft(), EUI_Bags:GetTop()
     if not x then return end
     local PP = EUI.PP
     if PP and PP.Snap then x, y = PP.Snap(x), PP.Snap(y) end
+    BP().bagsPosition = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = x, y = y }
     EUI_Bags:ClearAllPoints()
-    if c then
-        EUI_Bags:SetPoint(c, UIParent, "BOTTOMLEFT", x, y)
-    else
-        BP().bagsPosition = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = x, y = y }
-        EUI_Bags:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, y)
+    EUI_Bags:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x, y)
+    bind, bindCorner = nil, nil
+end
+
+local function Reconcile()
+    dirty = false
+    local c = Anchor.ActiveCorner()
+    if not c then
+        if bind then Anchor.SaveSpot() end
+        return
     end
+    if bind and bindCorner == c then return end
+    local held = bind == "hold"
+    Capture(c)
+    Ensure()
+    Place(Linked() ~= nil)
+    if held then HoldAt(c) else PinTo(c) end
 end
 
-local function Label()
-    return EllesmereUI.Lf("Bag Anchor (%1$s)", EllesmereUI.L(CORNERS[Anchor.Corner()]))
-end
-
-local function Relayout()
+local function Changed()
+    if laidOut then Reconcile() else dirty = true end
+    if Anchor.On() then Ensure() end
+    if element then Register() end
     if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
+end
+
+function Anchor.Start()
+    if Anchor.On() then PinTo(Anchor.Corner()) end
+end
+
+function Anchor.Pin()
+    local c = Anchor.ActiveCorner()
+    if not c or dirty then return end
+    PinTo(c)
+end
+
+function Anchor.Laid()
+    laidOut = true
+    if dirty then Reconcile() end
 end
 
 function Anchor.SetOn(on)
     if on == Anchor.On() then return end
-    if on then
-        Capture(Anchor.Corner())
-        BP().bagAnchor = true
-        Place()
-        Anchor.Pin()
-    else
-        BP().bagAnchor = false
-        Anchor.SaveSpot()
-    end
-    Relayout()
+    BP().bagAnchor = on and true or false
+    Changed()
 end
 
 function Anchor.SetCorner(corner)
     if not CORNERS[corner] or corner == Anchor.Corner() then return end
-    if Anchor.On() then Anchor.Pin() end
     BP().bagAnchorCorner = corner
-    if element then
-        element.label = Label()
-        if EUI.RefreshUnlockElementLabel then EUI.RefreshUnlockElementLabel(UNLOCK_KEY) end
-    end
+    Changed()
+end
+
+function Anchor.ProfileApplied()
+    dirty = false
     if Anchor.On() then
-        Capture(corner)
+        Ensure()
         Place()
-        Anchor.Pin()
-        Relayout()
+        PinTo(Anchor.Corner())
+    elseif bind then
+        ApplyLegacy()
     end
+    if element then Register() end
 end
 
-local function Register()
-    if not EUI.RegisterUnlockElements then return end
-    element = EUI.MakeUnlockElement({
-        key      = UNLOCK_KEY,
-        label    = Label(),
-        group    = "Bags",
-        order    = 620,
-        noResize = true,
-        isHidden = function() return not Anchor.On() end,
-        getFrame = function()
-            if not Anchor.On() then return nil end
-            element.label = Label()
-            return Ensure()
-        end,
-        getSize  = function() return ANCHOR_W, ANCHOR_H end,
-        savePos  = function(_, point, relPoint, x, y)
-            if not point then return end
-            BP().bagAnchorPos = { point = point, relPoint = relPoint or point, x = x, y = y }
-            if frame and not EUI._unlockActive then Place() end
-        end,
-        loadPos  = function()
-            if not Anchor.On() then return nil end
-            return SavedPos()
-        end,
-        clearPos = function()
-            BP().bagAnchorPos = nil
-            Place()
-        end,
-        applyPos = function()
-            if Anchor.On() then Ensure(); Place() end
-        end,
-    })
-    EUI:RegisterUnlockElements({ element }, "EllesmereUIBags")
+function Anchor.Room()
+    if not (bind and frame and frame:GetLeft()) then return nil end
+    local c = bindCorner
+    local s = 1 / Scale()
+    local x = IsLeft(c) and frame:GetLeft() or frame:GetRight()
+    local y = IsBottom(c) and frame:GetBottom() or frame:GetTop()
+    local w, h = UIParent:GetSize()
+    return (IsLeft(c) and w - x or x) * s, (IsBottom(c) and h - y or y) * s
 end
-
-local boot = CreateFrame("Frame")
-boot:RegisterEvent("PLAYER_LOGIN")
-boot:SetScript("OnEvent", function(self)
-    self:UnregisterAllEvents()
-    Register()
-end)
