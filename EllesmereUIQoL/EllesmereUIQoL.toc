@@ -12,6 +12,7 @@
 # Main Luas
 EllesmereUIQoL_ForeverStats.lua
 EllesmereUIQoL.lua
+EllesmereUIQoL_MythicStart.lua
 EllesmereUIQoL_Cursor.lua
 EllesmereUIQoL_BattleRes.lua
 EllesmereUIQoL_Bloodlust.lua
