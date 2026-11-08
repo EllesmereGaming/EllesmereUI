@@ -969,9 +969,10 @@ end
 
 -- A macro binding's macro index, or nil. An account macro and a character
 -- macro may share a name, and GetMacroIndexByName then returns either one,
--- so the binding's own tab is searched first: the character macros when it
--- was picked from them (macroChar), else the account macros. The name lookup
--- stays the fallback, for a macro that has since moved to the other tab.
+-- so a binding records the tab it was picked from (macroChar true or false)
+-- and is looked up in that tab only: with its own macro gone it casts
+-- nothing rather than a namesake. Bindings saved before that (macroChar nil)
+-- look in the account tab first, then up by name.
 local function GetBindingMacroIndex(b)
     local name = b.macroName
     if not name then return nil end
@@ -983,9 +984,22 @@ local function GetBindingMacroIndex(b)
     for i = first, last do
         if GetMacroInfo(i) == name then return i end
     end
+    if b.macroChar ~= nil then return nil end
     local idx = GetMacroIndexByName(name)
     if idx and idx > 0 then return idx end
     return nil
+end
+
+-- The pickers' "already bound" key for a macro: its name within its own tab,
+-- so a bound character macro does not dim an account macro of the same name.
+local function MacroBoundKey(name, isChar)
+    return (isChar and "char:" or "account:") .. name
+end
+
+-- Marks a binding's macro as bound, in the tab it resolves to.
+local function MarkBoundMacro(set, b)
+    local idx = b.macroName and GetBindingMacroIndex(b)
+    if idx then set[MacroBoundKey(b.macroName, idx > MAX_ACCOUNT_MACROS)] = true end
 end
 
 -- Builds base macrotext (no Smart Rez). Returns nil when no macro wrapping is
@@ -3015,12 +3029,12 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     local boundSpells, boundMacros, boundItems = {}, {}, {}
     for _, b in ipairs(GetGlobalBindings()) do
         if b.spell then boundSpells[ns.CC_SpellBoundKey(b.spellID, b.spell, b.rankPinned)] = true end
-        if b.macroName then boundMacros[b.macroName] = true end
+        MarkBoundMacro(boundMacros, b)
         if b.itemSlot then boundItems[b.itemSlot] = true end
     end
     for _, b in ipairs(GetSpecBindings()) do
         if b.spell then boundSpells[ns.CC_SpellBoundKey(b.spellID, b.spell, b.rankPinned)] = true end
-        if b.macroName then boundMacros[b.macroName] = true end
+        MarkBoundMacro(boundMacros, b)
         if b.itemSlot then boundItems[b.itemSlot] = true end
     end
     local _, pClass = UnitClass("player")
@@ -3650,7 +3664,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     div:SetPoint("TOPRIGHT", gridChildG, "TOPRIGHT", 0, cy + RGAPG / 2)
                     div:Show()
                 end
-                local dimmedG = (itm.macroName and boundMacros[itm.macroName])
+                local dimmedG = (itm.macroName and boundMacros[MacroBoundKey(itm.macroName, itm.macroChar)])
                     or (itm.itemSlot and boundItems[itm.itemSlot])
                 local cell, iconBd, cellLbl = DressPickerCell(gridChildG, i, cx, cy, CWG, rHG[r],
                     itm.icon, dimmedG, rhtG[r] and itm.name and itm.name ~= "" and itm.name or nil,
@@ -3672,13 +3686,15 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 mtBgG:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.25)
                 local macros = ns.CC_GetGlobalMacros()
                 local mItems = {}
-                for _, m in ipairs(macros) do mItems[#mItems + 1] = { name = m.name, icon = m.icon, macroName = m.name } end
+                for _, m in ipairs(macros) do
+                    mItems[#mItems + 1] = { name = m.name, icon = m.icon, macroName = m.name, macroChar = false }
+                end
                 PopulateGridG(mItems, function(itm)
                     -- Macros default to BOTH reactions (unlike spells, which
                     -- default friendly-only for the click-cast healing case): a
                     -- macro is general-purpose (e.g. mouseover focus/target), so
                     -- friendly-only would leave it dead on enemies.
-                    ns.CC_AddGlobalBinding({ type = "macro", macroName = itm.macroName, icon = itm.icon,
+                    ns.CC_AddGlobalBinding({ type = "macro", macroName = itm.macroName, macroChar = itm.macroChar, icon = itm.icon,
                         enabled = true, oocOnly = false, hovercast = false, hoverFriendly = true, hoverEnemy = true })
                     ns._ccSelSide = "global"; ns._ccSelIndex = #(GetGlobalBindings()); RebuildPage()
                 end)
@@ -3987,7 +4003,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     div:Show()
                 end
                 local dimmed3 = (item.id and ns.CC_IsSpellBound(boundSpells, item.id, item.name, item.lowRank))
-                    or (item.macroName and boundMacros[item.macroName])
+                    or (item.macroName and boundMacros[MacroBoundKey(item.macroName, item.macroChar)])
                     or (item.itemSlot and boundItems[item.itemSlot])
                 -- A WoW Forever lower rank labels itself by its rank.
                 local cell, iconBd, cellLbl3 = DressPickerCell(gridChildQB, i, cx, cy, QB_CELL, rH3[r],
@@ -4035,7 +4051,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     end
                     if binding then
                         ns.CC_AddSpecBinding(binding)
-                        if hoveredItem.macroName then boundMacros[hoveredItem.macroName] = true
+                        if hoveredItem.macroName then boundMacros[MacroBoundKey(hoveredItem.macroName, hoveredItem.macroChar)] = true
                         elseif hoveredItem.itemSlot then boundItems[hoveredItem.itemSlot] = true
                         else boundSpells[ns.CC_SpellBoundKey(hoveredItem.id, hoveredItem.name or "",
                             hoveredItem.lowRank)] = true end
@@ -4066,7 +4082,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     end
                     if binding then
                         ns.CC_AddSpecBinding(binding)
-                        if hoveredItem.macroName then boundMacros[hoveredItem.macroName] = true
+                        if hoveredItem.macroName then boundMacros[MacroBoundKey(hoveredItem.macroName, hoveredItem.macroChar)] = true
                         elseif hoveredItem.itemSlot then boundItems[hoveredItem.itemSlot] = true
                         else boundSpells[ns.CC_SpellBoundKey(hoveredItem.id, hoveredItem.name or "",
                             hoveredItem.lowRank)] = true end
@@ -4093,7 +4109,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 for _, m in ipairs(macros) do
                     local prefix = m.isGlobal and "" or "(C) "
                     mItems[#mItems + 1] = { name = prefix .. m.name, icon = m.icon, macroName = m.name,
-                        macroChar = not m.isGlobal or nil }
+                        macroChar = not m.isGlobal }
                 end
                 PopulateGridQB(mItems)
             else
@@ -4275,7 +4291,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 end
 
                 local dimmed = (item.id and ns.CC_IsSpellBound(boundSpells, item.id, item.name, item.lowRank))
-                    or (item.macroName and boundMacros[item.macroName])
+                    or (item.macroName and boundMacros[MacroBoundKey(item.macroName, item.macroChar)])
                     or (item.itemSlot and boundItems[item.itemSlot])
                 -- A WoW Forever lower rank labels itself by its rank.
                 local cell, iconBdr2, cellLbl2 = DressPickerCell(gridChild, i, cx, cy, CW2, rH2[r],
@@ -4326,7 +4342,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 for _, m in ipairs(macros) do
                     local prefix = m.isGlobal and "" or "(C) "
                     mItems[#mItems + 1] = { name = prefix .. m.name, icon = m.icon, macroName = m.name,
-                        macroChar = not m.isGlobal or nil }
+                        macroChar = not m.isGlobal }
                 end
                 PopulateGrid(mItems, function(item)
                     ns.CC_AddSpecBinding({
