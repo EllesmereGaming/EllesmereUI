@@ -386,7 +386,7 @@ local function CreateHUD(parent)
             hoverLabel:SetTextColor(1, 1, 1, hoverBarEnabled and HUD_ON_ALPHA or HUD_OFF_ALPHA)
             hoverLabel:SetText(hoverBarEnabled and EllesmereUI.L("Hover Top Bar\nEnabled") or EllesmereUI.L("Hover Top Bar\nDisabled"))
         end,
-        EllesmereUI.L("Hides this bar until the cursor reaches the top of the screen. Hold Shift to hide it any time."))
+        EllesmereUI.L("Hides this bar until the cursor reaches it at the top of the screen, except over an element. Hold Shift to hide it any time."))
     UM.hudFrame._hoverBtn = hoverBtn
 
     ---------------------------------------------------------------
@@ -647,7 +647,9 @@ local function CreateHUD(parent)
 
     ---------------------------------------------------------------
     --  Hover-bar logic: when hoverBarEnabled, the banner + all children fade out
-    --  unless the cursor is in a 1144x60 zone at the top of the screen. Fade = 0.5s.
+    --  unless the cursor is in the bar's own footprint (its width, the top 60 of
+    --  the screen). An unlock element under the cursor or being dragged keeps it
+    --  out; once shown, the bar's own controls win. Fade = 0.5s.
     --  Holding Shift fades the bar out in ANY mode so elements beneath it can
     --  be seen and clicked; releasing Shift brings it straight back.
     ---------------------------------------------------------------
@@ -668,8 +670,9 @@ local function CreateHUD(parent)
     hoverZone:Hide()
     UM.hudFrame._hoverZone = hoverZone
 
-    -- Every mouse-interactive banner child. Mouse is cut while Shift-hidden so
-    -- the invisible buttons can't eat clicks meant for elements under the bar.
+    -- Every mouse-interactive banner child. Mouse is cut while Shift-hidden or
+    -- hover-hidden so the invisible buttons can't eat clicks meant for elements
+    -- under the bar.
     local hudMouseKids = {
         UM.hudFrame._gridBtn, UM.hudFrame._darkOverlayBtn, UM.hudFrame._flashBtn,
         UM.hudFrame._magnetBtn, UM.hudFrame._coordBtn, UM.hudFrame._hoverBtn,
@@ -677,7 +680,28 @@ local function CreateHUD(parent)
         UM.hudFrame._filterBox, UM.hudFrame._filterIcon, UM.hudFrame._filterClear,
         UM.hudFrame._infoBtn,
     }
-    local shiftMouseCut = false
+    local mouseCut = false
+
+    -- An unlock element (mover, its cog/menus, ghost, Blizzard-owned overlay)
+    -- under the cursor: the mouse focus sits below UM.unlockFrame, not in the bar.
+    -- Menu click catchers are full screen and not elements. Re-read only when the
+    -- cursor moved or the bar's mouse cut flipped (GetMouseFoci builds a table).
+    local lastCX, lastCY, lastCut, lastElem
+    local function ElementUnderCursor(cx, cy)
+        if cx == lastCX and cy == lastCY and mouseCut == lastCut then return lastElem end
+        lastCX, lastCY, lastCut, lastElem = cx, cy, mouseCut, false
+        local f = GetMouseFoci()[1]
+        while f do
+            if f.IsForbidden and f:IsForbidden() then return false end
+            local p = f:GetParent()
+            if p == UM.unlockFrame then
+                lastElem = f ~= UM.hudFrame and not f._umCatcher
+                return lastElem
+            end
+            f = p
+        end
+        return false
+    end
 
     -- Closing Unlock Mode under the cursor may skip OnLeave: drop a bar tooltip left showing.
     UM.hudFrame:HookScript("OnHide", function()
@@ -692,18 +716,19 @@ local function CreateHUD(parent)
         -- Hold Shift: temporarily hide the top bar (works in both modes)
         local shiftHeld = IsShiftKeyDown()
             and not (self._filterBox and self._filterBox:HasFocus())  -- typing capitals in the filter
-        if shiftHeld ~= shiftMouseCut then
-            shiftMouseCut = shiftHeld
+        local cut = shiftHeld or (hoverBarEnabled and hoverAlpha == 0)
+        if cut ~= mouseCut then
+            mouseCut = cut
             for i = 1, #hudMouseKids do
                 local kid = hudMouseKids[i]
-                if shiftHeld then
+                if cut then
                     -- EnableMouse(false) does not fire OnLeave on a frame the
                     -- cursor is already over; reset hover visuals explicitly
                     -- so no button sticks in its highlighted state.
                     local leave = kid:GetScript("OnLeave")
                     if leave then leave(kid) end
                 end
-                kid:EnableMouse(not shiftHeld)
+                kid:EnableMouse(not cut)
             end
         end
         if shiftHeld then
@@ -729,13 +754,22 @@ local function CreateHUD(parent)
 
         hoverZone:Show()
 
-        -- Check if cursor is within the hover zone (top of screen)
+        -- Cursor in the bar's footprint: the top of the screen, within the bar's
+        -- width (it grows with the element filter)
         local scale = UIParent:GetEffectiveScale()
-        local _, cy = GetCursorPosition()
-        cy = cy / scale
+        local cx, cy = GetCursorPosition()
         local screenH = UIParent:GetHeight()
         local zoneBot = screenH - (HOVER_ZONE_H * (UM.hudFrame:GetScale() or uiScale))
-        local inZone = (cy >= zoneBot)
+        local inZone = (cy / scale >= zoneBot)
+        if inZone then
+            local hudS, l, r = self:GetEffectiveScale(), self:GetLeft(), self:GetRight()
+            inZone = l ~= nil and cx >= l * hudS and cx <= r * hudS
+        end
+        -- An element under the cursor or being dragged (it can lag the cursor at
+        -- the screen edge or on snap) keeps the bar out. While shown, a bar
+        -- control under the cursor is the focus, so it wins.
+        local sm = UM.selectedMover
+        if inZone and ((sm and sm._dragging) or ElementUnderCursor(cx, cy)) then inZone = false end
         if self._filterBox and self._filterBox:HasFocus() then inZone = true end  -- typing in the filter
 
         if inZone then

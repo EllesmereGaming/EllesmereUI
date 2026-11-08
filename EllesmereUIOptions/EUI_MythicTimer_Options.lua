@@ -1403,7 +1403,7 @@ initFrame:SetScript("OnEvent", function(self)
                 rrgn, 220, rrgn:GetFrameLevel() + 2, TSB_WHERE_ITEMS,
                 TSBWhereGet, TSBWhereSet,
                 nil, nil, nil, nil, nil, { disabled = Off, disabledTooltip = REQ, emptyLabel = "All" })
-            EllesmereUI.PP.Point(whereDD, "RIGHT", rrgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(whereDD, "RIGHT", rrgn, "RIGHT", -20, 0)
             rrgn._control = whereDD
             rrgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(whereRefresh)

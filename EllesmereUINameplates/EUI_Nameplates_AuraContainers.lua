@@ -235,8 +235,8 @@ local DISPELLABLE = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.D
 -- "helpful auras that show on enemy nameplates even if non-stealable" -- the
 -- purpose-built enemy-buff curation token (source-verified 2026-08-16).
 local IMPORTANT = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.Important
--- "Dispellable By Me" (npEnemyBuffDispelByMe, retail, nil = off): Only
--- Dispellable narrows to the group's own dispels.
+-- "Dispellable By Me" (npEnemyBuffDispelByMe, retail, nil = off): Important
+-- and Only Dispellable narrow "dispellable" to the group's own dispels.
 local RAID_DISPELLABLE = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.RaidPlayerDispellable
 
 -- Effective glow state: the Dispel Glow setting AND the player's offensive
@@ -1049,10 +1049,11 @@ local function BuffMode()
     return "important"
 end
 
--- Only Dispellable with "Dispellable By Me" on (retail only; Important and
--- Show All never read it).
+-- Important or Only Dispellable with "Dispellable By Me" on (retail only;
+-- Show All never reads it).
 local function BuffDispelByMe()
-    return not EllesmereUI.IS_FOREVER and RAID_DISPELLABLE ~= nil and BuffMode() == "dispellable"
+    local mode = BuffMode()
+    return not EllesmereUI.IS_FOREVER and RAID_DISPELLABLE ~= nil and mode ~= "showall"
         and PVal("npEnemyBuffDispelByMe") == true
 end
 
@@ -1073,7 +1074,8 @@ local function BuffFilterPlain()
     if mode == "dispellable" or not DISPELLABLE then return nil end
     local t = { "HELPFUL", "INCLUDE_NAME_PLATE_ONLY" }
     if mode == "important" and IMPORTANT then t[#t + 1] = IMPORTANT end
-    t[#t + 1] = "!" .. DISPELLABLE
+    -- The same token the glow group uses, so the two stay exact complements.
+    t[#t + 1] = "!" .. (BuffDispelByMe() and RAID_DISPELLABLE or DISPELLABLE)
     return t
 end
 

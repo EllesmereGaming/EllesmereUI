@@ -201,7 +201,7 @@ if EllesmereUI.IS_FOREVER == true then AB_BAREWORD.FavorBar = true end
 local UF_BAREWORD = {
     player=true, target=true, focus=true, pet=true, targettarget=true,
     focustarget=true, boss=true, classPower=true,
-    playerCastbar=true, targetCastbar=true, focusCastbar=true,
+    playerCastbar=true, targetCastbar=true, focusCastbar=true, petCastbar=true,
 }
 -- providedFolder (already a local folder: elem.folder, or a payload value that
 -- has been CanonToLocal'd) wins; the static resolution is the fallback.
@@ -778,6 +778,7 @@ local function StampUnlockLayoutIfMissing(prof)
         { cb = "playerCastbar", parent = "player" },
         { cb = "targetCastbar", parent = "target" },
         { cb = "focusCastbar",  parent = "focus" },
+        { cb = "petCastbar",    parent = "pet" },
     }
     for _, def in ipairs(CB_DEFAULTS) do
         if not snap.anchors[def.cb] then

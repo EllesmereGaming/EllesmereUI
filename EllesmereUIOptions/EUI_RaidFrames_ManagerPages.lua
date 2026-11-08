@@ -306,7 +306,7 @@ local function BuildFilterCBDropdown(rgn, claim, dm)
             DmApply()
         end,
         nil, 12)
-    PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+    EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
     rgn._control = cbDD
     rgn._lastInline = nil
 end
@@ -506,7 +506,7 @@ local function BuildTileFiltersDD(rgn, t, dm)
         { separatorFn = function()
             return ns.DM_TileMatchOn(t) and " & " or ", "
         end })
-    PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+    EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
     rgn._control = cbDD
     rgn._lastInline = nil
     if cbRefresh then EllesmereUI.RegisterWidgetRefresh(cbRefresh) end
@@ -916,7 +916,7 @@ local function BuildBaseDetailDM(frame, fontPath)
             { separatorFn = function()
                 return (dm.match == "all" and not AllOn()) and " & " or ", "
             end })
-        PPl.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
         if cbRefresh then EllesmereUI.RegisterWidgetRefresh(cbRefresh) end
@@ -3587,7 +3587,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                 EllesmereUI:RefreshPage()
             end,
             nil, 12)
-        PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
@@ -3700,7 +3700,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                 if ns.ReloadFrames then ns.ReloadFrames() end
             end,
             nil, 10, true)
-        PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)

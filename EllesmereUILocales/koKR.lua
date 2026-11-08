@@ -13401,3 +13401,223 @@ L["can't use \"%1$s\""] = "\"%1$s\"은(는) 사용할 수 없습니다"
 L["unexpected \"%1$s\""] = "예상치 못한 \"%1$s\""
 L["missing )"] = ") 누락됨"
 L["ends too soon"] = "수식이 불완전하게 끝났습니다"
+
+-- ============================================================================
+-- v9.8 패치 노트 (Patch Notes v9.8)
+-- ============================================================================
+-- 영웅 (Heroes)
+L["Group and Applicant Lists"] = "파티 및 신청자 목록"
+L["Group Finder now draws its own group list, with leader ratings, region tags, playstyles and sign-up timers, and its own applicant list that can hide applicant info. New filters cover classes and roles, raid bosses, filter expressions and regions or languages, saved per character."] = "파티 찾기에서 파티장 평점, 지역 태그, 플레이 스타일, 신청 타이머가 표시되는 자체 파티 목록과, 신청자 정보를 숨길 수 있는 자체 신청자 목록을 제공합니다. 새로운 필터는 직업과 역할, 공격대 우두머리, 필터 표현식, 지역 또는 언어를 지원하며 캐릭터별로 저장됩니다."
+L["EllesmereUI's own friends list now takes over the friends window while its Window Skins card is skinned: pick the tile height and sort friends into groups you name, color, reorder and collapse, Favorites included. Right click a friend to move it; Blizz Default keeps Blizzard's list."] = "창 스킨 카드가 적용되어 있는 동안 EllesmereUI의 자체 친구 목록이 친구 창을 대체합니다. 타일 높이를 선택하고 즐겨찾기를 포함해 직접 이름, 색상 지정, 순서 변경, 접기가 가능한 그룹으로 친구를 분류할 수 있습니다. 친구를 우클릭하여 이동할 수 있으며, 블리자드 기본 설정을 선택하면 블리자드 기본 목록을 유지합니다."
+
+-- 주요 기능 (Features)
+L["Dim Pinned Items in OneBag/MultiBag"] = "단일/다중 가방에서 고정 아이템 흐리게 표시"
+L["The Pinned Items settings can dim pinned items in their bag slots, since they also show in Pinned Items"] = "고정 아이템 설정에서 가방 칸에 있는 고정 아이템을 흐리게 표시할 수 있습니다. 해당 아이템은 고정 아이템 영역에도 표시됩니다"
+L["Look through your other characters' bags and banks from anywhere: pick a character with the button beside the bags or bank title. Item tooltips can also count an item across all your characters, and both are off by default"] = "어디서나 다른 캐릭터의 가방과 은행을 살펴볼 수 있습니다. 가방이나 은행 제목 옆의 버튼으로 캐릭터를 선택하세요. 아이템 툴팁에 모든 캐릭터의 아이템 수량을 합산하여 표시할 수도 있으며, 두 기능 모두 기본적으로 꺼져 있습니다"
+L["Gamepad Mode Condition"] = "게임패드 모드 조건"
+L["Conditional Overrides can switch your settings while WoW's gamepad interface is on, such as hiding bars or moving frames for controller play"] = "조건부 재정의를 통해 컨트롤러 플레이를 위해 단축바를 숨기거나 프레임을 이동하는 등 WoW의 게임패드 인터페이스가 켜져 있는 동안 설정을 전환할 수 있습니다"
+L["Per-Element Core Position Settings"] = "요소별 핵심 위치 세부 설정"
+L["Each Core Positions cog now has a section per element in its slot, with its own size, and Show In Instances for the indicators"] = "이제 각 핵심 위치 톱니바퀴에 슬롯의 요소별 섹션이 추가되어, 요소마다 독립된 크기와 표시기용 인스턴스 내 표시 옵션을 설정할 수 있습니다"
+L["Quest Objective Text Element"] = "퀘스트 목표 텍스트 요소"
+L["Quest Objective Text is now a Core Positions element of its own, replacing Replace Quest Icon with Objective; your setup carries over"] = "퀘스트 목표 텍스트가 독립된 핵심 위치 요소가 되어 기존의 '퀘스트 아이콘을 목표로 대체' 옵션을 대신합니다. 기존 설정은 그대로 유지됩니다"
+L["Equipment Sets"] = "장비 세트"
+L["Action menus can hold your Equipment Manager sets, each equipping its set on a press, and a new menu can start from an Equipment Sets preset with all of them"] = "동작 메뉴에 장비 관리자 세트를 등록하여 클릭 한 번으로 세트를 착용할 수 있으며, 모든 장비 세트가 포함된 장비 세트 프리셋으로 새 메뉴를 시작할 수 있습니다"
+L["Missing Buffs now shows mages which mana users lack Arcane Intellect"] = "누락된 강화 효과에서 마법사에게 신비한 지능이 없는 마나 사용 플레이어를 표시합니다"
+L["Merge Craft Batches"] = "연속 제작 분량 통합"
+L["While crafting several items, the player cast bar can run as one bar across the whole batch instead of refilling for every craft"] = "여러 아이템을 제작할 때 플레이어 시전 바가 제작마다 다시 차지 않고 전체 제작 분량을 하나의 바로 이어서 표시할 수 있습니다"
+L["Rested Indicator in Player Extras"] = "플레이어 부가 기능의 휴식 표시기"
+L["The Rested Indicator and its settings now also sit in the Player frame's Extras, shared with its row in Quality of Life"] = "휴식 표시기와 그 설정이 이제 편의 기능의 해당 항목과 공유되어 플레이어 프레임의 부가 기능에도 포함됩니다"
+
+-- 수정 사항 (Fixes)
+L["Out of Range Coloring keeps working after you page bar 1 away and back, and bars with custom paging now color and glow the page they show."] = "단축바 1의 페이지를 넘겼다 돌아온 후에도 사거리 벗어남 색상 표시가 계속 작동하며, 사용자 지정 페이지 넘김이 설정된 바에서도 현재 표시 중인 페이지에 맞춰 색상과 강조 효과가 정상 적용됩니다."
+L["Bar 1 no longer switches to the caster page after a druid powershifts."] = "드루이드가 변신을 빠르게 해제/재변신(파워시프트)한 후 단축바 1이 시전자 페이지로 전환되던 문제를 수정했습니다."
+L["Reminders in the WoW Forever section, custom spell IDs included, no longer show in combat, and its Where to Show no longer offers In Combat."] = "WoW Forever 섹션의 알림(사용자 지정 주문 ID 포함)이 더 이상 전투 중에 표시되지 않으며, 표시 위치 설정에서도 '전투 중' 선택지가 제공되지 않습니다."
+L["The Looking For Group window no longer shows an error when opened inside an instance."] = "인스턴스 내부에서 파티 찾기 창을 열 때 오류가 발생하던 문제를 수정했습니다."
+L["With Keep Keys on Bar Swap off, keybinds on icons update right away when a stance, form or page swap changes them, instead of up to a second later."] = "'바 전환 시 단축키 유지'가 꺼져 있을 때 태세, 변신 또는 페이지 전환으로 변경된 아이콘의 단축키가 최대 1초 후가 아닌 즉시 갱신됩니다."
+L["An XP / Rep block with its text set to Off no longer shows a \"Font not set\" error after a reload, and lays out again."] = "텍스트가 꺼짐으로 설정된 경험치/평판 블록에서 리로드 후 \"Font not set\" 오류가 발생하던 문제를 수정하고 레이아웃이 정상 배치됩니다."
+L["The Loot Feed now shows fishing catches and crafted items."] = "전리품 알림 피드에 낚시로 획득한 아이템과 제작 아이템이 정상 표시됩니다."
+L["Player names, chat bubbles and other text written by players now show Cyrillic, Chinese and Korean letters instead of boxes; a font without those letters shows that text in Blizzard's font."] = "플레이어 이름, 말풍선 및 플레이어가 작성한 텍스트에 키릴 문자, 한자, 한국어가 네모 상자 대신 정상 표시되며, 해당 문자가 없는 글꼴에서는 블리자드 기본 글꼴로 대체 표시됩니다."
+L["Color swatches in the settings window keep their whole outline at every Window Scale."] = "모든 창 크기 비율에서 설정 창의 색상 견본 전체 테두리가 온전하게 유지됩니다."
+L["The Gamepad page's action bar and cast bar hides now follow the game's gamepad interface: a controller left connected while you play with keyboard and mouse no longer hides them."] = "게임패드 페이지의 단축바 및 시전 바 숨김 기능이 게임의 게임패드 인터페이스 상태를 따릅니다. 키보드와 마우스로 플레이하는 동안 컨트롤러가 연결되어 있어도 숨겨지지 않습니다."
+L["The Elite/Rare and Quest Indicators and Quest Objective Text now show in dungeons and raids by default."] = "정예/희귀 및 퀘스트 표시기와 퀘스트 목표 텍스트가 이제 던전과 공격대에서 기본적으로 표시됩니다."
+L["The Movement Cooldown Alert's sound or spoken name now plays only when a cooldown you used comes back, no longer after wand shots or other casts while the spell was ready."] = "이동기 재사용 대기시간 알림 소리나 음성이 실제로 사용한 기술의 재사용 대기시간이 돌아왔을 때만 재생되며, 주문이 준비된 상태에서 마법봉 발사나 다른 시전 후에는 재생되지 않습니다."
+L["Title Difficulty Colors in the Colors section now turns quest difficulty colors on or off for both trackers through the game's own option, replacing the custom tracker's own toggle."] = "색상 섹션의 난이도별 제목 색상이 게임 자체 설정을 통해 두 추적기 모두에서 퀘스트 난이도 색상을 켜고 끄며, 사용자 지정 추적기의 자체 토글을 대체합니다."
+L["The Custom Quest Tracker no longer drifts as you accept or turn in quests while it is linked to another element in Unlock Mode."] = "잠금 해제 모드에서 다른 요소와 연결되어 있을 때 퀘스트를 수락하거나 완료해도 사용자 지정 퀘스트 추적기 위치가 밀리지 않습니다."
+L["Shift-clicking a quest in the Custom Quest Tracker now untracks it in the quest log too, out of combat."] = "비전투 중에 사용자 지정 퀘스트 추적기에서 퀘스트를 Shift-클릭하면 퀘스트 목록에서도 추적이 해제됩니다."
+L["Quest voice-over Play buttons now show beside quests in the Custom Quest Tracker, as they do on Blizzard's tracker."] = "블리자드 기본 추적기와 마찬가지로 사용자 지정 퀘스트 추적기에서도 퀘스트 옆에 퀘스트 음성 재생 버튼이 표시됩니다."
+L["Spell entries now cast the highest rank of the spell you know, as /cast does, instead of the rank they were added with, and the Spells list shows each spell once."] = "주문 항목이 등록 당시의 등급 대신 /시전 처럼 습득한 최고 등급의 주문을 시전하며, 주문 목록에 각 주문이 한 번씩만 표시됩니다."
+L["The Buff Manager's Core Healing Buffs now include Prayer of Mending and every rank of Renew."] = "강화 효과 관리자의 핵심 치유 강화 효과에 회복의 기원과 소생의 모든 등급이 포함됩니다."
+L["Missing Buffs on the Party tab now follows its own Salvation setting."] = "파티 탭의 누락된 강화 효과가 자체 구원의 축복 설정을 따릅니다."
+L["Show When Health, Energy, Focus or Mana Missing now shows the bar at its normal opacity while that resource is below full, even when Fade Out of Combat dims it."] = "생명력, 기력, 집중 또는 마나 누락 시 표시가 설정되어 있으면 비전투 시 서서히 사라짐으로 흐려진 상태에서도 해당 자원이 가득 차지 않았을 때 정상 불투명도로 바를 표시합니다."
+L["Looting a quest object now shows \"Opening\" on the cast bar instead of \"Opening - No Text\"."] = "퀘스트 오브젝트를 획득할 때 시전 바에 \"Opening - No Text\" 대신 \"열기\"가 표시됩니다."
+L["3D portraits no longer go blank for NPCs inside dungeons and raids, where the game allows no 3D model of them; their 2D portrait shows instead."] = "게임에서 3D 모델을 허용하지 않는 던전 및 공격대 내부 NPC의 3D 초상화가 빈칸으로 표시되지 않고 2D 초상화로 대체 표시됩니다."
+L["Indicators set to Portrait, such as the Combat Indicator, now sit in the same spot in the options preview as on your frames: on the portrait under Blizzard Style, Classic WoW UI and the WoW Forever look, and at the health bar's top-left with Portrait Mode set to None."] = "전투 표시기처럼 초상화로 설정된 표시기가 프레임과 동일한 옵션 미리보기 위치(블리자드 스타일, 클래식 WoW UI, WoW Forever 외형에서는 초상화 위, 초상화 모드 없음에서는 생명력 바 좌측 상단)에 표시됩니다."
+L["The target frame's Elite/Rare Indicator now shows in dungeons and raids by default."] = "대상 프레임의 정예/희귀 표시기가 이제 던전과 공격대에서 기본적으로 표시됩니다."
+L["Rogue poisons and shaman weapon imbues no longer show twice on the Player Aura Bars Buffs bar, and an oil or sharpening stone on the same weapon now shows beside them."] = "플레이어 오라 바의 강화 효과 바에서 도적 독과 주술사 무기 마법부여가 중복으로 표시되지 않으며, 동일한 무기에 바른 기름이나 숫돌이 나란히 표시됩니다."
+L["Korean, Spanish, Simplified Chinese and Traditional Chinese translations updated, including the Custom Quest Tracker and the friends list."] = "사용자 지정 퀘스트 추적기 및 친구 목록을 포함하여 한국어, 스페인어, 중국어 간체 및 번체 번역이 업데이트되었습니다."
+
+-- ============================================================================
+-- v9.8 신규 옵션 및 UI (New Options & UI)
+-- ============================================================================
+L["Delete the group %1$s? Its friends go back to Favorites or the Friends section."] = "%1$s 그룹을 삭제할까요? 그룹 내 친구는 즐겨찾기 또는 친구 목록으로 돌아갑니다."
+L["Everything here applies only while WoW's gamepad interface is turned on in its Gamepad settings."] = "여기의 모든 설정은 WoW의 게임패드 설정에서 게임패드 인터페이스가 켜져 있는 동안에만 적용됩니다."
+L["Keyboard and mouse play is unaffected, even with a controller connected."] = "컨트롤러가 연결되어 있어도 키보드 및 마우스 플레이에는 영향을 주지 않습니다."
+L["Active while WoW's gamepad interface is on."] = "WoW의 게임패드 인터페이스가 켜져 있는 동안 활성화됩니다."
+L["Hide Applicant Info"] = "신청자 정보 숨기기"
+L["Hides each applicant's note."] = "각 신청자의 메모를 숨깁니다."
+L["How many clicks sign you up to a group. Hold Shift to keep the note box open."] = "파티 신청에 필요한 클릭 횟수입니다. Shift 키를 누르고 있으면 메모 입력창이 계속 열려 있습니다."
+L["How opaque the Dungeons & Raids window background is. The swatch sets its tint."] = "던전 및 공격대 창 배경의 불투명도입니다. 색상 견본으로 색조를 설정합니다."
+L["The tint over the background. Its opacity sets how strong the tint is."] = "배경 위에 덧씌울 색조입니다. 불투명도로 색조의 농도를 조절합니다."
+L["Tile Features"] = "타일 기능"
+L["Rating Text"] = "평점 텍스트"
+L["Rating"] = "평점"
+L["Shows quest progress such as 2/6 on quest mobs."] = "퀘스트 몬스터 위에 2/6과 같은 퀘스트 진행 상황을 표시합니다."
+L["How the cast bar shows a batch of crafts."] = "연속 제작 시 시전 바를 어떻게 표시할지 설정합니다."
+L["Show the Main Hand row."] = "주장비 줄을 표시합니다."
+L["Show the Off Hand row while an off-hand weapon is equipped."] = "보조장비 무기를 착용하고 있을 때 보조장비 줄을 표시합니다."
+L["Show the Ranged row while a ranged weapon is equipped."] = "원거리 무기를 착용하고 있을 때 원거리 줄을 표시합니다."
+L["Show while this condition is false"] = "이 조건이 거짓일 때 표시"
+L["While an on-next-swing attack is queued (Heroic Strike, Cleave, Maul), the Main Hand and Off Hand rows take the queue color and show the attack's name."] = "다음 휘두르기 시 발동 공격(영웅의 일격, 가르기, 후려치기)이 대기 중일 때 주장비 및 보조장비 줄이 대기열 색상으로 바뀌며 해당 공격의 이름을 표시합니다."
+L["Level Color Mode"] = "레벨 색상 모드"
+L["Delete %1$s and its contents? Entries "] = "%1$s(을)를 내용과 함께 삭제할까요? 항목 "
+L["How many entries a row of the grid holds. 1 stacks "] = "격자 한 줄에 들어가는 항목 수입니다. 1이면 "
+L["Left-click to set a keybind, then press any key or\n"] = "좌클릭하여 단축키를 지정한 다음 아무 키를 누르거나\n"
+
+-- ============================================================================
+-- v9.8.1 패치 노트 (Patch Notes v9.8.1)
+-- ============================================================================
+-- 주요 기능 (Features)
+L["Weapon Buffs"] = "무기 강화 효과"
+L["A new reminder for poisons, imbues, stones and oils on each weapon, shown a minute before they run out too; click it to apply one from your bags"] = "각 무기에 적용된 독, 마법부여, 숫돌, 오일을 위한 새로운 알림 기능으로 만료 1분 전에도 표시됩니다. 클릭하여 가방에 있는 아이템을 바로 바를 수 있습니다"
+L["The custom friends list can now be turned off on the Friends List card or turned on with Blizz Default, and online friends show Blizzard's online card color: in full under Blizz Default, faintly under the EllesmereUI and Modern looks"] = "친구 목록 카드에서 사용자 지정 친구 목록을 끄거나 블리자드 기본 설정과 함께 켤 수 있으며, 접속 중인 친구에게 블리자드의 온라인 카드 색상이 표시됩니다(블리자드 기본 외형에서는 진하게, EllesmereUI 및 모던 외형에서는 은은하게 표시)"
+L["Pet Spell Ranks"] = "소환수 주문 등급"
+L["Auto Uprank Spells on Bars now also swaps your pet's new spell ranks on your action bars, and catches ranks learned while it was off or your pet was away"] = "단축바 주문 등급 자동 갱신 기능이 소환수의 새로운 주문 등급도 단축바에서 자동으로 교체해주며, 기능이 꺼져 있거나 소환수가 없을 때 배운 등급도 감지하여 적용합니다"
+L["Dispellable By Me"] = "내가 해제 가능"
+L["Only Dispellable can show just the enemy buffs you or your group can dispel, purge or soothe: turn it on in the Enemy Buff Filter cog"] = "적 강화 효과 필터 톱니바퀴에서 '해제 가능한 효과만' 설정을 켜면 본인 또는 파티원이 무효화, 정화, 격노 해제할 수 있는 효과만 표시할 수 있습니다"
+L["Spell Ranks"] = "주문 등급"
+L["The Spells list offers each learned rank of a spell, and an entry picked from a rank, or a lower rank dragged from the spellbook, always casts that rank"] = "주문 목록에서 습득한 주문의 각 등급을 제공하며, 특정 등급에서 선택한 항목이나 마법책에서 끌어온 하위 등급은 항상 해당 등급으로 시전됩니다"
+
+-- 수정 사항 (Fixes)
+L["The bar no longer jitters every second while a Travel Cooldowns block counts down."] = "이동 재사용 대기시간 블록의 초읽기 도중 바가 매초 흔들리던 문제를 수정했습니다."
+L["The Class Resources block now counts reagents kept in the reagent bag."] = "직업 자원 블록에서 재료 가방에 보관된 재료의 수량을 정상 계산합니다."
+L["Fishing's Double-Click to Cast no longer applies a lure while its own Apply Lure is off."] = "낚시의 '더블 클릭하여 시전'에서 자체 미끼 적용 설정이 꺼져 있을 때 더 이상 미끼를 적용하지 않습니다."
+L["With Apply to All Game Text on, the Guild & Communities chat takes the global font again."] = "'모든 게임 텍스트에 적용'이 켜져 있을 때 길드 및 커뮤니티 대화에 전체 글꼴이 다시 정상 적용됩니다."
+L["The results list's Delisted, Invited and Failed statuses now show in your language."] = "검색 결과 목록의 등록 취소됨, 초대됨, 실패 상태가 플레이어의 언어로 정상 표시됩니다."
+L["With Show Threat On: Health Bar, neutral enemies you fight now take threat colors on the health bar, as hostile ones do."] = "'생명력 바에 위협 수준 표시'가 켜져 있을 때 전투 중인 중립 몬스터의 생명력 바에도 적대적 대상과 마찬가지로 위협 수준 색상이 적용됩니다."
+L["The target's range text, and Quality of Life's, now read whole yards (24+) instead of long decimals when a talent such as Grim Reach extends your spell range."] = "사거리 연장 특성 등으로 주문 사거리가 늘어났을 때 대상 프레임 및 편의 기능의 사거리 텍스트가 긴 소수점 대신 정수(24+ 등) 단위로 표시됩니다."
+L["Hovering the hunter pet happiness icon no longer causes a Lua error."] = "사냥꾼 소환수 만족도 아이콘에 마우스를 올릴 때 Lua 오류가 발생하던 문제를 수정했습니다."
+L["The [name:last] and [target:last] custom text tags no longer repeat your first name for your own character while My Surname is off, on Raid & Party Frames and Nameplates too."] = "'내 성씨'가 꺼져 있을 때 [name:last] 및 [target:last] 사용자 지정 텍스트 태그가 본인 캐릭터의 이름을 반복 표시하지 않으며, 공격대/파티 프레임 및 이름표에서도 동일하게 적용됩니다."
+L["Brazilian Portuguese, French, Spanish and Traditional Chinese translations updated, including the Group Finder lists, the gamepad options and Forever Essentials."] = "파티 찾기 목록, 게임패드 옵션, Forever Essentials를 포함하여 브라질 포르투갈어, 프랑스어, 스페인어, 중국어 번체 번역이 업데이트되었습니다."
+
+-- ============================================================================
+-- v9.8.1 신규 옵션, UI 및 편의 기능 (New Options, UI & QoL)
+-- ============================================================================
+-- 잠금 해제 모드 (Unlock Mode)
+L["Move the selected element 1px."] = "선택한 요소를 1px 이동합니다."
+L["Arrow Keys"] = "방향키"
+L["Shift + Arrow Keys"] = "Shift + 방향키"
+L["Move it 100px."] = "100px 이동합니다."
+L["Shift + Drag"] = "Shift + 드래그"
+L["Move it on one axis only."] = "한쪽 축으로만 이동합니다."
+L["Cycle through overlapping elements."] = "겹쳐진 요소를 순차 전환합니다."
+L["Hold Shift"] = "Shift 길게 누르기"
+L["Open the element's settings."] = "해당 요소의 설정을 엽니다."
+L["Hide the element's overlay temporarily."] = "해당 요소의 오버레이를 일시적으로 숨깁니다."
+L["Shows a grid to line elements up. Click to switch between dimmed, bright and off."] = "요소 정렬을 위한 격자를 표시합니다. 클릭하여 흐림, 밝음, 꺼짐 상태를 전환합니다."
+L["Lights up the grid lines around the cursor. Needs the grid lines to be on."] = "커서 주변의 격자선에 불을 밝힙니다. 격자선이 켜져 있어야 합니다."
+L["Dragged elements snap to the edges and centers of the closest element."] = "드래그한 요소가 가장 가까운 요소의 가장자리와 중심에 자석처럼 달라붙습니다."
+L["Always shows every element's position, not only while it is hovered, dragged or selected."] = "마우스를 올리거나 드래그하거나 선택했을 때뿐만 아니라 항상 모든 요소의 위치 좌표를 표시합니다."
+L["Gives every element a dark background with its name. Turn it off to see the real elements underneath."] = "모든 요소에 이름이 적힌 어두운 배경을 적용합니다. 끄면 아래의 실제 요소를 볼 수 있습니다."
+L["Hide this bar."] = "이 바를 숨깁니다."
+L["Hides this bar until the cursor reaches the top of the screen. Hold Shift to hide it any time."] = "커서가 화면 상단에 닿을 때까지 이 바를 숨깁니다. 언제든지 Shift 키를 누르고 있으면 숨길 수 있습니다."
+
+-- 옵션 검색 (Options Search)
+L["Search all modules"] = "모든 모듈 검색"
+L["No results for %s"] = "%s에 대한 결과 없음"
+L["Check the spelling or try a different word"] = "맞춤법을 확인하거나 다른 단어로 검색해 보세요"
+
+-- 무기 강화 효과 알림 및 소모품 (Weapon Buff Reminders & Consumables)
+L["Reminds you when a weapon has no poison, imbue, stone or oil.\nClick the icon to apply one from your bags."] = "무기에 독, 마법부여, 숫돌, 오일이 적용되어 있지 않을 때 알립니다.\n아이콘을 클릭하여 가방에 있는 아이템을 적용합니다."
+L["Show Below (Minutes)"] = "표시 기준 시간 (분)"
+L["Show a reminder before a poison, imbue, stone or oil runs out.\n0 = only once it has run out.\n1-10 = when it has less than this many minutes left."] = "독, 마법부여, 숫돌, 오일이 만료되기 전에 미리 알림을 표시합니다.\n0 = 만료된 후에만 표시.\n1-10 = 남은 시간이 지정한 분 미만일 때 표시."
+L["Hide When None in Bags"] = "가방에 아이템이 없으면 숨김"
+L["Hides a reminder when you have none of its item in your bags.\nOff: a chosen item still shows, greyed out. Auto only ever picks items you have."] = "가방에 해당 아이템이 전혀 없을 때 알림을 숨깁니다.\n꺼짐: 선택된 아이템이 흐리게 계속 표시됩니다. 자동은 항상 보유 중인 아이템만 선택합니다."
+L["Sharpening Stone"] = "숫돌"
+L["Weightstone"] = "무게추"
+L["Elemental Sharpening Stone"] = "원소 숫돌"
+L["Consecrated Sharpening Stone"] = "축성된 숫돌"
+L["Wizard Oil"] = "마법사 오일"
+L["Blessed Wizard Oil"] = "축복받은 마법사 오일"
+L["Mana Oil"] = "마나 오일"
+L["Frost Oil"] = "냉기 오일"
+L["Shadow Oil"] = "그림자 오일"
+L["Firestone"] = "화염석"
+L["Spellstone"] = "주문석"
+
+-- 이름표 및 빠른 실행 (Nameplates & Quickdraw)
+L["Requires Enemy Buff Filter set to Only Dispellable"] = "'적 강화 효과 필터'가 '해제 가능한 효과만'으로 설정되어 있어야 합니다"
+L["With Only Dispellable, show just the buffs you or your group can dispel, purge or soothe, instead of every dispellable buff."] = "'해제 가능한 효과만' 선택 시 모든 해제 가능 효과 대신 자신 또는 파티원이 무효화, 정화, 격노 해제할 수 있는 효과만 표시합니다."
+L["Rank to Use"] = "사용할 등급"
+L["Retail"] = "리테일"
+
+-- 파티 찾기 상태 (Group Finder Statuses)
+L["Invite Accepted"] = "초대 수락함"
+L["Invite Declined"] = "초대 거절함"
+L["Invited"] = "초대됨"
+L["Pending"] = "신청 대기 중"
+L["Timed Out"] = "시간 초과"
+
+-- 기타 편의 문자열 (_keys.txt)
+L["(Rested: %s)"] = "(휴식: %s)"
+L["(guild bank)"] = "(길드 금고)"
+L["Developed in partnership with"] = "공동 개발:"
+L["No spec macros for"] = "전문화 매크로 없음:"
+L["Resource Bars & Unit Frames"] = "자원 바 및 유닛 프레임"
+L["Data Bars & Bags"] = "데이터 바 및 가방"
+
+-- ============================================================================
+-- v9.8.2 패치 노트 (Patch Notes v9.8.2)
+-- ============================================================================
+-- 주요 기능 (Features)
+L["Class Buffs"] = "직업 강화 효과"
+L["Reminds you when your class's own buffs are missing, such as a Blessing, Inner Fire or Demon Armor, and casts them when clicked"] = "축복, 내면의 열정, 악마의 갑옷 등 자신의 직업 강화 효과가 누락되었을 때 알림을 표시하고, 클릭 시 해당 강화 효과를 시전합니다"
+L["Custom Spell Reminders"] = "사용자 지정 주문 알림"
+L["Click a custom spell or spell group reminder to cast its best known rank, and limit each custom spell to chosen classes"] = "사용자 지정 주문 또는 주문 그룹 알림을 클릭하여 습득한 최고 등급을 시전할 수 있으며, 각 사용자 지정 주문을 특정 직업에만 표시하도록 제한할 수 있습니다"
+L["Talent Conditions"] = "특성 조건"
+L["Show a cooldown or utility icon only with or without chosen talents from your three trees (right-click the icon in the preview)"] = "3개 특성 트리에서 특정 특성의 습득 여부에 따라 쿨다운 또는 유틸리티 아이콘을 조건부로 표시합니다 (미리보기에서 아이콘 우클릭)"
+L["Quests and Custom Lists"] = "퀘스트 및 사용자 지정 목록"
+L["Quests and Custom use the Group Finder's own group list too, and zone groups show how many players they have"] = "퀘스트 및 사용자 지정 카테고리에서도 파티 찾기 자체 파티 목록을 사용하며, 지역 파티에 현재 파티원 수가 표시됩니다"
+L["Top Bar Help"] = "상단 바 도움말"
+L["Each top bar toggle explains itself on hover, and an info icon lists the keyboard and mouse controls"] = "각 상단 바 토글에 마우스를 올리면 기능 설명이 표시되고, 정보 아이콘에서 키보드 및 마우스 조작법 목록을 확인할 수 있습니다"
+
+-- 수정 사항 (Fixes)
+L["On the Bar Glows page, a Glow When Usable glow shows its ability's icon and name instead of a question mark."] = "바 강조 효과 페이지의 '사용 가능 시 강조'에서 물음표 대신 해당 기술의 아이콘과 이름이 정상 표시됩니다."
+L["A spell no longer shows twice in a bar's preview after you learn a new rank of it."] = "새로운 주문 등급을 배운 후 바 미리보기에서 주문이 중복으로 표시되던 문제를 수정했습니다."
+L["On the Glows page, a collapsed module card's summary updates as soon as the template changes, and \"all match the template\" shows in green like the rows."] = "강조 효과 페이지에서 템플릿이 변경되는 즉시 접힌 모듈 카드의 요약 정보가 갱신되며, \"모두 템플릿과 일치\" 문구가 항목들과 마찬가지로 녹색으로 표시됩니다."
+L["The options search lists equal matches in a fixed order, finds pages by their tab name, and says so when nothing matches, with a link from a page's search to every module."] = "옵션 검색 결과에서 일치 항목들을 고정된 순서로 나열하고, 탭 이름으로 페이지를 찾을 수 있으며, 일치하는 결과가 없을 때 안내 및 모든 모듈로의 링크를 제공합니다."
+L["Right-clicking a group or an applicant in the lists shows other addons' menu entries again."] = "목록에서 파티나 신청자를 우클릭했을 때 다른 애드온의 메뉴 항목이 다시 정상 표시됩니다."
+L["The dungeons picked in the Dungeons row stay picked after logging out and back in."] = "던전 줄에서 선택한 던전들이 로그아웃 후 다시 접속해도 유지됩니다."
+L["The group list scrolls and lets you pick a group when Quests or Custom is the first category you open."] = "퀘스트나 사용자 지정을 처음 열었을 때도 파티 목록이 정상적으로 스크롤되고 파티를 선택할 수 있습니다."
+L["Quick Loot closes the loot window when there is nothing to take."] = "빠른 전리품 획득 시 획득할 아이템이 없으면 전리품 창이 자동으로 닫힙니다."
+L["A nested menu with nothing your character can use no longer shows as an empty entry."] = "캐릭터가 사용할 수 있는 항목이 없는 중첩 메뉴가 빈 항목으로 표시되지 않습니다."
+L["Power Text and Mana Bar Text no longer offer Smart Text, which chose by spec; bars that used it show the power value."] = "자원 텍스트와 마나 바 텍스트에서 전문화별로 자동 선택하던 '스마트 텍스트' 선택지를 제거하고, 기존에 사용하던 바는 자원 값을 표시합니다."
+L["Power Text no longer offers Smart Text, which chose by spec; frames that used it show the power value."] = "자원 텍스트에서 전문화별로 자동 선택하던 '스마트 텍스트' 선택지를 제거하고, 기존에 사용하던 프레임은 자원 값을 표시합니다."
+L["Russian translations updated across nearly every option, popup and tooltip, Traditional Chinese translations updated, and Latin American Spanish shows the Spanish (Spain) text where it has no translation of its own, instead of English."] = "러시아어 및 중국어 번체 번역이 대대적으로 업데이트되었으며, 라틴아메리카 스페인어에서 미번역 문자열이 영어 대신 스페인(스페인어)으로 대체 표시됩니다."
+
+-- ============================================================================
+-- v9.8.2 신규 옵션, UI 및 직업 강화 효과 (New Options, UI & Class Buffs)
+-- ============================================================================
+L["Reminds you when one of your class's own buffs is missing.\nClick the icon to cast it."] = "자신의 직업 강화 효과 중 하나가 누락되었을 때 알립니다.\n아이콘을 클릭하여 시전합니다."
+L["Reminds you when one of your class's own buffs is missing.\nClick the icon to cast it.\nA custom spell or spell group for a ticked buff pauses meanwhile."] = "자신의 직업 강화 효과 중 하나가 누락되었을 때 알립니다.\n아이콘을 클릭하여 시전합니다.\n체크된 강화 효과에 대한 사용자 지정 주문 또는 주문 그룹은 그동안 일시 중지됩니다."
+L["Reminds you whenever this buff is missing, on the classes ticked here."] = "여기서 체크된 직업에서 이 강화 효과가 누락될 때마다 알립니다."
+L["Only your own counts."] = "자신이 시전한 것만 계산합니다."
+L["Aspect"] = "상"
+L["Blessings"] = "축복"
+L["Light (Strength)"] = "약하게"
+L["Shadow (Border Style)"] = "그림자"
+L["EllesmereUI:|r Kick Tracker announcement reset. It fires on your next /reload."] = "EllesmereUI:|r 차단 추적기 알림 안내가 초기화되었습니다. 다음 /reload 시 다시 표시됩니다."
+L["How should EllesmereUI look?"] = "EllesmereUI의 외형 스타일을 선택하세요"
+L["EllesmereUI's features work with every look. Change your mind any time under Global Settings > Style."] = "EllesmereUI의 모든 기능은 어떤 스타일에서도 작동합니다. '공통 설정 > 스타일'에서 언제든지 변경할 수 있습니다."
+L["Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later."] = "블리자드 스타일과 클래식 WoW UI는 적용을 위해 UI를 한 번 리로드합니다. 나중에 각 모듈별로 개별 변경할 수도 있습니다."
+L["Important Auras"] = "중요 오라"
+L["The quick brown fox jumps over the lazy dog."] = "다람쥐 헌 쳇바퀴에 타고파. The quick brown fox jumps over the lazy dog."

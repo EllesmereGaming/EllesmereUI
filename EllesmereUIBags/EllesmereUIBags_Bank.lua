@@ -2376,7 +2376,7 @@ function EUI_Bank:RefreshBank()
             -- Without expansion headers a detail selection would render as a
             -- bare grid, so name what is on screen.
             if _catSel.detail or _catSel.group then
-                EmitHeader(_catSel.detail or _catSel.group, #slotList, 0)
+                EmitHeader(_catSel.detail or _G.EUI_CategoryManager:GroupDisplayName(_catSel.group), #slotList, 0)
                 if _catSel.detail then
                     EmitSlots(slotList)
                 else
@@ -3383,7 +3383,7 @@ function BuildBankSidebar()
                         end
                         if total > 0 then
                             if not anyCat then anyCat = true; ShowDivider("_catDivider") end
-                            RenderSidebarEntry(nil, cat.groupName,
+                            RenderSidebarEntry(nil, CM:GroupDisplayName(cat.groupName),
                                 (firstCat and firstCat.icon) or 134400, total,
                                 _catSel and _catSel.group == cat.groupName,
                                 0, { group = cat.groupName },

@@ -529,8 +529,13 @@ local function StartAddon()
     -- Hide Blizzard bag frames by reparenting to a hidden container (never write .Show/.Hide onto Blizzard frames -- causes taint).
     local _blizzBagHidden = CreateFrame("Frame")
     _blizzBagHidden:Hide()
+    -- The same rect as Blizzard's ContainerFrameContainer (all of UIParent):
+    -- UpdateContainerFrameAnchors pins the first open bag to its parent, and a
+    -- bag that opens while parented here (the keyring below) keeps that pin
+    -- after it is let out, so a rectless container left it with no position.
+    _blizzBagHidden:SetAllPoints(UIParent)
 
-    -- WoW Forever's keyring (bag -2) has no place in our bag window, so its
+    -- WoW Forever's keyring (bag -1) has no place in our bag window, so its
     -- button keeps opening Blizzard's own keyring window: the one bag frame
     -- let back out of the hidden container while it shows.
     local KEYRING = EUI.IS_FOREVER and Enum.BagIndex and Enum.BagIndex.Keyring or nil
@@ -622,8 +627,10 @@ local function StartAddon()
     end
     local function BankOpen()
         if not (C_PlayerInteractionManager and C_PlayerInteractionManager.IsInteractingWithNpcOfType) then return false end
-        return (C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.Banker)
-            or C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.AccountBanker)) and true or false
+        local PIT, IsAt = Enum.PlayerInteractionType, C_PlayerInteractionManager.IsInteractingWithNpcOfType
+        -- some bankers open the character bank as CharacterBanker
+        return (IsAt(PIT.Banker) or (PIT.CharacterBanker and IsAt(PIT.CharacterBanker))
+            or IsAt(PIT.AccountBanker)) and true or false
     end
 
     -- One total per item across the bags AND worn gear: equipping, taking off
@@ -950,6 +957,7 @@ local function StartAddon()
         if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
             if interactionType == Enum.PlayerInteractionType.MailInfo
                 or interactionType == Enum.PlayerInteractionType.Banker
+                or interactionType == Enum.PlayerInteractionType.CharacterBanker
                 or interactionType == Enum.PlayerInteractionType.AccountBanker then
                 -- Same settle-window hold as the legacy branch above.
                 _snapshotReady = false
