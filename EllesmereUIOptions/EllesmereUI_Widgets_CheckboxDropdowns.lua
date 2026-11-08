@@ -162,7 +162,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
     -- Search prebuild on an absorber row: the dropdown indexes nothing, so none is built.
     local standIn = StandIn(parentFrame)
     if standIn then return standIn, standIn end
-    local PP = EllesmereUI.PP or EllesmereUI.PanelPP
+    local PP = EllesmereUI.PanelPP
     opts = opts or {}
     -- Opt-in dynamic items: pass a FUNCTION returning the items array and it re-evaluates on every menu OPEN (the menu rebuilds), so lists that depend on other settings never go stale. A table stays static.
     local itemsFn
@@ -1559,7 +1559,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
     local standIn = StandIn(parentFrame)
     if standIn then return standIn, standIn end
     opts = opts or {}
-    local PP = EllesmereUI.PP or EllesmereUI.PanelPP
+    local PP = EllesmereUI.PanelPP
     local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
     -- Options panel is Expressway-locked by design (locale-aware: CJK/Cyrillic get the system glyph font). The user's global font intentionally does not restyle the settings UI.
     local fontPath = EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
@@ -1987,7 +1987,7 @@ function EllesmereUI.BuildSliderDropdown(parentFrame, ddW, fLevel, items, opts)
     -- Search prebuild on an absorber row: the dropdown indexes nothing, so none is built.
     local standIn = StandIn(parentFrame)
     if standIn then return standIn, standIn end
-    local PP = EllesmereUI.PP
+    local PP = EllesmereUI.PanelPP
     opts = opts or {}
     local fontPath = EllesmereUI.EXPRESSWAY
     local ddBtn = CreateFrame("Button", nil, parentFrame)
