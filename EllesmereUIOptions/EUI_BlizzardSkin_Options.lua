@@ -3639,6 +3639,28 @@ initFrame:SetScript("OnEvent", function(self)
         return HeightFor(bubble:GetHeight())
     end
 
+    -- Sample Skyriding HUD in the content header, painted by the HUD's own
+    -- passes (ns.EDR_ShowSample) at its on-screen size: the panel's scale
+    -- compensated, shrunk only when wider than the header.
+    local function SkyridingHeaderBuilder(header, hdrW)
+        if not ns.EDR_ShowSample then return 0 end
+        local building, H = true, 0
+        ns.EDR_ShowSample(header, function(root, w, h)
+            local s = UIParent:GetEffectiveScale() / header:GetEffectiveScale()
+            local avail = (building and hdrW or header:GetWidth()) - 2 * EllesmereUI.CONTENT_PAD
+            local fit = (w > 0) and math.min(1, avail / (w * s)) or 1
+            root:SetScale(s * fit)
+            root:ClearAllPoints()
+            root:SetPoint("CENTER", header, "CENTER", 0, 0)
+            H = math.max(80, math.ceil(h * s * fit + 40))
+            if not building and header:IsVisible() and math.abs(header:GetHeight() - H) > 1 then
+                EllesmereUI:SetContentHeaderHeightSilent(H)
+            end
+        end)
+        building = false
+        return H
+    end
+
     local function BuildChatBubblesPage(pageName, parent, yOffset)
         local W  = EllesmereUI.Widgets
         local PP = EllesmereUI.PP
@@ -3985,6 +4007,14 @@ initFrame:SetScript("OnEvent", function(self)
         local BS = EllesmereUI.BlizzStyle
         local edrStyle = BS.Active("dragonriding")
 
+        -- The sample HUD heads the page while the bar is on; off, the page
+        -- hides everything below its first row and shows no header either.
+        if not EllesmereUI._prebuilding and EDR_Cfg("enabled") == true then
+            EllesmereUI:SetContentHeader(SkyridingHeaderBuilder)
+        elseif EllesmereUI.ClearContentHeader then
+            EllesmereUI:ClearContentHeader()
+        end
+
         -- The Move in Unlock Mode button on the bar's first section, built
         -- whatever Enable Skyriding Bar says: its disabled state explains itself.
         local hdr
@@ -4317,10 +4347,18 @@ initFrame:SetScript("OnEvent", function(self)
                 return BuildDragonRidingPage(pageName, parent, yOffset)
             end
         end,
-        -- Chat Bubbles preview lives in the content header; a cached page whose header was
-        -- dropped rebuilds with it.
+        -- Chat Bubbles and Skyriding previews live in the content header; a cached page whose
+        -- header was dropped rebuilds with it.
         getHeaderBuilder = function(pageName)
             if pageName == PAGE_CHATBUBBLES then return ChatBubblesHeaderBuilder end
+            if pageName == PAGE_DRAGONRIDING and EDR_Cfg("enabled") == true then
+                return SkyridingHeaderBuilder
+            end
+        end,
+        -- A kept page shown again: its preview paints again (the Fonts and Textures pages,
+        -- Unlock Mode and a profile switch write its keys from elsewhere).
+        onPageCacheRestore = function(pageName)
+            if pageName == PAGE_DRAGONRIDING and ns.EDR_RepaintSample then ns.EDR_RepaintSample() end
         end,
         resetScope = "account",
         onReset = function()
