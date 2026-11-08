@@ -206,12 +206,22 @@ end
 -- lends them changes (shown / hidden, side, size, gap, offsets): a rebuild
 -- that leaves it in place schedules no anchor work. Unlock mode re-applies
 -- every link on exit, so a change there only records.
+local cascadeQueued = false
+local function CascadeSettled()
+    cascadeQueued = false
+    if not EllesmereUI._unlockActive then EllesmereUI.PropagateAnchorChain("ERB_Power") end
+end
 local function NotifyExtent()
     local sig = (S.shown and not S.parked and S.extSide) and S.extSig or nil
     if sig == S.extLast then return end
     S.extLast = sig
     if not EllesmereUI._unlockActive and EllesmereUI.PropagateAnchorChain then
         EllesmereUI.PropagateAnchorChain("ERB_Power")
+        -- A form change cascades mid-rebuild, on the bars' old edges: once more settled.
+        if not cascadeQueued then
+            cascadeQueued = true
+            C_Timer.After(0, CascadeSettled)
+        end
     end
 end
 
