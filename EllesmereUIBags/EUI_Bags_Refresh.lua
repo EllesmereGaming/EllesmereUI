@@ -439,6 +439,10 @@ function ns.UpdateResizeGrip(frame, cfg)
         local grip = grips[at]
         if want then
             if not grip then grip = GR.NewGrip(frame, at); grips[at] = grip end
+            if at == "BOTTOMRIGHT" then
+                local out = corner and -6 or 0
+                grip:SetHitRectInsets(0, out, 0, out)
+            end
             if not grip._drag then
                 grip._cfg = cfg
                 grip._hoverOnly = corner ~= nil
@@ -1024,7 +1028,7 @@ function EUI_Bags:RefreshInventory()
         local maxGridW = (UIParent:GetWidth() / sc) * 0.95 - sbW - 30
         local roomW = BP().bagAnchor and ns.BagAnchor.Room()
         if roomW then maxGridW = math.min(maxGridW, roomW - sbW - 30) end
-        local maxCols = math.max(baseCols, math.floor(maxGridW / (SLOT_SIZE + SPACING)))
+        local maxCols = math.max(roomW and 1 or baseCols, math.floor(maxGridW / (SLOT_SIZE + SPACING)))
         if ideal < baseCols then ideal = baseCols end
         if ideal > maxCols then ideal = maxCols end
         EUI_Bags._asCols = math.max(EUI_Bags._asCols or baseCols, ideal)

@@ -96,14 +96,15 @@ local function Register()
                 return frame
             end,
             getSize  = function() return ANCHOR_W, ANCHOR_H end,
-            savePos  = function(_, point, relPoint, x, y)
+            savePos  = function(_, point, relPoint, x, y, movedFrom)
                 if not point then return end
                 BP().bagAnchorPos = { point = point, relPoint = relPoint or point, x = x, y = y }
                 if not EUI._unlockActive then Place() end
-                if Anchor.On() and Anchor.pending then
+                if movedFrom and Anchor.On() and Anchor.pending then
                     Anchor.pending = false
                     PinTo(Anchor.Corner())
                 end
+                Anchor.Relayout()
             end,
             loadPos  = function()
                 if not Anchor.On() then return nil end
@@ -116,6 +117,7 @@ local function Register()
                     Anchor.pending = false
                     PinTo(Anchor.Corner())
                 end
+                Anchor.Relayout()
             end,
             applyPos = function()
                 if Anchor.On() then Place() end
@@ -224,8 +226,35 @@ local function Changed()
     if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
 end
 
+local function HasLinks()
+    local db = EllesmereUIDB
+    if not db then return false end
+    local anchors = db.unlockAnchors
+    if anchors then
+        if anchors[UNLOCK_KEY] then return true end
+        for _, info in pairs(anchors) do
+            if type(info) == "table" and (info.target == UNLOCK_KEY or (info.edge and info.edge.key == UNLOCK_KEY)) then
+                return true
+            end
+        end
+    end
+    for _, store in ipairs({ db.unlockWidthMatch, db.unlockHeightMatch }) do
+        if store then
+            if store[UNLOCK_KEY] then return true end
+            for _, target in pairs(store) do
+                if target == UNLOCK_KEY then return true end
+            end
+        end
+    end
+    return false
+end
+
 function Anchor.Start()
-    if Anchor.On() then PinTo(Anchor.Corner()) else Register() end
+    if Anchor.On() then PinTo(Anchor.Corner()) elseif HasLinks() then Register() end
+end
+
+function Anchor.Relayout()
+    if Anchor.On() and not EUI._unlockActive and EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
 end
 
 function Anchor.Pin()

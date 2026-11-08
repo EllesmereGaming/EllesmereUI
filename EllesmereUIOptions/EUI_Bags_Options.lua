@@ -309,6 +309,7 @@ initFrame:SetScript("OnEvent", function(self)
                       if _G.EUI_BagsWindow then _G.EUI_BagsWindow:SetScale(s) end
                       local bank = _G.EUI_BankFrame
                       if bank and bank:IsVisible() then bank:SetScale(s) end
+                      if BagAnchor.On() then RelayoutSoon() end
                   end },
                 { type="dropdown", text="Bag Style",
                   values = { grid="Grid", list="List", compact="Compact" },
