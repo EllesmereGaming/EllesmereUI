@@ -1422,9 +1422,11 @@ end
 function EllesmereUI.AttachRowReorder(host, spec)
     local rows, movable, ITEM_H, SlotY = spec.rows, spec.items, spec.itemH, spec.slotY
     local insLine, state = spec.insLine, spec.state
-    local baseLevel = host:GetFrameLevel() + 2
+    -- Read live: a host raised after this call (a cog popup lifts its open
+    -- dropdown menu) would otherwise park dropped rows behind its background.
+    local function BaseLevel() return host:GetFrameLevel() + 2 end
     local function Park(row)
-        row:SetFrameLevel(baseLevel)
+        row:SetFrameLevel(BaseLevel())
         row:SetAlpha(1)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", host, "TOPLEFT", 1, row._slotY)
@@ -1502,7 +1504,7 @@ function EllesmereUI.AttachRowReorder(host, spec)
                 for mi = 1, #movable do
                     if movable[mi] == self._item then dgFrom = mi; break end
                 end
-                self:SetFrameLevel(baseLevel + 8)
+                self:SetFrameLevel(BaseLevel() + 8)
                 self:SetAlpha(0.8)
                 if spec.onDragStart then spec.onDragStart(self) end
             end
