@@ -17,8 +17,9 @@ local PAGE_UNLOCK    = "Unlock Mode"
 -- Forever section (Camp Benefits + custom spell IDs); the Talent Reminders
 -- page does not exist there.
 local FOREVER = EllesmereUI.IS_FOREVER == true
--- The Mage Armors row is the one WOW FOREVER row that is class-only. Class
--- never changes mid-session, so unlike the Beacon M+ row no watcher is needed.
+-- The Mage Armors and Class Buffs slots are the WOW FOREVER rows that are
+-- class-only. Class never changes mid-session, so unlike the Beacon M+ row no
+-- watcher is needed.
 local MAGE = FOREVER and select(2, UnitClass("player")) == "MAGE"
 
 local SECTION_CORE         = "CORE"
@@ -1807,10 +1808,10 @@ initFrame:SetScript("OnEvent", function(self)
 
         -----------------------------------------------------------------------
         --  WOW FOREVER section: on that client the rest of the page.
-        --  Camp Benefits | Well Fed, Gathering Tracking | Find Treasure, for a
-        --  Mage then Mage Armors, then the spell-ID entry that adds a custom
-        --  reminder followed by one slot per tracked spell; the retail sections
-        --  below never build.
+        --  Camp Benefits | Well Fed, Gathering Tracking | Find Treasure,
+        --  Weapon Buffs | Mage Armors or Class Buffs, then the spell-ID entry
+        --  that adds a custom reminder followed by one slot per tracked spell;
+        --  the retail sections below never build.
         -----------------------------------------------------------------------
         if FOREVER then
             _, h = W:SectionHeader(parent, SECTION_FOREVER, y);  y = y - h
@@ -1875,6 +1876,8 @@ initFrame:SetScript("OnEvent", function(self)
                 })
             end
 
+            local class = select(2, UnitClass("player"))
+            local classBuffs = not MAGE and _G._EABR_FV_CLASS_BUFFS and _G._EABR_FV_CLASS_BUFFS[class]
             local weaponRow
             weaponRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Weapon Buffs",
@@ -1891,11 +1894,54 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       local f = FDB(); if not f then return end; f.mageArmor = v
                       RefreshAll()
-                  end } or EllesmereUI.BlankRowCfg()
+                  end }
+                or classBuffs and { type="toggle", text="Class Buffs",
+                  tooltip="Reminds you when one of your class's own buffs is missing.\nClick the icon to cast it.",
+                  getValue=function() local f = FDB(); return f and f.classBuffs == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.classBuffs = v
+                      RefreshAll()
+                      EllesmereUI:RefreshPage()
+                  end }
+                or EllesmereUI.BlankRowCfg()
             );  y = y - h
 
+            if classBuffs and not EllesmereUI._prebuilding then
+                local rows = {}
+                for _, b in ipairs(classBuffs) do
+                    local text, tip
+                    if b.lines[2] then
+                        local names = {}
+                        for _, line in ipairs(b.lines) do
+                            names[#names + 1] = _G._EABR_SpellName(line[#line], tostring(line[#line]))
+                        end
+                        text, tip = b.label, table.concat(names, "\n")
+                    else
+                        local line = b.lines[1]
+                        text = _G._EABR_SpellName(line[#line], b.key)
+                    end
+                    rows[#rows + 1] = { type="toggle", label=text, tooltip=tip,
+                      get=function()
+                          local f = FDB(); local v = f and f.classBuffPicks and f.classBuffPicks[b.key]
+                          if v == nil then return not b.off end
+                          return v
+                      end,
+                      set=function(v)
+                          local f = FDB(); if not f then return end
+                          f.classBuffPicks = f.classBuffPicks or {}
+                          f.classBuffPicks[b.key] = v
+                          RefreshAll()
+                      end }
+                end
+                EllesmereUI.BuildInlineCog(weaponRow._rightRegion, {
+                    title = "Class Buffs",
+                    disabled = function() local f = FDB(); return not (f and f.classBuffs == true) end,
+                    disabledTooltip = "Class Buffs",
+                    rows = rows,
+                })
+            end
+
             if not EllesmereUI._prebuilding then
-                local class = select(2, UnitClass("player"))
                 local function Choices(isImbue)
                     local values, order = { auto = "Auto", off = "Off" }, { "auto", "off" }
                     for _, b in ipairs(_G._EABR_FV_WEAPON_BUFFS or {}) do
