@@ -816,7 +816,7 @@ Hide the element's overlay temporarily.
 Hide these instead of showing them
 Hide this bar.
 Hides groups that have declined you this session.
-Hides this bar until the cursor reaches the top of the screen. Hold Shift to hide it any time.
+Hides this bar until the cursor reaches it at the top of the screen, except over an element. Hold Shift to hide it any time.
 Highest Score
 Highlights the items your spells can work on (%s). Click a matching item while this mode is on, or Alt-click it. Out of combat only.
 Highmountain
