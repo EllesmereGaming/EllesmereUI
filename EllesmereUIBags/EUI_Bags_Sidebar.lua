@@ -716,7 +716,7 @@ local function CreateSidebar()
     local function ToggleSidebar()
         local center = EUI_Bags:GetCenter()
         local screenW = UIParent:GetWidth()
-        local onRightSide = center and screenW and (center > screenW / 2)
+        local onRightSide = center and screenW and (center > screenW / 2) and not ns.BagAnchor.On()
         local oldRight = onRightSide and EUI_Bags:GetRight() or nil
         local oldTop = onRightSide and EUI_Bags:GetTop() or nil
 

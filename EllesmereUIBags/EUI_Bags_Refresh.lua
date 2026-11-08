@@ -232,7 +232,9 @@ end
 --  cfg: step, relayoutStep (optional, default step), minCols, minH,
 --  getCols(), getHeight(), save(cols, h), finish(), savePos(left, top),
 --  reset(), inset(px), isLocked(), setLocked(v), hidden() (optional: the
---  window sizes itself, so neither icon shows)
+--  window sizes itself, so neither icon shows), corner() (optional: the
+--  screen corner the window is pinned by; the grip then sits in the opposite
+--  corner, shows only while hovered, and the lock holds only the size)
 -------------------------------------------------------------------------------
 do
 -- Art, alphas and the footer text clearance (the lock alone, or the grip with
@@ -243,7 +245,15 @@ local GR = {
     LOCKED = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-lock-locked.png",
     UNLOCKED = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-lock-unlocked.png",
     A = 0.4, HOVER = 0.8, LOCK_INSET = 18, GRIP_INSET = 36,
+    TEXCOORD = {
+        BOTTOMRIGHT = { 0, 1, 0, 1 }, BOTTOMLEFT = { 1, 0, 0, 1 },
+        TOPRIGHT = { 0, 1, 1, 0 }, TOPLEFT = { 1, 0, 1, 0 },
+    },
 }
+
+local function GripRestAlpha(grip)
+    return grip._hoverOnly and 0 or GR.A
+end
 
 local function GripStop(grip)
     grip:SetScript("OnUpdate", nil)
@@ -252,7 +262,7 @@ local function GripStop(grip)
         grip:GetParent()._resizing = nil
         grip._cfg.finish()
     end
-    grip:SetAlpha(grip:IsMouseOver() and GR.HOVER or GR.A)
+    grip:SetAlpha(grip:IsMouseOver() and GR.HOVER or GripRestAlpha(grip))
 end
 
 local function GripOnUpdate(grip)
@@ -261,11 +271,11 @@ local function GripOnUpdate(grip)
     local cx, cy = GetCursorPosition()
     local es = grip:GetParent():GetEffectiveScale()
     local step = cfg.step
-    local dx = math.floor(cx / es - d.x + 0.5)
+    local dx = math.floor((cx / es - d.x) * d.sx + 0.5)
     dx = math.max((cfg.minCols - d.cols) * step, math.min((d.maxCols - d.cols) * step, dx))
     local cols = d.cols + math.floor(dx / step)
     local bucket = math.floor(dx / (cfg.relayoutStep or step))
-    local h = math.floor(d.h + (d.y - cy / es) + 0.5)
+    local h = math.floor(d.h + (d.y - cy / es) * d.sy + 0.5)
     h = math.max(cfg.minH, math.min(d.maxH, h))
     if dx == d.lastDX and h == d.lastH then return end
     local relayout = bucket ~= d.lastBucket
@@ -281,19 +291,26 @@ local function GripOnMouseDown(grip, button)
     local frame, cfg = grip:GetParent(), grip._cfg
     local left, top, right, bottom = frame:GetLeft(), frame:GetTop(), frame:GetRight(), frame:GetBottom()
     if not left then return end
-    -- Pin the top-left corner so only the right and bottom edges move
-    frame:ClearAllPoints()
-    frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-    cfg.savePos(left, top)
+    local corner = cfg.corner and cfg.corner()
+    if not corner then
+        -- Pin the top-left corner so only the right and bottom edges move
+        frame:ClearAllPoints()
+        frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+        cfg.savePos(left, top)
+    end
+    local sx = (corner == "TOPRIGHT" or corner == "BOTTOMRIGHT") and -1 or 1
+    local sy = (corner == "BOTTOMLEFT" or corner == "BOTTOMRIGHT") and -1 or 1
     local cx, cy = GetCursorPosition()
     local es = frame:GetEffectiveScale()
-    local screenW = UIParent:GetRight() * UIParent:GetEffectiveScale() / es
+    local uiS = UIParent:GetEffectiveScale() / es
+    local roomX = sx > 0 and UIParent:GetRight() * uiS - right or left
+    local roomY = sy > 0 and bottom or UIParent:GetTop() * uiS - top
     local cols, h = cfg.getCols(), cfg.getHeight()
     grip._drag = {
         x = cx / es, y = cy / es, cols = cols, h = h, lastBucket = 0, lastDX = 0, lastH = h,
-        frameW = frame:GetWidth(),
-        maxCols = math.max(cols, cols + math.floor((screenW - right) / cfg.step)),
-        maxH = math.max(h, h + math.floor(bottom)),
+        frameW = frame:GetWidth(), sx = sx, sy = sy,
+        maxCols = math.max(cols, cols + math.floor(roomX / cfg.step)),
+        maxH = math.max(h, h + math.floor(roomY)),
     }
     frame._resizing = true
     -- Keep the hover look while the cursor runs ahead of the snapped edge
@@ -312,12 +329,17 @@ local function GripOnEnter(grip)
 end
 
 function GR.GripOnLeave(grip)
-    if not grip._drag then grip:SetAlpha(GR.A) end
+    if not grip._drag then grip:SetAlpha(GripRestAlpha(grip)) end
     EUI.HideWidgetTooltip()
 end
 
 function GR.LockTooltip(lock)
-    EUI.ShowWidgetTooltip(lock, EllesmereUI.L(lock._cfg.isLocked() and "Locked" or "Unlocked"))
+    local cfg = lock._cfg
+    if cfg.corner and cfg.corner() then
+        EUI.ShowWidgetTooltip(lock, cfg.isLocked() and EllesmereUI.L("Size Locked") or EllesmereUI.L("Size Unlocked"))
+        return
+    end
+    EUI.ShowWidgetTooltip(lock, EllesmereUI.L(cfg.isLocked() and "Locked" or "Unlocked"))
 end
 
 function GR.LockOnEnter(lock)
@@ -357,8 +379,10 @@ function ns.UpdateResizeGrip(frame, cfg)
     local grip, lock = frame._resizeGrip, frame._lockBtn
     local locked = cfg.isLocked()
     local noGrip = locked or (cfg.hidden and cfg.hidden()) or false
-    if lock and frame._gripCfg == cfg and frame._gripLocked == locked and frame._gripNoGrip == noGrip then return end
-    frame._gripCfg, frame._gripLocked, frame._gripNoGrip = cfg, locked, noGrip
+    local corner = cfg.corner and cfg.corner() or nil
+    if lock and frame._gripCfg == cfg and frame._gripLocked == locked and frame._gripNoGrip == noGrip
+        and frame._gripCorner == corner then return end
+    frame._gripCfg, frame._gripLocked, frame._gripNoGrip, frame._gripCorner = cfg, locked, noGrip, corner
     if not lock then
         lock = GR.IconButton(frame, 13, 17)
         lock:SetScript("OnEnter", GR.LockOnEnter)
@@ -376,7 +400,6 @@ function ns.UpdateResizeGrip(frame, cfg)
     else
         if not grip then
             grip = GR.IconButton(frame, 18, 18, GR.RESIZE)
-            grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
             grip:SetScript("OnMouseDown", GripOnMouseDown)
             grip:SetScript("OnMouseUp", GripStop)
             grip:SetScript("OnDoubleClick", GripReset)
@@ -387,9 +410,23 @@ function ns.UpdateResizeGrip(frame, cfg)
             frame._resizeGrip = grip
         end
         if not grip._drag then grip._cfg = cfg end
+        local at = corner and ns.BagAnchor.OPPOSITE[corner] or "BOTTOMRIGHT"
+        local size = at == "BOTTOMRIGHT" and 18 or 12
+        local pad = at == "BOTTOMRIGHT" and 2 or 1
+        grip:SetSize(size, size)
+        grip:ClearAllPoints()
+        grip:SetPoint(at, frame, at, (at == "TOPLEFT" or at == "BOTTOMLEFT") and pad or -pad,
+            (at == "TOPLEFT" or at == "TOPRIGHT") and -pad or pad)
+        grip._icon:SetTexCoord(unpack(GR.TEXCOORD[at]))
+        grip._hoverOnly = corner ~= nil
+        if not grip._drag then grip:SetAlpha(grip:IsMouseOver() and GR.HOVER or GripRestAlpha(grip)) end
         grip:Show()
-        lock:SetPoint("RIGHT", grip, "LEFT", -2, 0)
-        inset = GR.GRIP_INSET
+        if at == "BOTTOMRIGHT" then
+            lock:SetPoint("RIGHT", grip, "LEFT", -2, 0)
+            inset = GR.GRIP_INSET
+        else
+            lock:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4)
+        end
     end
     lock:Show()
     if frame._gripInset ~= inset then
@@ -427,6 +464,7 @@ local _bagGripCfg = {
     setLocked = function(v) BP().bagWindowLocked = v and true or false end,
     -- Auto-Size owns the window size
     hidden = function() return EUI_Bags.AutoSizeOn() end,
+    corner = function() return ns.BagAnchor.ActiveCorner() end,
 }
 
 -- List display: free width (rows have no cell grid), saved in pixels. It keeps
