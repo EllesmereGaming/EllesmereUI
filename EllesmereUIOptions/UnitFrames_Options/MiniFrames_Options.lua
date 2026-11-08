@@ -2024,7 +2024,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
     local function bossAfterSize(Ww, pp, yy)
         local _, hh
         -- BUFFS AND DEBUFFS section (below DISPLAY)
-        bossAuraHeader, hh = Ww:SectionHeader(pp, "Buffs and Debuffs", yy);  yy = yy - hh
+        bossAuraHeader, hh = Ww:SectionHeader(pp, "BUFFS AND DEBUFFS", yy);  yy = yy - hh
 
         -- Effective boss aura locations: Simple display overrides the stored
         -- location at runtime (dropdowns show None while active), so every
@@ -2907,7 +2907,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
     local function bossIndicators(Ww, pp, yy)
         local hh
 
-        _, hh = Ww:SectionHeader(pp, "Indicators", yy);  yy = yy - hh
+        _, hh = Ww:SectionHeader(pp, "INDICATORS", yy);  yy = yy - hh
 
         -- Row 1: Out of Range Alpha | Spell Target
         -- (Out of Range read live by the range ticker, so no reload needed.)

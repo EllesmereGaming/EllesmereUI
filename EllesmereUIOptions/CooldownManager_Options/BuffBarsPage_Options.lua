@@ -4112,7 +4112,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         --  DISPLAY
         -------------------------------------------------------------------
         local displayHeader
-        displayHeader, h = W:SectionHeader(parent, "Display", y);  y = y - h
+        displayHeader, h = W:SectionHeader(parent, "DISPLAY", y);  y = y - h
         y = EllesmereUI.BlizzStyle.Note(parent, y, "cdmbars")
 
         -- Visibility: one control, the shared axis list plus the TBB-only Hide When
