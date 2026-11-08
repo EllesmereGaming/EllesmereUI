@@ -207,6 +207,7 @@ All Bank Tabs
 All Buffs or Has Duration is selected, so every buff already shows. Use the red Hide box to exclude these instead.
 All Classes
 All Debuffs is selected, so every debuff already shows. Use the red Hide box to exclude these instead.
+All EUI Addons
 All Items
 All Specs
 All Warbank Tabs
@@ -297,6 +298,7 @@ Blacklisted spells never display.
 Blackout glow opacity (1-100%)
 Blizzard
 Blizzard Style
+Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later.
 Blizzard damage meter is off
 Block
 Bloodlust
@@ -335,6 +337,7 @@ CDM Bar - %s
 CDM buttons can have their glow and active states\nset per icon or synced to the bar. Click a button\nto show its settings.
 CDM module
 CHOOSE YOUR LOOK
+CPU Usage:
 Calendar
 Camp
 Cancel
@@ -465,6 +468,7 @@ Ctrl + Left Click: delete
 Ctrl + Left-Click Drag for a temporary move that resets when the panel closes.
 Ctrl + Right-Click: Reset all data
 Ctrl+C copies the link to the interactive feature spotlight
+Ctrl+C to copy, Escape to close
 Current Season Only
 Current Spec is affected by Threshold & Hash Lines.
 Current Spec is not affected by Threshold & Hash Lines.
@@ -601,6 +605,8 @@ Elements cannot be anchored to\n%1$s
 Elements cannot size match to\n%1$s
 Ellesmere's Twitch stream
 EllesmereUI Style, Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later.
+EllesmereUI's features work with every look. Change your mind any time under Global Settings > Style.
+EllesmereUI:|r Kick Tracker announcement reset. It fires on your next /reload.
 Else: Variant %d
 Elwynn Forest
 Empty Action Menu
@@ -824,6 +830,7 @@ Hover Top Bar\nDisabled
 Hover Top Bar\nEnabled
 Hovercast is not available for unmodified left/right click
 How many entries a row of the grid holds. 1 stacks 
+How should EllesmereUI look?
 INDEPENDENT BARS
 Icon ID always shown for this spell (empty removes)
 Icon opacity while on cooldown (1-100%)
@@ -917,6 +924,7 @@ Lets long text wrap onto a second line instead of being cut off.
 Level
 Leveling in: %s (%s XP/Hour)
 Libra
+Light (Strength)
 Lights up the grid lines around the cursor. Needs the grid lines to be on.
 Like all current kick trackers, this feature is experimental and may stop working if\nBlizzard decides to hotfix the workaround that makes this possible.
 Limited to every %d seconds to prevent lock-out
@@ -1618,6 +1626,7 @@ The number seven
 The off-tank's patience
 The pasted string could not be read completely. Please paste it again.
 The question mark shows the spell's icon (with #showtooltip).
+The quick brown fox jumps over the lazy dog.
 The raid leader's good mood
 The raid needs you, and the stars agree.
 The scriptProfile CVar is enabled.
@@ -1987,13 +1996,18 @@ your house of the Guild: everyone shows up on time.
 your house of the Guild: guild chat is in a good mood.
 your house of the Guild: someone brings a feast for all.
 your house of the Guild: the roster fills itself.
+|cff00ff00[EllesmereUI]|r All hints reset. /reload to see them again.
+|cff00ff00[EllesmereUI]|r UI scale reset. /reload to re-snapshot from your Blizzard scale.
+|cff00ff98EllesmereUI:|r Video guides and tutorial tips reset. Badges are back; one-time popups will fire again.
 |cff0cd29dLeft-click:|r |cffE0E0E0Toggle EllesmereUI|r
 |cff0cd29dMiddle-click:|r |cffE0E0E0Hide Minimap Button|r
 |cff0cd29dRight-click:|r |cffE0E0E0Enter Unlock Mode|r
+|cff0cd29fEllesmereUI CDM:|r Cooldown Viewer settings are managed by EllesmereUI. Edit Mode changes are disabled.
 |cff888888Click to create. Right-click to configure.|r
 |cff888888Click to create|r
 |cff888888Created. Right-click to configure.|r
 |cff888888Created|r
 |cffff4444Delete Macro|r
 |cffff6060[EllesmereUI]|r A profile named \
+|cffff6060[EllesmereUI]|r Cannot enter Unlock Mode during combat.
 |cffff6060[EllesmereUI]|r Cannot rename to \

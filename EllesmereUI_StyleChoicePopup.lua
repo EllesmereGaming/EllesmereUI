@@ -112,13 +112,13 @@ local function ShowStyleChoicePopup()
     eyebrow:SetFont(FONT, 13, "")
     eyebrow:SetTextColor(EG.r, EG.g, EG.b, 0.9)
     PP.Point(eyebrow, "TOP", popup, "TOP", 0, -26)
-    eyebrow:SetText("CHOOSE YOUR LOOK")
+    eyebrow:SetText(EllesmereUI.L("CHOOSE YOUR LOOK"))
 
     local title = popup:CreateFontString(nil, "OVERLAY")
     title:SetFont(FONT, 26, "")
     title:SetTextColor(1, 1, 1, 1)
     PP.Point(title, "TOP", eyebrow, "BOTTOM", 0, -6)
-    title:SetText("How should EllesmereUI look?")
+    title:SetText(EllesmereUI.L("How should EllesmereUI look?"))
 
     local desc = popup:CreateFontString(nil, "OVERLAY")
     desc:SetFont(FONT, 14, "")
@@ -127,7 +127,7 @@ local function ShowStyleChoicePopup()
     desc:SetJustifyH("CENTER")
     desc:SetWordWrap(true)
     PP.Point(desc, "TOP", title, "BOTTOM", 0, -10)
-    desc:SetText("EllesmereUI's features work with every look. Change your mind any time under Global Settings > Style.")
+    desc:SetText(EllesmereUI.L("EllesmereUI's features work with every look. Change your mind any time under Global Settings > Style."))
 
     KeepLook = function()
         Stamp()
@@ -180,7 +180,7 @@ local function ShowStyleChoicePopup()
     elseif activeKey == "eui" and EllesmereUI.IS_FOREVER then
         footnote:SetText(EllesmereUI.L("WoW Forever, Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later."))
     elseif activeKey == "eui" then
-        footnote:SetText("Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later.")
+        footnote:SetText(EllesmereUI.L("Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later."))
     else
         footnote:SetText(EllesmereUI.L("Every look but the one in use reloads the UI once to apply. Each module can be switched separately later."))
     end

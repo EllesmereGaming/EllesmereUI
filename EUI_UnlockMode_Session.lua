@@ -1967,7 +1967,7 @@ end
 function ns.OpenUnlockMode()
     if UM.isUnlocked then return end
     if InCombatLockdown() then
-        print("|cffff6060[EllesmereUI]|r Cannot enter Unlock Mode during combat.")
+        print(EllesmereUI.L("|cffff6060[EllesmereUI]|r Cannot enter Unlock Mode during combat."))
         return
     end
     -- Standardized options-panel roundtrip: entering unlock mode by ANY means

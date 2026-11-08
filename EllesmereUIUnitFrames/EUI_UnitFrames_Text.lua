@@ -399,8 +399,8 @@ do
     return function(unit)
       if not unit or not UnitExists(unit) then return "" end
       if status then
-        if not UnitIsConnected(unit) then return "OFFLINE" end
-        if UnitIsDeadOrGhost(unit) then return "DEAD" end
+        if not UnitIsConnected(unit) then return EllesmereUI.L("OFFLINE") end
+        if UnitIsDeadOrGhost(unit) then return EllesmereUI.L("DEAD") end
       end
       local hp = getHP(unit) or 0
       if shortHealth then return ns.AbbreviateShortHealth(hp) end
@@ -446,8 +446,8 @@ do
   TagFns.perhp = PercentHP
   TagFns.perhpnosign = function(unit)
     if not unit or not UnitExists(unit) then return "" end
-    if not UnitIsConnected(unit) then return "OFFLINE" end
-    if UnitIsDeadOrGhost(unit) then return "DEAD" end
+    if not UnitIsConnected(unit) then return EllesmereUI.L("OFFLINE") end
+    if UnitIsDeadOrGhost(unit) then return EllesmereUI.L("DEAD") end
     return PercentHP(unit)
   end
 end
@@ -945,8 +945,8 @@ do
     -- curhpshort does.
     P.curhp = function(u)
         if not u or not UnitExists(u) then return "" end
-        if not UnitIsConnected(u) then return "OFFLINE" end
-        if UnitIsDeadOrGhost(u) then return "DEAD" end
+        if not UnitIsConnected(u) then return EllesmereUI.L("OFFLINE") end
+        if UnitIsDeadOrGhost(u) then return EllesmereUI.L("DEAD") end
         return sf("%d", UnitHealth(u) or 0)
     end
     P.maxhp = function(u)

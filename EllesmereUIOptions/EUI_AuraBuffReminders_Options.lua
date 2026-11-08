@@ -2957,7 +2957,7 @@ initFrame:SetScript("OnEvent", function(self)
             lbl:SetFont(fontPath, 11, GetABROptOutline())
             lbl:SetTextColor(EllesmereUI.TEXT_SECTION_R or 0.45, EllesmereUI.TEXT_SECTION_G or 0.50, EllesmereUI.TEXT_SECTION_B or 0.55, EllesmereUI.TEXT_SECTION_A or 1)
             PP.Point(lbl, "TOP", parentRow, "TOPLEFT", xOff + TALENT_DD_W / 2, 0)
-            lbl:SetText(labelText)
+            lbl:SetText(EllesmereUI.L(labelText))
 
             -- Button (styled like zone dropdown)
             local btn = CreateFrame("Button", nil, parentRow)

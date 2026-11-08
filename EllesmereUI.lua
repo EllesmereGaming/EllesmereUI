@@ -3738,7 +3738,7 @@ SlashCmdList.EUIRESETHINT = function()
             EllesmereUIDB.inlineCogTipSeen = nil
             EllesmereUIDB.cogSeen = nil
         end
-        EllesmereUI.Print("|cff00ff00[EllesmereUI]|r All hints reset. /reload to see them again.")
+        EllesmereUI.Print(EllesmereUI.L("|cff00ff00[EllesmereUI]|r All hints reset. /reload to see them again."))
     end)
 end
 
@@ -3750,7 +3750,7 @@ SlashCmdList.EUIRESETSCALE = function()
             EllesmereUIDB.ppUIScale = nil
             EllesmereUIDB.ppUIScaleAuto = nil
         end
-        EllesmereUI.Print("|cff00ff00[EllesmereUI]|r UI scale reset. /reload to re-snapshot from your Blizzard scale.")
+        EllesmereUI.Print(EllesmereUI.L("|cff00ff00[EllesmereUI]|r UI scale reset. /reload to re-snapshot from your Blizzard scale."))
     end)
 end
 
