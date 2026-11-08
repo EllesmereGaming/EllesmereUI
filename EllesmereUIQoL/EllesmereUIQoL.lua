@@ -1378,6 +1378,8 @@ qolFrame:SetScript("OnEvent", function(self)
                     lootFrame = CreateFrame("Frame")
                     lootFrame:SetScript("OnEvent", function()
                         if IsShiftKeyDown() then return end
+                        -- Nothing to take: no slot empties, so the window would never close by itself.
+                        if GetNumLootItems() == 0 then CloseLoot() return end
                         for i = 1, GetNumLootItems() do
                             local index = i
                             C_Timer.After(0.05 * index, function()
