@@ -614,7 +614,7 @@ L["ToS"] = true
 L["KR"] = true
 
 -- == Community Translation ==========================================================
-["(%1$d active)"] = "(%1$d aktiv)"
+L["(%1$d active)"] = "(%1$d aktiv)"
 L["    Enemy Units"] = "    Gegnerische Einheiten"
 L["    Friendly Units"] = "    Befreundete Einheiten"
 L["    Unit Types"] = "    Einheitentypen"
