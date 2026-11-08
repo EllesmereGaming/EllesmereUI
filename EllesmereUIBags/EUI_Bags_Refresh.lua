@@ -250,7 +250,7 @@ local GR = {
         BOTTOMRIGHT = { 0, 1, 0, 1 }, BOTTOMLEFT = { 1, 0, 0, 1 },
         TOPRIGHT = { 0, 1, 1, 0 }, TOPLEFT = { 1, 0, 1, 0 },
     },
-    ORDER = { "BOTTOMRIGHT", "BOTTOMLEFT", "TOPLEFT", "TOPRIGHT" },
+    EXTRA = { "BOTTOMLEFT", "TOPLEFT" },
     LEFT = { TOPLEFT = true, BOTTOMLEFT = true },
     TOP = { TOPLEFT = true, TOPRIGHT = true },
     HIT = { TOPLEFT = { -6, 0, -6, 2 }, TOPRIGHT = { 0, -6, -6, 3 }, BOTTOMLEFT = { -6, 6, 0, -6 } },
@@ -431,33 +431,36 @@ function ns.UpdateResizeGrip(frame, cfg)
     lock._icon:SetTexture(locked and GR.LOCKED or GR.UNLOCKED)
     lock:ClearAllPoints()
     local inset = GR.LOCK_INSET
-    local grips = frame._resizeGrips
-    if not grips then grips = {}; frame._resizeGrips = grips end
-    for _, at in ipairs(GR.ORDER) do
-        local want = not noGrip and (corner and at ~= corner and at ~= "TOPRIGHT"
-            or not corner and at == "BOTTOMRIGHT")
-        local grip = grips[at]
-        if want then
-            if not grip then grip = GR.NewGrip(frame, at); grips[at] = grip end
-            if at == "BOTTOMRIGHT" then
-                local out = corner and -6 or 0
-                grip:SetHitRectInsets(0, out, 0, out)
-            end
-            if not grip._drag then
-                grip._cfg = cfg
-                grip._hoverOnly = corner ~= nil
-                grip:SetAlpha(grip:IsMouseOver() and GR.HOVER or GripRestAlpha(grip))
-            end
-            grip:Show()
-        elseif grip then
-            grip:Hide()
+    local grip, extra = frame._resizeGrip, frame._resizeGrips
+    local showBR = not noGrip and corner ~= "BOTTOMRIGHT"
+    if showBR then
+        if not grip then grip = GR.NewGrip(frame, "BOTTOMRIGHT"); frame._resizeGrip = grip end
+        if not grip._drag then grip._cfg = cfg end
+        local hover = corner ~= nil
+        if grip._hoverOnly ~= hover then
+            grip._hoverOnly = hover
+            grip:SetHitRectInsets(0, hover and -6 or 0, 0, hover and -6 or 0)
+            if not grip._drag then grip:SetAlpha(grip:IsMouseOver() and GR.HOVER or GripRestAlpha(grip)) end
         end
-    end
-    if grips.BOTTOMRIGHT and grips.BOTTOMRIGHT:IsShown() then
-        lock:SetPoint("RIGHT", grips.BOTTOMRIGHT, "LEFT", -2, 0)
+        grip:Show()
+        lock:SetPoint("RIGHT", grip, "LEFT", -2, 0)
         inset = GR.GRIP_INSET
     else
+        if grip then grip:Hide() end
         lock:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4)
+    end
+    if corner or extra then
+        if not extra then extra = {}; frame._resizeGrips = extra end
+        for _, at in ipairs(GR.EXTRA) do
+            local g = extra[at]
+            if not noGrip and corner and at ~= corner then
+                if not g then g = GR.NewGrip(frame, at); g._hoverOnly = true; g:SetAlpha(0); extra[at] = g end
+                if not g._drag then g._cfg = cfg end
+                g:Show()
+            elseif g then
+                g:Hide()
+            end
+        end
     end
     lock:Show()
     if frame._gripInset ~= inset then
@@ -1027,7 +1030,7 @@ function EUI_Bags:RefreshInventory()
         local sc = EUI_Bags:GetScale(); if not sc or sc <= 0 then sc = 1 end
         local maxGridW = (UIParent:GetWidth() / sc) * 0.95 - sbW - 30
         local roomW = BP().bagAnchor and ns.BagAnchor.Room()
-        if roomW then maxGridW = math.min(maxGridW, roomW - sbW - 30) end
+        if roomW then maxGridW = math.min(maxGridW, roomW - sbW - 24 - SCROLLBAR_HIT_W) end
         local maxCols = math.max(roomW and 1 or baseCols, math.floor(maxGridW / (SLOT_SIZE + SPACING)))
         if ideal < baseCols then ideal = baseCols end
         if ideal > maxCols then ideal = maxCols end

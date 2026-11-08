@@ -160,8 +160,7 @@ local function StartAddon()
     -- transitions as Blizzard's container frames do: a Show on an already open
     -- bag fires no OnShow, and the login pre-build never shows the frame.
     EUI_Bags:HookScript("OnShow", function(self)
-        if self._closed ~= false and BP().bagAnchor then ns.BagAnchor.Pin() end
-        self._closed = false
+        if BP().bagAnchor then ns.BagAnchor.Shown() end
         self:Raise()
         self:RepinIconLevels()
         PlaySound(SOUNDKIT.IG_BACKPACK_OPEN)
@@ -180,7 +179,6 @@ local function StartAddon()
     end)
 
     EUI_Bags:HookScript("OnHide", function()
-        if not EUI_Bags:IsShown() then EUI_Bags._closed = true end
         PlaySound(SOUNDKIT.IG_BACKPACK_CLOSE)
         EUI_Bags._closeSoundAt = GetTime()
         -- A tip left up without Okay must not come back with the window (in combat too)

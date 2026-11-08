@@ -14,6 +14,7 @@ local Anchor = { KEY = UNLOCK_KEY }
 ns.BagAnchor = Anchor
 local frame, element
 local bind, bindCorner
+local registered, hideHooked, closed = false, false, nil
 local PinTo
 
 function Anchor.On() return BP().bagAnchor == true end
@@ -126,7 +127,16 @@ local function Register()
     end
     element.label = Label()
     EUI:RegisterUnlockElements({ element }, "EllesmereUIBags")
+    registered = true
     if EUI.RefreshUnlockElementLabel then EUI.RefreshUnlockElementLabel(UNLOCK_KEY) end
+end
+
+local function OnUnlockMode(active)
+    if not active then Anchor.Relayout() end
+end
+
+local function OnBagsHidden()
+    closed = true
 end
 
 local function Ensure()
@@ -135,7 +145,6 @@ local function Ensure()
     frame:SetSize(ANCHOR_W, ANCHOR_H)
     frame:EnableMouse(false)
     Place()
-    Register()
     return frame
 end
 
@@ -219,13 +228,6 @@ local function Reconcile()
     if held then HoldAt(c) else PinTo(c) end
 end
 
-local function Changed()
-    if EUI_Bags._gripCfg then Reconcile() else Anchor.pending = true end
-    if Anchor.On() then Ensure() end
-    if element then Register() end
-    if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
-end
-
 local function HasLinks()
     local db = EllesmereUIDB
     if not db then return false end
@@ -249,8 +251,47 @@ local function HasLinks()
     return false
 end
 
+local function Sync()
+    local on = Anchor.On()
+    if on then
+        Ensure():Show()
+        if not hideHooked then
+            hideHooked = true
+            hooksecurefunc(EUI_Bags, "Hide", OnBagsHidden)
+            if EUI_Bags:IsShown() then closed = false end
+        end
+    elseif frame then
+        frame:Hide()
+    end
+    if EUI.RegisterUnlockModeListener then
+        if on then
+            EUI:RegisterUnlockModeListener(UNLOCK_KEY, OnUnlockMode)
+        else
+            EUI:UnregisterUnlockModeListener(UNLOCK_KEY)
+        end
+    end
+    if on or HasLinks() then
+        Register()
+    elseif registered and EUI.UnregisterUnlockElement then
+        EUI:UnregisterUnlockElement(UNLOCK_KEY)
+        registered = false
+    end
+end
+
+local function Changed()
+    if EUI_Bags._gripCfg then Reconcile() else Anchor.pending = true end
+    Sync()
+    if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
+end
+
 function Anchor.Start()
-    if Anchor.On() then PinTo(Anchor.Corner()) elseif HasLinks() then Register() end
+    if Anchor.On() then PinTo(Anchor.Corner()) end
+    if Anchor.On() or HasLinks() then Sync() end
+end
+
+function Anchor.Shown()
+    if closed ~= false then Anchor.Pin() end
+    closed = false
 end
 
 function Anchor.Relayout()
@@ -288,7 +329,7 @@ function Anchor.ProfileApplied()
     elseif bind then
         ApplyLegacy()
     end
-    if element then Register() end
+    if Anchor.On() or registered or HasLinks() then Sync() end
 end
 
 function Anchor.Room()
