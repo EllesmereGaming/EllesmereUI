@@ -4588,6 +4588,106 @@ EllesmereUI.RegisterMigration({
 })
 end
 
+-- WoW Forever CDM spell store repairs for imported and switched profiles.
+if EllesmereUI.IS_FOREVER == true then
+    local GHOST_CD = "__ghost_cd"
+    local DEFAULT_BARS = {
+        { key = "cooldowns", barType = "cooldowns" },
+        { key = "utility", barType = "utility" },
+        { key = "buffs", barType = "buffs" },
+    }
+
+    local function HoldsLayout(prof)
+        if type(prof) ~= "table" then return false end
+        if type(prof.barSpells) == "table" then
+            for bk, bs in pairs(prof.barSpells) do
+                if bk ~= GHOST_CD and type(bs) == "table" and type(bs.assignedSpells) == "table"
+                   and #bs.assignedSpells > 0 then
+                    return true
+                end
+            end
+        end
+        local tbb = prof.trackedBuffBars
+        return type(tbb) == "table" and type(tbb.bars) == "table" and #tbb.bars > 0
+    end
+
+    -- A class reads its Forever spec key before its retail keys (SpecFor), so a
+    -- bucket under the Forever key hides a retail-keyed layout of the class. A
+    -- profile apply created one, empty, which EUI then filled with Blizzard's
+    -- default layout at the next login: drop it whatever it holds.
+    EllesmereUI.RegisterMigration({
+        id          = "cdm_forever_drop_shadowing_spec_v1",
+        scope       = "specProfile",
+        description = "Drop a Forever spec key CDM bucket that hides a retail-keyed layout of the same class.",
+        body = function(ctx)
+            local id = tonumber(ctx.specKey)
+            local cls = id and EllesmereUI.SpecClassOf(id)
+            if not cls or EllesmereUI.FOREVER_CLASS_SPEC[cls] ~= id then return end
+            local sp = EllesmereUIDB.spellAssignments.profiles[ctx.profileName].specProfiles
+            local ids = EllesmereUI.ForeverClassSpecIDs(cls)
+            for i = 1, #ids do
+                if HoldsLayout(sp[tostring(ids[i])]) then
+                    sp[ctx.specKey] = nil
+                    return
+                end
+            end
+        end,
+    })
+
+    -- Each rank of a spell is its own spell ID, and a bar lists a spell once
+    -- under any rank. Import ghosting compared IDs only, so it hid the rank a
+    -- frame showed when the layout listed another rank of the spell on a
+    -- visible cooldown bar. Spell names are static client data, readable here.
+    EllesmereUI.RegisterMigration({
+        id          = "cdm_forever_ghost_rank_aliases_v1",
+        scope       = "specProfile",
+        description = "Unhide spells the ghost CD bar holds under another rank of a spell placed on a visible cooldown bar.",
+        body = function(ctx)
+            local barSpells = ctx.specProfile.barSpells
+            local ghost = type(barSpells) == "table" and barSpells[GHOST_CD]
+            local list = type(ghost) == "table" and ghost.assignedSpells
+            if type(list) ~= "table" or #list == 0 then return end
+            local prof = EllesmereUIDB.profiles and EllesmereUIDB.profiles[ctx.profileName]
+            local cdm = type(prof) == "table" and prof.addons and prof.addons.EllesmereUICooldownManager
+            local bars = cdm and cdm.cdmBars and cdm.cdmBars.bars
+            if type(bars) ~= "table" then return end
+
+            -- Saved bars drop fields equal to the defaults, which list the
+            -- Cooldowns, Utility and Buffs bars first.
+            local placedNames, placedIds = {}, {}
+            for i, bd in ipairs(bars) do
+                local def = DEFAULT_BARS[i]
+                local key = bd.key or (def and def.key)
+                local barType = bd.barType or (def and def.barType)
+                local enabled = bd.enabled
+                if enabled == nil and def then enabled = true end
+                local bs = key and enabled and not bd.isGhostBar
+                    and barType ~= "buffs" and barType ~= "custom_buff"
+                    and barSpells[key]
+                if type(bs) == "table" and type(bs.assignedSpells) == "table" then
+                    for _, sid in ipairs(bs.assignedSpells) do
+                        if type(sid) == "number" and sid > 0
+                           and not (bs.customSpellIDs and bs.customSpellIDs[sid]) then
+                            placedIds[sid] = true
+                            local n = C_Spell.GetSpellName(sid)
+                            if n then placedNames[n] = true end
+                        end
+                    end
+                end
+            end
+
+            -- An entry hidden under the placed ID itself stays hidden.
+            for i = #list, 1, -1 do
+                local sid = list[i]
+                if type(sid) == "number" and sid > 0 and not placedIds[sid] then
+                    local n = C_Spell.GetSpellName(sid)
+                    if n and placedNames[n] then table.remove(list, i) end
+                end
+            end
+        end,
+    })
+end
+
 -- Player Aura Bars icons with a custom Icon Shape used to zoom the spell art far
 -- past their Icon Zoom (the shaped icon grew past its button and still took the
 -- zoom crop), so most players with a shape dragged Icon Zoom down to 0. Shaped
