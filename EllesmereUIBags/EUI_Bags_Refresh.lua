@@ -253,7 +253,7 @@ local GR = {
     ORDER = { "BOTTOMRIGHT", "BOTTOMLEFT", "TOPLEFT", "TOPRIGHT" },
     LEFT = { TOPLEFT = true, BOTTOMLEFT = true },
     TOP = { TOPLEFT = true, TOPRIGHT = true },
-    HIT = { TOPLEFT = { 0, 0, 0, 2 }, TOPRIGHT = { 0, 0, 0, 3 }, BOTTOMLEFT = { 0, 6, 0, 0 } },
+    HIT = { TOPLEFT = { -6, 0, -6, 2 }, TOPRIGHT = { 0, -6, -6, 3 }, BOTTOMLEFT = { -6, 6, 0, -6 } },
 }
 
 function GR.Axes(at, pinned)
@@ -336,7 +336,9 @@ end
 
 local function GripReset(grip)
     GripStop(grip)
-    grip._cfg.reset()
+    local cfg = grip._cfg
+    local sx, sy = GR.Axes(grip._at, cfg.corner and cfg.corner() or "TOPLEFT")
+    cfg.reset(sx ~= 0, sy ~= 0)
 end
 
 local function GripOnEnter(grip)
@@ -475,9 +477,10 @@ local _bagGripCfg = {
     savePos = function(left, top)
         BP().bagsPosition = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = top }
     end,
-    reset = function()
+    reset = function(w, h)
         local p = BP()
-        p.bagColumns, p.bagHeight, p.bagListWidth = nil, nil, nil
+        if w ~= false then p.bagColumns, p.bagListWidth = nil, nil end
+        if h ~= false then p.bagHeight = nil end
         EUI_Bags:RefreshInventory()
     end,
     -- The gold display sits in the footer's bottom-right corner
@@ -561,8 +564,13 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     local userH = BP().bagHeight
     local totalW = sidebarW + gridContentW
     local autoSize = EUI_Bags.AutoSizeOn()
+    local roomW, roomH
+    if BP().bagAnchor then roomW, roomH = ns.BagAnchor.Room() end
     if autoSize then
         EUI_Bags._asMaxGridW = math.max(EUI_Bags._asMaxGridW or 0, gridContentW)
+        if roomW then
+            EUI_Bags._asMaxGridW = math.min(EUI_Bags._asMaxGridW, math.max(gridContentW, roomW - sidebarW))
+        end
         totalW = sidebarW + EUI_Bags._asMaxGridW
     end
     local currencyFooterH = UpdateCurrencyDisplays(totalW) or FOOTER_H
@@ -571,7 +579,6 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     if autoSize or (EUI.IS_FOREVER and not userH) then
         local sc = EUI_Bags:GetScale(); if not sc or sc <= 0 then sc = 1 end
         local maxH = (UIParent:GetHeight() / sc) * 0.95
-        local _, roomH = ns.BagAnchor.Room()
         if roomH then maxH = math.min(maxH, roomH) end
         local fitH = contentH + HEADER_H + currencyFooterH + 2
         local neededH
@@ -590,11 +597,13 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
             neededH = math.max(FIXED_H, math.min(fitH, maxH))
         end
         EUI_Bags._asMaxH = math.max(EUI_Bags._asMaxH or 0, neededH)
+        if roomH then EUI_Bags._asMaxH = math.min(EUI_Bags._asMaxH, roomH) end
         EUI_Bags:SetWidth(totalW)
         EUI_Bags:SetHeight(EUI_Bags._asMaxH)
     else
+        local h = userH or (FIXED_H + currencyFooterH - FOOTER_H)
         EUI_Bags:SetWidth(totalW)
-        EUI_Bags:SetHeight(userH or (FIXED_H + currencyFooterH - FOOTER_H))
+        EUI_Bags:SetHeight(roomH and math.min(h, roomH) or h)
     end
 
     if EUI_Bags.Header and EUI_Bags.Header.itemCount then
@@ -620,7 +629,7 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     ns.ApplyWindowBackground(EUI_Bags.bg, EUI_Bags.bgOverlay)
     -- View may have changed under a held item (catch layer on / off)
     if EUI_Bags._syncDropTarget and GetCursorInfo() == "item" then EUI_Bags._syncDropTarget() end
-    ns.BagAnchor.Laid()
+    if ns.BagAnchor.pending then ns.BagAnchor.Laid() end
     ns.UpdateResizeGrip(EUI_Bags, EUI_Bags.IsListMode() and _bagListGripCfg or _bagGripCfg)
     -- the offline bank panel goes over the items (bank picked, or an alt)
     if ns.OfflinePanel then ns.OfflinePanel(sidebarW) end
@@ -1013,12 +1022,13 @@ function EUI_Bags:RefreshInventory()
         local sbW = GetSidebarWidth()
         local sc = EUI_Bags:GetScale(); if not sc or sc <= 0 then sc = 1 end
         local maxGridW = (UIParent:GetWidth() / sc) * 0.95 - sbW - 30
-        local roomW = ns.BagAnchor.Room()
+        local roomW = BP().bagAnchor and ns.BagAnchor.Room()
         if roomW then maxGridW = math.min(maxGridW, roomW - sbW - 30) end
         local maxCols = math.max(baseCols, math.floor(maxGridW / (SLOT_SIZE + SPACING)))
         if ideal < baseCols then ideal = baseCols end
         if ideal > maxCols then ideal = maxCols end
         EUI_Bags._asCols = math.max(EUI_Bags._asCols or baseCols, ideal)
+        if roomW then EUI_Bags._asCols = math.min(EUI_Bags._asCols, maxCols) end
     end
 
     local columns = GetColumns()

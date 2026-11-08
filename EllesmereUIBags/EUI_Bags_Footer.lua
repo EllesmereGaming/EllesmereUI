@@ -427,14 +427,18 @@ local function SyncBagFrameToFooter()
     if footerH == prev then return end
     if not EUI_Bags:IsVisible() then return end
     local delta = footerH - prev
+    local roomH
+    if BP().bagAnchor then roomH = select(2, ns.BagAnchor.Room()) end
     if EUI_Bags.AutoSizeOn() or (EUI.IS_FOREVER and not BP().bagHeight) then
         EUI_Bags._asMaxH = math.max(EUI_Bags._asMaxH or EUI_Bags:GetHeight() or 0, EUI_Bags:GetHeight() + delta)
+        if roomH then EUI_Bags._asMaxH = math.min(EUI_Bags._asMaxH, roomH) end
         EUI_Bags:SetHeight(EUI_Bags._asMaxH)
     elseif BP().bagHeight then
         -- Grip-set height is the whole window; the content area absorbs it
         return
     else
-        EUI_Bags:SetHeight(EUI_Bags:GetHeight() + delta)
+        local h = EUI_Bags:GetHeight() + delta
+        EUI_Bags:SetHeight(roomH and math.min(h, roomH) or h)
     end
 end
 

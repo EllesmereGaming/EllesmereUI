@@ -13,8 +13,8 @@ local CORNERS = { TOPLEFT = "Top Left", TOPRIGHT = "Top Right", BOTTOMLEFT = "Bo
 local Anchor = { KEY = UNLOCK_KEY }
 ns.BagAnchor = Anchor
 local frame, element
-local laidOut, dirty = false, false
 local bind, bindCorner
+local PinTo
 
 function Anchor.On() return BP().bagAnchor == true end
 
@@ -69,6 +69,11 @@ local function Place(keepLink)
         if keepLink and EUI._CaptureAnchorOffsets then
             local ox, oy = EUI._CaptureAnchorOffsets(UNLOCK_KEY, info.target, info.side)
             if ox ~= nil then info.offsetX, info.offsetY = ox, oy end
+            local edge = info.edge
+            if edge and edge.key and EUI._CaptureScreenEdgeOffset then
+                local eo = EUI._CaptureScreenEdgeOffset(UNLOCK_KEY, edge.key, edge.side)
+                if eo then edge.offset = eo end
+            end
         elseif EUI.ReapplyOwnAnchor then
             EUI.ReapplyOwnAnchor(UNLOCK_KEY)
         end
@@ -95,6 +100,10 @@ local function Register()
                 if not point then return end
                 BP().bagAnchorPos = { point = point, relPoint = relPoint or point, x = x, y = y }
                 if not EUI._unlockActive then Place() end
+                if Anchor.On() and Anchor.pending then
+                    Anchor.pending = false
+                    PinTo(Anchor.Corner())
+                end
             end,
             loadPos  = function()
                 if not Anchor.On() then return nil end
@@ -103,6 +112,10 @@ local function Register()
             clearPos = function()
                 BP().bagAnchorPos = nil
                 Place()
+                if Anchor.On() and Anchor.pending then
+                    Anchor.pending = false
+                    PinTo(Anchor.Corner())
+                end
             end,
             applyPos = function()
                 if Anchor.On() then Place() end
@@ -148,7 +161,7 @@ local function Capture(c)
     BP().bagAnchorPos = CenterPos(c, x, y)
 end
 
-local function PinTo(c)
+function PinTo(c)
     EUI_Bags:ClearAllPoints()
     EUI_Bags:SetPoint(c, Ensure(), c, 0, 0)
     bind, bindCorner = "pin", c
@@ -190,7 +203,7 @@ function Anchor.SaveSpot()
 end
 
 local function Reconcile()
-    dirty = false
+    Anchor.pending = false
     local c = Anchor.ActiveCorner()
     if not c then
         if bind then Anchor.SaveSpot() end
@@ -205,25 +218,24 @@ local function Reconcile()
 end
 
 local function Changed()
-    if laidOut then Reconcile() else dirty = true end
+    if EUI_Bags._gripCfg then Reconcile() else Anchor.pending = true end
     if Anchor.On() then Ensure() end
     if element then Register() end
     if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
 end
 
 function Anchor.Start()
-    if Anchor.On() then PinTo(Anchor.Corner()) end
+    if Anchor.On() then PinTo(Anchor.Corner()) else Register() end
 end
 
 function Anchor.Pin()
     local c = Anchor.ActiveCorner()
-    if not c or dirty then return end
+    if not c or Anchor.pending then return end
     PinTo(c)
 end
 
 function Anchor.Laid()
-    laidOut = true
-    if dirty then Reconcile() end
+    if Anchor.pending then Reconcile() end
 end
 
 function Anchor.SetOn(on)
@@ -239,7 +251,7 @@ function Anchor.SetCorner(corner)
 end
 
 function Anchor.ProfileApplied()
-    dirty = false
+    Anchor.pending = false
     if Anchor.On() then
         Ensure()
         Place()
@@ -251,11 +263,12 @@ function Anchor.ProfileApplied()
 end
 
 function Anchor.Room()
-    if not (bind and frame and frame:GetLeft()) then return nil end
-    local c = bindCorner
-    local s = 1 / Scale()
-    local x = IsLeft(c) and frame:GetLeft() or frame:GetRight()
-    local y = IsBottom(c) and frame:GetBottom() or frame:GetTop()
+    local c, s = bindCorner, Scale()
+    local f, k = frame, 1
+    if bind == "hold" then f, k = EUI_Bags, s end
+    if not (bind and f and f:GetLeft()) then return nil end
+    local x = (IsLeft(c) and f:GetLeft() or f:GetRight()) * k
+    local y = (IsBottom(c) and f:GetBottom() or f:GetTop()) * k
     local w, h = UIParent:GetSize()
-    return (IsLeft(c) and w - x or x) * s, (IsBottom(c) and h - y or y) * s
+    return (IsLeft(c) and w - x or x) / s, (IsBottom(c) and h - y or y) / s
 end
