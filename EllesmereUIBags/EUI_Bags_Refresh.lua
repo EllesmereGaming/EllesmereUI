@@ -253,6 +253,7 @@ local GR = {
     ORDER = { "BOTTOMRIGHT", "BOTTOMLEFT", "TOPLEFT", "TOPRIGHT" },
     LEFT = { TOPLEFT = true, BOTTOMLEFT = true },
     TOP = { TOPLEFT = true, TOPRIGHT = true },
+    HIT = { TOPLEFT = { 0, 0, 0, 2 }, TOPRIGHT = { 0, 0, 0, 3 }, BOTTOMLEFT = { 0, 6, 0, 0 } },
 }
 
 function GR.Axes(at, pinned)
@@ -389,9 +390,11 @@ end
 
 function GR.NewGrip(frame, at)
     local br = at == "BOTTOMRIGHT"
-    local size, pad = br and 18 or 8, br and 2 or 0
+    local size, pad = br and 18 or 14, br and 2 or 0
     local grip = GR.IconButton(frame, size, size, GR.RESIZE)
     grip._at = at
+    local hit = GR.HIT[at]
+    if hit then grip:SetHitRectInsets(hit[1], hit[2], hit[3], hit[4]) end
     grip:SetPoint(at, frame, at, GR.LEFT[at] and pad or -pad, GR.TOP[at] and -pad or pad)
     grip._icon:SetTexCoord(unpack(GR.TEXCOORD[at]))
     grip:SetScript("OnMouseDown", GripOnMouseDown)
