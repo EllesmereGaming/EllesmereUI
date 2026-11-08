@@ -401,11 +401,13 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             else contentH = contentH + ITEM_H; checkableCount = checkableCount + 1 end
         end
         local SEARCH_H = searchable and 26 or 0
+        -- The box plus its 4-unit gap: the menu reserves exactly what the scroll area skips.
+        local SEARCH_PAD = searchable and (SEARCH_H + 4) or 0
         local CLOSE_BTN_H = closeButton and (6 + 26 + 6) or 0
         contentH = contentH + CLOSE_BTN_H
         local needsScroll = maxVisibleItems and checkableCount > maxVisibleItems
         -- +2 accounts for scroll frame 1px top + 1px bottom insets so non-scrolling menus don't scroll
-        local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4 + CLOSE_BTN_H) or (contentH + 4)) + SEARCH_H + TOP_H
+        local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4 + CLOSE_BTN_H) or (contentH + 4)) + SEARCH_PAD + TOP_H
         if firstBuild then
             -- One menu per dropdown button for the session: a build that dresses
             -- the button again gets this frame back here, reset to new.
@@ -502,7 +504,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         if searchable then
             if not searchEdit then
                 searchEdit = CreateFrame("EditBox", nil, menu)
-                searchEdit:SetSize(ddW - 16, SEARCH_H)
+                searchEdit:SetSize(ddW - 8, SEARCH_H)
                 searchEdit:SetFont(fontPath, 11, "")
                 searchEdit:SetTextColor(1, 1, 1, 0.9)
                 searchEdit:SetJustifyH("LEFT")
@@ -609,7 +611,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 UpdateCBThumb()
             end)
         end
-        local sfTop = -((SEARCH_H > 0 and (SEARCH_H + 8) or 1) + TOP_H)
+        local sfTop = -((SEARCH_PAD > 0 and SEARCH_PAD or 1) + TOP_H)
         sf:ClearAllPoints()
         sf:SetPoint("TOPLEFT", 1, sfTop)
         sf:SetPoint("BOTTOMRIGHT", -1, 1)
