@@ -519,7 +519,7 @@ local function TimerBar(l)
     if bar then return bar end
     bar = CreateFrame("StatusBar", nil, l)
     bar:SetHeight(BAR_H)
-    bar:SetStatusBarTexture("Interface\Buttons\WHITE8X8")
+    bar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     bar:SetMinMaxValues(0, 1)
     local bg = bar:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
