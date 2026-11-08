@@ -126,7 +126,6 @@
 2H
 ? = unknown (offline, dead or out of range)
 A bar per group member with their kick's cooldown, read from their talents
-A better group finder: narrow the list down to the groups you want and see who is in each one, right in the Dungeons & Raids window.
 A crit at the right moment
 A fresh flask
 A freshly sorted bag
@@ -342,7 +341,6 @@ Cancelled
 Cancer
 Cannot determine your current zone.
 Cannot open options during combat.
-Cannot open options during combat. Group Finder is under UI Enhancements in /eui.
 Cannot open options during combat. The Kick Tracker is under Mythic+ Tools in /eui.
 Cannot open the Cooldown Manager during combat.
 Cannot open the Cooldown Manager with the Gamepad interface style.
@@ -452,7 +450,6 @@ Could not build the export string.
 Could not equip gear set %s.
 Could not load talent loadout %s.
 Council can manage queue
-Count your Mythic+ applications and how they ended
 Create
 Create Custom Buff Manager
 Create Group With
@@ -491,7 +488,6 @@ Custom Macro
 Custom Spell ID
 Custom Spell...
 Custom Text
-Custom buff tracking, layouts, colors and borders
 Customizing Unlock Mode: %s (changes apply only to this group's specs)
 DEAD
 DON'T MOVE - CHANGING TALENTS
@@ -540,7 +536,6 @@ Differs from template
 Difficulty
 Difficulty %s
 Disable
-Disable Raid & Party Frames
 Disable Snapping
 Disable and Reload
 Disabled
@@ -551,7 +546,6 @@ Disband Sync Group
 Discard
 Discard your unsaved changes to this macro?
 Dismiss this warning
-Dispel, defensive and private aura tracking
 Dispels
 Display
 Display separated raid groups in your chosen order.
@@ -602,7 +596,6 @@ Elemental
 Elements cannot be anchored to\n%1$s
 Elements cannot size match to\n%1$s
 Ellesmere's Twitch stream
-EllesmereUI Raid & Party Frames are here! Clean, fully customizable, and built for performance.
 EllesmereUI Style, Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later.
 Else: Variant %d
 Elwynn Forest
@@ -619,7 +612,6 @@ Enable hash lines first
 Enable the threat meter first.
 Enable/Disable Bar per Form
 Enable/Disable per Form
-Enable/disable any time via the options panel sidebar.
 Enemies' names will still show their full names in restricted content (M+/Raid).
 Enemy
 Enemy Forces
@@ -691,7 +683,6 @@ Favorite for This Character
 Favorites
 Feral
 Filter elements...
-Filter groups by dungeon, delve, raid boss, role and rating
 Filter groups with your own rules
 Filtering with this expression.
 Filters
@@ -723,7 +714,6 @@ From
 Frost Res
 Full Moon
 Full Preview
-Full mouseover cast binding suite
 Fury of the Aspects (Evoker)
 GLOBAL
 GLOBAL OPTIONS
@@ -743,7 +733,6 @@ General
 Gilneas
 Global Bindings
 Global Settings
-Global Settings > Style sets the look for the whole UI or for each module.
 Globals
 Glow Opacity
 Glow When Usable
@@ -761,9 +750,7 @@ Graphics changed by Optimize My FPS and Graphics stay as they are. To undo them,
 Great Vault
 Group
 Group Filters Settings
-Group Finder
 Group Finder has been turned off because Premade Groups Filter is loaded.
-Group Finder is under UI Enhancements in /eui.
 Group Settings
 Group a part together.
 Group tooltips add each member's name (dungeons and arenas, where Blizzard already lists the roles and classes), or a line per member with role, specialization, class and name (other groups).
@@ -876,7 +863,6 @@ Item Level:
 Items
 Its Cooldown Manager spells come from the other game client and will not be imported.
 Keep Mine
-Keep Raid & Party Frames
 Keeps the note you typed in the Sign Up dialog between sign ups.
 Key
 Keybind
@@ -1029,7 +1015,6 @@ My Profile
 Mythic+
 N/A
 NAMEPLATE AURA FILTERS
-NEW FEATURE
 NEW IN ELLESMEREUI
 NPC Target Color
 Nagrand
@@ -1241,7 +1226,6 @@ REAGENTS
 RISING SIGN
 Racial
 Raid
-Raid & Party Frames
 Raid Buff Check
 Raid Buff Check cannot be opened in combat.
 Raid Buffs
@@ -1323,7 +1307,6 @@ Resource Aware CD Ready Glow may cause a slight loss in performance efficiency.
 Rested
 Rested: %s
 Restore My Graphics Settings
-Restyle My UI
 Retail
 Retired
 Retry limit reached; try again when ready.
@@ -1348,7 +1331,6 @@ SP
 SPELL GROUP: %1$s
 SUN SIGN
 Sagittarius
-Same setup, same EllesmereUI features, a new look: switch to Blizzard Style or the new Classic WoW UI in one click, and switch back any time.
 Saturday belongs to Saturn: discipline turns wipes into kills.
 Saturday belongs to Saturn: expect a lesson.
 Saturday belongs to Saturn: patience beats panic.
@@ -1375,7 +1357,6 @@ Seconds left when the buff shows again (0 = off)
 Seconds left when threshold text starts (0 = off)
 Seconds the active state shows after use
 Section
-See each group's specs and leader rating at a glance
 Select All
 Select Dungeon/Raid/PvP Zone
 Select Snap Target
@@ -1707,7 +1688,6 @@ Too long: %1$d / %2$d characters.
 Top
 Top Left
 Top Right
-Top of the line performance metrics
 Total
 Total: %s
 Tracked Unit
@@ -1727,7 +1707,6 @@ Tuesday belongs to Mars: pull hard, pull fast.
 Tuesday belongs to Mars: there is blood in the water.
 Tune graphics for higher FPS and clarity.
 Turn It On
-Turning it on reloads your UI. Group Finder is under UI Enhancements in /eui.
 Turning it on takes effect immediately, no reload needed. The Kick Tracker is under Mythic+ Tools in /eui.
 Two action menus can share a keybind when Assign to Spec keeps them from ever loading in the same spec.
 Type [ for suggestions, the (i) lists every tag.

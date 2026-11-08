@@ -25,9 +25,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 
 local ns = select(2, ...)
 
-local function IsSecret(value)
-    return issecretvalue and issecretvalue(value) or false
-end
+local IsSecret = EllesmereUI.IsSecret
 
 local inCombat = false
 local playerClassToken = select(2, UnitClass("player")) -- class never changes: resolved once

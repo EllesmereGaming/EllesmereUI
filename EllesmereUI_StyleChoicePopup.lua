@@ -191,8 +191,7 @@ end
 EllesmereUI.ShowStyleChoicePopup = ShowStyleChoicePopup
 
 -------------------------------------------------------------------------------
---  Trigger: the login after the module picker's reload, once. Defers behind
---  the intro announcements the way the other popups do, so nothing stacks.
+--  Trigger: the login after the module picker's reload, once.
 -------------------------------------------------------------------------------
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
@@ -217,16 +216,9 @@ loader:SetScript("OnEvent", function(self, event, addonName)
     if EllesmereUI._firstInstallPending then return end
     -- A registered external installer owns the first-run experience.
     if EllesmereUI._externalInstaller then Stamp(); Release(); return end
-    local tries = 0
     local function TryShow()
         if not (EllesmereUIDB and EllesmereUIDB.styleChoicePending) then
             Release()
-            return
-        end
-        tries = tries + 1
-        if tries < 25 and (EllesmereUI._raidFramesIntroPending or EllesmereUI._patchNotesIntroPending
-            or EllesmereUI._windowSkinsIntroPending) then
-            C_Timer.After(0.4, TryShow)
             return
         end
         ShowStyleChoicePopup()
