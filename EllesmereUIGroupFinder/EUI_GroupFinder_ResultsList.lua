@@ -16,7 +16,7 @@ local DELVES = GROUP_FINDER_CATEGORY_ID_DELVES or 121
 local X_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
 local CANCEL_H = 18  -- smallest cancel square
 local GAP = 2
-local function Secret(v) return issecretvalue and issecretvalue(v) or false end
+local Secret = EllesmereUI.IsSecret
 local function Readable(t) return type(t) == "table" and not Secret(t) and not (canaccesstable and not canaccesstable(t)) end
 
 -- display settings, in the profile (EllesmereUIGroupFinder.lua)

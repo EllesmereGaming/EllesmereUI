@@ -10,7 +10,7 @@ local GFNS = ns
 local CM = ns.EUI
 
 local EXPR_TEX = "Interface\\AddOns\\" .. FOLDER .. "\\media\\icons\\eui-expression.png"
-local function Secret(v) return issecretvalue and issecretvalue(v) or false end
+local Secret = EllesmereUI.IsSecret
 local function Readable(t) return type(t) == "table" and not Secret(t) and not (canaccesstable and not canaccesstable(t)) end
 
 -------------------------------------------------------------------------------

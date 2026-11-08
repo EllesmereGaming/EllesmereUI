@@ -33,7 +33,7 @@ GFNS.ExtraRolesAny = function()
 end
 
 local CM = ns.EUI
-local function Secret(v) return issecretvalue and issecretvalue(v) or false end
+local Secret = EllesmereUI.IsSecret
 local HINT_GREY = 0.35  -- the (and) / (or) bit, never takes the accent
 -- dim label grey
 local DIM_HEX = EllesmereUI.COLOR_CODES.DIM
