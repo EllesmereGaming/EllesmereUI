@@ -136,21 +136,18 @@ local REZ_ITEMS = { 269586, 248486 }
 
 -- WoW Forever: the vanilla spells. An entry's alts are its higher ranks and a
 -- rez slot lists every rank ID, rank 1 first; /cast by name casts the highest
--- rank the character knows. Each class's dispels run in priority order (the
--- first known line fires), Paladin is the only class with an external, and
--- there is no group rez, no Warlock entry and no combat rez item.
+-- rank the character knows. Each class lists one dispel: a dispel casts even
+-- with nothing to remove and starts the GCD, so any later line would fail with
+-- "not ready" (bind the other dispels as spell bindings). Paladin is the only
+-- class with an external, and there is no group rez, no Warlock entry and no
+-- combat rez item.
 if EllesmereUI.IS_FOREVER then
     DISPEL_SPELLS = {
         { id = 527,   name = "Dispel Magic",        class = "PRIEST", alts = { 988 } },
-        { id = 552,   name = "Abolish Disease",     class = "PRIEST" },
-        { id = 528,   name = "Cure Disease",        class = "PRIEST" },
         { id = 4987,  name = "Cleanse",             class = "PALADIN" },
         { id = 1152,  name = "Purify",              class = "PALADIN" },  -- before Cleanse is learned
         { id = 2782,  name = "Remove Curse",        class = "DRUID" },
-        { id = 2893,  name = "Abolish Poison",      class = "DRUID" },
-        { id = 8946,  name = "Cure Poison",         class = "DRUID" },
         { id = 526,   name = "Cure Poison",         class = "SHAMAN" },
-        { id = 2870,  name = "Cure Disease",        class = "SHAMAN" },
         { id = 475,   name = "Remove Lesser Curse", class = "MAGE" },
         { id = 19505, name = "Devour Magic",        class = "WARLOCK", pet = true, alts = { 19731, 19734, 19736 } }, -- Felhunter
     }
