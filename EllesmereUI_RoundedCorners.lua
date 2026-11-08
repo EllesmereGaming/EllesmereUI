@@ -812,6 +812,19 @@ local function LayerOnShow(self)
     if L.onShow and layers[self] then L.onShow(L) end
 end
 
+-- A layer made under a shown parent gets no OnShow, and its caller anchors
+-- the parent only after the first fit, so the seat was taken from the wrong
+-- spot until the next show. New layers re-fit once, together, a frame later.
+local newLayers, newQueued = {}, false
+local function FitNewLayers()
+    newQueued = false
+    for i = 1, #newLayers do
+        local L = newLayers[i]
+        newLayers[i] = nil
+        if layers[L._frame] == L and L._frame:IsVisible() then FitLayer(L) end
+    end
+end
+
 function EllesmereUI.MakePixelLayer(parent, fit)
     local layer = POOL.CreateFrame("Frame", nil, parent)
     layer:SetIgnoreParentScale(true)
@@ -821,6 +834,11 @@ function EllesmereUI.MakePixelLayer(parent, fit)
     local L = { _frame = layer, parent = parent, fit = fit, gen = PoolDress(layer), Fit = FitLayer }
     layers[layer] = L
     layer:SetScript("OnShow", LayerOnShow)
+    newLayers[#newLayers + 1] = L
+    if not newQueued then
+        newQueued = true
+        C_Timer.After(0, FitNewLayers)
+    end
     return L
 end
 
