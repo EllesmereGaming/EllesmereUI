@@ -8,12 +8,11 @@ local BP = I.BP
 
 local UNLOCK_KEY = "EBAG_Anchor"
 local ANCHOR_W, ANCHOR_H = 240, 28
-local CORNERS = { TOPLEFT = true, TOPRIGHT = true, BOTTOMLEFT = true, BOTTOMRIGHT = true }
-local OPPOSITE = { TOPLEFT = "BOTTOMRIGHT", TOPRIGHT = "BOTTOMLEFT", BOTTOMLEFT = "TOPRIGHT", BOTTOMRIGHT = "TOPLEFT" }
+local CORNERS = { TOPLEFT = "Top Left", TOPRIGHT = "Top Right", BOTTOMLEFT = "Bottom Left", BOTTOMRIGHT = "Bottom Right" }
 
-local Anchor = { KEY = UNLOCK_KEY, OPPOSITE = OPPOSITE }
+local Anchor = { KEY = UNLOCK_KEY }
 ns.BagAnchor = Anchor
-local frame
+local frame, element
 
 function Anchor.On() return BP().bagAnchor == true end
 
@@ -106,6 +105,10 @@ function Anchor.SaveSpot()
     end
 end
 
+local function Label()
+    return EllesmereUI.Lf("Bag Anchor (%1$s)", EllesmereUI.L(CORNERS[Anchor.Corner()]))
+end
+
 local function Relayout()
     if EUI_Bags:IsVisible() then EUI_Bags:RefreshInventory() end
 end
@@ -128,6 +131,10 @@ function Anchor.SetCorner(corner)
     if not CORNERS[corner] or corner == Anchor.Corner() then return end
     if Anchor.On() then Anchor.Pin() end
     BP().bagAnchorCorner = corner
+    if element then
+        element.label = Label()
+        if EUI.RefreshUnlockElementLabel then EUI.RefreshUnlockElementLabel(UNLOCK_KEY) end
+    end
     if Anchor.On() then
         Capture(corner)
         Place()
@@ -138,37 +145,37 @@ end
 
 local function Register()
     if not EUI.RegisterUnlockElements then return end
-    EUI:RegisterUnlockElements({
-        EUI.MakeUnlockElement({
-            key      = UNLOCK_KEY,
-            label    = "Bag Anchor",
-            group    = "Bags",
-            order    = 620,
-            noResize = true,
-            isHidden = function() return not Anchor.On() end,
-            getFrame = function()
-                if not Anchor.On() then return nil end
-                return Ensure()
-            end,
-            getSize  = function() return ANCHOR_W, ANCHOR_H end,
-            savePos  = function(_, point, relPoint, x, y)
-                if not point then return end
-                BP().bagAnchorPos = { point = point, relPoint = relPoint or point, x = x, y = y }
-                if frame and not EUI._unlockActive then Place() end
-            end,
-            loadPos  = function()
-                if not Anchor.On() then return nil end
-                return SavedPos()
-            end,
-            clearPos = function()
-                BP().bagAnchorPos = nil
-                Place()
-            end,
-            applyPos = function()
-                if Anchor.On() then Ensure(); Place() end
-            end,
-        }),
-    }, "EllesmereUIBags")
+    element = EUI.MakeUnlockElement({
+        key      = UNLOCK_KEY,
+        label    = Label(),
+        group    = "Bags",
+        order    = 620,
+        noResize = true,
+        isHidden = function() return not Anchor.On() end,
+        getFrame = function()
+            if not Anchor.On() then return nil end
+            element.label = Label()
+            return Ensure()
+        end,
+        getSize  = function() return ANCHOR_W, ANCHOR_H end,
+        savePos  = function(_, point, relPoint, x, y)
+            if not point then return end
+            BP().bagAnchorPos = { point = point, relPoint = relPoint or point, x = x, y = y }
+            if frame and not EUI._unlockActive then Place() end
+        end,
+        loadPos  = function()
+            if not Anchor.On() then return nil end
+            return SavedPos()
+        end,
+        clearPos = function()
+            BP().bagAnchorPos = nil
+            Place()
+        end,
+        applyPos = function()
+            if Anchor.On() then Ensure(); Place() end
+        end,
+    })
+    EUI:RegisterUnlockElements({ element }, "EllesmereUIBags")
 end
 
 local boot = CreateFrame("Frame")

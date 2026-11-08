@@ -233,8 +233,9 @@ end
 --  getCols(), getHeight(), save(cols, h), finish(), savePos(left, top),
 --  reset(), inset(px), isLocked(), setLocked(v), hidden() (optional: the
 --  window sizes itself, so neither icon shows), corner() (optional: the
---  screen corner the window is pinned by; the grip then sits in the opposite
---  corner, shows only while hovered, and the lock holds only the size)
+--  screen corner the window is pinned by; grips then sit in every other
+--  corner but the close button's, show only while hovered and move only
+--  their free edges, and the lock holds only the size)
 -------------------------------------------------------------------------------
 do
 -- Art, alphas and the footer text clearance (the lock alone, or the grip with
@@ -249,7 +250,16 @@ local GR = {
         BOTTOMRIGHT = { 0, 1, 0, 1 }, BOTTOMLEFT = { 1, 0, 0, 1 },
         TOPRIGHT = { 0, 1, 1, 0 }, TOPLEFT = { 1, 0, 1, 0 },
     },
+    ORDER = { "BOTTOMRIGHT", "BOTTOMLEFT", "TOPLEFT", "TOPRIGHT" },
+    LEFT = { TOPLEFT = true, BOTTOMLEFT = true },
+    TOP = { TOPLEFT = true, TOPRIGHT = true },
 }
+
+function GR.Axes(at, pinned)
+    local sx = GR.LEFT[at] == GR.LEFT[pinned] and 0 or (GR.LEFT[at] and -1 or 1)
+    local sy = GR.TOP[at] == GR.TOP[pinned] and 0 or (GR.TOP[at] and -1 or 1)
+    return sx, sy
+end
 
 local function GripRestAlpha(grip)
     return grip._hoverOnly and 0 or GR.A
@@ -298,13 +308,12 @@ local function GripOnMouseDown(grip, button)
         frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
         cfg.savePos(left, top)
     end
-    local sx = (corner == "TOPRIGHT" or corner == "BOTTOMRIGHT") and -1 or 1
-    local sy = (corner == "BOTTOMLEFT" or corner == "BOTTOMRIGHT") and -1 or 1
+    local sx, sy = GR.Axes(grip._at, corner or "TOPLEFT")
     local cx, cy = GetCursorPosition()
     local es = frame:GetEffectiveScale()
     local uiS = UIParent:GetEffectiveScale() / es
-    local roomX = sx > 0 and UIParent:GetRight() * uiS - right or left
-    local roomY = sy > 0 and bottom or UIParent:GetTop() * uiS - top
+    local roomX = sx > 0 and UIParent:GetRight() * uiS - right or sx < 0 and left or 0
+    local roomY = sy > 0 and bottom or sy < 0 and UIParent:GetTop() * uiS - top or 0
     local cols, h = cfg.getCols(), cfg.getHeight()
     grip._drag = {
         x = cx / es, y = cy / es, cols = cols, h = h, lastBucket = 0, lastDX = 0, lastH = h,
@@ -372,11 +381,28 @@ function GR.IconButton(frame, w, h, path)
     return b
 end
 
+function GR.NewGrip(frame, at)
+    local br = at == "BOTTOMRIGHT"
+    local size, pad = br and 18 or 12, br and 2 or 1
+    local grip = GR.IconButton(frame, size, size, GR.RESIZE)
+    grip._at = at
+    grip:SetPoint(at, frame, at, GR.LEFT[at] and pad or -pad, GR.TOP[at] and -pad or pad)
+    grip._icon:SetTexCoord(unpack(GR.TEXCOORD[at]))
+    grip:SetScript("OnMouseDown", GripOnMouseDown)
+    grip:SetScript("OnMouseUp", GripStop)
+    grip:SetScript("OnDoubleClick", GripReset)
+    grip:SetScript("OnEnter", GripOnEnter)
+    grip:SetScript("OnLeave", GR.GripOnLeave)
+    -- Window closed mid-drag: end the drag instead of resuming on reopen
+    grip:SetScript("OnHide", GripStop)
+    return grip
+end
+
 -- The lock always shows (it also holds the window in place); the grip only
 -- while unlocked and the window does not size itself. Runs on every refresh,
 -- so it repaints only when that state changes.
 function ns.UpdateResizeGrip(frame, cfg)
-    local grip, lock = frame._resizeGrip, frame._lockBtn
+    local lock = frame._lockBtn
     local locked = cfg.isLocked()
     local noGrip = locked or (cfg.hidden and cfg.hidden()) or false
     local corner = cfg.corner and cfg.corner() or nil
@@ -394,39 +420,29 @@ function ns.UpdateResizeGrip(frame, cfg)
     lock._icon:SetTexture(locked and GR.LOCKED or GR.UNLOCKED)
     lock:ClearAllPoints()
     local inset = GR.LOCK_INSET
-    if noGrip then
-        if grip then grip:Hide() end
-        lock:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4)
+    local grips = frame._resizeGrips
+    if not grips then grips = {}; frame._resizeGrips = grips end
+    for _, at in ipairs(GR.ORDER) do
+        local want = not noGrip and (corner and at ~= corner and at ~= "TOPRIGHT"
+            or not corner and at == "BOTTOMRIGHT")
+        local grip = grips[at]
+        if want then
+            if not grip then grip = GR.NewGrip(frame, at); grips[at] = grip end
+            if not grip._drag then
+                grip._cfg = cfg
+                grip._hoverOnly = corner ~= nil
+                grip:SetAlpha(grip:IsMouseOver() and GR.HOVER or GripRestAlpha(grip))
+            end
+            grip:Show()
+        elseif grip then
+            grip:Hide()
+        end
+    end
+    if grips.BOTTOMRIGHT and grips.BOTTOMRIGHT:IsShown() then
+        lock:SetPoint("RIGHT", grips.BOTTOMRIGHT, "LEFT", -2, 0)
+        inset = GR.GRIP_INSET
     else
-        if not grip then
-            grip = GR.IconButton(frame, 18, 18, GR.RESIZE)
-            grip:SetScript("OnMouseDown", GripOnMouseDown)
-            grip:SetScript("OnMouseUp", GripStop)
-            grip:SetScript("OnDoubleClick", GripReset)
-            grip:SetScript("OnEnter", GripOnEnter)
-            grip:SetScript("OnLeave", GR.GripOnLeave)
-            -- Window closed mid-drag: end the drag instead of resuming on reopen
-            grip:SetScript("OnHide", GripStop)
-            frame._resizeGrip = grip
-        end
-        if not grip._drag then grip._cfg = cfg end
-        local at = corner and ns.BagAnchor.OPPOSITE[corner] or "BOTTOMRIGHT"
-        local size = at == "BOTTOMRIGHT" and 18 or 12
-        local pad = at == "BOTTOMRIGHT" and 2 or 1
-        grip:SetSize(size, size)
-        grip:ClearAllPoints()
-        grip:SetPoint(at, frame, at, (at == "TOPLEFT" or at == "BOTTOMLEFT") and pad or -pad,
-            (at == "TOPLEFT" or at == "TOPRIGHT") and -pad or pad)
-        grip._icon:SetTexCoord(unpack(GR.TEXCOORD[at]))
-        grip._hoverOnly = corner ~= nil
-        if not grip._drag then grip:SetAlpha(grip:IsMouseOver() and GR.HOVER or GripRestAlpha(grip)) end
-        grip:Show()
-        if at == "BOTTOMRIGHT" then
-            lock:SetPoint("RIGHT", grip, "LEFT", -2, 0)
-            inset = GR.GRIP_INSET
-        else
-            lock:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4)
-        end
+        lock:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4)
     end
     lock:Show()
     if frame._gripInset ~= inset then
