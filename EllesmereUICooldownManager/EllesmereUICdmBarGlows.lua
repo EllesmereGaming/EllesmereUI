@@ -355,6 +355,8 @@ local function ButtonSpellID(btn)
     local sid = RawButtonSpell(btn)
     return sid and LiveSpell(sid)
 end
+-- Options: the ability a CDM icon's Glow When Usable tests ("cdm_" glows save none).
+ns.BarGlowButtonSpell = ButtonSpellID
 
 local UpdateOverlayVisuals  -- forward: defined below
 local usableEventsOn = false

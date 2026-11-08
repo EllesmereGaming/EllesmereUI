@@ -685,7 +685,12 @@ initFrame:SetScript("OnEvent", function(self)
         -- action slot. The top "Glow When Usable" row stands for it, and every
         -- entry added here records it.
         local buttonSid = tonumber(assignKey:match("^spell_(%d+)$"))
-        if not buttonSid then
+        local iconSid
+        if type(barIdx) == "string" then
+            -- CDM bar: the icon's own spell, as the runtime reads it (icon only).
+            local icon = ns.cdmBarIcons and ns.cdmBarIcons[barIdx] and ns.cdmBarIcons[barIdx][btnIdx]
+            iconSid = icon and ns.BarGlowButtonSpell(icon)
+        elseif not buttonSid then
             local prefix = BAR_BUTTON_PREFIXES[barIdx]
             local realBtn = prefix and _G[prefix .. btnIdx]
             if realBtn and realBtn.action then
@@ -693,7 +698,8 @@ initFrame:SetScript("OnEvent", function(self)
                 buttonSid = aType == "spell" and id or nil
             end
         end
-        local buttonInfo = buttonSid and C_Spell.GetSpellInfo(buttonSid)
+        iconSid = iconSid or buttonSid
+        local buttonInfo = iconSid and C_Spell.GetSpellInfo(iconSid)
         local usableIcon = buttonInfo and buttonInfo.iconID
         local menu = ns.ShowBarGlowBuffMenu(anchorFrame, {
             usableItem = { icon = usableIcon },
@@ -1357,13 +1363,14 @@ initFrame:SetScript("OnEvent", function(self)
             hintText:SetText(EllesmereUI.L("Left click a button to edit its glow, right click to add a new glow"))
             y = y - 40
         else
-            local assignKey
+            local assignKey, cdmSid
             local isCurCDM = (type(curBar) == "string")
             if isCurCDM then
                 local cdmIcons = ns.cdmBarIcons and ns.cdmBarIcons[curBar]
                 local icon = cdmIcons and cdmIcons[curBtn]
                 if icon and icon.cooldownID then
                     assignKey = "cdm_" .. icon.cooldownID
+                    cdmSid = ns.BarGlowButtonSpell(icon)
                 end
             end
             if not assignKey then
@@ -1392,13 +1399,13 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Collapse bar across the top of the glow; collapsed shows the buff
                     -- icon and name and skips the rows below.
                     local expanded
-                    y, expanded = ns.BuildBarGlowHeader(parent, y, entry, aIdx)
+                    y, expanded = ns.BuildBarGlowHeader(parent, y, entry, aIdx, cdmSid)
                     if expanded then
 
                         -- Row 1: When (icon) <buff> is [Active] | And [buff] is [Active] (toggle)
                         -- (EUI_CooldownManager_BarGlowConditions.lua)
                         local removeAIdx = aIdx
-                        y = ns.BuildBarGlowWhenRow(W, parent, y, entry, Refresh)
+                        y = ns.BuildBarGlowWhenRow(W, parent, y, entry, Refresh, cdmSid)
 
                         -- Helper: resolve current glow color and restart preview if active
                         local pvKey = assignKey .. "_" .. aIdx
@@ -1633,7 +1640,8 @@ initFrame:SetScript("OnEvent", function(self)
                                     Refresh()
                                     EllesmereUI:RefreshPage(true)
                                 end)
-                                local ico = ns.BarGlowSpellIcon(rightRgn, btn:GetHeight(), entry.spellID)
+                                local ico = ns.BarGlowSpellIcon(rightRgn, btn:GetHeight(),
+                                    entry.mode == "USABLE" and (entry.actionSpellID or cdmSid) or entry.spellID)
                                 PP.Point(ico, "RIGHT", dupBtn or btn, "LEFT", -8, 0)
                             end
                         end
