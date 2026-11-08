@@ -1364,12 +1364,13 @@ local function ApplyBorderTo(parent, anchor, key, p, size, texKey, r, g, b, a, p
     end
 end
 
-ns.ApplyBorder = function()
-    if not standaloneFrame or not db or not db.profile then
+-- The border pass for one timer frame (the live window or the options
+-- header sample).
+local function ApplyBorderOn(f)
+    if not f or not db or not db.profile then
         return
     end
 
-    local f = standaloneFrame
     local p = db.profile
     local size = p.borderSize or 0
     -- "Custom Border Style" is the master gate: when off, no border renders
@@ -1420,6 +1421,7 @@ ns.ApplyBorder = function()
         end
     end
 end
+ns.ApplyBorder = function() ApplyBorderOn(standaloneFrame) end
 
 -- Font helpers
 local FALLBACK_FONT = "Fonts/FRIZQT__.TTF"
@@ -1737,8 +1739,8 @@ local function StripDefeated(name)
     return name:match("^%s*(.-)%s*$") or name
 end
 
-local objRows = {}
 local function GetObjRow(parent, idx)
+    local objRows = parent._objRows
     if objRows[idx] then return objRows[idx] end
     local nameFS = parent:CreateFontString(nil, "OVERLAY")
     nameFS:SetWordWrap(false)
@@ -1751,22 +1753,14 @@ local function GetObjRow(parent, idx)
     return entry
 end
 
-local function CreateStandaloneFrame()
-    if standaloneCreated then return standaloneFrame end
-    standaloneCreated = true
-
-    local f = CreateFrame("Frame", "EllesmereUIMythicTimerStandalone", UIParent, "BackdropTemplate")
+-- A timer window's frame tree on `parent`: the live window and the options
+-- header sample (ns.MT_PaintSample) are built and painted by the same code.
+local function BuildTimerFrame(parent, name, strata, level)
+    local f = CreateFrame("Frame", name, parent, "BackdropTemplate")
     f:SetSize(260, 200)
-    -- Default position: top of quest tracker, or right-side fallback
-    local otf = _G.ObjectiveTrackerFrame
-    if otf and otf:GetTop() then
-        f:SetPoint("TOPRIGHT", otf, "TOPRIGHT", 0, 0)
-    else
-        f:SetPoint("RIGHT", UIParent, "RIGHT", -100, 0)
-    end
-    f:SetFrameStrata("MEDIUM")
-    f:SetFrameLevel(10)
-    f:SetClampedToScreen(true)
+    if strata then f:SetFrameStrata(strata) end
+    f:SetFrameLevel(level)
+    f._objRows = {}
 
     f:SetBackdrop({
         bgFile   = "Interface\\Buttons\\WHITE8x8",
@@ -1838,6 +1832,29 @@ local function CreateStandaloneFrame()
     f._deathHit = CreateFrame("Frame", nil, f)
     f._deathHit:SetFrameLevel(f:GetFrameLevel() + 5)
     f._deathHit:EnableMouse(true)
+    f._enemyFS = f:CreateFontString(nil, "OVERLAY")
+    f._enemyFS:SetParent(f._emtTextLayer)
+    f._enemyFS:SetWordWrap(false)
+    local enemyHost, enemyClip = EnsureBarShell(f, "_enemyBarHost")
+    f._enemyBarBg, f._enemyBarFill = EnsureShellTextures(enemyClip, f, "_enemyBarBg", "_enemyBarFill")
+    f._previewFS = f:CreateFontString(nil, "OVERLAY")
+    f._previewFS:SetWordWrap(false)
+    return f
+end
+
+local function CreateStandaloneFrame()
+    if standaloneCreated then return standaloneFrame end
+    standaloneCreated = true
+
+    local f = BuildTimerFrame(UIParent, "EllesmereUIMythicTimerStandalone", "MEDIUM", 10)
+    -- Default position: top of quest tracker, or right-side fallback
+    local otf = _G.ObjectiveTrackerFrame
+    if otf and otf:GetTop() then
+        f:SetPoint("TOPRIGHT", otf, "TOPRIGHT", 0, 0)
+    else
+        f:SetPoint("RIGHT", UIParent, "RIGHT", -100, 0)
+    end
+    f:SetClampedToScreen(true)
 
     -- Custom two-column death tooltip
     local deathTT = CreateFrame("Frame", nil, UIParent)
@@ -1942,13 +1959,6 @@ local function CreateStandaloneFrame()
     f._deathHit:SetScript("OnLeave", function()
         deathTT:Hide()
     end)
-    f._enemyFS = f:CreateFontString(nil, "OVERLAY")
-    f._enemyFS:SetParent(f._emtTextLayer)
-    f._enemyFS:SetWordWrap(false)
-    local enemyHost, enemyClip = EnsureBarShell(f, "_enemyBarHost")
-    f._enemyBarBg, f._enemyBarFill = EnsureShellTextures(enemyClip, f, "_enemyBarBg", "_enemyBarFill")
-    f._previewFS = f:CreateFontString(nil, "OVERLAY")
-    f._previewFS:SetWordWrap(false)
 
     -- Hidden until RenderStandalone() shows it
     f:Hide()
@@ -1984,27 +1994,9 @@ local function CreateStandaloneFrame()
     return f
 end
 
-local function RenderStandalone()
-    if not db or not db.profile.enabled then
-        if standaloneFrame then standaloneFrame:Hide() end
-        return
-    end
-
-    local p = db.profile
-    local isPreview = false
-    local run = currentRun
-    if not run.active and not run.completed then
-        if p.showPreview or unlockLayoutActive then
-            run = PREVIEW_RUN
-            LocalizePreview()
-            isPreview = true
-        else
-            if standaloneFrame then standaloneFrame:Hide() end
-            return
-        end
-    end
-
-    local f = CreateStandaloneFrame()
+-- Paints `run` into timer frame `f` with profile `p`. sample: the options
+-- header sample, which never carries the PREVIEW label.
+local function PaintTimer(f, p, run, isPreview, sample)
     local PAD = 12
     local ALIGN_PAD = 0
     local TBAR_PAD = 0
@@ -3158,6 +3150,7 @@ local function RenderStandalone()
         end
     end
 
+    local objRows = f._objRows
     for i = objIdx + 1, #objRows do
         local e = objRows[i]
         if e then e.name:Hide(); e.time:Hide() end
@@ -3171,7 +3164,7 @@ local function RenderStandalone()
     local totalH = abs(y) + PAD
     f:SetHeight(totalH)
 
-    if isPreview and p.showPreview then
+    if isPreview and p.showPreview and not sample then
         SetFS(f._previewFS, 8)
         f._previewFS:SetTextColor(0.5, 0.5, 0.5, 0.6)
         f._previewFS:SetText(EllesmereUI.L("PREVIEW"))
@@ -3182,8 +3175,110 @@ local function RenderStandalone()
         f._previewFS:Hide()
     end
 
-    ns.ApplyBorder()
+    ApplyBorderOn(f)
     f:Show()
+end
+
+local function RenderStandalone()
+    if not db or not db.profile.enabled then
+        if standaloneFrame then standaloneFrame:Hide() end
+        return
+    end
+
+    local p = db.profile
+    local isPreview = false
+    local run = currentRun
+    if not run.active and not run.completed then
+        if p.showPreview or unlockLayoutActive then
+            run = PREVIEW_RUN
+            LocalizePreview()
+            isPreview = true
+        else
+            if standaloneFrame then standaloneFrame:Hide() end
+            return
+        end
+    end
+
+    PaintTimer(CreateStandaloneFrame(), p, run, isPreview, false)
+end
+
+-- Options header sample: the preview run in a frame of its own on the
+-- header's column host, painted static with the profile's settings (also
+-- while the timer is disabled; the header dims it). Never the live window,
+-- so the run, its ticker and its events never see it. One frame per text
+-- alignment, as the live window is rebuilt when that changes. Returns the
+-- size and the title's side and inset in the host's units, and whether the
+-- trim was measured; nil before the settings exist.
+do
+    local sampleFrames = {}
+    local cTop, cBottom
+
+    -- Widens cTop/cBottom (in `root`'s units) by every shown text and bar
+    -- under `frame`; root's own textures (backdrop, accent) are left out.
+    local function Measure(frame, root, rootES)
+        local k = frame:GetEffectiveScale() / rootES
+        local regions = { frame:GetRegions() }
+        for i = 1, #regions do
+            local r = regions[i]
+            local isText = r:GetObjectType() == "FontString"
+            if r:IsShown() and (frame ~= root or isText)
+               and not (isText and (r:GetText() or "") == "") then
+                local t, b = r:GetTop(), r:GetBottom()
+                if t and b then
+                    t, b = t * k, b * k
+                    if not cTop or t > cTop then cTop = t end
+                    if not cBottom or b < cBottom then cBottom = b end
+                end
+            end
+        end
+        local kids = { frame:GetChildren() }
+        for i = 1, #kids do
+            if kids[i]:IsShown() then Measure(kids[i], root, rootES) end
+        end
+    end
+
+    function ns.MT_PaintSample(host)
+        local p = db and db.profile
+        if not p then return nil end
+        local align = (p.alignAllText == "LEFT") and "LEFT" or "RIGHT"
+        local f = sampleFrames[align]
+        if not f then
+            f = BuildTimerFrame(host, nil, nil, host:GetFrameLevel() + 1)
+            f._deathHit:EnableMouse(false)
+            sampleFrames[align] = f
+        end
+        for _, other in pairs(sampleFrames) do
+            if other ~= f then other:Hide() end
+        end
+        if f:GetParent() ~= host then f:SetParent(host) end
+        local scale = p.scale or 1.0
+        if scale == 0 then scale = 1.0 end
+        f:SetScale(scale)
+        LocalizePreview()
+        PaintTimer(f, p, PREVIEW_RUN, true, true)
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", host, "TOPLEFT", 0, 0)
+        local w, h = f:GetWidth(), f:GetHeight()
+        -- Without a backdrop or accent strip the empty space above the first
+        -- and below the last element is cut, so the header title sits right
+        -- over the text, at its edge. Measured on the laid out sample (the
+        -- host gets a provisional anchor before the header places it).
+        if (p.standaloneAlpha or 0.85) > 0 or p.showAccent then
+            return w * scale, h * scale, align, 0
+        end
+        if host:GetNumPoints() == 0 then host:SetPoint("TOPLEFT", host:GetParent(), "TOPLEFT") end
+        cTop, cBottom = nil, nil
+        Measure(f, f, f:GetEffectiveScale())
+        local fTop, fBottom = f:GetTop(), f:GetBottom()
+        local top, bottom, measured = 12, 12, false  -- PaintTimer's PAD, when nothing measured
+        if cTop and fTop and cTop <= fTop and cBottom >= fBottom then
+            top, bottom, measured = fTop - cTop, cBottom - fBottom, true
+        end
+        f:SetPoint("TOPLEFT", host, "TOPLEFT", 0, top)
+        -- Title inset: the PAD plus the ~3 px the timer's text glyphs sit
+        -- inside their box edge in game (seen, cause not pinned down).
+        return w * scale, (h - top - bottom) * scale, align, 15 * scale, measured
+    end
 end
 
 _G._EMT_StandaloneRefresh = RenderStandalone
@@ -3201,7 +3296,6 @@ _G._EMT_RebuildStandalone = function()
     end
     standaloneFrame = nil
     standaloneCreated = false
-    wipe(objRows)
     RenderStandalone()
 end
 

@@ -56,21 +56,27 @@ initFrame:SetScript("OnEvent", function(self)
     -- "if IsAdvanced() then ... end" blocks render unconditionally.
     local function IsAdvanced() return true end
 
+    -- The timer page's header sample paints again (set with the header kit below).
+    local RepaintTimerHeader
+
     local function Refresh()
         if _G._EMT_ApplyTimer then _G._EMT_ApplyTimer() end
+        if RepaintTimerHeader then RepaintTimerHeader() end
         EllesmereUI:RefreshPage()
     end
 
     local function RebuildPage()
         if _G._EMT_ApplyTimer then _G._EMT_ApplyTimer() end
+        if RepaintTimerHeader then RepaintTimerHeader() end
         EllesmereUI:RefreshPage(true)
     end
 
     ---------------------------------------------------------------------------
-    --  Header previews: one kit for the Kick Tracker, Cast Bars and
-    --  Target/Focus Bars pages. A page's header shows its elements side by
-    --  side as the runtime paints them (ns.KTB_PaintSample, KT_PaintSampleIcon,
-    --  TSB_PaintSample, TFB_PaintSample), each under a title on one line, at
+    --  Header previews: one kit for the Mythic+ Timer, Kick Tracker, Cast
+    --  Bars and Target/Focus Bars pages. A page's header shows its elements
+    --  side by side as the runtime paints them (ns.MT_PaintSample,
+    --  KTB_PaintSample, KT_PaintSampleIcon, TSB_PaintSample, TFB_PaintSample),
+    --  each of them under its own title on one line, and drawn at
     --  the size they have on screen (the panel's scale compensated, a wide
     --  element shrunk to its column). A column def: { title, on() -> full
     --  strength or dimmed, paint(host) -> w, h in UIParent px (nil: nothing
@@ -107,19 +113,24 @@ initFrame:SetScript("OnEvent", function(self)
             -- read the scale it shows at; a changed fit paints it again.
             local fit = c.fit or 1
             host:SetScale(st.scale * fit)
-            local w, h = c.def.paint(host)
+            -- Optional 3rd/4th returns: the title's side ("RIGHT") and its
+            -- inset from that edge, in host units.
+            local w, h, tSide, tInset = c.def.paint(host)
             if not w then
                 c.w = nil
                 host:Hide()
                 c.fs:Hide()
             else
                 local want = c.def.noFit and 1 or math.min(1, colW / (w * st.scale))
+                -- def.maxH (header px): a taller element shrinks to it.
+                if c.def.maxH then want = math.min(want, c.def.maxH / (h * st.scale)) end
                 if math.abs(want - fit) > 0.001 then
                     fit = want
                     host:SetScale(st.scale * fit)
-                    w, h = c.def.paint(host)
+                    w, h, tSide, tInset = c.def.paint(host)
                 end
                 c.w, c.h, c.fit = w, h, fit
+                c.tSide, c.tInset = tSide, tInset or 0
                 host:SetSize(w, h)
                 shown = shown + 1
                 maxH = math.max(maxH, h * fit * st.scale)
@@ -143,7 +154,12 @@ initFrame:SetScript("OnEvent", function(self)
                 host:SetAlpha(c.def.on() and 1 or 0.3)
                 host:Show()
                 c.fs:ClearAllPoints()
-                c.fs:SetPoint("BOTTOMLEFT", host, "TOPLEFT", 0, 3)
+                local tx = PvSnap(c.tInset * hs, onePx * hs)
+                if c.tSide == "RIGHT" then
+                    c.fs:SetPoint("BOTTOMRIGHT", host, "TOPRIGHT", -tx, 3)
+                else
+                    c.fs:SetPoint("BOTTOMLEFT", host, "TOPLEFT", tx, 3)
+                end
                 c.fs:Show()
             end
         end
@@ -196,6 +212,33 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     local tsbPv, tfbPv = PvNewState(), PvNewState()
+    -- The Mythic+ Timer page: the timer's sample run, capped in height so a
+    -- tall timer leaves room for the page.
+    local timerPv = PvNewState()
+    -- A sample built in this frame has no layout yet, so it cannot be
+    -- measured for its trim (5th return false): it paints once more on the
+    -- next frame (once, until a paint measures again).
+    local timerRetry, timerRetried = false, false
+    local function TimerRetry()
+        timerRetry = false
+        PvRepaint(timerPv)
+    end
+    local timerBuilder = PvBuilder(timerPv, {
+        { title = "Mythic+ Timer", maxH = 260,
+          on = function() return Cfg("enabled") ~= false end,
+          paint = function(host)
+              if not ns.MT_PaintSample then return end
+              local w, h, side, inset, measured = ns.MT_PaintSample(host)
+              if measured then
+                  timerRetried = false
+              elseif w and measured == false and not timerRetry and not timerRetried then
+                  timerRetry, timerRetried = true, true
+                  C_Timer.After(0, TimerRetry)
+              end
+              return w, h, side, inset
+          end },
+    })
+    RepaintTimerHeader = function() PvRepaint(timerPv) end
     -- The Kick Tracker page (its own file) builds its header from the kit.
     ns._MT_Preview = { NewState = PvNewState, Builder = PvBuilder, Update = PvUpdate, Repaint = PvRepaint }
 
@@ -257,10 +300,13 @@ initFrame:SetScript("OnEvent", function(self)
         local y = yOffset
         local _, row, h, hdr
 
-        if EllesmereUI.ClearContentHeader then EllesmereUI:ClearContentHeader() end
+        EllesmereUI:SetContentHeader(timerBuilder)
         parent._showRowDivider = true
 
-        local function ApplyBorder() if ns.ApplyBorder then ns.ApplyBorder() end end
+        local function ApplyBorder()
+            if ns.ApplyBorder then ns.ApplyBorder() end
+            PvRepaint(timerPv)
+        end
 
         local alignValues = { LEFT = "Left", CENTER = "Center", RIGHT = "Right" }
         local alignOrder  = { "LEFT", "CENTER", "RIGHT" }
@@ -349,7 +395,7 @@ initFrame:SetScript("OnEvent", function(self)
                     return
                 end
                 EllesmereUI.SetGlyphAlpha(self, 0.7)
-                EllesmereUI.ShowWidgetTooltip(self, "Show/Hide Preview", { width = 175 })
+                EllesmereUI.ShowWidgetTooltip(self, "Show/Hide Live Preview", { width = 175 })
             end)
             eyeBtn:SetScript("OnLeave", function(self)
                 EllesmereUI.SetGlyphAlpha(self, Off() and 0.15 or 0.4)
@@ -2195,10 +2241,11 @@ initFrame:SetScript("OnEvent", function(self)
             end
             return BuildPage(pageName, parent, yOffset)
         end,
-        -- The header previews of the Kick Tracker and cast bar pages (the
+        -- The header previews of the timer, Kick Tracker and cast bar pages (the
         -- same answer buildPage gave, so a kept page keeps its header).
         getHeaderBuilder = function(pageName)
-            if pageName == PAGE_TSB then return tsbBuilder
+            if pageName == PAGE_DISPLAY then return timerBuilder
+            elseif pageName == PAGE_TSB then return tsbBuilder
             elseif pageName == PAGE_TFB then return tfbBuilder
             elseif pageName == PAGE_KT then return ns._KT_HeaderBuilder end
             return nil
@@ -2206,7 +2253,8 @@ initFrame:SetScript("OnEvent", function(self)
         -- A kept page shown again: its preview paints again (the Fonts and
         -- Textures pages and a profile switch write its keys from elsewhere).
         onPageCacheRestore = function(pageName)
-            if pageName == PAGE_TSB then PvUpdate(tsbPv, false)
+            if pageName == PAGE_DISPLAY then PvUpdate(timerPv, false)
+            elseif pageName == PAGE_TSB then PvUpdate(tsbPv, false)
             elseif pageName == PAGE_TFB then PvUpdate(tfbPv, false)
             elseif pageName == PAGE_KT and ns._KT_RestorePreview then ns._KT_RestorePreview() end
         end,
