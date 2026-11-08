@@ -152,10 +152,18 @@ end
 -- profile settings, so one made on another class shows nothing here. The icon
 -- is the first such spell's and the click casts it on the player by name (the
 -- highest rank known; the section never shows in combat, so the macro can be
--- set); the tooltip names the group (no spell on the entry). Dismiss keys are
--- per group table (weak), so removing or renaming a group never hands its
--- dismissal to another.
+-- set); the tooltip is that rank's. Dismiss keys are per group table (weak),
+-- so removing or renaming a group never hands its dismissal to another.
 local groupCastMacros = {}
+
+-- Ranks are listed lowest first; a shared family also holds differently named spells.
+local function HighestKnownRankNamed(ranks, name)
+    for i = #ranks, 1, -1 do
+        local id = ranks[i]
+        if SpellName(id) == name and C_SpellBook.IsSpellKnown(id) then return id end
+    end
+end
+
 function EABR.CollectForeverGroups(missing, groups)
     local dismissKeys = EABR._fvGroupKeys
     if not dismissKeys then
@@ -167,13 +175,15 @@ function EABR.CollectForeverGroups(missing, groups)
     for _, group in ipairs(groups) do
         local spellIDs = type(group) == "table" and group.ids
         if type(spellIDs) == "table" then
-            local iconSpellID, hasActiveAura
+            local iconSpellID, iconRanks, hasActiveAura
             local allAurasReadable = true
             for _, spellID in ipairs(spellIDs) do
                 local rankSpellIDs = type(spellID) == "number" and SpellName(spellID)
                     and EABR.ForeverFamily(spellID)
                 if rankSpellIDs then
-                    if not iconSpellID and EABR._fvKnownFams[rankSpellIDs] then iconSpellID = spellID end
+                    if not iconSpellID and EABR._fvKnownFams[rankSpellIDs] then
+                        iconSpellID, iconRanks = spellID, rankSpellIDs
+                    end
                     if PlayerHasAuraByID(rankSpellIDs) then hasActiveAura = true; break end
                     if aurasRestricted and not EABR.FvRanksReadable(rankSpellIDs) then
                         allAurasReadable = false
@@ -195,6 +205,7 @@ function EABR.CollectForeverGroups(missing, groups)
                     groupCastMacros[castName] = macro
                 end
                 entry.mode = "macro"; entry.macro = macro
+                entry.spellID = HighestKnownRankNamed(iconRanks, castName) or iconSpellID
                 entry.texture = Tex(iconSpellID)
                 entry.label = type(group.name) == "string" and group.name
                     or ShortLabel(castName)
