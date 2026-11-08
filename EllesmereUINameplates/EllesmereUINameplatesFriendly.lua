@@ -1002,6 +1002,12 @@ local function SuppressBlizzardUF(unit, nameplate)
     if uf.WidgetContainer then
         uf.WidgetContainer:SetParent(nameplate)
     end
+    -- Keep the soft-target interact icon visible too, as the enemy plate does:
+    -- world objects (herbs, ore, mailboxes) land here as non-attackable
+    -- non-players, and their icon lives on this UnitFrame.
+    if uf.SoftTargetFrame then
+        uf.SoftTargetFrame:SetParent(nameplate)
+    end
 
     modifiedUFs[unit] = { uf = uf, nameplate = nameplate }
 
@@ -1031,6 +1037,9 @@ local function RestoreBlizzardUF(unit)
     uf:SetParent(entry.nameplate)
     if uf.WidgetContainer then
         uf.WidgetContainer:SetParent(uf)
+    end
+    if uf.SoftTargetFrame then
+        uf.SoftTargetFrame:SetParent(uf)
     end
     uf:SetAlpha(1)
     uf:Show()
