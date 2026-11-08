@@ -81,11 +81,11 @@ local FAMILIES = {
       notTank = true },
     -- The paladin blessings, normal and Greater: a member shows at most one,
     -- by role (the role settings, not a switch, pick it). The keys are the
-    -- role settings' values.
+    -- role settings' values (a saved "light", a blessing the game removed, is
+    -- skipped).
     { key = "might",     class = "PALADIN", blessing = true, icon = 19740, from = { "might" } },
     { key = "wisdom",    class = "PALADIN", blessing = true, icon = 19742, from = { "wisdom" } },
     { key = "kings",     class = "PALADIN", blessing = true, icon = 20217, from = { "kings" } },
-    { key = "light",     class = "PALADIN", blessing = true, icon = 19977, from = { "light" } },
 }
 local NUM_FAMILIES = #FAMILIES
 for i = 1, NUM_FAMILIES do
