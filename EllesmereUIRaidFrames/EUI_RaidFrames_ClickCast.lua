@@ -162,7 +162,8 @@ if EllesmereUI.IS_FOREVER then
         PRIEST  = { single = { 2006, 2010, 10880, 10881, 20770 } },
         PALADIN = { single = { 7328, 10322, 10324, 20772, 20773 } },
         SHAMAN  = { single = { 2008, 20609, 20610, 20776, 20777 } },
-        DRUID   = { battle = { 20484, 20739, 20742, 20747, 20748 } },
+        DRUID   = { single = { 437138, 1237948, 1237949, 1237950, 1237951 },  -- Revive
+                    battle = { 20484, 20739, 20742, 20747, 20748 } },
     }
     REZ_ITEMS = {}
 end
