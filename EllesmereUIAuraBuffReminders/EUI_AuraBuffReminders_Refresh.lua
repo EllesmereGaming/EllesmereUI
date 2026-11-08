@@ -249,13 +249,38 @@ function EABR.FvSpellEntry(missing, id, dismissKey, label)
     missing[#missing+1] = e
 end
 
--- Whether any rank of one buff line is up (ids: the one-slot lookup).
-local function LineUp(line, ids)
-    for j = 1, #line do
-        ids[1] = line[j]
-        if PlayerHasAuraByID(ids) then return true end
+-- Whether the player's own aura of a spell is up. A secret or unreadable
+-- answer counts as up, so it never asks for a recast it cannot confirm.
+local function OwnAuraUp(id)
+    local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
+    if not ok or isSecret(aura) then return true end
+    if aura == nil then return false end
+    local mine = aura.isFromPlayerOrPlayerPet
+    return isSecret(mine) or mine ~= false
+end
+
+-- Whether any rank in a list is up (ids: the one-slot lookup).
+local function RanksUp(ranks, ids, own)
+    for j = 1, #ranks do
+        if own then
+            if OwnAuraUp(ranks[j]) then return true end
+        else
+            ids[1] = ranks[j]
+            if PlayerHasAuraByID(ids) then return true end
+        end
     end
     return false
+end
+
+local function LineUp(lines, i, ids, also, own)
+    if RanksUp(lines[i], ids, own) then return true end
+    local extra = also and also[i]
+    return extra and RanksUp(extra, ids, own) or false
+end
+
+local function LineReadable(lines, i, also)
+    local extra = also and also[i]
+    return EABR.FvRanksReadable(lines[i]) and not (extra and not EABR.FvRanksReadable(extra))
 end
 
 -- One reminder while no rank of any line is up (the mage armors, a class
@@ -265,20 +290,19 @@ end
 -- player's UNIT_AURA already drives the refresh). Nothing up casts the
 -- strongest rank known of that line, else the strongest line known. The
 -- recorded line (last) is read first: the line up is nearly always it.
-local function CollectLines(missing, auraLock, ids, lines, last, dismissKey, label)
-    local first = lines[last]
-    if first and LineUp(first, ids) then return last end
-    local readable = not (auraLock and first and not EABR.FvRanksReadable(first))
+local function CollectLines(missing, auraLock, ids, lines, last, dismissKey, label, also, own)
+    local first = lines[last] and last
+    if first and LineUp(lines, first, ids, also, own) then return first end
+    local readable = not (auraLock and first and not LineReadable(lines, first, also))
     for i = 1, #lines do
-        local line = lines[i]
-        if line ~= first then
-            if LineUp(line, ids) then return i end
-            if auraLock and not EABR.FvRanksReadable(line) then readable = false end
+        if i ~= first then
+            if LineUp(lines, i, ids, also, own) then return i end
+            if auraLock and not LineReadable(lines, i, also) then readable = false end
         end
     end
     -- Under the aura lock an unreadable rank would read absent: say nothing.
     if not readable then return end
-    local id = first and EABR.FvHighest(first)
+    local id = first and EABR.FvHighest(lines[first])
     if not id then
         for i = #lines, 1, -1 do
             id = EABR.FvHighest(lines[i])
@@ -324,12 +348,12 @@ function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
         local buff = list[i]
         local on = picks and picks[buff.key]
         if on == nil then on = not buff.off end
-        local also = buff.also
-        if on and not (also and (PlayerHasAuraByID(also)
-                or (auraLock and not EABR.FvRanksReadable(also)))) then
+        if on then
+            local dk = buff.dismissKey
+            if not dk then dk = "forever:class_" .. buff.key; buff.dismissKey = dk end
             local last = rec and rec[buff.key]
-            local up = CollectLines(missing, auraLock, ids, buff.lines, last,
-                buff.dismissKey, buff.label and EllesmereUI.L(buff.label))
+            local up = CollectLines(missing, auraLock, ids, buff.lines, last, dk,
+                buff.label and EllesmereUI.L(buff.label), buff.also, buff.own)
             if up and up ~= last and key and buff.lines[2] then
                 if not store then store = {}; EllesmereUIDB.classBuffByChar = store end
                 rec = store[key]

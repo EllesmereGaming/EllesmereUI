@@ -65,10 +65,10 @@ if EABR.FOREVER then
     EABR.FV_CLASS_BUFFS = {
         DRUID = {
             { key = "thorns", lines = { { 467, 782, 1075, 8914, 9756, 9910 } } },
-            { key = "omen", lines = { { 16864 } } },
         },
         HUNTER = {
-            { key = "aspect", label = "Aspect", lines = {
+            { key = "aspect", label = "Aspect", own = true, lines = {
+                { 34074, 415423 }, { 469145 },
                 { 13159 }, { 5118 }, { 13163 },
                 { 13161, 1299445, 1299446, 1299447 },
                 { 20043, 20190 },
@@ -81,8 +81,8 @@ if EABR.FOREVER then
                 { 19742, 19850, 19852, 19853, 19854, 25290 },
                 { 20217 },
                 { 19740, 19834, 19835, 19836, 19837, 19838, 25291 },
-            }, also = { 25894, 25918, 25898, 25782, 25916 } },
-            { key = "paladinaura", label = "Aura", lines = {
+            }, also = { { 25894, 25918 }, { 25898 }, { 25782, 25916 } } },
+            { key = "paladinaura", label = "Aura", own = true, lines = {
                 { 19891, 19899, 19900 },
                 { 19888, 19897, 19898 },
                 { 19876, 19895, 19896 },
@@ -97,15 +97,15 @@ if EABR.FOREVER then
             { key = "shadowform", off = true, lines = { { 15473 } } },
         },
         SHAMAN = {
-            { key = "lshield", lines = { { 324, 325, 905, 945, 8134, 10431, 10432 } } },
+            { key = "shield", label = "Shield", lines = {
+                { 324, 325, 905, 945, 8134, 10431, 10432 },
+                { 408510 },
+            } },
         },
         WARLOCK = {
             { key = "demonarmor", label = "Armor", lines = { { 687, 696, 706, 1086, 11733, 11734, 11735 } } },
         },
     }
-    for _, list in pairs(EABR.FV_CLASS_BUFFS) do
-        for _, buff in ipairs(list) do buff.dismissKey = "forever:class_" .. buff.key end
-    end
 end
 
 local _B = {}  -- beacon state table, populated later

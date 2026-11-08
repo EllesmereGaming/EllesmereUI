@@ -1910,12 +1910,16 @@ initFrame:SetScript("OnEvent", function(self)
                 local rows = {}
                 for _, b in ipairs(classBuffs) do
                     local text, tip
-                    if b.lines[2] then
-                        local names = {}
+                    if b.label then
+                        local names, seen = {}, {}
                         for _, line in ipairs(b.lines) do
-                            names[#names + 1] = _G._EABR_SpellName(line[#line], tostring(line[#line]))
+                            for _, id in ipairs({ line[1], line[#line] }) do
+                                local n = _G._EABR_SpellName(id)
+                                if n and not seen[n] then seen[n] = true; names[#names + 1] = n end
+                            end
                         end
                         text, tip = b.label, table.concat(names, "\n")
+                        if b.own then tip = tip .. "\n\nOnly your own counts." end
                     else
                         local line = b.lines[1]
                         text = _G._EABR_SpellName(line[#line], b.key)
