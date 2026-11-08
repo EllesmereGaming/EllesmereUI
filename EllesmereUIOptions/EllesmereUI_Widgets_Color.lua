@@ -261,7 +261,11 @@ local function BuildColorPickerPopup()
     svBlack:SetAllPoints(); svBlack:SetColorTexture(0, 0, 0, 1)
     svBlack:SetGradient("VERTICAL", CreateColor(0, 0, 0, 1), CreateColor(0, 0, 0, 0))
 
-    EllesmereUI.MakeRoundedBorder(svPad, 1, 1, 1, 0.06)
+    -- Opaque: white at 6% over the popup's background, so it reads as before
+    -- but covers the rounded edge, where the lower layers showed through the
+    -- partly masked ones above them (a red rim on the pad).
+    local EDGE_R, EDGE_G, EDGE_B = 0.077 * 0.94 + 0.06, 0.068 * 0.94 + 0.06, 0.058 * 0.94 + 0.06
+    EllesmereUI.MakeRoundedBorder(svPad, EDGE_R, EDGE_G, EDGE_B, 1)
     EllesmereUI.RoundBody(svPad, svHue)
     EllesmereUI.RoundBody(svPad, svWhite)
     EllesmereUI.RoundBody(svPad, svBlack)
@@ -333,7 +337,7 @@ local function BuildColorPickerPopup()
             if hueMask then hueMask:ClearAllPoints(); hueMask:SetAllPoints(hueBar) end
         end
     end
-    EllesmereUI.MakeRoundedBorder(hueBar, 1, 1, 1, 0.06)
+    EllesmereUI.MakeRoundedBorder(hueBar, EDGE_R, EDGE_G, EDGE_B, 1)
 
     local hueInd = hueBar:CreateTexture(nil, "OVERLAY", nil, 7)
     hueInd:SetSize(BAR_W + 4, 2); hueInd:SetColorTexture(1,1,1,1)
@@ -385,7 +389,7 @@ local function BuildColorPickerPopup()
 
     local alphaInd = alphaBar:CreateTexture(nil, "OVERLAY", nil, 7)
     alphaInd:SetSize(BAR_W+4, 2); alphaInd:SetColorTexture(1,1,1,1)
-    EllesmereUI.MakeRoundedBorder(alphaBar, 1, 1, 1, 0.06)
+    EllesmereUI.MakeRoundedBorder(alphaBar, EDGE_R, EDGE_G, EDGE_B, 1)
 
     -- Reused CreateColor objects: no per-frame allocation during drag
     local alphaColorBot = CreateColor(0, 0, 0, 0)
