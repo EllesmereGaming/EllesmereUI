@@ -180,6 +180,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
             { type = "slider", label = "Out of Combat Alpha", min = 0, max = 100, step = 1,
               disabled = function() return not SVal("oocFadeEnabled", false) end,
               disabledTooltip = "Enable Fade Out of Combat first",
+              rawTooltip = true,
               get = function() return math.floor((SVal("oocAlpha", 0.5)) * 100 + 0.5) end,
               set = function(v)
                   SSet("oocAlpha", v / 100)

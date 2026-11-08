@@ -274,9 +274,7 @@ local function StripRealm(name, src, attacker)
     return ShortName(name, mode)
 end
 
-local function IsSecret(v)
-    return issecretvalue ~= nil and issecretvalue(v)
-end
+local IsSecret = EUI.IsSecret
 
 -- Is this bar the local player's? isLocalPlayer is documented NeverSecret, so
 -- the read is legal mid-combat -- but a doc being wrong must degrade to "not

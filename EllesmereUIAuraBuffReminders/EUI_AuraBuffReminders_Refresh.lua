@@ -150,9 +150,20 @@ end
 -- secret, so a hidden aura is not read as absent. A group shows only for a
 -- character that knows one of its spells (a rank in the spellbook): groups are
 -- profile settings, so one made on another class shows nothing here. The icon
--- is the first such spell's; the tooltip names the group (no spell on the
--- entry). Dismiss keys are per group table (weak), so removing or renaming a
--- group never hands its dismissal to another.
+-- is the first such spell's and the click casts it on the player by name (the
+-- highest rank known; the section never shows in combat, so the macro can be
+-- set); the tooltip is that rank's. Dismiss keys are per group table (weak),
+-- so removing or renaming a group never hands its dismissal to another.
+local groupCastMacros = {}
+
+-- Ranks are listed lowest first; a shared family also holds differently named spells.
+local function HighestKnownRankNamed(ranks, name)
+    for i = #ranks, 1, -1 do
+        local id = ranks[i]
+        if SpellName(id) == name and C_SpellBook.IsSpellKnown(id) then return id end
+    end
+end
+
 function EABR.CollectForeverGroups(missing, groups)
     local dismissKeys = EABR._fvGroupKeys
     if not dismissKeys then
@@ -164,13 +175,15 @@ function EABR.CollectForeverGroups(missing, groups)
     for _, group in ipairs(groups) do
         local spellIDs = type(group) == "table" and group.ids
         if type(spellIDs) == "table" then
-            local iconSpellID, hasActiveAura
+            local iconSpellID, iconRanks, hasActiveAura
             local allAurasReadable = true
             for _, spellID in ipairs(spellIDs) do
                 local rankSpellIDs = type(spellID) == "number" and SpellName(spellID)
                     and EABR.ForeverFamily(spellID)
                 if rankSpellIDs then
-                    if not iconSpellID and EABR._fvKnownFams[rankSpellIDs] then iconSpellID = spellID end
+                    if not iconSpellID and EABR._fvKnownFams[rankSpellIDs] then
+                        iconSpellID, iconRanks = spellID, rankSpellIDs
+                    end
                     if PlayerHasAuraByID(rankSpellIDs) then hasActiveAura = true; break end
                     if aurasRestricted and not EABR.FvRanksReadable(rankSpellIDs) then
                         allAurasReadable = false
@@ -185,10 +198,17 @@ function EABR.CollectForeverGroups(missing, groups)
                     dismissKeys[group] = dismissKey
                 end
                 local entry = AcquireEntry()
-                entry.mode = "texture"
+                local castName = SpellName(iconSpellID)
+                local macro = groupCastMacros[castName]
+                if not macro then
+                    macro = "/cast [@player] " .. castName
+                    groupCastMacros[castName] = macro
+                end
+                entry.mode = "macro"; entry.macro = macro
+                entry.spellID = HighestKnownRankNamed(iconRanks, castName) or iconSpellID
                 entry.texture = Tex(iconSpellID)
                 entry.label = type(group.name) == "string" and group.name
-                    or ShortLabel(SpellName(iconSpellID))
+                    or ShortLabel(castName)
                 entry.cat = "forever"; entry.dismissKey = dismissKey
                 missing[#missing+1] = entry
             end
@@ -219,7 +239,8 @@ function EABR.FvTrackingState()
 end
 
 -- A cast-on-click reminder for a WoW Forever spell (gathering, Find Treasure,
--- the mage armors), labelled with the spell's name unless a label is given.
+-- the mage armors, class buffs), labelled with the spell's name unless a
+-- label is given.
 function EABR.FvSpellEntry(missing, id, dismissKey, label)
     local e = AcquireEntry()
     e.mode = "spell"; e.spellID = id
@@ -228,58 +249,147 @@ function EABR.FvSpellEntry(missing, id, dismissKey, label)
     missing[#missing+1] = e
 end
 
--- Whether any rank of one mage armor line is up (ids: the one-slot lookup).
-local function ArmorUp(line, ids)
-    for j = 1, #line do
-        ids[1] = line[j]
-        if PlayerHasAuraByID(ids) then return true end
+-- Whether the player's own aura of a spell is up: true, false (absent or
+-- another caster's), or nil when a secret or unreadable answer cannot tell.
+local function OwnAuraState(id)
+    local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
+    if not ok or isSecret(aura) then return nil end
+    if aura == nil then return false end
+    local okMine, mine = pcall(EABR._StrictAuraFromMe, aura)
+    if not okMine or isSecret(mine) then return nil end
+    return mine
+end
+
+-- Whether any rank in a list is up (ids: the one-slot lookup): true, false,
+-- or nil while an own-only read cannot tell.
+local function RanksState(ranks, ids, own)
+    local unknown
+    for j = 1, #ranks do
+        if own then
+            local state = OwnAuraState(ranks[j])
+            if state then return true end
+            if state == nil then unknown = true end
+        else
+            ids[1] = ranks[j]
+            if PlayerHasAuraByID(ids) then return true end
+        end
     end
+    if unknown then return nil end
     return false
 end
 
--- Mage armors (WoW Forever): one reminder while no rank of Frost Armor, Ice
--- Armor or Mage Armor is up. Only one of them can be active, so the rank found
--- up both clears the reminder and records its line for this character
--- (EllesmereUIDB.mageArmorByChar by EllesmereUI.CharKey: a profile is shared by
--- every character on it). The icon and the click then follow the armor the
--- character last had on, with no event of its own (the player's UNIT_AURA
--- already drives the refresh). Nothing up casts the strongest rank known of
--- that line, else the strongest line known. The recorded line is read first:
--- the armor up is nearly always the last one seen.
-function EABR.CollectMageArmor(missing, auraLock, ids)
-    local lines = EABR.MAGE_ARMORS
-    local store = EllesmereUIDB.mageArmorByChar
-    local key = EABR._armorKey
-    if not key then
-        key = EllesmereUI.CharKey("-", store)
-        EABR._armorKey = key
+local function LineState(lines, i, ids, also, own)
+    local state = RanksState(lines[i], ids, own)
+    if state then return true end
+    local extra = also and also[i]
+    if extra then
+        local extraState = RanksState(extra, ids, own)
+        if extraState then return true end
+        if extraState == nil then state = nil end
     end
-    local first = lines[store and key and store[key]]
-    if first and ArmorUp(first, ids) then return end
-    local readable = not (auraLock and first and not EABR.FvRanksReadable(first))
+    return state
+end
+
+local function LineReadable(lines, i, also)
+    local extra = also and also[i]
+    return EABR.FvRanksReadable(lines[i]) and not (extra and not EABR.FvRanksReadable(extra))
+end
+
+-- One reminder while no rank of any line is up (the mage armors, a class
+-- buff). Returns the index of the line up, which the caller records for this
+-- character (a profile is shared by every character on it), or false while
+-- the reminder is held back without a line to record. The icon and the click
+-- then follow the line last seen up, with no event of their own (the player's
+-- UNIT_AURA already drives the refresh). Nothing up casts the strongest rank
+-- known of that line, else the strongest line known. The recorded line (last)
+-- is read first: the line up is nearly always it. own: only the player's own
+-- aura is found and recorded; anyCounts: another caster's still holds the
+-- reminder back, unrecorded.
+local function CollectLines(missing, auraLock, ids, lines, last, dismissKey, label, also, own, anyCounts)
+    local first = lines[last] and last
+    local unknown = false
+    if first then
+        local state = LineState(lines, first, ids, also, own)
+        if state then return first end
+        if state == nil then unknown = true end
+    end
+    local readable = not (auraLock and first and not LineReadable(lines, first, also))
     for i = 1, #lines do
-        local line = lines[i]
-        if line ~= first then
-            if ArmorUp(line, ids) then
-                if key then
-                    if not store then store = {}; EllesmereUIDB.mageArmorByChar = store end
-                    store[key] = i
-                end
-                return
-            end
-            if auraLock and not EABR.FvRanksReadable(line) then readable = false end
+        if i ~= first then
+            local state = LineState(lines, i, ids, also, own)
+            if state then return i end
+            if state == nil then unknown = true end
+            if auraLock and not LineReadable(lines, i, also) then readable = false end
         end
     end
     -- Under the aura lock an unreadable rank would read absent: say nothing.
-    if not readable then return end
-    local id = first and EABR.FvHighest(first)
+    if unknown or not readable then return false end
+    if anyCounts then
+        for i = 1, #lines do
+            if LineState(lines, i, ids, also, false) then return false end
+        end
+    end
+    local id = first and EABR.FvHighest(lines[first])
     if not id then
         for i = #lines, 1, -1 do
             id = EABR.FvHighest(lines[i])
             if id then break end
         end
     end
-    if id then EABR.FvSpellEntry(missing, id, "forever:magearmor", EllesmereUI.L("Armor")) end
+    if id then EABR.FvSpellEntry(missing, id, dismissKey, label) end
+end
+
+local function CharStore(field)
+    local store = EllesmereUIDB[field]
+    local keys = EABR._fvCharKeys
+    if not keys then keys = {}; EABR._fvCharKeys = keys end
+    local key = keys[field]
+    if not key then
+        key = EllesmereUI.CharKey("-", store)
+        keys[field] = key
+    end
+    return store, key
+end
+
+-- Mage armors (WoW Forever): one reminder while no rank of Frost Armor, Ice
+-- Armor or Mage Armor is up; the line up is recorded in
+-- EllesmereUIDB.mageArmorByChar by EllesmereUI.CharKey.
+function EABR.CollectMageArmor(missing, auraLock, ids)
+    local store, key = CharStore("mageArmorByChar")
+    local last = store and key and store[key]
+    local up = CollectLines(missing, auraLock, ids, EABR.MAGE_ARMORS, last,
+        "forever:magearmor", EllesmereUI.L("Armor"))
+    if up and up ~= last and key then
+        if not store then store = {}; EllesmereUIDB.mageArmorByChar = store end
+        store[key] = up
+    end
+end
+
+function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
+    local list = EABR.FvClassBuffs()[class]
+    if not list then return end
+    local picks = fo.classBuffPicks
+    local store, key = CharStore("classBuffByChar")
+    local rec = store and key and store[key]
+    for i = 1, #list do
+        local buff = list[i]
+        local on = picks and picks[buff.key]
+        if on == nil then on = not buff.off end
+        if on then
+            local dk = buff.dismissKey
+            if not dk then dk = "forever:class_" .. buff.key; buff.dismissKey = dk end
+            local last = rec and rec[buff.key]
+            local up = CollectLines(missing, auraLock, ids, buff.lines, last, dk,
+                buff.label and EllesmereUI.L(buff.label), buff.also,
+                buff.own or buff.ownMemory, buff.ownMemory)
+            if up and up ~= last and key and buff.lines[2] then
+                if not store then store = {}; EllesmereUIDB.classBuffByChar = store end
+                rec = store[key]
+                if not rec then rec = {}; store[key] = rec end
+                rec[buff.key] = up
+            end
+        end
+    end
 end
 
 local FV_HANDS = {
@@ -411,19 +521,21 @@ end
 -- WoW Forever collector: the Camp Benefits campfire buff, Well Fed (any food
 -- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS), the gathering
 -- and Find Treasure trackers, a Mage's armors (EABR.CollectMageArmor), the
--- weapon buffs (EABR.CollectForeverWeapons), the user's spell groups
+-- class buffs (EABR.CollectClassBuffs), the weapon buffs
+-- (EABR.CollectForeverWeapons), the user's spell groups
 -- (EABR.CollectForeverGroups) and custom spell IDs. All are absence only but
 -- the weapon buffs, which also show their Show Below minutes before running
 -- out (the one-shot duration refresh). A custom ID counts as up while any
 -- spell of its rank family is (EABR.ForeverFamily). Entries are display-only
 -- textures carrying the spell for the tooltip, except the two trackers, the
--- mage armors and the weapon buffs, whose click casts the spell or applies
--- the item; presence goes through PlayerHasAuraByID. The section shows
--- nothing in combat (its Where to Show offers no In Combat entry: always
--- unchecked), and Camp Benefits, Well Fed, the mage armors and the trackers
--- nothing in PvP either. The one-slot id table, the cached families, the kept
--- minimap answer and the dismiss-key memo keep the pass allocation-free; the
--- weapon pass reads the game's enchant lists, a table per weapon.
+-- mage armors, the class buffs and the weapon buffs, whose click casts the
+-- spell or applies the item; presence goes through PlayerHasAuraByID. The
+-- section shows nothing in combat (its Where to Show offers no In Combat
+-- entry: always unchecked), and Camp Benefits, Well Fed, the mage armors, the
+-- class buffs and the trackers nothing in PvP either. The one-slot id table,
+-- the cached families, the kept minimap answer and the dismiss-key memo keep
+-- the pass allocation-free; the weapon pass reads the game's enchant lists, a
+-- table per weapon.
 function EABR.CollectForever(missing, inInstance, inPvP)
     local fo = db.profile.forever
     local shows = fo and not InCombat() and EABR.SectionShows(fo.whereToShow, inInstance)
@@ -491,6 +603,9 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     end
     if fo.mageArmor and open and GetPlayerClass() == "MAGE" then
         EABR.CollectMageArmor(missing, auraLock, ids)
+    end
+    if fo.classBuffs == true and open then
+        EABR.CollectClassBuffs(missing, fo, auraLock, ids, GetPlayerClass())
     end
     if fo.weapon == true then
         EABR.CollectForeverWeapons(missing, fo, GetPlayerClass())

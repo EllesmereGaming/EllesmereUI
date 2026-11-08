@@ -19,7 +19,7 @@ local GLOBAL_KEY = "_EUIGlobal"
 local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 -- Session-only view state (never saved): expanded cards, cards hiding
--- their inactive glows, and a pending rebuild (see RefreshCardState).
+-- their inactive glows, and a pending rebuild (see BuildGlowCard).
 local _glExpanded, _glHideInactive = {}, {}
 local _glRebuildQueued = false
 
@@ -177,8 +177,9 @@ local function IsActive(site)
 end
 
 local ST_GREY, ST_GREEN, ST_AMBER = { 0.5, 0.5, 0.5 }, { 0.05, 0.82, 0.62 }, { 0.88, 0.69, 0.31 }
--- The card summary's "differ" count wears the status dot's amber.
+-- The card summary wears the status dots' colors: amber "differ", green "all match".
 local AMBER_CODE = EllesmereUI.HexColor(ST_AMBER[1], ST_AMBER[2], ST_AMBER[3])
+local GREEN_CODE = EllesmereUI.HexColor(ST_GREEN[1], ST_GREEN[2], ST_GREEN[3])
 
 -- Status of a site against the template: dot color, short word, tooltip text,
 -- and whether it matches (one MatchesTemplate per evaluation).
@@ -547,7 +548,7 @@ local function CardSummary(list, t)
     if differ > 0 then
         tail = AMBER_CODE .. EllesmereUI.Lf("%d differ from template", differ) .. "|r"
     else
-        tail = EllesmereUI.L("all match the template")
+        tail = GREEN_CODE .. EllesmereUI.L("all match the template") .. "|r"
     end
     return EllesmereUI.Lf("%d active", active) .. ", " .. tail, active
 end
@@ -588,24 +589,6 @@ local function BuildCardContent(parent, y, W, tile)
                     disabledTooltip = EllesmereUI.L("Every glow in this module already matches the template or is locked on its settings page."),
                     rawTooltip = true,
                 })
-            -- A row edit can change the header summary, the inactive count and which
-            -- rows show. The summary text updates in place (a rebuild would close an
-            -- open cog popup); a changed active count moves rows, so rebuild once.
-            local function RefreshCardState()
-                local summary, active = CardSummary(tile.sites, Template())
-                if summary ~= tile.desc and active == tile.active then
-                    if tile._descFS then tile._descFS:SetText(summary) end
-                    tile.desc = summary
-                end
-                if (summary ~= tile.desc or active ~= tile.active) and not _glRebuildQueued then
-                    _glRebuildQueued = true
-                    C_Timer.After(0, function()
-                        _glRebuildQueued = false
-                        if EllesmereUI:GetActivePage() == PAGE_GLOWS then EllesmereUI:RefreshPage(true) end
-                    end)
-                end
-            end
-            EllesmereUI.RegisterWidgetRefresh(RefreshCardState)
         end
         y = CardDivider(parent, y)
     end
@@ -669,7 +652,7 @@ local function BuildTileList(sites, infos)
 end
 
 local function BuildGlowCard(parent, y, W, tile)
-    return EllesmereUI.BuildModuleCard(parent, y, W, tile, {
+    y = EllesmereUI.BuildModuleCard(parent, y, W, tile, {
         -- Sites register only from loaded modules' option files.
         enabled = true,
         expanded = _glExpanded, descW = 560,
@@ -689,6 +672,27 @@ local function BuildGlowCard(parent, y, W, tile)
             tex:SetVertexColor(1, 1, 1, enabled and 0.35 or 0.1)
         end,
     })
+    -- A template or row edit can change the header summary, the inactive count
+    -- and which rows show, on collapsed cards too. The summary text updates in
+    -- place (a rebuild would close an open cog popup); a changed active count
+    -- moves rows, so rebuild once.
+    if #tile.sites > 0 and not EllesmereUI._prebuilding then
+        EllesmereUI.RegisterWidgetRefresh(function()
+            local summary, active = CardSummary(tile.sites, Template())
+            if summary ~= tile.desc and active == tile.active then
+                if tile._descFS then tile._descFS:SetText(summary) end
+                tile.desc = summary
+            end
+            if (summary ~= tile.desc or active ~= tile.active) and not _glRebuildQueued then
+                _glRebuildQueued = true
+                C_Timer.After(0, function()
+                    _glRebuildQueued = false
+                    if EllesmereUI:GetActivePage() == PAGE_GLOWS then EllesmereUI:RefreshPage(true) end
+                end)
+            end
+        end)
+    end
+    return y
 end
 
 -------------------------------------------------------------------------------

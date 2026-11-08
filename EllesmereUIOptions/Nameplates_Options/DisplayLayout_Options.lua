@@ -1480,7 +1480,7 @@ local function BuildDisplayLayout(parent, y, ctx)
                 cogPopup._curMin = opts.sizeMin; cogPopup._curMax = opts.sizeMax; cogPopup._curStep = sStep
             end
             cogPopup._sGet = opts.sizeGet; cogPopup._sSet = opts.sizeSet
-            cogPopup._sLabel:SetText(opts.sizeLabel or EllesmereUI.L("Size"))
+            cogPopup._sLabel:SetText(EllesmereUI.L(opts.sizeLabel or "Size"))
             cogPopup._sLabel:Show()
             if cogPopup._sTrack then cogPopup._sTrack:Show() end
             if cogPopup._sValBox then cogPopup._sValBox:Show() end

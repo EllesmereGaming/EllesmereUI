@@ -203,6 +203,8 @@ if EABR.FOREVER then
         weaponHideNoItem = true,
         weaponShowBelow = 1,
         weaponHands = {},
+        classBuffs = false,
+        classBuffPicks = {},
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added
         customGroups = {},  -- { name = string, ids = { spell IDs } }: one reminder while none of ids is active

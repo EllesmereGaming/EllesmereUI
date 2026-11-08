@@ -1814,7 +1814,7 @@ local function SkinFriendsFrame()
             hint:SetFont(fontPath, 8, "")
             hint:SetTextColor(1, 1, 1, 0.5)
             hint:SetPoint("TOP", copyPopup, "TOP", 0, -6)
-            hint:SetText("Ctrl+C to copy, Escape to close")
+            hint:SetText(EllesmereUI.L("Ctrl+C to copy, Escape to close"))
 
             local eb = CreateFrame("EditBox", nil, copyPopup)
             eb:SetSize(160, 16)

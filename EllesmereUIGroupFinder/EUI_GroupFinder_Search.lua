@@ -252,8 +252,10 @@ local function Apply(f)
     PaintRefresh()
 end
 
--- once per session: put back this character's picks. The first time, the
--- character keeps the picks blizzard holds now (the account's, from before)
+-- once per session, when premade groups first opens: put back this character's
+-- picks. not at login: blizzard sets its filter back to every dungeon after
+-- that, which would undo it. The first time, the character keeps the picks
+-- blizzard holds now (the account's, from before)
 function XF.RestoreCharFilter()
     if XF.filterRestored then return end
     local f = C_LFGList.GetAdvancedFilter()
@@ -305,7 +307,7 @@ end
 -- the list comes from EUI_GroupFinder_Regions.lua (us regions, eu languages)
 local function Regions() return ns.RegionList() or XF.EMPTY end
 
-local function IsSecret(v) return issecretvalue and issecretvalue(v) or false end
+local IsSecret = EllesmereUI.IsSecret
 local function RegionsAvailable() return ns.RegionList() ~= nil end
 
 local function ChosenRegions()
@@ -4143,7 +4145,10 @@ ns.LayoutViewer = LayoutViewer
 local function Init()
     SP = LFGListFrame and LFGListFrame.SearchPanel
     if not SP then return end
-    XF.RestoreCharFilter()
+    -- the picks come back when premade groups first opens, before "find group"
+    -- runs its first search (and again on the search panel's show, XF.PanelShown)
+    if LFGListFrame:IsVisible() then XF.RestoreCharFilter() end
+    LFGListFrame:HookScript("OnShow", XF.RestoreCharFilter)
     SP:HookScript("OnShow", XF.PanelShown)
     local CS = LFGListFrame.CategorySelection
     if CS then

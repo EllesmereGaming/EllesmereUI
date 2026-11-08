@@ -1288,7 +1288,7 @@ do
         { key = "solid",   name = "Solid" },
         { key = "glow",    name = "Glow",            path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\glow-border",  defaultOffset = 0, defaultOffsetY = 0, scaleOffset = true, defaultThickness = "normal" },
         -- Shadow = the Glow texture drawn behind the frame in black; aliases to glow in default lookups, "behind + black" applied by GetBorderStyleSelectDefaults.
-        { key = "shadow",  name = "Shadow",          path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\glow-border",  defaultOffset = 0, defaultOffsetY = 0, scaleOffset = true, defaultThickness = "normal" },
+        { key = "shadow",  name = "Shadow",          labelKey = "Shadow (Border Style)", path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\glow-border",  defaultOffset = 0, defaultOffsetY = 0, scaleOffset = true, defaultThickness = "normal" },
         { key = "blizz",   name = "Blizzard",        path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\blizz-border", defaultOffset = 3, defaultOffsetY = 2, scaleOffset = true, defaultThickness = "heavy" },
         { key = "lightspark", name = "Lightspark Border", path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\lightspark-border", defaultOffset = 0, defaultOffsetY = 0, scaleOffset = true, defaultThickness = "normal" },
         { key = "dialog",  name = "Blizzard Dialog",  path = "Interface\\DialogFrame\\UI-DialogBox-Border",                 defaultOffset = 4, defaultOffsetY = 4, defaultThickness = "normal" },
@@ -1342,12 +1342,24 @@ do
     end
     local DEFAULT_LSM_OFFSET = 0
 
+    -- A built-in name that means something else elsewhere (Shadow is also the
+    -- priest spec) carries a labelKey of its own, so a locale can tell the two
+    -- apart. English, and a locale without that key, show the plain name.
+    local function BuiltinBorderLabel(entry)
+        local key = entry.labelKey
+        if key then
+            local text = EllesmereUI.L(key)
+            if text ~= key then return text end
+        end
+        return entry.name
+    end
+
     --- Build a sorted list of border texture entries for dropdown widgets.
     function EllesmereUI.GetBorderTextureList()
         local list = {}
         local seen = {}
         for _, entry in ipairs(EllesmereUI._builtinBorderTextures) do
-            list[#list + 1] = { key = entry.key, name = entry.name }
+            list[#list + 1] = { key = entry.key, name = BuiltinBorderLabel(entry) }
             seen[entry.name] = true
         end
         local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
