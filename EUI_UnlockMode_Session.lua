@@ -33,6 +33,8 @@ local FLASHLIGHT_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\flashligh
 local HOVER_ICON      = "Interface\\AddOns\\EllesmereUI\\media\\icons\\hover.png"
 local DARK_OVERLAY_ICON = "Interface\\AddOns\\EllesmereUI\\media\\icons\\dark-overlay.png"
 local COORD_ICON      = "Interface\\AddOns\\EllesmereUI\\media\\icons\\coordinates.png"
+local INFO_ICON       = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-info.png"
+local INFO_ICON_SZ    = 20
 local BANNER_TEX      = "Interface\\AddOns\\EllesmereUI\\media\\eui-unlocked-banner-2.png"
 
 local HUD_ON_ALPHA  = 0.60
@@ -101,16 +103,27 @@ local function CreateHUD(parent)
     local UP_LEFT, UP_RIGHT = -80 + iconSz / 2, 76 - iconSz / 2
     local GAP_L, GAP_R1, GAP_R2 = 20, 7, 2
 
-    -- Helper: shared hover/click behavior for icon+label wrapper buttons
-    -- Toggle tooltip below the bar, level with the element filter's (EUI_UnlockMode_Filter.lua);
-    -- -23 because the toggles are 2px taller than the filter box. Aligned to the toggle's
-    -- outer edge: the banner (level 900) covers the tooltip, so it must not run under the logo.
-    local function ShowToggleTip(owner, tip)
-        local side = (owner:GetCenter() < UM.hudFrame:GetCenter()) and "RIGHT" or "LEFT"
-        EllesmereUI.ShowWidgetTooltip(owner, tip,
-            { anchorPoint = "TOP" .. side, anchorTo = "BOTTOM" .. side, anchorY = -23 * UM.hudFrame:GetScale() })
+    -- Tooltip for a bar control (also the element filter's, EUI_UnlockMode_Filter.lua): below
+    -- the bar, its top 37px under the controls' centre line whatever the control's height.
+    -- It starts at the control's left edge and grows right, unless at its widest (250, the
+    -- shared tooltip's cap) it would reach the logo, which the banner (level 900) draws over
+    -- it, or the screen's right edge; then it ends at the control's right edge instead.
+    -- Skipped while the first-open tip callout covers that spot.
+    local LOGO_HALF_W = 53  -- the logo's art half width (columns 519-622 of the banner)
+    function UM.ShowBarTip(owner, tip, justify)
+        if UM.unlockTipFrame and UM.unlockTipFrame:IsShown() then return end
+        local hud = UM.hudFrame
+        local toUI = owner:GetEffectiveScale() / UIParent:GetEffectiveScale()
+        local hudCX = hud:GetCenter()
+        local limit = UIParent:GetRight()
+        if owner:GetCenter() < hudCX then limit = (hudCX - LOGO_HALF_W) * toUI end
+        local side = (owner:GetLeft() * toUI + 250 > limit) and "RIGHT" or "LEFT"
+        EllesmereUI.ShowWidgetTooltip(owner, tip, { anchorPoint = "TOP" .. side, anchorTo = "BOTTOM" .. side,
+            anchorY = -(37 - owner:GetHeight() / 2) * hud:GetScale(), justify = justify })
     end
+    local ShowToggleTip = UM.ShowBarTip
 
+    -- Helper: shared hover/click behavior for icon+label wrapper buttons
     local function SetupToggleBtn(wrapper, iconTex, labelFS, getState, setState, tip)
         wrapper:SetScript("OnClick", function() setState() end)
         wrapper:SetScript("OnEnter", function(self)
@@ -338,7 +351,7 @@ local function CreateHUD(parent)
                 end
             end
         end,
-        EllesmereUI.L("Shows the position of every element, not just the selected one."))
+        EllesmereUI.L("Always shows every element's position, not only while it is hovered, dragged or selected."))
     UM.hudFrame._coordBtn = coordBtn
 
     ---------------------------------------------------------------
@@ -377,6 +390,48 @@ local function CreateHUD(parent)
     UM.hudFrame._hoverBtn = hoverBtn
 
     ---------------------------------------------------------------
+    --  Controls help (right of hover): hovering the info icon lists the
+    --  mouse and keyboard controls, the keys in the accent colour.
+    ---------------------------------------------------------------
+    local infoBtn = CreateFrame("Button", nil, UM.hudFrame)
+    infoBtn:SetSize(INFO_ICON_SZ, max(iconSz, 24))
+    infoBtn:SetPoint("LEFT", hoverBtn, "RIGHT", GAP_R2, 0)
+    do
+        local OVERLAP_KEYS = { scroll = "Scroll", shiftscroll = "Shift + Scroll",
+            controlscroll = "Ctrl + Scroll", altscroll = "Alt + Scroll" }
+        local tex = infoBtn:CreateTexture(nil, "OVERLAY")
+        tex:SetSize(INFO_ICON_SZ, INFO_ICON_SZ)
+        tex:SetPoint("CENTER")
+        tex:SetTexture(INFO_ICON)
+        tex:SetAlpha(HUD_ON_ALPHA)
+        infoBtn:SetScript("OnEnter", function(self)
+            tex:SetAlpha(0.9)
+            local r, g, b = GetAccent()
+            local c = string.format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
+            local function Line(key, what) return c .. key .. "|r: " .. what end
+            local lines = {
+                Line(EllesmereUI.L("Shift + Drag"), EllesmereUI.L("Move it on one axis only.")),
+                Line(EllesmereUI.L("Arrow Keys"), EllesmereUI.L("Move the selected element 1px.")),
+                Line(EllesmereUI.L("Shift + Arrow Keys"), EllesmereUI.L("Move it 100px.")),
+                Line(EllesmereUI.L("Right Click"), EllesmereUI.L("Open the element's settings.")),
+                Line(EllesmereUI.L("Shift + Right Click"), EllesmereUI.L("Hide the element's overlay temporarily.")),
+                Line(EllesmereUI.L("Hold Shift"), EllesmereUI.L("Hide this bar.")),
+            }
+            -- The Overlap Cycling dropdown's own labels (EUI__General_Options.lua), nil when disabled.
+            local overlap = OVERLAP_KEYS[EllesmereUI.GetUnlockOverlapMethod()]
+            if overlap then
+                lines[#lines + 1] = Line(EllesmereUI.L(overlap), EllesmereUI.L("Cycle through overlapping elements."))
+            end
+            UM.ShowBarTip(self, table.concat(lines, "\n"), "LEFT")
+        end)
+        infoBtn:SetScript("OnLeave", function()
+            tex:SetAlpha(HUD_ON_ALPHA)
+            EllesmereUI.HideWidgetTooltip()
+        end)
+    end
+    UM.hudFrame._infoBtn = infoBtn
+
+    ---------------------------------------------------------------
     --  Exit (left) and Save & Exit (right) buttons
     --  Vertically centered in the 58px visible banner area.
     --  Positioned ~50px from left/right edges of the banner, but pulled in
@@ -387,18 +442,20 @@ local function CreateHUD(parent)
     local BTN_FONT = 10
     local btnCenterY = iconCenterY  -- same vertical center as icons
     local CHAIN_GAP = 15  -- minimum clearance from the icon-toggle chain
+    local EDGE_IN = 85    -- default inset of Exit / Save & Exit from the banner edges
 
     -- Outer edges of the left (grid/darkOverlay/flash) and right
     -- (magnet/coord/hover) toggle chains, center-relative, from the same
     -- numbers that anchor them above.
     local flashLeftEdge = UP_LEFT - gridBtn:GetWidth() - GAP_L - darkOverlayBtn:GetWidth() - GAP_L - flashBtn:GetWidth()
     local hoverRightEdge = UP_RIGHT + magnetBtn:GetWidth() + GAP_R1 + coordBtn:GetWidth() + GAP_R2 + hoverBtn:GetWidth()
+        + GAP_R2 + infoBtn:GetWidth()
 
     -- Exit button (left side, 85px from left edge by default)
     local exitBtn = CreateFrame("Button", nil, UM.hudFrame)
     local EXIT_BTN_W = 60
     exitBtn:SetSize(EXIT_BTN_W, BTN_H)
-    local exitLeftEdge = min(-BANNER_PX_W / 2 + 85, flashLeftEdge - CHAIN_GAP - EXIT_BTN_W)
+    local exitLeftEdge = min(-BANNER_PX_W / 2 + EDGE_IN, flashLeftEdge - CHAIN_GAP - EXIT_BTN_W)
     exitBtn:SetPoint("LEFT", UM.hudFrame, "TOPLEFT", exitLeftEdge + BANNER_PX_W / 2, btnCenterY)
     EllesmereUI.MakeStyledButton(exitBtn, "Exit", BTN_FONT,
         EllesmereUI.RB_COLOURS, function() ns.RequestClose(false) end)
@@ -409,7 +466,7 @@ local function CreateHUD(parent)
         local btn = CreateFrame("Button", nil, UM.hudFrame)
         local SAVE_BTN_W = 90
         btn:SetSize(SAVE_BTN_W, BTN_H)
-        local saveRightEdge = max(BANNER_PX_W / 2 - 85, hoverRightEdge + CHAIN_GAP + SAVE_BTN_W)
+        local saveRightEdge = max(BANNER_PX_W / 2 - EDGE_IN, hoverRightEdge + CHAIN_GAP + SAVE_BTN_W)
         btn:SetPoint("RIGHT", UM.hudFrame, "TOPRIGHT", saveRightEdge - BANNER_PX_W / 2, btnCenterY)
         btn:SetFrameLevel(UM.hudFrame:GetFrameLevel() + 2)
 
@@ -580,7 +637,7 @@ local function CreateHUD(parent)
         -- The bar's own numbers for the element filter's layout (EUI_UnlockMode_Filter.lua).
         UM.hudFrame._hudLayout = {
             upLeft = UP_LEFT, upRight = UP_RIGHT, gapL = GAP_L, gapR1 = GAP_R1, gapR2 = GAP_R2,
-            clear = CHAIN_GAP, scaleBtnReach = SCALE_BTN_GAP + SCALE_BTN_SZ,
+            clear = CHAIN_GAP, edgeIn = EDGE_IN, scaleBtnReach = SCALE_BTN_GAP + SCALE_BTN_SZ,
             scaleMin = SCALE_MIN, scaleMax = SCALE_MAX, scaleStep = SCALE_STEP,
         }
 
@@ -620,8 +677,18 @@ local function CreateHUD(parent)
         UM.hudFrame._magnetBtn, UM.hudFrame._coordBtn, UM.hudFrame._hoverBtn,
         UM.hudFrame._exitBtn, UM.hudFrame._saveBtn, UM.hudFrame._minusBtn, UM.hudFrame._plusBtn,
         UM.hudFrame._filterBox, UM.hudFrame._filterIcon, UM.hudFrame._filterClear,
+        UM.hudFrame._infoBtn,
     }
     local shiftMouseCut = false
+
+    -- Closing Unlock Mode under the cursor may skip OnLeave: drop a bar tooltip left showing.
+    UM.hudFrame:HookScript("OnHide", function()
+        local owner = EllesmereUI._WidgetTooltipOwner()
+        if not owner then return end
+        for i = 1, #hudMouseKids do
+            if hudMouseKids[i] == owner then EllesmereUI.HideWidgetTooltip(true); return end
+        end
+    end)
 
     UM.hudFrame:SetScript("OnUpdate", function(self, dt)
         -- Hold Shift: temporarily hide the top bar (works in both modes)
