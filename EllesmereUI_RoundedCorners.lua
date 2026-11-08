@@ -870,6 +870,21 @@ local function OutlineSetColor(self, r, g, b, a)
     self._fill:SetVertexColor(r, g, b, a or 1)
 end
 
+-- o:SetCover(r, g, b): an opaque fill in the colour the control sits on,
+-- under the outline, over its band and the corners outside it. A control of
+-- stacked layers drawn square below it then reads rounded with its edge
+-- blended once, where masks on each layer let the lower ones show through.
+local function OutlineSetCover(self, r, g, b)
+    local cover = self.cover
+    if not cover then
+        cover = self._frame:CreateTexture(nil, "BORDER", nil, 6)
+        cover:SetAllPoints(self._frame)
+        self.cover = cover
+        if self.r then AddMask(cover, self.hole) end
+    end
+    cover:SetColorTexture(r, g, b, 1)
+end
+
 -- The radius in whole pixels from the parent's scale (at most what the height
 -- holds) and the body's radius in the parent's units.
 local function FitOutline(o, k)
@@ -884,8 +899,11 @@ local function FitOutline(o, k)
     if o.r ~= r then
         -- The hole is reshaped detached (a mask carries its texture before
         -- it is added).
-        local fill, hole = o._fill, o.hole
-        if o.r then RemoveMask(fill, hole) end
+        local fill, hole, cover = o._fill, o.hole, o.cover
+        if o.r then
+            RemoveMask(fill, hole)
+            if cover then RemoveMask(cover, hole) end
+        end
         o.r = r
         SetRounded(fill, r, ALL_CORNERS)
         local inner = r - 1
@@ -893,6 +911,7 @@ local function FitOutline(o, k)
         hole:SetTextureSliceMargins(inner, inner, inner, inner)
         hole:SetTextureSliceMode(STRETCHED)
         AddMask(fill, hole)
+        if cover then AddMask(cover, hole) end
     end
     local bm = o.bodyMask
     if bm then
@@ -959,7 +978,7 @@ function EllesmereUI.MakeRoundedBorder(parent, r, g, b, a, body, radius, clip)
     local hole = layer:CreateMaskTexture()
     hole:SetPoint("TOPLEFT", layer, "TOPLEFT", 1, -1)
     hole:SetPoint("BOTTOMRIGHT", layer, "BOTTOMRIGHT", -1, 1)
-    o._fill, o.hole, o.SetColor = fill, hole, OutlineSetColor
+    o._fill, o.hole, o.SetColor, o.SetCover = fill, hole, OutlineSetColor, OutlineSetCover
     o.radius = radius or OUTLINE_RADIUS
     if body then
         local bm = parent:CreateMaskTexture()

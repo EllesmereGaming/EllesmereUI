@@ -261,14 +261,17 @@ local function BuildColorPickerPopup()
     svBlack:SetAllPoints(); svBlack:SetColorTexture(0, 0, 0, 1)
     svBlack:SetGradient("VERTICAL", CreateColor(0, 0, 0, 1), CreateColor(0, 0, 0, 0))
 
-    -- Opaque: white at 6% over the popup's background, so it reads as before
-    -- but covers the rounded edge, where the lower layers showed through the
-    -- partly masked ones above them (a red rim on the pad).
+    -- Opaque: white at 6% over the popup's background, so it reads as before.
     local EDGE_R, EDGE_G, EDGE_B = 0.077 * 0.94 + 0.06, 0.068 * 0.94 + 0.06, 0.058 * 0.94 + 0.06
-    EllesmereUI.MakeRoundedBorder(svPad, EDGE_R, EDGE_G, EDGE_B, 1)
-    EllesmereUI.RoundBody(svPad, svHue)
-    EllesmereUI.RoundBody(svPad, svWhite)
-    EllesmereUI.RoundBody(svPad, svBlack)
+    -- The three layers stay square: a mask on each let the hue show through
+    -- the partly drawn gradients at the edge (a red rim). The cover in the
+    -- popup's colour rounds them, and they fill the outline's whole-pixel
+    -- seat, so no part of an edge pixel lies outside it.
+    local svEdge = EllesmereUI.MakeRoundedBorder(svPad, EDGE_R, EDGE_G, EDGE_B, 1)
+    svEdge:SetCover(0.077, 0.068, 0.058)
+    svHue:SetAllPoints(svEdge._frame)
+    svWhite:SetAllPoints(svEdge._frame)
+    svBlack:SetAllPoints(svEdge._frame)
 
     local ARM = 6
     local chT = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chT:SetSize(1, ARM); chT:SetColorTexture(1,1,1,0.9)
