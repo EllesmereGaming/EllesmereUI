@@ -1095,7 +1095,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             hdr:ClearAllPoints()
             hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
             hdr:SetWidth(gridW)
-            hdr._label:SetText(sectionName .. " (" .. itemCount .. ")")
+            hdr._label:SetText(EUI_CategoryManager:GroupDisplayName(sectionName) .. " (" .. itemCount .. ")")
             -- Pinned / Recent: their hint shows while the label is hovered
             if showPinAdd then
                 ns.SetHeaderHint(hdr, EllesmereUI.L("Middle Click to Add or Remove"))
