@@ -1065,9 +1065,15 @@ local function HoldHidden(f, a)
     guard = false
 end
 
+-- a hidden sign up status (keys, encounters): our rows couldn't tell if a group can be picked
+local function AppSecret(id)
+    local _, status, pending = C_LFGList.GetApplicationInfo(id)
+    return Secret(status) or Secret(pending)
+end
+
 -- one result's secrecy, as AnySecret reads the whole list
 local function ResultSecret(id)
-    if Secret(id) then return true end
+    if Secret(id) or AppSecret(id) then return true end
     local info = C_LFGList.GetSearchResultInfo(id)
     return info ~= nil and (not Readable(info) or Secret(info.activityIDs) or Secret(info.isDelisted))
 end
@@ -1133,6 +1139,9 @@ local function Build()
     SP = LFGListFrame and LFGListFrame.SearchPanel
     if not (SP and SP.ScrollBox) then return end
     frame = CreateFrame("Frame", nil, SP)
+    -- shown only while active: a first visit to quests or custom never turns it
+    -- on, and a shown empty frame there took every click and scroll
+    frame:Hide()
     if LFGListSearchPanel_DoSearch then
         hooksecurefunc("LFGListSearchPanel_DoSearch", function() wipe(posOf); nextPos = 0; selected = nil end)
     end
@@ -1232,7 +1241,7 @@ function AnySecret()
     local res = SP and SP.results
     if type(res) ~= "table" then return false end
     for _, id in ipairs(res) do
-        if Secret(id) then return true end
+        if Secret(id) or AppSecret(id) then return true end
         local info = C_LFGList.GetSearchResultInfo(id)
         if info and (not Readable(info) or Secret(info.activityIDs) or Secret(info.isDelisted)) then return true end
     end
@@ -1276,6 +1285,14 @@ function ns.OwnListRefresh()
         end
     end
     if active then
+        -- stay over blizzard's faded list and button: if something raises them,
+        -- the mouse would go to rows nobody can see
+        local lv = SP.ScrollBox:GetFrameLevel() + 10
+        if frame:GetFrameLevel() < lv then frame:SetFrameLevel(lv) end
+        if signBtn then
+            lv = SP.SignUpButton:GetFrameLevel() + 5
+            if signBtn:GetFrameLevel() < lv then signBtn:SetFrameLevel(lv) end
+        end
         Collect()
         Paint()
     end
