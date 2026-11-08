@@ -504,7 +504,6 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
 
         -- Search box (optional)
         if searchable then
-                searchEdit:SetSize(ddW - 8, SEARCH_H)
             if not searchEdit then
                 searchEdit = CreateFrame("EditBox", nil, menu)
                 searchEdit:SetFont(fontPath, 11, "")
@@ -512,20 +511,27 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 searchEdit:SetJustifyH("LEFT")
                 searchEdit:SetAutoFocus(false)
                 searchEdit:SetMaxLetters(30)
-                searchEdit:SetTextInsets(4, 4, 0, 0)
-                local sBg = searchEdit:CreateTexture(nil, "BACKGROUND")
-                sBg:SetAllPoints()
-                sBg:SetColorTexture(0, 0, 0, 0.4)
-                EllesmereUI.RoundBody(searchEdit, sBg)
+                -- Text at the check boxes' x (the scroll area sits 1 unit in, boxes 10 into a row).
+                searchEdit:SetTextInsets(10, 10, 0, 0)
+                local sDiv = searchEdit:CreateTexture(nil, "ARTWORK")
+                sDiv:SetHeight(1)
+                -- This list's own divider style (the top actions' divider above).
+                sDiv:SetPoint("BOTTOMLEFT", searchEdit, "BOTTOMLEFT", 9, 0)
+                sDiv:SetPoint("BOTTOMRIGHT", searchEdit, "BOTTOMRIGHT", -9, 0)
+                sDiv:SetColorTexture(0.3, 0.3, 0.3, 0.5)
                 searchPlaceholder = searchEdit:CreateFontString(nil, "OVERLAY")
                 searchPlaceholder:SetFont(fontPath, 11, "")
                 searchPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.6)
-                searchPlaceholder:SetPoint("LEFT", searchEdit, "LEFT", 4, 0)
+                searchPlaceholder:SetPoint("LEFT", searchEdit, "LEFT", 10, 0)
                 searchPlaceholder:SetText(EllesmereUI.L("Search..."))
                 searchEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
             end
+            -- The list's flush first row: inside the border (below the top
+            -- actions), its last unit the divider, the scroll area right below.
             searchEdit:ClearAllPoints()
-            searchEdit:SetPoint("TOP", menu, "TOP", 0, -4 - TOP_H)
+            searchEdit:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -1 - TOP_H)
+            searchEdit:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -1 - TOP_H)
+            searchEdit:SetHeight(SEARCH_PAD - 1)
             searchEdit:SetFrameLevel(menu:GetFrameLevel() + 3)
         end
 

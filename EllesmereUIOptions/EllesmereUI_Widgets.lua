@@ -508,7 +508,8 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     -- Optional in-menu search box (_menuOpts.searchable): filter field hides non-matching items and repositions the rest. Flat lists only (no subnav, no dividers).
     local _moSearchable = _menuOpts and _menuOpts.searchable
     local SEARCH_H = 26
-    -- The search box keeps 4 units to the top, both sides and the first row.
+    -- The search field is the list's flush first row (inside the 1 unit border,
+    -- a divider as its last unit); the rows below keep their 4-unit top gap.
     local searchPad = _moSearchable and (SEARCH_H + 4) or 0
     local searchEdit, searchPlaceholder
     local searchResetScroll  -- assigned inside the scrolling branch; nil otherwise
@@ -547,23 +548,26 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         -- Options panel is Expressway-locked by design; EllesmereUI.EXPRESSWAY is locale-aware (CJK/Cyrillic get the system glyph font). The user's global font intentionally never restyles the settings UI.
         local fontPath = (_moLabelFont and _moLabelFont[1]) or EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
         searchEdit = CreateFrame("EditBox", nil, menu)
-        searchEdit:SetSize(menuW - 8, SEARCH_H)
-        searchEdit:SetPoint("TOP", menu, "TOP", 0, -4)
+        searchEdit:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -1)
+        searchEdit:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -1)
+        searchEdit:SetHeight(searchPad - 1)
         searchEdit:SetFrameLevel(menu:GetFrameLevel() + 4)
         searchEdit:SetFont(fontPath, 11, "")
         searchEdit:SetTextColor(1, 1, 1, 0.9)
         searchEdit:SetJustifyH("LEFT")
         searchEdit:SetAutoFocus(false)
         searchEdit:SetMaxLetters(30)
-        searchEdit:SetTextInsets(4, 4, 0, 0)
-        local sBg = searchEdit:CreateTexture(nil, "BACKGROUND")
-        sBg:SetAllPoints()
-        sBg:SetColorTexture(0, 0, 0, 0.4)
-        EllesmereUI.RoundBody(searchEdit, sBg)
+        -- Text at the row labels' x (rows sit 1 unit in, labels 10 into a row).
+        searchEdit:SetTextInsets(10, 10, 0, 0)
+        local sDiv = searchEdit:CreateTexture(nil, "ARTWORK")
+        sDiv:SetHeight(1)
+        sDiv:SetPoint("BOTTOMLEFT", searchEdit, "BOTTOMLEFT", 0, 0)
+        sDiv:SetPoint("BOTTOMRIGHT", searchEdit, "BOTTOMRIGHT", 0, 0)
+        sDiv:SetColorTexture(1, 1, 1, 0.10)
         searchPlaceholder = searchEdit:CreateFontString(nil, "OVERLAY")
         searchPlaceholder:SetFont(fontPath, 11, "")
         searchPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.6)
-        searchPlaceholder:SetPoint("LEFT", searchEdit, "LEFT", 4, 0)
+        searchPlaceholder:SetPoint("LEFT", searchEdit, "LEFT", 10, 0)
         searchPlaceholder:SetText(EllesmereUI.L("Search..."))
         searchEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     end
