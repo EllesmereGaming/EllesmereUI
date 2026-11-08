@@ -100,7 +100,10 @@ initFrame:SetScript("OnEvent", function(self)
         return EllesmereUIDB and EllesmereUIDB.previewHintDismissed
     end
 
-    local Known = function(id) return id and (IsPlayerSpell(id) or IsSpellKnown(id)) end
+    local Known = function(id)
+        return id and (C_SpellBook.IsSpellKnown(id)
+            or C_SpellBook.IsSpellInSpellBook(id, Enum.SpellBookSpellBank.Player, false))
+    end
     local Tex = function(id) return _G._EABR_Tex and _G._EABR_Tex(id) or (C_Spell and C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(id)) or 134400 end
 
     --- Shorten a buff/aura label to its first word, with special overrides.
@@ -1050,9 +1053,11 @@ initFrame:SetScript("OnEvent", function(self)
 
     ---------------------------------------------------------------------------
     --  WoW Forever custom spells: the lead slot (the Add Custom Spell entry),
-    --  the New Spell Group slot, then one slot per tracked spell (label = name
-    --  + id, button = Remove), filled left to right, a blank label in an odd
-    --  last slot. The page rebuilds on add and remove, so the slots never need
+    --  the New Spell Group slot, then one slot per tracked spell (its icon,
+    --  name and ID, and a checkbox dropdown of the classes it reminds, each
+    --  ticked until unticked, forever.customClasses[id][CLASS] = false, with
+    --  Remove at its top), filled left to right, a blank label in an odd last
+    --  slot. The page rebuilds on add and remove, so the slots never need
     --  in-place updates.
     ---------------------------------------------------------------------------
     local function BuildForeverCustomRows(parent, y, lead)
@@ -1063,20 +1068,11 @@ initFrame:SetScript("OnEvent", function(self)
             onClick=function() PromptSpellGroupName() end }
         local n = 2 + (ids and #ids or 0)
         local W = EllesmereUI.Widgets
+        local PPx = EllesmereUI.PanelPP
         local function Slot(id)
-            return { type="labeledButton", buttonText="Remove", width=90,
+            return { type="label",
                 text=_G._EABR_SpellName(id, tostring(id)) .. " " .. EllesmereUI.COLOR_CODES.DIM .. id .. "|r",
-                tooltip="Reminds you whenever this buff is missing. Remove stops tracking it.",
-                onClick=function()
-                    local fo = FDB()
-                    local list = fo and fo.customIDs
-                    if not list then return end
-                    for j = #list, 1, -1 do
-                        if list[j] == id then table.remove(list, j) end
-                    end
-                    RefreshAll()
-                    EllesmereUI:RefreshPage(true)
-                end }
+                tooltip="Reminds you whenever this buff is missing, on the classes ticked here." }
         end
         local function SlotAt(k)
             if k == 1 then return lead end
@@ -1084,8 +1080,73 @@ initFrame:SetScript("OnEvent", function(self)
             local id = ids and ids[k - 2]
             return id and Slot(id) or EllesmereUI.BlankRowCfg()
         end
+        local function Remove(id)
+            local fo = FDB()
+            local list = fo and fo.customIDs
+            if not list then return end
+            for j = #list, 1, -1 do
+                if list[j] == id then table.remove(list, j) end
+            end
+            if fo.customClasses then fo.customClasses[id] = nil end
+            RefreshAll()
+            EllesmereUI:RefreshPage(true)
+        end
+        -- A tracked spell's slot: its icon before the name, and its classes
+        -- (Remove at the top) on the right.
+        local function DressSlot(rgn, id)
+            if not id then return end
+            local lbl = rgn._label
+            if lbl then
+                local ico = rgn:CreateTexture(nil, "ARTWORK")
+                ico:SetSize(22, 22)
+                ico:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                ico:SetTexture(Tex(id))
+                PPx.Point(ico, "LEFT", rgn, "LEFT", 20, 0)
+                lbl:ClearAllPoints()
+                PPx.Point(lbl, "LEFT", ico, "RIGHT", 8, 0)
+            end
+            local items = { { key = "_remove", label = "Remove", isTopAction = true,
+                onClick = function() Remove(id) end } }
+            local classes = EllesmereUI.ForeverClasses()
+            for i = 1, #classes do
+                local token = classes[i]
+                local c = RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+                local name = EllesmereUI.ForeverClassName(token)
+                items[#items + 1] = { key = token, label = c and c.colorStr and ("|c" .. c.colorStr .. name .. "|r") or name }
+            end
+            local dd, ddRefresh = EllesmereUI.BuildVisOptsCBDropdown(rgn, 170, rgn:GetFrameLevel() + 2, items,
+                function(token)
+                    local fo = FDB()
+                    local off = fo and fo.customClasses and fo.customClasses[id]
+                    return not (off and off[token] == false)
+                end,
+                function(token, v)
+                    local fo = FDB(); if not fo then return end
+                    local cc = fo.customClasses
+                    if not cc then cc = {}; fo.customClasses = cc end
+                    local off = cc[id]
+                    if v then
+                        if off then
+                            off[token] = nil
+                            if not next(off) then cc[id] = nil end
+                        end
+                    else
+                        if not off then off = {}; cc[id] = off end
+                        off[token] = false
+                    end
+                    RefreshAll()
+                end)
+            PPx.Point(dd, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = dd
+            rgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(ddRefresh)
+        end
         for k = 1, n, 2 do
-            local _, h = W:DualRow(parent, y, SlotAt(k), SlotAt(k + 1))
+            local row, h = W:DualRow(parent, y, SlotAt(k), SlotAt(k + 1))
+            if ids and not EllesmereUI._prebuilding then
+                DressSlot(row._leftRegion, ids[k - 2])
+                DressSlot(row._rightRegion, ids[k - 1])
+            end
             y = y - h
         end
         return y
@@ -1895,19 +1956,15 @@ initFrame:SetScript("OnEvent", function(self)
                       local f = FDB(); if not f then return end; f.mageArmor = v
                       RefreshAll()
                   end }
-                or classBuffs and { type="toggle", text="Class Buffs",
-                  tooltip="Reminds you when one of your class's own buffs is missing.\nClick the icon to cast it.",
-                  getValue=function() local f = FDB(); return f and f.classBuffs == true end,
-                  setValue=function(v)
-                      local f = FDB(); if not f then return end; f.classBuffs = v
-                      RefreshAll()
-                      EllesmereUI:RefreshPage()
-                  end }
+                or classBuffs and { type="label", text="Class Buffs",
+                  tooltip="Reminds you when one of your class's own buffs is missing.\nClick the icon to cast it.\nA custom spell or spell group for a ticked buff pauses meanwhile." }
                 or EllesmereUI.BlankRowCfg()
             );  y = y - h
 
+            -- Class Buffs: one checkbox per buff of the class (ticked: its own
+            -- default until picked, EABR.FvClassBuffOn)
             if classBuffs and not EllesmereUI._prebuilding then
-                local rows = {}
+                local items, byKey = {}, {}
                 for _, b in ipairs(classBuffs) do
                     local text, tip
                     if b.label then
@@ -1918,31 +1975,30 @@ initFrame:SetScript("OnEvent", function(self)
                                 if n and not seen[n] then seen[n] = true; names[#names + 1] = n end
                             end
                         end
-                        text, tip = b.label, table.concat(names, "\n")
+                        text, tip = b.menu or b.label, table.concat(names, "\n")
                         if b.own then tip = tip .. "\n\n" .. EllesmereUI.L("Only your own counts.") end
                     else
                         local line = b.lines[1]
                         text = _G._EABR_SpellName(line[#line], b.key)
                     end
-                    rows[#rows + 1] = { type="toggle", label=text, tooltip=tip,
-                      get=function()
-                          local f = FDB(); local v = f and f.classBuffPicks and f.classBuffPicks[b.key]
-                          if v == nil then return not b.off end
-                          return v
-                      end,
-                      set=function(v)
-                          local f = FDB(); if not f then return end
-                          f.classBuffPicks = f.classBuffPicks or {}
-                          f.classBuffPicks[b.key] = v
-                          RefreshAll()
-                      end }
+                    items[#items + 1] = { key = b.key, label = text, tooltip = tip }
+                    byKey[b.key] = b
                 end
-                EllesmereUI.BuildInlineCog(weaponRow._rightRegion, {
-                    title = "Class Buffs",
-                    disabled = function() local f = FDB(); return not (f and f.classBuffs == true) end,
-                    disabledTooltip = "Class Buffs",
-                    rows = rows,
-                })
+                local isOn = _G._EABR_FvClassBuffOn
+                local rgn = weaponRow._rightRegion
+                local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    rgn, 170, rgn:GetFrameLevel() + 2, items,
+                    function(key) local f = FDB(); return isOn(byKey[key], f and f.classBuffPicks) end,
+                    function(key, v)
+                        local f = FDB(); if not f then return end
+                        f.classBuffPicks = f.classBuffPicks or {}
+                        f.classBuffPicks[key] = v and true or false
+                        RefreshAll()
+                    end)
+                EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._control = cbDD
+                rgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
             end
 
             if not EllesmereUI._prebuilding then

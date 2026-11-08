@@ -1390,9 +1390,11 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     local ppTextValues = { ["none"]="None", ["left"]="Left", ["right"]="Right", ["center"]="Center" }
     local ppTextOrder = { "none", "---", "left", "right", "center" }
     local ppFmtValues = { ["none"]="None", ["smart"]="Smart Text", ["curpp"]="Power Value", ["curmaxpp"]="Power Value / Max", ["perpp"]="Power %", ["both"]="Value | %" }
-    local ppFmtOrder = { "none", "smart", "curpp", "curmaxpp", "perpp", "both" }
+    -- WoW Forever lists no Smart Text, and a saved "smart" there reads as the
+    -- value (EllesmereUI.PowerTextFormat).
+    local ppFmtOrder = EllesmereUI.PowerTextFormatOrder({ "none", "smart", "curpp", "curmaxpp", "perpp", "both" })
     -- Power Text alone offers Custom; Form Power Text keeps the lists above.
-    local ppTextFmtOrder = { "none", "---", "custom", "---", "smart", "curpp", "curmaxpp", "perpp", "both" }
+    local ppTextFmtOrder = EllesmereUI.PowerTextFormatOrder({ "none", "---", "custom", "---", "smart", "curpp", "curmaxpp", "perpp", "both" })
 
     -- Row 1: Bar Height + Bar Position. Under a stock style the track fixes
     -- the bar's height and place: the height slot is Hide Power Bar instead
@@ -1580,7 +1582,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
         end)
     sharedPowerRow2, h = W:DualRow(parent, y,
         { type="dropdown", text="Power Text", values=ppTextFmtValues, order=ppTextFmtOrder,
-          getValue=function() return SVal("powerTextFormat", "perpp") end,
+          getValue=function() return EllesmereUI.PowerTextFormat(SVal("powerTextFormat", "perpp")) end,
           setValue=SetPowerTextFormat },
         { type="slider", text="Fill Opacity", min=0, max=100, step=1,
           getValue=function() return SVal("powerBarOpacity", 100) end,
@@ -2382,7 +2384,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                     { type="dropdown", text="Form Power Text", values=ppFmtValues, order=ppFmtOrder,
                       getValue=function()
                           -- An inherited Custom draws Power % on the form bar.
-                          local v = FormVal("foreverFormTextFormat", "powerTextFormat", "perpp")
+                          local v = EllesmereUI.PowerTextFormat(FormVal("foreverFormTextFormat", "powerTextFormat", "perpp"))
                           return v == "custom" and "perpp" or v
                       end,
                       setValue=function(v)
@@ -2398,7 +2400,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                 if not EllesmereUI._prebuilding then
                     EllesmereUI.BuildInlineCog(formTextRow._leftRegion, {
                         disabled = function()
-                            local fmt = FormVal("foreverFormTextFormat", "powerTextFormat", "perpp")
+                            local fmt = EllesmereUI.PowerTextFormat(FormVal("foreverFormTextFormat", "powerTextFormat", "perpp"))
                             return fmt == "none" or fmt == "curpp" or fmt == "curmaxpp"
                         end,
                         disabledTooltip = "This option is only available for formats that display a percentage.",

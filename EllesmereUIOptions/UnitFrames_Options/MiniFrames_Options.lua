@@ -1348,8 +1348,9 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                       ns.UFO_EditCustomText("powerText", settingsTable, unitKey,
                           function() SetPowerTextFormat("custom") end)
                   end),
-              order  = { "none", "---", "custom", "---", "smart", "curpp", "perpp", "both" },
-              getValue=function() return MVal("powerTextFormat", "perpp") end,
+              -- WoW Forever lists no Smart Text (EllesmereUI.PowerTextFormat).
+              order  = EllesmereUI.PowerTextFormatOrder({ "none", "---", "custom", "---", "smart", "curpp", "perpp", "both" }),
+              getValue=function() return EllesmereUI.PowerTextFormat(MVal("powerTextFormat", "perpp")) end,
               setValue=SetPowerTextFormat },
             { type="dropdown", text="Text Position",
               values = { ["none"]="None", ["left"]="Left", ["right"]="Right", ["center"]="Center" },

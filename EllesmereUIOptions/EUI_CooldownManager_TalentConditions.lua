@@ -6,6 +6,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  from the game's own node positions, and lets the user mark talents:
 --  click cycles Taken > Not Taken > cleared. A choice node is split in two
 --  halves so either side can be picked. Hero trees are out of scope.
+--  WoW Forever: the class's three vanilla trees side by side instead, each on
+--  its talent grid (EllesmereUI.ForeverTalentTrees / TalentTreeGrid, the
+--  Classic Talents window's own layout); a talent with any rank is taken.
 --
 --  Storage, evaluation and the reanchor filter live in the CDM addon
 --  (EllesmereUICdmTalentConditions.lua). The tree read here is the ACTIVE
@@ -33,13 +36,16 @@ local POPUP_W, POPUP_H = 940, 620
 local POPUP_BUMP = 1.2
 local HEADER_H, FOOTER_H = 70, 56
 local SIDE_PAD, PANEL_GAP = 16, 12
-local PANEL_W = (POPUP_W - SIDE_PAD * 2 - PANEL_GAP) / 2
+-- One panel per tree: the class tree and the spec tree, or on WoW Forever the
+-- three vanilla trees (sparse grids, so their talents draw larger).
+local PANELS = EllesmereUI.IS_FOREVER and 3 or 2
+local PANEL_W = (POPUP_W - SIDE_PAD * 2 - PANEL_GAP * (PANELS - 1)) / PANELS
 local PANEL_H = POPUP_H - HEADER_H - FOOTER_H
 local PANEL_LABEL_H = 24
 local AREA_PAD = 12
 local AREA_W = PANEL_W - AREA_PAD * 2
 local AREA_H = PANEL_H - PANEL_LABEL_H - AREA_PAD
-local NODE = 26
+local NODE = EllesmereUI.IS_FOREVER and 32 or 26
 local BORDER_PX, MARK_PX = 1, 3
 local NOT_TAKEN_R, NOT_TAKEN_G, NOT_TAKEN_B = 0.95, 0.30, 0.30
 -- Footer buttons (MakeActionButton rows are 38 tall).
@@ -157,13 +163,40 @@ local function ReadTree()
     return halves, specName
 end
 
+-- WoW Forever: the class's vanilla trees in their order, { name, nodes }, each
+-- node placed at its column and row on the tree's talent grid, and the grid
+-- all of them share ({ x, y }: the last column and row any tree uses), so
+-- their rows and columns line up side by side.
+local function ReadForeverTrees()
+    local configID, _, trees = EllesmereUI.ForeverTalentTrees()
+    if not trees then return nil end
+    local out, span = {}, { x = 1, y = 1 }
+    for i, t in ipairs(trees) do
+        local cells = EllesmereUI.TalentTreeGrid(configID, t.nodes)
+        local nodes = {}
+        for _, nodeID in ipairs(t.nodes) do
+            local cell = cells[nodeID]
+            local node = cell and ReadNode(configID, nodeID, cell.info)
+            if node then
+                node.x, node.y = cell.col, cell.row
+                if node.x > span.x then span.x = node.x end
+                if node.y > span.y then span.y = node.y end
+                nodes[#nodes + 1] = node
+            end
+        end
+        out[i] = { name = t.name, nodes = nodes }
+    end
+    return out, span
+end
+
 -------------------------------------------------------------------------------
 --  Popup state
 -------------------------------------------------------------------------------
 local dimmer, popup, titleFS, statusFS, offFrame
--- [half] = { frame, label, area, empty, lines = {}, buttons = {}, used = 0 }. Each panel
--- keeps its own button pool so a button never changes parent (its border's frame level
--- is fixed when it is built).
+-- [i] = { frame, label, area, empty, lines = {}, buttons = {}, used = 0 }, one per tree
+-- (CLASS_HALF / SPEC_HALF, or WoW Forever's trees in order). Each panel keeps its own
+-- button pool so a button never changes parent (its border's frame level is fixed
+-- when it is built).
 local panels = {}
 local chips = {}       -- off-tree chip pool, [i] shows offTree[i]
 local pending = {}     -- nodeID -> { nodeID, entryID, spellID, taken }
@@ -301,9 +334,11 @@ UpdateStatus = function()
 end
 
 -------------------------------------------------------------------------------
---  Layout: one half of the tree into one panel, scaled to fit, centred
+--  Layout: one tree into one panel, scaled to fit, centred. span (WoW Forever):
+--  the grid every tree shares, from column and row 0, in place of this tree's
+--  own extent.
 -------------------------------------------------------------------------------
-local function LayoutHalf(panel, nodes)
+local function LayoutPanel(panel, nodes, span)
     local area = panel.area
     local lines = panel.lines
     local usedLines = 0
@@ -312,11 +347,15 @@ local function LayoutHalf(panel, nodes)
 
     if nodes and #nodes > 0 then
         local minX, maxX, minY, maxY = math.huge, -math.huge, math.huge, -math.huge
-        for _, n in ipairs(nodes) do
-            if n.x < minX then minX = n.x end
-            if n.x > maxX then maxX = n.x end
-            if n.y < minY then minY = n.y end
-            if n.y > maxY then maxY = n.y end
+        if span then
+            minX, maxX, minY, maxY = 0, span.x, 0, span.y
+        else
+            for _, n in ipairs(nodes) do
+                if n.x < minX then minX = n.x end
+                if n.x > maxX then maxX = n.x end
+                if n.y < minY then minY = n.y end
+                if n.y > maxY then maxY = n.y end
+            end
         end
         local spanX = math.max(maxX - minX, 1)
         local spanY = math.max(maxY - minY, 1)
@@ -350,7 +389,7 @@ local function LayoutHalf(panel, nodes)
             end
         end
 
-        -- Connections, drawn under the nodes. Only edges whose both ends sit in this half.
+        -- Connections, drawn under the nodes. Only edges whose both ends sit in this tree.
         local byID = {}
         for _, n in ipairs(nodes) do byID[n.nodeID] = n end
         for _, n in ipairs(nodes) do
@@ -479,11 +518,11 @@ end
 -------------------------------------------------------------------------------
 --  Frames (built once, on first open)
 -------------------------------------------------------------------------------
-local function MakePanel(half)
+local function MakePanel(index)
     local frame = CreateFrame("Frame", nil, popup)
     frame:SetSize(PANEL_W, PANEL_H)
     frame:SetPoint("TOPLEFT", popup, "TOPLEFT",
-        SIDE_PAD + (half - 1) * (PANEL_W + PANEL_GAP), -HEADER_H)
+        SIDE_PAD + (index - 1) * (PANEL_W + PANEL_GAP), -HEADER_H)
     local bg = frame:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.060, 0.049, 0.037, 1)
@@ -505,8 +544,8 @@ local function MakePanel(half)
     empty:SetText(EllesmereUI.L("Talent data is not available right now."))
     empty:Hide()
 
-    panels[half] = { frame = frame, label = label, area = area, empty = empty,
-                     lines = {}, buttons = {}, used = 0 }
+    panels[index] = { frame = frame, label = label, area = area, empty = empty,
+                      lines = {}, buttons = {}, used = 0 }
 end
 
 local function Close()
@@ -534,7 +573,7 @@ end
 local function Build()
     if popup then return end
     -- Dimmer scaled by the panel scale, the popup by its bump (the sibling CDM popups'
-    -- density), and registered so the Panel Scale slider rescales it. Clamped: two
+    -- density), and registered so the Panel Scale slider rescales it. Clamped: the
     -- trees side by side are wide, and the dimmer eats every click behind it, so an
     -- overflowing popup would strand its buttons off-screen.
     dimmer, popup = EllesmereUI.BuildPopupShell("EUI_CDM_TalentConditions", {
@@ -555,8 +594,7 @@ local function Build()
     hint:SetTextColor(0.7, 0.7, 0.7, 0.85)
     hint:SetText(EllesmereUI.L("Click a talent to require it: Taken, then Not Taken, then cleared. Every condition must hold for the icon to show."))
 
-    MakePanel(CLASS_HALF)
-    MakePanel(SPEC_HALF)
+    for i = 1, PANELS do MakePanel(i) end
 
     offFrame = CreateFrame("Frame", nil, popup)
     offFrame:SetPoint("TOPLEFT", popup, "TOPLEFT", SIDE_PAD, -(HEADER_H + PANEL_H + OFF_PAD))
@@ -670,11 +708,20 @@ function ns.ShowCDMTalentConditionsPopup(spellID, conds, confirm)
         or C_Spell.GetSpellName(spellID) or tostring(spellID)
     titleFS:SetText(EllesmereUI.Lf("Talent Conditions: %1$s", spellName))
 
-    local halves, specName = ReadTree()
-    panels[CLASS_HALF].label:SetText((UnitClass("player")) or "")
-    panels[SPEC_HALF].label:SetText(specName or "")
-    LayoutHalf(panels[CLASS_HALF], halves and halves[CLASS_HALF])
-    LayoutHalf(panels[SPEC_HALF], halves and halves[SPEC_HALF])
+    if EllesmereUI.IS_FOREVER then
+        local trees, span = ReadForeverTrees()
+        for i, panel in ipairs(panels) do
+            local t = trees and trees[i]
+            panel.label:SetText(t and t.name or "")
+            LayoutPanel(panel, t and t.nodes, span)
+        end
+    else
+        local halves, specName = ReadTree()
+        panels[CLASS_HALF].label:SetText((UnitClass("player")) or "")
+        panels[SPEC_HALF].label:SetText(specName or "")
+        LayoutPanel(panels[CLASS_HALF], halves and halves[CLASS_HALF])
+        LayoutPanel(panels[SPEC_HALF], halves and halves[SPEC_HALF])
+    end
 
     -- Seed the edit copy. A condition no drawn button can show (a talent a patch
     -- removed, a choice side that no longer exists, or a second condition on one

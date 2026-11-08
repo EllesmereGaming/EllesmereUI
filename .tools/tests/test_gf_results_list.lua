@@ -2,7 +2,9 @@
 -- it: the full collect and paint, one group's update (only its row repaints),
 -- filter and secrecy changes and the sort modes (the whole list), the row
 -- layout memo, a raid row's score anchor, the sign-up timer frame, the window
--- look and the hand-back to Blizzard's list.
+-- look and the hand-back to Blizzard's list; a first visit to Quests or Custom
+-- (the list stays hidden, its results unread), a hidden sign-up status and our
+-- frame levels over Blizzard's faded list.
 --   lua .tools/tests/test_gf_results_list.lua      (from the repository root)
 local ROOT = arg and arg[1] or "."
 
@@ -136,6 +138,8 @@ GameTooltip = MakeObj("GameTooltip")
 function GameTooltip_Hide() end
 DEFAULT_CHAT_FRAME = MakeObj("Frame")
 C_ClassColor = { GetClassColor = function() return { r = 0.5, g = 0.5, b = 0.5 } end }
+Enum = { LFGListDisplayType = { RoleCount = 0, RoleEnumerate = 1, ClassEnumerate = 2, HideAll = 3, PlayerCount = 4,
+    Comment = 5 } }
 
 -- secrecy: a result whose info table is marked reads as secret
 local SECRET = {}
@@ -148,6 +152,7 @@ C_LFGList = {
         return T.info[id]
     end,
     GetApplicationInfo = function(id)
+        T.appReads = (T.appReads or 0) + 1
         local s = T.status[id] or "none"
         return id, s, false, s == "applied" and 240 or 0
     end,
@@ -183,7 +188,7 @@ EllesmereUI = {
     ELLESMERE_GREEN = { r = 0.05, g = 0.82, b = 0.62 },
     BuildFullName = function(n) return n end,
     GetBorderStyleSelectDefaults = function() return { r = 1, g = 1, b = 1 } end,
-    ApplyBorderStyle = function() end,
+    ApplyBorderStyle = function() T.borderApplies = (T.borderApplies or 0) + 1 end,
     -- the font family helper: counts every call (the layout memo's measure) and
     -- keeps what the string was given
     SetFontFamily = function(fs, path, size, flags, shadow)
@@ -271,10 +276,29 @@ local function ResetCounts()
 end
 
 -------------------------------------------------------------------------------
---  1. the list takes over: built once, Blizzard's list faded, events while it shows
+--  0. a first visit to a category our list leaves to Blizzard's (outside the
+--     five it covers) builds the list hidden (an empty list frame shown there
+--     took every click and scroll from Blizzard's list) and walks no result
+--     for secrecy
 -------------------------------------------------------------------------------
 assert(T.whenGF, "the list waits for blizzard's group finder")
 T.whenGF()
+SP.categoryID = 4
+T.appReads = 0
+ns.OwnListRefresh()
+frame = Find(function(f) return f._parent == SP and f._scripts.OnMouseWheel ~= nil end)
+assert(frame, "the list was not built")
+assert(ns.OwnListActive() == false and not frame._shown and SP.ScrollBox._alpha == 1,
+    "the empty list frame shows over blizzard's list on a first visit to a category it leaves alone")
+assert(T.appReads == 0, "the results were walked for secrecy on a category our list leaves alone")
+SP.categoryID = 7
+ns.OwnListRefresh()
+assert(not frame._shown, "the empty list frame shows on a second category it leaves alone")
+SP.categoryID = 2
+
+-------------------------------------------------------------------------------
+--  1. the list takes over: built once, Blizzard's list faded, events while it shows
+-------------------------------------------------------------------------------
 ns.OwnListRefresh()
 frame = Find(function(f) return f._parent == SP and f._scripts.OnMouseWheel ~= nil end)
 assert(frame and frame._shown, "our list was not built over blizzard's")
@@ -425,7 +449,7 @@ ns.OwnListRefresh()
 assert(ns.OwnListActive() == true and SP.ScrollBox._alpha == 0, "our list did not come back")
 
 -- another category: blizzard's list
-SP.categoryID = 6
+SP.categoryID = 4
 ns.OwnListRefresh()
 assert(ns.OwnListActive() == false and T.redecorates == 2)
 SP.categoryID = 2
@@ -451,5 +475,110 @@ assert(not t1.name._plainSets, "a plain SetFont reached the group title")
 ns.GFShortName = function() return nil end
 T.db.rowHeight = nil
 ns.OwnListRefresh()
+
+-------------------------------------------------------------------------------
+--  11. a hidden sign-up status hands the panel back to Blizzard's list (our rows
+--      cannot tell whether that group can be picked), through a refresh and
+--      through one group's update; ours comes back once it reads again
+-------------------------------------------------------------------------------
+T.status[7] = { [SECRET] = true }
+ns.OwnListRefresh()
+assert(ns.OwnListActive() == false and not frame._shown and SP.ScrollBox._alpha == 1,
+    "a hidden sign-up status kept our list")
+T.status[7] = nil
+ns.OwnListRefresh()
+assert(ns.OwnListActive() == true and frame._shown, "our list did not come back")
+T.status[8] = { [SECRET] = true }
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 8)
+Flush()
+assert(ns.OwnListActive() == false, "a group's update with a hidden sign-up status kept our list")
+T.status[8] = nil
+ns.OwnListRefresh()
+assert(ns.OwnListActive() == true, "our list did not come back after the update")
+
+-------------------------------------------------------------------------------
+--  12. something raises Blizzard's faded list and button: ours go back above
+--      them on the next refresh, and a level already above is left alone
+-------------------------------------------------------------------------------
+local signBtn = Find(function(f) return f._kind == "Button" and f._parent == SP and f ~= SP.SignUpButton end)
+assert(signBtn, "no sign up button of ours")
+SP.ScrollBox._level, SP.SignUpButton._level = 40, 30
+ns.OwnListRefresh()
+assert(frame._level >= 50 and signBtn._level >= 35, "our list or sign up button stayed under blizzard's")
+frame._level = 99
+ns.OwnListRefresh()
+assert(frame._level == 99, "a level already above was rewritten")
+
+-------------------------------------------------------------------------------
+--  13. Quests and Custom take our list too
+-------------------------------------------------------------------------------
+SP.categoryID = 1
+ns.OwnListRefresh()
+assert(ns.OwnListActive() == true and frame._shown and SP.ScrollBox._alpha == 0, "Quests did not take our list")
+SP.categoryID = 6
+ns.OwnListRefresh()
+assert(ns.OwnListActive() == true and frame._shown, "Custom did not take our list")
+SP.categoryID = 2
+ns.OwnListRefresh()
+
+-------------------------------------------------------------------------------
+--  14. a row's member side follows its activity's display type, as Blizzard's
+--      rows do: a player count (a grey circle, the count above), nothing for
+--      HideAll and for a type Blizzard's rows do not draw, role counts for a
+--      RoleCount activity of five; no display type read keeps the size rule
+-------------------------------------------------------------------------------
+local DT = Enum.LFGListDisplayType
+T.acts[3] = { fullName = "Some Zone", maxNumPlayers = 0, displayType = DT.PlayerCount }
+T.acts[4] = { fullName = "Hidden", maxNumPlayers = 5, displayType = DT.HideAll }
+T.acts[5] = { fullName = "Some Quest", maxNumPlayers = 5, displayType = DT.RoleCount }
+T.acts[6] = { fullName = "Commented", maxNumPlayers = 5, displayType = DT.Comment }
+local function Side(r)
+    local icons, circles = 0, 0
+    for k = 1, 5 do if r.icons[k]._shown then icons = icons + 1 end end
+    for k = 1, 3 do if r.rr[k].bg._shown then circles = circles + 1 end end
+    return icons, circles, r.rr[4].bg._shown and r.rr[4].count._text or nil
+end
+local function WithActivity(id, act)
+    T.info[id].activityIDs = { act }
+    Event("LFG_LIST_SEARCH_RESULT_UPDATED", id)
+    Flush()
+    return RowFor(id)
+end
+local row = WithActivity(3, 3)
+local icons, circles, players = Side(row)
+assert(icons == 0 and circles == 0 and players == "2" and row.scoreRaid,
+    "a player count activity: " .. icons .. " icons, " .. circles .. " circles, " .. tostring(players))
+for id, act in pairs({ [4] = 4, [6] = 6 }) do
+    row = WithActivity(id, act)
+    icons, circles, players = Side(row)
+    assert(icons == 0 and circles == 0 and players == nil and not row.scoreRaid,
+        "activity " .. act .. " drew a member side: " .. icons .. " icons, " .. circles .. " circles")
+end
+row = WithActivity(5, 5)
+icons, circles, players = Side(row)
+assert(icons == 0 and circles == 3 and players == nil, "a RoleCount activity of five did not show role counts")
+icons, circles = Side(RowFor(1))
+assert(icons > 0 and circles == 0, "a five-player activity with no display type lost its member icons")
+icons, circles = Side(RowFor(2))
+assert(icons == 0 and circles == 3, "a raid with no display type lost its role counts")
+for id = 3, 6 do WithActivity(id, 1) end
+
+-------------------------------------------------------------------------------
+--  15. the count circles wear the member icons' border: a ring around a round
+--      circle, the border size out from it; on square icons an edge frame whose
+--      style is applied once per border setting
+-------------------------------------------------------------------------------
+local rp = RowFor(2).rr[1]
+assert(rp.ring._shown and not rp.edge._shown, "a round role count circle has no ring")
+assert(rp.ring._points.TOPLEFT[3] == -1 and rp.ring._points.TOPLEFT[4] == 1, "the ring is not the border size out")
+T.db.iconShape = "square"
+ns.SetOwnListValue("iconShape", "square")
+rp = RowFor(2).rr[1]
+assert(rp.edge._shown and not rp.ring._shown, "a square role count circle has no border frame")
+local applies = T.borderApplies or 0
+ns.OwnListRefresh()
+assert((T.borderApplies or 0) == applies, "an unchanged border was styled again")
+T.db.iconShape = nil
+ns.SetOwnListValue("iconShape", nil)
 
 print("group finder results list harness: ok")

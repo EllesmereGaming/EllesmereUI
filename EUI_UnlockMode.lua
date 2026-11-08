@@ -98,6 +98,12 @@ function EllesmereUI.GetUnlockOverlapMethod()
     local db = EllesmereUIDB
     return (db and db.unlockOverlapMethod) or "scroll"
 end
+-- Each method's label: the Global Settings dropdown and the top bar's controls
+-- help (EUI_UnlockMode_Session.lua) read it, each through L().
+EllesmereUI.UNLOCK_OVERLAP_LABELS = {
+    disabled = "Disabled", scroll = "Scroll", shiftscroll = "Shift + Scroll",
+    controlscroll = "Ctrl + Scroll", altscroll = "Alt + Scroll",
+}
 
 -------------------------------------------------------------------------------
 --  Anchor reapply stub (pre-EnsureLoaded): lets child addons (CDM) reposition

@@ -1,3 +1,6 @@
+-- Stub harness: a Quickdraw nested menu shows on its parent only while it offers an
+-- entry this character can use under its own Hide Unavailable Actions (nests inside
+-- it do not count, and a menu never set up offers nothing).
 -- Run from the repository root: lua .tools/tests/test_quickdraw_empty_nest.lua
 local stub = function() end
 local palettes = {}

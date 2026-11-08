@@ -292,7 +292,10 @@ end
 local function TaggedMenu(anchor, id, info, leader)
     MenuUtil.CreateContextMenu(anchor, function(_, root)
         root:SetTag("MENU_LFG_FRAME_SEARCH_ENTRY")
-        root:CreateTitle(info.censored and CENSORED_LFG_GROUP_NAME or info.name or "")
+        -- a hidden flag is never tested: the title shows the name, as the row does
+        local censored = info.censored
+        if Secret(censored) then censored = nil end
+        root:CreateTitle(censored and CENSORED_LFG_GROUP_NAME or info.name or "")
         local w = root:CreateButton(WHISPER_LEADER or "Whisper Leader", function() WhisperLeader(leader) end)
         if leader then
             w:SetTooltip(function(tip)
@@ -316,20 +319,7 @@ function ns.OwnListMenu(anchor, id)
     if not Readable(info) then return end
     local leader = info.leaderName
     if Secret(leader) then leader = nil end
-    if MenuUtil and MenuUtil.CreateContextMenu then return TaggedMenu(anchor, id, info, leader) end
-    local items = {
-        { text = WHISPER_LEADER or "Whisper Leader", noLoc = true,
-          isDisabled = function() return not leader end,
-          desc = EllesmereUI.L("Prompts in chat to whisper the party leader."),
-          tooltip = not leader and (LFG_LIST_MUST_SIGN_UP_TO_WHISPER or "Sign up to whisper the leader") or nil,
-          onClick = function() WhisperLeader(leader) end },
-        "---",
-        { text = LFG_LIST_REPORT_GROUP_FOR or "Report Group", noLoc = true,
-          onClick = function() LFGList_ReportListing(id, leader) end },
-        { text = REPORT_GROUP_FINDER_ADVERTISEMENT or "Report Advertisement", noLoc = true,
-          onClick = function() LFGList_ReportAdvertisement(id) end },
-    }
-    EUI.ShowContextMenu(anchor, items)
+    TaggedMenu(anchor, id, info, leader)
 end
 
 -------------------------------------------------------------------------------
@@ -380,7 +370,8 @@ local function MemberMode(ai, cap)
         if dt == DT.RoleEnumerate or dt == DT.ClassEnumerate then return cap <= 5 and "icons" or "counts" end
         if dt == DT.RoleCount then return "counts" end
         if dt == DT.PlayerCount then return "players" end
-        if dt == DT.HideAll then return nil end
+        -- HideAll, and a type blizzard's rows do not draw (its newer Comment): nothing
+        return nil
     end
     return cap > 5 and "counts" or "icons"
 end
@@ -1331,8 +1322,9 @@ function ns.OwnListRefresh()
     if want and not frame then Build() end
     if not frame then return end
     local cat = SP.categoryID
-    local secret = (GFNS.ExtraResultsSecret and GFNS.ExtraResultsSecret()) or AnySecret()
-    local now = (want and SP:IsVisible() and OURS[cat] and not secret) and true or false
+    -- the results are walked for secrecy only where our list could show
+    local now = (want and SP:IsVisible() and OURS[cat]
+        and not ((GFNS.ExtraResultsSecret and GFNS.ExtraResultsSecret()) or AnySecret())) and true or false
     if now ~= active then
         active = now
         local a = active and 0 or 1

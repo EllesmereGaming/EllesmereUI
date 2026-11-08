@@ -44,6 +44,11 @@ local function EnsureAssignedSpells(barKeyE)
             end
         end
         local seen = {}
+        -- WoW Forever: one entry per spell, whatever its rank (ns.CDMRankName):
+        -- the first one listed stays where it is, a later rank of it goes.
+        local RankName = ns.CDMRankName
+        local seenRank = RankName and {}
+        local rankCut = false
         local writeIdx = 1
         for readIdx = 1, #sd.assignedSpells do
             local raw = sd.assignedSpells[readIdx]
@@ -57,12 +62,19 @@ local function EnsureAssignedSpells(barKeyE)
                 end
             end
             if not seen[sid] then
-                seen[sid] = true
-                sd.assignedSpells[writeIdx] = sid
-                writeIdx = writeIdx + 1
+                local name = seenRank and not (customN and customN[sid]) and RankName(sid)
+                if name and seenRank[name] then
+                    rankCut = true
+                else
+                    seen[sid] = true
+                    if name then seenRank[name] = true end
+                    sd.assignedSpells[writeIdx] = sid
+                    writeIdx = writeIdx + 1
+                end
             end
         end
         for i = writeIdx, #sd.assignedSpells do sd.assignedSpells[i] = nil end
+        if rankCut then ns._spellOrderDirty = true end
     end
     -- Append any live-bar spells missing from assignedSpells so the preview always
     -- matches the player's CDM bars (e.g. after re-talenting). EXCEPTION: skip while an

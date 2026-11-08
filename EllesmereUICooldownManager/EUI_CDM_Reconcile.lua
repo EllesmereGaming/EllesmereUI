@@ -364,7 +364,10 @@ function ns.ReconcileAssignedSpellDrops(barKey)
     local NormalizeToBase = ns.NormalizeToBase
     local ResolveToLive   = ns.ResolveToLive
 
-    local displayed
+    -- WoW Forever: an entry listed under another rank of a shown spell is
+    -- shown too (ns.CDMRankName), as the presence check that kept it found it.
+    local RankName = ns.CDMRankName
+    local displayed, displayedNames
     for _, e in ipairs(ns.EnumerateCDMViewerSpells(false)) do
         local sid = e.sid
         if type(sid) == "number" and sid > 0 then
@@ -373,6 +376,11 @@ function ns.ReconcileAssignedSpellDrops(barKey)
             displayed[NormalizeToBase(sid)] = true
             local ov = ResolveToLive(sid)
             if ov then displayed[ov] = true end
+            local n = RankName and RankName(sid)
+            if n then
+                displayedNames = displayedNames or {}
+                displayedNames[n] = true
+            end
         end
     end
     if not (displayed and next(displayed)) then return sd end
@@ -550,6 +558,7 @@ function ns.ReconcileAssignedSpellDrops(barKey)
             -- genuinely user-cleared -> drop.
             local shown = displayed[id] or displayed[NormalizeToBase(id)]
                           or displayed[ResolveToLive(id)]
+                          or (displayedNames ~= nil and displayedNames[RankName(id) or false] == true)
             -- IsPlayerSpell is guarded (nil in some contexts): if
             -- unavailable, `have` is falsy so the spell is treated as
             -- untalented (kept unless the catalog says otherwise).
