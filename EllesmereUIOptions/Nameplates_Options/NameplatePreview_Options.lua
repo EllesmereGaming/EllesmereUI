@@ -206,6 +206,13 @@ local function ChainPreview(cx)
     end
 end
 
+local function QuestTextIconLayout(counterW, counterH, fontSize, scale)
+    local iconSize = math.max(8, math.floor(fontSize * 0.8 * scale / 100 + 0.5))
+    local gap = 2
+    return counterW + gap + iconSize, math.max(counterH, iconSize),
+        -((iconSize + gap) / 2), (counterW + gap - iconSize) / 2, iconSize
+end
+
 -- Core Text slot colours by the slot's Text Coloring mode. The preview is a
 -- hostile NPC at the player's level: Hostility / Class shows the Hostile name
 -- colour, Level Difficulty that level's difficulty colour (friendly levels
@@ -1716,13 +1723,41 @@ local function BuildNameplatePreview(parent, parentW)
             if pos == "none" or not optState.showQuestTextPreview then
                 qt.shown = false
                 f:Hide()
+                if qt.icon then qt.icon:Hide() end
             else
                 local x = DBVal(pos .. "SlotXOffset") or 0
                 local y = DBVal(pos .. "SlotYOffset") or 0
                 local fs = qt.fs
-                SetPVFont(fs, fontPath, ns.NP_QuestTextSize(DB()), npOutline)
-                local w = math.max(math.ceil(fs:GetStringWidth() or 0), 1)
-                local h = math.max(math.ceil(fs:GetStringHeight() or 0), 1)
+                local textSize = ns.NP_QuestTextSize(DB())
+                SetPVFont(fs, fontPath, textSize, npOutline)
+                local counterW = math.max(math.ceil(fs:GetStringWidth() or 0), 1)
+                local counterH = math.max(math.ceil(fs:GetStringHeight() or 0), 1)
+                local w, h = counterW, counterH
+                if DBVal("showQuestObjectiveTypeIcon") == true then
+                    local scale = DBVal("questObjectiveTypeIconScale") or 100
+                    local textX, iconX, iconSize
+                    w, h, textX, iconX, iconSize = QuestTextIconLayout(counterW, counterH, textSize, scale)
+                    local icon = qt.icon
+                    if not icon then
+                        icon = f:CreateTexture(nil, "ARTWORK")
+                        icon:SetTexture("Interface\\Icons\\INV_Misc_Bag_08")
+                        qt.icon = icon
+                    end
+                    fs:ClearAllPoints()
+                    fs:SetPoint("CENTER", f, "CENTER", textX, 0)
+                    icon:ClearAllPoints()
+                    icon:SetSize(iconSize, iconSize)
+                    icon:SetPoint("LEFT", f, "CENTER", iconX, 0)
+                    icon:Show()
+                    qt.iconLayoutOn = true
+                else
+                    if qt.iconLayoutOn then
+                        fs:ClearAllPoints()
+                        fs:SetPoint("CENTER", f, "CENTER", 0, 0)
+                        qt.iconLayoutOn = nil
+                    end
+                    if qt.icon and qt.icon:IsShown() then qt.icon:Hide() end
+                end
                 f:SetSize(w, h)
                 if pos == "top" then
                     f:SetPoint("BOTTOM", health, "TOP", x, debuffY + cpPush + y)

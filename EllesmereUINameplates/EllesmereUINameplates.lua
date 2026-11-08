@@ -534,6 +534,8 @@ local defaults = {
     -- what shows the text on a fresh Forever profile. No UI writes it.
     replaceQuestIconWithObjective = (EllesmereUI.IS_FOREVER == true) and true or false,
     questObjectiveTextSize = 14,  -- the Quest Objective Text element's Text Size
+    showQuestObjectiveTypeIcon = false,
+    questObjectiveTypeIconScale = 100,
     showCastIcon = true,
     castIconScale = 1,
     castIconOffsetX = 0,
