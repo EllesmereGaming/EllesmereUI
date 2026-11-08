@@ -2712,7 +2712,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         -- Power percent text in preview
         if ppPreviewFS then
             local ppPos = s.powerPercentText or "none"
-            local ppFmt = s.powerTextFormat or "perpp"
+            local ppFmt = EllesmereUI.PowerTextFormat(s.powerTextFormat or "perpp")
             if ppPos ~= "none" and ppFmt ~= "none" and power then
                 local ppSz = s.powerPercentSize or 9
                 local ppOx = s.powerPercentX or 0

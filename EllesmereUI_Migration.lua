@@ -5546,3 +5546,100 @@ do
         end)
     end
 end
+
+--------------------------------------------------------------------------------
+--  WoW Forever: power text Smart Text to Power Value (one-time). WoW Forever
+--  offers no Smart Text: it chooses percent or value by spec, and Forever has
+--  no specs (EllesmereUI.PowerTextFormat). An account that already ran
+--  EllesmereUI there has every stored "smart" moved to the value ("curpp")
+--  once: the Unit Frames Power Text and Form Power Text of every frame and the
+--  Resource Bars Power Text and Mana Bar Text, in every stored profile and in
+--  every Spec Override value stored for them (Conditional Overrides keep their
+--  values in the same entries). A "smart" that arrives later (an import) reads
+--  as the value. Account flag, written before the pass; a brand-new account is
+--  marked once its saved data exists. Two client checks, as the blocks above.
+--------------------------------------------------------------------------------
+do
+    local FLAG = "forever_power_text_value_v1"
+    local SMART, VALUE = "smart", "curpp"
+
+    local function ClientOK()
+        local toc = select(4, GetBuildInfo())
+        return EllesmereUI ~= nil and EllesmereUI.IS_FOREVER == true
+            and type(toc) == "number" and toc >= 16000 and toc < 20000
+    end
+
+    -- Spec Override value keys: the module folder, "\31", then the key path's
+    -- segments joined by "\30" (EllesmereUI_SpecOverrides.lua's stored format).
+    local function PowerTextKey(fkey)
+        return fkey:find("^EllesmereUIUnitFrames\31[^\30]+\30powerTextFormat$")
+            or fkey:find("^EllesmereUIUnitFrames\31[^\30]+\30foreverFormTextFormat$")
+            or fkey == "EllesmereUIResourceBars\31primary\30textFormat"
+            or fkey == "EllesmereUIResourceBars\31primary\30foreverDruidMana\30textFormat"
+    end
+
+    local function MoveProfile(prof)
+        if type(prof) ~= "table" then return end
+        local addons = type(prof.addons) == "table" and prof.addons
+        local uf = addons and addons.EllesmereUIUnitFrames
+        if type(uf) == "table" then
+            -- Every frame's settings table (player, target, the mini frames, ...).
+            for _, s in pairs(uf) do
+                if type(s) == "table" then
+                    if s.powerTextFormat == SMART then s.powerTextFormat = VALUE end
+                    if s.foreverFormTextFormat == SMART then s.foreverFormTextFormat = VALUE end
+                end
+            end
+        end
+        local rb = addons and addons.EllesmereUIResourceBars
+        local pp = type(rb) == "table" and rb.primary
+        if type(pp) == "table" then
+            if pp.textFormat == SMART then pp.textFormat = VALUE end
+            local fdm = pp.foreverDruidMana
+            if type(fdm) == "table" and fdm.textFormat == SMART then fdm.textFormat = VALUE end
+        end
+        if type(prof.specOverrides) ~= "table" then return end
+        for _, entry in pairs(prof.specOverrides) do
+            local values = type(entry) == "table" and entry.values
+            if type(values) == "table" then
+                for _, bucket in pairs(values) do
+                    if type(bucket) == "table" then
+                        for fkey, v in pairs(bucket) do
+                            if v == SMART and type(fkey) == "string" and PowerTextKey(fkey) then
+                                bucket[fkey] = VALUE
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if ClientOK() then
+        EllesmereUI.Lite.OnSavedVariablesLoaded(function()
+            if not ClientOK() then return end
+            local db = EllesmereUIDB
+            if type(db) ~= "table" then
+                -- A brand-new account: nothing to move. Marked at login, so
+                -- its own first session's choices are never overwritten.
+                local f = CreateFrame("Frame")
+                f:RegisterEvent("PLAYER_LOGIN")
+                f:SetScript("OnEvent", function(self)
+                    self:UnregisterAllEvents()
+                    local d = EllesmereUIDB
+                    if type(d) == "table" then
+                        if type(d._migrations) ~= "table" then d._migrations = {} end
+                        d._migrations[FLAG] = true
+                    end
+                end)
+                return
+            end
+            if type(db._migrations) ~= "table" then db._migrations = {} end
+            if db._migrations[FLAG] then return end
+            db._migrations[FLAG] = true
+            if type(db.profiles) == "table" then
+                for _, prof in pairs(db.profiles) do MoveProfile(prof) end
+            end
+        end)
+    end
+end

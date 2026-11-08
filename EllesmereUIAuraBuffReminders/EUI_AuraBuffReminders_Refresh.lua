@@ -77,6 +77,8 @@ function EABR.BuildForeverFamilies()
     -- EABR.CollectForeverGroups), from the same pass.
     local known = EABR._fvKnownFams
     if known then wipe(known) else known = {}; EABR._fvKnownFams = known end
+    -- The rank each cast-by-name reminder resolves to is read again too.
+    if EABR._fvTopRank then wipe(EABR._fvTopRank) end
     local fo = db.profile.forever
     local custom = fo and fo.customIDs
     local groups = fo and fo.customGroups
@@ -143,6 +145,36 @@ function EABR.BuildForeverFamilies()
     end
 end
 
+-- The click of a WoW Forever reminder that casts its spell by name (a spell
+-- group, or a custom spell the character knows): /cast [@player] <name>, which
+-- casts the highest rank in the spellbook, and that rank for the tooltip, read
+-- by name as /cast reads it (the rank lists are not in rank order: a stored ID
+-- leads its list). Both are kept per name: the macro for the session, the rank
+-- until the families are rebuilt (BuildForeverFamilies wipes EABR._fvTopRank).
+-- The section never shows in combat, so the macro can always be set.
+local castMacros = {}
+
+local function CastByName(entry, castName, fallbackID)
+    local macro = castMacros[castName]
+    if not macro then
+        macro = "/cast [@player] " .. castName
+        castMacros[castName] = macro
+    end
+    local tops = EABR._fvTopRank
+    if not tops then tops = {}; EABR._fvTopRank = tops end
+    local top = tops[castName]
+    if top == nil then
+        -- By name the client answers the highest rank in the spellbook.
+        local info = C_Spell.GetSpellInfo(castName)
+        if info then
+            top = C_SpellBook.IsSpellKnown(info.spellID) and info.spellID or false
+            tops[castName] = top
+        end
+    end
+    entry.mode = "macro"; entry.macro = macro
+    entry.spellID = top or fallbackID
+end
+
 -- WoW Forever spell groups: one reminder per group while no aura from its
 -- spells (or their ranks, EABR.ForeverFamily) is active, out of combat only.
 -- While the client hides aura data from addons (AuraKit.AurasRestricted), a
@@ -150,21 +182,24 @@ end
 -- secret, so a hidden aura is not read as absent. A group shows only for a
 -- character that knows one of its spells (a rank in the spellbook): groups are
 -- profile settings, so one made on another class shows nothing here. The icon
--- is the first such spell's and the click casts it on the player by name (the
--- highest rank known; the section never shows in combat, so the macro can be
--- set); the tooltip is that rank's. Dismiss keys are per group table (weak),
--- so removing or renaming a group never hands its dismissal to another.
-local groupCastMacros = {}
-
--- Ranks are listed lowest first; a shared family also holds differently named spells.
-local function HighestKnownRankNamed(ranks, name)
-    for i = #ranks, 1, -1 do
-        local id = ranks[i]
-        if SpellName(id) == name and C_SpellBook.IsSpellKnown(id) then return id end
+-- is the first such spell's and the click casts it on the player
+-- (CastByName). Dismiss keys are per group table (weak), so removing or
+-- renaming a group never hands its dismissal to another. A group made only of
+-- spells the ticked class buffs track (coveredIDs / coveredNames, by ID or
+-- name; nil in PvP and while none is ticked) stands down meanwhile.
+local function GroupCovered(spellIDs, ids, names)
+    local any = false
+    for _, spellID in ipairs(spellIDs) do
+        if type(spellID) == "number" then
+            local name = SpellName(spellID)
+            if not (ids[spellID] or (name and names[name])) then return false end
+            any = true
+        end
     end
+    return any
 end
 
-function EABR.CollectForeverGroups(missing, groups)
+function EABR.CollectForeverGroups(missing, groups, coveredIDs, coveredNames)
     local dismissKeys = EABR._fvGroupKeys
     if not dismissKeys then
         dismissKeys = setmetatable({}, { __mode = "k" })
@@ -174,16 +209,14 @@ function EABR.CollectForeverGroups(missing, groups)
     local aurasRestricted = EllesmereUI.AuraKit and EllesmereUI.AuraKit.AurasRestricted()
     for _, group in ipairs(groups) do
         local spellIDs = type(group) == "table" and group.ids
-        if type(spellIDs) == "table" then
-            local iconSpellID, iconRanks, hasActiveAura
+        if type(spellIDs) == "table" and not (coveredIDs and GroupCovered(spellIDs, coveredIDs, coveredNames)) then
+            local iconSpellID, hasActiveAura
             local allAurasReadable = true
             for _, spellID in ipairs(spellIDs) do
                 local rankSpellIDs = type(spellID) == "number" and SpellName(spellID)
                     and EABR.ForeverFamily(spellID)
                 if rankSpellIDs then
-                    if not iconSpellID and EABR._fvKnownFams[rankSpellIDs] then
-                        iconSpellID, iconRanks = spellID, rankSpellIDs
-                    end
+                    if not iconSpellID and EABR._fvKnownFams[rankSpellIDs] then iconSpellID = spellID end
                     if PlayerHasAuraByID(rankSpellIDs) then hasActiveAura = true; break end
                     if aurasRestricted and not EABR.FvRanksReadable(rankSpellIDs) then
                         allAurasReadable = false
@@ -199,13 +232,7 @@ function EABR.CollectForeverGroups(missing, groups)
                 end
                 local entry = AcquireEntry()
                 local castName = SpellName(iconSpellID)
-                local macro = groupCastMacros[castName]
-                if not macro then
-                    macro = "/cast [@player] " .. castName
-                    groupCastMacros[castName] = macro
-                end
-                entry.mode = "macro"; entry.macro = macro
-                entry.spellID = HighestKnownRankNamed(iconRanks, castName) or iconSpellID
+                CastByName(entry, castName, iconSpellID)
                 entry.texture = Tex(iconSpellID)
                 entry.label = type(group.name) == "string" and group.name
                     or ShortLabel(castName)
@@ -365,6 +392,59 @@ function EABR.CollectMageArmor(missing, auraLock, ids)
     end
 end
 
+-- Whether a class buff is ticked: the user's pick, else its default (each
+-- class's always-on buffs ticked; Thorns, Righteous Fury and Shadowform not).
+local function ClassBuffOn(buff, picks)
+    local v = picks and picks[buff.key]
+    if v == nil then return buff.on == true end
+    return v == true
+end
+EABR.FvClassBuffOn = ClassBuffOn
+
+-- The spells the ticked class buffs track, by ID and by name (every rank, the
+-- Greater Blessings and the up-only extras included). A custom spell, or a
+-- spell group made only of them, stands down while Class Buffs covers it and
+-- is back once that buff is unticked: a reminder the user made before Class
+-- Buffs existed is never shown twice and never deleted. Rebuilt only when the
+-- class or the ticked set changes; nil while none is ticked.
+local coveredIDs, coveredNames, coveredMask, coveredClass = {}, {}, nil, nil
+local function CoverLines(lines)
+    if not lines then return end
+    for i = 1, #lines do
+        local ranks = lines[i]
+        for j = 1, #ranks do
+            local id = ranks[j]
+            coveredIDs[id] = true
+            local name = SpellName(id)
+            if name then coveredNames[name] = true end
+        end
+    end
+end
+function EABR.FvClassTracked(fo, class)
+    local list = EABR.FvClassBuffs()[class]
+    if not list then return nil end
+    local picks = fo.classBuffPicks
+    local mask, bit = 0, 1
+    for i = 1, #list do
+        if ClassBuffOn(list[i], picks) then mask = mask + bit end
+        bit = bit * 2
+    end
+    if mask == 0 then return nil end
+    if mask ~= coveredMask or class ~= coveredClass then
+        wipe(coveredIDs)
+        wipe(coveredNames)
+        for i = 1, #list do
+            local buff = list[i]
+            if ClassBuffOn(buff, picks) then
+                CoverLines(buff.lines)
+                CoverLines(buff.also)
+            end
+        end
+        coveredMask, coveredClass = mask, class
+    end
+    return coveredIDs, coveredNames
+end
+
 function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
     local list = EABR.FvClassBuffs()[class]
     if not list then return end
@@ -373,14 +453,12 @@ function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
     local rec = store and key and store[key]
     for i = 1, #list do
         local buff = list[i]
-        local on = picks and picks[buff.key]
-        if on == nil then on = not buff.off end
-        if on then
+        if ClassBuffOn(buff, picks) then
             local dk = buff.dismissKey
             if not dk then dk = "forever:class_" .. buff.key; buff.dismissKey = dk end
             local last = rec and rec[buff.key]
             local up = CollectLines(missing, auraLock, ids, buff.lines, last, dk,
-                buff.label and EllesmereUI.L(buff.label), buff.also,
+                buff.label, buff.also,
                 buff.own or buff.ownMemory, buff.ownMemory)
             if up and up ~= last and key and buff.lines[2] then
                 if not store then store = {}; EllesmereUIDB.classBuffByChar = store end
@@ -523,19 +601,22 @@ end
 -- and Find Treasure trackers, a Mage's armors (EABR.CollectMageArmor), the
 -- class buffs (EABR.CollectClassBuffs), the weapon buffs
 -- (EABR.CollectForeverWeapons), the user's spell groups
--- (EABR.CollectForeverGroups) and custom spell IDs. All are absence only but
+-- (EABR.CollectForeverGroups) and custom spell IDs (each for the classes ticked
+-- on it), those a ticked class buff covers standing down outside PvP. All are
+-- absence only but
 -- the weapon buffs, which also show their Show Below minutes before running
 -- out (the one-shot duration refresh). A custom ID counts as up while any
 -- spell of its rank family is (EABR.ForeverFamily). Entries are display-only
 -- textures carrying the spell for the tooltip, except the two trackers, the
--- mage armors, the class buffs and the weapon buffs, whose click casts the
--- spell or applies the item; presence goes through PlayerHasAuraByID. The
--- section shows nothing in combat (its Where to Show offers no In Combat
--- entry: always unchecked), and Camp Benefits, Well Fed, the mage armors, the
--- class buffs and the trackers nothing in PvP either. The one-slot id table,
--- the cached families, the kept minimap answer and the dismiss-key memo keep
--- the pass allocation-free; the weapon pass reads the game's enchant lists, a
--- table per weapon.
+-- mage armors, the class buffs, the weapon buffs, the spell groups and the
+-- custom spells the character knows, whose click casts the spell or applies
+-- the item; presence goes through PlayerHasAuraByID. The section shows nothing
+-- in combat (its Where to Show offers no In Combat entry: always unchecked),
+-- and Camp Benefits, Well Fed, the mage armors, the class buffs and the
+-- trackers nothing in PvP either. The one-slot id table, the cached families,
+-- the kept minimap answer and the dismiss-key memo keep the pass
+-- allocation-free; the weapon pass reads the game's enchant lists, a table per
+-- weapon.
 function EABR.CollectForever(missing, inInstance, inPvP)
     local fo = db.profile.forever
     local shows = fo and not InCombat() and EABR.SectionShows(fo.whereToShow, inInstance)
@@ -604,32 +685,52 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     if fo.mageArmor and open and GetPlayerClass() == "MAGE" then
         EABR.CollectMageArmor(missing, auraLock, ids)
     end
-    if fo.classBuffs == true and open then
-        EABR.CollectClassBuffs(missing, fo, auraLock, ids, GetPlayerClass())
+    -- The ticked class buffs, outside PvP; the custom spells and spell groups
+    -- they cover stand down there (EABR.FvClassTracked).
+    local coveredIDs, coveredNames
+    if open then
+        coveredIDs, coveredNames = EABR.FvClassTracked(fo, GetPlayerClass())
+        if coveredIDs then EABR.CollectClassBuffs(missing, fo, auraLock, ids, GetPlayerClass()) end
     end
     if fo.weapon == true then
         EABR.CollectForeverWeapons(missing, fo, GetPlayerClass())
     end
     local groups = fo.customGroups
     if groups and groups[1] then
-        EABR.CollectForeverGroups(missing, groups)
+        EABR.CollectForeverGroups(missing, groups, coveredIDs, coveredNames)
     end
     local custom = fo.customIDs
     if not custom then return end
     local keys = EABR._foreverKeys
     if not keys then keys = {}; EABR._foreverKeys = keys end
+    -- A custom spell reminds only the classes ticked on its options slot
+    -- (forever.customClasses[id][CLASS] = false unticks one; unset: every class).
+    local classOff, class = fo.customClasses, GetPlayerClass()
     for i = 1, #custom do
         local id = custom[i]
-        local fam = EABR.ForeverFamily(id)
-        if not PlayerHasAuraByID(fam) and not (auraLock and fam and not EABR.FvRanksReadable(fam)) then
-            local dk = keys[id]
-            if not dk then dk = "forever:" .. id; keys[id] = dk end
-            local e = AcquireEntry()
-            e.mode = "texture"; e.spellID = id
-            e.texture = Tex(id)
-            e.label = ShortLabel(SpellName(id) or tostring(id))
-            e.cat = "forever"; e.dismissKey = dk
-            missing[#missing+1] = e
+        local off = classOff and classOff[id]
+        if not (off and off[class] == false) then
+            local name = SpellName(id)
+            if not (coveredIDs and (coveredIDs[id] or (name and coveredNames[name]))) then
+                local fam = EABR.ForeverFamily(id)
+                if not PlayerHasAuraByID(fam) and not (auraLock and fam and not EABR.FvRanksReadable(fam)) then
+                    local dk = keys[id]
+                    if not dk then dk = "forever:" .. id; keys[id] = dk end
+                    local e = AcquireEntry()
+                    -- A spell the character knows (a rank in the spellbook)
+                    -- casts on click; any other (a buff someone else casts) is
+                    -- only shown.
+                    if name and fam and EABR._fvKnownFams[fam] then
+                        CastByName(e, name, id)
+                    else
+                        e.mode = "texture"; e.spellID = id
+                    end
+                    e.texture = Tex(id)
+                    e.label = ShortLabel(name or tostring(id))
+                    e.cat = "forever"; e.dismissKey = dk
+                    missing[#missing+1] = e
+                end
+            end
         end
     end
 end

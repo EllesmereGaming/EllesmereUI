@@ -1494,11 +1494,11 @@ local function BuildCDMLivePreview(parent, yOff)
         local unlearnedSet
         -- Talent Conditions (same CD/utility gate): assigned id -> "on" (conditions
         -- hold) / "off" (not met: renders dimmed like an unlearned spell, so it can
-        -- still be right-clicked). nil for non-users and on WoW Forever (no menu row there).
+        -- still be right-clicked). nil for non-users.
         local tcSet
         if bd.key ~= "buffs" and not isBuffBar and not isCustomBuffBar
            and not isFocusKick and IsPlayerSpell then
-            if ns._cdmAnyTalentCond and not EllesmereUI.IS_FOREVER then
+            if ns._cdmAnyTalentCond then
                 tcSet = ns.TalentCondPreviewSet(bd.key, tracked)
             end
             local sdUn = ns.GetBarSpellData(bd.key)

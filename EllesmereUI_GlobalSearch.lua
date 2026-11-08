@@ -172,8 +172,18 @@ end
 -- Global Settings first, plugins last; page; label), since table.sort is not
 -- stable and the candidates come from pairs().
 local KIND_RANK = { page = 1 }
-local _moduleRank = { [EllesmereUI.GLOBAL_KEY or "_EUIGlobal"] = 0 }
-for i, entry in ipairs(EllesmereUI.ADDON_ROSTER or {}) do _moduleRank[entry.folder] = i end
+-- The sidebar's order is its groups' (read at load, before any other addon runs);
+-- every key outside them (plugins, other addons' pages) takes 1000.
+local _moduleRank = { [EllesmereUI.GLOBAL_KEY] = 0 }
+do
+    local n = 0
+    for _, group in ipairs(EllesmereUI.ADDON_GROUPS) do
+        for _, folder in ipairs(group.members) do
+            n = n + 1
+            _moduleRank[folder] = n
+        end
+    end
+end
 local function SortResults(a, b)
     if a.score ~= b.score then return a.score > b.score end
     local xa, xb = a.exact == true, b.exact == true

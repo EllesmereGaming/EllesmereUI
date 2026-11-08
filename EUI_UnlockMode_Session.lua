@@ -397,8 +397,6 @@ local function CreateHUD(parent)
     infoBtn:SetSize(INFO_ICON_SZ, max(iconSz, 24))
     infoBtn:SetPoint("LEFT", hoverBtn, "RIGHT", GAP_R2, 0)
     do
-        local OVERLAP_KEYS = { scroll = "Scroll", shiftscroll = "Shift + Scroll",
-            controlscroll = "Ctrl + Scroll", altscroll = "Alt + Scroll" }
         local tex = infoBtn:CreateTexture(nil, "OVERLAY")
         tex:SetSize(INFO_ICON_SZ, INFO_ICON_SZ)
         tex:SetPoint("CENTER")
@@ -406,8 +404,7 @@ local function CreateHUD(parent)
         tex:SetAlpha(HUD_ON_ALPHA)
         infoBtn:SetScript("OnEnter", function(self)
             tex:SetAlpha(0.9)
-            local r, g, b = GetAccent()
-            local c = string.format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
+            local c = EllesmereUI.HexColor(GetAccent())
             local function Line(key, what) return c .. key .. "|r: " .. what end
             local lines = {
                 Line(EllesmereUI.L("Shift + Drag"), EllesmereUI.L("Move it on one axis only.")),
@@ -417,8 +414,9 @@ local function CreateHUD(parent)
                 Line(EllesmereUI.L("Shift + Right Click"), EllesmereUI.L("Hide the element's overlay temporarily.")),
                 Line(EllesmereUI.L("Hold Shift"), EllesmereUI.L("Hide this bar.")),
             }
-            -- The Overlap Cycling dropdown's own labels (EUI__General_Options.lua), nil when disabled.
-            local overlap = OVERLAP_KEYS[EllesmereUI.GetUnlockOverlapMethod()]
+            -- The Overlap Cycling key, by the dropdown's own label; none while it is disabled.
+            local method = EllesmereUI.GetUnlockOverlapMethod()
+            local overlap = method ~= "disabled" and EllesmereUI.UNLOCK_OVERLAP_LABELS[method]
             if overlap then
                 lines[#lines + 1] = Line(EllesmereUI.L(overlap), EllesmereUI.L("Cycle through overlapping elements."))
             end

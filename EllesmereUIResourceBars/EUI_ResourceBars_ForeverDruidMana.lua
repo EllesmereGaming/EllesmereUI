@@ -170,8 +170,8 @@ local function Paint(force)
 
     if not S.textOn then return end
     local fmt = S.fmt
+    -- A "smart" here reads as the value: WoW Forever has no Smart Text.
     local wantPct = fmt == "perpp" or fmt == "both"
-        or (fmt == "smart" and EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(MANA))
     local txt
     if wantPct then
         -- Built only for a format that shows it.

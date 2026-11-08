@@ -220,7 +220,7 @@ local function LineMenu(line)
     local hidden = ns.OwnListGet("streamerNames")
     -- names shown: blizzard's tagged menu, so other add-ons' entries (raider.io's
     -- copy link and so on) still show. names hidden: ours, they'd show the name
-    if not hidden and MenuUtil and MenuUtil.CreateContextMenu then
+    if not hidden then
         MenuUtil.CreateContextMenu(line, function(_, root)
             root:SetTag("MENU_LFG_FRAME_MEMBER_APPLY")
             root:CreateTitle(name or "")

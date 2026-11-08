@@ -234,6 +234,68 @@ end
 -------------------------------------------------------------------------------
 EllesmereUI._WHATSNEW_PATCHES = {
     {
+        version = "9.8.2",
+        mini = true,
+        features = {
+            {
+                -- The Class Buffs row beside Weapon Buffs in WOW FOREVER on the Auras, Buffs & Consumables
+                -- page; a mage sees Mage Armors there and a warrior or rogue nothing (WoW Forever only).
+                module  = "AuraBuff Reminders",
+                forever = true,
+                title   = "Class Buffs",
+                desc    = "Reminds you when your class's own buffs are missing, such as a Blessing, Inner Fire or Demon Armor, and casts them when clicked",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Class Buffs" } or nil,
+            },
+            {
+                -- The Add Custom Spell row of WOW FOREVER, the custom spells listed after it (WoW Forever only).
+                module  = "AuraBuff Reminders",
+                forever = true,
+                title   = "Custom Spell Reminders",
+                desc    = "Click a custom spell or spell group reminder to cast its best known rank, and limit each custom spell to chosen classes",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUIAuraBuffReminders", page = "Auras, Buffs & Consumables", section = "WOW FOREVER", highlight = "Add Custom Spell" } or nil,
+            },
+            {
+                -- The CDM Bars page; the condition is in an icon's right-click menu in the preview
+                -- (WoW Forever only).
+                module  = "Cooldown Manager",
+                forever = true,
+                title   = "Talent Conditions",
+                desc    = "Show a cooldown or utility icon only with or without chosen talents from your three trees (right-click the icon in the preview)",
+                nav     = EllesmereUI.IS_FOREVER and { module = "EllesmereUICooldownManager", page = "CDM Bars" } or nil,
+            },
+            {
+                -- The RESULTS LIST section of the Premade Search page (retail only: WoW Forever has no
+                -- premade group list).
+                module = "Group Finder",
+                retail = true,
+                title  = "Quests and Custom Lists",
+                desc   = "Quests and Custom use the Group Finder's own group list too, and zone groups show how many players they have",
+                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIGroupFinder", page = "Premade Search", section = "RESULTS LIST" } or nil,
+            },
+            {
+                -- Unlock Mode's own top bar: the click opens Unlock Mode (no options page shows it).
+                module  = "Unlock Mode",
+                title   = "Top Bar Help",
+                desc    = "Each top bar toggle explains itself on hover, and an info icon lists the keyboard and mouse controls",
+                onClick = function() EllesmereUI.OpenUnlockModeAt() end,
+            },
+        },
+        fixes = {
+            { module = "Cooldown Manager", text = "On the Bar Glows page, a Glow When Usable glow shows its ability's icon and name instead of a question mark." },
+            { module = "Cooldown Manager", forever = true, text = "A spell no longer shows twice in a bar's preview after you learn a new rank of it." },
+            { module = "General", text = "On the Glows page, a collapsed module card's summary updates as soon as the template changes, and \"all match the template\" shows in green like the rows." },
+            { module = "General", text = "The options search lists equal matches in a fixed order, finds pages by their tab name, and says so when nothing matches, with a link from a page's search to every module." },
+            { module = "Group Finder", retail = true, text = "Right-clicking a group or an applicant in the lists shows other addons' menu entries again." },
+            { module = "Group Finder", retail = true, text = "The dungeons picked in the Dungeons row stay picked after logging out and back in." },
+            { module = "Group Finder", retail = true, text = "The group list scrolls and lets you pick a group when Quests or Custom is the first category you open." },
+            { module = "Quality of Life", text = "Quick Loot closes the loot window when there is nothing to take." },
+            { module = "Quickdraw", text = "A nested menu with nothing your character can use no longer shows as an empty entry." },
+            { module = "Resource Bars", forever = true, text = "Power Text and Mana Bar Text no longer offer Smart Text, which chose by spec; bars that used it show the power value." },
+            { module = "Unit Frames", forever = true, text = "Power Text no longer offers Smart Text, which chose by spec; frames that used it show the power value." },
+            { module = "Localization", text = "Russian translations updated across nearly every option, popup and tooltip, Traditional Chinese translations updated, and Latin American Spanish shows the Spanish (Spain) text where it has no translation of its own, instead of English." },
+        },
+    },
+    {
         version = "9.8.1",
         mini = true,
         features = {
@@ -972,47 +1034,6 @@ EllesmereUI._WHATSNEW_PATCHES = {
             { module = "Localization", text = "Spanish (Spain) and Traditional Chinese translations updated for the latest options, and the patch notes now show in Spanish too." },
         },
     },
-    {
-        version = "9.7.1",
-        mini = true,
-        features = {
-            {
-                -- The Mailbox entry of Auto Close Bags in the Bags page's EXTRAS section (both clients).
-                module = "Blizzard Skins+",
-                title  = "Close Bags on Mail Close",
-                desc   = "Closing the mailbox also closes your bags; on by default, under Auto Close Bags in the Bags settings",
-                nav    = { module = "EllesmereUIBags", page = "Bags",
-                           section = "EXTRAS", highlight = "Auto Close Bags" },
-            },
-            {
-                -- The DataBars page, where blocks are added (retail only: the block is not offered on
-                -- WoW Forever).
-                module = "Data Bars",
-                retail = true,
-                title  = "M+ Summary Block",
-                desc   = "A new block shows your latest Mythic+ run; hover lists every stored run, click opens the Run Summary and right click clears the history",
-                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIDataBars", page = "DataBars" } or nil,
-            },
-            {
-                -- Show Nicknames in the player frame's DISPLAY section (both clients); raid and party
-                -- frames show CustomNames names with no setting of ours.
-                module = "Unit Frames",
-                title  = "CustomNames Nicknames",
-                desc   = "Names you set in the CustomNames addon now show on raid and party frames, and on your unit frames with Show Nicknames on",
-                nav    = { module = "EllesmereUIUnitFrames", page = "Main Frames",
-                           section = "DISPLAY", highlight = "Show Nicknames",
-                           preSelect = function() if EllesmereUI._setUnitFrameUnit then EllesmereUI._setUnitFrameUnit("player") end; EllesmereUI._pendingUnitSelect = "player" end },
-            },
-        },
-        fixes = {
-            { module = "Chat", text = "Nudging a resized chat window with the arrow keys in Unlock Mode no longer makes it jump, and it stays where you save it." },
-            { module = "Cooldown Manager", text = "A spell's right-click menu now shows the settings its icon uses even when they were saved on another form of the spell, such as before a talent changed it, instead of looking empty." },
-            { module = "General", text = "Accent-colored text and markers on the Patch Notes and EUI Legends pages, the sidebar's new-patch dot, the Special Thanks name, Nameplates' Edit Tracked Auras links, Resource Bars' threshold buttons and the Move in Unlock Mode buttons now follow accent color changes without a reload." },
-            { module = "Nameplates", text = "Switching Debuff Coloring to Color Name no longer leaves a debuff set to Missing showing its old texture or color on the nameplate until a reload." },
-            { module = "Unlock Mode", text = "The chat's Unlock Mode settings no longer list an old anchor that does nothing, and that old anchor no longer stops other elements from being anchored to the chat." },
-            { module = "Localization", text = "Brazilian Portuguese, German, Korean and Traditional Chinese translations updated for the latest options." },
-        },
-    },
 }
 
 -------------------------------------------------------------------------------
@@ -1749,8 +1770,7 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             { type="dropdown", text="Overlap Cycling",
               tooltip="Scroll with the chosen modifier to cycle overlapping frames in Unlock Mode.",
-              values={ disabled="Disabled", scroll="Scroll", shiftscroll="Shift + Scroll",
-                  controlscroll="Ctrl + Scroll", altscroll="Alt + Scroll" },
+              values=EllesmereUI.UNLOCK_OVERLAP_LABELS,
               order={ "disabled", "scroll", "shiftscroll", "controlscroll", "altscroll" },
               getValue=function() return EllesmereUI.GetUnlockOverlapMethod() end,
               setValue=function(v)

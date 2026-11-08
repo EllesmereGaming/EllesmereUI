@@ -3352,7 +3352,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.8.1"
+EllesmereUI.VERSION = "9.8.2"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -3643,10 +3643,9 @@ end
 C_Timer.After(2, function()
     if EllesmereUIDB and EllesmereUIDB.firstInstallPopupShown then
         -- Defer while any intro popup is still pending/open; each runs the conflict check itself
-        -- when dismissed (PTRManagers / KickTracker popup files, plus the 12.1 launch video
-        -- announcement in EllesmereUI_VideoGuides.lua).
-        if EllesmereUI._ptrManagersIntroPending or EllesmereUI._launchVideoIntroPending
-           or EllesmereUI._kickTrackerIntroPending
+        -- when dismissed (the Kick Tracker and style choice popup files, plus the 12.1 launch
+        -- video announcement in EllesmereUI_VideoGuides.lua).
+        if EllesmereUI._launchVideoIntroPending or EllesmereUI._kickTrackerIntroPending
            or EllesmereUI._styleChoicePending then return end
         EllesmereUI._RunConflictCheck()
     end

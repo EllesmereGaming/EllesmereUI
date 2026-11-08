@@ -201,6 +201,7 @@ function EABR:OnEnable()
     _G._EABR_WEAPON_ENCHANT_CHOICES = WEAPON_ENCHANT_CHOICES
     _G._EABR_FV_WEAPON_BUFFS = EABR.FV_WEAPON_BUFFS
     _G._EABR_FvClassBuffs = EABR.FvClassBuffs
+    _G._EABR_FvClassBuffOn = EABR.FvClassBuffs and EABR.FvClassBuffOn
     -- _EABR_TALENT_REMINDER_ZONES set by EllesmereUIABR_TalentReminders.lua
 
     local STRATA_VALUES = EllesmereUI.FRAME_STRATA_LABELS
