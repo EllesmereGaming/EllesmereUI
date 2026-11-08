@@ -2327,6 +2327,18 @@ function ns.CC_ApplyBindings()
         ccEventFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
     end
 
+    -- A macro binding carries a copy of its macro's text, so macros are watched
+    -- only while an active binding is one: an edit, rename or delete re-applies.
+    local wantMacros = false
+    for _, b in ipairs(bindings) do
+        if b.type == "macro" then wantMacros = true; break end
+    end
+    if wantMacros then
+        ccEventFrame:RegisterEvent("UPDATE_MACROS")
+    else
+        ccEventFrame:UnregisterEvent("UPDATE_MACROS")
+    end
+
     -- A "both" binding is a frame binding AND a hover binding: frame attributes
     -- for clicks on the frames, plus the hover override for nameplates / world
     -- units.
@@ -2725,6 +2737,10 @@ local function OnCCEvent(self, event)
         if CarriedRezItem() ~= rezItemID then
             if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
         end
+    elseif event == "UPDATE_MACROS" then
+        -- A macro was edited, renamed or deleted: re-read the bound ones. The
+        -- apply repaints frames only when a resolved macro text changed.
+        if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
     elseif event == "GROUP_ROSTER_UPDATE" then
         -- Solo <-> party <-> raid transitions change which bindings are active.
         -- GROUP_ROSTER_UPDATE fires every join, leave, promote and zone-in, so
