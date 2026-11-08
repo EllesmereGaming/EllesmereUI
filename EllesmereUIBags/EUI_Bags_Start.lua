@@ -529,8 +529,13 @@ local function StartAddon()
     -- Hide Blizzard bag frames by reparenting to a hidden container (never write .Show/.Hide onto Blizzard frames -- causes taint).
     local _blizzBagHidden = CreateFrame("Frame")
     _blizzBagHidden:Hide()
+    -- The same rect as Blizzard's ContainerFrameContainer (all of UIParent):
+    -- UpdateContainerFrameAnchors pins the first open bag to its parent, and a
+    -- bag that opens while parented here (the keyring below) keeps that pin
+    -- after it is let out, so a rectless container left it with no position.
+    _blizzBagHidden:SetAllPoints(UIParent)
 
-    -- WoW Forever's keyring (bag -2) has no place in our bag window, so its
+    -- WoW Forever's keyring (bag -1) has no place in our bag window, so its
     -- button keeps opening Blizzard's own keyring window: the one bag frame
     -- let back out of the hidden container while it shows.
     local KEYRING = EUI.IS_FOREVER and Enum.BagIndex and Enum.BagIndex.Keyring or nil
