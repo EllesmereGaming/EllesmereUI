@@ -39,12 +39,14 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
     local sharedSizeRow
     local ufhDis, ufhTip, ufhRaw = EllesmereUI.MatchGuard(optState.selectedUnit, "Height")
     local ufwDis, ufwTip, ufwRaw = EllesmereUI.MatchGuard(optState.selectedUnit, "Width")
+    -- Vertical Fill wants tall, narrow bars: the Vertical Fill toggle rebuilds the page.
+    local vertFill = SVal("healthVerticalFill", false) == true
     sharedSizeRow, h = W:DualRow(parent, y,
-        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Health Bar Height", min=15, max=100, step=1,
+        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Health Bar Height", min=15, max=vertFill and 400 or 100, step=1,
           disabled=ufhDis, disabledTooltip=ufhTip, rawTooltip=ufhRaw,
           getValue=function() return SVal("healthHeight", 46) end,
           setValue=function(v) SSet("healthHeight", v) end }),
-        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Bar Width", min=80, max=400, step=1,
+        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Bar Width", min=vertFill and 20 or 80, max=400, step=1,
           disabled=ufwDis, disabledTooltip=ufwTip, rawTooltip=ufwRaw,
           getValue=function() return SVal("frameWidth", 181) end,
           setValue=function(v) SSet("frameWidth", v) end }));  y = y - h

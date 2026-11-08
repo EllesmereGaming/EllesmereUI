@@ -317,6 +317,8 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
     local mhDis, mhTip, mhRaw = EllesmereUI.MatchGuard(unitKey, "Height")
     local mwDis, mwTip, mwRaw = EllesmereUI.MatchGuard(unitKey, "Width")
     local rightSlot
+    -- Vertical Fill wants tall, narrow bars: the Vertical Fill toggle rebuilds the page.
+    local vertFill = settingsTable.healthVerticalFill == true
     if EllesmereUI.BlizzStyle.Get("unitframes") then
         -- Blizzard Style: the stock size is fixed, so the whole frame scales
         -- instead; the slider takes the gated width's slot (no blank slot).
@@ -327,13 +329,13 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
     elseif opts.hideBarWidth then
         rightSlot = { type="label", text="" }
     else
-        rightSlot = EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Bar Width", min=60, max=300, step=1,
+        rightSlot = EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Bar Width", min=vertFill and 20 or 60, max=300, step=1,
             disabled=mwDis, disabledTooltip=mwTip, rawTooltip=mwRaw,
             getValue=function() return settingsTable.frameWidth end,
             setValue=function(v) settingsTable.frameWidth = v; ReloadAndUpdate() end })
     end
     sizeRow, h = W:DualRow(parent, y,
-        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Health Bar Height", min=10, max=100, step=1,
+        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Health Bar Height", min=10, max=vertFill and 400 or 100, step=1,
           disabled=mhDis, disabledTooltip=mhTip, rawTooltip=mhRaw,
           getValue=function() return settingsTable.healthHeight end,
           setValue=function(v) settingsTable.healthHeight = v; ReloadAndUpdate() end }),
@@ -613,7 +615,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
         EllesmereUI.BlizzStyle.Gate("unitframes", { type="toggle", text="Vertical Fill",
           tooltip="Fill the health bar bottom-to-top instead of left-to-right. Reverse Fill flips it to top-to-bottom.",
           getValue=function() return settingsTable.healthVerticalFill end,
-          setValue=function(v) settingsTable.healthVerticalFill = v; ReloadAndUpdate() end }),
+          setValue=function(v) settingsTable.healthVerticalFill = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end }),
         unitKey ~= "boss" and smoothBarsWidget or EllesmereUI.BlankRowCfg());  y = y - h
 
     -- Blizzard Style: the stock level number in the boss art's level circle
