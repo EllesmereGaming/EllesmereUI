@@ -770,6 +770,23 @@ function EllesmereUI.SetCircleArt(tex, d)
     tex:SetTexture(CIRCLE[d])
 end
 
+-- The layer's edges on whole pixels: a parent centred on its row or header
+-- can sit half a pixel off the grid, which spread a 1 px outline over two.
+-- Each edge moves to its nearest pixel (offsets in layer units = pixels).
+local function SeatLayer(L, layer, k)
+    local p = L.parent
+    local l, t, r, b = p:GetLeft(), p:GetTop(), p:GetRight(), p:GetBottom()
+    if not (l and t and r and b) or issecretvalue(l) or issecretvalue(t)
+        or issecretvalue(r) or issecretvalue(b) then return end
+    l, t, r, b = l * k, t * k, r * k, b * k
+    l, t, r, b = floor(l + 0.5) - l, floor(t + 0.5) - t, floor(r + 0.5) - r, floor(b + 0.5) - b
+    if L.sl == l and L.st == t and L.sr == r and L.sb == b then return end
+    L.sl, L.st, L.sr, L.sb = l, t, r, b
+    layer:ClearAllPoints()
+    layer:SetPoint("TOPLEFT", p, "TOPLEFT", l, t)
+    layer:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", r, b)
+end
+
 local function FitLayer(L)
     local layer = L._frame
     if L.gen ~= PoolDress(layer) then
@@ -782,7 +799,10 @@ local function FitLayer(L)
         layer:SetScale(px)
     end
     local k = L.parent:GetEffectiveScale() / px
-    if k > 0 then L.fit(L, k) end
+    if k > 0 then
+        SeatLayer(L, layer, k)
+        L.fit(L, k)
+    end
 end
 
 local function LayerOnShow(self)
