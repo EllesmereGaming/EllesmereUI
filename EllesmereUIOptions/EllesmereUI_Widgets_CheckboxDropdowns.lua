@@ -309,10 +309,11 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             local boxBg = box:CreateTexture(nil, "BACKGROUND")
             boxBg:SetAllPoints()
             boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-            row._boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
+            row._boxBrd = EllesmereUI.MakeRoundedBorder(box, 0.4, 0.4, 0.4, 0.6, boxBg)
             local chk = box:CreateTexture(nil, "ARTWORK")
             PP.SetInside(chk, box, 2, 2)
             chk:SetSnapToPixelGrid(false)
+            EllesmereUI.RoundBody(box, chk, 2)
             row._box, row._chk = box, chk
         end
         -- Optional icon (spell icon etc.) between checkbox and label
@@ -350,11 +351,12 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             local negBg = negBox:CreateTexture(nil, "BACKGROUND")
             negBg:SetAllPoints()
             negBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-            row._negBrd = EllesmereUI.MakeBorder(negBox, 0.4, 0.4, 0.4, 0.6, PP)
+            row._negBrd = EllesmereUI.MakeRoundedBorder(negBox, 0.4, 0.4, 0.4, 0.6, negBg)
             local negChk = negBox:CreateTexture(nil, "ARTWORK")
             PP.SetInside(negChk, negBox, 2, 2)
             negChk:SetColorTexture(0.85, 0.3, 0.3, 1)
             negChk:SetSnapToPixelGrid(false)
+            EllesmereUI.RoundBody(negBox, negChk, 2)
             row._negBox, row._negChk = negBox, negChk
         end
         if item.swatch then
@@ -502,9 +504,9 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
 
         -- Search box (optional)
         if searchable then
+                searchEdit:SetSize(ddW - 8, SEARCH_H)
             if not searchEdit then
                 searchEdit = CreateFrame("EditBox", nil, menu)
-                searchEdit:SetSize(ddW - 8, SEARCH_H)
                 searchEdit:SetFont(fontPath, 11, "")
                 searchEdit:SetTextColor(1, 1, 1, 0.9)
                 searchEdit:SetJustifyH("LEFT")
@@ -1751,11 +1753,12 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
             local boxBg = box:CreateTexture(nil, "BACKGROUND")
             boxBg:SetAllPoints()
             boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-            local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
+            local boxBrd = EllesmereUI.MakeRoundedBorder(box, 0.4, 0.4, 0.4, 0.6, boxBg)
             local chk = box:CreateTexture(nil, "ARTWORK")
             PP.SetInside(chk, box, 2, 2)
             chk:SetColorTexture(EG.r, EG.g, EG.b, 1)
             chk:SetSnapToPixelGrid(false)
+            EllesmereUI.RoundBody(box, chk, 2)
             local lbl = row:CreateFontString(nil, "OVERLAY")
             lbl:SetFont(fontPath, 13, "")
             lbl:SetTextColor(0.75, 0.75, 0.75, 1)

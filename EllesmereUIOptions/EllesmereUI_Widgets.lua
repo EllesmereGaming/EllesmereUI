@@ -24,7 +24,6 @@ local isRussian = GetLocale() == "ruRU"
 -- Utility functions (used heavily)
 local SolidTex         = EllesmereUI.SolidTex
 local MakeFont         = EllesmereUI.MakeFont
-local MakeBorder       = EllesmereUI.MakeBorder
 local MakeRoundedBorder = EllesmereUI.MakeRoundedBorder
 local DisablePixelSnap = EllesmereUI.DisablePixelSnap
 local RowBg            = EllesmereUI.RowBg
@@ -281,11 +280,13 @@ local function BuildCheckboxControl(parent, frameLevel)
     local boxBg = SolidTex(box, "BACKGROUND", CB.BOX_R, CB.BOX_G, CB.BOX_B, 1)
     DisablePixelSnap(boxBg)
     boxBg:SetAllPoints()
-    local boxBorder = MakeBorder(box, BORDER_R, BORDER_G, BORDER_B, CB.BRD_A, PP)
+    local boxBorder = MakeRoundedBorder(box, BORDER_R, BORDER_G, BORDER_B, CB.BRD_A, boxBg)
 
     local check = SolidTex(box, "ARTWORK", ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
     DisablePixelSnap(check)
     RealPP.SetInside(check, box, BOX_PAD, BOX_PAD)
+    -- The outline's radius less the inset, so the fill's corners follow it.
+    EllesmereUI.RoundBody(box, check, 2)
 
     local function ApplyVisual(isOn, isHovering)
         check:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)

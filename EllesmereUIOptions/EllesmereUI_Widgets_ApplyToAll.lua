@@ -143,10 +143,11 @@ local function MakeMultiApplyRow(menu, fontPath)
     local boxBg = box:CreateTexture(nil, "BACKGROUND")
     boxBg:SetAllPoints()
     boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-    row._boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
+    row._boxBrd = EllesmereUI.MakeRoundedBorder(box, 0.4, 0.4, 0.4, 0.6, boxBg)
 
     local chk = box:CreateTexture(nil, "ARTWORK")
     PP.SetInside(chk, box, 2, 2)
+    EllesmereUI.RoundBody(box, chk, 2)
     row._chk = chk
 
     local lbl = row:CreateFontString(nil, "OVERLAY")
