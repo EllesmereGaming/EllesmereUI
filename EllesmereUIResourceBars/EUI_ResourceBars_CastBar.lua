@@ -1504,8 +1504,10 @@ OnCastStart = function()
     local wantCount = CraftCountEnabled(cb)
     local wantTimer = cb.fullCraftTime
     local wantMerge = cb.mergeCrafts
+    -- Forever Create All can leave isTradeSkill false; SetCraftBatch no-ops when
+    -- there is no remaining/pending batch, so it is safe to ask on every cast.
     EllesmereUI.SetCraftBatch(castBarFrame,
-        isTradeSkill and (wantCount or wantTimer or wantMerge),
+        (wantCount or wantTimer or wantMerge) and true or false,
         spellID, barID, castDurSec)
 
     -- Merge Bar: one bar spans the whole batch. The batch start is kept

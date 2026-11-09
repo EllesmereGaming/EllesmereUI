@@ -1110,17 +1110,78 @@ end
 --  clears them when on is false or the cast is not part of a batch. Done
 --  counts finished casts so the total stays fixed; a re-read of the same cast
 --  (settings refresh mid-cast) keeps the batch as is.
+--
+--  Remaining crafts are read from C_TradeSkillUI.GetRemainingRecasts when the
+--  client fills it (retail / some Forever paths). Forever's classic Create All
+--  often leaves that at 0, so we also watch CraftRecipe / DoTradeSkill for the
+--  requested count and fall back to GetTradeskillRepeatCount.
 -------------------------------------------------------------------------------
 do
-    local floor, format = math.floor, string.format
+    local floor, format, max = math.floor, string.format, math.max
+    local pendingTotal  -- requested Create All / CraftRecipe count
+    local pendingAt     -- GetTime() when pendingTotal was set
+
+    local function NotePendingCrafts(num)
+        num = tonumber(num)
+        if not num or num <= 1 then return end
+        pendingTotal, pendingAt = num, GetTime()
+    end
+
+    if hooksecurefunc then
+        if C_TradeSkillUI and C_TradeSkillUI.CraftRecipe then
+            hooksecurefunc(C_TradeSkillUI, "CraftRecipe", function(_, numCasts)
+                NotePendingCrafts(numCasts)
+            end)
+        end
+        if C_TradeSkillUI and C_TradeSkillUI.CraftEnchant then
+            hooksecurefunc(C_TradeSkillUI, "CraftEnchant", function(_, numCasts)
+                NotePendingCrafts(numCasts)
+            end)
+        end
+        -- Classic-style Create All (still present on Forever for some UIs).
+        if DoTradeSkill then
+            hooksecurefunc("DoTradeSkill", function(_, num)
+                NotePendingCrafts(num)
+            end)
+        end
+    end
+
+    -- Crafts still queued AFTER the current cast (0 = this is the last one).
+    local function RemainingAfterCurrent(f, spellID, castID)
+        local left = 0
+        if C_TradeSkillUI and C_TradeSkillUI.GetRemainingRecasts then
+            left = C_TradeSkillUI.GetRemainingRecasts() or 0
+        end
+        if left > 0 then
+            pendingTotal = nil
+            return left
+        end
+        if GetTradeskillRepeatCount then
+            local n = GetTradeskillRepeatCount() or 0
+            -- Classic API counts the craft in progress; convert to "after current".
+            if n > 1 then
+                pendingTotal = nil
+                return n - 1
+            end
+        end
+        if pendingTotal and pendingTotal > 1 and pendingAt and (GetTime() - pendingAt) < 120 then
+            if castID and castID == f._craftCast then
+                return f._craftLeft or (pendingTotal - 1)
+            end
+            if f._craftSpell == spellID and f._craftLeft ~= nil then
+                return max(0, f._craftLeft - 1)
+            end
+            return pendingTotal - 1
+        end
+        return 0
+    end
 
     function EllesmereUI.SetCraftBatch(f, on, spellID, castID, castDur)
-        local getLeft = C_TradeSkillUI and C_TradeSkillUI.GetRemainingRecasts
-        if not (on and getLeft) then
+        if not on then
             f._craftExtra, f._craftLeft = nil, nil
             return
         end
-        local left = getLeft() or 0
+        local left = RemainingAfterCurrent(f, spellID, castID)
         if castID and castID == f._craftCast then
             left = f._craftLeft or left
         elseif f._craftLeft and spellID == f._craftSpell and left == f._craftLeft - 1 then
@@ -1131,6 +1192,7 @@ do
         f._craftLeft, f._craftSpell, f._craftCast = left, spellID, castID
         if left == 0 and f._craftDone == 0 then
             f._craftExtra = nil
+            pendingTotal = nil
             return
         end
         local done = f._craftDone
@@ -1140,6 +1202,9 @@ do
         f._craftTotalSuffix = format(" / %d:%02d", floor(total / 60), total % 60)
         f._craftCountSuffix = format(" (%d/%d)", done + 1, done + 1 + left)
         f._craftSecs = nil
+        if left == 0 then
+            pendingTotal = nil
+        end
     end
 
     -- Whole batch left (or elapsed / total), repainted once per second.
