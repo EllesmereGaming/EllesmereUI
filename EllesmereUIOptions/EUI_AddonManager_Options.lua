@@ -14,6 +14,7 @@ local CreateFrame = EllesmereUI._Pool.CreateFrame
 
 local ROW_H = 28
 local INDENT = 22
+local DIM = EllesmereUI.HexColor(0.6, 0.6, 0.6)   -- tooltip notes
 local PILL_W, BOX_W = 84, 18
 
 -- Kept across the list's rebuilds (search, fold, character).
@@ -202,7 +203,7 @@ local function BuildList(page, host)
     local function DepTip(a, needed, sub)
         local lines = {}
         if a.notes and a.notes ~= "" then lines[#lines + 1] = a.notes end
-        lines[#lines + 1] = "|cff999999" .. a.name .. "|r"
+        lines[#lines + 1] = DIM .. a.name .. "|r"
         local deps = { C_AddOns.GetAddOnDependencies(a.name) }
         if #deps > 0 then
             lines[#lines + 1] = EllesmereUI.Lf("Needs: %s", table.concat(deps, ", "))
@@ -211,7 +212,7 @@ local function BuildList(page, host)
             lines[#lines + 1] = EllesmereUI.Lf("Kept on for %s", needed[a.name])
         end
         if a.locked then lines[#lines + 1] = EllesmereUI.L("EllesmereUI itself always stays on.") end
-        if not sub then lines[#lines + 1] = "|cff999999" .. EllesmereUI.L("Right-click to move it to a category.") .. "|r" end
+        if not sub then lines[#lines + 1] = DIM .. EllesmereUI.L("Right-click to move it to a category.") .. "|r" end
         return table.concat(lines, "\n")
     end
 
