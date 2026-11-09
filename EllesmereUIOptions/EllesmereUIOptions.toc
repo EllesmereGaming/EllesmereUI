@@ -29,6 +29,7 @@ EllesmereUI_TalentConditionsPopup.lua
 EUI_Colors_Options.lua
 EUI_Profiles_Options.lua
 EUI_WhatsNew_Options.lua
+EUI_AddonManager_Options.lua
 EUI__General_Options.lua
 EUI_Fonts_Options.lua
 EUI_Textures_Options.lua
