@@ -432,6 +432,7 @@ function EllesmereUI.CreatePortalFlyout(opts)
     guard:RegisterEvent("PLAYER_REGEN_DISABLED")
     guard:SetScript("OnEvent", function() flyout:Hide() end)
 
+
     local function NewButton(name, size)
         local btn = CreateFrame("Button", name, flyout, "SecureActionButtonTemplate")
         btn:SetSize(size, size)
@@ -672,6 +673,23 @@ function EllesmereUI.CreatePortalFlyout(opts)
                 end
             end
         end
+    end)
+
+    -- Click-away close (as the minimap addon flyout), hooked after the OnShow/OnHide scripts
+    -- above so they keep it; the frame under the mouse at open (its toggle) is spared.
+    local clickOff, opener = CreateFrame("Frame"), nil
+    clickOff:SetScript("OnEvent", function(_, _, button)
+        if button ~= "LeftButton" or InCombatLockdown() or flyout:IsMouseOver() then return end
+        if opener and opener:IsMouseOver() then return end
+        flyout:Hide()
+    end)
+    flyout:HookScript("OnShow", function()
+        opener = GetMouseFoci and GetMouseFoci()[1] or nil
+        clickOff:RegisterEvent("GLOBAL_MOUSE_DOWN")
+    end)
+    flyout:HookScript("OnHide", function()
+        opener = nil
+        clickOff:UnregisterEvent("GLOBAL_MOUSE_DOWN")
     end)
 
     -- Escape to close
