@@ -438,15 +438,7 @@ function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
             pulse:SetFrameLevel(card:GetFrameLevel() + 3)
             pulse:EnableMouse(false)
             pulse:Hide()
-            -- 2 px as two rounded 1 px rings: the inner one 1 unit in with a
-            -- radius 1 smaller, so both arcs share their centres.
-            local inner = CreateFrame("Frame", nil, pulse)
-            inner:SetPoint("TOPLEFT", pulse, "TOPLEFT", 1, -1)
-            inner:SetPoint("BOTTOMRIGHT", pulse, "BOTTOMRIGHT", -1, 1)
-            pulse._rings = {
-                EllesmereUI.MakeRoundedBorder(pulse, ac.r, ac.g, ac.b, 1),
-                EllesmereUI.MakeRoundedBorder(inner, ac.r, ac.g, ac.b, 1, nil, 3),
-            }
+            pulse._ring = EllesmereUI.MakeRoundedBorder(pulse, ac.r, ac.g, ac.b, 1, nil, nil, nil, 2)
             local breathe = pulse:CreateAnimationGroup()
             breathe:SetLooping("BOUNCE")
             local fade = breathe:CreateAnimation("Alpha")
@@ -461,8 +453,7 @@ function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
             if not pulse then return end
             if on then
                 local live = spec.accent or EllesmereUI.ELLESMERE_GREEN
-                pulse._rings[1]:SetColor(live.r, live.g, live.b, 1)
-                pulse._rings[2]:SetColor(live.r, live.g, live.b, 1)
+                pulse._ring:SetColor(live.r, live.g, live.b, 1)
             end
             pulse:SetShown(on and true or false)
         end

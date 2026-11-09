@@ -851,7 +851,7 @@ end
 if not EllesmereUI._onScaleChanged then EllesmereUI._onScaleChanged = {} end
 EllesmereUI._onScaleChanged[#EllesmereUI._onScaleChanged + 1] = RefitLayers
 
--- EllesmereUI.MakeRoundedBorder(parent, r, g, b, a, body, radius, clip) is the
+-- EllesmereUI.MakeRoundedBorder(parent, r, g, b, a, body, radius, clip, width) is the
 -- rounded form of EllesmereUI.MakeBorder for the settings controls, with the
 -- same API (_frame, :SetColor). The outline is a rounded fill with its inverse
 -- cut out 1 px in, on a pixel layer, so its edge stays exactly 1 px and its
@@ -863,7 +863,8 @@ EllesmereUI._onScaleChanged[#EllesmereUI._onScaleChanged + 1] = RefitLayers
 -- a mask of the shape 1 unit in, so a row scrolled to an edge keeps the
 -- corners round. Only scroll content, which sits inside the list by
 -- construction: a list's other children may lie outside it (a side submenu),
--- where the mask would hide them.
+-- where the mask would hide them. width (default 1): the edge in whole
+-- pixels, for a heavier ring (a pulse); the radius keeps room for it.
 local OUTLINE_RADIUS = 4
 
 local function OutlineSetColor(self, r, g, b, a)
@@ -895,7 +896,8 @@ local function FitOutline(o, k)
         local cap = floor(half * k - 0.5)
         if r > cap then r = cap end
     end
-    if r > MAX_RADIUS then r = MAX_RADIUS elseif r < 2 then r = 2 end
+    local w = o.width
+    if r > MAX_RADIUS then r = MAX_RADIUS elseif r < w + 1 then r = w + 1 end
     if o.r ~= r then
         -- The hole is reshaped detached (a mask carries its texture before
         -- it is added).
@@ -906,7 +908,7 @@ local function FitOutline(o, k)
         end
         o.r = r
         SetRounded(fill, r, ALL_CORNERS)
-        local inner = r - 1
+        local inner = r - w
         hole:SetTexture(ROUNDED_INV[inner * 16 + ALL_CORNERS], "CLAMPTOWHITE", "CLAMPTOWHITE")
         hole:SetTextureSliceMargins(inner, inner, inner, inner)
         hole:SetTextureSliceMode(STRETCHED)
@@ -984,16 +986,18 @@ local function InnerMask(o)
     return im
 end
 
-function EllesmereUI.MakeRoundedBorder(parent, r, g, b, a, body, radius, clip)
+function EllesmereUI.MakeRoundedBorder(parent, r, g, b, a, body, radius, clip, width)
     local o = EllesmereUI.MakePixelLayer(parent, FitOutline)
     local layer = o._frame
     local fill = layer:CreateTexture(nil, "BORDER", nil, 7)
     fill:SetAllPoints(layer)
     fill:SetVertexColor(r or 0, g or 0, b or 0, a or 1)
-    -- One unit is one pixel on the layer: 1 px in from every edge.
+    -- One unit is one pixel on the layer: width px in from every edge.
+    local w = width or 1
+    o.width = w
     local hole = layer:CreateMaskTexture()
-    hole:SetPoint("TOPLEFT", layer, "TOPLEFT", 1, -1)
-    hole:SetPoint("BOTTOMRIGHT", layer, "BOTTOMRIGHT", -1, 1)
+    hole:SetPoint("TOPLEFT", layer, "TOPLEFT", w, -w)
+    hole:SetPoint("BOTTOMRIGHT", layer, "BOTTOMRIGHT", -w, w)
     o._fill, o.hole, o.SetColor, o.SetCover = fill, hole, OutlineSetColor, OutlineSetCover
     o.radius = radius or OUTLINE_RADIUS
     if body then
