@@ -727,9 +727,10 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     -- rank families on the next pass (EABR.ForeverFamily), the minimap's
     -- trackers are read again (EABR.FvTrackingState), and a gear change
     -- outside the two weapon slots is ignored.
-    if e == "LEARNED_SPELL_IN_SKILL_LINE" then
+    if e == "LEARNED_SPELL_IN_SKILL_LINE" or (EABR.FOREVER and e == "SPELLS_CHANGED") then
         EABR._fvFamDirty = true
-        EABR._fvTrackDirty = true
+        EABR._fvClassPickerGroups = nil
+        if e == "LEARNED_SPELL_IN_SKILL_LINE" then EABR._fvTrackDirty = true end
     elseif e == "MINIMAP_UPDATE_TRACKING" then
         EABR._fvTrackDirty = true
     elseif e == "PLAYER_EQUIPMENT_CHANGED" and arg1 ~= 16 and arg1 ~= 17 then
@@ -808,6 +809,17 @@ if EABR.FOREVER then
             mainFrame:RegisterEvent("MINIMAP_UPDATE_TRACKING")
         else
             mainFrame:UnregisterEvent("MINIMAP_UPDATE_TRACKING")
+        end
+    end
+    function EABR.FvSyncPickerSpellEvents(want)
+        EABR._fvPickerSpellEvents = want
+        if want then
+            -- Talent changes may have happened while this listener was off.
+            EABR._fvFamDirty = true
+            EABR._fvClassPickerGroups = nil
+            mainFrame:RegisterEvent("SPELLS_CHANGED")
+        else
+            mainFrame:UnregisterEvent("SPELLS_CHANGED")
         end
     end
     function EABR.FvSyncWeaponEvents(want)

@@ -82,6 +82,7 @@ local defaults = {
             yOffset = 200,
             showText = true,
             showTooltips = true,
+            pickerEnabled = false,
             textColor = {r=1, g=1, b=1},
             textSize = 12,
             textXOffset = 0,
@@ -203,6 +204,7 @@ if EABR.FOREVER then
         weaponHideNoItem = true,
         weaponShowBelow = 1,
         weaponHands = {},
+        classBuffActions = {},
         classBuffPicks = {},  -- class buff key -> ticked (unset: the buff's own default)
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added
