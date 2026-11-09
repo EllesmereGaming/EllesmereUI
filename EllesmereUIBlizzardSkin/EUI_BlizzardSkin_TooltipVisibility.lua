@@ -519,17 +519,21 @@ do
 
     -- Live apply for the options toggle (immediate hide/restore) and login seed.
     EllesmereUI._applyTooltipHealthStrip = function()
+        if EllesmereUI._repaintTooltipPreview then EllesmereUI._repaintTooltipPreview() end
         if not GameTooltipStatusBar then return end
         GameTooltipStatusBar:SetAlpha(_healthStripHidden() and 0 or 1)
     end
 
     -- Texture + height of the reskinned strip. Only the tooltip reskin restyles
     -- the bar, so this is a no-op until _ttInitVisual has called it with
-    -- init=true; the options setters then re-apply live.
+    -- init=true; the options setters then re-apply live. sample: the options
+    -- header's sample strip, styled whether or not the live one is yet.
     local styled, texLookup
-    EllesmereUI._applyTooltipHealthStripStyle = function(init)
+    EllesmereUI._applyTooltipHealthStripStyle = function(init, sample)
         if init then styled = true end
-        if not styled or not GameTooltipStatusBar then return end
+        if not sample and EllesmereUI._repaintTooltipPreview then EllesmereUI._repaintTooltipPreview() end
+        local bar = sample or GameTooltipStatusBar
+        if not bar or not (styled or sample) then return end
         local db = EllesmereUIDB
         local key = db and db.tooltipHealthStripTexture
         local path = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -537,8 +541,8 @@ do
             if not texLookup then texLookup = EllesmereUI.BuildBarTextureTables() end
             path = EllesmereUI.ResolveTexturePath(texLookup, key, "Interface\\Buttons\\WHITE8X8")
         end
-        GameTooltipStatusBar:SetStatusBarTexture(path)
-        GameTooltipStatusBar:SetHeight(db and db.tooltipHealthStripHeight or 3)
+        bar:SetStatusBarTexture(path)
+        bar:SetHeight(db and db.tooltipHealthStripHeight or 3)
     end
 
     if GameTooltipStatusBar then

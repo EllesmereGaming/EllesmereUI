@@ -27,7 +27,9 @@ end
 --  Fonts: module-wide family/outline/shadow (surface key "mythicTimer"), only
 --  per-text sizes are settings -- same contract as every other bar surface.
 --------------------------------------------------------------------------------
-local function SetFSFont(fs, size) EllesmereUI.ApplyModuleFont(fs, nil, size, "mythicTimer") end
+-- A bar's target text names a player, so the bar texts take a font family
+-- (Cyrillic, Korean and Chinese names draw); no plain SetFont may reach them after it.
+local function SetFSFont(fs, size) EllesmereUI.ApplyModuleFontFamily(fs, nil, size, "mythicTimer") end
 
 --------------------------------------------------------------------------------
 --  Shared engines consumed read-only (core addon, loaded before this module).

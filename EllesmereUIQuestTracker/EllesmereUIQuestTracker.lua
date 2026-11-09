@@ -118,17 +118,49 @@ function EQT.Set(k, v) EQT.DB()[k] = v end
 -- switch prompts for a reload instead). Creates the DB itself: its first
 -- caller is the parent's PLAYER_LOGIN font pass, which runs before TryInit.
 -- Never reads EQT.DB(), whose stand-in table would latch "eui" too early.
+-- The style a profile's saved flags ask for.
+local function StyleOf(qt)
+    return (qt.useClassicStyle and "classic") or (qt.useBlizzardStyle and "blizzard") or "eui"
+end
+
 function ns.QT_Style()
     local v = ns._qtStyle
     if v == nil then
         local d = EnsureDB()
         local qt = d and d.profile and d.profile.questTracker
         if not qt then return "eui" end
-        v = (qt.useClassicStyle and "classic") or (qt.useBlizzardStyle and "blizzard") or "eui"
+        v = StyleOf(qt)
         ns._qtStyle = v
     end
     return v
 end
+
+-- WoW Forever: whether a profile asks for our own tracker in place of
+-- Blizzard's. Its own pick decides (customTrackerPick, saved only where it
+-- differs from the style's answer); with no pick the tracker is on under the
+-- EllesmereUI style alone, so a stock style keeps Blizzard's tracker. A false
+-- in the older customTracker key is a pick as well: that key read on for
+-- everyone who had not turned it off, so a true in it never was one and is
+-- not read.
+function ns.CustomTrackerWanted(qt)
+    if EllesmereUI.IS_FOREVER ~= true then return false end
+    local pick = qt.customTrackerPick
+    if pick == nil and qt.customTracker == false then pick = false end
+    if pick ~= nil then return pick end
+    return StyleOf(qt) == "eui"
+end
+
+-- The options toggle's pick (the tracker in use is latched until a reload).
+function ns.SetCustomTrackerWanted(qt, on)
+    on = on and true or false
+    qt.customTracker = nil
+    if on == (StyleOf(qt) == "eui") then
+        qt.customTrackerPick = nil
+    else
+        qt.customTrackerPick = on
+    end
+end
+
 -- Stock mode: true for both stock styles (Blizzard's own tracker art and text).
 -- WoW Forever: our own tracker replaces Blizzard's. Latched like the style.
 function ns.UseCustomTracker()
@@ -137,7 +169,7 @@ function ns.UseCustomTracker()
         local d = EnsureDB()
         local qt = d and d.profile and d.profile.questTracker
         if not qt then return false end
-        v = EllesmereUI.IS_FOREVER == true and qt.customTracker == true
+        v = ns.CustomTrackerWanted(qt)
         ns._customTracker = v
     end
     return v

@@ -280,7 +280,8 @@ local function NewRow(i)
     local name = r:CreateFontString(nil, "OVERLAY", blizzLook and "GameFontHighlightSmall" or nil)
     if not blizzLook then
         WSkin.Font(lvl, 0.6, 0.6, 0.6, 11)
-        WSkin.Font(name, nil, nil, nil, 12)
+        -- A character's name: a font family, which draws the scripts the font lacks
+        WSkin.FontFamily(name, nil, nil, nil, 12)
     end
     lvl:SetPoint("RIGHT", r, "RIGHT", -6, 0)
     lvl:SetJustifyH("RIGHT")

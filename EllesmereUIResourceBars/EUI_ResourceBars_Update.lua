@@ -2671,8 +2671,11 @@ ns.ShouldShowBar = ShouldShowBar
 
 -- Show When Missing: a step curve on the engine-side percent reveals a rule-hidden
 -- bar below full. The curve result can be secret (for health it always is), so it
--- drives a wrapper the bar is parented to, and the bar's own alpha (Fade Out of
--- Combat) still applies on top. A secret wrapper alpha makes the bar's own
+-- drives a wrapper the bar is parented to. A bar shown outright and faded out of
+-- combat takes the same wrapper: its curve rests at the faded opacity over the
+-- normal one (ns.ERB_MissingLiftFloor), lifting the fade below full. Either way a
+-- revealed bar shows at its normal opacity (ns.ERB_MissingBarAlpha), the wrapper
+-- hiding or fading it at full. A secret wrapper alpha makes the bar's own
 -- GetAlpha read secret too: never compare the Health or Power bar's alpha
 -- without issecretvalue (EllesmereUI.SetElementVisibility checks it). Built on
 -- first use. Only resources that rest at full count; rage and the like rest at
@@ -2691,8 +2694,56 @@ function ns.ERB_MissingWanted(cfg, powerType)
     return (EllesmereUI.VisOverrideValue(cfg) or cfg.visibility) ~= "never"
 end
 
+-- Step curves: 1 below full, then the bar's rest value at full. A rule-hidden
+-- reveal rests at 0 on one shared curve; a fade lift rests at its floor on a
+-- curve of the bar's own, re-pointed only when that floor changes.
+local missingHideCurve
+local function MissingCurve(bar)
+    local floor = bar._missFloor
+    if not floor then
+        if not missingHideCurve then
+            missingHideCurve = C_CurveUtil.CreateCurve()
+            missingHideCurve:SetType(Enum.LuaCurveType.Step)
+            missingHideCurve:AddPoint(0, 1)
+            missingHideCurve:AddPoint(1, 0)
+        end
+        return missingHideCurve
+    end
+    local c = bar._missLiftCurve
+    if not c then
+        c = C_CurveUtil.CreateCurve()
+        c:SetType(Enum.LuaCurveType.Step)
+        bar._missLiftCurve = c
+    end
+    if bar._missLiftAt ~= floor then
+        bar._missLiftAt = floor
+        c:ClearPoints()
+        c:AddPoint(0, 1)
+        c:AddPoint(1, floor)
+    end
+    return c
+end
+
+-- Fade Out of Combat on a bar shown outright: the value its wrapper rests at
+-- while the resource is full (the faded opacity over the normal one); nil in
+-- combat, with the fade off, or for a fade that does not dim below normal.
+function ns.ERB_MissingLiftFloor(cfg)
+    if isInCombat or not (cfg and cfg.oocFadeEnabled) then return nil end
+    local normal, faded = cfg.barAlpha or 1, cfg.oocAlpha or 0.5
+    if normal <= 0 or faded >= normal then return nil end
+    return faded / normal
+end
+
+-- The Health or Power bar's own alpha: its normal opacity while Show When
+-- Missing reveals it (the wrapper hides or fades it at full), else the
+-- ns.ResolveBarAlpha answer.
+function ns.ERB_MissingBarAlpha(bar, cfg)
+    if bar and bar._missLive then return (cfg and cfg.barAlpha) or 1 end
+    return ns.ResolveBarAlpha(cfg)
+end
+
 function ns.ERB_MissingPaint(bar)
-    local curve = ns.ERB_MissingCurve
+    local curve = MissingCurve(bar)
     local pt = bar._missPower
     local a
     if pt then
@@ -2715,10 +2766,10 @@ end
 -- the parent to return to when the reveal ends (nil keeps the wrapper). park:
 -- held in the wrapper at alpha 0 instead (the druid strip while the Power Bar
 -- is revealed on energy with Show When Mana Missing off).
-function ns.ERB_MissingApply(bar, live, powerType, home, park)
+function ns.ERB_MissingApply(bar, live, powerType, home, park, floor)
     local w = bar._missWrap
     if not live and not park then
-        bar._missLive, bar._missParked = nil, nil
+        bar._missLive, bar._missParked, bar._missFloor = nil, nil, nil
         if w then w:SetAlpha(1) end
         local h = bar._missHome
         if h and bar:GetParent() ~= h then MissingRehome(bar, h) end
@@ -2740,30 +2791,25 @@ function ns.ERB_MissingApply(bar, live, powerType, home, park)
         return
     end
     bar._missParked = nil
-    if not ns.ERB_MissingCurve then
-        local c = C_CurveUtil.CreateCurve()
-        c:SetType(Enum.LuaCurveType.Step)
-        c:AddPoint(0, 1)
-        c:AddPoint(1, 0)
-        ns.ERB_MissingCurve = c
-    end
     bar._missLive = true
+    bar._missFloor = floor
     bar._missPower = powerType
     ns.ERB_MissingPaint(bar)
 end
 
--- The druid mana strip (a child of the Power Bar) while the visibility rules hide
--- the Power Bar. mode "mana": revealed on its own mana curve; "park": held out of
--- sight while an energy reveal shows the Power Bar (its anchor edge handed back);
--- nil: back under the Power Bar. Out of its wrapper it no longer inherits the
--- Power Bar's alpha, so the plain bar alpha is applied to it directly.
-function ns.ERB_MissingHost(pb, pp, mode)
+-- The druid mana strip (a child of the Power Bar) on its own Show When Mana
+-- Missing curve. mode "mana": while the visibility rules hide the Power Bar, or,
+-- with a lift floor, while a Power Bar shown outright is faded out of combat;
+-- "park": held out of sight while an energy reveal shows the Power Bar (its
+-- anchor edge handed back); nil: back under the Power Bar. Out of its wrapper it
+-- no longer inherits the Power Bar's alpha, so its own is applied directly.
+function ns.ERB_MissingHost(pb, pp, mode, floor)
     local h = mode and ns.FDM_Host() or pb._missHost
     if not h then return end
     pb._missHost = h
     if mode == "mana" then
-        ns.ERB_MissingApply(h, true, PT.MANA, pb)
-        h:SetAlpha(ns.ResolveBarAlpha(pp))
+        ns.ERB_MissingApply(h, true, PT.MANA, pb, nil, floor)
+        h:SetAlpha(ns.ERB_MissingBarAlpha(h, pp))
     elseif mode == "park" then
         ns.ERB_MissingApply(h, false, nil, pb, true)
     elseif h._missLive or h._missParked then
@@ -2824,14 +2870,21 @@ local function UpdateVisibility()
         local avail = hp and hp.enabled and not IsSpecDisabled(hp) and not _G._ERB_BarHiddenByForm(hp) and not inVehicle
         local vis = avail and ShouldShowBar(hp)
         ERB._moEligible.health = (vis == "mouseover")
-        if grp then ns._erbGrpH = (vis == true) and not healthBar._erbMouseTrack end
-        local missing = avail and vis == false and hp.showWhenMissing and ns.ERB_MissingWanted(hp)
-        if missing or healthBar._missLive then ns.ERB_MissingApply(healthBar, missing) end
+        -- Show When Health Missing: reveals a rule-hidden bar below full, and
+        -- lifts the out-of-combat fade of one shown outright (rest at the fade).
+        local wanted = avail and hp.showWhenMissing and ns.ERB_MissingWanted(hp)
+        local missing = wanted and vis == false
+        local lift = wanted and vis == true and ns.ERB_MissingLiftFloor(hp) or nil
+        -- A lifted bar's opacity follows its health: no shared-opacity group member.
+        if grp then ns._erbGrpH = (vis == true) and not healthBar._erbMouseTrack and not lift end
+        if missing or lift or healthBar._missLive then
+            ns.ERB_MissingApply(healthBar, (missing or lift) and true or false, nil, nil, nil, lift)
+        end
         if missing then vis = true end
         if vis == true then
             healthBar:Show()
             EllesmereUI.SetElementVisibility(healthBar, true)
-            healthBar:SetAlpha(ns.ResolveBarAlpha(hp))
+            healthBar:SetAlpha(ns.ERB_MissingBarAlpha(healthBar, hp))
         else
             EllesmereUI.SetElementVisibility(healthBar, false)
         end
@@ -2849,27 +2902,39 @@ local function UpdateVisibility()
         local avail = not hidePower and pp and pp.enabled ~= false and not IsSpecDisabled(pp) and not _G._ERB_BarHiddenByForm(pp) and cachedPrimary and not inVehicle
         local vis = avail and ShouldShowBar(pp)
         ERB._moEligible.primary = (vis == "mouseover")
-        if grp then ns._erbGrpP = (vis == true) and not primaryBar._erbMouseTrack end
         local pt = avail and cachedPrimary
         local ruleHidden = avail and vis == false
-        -- One toggle per resource the bar can show; Mana also covers the druid strip below.
+        -- One toggle per resource the bar can show; Mana also covers the druid
+        -- strip below. Each reveals a rule-hidden bar below full, and lifts the
+        -- out-of-combat fade of one shown outright, as on the Health bar.
         local barFlag
         if pt == PT.MANA then barFlag = pp.showManaWhenMissing else barFlag = pp and pp.showWhenMissing end
-        local missing = ruleHidden and barFlag and type(pt) == "number" and ns.ERB_MissingWanted(pp, pt)
-        if missing or primaryBar._missLive then ns.ERB_MissingApply(primaryBar, missing, pt) end
-        if missing then vis = true end
-        local strip = ruleHidden and (pp.showManaWhenMissing or missing) and ns.FDM_Host and ns.FDM_Host()
-        local hostMode
-        if strip and pp.showManaWhenMissing and ns.ERB_MissingWanted(pp, PT.MANA) then
-            hostMode = "mana"
-        elseif strip and missing then
-            hostMode = "park"
+        local wanted = avail and barFlag and type(pt) == "number" and ns.ERB_MissingWanted(pp, pt)
+        local missing = wanted and ruleHidden
+        local lift = wanted and vis == true and ns.ERB_MissingLiftFloor(pp) or nil
+        if grp then ns._erbGrpP = (vis == true) and not primaryBar._erbMouseTrack and not lift end
+        if missing or lift or primaryBar._missLive then
+            ns.ERB_MissingApply(primaryBar, (missing or lift) and true or false, pt, nil, nil, lift)
         end
-        if hostMode or primaryBar._missHost then ns.ERB_MissingHost(primaryBar, pp, hostMode) end
+        if missing then vis = true end
+        local strip = ns.FDM_Host and ns.FDM_Host()
+        local manaWanted = strip and avail and pp.showManaWhenMissing and ns.ERB_MissingWanted(pp, PT.MANA)
+        local hostMode, hostLift
+        if strip and ruleHidden then
+            if manaWanted then
+                hostMode = "mana"
+            elseif missing then
+                hostMode = "park"
+            end
+        elseif manaWanted and vis == true then
+            hostLift = ns.ERB_MissingLiftFloor(pp)
+            if hostLift then hostMode = "mana" end
+        end
+        if hostMode or primaryBar._missHost then ns.ERB_MissingHost(primaryBar, pp, hostMode, hostLift) end
         if vis == true then
             primaryBar:Show()
             EllesmereUI.SetElementVisibility(primaryBar, true)
-            primaryBar:SetAlpha(ns.ResolveBarAlpha(pp))
+            primaryBar:SetAlpha(ns.ERB_MissingBarAlpha(primaryBar, pp))
         else
             EllesmereUI.SetElementVisibility(primaryBar, false)
         end

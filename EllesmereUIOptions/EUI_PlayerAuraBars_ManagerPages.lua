@@ -1050,15 +1050,7 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
     ); sy = sy - hh
     do
         local rgn = dsRow._leftRegion
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
-            rgn, dsRow:GetFrameLevel() + 3,
-            function() return (cfg.durationColorR or 1), (cfg.durationColorG or 1), (cfg.durationColorB or 1), 1 end,
-            function(r, g, b) cfg.durationColorR, cfg.durationColorG, cfg.durationColorB = r, g, b; apply() end,
-            false, 20)
-        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-        EllesmereUI.RegisterWidgetRefresh(updateSwatch)
-        EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.RESIZE_ICON, title = "Duration Text", rows = {
+        EllesmereUI.BuildInlineCog(rgn, { title = "Duration Text", rows = {
             { type = "slider", label = "Text Size", min = 6, max = 60, step = 1,
               get = function() return cfg.durationTextSize or 11 end,
               set = function(v) cfg.durationTextSize = v; apply() end },
@@ -1079,18 +1071,18 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
               get = function() return cfg.durationPrecisionThreshold and cfg.durationPrecisionThreshold / 60 or 0 end,
               set = function(v) cfg.durationPrecisionThreshold = v > 0 and math.floor(v * 60 + 0.5) or nil; apply() end },
         } })
-    end
-    do
-        local rgn = dsRow._rightRegion
         local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
             rgn, dsRow:GetFrameLevel() + 3,
-            function() return (cfg.stackColorR or 1), (cfg.stackColorG or 1), (cfg.stackColorB or 1), 1 end,
-            function(r, g, b) cfg.stackColorR, cfg.stackColorG, cfg.stackColorB = r, g, b; apply() end,
+            function() return (cfg.durationColorR or 1), (cfg.durationColorG or 1), (cfg.durationColorB or 1), 1 end,
+            function(r, g, b) cfg.durationColorR, cfg.durationColorG, cfg.durationColorB = r, g, b; apply() end,
             false, 20)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
         EllesmereUI.RegisterWidgetRefresh(updateSwatch)
-        EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.RESIZE_ICON, title = "Stacks Text", rows = {
+    end
+    do
+        local rgn = dsRow._rightRegion
+        EllesmereUI.BuildInlineCog(rgn, { title = "Stacks Text", rows = {
             { type = "slider", label = "Text Size", min = 6, max = 60, step = 1,
               get = function() return cfg.stackTextSize or 11 end,
               set = function(v) cfg.stackTextSize = v; apply() end },
@@ -1105,6 +1097,14 @@ local function BuildCoreFields(frame, fontPath, sy, cfg, apply, isBuff)
               get = function() return cfg.stackPosition or "BOTTOMRIGHT" end,
               set = function(v) cfg.stackPosition = v; apply() end },
         } })
+        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+            rgn, dsRow:GetFrameLevel() + 3,
+            function() return (cfg.stackColorR or 1), (cfg.stackColorG or 1), (cfg.stackColorB or 1), 1 end,
+            function(r, g, b) cfg.stackColorR, cfg.stackColorG, cfg.stackColorB = r, g, b; apply() end,
+            false, 20)
+        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = swatch
+        EllesmereUI.RegisterWidgetRefresh(updateSwatch)
     end
 
     return sy
@@ -2065,6 +2065,7 @@ local function AddNewButton(parentFrame, y, width, label, onClick)
     local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
     addBg:SetAllPoints()
     addBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+    EllesmereUI.RoundBody(addBtn, addBg)
     local lbl = addBtn:CreateFontString(nil, "OVERLAY")
     -- Drop shadow via the shadow FontObject, primed BEFORE SetFont
     -- (SetShadowOffset alone does not render). Module font, same as the
@@ -2227,7 +2228,7 @@ function ns.PABMP_ShowFilterEditor()
     popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
     popup:EnableMouse(true)
     local popBg = EllesmereUI.SolidTex(popup, "BACKGROUND", 0.077, 0.068, 0.058, 1); popBg:SetAllPoints()
-    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15)
+    EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
     if EllesmereUI.GetPopupScale then popup:SetScale(EllesmereUI.GetPopupScale()) end
 
     local title = EllesmereUI.MakeFont(popup, 16, "", 1, 1, 1)
@@ -2303,7 +2304,8 @@ function ns.PABMP_ShowFilterEditor()
     side:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", 0, 0)
     side:SetFrameLevel(popup:GetFrameLevel() + 1)
     local sideBg = EllesmereUI.SolidTex(side, "BACKGROUND", 0, 0, 0, 0.35); sideBg:SetAllPoints()
-    EllesmereUI.MakeBorder(side, 1, 1, 1, 0.10)
+    -- Flush with the popup's bottom-right corner: same shape, rows clipped to it.
+    EllesmereUI.MakeRoundedBorder(side, 1, 1, 1, 0.10, sideBg, nil, true)
 
     local sideScroll = CreateFrame("ScrollFrame", nil, side)
     sideScroll:SetPoint("TOPLEFT", side, "TOPLEFT", 1, -1)
@@ -2592,11 +2594,12 @@ function ns.PABMP_ShowFilterEditor()
         box:SetPoint("LEFT", srow, "LEFT", 6, 0)
         local boxBg = box:CreateTexture(nil, "BACKGROUND")
         boxBg:SetAllPoints(); boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-        local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6)
+        local boxBrd = EllesmereUI.MakeRoundedBorder(box, 0.4, 0.4, 0.4, 0.6, boxBg)
         local chk = box:CreateTexture(nil, "ARTWORK")
         chk:SetPoint("TOPLEFT", box, "TOPLEFT", 2, -2)
         chk:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -2, 2)
         chk:SetColorTexture(eg.r, eg.g, eg.b, 1)
+        EllesmereUI.RoundBody(box, chk, 2)
         local on = sel.spells[id] and true or false
         local ico = srow:CreateTexture(nil, "ARTWORK")
         ico:SetSize(22, 22)
@@ -2721,7 +2724,7 @@ local function ShowAddBarPopup(anchorBtn, kind, fontPath)
         local bg = popup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, bg)
 
         -- Auto-close on outside click, same pattern as DM's Add New popup.
         popup:SetScript("OnShow", function(p2)
@@ -2758,7 +2761,7 @@ local function ShowAddBarPopup(anchorBtn, kind, fontPath)
         local nbBg = nameBox:CreateTexture(nil, "BACKGROUND")
         nbBg:SetAllPoints()
         nbBg:SetColorTexture(0, 0, 0, 0.5)
-        EllesmereUI.MakeBorder(nameBox, 1, 1, 1, 0.2)
+        EllesmereUI.MakeRoundedBorder(nameBox, 1, 1, 1, 0.2, nbBg)
         popup._nameBox = nameBox
         py = py - ROW_H - GAP
 
@@ -2770,6 +2773,7 @@ local function ShowAddBarPopup(anchorBtn, kind, fontPath)
         local cBg = cBtn:CreateTexture(nil, "BACKGROUND")
         cBg:SetAllPoints()
         cBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+        EllesmereUI.RoundBody(cBtn, cBg)
         local cTx = cBtn:CreateFontString(nil, "OVERLAY")
         cTx:SetPoint("CENTER")
         cTx:SetFont(fontPath, 12, "")
@@ -2983,6 +2987,23 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
     -------------------------------------------------------------------
     local fixedY = -6
 
+    -- The rows' pill and knob, drawn texel to pixel as the settings toggle's
+    -- are (EllesmereUI.MakePixelLayer): a stadium and a circle sized for the
+    -- layer's scale, the knob one pad in from the side its state sits on.
+    local function OptionPillFit(L, k)
+        local w, h = L.parent:GetSize()
+        local hp, wp = math.floor(h * k + 0.5), math.floor(w * k + 0.5)
+        if hp == L.hp and wp == L.wp then return end
+        L.hp, L.wp = hp, wp
+        local pad = math.max(1, math.floor(2 * k + 0.5))
+        local d = math.max(2, hp - 2 * pad)
+        EllesmereUI.SetPillArt(L.track, hp)
+        EllesmereUI.SetCircleArt(L.knob, d)
+        L.knob:SetSize(d, d)
+        L.knob:ClearAllPoints()
+        L.knob:SetPoint("TOPLEFT", L._frame, "TOPLEFT", L.on and (wp - pad - d) or pad, -pad)
+    end
+
     -- Toggle row helper (label left, tile-style pill right).
     local function OptionRow(y, label, state, tooltip, onToggle)
         local row = CreateFrame("Frame", nil, sidebarOuter)
@@ -3002,22 +3023,22 @@ function ns.PABMP_BuildPage(pageName, parent, yOffset)
         btn:SetSize(32, 16)
         btn:SetPoint("RIGHT", row, "RIGHT", -8, 0)
         btn:SetFrameLevel(row:GetFrameLevel() + 2)
-        local pillBg = btn:CreateTexture(nil, "BACKGROUND")
-        pillBg:SetAllPoints()
-        local knob = btn:CreateTexture(nil, "ARTWORK")
-        knob:SetSize(12, 12)
+        local L = EllesmereUI.MakePixelLayer(btn, OptionPillFit)
+        local pillBg = L._frame:CreateTexture(nil, "BACKGROUND")
+        pillBg:SetAllPoints(L._frame)
+        local knob = L._frame:CreateTexture(nil, "ARTWORK")
+        L.track, L.knob, L.on = pillBg, knob, state and true or false
+        L:Fit()
         if state then
             local acr, acg, acb = 0.05, 0.82, 0.62
             if EllesmereUI.ResolveActiveAccent then
                 acr, acg, acb = EllesmereUI.ResolveActiveAccent()
             end
-            pillBg:SetColorTexture(acr, acg, acb, 1)
-            knob:SetPoint("RIGHT", btn, "RIGHT", -2, 0)
-            knob:SetColorTexture(1, 1, 1, 1)
+            pillBg:SetVertexColor(acr, acg, acb, 1)
+            knob:SetVertexColor(1, 1, 1, 1)
         else
-            pillBg:SetColorTexture(0.25, 0.25, 0.25, 1)
-            knob:SetPoint("LEFT", btn, "LEFT", 2, 0)
-            knob:SetColorTexture(0.5, 0.5, 0.5, 1)
+            pillBg:SetVertexColor(0.25, 0.25, 0.25, 1)
+            knob:SetVertexColor(0.5, 0.5, 0.5, 1)
         end
         btn:SetScript("OnClick", function() onToggle(not state) end)
         if tooltip then

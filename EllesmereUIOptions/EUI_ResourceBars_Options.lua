@@ -1721,13 +1721,13 @@ initFrame:SetScript("OnEvent", function(self)
         })
     end
 
-    -- Druid-only per-form popup button. `field` picks the map the toggles write: "textDisabledForms" (text rows) or "barDisabledForms" (whole-bar rows).
-    local function AddFormDisableBtn(rgn, leftOf, cfgFn, refreshFn, field, title, tooltip)
+    -- Druid-only per-form toggles, as cog rows (nil for any other class): a row
+    -- is on while that form shows; `field` is the map of the forms switched off,
+    -- "textDisabledForms" (text rows) or "barDisabledForms" (whole bars, and the
+    -- WoW Forever swing timer), read by _ERB_TextHiddenByForm / _ERB_BarHiddenByForm.
+    local function FormToggleRows(cfgFn, refreshFn, field)
         local _, classFile = UnitClass("player")
-        if classFile ~= "DRUID" then return end
-        field = field or "textDisabledForms"
-        title = title or "Enable/Disable per Form"
-        tooltip = tooltip or EllesmereUI.L(title)
+        if classFile ~= "DRUID" then return nil end
         local FORMS = { { key = "mana", label = "Caster" },
                         { key = "rage", label = "Bear" },
                         { key = "energy", label = "Cat" },
@@ -1751,17 +1751,22 @@ initFrame:SetScript("OnEvent", function(self)
                     refreshFn()
                 end }
         end
+        return rows
+    end
+
+    -- Druid-only per-form popup button. `field` picks the map the toggles write: "textDisabledForms" (text rows) or "barDisabledForms" (whole-bar rows).
+    local function AddFormDisableBtn(rgn, leftOf, cfgFn, refreshFn, field, title, tooltip)
+        field = field or "textDisabledForms"
+        local rows = FormToggleRows(cfgFn, refreshFn, field)
+        if not rows then return end
+        title = title or "Enable/Disable per Form"
+        tooltip = tooltip or EllesmereUI.L(title)
         local btn = EllesmereUI.BuildInlineCog(rgn, {
             anchorTo = leftOf, tip = tooltip,
-            icon = "Interface\\AddOns\\EllesmereUI\\media\\icons\\class-full\\glyph.tga",
             title = title, bgAlpha = 1,
             frameStrata = "FULLSCREEN_DIALOG", frameLevel = 500,
             rows = rows,
         })
-        if not btn then return end
-        -- Crop the DRUID cell out of the class glyph sheet.
-        btn._icon:SetDesaturated(true)
-        btn._icon:SetTexCoord(0.375, 0.5, 0, 0.125)
         return btn
     end
     -- The L() literals keep both popup titles in the static locale key list: .tools/extract-locale-keys.sh only sees literal string arguments.
@@ -1830,7 +1835,7 @@ initFrame:SetScript("OnEvent", function(self)
         local bg = bandPopup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.077, 0.068, 0.058, 0.97)
-        PP.CreateBorder(bandPopup, 1, 1, 1, 0.18, 1, "BORDER", 7)
+        bandPopup._brd = EllesmereUI.MakeRoundedBorder(bandPopup, 1, 1, 1, 0.18, bg)
 
         local clickCatcher = CreateFrame("Button", nil, bandPopup)
         clickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -1949,7 +1954,7 @@ initFrame:SetScript("OnEvent", function(self)
         _bandAddBtn:SetFrameLevel(bandPopup:GetFrameLevel() + 3)
         local abg = EllesmereUI.SolidTex(_bandAddBtn, "BACKGROUND", 0.069, 0.058, 0.047, 0.92)
         abg:SetAllPoints()
-        _bandAddBtn._border = EllesmereUI.MakeBorder(_bandAddBtn, 1, 1, 1, 0.4, PP)
+        _bandAddBtn._border = EllesmereUI.MakeRoundedBorder(_bandAddBtn, 1, 1, 1, 0.4, abg)
         local albl = EllesmereUI.MakeFont(_bandAddBtn, 12, nil, 1, 1, 1)
         albl:SetAlpha(0.5)
         albl:SetPoint("CENTER")
@@ -2004,7 +2009,7 @@ initFrame:SetScript("OnEvent", function(self)
         local inBg = input:CreateTexture(nil, "BACKGROUND")
         inBg:SetAllPoints()
         inBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-        EllesmereUI.MakeBorder(input, 1, 1, 1, 0.08, PP)
+        EllesmereUI.MakeRoundedBorder(input, 1, 1, 1, 0.08, inBg)
         row.input = input
 
         -- Commit on focus loss. Enter clears focus -> triggers this; Escape sets _cancelCommit so leaving the field discards the typed text.
@@ -2133,6 +2138,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local totalH = math.abs(curY) + BAND_PAD
         PP.Size(bandPopup, BAND_POPUP_W, totalH)
+        bandPopup._brd:Fit()
     end
 
     -- params = { getBarData, refreshFn, entryIdx, anchor, countBased, defR/G/B/A }
@@ -2216,7 +2222,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Size(popup, POPUP_W, 200)
             local bg = popup:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints(); bg:SetColorTexture(0.077, 0.068, 0.058, 0.97)
-            PP.CreateBorder(popup, 1, 1, 1, 0.18, 1, "BORDER", 7)
+            popup._brd = EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.18, bg)
 
             -- Insertion line shown while dragging a row; theme accent, matches the raid "Sort By" reorder line
             insLine = popup:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -2266,7 +2272,7 @@ initFrame:SetScript("OnEvent", function(self)
             addBtn:SetFrameLevel(popup:GetFrameLevel() + 3)
             local abg = EllesmereUI.SolidTex(addBtn, "BACKGROUND", 0.069, 0.058, 0.047, 0.92)
             abg:SetAllPoints()
-            addBtn._border = EllesmereUI.MakeBorder(addBtn, 1, 1, 1, 0.4, PP)
+            addBtn._border = EllesmereUI.MakeRoundedBorder(addBtn, 1, 1, 1, 0.4, abg)
             local albl = EllesmereUI.MakeFont(addBtn, 12, nil, 1, 1, 1)
             albl:SetAlpha(0.5); albl:SetPoint("CENTER"); albl:SetText(o.addLabel)
             addBtn:SetScript("OnEnter", function() albl:SetAlpha(0.7); addBtn._border:SetColor(1, 1, 1, 0.6) end)
@@ -2301,7 +2307,7 @@ initFrame:SetScript("OnEvent", function(self)
             input:SetMaxLetters(7)
             local inBg = input:CreateTexture(nil, "BACKGROUND"); inBg:SetAllPoints()
             inBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-            EllesmereUI.MakeBorder(input, 1, 1, 1, 0.08, PP)
+            EllesmereUI.MakeRoundedBorder(input, 1, 1, 1, 0.08, inBg)
             row.input = input
 
             -- Drag grip: list order = priority, so rows are draggable
@@ -2417,6 +2423,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(addBtn, "TOPLEFT", popup, "TOPLEFT", BAND_PAD, curY)
             curY = curY - 26
             PP.Size(popup, POPUP_W, math.abs(curY) + BAND_PAD)
+            popup._brd:Fit()
         end
 
         -- Runs each frame from the popup's OnUpdate while a grip is held: separates click from
@@ -2511,7 +2518,7 @@ initFrame:SetScript("OnEvent", function(self)
         local bg = btn:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-        btn._border = EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.08, PP)
+        btn._border = EllesmereUI.MakeRoundedBorder(btn, 1, 1, 1, 0.08, bg)
         local lbl = EllesmereUI.MakeFont(btn, 12, nil, 1, 1, 1)
         lbl:SetAlpha(0.8)
         lbl:SetPoint("CENTER")
@@ -2748,7 +2755,7 @@ initFrame:SetScript("OnEvent", function(self)
         local btnBg = EllesmereUI.SolidTex(settingsBtn, "BACKGROUND",
             EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
         btnBg:SetAllPoints()
-        settingsBtn._border = EllesmereUI.MakeBorder(settingsBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+        settingsBtn._border = EllesmereUI.MakeRoundedBorder(settingsBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, btnBg)
         local btnLbl = EllesmereUI.MakeFont(settingsBtn, 13, nil, 1, 1, 1)
         btnLbl:SetAlpha(EllesmereUI.DD_TXT_A)
         btnLbl:SetPoint("CENTER")
@@ -3103,7 +3110,8 @@ initFrame:SetScript("OnEvent", function(self)
             local bg = specContainer:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
             bg:SetColorTexture(0.077, 0.068, 0.058, 0.95)
-            PP.CreateBorder(specContainer, 1, 1, 1, 0.15, 1, "BORDER", 7)
+            -- clip: list rows scrolled to an edge keep the round corners.
+            EllesmereUI.MakeRoundedBorder(specContainer, 1, 1, 1, 0.15, bg, nil, true)
 
             local scrollFrame = CreateFrame("ScrollFrame", nil, specContainer)
             scrollFrame:SetPoint("TOPLEFT", specContainer, "TOPLEFT", 1, -2)
@@ -3135,7 +3143,7 @@ initFrame:SetScript("OnEvent", function(self)
             local dBg = detailC:CreateTexture(nil, "BACKGROUND")
             dBg:SetAllPoints()
             dBg:SetColorTexture(0.077, 0.068, 0.058, 0.95)
-            PP.CreateBorder(detailC, 1, 1, 1, 0.15, 1, "BORDER", 7)
+            EllesmereUI.MakeRoundedBorder(detailC, 1, 1, 1, 0.15, dBg)
             detailC:EnableMouse(true)
 
             local DPAD   = 16
@@ -3189,7 +3197,7 @@ initFrame:SetScript("OnEvent", function(self)
                 local ibg = ib:CreateTexture(nil, "BACKGROUND")
                 ibg:SetAllPoints()
                 ibg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-                EllesmereUI.MakeBorder(ib, 1, 1, 1, 0.08, PP)
+                EllesmereUI.MakeRoundedBorder(ib, 1, 1, 1, 0.08, ibg)
                 return ib
             end
 
@@ -3794,7 +3802,7 @@ initFrame:SetScript("OnEvent", function(self)
                     local varBg = varBtn:CreateTexture(nil, "BACKGROUND")
                     varBg:SetAllPoints()
                     varBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-                    varBtn._border = EllesmereUI.MakeBorder(varBtn, 1, 1, 1, 0.08, PP)
+                    varBtn._border = EllesmereUI.MakeRoundedBorder(varBtn, 1, 1, 1, 0.08, varBg)
                     local varLbl = EllesmereUI.MakeFont(varBtn, 11, nil, 1, 1, 1)
                     varLbl:SetText(EllesmereUI.L("Add Variant"))
                     varLbl:SetAlpha(0.65)
@@ -4656,7 +4664,7 @@ initFrame:SetScript("OnEvent", function(self)
         TexBgRowCfg = TexBgRowCfg,
         DB = DB, PP = PP, Refresh = Refresh,
         SmoothRefresh = SmoothRefresh, RefreshHealth = RefreshHealth, RebuildHealth = RebuildHealth,
-        AddFormBarBtn = AddFormBarBtn, AddFormTextBtn = AddFormTextBtn,
+        AddFormBarBtn = AddFormBarBtn, AddFormTextBtn = AddFormTextBtn, FormToggleRows = FormToggleRows,
         BuildHashCog = BuildHashCog, BuildThresholdSettingsButton = BuildThresholdSettingsButton, RefreshPower = RefreshPower,
         RebuildPower = RebuildPower, RefreshClass = RefreshClass, RebuildClass = RebuildClass,
         BAND_REPLACES_TIP = BAND_REPLACES_TIP, STAGGER_PCT_TIP = STAGGER_PCT_TIP, CLASS_COLORS = CLASS_COLORS,

@@ -531,7 +531,6 @@ initFrame:SetScript("OnEvent", function(self)
               set=function(v) o.write("endCapOffsetY", v) end }
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "End Cap Settings",
-                icon = C.stock and EllesmereUI.RESIZE_ICON or nil,
                 disabled = function()
                     return C.Vertical() or C.Off()
                 end,

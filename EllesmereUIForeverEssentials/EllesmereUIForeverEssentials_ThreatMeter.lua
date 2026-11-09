@@ -397,9 +397,12 @@ local function Style()
     return dm
 end
 
--- nil textFont / textFlag leave the module's font and outline to ApplyModuleFont.
+-- nil textFont / textFlag leave the module's font and outline to
+-- ApplyModuleFontFamily. The title and rows show players' and mobs' names, so
+-- every text here takes a font family (Cyrillic, Korean and Chinese names draw in
+-- the client's own faces); every font write to them goes through here.
 local function Font(fs, size, dm)
-    EUI.ApplyModuleFont(fs, dm.textFont, size, "essentials", dm.textFlag)
+    EUI.ApplyModuleFontFamily(fs, dm.textFont, size, "essentials", dm.textFlag)
 end
 
 local function PaintText(fs, color)

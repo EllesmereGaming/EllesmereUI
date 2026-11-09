@@ -1895,7 +1895,8 @@ function ns.BM_BuildSimplePreview(parent, s, fontPath, PP, centerX, topY, opts)
         local tbgc = s.topNameBarBgColor or { r=17/255, g=17/255, b=17/255 }
         tnbBg:SetColorTexture(tbgc.r, tbgc.g, tbgc.b, (s.topNameBarBgOpacity or 80) / 100)
         local tnbText = tnb:CreateFontString(nil, "OVERLAY")
-        tnbText:SetFont(fontPath, s.topNameBarTextSize or 11, outline)
+        -- The player's name: a font family, with no shadow as a plain SetFont.
+        EllesmereUI.SetFontFamily(tnbText, fontPath, s.topNameBarTextSize or 11, outline, false)
         tnbText:SetWordWrap(false)
         if lvlAttach then
             tnbText:SetFormattedText(lvlAttach[1], ns._RFPreviewLevel(), playerName)
@@ -2372,7 +2373,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     local pbg = popup:CreateTexture(nil, "BACKGROUND")
                     pbg:SetAllPoints()
                     pbg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-                    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+                    EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, pbg)
                     -- Click-away close (not while the dropdown's own menu is open).
                     popup:SetScript("OnShow", function(p2)
                         p2:SetScript("OnUpdate", function(m)
@@ -2411,6 +2412,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     local cBg = cBtn:CreateTexture(nil, "BACKGROUND")
                     cBg:SetAllPoints()
                     cBg:SetColorTexture(ac.r, ac.g, ac.b, 0.8)
+                    EllesmereUI.RoundBody(cBtn, cBg)
                     local cLbl = cBtn:CreateFontString(nil, "OVERLAY")
                     EllesmereUI.PrimeFontShadow(cLbl, true)
                     cLbl:SetFont(fontPath, 12, "")
@@ -2710,6 +2712,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
         addBg:SetAllPoints()
         addBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+        EllesmereUI.RoundBody(addBtn, addBg)
 
         local addLabel = addBtn:CreateFontString(nil, "OVERLAY")
         -- Drop shadow via the shadow FontObject, primed BEFORE SetFont (SetShadowOffset alone does not render).
@@ -2761,7 +2764,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local bg = popup:CreateTexture(nil, "BACKGROUND")
                 bg:SetAllPoints()
                 bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-                EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+                EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, bg)
 
                 -- Auto-close when clicking outside (but not on child dropdown menus)
                 popup:SetScript("OnShow", function(p)
@@ -2973,6 +2976,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local cBg = cBtn:CreateTexture(nil, "BACKGROUND")
                 cBg:SetAllPoints()
                 cBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+                EllesmereUI.RoundBody(cBtn, cBg)
                 local cTx = cBtn:CreateFontString(nil, "OVERLAY")
                 cTx:SetPoint("CENTER")
                 cTx:SetFont(fontPath, 12, "")
@@ -3641,7 +3645,6 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     return g == "UP" or g == "DOWN"
                 end
                 EllesmereUI.BuildInlineCog(rgn, {
-                    icon = EllesmereUI.DIRECTIONS_ICON,
                     title = "Position Offset",
                     rows = {
                         { type="slider", label="Offset X", min=-50, max=50, step=1,
@@ -3713,21 +3716,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                   setValue=function(v) ind.showStacks = v; ReloadAndUpdate() end })
             do
                 local rgn = durRow._leftRegion
-                local swatch = EllesmereUI.BuildColorSwatch(
-                    rgn, durRow:GetFrameLevel() + 3,
-                    function()
-                        local c = ind.durationTextColor or { r=1, g=1, b=1 }
-                        return c.r, c.g, c.b, 1
-                    end,
-                    function(r, g, b)
-                        ind.durationTextColor = { r=r, g=g, b=b }
-                        ReloadAndUpdate()
-                    end, false, 20)
-                swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-                rgn._lastInline = swatch
-
                 EllesmereUI.BuildInlineCog(rgn, {
-                    icon = EllesmereUI.RESIZE_ICON,
                     title = "Duration Text",
                     rows = {
                         { type="slider", label="Text Size", min=6, max=26, step=1,
@@ -3741,27 +3730,24 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                           set=function(v) ind.durationTextOffsetY = v; ReloadAndUpdate() end },
                     },
                 })
-            end
 
-            do
-                local rgn = durRow._rightRegion
                 local swatch = EllesmereUI.BuildColorSwatch(
                     rgn, durRow:GetFrameLevel() + 3,
                     function()
-                        local c = ind.stacksTextColor or { r=1, g=1, b=1 }
+                        local c = ind.durationTextColor or { r=1, g=1, b=1 }
                         return c.r, c.g, c.b, 1
                     end,
                     function(r, g, b)
-                        ind.stacksTextColor = { r=r, g=g, b=b }
+                        ind.durationTextColor = { r=r, g=g, b=b }
                         ReloadAndUpdate()
                     end, false, 20)
                 swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                 rgn._lastInline = swatch
             end
+
             do
                 local rgn = durRow._rightRegion
                 EllesmereUI.BuildInlineCog(rgn, {
-                    icon = EllesmereUI.RESIZE_ICON,
                     disabled = function() return ind.showStacks == false end,
                     disabledTooltip = "Show Stacks",
                     title = "Stacks Text",
@@ -3777,6 +3763,21 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                           set=function(v) ind.stacksOffsetY = v; ReloadAndUpdate() end },
                     },
                 })
+            end
+            do
+                local rgn = durRow._rightRegion
+                local swatch = EllesmereUI.BuildColorSwatch(
+                    rgn, durRow:GetFrameLevel() + 3,
+                    function()
+                        local c = ind.stacksTextColor or { r=1, g=1, b=1 }
+                        return c.r, c.g, c.b, 1
+                    end,
+                    function(r, g, b)
+                        ind.stacksTextColor = { r=r, g=g, b=b }
+                        ReloadAndUpdate()
+                    end, false, 20)
+                swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                rgn._lastInline = swatch
             end
             -- Display-level Icon Glow (v2): permanent, every visible icon of the
             -- group glows while shown. No Max Duration setting by design: the
@@ -3899,17 +3900,6 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                       setValue=function(v) ind.pandemicBorderEnabled = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end },
                     extraCfg)
                 local rgn = pandemicRow._leftRegion
-                EllesmereUI.BuildInlineSwatches(rgn, {
-                    { tooltip = "Pandemic Border Color",
-                      getValue = function()
-                          local c = ind.pandemicBorderColor or { r=1, g=0.2, b=0.2 }
-                          return c.r, c.g, c.b, 1
-                      end,
-                      setValue = function(r, g, b)
-                          ind.pandemicBorderColor = { r=r, g=g, b=b }
-                          ReloadAndUpdate()
-                      end },
-                }, { disabled = pandemicOff, disabledTooltip = pandemicTip, requireState = pandemicState, size = 20 })
                 EllesmereUI.BuildInlineCog(rgn, {
                     disabled = pandemicOff, disabledTooltip = pandemicTip, requireState = pandemicState,
                     title = "Pandemic Border",
@@ -3927,6 +3917,17 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                           set=function(v) ind.pandemicBorderWidth = v; ReloadAndUpdate() end },
                     },
                 })
+                EllesmereUI.BuildInlineSwatches(rgn, {
+                    { tooltip = "Pandemic Border Color",
+                      getValue = function()
+                          local c = ind.pandemicBorderColor or { r=1, g=0.2, b=0.2 }
+                          return c.r, c.g, c.b, 1
+                      end,
+                      setValue = function(r, g, b)
+                          ind.pandemicBorderColor = { r=r, g=g, b=b }
+                          ReloadAndUpdate()
+                      end },
+                }, { disabled = pandemicOff, disabledTooltip = pandemicTip, requireState = pandemicState, size = 20 })
             end
 
             -- THRESHOLD section
@@ -3965,7 +3966,6 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 do
                     local rgn = posRow._leftRegion
                     EllesmereUI.BuildInlineCog(rgn, {
-                        icon = EllesmereUI.DIRECTIONS_ICON,
                         title = "Position Offset",
                         rows = {
                             { type="slider", label="Offset X", min=-50, max=50, step=1,
@@ -4070,7 +4070,6 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 do
                     local rgn = posRow._leftRegion
                     EllesmereUI.BuildInlineCog(rgn, {
-                        icon = EllesmereUI.DIRECTIONS_ICON,
                         title = "Position Offset",
                         rows = {
                             { type="slider", label="Offset X", min=-50, max=50, step=1,

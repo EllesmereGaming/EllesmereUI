@@ -273,9 +273,11 @@ end
 -------------------------------------------------------------------------------
 --  Hide Bar When Using Gamepad (per bar, s.gamepadHideBar, default off; set
 --  on the Global Settings Gamepad page).
---  "Using" means CONNECTED (EllesmereUI.PadConnected: gamepad support is on
---  and a controller is present), never the last-input device, so a touch of
---  the mouse cannot flicker a bar back. A hidden bar is hidden the way Never
+--  "Using" is EllesmereUI.PadModeOn: on WoW Forever the Gamepad interface
+--  style (Blizzard's gamepad bars show only under it, so a controller left
+--  connected in keyboard and mouse play hides nothing); elsewhere CONNECTED
+--  (gamepad support is on and a controller is present), never the last-input
+--  device, so a touch of the mouse cannot flicker a bar back. A hidden bar is hidden the way Never
 --  hides it: its driver compiles to "hide" (BuildVisibilityString) and it
 --  joins the Never set (ns.IsNeverBar). Two cached verdicts: EAB._padOn is the
 --  device verdict, EAB._padHide the one every bar reader uses (_padOn, except
@@ -324,7 +326,7 @@ function EAB._PadSync()
         EAB._padOn = false
     elseif EAB._padStale and not InCombatLockdown() then
         EAB._padStale = nil
-        EAB._padOn = EllesmereUI.PadConnected()
+        EAB._padOn = EllesmereUI.PadModeOn()
     end
     -- A Quick Keybind close taken in combat keeps the bars up until its regen
     -- FinishClose re-runs this.

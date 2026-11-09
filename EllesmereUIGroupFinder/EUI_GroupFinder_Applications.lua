@@ -176,6 +176,8 @@ local function Place()
     local pad = tonumber(ns.Cfg().padding) or 12
     local x1, x2 = il - pl + pad, ir - pl - pad
     card.box:ClearAllPoints()
+    local ac = ns.AppsCfg and ns.AppsCfg()
+    card.title:SetShown(not (ac and ac.showTitle == false))
     card.box:SetPoint("TOPLEFT", pve, "TOPLEFT", x1, dy + r2)
     card.box:SetPoint("TOPRIGHT", pve, "TOPLEFT", x2, dy + r2)
     card.box:SetHeight(size)

@@ -696,6 +696,10 @@ end
 --- snap: the slot snapshot the factory took before the setter ran (optional;
 --- a detached one stands alone, with no frame).
 function EllesmereUI._NotifySettingWrite(frame, snap)
+    -- The written slot's inline cog takes notice (the cog notice in
+    -- EllesmereUI_Widgets_RowAddons.lua, defined once the options load).
+    local cogNotice = EllesmereUI._CogWriteNotice
+    if cogNotice then cogNotice(frame) end
     -- Conditional sessions capture through this path too. Without them in the gate they
     -- fall back to watcher/exit-sweep capture only, losing edits whenever a setter's
     -- forced refresh raises the resync absorb before a tick can attribute them.
@@ -839,10 +843,8 @@ local function EnsureEditBanner()
     local bg = editBanner:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.05, 0.05, 0.06, 0.92)
-    local brd = editBanner:CreateTexture(nil, "BORDER")
-    brd:SetPoint("BOTTOMLEFT"); brd:SetPoint("BOTTOMRIGHT")
-    brd:SetHeight(1)
-    brd:SetColorTexture(EDIT_R, EDIT_G, EDIT_B, 0.7)
+    -- Rounded gold outline, as the Unlock Mode override banner.
+    EllesmereUI.MakeRoundedBorder(editBanner, EDIT_R, EDIT_G, EDIT_B, 0.7, bg)
     editBannerText = editBanner:CreateFontString(nil, "OVERLAY")
     editBannerText:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 13, "")
     editBannerText:SetPoint("TOPLEFT", editBanner, "TOPLEFT", 16, -8)
@@ -854,8 +856,9 @@ local function EnsureEditBanner()
     local done = CreateFrame("Button", nil, editBanner)
     done:SetSize(74, 24)
     done:SetPoint("RIGHT", editBanner, "RIGHT", -12, 0)
-    EllesmereUI.SolidTex(done, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
-    local dbrd = EllesmereUI.MakeBorder(done, 1, 1, 1, 0.22)
+    local dbg = EllesmereUI.SolidTex(done, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
+    dbg:SetAllPoints()
+    local dbrd = EllesmereUI.MakeRoundedBorder(done, 1, 1, 1, 0.22, dbg)
     local dlbl = EllesmereUI.MakeFont(done, 11, nil, 1, 1, 1, 0.9)
     dlbl:SetPoint("CENTER")
     dlbl:SetText(L("Done"))

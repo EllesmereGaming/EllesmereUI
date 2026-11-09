@@ -14,7 +14,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  bags[i] is bag i - 1 (false when that bag slot's empty), bank[i] and
 --  tabs[i] are the i-th bank tab. pets and keystones keep their full link,
 --  since their string alone can't name them.
---  key = "Name-Realm" (EllesmereUI.RealmGroupName), same as the gold ledger.
+--  key = "Name-Realm" (EllesmereUI.CharKey).
+--  wow forever: keyed by guid like the gold ledger, since a first name isn't
+--  unique there, and the name keeps its surname. a bank tab is a bag put in a
+--  bank slot (up to 9), so its size follows that bag and a tab with no bag
+--  saves as false. no warband bank there.
 --
 --  both switches are account-wide (EllesmereUIDB.bagOfflineBank /
 --  .bagTooltipCounts), like the data. read only: a bag saves after
@@ -23,7 +27,6 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
 local ns = select(2, ...)
-if EUI.IS_FOREVER then return end  -- retail bank tabs only
 
 local _emptyP = {}
 local function Acct() return _G.EllesmereUIDB or _emptyP end
@@ -101,7 +104,10 @@ function Offline.Store()
     return db
 end
 
-local function OwnKey() return EUI.CharKey("-") end
+local function OwnKey()
+    if EUI.IS_FOREVER then return EUI.GetGoldLedger().CharKey() end
+    return EUI.CharKey("-")
+end
 Offline.CurrentKey = OwnKey
 
 -- a class's colour code, custom class colours included
@@ -116,6 +122,8 @@ function Offline.Char(key)
     return Offline.Store().chars[key]
 end
 function Offline.Warband() return Offline.Store().warband end
+-- forever has no warband bank
+function Offline.HasWarband() return not EUI.IS_FOREVER end
 function Offline.Rev() return rev end
 
 -- something changed, so the viewer and tooltip index catch up. patched: the
@@ -165,7 +173,13 @@ local function MyEntry()
     local c = chars[key]
     if not c then c = {}; chars[key] = c end
     local _, class = UnitClass("player")
-    c.name, c.realm, c.class, c.level = UnitName("player"), EUI.RealmGroupName(), class, UnitLevel("player")
+    local name = UnitName("player")
+    if EUI.IS_FOREVER then
+        -- the full name whatever the show-surname preference, as the gold ledger keeps it
+        local first, surname = (UnitNameUnmodified or UnitName)("player")
+        name = EUI.WithSurname(first, surname, true)
+    end
+    c.name, c.realm, c.class, c.level = name, EUI.RealmGroupName(), class, UnitLevel("player")
     -- a rename keeps the guid: its old entry goes and the bank moves over (the
     -- bags save again at once). a new character under a reused name has another
     -- guid and starts empty. a realm transfer gets a new guid too, so its old
@@ -223,7 +237,7 @@ local Patch  -- below, with the tooltip index
 -------------------------------------------------------------------------------
 local BAGS = { 0, 1, 2, 3, 4, 5 }
 local CHAR_BANK, WARBAND_BANK = {}, {}
-for i = 1, 6 do
+for i = 1, EUI.IS_FOREVER and 9 or 6 do
     local id = Enum.BagIndex["CharacterBankTab_" .. i]
     if id then CHAR_BANK[#CHAR_BANK + 1] = id end
 end
@@ -253,8 +267,9 @@ local function SaveList(list, ids, pos, field, owner, meta)
                 local m = meta[i]
                 new.name, new.icon = m and m.name, m and m.icon
             end
-            -- bag slots can be empty (false); unbought bank tabs just stay unsaved
-            if not new and not meta then new = false end
+            -- bag slots can be empty (false), so can a bought forever tab with
+            -- no bag in it. unbought bank tabs just stay unsaved
+            if not new and (not meta or (EUI.IS_FOREVER and meta[i])) then new = false end
             if new ~= nil and not Same(list[i], new) then
                 Patch(list[i], new, field, owner)
                 list[i] = new
@@ -293,7 +308,7 @@ local function SaveBanks()
         end
     end
     local locked = C_Bank and C_Bank.FetchBankLockedReason and C_Bank.FetchBankLockedReason(Enum.BankType.Account)
-    if locked == nil then
+    if locked == nil and Offline.HasWarband() then
         local w = Offline.Store().warband
         w.time = time()
         if SaveList(w.tabs, WARBAND_BANK, WARBAND_POS, nil, nil, Meta(Enum.BankType.Account) or {}) then changed = true end
@@ -323,6 +338,12 @@ end
 --  events (only registered while an option needs them)
 -------------------------------------------------------------------------------
 local PIT = Enum.PlayerInteractionType
+-- banker types: true for a character bank. some bankers open it as
+-- CharacterBanker (67) rather than Banker
+local BANKERS = {}
+if PIT.Banker then BANKERS[PIT.Banker] = true end
+if PIT.CharacterBanker then BANKERS[PIT.CharacterBanker] = true end
+if PIT.AccountBanker then BANKERS[PIT.AccountBanker] = false end
 local ev = CreateFrame("Frame")
 ev:SetScript("OnEvent", function(_, event, arg)
     if event == "BAG_UPDATE" then
@@ -337,14 +358,19 @@ ev:SetScript("OnEvent", function(_, event, arg)
     elseif event == "BAG_CONTAINER_UPDATE" then
         MarkAll(BAGS)
         Queue(true, false)
+        -- forever: a bag went in or out of a bank tab
+        if atCharBank and EUI.IS_FOREVER then
+            MarkAll(CHAR_BANK)
+            Queue(false, true)
+        end
     elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then
-        if arg == PIT.Banker or arg == PIT.AccountBanker then
-            atBank, atCharBank = true, arg == PIT.Banker
+        if BANKERS[arg] ~= nil then
+            atBank, atCharBank = true, BANKERS[arg]
             MarkAll(CHAR_BANK); MarkAll(WARBAND_BANK)
             Queue(false, true)
         end
     elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
-        if arg == PIT.Banker or arg == PIT.AccountBanker then
+        if BANKERS[arg] ~= nil then
             Flush()  -- save before the contents go unreadable
             atBank, atCharBank = false, false
         end

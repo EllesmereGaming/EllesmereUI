@@ -47,63 +47,298 @@ local function BuildInlineToggle(opts)
     return toggle
 end
 
--- Accent Colored Settings Elements (Global Settings > Display, both off by
--- default): kind "cog" = the cog, directions and resize glyphs, "preview" =
--- the eye preview toggles. Off, a glyph keeps the plain white look.
-local function AccentGlyphsOn(kind)
-    local db = EllesmereUIDB
-    if not db then return false end
-    if kind == "cog" then return db.accentCogIcons == true end
-    return db.accentPreviewIcons == true
-end
-EllesmereUI.AccentGlyphsOn = AccentGlyphsOn
-
--- Glyph buttons a page builds itself (the eye preview toggles, the nameplate
--- slot cogs): it marks the glyph with AccentGlyph(btn, tex, kind) once and
--- sets the button's alpha through SetGlyphAlpha(btn, a) with the plain glyph
--- values (0.15 disabled, 0.4 idle, 0.7 hovered). They show as the cogs below
--- do: white 0.55 idle / 0.75 hovered, accent 0.65 / 0.85, 0.15 disabled, and
--- linearly between (the Raid & Party Frames eye's 0.6 while its preview is
--- on). With its kind turned on the glyph wears the accent (white while
--- disabled), following accent changes.
-local function GlyphAlpha(a, accent)
-    if a <= 0.15 then return a end
-    return math.min(1, (accent and 0.65 or 0.55) + (a - 0.4) * 2 / 3)
-end
-
-local function PaintGlyph(btn)
-    local a, tex = btn._glyphA or 0.4, btn._glyphTex
-    local acc = tex and a > 0.15 and AccentGlyphsOn(btn._glyphKind)
-    btn:SetAlpha(GlyphAlpha(a, acc))
-    if not tex then return end
-    if acc then tex:SetVertexColor(EllesmereUI.GetAccentColor()) else tex:SetVertexColor(1, 1, 1) end
-end
-
+-- Glyph buttons a page builds itself (the eye preview toggles) set their alpha
+-- through SetGlyphAlpha(btn, a) with the plain glyph values (0.15 disabled,
+-- 0.4 idle, 0.7 hovered). They show as the cogs' dots below do: 0.55 idle /
+-- 0.75 hovered, 0.15 disabled, and linearly between (the Raid & Party Frames
+-- eye's 0.6 while its preview is on).
 function EllesmereUI.SetGlyphAlpha(btn, a)
     btn._glyphA = a
-    PaintGlyph(btn)
+    btn:SetAlpha(a <= 0.15 and a or math.min(1, 0.55 + (a - 0.4) * 2 / 3))
 end
 
--- kind: "cog" for a cog-family glyph, else a preview eye.
-function EllesmereUI.AccentGlyph(btn, tex, kind)
-    btn._glyphTex, btn._glyphKind = tex, kind or "preview"
-    PaintGlyph(btn)
-    -- Keyed by the texture: the page pool forgets the entry when it resets it.
-    EllesmereUI.RegAccent({ type = "callback", obj = tex, fn = function() PaintGlyph(btn) end })
+-- Inline cogs draw a vertical ellipsis with an accent notification dot above
+-- it. The dot shows on a cog never opened once the user edits its setting, and
+-- stays until the panel closes or the cog is opened (an opened cog never shows
+-- it again), never while the cog or its setting is disabled; the edit that
+-- shows it pulses it. A cog is known by its module, page, section, row label
+-- and popup title (so a row repeated per unit or bar has one dot), hashed to
+-- five characters; the opened ones are one string, EllesmereUIDB.cogSeen (in
+-- no export; /euiresethint clears it).
+-- Cog notice: every widget write reaches EllesmereUI._CogWriteNotice(frame)
+-- through EllesmereUI._NotifySettingWrite; it lights the dot, and the first
+-- change ever to a setting with a cog puts a tip above that cog
+-- (EllesmereUIDB.inlineCogTipSeen, cleared by /euiresethint): Okay or a click
+-- on a cog dismisses it for good. Once a dot is up, a write to its setting
+-- costs one check.
+local CogDot = {
+    -- Geometry in shares of the cog's height (30, a dropdown's): dots 4 across
+    -- and 6.5 apart, the notification dot 7 across with its centre 8 left of
+    -- and 3.5 above the top dot's.
+    DOT = 4 / 30, STEP = 6.5 / 30, NOTE = 7 / 30, NX = 8 / 30, NY = 3.5 / 30,
+    -- Ids: a rolling hash under the largest prime below 2^30, written as five
+    -- characters of a 64-character set.
+    MOD = 1073741789,
+    CHARS = { string.byte("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-_", 1, 64) },
+    live = setmetatable({}, { __mode = "k" }),   -- the cogs built, for Mark
+    -- This panel session, emptied when the panel closes: the ids whose setting
+    -- was edited, and the ids whose dot is up since an edit showed it.
+    edited = {}, up = {},
+}
+local cogTip, cogTipCog, cogTipInScroll, cogTipScrollHooked
+
+local function CogTipSeen()
+    return EllesmereUIDB and EllesmereUIDB.inlineCogTipSeen
+end
+
+-- The cog being built: module, page, section, row label and popup title.
+function CogDot.Key(rgn, opts)
+    local row = rgn:GetParent()
+    local content = row and row:GetParent()
+    local sec = content and content._currentSection
+    local cfg, title = rgn._cfg, opts.title
+    local label = cfg and cfg.text or rgn._labelText
+    return (EllesmereUI._buildingModule or EllesmereUI:GetActiveModule() or "") .. "\31"
+        .. (EllesmereUI._buildingPage or EllesmereUI:GetActivePage() or "") .. "\31"
+        .. (sec and sec._sectionName or "") .. "\31"
+        .. (type(label) == "string" and label or "") .. "\31"
+        .. (type(title) == "string" and title or "")
+end
+
+function CogDot.Id(s)
+    local h, mod = 0, CogDot.MOD
+    for i = 1, #s do h = (h * 31 + s:byte(i)) % mod end
+    local c = CogDot.CHARS
+    local a = h % 64; h = (h - a) / 64
+    local b = h % 64; h = (h - b) / 64
+    local d = h % 64; h = (h - d) / 64
+    local e = h % 64; h = (h - e) / 64
+    return string.char(c[a + 1], c[b + 1], c[d + 1], c[e + 1], c[h + 1])
+end
+
+-- The opened cogs as a set, read from the saved string once a session.
+function CogDot.Seen()
+    local set = CogDot.set
+    if set then return set end
+    set = {}
+    local str = EllesmereUIDB and EllesmereUIDB.cogSeen
+    if type(str) == "string" then
+        for i = 1, #str - 4, 5 do set[str:sub(i, i + 4)] = true end
+    end
+    CogDot.set = set
+    return set
+end
+
+-- A cog opened for the first time: its id joins the saved string, and every
+-- built cog with that id (the same row on another unit or bar) loses its dot.
+function CogDot.Mark(id)
+    local set = CogDot.Seen()
+    if set[id] then return end
+    set[id] = true
+    if EllesmereUIDB then
+        local str = EllesmereUIDB.cogSeen
+        EllesmereUIDB.cogSeen = (type(str) == "string" and str or "") .. id
+    end
+    for b in pairs(CogDot.live) do
+        if b._euiCogId == id then
+            b._euiCogPulse:Stop()
+            b._euiCogNote:Hide()
+        end
+    end
+end
+
+-- Whole pixels from a share of the cog's height, taken of the rounded pixel
+-- height (the memo's key) so every cog of one pixel size gets the same dots:
+-- of the unrounded height, a share on a half pixel (the step and the
+-- notification dot's offsets at 30 pixels) rounds either way with the float
+-- error a cog's effective scale carries.
+function CogDot.Px(v) return math.floor(v + 0.5) end
+
+-- The dots in whole pixels on the cog's pixel layer: the middle one centred,
+-- the others a step above and below, the notification dot (and the pulse ring
+-- under it) up and left of the top one.
+function CogDot.Fit(L, k)
+    local w, h = L.parent:GetSize()
+    local wp, hp = math.floor(w * k + 0.5), math.floor(h * k + 0.5)
+    if wp == L.wp and hp == L.hp then return end
+    L.wp, L.hp = wp, hp
+    local Px = CogDot.Px
+    local d = math.max(2, Px(hp * CogDot.DOT))
+    local step = math.max(d + 1, Px(hp * CogDot.STEP))
+    local n = math.max(3, Px(hp * CogDot.NOTE))
+    local x, y = math.floor((wp - d) / 2), math.floor((hp - d) / 2)
+    local layer = L._frame
+    for i = 1, 3 do
+        local t = L[i]
+        EllesmereUI.SetCircleArt(t, d)
+        t:SetSize(d, d)
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", layer, "TOPLEFT", x, (2 - i) * step - y)
+    end
+    -- Its outer edge reaches as far past the column's left edge as the same
+    -- spot to the right would past its right edge, so the rounding mirrors.
+    -- Kept inside the button, which a small cog's rounded sizes can leave.
+    local reach = Px((d - n) / 2 + hp * CogDot.NX) + n - d
+    local nx = math.max(0, x - reach)
+    local ny = math.max(0, Px(y - step + (d - n) / 2 - hp * CogDot.NY))
+    local note, ring = L.note, L.ring
+    EllesmereUI.SetCircleArt(note, n)
+    note:SetSize(n, n)
+    note:ClearAllPoints()
+    note:SetPoint("TOPLEFT", layer, "TOPLEFT", nx, -ny)
+    EllesmereUI.SetCircleArt(ring, n)
+    ring:SetSize(n, n)
+    ring:ClearAllPoints()
+    ring:SetPoint("CENTER", note, "CENTER")
+end
+
+-- The pulse: a ring of the dot's colour grows from it and fades, three times.
+function CogDot.PulseLoop(ag)
+    local n = (ag._euiLoops or 0) + 1
+    ag._euiLoops = n
+    if n >= 3 then ag:Stop() end
+end
+
+function CogDot.Pulse(cog)
+    local ag = cog._euiCogPulse
+    ag._euiLoops = 0
+    ag:Play()
+end
+
+-- An edit to the setting of a cog never opened: its dot shows here and on the
+-- cog's twins until the panel closes, and every dot this edit brings up on
+-- screen pulses.
+function CogDot.Edited(id)
+    if CogDot.Seen()[id] then return end
+    CogDot.edited[id] = true
+    local up
+    for b in pairs(CogDot.live) do
+        if b._euiCogId == id and b._euiCogState then
+            b._euiCogState()
+            if b._euiCogNote:IsShown() and b:IsVisible() then
+                up = true
+                CogDot.Pulse(b)
+            end
+        end
+    end
+    CogDot.up[id] = up
+end
+
+-- The panel closed (not hidden with the UI, which leaves it shown): this
+-- session's dots go.
+function CogDot.PanelClosed()
+    if EllesmereUI:IsShown() or not next(CogDot.edited) then return end
+    local edited = CogDot.edited
+    for b in pairs(CogDot.live) do
+        if edited[b._euiCogId] then
+            b._euiCogPulse:Stop()
+            b._euiCogNote:Hide()
+        end
+    end
+    wipe(edited)
+    wipe(CogDot.up)
+end
+EllesmereUI:RegisterOnHide(CogDot.PanelClosed)
+
+local function HideCogTip()
+    cogTipCog = nil
+    if cogTip then cogTip:Hide() end
+end
+
+local function CogTipDone()
+    HideCogTip()
+    if EllesmereUIDB then EllesmereUIDB.inlineCogTipSeen = true end
+end
+
+-- A cog that hides (page switch, panel close, its page built again) takes its
+-- tip with it, unseen: the next change shows it again. A pulse stops with it.
+local function CogHidden(self)
+    if self == cogTipCog then HideCogTip() end
+    self._euiCogPulse:Stop()
+end
+
+local function InScrollArea(f)
+    local sf = EllesmereUI._scrollFrame
+    while f do
+        if f == sf then return true end
+        f = f:GetParent()
+    end
+    return false
+end
+
+-- For a cog in the scrolled content, the tip shows only while the cog's
+-- centre is inside the scroll area: scrolled out it hides, back in it shows.
+local function CogTipScroll()
+    if not (cogTipCog and cogTipInScroll) then return end
+    local sf = EllesmereUI._scrollFrame
+    local _, cy = cogTipCog:GetCenter()
+    local top, bottom = sf:GetTop(), sf:GetBottom()
+    if cy and top and bottom and cy <= top and cy >= bottom then
+        if not cogTip:IsShown() then EllesmereUI.ShowTipCallout(cogTip) end
+    elseif cogTip:IsShown() then
+        cogTip:Hide()
+    end
+end
+
+local function ShowCogTip(cog)
+    if cogTip and cogTipCog == cog and cogTip:IsShown() then return end
+    if not cogTip then
+        -- The panel tips' metrics (the Raid & Party Frames eye tip's), on the
+        -- panel body: it rides the panel scale and hides with the panel.
+        cogTip = EllesmereUI.BuildTipCallout(EllesmereUI._panelBody, {
+            width = 250, arrow = "bottom",
+            -- "icon": a third of the inline cogs wear the directions or resize glyph.
+            text = EllesmereUI.L("This setting has more options.\nClick this icon to see them."),
+            fontSize = 10, textTop = 12, textInset = 24, spacing = 4, bgAlpha = 0.95,
+            btnW = 70, btnH = 22, btnBottom = 10, btnFontSize = 10,
+            onOkay = CogTipDone,
+        })
+    end
+    cogTipCog = cog
+    cogTipInScroll = InScrollArea(cog)
+    if cogTipInScroll and not cogTipScrollHooked then
+        cogTipScrollHooked = true
+        EllesmereUI._scrollFrame:HookScript("OnVerticalScroll", CogTipScroll)
+    end
+    cogTip:ClearAllPoints()
+    cogTip:SetPoint("BOTTOM", cog, "TOP", 0, 14)
+    if not cogTip:IsShown() then EllesmereUI.ShowTipCallout(cogTip) end
+end
+
+-- frame: the widget that wrote (or its region); the cog is the one its DualRow
+-- half (frame or one of its two parents) registered (a page the setter built
+-- again holds a new cog of the same id, which CogDot.Edited finds). A disabled
+-- cog is left alone; the tip goes to a visible one.
+function EllesmereUI._CogWriteNotice(frame)
+    if type(frame) ~= "table" or EllesmereUI._prebuilding then return end
+    local cog
+    for _ = 1, 3 do
+        cog = frame._euiCog
+        if cog or not frame.GetParent then break end
+        frame = frame:GetParent()
+        if not frame then return end
+    end
+    if not cog then return end
+    local id, off = cog._euiCogId, cog._euiCogOff
+    if off and off() then
+        -- The edit turned its own cog off: the one that turns it back on
+        -- brings the dot up again, with its pulse.
+        CogDot.up[id] = nil
+        return
+    end
+    if not CogDot.up[id] then CogDot.Edited(id) end
+    if not CogTipSeen() and cog:IsVisible() then ShowCogTip(cog) end
 end
 
 -- Inline cog button on a DualRow half-region, left of its control (or of the last inline item). Returns cogBtn, showFn; nil during the search prebuild.
--- opts: BuildCogPopup's own opts (title, rows, captureRegion, minWidth, ...) or show(btn) + optional isOpen(btn) for a custom popup; icon, size (26), gap (8), anchorTo,
+-- opts: BuildCogPopup's own opts (title, rows, captureRegion, minWidth, ...) or show(btn) + optional isOpen(btn) for a custom popup; size (the height: 30, a
+--   dropdown's; the button is 0.8 as wide), gap (8), anchorTo,
 --   relPoint (the anchor's side the cog's right edge sits on, LEFT; a host that is not a DualRow half passes anchorTo = itself, relPoint = "RIGHT", gap = 0),
 --   chain (default true: anchors to and becomes region._lastInline), tip, disabled + disabledTooltip/rawTooltip/requireState (as ResolveDisabledTip; default: the host control's).
--- Alpha: 0.15 disabled, 0.55 idle, 0.75 hovered or while its popup is open. Disabled blocks the click and shows the requirement tooltip.
--- With Accent Colored Settings Elements' Cogwheel Icons on, the cog, directions and resize glyphs wear
--- the accent (white while disabled) at 0.65 idle, 0.85 hovered or open, and follow its changes.
-local ACCENT_COG_ICONS = {
-    [EllesmereUI.COGS_ICON] = true,
-    [EllesmereUI.DIRECTIONS_ICON] = true,
-    [EllesmereUI.RESIZE_ICON] = true,
-}
+-- Every inline cog draws the vertical ellipsis with its accent notification dot (CogDot above): white dots at 0.55, 0.75 hovered or while its popup is open,
+--   0.15 disabled (the button at 0.3). Disabled blocks the click and shows the requirement tooltip. A button that paints its own states, opts.paint(btn, off, hot),
+--   draws opts.icon bare instead, 26 square and with no dot (the unlock jump).
+-- A cog with a dot is the one its region's writes light (the cog notice above; the last such cog built on the region).
 local function BuildInlineCog(rgn, opts)
     if EllesmereUI._prebuilding then return end
     -- A disabled cog with no tooltip of its own explains itself with its host control's requirement.
@@ -112,18 +347,61 @@ local function BuildInlineCog(rgn, opts)
         error("BuildInlineCog: disabled needs a disabledTooltip", 2)
     end
     local show = opts.show or select(2, BuildCogPopup(opts))
-    local size = opts.size or 26
+    local paint = opts.paint
+    local h = opts.size or (paint and 26 or 30)
     local btn = CreateFrame("Button", nil, rgn)
-    btn:SetSize(size, size)
+    btn:SetSize(paint and h or math.floor(h * 0.8 + 0.5), h)
     PP.Point(btn, "RIGHT", opts.anchorTo or (opts.chain ~= false and rgn._lastInline) or rgn._control or rgn, opts.relPoint or "LEFT", -(opts.gap or 8), 0)
     if opts.chain ~= false then rgn._lastInline = btn end
     btn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-    local tex = btn:CreateTexture(nil, "OVERLAY")
-    tex:SetAllPoints()
-    local iconPath = opts.icon or EllesmereUI.COGS_ICON
-    tex:SetTexture(iconPath)
-    btn._icon = tex
-    local accentIcon = not opts.paint and ACCENT_COG_ICONS[iconPath]
+    local tex, L, note, id, hostCfg
+    if paint then
+        tex = btn:CreateTexture(nil, "OVERLAY")
+        tex:SetTexture(opts.icon)
+        tex:SetAllPoints()
+        btn._icon = tex
+    else
+        -- The three dots, the notification dot and its pulse ring: white and
+        -- accent art on a pixel layer, placed in whole pixels (CogDot.Fit).
+        L = EllesmereUI.MakePixelLayer(btn, CogDot.Fit)
+        local layer = L._frame
+        L[1] = layer:CreateTexture(nil, "ARTWORK")
+        L[2] = layer:CreateTexture(nil, "ARTWORK")
+        L[3] = layer:CreateTexture(nil, "ARTWORK")
+        local ring = layer:CreateTexture(nil, "OVERLAY")
+        note = layer:CreateTexture(nil, "OVERLAY", nil, 1)
+        L.note, L.ring = note, ring
+        local r, g, b = EllesmereUI.GetAccentColor()
+        note:SetVertexColor(r, g, b, 1)
+        ring:SetVertexColor(r, g, b, 1)
+        ring:SetAlpha(0)
+        -- Keyed by the textures: the page pool forgets the entries when it resets them.
+        EllesmereUI.RegAccent({ type = "vertex", obj = note })
+        EllesmereUI.RegAccent({ type = "vertex", obj = ring })
+        local pulse = ring:CreateAnimationGroup()
+        local grow = pulse:CreateAnimation("Scale")
+        grow:SetScaleFrom(1, 1)
+        grow:SetScaleTo(2.6, 2.6)
+        grow:SetOrigin("CENTER", 0, 0)
+        grow:SetDuration(0.9)
+        grow:SetSmoothing("OUT")
+        local fade = pulse:CreateAnimation("Alpha")
+        fade:SetFromAlpha(0.7)
+        fade:SetToAlpha(0)
+        fade:SetDuration(0.9)
+        fade:SetSmoothing("OUT")
+        pulse:SetLooping("REPEAT")
+        pulse:SetScript("OnLoop", CogDot.PulseLoop)
+        L:Fit()
+        id = CogDot.Id(CogDot.Key(rgn, opts))
+        hostCfg = rgn._cfg
+        btn._euiCogId, btn._euiCogNote, btn._euiCogPulse = id, note, pulse
+        CogDot.live[btn] = true
+        -- The cog notice: the region's writes light this cog.
+        btn._euiCogOff = opts.disabled
+        rgn._euiCog = btn
+        btn:SetScript("OnHide", CogHidden)
+    end
 
     local block
     if opts.disabled then
@@ -148,22 +426,29 @@ local function BuildInlineCog(rgn, opts)
         if not hot then
             if hover == nil then hot = btn:IsMouseOver() else hot = hover end
         end
-        -- opts.paint(btn, off, hot) paints the states itself (the unlock jump);
-        -- a cog's own look is its alpha.
-        local acc = accentIcon and not off and AccentGlyphsOn("cog")
-        if opts.paint then opts.paint(btn, off, hot)
-        elseif off then btn:SetAlpha(0.15)
-        elseif acc then btn:SetAlpha(hot and 0.85 or 0.65)
-        else btn:SetAlpha(hot and 0.75 or 0.55) end
-        if accentIcon then
-            if acc then tex:SetVertexColor(EllesmereUI.GetAccentColor()) else tex:SetVertexColor(1, 1, 1) end
+        -- opts.paint(btn, off, hot) paints the states itself (the unlock jump).
+        -- The dots: 0.55 idle, 0.75 hovered or open, 0.15 disabled through the
+        -- button's 0.3. The notification dot once its setting was edited this
+        -- panel session, until the cog is first opened, never while the cog or
+        -- the setting it sits on is disabled.
+        if paint then paint(btn, off, hot)
+        else
+            btn:SetAlpha(off and 0.3 or 1)
+            local a = off and 0.5 or (hot and 0.75 or 0.55)
+            L[1]:SetAlpha(a)
+            L[2]:SetAlpha(a)
+            L[3]:SetAlpha(a)
+            local dot = CogDot.edited[id] == true and not (off or CogDot.Seen()[id]
+                or (hostCfg and hostCfg.disabled and hostCfg.disabled()))
+            note:SetShown(dot)
+            if not dot then btn._euiCogPulse:Stop() end
         end
         if block then block:SetShown(off and true or false) end
     end
     btn._euiCogState = State
-    -- Repaints on accent changes (opts.paint reads the accent too: the unlock jump).
+    -- opts.paint reads the accent (the unlock jump), so it repaints on accent changes.
     -- Keyed by the texture: the page pool forgets the entry when it resets it.
-    if accentIcon or opts.paint then EllesmereUI.RegAccent({ type = "callback", obj = tex, fn = function() State() end }) end
+    if paint then EllesmereUI.RegAccent({ type = "callback", obj = tex, fn = function() State() end }) end
 
     btn:SetScript("OnEnter", function(self)
         State(true)
@@ -173,9 +458,19 @@ local function BuildInlineCog(rgn, opts)
         State(false)
         if opts.tip then HideWidgetTooltip() end
     end)
-    btn:SetScript("OnClick", function(self) show(self) end)
+    btn:SetScript("OnClick", function(self)
+        -- A cog clicked while the cog tip is up: the tip has done its job.
+        -- Opened once, its dot is gone for good.
+        if not paint then
+            if cogTipCog then CogTipDone() end
+            CogDot.Mark(id)
+        end
+        show(self)
+    end)
     State()
-    if opts.disabled then RegisterWidgetRefresh(State) end
+    -- A refresh re-reads the disabled states: the cog's own and, for the dot,
+    -- its setting's.
+    if opts.disabled or (hostCfg and hostCfg.disabled) then RegisterWidgetRefresh(State) end
     return btn, show
 end
 
@@ -599,10 +894,10 @@ end
 --  BuildInlineSwatches(region, swatches, opts)
 --  Inline form of the multiSwatch half: builds the same swatch list (tooltip, hasAlpha, getValue/setValue,
 --  onClick override, per-swatch disabled+disabledTooltip, refreshAlpha, gradient) to the LEFT of the region's
---  control, so a slider (or any control half) can host its color swatches on the same row. Chains
---  region._lastInline, so a cog button built afterwards lands left of the swatches. opts.disabled/opts.disabledTooltip
+--  control, so a slider (or any control half) can host its color swatches on the same row. Chains from
+--  region._lastInline: a slot's cog is built first and the swatches land left of it. opts.disabled/opts.disabledTooltip
 --  mirror the row-level disabled state of the multiSwatch form.
---  opts.size: the swatch size (nil = BuildColorSwatch's default 24).
+--  opts.size: the swatch size (nil = 20, the inline swatch size; BuildColorSwatch's own 24 is a swatch half's).
 --  sc.gradient: colour stops shown across the swatch in place of its colour (PaintSwatchGradient).
 -------------------------------------------------------------------------------
 local function BuildInlineSwatches(region, swatches, opts)
@@ -613,7 +908,7 @@ local function BuildInlineSwatches(region, swatches, opts)
     local anchorTo = region._lastInline or region._control
     for i = #swatches, 1, -1 do
         local sc = swatches[i]
-        local swatch, updateSwatch = BuildColorSwatch(region, level, sc.getValue, sc.setValue, sc.hasAlpha, opts.size)
+        local swatch, updateSwatch = BuildColorSwatch(region, level, sc.getValue, sc.setValue, sc.hasAlpha, opts.size or 20)
         PP.Point(swatch, "RIGHT", anchorTo, "LEFT", -8, 0)
         anchorTo = swatch
         region._lastInline = swatch
@@ -802,7 +1097,7 @@ local function BuildCursorAnchorRow(opts)
 
     -- Inline cog: X + Y offsets
     BuildInlineCog(row._rightRegion, {
-        title = "Cursor Offset", icon = EllesmereUI.DIRECTIONS_ICON,
+        title = "Cursor Offset",
         rows = {
             { type = "slider", label = "X Offset", min = -125, max = 125, step = 1,
               get = function() return getData().anchorOffsetX or 0 end,

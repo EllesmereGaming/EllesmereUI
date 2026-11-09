@@ -202,17 +202,21 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                 end
 
-                -- offline bank (not on wow forever). account-wide, like the data it saves
+                -- offline bank. account-wide, like the data it saves
                 local Offline = BagsNS and BagsNS.Offline
                 if Offline then
                     _, h = W:SectionHeader(parent, "OFFLINE BANK", y); y = y - h
                     _, h = W:DualRow(parent, y,
                         { type="toggle", text="Offline Bank",
-                          tooltip="Saves each character's bags and bank, and the warband bank, when you see them. Use the person button by the bags or bank title to see another character's bags or bank, and Bank in the bags sidebar for their bank or the warband bank, from anywhere. Applies to all characters.",
+                          tooltip=EllesmereUI.IS_FOREVER
+                              and "Saves each character's bags and bank when you see them. Use the person button by the bags or bank title to see another character's bags or bank, and Bank in the bags sidebar for their bank, from anywhere. Applies to all characters."
+                              or "Saves each character's bags and bank, and the warband bank, when you see them. Use the person button by the bags or bank title to see another character's bags or bank, and Bank in the bags sidebar for their bank or the warband bank, from anywhere. Applies to all characters.",
                           getValue=function() return Offline.Enabled() end,
                           setValue=function(v) Offline.Set("bagOfflineBank", v) end },
                         { type="toggle", text="Tooltip Item Counts",
-                          tooltip="Item tooltips list how many of that item each of your characters has in their bags and bank, plus the warband bank. Applies to all characters.",
+                          tooltip=EllesmereUI.IS_FOREVER
+                              and "Item tooltips list how many of that item each of your characters has in their bags and bank. Applies to all characters."
+                              or "Item tooltips list how many of that item each of your characters has in their bags and bank, plus the warband bank. Applies to all characters.",
                           getValue=function() return Offline.CountsEnabled() end,
                           setValue=function(v) Offline.Set("bagTooltipCounts", v) end }
                     ); y = y - h
@@ -450,11 +454,20 @@ initFrame:SetScript("OnEvent", function(self)
                               db.profile.bagPinnedInOneBag = v
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
-                        { type="toggle", label="Hide from Other Categories",
+                        { type="toggle", label="Hide Items in Their Categories",
                           tooltip="Pinned items show only in Pinned Items, not in their categories or Recent Items.",
                           get=function() return db.profile.bagHidePinnedInCategories == true end,
                           set=function(v)
                               db.profile.bagHidePinnedInCategories = v
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
+                        { type="toggle", label="Dim Items in OneBag/MultiBag",
+                          tooltip="Dims pinned items in their bag slots, since they also show in Pinned Items.",
+                          disabled=function() return db.profile.bagPinnedInOneBag == false end,
+                          disabledTooltip="Show in OneBag/MultiBag",
+                          get=function() return db.profile.bagDimPinnedInOneBag == true end,
+                          set=function(v)
+                              db.profile.bagDimPinnedInOneBag = v
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
                     },
@@ -595,9 +608,9 @@ initFrame:SetScript("OnEvent", function(self)
                 ---------------------------------------------------------------------------
                 _, h = W:SectionHeader(parent, "DISPLAY (GRID / COMPACT)", y); y = y - h
 
-                -- Show Item Level: Never / Default Colors / Custom Colored (+ inline
-                -- swatch, live only under Custom Colored, and the Gear Track Rank cog
-                -- left of it) | Item Level Text Size. A view over the saved keys:
+                -- Show Item Level: Never / Default Colors / Custom Colored (+ the Gear
+                -- Track Rank cog and an inline swatch left of it, live only under
+                -- Custom Colored) | Item Level Text Size. A view over the saved keys:
                 -- showItemlevelInBags (false = Never) and itemlevelUseCustomColor
                 -- (Custom Colored); viewing the page writes nothing.
                 local function IlvlMode()
@@ -633,11 +646,25 @@ initFrame:SetScript("OnEvent", function(self)
                       end }
                 ); y = y - h
 
-                -- Show Item Level's inlines: the Custom Colored swatch nearest the
-                -- control, then the cog left of it (Show Gear Track Rank, live while
-                -- item levels show: the rank only renders beside them).
+                -- Show Item Level's inlines: the cog nearest the control (Show Gear
+                -- Track Rank, live while item levels show: the rank only renders
+                -- beside them), then the Custom Colored swatch left of it.
                 if not EllesmereUI._prebuilding then
                     local rgn = ilvlRow._leftRegion
+                    EllesmereUI.BuildInlineCog(rgn, {
+                        disabled = function() return db.profile.showItemlevelInBags == false end,
+                        disabledTooltip = "Show Item Level",
+                        title = "Item Level Options",
+                        rows = {
+                            { type="toggle", label="Show Gear Track Rank",
+                              get=function() return db.profile.bagShowTrackRank or false end,
+                              set=function(v)
+                                  db.profile.bagShowTrackRank = v
+                                  if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                              end },
+                        },
+                    })
+
                     local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5,
                         function()
                             local c = db.profile.itemlevelCustomColor
@@ -648,7 +675,7 @@ initFrame:SetScript("OnEvent", function(self)
                             db.profile.itemlevelCustomColor = { r = r, g = g, b = b }
                             if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                         end, false, 20)
-                    swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -12, 0)
+                    swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
                     rgn._lastInline = swatch
                     local swatchBlock = CreateFrame("Frame", nil, swatch)
                     swatchBlock:SetAllPoints()
@@ -666,20 +693,6 @@ initFrame:SetScript("OnEvent", function(self)
                     UpdateIlvlSwatch()
                     EllesmereUI.RegisterWidgetRefresh(UpdateIlvlSwatch)
                     EllesmereUI.RegisterWidgetRefresh(updateSwatch)
-
-                    EllesmereUI.BuildInlineCog(rgn, {
-                        disabled = function() return db.profile.showItemlevelInBags == false end,
-                        disabledTooltip = "Show Item Level",
-                        title = "Item Level Options",
-                        rows = {
-                            { type="toggle", label="Show Gear Track Rank",
-                              get=function() return db.profile.bagShowTrackRank or false end,
-                              set=function(v)
-                                  db.profile.bagShowTrackRank = v
-                                  if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
-                              end },
-                        },
-                    })
                 end
 
                 -- Show BoE / Warbound Text (+ inline cog: Text Size) | Item Count Text Size
@@ -715,7 +728,7 @@ initFrame:SetScript("OnEvent", function(self)
                 -- Same for every region-chrome block below.
                 if not EllesmereUI._prebuilding then
                     EllesmereUI.BuildInlineCog(bindRow._leftRegion, {
-                        icon = EllesmereUI.RESIZE_ICON, chain = false,
+                        chain = false,
                         disabled = function() return not db.profile.bagDisplayBindType end,
                         disabledTooltip = "Show BoE / Warbound Text",
                         title = "BoE / Warbound Text Options",
@@ -758,7 +771,7 @@ initFrame:SetScript("OnEvent", function(self)
                     -- Inline cog (RESIZE) on Show Set Name on Gear: text size
                     if not EllesmereUI._prebuilding then
                         EllesmereUI.BuildInlineCog(setNameRow._leftRegion, {
-                            icon = EllesmereUI.RESIZE_ICON, chain = false,
+                            chain = false,
                             disabled = function() return db.profile.bagShowSetGearName ~= true end,
                             disabledTooltip = "Show Set Name on Gear",
                             title = "Set Name Text Options",
@@ -1232,6 +1245,30 @@ initFrame:SetScript("OnEvent", function(self)
                       BagsNS.ToggleBagsWithCharacterFrame()
                   end }
             ); y = y - h
+
+            -- Auto Open Bags | Auto Close Bags: absent or true = selected
+            local autoRow
+            autoRow, h = W:DualRow(parent, y,
+                { type="label", text="Auto Open Bags" },
+                { type="label", text="Auto Close Bags" }
+            ); y = y - h
+            local function AutoWindowsDropdown(rgn, setting)
+                local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    rgn, 210, rgn:GetFrameLevel() + 2,
+                    BagsNS.BAG_AUTO_WINDOWS,
+                    function(key) return BagsNS.BagAutoWindowOn(setting, key) end,
+                    function(key, v)
+                        local t = db.profile[setting]
+                        if not t then t = {}; db.profile[setting] = t end
+                        if v then t[key] = nil else t[key] = false end
+                    end)
+                PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._control = cbDD
+                rgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+            end
+            AutoWindowsDropdown(autoRow._leftRegion, "bagAutoOpenWindows")
+            AutoWindowsDropdown(autoRow._rightRegion, "bagAutoCloseWindows")
 
             -- Slot Count Format | Separate Reagent Slots
             _, h = W:DualRow(parent, y,

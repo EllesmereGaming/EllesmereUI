@@ -126,7 +126,7 @@ EllesmereUI.VIS_ROW_ITEMS = {
 --  The caller must have skipped the search pre-build pass already.
 -------------------------------------------------------------------------------
 function EllesmereUI.AttachVisibilityChecklist(region, opts)
-    local PP = EllesmereUI.PP
+    local PP = EllesmereUI.PanelPP
     local caps = opts.caps or {}
     local legacyKey = opts.legacyKey or "visibility"
     local GROUP_KEYS = (EllesmereUI.VIS_AXES and EllesmereUI.VIS_AXES.group)

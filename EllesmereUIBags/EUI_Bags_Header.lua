@@ -79,10 +79,15 @@ end
 
 local function CreateHeader()
     if EUI_Bags.Header then return end
+    local forever = ns.BagsForever()
     local header = CreateFrame("Frame", nil, EUI_Bags)
     header:SetPoint("TOPLEFT", 1, -1)
     header:SetPoint("TOPRIGHT", -1, -1)
-    header:SetHeight(HEADER_H)
+    if forever then
+        ns.LayoutForeverBagHeader(header)
+    else
+        header:SetHeight(HEADER_H)
+    end
     header.bg = header:CreateTexture(nil, "BACKGROUND")
     header.bg:SetAllPoints()
     header.bg:SetColorTexture(0, 0, 0, 0.5)
@@ -105,12 +110,14 @@ local function CreateHeader()
     header.title:SetJustifyH("LEFT")
     header.itemCount:SetWordWrap(false)
     header.itemCount:SetJustifyH("LEFT")
-    local function Fit() EUI_Bags:FitHeaderText() end
-    hooksecurefunc(header.title, "SetText", Fit)
-    hooksecurefunc(header.title, "SetPoint", Fit)
-    hooksecurefunc(header.itemCount, "SetText", Fit)
-    header:HookScript("OnSizeChanged", Fit)
-    header:HookScript("OnShow", Fit)
+    if not forever then
+        local function Fit() EUI_Bags:FitHeaderText() end
+        hooksecurefunc(header.title, "SetText", Fit)
+        hooksecurefunc(header.title, "SetPoint", Fit)
+        hooksecurefunc(header.itemCount, "SetText", Fit)
+        header:HookScript("OnSizeChanged", Fit)
+        header:HookScript("OnShow", Fit)
+    end
 
     local search = CreateFrame("EditBox", "EUI_BagSearchBox", header)
     search:SetSize(160, 22)
@@ -121,7 +128,7 @@ local function CreateHeader()
     search.bg = search:CreateTexture(nil, "BACKGROUND")
     search.bg:SetAllPoints()
     search.bg:SetColorTexture(0.02, 0.02, 0.02, 1)
-    if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(search, 0.25, 0.25, 0.25, 1, 1, "OVERLAY", 7) end
+    if not forever and EUI.PanelPP then EUI.PanelPP.CreateBorder(search, 0.25, 0.25, 0.25, 1, 1, "OVERLAY", 7) end
 
     local placeholder = search:CreateFontString(nil, "OVERLAY")
     SetBagFont(placeholder, 11)
@@ -137,6 +144,14 @@ local function CreateHeader()
     sort.icon:SetAllPoints()
     sort.icon:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\clean-up.png")
     sort.icon:SetAlpha(0.9)
+
+    if forever then
+        header.bg:Hide()
+        ns.AddForeverBagPortrait(header, "Interface\\Icons\\Inv_misc_bag_08")
+        ns.SkinForeverBagTitle(header.title, header.itemCount)
+        sort:ClearAllPoints()
+        sort:SetPoint("RIGHT", header, "TOPRIGHT", -9, header._foreverToolsY)
+    end
 
     sort:SetScript("OnEnter", function(self)
         self.icon:SetAlpha(1)
@@ -209,7 +224,8 @@ local function CreateHeader()
     -- run counts as stuck (ArmBackstop).
     local SORT_STUCK_AFTER = 5
 
-    local function DoPhysicalSort()
+    -- mergeOnly (category views): consolidate partial stacks, then the visual sort.
+    local function DoPhysicalSort(mergeOnly)
         if InCombatLockdown() or physicalActive then return end  -- confirm popup can outlive the pull
         physicalActive = true
         LockSort()
@@ -547,10 +563,12 @@ local function CreateHeader()
         end)
         sortCombatStop:RegisterEvent("PLAYER_REGEN_DISABLED")
         sortCombatStop:RegisterEvent("CVAR_UPDATE")
-        ConsolidateStacks(RunSort)
+        -- mergeOnly: the display sort saves its order and FinishSort refreshes the bags.
+        ConsolidateStacks(mergeOnly and function() DoVisualSort(true); FinishSort() end or RunSort)
     end
 
-    DoVisualSort = function()
+    -- skipRefresh: the caller refreshes the bags (a category sort's merge run).
+    DoVisualSort = function(skipRefresh)
         -- Sort items per category and save the order
         local cats = EUI_CategoryManager:GetCategories()
         local tempItems = {}
@@ -609,7 +627,7 @@ local function CreateHeader()
             end
         end
 
-        EUI_Bags:RefreshInventory()
+        if not skipRefresh then EUI_Bags:RefreshInventory() end
         LockSort()
         C_Timer.After(3, UnlockSort)
     end
@@ -668,10 +686,16 @@ local function CreateHeader()
                     end,
                 })
             end
-        else
-            -- Sound here, not in DoVisualSort: the first-open auto sort stays silent.
+        elseif InCombatLockdown() then
+            -- Merging moves items, so in combat only the display sort runs. Sound
+            -- here, not in DoVisualSort: the first-open auto sort stays silent.
             PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
             DoVisualSort()
+        else
+            -- Partial stacks merge first, then the display sort. The run plays the
+            -- sort sound itself, on Master: its sound effects mute would cut a
+            -- sound played here short.
+            DoPhysicalSort(true)
         end
     end)
     EUI_Bags._doVisualSort = DoVisualSort
@@ -715,6 +739,7 @@ local function CreateHeader()
     clear.tex:SetText("x")
     clear.tex:SetPoint("CENTER", 0, 1)
     clear.tex:SetTextColor(0.8, 0.8, 0.8)
+    if forever then ns.SkinForeverBagSearch(search, search.bg, placeholder, clear) end
     clear:Hide()
     clear:SetScript("OnClick", function() search:SetText(""); search:ClearFocus(); EUI_Bags.ClearSearch() end)
 
@@ -743,6 +768,9 @@ local function CreateHeader()
     close.icon:SetAlpha(0.7)
     close:SetScript("OnEnter", function() close.icon:SetAlpha(0.9) end)
     close:SetScript("OnLeave", function() close.icon:SetAlpha(0.7) end)
+    if forever then
+        ns.PositionForeverBagClose(close)
+    end
     close:SetScript("OnClick", function()
         EUI_Bags:Hide()
         EUI_BagsReagent:Hide()
@@ -759,13 +787,15 @@ local function CreateHeader()
     end
 
     -- Bottom-edge separator (1px physical pixel)
-    local PP = EUI and EUI.PP
-    local px = (PP and PP.mult) or 1
-    local hdrSep = header:CreateTexture(nil, "ARTWORK")
-    hdrSep:SetHeight(px)
-    hdrSep:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
-    hdrSep:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
-    hdrSep:SetColorTexture(0.15, 0.15, 0.15, 1)
+    if not forever then
+        local PP = EUI and EUI.PP
+        local px = (PP and PP.mult) or 1
+        local hdrSep = header:CreateTexture(nil, "ARTWORK")
+        hdrSep:SetHeight(px)
+        hdrSep:SetPoint("BOTTOMLEFT", header, "BOTTOMLEFT", 0, 0)
+        hdrSep:SetPoint("BOTTOMRIGHT", header, "BOTTOMRIGHT", 0, 0)
+        hdrSep:SetColorTexture(0.15, 0.15, 0.15, 1)
+    end
 
     EUI_Bags.Header = header
     EUI_Bags._bagsBtn = bagsBtn

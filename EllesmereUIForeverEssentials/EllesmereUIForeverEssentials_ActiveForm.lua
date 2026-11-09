@@ -62,9 +62,7 @@ local eventFrame = CreateFrame("Frame")
 local active = false         -- shown, with its events registered
 local visRegistered = false  -- on the shared visibility dispatcher
 
-local function IsSecret(v)
-    return issecretvalue and issecretvalue(v)
-end
+local IsSecret = EllesmereUI.IsSecret
 
 -- Only the player's own buffs count, so another hunter's Aspect of the Pack or
 -- another paladin's aura never shows as yours. While aura data is restricted an

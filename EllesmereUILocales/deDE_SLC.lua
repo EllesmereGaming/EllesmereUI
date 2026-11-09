@@ -743,7 +743,6 @@ L["not possible while addon messages are restricted"] = "Nicht möglich, solange
 L["not sent - see /slc log."] = "Nicht gesendet – siehe /slc log."
 L["not sent. %s"] = "Nicht gesendet. %s"
 L["not sent. Requires you to be the group leader or the Loot Master."] = "Nicht gesendet. Erfordert, dass Du Gruppenleiter oder Plündermeister bist."
-L["Note"] = "Notiz"
 L["Note: %s"] = "Notiz: %s"
 L["note: %s"] = "Notiz: %s"
 L["nothing added from bags - a run is in progress, and only the Loot Master can add to it."] = "Nichts aus den Taschen hinzugefügt – ein Durchlauf ist aktiv und nur der Plündermeister kann hinzufügen."

@@ -76,6 +76,9 @@ local function ShouldAutoHide()
         if cfg and cfg.hideInRaidMode == "always" then
             return true
         end
+        if cfg and cfg.hideInRaidMode == "never" then
+            return false
+        end
         -- Default / "boss": only hide during an encounter.
         return _inEncounter
     end

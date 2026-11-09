@@ -25,9 +25,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 
 local ns = select(2, ...)
 
-local function IsSecret(value)
-    return issecretvalue and issecretvalue(value) or false
-end
+local IsSecret = EllesmereUI.IsSecret
 
 local inCombat = false
 local playerClassToken = select(2, UnitClass("player")) -- class never changes: resolved once
@@ -329,7 +327,7 @@ local function ResolveAlertColor(prefix, useClassKey)
     local ma = MA()
     if ma[useClassKey] then
         local _, classToken = UnitClass("player")
-        local c = classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken]
+        local c = classToken and EllesmereUI.GetClassColor(classToken)
         if c then return c.r, c.g, c.b end
     end
     return ma[prefix .. "R"] or 1, ma[prefix .. "G"] or 1, ma[prefix .. "B"] or 1
@@ -425,6 +423,15 @@ local activeSlotCount = 0
 -- ending instead of every poll tick while the spell sits ready.
 local readyAlertShown = {}
 local readyAlertScratch = {} -- swapped with readyAlertShown each check: no per-check table
+-- Spells whose own cooldown is running: the player cast them, or a check showed
+-- them with a readable cooldown of MIN_REAL_COOLDOWN or more. The callout fires
+-- only for an armed spell, so a window the spell sits in for another reason (the
+-- global cooldown, the lockout after a wand shot or another ability, a window too
+-- secret to classify) never announces it. Leaving the shown set disarms it, and
+-- the first check after the display was taken down disarms every spell it does
+-- not show (readyAlertFresh), so no arm outlives its cooldown.
+local readyAlertArmed = {}
+local readyAlertFresh = false
 
 -- The end of a countdown the engine times (a secret remaining Lua cannot read)
 -- comes from the Cooldown frame itself, the edge Blizzard's cooldown viewer
@@ -1033,6 +1040,7 @@ local function CacheMovementSpells(fullReset)
     if fullReset then
         CancelAllRechargeTimers()
         wipe(spellWasCast); wipe(spellCastTime); wipe(chargeRechargeStart)
+        wipe(readyAlertArmed)
         cacheResetTime = GetTime()
     end
 
@@ -1056,6 +1064,7 @@ local function CacheMovementSpells(fullReset)
                     if cachedChargeCount[oldId] ~= nil then cachedChargeCount[newId] = cachedChargeCount[oldId]; cachedChargeCount[oldId] = nil end
                     if chargeRechargeStart[oldId] ~= nil then chargeRechargeStart[newId] = chargeRechargeStart[oldId]; chargeRechargeStart[oldId] = nil end
                     if rechargeTimers[oldId] ~= nil then rechargeTimers[newId] = rechargeTimers[oldId]; rechargeTimers[oldId] = nil end
+                    if readyAlertArmed[oldId] ~= nil then readyAlertArmed[newId] = readyAlertArmed[oldId]; readyAlertArmed[oldId] = nil end
                 end
             end
         end
@@ -1140,9 +1149,11 @@ local function StartRechargeTimer(entry, delay)
 end
 
 local function OnTrackedSpellCast(spellId)
+    local baseId = trackedSpellSet[spellId]
+    -- The cast starts the cooldown the "ready" callout announces.
+    if baseId then readyAlertArmed[baseId] = true end
     if (GetTime() - cacheResetTime) < 2 then return end
     if TALENT_CD_TRIGGER_SPELLS[spellId] then return end
-    local baseId = trackedSpellSet[spellId]
     if not baseId then return end
     spellWasCast[baseId] = true
     spellCastTime[baseId] = GetTime()
@@ -1190,6 +1201,9 @@ local buffAlertContainer, buffAlertAssist, buffAlertVehicle
 -- NORMAL state -- parking the host there would hide the alert permanently.
 local function HideMovementDisplay(keepBuffLane)
     wipe(readyAlertShown)
+    -- Taken down for good (not the empty end of a check): the next check starts
+    -- the callout over, see readyAlertArmed.
+    if not keepBuffLane then readyAlertFresh = true end
     movementFrame:Hide()
     for _, slot in ipairs(displayPool) do
         slot.text:Hide(); slot.icon:Hide(); slot.icon.cooldown:Clear(); slot.bar:Hide(); HideEngineCountdown(slot); slot:Hide()
@@ -1469,7 +1483,9 @@ local function ShowMovementSlot(index, cdInfo, spellEntry, duration)
     end
 
     slot:Show()
-    return true
+    -- Second return: the slot shows a readable cooldown long enough to be the
+    -- spell's own, which arms the "ready" callout (see readyAlertArmed).
+    return true, not hasSecretDuration and type(cdDuration) == "number" and cdDuration >= MIN_REAL_COOLDOWN
 end
 
 -------------------------------------------------------------------------------
@@ -1866,9 +1882,11 @@ CheckMovementCooldown = function()
                         duration = C_Spell.GetSpellChargeDuration(spellId)
                     end
                 end
-                if ShowMovementSlot(count + 1, spellInfo, entry, duration) then
+                local shown, ownCooldown = ShowMovementSlot(count + 1, spellInfo, entry, duration)
+                if shown then
                     count = count + 1
                     nowShownReady[entry.spellId] = entry
+                    if ownCooldown then readyAlertArmed[entry.spellId] = true end
                     -- Charge spells alpha-hide while a charge is still banked;
                     -- non-charge slots get the secret-lockout classification.
                     ApplyChargeVisibility(GetDisplaySlot(count), spellId, hasCharges, entry, duration)
@@ -1886,12 +1904,21 @@ CheckMovementCooldown = function()
     -- "Ready" callout (text to speech, else the picked sound): fires once per
     -- spell exactly when it drops out of the on-cooldown set above (not while
     -- it sits ready, and not on the first poll after the feature/spec/class
-    -- gates just opened up).
-    if ma.maTtsEnabled or (ma.maSoundKey and ma.maSoundKey ~= "none") then
-        for spellId, entry in pairs(readyAlertShown) do
-            if not nowShownReady[spellId] then
+    -- gates just opened up), and only for a spell whose own cooldown was
+    -- running (readyAlertArmed).
+    if readyAlertFresh then
+        readyAlertFresh = false
+        for spellId in pairs(readyAlertArmed) do
+            if not nowShownReady[spellId] then readyAlertArmed[spellId] = nil end
+        end
+    end
+    local announce = ma.maTtsEnabled or (ma.maSoundKey and ma.maSoundKey ~= "none")
+    for spellId, entry in pairs(readyAlertShown) do
+        if not nowShownReady[spellId] then
+            if announce and readyAlertArmed[spellId] then
                 FireTrackerAlert("ma", entry.customText or entry.spellName)
             end
+            readyAlertArmed[spellId] = nil
         end
     end
     readyAlertShown, readyAlertScratch = nowShownReady, readyAlertShown

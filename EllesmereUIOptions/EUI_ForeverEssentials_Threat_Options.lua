@@ -188,7 +188,7 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
         }
         if head then table.insert(rows, 1, head) end
         EllesmereUI.BuildInlineCog(region, {
-            title = title, icon = not head and EllesmereUI.DIRECTIONS_ICON or nil,
+            title = title,
             disabled = disabled, disabledTooltip = disabledTooltip, rawTooltip = rawTooltip,
             rows = rows,
         })
@@ -515,17 +515,8 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
         );  y = y - h
         if not EllesmereUI._prebuilding then
             Swatch(bgRow._leftRegion, Gate(StyleSwatch("header", "hdrBgColor", "Header Background")))
-            local lineSwatch = StyleSwatch("header", "hdrBottomBorderColor", "Header Border Color")
-            lineSwatch.disabled = function()
-                return off() or SeparatorShown() or IsZero("header", "hdrBottomBorderSize")
-            end
-            lineSwatch.disabledTooltip = function()
-                if off() then return "Threat Meter" end
-                return SeparatorShown() and "Bottom Separator" or "Header Bottom Border"
-            end
-            lineSwatch.requireState = LineState
-            Swatch(bgRow._rightRegion, Gate(lineSwatch))
-            local sepCog = EllesmereUI.BuildInlineCog(bgRow._rightRegion, Gate({
+            local sepRgn = bgRow._rightRegion
+            local sepCog = EllesmereUI.BuildInlineCog(sepRgn, Gate({
                 title = "Header Settings", disabled = off, disabledTooltip = "Threat Meter",
                 rows = {
                     { type = "toggle", label = "Bottom Separator",
@@ -544,7 +535,28 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                       end },
                 },
             }))
-            local function SyncSepCog() sepCog:SetShown(DividerArt("windowBorderTexture", "sepH")) end
+            local lineSwatch = StyleSwatch("header", "hdrBottomBorderColor", "Header Border Color")
+            lineSwatch.disabled = function()
+                return off() or SeparatorShown() or IsZero("header", "hdrBottomBorderSize")
+            end
+            lineSwatch.disabledTooltip = function()
+                if off() then return "Threat Meter" end
+                return SeparatorShown() and "Bottom Separator" or "Header Bottom Border"
+            end
+            lineSwatch.requireState = LineState
+            Swatch(sepRgn, Gate(lineSwatch))
+            -- The swatch sits left of the cog while the cog shows, else beside
+            -- the slider; re-anchored only when the cog's shown state flips.
+            local lineSw, sepShown = sepRgn._lastInline, nil
+            local function SyncSepCog()
+                local shown = DividerArt("windowBorderTexture", "sepH")
+                sepCog:SetShown(shown)
+                if shown ~= sepShown then
+                    sepShown = shown
+                    lineSw:ClearAllPoints()
+                    EllesmereUI.PanelPP.Point(lineSw, "RIGHT", shown and sepCog or sepRgn._control, "LEFT", -8, 0)
+                end
+            end
             SyncSepCog()
             EllesmereUI.RegisterWidgetRefresh(SyncSepCog)
         end
@@ -596,10 +608,6 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
             function(v) SetAndRefresh("tankColorOn", v) end)
     );  y = y - h
     if not EllesmereUI._prebuilding then
-        Swatch(customRow._leftRegion, ColorSwatch("playerColor", "Player Color",
-            function() return not Get("playerColorOn") end, "Custom Player Color"))
-        Swatch(customRow._rightRegion, ColorSwatch("tankColor", "Tank Color",
-            function() return not Get("tankColorOn") end, "Custom Tank Color"))
         EllesmereUI.BuildInlineCog(customRow._leftRegion, {
             title = "Player Bar Settings", disabled = off, disabledTooltip = "Threat Meter",
             rows = {
@@ -609,6 +617,10 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                   set = function(v) Set("showPlayerMarker", v) end },
             },
         })
+        Swatch(customRow._leftRegion, ColorSwatch("playerColor", "Player Color",
+            function() return not Get("playerColorOn") end, "Custom Player Color"))
+        Swatch(customRow._rightRegion, ColorSwatch("tankColor", "Tank Color",
+            function() return not Get("tankColorOn") end, "Custom Tank Color"))
     end
 
     local barBgRow
@@ -670,14 +682,16 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
         valuesToggle
     );  y = y - h
     if not EllesmereUI._prebuilding then
-        Swatch(nameRow._leftRegion, AlternativeTo(StyleSwatch("colors", "leftTextColor", "Name Color"),
-            "colors", "leftTextUseClassColor"))
         -- Name Text: the Name Format (a player's first or last name; First and
         -- Last is the unset default) above the name's offsets.
         OffsetCog(nameRow._leftRegion, "Name Text", { "bars", "leftTextOffsetX" }, { "bars", "leftTextOffsetY" },
             off, "Threat Meter", nil,
             EllesmereUI.NameFormatCogRow(function() return Get("nameFormat") end,
                 function(v) Set("nameFormat", v) end))
+        Swatch(nameRow._leftRegion, AlternativeTo(StyleSwatch("colors", "leftTextColor", "Name Color"),
+            "colors", "leftTextUseClassColor"))
+        OffsetCog(nameRow._rightRegion, "Value Position", { "bars", "rightTextOffsetX" }, { "bars", "rightTextOffsetY" },
+            valueOff, valueTip, valueRaw)
         local valueSwatch = Alternative(StyleSwatch("colors", "rightTextColor", "Value Color"),
             function() return not GetStyle("colors", "rightTextUseClassColor") and not GetStyle("colors", "rightTextUseThreatGradient") end,
             function() ns.SetStyleValues("colors", { rightTextUseClassColor = false, rightTextUseThreatGradient = false }) end)
@@ -697,8 +711,6 @@ _G._EUI_BuildThreatMeterPage = function(pageName, parent, yOffset)
                 EllesmereUI:RefreshPage()
             end,
         })
-        OffsetCog(nameRow._rightRegion, "Value Position", { "bars", "rightTextOffsetX" }, { "bars", "rightTextOffsetY" },
-            valueOff, valueTip, valueRaw)
     end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h

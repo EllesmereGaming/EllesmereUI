@@ -143,7 +143,7 @@ function ns.RFO_AuraBorderSettings(parent, y, W, get, set, apply, disabled, disp
                 get=function() return Val("DispelTextured", false) end,
                 set=function(v) set("DispelTextured", v); apply() end }
         end
-        EllesmereUI.BuildInlineCog(row._leftRegion, { icon=EllesmereUI.DIRECTIONS_ICON,
+        EllesmereUI.BuildInlineCog(row._leftRegion, {
             title="Border Options", rows=rows, disabled=disabled,
             disabledTooltip="Hide Icons", requireState="disabled" })
     end
@@ -306,7 +306,7 @@ local function BuildFilterCBDropdown(rgn, claim, dm)
             DmApply()
         end,
         nil, 12)
-    PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+    EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
     rgn._control = cbDD
     rgn._lastInline = nil
 end
@@ -506,7 +506,7 @@ local function BuildTileFiltersDD(rgn, t, dm)
         { separatorFn = function()
             return ns.DM_TileMatchOn(t) and " & " or ", "
         end })
-    PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+    EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
     rgn._control = cbDD
     rgn._lastInline = nil
     if cbRefresh then EllesmereUI.RegisterWidgetRefresh(cbRefresh) end
@@ -916,7 +916,7 @@ local function BuildBaseDetailDM(frame, fontPath)
             { separatorFn = function()
                 return (dm.match == "all" and not AllOn()) and " & " or ", "
             end })
-        PPl.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
         if cbRefresh then EllesmereUI.RegisterWidgetRefresh(cbRefresh) end
@@ -964,7 +964,6 @@ local function BuildBaseDetailDM(frame, fontPath)
     do
         local rgn = posRow2._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
-            icon = EllesmereUI.DIRECTIONS_ICON,
             title = "Position Offset",
             rows = {
                 { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
@@ -1000,7 +999,7 @@ local function BuildBaseDetailDM(frame, fontPath)
         function(k) return p["debuffBorder" .. k] end,
         function(k, v) p["debuffBorder" .. k] = v end, DmApply, nil, true)
 
-    -- Row: Show Duration Text (+ swatch + cog) | Show Stacks (+ swatch + cog)
+    -- Row: Show Duration Text (+ cog + swatch) | Show Stacks (+ cog + swatch)
     local dtRow
     dtRow, hh = W:DualRow(frame, sy,
         { type = "toggle", text = "Show Duration Text",
@@ -1011,20 +1010,7 @@ local function BuildBaseDetailDM(frame, fontPath)
           setValue = function(v) p.debuffShowStacks = v; DmApply() end }); sy = sy - hh
     do
         local rgn = dtRow._leftRegion
-        local swatch = EllesmereUI.BuildColorSwatch(rgn, dtRow:GetFrameLevel() + 3,
-            function()
-                local c = p.debuffDurTextColor or { r = 1, g = 1, b = 1 }
-                return c.r or 1, c.g or 1, c.b or 1, 1
-            end,
-            function(r, g, b)
-                p.debuffDurTextColor = { r = r, g = g, b = b }
-                DmApply()
-            end, false, 20)
-        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-
         EllesmereUI.BuildInlineCog(rgn, {
-            icon = EllesmereUI.RESIZE_ICON,
             title = "Duration Text",
             rows = {
                 { type = "slider", label = "Text Size", min = 6, max = 26, step = 1,
@@ -1038,23 +1024,22 @@ local function BuildBaseDetailDM(frame, fontPath)
                   set = function(v) p.debuffDurTextOffsetY = v; DmApply() end },
             },
         })
-    end
-    do
-        local rgn = dtRow._rightRegion
+
         local swatch = EllesmereUI.BuildColorSwatch(rgn, dtRow:GetFrameLevel() + 3,
             function()
-                local c = p.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
+                local c = p.debuffDurTextColor or { r = 1, g = 1, b = 1 }
                 return c.r or 1, c.g or 1, c.b or 1, 1
             end,
             function(r, g, b)
-                p.debuffStacksTextColor = { r = r, g = g, b = b }
+                p.debuffDurTextColor = { r = r, g = g, b = b }
                 DmApply()
             end, false, 20)
         swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
         rgn._lastInline = swatch
-
+    end
+    do
+        local rgn = dtRow._rightRegion
         EllesmereUI.BuildInlineCog(rgn, {
-            icon = EllesmereUI.RESIZE_ICON,
             title = "Stacks Text",
             rows = {
                 { type = "slider", label = "Text Size", min = 6, max = 26, step = 1,
@@ -1068,6 +1053,18 @@ local function BuildBaseDetailDM(frame, fontPath)
                   set = function(v) p.debuffStacksOffsetY = v; DmApply() end },
             },
         })
+
+        local swatch = EllesmereUI.BuildColorSwatch(rgn, dtRow:GetFrameLevel() + 3,
+            function()
+                local c = p.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
+                return c.r or 1, c.g or 1, c.b or 1, 1
+            end,
+            function(r, g, b)
+                p.debuffStacksTextColor = { r = r, g = g, b = b }
+                DmApply()
+            end, false, 20)
+        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+        rgn._lastInline = swatch
     end
 
     -- Row: Tooltips | Show Duration Swipe. The swipe toggle was not in
@@ -1218,7 +1215,6 @@ local function BuildTileDetail(frame, fontPath, t)
         do
             local rgn = posRow2._leftRegion
             EllesmereUI.BuildInlineCog(rgn, {
-                icon = EllesmereUI.DIRECTIONS_ICON,
                 title = "Position Offset",
                 rows = {
                     { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
@@ -1250,7 +1246,7 @@ local function BuildTileDetail(frame, fontPath, t)
             function(k) return TEff("border" .. k, "debuffBorder" .. k) end,
             function(k, v) t["border" .. k] = v end, DmApply, nil, true)
 
-        -- Row: Show Duration Text (+ swatch + cog) | Show Stacks (+ swatch + cog)
+        -- Row: Show Duration Text (+ cog + swatch) | Show Stacks (+ cog + swatch)
         local dtRow
         dtRow, hh = W:DualRow(frame, sy,
             { type = "toggle", text = "Show Duration Text",
@@ -1261,20 +1257,7 @@ local function BuildTileDetail(frame, fontPath, t)
               setValue = function(v) TSet("showStacks", v and true or false) end }); sy = sy - hh
         do
             local rgn = dtRow._leftRegion
-            local swatch = EllesmereUI.BuildColorSwatch(rgn, dtRow:GetFrameLevel() + 3,
-                function()
-                    local c = t.durTextColor or p.debuffDurTextColor or { r = 1, g = 1, b = 1 }
-                    return c.r or 1, c.g or 1, c.b or 1, 1
-                end,
-                function(r, g, b)
-                    t.durTextColor = { r = r, g = g, b = b }
-                    DmApply()
-                end, false, 20)
-            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = swatch
-
             EllesmereUI.BuildInlineCog(rgn, {
-                icon = EllesmereUI.RESIZE_ICON,
                 title = "Duration Text",
                 rows = {
                     { type = "slider", label = "Text Size", min = 6, max = 26, step = 1,
@@ -1288,23 +1271,22 @@ local function BuildTileDetail(frame, fontPath, t)
                       set = function(v) TSet("durTextOffsetY", v) end },
                 },
             })
-        end
-        do
-            local rgn = dtRow._rightRegion
+
             local swatch = EllesmereUI.BuildColorSwatch(rgn, dtRow:GetFrameLevel() + 3,
                 function()
-                    local c = t.stacksTextColor or p.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
+                    local c = t.durTextColor or p.debuffDurTextColor or { r = 1, g = 1, b = 1 }
                     return c.r or 1, c.g or 1, c.b or 1, 1
                 end,
                 function(r, g, b)
-                    t.stacksTextColor = { r = r, g = g, b = b }
+                    t.durTextColor = { r = r, g = g, b = b }
                     DmApply()
                 end, false, 20)
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
-
+        end
+        do
+            local rgn = dtRow._rightRegion
             EllesmereUI.BuildInlineCog(rgn, {
-                icon = EllesmereUI.RESIZE_ICON,
                 title = "Stacks Text",
                 rows = {
                     { type = "slider", label = "Text Size", min = 6, max = 26, step = 1,
@@ -1318,6 +1300,18 @@ local function BuildTileDetail(frame, fontPath, t)
                       set = function(v) TSet("stacksOffsetY", v) end },
                 },
             })
+
+            local swatch = EllesmereUI.BuildColorSwatch(rgn, dtRow:GetFrameLevel() + 3,
+                function()
+                    local c = t.stacksTextColor or p.debuffStacksTextColor or { r = 1, g = 1, b = 1 }
+                    return c.r or 1, c.g or 1, c.b or 1, 1
+                end,
+                function(r, g, b)
+                    t.stacksTextColor = { r = r, g = g, b = b }
+                    DmApply()
+                end, false, 20)
+            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
         end
 
         -- Row: Tooltips | Show Duration Swipe (base pane parity)
@@ -1412,7 +1406,6 @@ local function BuildTileDetail(frame, fontPath, t)
         do
             local rgn = coreRow._rightRegion
             EllesmereUI.BuildInlineCog(rgn, {
-                icon = EllesmereUI.DIRECTIONS_ICON,
                 title = "Position Offset",
                 rows = {
                     { type = "slider", label = "Offset X", min = -50, max = 50, step = 1,
@@ -2373,6 +2366,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
         addBg:SetAllPoints()
         addBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+        EllesmereUI.RoundBody(addBtn, addBg)
 
         local addLabel = addBtn:CreateFontString(nil, "OVERLAY")
         -- Drop shadow via the shadow FontObject, primed BEFORE SetFont
@@ -2417,7 +2411,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 local bg = popup:CreateTexture(nil, "BACKGROUND")
                 bg:SetAllPoints()
                 bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-                EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+                EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, bg)
 
                 -- Pending filter picks for the new tile (wiped on hide)
                 popup._dmFilters = {}
@@ -2523,6 +2517,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 local cBg = cBtn:CreateTexture(nil, "BACKGROUND")
                 cBg:SetAllPoints()
                 cBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+                EllesmereUI.RoundBody(cBtn, cBg)
                 local cTx = cBtn:CreateFontString(nil, "OVERLAY")
                 cTx:SetPoint("CENTER")
                 cTx:SetFont(fontPath, 12, "")
@@ -2628,7 +2623,6 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         eyeBtn:SetFrameLevel(leftFixed:GetFrameLevel() + 5)
 
         local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
         eyeTex:SetAllPoints()
         eyeTex:SetTexture(ns._dmAllVisible and EYE_INVIS or EYE_VIS)
         EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
@@ -2956,7 +2950,7 @@ function ns.BMP_ShowFilterEditor(show, hide)
     popup:EnableMouse(true)
     local popBg = EllesmereUI.SolidTex(popup, "BACKGROUND", 0.077, 0.068, 0.058, 1)
     popBg:SetAllPoints()
-    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15)
+    EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
     local ppScale = EllesmereUI.GetPopupScale() or 1
     popup:SetScale(ppScale)
 
@@ -3056,7 +3050,8 @@ function ns.BMP_ShowFilterEditor(show, hide)
     side:SetFrameLevel(popup:GetFrameLevel() + 1)
     local sideBg = EllesmereUI.SolidTex(side, "BACKGROUND", 0, 0, 0, 0.35)
     sideBg:SetAllPoints()
-    EllesmereUI.MakeBorder(side, 1, 1, 1, 0.10)
+    -- Flush with the popup's bottom-right corner: same shape, rows clipped to it.
+    EllesmereUI.MakeRoundedBorder(side, 1, 1, 1, 0.10, sideBg, nil, true)
 
     -- Sidebar content scrolls when it outgrows the popup (standard smooth
     -- scroll + thin custom bar; bar shows only on overflow).
@@ -3395,11 +3390,12 @@ function ns.BMP_ShowFilterEditor(show, hide)
         local boxBg = box:CreateTexture(nil, "BACKGROUND")
         boxBg:SetAllPoints()
         boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-        local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6)
+        local boxBrd = EllesmereUI.MakeRoundedBorder(box, 0.4, 0.4, 0.4, 0.6, boxBg)
         local chk = box:CreateTexture(nil, "ARTWORK")
         chk:SetPoint("TOPLEFT", box, "TOPLEFT", 2, -2)
         chk:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -2, 2)
         chk:SetColorTexture(eg.r, eg.g, eg.b, 1)
+        EllesmereUI.RoundBody(box, chk, 2)
         local on = sel.spells[id] and true or false
         local ico = srow:CreateTexture(nil, "ARTWORK")
         ico:SetSize(22, 22)
@@ -3595,7 +3591,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                 EllesmereUI:RefreshPage()
             end,
             nil, 12)
-        PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
@@ -3708,7 +3704,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                 if ns.ReloadFrames then ns.ReloadFrames() end
             end,
             nil, 10, true)
-        PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)

@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local addon, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.Glows and EllesmereUI.Glows.FlatKeys and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, and the Name Format asks its UnitNameFormat)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.Glows and EllesmereUI.Glows.FlatKeys and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.SetFontObjectFace and EllesmereUI.SnapshotFontObject and EllesmereUI.RestoreFontObject) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, the Name Format asks its UnitNameFormat, the [name:last] and [target:last] tags its OwnSurnameHidden, the plate texts take font families through its ApplyModuleFontFamily / SetFontFamily, and the friendly name-only fonts change through its SetFontObjectFace / SnapshotFontObject / RestoreFontObject)
 EllesmereUI._ModuleNS[addon] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -23,10 +23,14 @@ local function GetFont() return EllesmereUI.GetFontPath("nameplates") end
 -- explicit-flag path too, so aura literals are covered.
 local function GetNPOutline() return EllesmereUI.GetFontOutlineFlag("nameplates") end
 local function GetNPUseShadow() return EllesmereUI.GetFontUseShadow("nameplates") end
+-- Every plate text takes a font family (names, guilds, titles and cast targets can be
+-- other players' writing): the chosen font draws what it can, Blizzard's Cyrillic,
+-- Korean and Chinese faces the rest. Once a string has its family, every later font
+-- write to it goes through this helper (or SetFontFamily), never a plain SetFont.
 local function SetFSFont(fs, size, flags)
   -- "Never Show Slug": gates the explicit-flag path so hardcoded aura
   -- "OUTLINE, SLUG" literals drop the slug (body text is gated at the source).
-  EllesmereUI.ApplyModuleFont(fs, nil, size or 11, "nameplates", EllesmereUI.SlugFlag(flags or GetNPOutline()))
+  EllesmereUI.ApplyModuleFontFamily(fs, nil, size or 11, "nameplates", EllesmereUI.SlugFlag(flags or GetNPOutline()))
 end
 
 ns.GetFont = GetFont
@@ -41,16 +45,21 @@ _G.EllesmereNameplates_NS = ns
 local _npYOffsetState = setmetatable({}, { __mode = "k" })
 
 -- Health text bar slots; file scope to avoid per-call alloc in UpdateHealthValues.
--- The bottom slots hang under the health bar's corners (see PlaceSlotText); keep
--- them after the three bar slots, which are also read by index.
+-- The corner slots hang under the health bar's bottom corners (bottom) or over its
+-- top corners (top) and never truncate (corner); see PlaceSlotText. They follow the
+-- three bar slots, and every entry is also read by index (bottom 4, 5; top 6, 7).
 local HP_BAR_SLOTS = {
     { key = "textSlotRight",  anchor = "RIGHT",  point = "RIGHT",  xOff = -2 },
     { key = "textSlotLeft",   anchor = "LEFT",   point = "LEFT",   xOff = 4 },
     { key = "textSlotCenter", anchor = "CENTER", point = "CENTER", xOff = 0 },
     { key = "textSlotBottomLeft",  anchor = "TOPLEFT",  point = "BOTTOMLEFT",  xOff = 0, justify = "LEFT",  bottom = true,
-      xKey = "textSlotBottomLeftXOffset",  yKey = "textSlotBottomLeftYOffset" },
+      corner = true, xKey = "textSlotBottomLeftXOffset",  yKey = "textSlotBottomLeftYOffset" },
     { key = "textSlotBottomRight", anchor = "TOPRIGHT", point = "BOTTOMRIGHT", xOff = 0, justify = "RIGHT", bottom = true,
-      xKey = "textSlotBottomRightXOffset", yKey = "textSlotBottomRightYOffset" },
+      corner = true, xKey = "textSlotBottomRightXOffset", yKey = "textSlotBottomRightYOffset" },
+    { key = "textSlotTopLeft",  anchor = "BOTTOMLEFT",  point = "TOPLEFT",  xOff = 0, justify = "LEFT",  top = true,
+      corner = true, xKey = "textSlotTopLeftXOffset",  yKey = "textSlotTopLeftYOffset" },
+    { key = "textSlotTopRight", anchor = "BOTTOMRIGHT", point = "TOPRIGHT", xOff = 0, justify = "RIGHT", top = true,
+      corner = true, xKey = "textSlotTopRightXOffset", yKey = "textSlotTopRightYOffset" },
 }
 
 ns.NP_ABSORB_STYLE_TEX = {
@@ -86,11 +95,14 @@ function ns._appendDisplayPresetKeys(t)
         "textSlotCenterSize", "textSlotCenterXOffset", "textSlotCenterYOffset", "textSlotCenterStrata",
         "textSlotBottomLeftSize", "textSlotBottomLeftXOffset", "textSlotBottomLeftYOffset", "textSlotBottomLeftStrata",
         "textSlotBottomRightSize", "textSlotBottomRightXOffset", "textSlotBottomRightYOffset", "textSlotBottomRightStrata",
+        "textSlotTopLeftSize", "textSlotTopLeftXOffset", "textSlotTopLeftYOffset", "textSlotTopLeftStrata",
+        "textSlotTopRightSize", "textSlotTopRightXOffset", "textSlotTopRightYOffset", "textSlotTopRightStrata",
         "textSlotTopColor", "textSlotRightColor", "textSlotLeftColor", "textSlotCenterColor",
-        "textSlotBottomLeftColor", "textSlotBottomRightColor",
+        "textSlotBottomLeftColor", "textSlotBottomRightColor", "textSlotTopLeftColor", "textSlotTopRightColor",
         "threatColorHealth", "threatColorBorder", "threatColorName",
         "textSlotTopClassColor", "textSlotRightClassColor", "textSlotLeftClassColor", "textSlotCenterClassColor",
         "textSlotBottomLeftClassColor", "textSlotBottomRightClassColor",
+        "textSlotTopLeftClassColor", "textSlotTopRightClassColor",
         "textSlotTopColorMode", "textSlotTopNameColorOn", "textSlotTopNameColor",
         "textSlotTopLevelColorOn", "textSlotTopLevelColor", "textSlotTopLevelDiffOn",
         "textSlotRightColorMode", "textSlotRightNameColorOn", "textSlotRightNameColor",
@@ -103,6 +115,10 @@ function ns._appendDisplayPresetKeys(t)
         "textSlotBottomLeftLevelColorOn", "textSlotBottomLeftLevelColor", "textSlotBottomLeftLevelDiffOn",
         "textSlotBottomRightColorMode", "textSlotBottomRightNameColorOn", "textSlotBottomRightNameColor",
         "textSlotBottomRightLevelColorOn", "textSlotBottomRightLevelColor", "textSlotBottomRightLevelDiffOn",
+        "textSlotTopLeftColorMode", "textSlotTopLeftNameColorOn", "textSlotTopLeftNameColor",
+        "textSlotTopLeftLevelColorOn", "textSlotTopLeftLevelColor", "textSlotTopLeftLevelDiffOn",
+        "textSlotTopRightColorMode", "textSlotTopRightNameColorOn", "textSlotTopRightNameColor",
+        "textSlotTopRightLevelColorOn", "textSlotTopRightLevelColor", "textSlotTopRightLevelDiffOn",
         "tankHasAggroEnabled", "tankHasAggro", "classicTankAggro", "tankHasAggroOverrideMobType",
         "tankHasAggroOverrideBoss",
         "dpsHasAggro", "dpsNearAggro", "offTankAggroEnabled", "offTankAggro",
@@ -119,6 +135,10 @@ function ns._appendDisplayPresetKeys(t)
         "raidMarkerPos", "classificationSlot", "classificationShowInInstances",
         "factionSlot", "classificationIncludeFaction",
         "classificationHideRare", "classificationHideQuest",
+        -- Core Positions elements (no defaults: unset reads the views in Layout.lua).
+        "debuffCoreSize", "buffCoreSize", "ccCoreSize", "raidMarkerCoreSize",
+        "rareCoreSize", "questCoreSize", "factionCoreSize", "questTextSlot",
+        "rareShowInInstances", "questShowInInstances", "questTextShowInInstances",
         "castNameSize", "castNameColor", "castCombineNameTarget",
         "castTargetSize", "castTargetClassColor", "castTargetColor",
         "showCastTimer", "castTimerSize", "castTimerColor", "targetScale", "minorEnemyScale", "nonEliteEnemyScale",
@@ -274,6 +294,7 @@ local defaults = {
     friendlyHealthBarWidth = 150,
     showFriendlyNPCs = false,
     showNPCTitles = true,
+    showNPCRaidMarker = false,
     showFriendlyPlayers = true,
     friendlyClickThrough = false,
     friendlyShowDefaultNames = false,
@@ -305,6 +326,8 @@ local defaults = {
     textSlotCenter = "none",
     textSlotBottomLeft = "none",
     textSlotBottomRight = "none",
+    textSlotTopLeft = "none",
+    textSlotTopRight = "none",
     showTargetArrows = false,
     targetArrowDouble = false,
     targetArrowScale = 1.0,
@@ -390,7 +413,10 @@ local defaults = {
     raidMarkerPos = "topright",
     raidMarkerSize = 24,
     classificationSlot = "topleft",
-    classificationShowInInstances = false,  -- Rare/Quest "Show In Instances" (slot cog): lifts the open-world-only gate in UpdateClassification + IsQuestMob
+    -- The fallback of the Elite/Rare, Quest and Quest Objective Text Show In Instances
+    -- keys (rareShowInInstances / questShowInInstances / questTextShowInInstances, no
+    -- defaults: ns.NP_ShowInInstances). WoW Forever: on.
+    classificationShowInInstances = (EllesmereUI.IS_FOREVER == true) and true or false,
     -- Faction badge (Horde/Alliance), a Core Positions slot element; rules in ns.NP_FactionBadge.
     factionSlot = "none",
     factionStyle = "pvp",  -- Icon Style: a key of EllesmereUI.FACTION_ART
@@ -504,8 +530,13 @@ local defaults = {
     focusCastHeight = 100,
     questMobColorEnabled = false,
     questMobColor = { r = 0.157, g = 0.855, b = 0.475 },
+    -- Read only by the Quest Objective Text view (ns.NP_LegacyQuestText) while questTextSlot
+    -- is unset: on, the text takes the Quest Indicator's slot. Its WoW Forever default is
+    -- what shows the text on a fresh Forever profile. No UI writes it.
     replaceQuestIconWithObjective = (EllesmereUI.IS_FOREVER == true) and true or false,
-    questObjectiveTextSize = 14,
+    questObjectiveTextSize = 14,  -- the Quest Objective Text element's Text Size
+    showQuestObjectiveTypeIcon = false,
+    questObjectiveTypeIconScale = 100,
     showCastIcon = true,
     castIconScale = 1,
     castIconOffsetX = 0,
@@ -551,7 +582,8 @@ local defaults = {
     castTargetGlowSpeed = 4,
     castTargetGlowBackground = false,
     castTargetGlowBackgroundColor = { r = 0, g = 0, b = 0 },
-    -- Core Positions: slot-based size + XY offsets
+    -- Core Positions: per-slot XY offsets. <pos>SlotSize is the fallback of each element's
+    -- own size key (debuffCoreSize, raidMarkerCoreSize, ..., no defaults: ns.NP_ElementSize).
     topSlotSize = 26,        topSlotXOffset = 0,      topSlotYOffset = 0,      topSlotRaiseStrata = false,
     rightSlotSize = 24,      rightSlotXOffset = 0,    rightSlotYOffset = 0,    rightSlotRaiseStrata = false,
     leftSlotSize = 24,       leftSlotXOffset = 0,     leftSlotYOffset = 0,     leftSlotRaiseStrata = false,
@@ -568,10 +600,13 @@ local defaults = {
     textSlotCenterSize = 10, textSlotCenterXOffset = 0, textSlotCenterYOffset = 0,
     textSlotBottomLeftSize = 10,  textSlotBottomLeftXOffset = 0,  textSlotBottomLeftYOffset = 0,
     textSlotBottomRightSize = 10, textSlotBottomRightXOffset = 0, textSlotBottomRightYOffset = 0,
+    textSlotTopLeftSize = 10,  textSlotTopLeftXOffset = 0,  textSlotTopLeftYOffset = 0,
+    textSlotTopRightSize = 10, textSlotTopRightXOffset = 0, textSlotTopRightYOffset = 0,
     -- Core Text Positions: slot-based strata (MEDIUM = the shared text tier)
     textSlotTopStrata = "MEDIUM",  textSlotRightStrata = "MEDIUM",
     textSlotLeftStrata = "MEDIUM", textSlotCenterStrata = "MEDIUM",
     textSlotBottomLeftStrata = "MEDIUM", textSlotBottomRightStrata = "MEDIUM",
+    textSlotTopLeftStrata = "MEDIUM", textSlotTopRightStrata = "MEDIUM",
     -- Core Text Positions: slot-based colors
     textSlotTopColor = { r = 1, g = 1, b = 1 },
     textSlotRightColor = { r = 1, g = 1, b = 1 },
@@ -579,11 +614,14 @@ local defaults = {
     textSlotCenterColor = { r = 1, g = 1, b = 1 },
     textSlotBottomLeftColor = { r = 1, g = 1, b = 1 },
     textSlotBottomRightColor = { r = 1, g = 1, b = 1 },
+    textSlotTopLeftColor = { r = 1, g = 1, b = 1 },
+    textSlotTopRightColor = { r = 1, g = 1, b = 1 },
     -- Core Text Positions: per-slot class colour flag, read only by ns.NP_SlotColorMode
     -- while the slot's Text Coloring mode (<slot>ColorMode, no default) is unset.
     textSlotTopClassColor = false, textSlotRightClassColor = false,
     textSlotLeftClassColor = false, textSlotCenterClassColor = false,
     textSlotBottomLeftClassColor = false, textSlotBottomRightClassColor = false,
+    textSlotTopLeftClassColor = false, textSlotTopRightClassColor = false,
     healthBarTexture = "none",  -- bar texture overlay
     castBarTexture = "none",
     healthTextureBg = false,  -- Textured Background (Bar Texture cog)

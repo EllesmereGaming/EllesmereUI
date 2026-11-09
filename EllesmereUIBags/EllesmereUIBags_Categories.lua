@@ -462,6 +462,8 @@ end
 local _setGearLookup = {}
 -- setID -> set name, for the on-item set name label (no API call at stamp time)
 local _setNames = {}
+-- WoW Forever: itemID -> setID of the sets' items, refilled each pass
+local _foreverSetItems = {}
 
 local function BuildSetGearLookup()
     wipe(_setGearLookup)
@@ -470,11 +472,23 @@ local function BuildSetGearLookup()
     if not setIDs then return end
     -- Names only feed the on-item label; skip the API calls when it's off
     local wantNames = BP().bagShowSetGearName == true
+    -- WoW Forever crashes the client inside GetItemLocations for some sets:
+    -- there the sets' item IDs are matched against the container slots instead.
+    local foreverItems = EllesmereUI.IS_FOREVER and _foreverSetItems
+    if foreverItems then wipe(foreverItems) end
     for _, setID in ipairs(setIDs) do
         if wantNames then
             _setNames[setID] = C_EquipmentSet.GetEquipmentSetInfo(setID)
         end
-        local locs = C_EquipmentSet.GetItemLocations(setID)
+        local locs = not foreverItems and C_EquipmentSet.GetItemLocations(setID)
+        local ids = foreverItems and C_EquipmentSet.GetItemIDs(setID)
+        if ids then
+            for _, itemID in pairs(ids) do
+                if type(itemID) == "number" and itemID > 0 and not foreverItems[itemID] then
+                    foreverItems[itemID] = setID
+                end
+            end
+        end
         if locs then
             for _, loc in pairs(locs) do
                 if loc and loc ~= 0 and loc ~= 1 and loc ~= -1 then
@@ -484,6 +498,15 @@ local function BuildSetGearLookup()
                         if not _setGearLookup[key] then _setGearLookup[key] = setID end
                     end
                 end
+            end
+        end
+    end
+    if foreverItems and next(foreverItems) and Enum.BagIndex then
+        -- Every container the client knows (bags, bank, keyring); a closed bank reads empty.
+        for _, bag in pairs(Enum.BagIndex) do
+            for slot = 1, C_Container.GetContainerNumSlots(bag) or 0 do
+                local setID = foreverItems[C_Container.GetContainerItemID(bag, slot) or 0]
+                if setID then _setGearLookup[bag * 1000 + slot] = setID end
             end
         end
     end
@@ -830,6 +853,16 @@ function CategoryManager:RenameGroup(oldName, newName)
         if cat.groupName == oldName then cat.groupName = newName end
     end
     self:SaveState()
+end
+
+-- Built-in group names stay English in saved data (they are group keys);
+-- translate them only where they are shown.
+local DEFAULT_GROUP_NAMES = { ["The Armory"] = true, ["Adventure Prep"] = true }
+function CategoryManager:GroupDisplayName(groupName)
+    if groupName and DEFAULT_GROUP_NAMES[groupName] then
+        return EllesmereUI.L(groupName)
+    end
+    return groupName
 end
 
 -- Check if the group name was manually customized by the user.

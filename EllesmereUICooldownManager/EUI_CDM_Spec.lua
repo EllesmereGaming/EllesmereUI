@@ -90,9 +90,13 @@ if EllesmereUI.IS_FOREVER then
     end
 end
 
--- Per-character identifier for legacy callers; no longer used for spec storage.
+-- Per-character key of the bar size cache and the Repopulate requests and
+-- records; all three stores take over older keys through CharKey. No longer
+-- used for spec storage.
 function ns.GetCharKey()
-    return EllesmereUI.CharKey("-", EllesmereUIDB and EllesmereUIDB.cdmCachedBarSizes) or "Unknown-Unknown"
+    local db = EllesmereUIDB
+    return EllesmereUI.CharKey("-", db and db.cdmCachedBarSizes, db and db.cdmRepopulatePending,
+        db and db.cdmRepopulateDone) or "Unknown-Unknown"
 end
 
 local function EnsureSpec(profile, key)

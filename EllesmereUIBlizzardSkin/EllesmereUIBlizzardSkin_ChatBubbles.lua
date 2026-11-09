@@ -167,13 +167,7 @@ end
 --  Secret-safe helpers
 -------------------------------------------------------------------------------
 
--- pcall'd as well as presence-tested: issecretvalue is absent on older clients, and the test
--- itself can raise.
-local function IsSecret(v)
-    if not issecretvalue then return false end
-    local ok, r = pcall(issecretvalue, v)
-    return ok and r or false
-end
+local IsSecret = EUI.IsSecret
 
 -- Upvalues instead of closures: these run once per incoming line and per candidate bubble,
 -- and a pcall'd closure would allocate every time.
@@ -183,11 +177,10 @@ local function RawEq()
     _cmpEq = (_cmpA == _cmpB)
 end
 
--- Either side can be a secret string in restricted content, and comparing one raises. That is
--- exactly why the existence test is type() and not "== nil": comparing a secret to nil is the
--- operation our own secret rules forbid (EUI_Chat_EditBox.lua's OnEditBoxPreSendText carries
--- the same note), so a nil belt in front of the guard would itself be the hazard. type()
--- reports a secret's underlying type, so a secret string still reaches the guarded compare.
+-- Either side can be a secret string in restricted content, and comparing one with another
+-- string raises (EUI_Chat_EditBox.lua's OnEditBoxPreSendText carries the same note), so the
+-- compare runs under pcall. type() reports a secret's underlying type, so a secret string
+-- still reaches the guarded compare.
 local function SafeEq(a, b)
     if type(a) ~= "string" or type(b) ~= "string" then return false end
     _cmpA, _cmpB, _cmpEq = a, b, false
@@ -361,6 +354,26 @@ end
 --  Our frames
 -------------------------------------------------------------------------------
 
+-- A bubble text's font as a font family: a message or sender name in a script the font
+-- lacks still draws, in Blizzard's own face for those letters. No outline means the drop
+-- shadow, which the family carries. For a file that no longer loads (a media addon
+-- uninstalled since the setting was made) the family takes Blizzard's standard font.
+-- Without families: the shadow primed, then a plain SetFont, which answers false for such
+-- a file and leaves the FontString with NO font at all, so the NEXT SetText would raise
+-- "Font not set" in Claim, unguarded, from an event handler: Friz stands in then (same
+-- guard shape as EllesmereUIQoL_MovementAlert.lua).
+local function BubbleFont(fs, path, size, flag)
+    local shadow = (flag == "")
+    if EUI.GetFontFamily(path, size, flag, shadow) then
+        EUI.SetFontFamily(fs, path, size, flag, shadow)
+        return
+    end
+    EUI.PrimeFontShadow(fs, shadow)
+    if not fs:SetFont(path, size, flag) then
+        fs:SetFont("Fonts\\FRIZQT__.TTF", size, flag)
+    end
+end
+
 local function NewBubble()
     -- HIGH: strata is ordered GLOBALLY, not per parent tree. Blizzard's own bubbles and the
     -- nameplates they sit among render below this, which is the point -- ours has to cover
@@ -381,8 +394,9 @@ local function NewBubble()
     -- raises "Font not set" and drops the string, so the first line on every freshly built
     -- frame would come up blank. Show sets the text before Layout, which is what picks the
     -- configured font, because Layout measures that text to size the bubble. Whatever is set
-    -- here therefore only ever has to be valid, not right.
-    f.text:SetFont("Fonts\\FRIZQT__.TTF", 12, "")
+    -- here therefore only ever has to be valid, not right. Both texts show other players'
+    -- writing, so every font they take is a font family (BubbleFont), never a plain SetFont.
+    BubbleFont(f.text, "Fonts\\FRIZQT__.TTF", 12, "")
     f.text:SetJustifyH("CENTER")
     f.text:SetJustifyV("MIDDLE")
     f.text:SetWordWrap(true)
@@ -394,7 +408,7 @@ local function NewBubble()
     f.text:SetPoint("CENTER", f, "CENTER", 0, 0)
 
     f.name = f:CreateFontString(nil, "ARTWORK")
-    f.name:SetFont("Fonts\\FRIZQT__.TTF", 10, "")
+    BubbleFont(f.name, "Fonts\\FRIZQT__.TTF", 10, "")
     f.name:SetJustifyH("RIGHT")
     f.name:SetWordWrap(false)
     f.name:Hide()
@@ -455,15 +469,7 @@ local function Layout(f, cfg)
         flag = EUI.OutlineFlagForMode(outline)
     end
     local fontSize = cfg.fontSize or d.fontSize or 12
-    -- No outline means the drop shadow, which only renders when primed before SetFont.
-    EUI.PrimeFontShadow(f.text, flag == "")
-    -- SetFont answers false for a path that no longer resolves (a media addon uninstalled
-    -- since the setting was made) and leaves the FontString with NO font at all, which makes
-    -- the NEXT SetText raise "Font not set" in Claim, unguarded, from an event handler. Same
-    -- guard shape as EllesmereUIQoL_MovementAlert.lua.
-    if not f.text:SetFont(path, fontSize, flag) then
-        f.text:SetFont("Fonts\\FRIZQT__.TTF", fontSize, flag)
-    end
+    BubbleFont(f.text, path, fontSize, flag)
     local tc = cfg.textColor or d.textColor
     local tr, tg, tb = (tc and tc.r) or 1, (tc and tc.g) or 1, (tc and tc.b) or 1
     -- Blizzard's own colour when it was asked for AND we managed to read it; the configured
@@ -479,10 +485,7 @@ local function Layout(f, cfg)
     local names = cfg.showName
     if f.speaker and type(names) == "table" and names[f.channel] == true then
         local nameSize = cfg.nameFontSize or d.nameFontSize
-        EUI.PrimeFontShadow(f.name, flag == "")
-        if not f.name:SetFont(path, nameSize, flag) then
-            f.name:SetFont("Fonts\\FRIZQT__.TTF", nameSize, flag)
-        end
+        BubbleFont(f.name, path, nameSize, flag)
         f.name:SetTextColor(tr, tg, tb, 0.8)
         f.name:SetText(f.speaker)
         nameW = PP.Scale(f.name:GetUnboundedStringWidth()) + PP.mult
@@ -1052,7 +1055,7 @@ end
 function CB.ShowPreview(parent, onResize)
     if not preview then
         preview = NewBubble()
-        preview.text:SetText("The quick brown fox jumps over the lazy dog.")
+        preview.text:SetText(EllesmereUI.L("The quick brown fox jumps over the lazy dog."))
     end
     preview:SetParent(parent)
     preview:SetFrameStrata(parent:GetFrameStrata())

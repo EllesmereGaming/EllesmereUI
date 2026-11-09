@@ -28,8 +28,12 @@ I.startSharedTickerSetters[#I.startSharedTickerSetters + 1] = function(v) StartS
 local _sharedTicker
 I.sharedTickerSetters[#I.sharedTickerSetters + 1] = function(v) _sharedTicker = v end
 
+-- Every meter text (rows, headers, the breakdown tooltip) can show a player's
+-- name, so each takes a font family: Cyrillic, Korean and Chinese names draw in
+-- the client's own faces where the chosen font has no such letters. Every font
+-- write to these strings goes through here (a plain SetFont would pin the face).
 local function SetDMFont(fs, size, flagsOverride, fontOverride)
-    EllesmereUI.ApplyModuleFont(fs, fontOverride, size, "damageMeters", flagsOverride)
+    EllesmereUI.ApplyModuleFontFamily(fs, fontOverride, size, "damageMeters", flagsOverride)
 end
 
 -- Accent color helper
@@ -270,9 +274,7 @@ local function StripRealm(name, src, attacker)
     return ShortName(name, mode)
 end
 
-local function IsSecret(v)
-    return issecretvalue ~= nil and issecretvalue(v)
-end
+local IsSecret = EUI.IsSecret
 
 -- Is this bar the local player's? isLocalPlayer is documented NeverSecret, so
 -- the read is legal mid-combat -- but a doc being wrong must degrade to "not

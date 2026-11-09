@@ -584,6 +584,7 @@ local function CastbarUnlockKey(unit)
     if unit == "player" then return "playerCastbar"
     elseif unit == "target" then return "targetCastbar"
     elseif unit == "focus" then return "focusCastbar"
+    elseif unit == "pet" then return "petCastbar"
     end
 end
 
@@ -667,8 +668,10 @@ local function ApplyUnitFrameCastColor(castbar)
         -- shield wash below would cover the texture. The fold is secret-safe.
         local ev = C_CurveUtil.EvaluateColorValueFromBoolean
         local uninterruptible = GetCastbarUninterruptible(castbar)
+        -- Vertex alpha is the texture's alpha: keep Fill Opacity (and idle 0), not 1.
         castbar.castTintLayer:SetVertexColor(ev(uninterruptible, uc.r, r),
-            ev(uninterruptible, uc.g, g), ev(uninterruptible, uc.b, b), 1)
+            ev(uninterruptible, uc.g, g), ev(uninterruptible, uc.b, b),
+            castbar._castTintOn and (castbar._fillOp or 1) or 0)
         -- Same alpha as the ReloadFrames SetStatusBarColor sites.
         local baseA = ((settings and settings.castFillOpacity or 100) < 100) and 0
             or (db and db.profile.castbarOpacity or 1)
@@ -1670,8 +1673,9 @@ local function ApplyBlizzCastbarState()
 end
 
 -- Hide While Using Gamepad (Global Settings > Gamepad): Blizzard's gamepad UI
--- draws its own player cast bar, so ours stands down while a controller is
--- connected. It rides the same element switch "Show Player Cast Bar" off uses,
+-- draws its own player cast bar, so ours stands down while EllesmereUI.PadModeOn
+-- says gamepad mode is on (WoW Forever's Gamepad interface style, elsewhere a
+-- connected controller). It rides the same element switch "Show Player Cast Bar" off uses,
 -- keyed on a runtime flag the reload and visibility passes also read
 -- (ns._ufCastPadHidden); the saved toggle is never written. Blizzard's bar
 -- stays suppressed, except under WoW Forever's Gamepad interface style: from
@@ -1696,7 +1700,7 @@ function ns.UF_ApplyGamepadCastbar(padOn)
     end
     local hide = false
     if want then
-        if padOn == nil then padOn = EllesmereUI.PadConnected() end
+        if padOn == nil then padOn = EllesmereUI.PadModeOn() end
         hide = padOn and true or false
     end
     if hide == (ns._ufCastPadHidden == true) then return end

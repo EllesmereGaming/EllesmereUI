@@ -161,6 +161,12 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         Toggle("skills", "Skill Ups", "Weapon and profession skill increases.", Reapply),
+        Toggle("rolls", "Loot Rolls",
+            "Who won each group loot roll and with what roll. Your own wins add the roll to the item's row.",
+            Reapply)
+    );  y = y - h
+
+    _, h = W:DualRow(parent, y,
         Toggle("tracker", "Gold per Hour Tracker", "Pins a row with your gold per hour.",
             function()
                 LF.Apply()
@@ -305,7 +311,6 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
                 set = function(v) LF.Cfg()[key] = v; LF.ApplyStyle() end }
         end
         EllesmereUI.BuildInlineCog(borderRow._leftRegion, { title = "Border Options",
-            icon = EllesmereUI.DIRECTIONS_ICON,
             disabled = function()
                 local tex = LF.Get("borderTexture")
                 return borderOff() or not tex or tex == "solid" or tex == ""

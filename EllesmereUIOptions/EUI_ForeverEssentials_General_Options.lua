@@ -223,7 +223,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local generalRow
     generalRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Auto Uprank Spells on Bars",
-          tooltip = "Swaps new spell ranks onto your action bars.",
+          tooltip = "Swaps new spell ranks, yours and your pet's, onto your action bars.",
           getValue = function() return SU.Get("enabled") end,
           setValue = function(v)
               SU.Cfg().enabled = v

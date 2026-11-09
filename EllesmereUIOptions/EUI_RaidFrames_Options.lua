@@ -65,7 +65,7 @@ function ns.RF_OptMoveFramesButton(row, rgn, opts)
     local bbg = btn:CreateTexture(nil, "BACKGROUND")
     bbg:SetAllPoints()
     bbg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
-    EllesmereUI.MakeBorder(btn, 1, 1, 1, 0.25)
+    EllesmereUI.MakeRoundedBorder(btn, 1, 1, 1, 0.25, bbg)
     local lbl = btn:CreateFontString(nil, "OVERLAY")
     EllesmereUI.ApplyModuleFont(lbl, nil, 13, "raidFrames")
     lbl:SetPoint("CENTER", btn, "CENTER", 0, 0)
@@ -320,7 +320,7 @@ function ns.RF_BuildPartyPortrait(parent, y, W, PSSet)
         { type="slider", label="Y Offset", min=-100, max=100, step=1,
           get=function() return PV("partyPortraitY", 0) end,
           set=function(v) PtSet("partyPortraitY", v) end },
-    }, icon = EllesmereUI.DIRECTIONS_ICON,
+    },
     disabled = function() return PV("partyPortraitStyle", "none") ~= "detached" end,
     disabledTooltip = "This option requires Portrait Mode to be set to Detached." })
 
@@ -614,7 +614,7 @@ function ns.RF_BuildPartyTargets(parent, y, W)
         { type="slider", label="Y Offset", min=-100, max=100, step=1,
           get=function() return PV("partyTargetOffsetY", 0) end,
           set=function(v) LaySet("partyTargetOffsetY", v) end },
-    }, icon = EllesmereUI.DIRECTIONS_ICON })
+    }})
     return y
 end
 
@@ -1030,7 +1030,7 @@ initFrame:SetScript("OnEvent", function(self)
             local host = CreateFrame("Frame", nil, ddCtrl)
             host:SetAllPoints(ddCtrl)
             host:SetFrameLevel(ddCtrl:GetFrameLevel() + 30)
-            EllesmereUI.PP.CreateBorder(host, gold[1], gold[2], gold[3], 0.9, 1, "OVERLAY", 7)
+            EllesmereUI.MakeRoundedBorder(host, gold[1], gold[2], gold[3], 0.9)
             host:Hide()
             if not EllesmereUI._prebuilding then
                 local e = pvModeCtrls[pvCtx]
