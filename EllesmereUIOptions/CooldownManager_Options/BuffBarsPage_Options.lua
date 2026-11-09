@@ -1884,7 +1884,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 sm:SetSize(W, 8 + ITEM_H * 2)
                 local smBg = sm:CreateTexture(nil, "BACKGROUND")
                 smBg:SetAllPoints(); smBg:SetColorTexture(mBgR, mBgG, mBgB, mBgHA)
-                EllesmereUI.MakeBorder(sm, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                EllesmereUI.MakeRoundedBorder(sm, 1, 1, 1, mBrdA, smBg, nil, true)
                 -- A fixed spot, as the CDM icon menu sits under its icon: beside the clicked
                 -- row, just outside the bar menu, so it covers no other bar.
                 sm:SetPoint("TOPLEFT", anchorRow, "TOPRIGHT", 4, 0)

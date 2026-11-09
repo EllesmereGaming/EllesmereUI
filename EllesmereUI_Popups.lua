@@ -1506,9 +1506,10 @@ function EllesmereUI:ShowInputPopup(opts)
             row:SetPoint("TOPRIGHT", dd, "TOPRIGHT", -1, -1 - (i - 1) * ROW_H)
             row._sel = SolidTex(row, "BACKGROUND", 1, 1, 1, 0.18)
             row._sel:SetAllPoints()
-            -- The list's shape: the first and last row keep its round corners.
+            -- The list's shape: the first row keeps its round corners.
             row._sel:AddMaskTexture(dd._brd.bodyMask)
             row._bar = SolidTex(row, "ARTWORK", 1, 1, 1, 1)
+            row._bar:AddMaskTexture(dd._brd.bodyMask)
             row._bar:SetPoint("TOPLEFT"); row._bar:SetPoint("BOTTOMLEFT")
             PanelPP.Width(row._bar, 2)
             row._key = MakeFont(row, 11, nil, 1, 1, 1, 0.9)

@@ -1034,7 +1034,7 @@ do
             sBg:SetAllPoints()
             local sBrd
             if PP then
-                sBrd = EllesmereUI.MakeBorder(syncBtn, accentColor.r, accentColor.g, accentColor.b, 0.7, PP)
+                sBrd = EllesmereUI.MakeRoundedBorder(syncBtn, accentColor.r, accentColor.g, accentColor.b, 0.7, sBg)
             end
             local sLbl = syncBtn:CreateFontString(nil, "OVERLAY")
             if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(sLbl, false) end

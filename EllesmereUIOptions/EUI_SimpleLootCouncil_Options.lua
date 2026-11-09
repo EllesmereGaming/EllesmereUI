@@ -1293,9 +1293,9 @@ initFrame:SetScript("OnEvent", function(self)
                     p:SetScale(own / base)
                 end
                 p:SetSize(b:GetWidth(), #shown * SUG_ROW_H + 8)
-                p._brd:Fit()
                 p:ClearAllPoints()
                 p:SetPoint("TOPLEFT", b, "BOTTOMLEFT", 0, -2)
+                p._brd:Fit()
                 p:Show()
             end
             local function Typed(b, userInput)
