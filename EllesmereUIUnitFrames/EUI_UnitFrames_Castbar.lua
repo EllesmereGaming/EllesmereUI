@@ -584,6 +584,7 @@ local function CastbarUnlockKey(unit)
     if unit == "player" then return "playerCastbar"
     elseif unit == "target" then return "targetCastbar"
     elseif unit == "focus" then return "focusCastbar"
+    elseif unit == "pet" then return "petCastbar"
     end
 end
 

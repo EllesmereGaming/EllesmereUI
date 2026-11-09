@@ -851,6 +851,16 @@ function CategoryManager:RenameGroup(oldName, newName)
     self:SaveState()
 end
 
+-- Built-in group names stay English in saved data (they are group keys);
+-- translate them only where they are shown.
+local DEFAULT_GROUP_NAMES = { ["The Armory"] = true, ["Adventure Prep"] = true }
+function CategoryManager:GroupDisplayName(groupName)
+    if groupName and DEFAULT_GROUP_NAMES[groupName] then
+        return EllesmereUI.L(groupName)
+    end
+    return groupName
+end
+
 -- Check if the group name was manually customized by the user.
 function CategoryManager:IsGroupNameCustom(groupName)
     local cats = self:GetCategories()

@@ -317,6 +317,8 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
     local mhDis, mhTip, mhRaw = EllesmereUI.MatchGuard(unitKey, "Height")
     local mwDis, mwTip, mwRaw = EllesmereUI.MatchGuard(unitKey, "Width")
     local rightSlot
+    -- Vertical Fill wants tall, narrow bars: the Vertical Fill toggle rebuilds the page.
+    local vertFill = settingsTable.healthVerticalFill == true
     if EllesmereUI.BlizzStyle.Get("unitframes") then
         -- Blizzard Style: the stock size is fixed, so the whole frame scales
         -- instead; the slider takes the gated width's slot (no blank slot).
@@ -327,13 +329,13 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
     elseif opts.hideBarWidth then
         rightSlot = { type="label", text="" }
     else
-        rightSlot = EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Bar Width", min=60, max=300, step=1,
+        rightSlot = EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Bar Width", min=vertFill and 20 or 60, max=300, step=1,
             disabled=mwDis, disabledTooltip=mwTip, rawTooltip=mwRaw,
             getValue=function() return settingsTable.frameWidth end,
             setValue=function(v) settingsTable.frameWidth = v; ReloadAndUpdate() end })
     end
     sizeRow, h = W:DualRow(parent, y,
-        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Health Bar Height", min=10, max=100, step=1,
+        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Health Bar Height", min=10, max=vertFill and 400 or 100, step=1,
           disabled=mhDis, disabledTooltip=mhTip, rawTooltip=mhRaw,
           getValue=function() return settingsTable.healthHeight end,
           setValue=function(v) settingsTable.healthHeight = v; ReloadAndUpdate() end }),
@@ -613,7 +615,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
         EllesmereUI.BlizzStyle.Gate("unitframes", { type="toggle", text="Vertical Fill",
           tooltip="Fill the health bar bottom-to-top instead of left-to-right. Reverse Fill flips it to top-to-bottom.",
           getValue=function() return settingsTable.healthVerticalFill end,
-          setValue=function(v) settingsTable.healthVerticalFill = v; ReloadAndUpdate() end }),
+          setValue=function(v) settingsTable.healthVerticalFill = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end }),
         unitKey ~= "boss" and smoothBarsWidget or EllesmereUI.BlankRowCfg());  y = y - h
 
     -- Blizzard Style: the stock level number in the boss art's level circle
@@ -1879,6 +1881,47 @@ function ns.UFO_BuildPetOptions(W, parent, y)
         end
     end
 
+    -- CAST BAR, on the EllesmereUI pet frame only. Off by default; the bar is
+    -- built at login, so turning it on asks for a reload. Move it in Unlock Mode.
+    if ns.GetUnitFrameSource("pet") == "eui" then
+        local P = db.profile.pet
+        local function castOff() return P.showCastbar ~= true end
+        _, h = W:SectionHeader(parent, "CAST BAR", y);  y = y - h
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Cast Bar",
+              tooltip="Shows a cast bar for your pet's spells (e.g. Seduction). Turning it on needs a reload. Position it in Unlock Mode.",
+              getValue=function() return P.showCastbar == true end,
+              setValue=function(v)
+                  P.showCastbar = v
+                  ReloadAndUpdate()
+                  local pf = ns.frames and ns.frames.pet
+                  if v and pf and not pf.Castbar then
+                      EllesmereUI:ShowConfirmPopup({
+                          title = "Reload Required",
+                          message = "The pet cast bar is built at login. Reload to show it.",
+                          confirmText = "Reload Now",
+                          cancelText = "Later",
+                          reload = true,
+                      })
+                  end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="slider", text="Cast Bar Width", min=30, max=400, step=1,
+              disabled=castOff, disabledTooltip="Show Cast Bar",
+              getValue=function() return P.castbarWidth or 120 end,
+              setValue=function(v) P.castbarWidth = v; ReloadAndUpdate() end });  y = y - h
+        _, h = W:DualRow(parent, y,
+            { type="slider", text="Cast Bar Height", min=1, max=40, step=1,
+              disabled=castOff, disabledTooltip="Show Cast Bar",
+              getValue=function() return P.castbarHeight or 12 end,
+              setValue=function(v) P.castbarHeight = v; ReloadAndUpdate() end },
+            { type="toggle", text="Hide When Idle",
+              tooltip="Only show the cast bar while a cast is in progress.",
+              disabled=castOff, disabledTooltip="Show Cast Bar",
+              getValue=function() return P.castbarHideWhenInactive ~= false end,
+              setValue=function(v) P.castbarHideWhenInactive = v; ReloadAndUpdate() end });  y = y - h
+    end
+
     -- Store click targets for hover highlight system
     parent._ufClickTargets = {
         healthBar  = { section = displayHeader,  target = sizeRow },
@@ -2024,7 +2067,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
     local function bossAfterSize(Ww, pp, yy)
         local _, hh
         -- BUFFS AND DEBUFFS section (below DISPLAY)
-        bossAuraHeader, hh = Ww:SectionHeader(pp, "Buffs and Debuffs", yy);  yy = yy - hh
+        bossAuraHeader, hh = Ww:SectionHeader(pp, "BUFFS AND DEBUFFS", yy);  yy = yy - hh
 
         -- Effective boss aura locations: Simple display overrides the stored
         -- location at runtime (dropdowns show None while active), so every
@@ -2907,7 +2950,7 @@ function ns.UFO_BuildBossOptions(W, parent, y)
     local function bossIndicators(Ww, pp, yy)
         local hh
 
-        _, hh = Ww:SectionHeader(pp, "Indicators", yy);  yy = yy - hh
+        _, hh = Ww:SectionHeader(pp, "INDICATORS", yy);  yy = yy - hh
 
         -- Row 1: Out of Range Alpha | Spell Target
         -- (Out of Range read live by the range ticker, so no reload needed.)
