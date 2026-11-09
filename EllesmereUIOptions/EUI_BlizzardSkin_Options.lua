@@ -869,8 +869,12 @@ initFrame:SetScript("OnEvent", function(self)
             tooltipBorder,h=W:DualRow(parent,y,
                 {type="dropdown",text="Border Style",disabled=ttReskinOff,values=texValues,order=texOrder,getValue=function() return EllesmereUIDB.tooltipBorderTexture or "solid" end,setValue=function(v) local c,b=EllesmereUI.GetBorderStyleSelectDefaults(v); EllesmereUIDB.tooltipBorderTexture=v; EllesmereUIDB.tooltipBorderOffsetX=nil; EllesmereUIDB.tooltipBorderOffsetY=nil; EllesmereUIDB.tooltipBorderBehind=b; EllesmereUIDB.tooltipBorderColor=c; if EllesmereUIDB.tooltipBorderThicknessPx then EllesmereUIDB.tooltipBorderThicknessPx=false end; if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end; EllesmereUI:RefreshPage(true) end},
                 BorderSizeSlider("tooltip","Border Size",ttReskinOff,function() if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() end end)); y=y-h
-            AttachBorderControls(tooltipBorder,"tooltip",ttReskinOff,true,{ apply = TooltipPreviewRepaint })
-            BorderOffsetRow("tooltip",ttReskinOff,TooltipPreviewRepaint)
+            -- The engine aura tooltip follows the border only when synced (the sync repaints the preview too)
+            local function TooltipBorderApply()
+                if EllesmereUI.SyncAuraTooltipSkin then EllesmereUI.SyncAuraTooltipSkin() else TooltipPreviewRepaint() end
+            end
+            AttachBorderControls(tooltipBorder,"tooltip",ttReskinOff,true,{ apply = TooltipBorderApply })
+            BorderOffsetRow("tooltip",ttReskinOff,TooltipBorderApply)
         end
 
         -----------------------------------------------------------------------
