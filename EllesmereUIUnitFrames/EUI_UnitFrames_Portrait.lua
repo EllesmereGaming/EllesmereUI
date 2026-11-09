@@ -265,6 +265,24 @@ end
 -- runs only after a real repaint: 2D heals what SetPortraitTexture resets, 3D
 -- re-applies zoom after SetUnit -- nothing to heal without a repaint.
 -- fallback: the class lane's resolved non-player fallback, when the painter has it.
+-- A model mirrors its frame's alpha by hand; the mirrored value is kept so a
+-- UIParent fade (EllesmereUI.UIScaledAlpha) can scale it again on change.
+do
+    local mirrored = setmetatable({}, { __mode = "k" })
+    local listening = false
+    local function Reapply()
+        for m, a in pairs(mirrored) do m:SetAlpha(EllesmereUI.UIScaledAlpha(a)) end
+    end
+    function ns.UF_SetModelAlpha(model, a)
+        mirrored[model] = a
+        if not listening then
+            listening = true
+            EllesmereUI.OnUIAlphaChanged(Reapply)
+        end
+        model:SetAlpha(EllesmereUI.UIScaledAlpha(a))
+    end
+end
+
 local PortraitOverride  -- forward declaration; painter registrations below the definition
 local SwapPortraitMode  -- forward declaration; the portrait painter swaps through it
 function PortraitOverride(self, event, evtUnit, fallback)
@@ -1032,7 +1050,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
             -- Dark mode: always the player's own class color.
             local _, classToken = UnitClass("player")
             if classToken then
-                local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken]
+                local c = EllesmereUI.GetClassColor(classToken)
                 if c then bR, bG, bB = c.r, c.g, c.b end
             end
         elseif unitToken and UnitExists(unitToken) then
@@ -1040,7 +1058,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
             -- for NPCs, tapped grey).
             local _, classToken = UnitClass(unitToken)
             if UnitIsPlayer(unitToken) and not issecretvalue(classToken) and classToken then
-                local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken]
+                local c = EllesmereUI.GetClassColor(classToken)
                 if c then bR, bG, bB = c.r, c.g, c.b end
             elseif UnitIsTapDenied and UnitIsTapDenied(unitToken) then
                 bR, bG, bB = 0.6, 0.6, 0.6
@@ -1058,7 +1076,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
             -- Fallback: player class color.
             local _, classToken = UnitClass("player")
             if classToken then
-                local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken]
+                local c = EllesmereUI.GetClassColor(classToken)
                 if c then bR, bG, bB = c.r, c.g, c.b end
             end
         end
@@ -1537,7 +1555,7 @@ function SwapPortraitMode(frame, painting)
         if not bd._3d then return end
         -- A model ignores parent alpha: take the body's current fade until
         -- the visibility pass mirrors it.
-        bd._3d:SetAlpha((frame._visWrap or frame):GetAlpha())
+        ns.UF_SetModelAlpha(bd._3d, (frame._visWrap or frame):GetAlpha())
         bd._3d:Show()
         bd._3d.backdrop = bd
         bd._3d.is2D = false

@@ -25,8 +25,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  where Mythic+ Tools is loaded with its settings ready.
 --
 --  Fires once, at PLAYER_LOGIN. Guarded by EllesmereUIDB.kickTrackerIntroShown.
---  Only the newest announcement stays live: the Group Finder announcement
---  (EllesmereUI_GroupFinderPopup.lua) retired when this shipped, so users
+--  Only the newest announcement stays live (the 12.1 launch video's login
+--  trigger in EllesmereUI_VideoGuides.lua is switched off), so users
 --  upgrading across several versions never see two intro popups back to back.
 -------------------------------------------------------------------------------
 
@@ -322,12 +322,12 @@ local function ShowKickTrackerPopup()
     -- the popup's bottom center.
     local BTN_W, BTN_GAP = 190, 14
     local mainBtn = EllesmereUI.MakeActionButton(popup, FONT, isOn and EllesmereUI.L("Open Settings") or EllesmereUI.L("Turn It On"),
-        EG.r, EG.g, EG.b, { w = BTN_W })
+        EG.r, EG.g, EG.b, { w = BTN_W, square = true })
     PP.Point(mainBtn, "BOTTOMRIGHT", popup, "BOTTOM", -BTN_GAP / 2, 44)
     mainBtn:SetScript("OnClick", function() Finish(true) end)
 
     local laterBtn = EllesmereUI.MakeActionButton(popup, FONT, isOn and EllesmereUI.L("Got It") or EllesmereUI.L("Maybe Later"),
-        1, 1, 1, { w = BTN_W, secondary = true, hoverA = 0.8 })
+        1, 1, 1, { w = BTN_W, secondary = true, hoverA = 0.8, square = true })
     PP.Point(laterBtn, "BOTTOMLEFT", popup, "BOTTOM", BTN_GAP / 2, 44)
     laterBtn:SetScript("OnClick", function() Finish(false) end)
 
@@ -448,8 +448,7 @@ loader:SetScript("OnEvent", function(self, event, addonName)
             end
             -- Defer behind any older login announcement still pending or open
             -- (all retired today; the chain holds again if one is revived).
-            if EllesmereUI._styleLaunchIntroPending or EllesmereUI._launchVideoIntroPending
-               or EllesmereUI._groupFinderIntroPending then
+            if EllesmereUI._launchVideoIntroPending then
                 C_Timer.After(0.4, TryShow)
                 return
             end
@@ -487,5 +486,5 @@ end)
 SLASH_EUIKTINTRO1 = "/euiktintro"
 SlashCmdList["EUIKTINTRO"] = function()
     if EllesmereUIDB then EllesmereUIDB.kickTrackerIntroShown = nil end
-    EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r Kick Tracker announcement reset. It fires on your next /reload.")
+    EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. EllesmereUI.L("EllesmereUI:|r Kick Tracker announcement reset. It fires on your next /reload."))
 end

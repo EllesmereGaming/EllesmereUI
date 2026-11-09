@@ -39,9 +39,7 @@ local evf = CreateFrame("Frame")
 -- fmtBoth (built per apply, so a paint builds no string).
 local S = { on = false, live = false }
 
-local function Secret(v)
-    return issecretvalue and issecretvalue(v)
-end
+local Secret = EllesmereUI.IsSecret
 
 -- The form text's own setting; unset follows the power bar's.
 local function FormVal(s, key, base, def)

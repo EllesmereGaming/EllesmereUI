@@ -24,7 +24,10 @@ local defaults, GetTextSlot, IsComboHealthText = I.defaults, I.GetTextSlot, I.Is
 local MaybeDarken = I.MaybeDarken
 
 local p
-I.profileSetters[#I.profileSetters + 1] = function(v) p = v end
+I.profileSetters[#I.profileSetters + 1] = function(v)
+    p = v
+    ns._questObjectiveTypeEnabled = v and v.showQuestObjectiveTypeIcon == true or false
+end
 
 -- Cached threat-context state; updated at zone transitions and spec changes
 local _inThreatContent = false
@@ -292,9 +295,56 @@ end
 --  per unit; invalidated on QUEST_LOG_UPDATE and NAME_PLATE_UNIT_REMOVED.
 -------------------------------------------------------------------------------
 local questMobCache = {}
+local questObjectiveTypeCache = {}
 -- Parallel cache of verified-clean "objectives remaining" strings, keyed by unit. Populated
 -- only while the Quest Objective Text element is on; same invalidation lifecycle. On ns (cap).
 ns._questObjText = ns._questObjText or {}
+ns._questObjType = ns._questObjType or {}
+local function ResolveQuestObjectiveType(questID, tooltipText, isOnQuest)
+    if not issecretvalue then return nil end
+    if issecretvalue(questID) or issecretvalue(isOnQuest) or issecretvalue(tooltipText) then return nil end
+    if type(questID) ~= "number" or questID <= 0 or questID % 1 ~= 0
+        or isOnQuest ~= true or type(tooltipText) ~= "string"
+        or not (C_QuestLog and C_QuestLog.GetQuestObjectives) then
+        return nil
+    end
+
+    local objectives = questObjectiveTypeCache[questID]
+    if objectives == nil then
+        local result = C_QuestLog.GetQuestObjectives(questID)
+        if issecretvalue(result) or type(result) ~= "table" then
+            questObjectiveTypeCache[questID] = false
+            return nil
+        end
+        objectives = {}
+        for index, objective in ipairs(result) do
+            local text, objectiveType
+            if not issecretvalue(objective) and objective then
+                text, objectiveType = objective.text, objective.type
+                if issecretvalue(text) then text = nil end
+                if issecretvalue(objectiveType) then objectiveType = nil end
+                if type(text) ~= "string" then text = nil end
+                if type(objectiveType) ~= "string" then objectiveType = nil end
+            end
+            objectives[index] = { text = text, type = objectiveType }
+        end
+        questObjectiveTypeCache[questID] = objectives
+    elseif objectives == false then
+        return nil
+    end
+
+    local matchCount, matchedType, unreadableText = 0, nil, false
+    for _, objective in ipairs(objectives) do
+        if not objective.text then
+            unreadableText = true
+        elseif objective.text == tooltipText then
+            matchCount = matchCount + 1
+            matchedType = objective.type
+        end
+    end
+    if unreadableText or matchCount ~= 1 then return nil end
+    if matchedType == "monster" or matchedType == "item" then return matchedType end
+end
 -- Is this unit one of the local player's active quest objectives with work remaining? Read
 -- from the tooltip's structured data: a QuestObjective line carries `completed` plus
 -- numFulfilled/numRequired, a QuestTitle line the quest id, so completion needs no
@@ -306,7 +356,7 @@ local IsQuestMob
 do
     -- The settings both caches were built under (ScanState); a call under other settings
     -- wipes them first, so a cache never answers for settings it was not built with.
-    local built
+    local built, builtType
     -- 1 while the Quest Objective Text element is on (the scan reads the objective text).
     -- In instanced content, plus 2 while a consumer may show the result there (the Quest
     -- Indicator, the quest mob health colour or the Quest Objective Text, each with its Show
@@ -324,10 +374,16 @@ do
     IsQuestMob = function(unit)
         if not (C_TooltipInfo and Enum and Enum.TooltipDataLineType) then return false end
         local st = ScanState()
-        if st ~= built then
+        local typeOn = p and p.showQuestObjectiveTypeIcon == true or false
+        if st ~= built or typeOn ~= builtType then
             wipe(questMobCache)
             wipe(ns._questObjText)
+            if typeOn then
+                wipe(questObjectiveTypeCache)
+                wipe(ns._questObjType)
+            end
             built = st
+            builtType = typeOn
         end
         local cached = questMobCache[unit]
         if cached ~= nil then return cached end
@@ -347,6 +403,8 @@ do
         local LT = Enum.TooltipDataLineType
         local onQuest = C_QuestLog and C_QuestLog.IsOnQuest
         local wantText = (st % 2) == 1
+        local wantType = wantText and typeOn
+        if wantType then ns._questObjType[unit] = nil end
         local questID  -- id carried by the most recent QuestTitle line
         local isQuest, objText = false, nil
 
@@ -364,28 +422,35 @@ do
                 -- An incomplete objective the player is actually on: their quest log scopes out
                 -- a group member's objectives. Fail open when the id is unreadable so a real
                 -- quest mob is never silently skipped.
-                if not (issecretvalue and issecretvalue(done)) and done == false
-                   and (not questID or not onQuest or onQuest(questID)) then
-                    isQuest = true
-                    if wantText then
-                        local have, need = line.numFulfilled, line.numRequired
-                        if have and need
-                           and not (issecretvalue and (issecretvalue(have) or issecretvalue(need))) then
-                            -- Percent-style objectives (area progress bars)
-                            -- degenerate to 0/1 in the structured fields; the
-                            -- real progress lives only in the line text. Show
-                            -- the extracted percent when readable, else the
-                            -- count (real 0/1 kill objectives keep their count).
-                            local lt = line.leftText
-                            local pct
-                            if lt and not (issecretvalue and issecretvalue(lt))
-                               and type(lt) == "string" then
-                                pct = lt:match("(%d+)%s*%%")
+                if not (issecretvalue and issecretvalue(done)) and done == false then
+                    local onQuestResult = true
+                    if questID and onQuest then onQuestResult = onQuest(questID) end
+                    if onQuestResult then
+                        isQuest = true
+                        if wantText then
+                            local have, need = line.numFulfilled, line.numRequired
+                            if have and need
+                               and not (issecretvalue and (issecretvalue(have) or issecretvalue(need))) then
+                                -- Percent-style objectives (area progress bars)
+                                -- degenerate to 0/1 in the structured fields; the
+                                -- real progress lives only in the line text. Show
+                                -- the extracted percent when readable, else the
+                                -- count (real 0/1 kill objectives keep their count).
+                                local lt = line.leftText
+                                local pct
+                                if lt and not (issecretvalue and issecretvalue(lt))
+                                   and type(lt) == "string" then
+                                    pct = lt:match("(%d+)%s*%%")
+                                end
+                                objText = pct and (pct .. "%") or (have .. "/" .. need)
+                                if wantType and objText and questID and onQuest and issecretvalue
+                                    and not issecretvalue(onQuestResult) and onQuestResult == true then
+                                    ns._questObjType[unit] = ResolveQuestObjectiveType(questID, lt, onQuestResult)
+                                end
                             end
-                            objText = pct and (pct .. "%") or (have .. "/" .. need)
                         end
+                        break
                     end
-                    break
                 end
             end
         end
@@ -404,6 +469,14 @@ ns.IsQuestMob = IsQuestMob
 function ns.GetQuestObjectiveText(unit)
     return ns._questObjText[unit]
 end
+function ns.GetQuestObjectiveType(unit)
+    return ns._questObjType[unit]
+end
+function ns.InvalidateQuestObjectiveTypeCache()
+    if not ns._questObjectiveTypeEnabled then return end
+    wipe(questObjectiveTypeCache)
+    wipe(ns._questObjType)
+end
 
 -- Live refresh for the quest options (the Rare/Quest and Quest Objective Text boxes, Show In
 -- Instances, Text Size). Wiping BOTH caches is required: IsQuestMob short-circuits on
@@ -411,6 +484,8 @@ end
 function ns.RefreshQuestObjective()
     wipe(questMobCache)
     wipe(ns._questObjText)
+    ns._questObjectiveTypeEnabled = p and p.showQuestObjectiveTypeIcon == true or false
+    ns.InvalidateQuestObjectiveTypeCache()
     for _, plate in pairs(ns.plates) do
         if plate.UpdateClassification then
             plate:UpdateClassification()
@@ -426,6 +501,7 @@ ns._questDirty = false
 questCacheWatcher:SetScript("OnEvent", function()
     wipe(questMobCache)
     wipe(ns._questObjText)
+    ns.InvalidateQuestObjectiveTypeCache()
     if not ns._questDirty then
         ns._questDirty = true
         C_Timer.After(0.5, function()
@@ -976,16 +1052,25 @@ local function GetReactionColor(unit, castSeen)
         end
     end
     -- 5. Neutral (colored as an enemy while in combat with them). OUTSIDE dungeons keeps its
-    -- high priority; IN dungeons deferred to just above the enemy fallback (step 10d) so
-    -- mob-type/threat colors win on neutral dungeon units and neutral becomes near-last resort.
+    -- high priority while it carries no health-bar threat data; IN dungeons, and with that
+    -- data anywhere, deferred to just above the enemy fallback (step 10d) so mob-type/threat
+    -- colors win on it and neutral becomes the near-last resort.
     local reaction = UnitReaction(unit, "player")
     local isNeutral = (reaction and reaction == 4)
         or (UnitCanAttack("player", unit) and not UnitIsEnemy(unit, "player"))
-    if isNeutral and not ns._inDungeon then
+    if isNeutral and not ns._inDungeon and not isThreatUnit then
         return ResolveNeutralColor(unit)
     end
     -- 6. Enemy player class colors
     if UnitIsPlayer(unit) and UnitCanAttack("player", unit) then
+        -- Enemy Players Use Enemy Color (opt-in): the step 11 fallback color, skipping the
+        -- mob-type steps so a mana user is not painted Spell Casters.
+        if db.enemyPlayerEnemyColor then
+            local simple = db.owBasicColoring
+            if simple == nil then simple = defaults.owBasicColoring end
+            local c = _C((simple and not ns._inDungeon) and "owBasicColor" or "enemyInCombat")
+            return MaybeDarken(c.r, c.g, c.b, UnitAffectingCombat(unit))
+        end
         local _, class = UnitClass(unit)
         -- A secret class token (identity-restricted, i.e. instanced PvP) cannot key a
         -- plain color table, but C_ClassColor accepts it and returns a color that may only
@@ -1009,8 +1094,9 @@ local function GetReactionColor(unit, castSeen)
     local classification = UnitClassification(unit)
     -- Simple Coloring When Not In M+ (inline cog on Enemy Types): outside 5-man dungeons, collapse the
     -- mob-type colors (Mini Enemies, Spell Casters, Mini-Bosses, Bosses) into flat owBasicColor
-    -- at the enemy fallback (step 11). Neutral unaffected (already returned at step 5 outside
-    -- dungeons). Same dungeon gate as Mini Coloring M+ Only (ns._inDungeon).
+    -- at the enemy fallback (step 11). Neutral unaffected (it returns at step 5 outside dungeons,
+    -- or at 10d, above the fallback, while it carries health-bar threat data). Same dungeon gate
+    -- as Mini Coloring M+ Only (ns._inDungeon).
     local owBasic = false
     if not ns._inDungeon then
         owBasic = defaults.owBasicColoring
@@ -1121,13 +1207,11 @@ local function GetReactionColor(unit, castSeen)
        and (classification == "normal" or classification == "minus" or classification == "trivial") then
         local thae = defaults.tankHasAggroEnabled
         if db.tankHasAggroEnabled ~= nil then thae = db.tankHasAggroEnabled end
-        -- Neutral + mini-enemy: neutral coloring wins over the trash color, EXCEPT for a tank
-        -- holding aggro with Tank Has Aggro enabled -- that viewer falls through so step 9
-        -- paints the has-aggro color; otherwise in-combat neutral blocks threat coloring and
-        -- neutral mobs stay enemy-red for tanks. Other viewers: neutral beats trash/DPS
-        -- carve-out/Caster (7b sits above step 8). Non-trash neutral units defer to 10d.
-        local tankAggroPending = isThreatUnit and _isTankRole and threatStatus >= 3 and thae
-        if isNeutral and not tankAggroPending then
+        -- Neutral + mini-enemy: neutral coloring wins over the trash color while the unit
+        -- carries no health-bar threat data (out of combat, or threat colors off). In combat
+        -- with them on it falls through like a hostile unit, so the threat and Mini Enemies
+        -- colors reach neutral trash too. Non-trash neutral units defer to 10d.
+        if isNeutral and not isThreatUnit then
             ns._reactionCastTier = nil
             return ResolveNeutralColor(unit)
         end
@@ -1216,8 +1300,9 @@ local function GetReactionColor(unit, castSeen)
         local c = (p and p.miniEnemy) or _C("enemyInCombat")
         return MaybeDarken(c.r, c.g, c.b, inCombat)
     end
-    -- 10d. Neutral, deferred (dungeons only -- step 5 skipped it there): a neutral unit
-    -- matching no mob-type/threat color lands here, just above the generic enemy fallback.
+    -- 10d. Neutral, deferred (in dungeons, where step 5 skips it, and anywhere while it carries
+    -- health-bar threat data): a neutral unit matching no mob-type/threat color lands here,
+    -- just above the generic enemy fallback.
     if isNeutral then
         ns._reactionCastTier = nil
         return ResolveNeutralColor(unit)

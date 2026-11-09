@@ -680,8 +680,9 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
           disabled = powerOff,
           disabledTooltip = powerDisTip,
           values = { none = "None", smart = "Smart Text", curpp = "Power Value", curmaxpp = "Power Value / Max", perpp = "Power %", both = "Power Value | Power %" },
-          order = { "none", "smart", "curpp", "curmaxpp", "perpp", "both" },
-          getValue = function() local c = cfg(); return c and c.textFormat or "none" end,
+          -- WoW Forever lists no Smart Text (EllesmereUI.PowerTextFormat).
+          order = EllesmereUI.PowerTextFormatOrder({ "none", "smart", "curpp", "curmaxpp", "perpp", "both" }),
+          getValue = function() local c = cfg(); return EllesmereUI.PowerTextFormat(c and c.textFormat or "none") end,
           setValue = function(v)
               local c = cfg(); if not c then return end
               c.textFormat = v; RefreshPower(); EllesmereUI:RefreshPage()

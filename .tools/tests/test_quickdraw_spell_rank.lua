@@ -19,7 +19,12 @@ C_Spell = {
         end
     end,
     IsSpellDataCached = function(id) cachedAsk = id return true end,
+    GetSpellSubtext = function(id)
+        return ({ [686] = "Rank 1", [695] = "Rank 2", [705] = "Rank 3" })[id]
+    end,
 }
+local cursor
+GetCursorInfo = function() if cursor then return "spell", 1, nil, cursor end end
 -- the spellbook call itself: the IsPlayerSpell global exists only while the
 -- loadDeprecationFallbacks CVar is on
 C_SpellBook = { IsSpellKnown = function(id) return known[id] == true end }
@@ -57,6 +62,25 @@ loaded = false
 assert(Cast(695) == 695, "no data yet: the stored rank")
 loaded = true
 assert(Cast(695) == 705, "data loaded: the highest known rank")
+
+-- a pinned lower rank casts, shows and is named as exactly that rank
+local pinned = { kind = "spell", id = 686, rankPinned = true }
+assert(select(3, ns.ResolveAction(pinned)) == 686, "a pinned rank casts that rank")
+cachedAsk = nil
+ns.SlotDataReady(pinned)
+assert(cachedAsk == 686, "a pinned rank's cooldown and usability are its own")
+assert(select(2, ns.SlotDisplay(pinned)) == "Shadow Bolt (Rank 1)", "a pinned rank is named with its rank")
+assert(select(2, ns.SlotDisplay({ kind = "spell", id = 705 })) == "Shadow Bolt", "the top rank entry has no rank text")
+-- dragging a lower rank keeps it; dragging the top rank follows the highest
+cursor = 695
+local dropped = ns.SlotFromCursor()
+assert(dropped.id == 695 and dropped.rankPinned == true, "a dragged lower rank is pinned")
+cursor = 705
+assert(ns.SlotFromCursor().rankPinned == nil, "a dragged top rank is not pinned")
+
 EllesmereUI.IS_FOREVER = false
 assert(Cast(686) == 686 and LiveID(686) == 686, "retail keeps the stored id")
+assert(select(2, ns.SlotDisplay(pinned)) == "Shadow Bolt", "retail never shows a rank")
+cursor = 686
+assert(ns.SlotFromCursor().rankPinned == nil, "retail never pins")
 print("quickdraw spell rank OK")

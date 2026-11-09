@@ -306,7 +306,8 @@ local function BuildButton()
     castButton:SetScript("PreClick", function(self, _, down)
         if InCombatLockdown() then return end
         if down then
-            UpdateCastButton()
+            -- An armed double-click keeps reading its own Apply Lure, not the key's.
+            UpdateCastButton(clickArmed)
         elseif self:GetAttribute("type") == "spell" then
             StartSession()
         end

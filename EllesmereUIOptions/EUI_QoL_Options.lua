@@ -88,7 +88,7 @@ local function ShowTransformsPopup()
         local bg = popup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.077, 0.068, 0.058, 1)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, bg)
 
         local title = popup:CreateFontString(nil, "OVERLAY")
         title:SetFont(FONT, 22, "")
@@ -177,11 +177,12 @@ local function ShowTransformsPopup()
                 local boxBg = box:CreateTexture(nil, "BACKGROUND")
                 boxBg:SetAllPoints()
                 boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-                row._boxBorder = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
+                row._boxBorder = EllesmereUI.MakeRoundedBorder(box, 0.4, 0.4, 0.4, 0.6, boxBg)
                 local check = box:CreateTexture(nil, "ARTWORK")
                 check:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
                 check:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
                 check:SetColorTexture(EG.r, EG.g, EG.b, 1)
+                EllesmereUI.RoundBody(box, check, 1)
                 row._check = check
 
                 local lbl = row:CreateFontString(nil, "OVERLAY")
@@ -211,7 +212,7 @@ local function ShowTransformsPopup()
         local applyBg = applyBtn:CreateTexture(nil, "BACKGROUND")
         applyBg:SetAllPoints()
         applyBg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
-        local applyBrd = EllesmereUI.MakeBorder(applyBtn, EG.r, EG.g, EG.b, 0.9, PP)
+        local applyBrd = EllesmereUI.MakeRoundedBorder(applyBtn, EG.r, EG.g, EG.b, 0.9, applyBg)
         local applyLbl = applyBtn:CreateFontString(nil, "OVERLAY")
         applyLbl:SetFont(FONT, 16, "")
         applyLbl:SetPoint("CENTER")
@@ -2287,13 +2288,13 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         ---------------------------------------------------------------------------
-        --  GROUP FINDER
+        --  KEYSTONE
         ---------------------------------------------------------------------------
-        _, h = W:SectionHeader(parent, "GROUP FINDER", y);  y = y - h
+        _, h = W:SectionHeader(parent, "KEYSTONE", y);  y = y - h
 
-        -- Auto Insert Keystone | Announce Instance Reset, then Quick Signup |
-        -- Persistent Signup Note. WoW Forever has no keystones and no premade
-        -- group list, so only Announce Instance Reset is built there.
+        -- Auto Insert Keystone | Announce Instance Reset. WoW Forever has no
+        -- keystones, so only Announce Instance Reset is built there. quick signup
+        -- and the signup note are on the group finder page.
         local autoKeyCfg = { type="toggle", text="Auto Insert Keystone",
               tooltip="Automatically inserts your key into the Font of Power.",
               getValue=function()
@@ -2316,62 +2317,10 @@ initFrame:SetScript("OnEvent", function(self)
                       EllesmereUI._applyInstanceResetAnnounce()
                   end
               end }
-        local quickCfg = { type="toggle", text="Quick Signup",
-              tooltip="Double-click a group listing to instantly sign up without pressing the Sign Up button. Hold Shift to keep the dialog open, e.g. to type a signup note.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.quickSignup or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.quickSignup = v
-                  EllesmereUI._applyQuickSignup()
-              end }
-        local persistCfg = { type="toggle", text="Persistent Signup Note",
-              tooltip="Keeps a saved signup note you can copy into the Sign Up dialog with the Copy button.",
-              getValue=function()
-                  return EllesmereUIDB and EllesmereUIDB.persistSignupNote or false
-              end,
-              setValue=function(v)
-                  if not EllesmereUIDB then EllesmereUIDB = {} end
-                  EllesmereUIDB.persistSignupNote = v
-                  EllesmereUI._applyPersistSignupNote()
-                  EllesmereUI:RefreshPage()
-              end }
-        local noteRow
         if EllesmereUI.IS_FOREVER then
             _, h = W:DualRow(parent, y, announceCfg, EllesmereUI.BlankRowCfg());  y = y - h
         else
             _, h = W:DualRow(parent, y, autoKeyCfg, announceCfg);  y = y - h
-            noteRow, h = W:DualRow(parent, y, quickCfg, persistCfg);  y = y - h
-        end
-
-        if noteRow and not EllesmereUI._prebuilding then
-            local rightRgn = noteRow._rightRegion
-            local function persistOff()
-                return not (EllesmereUIDB and EllesmereUIDB.persistSignupNote)
-            end
-
-            EllesmereUI.BuildInlineCog(rightRgn, {
-                gap = 9, tip = "Edit the saved signup note.",
-                disabled = persistOff, disabledTooltip = "Persistent Signup Note",
-                show = function()
-                    EllesmereUI:ShowInputPopup({
-                        title="Signup Note",
-                        message="Saved between reloads and relogs. In Group Finder, choose Copy, press Ctrl+C, then Ctrl+V.",
-                        placeholder="Enter signup note...",
-                        initialText=EllesmereUI.GetPersistentSignupNote(),
-                        maxLetters=63,
-                        inputHeight=70,
-                        multiline=true,
-                        showCount=true,
-                        allowEmpty=true,
-                        confirmText="Save",
-                        onConfirm=function(note)
-                            EllesmereUI.SetPersistentSignupNote(note or "")
-                        end,
-                    })
-                end,
-            })
         end
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -2609,9 +2558,6 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.autoInsertKeystone = false
                 EllesmereUIDB.instanceResetAnnounce = false
                 EllesmereUIDB.instanceResetAnnounceMsg = ""
-                EllesmereUIDB.quickSignup = false
-                EllesmereUIDB.persistSignupNote = false
-                EllesmereUIDB.signupNote = nil
                 EllesmereUIDB.ahCurrentExpansion = false
                 EllesmereUIDB.hideTalkingHead = false
                 EllesmereUIDB.muteTalkingHead = nil

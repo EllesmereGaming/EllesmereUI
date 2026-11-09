@@ -673,7 +673,7 @@ do
         if not ui then
             ui = { ddValues = ddValues, ddOrder = ddOrder }
             f._ui = ui
-            if PP then EllesmereUI.MakeBorder(f, 1, 1, 1, 0.15, PP) end
+            if PP then EllesmereUI.MakeRoundedBorder(f, 1, 1, 1, 0.15, f._bg) end
             ui.title = MakeFont(f, 14, 1, 1, 1, 0.9)
             ui.msg = MakeFont(f, 11, 1, 1, 1, 0.6)
             ui.msg:SetWidth(W - PAD * 2)
@@ -874,7 +874,7 @@ do
             ui = { rows = {} }
             popup._ui = ui
             if PP then
-                EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
+                EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popup._bg)
             end
         end
 
@@ -1034,7 +1034,7 @@ do
             sBg:SetAllPoints()
             local sBrd
             if PP then
-                sBrd = EllesmereUI.MakeBorder(syncBtn, accentColor.r, accentColor.g, accentColor.b, 0.7, PP)
+                sBrd = EllesmereUI.MakeRoundedBorder(syncBtn, accentColor.r, accentColor.g, accentColor.b, 0.7, sBg)
             end
             local sLbl = syncBtn:CreateFontString(nil, "OVERLAY")
             if EllesmereUI and EllesmereUI.PrimeFontShadow then EllesmereUI.PrimeFontShadow(sLbl, false) end

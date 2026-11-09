@@ -71,6 +71,7 @@ local function Load(forever)
         AbbreviateValue = function(v) return tostring(v) end,
         IsZeroValue = function(v) return v == 0 end,
         UnitNameFormat = function(mode) return mode end,
+        OwnSurnameHidden = function() return false end,
         ShortName = function(name) return name end,
         -- The font family helpers the stale-parent guard asks for (no text is drawn here).
         ApplyModuleFontFamily = function() end,
@@ -125,6 +126,8 @@ for _, forever in ipairs({ true, false }) do
     Eq(D.replaceQuestIconWithObjective, forever, W("the Replace default"))
     Eq(D.classificationShowInInstances, forever, W("the Show In Instances default"))
     Eq(D.questObjectiveTextSize, 14, W("the Quest Objective Text Size default"))
+    Eq(D.showQuestObjectiveTypeIcon, false, W("quest objective type icon default"))
+    Eq(D.questObjectiveTypeIconScale, 100, W("quest objective type icon scale default"))
 
     -- the key tables, exactly as the options and the preview index them
     local SK = ns.NP_CORE_SIZE_KEY

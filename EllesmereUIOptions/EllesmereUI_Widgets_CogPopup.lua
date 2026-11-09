@@ -18,7 +18,6 @@ local PoolGen, PoolIsIdle = EllesmereUI._Pool.Gen, EllesmereUI._Pool.IsIdle
 local PP = EllesmereUI.PanelPP
 local SolidTex = EllesmereUI.SolidTex
 local MakeFont = EllesmereUI.MakeFont
-local MakeBorder = EllesmereUI.MakeBorder
 local MakeDropdownArrow = EllesmereUI.MakeDropdownArrow
 local EXPRESSWAY = EllesmereUI.EXPRESSWAY
 local ELLESMERE_GREEN = EllesmereUI.ELLESMERE_GREEN
@@ -277,6 +276,19 @@ local function BuildCogPopup(opts)
                     tmpFS:SetText(EllesmereUI.L(row.label))
                     local w = tmpFS:GetStringWidth() + (((row.type == "dropdown" or row.type == "reordercheck") and row.ddWidth) or COG_DD_W)
                     if w > maxDDNeed then maxDDNeed = w end
+                elseif row.type == "toggle" or row.type == "colorpicker" or row.type == "multiswatch" or row.type == "button" then
+                    -- A long label must not run under the right-aligned switch or swatches, or past a button's edges.
+                    tmpFS:SetText(EllesmereUI.L(row.label))
+                    local control = TG_W
+                    if row.type == "colorpicker" then
+                        control = 20
+                    elseif row.type == "multiswatch" then
+                        control = #(row.swatches or {}) * 28
+                    elseif row.type == "button" then
+                        control = 16
+                    end
+                    local w = tmpFS:GetStringWidth() + control
+                    if w > maxDDNeed then maxDDNeed = w end
                 end
             end
             if maxLblW < 10 then maxLblW = 60 end
@@ -382,7 +394,7 @@ local function BuildCogPopup(opts)
 
         local bg = SolidTex(pf, "BACKGROUND", 0.077, 0.068, 0.058, opts.bgAlpha or 0.95)
         bg:SetAllPoints()
-        MakeBorder(pf, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15, PP)
+        EllesmereUI.MakeRoundedBorder(pf, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15, bg)
 
         local titleFS = MakeFont(pf, TITLE_H, "", 1, 1, 1)
         titleFS:SetAlpha(0.7)
@@ -855,6 +867,7 @@ local function BuildCogPopup(opts)
                     saveBtn:SetFrameLevel(pf:GetFrameLevel() + 3)
                     saveBg = SolidTex(saveBtn, "BACKGROUND", EG.r, EG.g, EG.b, 0.85)
                     saveBg:SetAllPoints()
+                    EllesmereUI.RoundBody(saveBtn, saveBg)
                     saveLbl = MakeFont(saveBtn, 10, nil, 1, 1, 1)
                     saveLbl:SetAlpha(0.9)
                     saveLbl:SetText(EllesmereUI.L("Save"))

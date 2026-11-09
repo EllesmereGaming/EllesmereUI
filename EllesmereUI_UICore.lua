@@ -34,11 +34,17 @@ local BTN_TXT_HA = EllesmereUI.BTN_TXT_HA
 -- colours = { bg_r,bg_g,bg_b,bg_a, bg_hr,bg_hg,bg_hb,bg_ha,
 --             brd_r,brd_g,brd_b,brd_a, brd_hr,brd_hg,brd_hb,brd_ha,
 --             txt_r,txt_g,txt_b,txt_a, txt_hr,txt_hg,txt_hb,txt_ha }
-local function MakeStyledButton(btn, text, fontSize, colours, onClick)
+-- square (optional): the square outline, for a window that is square by design.
+local function MakeStyledButton(btn, text, fontSize, colours, onClick, square)
     local c = colours
     local bg  = SolidTex(btn, "BACKGROUND", c[1], c[2], c[3], c[4])
     bg:SetAllPoints()
-    local brd = MakeBorder(btn, c[9], c[10], c[11], c[12], PP)
+    local brd
+    if square then
+        brd = MakeBorder(btn, c[9], c[10], c[11], c[12], PP)
+    else
+        brd = EllesmereUI.MakeRoundedBorder(btn, c[9], c[10], c[11], c[12], bg)
+    end
     local lbl = MakeFont(btn, fontSize, nil, c[17], c[18], c[19])
     -- The resting alpha lives in the text colour, as the hover scripts below set it
     -- (a region alpha on top would multiply with it after the first hover).
@@ -1232,6 +1238,18 @@ do
         return full
     end
 
+    -- True for your own unit on WoW Forever while Blizzard's "My Surname" (UnitSurnameOwn)
+    -- is off, when your name is your first name alone: the [name:last] and [target:last]
+    -- tags show nothing for it, so "[name:first] [name:last]" reads as the first name.
+    function EllesmereUI.OwnSurnameHidden(unit)
+        if not IS_FOREVER or not unit then return false end
+        local PI = C_PlayerInfo
+        if not (PI and PI.ShouldDisplaySurname) or PI.ShouldDisplaySurname() then return false end
+        local isMe = UnitIsUnit(unit, "player")
+        if issecretvalue(isMe) then return false end
+        return isMe == true
+    end
+
     -- Name Format, on every client:
     --     EllesmereUI.ShortName(name, mode)
     -- "first" / "last" keep one word, "abbr" turns every word but the last into
@@ -1663,6 +1681,21 @@ do
         if f:IsProtected() and InCombatLockdown() then return end
         if v == nil then v = true end
         f:SetAttribute(attr, v)
+    end
+
+    -- A hand-built modal popup of ours (a named dimmer over its panel) joins the
+    -- controller cursor and answers controller Back from its first open with a
+    -- controller in use; until then nothing is registered or hooked. The panel
+    -- stays a blocker without being a cursor stop, closeBtn is what the
+    -- controller's cancel button presses, and onEscape (nil = hide the dimmer) is
+    -- what Back runs. Call it just before the dimmer's Show (the Cooldown
+    -- Manager's popups, the Talent Conditions picker).
+    function EllesmereUI.PadPopupOpen(dimmer, panel, closeBtn, onEscape)
+        if dimmer._padReg or not EllesmereUI.PadInUse() then return end
+        dimmer._padReg = true
+        EllesmereUI.PadHint(panel, "nodepass")
+        if closeBtn then panel.CloseButton = closeBtn end
+        EllesmereUI.RegisterEscapeClose(dimmer, { padOnly = true, onEscape = onEscape })
     end
 
     function EllesmereUI.PadCursorShown()

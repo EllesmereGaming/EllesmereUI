@@ -808,8 +808,11 @@ do
         return ns.NP_FormatName(name, slotKey, u)
     end
     -- Tag modifiers shape the plain name. They do not also apply the slot's Name Format.
+    -- [name:last] and [target:last] show nothing for your own unit while your name is
+    -- your first name alone (OwnSurnameHidden: WoW Forever, Blizzard's My Surname off).
     local function Shaped(mode)
         return function(u)
+            if mode == "last" and EllesmereUI.OwnSurnameHidden(u) then return "" end
             local name = EllesmereUI.WithSurname(UnitName(u))
             if type(name) == "nil" then return "" end
             return EllesmereUI.ShortName(name, mode)

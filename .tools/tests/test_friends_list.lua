@@ -53,7 +53,7 @@ ADD_FAVORITE_STATUS, REMOVE_FAVORITE_STATUS = "Add Favorite", "Remove Favorite"
 RAID_CLASS_COLORS = { MAGE = { r = 0.2, g = 0.7, b = 1 } }
 function GetClassInfo(id) return "Mage", "MAGE" end
 function GetCurrentRegion() return 1 end
-Enum = { TitleIconVersion = { Medium = 1, Small = 0 } }
+Enum = { TitleIconVersion = { Medium = 1, Small = 0 }, BattleNetFriendLevel = { BattleTag = 2, Title = 3 } }
 
 local function MakeObj(kind, parent, template)
     local o = { _kind = kind, _parent = parent, _template = template, _scripts = {}, _hooks = {}, _events = {},
@@ -254,7 +254,7 @@ local function Info(i)
         richPresence = f.rich, gameAccountID = 900 + i, factionName = f.faction, isInCurrentRegion = true }
     return { bnetAccountID = f.id, accountName = "|Kq" .. f.id .. "|k", battleTag = f.tag or "", isFavorite = f.fav or false,
         note = f.note or "", friendTags = f.tags or {}, isAFK = f.afk or false, isDND = f.dnd or false,
-        gameAccountInfo = gi,
+        gameAccountInfo = gi, friendLevel = f.friendLevel,
         customMessage = "", lastOnlineTime = 0 }
 end
 C_BattleNet = {
@@ -497,7 +497,7 @@ T.AddFriend({ id = 102, tag = "Bravo#2", online = true, char = "Bravochar", leve
     area = "Orgrimmar", guid = "Player-2", note = "raid buddy ||EUI:Raiders||" })
 T.AddFriend({ id = 103, tag = "Charlie#3", online = false, note = "||EUI:Raiders||" })
 T.AddFriend({ id = 104, title = "Deltachar", online = true, char = "Deltachar", level = 12, class = "Mage",
-    area = "Elwynn", guid = "Player-4" })
+    area = "Elwynn", guid = "Player-4", friendLevel = Enum.BattleNetFriendLevel.Title })
 T.AddFriend({ id = 105, tag = "Echo#5", online = true, char = "Echochar", level = 30, class = "Mage",
     area = "Darkshire", guid = "Player-5", accounts = 2 })
 T.AddFriend({ id = 106, tag = "Foxtrot#6", online = true, char = "Foxchar", level = 30, class = "Mage",
@@ -525,16 +525,18 @@ local function One(pred, what)
     return list[1]
 end
 
--- 0. the kit's tiles start
+-- 0. the kit's tiles start (the WoW Forever card's host under its own tiles: online friends' rows wear
+--    Blizzard's card art at a quarter)
 FriendsListSocialCardMixin = { Initialize = function() end, SetSelected = function() end }
 local before = #T.frames
-Kit.StartTiles({ Settings = Settings, style = "eui", fontKey = "blizzardSkin" })
+Kit.StartTiles({ Settings = Settings, style = "eui", fontKey = "blizzardSkin", onlineCards = 0.25 })
 assert(#T.frames == before, "the tiles built a frame as they started")
 assert(FL.Available() == true)
 local lo, hi, def = FL.TileRange()
 assert(lo == 24 and hi == 70 and def == 40)
 
--- 1. the list has no switch: it starts with its host, and only its driver exists until the view shows
+-- 1. the list starts with its host (whose settings leave its switch, customTiles, unset), and only
+--    its driver exists until the view shows
 FL.Start()
 local driver = One(function(f) return f._parent == view and f._scripts.OnShow ~= nil end, "driver")
 assert(#T.frames == before + 1, "more than the driver was built before the view showed")
@@ -1711,6 +1713,165 @@ do
     FL.Refresh()
     T.ScrollTo(0)
     note(("scroll bar: %d spot changes told, %d range changes"):format(bar._sets, bar._ranges))
+end
+
+-- 29. the list's switch (customTiles, the Forever card's Custom Friends List Tiles): off stands the
+--     list down and Blizzard's list shows, its cards caught up; on brings the list back
+do
+    local card = T.MakeObj("Button", view.ScrollBox)
+    card.elementData = { friendIndex = 2, accountInfo = C_BattleNet.GetFriendAccountInfo(2) }
+    card.PartyButton = T.MakeObj("Button", card)
+    cardHook(card)
+    local d = T.ffd[1][card]
+    assert(d and not d.skinned, "a covered card was painted")
+    settings.customTiles = false
+    FL.Refresh()
+    assert(not root._shown and view.ScrollBox._alpha == 1 and view.ScrollBar._alpha == 1 and Kit._listShown == false,
+        "the switch did not stand the list down")
+    assert(next(ev._events) == nil and LiveMenus() == 0 and not driver._shown, "the list still runs while off")
+    assert(d.skinned == true, "Blizzard's card was not caught up as the switch stood the list down")
+    settings.customTiles = true
+    FL.Refresh()
+    assert(root._shown and view.ScrollBox._alpha == 0 and Kit._listShown == true and #Rows() > 3,
+        "the switch did not bring the list back")
+    assert(ev._events.BN_FRIEND_INFO_CHANGED and LiveMenus() == 2)
+    settings.customTiles = nil
+    FL.Refresh()
+    assert(root._shown and view.ScrollBox._alpha == 0, "settings without the switch stood the list down")
+    -- the switch turned off with no refresh (an import): read as the view shows again
+    HideView()
+    settings.customTiles = false
+    ShowView()
+    assert(not root._shown and view.ScrollBox._alpha == 1 and Kit._listShown == false and LiveMenus() == 0,
+        "the view showed the list while its switch was off")
+    settings.customTiles = nil
+    FL.Refresh()
+    assert(root._shown and view.ScrollBox._alpha == 0)
+end
+
+-- 30. Blizzard's online card art (onlineCards). Under the card's own tiles (this harness's host) an
+--     online friend's row wears it at a quarter, under the tile's shade and online tint, which show as
+--     before. Then a host without its cards (the Forever card under Blizz Default with Custom Friends
+--     List Tiles on), started later in the session: a fresh kit and list. Nothing hooks Blizzard's
+--     cards, the list draws its own tiles over Blizzard's list, its online friends' rows wear the card
+--     whole in place of the shade and tint, and standing it down leaves Blizzard's cards be.
+do
+    Flush()
+    local seen0 = { online = 0, offline = 0, title = 0 }
+    for _, r in ipairs(Rows()) do
+        local card, d = rawget(r, "card"), r.d
+        assert(card and card._alpha == 0.25 and rawget(r, "cardWhole") == false,
+            "a row under the card's own tiles has no faint card")
+        assert(d.tileBg._shown, "a row under the card's own tiles lost the tile's shade")
+        if r.rec.online then
+            local want = r.rec.id == 104 and "friends-card-default" or "friends-card-battleNet"
+            assert(card._shown and card._atlas == want and d.onlineBg._shown,
+                "an online friend's row under the card's own tiles: " .. tostring(r.rec.id))
+            seen0.online = seen0.online + 1
+            if r.rec.id == 104 then seen0.title = seen0.title + 1 end
+        else
+            assert(not card._shown and not d.onlineBg._shown, "an offline friend's row wears the card or the tint")
+            seen0.offline = seen0.offline + 1
+        end
+    end
+    assert(seen0.online > 0 and seen0.offline > 0,
+        ("the rows in view: %d online, %d offline"):format(seen0.online, seen0.offline))
+    if seen0.title == 0 then
+        local r = Reveal(104)
+        assert(r.card._shown and r.card._atlas == "friends-card-default" and r.d.onlineBg._shown,
+            "a game-level friend's row under the card's own tiles")
+    end
+    -- a friend going offline drops the card and the tint, coming back brings both back
+    local r101 = Reveal(101)
+    T.friends[1].online = false
+    ev._scripts.OnEvent(ev, "BN_FRIEND_INFO_CHANGED")
+    Flush()
+    r101 = RowFor(101)
+    assert(r101 and not r101.card._shown and not r101.d.onlineBg._shown and r101.d.tileBg._shown,
+        "a friend gone offline kept the card or the tint")
+    T.friends[1].online = true
+    ev._scripts.OnEvent(ev, "BN_FRIEND_INFO_CHANGED")
+    Flush()
+    r101 = RowFor(101)
+    assert(r101 and r101.card._shown and r101.card._atlas == "friends-card-battleNet" and r101.d.onlineBg._shown
+        and r101.d.tileBg._shown, "a friend back online did not take the card and the tint back")
+
+    settings.customTiles = false
+    FL.Refresh()
+    assert(view.ScrollBox._alpha == 1 and LiveMenus() == 0)
+    local hooksBefore, ffdBefore, framesBefore = #T.hooks, #T.ffd, #T.frames
+    assert(loadstring(KIT_SRC, "=EllesmereUI_FriendsKit.lua"))("EllesmereUI", {})
+    assert(loadstring(LIST_SRC, "=EllesmereUI_FriendsList.lua"))("EllesmereUI", {})
+    local Kit2, FL2 = EllesmereUI.FriendsKit, EllesmereUI.FriendsList
+    assert(Kit2 ~= Kit and FL2 ~= FL and #T.ffd == ffdBefore + 1)
+    local function NewFrames(pred)
+        local list = {}
+        for i = framesBefore + 1, #T.frames do
+            if pred(T.frames[i]) then list[#list + 1] = T.frames[i] end
+        end
+        return list
+    end
+    local s2 = { enabled = true, showClassIcons = true, iconStyle = "modern", classColorNames = true,
+        factionBanners = false, showRegionIcons = true, tileHeight = 40, customTiles = true }
+    local host2 = { Settings = function() return s2 end, style = "eui", fontKey = "blizzardSkin", cards = false,
+        onlineCards = 1 }
+    Kit2.StartTiles(host2)
+    assert(#T.hooks == hooksBefore, "a host without its cards hooked Blizzard's cards")
+    assert(Kit2._tile.Host() == host2, "the list's host did not start")
+    FL2.Start()
+    local drivers = NewFrames(function(f) return f._parent == view and f._scripts.OnShow ~= nil end)
+    assert(#drivers == 1, "expected one driver for the second list")
+    drivers[1]._scripts.OnShow(drivers[1])
+    local sf2 = NewFrames(function(f) return f._kind == "ScrollFrame" end)[1]
+    assert(sf2 and sf2._parent._parent == view and sf2._parent._shown, "the list did not show under a host without cards")
+    assert(view.ScrollBox._alpha == 0 and Kit2._listShown == true and LiveMenus() == 2)
+    sf2._w, sf2._h = 380, 400
+    sf2._scripts.OnSizeChanged(sf2)
+    local rows2 = NewFrames(function(f) return f._parent == sf2._child and rawget(f, "hit") ~= nil and f._shown end)
+    assert(#rows2 > 3 and rows2[1].d and rows2[1].d.tileBg, "the list's rows did not take the tile pieces")
+    for i = hooksBefore + 1, #T.hooks do
+        assert(T.hooks[i].target ~= FriendsListSocialCardMixin, "Blizzard's cards were hooked")
+    end
+    -- an online friend's row wears Blizzard's card (a game-level friend's or a Battle.net friend's) in place
+    -- of the tile's shade and online tint; an offline friend's keeps the tile
+    local seen = { online = 0, offline = 0, title = 0 }
+    for _, r in ipairs(rows2) do
+        local card, d = rawget(r, "card"), r.d
+        assert(card and card._alpha == 1 and rawget(r, "cardWhole") == true, "a row under Blizz Default has no card")
+        if r.rec.online then
+            local want = r.rec.id == 104 and "friends-card-default" or "friends-card-battleNet"
+            assert(card._shown and card._atlas == want and not d.tileBg._shown and not d.onlineBg._shown,
+                "an online friend's row does not wear Blizzard's card: " .. tostring(r.rec.id))
+            seen.online = seen.online + 1
+            if r.rec.id == 104 then seen.title = seen.title + 1 end
+        else
+            assert(not card._shown and d.tileBg._shown, "an offline friend's row wears Blizzard's card")
+            seen.offline = seen.offline + 1
+        end
+    end
+    assert(seen.online > 0 and seen.offline > 0 and seen.title == 1,
+        ("the rows in view: %d online, %d offline, %d game-level"):format(seen.online, seen.offline, seen.title))
+    -- a friend going offline takes the tile back
+    local ev2 = NewFrames(function(f) return f._scripts.OnEvent ~= nil and f._parent == nil end)[1]
+    local fl2 = NewFrames(function(f) return f._scripts.OnUpdate ~= nil and f._parent == nil end)[1]
+    assert(ev2 and fl2, "the second list's event frame or flusher is missing")
+    T.friends[1].online = false
+    ev2._scripts.OnEvent(ev2, "BN_FRIEND_INFO_CHANGED")
+    if fl2._shown then fl2._scripts.OnUpdate(fl2) end
+    local row101
+    for _, r in ipairs(NewFrames(function(f) return f._parent == sf2._child and rawget(f, "hit") ~= nil and f._shown end)) do
+        if r.rec and r.rec.id == 101 then row101 = r end
+    end
+    assert(row101 and not row101.card._shown and row101.d.tileBg._shown, "a friend gone offline kept Blizzard's card")
+    T.friends[1].online = true
+    s2.customTiles = false
+    FL2.Refresh()
+    assert(not sf2._parent._shown and view.ScrollBox._alpha == 1 and Kit2._listShown == false and LiveMenus() == 0,
+        "the switch did not stand the list down under a host without cards")
+    for frame in pairs(T.ffd[ffdBefore + 1]) do
+        assert(frame.elementData == nil, "a Blizzard card was painted by a host without cards")
+    end
+    note(("host without cards: %d rows drawn, %d hooks added (the view's search)"):format(#rows2, #T.hooks - hooksBefore))
 end
 
 note(("popups shown: %d, tooltips: %d, reads of the list under ours: %d"):format(#T.popups, T.tooltips, T.searchCalls))

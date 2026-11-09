@@ -167,6 +167,7 @@ local function Load(opts)
     local db = { profile = {} }
     env.EllesmereUI = {
         IS_FOREVER = true,
+        IsSecret = function(v) return v ~= nil and env.issecretvalue(v) end,
         Lite = {
             NewDB = function(_, defaults)
                 db.profile = DeepCopy(defaults.profile)

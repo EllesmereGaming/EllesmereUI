@@ -1,6 +1,6 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local addon, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.Glows and EllesmereUI.Glows.FlatKeys and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.SetFontObjectFace and EllesmereUI.SnapshotFontObject and EllesmereUI.RestoreFontObject) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, the Name Format asks its UnitNameFormat, the plate texts take font families through its ApplyModuleFontFamily / SetFontFamily, and the friendly name-only fonts change through its SetFontObjectFace / SnapshotFontObject / RestoreFontObject)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI._Pool and EllesmereUI.Glows and EllesmereUI.Glows.FlatKeys and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.SetFontObjectFace and EllesmereUI.SnapshotFontObject and EllesmereUI.RestoreFontObject) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, the Name Format asks its UnitNameFormat, the [name:last] and [target:last] tags its OwnSurnameHidden, the plate texts take font families through its ApplyModuleFontFamily / SetFontFamily, and the friendly name-only fonts change through its SetFontObjectFace / SnapshotFontObject / RestoreFontObject)
 EllesmereUI._ModuleNS[addon] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -226,6 +226,8 @@ local defaults = {
     -- casts something interruptible, else the Uninterruptible color once it casts something
     -- that is not; each color applies to the mob types ticked for it.
     castingEnemyColors = false,
+    -- Enemy Players Use Enemy Color: enemy players take the Enemies color, not their class color.
+    enemyPlayerEnemyColor = false,
     castingIntColor   = { r = 0.310, g = 0.702, b = 1.000 },
     castingUnintColor = { r = 0.953, g = 0.573, b = 0.000 },
     castingIntNormal = true, castingIntElite = true, castingIntMiniBoss = true, castingIntBoss = true,
@@ -294,6 +296,7 @@ local defaults = {
     friendlyHealthBarWidth = 150,
     showFriendlyNPCs = false,
     showNPCTitles = true,
+    showNPCRaidMarker = false,
     showFriendlyPlayers = true,
     friendlyClickThrough = false,
     friendlyShowDefaultNames = false,
@@ -534,6 +537,8 @@ local defaults = {
     -- what shows the text on a fresh Forever profile. No UI writes it.
     replaceQuestIconWithObjective = (EllesmereUI.IS_FOREVER == true) and true or false,
     questObjectiveTextSize = 14,  -- the Quest Objective Text element's Text Size
+    showQuestObjectiveTypeIcon = false,
+    questObjectiveTypeIconScale = 100,
     showCastIcon = true,
     castIconScale = 1,
     castIconOffsetX = 0,

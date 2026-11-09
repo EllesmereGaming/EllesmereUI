@@ -306,7 +306,7 @@ local function BuildFilterCBDropdown(rgn, claim, dm)
             DmApply()
         end,
         nil, 12)
-    PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+    EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
     rgn._control = cbDD
     rgn._lastInline = nil
 end
@@ -506,7 +506,7 @@ local function BuildTileFiltersDD(rgn, t, dm)
         { separatorFn = function()
             return ns.DM_TileMatchOn(t) and " & " or ", "
         end })
-    PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+    EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
     rgn._control = cbDD
     rgn._lastInline = nil
     if cbRefresh then EllesmereUI.RegisterWidgetRefresh(cbRefresh) end
@@ -916,7 +916,7 @@ local function BuildBaseDetailDM(frame, fontPath)
             { separatorFn = function()
                 return (dm.match == "all" and not AllOn()) and " & " or ", "
             end })
-        PPl.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
         if cbRefresh then EllesmereUI.RegisterWidgetRefresh(cbRefresh) end
@@ -2366,6 +2366,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
         addBg:SetAllPoints()
         addBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+        EllesmereUI.RoundBody(addBtn, addBg)
 
         local addLabel = addBtn:CreateFontString(nil, "OVERLAY")
         -- Drop shadow via the shadow FontObject, primed BEFORE SetFont
@@ -2410,7 +2411,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 local bg = popup:CreateTexture(nil, "BACKGROUND")
                 bg:SetAllPoints()
                 bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-                EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+                EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, bg)
 
                 -- Pending filter picks for the new tile (wiped on hide)
                 popup._dmFilters = {}
@@ -2516,6 +2517,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 local cBg = cBtn:CreateTexture(nil, "BACKGROUND")
                 cBg:SetAllPoints()
                 cBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+                EllesmereUI.RoundBody(cBtn, cBg)
                 local cTx = cBtn:CreateFontString(nil, "OVERLAY")
                 cTx:SetPoint("CENTER")
                 cTx:SetFont(fontPath, 12, "")
@@ -2948,7 +2950,7 @@ function ns.BMP_ShowFilterEditor(show, hide)
     popup:EnableMouse(true)
     local popBg = EllesmereUI.SolidTex(popup, "BACKGROUND", 0.077, 0.068, 0.058, 1)
     popBg:SetAllPoints()
-    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15)
+    EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
     local ppScale = EllesmereUI.GetPopupScale() or 1
     popup:SetScale(ppScale)
 
@@ -3048,7 +3050,8 @@ function ns.BMP_ShowFilterEditor(show, hide)
     side:SetFrameLevel(popup:GetFrameLevel() + 1)
     local sideBg = EllesmereUI.SolidTex(side, "BACKGROUND", 0, 0, 0, 0.35)
     sideBg:SetAllPoints()
-    EllesmereUI.MakeBorder(side, 1, 1, 1, 0.10)
+    -- Flush with the popup's bottom-right corner: same shape, rows clipped to it.
+    EllesmereUI.MakeRoundedBorder(side, 1, 1, 1, 0.10, sideBg, nil, true)
 
     -- Sidebar content scrolls when it outgrows the popup (standard smooth
     -- scroll + thin custom bar; bar shows only on overflow).
@@ -3387,11 +3390,12 @@ function ns.BMP_ShowFilterEditor(show, hide)
         local boxBg = box:CreateTexture(nil, "BACKGROUND")
         boxBg:SetAllPoints()
         boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-        local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6)
+        local boxBrd = EllesmereUI.MakeRoundedBorder(box, 0.4, 0.4, 0.4, 0.6, boxBg)
         local chk = box:CreateTexture(nil, "ARTWORK")
         chk:SetPoint("TOPLEFT", box, "TOPLEFT", 2, -2)
         chk:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -2, 2)
         chk:SetColorTexture(eg.r, eg.g, eg.b, 1)
+        EllesmereUI.RoundBody(box, chk, 2)
         local on = sel.spells[id] and true or false
         local ico = srow:CreateTexture(nil, "ARTWORK")
         ico:SetSize(22, 22)
@@ -3587,7 +3591,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                 EllesmereUI:RefreshPage()
             end,
             nil, 12)
-        PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
@@ -3700,7 +3704,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                 if ns.ReloadFrames then ns.ReloadFrames() end
             end,
             nil, 10, true)
-        PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)

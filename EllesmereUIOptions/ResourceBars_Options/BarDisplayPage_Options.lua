@@ -1112,9 +1112,10 @@ function ns.ERB_BuildBarDisplayPage(pageName, parent, yOffset)
                       disabled = FdmOff,
                       disabledTooltip = FdmOffTip,
                       values = { none = "None", smart = "Smart Text", curpp = "Power Value", curmaxpp = "Power Value / Max", perpp = "Power %", both = "Power Value | Power %" },
-                      order = { "none", "smart", "curpp", "curmaxpp", "perpp", "both" },
+                      -- WoW Forever lists no Smart Text (EllesmereUI.PowerTextFormat).
+                      order = EllesmereUI.PowerTextFormatOrder({ "none", "smart", "curpp", "curmaxpp", "perpp", "both" }),
                       getValue = function()
-                          local t = FdmCfg(); return t and t.textFormat or "none"
+                          local t = FdmCfg(); return EllesmereUI.PowerTextFormat(t and t.textFormat or "none")
                       end,
                       setValue = function(v)
                           local t = FdmCfg(); if not t then return end

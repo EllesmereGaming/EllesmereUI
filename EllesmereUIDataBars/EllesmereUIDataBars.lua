@@ -120,6 +120,7 @@ local L = {
     ON_COOLDOWN          = "On Cooldown",
     MYTHIC_TELEPORTS     = "Mythic+ Teleports",
     USE_HEARTHSTONE      = "Use Hearthstone",
+    OTHER_CHARACTERS     = "Other Characters",
     RANDOM_HEARTHSTONE   = "Random Hearthstone",
     RETURN_FROM_HOME     = "Return from Home",
     RETURN_AVAILABLE     = "Return available",

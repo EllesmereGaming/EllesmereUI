@@ -489,8 +489,10 @@ end
 --  and every later write to it goes through SetFontFamily, never SetFont,
 --  ApplyModuleFont, ApplyIconTextFont or PrimeFontShadow.
 --  Blizzard's own font OBJECTS (families or plain) change member by member
---  through SetFontObjectFace, never through a family object's own SetFont, whose
---  effect on its other alphabets is not defined.
+--  through SetFontObjectFace. A family object's own SetFont changes only its own
+--  font, the one GetFont() reads and copies take (Blizzard's guild chat copies the
+--  main chat window's), never a member; SetFontObjectFace sets it too, where the
+--  client's own alphabet takes the face.
 --  Built once per path / size / flags / shadow; a hit reads four table fields and
 --  builds nothing. Table fields, not file-scope locals (200-local limit).
 -------------------------------------------------------------------------------
@@ -503,6 +505,9 @@ EllesmereUI._FONT_CLIENT_ALPHABET = ({ koKR = "korean", zhCN = "simplifiedchines
     zhTW = "traditionalchinese" })[GetLocale()]
 -- On a Russian client the russian member keeps the path, as every text in Russian draws with it.
 EllesmereUI._FONT_CLIENT_RU = (GetLocale() == "ruRU")
+-- The alphabet the client's own language draws with.
+EllesmereUI._FONT_CLIENT_OWN = EllesmereUI._FONT_CLIENT_ALPHABET
+    or (EllesmereUI._FONT_CLIENT_RU and "russian") or "roman"
 EllesmereUI._FONT_CYR_FILE = "Fonts\\FRIZQT___CYR.TTF"
 -- path -> size -> flags ("" for none) -> shadow (true / false) -> family, or false
 -- when the client has no families or the creation failed (never retried).
@@ -550,7 +555,9 @@ function EllesmereUI._FontMemberTakesPath(alphabet, path)
 end
 
 -- Whether the client loads the font file at `path`: a hidden scratch string's
--- SetFont returns false for a file it cannot load. Tested once per path.
+-- SetFont returns false for a file it cannot load. Tested once per path, except
+-- that failures are retested until the loading screen after the first one ends
+-- (see below).
 function EllesmereUI._FontPathLoads(path)
     local c = EllesmereUI._fontPathOK
     local hit = c[path]
@@ -564,8 +571,64 @@ function EllesmereUI._FontPathLoads(path)
     end
     local ok, loaded = pcall(probe.SetFont, probe, path, 12, "")
     hit = ok and loaded ~= false
-    c[path] = hit
+    -- On a fresh game start a file can fail before it is read: retested at login (see below).
+    if hit or EllesmereUI._fontRetryDone then c[path] = hit else EllesmereUI._FontRetryArm(path) end
     return hit
+end
+
+-- Paths that failed before login finished, and the families built without them.
+EllesmereUI._fontPathPending = {}
+EllesmereUI._fontFamPending = {}
+-- Retests each pending path at the login stages; a path that loads goes into the
+-- families that fell back, member by member, so their texts update in place.
+function EllesmereUI._FontRetryArm(path)
+    EllesmereUI._fontPathPending[path] = true
+    local f = EllesmereUI._fontRetryFrame
+    if f then return end
+    f = CreateFrame("Frame")
+    EllesmereUI._fontRetryFrame = f
+    f:RegisterEvent("PLAYER_LOGIN")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    f:RegisterEvent("LOADING_SCREEN_DISABLED")
+    f:SetScript("OnEvent", function(self, event)
+        local pending, c = EllesmereUI._fontPathPending, EllesmereUI._fontPathOK
+        local final = event == "LOADING_SCREEN_DISABLED"
+        for p in pairs(pending) do
+            local ok, loaded = pcall(EllesmereUI._fontProbe.SetFont, EllesmereUI._fontProbe, p, 12, "")
+            if ok and loaded ~= false then
+                c[p], pending[p] = true, nil
+                EllesmereUI._FontFamiliesTakePath(p)
+            elseif final then
+                c[p], pending[p] = false, nil
+            end
+        end
+        if final or not next(pending) then
+            EllesmereUI._fontRetryDone = final or nil
+            if final then
+                self:UnregisterAllEvents()
+                wipe(EllesmereUI._fontFamPending)
+            end
+        end
+    end)
+end
+
+-- The families built while `path` failed get it now, on the members that take it,
+-- and as their own font (a family built with the path has its roman member's).
+function EllesmereUI._FontFamiliesTakePath(path)
+    local list = EllesmereUI._fontFamPending
+    local alphabets = EllesmereUI._FONT_ALPHABETS
+    for i = #list, 1, -1 do
+        local e = list[i]
+        if e.path == path then
+            for a = 1, #alphabets do
+                local member = EllesmereUI._FontMemberTakesPath(alphabets[a], path)
+                    and e.fam:GetFontObjectForAlphabet(alphabets[a])
+                if member then pcall(member.SetFont, member, path, e.size, e.flags) end
+            end
+            pcall(e.fam.SetFont, e.fam, path, e.size, e.flags)
+            table.remove(list, i)
+        end
+    end
 end
 
 -- The shadow on the family and on each member (PrimeFontShadow's values), and the
@@ -628,6 +691,10 @@ function EllesmereUI._BuildFontFamily(path, size, flags, shadow)
         return nil
     end
     byShadow[shadow] = fam
+    if face ~= path and EllesmereUI._fontPathPending[path] then
+        local list = EllesmereUI._fontFamPending
+        list[#list + 1] = { fam = fam, path = path, size = size, flags = flags }
+    end
     return fam
 end
 
@@ -722,6 +789,12 @@ function EllesmereUI._FontObjectFaceInto(obj, path, size, flags, scale, done)
                 EllesmereUI._SetFontMemberFace(member, face, size, flags, scale, done)
             end
         end
+        -- The family's own font as well (it changes no member): GetFont() reads it and
+        -- copies take it (the guild chat copies the main chat window's font). Only
+        -- where the client's own alphabet takes the face.
+        if not path or EllesmereUI._FontMemberTakesPath(EllesmereUI._FONT_CLIENT_OWN, path) then
+            EllesmereUI._SetFontMemberFace(obj, path, size, flags, scale, done)
+        end
     else
         EllesmereUI._SetFontMemberFace(obj, path, size, flags, scale, done)
     end
@@ -740,11 +813,14 @@ function EllesmereUI.SetFontObjectFace(obj, path, size, flags, scale)
     EllesmereUI._FontObjectFaceInto(obj, path, size, flags, scale, done)
 end
 
--- Each member's (or a plain object's) face, size and flags, for RestoreFontObject.
+-- Each member's (or a plain object's) face, size and flags, and a family's own
+-- font, for RestoreFontObject.
 function EllesmereUI.SnapshotFontObject(obj)
     if not (obj and type(obj) == "table" and obj.GetFont) then return nil end
     local snap = {}
     if EllesmereUI._FontObjectIsFamily(obj) then
+        local ownFace, ownSize, ownFlags = obj:GetFont()
+        snap.own = { face = ownFace, size = ownSize, flags = ownFlags }
         local alphabets = EllesmereUI._FONT_ALPHABETS
         for i = 1, #alphabets do
             local ok, member = pcall(obj.GetFontObjectForAlphabet, obj, alphabets[i])
@@ -773,6 +849,7 @@ function EllesmereUI.RestoreFontObject(obj, snap)
         EllesmereUI._RestoreFontMember(obj, snap.plain)
         return
     end
+    EllesmereUI._RestoreFontMember(obj, snap.own)
     local alphabets = EllesmereUI._FONT_ALPHABETS
     for i = 1, #alphabets do
         local s = snap[alphabets[i]]
