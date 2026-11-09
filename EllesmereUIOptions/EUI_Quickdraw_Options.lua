@@ -721,6 +721,9 @@ initFrame:SetScript("OnEvent", function(self)
     local PICK_MAX_LIST = 286  -- visible list height; a longer list scrolls
     local PICK_HEAD_H   = 24   -- title strip
     local PICK_NAV_H    = 56   -- back row + search box, category views only
+    local PICK_ICON_COLS = 7   -- Choose Icon grid: 30px cells on a 32px pitch
+    local PICK_ICON_ROWS = 8
+    local PICK_ICON_STEP = 32
     local QUESTION_MARK = "Interface\\Icons\\INV_Misc_QuestionMark"
 
     -- pickerReplaceIndex: set while the picker was opened by a right-click on
@@ -732,6 +735,10 @@ initFrame:SetScript("OnEvent", function(self)
     -- The spell and mount lists run to hundreds of rows, so the search box
     -- filters this cache instead of re-enumerating on every keystroke.
     local pickerLists = {}
+
+    -- The game's macro icons for Choose Icon, filled the way Blizzard's macro
+    -- window fills its list (IconDataProvider.lua) and dropped with the menu.
+    local pickerIcons
 
     ---------------------------------------------------------------------------
     --  Enumeration
@@ -1315,7 +1322,7 @@ initFrame:SetScript("OnEvent", function(self)
         for _, sub in ipairs(cat.subs or {}) do sub.parent = cat end
     end
 
-    local ShowPickerCategories, ShowPickerCategory, ShowPickerCustom
+    local ShowPickerCategories, ShowPickerCategory, ShowPickerCustom, ShowPickerIcons
 
     local function HidePicker()
         if pickerMenu then pickerMenu:Hide() end
@@ -1347,6 +1354,17 @@ initFrame:SetScript("OnEvent", function(self)
         HidePicker()
         Refresh()
         return true
+    end
+
+    -- Choose Icon's pick, onto the custom macro the picker was opened on. nil
+    -- (the question mark) clears it.
+    local function PickIcon(icon)
+        local palette = Palette(editPalette)
+        local slot = palette and pickerReplaceIndex and palette.slots[pickerReplaceIndex]
+        if not slot then return end
+        slot.icon = icon
+        HidePicker()
+        Refresh()
     end
 
     local function EnsurePickerMenu()
@@ -1619,6 +1637,68 @@ initFrame:SetScript("OnEvent", function(self)
                 textBox:SetText("")
             end
         end)
+
+        -----------------------------------------------------------------------
+        --  Choose Icon pane. The game's list runs to thousands of icons, so a
+        --  fixed grid is repainted from the scroll offset; the scroll frame
+        --  under it holds an empty child as tall as every row, for the bar.
+        -----------------------------------------------------------------------
+        local icons = CreateFrame("Frame", nil, menu)
+        icons:SetPoint("TOPLEFT", menu.back, "BOTTOMLEFT", 7, -6)
+        icons:SetPoint("TOPRIGHT", menu.back, "BOTTOMRIGHT", -5, -6)
+        icons:SetHeight(PICK_ICON_ROWS * PICK_ICON_STEP)
+        icons:SetFrameLevel(menu:GetFrameLevel() + 2)
+        icons:Hide()
+        icons.offset = 0
+        menu.icons = icons
+
+        local iconScroll = CreateFrame("ScrollFrame", nil, icons)
+        iconScroll:SetAllPoints()
+        icons.child = CreateFrame("Frame", nil, iconScroll)
+        icons.child:SetSize(1, 1)
+        iconScroll:SetScrollChild(icons.child)
+
+        icons.cells = {}
+        for i = 1, PICK_ICON_COLS * PICK_ICON_ROWS do
+            local c = CreateFrame("Button", nil, icons)
+            c:SetSize(PICK_ICON_STEP - 2, PICK_ICON_STEP - 2)
+            c:SetPoint("TOPLEFT", icons, "TOPLEFT", ((i - 1) % PICK_ICON_COLS) * PICK_ICON_STEP,
+                -math.floor((i - 1) / PICK_ICON_COLS) * PICK_ICON_STEP)
+            -- Above the scroll frame, which still takes the wheel under them.
+            c:SetFrameLevel(iconScroll:GetFrameLevel() + 1)
+            c.tex = c:CreateTexture(nil, "ARTWORK")
+            c.tex:SetAllPoints()
+            c.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            local hl = c:CreateTexture(nil, "HIGHLIGHT")
+            hl:SetAllPoints()
+            hl:SetColorTexture(1, 1, 1, 0.15)
+            c:SetScript("OnClick", function(s) PickIcon(s.value) end)
+            icons.cells[i] = c
+        end
+
+        function icons:Paint()
+            for i, c in ipairs(self.cells) do
+                local n = self.offset + i
+                local raw = pickerIcons[n - 1]
+                -- The question mark leads, with no value. Blizzard's list mixes
+                -- file IDs with names under Interface\Icons.
+                c.value = raw and (tonumber(raw) or ("Interface\\Icons\\" .. raw))
+                c.tex:SetTexture(c.value or QUESTION_MARK)
+                c:SetShown(n == 1 or raw ~= nil)
+            end
+        end
+
+        icons.scrollTo = select(2, EllesmereUI.AttachSmoothScrollbar(iconScroll, {
+            step = PICK_ICON_STEP * 2, child = icons.child,
+            onScroll = function(v)
+                local offset = math.floor(v / PICK_ICON_STEP + 0.5) * PICK_ICON_COLS
+                if offset ~= icons.offset then
+                    icons.offset = offset
+                    icons:Paint()
+                end
+            end,
+        }))
+
         menu:SetScript("OnHide", function(m)
             m.search:ClearFocus()
             nameBox:ClearFocus()
@@ -1626,16 +1706,21 @@ initFrame:SetScript("OnEvent", function(self)
             -- Replace mode ends with the menu, however it went down --
             -- committed, dismissed, or torn down by a page rebuild.
             pickerReplaceIndex = nil
+            pickerIcons = nil
         end)
 
-        -- Click-outside dismissal, same test the CDM picker uses. The anchor is
-        -- excluded so the "+" click that toggles the menu shut is not also read
-        -- as a click outside it.
+        -- Click-outside dismissal on a fresh press, the cog popups' test
+        -- (EllesmereUI_Widgets_CogPopup.lua): a drag that starts inside, such as
+        -- the Choose Icon scrollbar, may leave the menu. The anchor is excluded
+        -- so the "+" click that toggles the menu shut is not also read as a
+        -- click outside it.
         menu:SetScript("OnUpdate", function(m)
-            if IsMouseButtonDown("LeftButton") and not m:IsMouseOver()
+            local down = IsMouseButtonDown("LeftButton")
+            if down and not m.wasDown and not m:IsMouseOver()
                and not (pickerAnchor and pickerAnchor:IsMouseOver()) then
                 m:Hide()
             end
+            m.wasDown = down
         end)
 
         pickerMenu = menu
@@ -1684,6 +1769,7 @@ initFrame:SetScript("OnEvent", function(self)
         menu.search:ClearFocus()
         menu.search:Hide()
         menu.custom:Hide()
+        menu.icons:Hide()
         menu.scroll:Show()
         -- Only the root list carries the nest row, so only it draws the
         -- divider under row 1.
@@ -1717,6 +1803,19 @@ initFrame:SetScript("OnEvent", function(self)
         -- to "change it to what", and Back already leads out.
         local count = #cats
         if parent == nil and pickerReplaceIndex then
+            local stored = PaletteRead(editPalette)
+            local slot = stored and stored.slots[pickerReplaceIndex]
+            if slot and slot.kind == "macrotext" then
+                count = count + 1
+                local r = menu:GetRow(count)
+                r.icon:Hide()
+                r.label:ClearAllPoints()
+                r.label:SetPoint("LEFT", r, "LEFT", 8, 0)
+                r.label:SetPoint("RIGHT", r, "RIGHT", -6, 0)
+                r.label:SetText(EllesmereUI.L("Choose Icon"))
+                r:SetScript("OnClick", function() ShowPickerIcons() end)
+                r:Show()
+            end
             count = count + 1
             local r = menu:GetRow(count)
             r.icon:Hide()
@@ -1763,6 +1862,7 @@ initFrame:SetScript("OnEvent", function(self)
             menu.searchPH:SetShown((menu.search:GetText() or "") == "")
         end
         menu.custom:Hide()
+        menu.icons:Hide()
         menu.scroll:Show()
         menu.catDivider:Hide()
 
@@ -1854,9 +1954,39 @@ initFrame:SetScript("OnEvent", function(self)
         -- scroll child's children.
         menu.scroll:Hide()
         menu.catDivider:Hide()
+        menu.icons:Hide()
         menu.custom:Show()
         menu:SetHeight(PICK_HEAD_H + PICK_ROW_H + 6 + menu.custom:GetHeight() + 4)
         menu:Show()
+    end
+
+    -- Replace mode only: the root list offers it for a custom macro entry.
+    ShowPickerIcons = function()
+        local menu = EnsurePickerMenu()
+        menu.cat = nil
+        menu.title:SetText(EllesmereUI.L("Choose Icon"))
+        menu.back:Show()
+        menu.backText:SetText(EllesmereUI.L("Categories"))
+        menu.search:ClearFocus()
+        menu.search:Hide()
+        menu.scroll:Hide()
+        menu.catDivider:Hide()
+        menu.custom:Hide()
+        if not pickerIcons then
+            pickerIcons = {}
+            GetLooseMacroIcons(pickerIcons)
+            GetMacroIcons(pickerIcons)
+            GetLooseMacroItemIcons(pickerIcons)
+            GetMacroItemIcons(pickerIcons)
+        end
+        local icons = menu.icons
+        icons.child:SetHeight(math.ceil((#pickerIcons + 1) / PICK_ICON_COLS) * PICK_ICON_STEP)
+        icons.offset = 0
+        icons:Paint()
+        icons:Show()
+        menu:SetHeight(PICK_HEAD_H + PICK_ROW_H + 6 + icons:GetHeight() + 4)
+        menu:Show()
+        icons.scrollTo(0)
     end
 
     -- replaceIndex: open in replace mode on that slot (right-click on an
@@ -2296,6 +2426,7 @@ initFrame:SetScript("OnEvent", function(self)
         menu.search:ClearFocus()
         menu.search:Hide()
         menu.custom:Hide()
+        menu.icons:Hide()
         menu.scroll:Show()
         menu.catDivider:Hide()
         return menu
@@ -2888,7 +3019,11 @@ initFrame:SetScript("OnEvent", function(self)
                 if button == "MiddleButton" then
                     if self.isPlaceholder then return end
                     local palette = Palette(editPalette)
-                    if palette and ns.RemoveSlot(palette, self.index) then Refresh() end
+                    if palette and ns.RemoveSlot(palette, self.index) then
+                        -- A replace-mode picker's slot index is stale after a removal.
+                        if pickerReplaceIndex then HidePicker() end
+                        Refresh()
+                    end
                     return
                 end
                 if button == "RightButton" then
