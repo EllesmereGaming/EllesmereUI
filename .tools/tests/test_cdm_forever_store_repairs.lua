@@ -1,9 +1,9 @@
 -- Run from the repository root: lua .tools/tests/test_cdm_forever_store_repairs.lua
 -- WoW Forever CDM spell store repairs (EllesmereUI_Migration.lua): a Forever
--- spec key bucket hiding a retail-keyed layout of its class is dropped, and the
--- ghost CD bar stops hiding another rank of a spell placed on a visible
--- cooldown bar. Drives the real migration runner and the repairs block, each
--- cut from the file.
+-- spec key bucket hiding a retail-keyed layout of its class is dropped while
+-- it holds only Blizzard's layout, and the ghost CD bar stops hiding another
+-- rank of a spell placed on a visible cooldown bar. Drives the real migration
+-- runner and the repairs block, each cut from the file.
 local function ReadSource(name)
     local f = assert(io.open(name, "rb"))
     local src = f:read("*a")
@@ -59,6 +59,41 @@ local function Show(list) return "{" .. table.concat(list, ", ") .. "}" end
 
 local function Layout(...) return { barSpells = { cooldowns = { assignedSpells = { ... } } } } end
 
+-- Blizzard's layout as the reseed or a Repopulate writes it, with the potion
+-- row it marks as its own.
+local function Reseeded(edit)
+    local prof = { spellSettingsCD = {}, barSpells = {
+        cooldowns = { assignedSpells = { 75, 3044, -5512 }, nativeItems = { [-5512] = true } },
+        utility = { assignedSpells = { 781 } },
+        buffs = { assignedSpells = {} },
+    } }
+    if edit then edit(prof, prof.barSpells) end
+    return prof
+end
+local function Add(bs, id) bs.assignedSpells[#bs.assignedSpells + 1] = id end
+
+-- What a player made on the Forever key keeps it.
+local KEPT = {
+    customBar = function(_, b) b.bar4 = { assignedSpells = { 2974 } } end,
+    buffsBar = function(_, b) Add(b.buffs, 99997) end,
+    customBuffBar = function(_, b) b.bar6 = { assignedSpells = { 99997 } } end,
+    hiddenCD = function(_, b) b.__ghost_cd = { assignedSpells = { 5384 } } end,
+    trinket = function(_, b) Add(b.cooldowns, -13) end,
+    potion = function(_, b) Add(b.utility, -5512) end,
+    emptySlot = function(_, b) Add(b.utility, -(1000000000 + 1)) end,
+    hostedBuff = function(_, b) Add(b.cooldowns, -(2000000000 + 1130)) end,
+    legacyHostedBuff = function(_, b) b.cooldowns.hostedBuffSpellIDs = { [3044] = true } end,
+    cdClaim = function(_, b) Add(b.utility, -(3000000000 + 4242)) end,
+    customSpell = function(_, b) b.cooldowns.customSpellIDs = { [3044] = true } end,
+    legacyPreset = function(_, b) b.cooldowns.customSpellDurations = { [3044] = 20 } end,
+    spellDurations = function(_, b) b.utility.spellDurations = { [781] = 10 } end,
+    spellSettingsCD = function(p) p.spellSettingsCD[75] = { iconZoom = 0 } end,
+    spellSettingsBuff = function(p) p.spellSettingsBuff = { [99997] = { iconZoom = 0 } } end,
+    barSpellSettings = function(_, b) b.cooldowns.spellSettings = { [75] = { iconZoom = 0 } } end,
+    barSettings = function(_, b) b.utility.barSettings = { iconZoom = 0 } end,
+    trackingBars = function(p) p.trackedBuffBars = { bars = { {} } } end,
+}
+
 local function MakeDB()
     -- As saved: the Cooldowns, Utility and Buffs bars lead and keep no field
     -- equal to its default.
@@ -68,11 +103,13 @@ local function MakeDB()
         { key = "bar5", barType = "utility", enabled = true },
         { key = "__ghost_cd", barType = "cooldowns", isGhostBar = true, enabled = true },
     }
-    return {
+    local db = {
         profiles = { G = { addons = { EllesmereUICooldownManager = { cdmBars = { bars = bars } } } } },
         spellAssignments = { profiles = {
             -- Imported layout under 253, shadowed by a 1485 bucket.
             B = { specProfiles = { ["1485"] = Layout(75, 3044), ["253"] = Layout(2973, 20572) } },
+            -- Only what the reseed writes: still dropped.
+            R = { specProfiles = { ["1485"] = Reseeded(), ["253"] = Layout(2973) } },
             -- No retail layout to restore: the Forever key stays.
             C = { specProfiles = { ["1485"] = Layout(75), ["254"] = Layout(),
                 ["255"] = { barSpells = { __ghost_cd = { assignedSpells = { 3044 } } } } } },
@@ -90,6 +127,10 @@ local function MakeDB()
             } } } },
         } },
     }
+    for name, edit in pairs(KEPT) do
+        db.spellAssignments.profiles[name] = { specProfiles = { ["1485"] = Reseeded(edit), ["253"] = Layout(2973) } }
+    end
+    return db
 end
 
 -------------------------------------------------------------------------------
@@ -106,6 +147,10 @@ assert(P.C.specProfiles["1485"], "kept when no retail key holds a layout (empty 
 assert(P.D.specProfiles["1485"], "kept when it is the class's only bucket")
 assert(P.E.specProfiles["1491"], "kept when the retail layout is another class's")
 assert(P.F.specProfiles["1485"] == nil, "dropped when the retail key holds Tracking Bars")
+assert(P.R.specProfiles["1485"] == nil, "dropped when it holds only Blizzard's layout and its item rows")
+for name in pairs(KEPT) do
+    assert(P[name].specProfiles["1485"], "kept when it holds the player's " .. name)
+end
 
 -- The other ranks of Raptor Strike (Cooldowns) and Mongoose Bite (a custom bar)
 -- go. Raptor Strike under its placed ID (an explicit hide), Wing Clip (a
@@ -125,7 +170,7 @@ assert(Same(ghost, WANT), "a second run changes nothing: " .. Show(ghost))
 db = MakeDB()
 Run(false, db)
 P = db.spellAssignments.profiles
-assert(P.B.specProfiles["1485"], "retail keeps every bucket")
+assert(P.B.specProfiles["1485"] and P.R.specProfiles["1485"], "retail keeps every bucket")
 assert(#P.G.specProfiles["253"].barSpells.__ghost_cd.assignedSpells == 7, "retail keeps the ghost list")
 
 print("test_cdm_forever_store_repairs: all checks passed")

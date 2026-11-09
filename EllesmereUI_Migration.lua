@@ -4611,18 +4611,52 @@ if EllesmereUI.IS_FOREVER == true then
         return type(tbb) == "table" and type(tbb.bars) == "table" and #tbb.bars > 0
     end
 
+    local function HasEntries(t) return type(t) == "table" and next(t) ~= nil end
+
+    -- The reseed and a Repopulate write only Blizzard spell IDs on Cooldowns and
+    -- Utility, plus the item rows they mark in nativeItems. Anything else in the
+    -- bucket was placed or set by the player.
+    local function HoldsPlayerEdits(prof)
+        if HasEntries(prof.spellSettingsCD) or HasEntries(prof.spellSettingsBuff) then return true end
+        local tbb = prof.trackedBuffBars
+        if type(tbb) == "table" and HasEntries(tbb.bars) then return true end
+        if type(prof.barSpells) ~= "table" then return false end
+        for bk, bs in pairs(prof.barSpells) do
+            if type(bs) == "table" then
+                if HasEntries(bs.customSpellIDs) or HasEntries(bs.customSpellDurations)
+                   or HasEntries(bs.spellDurations) or HasEntries(bs.spellSettings)
+                   or HasEntries(bs.barSettings) or HasEntries(bs.hostedBuffSpellIDs) then
+                    return true
+                end
+                local list = bs.assignedSpells
+                if type(list) == "table" then
+                    if #list > 0 and bk ~= "cooldowns" and bk ~= "utility" then return true end
+                    for _, sid in ipairs(list) do
+                        if type(sid) == "number" and sid < 0
+                           and not (bs.nativeItems and bs.nativeItems[sid]) then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+        return false
+    end
+
     -- A class reads its Forever spec key before its retail keys (SpecFor), so a
     -- bucket under the Forever key hides a retail-keyed layout of the class. A
     -- profile apply created one, empty, which EUI then filled with Blizzard's
-    -- default layout at the next login: drop it whatever it holds.
+    -- default layout at the next login. Drop it only while it holds no more
+    -- than that: bars a player rebuilt on it stay.
     EllesmereUI.RegisterMigration({
         id          = "cdm_forever_drop_shadowing_spec_v1",
         scope       = "specProfile",
-        description = "Drop a Forever spec key CDM bucket that hides a retail-keyed layout of the same class.",
+        description = "Drop a Forever spec key CDM bucket holding only Blizzard's layout that hides a retail-keyed layout of the same class.",
         body = function(ctx)
             local id = tonumber(ctx.specKey)
             local cls = id and EllesmereUI.SpecClassOf(id)
             if not cls or EllesmereUI.FOREVER_CLASS_SPEC[cls] ~= id then return end
+            if HoldsPlayerEdits(ctx.specProfile) then return end
             local sp = EllesmereUIDB.spellAssignments.profiles[ctx.profileName].specProfiles
             local ids = EllesmereUI.ForeverClassSpecIDs(cls)
             for i = 1, #ids do
