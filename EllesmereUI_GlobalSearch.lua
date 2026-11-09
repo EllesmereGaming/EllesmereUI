@@ -1012,7 +1012,7 @@ local function EnsureSearchUI()
     local popupBg = popup:CreateTexture(nil, "BACKGROUND")
     popupBg:SetAllPoints()
     popupBg:SetColorTexture(0.098, 0.090, 0.082, 0.97)
-    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.12, PP)
+    popup._brd = EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.12, popupBg)
 
     local resultsFrame = CreateFrame("Frame", nil, popup)
     resultsFrame:SetPoint("TOPLEFT", popup, "TOPLEFT", 4, -4)
@@ -1137,6 +1137,8 @@ local function EnsureSearchUI()
         if shown > 0 then
             local n = math.min(shown, MAX_VISIBLE_RESULTS)
             popup:SetHeight(n * (RESULT_ROW_H + RESULT_ROW_GAP) - RESULT_ROW_GAP + 8)
+            -- Retyped while shown: refit the outline's bottom edge.
+            popup._brd:Fit()
             popup:Show()
         else
             popup:Hide()

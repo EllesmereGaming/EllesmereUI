@@ -626,7 +626,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             popup:EnableMouse(true)
             local popBg = popup:CreateTexture(nil, "BACKGROUND")
             popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
+            EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
 
             local title = popup:CreateFontString(nil, "OVERLAY")
             title:SetFont(FONT_PATH, 14, GetCDMOptOutline())
@@ -704,7 +704,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             addBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 16)
             local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
             addBg:SetAllPoints(); addBg:SetColorTexture(ar, ag, ab, 0.15)
-            EllesmereUI.MakeBorder(addBtn, ar, ag, ab, 0.3, EllesmereUI.PP)
+            EllesmereUI.MakeRoundedBorder(addBtn, ar, ag, ab, 0.3, addBg)
             local addLbl = addBtn:CreateFontString(nil, "OVERLAY")
             addLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
             addLbl:SetPoint("CENTER"); addLbl:SetText(EllesmereUI.L("Add"))
@@ -718,7 +718,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
             local cBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
             cBg:SetAllPoints(); cBg:SetColorTexture(0.12, 0.12, 0.12, 0.5)
-            EllesmereUI.MakeBorder(cancelBtn, 1, 1, 1, 0.10, EllesmereUI.PP)
+            EllesmereUI.MakeRoundedBorder(cancelBtn, 1, 1, 1, 0.10, cBg)
             local cLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
             cLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
             cLbl:SetPoint("CENTER"); cLbl:SetText(EllesmereUI.L("Cancel"))
@@ -1333,7 +1333,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         local bg = stPopup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.077, 0.068, 0.058, 0.97)
-        PP.CreateBorder(stPopup, 1, 1, 1, 0.18, 1, "BORDER", 7)
+        stPopup._brd = EllesmereUI.MakeRoundedBorder(stPopup, 1, 1, 1, 0.18, bg)
 
         local clickCatcher = CreateFrame("Button", nil, stPopup)
         clickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -1403,7 +1403,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         _stAddBtn:SetFrameLevel(stPopup:GetFrameLevel() + 3)
         local abg = EllesmereUI.SolidTex(_stAddBtn, "BACKGROUND", 0.069, 0.058, 0.047, 0.92)
         abg:SetAllPoints()
-        _stAddBtn._border = EllesmereUI.MakeBorder(_stAddBtn, 1, 1, 1, 0.4, PP)
+        _stAddBtn._border = EllesmereUI.MakeRoundedBorder(_stAddBtn, 1, 1, 1, 0.4, abg)
         _stAddLbl = EllesmereUI.MakeFont(_stAddBtn, 12, nil, 1, 1, 1)
         _stAddLbl:SetAlpha(0.5)
         _stAddLbl:SetPoint("CENTER")
@@ -1584,6 +1584,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
 
         local totalH = math.abs(curY) + ST_PAD
         PP.Size(stPopup, ST_POPUP_W, totalH)
+        stPopup._brd:Fit()
     end
 
     -- params = { getCfg, refreshFn, anchor }
@@ -1884,7 +1885,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 sm:SetSize(W, 8 + ITEM_H * 2)
                 local smBg = sm:CreateTexture(nil, "BACKGROUND")
                 smBg:SetAllPoints(); smBg:SetColorTexture(mBgR, mBgG, mBgB, mBgHA)
-                EllesmereUI.MakeBorder(sm, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                EllesmereUI.MakeRoundedBorder(sm, 1, 1, 1, mBrdA, smBg, nil, true)
                 -- A fixed spot, as the CDM icon menu sits under its icon: beside the clicked
                 -- row, just outside the bar menu, so it covers no other bar.
                 sm:SetPoint("TOPLEFT", anchorRow, "TOPRIGHT", 4, 0)
@@ -2648,18 +2649,11 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 PP.Point(card, "TOPLEFT", cardRow, "TOPLEFT", xOff, 0)
                 card:SetFrameLevel(cardRow:GetFrameLevel() + 2)
 
-                local cbg = card:CreateTexture(nil, "BACKGROUND")
-                cbg:SetAllPoints()
-                cbg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
-                local cbrd = EllesmereUI.MakeBorder(card, 1, 1, 1, 0.12, PP)
+                local cbrd = EllesmereUI.MakeRoundedCard(card, 0.12, 0.50, 2)
+                local cbg, accentLine = cbrd.bg, cbrd.accent
 
                 -- Accent top edge
-                local accentLine = card:CreateTexture(nil, "ARTWORK", nil, 7)
                 accentLine:SetColorTexture(EGc.r, EGc.g, EGc.b, 0.6)
-                PP.Point(accentLine, "TOPLEFT", card, "TOPLEFT", 1, -1)
-                PP.Point(accentLine, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
-                accentLine:SetHeight(2)
-                if accentLine.SetSnapToPixelGrid then accentLine:SetSnapToPixelGrid(false); accentLine:SetTexelSnappingBias(0) end
 
                 local cIcon = card:CreateTexture(nil, "ARTWORK")
                 cIcon:SetSize(CARD_ICON, CARD_ICON)
@@ -2795,10 +2789,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             PP.Size(prRow, cardTotalW, PR_ROW_H)
             PP.Point(prRow, "TOPLEFT", parent, "TOPLEFT", PADc, y)
 
-            local prBg = prRow:CreateTexture(nil, "BACKGROUND")
-            prBg:SetAllPoints()
-            prBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
-            EllesmereUI.MakeBorder(prRow, 1, 1, 1, 0.10, PP)
+            local prBg = EllesmereUI.MakeRoundedCard(prRow, 0.10, 0.50).bg
 
             -- "Preset Style" label (accent, matching "Active Profile")
             local prLbl = EllesmereUI.MakeFont(prRow, 12, nil, EGc.r, EGc.g, EGc.b, 0.7)

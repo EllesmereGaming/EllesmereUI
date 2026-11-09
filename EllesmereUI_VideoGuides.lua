@@ -134,8 +134,8 @@ local function BuildShell()
 
     -- Dimmer: eats stray clicks/wheel; clicking anywhere outside the panel
     -- closes the guide (the popup itself is mouse-enabled, so clicks over it
-    -- never reach this handler). No bump: Show() scales both frames per open,
-    -- so the edge width is read unscaled here, as before. Escape closes (the
+    -- never reach this handler). No bump: Show() scales both frames per open
+    -- (the outline refits on show). Escape closes (the
     -- EditBox path handles it while focused; this covers an unfocused box).
     local dimmer, popup = EllesmereUI.BuildPopupShell("EUIVideoGuide", {
         w = POPUP_W, h = POPUP_H, onDimmerDown = Dismiss, onEscape = Dismiss,
@@ -150,6 +150,8 @@ local function BuildShell()
     PP.Point(well, "TOPLEFT", popup, "TOPLEFT", 0, 0)
     PP.Point(well, "TOPRIGHT", popup, "TOPRIGHT", 0, 0)
     well:SetHeight(ART_H)
+    -- The popup's shape: the well's top corners follow the round outline.
+    well:AddMaskTexture(popup._brd.bodyMask)
     ui.well = well
     local rule = popup:CreateTexture(nil, "BACKGROUND", nil, 2)
     PP.Point(rule, "TOPLEFT", popup, "TOPLEFT", 0, -ART_H)
@@ -211,7 +213,7 @@ local function BuildShell()
     wbg:SetColorTexture(0.045, 0.035, 0.027, 1)
     -- Neutral border (never accent-tinted): the link-blue text carries the
     -- "this is the link" read on its own.
-    MakeBorder(urlWell, 1, 1, 1, 0.22, PP)
+    ui.urlBrd = EllesmereUI.MakeRoundedBorder(urlWell, 1, 1, 1, 0.22, wbg)
     ui.urlWell = urlWell
 
     -- Hint under the well (also doubles as the Ctrl+C confirmation line)
@@ -258,7 +260,7 @@ local function BuildShell()
     local okBg = okBtn:CreateTexture(nil, "BACKGROUND")
     okBg:SetAllPoints()
     okBg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
-    ui.okBrd = MakeBorder(okBtn, 1, 1, 1, 0.9, PP)
+    ui.okBrd = EllesmereUI.MakeRoundedBorder(okBtn, 1, 1, 1, 0.9, okBg)
     local okLbl = okBtn:CreateFontString(nil, "OVERLAY")
     okLbl:SetFont(FONT, 15, "")
     PP.Point(okLbl, "CENTER", okBtn, "CENTER", 0, 0)
@@ -423,6 +425,8 @@ local function Show(id)
     ui.popup:SetScale(EllesmereUI.PopupBump(1.15))
     SetGuide(id, def)
     ui.dimmer:Show()
+    -- A guide opened over another resizes and moves these without a new show.
+    ui.urlBrd:Fit(); ui.okBrd:Fit()
     -- Pre-select the URL so the only keystroke needed is Ctrl+C.
     local eb = ui.eb
     C_Timer.After(0, function() eb:SetFocus(); eb:HighlightText() end)

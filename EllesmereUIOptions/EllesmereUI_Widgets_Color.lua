@@ -17,14 +17,12 @@ local PoolGen = EllesmereUI._Pool.Gen
 local PoolIsIdle = EllesmereUI._Pool.IsIdle
 local PP = EllesmereUI.PanelPP
 local MakeFont = EllesmereUI.MakeFont
-local MakeBorder = EllesmereUI.MakeBorder
 local RowBg = EllesmereUI.RowBg
 local RegisterWidgetRefresh = EllesmereUI.RegisterWidgetRefresh
 local EXPRESSWAY = EllesmereUI.EXPRESSWAY
 local CONTENT_PAD = EllesmereUI.CONTENT_PAD
 local TEXT_WHITE = EllesmereUI.TEXT_WHITE
 local MEDIA_PATH = EllesmereUI.MEDIA_PATH
-local CS = EllesmereUI.CS
 local TEXT_DIM_R = EllesmereUI.TEXT_DIM_R
 local TEXT_DIM_G = EllesmereUI.TEXT_DIM_G
 local TEXT_DIM_B = EllesmereUI.TEXT_DIM_B
@@ -184,7 +182,7 @@ local function BuildColorPickerPopup()
     local bg = popup:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints(); bg:SetColorTexture(0.077, 0.068, 0.058, 1)
 
-    MakeBorder(popup, BORDER_R, BORDER_G, BORDER_B, 0.15, PP)
+    EllesmereUI.MakeRoundedBorder(popup, BORDER_R, BORDER_G, BORDER_B, 0.15, bg)
 
     -- Title bar (draggable)
     local titleBar = CreateFrame("Frame", nil, popup)
@@ -201,14 +199,17 @@ local function BuildColorPickerPopup()
     closeBtn:SetSize(25, 25)
     closeBtn:SetPoint("TOPRIGHT", popup, "TOPRIGHT", -13, -12)
     closeBtn:SetFrameLevel(popup:GetFrameLevel() + 5)
+    -- The rounded outline around the plain X (the old art had a square box drawn in).
+    local closeBrd = EllesmereUI.MakeRoundedBorder(closeBtn, 1, 1, 1, 0.40)
     local closeIcon = closeBtn:CreateTexture(nil, "ARTWORK")
-    closeIcon:SetAllPoints()
-    closeIcon:SetTexture(MEDIA_PATH .. "icons/close-popup-4.png")
+    closeIcon:SetPoint("TOPLEFT", 7, -7)
+    closeIcon:SetPoint("BOTTOMRIGHT", -7, 7)
+    closeIcon:SetTexture(MEDIA_PATH .. "icons/eui-close.png")
     closeIcon:SetAlpha(0.40)
     closeIcon:SetSnapToPixelGrid(false)
     closeIcon:SetTexelSnappingBias(0)
-    closeBtn:SetScript("OnEnter", function() closeIcon:SetAlpha(0.50) end)
-    closeBtn:SetScript("OnLeave", function() closeIcon:SetAlpha(0.40) end)
+    closeBtn:SetScript("OnEnter", function() closeIcon:SetAlpha(0.50); closeBrd:SetColor(1, 1, 1, 0.50) end)
+    closeBtn:SetScript("OnLeave", function() closeIcon:SetAlpha(0.40); closeBrd:SetColor(1, 1, 1, 0.40) end)
     closeBtn:SetScript("OnClick", function()
         if cancelFunc then cancelFunc() end
         popup:Hide()
@@ -260,7 +261,17 @@ local function BuildColorPickerPopup()
     svBlack:SetAllPoints(); svBlack:SetColorTexture(0, 0, 0, 1)
     svBlack:SetGradient("VERTICAL", CreateColor(0, 0, 0, 1), CreateColor(0, 0, 0, 0))
 
-    MakeBorder(svPad, 1, 1, 1, 0.06, PP)
+    -- Opaque: white at 6% over the popup's background, so it reads as before.
+    local EDGE_R, EDGE_G, EDGE_B = 0.077 * 0.94 + 0.06, 0.068 * 0.94 + 0.06, 0.058 * 0.94 + 0.06
+    -- The three layers stay square: a mask on each let the hue show through
+    -- the partly drawn gradients at the edge (a red rim). The cover in the
+    -- popup's colour rounds them, and they fill the outline's whole-pixel
+    -- seat, so no part of an edge pixel lies outside it.
+    local svEdge = EllesmereUI.MakeRoundedBorder(svPad, EDGE_R, EDGE_G, EDGE_B, 1)
+    svEdge:SetCover(0.077, 0.068, 0.058)
+    svHue:SetAllPoints(svEdge._frame)
+    svWhite:SetAllPoints(svEdge._frame)
+    svBlack:SetAllPoints(svEdge._frame)
 
     local ARM = 6
     local chT = svPad:CreateTexture(nil, "OVERLAY", nil, 7); chT:SetSize(1, ARM); chT:SetColorTexture(1,1,1,0.9)
@@ -314,14 +325,22 @@ local function BuildColorPickerPopup()
         {1,0,0}, {1,1,0}, {0,1,0}, {0,1,1}, {0,0,1}, {1,0,1}, {1,0,0},
     }
     local segH = SV_SIZE / 6
+    local hueMask
     for i = 1, 6 do
         local seg = hueBar:CreateTexture(nil, "BACKGROUND")
         seg:SetSize(BAR_W, segH); seg:SetPoint("TOPLEFT", hueBar, "TOPLEFT", 0, -(i-1)*segH)
         seg:SetColorTexture(1,1,1,1)
         local top, bot = HUE_COLORS[i], HUE_COLORS[i+1]
         seg:SetGradient("VERTICAL", CreateColor(bot[1],bot[2],bot[3],1), CreateColor(top[1],top[2],top[3],1))
+        -- One rounded mask over the whole bar for all six segments.
+        if hueMask then
+            seg:AddMaskTexture(hueMask)
+        else
+            hueMask = EllesmereUI.RoundBody(hueBar, seg)
+            if hueMask then hueMask:ClearAllPoints(); hueMask:SetAllPoints(hueBar) end
+        end
     end
-    MakeBorder(hueBar, 1, 1, 1, 0.06, PP)
+    EllesmereUI.MakeRoundedBorder(hueBar, EDGE_R, EDGE_G, EDGE_B, 1)
 
     local hueInd = hueBar:CreateTexture(nil, "OVERLAY", nil, 7)
     hueInd:SetSize(BAR_W + 4, 2); hueInd:SetColorTexture(1,1,1,1)
@@ -353,6 +372,11 @@ local function BuildColorPickerPopup()
     alphaBar:SetPoint("TOPLEFT", hueBar, "TOPRIGHT", BAR_GAP, 0)
     alphaBar:EnableMouse(true)
 
+    local alphaGrad = alphaBar:CreateTexture(nil, "ARTWORK")
+    alphaGrad:SetAllPoints(); alphaGrad:SetColorTexture(1,0,0,1)
+    -- The gradient's rounded mask covers the whole bar; the checkerboard shares it.
+    local alphaMask = EllesmereUI.RoundBody(alphaBar, alphaGrad)
+
     local CK = 10  -- coarse checkerboard cell: 2 cols x 20 rows = 40 textures
     local ckCols = math.ceil(BAR_W / CK)
     local ckRows = math.ceil(SV_SIZE / CK)
@@ -362,15 +386,13 @@ local function BuildColorPickerPopup()
             local ck = alphaBar:CreateTexture(nil, "BACKGROUND")
             ck:SetSize(CK, CK); ck:SetPoint("TOPLEFT", alphaBar, "TOPLEFT", col * CK, -row * CK)
             ck:SetColorTexture(c, c, c, 1)
+            if alphaMask then ck:AddMaskTexture(alphaMask) end
         end
     end
 
-    local alphaGrad = alphaBar:CreateTexture(nil, "ARTWORK")
-    alphaGrad:SetAllPoints(); alphaGrad:SetColorTexture(1,0,0,1)
-
     local alphaInd = alphaBar:CreateTexture(nil, "OVERLAY", nil, 7)
     alphaInd:SetSize(BAR_W+4, 2); alphaInd:SetColorTexture(1,1,1,1)
-    MakeBorder(alphaBar, 1, 1, 1, 0.06, PP)
+    EllesmereUI.MakeRoundedBorder(alphaBar, EDGE_R, EDGE_G, EDGE_B, 1)
 
     -- Reused CreateColor objects: no per-frame allocation during drag
     local alphaColorBot = CreateColor(0, 0, 0, 0)
@@ -425,11 +447,13 @@ local function BuildColorPickerPopup()
     newPreviewTex = rightCol:CreateTexture(nil, "ARTWORK")
     newPreviewTex:SetSize(RIGHT_W, 26); newPreviewTex:SetPoint("TOPLEFT", rightCol, "TOPLEFT", 0, -14)
     newPreviewTex:SetColorTexture(1,1,1,1)
+    EllesmereUI.RoundBody(rightCol, newPreviewTex)
 
     -- Prev preview sits directly below New
     local prevPrev = rightCol:CreateTexture(nil, "ARTWORK")
     prevPrev:SetSize(RIGHT_W, 26); prevPrev:SetPoint("TOPLEFT", newPreviewTex, "BOTTOMLEFT", 0, -4)
     prevPrev:SetColorTexture(1,1,1,1)
+    EllesmereUI.RoundBody(rightCol, prevPrev)
     prevPreviewTex = prevPrev
 
     -- Clicking the prev swatch restores the previous color
@@ -594,6 +618,7 @@ local function BuildColorPickerPopup()
         btn:SetSize(SWATCH_SZ, SWATCH_SZ)
         btn:SetFrameLevel(parent:GetFrameLevel() + 2)
         local tex = btn:CreateTexture(nil, "ARTWORK"); tex:SetAllPoints(); btn._tex = tex
+        EllesmereUI.RoundBody(btn, tex)
         btn:SetScript("OnEnter", function(self)
             local c = self._color; if not c then return end
             local hex = string.format("%02X%02X%02X",
@@ -759,9 +784,6 @@ function EllesmereUI:ShowColorPicker(info, anchorFrame)
     popup:Open(info, anchorFrame)
 end
 
--- The swatch border sits on a pixel layer at fixed pixel offsets: nothing to refit.
-local function SwatchBorderFit() end
-
 -- Shared color swatch: border + fill + UpdateSwatch + OnClick. Returns swatch (Button), UpdateSwatch (function), caller positions it. Border textures are deferred until first show to keep page builds light.
 local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasAlpha, overrideSize)
     -- Search prebuild on an absorber row: the swatch indexes nothing, so none is built.
@@ -792,26 +814,9 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
     local function BuildBorder()
         if borderBuilt then return end
         borderBuilt = true
-        -- On a pixel layer (one unit = one physical pixel at every Window Scale), so
-        -- each edge stays one whole pixel when the Window Scale changes; a thickness
-        -- snapped to the panel grid once, at build, would thin out at another scale.
-        local L = EllesmereUI.MakePixelLayer(swatch, SwatchBorderFit)
-        local layer = L._frame
-        local T = CS.BRD_THICK
-
-        local wt = layer:CreateTexture(nil, "BORDER")
-        wt:SetColorTexture(1, 1, 1, 1)
-        wt:SetPoint("BOTTOMLEFT", layer, "TOPLEFT", -T, 0); wt:SetPoint("BOTTOMRIGHT", layer, "TOPRIGHT", T, 0); wt:SetHeight(T)
-        local wb = layer:CreateTexture(nil, "BORDER")
-        wb:SetColorTexture(1, 1, 1, 1)
-        wb:SetPoint("TOPLEFT", layer, "BOTTOMLEFT", -T, 0); wb:SetPoint("TOPRIGHT", layer, "BOTTOMRIGHT", T, 0); wb:SetHeight(T)
-        local wl = layer:CreateTexture(nil, "BORDER")
-        wl:SetColorTexture(1, 1, 1, 1)
-        wl:SetPoint("TOPLEFT", layer, "TOPLEFT", -T, 0); wl:SetPoint("BOTTOMLEFT", layer, "BOTTOMLEFT", -T, 0); wl:SetWidth(T)
-        local wr = layer:CreateTexture(nil, "BORDER")
-        wr:SetColorTexture(1, 1, 1, 1)
-        wr:SetPoint("TOPRIGHT", layer, "TOPRIGHT", T, 0); wr:SetPoint("BOTTOMRIGHT", layer, "BOTTOMRIGHT", T, 0); wr:SetWidth(T)
-        L:Fit()
+        -- The rounded outline sits on a pixel layer (1 px at every Window
+        -- Scale) on the swatch's edge; the fill takes the same shape.
+        EllesmereUI.MakeRoundedBorder(swatch, 1, 1, 1, 1, sFill)
     end
 
     local function UpdateSwatch()

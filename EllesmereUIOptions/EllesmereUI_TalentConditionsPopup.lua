@@ -548,6 +548,8 @@ LayoutOffTree = function()
     popup:SetHeight(h)
     popup:SetScale(EllesmereUI.PopupBump(POPUP_BUMP))
     EllesmereUI.ClampPopupToScreen(popup, POPUP_W, h)
+    -- Also runs while shown (a chip removed, Clear All): refit the outline.
+    popup._brd:Fit()
 end
 
 -------------------------------------------------------------------------------

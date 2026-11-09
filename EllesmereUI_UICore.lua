@@ -34,11 +34,17 @@ local BTN_TXT_HA = EllesmereUI.BTN_TXT_HA
 -- colours = { bg_r,bg_g,bg_b,bg_a, bg_hr,bg_hg,bg_hb,bg_ha,
 --             brd_r,brd_g,brd_b,brd_a, brd_hr,brd_hg,brd_hb,brd_ha,
 --             txt_r,txt_g,txt_b,txt_a, txt_hr,txt_hg,txt_hb,txt_ha }
-local function MakeStyledButton(btn, text, fontSize, colours, onClick)
+-- square (optional): the square outline, for a window that is square by design.
+local function MakeStyledButton(btn, text, fontSize, colours, onClick, square)
     local c = colours
     local bg  = SolidTex(btn, "BACKGROUND", c[1], c[2], c[3], c[4])
     bg:SetAllPoints()
-    local brd = MakeBorder(btn, c[9], c[10], c[11], c[12], PP)
+    local brd
+    if square then
+        brd = MakeBorder(btn, c[9], c[10], c[11], c[12], PP)
+    else
+        brd = EllesmereUI.MakeRoundedBorder(btn, c[9], c[10], c[11], c[12], bg)
+    end
     local lbl = MakeFont(btn, fontSize, nil, c[17], c[18], c[19])
     -- The resting alpha lives in the text colour, as the hover scripts below set it
     -- (a region alpha on top would multiply with it after the first hover).

@@ -3162,8 +3162,8 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Hover wash (transparent when idle; the card bg below provides the fill)
-        local hbg = EllesmereUI.SolidTex(hdr, "BACKGROUND", 0, 0, 0, 0)
-        hbg:SetAllPoints()
+        -- The header hover fill sits on the card (built below), inside its corners.
+        local hbg
 
         -- Procedural mini-window glyph: a tiny framed "window" with a title
         -- bar. The bar lights up in accent while the reskin is enabled, but
@@ -3295,13 +3295,16 @@ initFrame:SetScript("OnEvent", function(self)
         bg:SetFrameLevel(parent:GetFrameLevel())
         PP.Size(bg, cardW, cardTop - y)
         PP.Point(bg, "TOPLEFT", hdr, "TOPLEFT", 0, 0)
-        local fill = EllesmereUI.SolidTex(bg, "BACKGROUND", 0.077, 0.068, 0.058, 0.5)
-        fill:SetAllPoints()
-        brd = EllesmereUI.MakeBorder(bg, 1, 1, 1, expanded and 0.16 or 0.12, PP)
+        brd = EllesmereUI.MakeRoundedCard(bg, expanded and 0.16 or 0.12)
+        hbg = bg:CreateTexture(nil, "BACKGROUND", nil, 1)
+        hbg:SetAllPoints(hdr)
+        hbg:SetColorTexture(0, 0, 0, 0)
+        brd:Clip(hbg)
 
         -- Header-height only: the strip marks the header, never the expanded
         -- settings block below it.
         strip = bg:CreateTexture(nil, "ARTWORK")
+        brd:Clip(strip)
         strip:SetWidth(2)
         PP.Point(strip, "TOPLEFT", hdr, "TOPLEFT", 1, -1)
         PP.Point(strip, "BOTTOMLEFT", hdr, "BOTTOMLEFT", 1, 1)

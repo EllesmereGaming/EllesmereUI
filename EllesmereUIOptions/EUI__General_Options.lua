@@ -2334,53 +2334,27 @@ initFrame:SetScript("OnEvent", function(self)
     local PAGE_OVERRIDES = "Overrides"
 
     -- Builds the centered mode toggle, returning the vertical space used. Plain local closure on purpose: no widget row, no capture config, no saved state.
+    -- The shared segmented control draws it, so it looks like every other segment switch.
     local function BuildOverridesModeToggle(parent, y)
-        local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
-        local fontPath = (EllesmereUI.GetFontPath())
-            or "Fonts\\FRIZQT__.TTF"
         -- Wider than the Raid Frames pair (162): "Conditional Overrides" is a longer label than "Custom Buff Display" and must not clip.
         local BTN_W, BTN_H = 180, 31
-        local wrap = CreateFrame("Frame", nil, parent)
-        wrap:SetSize(BTN_W * 2, BTN_H)
-        wrap:SetPoint("TOP", parent, "TOP", 0, y - 14)
-        wrap:SetFrameLevel(parent:GetFrameLevel() + 1)
-        if EllesmereUI.PP then
-            EllesmereUI.PP.CreateBorder(wrap, 1, 1, 1, 0.10, 1)
-        end
-        local MODES = {
-            { key = "spec", label = "Spec Overrides" },
-            { key = "cond", label = "Conditional Overrides" },
-        }
-        local cur = EllesmereUI._overridesTabMode or "spec"
-        for i, m in ipairs(MODES) do
-            local btn = CreateFrame("Button", nil, wrap)
-            btn:SetSize(BTN_W, BTN_H)
-            btn:SetPoint("LEFT", wrap, "LEFT", (i - 1) * BTN_W, 0)
-            local bg = btn:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            local lbl = btn:CreateFontString(nil, "OVERLAY")
-            lbl:SetFont(fontPath, 13, "")
-            lbl:SetPoint("CENTER")
-            lbl:SetText(EllesmereUI.L(m.label))
-            if cur == m.key then
-                bg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
-                lbl:SetTextColor(1, 1, 1, 1)
-            else
-                bg:SetColorTexture(0.10, 0.10, 0.11, 0.85)
-                lbl:SetTextColor(1, 1, 1, 0.55)
-                btn:SetScript("OnEnter", function()
-                    bg:SetColorTexture(0.16, 0.16, 0.17, 0.9); lbl:SetTextColor(1, 1, 1, 0.85)
-                end)
-                btn:SetScript("OnLeave", function()
-                    bg:SetColorTexture(0.10, 0.10, 0.11, 0.85); lbl:SetTextColor(1, 1, 1, 0.55)
-                end)
-                btn:SetScript("OnClick", function()
-                    EllesmereUI._overridesTabMode = m.key
-                    -- Forced: the two builders render entirely different rows.
-                    EllesmereUI:RefreshPage(true)
-                end)
-            end
-        end
+        local seg = EllesmereUI.BuildSegmentedControl({
+            parent     = parent,
+            keys       = { "spec", "cond" },
+            labels     = { spec = "Spec Overrides", cond = "Conditional Overrides" },
+            width      = BTN_W * 2,
+            square     = true,
+            height     = BTN_H,
+            getChecked = function(key) return (EllesmereUI._overridesTabMode or "spec") == key end,
+            onToggle   = function(key)
+                if (EllesmereUI._overridesTabMode or "spec") == key then return end
+                EllesmereUI._overridesTabMode = key
+                -- Forced: the two builders render entirely different rows.
+                EllesmereUI:RefreshPage(true)
+            end,
+        })
+        seg:SetPoint("TOP", parent, "TOP", 0, y - 14)
+        seg:SetFrameLevel(parent:GetFrameLevel() + 1)
         -- 14 above + 15 below the buttons.
         return BTN_H + 29
     end
@@ -2401,7 +2375,7 @@ initFrame:SetScript("OnEvent", function(self)
         warn:SetFrameLevel(parent:GetFrameLevel() + 2)
         local wbg = EllesmereUI.SolidTex(warn, "BACKGROUND", 0.10, 0.04, 0.04, 0.55)
         wbg:SetAllPoints()
-        EllesmereUI.MakeBorder(warn, 0.8, 0.2, 0.2, 0.55)
+        EllesmereUI.MakeRoundedBorder(warn, 0.8, 0.2, 0.2, 0.55, wbg)
         local wtext = EllesmereUI.MakeFont(warn, 13, nil, 1, 0.55, 0.55, 1)
         wtext:SetPoint("TOPLEFT", warn, "TOPLEFT", 16, -14)
         wtext:SetWidth(width - 32)
@@ -2421,7 +2395,7 @@ initFrame:SetScript("OnEvent", function(self)
         local bbg = EllesmereUI.SolidTex(btn, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, 0.92)
         bbg:SetAllPoints()
         local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
-        local bbrd = EllesmereUI.MakeBorder(btn, EG.r, EG.g, EG.b, 0.5)
+        local bbrd = EllesmereUI.MakeRoundedBorder(btn, EG.r, EG.g, EG.b, 0.5, bbg)
         local blbl = EllesmereUI.MakeFont(btn, 13, nil, EG.r, EG.g, EG.b, 1)
         blbl:SetAlpha(0.8)
         blbl:SetPoint("CENTER")

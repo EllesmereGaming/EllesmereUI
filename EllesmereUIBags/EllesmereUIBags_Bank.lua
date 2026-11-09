@@ -1201,7 +1201,7 @@ if EUI.IS_FOREVER then
         msg:SetPoint("BOTTOM", prompt, "CENTER", 0, 14)
         msg:SetText(EllesmereUI.L("Your base bank slots come with a free bank tab. Open it once to start using your bank."))
         local g = EUI.ELLESMERE_GREEN
-        local visual = EUI.MakeActionButton(prompt, GetFont(), EllesmereUI.L("Open Bank Slots"), g.r, g.g, g.b, { w = 200 })
+        local visual = EUI.MakeActionButton(prompt, GetFont(), EllesmereUI.L("Open Bank Slots"), g.r, g.g, g.b, { w = 200, square = true })
         visual:SetPoint("TOP", prompt, "CENTER", 0, -6)
         visual:EnableMouse(false)
         -- The click goes to Blizzard's purchase button laid over the visual one.

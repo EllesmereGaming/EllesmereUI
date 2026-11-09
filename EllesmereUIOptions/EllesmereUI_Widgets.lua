@@ -24,7 +24,6 @@ local isRussian = GetLocale() == "ruRU"
 -- Utility functions (used heavily)
 local SolidTex         = EllesmereUI.SolidTex
 local MakeFont         = EllesmereUI.MakeFont
-local MakeBorder       = EllesmereUI.MakeBorder
 local MakeRoundedBorder = EllesmereUI.MakeRoundedBorder
 local DisablePixelSnap = EllesmereUI.DisablePixelSnap
 local RowBg            = EllesmereUI.RowBg
@@ -281,11 +280,13 @@ local function BuildCheckboxControl(parent, frameLevel)
     local boxBg = SolidTex(box, "BACKGROUND", CB.BOX_R, CB.BOX_G, CB.BOX_B, 1)
     DisablePixelSnap(boxBg)
     boxBg:SetAllPoints()
-    local boxBorder = MakeBorder(box, BORDER_R, BORDER_G, BORDER_B, CB.BRD_A, PP)
+    local boxBorder = MakeRoundedBorder(box, BORDER_R, BORDER_G, BORDER_B, CB.BRD_A, boxBg)
 
     local check = SolidTex(box, "ARTWORK", ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
     DisablePixelSnap(check)
     RealPP.SetInside(check, box, BOX_PAD, BOX_PAD)
+    -- The outline's radius less the inset, so the fill's corners follow it.
+    EllesmereUI.RoundBody(box, check, 2)
 
     local function ApplyVisual(isOn, isHovering)
         check:SetColorTexture(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
@@ -507,7 +508,8 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     -- Optional in-menu search box (_menuOpts.searchable): filter field hides non-matching items and repositions the rest. Flat lists only (no subnav, no dividers).
     local _moSearchable = _menuOpts and _menuOpts.searchable
     local SEARCH_H = 26
-    -- The search box keeps 4 units to the top, both sides and the first row.
+    -- The search field is the list's flush first row (inside the 1 unit border,
+    -- a divider as its last unit); the rows below keep their 4-unit top gap.
     local searchPad = _moSearchable and (SEARCH_H + 4) or 0
     local searchEdit, searchPlaceholder
     local searchResetScroll  -- assigned inside the scrolling branch; nil otherwise
@@ -540,29 +542,32 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     menu:Hide()
     local menuBg = SolidTex(menu, "BACKGROUND", mBgR, mBgG, mBgB, mBgA)
     menuBg:SetAllPoints()
-    MakeRoundedBorder(menu, mBrR, mBrG, mBrB, mBrA, menuBg, nil, true)
+    menu._ddBrd = MakeRoundedBorder(menu, mBrR, mBrG, mBrB, mBrA, menuBg, nil, true)
 
     if _moSearchable then
         -- Options panel is Expressway-locked by design; EllesmereUI.EXPRESSWAY is locale-aware (CJK/Cyrillic get the system glyph font). The user's global font intentionally never restyles the settings UI.
         local fontPath = (_moLabelFont and _moLabelFont[1]) or EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
         searchEdit = CreateFrame("EditBox", nil, menu)
-        searchEdit:SetSize(menuW - 8, SEARCH_H)
-        searchEdit:SetPoint("TOP", menu, "TOP", 0, -4)
+        searchEdit:SetPoint("TOPLEFT", menu, "TOPLEFT", 1, -1)
+        searchEdit:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -1, -1)
+        searchEdit:SetHeight(searchPad - 1)
         searchEdit:SetFrameLevel(menu:GetFrameLevel() + 4)
         searchEdit:SetFont(fontPath, 11, "")
         searchEdit:SetTextColor(1, 1, 1, 0.9)
         searchEdit:SetJustifyH("LEFT")
         searchEdit:SetAutoFocus(false)
         searchEdit:SetMaxLetters(30)
-        searchEdit:SetTextInsets(4, 4, 0, 0)
-        local sBg = searchEdit:CreateTexture(nil, "BACKGROUND")
-        sBg:SetAllPoints()
-        sBg:SetColorTexture(0, 0, 0, 0.4)
-        EllesmereUI.RoundBody(searchEdit, sBg)
+        -- Text at the row labels' x (rows sit 1 unit in, labels 10 into a row).
+        searchEdit:SetTextInsets(10, 10, 0, 0)
+        local sDiv = searchEdit:CreateTexture(nil, "ARTWORK")
+        sDiv:SetHeight(1)
+        sDiv:SetPoint("BOTTOMLEFT", searchEdit, "BOTTOMLEFT", 0, 0)
+        sDiv:SetPoint("BOTTOMRIGHT", searchEdit, "BOTTOMRIGHT", 0, 0)
+        sDiv:SetColorTexture(1, 1, 1, 0.10)
         searchPlaceholder = searchEdit:CreateFontString(nil, "OVERLAY")
         searchPlaceholder:SetFont(fontPath, 11, "")
         searchPlaceholder:SetTextColor(0.5, 0.5, 0.5, 0.6)
-        searchPlaceholder:SetPoint("LEFT", searchEdit, "LEFT", 4, 0)
+        searchPlaceholder:SetPoint("LEFT", searchEdit, "LEFT", 10, 0)
         searchPlaceholder:SetText(EllesmereUI.L("Search..."))
         searchEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     end
@@ -1359,6 +1364,35 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     return menu, menuItems, Refresh
 end
 
+-- EllesmereUI.SeatDropdownMenu(menu): a list hangs off its button, so a button
+-- on a half pixel (a centred header dropdown) put every row and caption on one
+-- too. Call after the list's scale is set: nudges its anchor so its top left
+-- corner lands on a whole screen pixel. The caller's own offsets stay the base,
+-- so repeated opens never drift.
+do
+    local floor, abs = math.floor, math.abs
+    function EllesmereUI.SeatDropdownMenu(menu)
+        if menu:GetNumPoints() ~= 1 then return end
+        local pt, rel, rpt, x, y = menu:GetPoint(1)
+        -- Not the offsets this function set (read back as floats): the caller
+        -- anchored the list again, so those are the new base.
+        local sx, sy = menu._seatedX, menu._seatedY
+        if not sx or abs(x - sx) > 0.01 or abs(y - sy) > 0.01 then
+            menu._seatX, menu._seatY = x, y
+        end
+        x, y = menu._seatX, menu._seatY
+        menu:SetPoint(pt, rel, rpt, x, y)
+        local l, t = menu:GetLeft(), menu:GetTop()
+        local k = menu:GetEffectiveScale() / EllesmereUI.PP.perfect
+        if l and t and k > 0 and not (issecretvalue(l) or issecretvalue(t)) then
+            l, t = l * k, t * k
+            x, y = x + (floor(l + 0.5) - l) / k, y + (floor(t + 0.5) - t) / k
+            menu:SetPoint(pt, rel, rpt, x, y)
+        end
+        menu._seatedX, menu._seatedY = x, y
+    end
+end
+
 -- Wire OnEnter/OnLeave/OnClick/OnShow/OnHide for a dropdown button + menu. s = { bg_r..a, bg_hr..ha, brd_r..a, brd_hr..ha, txt_r..a, txt_hr..ha } (24 values)
 -- ddBtn._valueDimA, when set, holds the value text at that alpha in both states (a greyed-out current value stays greyed under the cursor).
 local function WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s, keepClickHandler)
@@ -1410,6 +1444,10 @@ local function WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s, keep
             while f and f ~= UIParent do s = s * (f:GetScale() or 1); f = f:GetParent() end
             self:SetScale(s)
         end
+        -- Seat the list, then its outline: the outline's layer fit on its own
+        -- show, before this scale and seat.
+        EllesmereUI.SeatDropdownMenu(self)
+        if self._ddBrd then self._ddBrd:Fit() end
         -- Track the open menu globally so popups don't treat clicks on it (which can extend outside the popup/panel) as a dismissing outside click.
         EllesmereUI._openDropdownMenu = self
         ApplyHover()
@@ -2756,6 +2794,9 @@ EllesmereUI.BuildSliderCore     = BuildSliderCore
 EllesmereUI.BuildDropdownControl = BuildDropdownControl
 EllesmereUI.BuildToggleControl   = BuildToggleControl
 EllesmereUI.BuildCheckboxControl = BuildCheckboxControl
+-- The toggle's pixel-layer fit for hand-built pills: L.track, L.knob, L.pad
+-- (units), L.apply places the knob from L.padPx, L.wp and L.d.
+EllesmereUI.TogglePillFit        = PX.ToggleFit
 
 -------------------------------------------------------------------------------
 --  ShowPickMenu -- generic pick-one context menu (right-click "Add To" on
