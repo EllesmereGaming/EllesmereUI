@@ -1835,7 +1835,7 @@ initFrame:SetScript("OnEvent", function(self)
         local bg = bandPopup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.077, 0.068, 0.058, 0.97)
-        PP.CreateBorder(bandPopup, 1, 1, 1, 0.18, 1, "BORDER", 7)
+        bandPopup._brd = EllesmereUI.MakeRoundedBorder(bandPopup, 1, 1, 1, 0.18, bg)
 
         local clickCatcher = CreateFrame("Button", nil, bandPopup)
         clickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -2138,6 +2138,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         local totalH = math.abs(curY) + BAND_PAD
         PP.Size(bandPopup, BAND_POPUP_W, totalH)
+        bandPopup._brd:Fit()
     end
 
     -- params = { getBarData, refreshFn, entryIdx, anchor, countBased, defR/G/B/A }
@@ -2221,7 +2222,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Size(popup, POPUP_W, 200)
             local bg = popup:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints(); bg:SetColorTexture(0.077, 0.068, 0.058, 0.97)
-            PP.CreateBorder(popup, 1, 1, 1, 0.18, 1, "BORDER", 7)
+            popup._brd = EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.18, bg)
 
             -- Insertion line shown while dragging a row; theme accent, matches the raid "Sort By" reorder line
             insLine = popup:CreateTexture(nil, "OVERLAY", nil, 7)
@@ -2422,6 +2423,7 @@ initFrame:SetScript("OnEvent", function(self)
             PP.Point(addBtn, "TOPLEFT", popup, "TOPLEFT", BAND_PAD, curY)
             curY = curY - 26
             PP.Size(popup, POPUP_W, math.abs(curY) + BAND_PAD)
+            popup._brd:Fit()
         end
 
         -- Runs each frame from the popup's OnUpdate while a grip is held: separates click from
@@ -3108,7 +3110,8 @@ initFrame:SetScript("OnEvent", function(self)
             local bg = specContainer:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
             bg:SetColorTexture(0.077, 0.068, 0.058, 0.95)
-            PP.CreateBorder(specContainer, 1, 1, 1, 0.15, 1, "BORDER", 7)
+            -- clip: list rows scrolled to an edge keep the round corners.
+            EllesmereUI.MakeRoundedBorder(specContainer, 1, 1, 1, 0.15, bg, nil, true)
 
             local scrollFrame = CreateFrame("ScrollFrame", nil, specContainer)
             scrollFrame:SetPoint("TOPLEFT", specContainer, "TOPLEFT", 1, -2)
@@ -3140,7 +3143,7 @@ initFrame:SetScript("OnEvent", function(self)
             local dBg = detailC:CreateTexture(nil, "BACKGROUND")
             dBg:SetAllPoints()
             dBg:SetColorTexture(0.077, 0.068, 0.058, 0.95)
-            PP.CreateBorder(detailC, 1, 1, 1, 0.15, 1, "BORDER", 7)
+            EllesmereUI.MakeRoundedBorder(detailC, 1, 1, 1, 0.15, dBg)
             detailC:EnableMouse(true)
 
             local DPAD   = 16

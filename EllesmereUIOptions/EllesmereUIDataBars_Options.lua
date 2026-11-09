@@ -234,17 +234,10 @@ initFrame:SetScript("OnEvent", function(self)
         PP.Point(card, "TOPLEFT", host, "TOPLEFT", x, y)
         card:SetFrameLevel(host:GetFrameLevel() + 2)
 
-        local cbg = card:CreateTexture(nil, "BACKGROUND")
-        cbg:SetAllPoints()
-        cbg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
-        local cbrd = EllesmereUI.MakeBorder(card, 1, 1, 1, 0.12, PP)
+        local cbrd = EllesmereUI.MakeRoundedCard(card, 0.12, 0.50, 2)
+        local cbg, accentLine = cbrd.bg, cbrd.accent
 
-        local accentLine = card:CreateTexture(nil, "ARTWORK", nil, 7)
         accentLine:SetColorTexture(EGc.r, EGc.g, EGc.b, 0.6)
-        PP.Point(accentLine, "TOPLEFT", card, "TOPLEFT", 1, -1)
-        PP.Point(accentLine, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
-        accentLine:SetHeight(2)
-        if accentLine.SetSnapToPixelGrid then accentLine:SetSnapToPixelGrid(false); accentLine:SetTexelSnappingBias(0) end
 
         local cIcon = card:CreateTexture(nil, "ARTWORK")
         cIcon:SetSize(24, 24)

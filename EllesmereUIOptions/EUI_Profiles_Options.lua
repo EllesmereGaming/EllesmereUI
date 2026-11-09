@@ -819,10 +819,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         PP.Size(sectionBg, totalW, SECTION_H)
         PP.Point(sectionBg, "TOPLEFT", importPage, "TOPLEFT", PAD, iy)
         sectionBg:EnableMouse(false)
-        local sBgTex = sectionBg:CreateTexture(nil, "BACKGROUND")
-        sBgTex:SetAllPoints()
-        sBgTex:SetColorTexture(0.077, 0.068, 0.058, 0.50)
-        EllesmereUI.MakeBorder(sectionBg, 1, 1, 1, 0.10, PP)
+        local sBgTex = EllesmereUI.MakeRoundedCard(sectionBg, 0.10, 0.50).bg
 
         local hdrFrame = CreateFrame("Frame", nil, importPage)
         PP.Size(hdrFrame, totalW, HDR_H)
@@ -1640,10 +1637,8 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         PP.Point(rowFrame, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y)
 
         -- Background panel
-        local rowBg = rowFrame:CreateTexture(nil, "BACKGROUND")
-        rowBg:SetAllPoints()
-        rowBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
-        local rowBrd = EllesmereUI.MakeBorder(rowFrame, 1, 1, 1, 0.10, PP)
+        local rowBrd = EllesmereUI.MakeRoundedCard(rowFrame, 0.10, 0.50)
+        local rowBg = rowBrd.bg
 
         -- "Active Profile" label
         local profLabel = EllesmereUI.MakeFont(rowFrame, 12, nil, EG.r, EG.g, EG.b, 0.7)
@@ -2098,10 +2093,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
         PP.Size(sectionBg, totalW, SECTION_H)
         PP.Point(sectionBg, "TOPLEFT", parent, "TOPLEFT", PAD, y)
         sectionBg:EnableMouse(false)
-        local sBg = sectionBg:CreateTexture(nil, "BACKGROUND")
-        sBg:SetAllPoints()
-        sBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
-        EllesmereUI.MakeBorder(sectionBg, 1, 1, 1, 0.10, PP)
+        local sBg = EllesmereUI.MakeRoundedCard(sectionBg, 0.10, 0.50).bg
 
         local hdrFrame = CreateFrame("Frame", nil, parent)
         PP.Size(hdrFrame, totalW, HDR_H)
