@@ -1739,8 +1739,8 @@ initFrame:SetScript("OnEvent", function(self)
             ns.ApplyBar(barId)
         end
 
-        -- Sizing mode: centered segmented two-button toggle (same recipe as
-        -- the Buff Manager's Simple/Custom switch), in its OWN space between
+        -- Sizing mode: centered segmented two-button toggle (the shared
+        -- segmented control), in its OWN space between
         -- the preview header and BAR SETTINGS with 15px above and below.
         -- BAR-level -- it owns every block's width: Auto Sized = content +
         -- per-side gaps with one Fill Remaining block; Even Split = equal
@@ -1748,56 +1748,23 @@ initFrame:SetScript("OnEvent", function(self)
         -- their sizing rows).
         y = y - 15
         do
-            local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
             local BTN_W, BTN_H = 150, 26
-            -- On a kept page wrapper the toggle is the page's own frame
-            -- (Pool.Owned: the same one every build, hidden by a build with no
-            -- bar), never a frame an earlier build used for something else:
-            -- one of those keeps its old children in their old order, which
-            -- would put the border over the two buttons instead of under them.
-            local wrap
-            if Pool.Gen(parent) then
-                wrap = Pool.Owned(parent, "edbSizingToggle", "Frame", parent)
-            else
-                wrap = CreateFrame("Frame", nil, parent)
-            end
-            wrap:SetSize(BTN_W * 2, BTN_H)
-            wrap:SetPoint("TOP", parent, "TOP", 0, y)
-            PP.CreateBorder(wrap, 1, 1, 1, 0.10, 1)
-            local curMode = ns.BarSizingMode(cfg)
-            local MODES = {
-                { key = "auto", label = "Auto Sized" },
-                { key = "even", label = "Even Split" },
-            }
-            for mi, m in ipairs(MODES) do
-                local btn = CreateFrame("Button", nil, wrap)
-                btn:SetSize(BTN_W, BTN_H)
-                btn:SetPoint("LEFT", wrap, "LEFT", (mi - 1) * BTN_W, 0)
-                local bg = btn:CreateTexture(nil, "BACKGROUND")
-                bg:SetAllPoints()
-                local lbl = EllesmereUI.MakeFont(btn, 12, nil, 1, 1, 1, 1)
-                lbl:SetPoint("CENTER")
-                lbl:SetText(L(m.label))
-                if curMode == m.key then
-                    bg:SetColorTexture(EG.r, EG.g, EG.b, 0.85)
-                else
-                    bg:SetColorTexture(0.10, 0.10, 0.11, 0.85)
-                    lbl:SetTextColor(1, 1, 1, 0.55)
-                    btn:SetScript("OnEnter", function()
-                        bg:SetColorTexture(0.16, 0.16, 0.17, 0.9)
-                        lbl:SetTextColor(1, 1, 1, 0.85)
-                    end)
-                    btn:SetScript("OnLeave", function()
-                        bg:SetColorTexture(0.10, 0.10, 0.11, 0.85)
-                        lbl:SetTextColor(1, 1, 1, 0.55)
-                    end)
-                    btn:SetScript("OnClick", function()
-                        cfg.sizingMode = m.key
-                        ns.ApplyBar(barId)
-                        HardRefresh()
-                    end)
-                end
-            end
+            local seg = EllesmereUI.BuildSegmentedControl({
+                parent     = parent,
+                keys       = { "auto", "even" },
+                labels     = { auto = "Auto Sized", even = "Even Split" },
+                width      = BTN_W * 2,
+                square     = true,
+                height     = BTN_H,
+                getChecked = function(key) return ns.BarSizingMode(cfg) == key end,
+                onToggle   = function(key)
+                    if ns.BarSizingMode(cfg) == key then return end
+                    cfg.sizingMode = key
+                    ns.ApplyBar(barId)
+                    HardRefresh()
+                end,
+            })
+            seg:SetPoint("TOP", parent, "TOP", 0, y)
             y = y - (BTN_H + 15)
         end
 
