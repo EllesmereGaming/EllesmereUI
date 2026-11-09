@@ -241,7 +241,10 @@ end
 --  window sizes itself, so neither icon shows), corner() (optional: the
 --  screen corner the window is pinned by; grips then sit in every other
 --  corner but the close button's, show only while hovered and move only
---  their free edges, and the lock holds only the size)
+--  their free edges, and the lock holds only the size), rim() (optional: how
+--  far inside the window edge the grips sit), lockBox() (optional: the bar
+--  whose right end holds the bottom-right grip and the lock), shade(at)
+--  (optional: true puts a dark disc behind that corner's grip)
 -------------------------------------------------------------------------------
 do
 -- Art, alphas and the footer text clearance (the lock alone, or the grip with
@@ -251,6 +254,7 @@ local GR = {
     RESIZE = "Interface\\AddOns\\EllesmereUI\\media\\icons\\resize_element.png",
     LOCKED = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-lock-locked.png",
     UNLOCKED = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-lock-unlocked.png",
+    DISC = "Interface\\CharacterFrame\\TempPortraitAlphaMask",
     A = 0.4, HOVER = 0.8, LOCK_INSET = 18, GRIP_INSET = 36,
     TEXCOORD = {
         BOTTOMRIGHT = { 0, 1, 0, 1 }, BOTTOMLEFT = { 1, 0, 0, 1 },
@@ -396,15 +400,26 @@ function GR.IconButton(frame, w, h, path)
     return b
 end
 
-function GR.NewGrip(frame, at)
+function GR.NewGrip(frame, at, rim, box, shade)
     local br = at == "BOTTOMRIGHT"
-    local size, pad = br and 18 or 14, br and 2 or 0
+    local size, pad = br and 18 or 14, (br and 2 or 0) + rim
     local grip = GR.IconButton(frame, size, size, GR.RESIZE)
     grip._at = at
     local hit = GR.HIT[at]
     if hit then grip:SetHitRectInsets(hit[1], hit[2], hit[3], hit[4]) end
-    grip:SetPoint(at, frame, at, GR.LEFT[at] and pad or -pad, GR.TOP[at] and -pad or pad)
+    if br and box then
+        grip:SetPoint("RIGHT", box, "RIGHT", 0, 0)
+    else
+        grip:SetPoint(at, frame, at, GR.LEFT[at] and pad or -pad, GR.TOP[at] and -pad or pad)
+    end
     grip._icon:SetTexCoord(unpack(GR.TEXCOORD[at]))
+    if shade then
+        local disc = grip:CreateTexture(nil, "BACKGROUND")
+        disc:SetTexture(GR.DISC)
+        disc:SetVertexColor(0, 0, 0, 0.75)
+        disc:SetSize(size + 10, size + 10)
+        disc:SetPoint("CENTER")
+    end
     grip:SetScript("OnMouseDown", GripOnMouseDown)
     grip:SetScript("OnMouseUp", GripStop)
     grip:SetScript("OnDoubleClick", GripReset)
@@ -438,9 +453,10 @@ function ns.UpdateResizeGrip(frame, cfg)
     lock:ClearAllPoints()
     local inset = GR.LOCK_INSET
     local grip, extra = frame._resizeGrip, frame._resizeGrips
+    local rim, box = cfg.rim and cfg.rim() or 0, cfg.lockBox and cfg.lockBox()
     local showBR = not noGrip and corner ~= "BOTTOMRIGHT"
     if showBR then
-        if not grip then grip = GR.NewGrip(frame, "BOTTOMRIGHT"); frame._resizeGrip = grip end
+        if not grip then grip = GR.NewGrip(frame, "BOTTOMRIGHT", rim, box); frame._resizeGrip = grip end
         if not grip._drag then grip._cfg = cfg end
         local hover = corner ~= nil
         if grip._hoverOnly ~= hover then
@@ -453,14 +469,22 @@ function ns.UpdateResizeGrip(frame, cfg)
         inset = GR.GRIP_INSET
     else
         if grip then grip:Hide() end
-        lock:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4)
+        if box then
+            lock:SetPoint("RIGHT", box, "RIGHT", -5, 0)
+            inset = GR.LOCK_INSET + 2
+        else
+            lock:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4)
+        end
     end
     if corner or extra then
         if not extra then extra = {}; frame._resizeGrips = extra end
         for _, at in ipairs(GR.EXTRA) do
             local g = extra[at]
             if not noGrip and corner and at ~= corner then
-                if not g then g = GR.NewGrip(frame, at); g._hoverOnly = true; g:SetAlpha(0); extra[at] = g end
+                if not g then
+                    g = GR.NewGrip(frame, at, rim, nil, cfg.shade and cfg.shade(at))
+                    g._hoverOnly = true; g:SetAlpha(0); extra[at] = g
+                end
                 if not g._drag then g._cfg = cfg end
                 g:Show()
             elseif g then
@@ -503,6 +527,9 @@ local _bagGripCfg = {
     -- Auto-Size owns the window size
     hidden = function() return EUI_Bags.AutoSizeOn() end,
     corner = function() return ns.BagAnchor.ActiveCorner() end,
+    rim = function() return ns.BagsForever() and math.floor(ns.ForeverBagSidebarInset(EUI_Bags) + 0.5) or 0 end,
+    lockBox = function() return EUI_Bags.Footer._coinBox end,
+    shade = function(at) return at == "TOPLEFT" and ns.BagsForever() end,
 }
 
 -- List display: free width (rows have no cell grid), saved in pixels. It keeps
