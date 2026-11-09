@@ -15,6 +15,7 @@ local InCombatLockdown = InCombatLockdown
 local RegisterStateDriver = RegisterStateDriver
 
 local EAB, EAB_VTABLE, barButtons = ns.EAB, ns.EAB_VTABLE, ns.barButtons
+local EFD = ns.EFD
 local I = ns._internals
 local BAR_CONFIG = I.BAR_CONFIG
 local RegisterBarWithOverrideController = I.RegisterBarWithOverrideController
@@ -355,6 +356,10 @@ ns.BuildBarButtons = function(info, frame, skipProtected)
             local slot = slotOffset + i
             local btn = GetOrCreateButton(slot, frame, info, i, skipProtected)
             if btn then
+                -- The bar's key before the first paint below, so the count
+                -- alpha reads this bar's Charge Numbers (LayoutBar stamps the
+                -- same key later).
+                EFD(btn).barKey = key
                 local bindPrefix = BINDING_MAP[key]
                 if not skipProtected then
                     ApplyShapeHitRects(btn, buttonShape)

@@ -2452,6 +2452,8 @@ end
 --    qolUpgradeCalcChars  Upgrade Calculator per-character cache
 --    xpBarChars           XP bar session clock, XP rate and time this level
 --    timePlayedChars      Time Played block: each character's total played time
+--    travelHearths        Travel block's Show Other Characters: each character's
+--                         hearthstone bind and ready time
 --    questWatchChars      WoW Forever quest tools: quests each character's
 --                         filters and auto-track moved
 --    questTrackerChars    WoW Forever Custom Quest Tracker: each character's
@@ -2492,6 +2494,7 @@ local FULL_EXPORT_EXCLUDED = {
     qolUpgradeCalcChars   = true,
     xpBarChars            = true,
     timePlayedChars       = true,
+    travelHearths         = true,
     restoreOnUninstall    = true,
     gfxBackup             = true,
     friendlyPlateVisSaved = true,

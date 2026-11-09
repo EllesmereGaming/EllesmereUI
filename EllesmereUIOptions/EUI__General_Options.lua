@@ -688,12 +688,12 @@ EllesmereUI._WHATSNEW_PATCHES = {
         mini = true,
         features = {
             {
-                -- The Paging Arrows row of PAGING on the Bar Display page with Action Bar 1 selected;
-                -- Show While Paged sits in its cog (both clients).
+                -- The Paging Arrows row of BEHAVIOR & PAGING on the Bar Display page with Action Bar 1
+                -- selected; its While Paged choice is one of the row's dropdown entries (both clients).
                 module = "Action Bars",
                 title  = "Arrows While Paged",
                 desc   = "Action Bar 1's paging arrows now show while it is on another page, even with Paging Arrows off, so a page switched by accident is easy to spot and undo",
-                nav    = { module = "EllesmereUIActionBars", page = "Bar Display", section = "PAGING", highlight = "Paging Arrows",
+                nav    = { module = "EllesmereUIActionBars", page = "Bar Display", section = "BEHAVIOR & PAGING", highlight = "Paging Arrows",
                            preSelect = function() if EllesmereUI._setActionBarKey then EllesmereUI._setActionBarKey("MainBar") end; EllesmereUI._pendingActionBarSelect = "MainBar" end },
             },
             {

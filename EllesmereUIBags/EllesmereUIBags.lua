@@ -270,19 +270,23 @@ local function CurrencyOrder()
 end
 EUI._BagsCurrencyOrder = CurrencyOrder
 
--- Active pin table: the shared one or, with bagPinsPerCharacter on, this
--- character's copy (made from the shared pins on its first pin action),
--- keyed like the offline bank: guid on Forever, where a first name isn't unique.
+-- The pin table in use. Each character has its own (Pins per Character, on
+-- unless EllesmereUIDB.bagPinsPerCharacter is false): its table in
+-- EllesmereUIDB.bagPinnedByChar, by BagsCharKey. A character reads the shared
+-- pins (bagPinnedItems) until its first pin or unpin, which copies them into
+-- its own table; after that the shared pins are neither read nor written for
+-- it. With the option off every character reads and writes the shared pins,
+-- and the copies stay as they are for when it is turned on again.
+-- create: a pin action is about to write. nil then means there is no table
+-- to write (the character's identity is not readable yet): callers skip.
 local function PinnedItems(create)
     local db = EllesmereUIDB
-    if not (db and db.bagPinsPerCharacter) then
-        if create then
-            if not db then db = {}; EllesmereUIDB = db end
-            if not db.bagPinnedItems then db.bagPinnedItems = {} end
-        end
-        return db and db.bagPinnedItems
+    if not db then return nil end
+    if db.bagPinsPerCharacter == false then
+        if create and not db.bagPinnedItems then db.bagPinnedItems = {} end
+        return db.bagPinnedItems
     end
-    local key = ns.Offline and ns.Offline.CurrentKey()
+    local key = BagsCharKey()
     local byChar = db.bagPinnedByChar
     local own = key and type(byChar) == "table" and byChar[key]
     if type(own) == "table" then return own end

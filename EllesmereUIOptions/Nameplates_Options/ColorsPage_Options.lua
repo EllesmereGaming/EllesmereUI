@@ -1563,7 +1563,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
             DB().enemyPlayerEnemyColor = v
             RefreshAllPlates()
           end,
-          tooltip="Enemy players take the Enemies color instead of their class color, so they stand apart from class colored friendly players." });  y = y - h
+          tooltip="Enemy players take the Enemies color instead of their class color." });  y = y - h
 
     -- Inline cog with the mob types each applies to, then the Interruptible / Uninterruptible swatches.
     if not EllesmereUI._prebuilding then

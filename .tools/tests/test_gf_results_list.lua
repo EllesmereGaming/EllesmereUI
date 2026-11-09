@@ -3,8 +3,9 @@
 -- filter and secrecy changes and the sort modes (the whole list), the row
 -- layout memo, a raid row's score anchor, the sign-up timer frame, the window
 -- look and the hand-back to Blizzard's list; a first visit to Quests or Custom
--- (the list stays hidden, its results unread), a hidden sign-up status and our
--- frame levels over Blizzard's faded list.
+-- (the list stays hidden, its results unread), a hidden sign-up status, our
+-- frame levels over Blizzard's faded list, and group notes (a note's line, a
+-- note that comes or goes in one group's update).
 --   lua .tools/tests/test_gf_results_list.lua      (from the repository root)
 local ROOT = arg and arg[1] or "."
 
@@ -580,5 +581,69 @@ ns.OwnListRefresh()
 assert((T.borderApplies or 0) == applies, "an unchanged border was styled again")
 T.db.iconShape = nil
 ns.SetOwnListValue("iconShape", nil)
+
+-------------------------------------------------------------------------------
+--  16. group notes: a group with a note is a line taller and the rows under it
+--      move down by that line; a note that comes or goes in one group's update
+--      collects the list again (its row changes height), a changed note text
+--      or a group without a note repaints its row alone, and a group the
+--      filters leave out, or any group with notes off, changes nothing
+-------------------------------------------------------------------------------
+local GAP = 2
+local rowH, noteH = ns.OwnListRowHeight(), ns.OwnListSize("lineSize") + 4
+T.info[3].comment = "Know the route"
+ns.SetOwnListValue("groupNotes", true)
+local r3, r4 = RowFor(3), RowFor(4)
+assert(r3 and r3._h == rowH + noteH and r3.note._shown, "a group with a note is not a line taller")
+assert(r4._h == rowH and not r4.note._shown, "a group without a note grew")
+assert((-r4._points.TOPLEFT[4]) - (-r3._points.TOPLEFT[4]) == rowH + noteH + GAP,
+    "the row under a note did not move down by the note's line")
+-- the note goes away in one group's update: the list collects again
+ResetCounts()
+T.info[3].comment = ""
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 3)
+Flush()
+assert(T.collects == 1, "a note that went away did not collect the list again")
+assert(RowFor(3)._h == rowH and not RowFor(3).note._shown, "the row kept its note line")
+-- a note arrives
+ResetCounts()
+T.info[4].comment = "Need a tank"
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 4)
+Flush()
+assert(T.collects == 1, "a new note did not collect the list again")
+assert(RowFor(4)._h == rowH + noteH and RowFor(4).note._shown, "the new note has no line")
+-- the note's text changes: that row alone repaints
+ResetCounts()
+T.info[4].comment = "Need a healer"
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 4)
+Flush()
+assert(T.collects == 0 and T.fills[4] == 1, "a changed note collected the list again")
+assert(RowFor(4).note._text == "Need a healer", "the row did not take the new note")
+-- a group without a note changes: its row alone
+ResetCounts()
+T.info[6].name = "Six"
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 6)
+Flush()
+assert(T.collects == 0 and T.fills[6] == 1, "with notes on, a group without a note collected the list again")
+-- a group the filters leave out (hidden mode): its note changes nothing
+T.pass[5] = false
+ns.OwnListRefresh()
+ResetCounts()
+T.info[5].comment = "Hidden group"
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 5)
+Flush()
+assert(T.collects == 0, "a hidden group's note collected the list again")
+T.pass[5] = nil
+-- notes off: a note change is a plain update
+ns.SetOwnListValue("groupNotes", nil)
+ResetCounts()
+T.info[6].comment = "Off"
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 6)
+Flush()
+assert(T.collects == 0, "with notes off a note collected the list again")
+assert(not RowFor(6).note._shown, "a note shows with notes off")
+for id = 3, 6 do T.info[id].comment = nil end
+T.info[6].name = "Group 6"
+ns.OwnListRefresh()
 
 print("group finder results list harness: ok")

@@ -887,7 +887,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     local CORE_TIP = {
         rare  = "Elite and rare marks. Always in the same slot as the Quest Indicator.",
         quest = "Marks mobs for your active quests. Always in the same slot as the Elite/Rare Indicator.",
-        questtext = "Shows quest progress such as 2/6 on quest mobs. Optional icon can be displayed alongside the text.",
+        questtext = "Shows quest progress such as 2/6 on quest mobs.",
     }
 
     local function CoreHas(pos, k)
@@ -1886,8 +1886,8 @@ local function BuildDisplayLayout(parent, y, ctx)
             { title = "Quest Indicator", hidden = Lacks("quest"),
               rows = { SizeRow("quest"), InstancesRow("quest") } },
             { title = "Quest Objective Text", hidden = Lacks("questtext"), rows = {
-                { type = "toggle", label = "Show Quest Objective Type Icon",
-                  tooltip = "Shows a sword for monster objectives, a bag for item objectives, and the generic quest icon when the type cannot be matched exactly.",
+                { type = "toggle", label = "Objective Type Icon",
+                  tooltip = "Shows a sword for kill objectives, a bag for item objectives, and the generic quest icon when the type cannot be matched exactly.",
                   get = function() return DBVal("showQuestObjectiveTypeIcon") == true end,
                   set = function(v)
                       DB().showQuestObjectiveTypeIcon = v

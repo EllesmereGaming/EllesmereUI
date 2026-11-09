@@ -762,7 +762,12 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     EABR.FvSyncTrackingEvent(shows and not inPvP
         and ((fo.gather == true and fo.gatherClassTrack ~= false) or fo.treasure == true) or false)
     EABR.FvSyncWeaponEvents(shows and fo.weapon == true or false)
-    local sleepBag = shows and fo.sleepingBag == true and not inPvP and EABR.FvSleepingBagOwned()
+    local wantBag = shows and fo.sleepingBag == true and not inPvP
+    local sleepBag = wantBag and EABR.FvSleepingBagOwned()
+    -- No bag yet below max level: a light watcher hears one arrive, unless
+    -- Weapon Buffs' bag listener (below) already hears every bag change.
+    EABR.FvSyncSleepBagWatch(wantBag and not sleepBag and not EABR._fvMaxLevel
+        and fo.weapon ~= true or false)
     EABR.FvSyncBagEvent(shows and (fo.weapon == true or sleepBag) or false)
     local watchPickerSpells = shows and PickerEnabled() or false
     if watchPickerSpells ~= (EABR._fvPickerSpellEvents or false) then
@@ -786,7 +791,9 @@ function EABR.CollectForever(missing, inInstance, inPvP)
             missing[#missing+1] = e
         end
     end
-    if sleepBag then
+    local sleepIDs = EABR._fvSleepIDs
+    if not sleepIDs then sleepIDs = { EABR.SLEEPING_BAG_BUFF }; EABR._fvSleepIDs = sleepIDs end
+    if sleepBag and not (auraLock and not EABR.FvRanksReadable(sleepIDs)) then
         local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, EABR.SLEEPING_BAG_BUFF)
         local stacks = ok and not isSecret(aura) and (aura and aura.applications or 0)
         if stacks and not isSecret(stacks) and stacks < EABR.SLEEPING_BAG_STACKS then
@@ -1102,6 +1109,10 @@ function EABR.FvStandDown()
     EABR.FvSyncTrackingEvent(false)
     EABR.FvSyncWeaponEvents(false)
     EABR.FvSyncBagEvent(false)
+    -- Bag changes go unheard while the section stands down (resting in a city,
+    -- for one): the Sleeping Bag is counted again when it is back.
+    EABR.FvSyncSleepBagWatch(false)
+    EABR._fvSleepBag = nil
     if EABR._fvPickerSpellEvents then EABR.FvSyncPickerSpellEvents(false) end
     if EABR.ValidateOpenPicker then EABR.ValidateOpenPicker() end
     if EABR._durationTimer then

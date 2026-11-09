@@ -193,7 +193,7 @@ local defaults = {
 if EABR.FOREVER then
     defaults.profile.forever = {
         camp = false,       -- Camp Benefits reminder; opt-in, it shows whenever the buff is missing
-        sleepingBag = false,
+        sleepingBag = false, -- Sleeping Bag reminder; opt-in, below max level with a Cozy Sleeping Bag in the bags
         gather = false,     -- gathering tracking reminder; opt-in, it shows while no tracker is up
         gatherClassTrack = true,  -- an active class tracking also hides it
         treasure = false,   -- Find Treasure reminder (Dwarf); opt-in, it shows while it is off

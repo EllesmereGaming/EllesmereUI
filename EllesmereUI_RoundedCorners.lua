@@ -861,10 +861,11 @@ EllesmereUI._onScaleChanged[#EllesmereUI._onScaleChanged + 1] = RefitLayers
 -- keeps the mask through SetColorTexture). clip (dropdown lists): on every
 -- show, the textures in the scroll content of the parent's scroll frames take
 -- a mask of the shape 1 unit in, so a row scrolled to an edge keeps the
--- corners round. Only scroll content, which sits inside the list by
--- construction: a list's other children may lie outside it (a side submenu),
--- where the mask would hide them. width (default 1): the edge in whole
--- pixels, for a heavier ring (a pulse); the radius keeps room for it.
+-- corners round (once the mask's art has loaded: ClipWhenLoaded). Only scroll
+-- content, which sits inside the list by construction: a list's other
+-- children may lie outside it (a side submenu), where the mask would hide them.
+-- width (default 1): the edge in whole pixels, for a heavier ring (a pulse);
+-- the radius keeps room for it.
 local OUTLINE_RADIUS = 4
 
 local function OutlineSetColor(self, r, g, b, a)
@@ -970,6 +971,57 @@ local function ClipContent(o)
     cMask, cSet = nil, nil
 end
 
+-- The client loads texture files in the background, and a rounded mask's art
+-- is first read when a session's first control of that shape shows. A texture
+-- that takes a mask before the mask's art has loaded draws nothing, and nothing
+-- redraws it when the art arrives: a list's checkboxes and icons stayed blank on
+-- that first open until the pointer crossed them. So a list's clip walk, and a
+-- card's clip and accent, wait for the art, as Blizzard's map waits for its
+-- tiles: a frame of ours, shown only while something waits, finishes each once
+-- its mask has loaded. Until then a texture draws unmasked (square corners).
+local clipWait, clipWaiting, maskWaiting
+local function ClipWaitTick(self)
+    for o in pairs(clipWaiting) do
+        if o.innerMask:IsObjectLoaded() then
+            clipWaiting[o] = nil
+            -- Still this layer's outline and on screen: a list closed
+            -- meanwhile is walked by its next show.
+            local layer = o._frame
+            if layers[layer] == o and layer:IsVisible() then ClipContent(o) end
+        end
+    end
+    for tex, w in pairs(maskWaiting) do
+        if w.m:IsObjectLoaded() then
+            maskWaiting[tex] = nil
+            -- Not a texture the options page pool handed to another build since.
+            if PoolDress(tex) == w.gen then AddMask(tex, w.m) end
+        end
+    end
+    if not next(clipWaiting) and not next(maskWaiting) then self:Hide() end
+end
+local function StartWait()
+    if not clipWait then
+        clipWaiting, maskWaiting = setmetatable({}, WEAK_K), setmetatable({}, WEAK_K)
+        clipWait = CreateFrame("Frame")
+        clipWait:Hide()
+        clipWait:SetScript("OnUpdate", ClipWaitTick)
+    end
+    clipWait:Show()
+end
+local function ClipWhenLoaded(o)
+    local m = o.innerMask
+    if not m.IsObjectLoaded or m:IsObjectLoaded() then return ClipContent(o) end
+    StartWait()
+    clipWaiting[o] = true
+end
+-- tex takes m now if its art has loaded, else once it has.
+local function MaskWhenLoaded(tex, m)
+    if not m.IsObjectLoaded or m:IsObjectLoaded() then return AddMask(tex, m) end
+    StartWait()
+    local w = maskWaiting[tex]
+    if w then w.m, w.gen = m, PoolDress(tex) else maskWaiting[tex] = { m = m, gen = PoolDress(tex) } end
+end
+
 -- The outline's inner shape in the parent's units, made once: 1 unit in
 -- with a radius 1 unit smaller, the same arc centres, so what it masks
 -- follows the outline's corners as its sides do.
@@ -1007,7 +1059,7 @@ function EllesmereUI.MakeRoundedBorder(parent, r, g, b, a, body, radius, clip, w
     end
     if clip then
         InnerMask(o)
-        o.clipped, o.onShow = setmetatable({}, WEAK_K), ClipContent
+        o.clipped, o.onShow = setmetatable({}, WEAK_K), ClipWhenLoaded
     end
     o:Fit()
     return o
@@ -1051,14 +1103,14 @@ local function FitCard(o, k)
         if o.ar then RemoveMask(accent, am) end
         o.ar = o.r
         SetRounded(am, o.r - 1, ALL_CORNERS, "CLAMPTOBLACKADDITIVE")
-        AddMask(accent, am)
+        MaskWhenLoaded(accent, am)
     end
     local h = floor(o.accentH * k + 0.5)
     accent:SetHeight(h < 1 and 1 or h)
 end
 
 local function CardClip(o, tex)
-    AddMask(tex, InnerMask(o))
+    MaskWhenLoaded(tex, InnerMask(o))
 end
 
 function EllesmereUI.MakeRoundedCard(parent, brdA, bgA, accentH, r, g, b)

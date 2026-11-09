@@ -48,6 +48,34 @@ local function GoldForgetCharacter(key)
     for gi in pairs(goldInstances) do gi:QueueRefresh() end
 end
 
+-- The tooltip roster: `keys` holds store keys sorted richest first. Past
+-- `maxRows` rows the rest are left out unless `all` is set (Shift held); the
+-- live character (`selfKey`) always shows. The shown rows go under the realm
+-- each character was recorded on (its ruleset on WoW Forever), realms A-Z and
+-- richest first within one, as the Time Played block lists them.
+-- Returns realms, byRealm (realm -> keys) and how many rows were left out.
+local function GoldRosterByRealm(store, keys, all, selfKey, maxRows)
+    local byRealm, realms = {}, {}
+    local shownRows, hiddenRows = 0, 0
+    for _, key in ipairs(keys) do
+        if not all and shownRows >= maxRows and key ~= selfKey then
+            hiddenRows = hiddenRows + 1
+        else
+            shownRows = shownRows + 1
+            local realm = store[key].realm or "?"
+            local list = byRealm[realm]
+            if not list then
+                list = {}
+                byRealm[realm] = list
+                realms[#realms + 1] = realm
+            end
+            list[#list + 1] = key
+        end
+    end
+    tsort(realms)
+    return realms, byRealm, hiddenRows
+end
+
 -- Every character and the warbank figure gone, as the Bags gold button's reset
 -- does (a list holding characters that never update, from another account):
 -- this character and the warbank are recorded again at once, the others when
@@ -363,19 +391,19 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
                 return (store[a].money or 0) > (store[b].money or 0)
             end)
             charCount = #charList
+            local realmCount = 0
             if charCount > 0 then
-                ns.Tip_AddLine(" ")
-                ns.Tip_AddLine(EllesmereUI.RealmGroupName() or "?", 0.5, 0.78, 1)
                 -- Cap roster rows so many alts cannot push the total and hint rows off
                 -- screen. Sorted richest first, so the cap keeps the highest balances; the
                 -- live character always shows; the total still sums EVERY stored character.
-                local maxRows, shownRows, hiddenRows = 10, 0, 0
-                for _, key in ipairs(charList) do
-                    local char = store[key]
-                    if not all and shownRows >= maxRows and key ~= selfKey then
-                        hiddenRows = hiddenRows + 1
-                    else
-                        shownRows = shownRows + 1
+                -- Each realm (ruleset on WoW Forever) heads its own characters.
+                local realms, byRealm, hiddenRows = GoldRosterByRealm(store, charList, all, selfKey, 10)
+                realmCount = #realms
+                for _, realm in ipairs(realms) do
+                    ns.Tip_AddLine(" ")
+                    ns.Tip_AddLine(realm, 0.5, 0.78, 1)
+                    for _, key in ipairs(byRealm[realm]) do
+                        local char = store[key]
                         local cr, cg, cb = 1, 1, 1
                         if char.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[char.class] then
                             local cc = RAID_CLASS_COLORS[char.class]; cr, cg, cb = cc.r, cc.g, cc.b
@@ -398,12 +426,14 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
                     unlisted = unlisted + hiddenRows
                 end
             end
-            -- Warbank rides the character list as its final row, no separator: it reads as one more entry.
-            -- Live when readable, otherwise the ledger's last known balance.
+            -- Warbank rides the character list as its final row, no separator under a single realm:
+            -- it reads as one more entry. Under several realms a blank line sets it apart, since it
+            -- belongs to none of them. Live when readable, otherwise the ledger's last known balance.
             GL.RecordWarband()
             local wband = GL.Data().warband
             local wbank = wband and wband.money
             if wbank and wbank > 0 then
+                if realmCount > 1 then ns.Tip_AddLine(" ") end
                 ns.Tip_AddColumns(EllesmereUI.L("Warbank"), ns.MoneyTokens(wbank, sm, ci, true), 1, 0.82, 0)
                 total = total + wbank
             end

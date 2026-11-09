@@ -412,13 +412,17 @@ local STATUS = {
     failed            = St(LFG_LIST_APP_FAILED, "Failed", R),
 }
 -- underline setting + color per status
-local LINE_DELISTED  = { "lineDelisted", 0.6, 0.6, 0.6 }
-local LINE_ACCEPTED  = { "lineAccepted", 0.1, 0.9, 0.1 }
-local LINE_CANCELLED = { "lineCancelled", 1, 0.55, 0.1 }
-local LINE_DECLINED  = { "lineDeclined", 1, 0.2, 0.2 }
+-- each status: its switch, its own color and the key of the user's color
+local LINE_DELISTED  = { "lineDelisted", 0.6, 0.6, 0.6, "color_lineDelisted" }
+local LINE_ACCEPTED  = { "lineAccepted", 0.1, 0.9, 0.1, "color_lineAccepted" }
+local LINE_CANCELLED = { "lineCancelled", 1, 0.55, 0.1, "color_lineCancelled" }
+local LINE_DECLINED  = { "lineDeclined", 1, 0.2, 0.2, "color_lineDeclined" }
+-- by switch, for the settings page's color pickers
+ns.STATUS_LINES = { lineDelisted = LINE_DELISTED, lineAccepted = LINE_ACCEPTED,
+    lineCancelled = LINE_CANCELLED, lineDeclined = LINE_DECLINED }
 -- a status's color: the user's, else its own
 local function StatusColor(line)
-    local c = ns.OwnListGet("color_" .. line[1])
+    local c = ns.OwnListGet(line[5])
     if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end
     return line[2], line[3], line[4]
 end
@@ -1336,16 +1340,10 @@ local function PvFit()
     return math.ceil(fh * s) + PV_MARGIN * 2
 end
 
--- the tooltips' names: the raid & party frames preview roster (supporters'
--- names, EUI_RaidFrames_Preview.lua ns._PV_ROSTER), kept in step with it.
--- members take a name of their own class first
-local PV_ROSTER = {
-    { "Xeno", "MONK" }, { "Grimjaw", "WARRIOR" }, { "Stickymittens", "PALADIN" }, { "Toxik", "MONK" },
-    { "Delasteve", "PALADIN" }, { "Burne", "DRUID" }, { "Lily", "PALADIN" }, { "Kulia", "PALADIN" },
-    { "Thiaspriest", "PRIEST" }, { "Pelleas", "SHAMAN" }, { "Khardi", "HUNTER" }, { "Morgath", "DEATHKNIGHT" },
-    { "Drakmoor", "DEMONHUNTER" }, { "Embertide", "EVOKER" }, { "Elyndra", "MAGE" }, { "Fenwick", "ROGUE" },
-    { "Zulkhar", "WARLOCK" }, { "Luneth", "DRUID" }, { "Stormhelm", "SHAMAN" },
-}
+-- the tooltips' names: the suite's preview roster (EllesmereUI.PREVIEW_ROSTER,
+-- shared with the raid & party frames preview). members take a name of their
+-- own class first
+local PV_ROSTER = EllesmereUI.PREVIEW_ROSTER
 
 ns.PreviewRoster = PV_ROSTER  -- the applicant preview's names too
 
@@ -1357,9 +1355,9 @@ local function PvPlayers(id)
             for i = 0, #PV_ROSTER - 1 do
                 local k = (start + i) % #PV_ROSTER + 1
                 local e = PV_ROSTER[k]
-                if not used[k] and (pass == 2 or e[2] == cls) then
+                if not used[k] and (pass == 2 or e.class == cls) then
                     used[k] = true
-                    return e[1]
+                    return e.name
                 end
             end
         end
@@ -1460,20 +1458,19 @@ function ns.OwnListPreviewBuild(hdr, hdrW)
         pv.appHost:SetPoint("TOPLEFT", view, "TOPLEFT", 0, 0)
         pv.appHost:SetClipsChildren(true)
         pv.appHost:Hide()
-        -- groups or applicants, picked right of the preview
-        if EUI.BuildDropdownControl then
-            local dd = EUI.BuildDropdownControl(hdr, PV_DD_W, hdr:GetFrameLevel() + 3,
-                { groups = "Groups", dungeon = "Dungeon Applicants", raid = "Raid Applicants" },
-                { "groups", "dungeon", "raid" },
-                function() return pv.mode or "groups" end,
-                function(v)
-                    pv.mode = v
-                    GameTooltip_Hide()
-                    ns.OwnListPreviewPaint()
-                end)
-            dd:SetPoint("LEFT", f, "RIGHT", PV_DD_GAP, 0)
-            pv.dd = dd
-        end
+        -- groups or applicants, picked right of the preview (the settings page
+        -- builds this header, so the options widgets are loaded)
+        local dd = EUI.BuildDropdownControl(hdr, PV_DD_W, hdr:GetFrameLevel() + 3,
+            { groups = "Groups", dungeon = "Dungeon Applicants", raid = "Raid Applicants" },
+            { "groups", "dungeon", "raid" },
+            function() return pv.mode or "groups" end,
+            function(v)
+                pv.mode = v
+                GameTooltip_Hide()
+                ns.OwnListPreviewPaint()
+            end)
+        dd:SetPoint("LEFT", f, "RIGHT", PV_DD_GAP, 0)
+        pv.dd = dd
         pv.rows = {}
         for i = 1, #PV_IDS do
             local r = MakeRow(nil, view)
@@ -1637,6 +1634,7 @@ local function Flush()
         full = by == "high" or by == "low" or by == "big" or by == "small"
     end
     if not full then
+        local notesOn = ns.OwnListGet("groupNotes")
         for id in pairs(dirty) do
             if ResultSecret(id) then
                 full = true
@@ -1650,6 +1648,12 @@ local function Flush()
                     full = true
                     break
                 end
+            end
+            -- a listed group's note came or went: its row is a line taller or shorter
+            if notesOn and (isApp[id] or was == true or dimmed[id])
+               and (NoteText(C_LFGList.GetSearchResultInfo(id)) ~= nil) ~= (noteOf[id] == true) then
+                full = true
+                break
             end
         end
     end

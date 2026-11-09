@@ -410,7 +410,8 @@ do
             title:SetFont(FONT, 22, "")
             title:SetTextColor(1, 1, 1, 1)
             PP.Point(title, "TOP", popup, "TOP", 0, -32)
-            title:SetText(EllesmereUI.L("Assign Preset to Specs"))
+            -- WoW Forever has no specs: its rows are classes, and so is the wording.
+            title:SetText(EllesmereUI.IS_FOREVER and EllesmereUI.L("Assign Preset to Classes") or EllesmereUI.L("Assign Preset to Specs"))
             popup._title = title
 
             -- Subtitle
@@ -502,7 +503,8 @@ do
             defDDLabel:SetFont(FONT, 14, "")
             defDDLabel:SetTextColor(1, 1, 1, 0.45)
             PP.Point(defDDLabel, "BOTTOM", defDDContainer, "CENTER", 0, 7)
-            defDDLabel:SetText(EllesmereUI.L("Default Profile (for non-assigned specs)"))
+            defDDLabel:SetText(EllesmereUI.IS_FOREVER and EllesmereUI.L("Default Profile (for non-assigned classes)")
+                or EllesmereUI.L("Default Profile (for non-assigned specs)"))
             popup._defDDLabel = defDDLabel
 
             local defDDBtn = CreateFrame("Button", nil, defDDContainer)
@@ -723,7 +725,7 @@ do
         if opts.title then
             specPopup._title:SetText(EllesmereUI.L(opts.title))
         else
-            specPopup._title:SetText(EllesmereUI.L("Assign Preset to Specs"))
+            specPopup._title:SetText(EllesmereUI.IS_FOREVER and EllesmereUI.L("Assign Preset to Classes") or EllesmereUI.L("Assign Preset to Specs"))
         end
         if opts.subtitle then
             specPopup._subtitle:SetText(EllesmereUI.L(opts.subtitle))
@@ -733,7 +735,9 @@ do
             elseif presetKey == "ellesmereui" then presetName = "EllesmereUI"
             elseif presetKey and type(presetKey) == "string" and presetKey:sub(1, 5) == "user:" then presetName = presetKey:sub(6)
             else presetName = presetKey or "" end
-            specPopup._subtitle:SetText(EllesmereUI.Lf("Select which specs you want %1$s to be assigned to", presetName))
+            specPopup._subtitle:SetText(EllesmereUI.IS_FOREVER
+                and EllesmereUI.Lf("Select which classes you want %1$s to be assigned to", presetName)
+                or EllesmereUI.Lf("Select which specs you want %1$s to be assigned to", presetName))
         end
         -- Per-call subtitle color (default dim white). Lets a caller render a red
         -- overwrite warning in the subtitle slot. Reset every call (popup is cached).

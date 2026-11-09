@@ -470,12 +470,17 @@ initFrame:SetScript("OnEvent", function(self)
                               db.profile.bagDimPinnedInOneBag = v
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
+                        -- Account-wide, on unless turned off: only the off state is stored.
                         { type="toggle", label="Pins per Character",
-                          tooltip="Each character keeps its own pinned items. A character uses the shared pins until it pins or unpins something.",
-                          get=function() return EllesmereUIDB and EllesmereUIDB.bagPinsPerCharacter == true end,
+                          tooltip="Each character keeps its own pinned items, starting from the shared ones.",
+                          get=function() return not (EllesmereUIDB and EllesmereUIDB.bagPinsPerCharacter == false) end,
                           set=function(v)
-                              if not EllesmereUIDB then EllesmereUIDB = {} end
-                              EllesmereUIDB.bagPinsPerCharacter = v or nil
+                              if not EllesmereUIDB then return end
+                              if v then
+                                  EllesmereUIDB.bagPinsPerCharacter = nil
+                              else
+                                  EllesmereUIDB.bagPinsPerCharacter = false
+                              end
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
                     },

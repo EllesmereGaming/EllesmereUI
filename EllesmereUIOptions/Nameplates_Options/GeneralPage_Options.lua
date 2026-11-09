@@ -400,6 +400,8 @@ local function BuildGeneralPage(pageName, parent, yOffset)
         -- on the cog button; only the title rows need a gate of their own.
         local function npcCogOff() return npcOff() or nameOnlyOff() end
         local function titleOff() return DBVal("showNPCTitles") == false end
+        -- The overlay's marker follows the Raid Marker element, as the friendly plates' does.
+        local function markerOff() return (DBVal("raidMarkerPos") or defaults.raidMarkerPos) == "none" end
 
         local rgn = npcRow._leftRegion
         local btn = EllesmereUI.BuildInlineCog(rgn, {
@@ -424,11 +426,12 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                     if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
                   end },
                 { type = "toggle", label = "Show Raid Marker",
-                  get = function() return DBVal("showNPCRaidMarker") == true end,
+                  get = function() return DBVal("showNPCRaidMarker") ~= false end,
                   set = function(v)
                     DB().showNPCRaidMarker = v and true or false
                     if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
-                  end },
+                  end,
+                  disabled = markerOff, disabledTooltip = "Raid Marker" },
                 { type = "slider", label = "Name Size", min = 6, max = 30, step = 1,
                   get = function() return DBVal("friendlyNPCNameSize") or defaults.friendlyNPCNameSize end,
                   set = function(v)

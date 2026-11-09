@@ -1957,18 +1957,19 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
             else ActiveApplyNormal() end
         end)
 
-        -- "Assign to Spec" label
+        -- "Assign to Spec" label ("Assign to Class" on WoW Forever, which has no
+        -- specs: the popup lists one row per class there)
         local specLabel = EllesmereUI.MakeFont(rowFrame, 12, nil, 1, 1, 1, 0.45)
         PP.Point(specLabel, "LEFT", profLabel, "LEFT", DD_W + GAP, 0)
-        specLabel:SetText(EllesmereUI.L("Assign to Spec"))
+        specLabel:SetText(EllesmereUI.IS_FOREVER and EllesmereUI.L("Assign to Class") or EllesmereUI.L("Assign to Spec"))
         specLabel:SetJustifyH("LEFT")
 
-        -- Assign to Spec button
+        -- Assign to Spec (Class) button
         local assignBtn = CreateFrame("Button", nil, rowFrame)
         PP.Size(assignBtn, BTN_W, CTRL_H)
         PP.Point(assignBtn, "TOPLEFT", specLabel, "BOTTOMLEFT", 0, -6)
         assignBtn:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
-        EllesmereUI.MakeStyledButton(assignBtn, "Assign to Spec", 11, PROF_BTN_COLOURS, function()
+        EllesmereUI.MakeStyledButton(assignBtn, EllesmereUI.IS_FOREVER and "Assign to Class" or "Assign to Spec", 11, PROF_BTN_COLOURS, function()
             local db = EllesmereUIDB or {}
             if not db.specProfiles then db.specProfiles = {} end
             local tempDB = { _profileSpecs = {} }

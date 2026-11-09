@@ -987,8 +987,9 @@ local function ShowRoll(key, link, itemName, winner, class, roll, retried)
     local item = color.hex .. (name or itemName or "?") .. "|r"
     local text
     if winner then
-        local cc = class and RAID_CLASS_COLORS[class]
-        if cc then winner = "|c" .. cc.colorStr .. winner .. "|r" end
+        -- The suite's class colour (custom class colours included); an unknown class stays uncoloured.
+        local cc = class and RAID_CLASS_COLORS[class] and EllesmereUI.GetClassColor(class)
+        if cc then winner = EllesmereUI.HexColor(cc.r, cc.g, cc.b) .. winner .. "|r" end
         text = EllesmereUI.Lf("%s won %s", winner, item)
     else
         text = EllesmereUI.Lf("Everyone passed on %s", item)

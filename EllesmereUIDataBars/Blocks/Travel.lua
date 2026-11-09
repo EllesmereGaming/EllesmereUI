@@ -369,10 +369,12 @@ local function TravelGetPrimaryCooldown()
 end
 
 -- Show Other Characters (block setting altHearths, off by default): every
--- character's hearthstone, account-wide in EllesmereUIDB.travelHearths
--- ["Name-RealmGroup"] = { name, class, bind, readyAt }. readyAt is a time()
--- stamp (0 = ready): item cooldowns keep running while logged out, so an alt's
--- row counts down from what it last saved. A character saves itself on each
+-- character's hearthstone, account-wide in EllesmereUIDB.travelHearths, keyed
+-- by EllesmereUI.CharKey("-") (Name-Realm on retail, the character's GUID on
+-- WoW Forever) = { name (with the surname on WoW Forever), class, bind,
+-- readyAt }. readyAt is a time() stamp (0 = ready): item cooldowns keep
+-- running while logged out, so an alt's row counts down from what it last
+-- saved. A character saves itself on each
 -- block refresh while the setting is on, but writes only when its bind or
 -- ready time changed (the refresh runs every second while the tooltip or a
 -- cooldown shows); a secret (combat) read saves nothing.
@@ -387,14 +389,19 @@ local function TravelHearthStore()
     return store
 end
 
--- This character's key, built once a session, and what it last wrote.
-local _myHearthKey, _savedBind, _savedReadyAt
+-- This character's key and full name, read once a session, and what it last
+-- wrote (the first save of a session always writes).
+local _myHearthKey, _myHearthName, _savedBind, _savedReadyAt
 local function TravelSaveMyHearth()
     local store = TravelHearthStore()
     if not store then return end
     if not _myHearthKey then
-        _myHearthKey = EllesmereUI.CharKey and EllesmereUI.CharKey("-", store)
+        _myHearthKey = EllesmereUI.CharKey("-", store)
         if not _myHearthKey then return end
+        -- The full name whatever the show-surname preference: two WoW Forever
+        -- characters can share a first name.
+        local name, surname = (UnitNameUnmodified or UnitName)("player")
+        _myHearthName = EllesmereUI.WithSurname(name, surname, true)
     end
     local cd, known = TravelGetPrimaryCooldown()
     if not known then return end
@@ -411,7 +418,7 @@ local function TravelSaveMyHearth()
         store[_myHearthKey] = e
     end
     local _, class = UnitClass("player")
-    e.name = UnitName("player")
+    e.name = _myHearthName
     e.class = class
     e.bind = bind
     e.readyAt = readyAt
@@ -427,7 +434,7 @@ local function TravelAltSort(a, z) return (a.name or "") < (z.name or "") end
 local function TravelAddAltRows(ar, ag, ab, onRemoved)
     local store = TravelHearthStore()
     if not store then return 0 end
-    local mine = _myHearthKey or (EllesmereUI.CharKey and EllesmereUI.CharKey("-"))
+    local mine = _myHearthKey or EllesmereUI.CharKey("-")
     local n = 0
     wipe(_altKeyOf)
     for key, e in pairs(store) do

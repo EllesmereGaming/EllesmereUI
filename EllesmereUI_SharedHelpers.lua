@@ -1106,8 +1106,18 @@ end
 -- 3D models ignore parent alpha, UIParent's too: UIScaledAlpha applies a UIParent
 -- fade to a model's mirrored alpha; OnUIAlphaChanged hooks UIParent:SetAlpha lazily.
 do
-    local listeners
+    local listeners, lastAlpha
     local function Notify()
+        -- The listeners' one input is UIParent's alpha: a SetAlpha that repeats the last
+        -- one moves nothing. A secret alpha cannot be compared, so it always notifies.
+        local ui = UIParent:GetAlpha()
+        if issecretvalue(ui) then
+            lastAlpha = nil
+        elseif ui == lastAlpha then
+            return
+        else
+            lastAlpha = ui
+        end
         for i = 1, #listeners do listeners[i]() end
     end
     function EllesmereUI.UIScaledAlpha(a)

@@ -852,6 +852,30 @@ if EABR.FOREVER then
             mainFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
         end
     end
+    -- A Cozy Sleeping Bag bought or looted while none is owned and the shared
+    -- bag listener above is off: one item count per bag change until one shows
+    -- up, which wakes the reminder; that listener takes over from there
+    -- (EABR.FvSleepingBagOwned).
+    local sleepWatch
+    function EABR.FvSyncSleepBagWatch(want)
+        if want == (EABR._fvSleepWatch or false) then return end
+        EABR._fvSleepWatch = want
+        if want then
+            if not sleepWatch then
+                sleepWatch = CreateFrame("Frame")
+                sleepWatch:SetScript("OnEvent", function()
+                    if (C_Item.GetItemCount(EABR.SLEEPING_BAG_ITEM) or 0) > 0 then
+                        EABR._fvSleepBag = true
+                        EABR.FvSyncSleepBagWatch(false)
+                        RequestRefresh()
+                    end
+                end)
+            end
+            sleepWatch:RegisterEvent("BAG_UPDATE_DELAYED")
+        elseif sleepWatch then
+            sleepWatch:UnregisterEvent("BAG_UPDATE_DELAYED")
+        end
+    end
 else
 mainFrame:RegisterEvent("ENCOUNTER_START")
 mainFrame:RegisterEvent("ENCOUNTER_END")

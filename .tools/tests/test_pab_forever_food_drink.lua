@@ -58,7 +58,7 @@ end
 -- WoW Forever: a custom filter with rank 1 Food and Drink covers every rank.
 do
     local ns = Load(true)
-    local f = ns.PAB_AddFilter("Naowh")
+    local f = ns.PAB_AddFilter("Food and Drink")
     f.spells[433], f.spells[430] = true, true
     local set = Resolved(ns, f.id)
     ExpectAll(set, FOOD, true, "Forever custom filter, Food")
@@ -115,7 +115,7 @@ end
 do
     local ns = Load(false)
     assert(ns.PAB_SPELL_FAMILY[433] == nil and ns.PAB_SPELL_FAMILY[430] == nil, "retail gained a Food or Drink family")
-    local f = ns.PAB_AddFilter("Naowh")
+    local f = ns.PAB_AddFilter("Food and Drink")
     f.spells[433], f.spells[430] = true, true
     local set = Resolved(ns, f.id)
     assert(set[433] and set[430], "retail lost the filter's own ids")

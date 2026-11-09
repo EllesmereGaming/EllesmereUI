@@ -27,8 +27,10 @@ EllesmereUI = {
     HELD_BACK_ADDONS = {},
     _ModuleNS = {},
     NewCombatQueue = function() return {} end,
-    -- named in the module's stale-parent guard (the lists' font families)
+    -- named in the module's stale-parent guard (the lists' font families, the
+    -- settings preview's names)
     SetFontFamily = function() end,
+    PREVIEW_ROSTER = {},
     Lite = {
         NewAddon = function() T.addon = {}; return T.addon end,
         NewDB = function(name, defaults)

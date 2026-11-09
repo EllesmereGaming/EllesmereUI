@@ -231,14 +231,11 @@ initFrame:SetScript("OnEvent", function(self)
             { key = "lineCancelled", label = "Canceled", tooltip = "You cancelled the application." },
             { key = "lineDeclined",  label = "Declined", tooltip = "Declined, the group filled, or the application timed out." },
         }
-        -- each status's own color, for the cog's pickers (EUI_GroupFinder_ResultsList.lua's LINE_*)
-        local LINE_DEFAULT = { lineDelisted = { 0.6, 0.6, 0.6 }, lineAccepted = { 0.1, 0.9, 0.1 },
-            lineCancelled = { 1, 0.55, 0.1 }, lineDeclined = { 1, 0.2, 0.2 } }
         local lineRow
         lineRow, h = W:DualRow(parent, y,
             -- placeholder, the checklist replaces it
             { type = "dropdown", text = "Status Effect",
-              tooltip = "Marks the groups you applied to in their status color: a line under the group, or the whole group tinted (set in the cog).",
+              tooltip = "Marks the groups you applied to in their status color, with a line under the group or a tinted row.",
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
               setValue = function() end },
@@ -263,16 +260,17 @@ initFrame:SetScript("OnEvent", function(self)
             rgn._control = dd
             rgn._lastInline = nil
             EUI.RegisterWidgetRefresh(ddRefresh)
-            -- the effect's style and each status's color
+            -- the effect's style and each status's color (the list's own
+            -- colors and keys: ns.STATUS_LINES, EUI_GroupFinder_ResultsList.lua)
             local function Picker(key, label)
-                local d = LINE_DEFAULT[key]
+                local line = ns.STATUS_LINES[key]
                 return { type = "colorpicker", label = label,
                     get = function()
-                        local c = ns.OwnListGet("color_" .. key)
+                        local c = ns.OwnListGet(line[5])
                         if type(c) == "table" then return c.r, c.g, c.b end
-                        return d[1], d[2], d[3]
+                        return line[2], line[3], line[4]
                     end,
-                    set = function(r, g, b) ns.SetOwnListValue("color_" .. key, { r = r, g = g, b = b }) end }
+                    set = function(r, g, b) ns.SetOwnListValue(line[5], { r = r, g = g, b = b }) end }
             end
             EUI.BuildInlineCog(rgn, {
                 title = "Status Effect",
@@ -432,7 +430,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue = function(v) SetLine("extraShowPlaystyle", v) end })
         y = y - h
         local notesCfg = { type = "toggle", text = "Show Group Notes",
-            tooltip = "Shows each group's note on a line under it. Hover the group for the whole note.",
+            tooltip = "Shows each group's note on a line under it; hover the group for the whole note.",
             getValue = function() return ns.OwnListGet("groupNotes") == true end,
             setValue = function(v) ns.SetOwnListValue("groupNotes", v and true or false) end }
         if tagsCfg then

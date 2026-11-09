@@ -1304,18 +1304,19 @@ local PV_APPS = {
 local PV_COUNTS = { TANK = 2, HEALER = 4, DAMAGER = 11 }
 local apv = { blocks = {}, scroll = 0, ids = {}, data = {} }
 
--- names: the group preview's supporter roster, one of the member's class first
+-- names: the suite's preview roster (EllesmereUI.PREVIEW_ROSTER), one of the
+-- member's class first
 local function PvNames(kind)
-    local roster = ns.PreviewRoster or {}
+    local roster = ns.PreviewRoster or EllesmereUI.PREVIEW_ROSTER
     local used, start = {}, kind == "raid" and 7 or 0
     local function Take(cls)
         for pass = 1, 2 do
             for i = 0, #roster - 1 do
                 local k = (start + i) % #roster + 1
                 local e = roster[k]
-                if not used[k] and (pass == 2 or e[2] == cls) then
+                if not used[k] and (pass == 2 or e.class == cls) then
                     used[k] = true
-                    return e[1]
+                    return e.name
                 end
             end
         end

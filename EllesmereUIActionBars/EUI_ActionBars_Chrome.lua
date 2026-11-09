@@ -27,7 +27,7 @@ local _fadeAlpha, extraBarHolders = I._fadeAlpha, I.extraBarHolders
 --  carry end caps, left, right or both (the End Caps checklist), in the
 --  current look's art (the EllesmereUI style: the art the player picks), with
 --  its own size and offsets. WoW Forever: the metal frame round a bar and the
---  dividers between its buttons (Show Bar Background, on by default on Action
+--  dividers between its buttons (Bar Frame, on by default on Action
 --  Bar 1 only) and the faction end caps (both sides on by default on Action
 --  Bar 1 only), from Blizzard's own atlases (they draw the Forever art on
 --  that client). Built per bar the first time a piece is on (LayoutBar's
@@ -466,7 +466,7 @@ function ns.AB_CapsEvSync()
 end
 
 -- A bar's chrome, from LayoutBar's tail: WoW Forever's frame and dividers
--- (Show Bar Background), and the bar's end caps on a horizontal bar. Each
+-- (Bar Frame), and the bar's end caps on a horizontal bar. Each
 -- bar keeps its own state (ns._abChrome[key]), built the first time it shows
 -- either piece.
 function ns.AB_ApplyBarChrome(key, frame, w, h, btnW, vertical, multi, n, step, extra, onePx)

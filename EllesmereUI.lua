@@ -345,6 +345,34 @@ EllesmereUI.CLASS_ICON_SPRITE_COORDS = {
     DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
 }
 
+-- EUI LEGENDS event roster (PERMANENT): the event winners + team members who
+-- earned a spot in the suite's previews, with class-balancing filler names. The
+-- Raid & Party Frames preview fills its slots 2-20 with these in this order (Name,
+-- class and role travel together through its role sort; hpal = a holy paladin),
+-- and Group Finder's settings preview names its sample members and applicants
+-- from it, a member's own class first. Read-only.
+EllesmereUI.PREVIEW_ROSTER = {
+    { name = "Xeno",          class = "MONK",        role = "TANK" },
+    { name = "Grimjaw",       class = "WARRIOR",     role = "TANK" },
+    { name = "Stickymittens", class = "PALADIN",     role = "HEALER", hpal = true },
+    { name = "Toxik",         class = "MONK",        role = "HEALER" },
+    { name = "Delasteve",     class = "PALADIN",     role = "HEALER", hpal = true },
+    { name = "Burne",         class = "DRUID",       role = "HEALER" },
+    { name = "Lily",          class = "PALADIN",     role = "HEALER", hpal = true },
+    { name = "Kulia",         class = "PALADIN",     role = "HEALER", hpal = true },
+    { name = "Thiaspriest",   class = "PRIEST",      role = "DAMAGER" },
+    { name = "Pelleas",       class = "SHAMAN",      role = "DAMAGER" },
+    { name = "Khardi",        class = "HUNTER",      role = "DAMAGER" },
+    { name = "Morgath",       class = "DEATHKNIGHT", role = "DAMAGER" },
+    { name = "Drakmoor",      class = "DEMONHUNTER", role = "DAMAGER" },
+    { name = "Embertide",     class = "EVOKER",      role = "DAMAGER" },
+    { name = "Elyndra",       class = "MAGE",        role = "DAMAGER" },
+    { name = "Fenwick",       class = "ROGUE",       role = "DAMAGER" },
+    { name = "Zulkhar",       class = "WARLOCK",     role = "DAMAGER" },
+    { name = "Luneth",        class = "DRUID",       role = "DAMAGER" },
+    { name = "Stormhelm",     class = "SHAMAN",      role = "DAMAGER" },
+}
+
 -- Font (Expressway lives in EllesmereUI/media)
 local EXPRESSWAY = MEDIA_PATH .. "fonts\\Expressway.ttf"
 
@@ -3372,7 +3400,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.8.3"
+EllesmereUI.VERSION = "9.8.4"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

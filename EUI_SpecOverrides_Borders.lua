@@ -275,6 +275,17 @@ local function TraceSlot(cfg)
     return sink
 end
 
+-- The set of fkeys a slot's getters read, traced on its own: an empty set while
+-- another trace is live or the profiles cannot be traced. EndTrace runs on every
+-- path (see the gold walk below).
+local function SlotReads(cfg)
+    if not (cfg and BeginTrace()) then return {} end
+    local ok, sink = pcall(TraceSlot, cfg)
+    EndTrace()
+    if ok and type(sink) == "table" then return sink end
+    return {}
+end
+
 
 local function MakeBorderHost(region, r, g, b)
     local host = CreateFrame("Frame", nil, region)
@@ -717,4 +728,5 @@ SetRequestGoldWalk(RequestGoldWalk)
 I.CurrentContext, I.DiffProfiles = CurrentContext, DiffProfiles
 I.IsExcludedContext, I.RequestGoldWalk = IsExcludedContext, RequestGoldWalk
 I.SnapshotProfiles, I.UpdateEditLocks = SnapshotProfiles, UpdateEditLocks
+I.SlotReads = SlotReads
 I.broken = false
