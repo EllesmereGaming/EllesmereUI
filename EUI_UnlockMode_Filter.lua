@@ -270,7 +270,8 @@ function UM.BuildFilter(hud, centerY)
     local bg = frame:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(EllesmereUI.SL_INPUT_R, EllesmereUI.SL_INPUT_G, EllesmereUI.SL_INPUT_B, 0.9)
-    local brd = EllesmereUI.MakeBorder(frame, BR, BG, BB, 0.20)
+    local brd = EllesmereUI.MakeRoundedBorder(frame, BR, BG, BB, 0.20, bg)
+    hud._outlines[#hud._outlines + 1] = brd
 
     local box = CreateFrame("EditBox", nil, frame)
     box:SetAllPoints()

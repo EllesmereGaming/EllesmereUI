@@ -455,9 +455,19 @@ local function CreateHUD(parent)
     exitBtn:SetSize(EXIT_BTN_W, BTN_H)
     local exitLeftEdge = min(-BANNER_PX_W / 2 + EDGE_IN, flashLeftEdge - CHAIN_GAP - EXIT_BTN_W)
     exitBtn:SetPoint("LEFT", UM.hudFrame, "TOPLEFT", exitLeftEdge + BANNER_PX_W / 2, btnCenterY)
-    EllesmereUI.MakeStyledButton(exitBtn, "Exit", BTN_FONT,
+    local _, exitBrd = EllesmereUI.MakeStyledButton(exitBtn, "Exit", BTN_FONT,
         EllesmereUI.RB_COLOURS, function() ns.RequestClose(false) end)
     UM.hudFrame._exitBtn = exitBtn
+
+    -- The rounded outlines take their whole-pixel seat as the bar shows, still above
+    -- the screen at an offset that need not be whole pixels: they re-seat once it
+    -- lands and after a banner scale change.
+    UM.hudFrame._outlines = { exitBrd }
+    function UM.hudFrame._refitOutlines()
+        if not UM.hudFrame:IsVisible() then return end
+        local list = UM.hudFrame._outlines
+        for i = 1, #list do list[i]:Fit() end
+    end
 
     -- Save & Exit button (right side, 50px from right edge, green "Done" style)
     do
@@ -469,10 +479,11 @@ local function CreateHUD(parent)
         btn:SetFrameLevel(UM.hudFrame:GetFrameLevel() + 2)
 
         local eg = EllesmereUI.ELLESMERE_GREEN or { r = 12/255, g = 210/255, b = 157/255 }
-        EllesmereUI.MakeBorder(btn, eg.r, eg.g, eg.b, 0.7)
         local bg = btn:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
+        local outlines = UM.hudFrame._outlines
+        outlines[#outlines + 1] = EllesmereUI.MakeRoundedBorder(btn, eg.r, eg.g, eg.b, 0.7, bg)
 
         local lbl = btn:CreateFontString(nil, "OVERLAY")
         lbl:SetFont(FONT_PATH, BTN_FONT, "OUTLINE, SLUG")
@@ -568,6 +579,7 @@ local function CreateHUD(parent)
             -- Keep flush with top of screen
             UM.hudFrame:ClearAllPoints()
             UM.hudFrame:SetPoint("TOP", UIParent, "TOP", 0, 0)
+            UM.hudFrame._refitOutlines()
             -- Resize hover zone to match new scale
             if UM.hudFrame._hoverZone then
                 UM.hudFrame._hoverZone:SetHeight(60 * uiScale * newScale)
@@ -2721,6 +2733,7 @@ function ns.OpenUnlockMode()
         if UM.hudFrame then
             UM.hudFrame:ClearAllPoints()
             UM.hudFrame:SetPoint("TOP", UIParent, "TOP", 0, 0)
+            UM.hudFrame._refitOutlines()
         end
         self:SetScript("OnUpdate", nil)
 
