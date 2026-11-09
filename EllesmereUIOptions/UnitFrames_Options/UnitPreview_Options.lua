@@ -1994,7 +1994,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         if G.name and leftFS:IsShown() then
             leftFS:ClearAllPoints()
             leftFS:SetJustifyH(G.name.justify or "LEFT")
-            ns.UF_BlizzPoint(leftFS, G.name.point, barArea, G.name.point, G.name.x, G.name.y, mirror)
+            local xOffset, yOffset = s.leftTextX or 0, s.leftTextY or 0
+            -- Keep the user's X offset screen-relative when UF_BlizzPoint mirrors it.
+            local x = G.name.x + (mirror and -xOffset or xOffset)
+            ns.UF_BlizzPoint(leftFS, G.name.point, barArea, G.name.point, x, G.name.y + yOffset, mirror)
             leftFS:SetWidth(G.name.w)
         end
 
