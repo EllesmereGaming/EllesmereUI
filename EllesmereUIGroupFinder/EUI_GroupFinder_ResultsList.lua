@@ -416,6 +416,12 @@ local LINE_DELISTED  = { "lineDelisted", 0.6, 0.6, 0.6 }
 local LINE_ACCEPTED  = { "lineAccepted", 0.1, 0.9, 0.1 }
 local LINE_CANCELLED = { "lineCancelled", 1, 0.55, 0.1 }
 local LINE_DECLINED  = { "lineDeclined", 1, 0.2, 0.2 }
+-- a status's color: the user's, else its own
+local function StatusColor(line)
+    local c = ns.OwnListGet("color_" .. line[1])
+    if type(c) == "table" then return c.r or 1, c.g or 1, c.b or 1 end
+    return line[2], line[3], line[4]
+end
 local LINE_OF = {
     [STATUS.declined_delisted] = LINE_DELISTED,
     [STATUS.applied] = LINE_ACCEPTED, [STATUS.invited] = LINE_ACCEPTED, [STATUS.inviteaccepted] = LINE_ACCEPTED,
@@ -439,6 +445,10 @@ local function MakeRow(i, parent)
     r.under:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", 0, 0)
     r.under:SetHeight(2)
     r.under:Hide()
+    -- status highlight across the row, under the selection
+    r.stat = r:CreateTexture(nil, "BACKGROUND", nil, 1)
+    r.stat:SetAllPoints()
+    r.stat:Hide()
     r.hl = r:CreateTexture(nil, "HIGHLIGHT")
     r.hl:SetAllPoints()
     r.hl:SetColorTexture(1, 1, 1, 0.06)
@@ -885,20 +895,24 @@ local function Fill(r, id, src)
     if not Secret(delisted) and delisted then st = STATUS.declined_delisted end  -- secret check first
     if st then
         r.status:SetText(st[1])
-        -- same color as the underline
-        local c = LINE_OF[st] or st
-        r.status:SetTextColor(c[2], c[3], c[4], 1)
+        -- same color as the status effect
+        local sl = LINE_OF[st]
+        if sl then r.status:SetTextColor(StatusColor(sl)) else r.status:SetTextColor(st[2], st[3], st[4], 1) end
     else
         r.status:SetText("")
     end
-    -- underline per status
+    -- status effect: an underline, or the whole row tinted
     local line = st and LINE_OF[st]
-    if line and ns.OwnListGet(line[1]) ~= false then
-        r.under:SetColorTexture(line[2], line[3], line[4], 0.9)
-        r.under:Show()
-    else
-        r.under:Hide()
+    local on = line and ns.OwnListGet(line[1]) ~= false or false
+    local rowFx = on and ns.OwnListGet("statusStyle") == "row" or false
+    if on then
+        local lr, lg, lb = StatusColor(line)
+        -- solid, so it reads the same over any window background (the preview's is darker)
+        if rowFx then r.stat:SetColorTexture(lr * 0.15 + 0.045, lg * 0.15 + 0.045, lb * 0.15 + 0.045, 1)
+        else r.under:SetColorTexture(lr, lg, lb, 0.9) end
     end
+    r.under:SetShown(on and not rowFx)
+    r.stat:SetShown(rowFx)
     -- row art
     local art = src.art(id)
     if art and ns.ROW_ART then
@@ -1131,11 +1145,17 @@ end
 local PV_W, PV_PAD, PV_MARGIN = 330, 8, 10  -- about the list's row width
 local PV_SCALE = 1.3  -- drawn larger than the list, to read the details
 local PV_STEP = 0.3  -- a wheel tick, in rows
+local PV_DD_W, PV_DD_GAP = 170, 12  -- the preview picker, right of it
+local PV_TITLES = { groups = EllesmereUI.L("Group Finder Preview"), dungeon = EllesmereUI.L("Applicant Preview"),
+    raid = EllesmereUI.L("Applicant Preview") }
 local PV_TITLE = 22  -- the "Group Finder Preview" strip
 -- the rows' window keeps one height (two rows at the default height): taller
 -- rows get cut off at its bottom, as in the list, and the page never moves.
 -- more groups show as rows get shorter
 local PV_VIEW_H = 2 * 50 + GAP
+-- ellesmere's own holy paladin in every preview, and two friends' characters
+local PV_ELLE, PV_LUELLA, PV_BLOCKJOB = "Ellesm\195\169re", "Luella", "Blockjob"
+ns.PreviewElle, ns.PreviewLuella, ns.PreviewBlockjob = PV_ELLE, PV_LUELLA, PV_BLOCKJOB
 -- the sample groups. dungeon = index in this season's list, else a raid of that
 -- difficulty; specs = members, leader first (made-up names in the tooltip)
 local PV = {
@@ -1144,20 +1164,20 @@ local PV = {
         specs = { { 73, true }, { 64 }, { 260 }, { 102 } } },
     pv2 = { name = EllesmereUI.L("Heroic raid, need healers"), raid = PLAYER_DIFFICULTY2 or "Heroic", style = 3, score = 1950,
         age = 1260, applied = true,
-        specs = { { 66, true }, { 268 }, { 65 }, { 105 }, { 264 }, { 71 }, { 72 }, { 251 }, { 252 }, { 253 },
+        specs = { { 66, true }, { 268 }, { 65, false, PV_ELLE }, { 105 }, { 264 }, { 71 }, { 72, false, PV_BLOCKJOB }, { 251 }, { 252 }, { 253 },
             { 254 }, { 62 }, { 63 }, { 258 }, { 262 }, { 577 }, { 1467 } },
         open = { TANK = 0, HEALER = 3, DAMAGER = 3 } },
     pv3 = { name = EllesmereUI.L("Push for the timer, bring lust"), dungeon = 2, style = 3, score = 3120, age = 300,
         note = EllesmereUI.L("Timing it, voice optional"),
-        specs = { { 250, true }, { 264 }, { 72 } } },
+        specs = { { 250, true }, { 264 }, { 72, false, PV_BLOCKJOB } } },
     pv4 = { name = EllesmereUI.L("Need a tank, fast and clean"), dungeon = 3, style = 2, score = 2450, age = 640,
         specs = { { 270, true }, { 70 }, { 253 }, { 1467 } } },
     pv5 = { name = EllesmereUI.L("Normal clear, all welcome"), raid = PLAYER_DIFFICULTY1 or "Normal", style = 1, score = 1420,
         age = 900,
-        specs = { { 73, true }, { 256 }, { 264 }, { 71 }, { 254 }, { 62 }, { 259 }, { 102 }, { 577 } },
+        specs = { { 73, true }, { 257, false, PV_LUELLA }, { 264 }, { 71 }, { 254 }, { 62 }, { 259 }, { 102 }, { 577 } },
         open = { TANK = 1, HEALER = 1, DAMAGER = 4 } },
     pv6 = { name = EllesmereUI.L("Learning the route, be patient"), dungeon = 4, style = 1, score = 1850, age = 180,
-        specs = { { 104, true }, { 256 }, { 265 }, { 63 } } },
+        specs = { { 104, true }, { 257, false, PV_LUELLA }, { 265 }, { 63 } } },
 }
 local PV_IDS = { "pv1", "pv2", "pv3", "pv4", "pv5", "pv6" }
 local PV_ACT = {}  -- activity id -> group id
@@ -1248,6 +1268,14 @@ local function PvFit()
     local f, view = pv.frame, pv.view
     local hdr = f:GetParent()
     local h = ns.OwnListRowHeight()
+    local mode = pv.mode or "groups"
+    pv.title:SetText(PV_TITLES[mode])
+    -- applicants: the applicant list draws its samples in the same window
+    local apps = mode ~= "groups" and ns.ApplicantPreviewPaint ~= nil
+    view:SetShown(not apps)
+    pv.appHost:SetShown(apps)
+    pv.appHost:SetSize(PV_W, PV_VIEW_H)
+    if ns.ApplicantPreviewPaint then ns.ApplicantPreviewPaint(pv.appHost, apps and mode or nil, PV_W, PV_VIEW_H) end
     -- a fixed width: the list's own only settles once group finder opens
     local rw = PV_W
     local nH = NoteHeight()
@@ -1297,7 +1325,8 @@ local function PvFit()
     -- the ui's own scale and then some, grown or shrunk with the settings
     -- window's scale, and shrunk only if the panel is narrower
     local hw = hdr:GetWidth() or 0
-    local avail = (hw > 0 and hw or pv.hdrW or 600) - PV_MARGIN * 2
+    -- room for the picker on both sides, so the preview stays centered
+    local avail = (hw > 0 and hw or pv.hdrW or 600) - PV_MARGIN * 2 - (pv.dd and (PV_DD_W + PV_DD_GAP) * 2 or 0)
     local userScale = (EllesmereUIDB and EllesmereUIDB.panelScale) or 1
     local s = UIParent:GetEffectiveScale() / hdr:GetEffectiveScale() * PV_SCALE * userScale
     if fw * s > avail then s = avail / fw end
@@ -1318,6 +1347,8 @@ local PV_ROSTER = {
     { "Zulkhar", "WARLOCK" }, { "Luneth", "DRUID" }, { "Stormhelm", "SHAMAN" },
 }
 
+ns.PreviewRoster = PV_ROSTER  -- the applicant preview's names too
+
 local function PvPlayers(id)
     local list, used = {}, {}
     local start = (PV[id].act - 1) * 3  -- groups lead with different names
@@ -1337,7 +1368,7 @@ local function PvPlayers(id)
         local _, spec, _, _, role, cls, className = GetSpecializationInfoByID(s[1])
         if cls then
             list[#list + 1] = { assignedRole = role, classFilename = cls, className = className,
-                specName = spec, isLeader = s[2] or false, name = Take(cls) }
+                specName = spec, isLeader = s[2] or false, name = s[3] or Take(cls) }
         end
     end
     return list
@@ -1402,7 +1433,7 @@ function ns.OwnListPreviewBuild(hdr, hdrW)
         -- a title like the raid frames' overlay preview
         local title = EUI.MakeFont(f, 13, nil, 1, 1, 1, 0.9)
         title:SetPoint("TOP", f, "TOP", 0, -7)
-        title:SetText(EllesmereUI.L("Group Finder Preview"))
+        pv.title = title
         -- the rows' window: what doesn't fit is cut off
         local view = CreateFrame("Frame", nil, f)
         view:SetPoint("TOPLEFT", f, "TOPLEFT", PV_PAD, -(PV_PAD + PV_TITLE))
@@ -1424,6 +1455,25 @@ function ns.OwnListPreviewBuild(hdr, hdrW)
         pv.thumb:SetWidth(2)
         pv.thumb:SetColorTexture(1, 1, 1, 0.25)
         pv.thumb:Hide()
+        -- the applicant samples' window, in the same spot
+        pv.appHost = CreateFrame("Frame", nil, f)
+        pv.appHost:SetPoint("TOPLEFT", view, "TOPLEFT", 0, 0)
+        pv.appHost:SetClipsChildren(true)
+        pv.appHost:Hide()
+        -- groups or applicants, picked right of the preview
+        if EUI.BuildDropdownControl then
+            local dd = EUI.BuildDropdownControl(hdr, PV_DD_W, hdr:GetFrameLevel() + 3,
+                { groups = "Groups", dungeon = "Dungeon Applicants", raid = "Raid Applicants" },
+                { "groups", "dungeon", "raid" },
+                function() return pv.mode or "groups" end,
+                function(v)
+                    pv.mode = v
+                    GameTooltip_Hide()
+                    ns.OwnListPreviewPaint()
+                end)
+            dd:SetPoint("LEFT", f, "RIGHT", PV_DD_GAP, 0)
+            pv.dd = dd
+        end
         pv.rows = {}
         for i = 1, #PV_IDS do
             local r = MakeRow(nil, view)
@@ -1435,10 +1485,15 @@ function ns.OwnListPreviewBuild(hdr, hdrW)
         EUI._onScaleChanged[#EUI._onScaleChanged + 1] = ns.OwnListPreviewPaint
     else
         f:SetParent(hdr)
+        if pv.dd then pv.dd:SetParent(hdr) end
     end
     -- a rebuilt page detaches it first, which can leave it under the window's
     -- drag area, and that would take the hover
     f:SetFrameLevel(hdr:GetFrameLevel() + 2)
+    if pv.dd then
+        pv.dd:SetFrameLevel(hdr:GetFrameLevel() + 3)
+        pv.dd:Show()
+    end
     pv.hdrW = hdrW
     f:Show()
     pv.h = PvFit()

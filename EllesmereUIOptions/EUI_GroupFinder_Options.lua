@@ -226,16 +226,19 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
         -- status color: a checklist, one color each
         local LINE_ITEMS = {
-            { key = "lineDelisted",  label = "Delisted (|cff999999Grey|r)",   tooltip = "The group was delisted." },
-            { key = "lineAccepted",  label = "Accepted (|cff1ae61aGreen|r)",  tooltip = "Applied and waiting, or invited." },
-            { key = "lineCancelled", label = "Canceled (|cffff8c1aOrange|r)", tooltip = "You cancelled the application." },
-            { key = "lineDeclined",  label = "Declined (|cffff3333Red|r)",    tooltip = "Declined, the group filled, or the application timed out." },
+            { key = "lineDelisted",  label = "Delisted", tooltip = "The group was delisted." },
+            { key = "lineAccepted",  label = "Accepted", tooltip = "Applied and waiting, or invited." },
+            { key = "lineCancelled", label = "Canceled", tooltip = "You cancelled the application." },
+            { key = "lineDeclined",  label = "Declined", tooltip = "Declined, the group filled, or the application timed out." },
         }
+        -- each status's own color, for the cog's pickers (EUI_GroupFinder_ResultsList.lua's LINE_*)
+        local LINE_DEFAULT = { lineDelisted = { 0.6, 0.6, 0.6 }, lineAccepted = { 0.1, 0.9, 0.1 },
+            lineCancelled = { 1, 0.55, 0.1 }, lineDeclined = { 1, 0.2, 0.2 } }
         local lineRow
         lineRow, h = W:DualRow(parent, y,
             -- placeholder, the checklist replaces it
-            { type = "dropdown", text = "Status Underline",
-              tooltip = "A colored line below the group you applied to, to show its status.",
+            { type = "dropdown", text = "Status Effect",
+              tooltip = "Marks the groups you applied to in their status color: a line under the group, or the whole group tinted (set in the cog).",
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
               setValue = function() end },
@@ -260,6 +263,30 @@ initFrame:SetScript("OnEvent", function(self)
             rgn._control = dd
             rgn._lastInline = nil
             EUI.RegisterWidgetRefresh(ddRefresh)
+            -- the effect's style and each status's color
+            local function Picker(key, label)
+                local d = LINE_DEFAULT[key]
+                return { type = "colorpicker", label = label,
+                    get = function()
+                        local c = ns.OwnListGet("color_" .. key)
+                        if type(c) == "table" then return c.r, c.g, c.b end
+                        return d[1], d[2], d[3]
+                    end,
+                    set = function(r, g, b) ns.SetOwnListValue("color_" .. key, { r = r, g = g, b = b }) end }
+            end
+            EUI.BuildInlineCog(rgn, {
+                title = "Status Effect",
+                rows = {
+                    { type = "dropdown", label = "Style",
+                      values = { underline = "Underline", row = "Row Highlight" }, order = { "underline", "row" },
+                      get = function() return ns.OwnListGet("statusStyle") == "row" and "row" or "underline" end,
+                      set = function(v) ns.SetOwnListValue("statusStyle", v) end },
+                    Picker("lineDelisted", "Delisted Color"),
+                    Picker("lineAccepted", "Accepted Color"),
+                    Picker("lineCancelled", "Canceled Color"),
+                    Picker("lineDeclined", "Declined Color"),
+                },
+            })
         end
         local rioRow
         rioRow, h = W:DualRow(parent, y,
@@ -467,6 +494,13 @@ initFrame:SetScript("OnEvent", function(self)
             rgn._lastInline = nil
             EUI.RegisterWidgetRefresh(ddRefresh)
         end
+        _, h = W:DualRow(parent, y,
+            { type = "toggle", text = "Class Colored Role Icons",
+              tooltip = "Each applicant's role icons take their class color, in place of the role's blue, green or red.",
+              getValue = function() return ns.OwnListGet("roleClassColors") == true end,
+              setValue = function(v) ns.SetOwnListValue("roleClassColors", v and true or false) end },
+            EUI.BlankRowCfg())
+        y = y - h
         return y
     end
 
