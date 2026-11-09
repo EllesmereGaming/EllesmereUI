@@ -13,13 +13,17 @@ local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 
 -- WoW Forever runs a reduced module: the Raid Buffs section over that client's
 -- four buffs (EABR.CollectForeverRaidBuffs) and one Forever-only section (the
--- Camp Benefits campfire buff, gathering tracking, Find Treasure and custom
--- spell IDs) collected by EABR.CollectForever, with every other retail
--- collector, its events and its options sections off. Both values live on
--- EABR, where every split file reads them; retail reads FOREVER as false at
--- each gate and nothing else changes there.
+-- Camp Benefits campfire buff, the Sleeping Bag's Well-Rested buff, gathering
+-- tracking, Find Treasure and custom spell IDs) collected by
+-- EABR.CollectForever, with every other retail collector, its events and its
+-- options sections off. Both values live on EABR, where every split file reads
+-- them; retail reads FOREVER as false at each gate and nothing else changes
+-- there.
 EABR.FOREVER = EllesmereUI.IS_FOREVER == true
 EABR.CAMP_BENEFITS = 1229741
+EABR.SLEEPING_BAG_BUFF = 429959
+EABR.SLEEPING_BAG_ITEM = 211527
+EABR.SLEEPING_BAG_STACKS = 3
 -- WoW Forever gathering trackers, in cast preference order: Find Herbs, Find
 -- Minerals. Both are self-buffs there and share one slot with the class
 -- trackers. Find Treasure (Dwarf) is no aura and stacks with any of them.
