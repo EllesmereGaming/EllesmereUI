@@ -2761,6 +2761,9 @@ EllesmereUI.BuildSliderCore     = BuildSliderCore
 EllesmereUI.BuildDropdownControl = BuildDropdownControl
 EllesmereUI.BuildToggleControl   = BuildToggleControl
 EllesmereUI.BuildCheckboxControl = BuildCheckboxControl
+-- The toggle's pixel-layer fit for hand-built pills: L.track, L.knob, L.pad
+-- (units), L.apply places the knob from L.padPx, L.wp and L.d.
+EllesmereUI.TogglePillFit        = PX.ToggleFit
 
 -------------------------------------------------------------------------------
 --  ShowPickMenu -- generic pick-one context menu (right-click "Add To" on

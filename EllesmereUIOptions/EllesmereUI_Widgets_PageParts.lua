@@ -840,19 +840,26 @@ function EllesmereUI.BuildManagerTile(parentFrame, y, opts)
         if opts.inheritedTooltip and toggleBtn.SetIgnoreParentAlpha then
             toggleBtn:SetIgnoreParentAlpha(true)
         end
-        local toggleBg = toggleBtn:CreateTexture(nil, "BACKGROUND")
-        toggleBg:SetAllPoints()
-        local toggleKnob = toggleBtn:CreateTexture(nil, "ARTWORK")
-        toggleKnob:SetSize(toggleH - 4, toggleH - 4)
-        if opts.enabled then
+        -- Pill and knob on a pixel layer, as the settings toggle draws them.
+        local on = opts.enabled and true or false
+        local L = EllesmereUI.MakePixelLayer(toggleBtn, EllesmereUI.TogglePillFit)
+        local toggleBg = L._frame:CreateTexture(nil, "BACKGROUND")
+        toggleBg:SetAllPoints(L._frame)
+        local toggleKnob = L._frame:CreateTexture(nil, "ARTWORK")
+        L.track, L.knob, L.pad = toggleBg, toggleKnob, 2
+        L.apply = function()
+            local pad = L.padPx
+            toggleKnob:ClearAllPoints()
+            toggleKnob:SetPoint("TOPLEFT", L._frame, "TOPLEFT", on and (L.wp - pad - L.d) or pad, -pad)
+        end
+        L:Fit()
+        if on then
             local acr, acg, acb = EllesmereUI.ResolveActiveAccent()
-            toggleBg:SetColorTexture(acr, acg, acb, 1)
-            toggleKnob:SetPoint("RIGHT", toggleBtn, "RIGHT", -2, 0)
-            toggleKnob:SetColorTexture(1, 1, 1, 1)
+            toggleBg:SetVertexColor(acr, acg, acb, 1)
+            toggleKnob:SetVertexColor(1, 1, 1, 1)
         else
-            toggleBg:SetColorTexture(0.25, 0.25, 0.25, 1)
-            toggleKnob:SetPoint("LEFT", toggleBtn, "LEFT", 2, 0)
-            toggleKnob:SetColorTexture(0.5, 0.5, 0.5, 1)
+            toggleBg:SetVertexColor(0.25, 0.25, 0.25, 1)
+            toggleKnob:SetVertexColor(0.5, 0.5, 0.5, 1)
         end
         toggleBtn:SetScript("OnClick", function()
             if opts.onToggle then opts.onToggle(not opts.enabled) end

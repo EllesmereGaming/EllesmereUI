@@ -4559,20 +4559,28 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         pill:SetSize(toggleW, toggleH)
         PP.Point(pill, "RIGHT", row, "RIGHT", -SIDE_PAD, 0)
         pill:SetFrameLevel(row:GetFrameLevel() + 2)
-        local pillBg = pill:CreateTexture(nil, "BACKGROUND"); pillBg:SetAllPoints()
-        local knob = pill:CreateTexture(nil, "OVERLAY")
-        knob:SetSize(toggleH - 4, toggleH - 4)
+        -- Pill and knob on a pixel layer, as the settings toggle draws them.
+        local L = EllesmereUI.MakePixelLayer(pill, EllesmereUI.TogglePillFit)
+        local pillBg = L._frame:CreateTexture(nil, "BACKGROUND"); pillBg:SetAllPoints(L._frame)
+        local knob = L._frame:CreateTexture(nil, "OVERLAY")
+        L.track, L.knob, L.pad = pillBg, knob, 2
         local function Refresh()
-            if getValue() then
-                pillBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 1)
-                knob:SetColorTexture(1, 1, 1, 1)
-                knob:ClearAllPoints(); knob:SetPoint("RIGHT", pill, "RIGHT", -2, 0)
+            local on = getValue()
+            if on then
+                pillBg:SetVertexColor(accentColor.r, accentColor.g, accentColor.b, 1)
+                knob:SetVertexColor(1, 1, 1, 1)
             else
-                pillBg:SetColorTexture(0.25, 0.25, 0.25, 1)
-                knob:SetColorTexture(0.5, 0.5, 0.5, 1)
-                knob:ClearAllPoints(); knob:SetPoint("LEFT", pill, "LEFT", 2, 0)
+                pillBg:SetVertexColor(0.25, 0.25, 0.25, 1)
+                knob:SetVertexColor(0.5, 0.5, 0.5, 1)
+            end
+            local pad = L.padPx
+            if pad then
+                knob:ClearAllPoints()
+                knob:SetPoint("TOPLEFT", L._frame, "TOPLEFT", on and (L.wp - pad - L.d) or pad, -pad)
             end
         end
+        L.apply = Refresh
+        L:Fit()
         Refresh()
         pill:SetScript("OnClick", function()
             local gen = PoolGen(pill)
