@@ -45,6 +45,8 @@ local coordFrame
 I.coordFrameSetters[#I.coordFrameSetters + 1] = function(v) coordFrame = v end
 local coordTicker
 I.coordTickerSetters[#I.coordTickerSetters + 1] = function(v) coordTicker = v end
+-- Questie pins its minimap icons at a fixed frame level of ~2016+; info text must sit above them or the icons draw over it.
+local INFO_TEXT_LEVEL = 2100
 local clockFrame
 I.clockFrameSetters[#I.clockFrameSetters + 1] = function(v) clockFrame = v end
 local clockBg
@@ -678,7 +680,7 @@ local function ApplyMinimap()
             clockBg:SetSize(80, 16)
             clockBg:SetPoint("TOP", minimap, "TOP", 0, 7)
             clockBg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
-            clockBg:SetFrameLevel(minimap:GetFrameLevel() + 5)
+            clockBg:SetFrameLevel(minimap:GetFrameLevel() + INFO_TEXT_LEVEL)
             clockBg:RegisterForClicks("AnyUp")
             clockBg:SetScript("OnClick", function()
                 -- With the Great Vault hover tooltip assigned, clicking the clock opens the vault (same as the Great Vault button), not the clock config.
@@ -809,7 +811,7 @@ local function ApplyMinimap()
             locationBg:SetSize(120, 18)
             locationBg:SetPoint("BOTTOM", minimap, "BOTTOM", 0, -7)
             locationBg:SetBackdrop({ bgFile = "Interface\\ChatFrame\\ChatFrameBackground" })
-            locationBg:SetFrameLevel(minimap:GetFrameLevel() + 5)
+            locationBg:SetFrameLevel(minimap:GetFrameLevel() + INFO_TEXT_LEVEL)
             locationBg:RegisterEvent("ZONE_CHANGED")
             locationBg:RegisterEvent("ZONE_CHANGED_INDOORS")
             locationBg:RegisterEvent("ZONE_CHANGED_NEW_AREA")
@@ -925,7 +927,7 @@ local function ApplyMinimap()
         if not fpsBg then
             fpsBg = CreateFrame("Frame", nil, minimap)
             fpsBg:SetSize(60, 20)
-            fpsBg:SetFrameLevel(minimap:GetFrameLevel() + 5)
+            fpsBg:SetFrameLevel(minimap:GetFrameLevel() + INFO_TEXT_LEVEL)
             fpsBg:EnableMouse(false)
             local function MakeFS(size)
                 local fs = fpsBg:CreateFontString(nil, "OVERLAY")
