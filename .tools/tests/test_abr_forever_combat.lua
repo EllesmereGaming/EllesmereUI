@@ -37,7 +37,7 @@ C_UnitAuras = {
             -- its caster: TEST.src[id], else the player
             local src = TEST.src[id] or "player"
             return { spellId = id, duration = 0, expirationTime = 0, sourceUnit = src,
-                isFromPlayerOrPlayerPet = src == "player", applications = TEST.stacks[id] }
+                isFromPlayerOrPlayerPet = src == "player", applications = TEST.stacks[id], expirationTime = TEST.sleepExpiration }
         end
     end,
     GetAuraDataByIndex = function(unit, i)
@@ -113,6 +113,7 @@ EllesmereUI = {
 -------------------------------------------------------------------------------
 local EABR = { FOREVER = true }
 -- The real SectionShows' rule: an unchecked In Combat hides a section in combat
+function EABR.ShowUnderThresholdApplies() return true end
 function EABR.SectionShows(where)
     if where and where.in_combat == false and TEST.combat then return false end
     return not (where and where.open_world == false)
@@ -541,6 +542,16 @@ TEST.stacks[WELL_RESTED] = 2
 assert(SleepShown(select(2, Collect())), "two stacks of Well-Rested hid the reminder")
 TEST.stacks[WELL_RESTED] = 3
 assert(not SleepShown(select(2, Collect())), "three stacks of Well-Rested still reminded")
+fo.sleepingBagShowBelow, TEST.sleepExpiration = 2, 400
+EABR._nextDurationRefreshTime = nil
+assert(not SleepShown(select(2, Collect())) and EABR._nextDurationRefreshTime == 280,
+    "Well-Rested should wait for the two-minute threshold")
+TEST.sleepExpiration = 190
+e = SleepShown(select(2, Collect()))
+assert(e and e.mode == "item" and e.itemID == BAG and e.texture == 500000 + BAG
+    and e.expireAt == 190 and e.expireTotal == 90, "Well-Rested should show the bag icon and countdown")
+fo.sleepingBagShowBelow, TEST.sleepExpiration = nil, nil
+assert(not SleepShown(select(2, Collect())), "disabling the threshold should restore the stack rule")
 TEST.up[WELL_RESTED], TEST.stacks[WELL_RESTED] = nil, nil
 TEST.combat = true
 assert(not SleepShown(select(2, Collect())), "the Sleeping Bag showed in combat")
