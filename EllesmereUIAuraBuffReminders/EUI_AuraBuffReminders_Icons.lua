@@ -1346,32 +1346,48 @@ local function SetIconMacro(btn, macrotext, texture, spellID)
     btn._tooltipItem = nil
 end
 
-function EABR.ForeverGroupCastMacro(id)
-    local name = SpellName(id)
-    local rank = C_Spell.GetSpellSubtext(id)
-    if rank and rank ~= "" then name = name .. "(" .. rank .. ")" end
-    -- A faded pooled button can still receive clicks during lockdown.
-    return "/cast [@player,nocombat] " .. name
-end
+local pickerSpellData = {}
 
-function EABR.ForeverSpellRank(id)
-    local subtext = C_Spell.GetSpellSubtext(id)
-    return subtext and subtext:match("%d+")
+function EABR.ForeverPickerSpellData(id, ranked)
+    local data = pickerSpellData[id]
+    if not data or (ranked and not data.rank) then
+        local name = SpellName(id)
+        if not name then return end
+        local subtext = C_Spell.GetSpellSubtext(id)
+        local rank = subtext and subtext:match("%d+")
+        if subtext and subtext ~= "" then name = name .. "(" .. subtext .. ")" end
+        -- A faded pooled button can still receive clicks during lockdown.
+        data = { macro = "/cast [@player,nocombat] " .. name, rank = rank }
+        -- Retry incomplete metadata for spells with more than one known rank.
+        if rank or not ranked then pickerSpellData[id] = data end
+    end
+    return data.macro, data.rank
 end
 
 ShowForeverGroupMenu = function(btn)
     local group = btn._foreverGroup
-    local settings = group.settings or group
+    local profile = db.profile
+    local forever = profile.forever
+    local settings = group.settings
+    if not group.actions then settings = group end
+    local function SaveSettings()
+        if not settings then
+            settings = {}
+            group.actions[group.key] = settings
+            group.settings = settings
+        end
+        return settings
+    end
     local ids, seen = {}, {}
     for _, spellID in ipairs(group.ids) do
         local castID, ranks = EABR.ForeverGroupCastSpell(group, spellID)
-        if castID then
+        if castID and (not group.actions or C_SpellBook.IsSpellKnown(castID)) then
             local index = seen[ranks]
             if not index then
                 index = #ids + 1
                 seen[ranks] = index
                 ids[index] = spellID
-            elseif spellID == settings.castSpellID then
+            elseif settings and spellID == settings.castSpellID then
                 ids[index] = spellID
             end
         end
@@ -1379,20 +1395,29 @@ ShowForeverGroupMenu = function(btn)
     local function IsSelected(spellID)
         return btn._tooltipSpell == EABR.ForeverGroupCastSpell(group, spellID)
     end
-    local function CanChange(spellID)
-        return not InCombat() and db.profile.display.pickerEnabled and btn._foreverGroup == group and btn:IsVisible()
-            and tContains(group.ids, spellID)
+    local function IsCurrent()
+        if InCombat() or db.profile ~= profile or profile.forever ~= forever or not profile.display.pickerEnabled
+            or btn._foreverGroup ~= group or not btn:IsVisible() then return false end
+        if group.actions then
+            return forever and forever.classBuffActions == group.actions and group.actions[group.key] == settings
+        end
+        return forever and forever.customGroups and tContains(forever.customGroups, group)
     end
-    local function ApplySpell(id)
-        SetIconMacro(btn, EABR.ForeverGroupCastMacro(id), Tex(id), id)
-        EABR.ApplyIconBagCount(btn, nil, nil, nil, EABR.ForeverSpellRank(id))
+    local function CanChange(spellID)
+        return IsCurrent() and tContains(group.ids, spellID)
+    end
+    local function ApplySpell(id, ranked)
+        local macro, rank = EABR.ForeverPickerSpellData(id, ranked)
+        if not macro then return end
+        SetIconMacro(btn, macro, Tex(id), id)
+        EABR.ApplyIconBagCount(btn, nil, nil, nil, rank)
     end
     local function SelectSpell(spellID)
         if not CanChange(spellID) then return end
-        local id = EABR.ForeverGroupCastSpell(group, spellID)
-        if not id then return end
-        settings.castSpellID = spellID
-        ApplySpell(id)
+        local id, ranks = EABR.ForeverGroupCastSpell(group, spellID)
+        if not id or (group.actions and not C_SpellBook.IsSpellKnown(id)) then return end
+        SaveSettings().castSpellID = spellID
+        ApplySpell(id, #ranks > 1)
     end
     local function AddRankControl(button, spellID)
         button:AddInitializer(function(frame)
@@ -1404,7 +1429,8 @@ ShowForeverGroupMenu = function(btn)
             badge:SetPoint("CENTER", frame, "CENTER", 0, -10)
             local id, ranks = EABR.ForeverGroupCastSpell(group, spellID)
             if not id then return end
-            badge:SetText(EABR.ForeverSpellRank(id) or "")
+            local _, rank = EABR.ForeverPickerSpellData(id, #ranks > 1)
+            badge:SetText(rank or "")
             if #ranks < 2 then return end
             frame:EnableMouseWheel(true)
             frame:SetScript("OnMouseWheel", function(_, delta)
@@ -1413,12 +1439,19 @@ ShowForeverGroupMenu = function(btn)
                 if not current then return end
                 local nextRank = at + (delta > 0 and 1 or -1)
                 local nextID = known[nextRank]
-                if not nextID then return end
+                if not nextID or (group.actions and not C_SpellBook.IsSpellKnown(nextID)) then return end
+                local _, rank = EABR.ForeverPickerSpellData(nextID, true)
+                if nextRank < #known and not rank then return end
                 local selected = btn._tooltipSpell == current
-                settings.castRanks = settings.castRanks or {}
-                settings.castRanks[spellID] = nextID
-                if selected then ApplySpell(nextID) end
-                badge:SetText(EABR.ForeverSpellRank(nextID) or "")
+                if nextRank < #known then
+                    local saved = SaveSettings()
+                    if not saved.castRanks then saved.castRanks = {} end
+                    saved.castRanks[spellID] = nextID
+                elseif settings and settings.castRanks then
+                    settings.castRanks[spellID] = nil
+                end
+                if selected then ApplySpell(nextID, true) end
+                badge:SetText(rank or "")
                 if GameTooltip:IsOwned(frame) then GameTooltip:SetSpellByID(nextID) end
             end)
         end)
@@ -1447,6 +1480,7 @@ ShowForeverGroupMenu = function(btn)
     local previousStyle = btn.menuMixin
     btn.menuMixin = iconPickerStyle
     local menu = MenuUtil.CreateContextMenu(btn, function(_, root)
+        root:AddMenuReleasedCallback(function() EABR.ValidateOpenPicker = nil end)
         local columns = math.min(#ids, max(1, floor((UIParent:GetWidth() - 32) / 42)))
         root:SetGridMode(MenuConstants.HorizontalGridDirection, columns, 2)
         -- The context menu otherwise applies a minimum width meant for text rows.
@@ -1480,6 +1514,11 @@ ShowForeverGroupMenu = function(btn)
         end
     end)
     btn.menuMixin = previousStyle
+    if menu then
+        EABR.ValidateOpenPicker = function()
+            if not IsCurrent() then menu:Close() end
+        end
+    end
     if menu and not InputUtil.IsGamepadUIEnabled() then
         local point = menu:GetPoint()
         menu:ClearAllPoints()
