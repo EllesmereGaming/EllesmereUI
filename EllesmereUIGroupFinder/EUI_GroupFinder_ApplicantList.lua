@@ -321,12 +321,12 @@ local function RioPanel()
         if rioTip then rioTip:Hide() end
         return
     end
-    rioTip = rioTip or CreateFrame("GameTooltip", "EllesmereUIGroupFinderRioTip", UIParent, "GameTooltipTemplate")
+    rioTip = rioTip or CreateFrame("GameTooltip", "EllesmereUIGroupFinderRioTip", UIParent, "SharedTooltipTemplate")
     local anchor = PVEFrame or AV
     rioTip:SetOwner(anchor, "ANCHOR_NONE")
     rioTip:ClearAllPoints()
     rioTip:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 4, 0)
-    local cc = class and RAID_CLASS_COLORS[class]
+    local cc = class and EUI.GetClassColor(class)
     rioTip:SetText(name, cc and cc.r or 1, cc and cc.g or 1, cc and cc.b or 1)
     local ok, altered = pcall(api.ShowProfile, rioTip, name, realm)
     if ok and altered then rioTip:Show() else rioTip:Hide() end
