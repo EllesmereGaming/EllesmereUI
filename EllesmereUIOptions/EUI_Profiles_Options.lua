@@ -458,7 +458,7 @@ function _G._EUI_BuildProfilesPage(pageName, parent, yOffset)
             local popBg = popup:CreateTexture(nil, "BACKGROUND")
             popBg:SetAllPoints()
             popBg:SetColorTexture(0.077, 0.068, 0.058, 0.97)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.20, PP)
+            EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.20, popBg)
 
             local title = EllesmereUI.MakeFont(popup, 14, nil, 1, 1, 1)
             title:SetPoint("TOP", popup, "TOP", 0, -14)

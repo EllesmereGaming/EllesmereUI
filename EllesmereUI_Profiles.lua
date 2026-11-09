@@ -4656,7 +4656,7 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     local bg = popup:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.077, 0.068, 0.058, 1)
-    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PanelPP)
+    EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, bg)
 
     -- Title
     local titleFS = EllesmereUI.MakeFont(popup, 15, "", 1, 1, 1)

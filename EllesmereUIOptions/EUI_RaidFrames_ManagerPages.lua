@@ -2411,7 +2411,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 local bg = popup:CreateTexture(nil, "BACKGROUND")
                 bg:SetAllPoints()
                 bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-                EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+                EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, bg)
 
                 -- Pending filter picks for the new tile (wiped on hide)
                 popup._dmFilters = {}
@@ -2950,7 +2950,7 @@ function ns.BMP_ShowFilterEditor(show, hide)
     popup:EnableMouse(true)
     local popBg = EllesmereUI.SolidTex(popup, "BACKGROUND", 0.077, 0.068, 0.058, 1)
     popBg:SetAllPoints()
-    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15)
+    EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
     local ppScale = EllesmereUI.GetPopupScale() or 1
     popup:SetScale(ppScale)
 
@@ -3050,7 +3050,8 @@ function ns.BMP_ShowFilterEditor(show, hide)
     side:SetFrameLevel(popup:GetFrameLevel() + 1)
     local sideBg = EllesmereUI.SolidTex(side, "BACKGROUND", 0, 0, 0, 0.35)
     sideBg:SetAllPoints()
-    EllesmereUI.MakeBorder(side, 1, 1, 1, 0.10)
+    -- Flush with the popup's bottom-right corner: same shape, rows clipped to it.
+    EllesmereUI.MakeRoundedBorder(side, 1, 1, 1, 0.10, sideBg, nil, true)
 
     -- Sidebar content scrolls when it outgrows the popup (standard smooth
     -- scroll + thin custom bar; bar shows only on overflow).

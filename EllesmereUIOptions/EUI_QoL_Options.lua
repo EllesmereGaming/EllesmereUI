@@ -88,7 +88,7 @@ local function ShowTransformsPopup()
         local bg = popup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.077, 0.068, 0.058, 1)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, bg)
 
         local title = popup:CreateFontString(nil, "OVERLAY")
         title:SetFont(FONT, 22, "")

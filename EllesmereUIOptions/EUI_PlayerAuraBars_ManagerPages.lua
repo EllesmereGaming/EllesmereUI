@@ -2228,7 +2228,7 @@ function ns.PABMP_ShowFilterEditor()
     popup:SetFrameLevel(dimmer:GetFrameLevel() + 10)
     popup:EnableMouse(true)
     local popBg = EllesmereUI.SolidTex(popup, "BACKGROUND", 0.077, 0.068, 0.058, 1); popBg:SetAllPoints()
-    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15)
+    EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
     if EllesmereUI.GetPopupScale then popup:SetScale(EllesmereUI.GetPopupScale()) end
 
     local title = EllesmereUI.MakeFont(popup, 16, "", 1, 1, 1)
@@ -2304,7 +2304,8 @@ function ns.PABMP_ShowFilterEditor()
     side:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", 0, 0)
     side:SetFrameLevel(popup:GetFrameLevel() + 1)
     local sideBg = EllesmereUI.SolidTex(side, "BACKGROUND", 0, 0, 0, 0.35); sideBg:SetAllPoints()
-    EllesmereUI.MakeBorder(side, 1, 1, 1, 0.10)
+    -- Flush with the popup's bottom-right corner: same shape, rows clipped to it.
+    EllesmereUI.MakeRoundedBorder(side, 1, 1, 1, 0.10, sideBg, nil, true)
 
     local sideScroll = CreateFrame("ScrollFrame", nil, side)
     sideScroll:SetPoint("TOPLEFT", side, "TOPLEFT", 1, -1)
@@ -2723,7 +2724,7 @@ local function ShowAddBarPopup(anchorBtn, kind, fontPath)
         local bg = popup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, bg)
 
         -- Auto-close on outside click, same pattern as DM's Add New popup.
         popup:SetScript("OnShow", function(p2)

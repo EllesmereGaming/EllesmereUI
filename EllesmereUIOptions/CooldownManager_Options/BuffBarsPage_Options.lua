@@ -626,7 +626,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             popup:EnableMouse(true)
             local popBg = popup:CreateTexture(nil, "BACKGROUND")
             popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
+            EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
 
             local title = popup:CreateFontString(nil, "OVERLAY")
             title:SetFont(FONT_PATH, 14, GetCDMOptOutline())

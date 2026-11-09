@@ -3436,7 +3436,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         popBg:SetAllPoints()
         popBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
         popup:EnableMouse(true)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, popBg)
         ns._ccGridPopup = popup
 
         local scroll = CreateFrame("ScrollFrame", nil, popup)
@@ -3625,7 +3625,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             local pBg = popup:CreateTexture(nil, "BACKGROUND")
             pBg:SetAllPoints(); pBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
             popup:EnableMouse(true)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+            EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, pBg)
 
             local macroToggleG = CreateFrame("Button", nil, popup)
             macroToggleG:SetSize((popupWG - INSETG * 2) / 3 - 2, 26)
@@ -3946,7 +3946,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
             local pBg = popup:CreateTexture(nil, "BACKGROUND")
             pBg:SetAllPoints(); pBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+            EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, pBg)
 
             local titleLbl = MakeFont(popup, 13, 1, 1, 1, 0.9)
             titleLbl:SetPoint("TOP", popup, "TOP", 0, -QB_INSET)
@@ -4227,7 +4227,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             local pBg = popup:CreateTexture(nil, "BACKGROUND")
             pBg:SetAllPoints(); pBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
             popup:EnableMouse(true)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+            EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, pBg)
 
             local toggleInner = popupW - INSET2 * 2
             -- Four tabs and three 3px gaps fill the row exactly.
