@@ -226,6 +226,8 @@ local defaults = {
     -- casts something interruptible, else the Uninterruptible color once it casts something
     -- that is not; each color applies to the mob types ticked for it.
     castingEnemyColors = false,
+    -- Enemy Players Use Enemy Color: enemy players take the Enemies color, not their class color.
+    enemyPlayerEnemyColor = false,
     castingIntColor   = { r = 0.310, g = 0.702, b = 1.000 },
     castingUnintColor = { r = 0.953, g = 0.573, b = 0.000 },
     castingIntNormal = true, castingIntElite = true, castingIntMiniBoss = true, castingIntBoss = true,
