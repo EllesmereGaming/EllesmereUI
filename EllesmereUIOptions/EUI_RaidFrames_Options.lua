@@ -1030,7 +1030,7 @@ initFrame:SetScript("OnEvent", function(self)
             local host = CreateFrame("Frame", nil, ddCtrl)
             host:SetAllPoints(ddCtrl)
             host:SetFrameLevel(ddCtrl:GetFrameLevel() + 30)
-            EllesmereUI.PP.CreateBorder(host, gold[1], gold[2], gold[3], 0.9, 1, "OVERLAY", 7)
+            EllesmereUI.MakeRoundedBorder(host, gold[1], gold[2], gold[3], 0.9)
             host:Hide()
             if not EllesmereUI._prebuilding then
                 local e = pvModeCtrls[pvCtx]

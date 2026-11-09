@@ -982,7 +982,7 @@ do
             local bg = specOvBanner:CreateTexture(nil, "BACKGROUND")
             bg:SetAllPoints()
             bg:SetColorTexture(0.16, 0.12, 0.04, 0.92)
-            EllesmereUI.MakeBorder(specOvBanner, 199/255, 166/255, 90/255, 0.7)
+            specOvBanner._brd = EllesmereUI.MakeRoundedBorder(specOvBanner, 199/255, 166/255, 90/255, 0.7, bg)
             local fs = specOvBanner:CreateFontString(nil, "OVERLAY")
             fs:SetFont(FONT_PATH, 12, "OUTLINE, SLUG")
             fs:SetPoint("CENTER")
@@ -994,6 +994,7 @@ do
             g.name or "?"))
         specOvBanner:SetWidth((specOvBanner._text:GetStringWidth() or 200) + 28)
         specOvBanner:Show()
+        specOvBanner._brd:Fit()
     end
 
     -- Layer model: a custom unlock mode is a whole-layout fork, so there are no

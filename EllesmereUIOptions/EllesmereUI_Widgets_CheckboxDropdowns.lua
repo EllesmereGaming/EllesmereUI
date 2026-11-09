@@ -35,18 +35,18 @@ end
 -- widget refresh, so every lane click that triggers a non-force RefreshPage
 -- re-evaluates live. A long warnText wraps at WARN_WRAP px. opts.onDismiss:
 -- advice the reader may wave off for good (the Kick Tracker's marker
--- warning): a square button in the bubble's own dress sits beside it, the
+-- warning): a button in the bubble's own dress sits beside it, the
 -- pair centred over the control, and a click runs it and re-reads; the
 -- caller's hasContentFn honours the flag it keeps.
 local WARN_WRAP = 300       -- px of text a warning bubble holds on one line
 local WARN_GAP = 4          -- px between the bubble and its dismiss button
-local DISMISS_MAX = 22      -- px the dismiss square grows to beside a wrapped bubble
+local DISMISS_MAX = 22      -- px the dismiss button grows to beside a wrapped bubble
 
 local function WarnDress(frame)
     local bg = frame:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.12, 0.03, 0.03, 0.95)
-    EllesmereUI.PanelPP.CreateBorder(frame, 0.85, 0.2, 0.2, 1, 1)
+    EllesmereUI.MakeRoundedBorder(frame, 0.85, 0.2, 0.2, 1, bg)
 end
 
 function EllesmereUI.AttachEmptyFilterWarn(rgn, cbDD, warnText, hasContentFn, opts)
@@ -82,6 +82,7 @@ function EllesmereUI.AttachEmptyFilterWarn(rgn, cbDD, warnText, hasContentFn, op
         local hl = cross:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints()
         hl:SetColorTexture(0.85, 0.2, 0.2, 0.25)
+        EllesmereUI.RoundBody(cross, hl)
         local xfs = EllesmereUI.MakeFont(cross, 12, nil, 1, 0.4, 0.4)
         xfs:SetPoint("CENTER", cross, "CENTER", 0, 1)
         xfs:SetText("x")
@@ -105,12 +106,13 @@ function EllesmereUI.AttachEmptyFilterWarn(rgn, cbDD, warnText, hasContentFn, op
 
     local warnBorder = CreateFrame("Frame", nil, cbDD)
     warnBorder:SetAllPoints(cbDD)
-    PP.CreateBorder(warnBorder, 0.85, 0.2, 0.2, 1, 1)
+    EllesmereUI.MakeRoundedBorder(warnBorder, 0.85, 0.2, 0.2, 1)
     warnBorder:Hide()
 
     local flash = cbDD:CreateTexture(nil, "OVERLAY", nil, 7)
     flash:SetAllPoints()
     flash:SetColorTexture(0.9, 0.15, 0.15, 0.45)
+    EllesmereUI.RoundBody(cbDD, flash)
     flash:SetAlpha(0)
     local ag = flash:CreateAnimationGroup()
     local a1 = ag:CreateAnimation("Alpha")
