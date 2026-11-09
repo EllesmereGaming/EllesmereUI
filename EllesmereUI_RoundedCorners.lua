@@ -968,6 +968,22 @@ local function ClipContent(o)
     cMask, cSet = nil, nil
 end
 
+-- The outline's inner shape in the parent's units, made once: 1 unit in
+-- with a radius 1 unit smaller, the same arc centres, so what it masks
+-- follows the outline's corners as its sides do.
+local function InnerMask(o)
+    local im = o.innerMask
+    if not im then
+        local p = o.parent
+        im = p:CreateMaskTexture()
+        im:SetPoint("TOPLEFT", p, "TOPLEFT", 1, -1)
+        im:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", -1, 1)
+        SetRounded(im, max(1, o.radius - 1), ALL_CORNERS, "CLAMPTOBLACKADDITIVE")
+        o.innerMask = im
+    end
+    return im
+end
+
 function EllesmereUI.MakeRoundedBorder(parent, r, g, b, a, body, radius, clip)
     local o = EllesmereUI.MakePixelLayer(parent, FitOutline)
     local layer = o._frame
@@ -986,13 +1002,8 @@ function EllesmereUI.MakeRoundedBorder(parent, r, g, b, a, body, radius, clip)
         o.body, o.bodyMask = body, bm
     end
     if clip then
-        -- 1 unit in with a radius 1 unit smaller: the same arc centres, so
-        -- the rows' corners follow the outline as their sides do.
-        local im = parent:CreateMaskTexture()
-        im:SetPoint("TOPLEFT", parent, "TOPLEFT", 1, -1)
-        im:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -1, 1)
-        SetRounded(im, max(1, o.radius - 1), ALL_CORNERS, "CLAMPTOBLACKADDITIVE")
-        o.innerMask, o.clipped, o.onShow = im, setmetatable({}, WEAK_K), ClipContent
+        InnerMask(o)
+        o.clipped, o.onShow = setmetatable({}, WEAK_K), ClipContent
     end
     o:Fit()
     return o
@@ -1018,4 +1029,51 @@ function EllesmereUI.RoundBody(parent, body, radius)
     SetRounded(m, radius, ALL_CORNERS, "CLAMPTOBLACKADDITIVE")
     AddMask(body, m)
     return m
+end
+
+-- EllesmereUI.MakeRoundedCard(parent, brdA, bgA, accentH, r, g, b): the
+-- settings card. A fill (default 0.077, 0.068, 0.058 at bgA 0.5) under a
+-- rounded 1 px white outline at brdA (0.12). accentH: a top accent edge on
+-- the outline's pixel layer under its inner shape (sharp, ends follow the
+-- corners); the caller colours it. Returns the outline with o.bg, o.accent
+-- and o:Clip(tex), masking a texture of parent or a descendant to the
+-- inside of the outline (a side strip, a hover fill).
+local CARD_R, CARD_G, CARD_B = 0.077, 0.068, 0.058
+
+local function FitCard(o, k)
+    FitOutline(o, k)
+    local accent, am = o.accent, o.accentMask
+    if o.r and o.ar ~= o.r then
+        if o.ar then RemoveMask(accent, am) end
+        o.ar = o.r
+        SetRounded(am, o.r - 1, ALL_CORNERS, "CLAMPTOBLACKADDITIVE")
+        AddMask(accent, am)
+    end
+    local h = floor(o.accentH * k + 0.5)
+    accent:SetHeight(h < 1 and 1 or h)
+end
+
+local function CardClip(o, tex)
+    AddMask(tex, InnerMask(o))
+end
+
+function EllesmereUI.MakeRoundedCard(parent, brdA, bgA, accentH, r, g, b)
+    local bg = parent:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(r or CARD_R, g or CARD_G, b or CARD_B, bgA or 0.5)
+    local o = EllesmereUI.MakeRoundedBorder(parent, 1, 1, 1, brdA or 0.12, bg)
+    o.bg, o.Clip = bg, CardClip
+    if accentH then
+        -- One unit is one pixel on the layer, as the outline's hole.
+        local layer = o._frame
+        local accent = layer:CreateTexture(nil, "BORDER", nil, 6)
+        accent:SetPoint("TOPLEFT", layer, "TOPLEFT", 1, -1)
+        accent:SetPoint("TOPRIGHT", layer, "TOPRIGHT", -1, -1)
+        local am = layer:CreateMaskTexture()
+        am:SetPoint("TOPLEFT", layer, "TOPLEFT", 1, -1)
+        am:SetPoint("BOTTOMRIGHT", layer, "BOTTOMRIGHT", -1, 1)
+        o.accent, o.accentMask, o.accentH, o.fit = accent, am, accentH, FitCard
+        o:Fit()
+    end
+    return o
 end

@@ -324,14 +324,8 @@ local function BuildInlineRow(parent, y, cards, availW, fullW, footer)
         -- The equal cards' box: dark fill, thin outline, an accent top edge.
         local bg, brd, accentLine
         if boxed then
-            bg = card:CreateTexture(nil, "BACKGROUND")
-            bg:SetAllPoints()
-            brd = EllesmereUI.MakeBorder(card, 1, 1, 1, BOX_BRD_A, PP)
-            accentLine = card:CreateTexture(nil, "ARTWORK", nil, 7)
-            PP.Point(accentLine, "TOPLEFT", card, "TOPLEFT", 1, -1)
-            PP.Point(accentLine, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
-            accentLine:SetHeight(2)
-            if accentLine.SetSnapToPixelGrid then accentLine:SetSnapToPixelGrid(false); accentLine:SetTexelSnappingBias(0) end
+            brd = EllesmereUI.MakeRoundedCard(card, BOX_BRD_A, 0.50, 2)
+            bg, accentLine = brd.bg, brd.accent
         end
         -- The accent is read at paint time, so an accent change repaints it.
         local function Paint(hover)
@@ -397,19 +391,11 @@ function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
         PP.Point(card, "TOPLEFT", rowFrame, "TOPLEFT", (i - 1) * (cardW + CARD_GAP), 0)
         card:SetFrameLevel(rowFrame:GetFrameLevel() + 2)
 
-        local bg = card:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
         local BRD_A = 0.12
-        local brd = EllesmereUI.MakeBorder(card, 1, 1, 1, BRD_A, PP)
-
-        -- Accent top edge
-        local accentLine = card:CreateTexture(nil, "ARTWORK", nil, 7)
-        accentLine:SetColorTexture(ac.r, ac.g, ac.b, 0.6)
-        PP.Point(accentLine, "TOPLEFT", card, "TOPLEFT", 1, -1)
-        PP.Point(accentLine, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
-        accentLine:SetHeight(2)
-        if accentLine.SetSnapToPixelGrid then accentLine:SetSnapToPixelGrid(false); accentLine:SetTexelSnappingBias(0) end
+        -- Card look with the accent top edge (EllesmereUI_RoundedCorners.lua).
+        local brd = EllesmereUI.MakeRoundedCard(card, BRD_A, 0.50, 2)
+        local bg = brd.bg
+        brd.accent:SetColorTexture(ac.r, ac.g, ac.b, 0.6)
 
         local ICON_A, TITLE_A = 0.6, 0.9
         local icon = card:CreateTexture(nil, "ARTWORK")
@@ -452,7 +438,15 @@ function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
             pulse:SetFrameLevel(card:GetFrameLevel() + 3)
             pulse:EnableMouse(false)
             pulse:Hide()
-            PP.CreateBorder(pulse, ac.r, ac.g, ac.b, 1, 2, "OVERLAY", 7)
+            -- 2 px as two rounded 1 px rings: the inner one 1 unit in with a
+            -- radius 1 smaller, so both arcs share their centres.
+            local inner = CreateFrame("Frame", nil, pulse)
+            inner:SetPoint("TOPLEFT", pulse, "TOPLEFT", 1, -1)
+            inner:SetPoint("BOTTOMRIGHT", pulse, "BOTTOMRIGHT", -1, 1)
+            pulse._rings = {
+                EllesmereUI.MakeRoundedBorder(pulse, ac.r, ac.g, ac.b, 1),
+                EllesmereUI.MakeRoundedBorder(inner, ac.r, ac.g, ac.b, 1, nil, 3),
+            }
             local breathe = pulse:CreateAnimationGroup()
             breathe:SetLooping("BOUNCE")
             local fade = breathe:CreateAnimation("Alpha")
@@ -467,7 +461,8 @@ function EllesmereUI.BuildActionCardRow(parent, y, cards, opts)
             if not pulse then return end
             if on then
                 local live = spec.accent or EllesmereUI.ELLESMERE_GREEN
-                PP.SetBorderColor(pulse, live.r, live.g, live.b, 1)
+                pulse._rings[1]:SetColor(live.r, live.g, live.b, 1)
+                pulse._rings[2]:SetColor(live.r, live.g, live.b, 1)
             end
             pulse:SetShown(on and true or false)
         end
@@ -572,8 +567,8 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
             searchName, nil, nil, true)
     end
 
-    local hbg = EllesmereUI.SolidTex(hdr, "BACKGROUND", 0, 0, 0, 0)
-    hbg:SetAllPoints()
+    -- The header hover fill sits on the card (built below), inside its corners.
+    local hbg
 
     opts.glyph(hdr, enabled)
 
@@ -665,11 +660,14 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
     bg:SetFrameLevel(parent:GetFrameLevel())
     PP.Size(bg, cardW, cardTop - y)
     PP.Point(bg, "TOPLEFT", hdr, "TOPLEFT", 0, 0)
-    local fill = EllesmereUI.SolidTex(bg, "BACKGROUND", 0.077, 0.068, 0.058, 0.5)
-    fill:SetAllPoints()
-    brd = EllesmereUI.MakeBorder(bg, 1, 1, 1, expanded and 0.16 or 0.12, PP)
+    brd = EllesmereUI.MakeRoundedCard(bg, expanded and 0.16 or 0.12)
+    hbg = bg:CreateTexture(nil, "BACKGROUND", nil, 1)
+    hbg:SetAllPoints(hdr)
+    hbg:SetColorTexture(0, 0, 0, 0)
+    brd:Clip(hbg)
 
     strip = bg:CreateTexture(nil, "ARTWORK")
+    brd:Clip(strip)
     strip:SetWidth(2)
     if enabled then
         strip:SetColorTexture(EG.r, EG.g, EG.b, 0.7)
