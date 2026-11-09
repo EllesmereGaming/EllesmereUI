@@ -1503,3 +1503,42 @@ do
         return true
     end
 end
+
+-- Flyout Auto Close: a flyout closes once the mouse has stayed off it and its opener (the
+-- frame under the mouse when it opened) for getSecs() seconds; getSecs() nil = off.
+function EllesmereUI.AttachFlyoutAutoClose(flyout, getSecs)
+    local opener, timer
+    local hooked = setmetatable({}, { __mode = "k" })
+    local function Cancel()
+        if timer then timer:Cancel(); timer = nil end
+    end
+    local function Fire()
+        timer = nil
+        if not flyout:IsShown() or flyout:IsMouseOver() or (opener and opener:IsMouseOver()) then return end
+        if InCombatLockdown() and flyout:IsProtected() then return end
+        flyout:Hide()
+    end
+    local function Arm()
+        local secs = flyout:IsShown() and getSecs()
+        if not secs then return end
+        Cancel()
+        timer = C_Timer.NewTimer(secs, Fire)
+    end
+    local function Hook(f)
+        if f and not hooked[f] then
+            hooked[f] = true
+            f:HookScript("OnLeave", Arm)
+        end
+    end
+    flyout:HookScript("OnShow", function()
+        if not getSecs() then return end
+        opener = GetMouseFoci and GetMouseFoci()[1] or nil
+        Hook(flyout); Hook(opener)
+        local kids = { flyout:GetChildren() }
+        for i = 1, #kids do Hook(kids[i]) end
+        Arm()
+    end)
+    flyout:HookScript("OnHide", function()
+        Cancel(); opener = nil
+    end)
+end

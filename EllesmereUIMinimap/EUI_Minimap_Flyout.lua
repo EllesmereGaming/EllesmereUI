@@ -380,6 +380,12 @@ end
 
 local _flyoutBuilt = false
 
+-- Flyout Auto Close delay in seconds, nil while off (both minimap flyouts read it).
+function EBS._FlyoutAutoCloseSecs()
+    local mp = EBS.db and EBS.db.profile.minimap
+    return mp and mp.flyoutAutoClose and (mp.flyoutAutoCloseTime or 3) or nil
+end
+
 local function EnsureFlyoutPanel()
     if not flyoutPanel then
         -- Controller cursor: the shared overlay parent (UIParent without a
@@ -421,6 +427,7 @@ local function EnsureFlyoutPanel()
         flyoutPanel:HookScript("OnHide", function(self)
             self:SetScript("OnUpdate", nil)
         end)
+        EllesmereUI.AttachFlyoutAutoClose(flyoutPanel, EBS._FlyoutAutoCloseSecs)
         -- Controller cursor: its cancel button presses the toggle (closing the
         -- grid); the layer shows exactly while the grid does.
         if overlayParent ~= UIParent then
