@@ -294,6 +294,7 @@ local defaults = {
     friendlyHealthBarWidth = 150,
     showFriendlyNPCs = false,
     showNPCTitles = true,
+    showNPCRaidMarker = false,
     showFriendlyPlayers = true,
     friendlyClickThrough = false,
     friendlyShowDefaultNames = false,
