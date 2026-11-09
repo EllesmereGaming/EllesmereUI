@@ -1465,7 +1465,9 @@ function ns.ERB_FitCastName(cb)
         local sample
         if f._craftTimer and f._craftTotal then
             local t = f._craftTotal
-            sample = format("%d:%02d", floor(t / 60), t % 60) .. (total and f._craftTotalSuffix or "")
+            -- Matches SetCraftTimerText: "1.2 | m:ss" (+ optional " / m:ss" total).
+            sample = format("%.1f | %d:%02d", 0, floor(t / 60), t % 60)
+                .. (total and f._craftTotalSuffix or "")
         else
             sample = format("%.1f", f._endTime - f._startTime)
                 .. (total and (f._totalDurSuffix or "") or "") .. (f._latencySuffix or "")

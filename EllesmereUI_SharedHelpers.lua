@@ -1204,22 +1204,33 @@ do
         f._craftTotal = total
         f._craftTotalSuffix = format(" / %d:%02d", floor(total / 60), total % 60)
         f._craftCountSuffix = format(" (%d/%d)", done + 1, done + 1 + left)
-        f._craftSecs = nil
+        f._craftSecs, f._craftTenths = nil, nil
         if left == 0 then
             pendingTotal = nil
         end
     end
 
-    -- Whole batch left (or elapsed / total), repainted once per second.
+    -- Current craft (tenths) plus whole-batch mm:ss. "remaining" is batch time
+    -- left when the bar is merged (_craftCastEnd holds this craft's end); otherwise
+    -- it is this craft and _craftExtra is the queued tail. Repaints when either
+    -- the craft tenth or the batch second changes.
     function EllesmereUI.SetCraftTimerText(f, fs, remaining, totalMode)
-        local left = (remaining > 0 and remaining or 0) + f._craftExtra
-        local secs = floor(totalMode and (f._craftTotal - left) or left)
-        if secs < 0 then secs = 0 end
-        if secs ~= f._craftSecs then
-            f._craftSecs = secs
-            fs:SetText(format("%d:%02d", floor(secs / 60), secs % 60)
-                .. (totalMode and f._craftTotalSuffix or ""))
+        local craftRem
+        if f._craftCastEnd then
+            craftRem = f._craftCastEnd - GetTime()
+        else
+            craftRem = remaining
         end
+        if not craftRem or craftRem < 0 then craftRem = 0 end
+
+        local left = (remaining > 0 and remaining or 0) + (f._craftExtra or 0)
+        local secs = floor(totalMode and ((f._craftTotal or 0) - left) or left)
+        if secs < 0 then secs = 0 end
+        local tenths = floor(craftRem * 10)
+        if secs == f._craftSecs and tenths == f._craftTenths then return end
+        f._craftSecs, f._craftTenths = secs, tenths
+        fs:SetText(format("%.1f | %d:%02d", craftRem, floor(secs / 60), secs % 60)
+            .. (totalMode and f._craftTotalSuffix or ""))
     end
 end
 
