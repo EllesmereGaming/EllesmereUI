@@ -159,7 +159,7 @@ local function StartAddon()
     EUI_Bags.bgOverlay:SetAllPoints()
     EUI_Bags.bgOverlay:SetColorTexture(0, 0, 0, 0.25)
 
-    if EUI and EUI.PanelPP then
+    if not ns.SkinForeverBagWindow(EUI_Bags, EUI_Bags.bg, EUI_Bags.bgOverlay, true, true) and EUI.PanelPP then
         EUI.PanelPP.CreateBorder(EUI_Bags, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7)
     end
 
@@ -390,7 +390,9 @@ local function StartAddon()
     EUI_BagsWindow.bg = EUI_BagsWindow:CreateTexture(nil, "BACKGROUND")
     EUI_BagsWindow.bg:SetAllPoints()
     EUI_BagsWindow.bg:SetColorTexture(0.02, 0.02, 0.02, 0.95)
-    if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(EUI_BagsWindow, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
+    if not ns.SkinForeverBagWindow(EUI_BagsWindow, EUI_BagsWindow.bg) and EUI.PanelPP then
+        EUI.PanelPP.CreateBorder(EUI_BagsWindow, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7)
+    end
     EllesmereUI.RegisterEscapeClose(EUI_BagsWindow)
 
     EUI_BagsReagent:SetSize(320, 300)
@@ -406,7 +408,9 @@ local function StartAddon()
     EUI_BagsReagent.bg = EUI_BagsReagent:CreateTexture(nil, "BACKGROUND")
     EUI_BagsReagent.bg:SetAllPoints()
     EUI_BagsReagent.bg:SetColorTexture(0.02, 0.02, 0.02, 0.95)
-    if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(EUI_BagsReagent, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
+    if not ns.SkinForeverBagWindow(EUI_BagsReagent, EUI_BagsReagent.bg, nil, true, true) and EUI.PanelPP then
+        EUI.PanelPP.CreateBorder(EUI_BagsReagent, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7)
+    end
 
     EUI_BagsReagent:RegisterEvent("BAG_UPDATE")
     EUI_BagsReagent:SetScript("OnEvent", function(self, event)

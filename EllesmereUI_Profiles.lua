@@ -1847,6 +1847,14 @@ function EllesmereUI.ProfileChangesStyle(profileData)
     if type(profileData) ~= "table" or type(profileData.addons) ~= "table" then return false end
     local reg = EllesmereUI._ModuleNS
     if not reg then return false end
+    -- Bags opts into Forever separately from the first-install look.
+    local bags = EllesmereUI.IS_FOREVER and reg.EllesmereUIBags
+    if bags and bags.BagsForever then
+        local incoming = profileData.addons.EllesmereUIBags
+        if bags.BagsForever() ~= (type(incoming) == "table" and incoming.useForeverStyle == true) then
+            return true
+        end
+    end
     for i = 1, #STYLE_FLAGS do
         local f = STYLE_FLAGS[i]
         local mns = reg[f.folder]
