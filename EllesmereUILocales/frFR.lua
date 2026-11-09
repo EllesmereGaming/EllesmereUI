@@ -6238,6 +6238,11 @@ L["Inside Soul"] = "Pendant Âme des arcanes"
 L["Last Barrage"] = "Dernier Barrage"
 L["This option requires Countdown Format to count GCDs inside Arcane Soul."] = "Cette option nécessite que le format du compte à rebours compte les GCD pendant Âme des arcanes."
 
+-- DataBars Travel: Show Other Characters (alt hearthstones)
+L["Other Characters"] = "Autres personnages"
+L["Show Other Characters"] = "Afficher les autres personnages"
+L["Lists your other characters' hearthstones in the tooltip: where each is bound and when it is ready. A character appears once it has logged in with this on."] = "Liste dans l'infobulle les pierres de foyer de vos autres personnages : où chacune est liée et quand elle est prête. Un personnage apparaît après s'être connecté avec cette option active."
+
 -- Nameplates Core Positions cog
 L["Slot"] = "Emplacement"
 
