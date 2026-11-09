@@ -88,6 +88,16 @@ local REZ_BY_CLASS = {
     DEATHKNIGHT = { battle = 61999 },
     WARLOCK     = { battle = 20707 },
 }
+-- WoW Forever: the vanilla spells, every rank ID listed (rank 1 first).
+if EllesmereUI.IS_FOREVER then
+    REZ_BY_CLASS = {
+        PRIEST  = { single = { 2006, 2010, 10880, 10881, 20770 } },
+        PALADIN = { single = { 7328, 10322, 10324, 20772, 20773 } },
+        SHAMAN  = { single = { 2008, 20609, 20610, 20776, 20777 } },
+        DRUID   = { single = { 437138, 1237948, 1237949, 1237950, 1237951 },
+                    battle = { 20484, 20739, 20742, 20747, 20748 } },
+    }
+end
 
 -- battle, single, group for this character, any of them nil. Filtered by what
 -- is actually in the spellbook, because the macro below picks a branch by
@@ -114,6 +124,14 @@ local function RezKit()
     local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
     local function Known(id)
         if not id then return nil end
+        -- A rank list (Forever) answers with the first rank in the book.
+        if type(id) == "table" then
+            for i = 1, #id do
+                local hit = Known(id[i])
+                if hit then return hit end
+            end
+            return nil
+        end
         if C_SpellBook.IsSpellInSpellBook and bank
            and not C_SpellBook.IsSpellInSpellBook(id, bank, true) then
             return nil
