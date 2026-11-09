@@ -481,14 +481,8 @@ function EllesmereUI._BuildRaidHoroscopePage(parent, yOffset)
     local card = CreateFrame("Button", nil, parent)
     PP.Size(card, width, CARD_H)
     PP.Point(card, "TOPLEFT", parent, "TOPLEFT", pad, y - 6)
-    local fill = card:CreateTexture(nil, "BACKGROUND")
-    fill:SetAllPoints()
-    fill:SetColorTexture(FILL_R, FILL_G, FILL_B, 1)
-    local border = EllesmereUI.MakeBorder(card, 1, 1, 1, 0.12, PP)
-    local edge = card:CreateTexture(nil, "ARTWORK")
-    edge:SetHeight(2)
-    edge:SetPoint("TOPLEFT")
-    edge:SetPoint("TOPRIGHT")
+    local border = EllesmereUI.MakeRoundedCard(card, 0.12, 1, 2, FILL_R, FILL_G, FILL_B)
+    local edge = border.accent
 
     -- Two star sets twinkling out of step
     local skies = {}
