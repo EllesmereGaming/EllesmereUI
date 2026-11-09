@@ -13626,3 +13626,34 @@ L["EllesmereUI's features work with every look. Change your mind any time under 
 L["Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later."] = "블리자드 스타일과 클래식 WoW UI는 적용을 위해 UI를 한 번 리로드합니다. 나중에 각 모듈별로 개별 변경할 수도 있습니다."
 L["Important Auras"] = "중요 오라"
 L["The quick brown fox jumps over the lazy dog."] = "다람쥐 헌 쳇바퀴에 타고파. The quick brown fox jumps over the lazy dog."
+
+-- ============================================================================
+-- 이름표 적 강화 효과 필터 및 무기 강화 효과 세부 설정 (Nameplates & Weapon Buffs)
+-- ============================================================================
+L["Requires Enemy Buff Filter set to Important or Only Dispellable"] = "'적 강화 효과 필터'가 '중요' 또는 '해제 가능한 효과만'으로 설정되어 있어야 합니다"
+L["With Important or Only Dispellable, count only the buffs you or your group can dispel, purge or soothe as dispellable, instead of every dispellable buff."] = "'중요' 또는 '해제 가능한 효과만' 선택 시 모든 해제 가능 효과 대신 본인 또는 파티원이 무효화, 정화, 격노 해제할 수 있는 효과만 해제 가능 효과로 간주합니다."
+L["Main Hand Imbue"] = "주장비 무기 마법부여"
+L["Main Hand Poison"] = "주장비 독"
+L["Main Hand Stone or Oil"] = "주장비 숫돌 또는 오일"
+L["Off Hand Imbue"] = "보조장비 무기 마법부여"
+L["Off Hand Poison"] = "보조장비 독"
+L["Off Hand Stone or Oil"] = "보조장비 숫돌 또는 오일"
+L["Highest Owned"] = "보유한 최고 등급"
+L["Lowest Owned"] = "보유한 최저 등급"
+L["dungeon"] = "던전"
+
+-- ============================================================================
+-- 소환수 시전 바, 이름표 및 강화 효과 알림 세부 설정 (Pet Cast Bar, Nameplates & ABR)
+-- ============================================================================
+L["Pet Cast Bar"] = "소환수 시전 바"
+L["Shows a cast bar for your pet's spells (e.g. Seduction). Turning it on needs a reload. Position it in Unlock Mode."] = "소환수의 주문(예: 유혹)에 대한 시전 바를 표시합니다. 켜려면 UI를 리로드해야 합니다. 위치는 잠금 해제 모드에서 조정할 수 있습니다."
+L["Only show the cast bar while a cast is in progress."] = "시전이 진행 중일 때만 시전 바를 표시합니다."
+L["The pet cast bar is built at login. Reload to show it."] = "소환수 시전 바는 접속 시 생성됩니다. 표시하려면 UI를 다시 불러오세요(리로드)."
+L["Health bar color for friendly players when Class Colored Health Bar is off."] = "'직업 색상 생명력 바'가 꺼져 있을 때 아군 플레이어의 생명력 바 색상입니다."
+L["Popups"] = "팝업 창"
+L["Action Picker"] = "시전 기술 선택"
+L["Right-click a reminder to choose what action it uses when you left-click out of combat."] = "알림 아이콘을 우클릭하여 비전투 시 좌클릭으로 시전할 기술을 지정합니다."
+L["Type a spell ID and press Enter to add it to this group. Unknown IDs are ignored."] = "주문 ID를 입력하고 Enter 키를 눌러 이 그룹에 추가하세요. 알 수 없는 ID는 무시됩니다."
+L["Blizzard's Cooldown Manager has this in %1$s, so it does not show in game. Open Blizzard CDM and move it to %2$s or %3$s."] = "블리자드 재사용 대기시간 관리자에서 이 항목이 %1$s에 들어 있어 게임 내에 표시되지 않습니다. 블리자드 CDM을 열어 %2$s 또는 %3$s(으)로 이동하세요."
+L["Hides this bar until the cursor reaches it at the top of the screen, except over an element. Hold Shift to hide it any time."] = "화면 상단에서 바 위로 커서를 가져가기 전까지 이 바를 숨깁니다(UI 요소 위 제외). 언제든지 Shift 키를 누르고 있으면 숨길 수 있습니다."
+L["Makes buttons glow when a chosen buff is active or missing, or when their ability is ready."] = "선택한 강화 효과가 활성화되어 있거나 누락되었을 때, 또는 해당 기술이 준비되었을 때 버튼을 반짝이게 합니다."
