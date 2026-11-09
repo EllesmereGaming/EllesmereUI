@@ -1775,6 +1775,9 @@ function ns.ST_MakeUnlockElement(MK, Rebuild)
         -- The mover resizes the whole stack; the per-row height is what is stored.
         setHeight = function(_, h)
             local cfg = P(); if not cfg then return end
+            -- A spec layout holds the stack height of the character that saved
+            -- it, whose row count can differ; the row height is the profile's.
+            if EllesmereUI._unlockLayerApplying then return end
             local n = ShownCount()
             local sp = RowGap(cfg)
             local v = PP.Snap(math.max((h - (n - 1) * sp) / n, 4))
