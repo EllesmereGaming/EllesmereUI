@@ -82,7 +82,6 @@ local defaults = {
             yOffset = 200,
             showText = true,
             showTooltips = true,
-            pickerEnabled = false,
             textColor = {r=1, g=1, b=1},
             textSize = 12,
             textXOffset = 0,
@@ -204,7 +203,11 @@ if EABR.FOREVER then
         weaponHideNoItem = true,
         weaponShowBelow = 1,
         weaponHands = {},
-        classBuffActions = {},
+        -- Action Picker: right-clicking a spell group or class buff reminder
+        -- with more than one spell picks the spell its click casts, and the
+        -- wheel over a spell picks its rank; opt-in.
+        pickerEnabled = false,
+        classBuffActions = {},  -- class buff key -> { castSpellID, castRanks = { spell ID -> pinned rank } }
         classBuffPicks = {},  -- class buff key -> ticked (unset: the buff's own default)
         whereToShow = {},   -- section "Where to Show" (an absent bucket = shown)
         customIDs = {},     -- spell IDs the user tracks, in the order added

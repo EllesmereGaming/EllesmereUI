@@ -1273,19 +1273,39 @@ function EllesmereUI.RealmGroupName()
     return GDAPI_REALMTYPE_NORMAL
 end
 
--- Per-character key "Name<sep>RealmGroupName". Moves a store's entry from the
--- old realm-name key (Forever only; retail keys match).
-function EllesmereUI.CharKey(sep, store)
-    local name, group = UnitName("player"), EllesmereUI.RealmGroupName()
-    if not name or not group then return nil end
-    local key = name .. sep .. group
-    if not EllesmereUI.IS_FOREVER then return key end
-    local old = name .. sep .. (GetRealmName() or "")
-    if type(store) == "table" and old ~= key and store[old] ~= nil then
+-- Moves store[old] to store[key] unless key already holds an entry; old goes
+-- either way.
+local function AdoptCharEntry(store, old, key)
+    if store[old] ~= nil then
         if store[key] == nil then store[key] = store[old] end
         store[old] = nil
     end
-    return key
+end
+
+-- Per-character key. Retail: "Name<sep>Realm". WoW Forever: the character's
+-- GUID (nil while it cannot be read), since a first name is not unique there
+-- and a GUID survives a rename. Each store passed in takes over what older
+-- builds filed under "Name<sep>Ruleset" or "Name<sep>Realm"; nothing files
+-- those keys any more, so an entry two characters shared goes to the first
+-- of them to log in.
+function EllesmereUI.CharKey(sep, ...)
+    local name, group = UnitName("player"), EllesmereUI.RealmGroupName()
+    if not name or not group then return nil end
+    if not EllesmereUI.IS_FOREVER then return name .. sep .. group end
+    local guid = UnitGUID("player")
+    if not guid or issecretvalue(guid) then return nil end
+    local byGroup, byRealm
+    for i = 1, select("#", ...) do
+        local store = select(i, ...)
+        if type(store) == "table" then
+            if not byGroup then
+                byGroup, byRealm = name .. sep .. group, name .. sep .. (GetRealmName() or "")
+            end
+            AdoptCharEntry(store, byGroup, guid)
+            AdoptCharEntry(store, byRealm, guid)
+        end
+    end
+    return guid
 end
 
 -- "Name-Realm" whisper/invite target. With realmName it builds (realm wins,
@@ -3352,7 +3372,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.8.2"
+EllesmereUI.VERSION = "9.8.3"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

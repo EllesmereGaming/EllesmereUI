@@ -8,20 +8,9 @@ local ADDON_NAME = "EllesmereUICooldownManager"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
--- Controller cursor: a hand-built popup (named dimmer over its panel) joins the
--- controller cursor and answers controller Back from its first open with a
--- controller in use; until then nothing is registered or hooked. The panel
--- stays a blocker without being a cursor stop, closeBtn is what the
--- controller's cancel button presses, and onEscape (nil = hide the dimmer) is
--- what Back runs. Call it just before the dimmer's Show. On ns: shared with the
--- Talent Conditions popup, and no main-chunk local.
-function ns.PadPopupOpen(dimmer, panel, closeBtn, onEscape)
-    if dimmer._padReg or not EllesmereUI.PadInUse() then return end
-    dimmer._padReg = true
-    EllesmereUI.PadHint(panel, "nodepass")
-    if closeBtn then panel.CloseButton = closeBtn end
-    EllesmereUI.RegisterEscapeClose(dimmer, { padOnly = true, onEscape = onEscape })
-end
+-- Controller cursor for the CDM's hand-built popups: the shared
+-- EllesmereUI.PadPopupOpen (EllesmereUI_UICore.lua). On ns: no main-chunk local.
+ns.PadPopupOpen = EllesmereUI.PadPopupOpen
 
 -- Gates a row under Blizzard Style only: the classic kit draws chrome round
 -- the user's own fill and background, so those settings stay live there.
@@ -938,7 +927,7 @@ initFrame:SetScript("OnEvent", function(self)
             infoIco:SetVertexColor(1, 1, 1, 0.45)
             info:SetScript("OnEnter", function(self)
                 infoIco:SetVertexColor(1, 1, 1, 0.9)
-                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Makes buttons glow when a chosen buff is active or missing, or when their ability is ready."))
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Makes buttons glow when a chosen buff is active or missing, or when their ability is usable."))
             end)
             info:SetScript("OnLeave", function()
                 infoIco:SetVertexColor(1, 1, 1, 0.45)

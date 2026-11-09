@@ -555,7 +555,9 @@ function EllesmereUI._FontMemberTakesPath(alphabet, path)
 end
 
 -- Whether the client loads the font file at `path`: a hidden scratch string's
--- SetFont returns false for a file it cannot load. Tested once per path.
+-- SetFont returns false for a file it cannot load. Tested once per path, except
+-- that failures are retested until the loading screen after the first one ends
+-- (see below).
 function EllesmereUI._FontPathLoads(path)
     local c = EllesmereUI._fontPathOK
     local hit = c[path]
@@ -610,7 +612,8 @@ function EllesmereUI._FontRetryArm(path)
     end)
 end
 
--- The families built while `path` failed get it now, on the members that take it.
+-- The families built while `path` failed get it now, on the members that take it,
+-- and as their own font (a family built with the path has its roman member's).
 function EllesmereUI._FontFamiliesTakePath(path)
     local list = EllesmereUI._fontFamPending
     local alphabets = EllesmereUI._FONT_ALPHABETS
@@ -622,6 +625,7 @@ function EllesmereUI._FontFamiliesTakePath(path)
                     and e.fam:GetFontObjectForAlphabet(alphabets[a])
                 if member then pcall(member.SetFont, member, path, e.size, e.flags) end
             end
+            pcall(e.fam.SetFont, e.fam, path, e.size, e.flags)
             table.remove(list, i)
         end
     end

@@ -152,6 +152,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                 { type = "colorpicker", label = "Health Bar Color",
                   tooltip = "Health bar color for friendly players when Class Colored Health Bar is off.",
                   disabled = function() return DBVal("classColorFriendly") ~= false end,
+                  disabledTooltip = "Class Colored Health Bar", requireState = "disabled",
                   get = function()
                     local c = DBVal("friendlyBarColor") or defaults.friendlyBarColor
                     return c.r, c.g, c.b
@@ -797,6 +798,8 @@ local function BuildGeneralPage(pageName, parent, yOffset)
     -- old key is an inert orphan). UNION semantics: Important = important OR
     -- dispellable (two engine groups); Dispellable = dispellable only; Show
     -- All = every buff; the removed "all" value reads back as important.
+    -- On retail, the cog's Dispellable By Me narrows "dispellable" in
+    -- Important and Dispellable to the group's own dispels.
     -- The Dispel Glow never changes the filters -- it is just the style the
     -- dispellable group wears, so every shown dispellable buff glows when a
     -- style is set.

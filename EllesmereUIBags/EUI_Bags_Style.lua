@@ -4,11 +4,23 @@ local EUI = EllesmereUI
 local forever
 local BAG_FRAME_SCALE = 0.8
 
+--- The WoW Forever style a Bags profile p asks for: its own pick
+--- (useForeverStyle true or false), else the look most of the profile's modules
+--- use (EllesmereUI.ForeverLookMajority over addons, nil = the active
+--- profile's), so a profile on the WoW Forever look gets it with no write.
+function ns.BagsForeverWanted(p, addons)
+    local pick = p and p.useForeverStyle
+    if pick == nil then return EUI.ForeverLookMajority(addons) end
+    return pick == true
+end
+
+-- Latched at the first read (0.5 s after login: every module has loaded), so a
+-- change takes effect after the reload the Style page asks for.
 function ns.BagsForever()
     if not EUI.IS_FOREVER then return false end
     if forever == nil then
         if not EUI.Lite.IsDBReady() then return false end
-        forever = EUI._bagsDB.profile.useForeverStyle == true
+        forever = ns.BagsForeverWanted(EUI._bagsDB.profile)
     end
     return forever
 end

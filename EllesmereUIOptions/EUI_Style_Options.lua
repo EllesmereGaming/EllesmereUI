@@ -338,7 +338,11 @@ Register("questtracker", "EllesmereUIQuestTracker",    "Quest Tracker",
     QTProfile, "useBlizzardStyle", "useClassicStyle", "QT_Style")
 Register("chat",         "EllesmereUIChat",            "Chat",
     ChatProfile, "useBlizzardStyle", "useClassicStyle", "ChatStyle")
--- Bags has only the Forever art so far and stays on its own look at first install.
+-- Bags has only the Forever art so far. While a profile has no Bags style
+-- picked, Bags follows the look most of its modules use (the Bags ns'
+-- BagsForeverWanted), so the first-install look reaches it with no write and
+-- ApplyAll leaves it out; a pick here is saved either way (false = the
+-- EllesmereUI style), so it holds against that majority.
 if IS_FOREVER then
     local function BagsProfile()
         local db = EllesmereUI._bagsDB
@@ -352,11 +356,12 @@ if IS_FOREVER then
         foreverFlag = "useForeverStyle", foreverLatch = "BagsForever",
         get = function()
             local p = BagsProfile()
-            return p and p.useForeverStyle == true and "forever" or "eui"
+            local n = p and NS("EllesmereUIBags")
+            return (n and n.BagsForeverWanted(p)) and "forever" or "eui"
         end,
         set = function(styleKey)
             local p = BagsProfile()
-            if p then p.useForeverStyle = (styleKey == "forever") or nil end
+            if p then p.useForeverStyle = (styleKey == "forever") end
         end,
         active = function()
             local n = NS("EllesmereUIBags")

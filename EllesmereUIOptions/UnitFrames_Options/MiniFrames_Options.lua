@@ -615,7 +615,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
         EllesmereUI.BlizzStyle.Gate("unitframes", { type="toggle", text="Vertical Fill",
           tooltip="Fill the health bar bottom-to-top instead of left-to-right. Reverse Fill flips it to top-to-bottom.",
           getValue=function() return settingsTable.healthVerticalFill end,
-          setValue=function(v) settingsTable.healthVerticalFill = v; ReloadAndUpdate(); EllesmereUI:RefreshPage() end }),
+          setValue=function(v) settingsTable.healthVerticalFill = v; ReloadAndUpdate(); EllesmereUI:RefreshPage(true) end }),
         unitKey ~= "boss" and smoothBarsWidget or EllesmereUI.BlankRowCfg());  y = y - h
 
     -- Blizzard Style: the stock level number in the boss art's level circle
@@ -706,7 +706,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                             { tooltip = "Class Colored", hasAlpha = false,
                               getValue = function()
                                   local _, ct = UnitClass("player")
-                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  local cc = ct and EllesmereUI.GetClassColor(ct)
                                   if cc then return cc.r, cc.g, cc.b end
                                   return 1, 1, 1
                               end,
@@ -740,7 +740,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                     rgn, rgn:GetFrameLevel() + 5,
                     function()
                         local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        local cc = classFile and EllesmereUI.GetClassColor(classFile)
                         if cc then return cc.r, cc.g, cc.b end
                         return 1, 1, 1
                     end,
@@ -833,7 +833,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                             { tooltip = "Class Colored", hasAlpha = false,
                               getValue = function()
                                   local _, ct = UnitClass("player")
-                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  local cc = ct and EllesmereUI.GetClassColor(ct)
                                   if cc then return cc.r, cc.g, cc.b end
                                   return 1, 1, 1
                               end,
@@ -867,7 +867,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                     rgn, rgn:GetFrameLevel() + 5,
                     function()
                         local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        local cc = classFile and EllesmereUI.GetClassColor(classFile)
                         if cc then return cc.r, cc.g, cc.b end
                         return 1, 1, 1
                     end,
@@ -955,7 +955,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                             { tooltip = "Class Colored", hasAlpha = false,
                               getValue = function()
                                   local _, ct = UnitClass("player")
-                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  local cc = ct and EllesmereUI.GetClassColor(ct)
                                   if cc then return cc.r, cc.g, cc.b end
                                   return 1, 1, 1
                               end,
@@ -989,7 +989,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                     rgn, rgn:GetFrameLevel() + 5,
                     function()
                         local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        local cc = classFile and EllesmereUI.GetClassColor(classFile)
                         if cc then return cc.r, cc.g, cc.b end
                         return 1, 1, 1
                     end,
@@ -1082,7 +1082,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                                 { tooltip = "Class Colored", hasAlpha = false,
                                   getValue = function()
                                       local _, ct = UnitClass("player")
-                                      local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                      local cc = ct and EllesmereUI.GetClassColor(ct)
                                       if cc then return cc.r, cc.g, cc.b end
                                       return 1, 1, 1
                                   end,
@@ -1116,7 +1116,7 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                         rgn, rgn:GetFrameLevel() + 5,
                         function()
                             local _, classFile = UnitClass("player")
-                            local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                            local cc = classFile and EllesmereUI.GetClassColor(classFile)
                             if cc then return cc.r, cc.g, cc.b end
                             return 1, 1, 1
                         end,

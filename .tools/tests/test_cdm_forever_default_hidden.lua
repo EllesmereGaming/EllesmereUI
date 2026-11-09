@@ -4,7 +4,8 @@
 -- it through the keep/drop pass, known or not, under any rank; a cooldown the
 -- player moved to Not Displayed still leaves, also when it shares a name with
 -- a default-hidden one. An unreadable catalogue keeps everything; without
--- Blizzard's defaults table the pass drops as before. Retail is unchanged.
+-- Blizzard's defaults table the pass drops as before, and an entry the table
+-- lacks drops as before while the others keep their slots. Retail is unchanged.
 EUI_CLIENT_BLOCKED = false
 
 local NAMES = {
@@ -50,7 +51,7 @@ local CURRENT = { [201] = 0, [202] = HIDDEN, [203] = HIDDEN, [204] = HIDDEN, [20
 local DEFAULT = { [201] = 0, [202] = HIDDEN, [203] = HIDDEN, [204] = 0, [205] = 0,
     [206] = 1, [207] = HIDDEN, [208] = 0, [209] = HIDDEN }
 local ORDERED = { 201, 202, 203, 204, 205, 206, 207, 208, 209 }
-local DIRTY, NO_DEFAULTS = false, false
+local DIRTY, NO_DEFAULTS, SKIP_DEFAULT = false, false, nil
 C_CooldownViewer = {
     GetCooldownViewerCooldownInfo = function(cd) return RAW[cd] end,
     GetCooldownViewerCategorySet = function() return {} end,
@@ -64,7 +65,7 @@ CooldownViewerSettings = { GetDataProvider = function()
                 local r = RAW[cd]
                 byID[cd] = { cooldownID = cd, spellID = r.spellID, linkedSpellIDs = r.linkedSpellIDs,
                     category = CURRENT[cd] }
-                defaults[cd] = { category = DEFAULT[cd] }
+                if cd ~= SKIP_DEFAULT then defaults[cd] = { category = DEFAULT[cd] } end
             end
             return { orderedCooldownIDs = ORDERED, cooldownInfoByID = byID,
                 cooldownDefaultsByID = not NO_DEFAULTS and defaults or nil }
@@ -167,6 +168,16 @@ NO_DEFAULTS = true
 list = Reconcile(ns, store, { 100, 6552, 6343, 12294 })
 assert(Same(list, { 100, 12294 }), "no defaults table drops as before: " .. Show(list))
 NO_DEFAULTS = false
+
+-- An entry the defaults table lacks is left out of the set: Pummel then drops
+-- as before, Revenge keeps its slot.
+SKIP_DEFAULT = 202
+local okS, partial = pcall(ns.CDMDefaultHiddenSet)
+assert(okS, "an entry without a default does not stop the set: " .. tostring(partial))
+assert(not IsDH(partial, 6552) and IsDH(partial, 6574), "only the entry without a default is left out")
+list = Reconcile(ns, store, { 100, 6552, 6574, 12294 })
+assert(Same(list, { 100, 6574, 12294 }), "an entry without a default drops as before: " .. Show(list))
+SKIP_DEFAULT = nil
 
 -- Once the player shows Pummel in Blizzard's Cooldown Manager it is a shown
 -- cooldown like any other.

@@ -246,8 +246,9 @@ local function ApplyMinimap()
     local crop, cropMask = EBS._MapCrop(p, mapSize)
     local maskID = isCircle and 186178 or cropMask or 130937
     minimap:SetMaskTexture(maskID)
-    -- LibDBIcon and friends read this global to place buttons; the 4:3 crop
-    -- keeps square corners. Leave a definition another addon made alone.
+    -- Minimap button libraries and map pins read this global to place their
+    -- buttons and pins on the map's edge; the 4:3 crop keeps square corners.
+    -- Leave a definition another addon made alone.
     if GetMinimapShape == nil or GetMinimapShape == EBS._shapeFn then
         local mapShapeName = isCircle and "ROUND" or "SQUARE"
         if EBS._shapeName ~= mapShapeName then

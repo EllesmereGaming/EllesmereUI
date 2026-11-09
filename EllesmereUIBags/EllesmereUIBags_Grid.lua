@@ -1081,6 +1081,9 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                 and not showPinAdd
                 and not alwaysShow
 
+            -- sectionName is the group's key; this is what the label shows
+            local label = EUI_CategoryManager:GroupDisplayName(sectionName)
+
             -- Compact: the collector draws this section (EllesmereUIBags_Compact.lua)
             if compactOn then
                 local assignKey
@@ -1090,7 +1093,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                 end
                 local kind = (showPinAdd and "pinned") or (alwaysShow and "recent")
                     or (useSlotNest and "slot") or (useExpNest and "exp") or "flat"
-                ns.CompactBagsSection(sectionName, sectionItems, kind, assignKey)
+                ns.CompactBagsSection(label, sectionItems, kind, assignKey)
                 return
             end
 
@@ -1100,7 +1103,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             hdr:ClearAllPoints()
             hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
             hdr:SetWidth(gridW)
-            hdr._label:SetText(EUI_CategoryManager:GroupDisplayName(sectionName) .. " (" .. itemCount .. ")")
+            hdr._label:SetText(label .. " (" .. itemCount .. ")")
             -- Pinned / Recent: their hint shows while the label is hovered
             if showPinAdd then
                 ns.SetHeaderHint(hdr, EllesmereUI.L("Middle Click to Add or Remove"))

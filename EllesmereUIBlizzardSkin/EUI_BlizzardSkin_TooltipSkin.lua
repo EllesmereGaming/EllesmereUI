@@ -1741,31 +1741,22 @@ local FFD, GetFFD = I.FFD, I.GetFFD
                 },
                 centerColor = CreateColor(cr or 0, cg or 0, cb or 0, ca or 0.9),
             }
-            -- Same style, size and placement as the GameTooltip border (ApplyBorderStyle),
-            -- drawn by the one backdrop the engine allows; insets keep the fill on the tooltip.
+            -- Same style, size and placement as the GameTooltip border (ApplyBorderStyle,
+            -- through EllesmereUI.BorderPlacement), drawn by the one backdrop the engine
+            -- allows; insets keep the fill on the tooltip.
             if size > 0 then
-                local PP = EllesmereUI.PP
-                local mult = PP and PP.mult or 1
                 local tex = db.tooltipBorderTexture or "solid"
                 local px = EllesmereUI.BorderPx(db.tooltipBorderThicknessPx, size, tex)
                 local edgeFile = EllesmereUI.ResolveBorderTexture(tex)
-                local edge, ox, oy, sx, sy = (px or size) * mult, 0, 0, 0, 0
+                local edge, ox, oy, sx, sy
                 if edgeFile then
-                    local MAP = EllesmereUI.BORDER_EDGE_MAP
-                    edge = px and (px * mult) or MAP[size] or MAP[1]
-                    local dox, doy, dsx, dsy = EllesmereUI.GetBorderDefaults("blizzardSkin", tex, key)
-                    if px then
-                        local f = edge / (MAP[size] or MAP[1])
-                        dox, doy, dsx, dsy = dox * f, doy * f, dsx * f, dsy * f
-                    end
-                    ox, oy = db.tooltipBorderOffsetX or dox, db.tooltipBorderOffsetY or doy
-                    sx, sy = db.tooltipBorderShiftX or dsx, db.tooltipBorderShiftY or dsy
-                    if EllesmereUI.BorderTextureUsesScaleOffset(tex) then
-                        local half = EllesmereUI.BorderHalfEdge(tex, edge, UIParent:GetEffectiveScale())
-                        ox, oy = half + ox, half + oy
-                    end
+                    edge, ox, oy, sx, sy = EllesmereUI.BorderPlacement(size, tex,
+                        db.tooltipBorderOffsetX, db.tooltipBorderOffsetY,
+                        db.tooltipBorderShiftX, db.tooltipBorderShiftY, "blizzardSkin", key, px)
                 else
+                    -- Solid: the PP line, (px or size) whole pixels inside the tooltip.
                     edgeFile = "Interface\\Buttons\\WHITE8X8"
+                    edge, ox, oy, sx, sy = (px or size) * EllesmereUI.PP.mult, 0, 0, 0, 0
                 end
                 info.backdropInfo.edgeFile = edgeFile
                 info.backdropInfo.edgeSize = edge

@@ -236,7 +236,7 @@ local function CreateHeader()
         -- run (item moves), which would cut it short, so it goes out on the
         -- Master channel, and only while the player's sound effects are on
         -- and their volume is above zero.
-        if not mergeOnly and sfxWas == "1" and (tonumber(GetCVar("Sound_SFXVolume")) or 0) > 0 then
+        if sfxWas == "1" and (tonumber(GetCVar("Sound_SFXVolume")) or 0) > 0 then
             PlaySound(SOUNDKIT.UI_BAG_SORTING_01, "Master")
         end
         EllesmereUI.HoldCVar("Sound_EnableSFX", "0", "EllesmereUIBags")
@@ -563,10 +563,12 @@ local function CreateHeader()
         end)
         sortCombatStop:RegisterEvent("PLAYER_REGEN_DISABLED")
         sortCombatStop:RegisterEvent("CVAR_UPDATE")
-        ConsolidateStacks(mergeOnly and function() DoVisualSort(); FinishSort() end or RunSort)
+        -- mergeOnly: the display sort saves its order and FinishSort refreshes the bags.
+        ConsolidateStacks(mergeOnly and function() DoVisualSort(true); FinishSort() end or RunSort)
     end
 
-    DoVisualSort = function()
+    -- skipRefresh: the caller refreshes the bags (a category sort's merge run).
+    DoVisualSort = function(skipRefresh)
         -- Sort items per category and save the order
         local cats = EUI_CategoryManager:GetCategories()
         local tempItems = {}
@@ -625,7 +627,7 @@ local function CreateHeader()
             end
         end
 
-        EUI_Bags:RefreshInventory()
+        if not skipRefresh then EUI_Bags:RefreshInventory() end
         LockSort()
         C_Timer.After(3, UnlockSort)
     end
@@ -684,11 +686,16 @@ local function CreateHeader()
                     end,
                 })
             end
-        else
-            -- Sound here, not in DoVisualSort: the first-open auto sort stays silent.
+        elseif InCombatLockdown() then
+            -- Merging moves items, so in combat only the display sort runs. Sound
+            -- here, not in DoVisualSort: the first-open auto sort stays silent.
             PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
-            -- Merging moves items, so not in combat: the display sort still runs.
-            if InCombatLockdown() then DoVisualSort() else DoPhysicalSort(true) end
+            DoVisualSort()
+        else
+            -- Partial stacks merge first, then the display sort. The run plays the
+            -- sort sound itself, on Master: its sound effects mute would cut a
+            -- sound played here short.
+            DoPhysicalSort(true)
         end
     end)
     EUI_Bags._doVisualSort = DoVisualSort

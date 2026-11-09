@@ -1283,9 +1283,9 @@ end
 
 -------------------------------------------------------------------------------
 --  WoW Forever talent trees, read by Forever Essentials' Classic Talents
---  window and the Cooldown Manager's Talent Conditions popup. The active
---  config's one trait tree holds the class's three vanilla trees as trait
---  groups.
+--  window and the Talent Conditions picker (EllesmereUI.ShowTalentConditionsPopup).
+--  The active config's one trait tree holds the class's three vanilla trees
+--  as trait groups.
 -------------------------------------------------------------------------------
 do
     local function ByOrder(a, b) return a.orderIndex < b.orderIndex end
@@ -1386,5 +1386,85 @@ do
             rows = math.max(rows, row)
         end
         return cells, rows + 1
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Talent Conditions: a list of { nodeID, entryID, spellID, taken } holds
+--  while every talent it names is taken (a committed rank) or not taken, as
+--  each entry asks. entryID only for a choice node (which side must be
+--  picked); spellID is for display only. Read by the Cooldown Manager's
+--  per-icon conditions and the WoW Forever swing timer; the picker is
+--  EllesmereUI.ShowTalentConditionsPopup (EllesmereUIOptions).
+--
+--  Node states are cached per node for the active talent config (a new config
+--  ID starts the cache over). Each reader wipes it on its own talent events
+--  through EllesmereUI.TalentCondInvalidate, so nothing here listens.
+-------------------------------------------------------------------------------
+do
+    -- nodeID -> the node's committed entryID when taken (true if the client
+    -- reports a rank but no entry), false when not taken or not in the tree.
+    local nodeState, nodeConfig = {}, nil
+
+    function EllesmereUI.TalentCondInvalidate()
+        wipe(nodeState)
+        nodeConfig = nil
+    end
+
+    local function NodeState(nodeID, configID)
+        if configID ~= nodeConfig then
+            wipe(nodeState)
+            nodeConfig = configID
+        end
+        local st = nodeState[nodeID]
+        if st == nil then
+            st = false
+            -- Guarded: a saved nodeID can outlive a talent-tree rework in a patch.
+            -- Runs on a cache miss only (once per node per talent change).
+            local ok, info
+            if configID then ok, info = pcall(C_Traits.GetNodeInfo, configID, nodeID) end
+            if ok and info then
+                -- Committed state only: activeRank/activeEntry also count picks staged
+                -- in the talent UI and never applied. A granted rank (activeRank above
+                -- ranksPurchased) cannot be staged, so it counts as taken as well.
+                local committed = info.entryIDsWithCommittedRanks
+                if committed and #committed > 0 then
+                    st = committed[1]
+                elseif (info.activeRank or 0) > (info.ranksPurchased or 0) then
+                    st = (info.activeEntry and info.activeEntry.entryID) or true
+                end
+            end
+            nodeState[nodeID] = st
+        end
+        return st
+    end
+
+    local function IsTaken(nodeID, entryID, configID)
+        local st = NodeState(nodeID, configID)
+        if st == false then return false end
+        return entryID == nil or st == entryID
+    end
+
+    -- True when the node (or, for a choice node, that side of it) is taken now.
+    function EllesmereUI.TalentCondIsTaken(nodeID, entryID)
+        return IsTaken(nodeID, entryID, C_ClassTalents.GetActiveConfigID())
+    end
+
+    -- True when every condition in the list holds (an empty or missing list
+    -- holds). A node that is not in the active tree reads as not taken.
+    -- configID: the config a caller already read for a whole pass (false =
+    -- none); nil reads the active one.
+    function EllesmereUI.TalentConditionsHold(conds, configID)
+        if type(conds) ~= "table" then return true end
+        if configID == nil then configID = C_ClassTalents.GetActiveConfigID() end
+        for i = 1, #conds do
+            local c = conds[i]
+            if type(c) == "table" and c.nodeID then
+                if IsTaken(c.nodeID, c.entryID, configID or nil) ~= (c.taken ~= false) then
+                    return false
+                end
+            end
+        end
+        return true
     end
 end

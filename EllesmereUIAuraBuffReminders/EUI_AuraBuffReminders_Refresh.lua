@@ -58,11 +58,16 @@ local UpdateDurationTicker  -- forward-declare; defined after RequestRefresh
 -- spell there) and the shared buff family that lists it (every rank, the group
 -- version, other casters' versions: EllesmereUI.FOREVER_BUFF_FAMILIES). One
 -- spellbook pass resolves every tracked ID, run again only after a spell is
--- learned (LEARNED_SPELL_IN_SKILL_LINE sets _fvFamDirty) or when an ID joins
--- the list; the families then serve every refresh as they are.
+-- learned (LEARNED_SPELL_IN_SKILL_LINE sets _fvFamDirty), after any spellbook
+-- change while the Action Picker listens (SPELLS_CHANGED: a respec can take a
+-- spell away), when the picker is turned on or off, or when an ID joins the
+-- list; the families then serve every refresh as they are. With the picker
+-- on, a family's EABR._fvKnownFams entry is the list of its known ranks,
+-- lowest first as the spellbook lists them (one list per name), else the last
+-- rank found.
 local function PickerEnabled()
-    local display = db.profile.display
-    return display ~= nil and display.pickerEnabled == true
+    local fo = db.profile.forever
+    return fo ~= nil and fo.pickerEnabled == true
 end
 
 function EABR.ForeverFamily(id)

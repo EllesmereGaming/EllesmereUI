@@ -979,7 +979,7 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 EUI:ShowInputPopup({
                     title = "Rename Group",
                     message = EllesmereUI.L("Enter a new name for this group:"),
-                    placeholder = myGroup,
+                    placeholder = EUI_CategoryManager:GroupDisplayName(myGroup),
                     confirmText = "Rename",
                     cancelText = "Cancel",
                     onConfirm = function(newName)
@@ -1063,7 +1063,7 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 if #groupNames > 0 then
                     local addSub = rootDescription:CreateButton(EllesmereUI.L("Add to Group"))
                     for _, gn in ipairs(groupNames) do
-                        addSub:CreateButton(gn, function()
+                        addSub:CreateButton(EUI_CategoryManager:GroupDisplayName(gn), function()
                             EUI_CategoryManager:AddToGroup(catIdx, gn)
                             EUI_Bags:RefreshInventory()
                         end)

@@ -1016,7 +1016,7 @@ initFrame:SetScript("OnEvent", function(self)
         for groupIndex, group in ipairs(f.customGroups) do
             local slots = {
                 { type="input", text="Add Spell ID", inputStyle="popup", placeholder="Spell ID", inputWidth=110,
-                  tooltip="Type a spell ID and press Enter to add it to this group. Unknown IDs are ignored.",
+                  tooltip="Type a spell ID and press Enter to add it to this group. Unknown IDs are ignored.\nThe reminder shows the icon of the first spell in the list that you know, or of the spell you picked with the Action Picker.",
                   getValue=function() return "" end,
                   setValue=function(text) AddSpellIDToList(group.ids, text) end },
                 { type="labeledButton", text="Rename Group", buttonText="Rename", width=90,
@@ -1030,7 +1030,10 @@ initFrame:SetScript("OnEvent", function(self)
                     onClick=function()
                         table.remove(group.ids, spellIndex)
                         if group.castSpellID == spellID then group.castSpellID = nil end
-                        if group.castRanks then group.castRanks[spellID] = nil end
+                        if group.castRanks then
+                            group.castRanks[spellID] = nil
+                            if not next(group.castRanks) then group.castRanks = nil end
+                        end
                         RefreshAll()
                         EllesmereUI:RefreshPage(true)
                     end }
@@ -1802,10 +1805,10 @@ initFrame:SetScript("OnEvent", function(self)
         if FOREVER then
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Action Picker",
-                  tooltip="Right-click a reminder to choose what action it uses when you left-click out of combat.",
-                  getValue=function() local d = DDB(); return d and d.pickerEnabled == true end,
+                  tooltip="Right-click a spell group or Class Buffs reminder that has more than one spell to choose the spell its left click casts. Scroll over a spell in the picker to choose its rank.",
+                  getValue=function() local f = FDB(); return f and f.pickerEnabled == true end,
                   setValue=function(v)
-                      local d = DDB(); if not d then return end; d.pickerEnabled = v
+                      local f = FDB(); if not f then return end; f.pickerEnabled = v
                       RefreshAll()
                   end },
                 EllesmereUI.BlankRowCfg()

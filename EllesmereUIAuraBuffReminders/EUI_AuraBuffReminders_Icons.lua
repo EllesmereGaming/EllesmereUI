@@ -1396,7 +1396,7 @@ ShowForeverGroupMenu = function(btn)
         return btn._tooltipSpell == EABR.ForeverGroupCastSpell(group, spellID)
     end
     local function IsCurrent()
-        if InCombat() or db.profile ~= profile or profile.forever ~= forever or not profile.display.pickerEnabled
+        if InCombat() or db.profile ~= profile or profile.forever ~= forever or not (forever and forever.pickerEnabled)
             or btn._foreverGroup ~= group or not btn:IsVisible() then return false end
         if group.actions then
             return forever and forever.classBuffActions == group.actions and group.actions[group.key] == settings
@@ -1449,6 +1449,7 @@ ShowForeverGroupMenu = function(btn)
                     saved.castRanks[spellID] = nextID
                 elseif settings and settings.castRanks then
                     settings.castRanks[spellID] = nil
+                    if not next(settings.castRanks) then settings.castRanks = nil end
                 end
                 if selected then ApplySpell(nextID, true) end
                 badge:SetText(rank or "")

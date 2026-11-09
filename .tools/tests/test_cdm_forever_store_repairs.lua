@@ -151,6 +151,9 @@ local function MakeDB()
             C = { specProfiles = { ["1485"] = Layout(75), ["254"] = Layout(),
                 ["255"] = { barSpells = { __ghost_cd = { assignedSpells = { 3044 } } } } } },
             D = { specProfiles = { ["1485"] = Layout(75) } },
+            -- The key the class reads next holds only Hidden CDs: no layout.
+            H = { specProfiles = { ["1485"] = Layout(75),
+                ["253"] = { barSpells = { __ghost_cd = { assignedSpells = { 3044 } } } } } },
             -- Another class's retail layout hides nothing of the hunter's.
             E = { specProfiles = { ["1491"] = Layout(100), ["253"] = Layout(2973) } },
             -- A Tracking Bars layout counts too.
@@ -181,6 +184,7 @@ assert(P.B.specProfiles["1485"] == nil, "a Forever key hiding the class's retail
 assert(P.B.specProfiles["253"] and P.B.specProfiles["253"].barSpells.cooldowns.assignedSpells[1] == 2973,
     "the retail layout is kept")
 assert(P.C.specProfiles["1485"], "kept when no retail key holds a layout (empty lists and hidden spells only)")
+assert(P.H.specProfiles["1485"], "kept when the key the class reads next holds only Hidden CDs")
 assert(P.D.specProfiles["1485"], "kept when it is the class's only bucket")
 assert(P.E.specProfiles["1491"], "kept when the retail layout is another class's")
 assert(P.F.specProfiles["1485"] == nil, "dropped when the retail key holds Tracking Bars")
