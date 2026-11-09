@@ -404,10 +404,16 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return Shown("extraShowPlaystyle", true) end,
               setValue = function(v) SetLine("extraShowPlaystyle", v) end })
         y = y - h
-        if ns.RegionList() then
-            _, h = W:DualRow(parent, y, tagsCfg, EUI.BlankRowCfg())
-            y = y - h
+        local notesCfg = { type = "toggle", text = "Show Group Notes",
+            tooltip = "Shows each group's note on a line under it. Hover the group for the whole note.",
+            getValue = function() return ns.OwnListGet("groupNotes") == true end,
+            setValue = function(v) ns.SetOwnListValue("groupNotes", v and true or false) end }
+        if tagsCfg then
+            _, h = W:DualRow(parent, y, tagsCfg, notesCfg)
+        else
+            _, h = W:DualRow(parent, y, notesCfg, EUI.BlankRowCfg())
         end
+        y = y - h
 
         -- the filter's dungeon / raid squares
         local function SetSquares(key, v)

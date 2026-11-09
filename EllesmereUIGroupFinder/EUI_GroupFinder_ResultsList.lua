@@ -200,6 +200,17 @@ local dimmed = {}
 -- kept from the last collect: applications, each listed group's filter pass
 -- (a result update is checked against it) and the sort's values
 local seen, isApp, passOf, sortVal = {}, {}, {}, {}
+local noteOf, tops = {}, {}  -- shown groups with a note, each shown row's top
+
+-- the group's note when notes are on and it has one
+local function NoteText(info)
+    if not ns.OwnListGet("groupNotes") or not Readable(info) then return nil end
+    local c = info.comment
+    if type(c) ~= "string" or Secret(c) or c == "" then return nil end
+    return c
+end
+-- the note's line under the row
+local function NoteHeight() return ns.OwnListSize("lineSize") + 4 end
 local sortDown, sortAppsFirst = false, true
 local function BySortVal(a, b)
     if sortAppsFirst and isApp[a] ~= isApp[b] then return isApp[a] == true end
@@ -270,6 +281,12 @@ local function Collect()
             sortVal[id] = (type(v) == "number" and not Secret(v)) and v or 0
         end
         table.sort(shown, BySortVal)
+    end
+    wipe(noteOf)
+    if ns.OwnListGet("groupNotes") then
+        for _, id in ipairs(shown) do
+            if NoteText(C_LFGList.GetSearchResultInfo(id)) then noteOf[id] = true end
+        end
     end
 end
 
@@ -425,6 +442,16 @@ local function MakeRow(i, parent)
     r.hl = r:CreateTexture(nil, "HIGHLIGHT")
     r.hl:SetAllPoints()
     r.hl:SetColorTexture(1, 1, 1, 0.06)
+    -- the row without its note: icons and counts centre on it
+    r.mid = r:CreateTexture(nil, "BACKGROUND")
+    r.mid:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 0)
+    r.mid:SetPoint("TOPRIGHT", r, "TOPRIGHT", 0, 0)
+    -- the group's note, one line under the row
+    r.note = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    r.note:SetJustifyH("LEFT")
+    r.note:SetWordWrap(false)
+    r.note:SetMaxLines(1)
+    r.note:Hide()
     r.name = r:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     r.name:SetJustifyH("LEFT")
     r.name:SetWordWrap(false)
@@ -649,12 +676,14 @@ ns.OwnListIconSize = IconSize
 local function Layout(r, h)
     if r.layH == h and r.layGen == styleGen then return end
     r.layH, r.layGen = h, styleGen
+    r.mid:SetHeight(h)
     local pad = 6
     local tS, nS, lS = ns.OwnListSize("titleSize"), ns.OwnListSize("nameSize"), ns.OwnListSize("lineSize")
     ns.OwnListNameFont(r.name, tS)
     SetSize(r.act, nS)
     local sized = r.lineFS
     for i = 1, #sized do SetSize(sized[i], lS) end
+    ns.OwnListNameFont(r.note, lS)
     -- title always fits, then the dungeon, then line three
     local room = h - 4
     local lines = r.lineH
@@ -705,13 +734,13 @@ local function Layout(r, h)
         r.roles[k]:SetSize(math.floor(isz * 0.7 + 0.5), math.floor(isz * 0.7 + 0.5))
         r.crowns[k]:SetSize(cw, math.floor(cw * 0.6 + 0.5))
         t:ClearAllPoints()
-        t:SetPoint("RIGHT", r, "RIGHT", x, 0)
+        t:SetPoint("RIGHT", r.mid, "RIGHT", x, 0)
         x = x - isz - gap
     end
     r.scoreX = x - 4  -- a raid's role counts move the score; the next group puts it back
     r.scoreRaid = nil
     r.score:ClearAllPoints()
-    r.score:SetPoint("RIGHT", r, "RIGHT", r.scoreX, 0)
+    r.score:SetPoint("RIGHT", r.mid, "RIGHT", r.scoreX, 0)
     r.status:ClearAllPoints()
     r.status:SetPoint("RIGHT", r.score, "LEFT", -8, 0)
     r.name:SetPoint("RIGHT", r.status, "LEFT", -8, 0)
@@ -798,13 +827,24 @@ local function Fill(r, id, src)
     nr, ng, nb = src.nameColor(id, info, ai)  -- "and" would drop g and b
     if nr then r.name:SetTextColor(nr, ng, nb) else r.name:SetTextColor(1, 0.82, 0) end
     r.act:SetText(ai and ai.fullName or "")
+    -- the note, only where the list left room for it (protected text, straight to the font string)
+    local note = r.noteRoom and NoteText(info)
+    if note then
+        r.note:ClearAllPoints()
+        r.note:SetPoint("TOPLEFT", r.mid, "BOTTOMLEFT", r.pad or 6, 0)
+        r.note:SetPoint("TOPRIGHT", r.mid, "BOTTOMRIGHT", -(r.pad or 6), 0)
+        r.note:SetText(string.format(LFG_LIST_COMMENT_FORMAT or "%s", note))
+        local fc = LFG_LIST_COMMENT_FONT_COLOR
+        if fc then r.note:SetTextColor(fc.r, fc.g, fc.b) else r.note:SetTextColor(0.6, 0.6, 0.6) end
+    end
+    r.note:SetShown(note and true or false)
     -- signed up: the cancel square sits left of the text, which moves over for it
     local appStatus = src.appStatus(id)
     local canCancel = appStatus == "applied"
     local x0 = r.pad or 6
     r.cancel:ClearAllPoints()
     if canCancel then
-        r.cancel:SetPoint("LEFT", r, "LEFT", x0, 0)
+        r.cancel:SetPoint("LEFT", r.mid, "LEFT", x0, 0)
         x0 = x0 + (r.cancelSize or CANCEL_H) + 6
     end
     r.cancel:SetShown(canCancel)
@@ -867,7 +907,7 @@ local function Fill(r, id, src)
         r.art:SetTexCoord(unpack(ns.ROW_ART.crop))
         r.art:ClearAllPoints()
         r.art:SetPoint("TOPLEFT", r, "TOPLEFT", 0, 0)
-        r.art:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 0)
+        r.art:SetPoint("BOTTOMLEFT", r.mid, "BOTTOMLEFT", 0, 0)
         r.art:SetWidth(math.max(1, math.floor(w * ns.ROW_ART.share)))
         r.art:Show()
     else
@@ -1036,7 +1076,7 @@ local function Fill(r, id, src)
             elseif not round and p.masked then p.bg:RemoveMaskTexture(p.mask); p.masked = nil end
             p.bg:SetSize(isz, isz)
             p.bg:ClearAllPoints()
-            p.bg:SetPoint("RIGHT", r, "RIGHT", x, 0)
+            p.bg:SetPoint("RIGHT", r.mid, "RIGHT", x, 0)
             p.bg:Show()
             CircleEdge(p, round, bpx, br, bg, bb, btex, bkey)
             local tex = ellIcons and ns.RoleIconTex and ns.RoleIconTex(role)
@@ -1057,7 +1097,7 @@ local function Fill(r, id, src)
         elseif not round and pc.masked then pc.bg:RemoveMaskTexture(pc.mask); pc.masked = nil end
         pc.bg:SetSize(isz, isz)
         pc.bg:ClearAllPoints()
-        pc.bg:SetPoint("RIGHT", r, "RIGHT", x, 0)
+        pc.bg:SetPoint("RIGHT", r.mid, "RIGHT", x, 0)
         pc.bg:Show()
         CircleEdge(pc, round, bpx, br, bg, bb, btex, bkey)
         local gsz = math.floor(isz * 0.7 + 0.5)
@@ -1070,13 +1110,13 @@ local function Fill(r, id, src)
     end
     if counts or players then
         r.score:ClearAllPoints()
-        r.score:SetPoint("RIGHT", r, "RIGHT", x - 6, 0)
+        r.score:SetPoint("RIGHT", r.mid, "RIGHT", x - 6, 0)
         r.scoreRaid = true
     elseif r.scoreRaid then
         -- the slot showed a raid before: the score goes back beside the icons
         r.scoreRaid = nil
         r.score:ClearAllPoints()
-        r.score:SetPoint("RIGHT", r, "RIGHT", r.scoreX or -6, 0)
+        r.score:SetPoint("RIGHT", r.mid, "RIGHT", r.scoreX or -6, 0)
     end
     local ar, ag, ab = Accent()
     r.sel:SetColorTexture(ar, ag, ab, selected == id and 0.18 or 0)
@@ -1090,6 +1130,7 @@ end
 -------------------------------------------------------------------------------
 local PV_W, PV_PAD, PV_MARGIN = 330, 8, 10  -- about the list's row width
 local PV_SCALE = 1.3  -- drawn larger than the list, to read the details
+local PV_STEP = 0.3  -- a wheel tick, in rows
 local PV_TITLE = 22  -- the "Group Finder Preview" strip
 -- the rows' window keeps one height (two rows at the default height): taller
 -- rows get cut off at its bottom, as in the list, and the page never moves.
@@ -1099,6 +1140,7 @@ local PV_VIEW_H = 2 * 50 + GAP
 -- difficulty; specs = members, leader first (made-up names in the tooltip)
 local PV = {
     pv1 = { name = EllesmereUI.L("Weekly key, chill run"), dungeon = 1, style = 2, score = 2780, age = 420, new = true,
+        note = EllesmereUI.L("Know the route, have fun"),
         specs = { { 73, true }, { 64 }, { 260 }, { 102 } } },
     pv2 = { name = EllesmereUI.L("Heroic raid, need healers"), raid = PLAYER_DIFFICULTY2 or "Heroic", style = 3, score = 1950,
         age = 1260, applied = true,
@@ -1106,6 +1148,7 @@ local PV = {
             { 254 }, { 62 }, { 63 }, { 258 }, { 262 }, { 577 }, { 1467 } },
         open = { TANK = 0, HEALER = 3, DAMAGER = 3 } },
     pv3 = { name = EllesmereUI.L("Push for the timer, bring lust"), dungeon = 2, style = 3, score = 3120, age = 300,
+        note = EllesmereUI.L("Timing it, voice optional"),
         specs = { { 250, true }, { 264 }, { 72 } } },
     pv4 = { name = EllesmereUI.L("Need a tank, fast and clean"), dungeon = 3, style = 2, score = 2450, age = 640,
         specs = { { 270, true }, { 70 }, { 253 }, { 1467 } } },
@@ -1166,7 +1209,7 @@ end
 local PREVIEW = {
     info = function(id)
         local g = PV[id]
-        return { name = g.name, activityIDs = { g.act }, generalPlaystyle = g.style,
+        return { name = g.name, comment = g.note or "", activityIDs = { g.act }, generalPlaystyle = g.style,
             leaderOverallDungeonScore = g.score, numMembers = #g.specs, isDelisted = false }
     end,
     activity = function(act)
@@ -1207,12 +1250,24 @@ local function PvFit()
     local h = ns.OwnListRowHeight()
     -- a fixed width: the list's own only settles once group finder opens
     local rw = PV_W
-    local y = 0
+    local nH = NoteHeight()
+    -- the heights first: the scroll stops at the last group
+    local total = -GAP
     for i, id in ipairs(PV_IDS) do
         local r = pv.rows[i]
-        -- rows below the window aren't drawn at all
-        if y < PV_VIEW_H then
-            r:SetSize(rw, h)
+        r.noteRoom = NoteText(PREVIEW.info(id)) and true or nil
+        r.pvH = h + (r.noteRoom and nH or 0)
+        total = total + r.pvH + GAP
+    end
+    pv.maxScroll = math.max(0, total - PV_VIEW_H)
+    pv.scroll = math.max(0, math.min(pv.scroll or 0, pv.maxScroll))
+    local y = -pv.scroll
+    for i, id in ipairs(PV_IDS) do
+        local r = pv.rows[i]
+        local rh = r.pvH
+        -- rows outside the window aren't drawn at all
+        if y + rh > 0 and y < PV_VIEW_H then
+            r:SetSize(rw, rh)
             r:ClearAllPoints()
             r:SetPoint("TOPLEFT", view, "TOPLEFT", 0, -y)
             r.layH = nil  -- every paint lays out again
@@ -1223,9 +1278,20 @@ local function PvFit()
             r.resultID = nil
             r:Hide()
         end
-        y = y + h + GAP
+        y = y + rh + GAP
     end
     view:SetSize(rw, PV_VIEW_H)
+    -- scroll thumb
+    local th = pv.thumb
+    if pv.maxScroll > 0 then
+        local tH = math.max(12, PV_VIEW_H * PV_VIEW_H / (total > 0 and total or 1))
+        th:SetHeight(tH)
+        th:ClearAllPoints()
+        th:SetPoint("TOPRIGHT", view, "TOPRIGHT", 0, -(PV_VIEW_H - tH) * (pv.scroll / pv.maxScroll))
+        th:Show()
+    else
+        th:Hide()
+    end
     local fw, fh = rw + PV_PAD * 2, PV_PAD + PV_TITLE + PV_VIEW_H + PV_PAD
     f:SetSize(fw, fh)
     -- the ui's own scale and then some, grown or shrunk with the settings
@@ -1292,6 +1358,10 @@ function ns.OwnListPreviewTip(r)
     tip:AddLine(ai.fullName)
     local ps = _G["GROUP_FINDER_GENERAL_PLAYSTYLE" .. info.generalPlaystyle]
     if ps then tip:AddLine(ps, 0.6, 0.6, 0.6) end
+    if info.comment ~= "" then
+        local fc = LFG_LIST_COMMENT_FONT_COLOR
+        tip:AddLine(string.format(LFG_LIST_COMMENT_FORMAT or "%s", info.comment), fc and fc.r or 0.6, fc and fc.g or 0.6, fc and fc.b or 0.6, true)
+    end
     tip:AddLine(" ")
     local leader = players[1] and players[1].name
     if leader then tip:AddLine(string.format(LFG_LIST_TOOLTIP_LEADER or "Leader: %s", leader)) end
@@ -1338,6 +1408,22 @@ function ns.OwnListPreviewBuild(hdr, hdrW)
         view:SetPoint("TOPLEFT", f, "TOPLEFT", PV_PAD, -(PV_PAD + PV_TITLE))
         view:SetClipsChildren(true)
         pv.view = view
+        -- the wheel scrolls part of a row at a time: it's drawn larger than the list
+        view:EnableMouseWheel(true)
+        view:SetScript("OnMouseWheel", function(_, delta)
+            local was = pv.scroll or 0
+            local step = math.floor((ns.OwnListRowHeight() + GAP) * PV_STEP + 0.5)
+            pv.scroll = math.max(0, math.min(was - delta * step, pv.maxScroll or 0))
+            if pv.scroll ~= was then
+                PvFit()
+                -- the hovered row changed under the mouse
+                if GameTooltip:IsShown() and GameTooltip:GetOwner() and GameTooltip:GetOwner().preview then GameTooltip:Hide() end
+            end
+        end)
+        pv.thumb = view:CreateTexture(nil, "OVERLAY", nil, 7)
+        pv.thumb:SetWidth(2)
+        pv.thumb:SetColorTexture(1, 1, 1, 0.25)
+        pv.thumb:Hide()
         pv.rows = {}
         for i = 1, #PV_IDS do
             local r = MakeRow(nil, view)
@@ -1395,29 +1481,37 @@ function Paint()  -- forward-declared up top
     if not (frame and active) then return end
     local h = ns.OwnListRowHeight()
     local height = body:GetHeight() or 0
-    local per = h + GAP
-    local maxPx = math.max(0, #shown * per - GAP - height)
+    -- a group with a note is a line taller
+    local nH = NoteHeight()
+    local total = 0
+    wipe(tops)
+    for i = 1, #shown do
+        tops[i] = total
+        total = total + h + (noteOf[shown[i]] and nH or 0) + GAP
+    end
+    local maxPx = math.max(0, total - GAP - height)
     scrollPx = math.max(0, math.min(scrollPx, maxPx))
-    local first = math.floor(scrollPx / per)
-    local slots = math.ceil(height / per) + 1
-    for i = 1, slots do
-        local r = rows[i] or MakeRow(i)
-        local idx = first + i
+    local first = 1
+    while tops[first + 1] and tops[first + 1] <= scrollPx do first = first + 1 end
+    local used = 0
+    for idx = first, #shown do
+        local y = tops[idx] - scrollPx
+        if y >= height then break end
+        used = used + 1
+        local r = rows[used] or MakeRow(used)
         local id = shown[idx]
-        local y = (idx - 1) * per - scrollPx
+        r.noteRoom = noteOf[id]
         r:ClearAllPoints()
         r:SetPoint("TOPLEFT", body, "TOPLEFT", 0, -y)
         r:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -y)
-        r:SetHeight(h)
-        if id and y < height then
-            Layout(r, h)
-            Fill(r, id)
-        else
-            r.resultID = nil
-            r:Hide()
-        end
+        r:SetHeight(h + (r.noteRoom and nH or 0))
+        Layout(r, h)
+        Fill(r, id)
     end
-    for i = slots + 1, #rows do rows[i]:Hide() end
+    for i = used + 1, #rows do
+        rows[i].resultID = nil
+        rows[i]:Hide()
+    end
     PaintSignBtn()
     SyncTicker()
     -- scroll thumb
