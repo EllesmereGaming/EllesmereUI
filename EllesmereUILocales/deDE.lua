@@ -9771,3 +9771,20 @@ L["Cast Bars"] = "Zauberleisten"
 L["Nameplate Icon"] = "Namensplakettensymbol"
 L["Nameplate Kick Icons use this to auto-assign kicks when a mob is first marked."] = "Namensplaketten-Kick-Symbole nutzen dies, um Unterbrechungen automatisch zuzuordnen, sobald ein Gegner markiert wird"
 L["Dismiss this warning"] = "Diese Warnung ausblenden"
+
+-- Nameplates Core Positions cog
+L["Quest Objective Text"] = "Questzieltext"
+L["Slot"] = "Platz"
+L["Also shows inside dungeons, raids and other instances."] = "Wird auch in Dungeons, Schlachtzügen und anderen Instanzen angezeigt."
+L["Size of the quest progress text."] = "Größe des Questfortschrittstextes."
+
+-- Bags Pinned Items cog
+L["Hide Items in Their Categories"] = "Gegenstände in ihren Kategorien ausblenden"
+L["Dim Items in OneBag/MultiBag"] = "Gegenstände in Einzeltasche/Mehrfachtasche abdunkeln"
+L["Dims pinned items in their bag slots, since they also show in Pinned Items."] = "Dunkelt angepinnte Gegenstände in ihren Taschenplätzen ab, da sie auch unter 'Angepinnte Gegenstände' angezeigt werden."
+L["Pins per Character"] = "Angepinnte Gegenstände je Charakter"
+L["Each character keeps its own pinned items. A character uses the shared pins until it pins or unpins something."] = "Jeder Charakter behält seine eigenen angepinnten Gegenstände. Bis er selbst etwas anheftet oder löst, nutzt ein Charakter die gemeinsamen."
+
+-- Quest Tracker Title Difficulty Colors
+L["Title Difficulty Colors"] = "Titelfarben nach Schwierigkeit"
+L["Colors quest titles by difficulty for your level. This is the game's own option, so its quest log follows it too."] = "Färbt Questtitel nach ihrer Schwierigkeit für Deine Stufe. Das ist die eigene Option des Spiels, daher folgt auch das Questlog."

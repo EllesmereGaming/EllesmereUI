@@ -229,7 +229,7 @@ layerUpdateFrame:SetScript("OnEvent", function() EUI_Bags:ApplyWindowLayering() 
 -- tab via the TokenFrame.OnTokenWatchChanged sync below) is per-character, so
 -- a shared store can only bleed across characters. Stored at the EllesmereUIDB
 -- ROOT beside the module's other per-character data (goldLedger,
--- bagPinnedItems, bagItemAssignments), NEVER in the bag profile:
+-- bagPinnedByChar, bagItemAssignments), NEVER in the bag profile:
 -- ApplyProfileData wipes db.profile wholesale on import (would erase every
 -- character's currencies), and profile exports must not ship a character
 -- roster (the PRIVATE_ADDON_KEYS leak class).
@@ -269,6 +269,35 @@ local function CurrencyOrder()
     return t
 end
 EUI._BagsCurrencyOrder = CurrencyOrder
+
+-- Active pin table: the shared one or, with bagPinsPerCharacter on, this
+-- character's copy (made from the shared pins on its first pin action),
+-- keyed like the offline bank: guid on Forever, where a first name isn't unique.
+local function PinnedItems(create)
+    local db = EllesmereUIDB
+    if not (db and db.bagPinsPerCharacter) then
+        if create then
+            if not db then db = {}; EllesmereUIDB = db end
+            if not db.bagPinnedItems then db.bagPinnedItems = {} end
+        end
+        return db and db.bagPinnedItems
+    end
+    local key = ns.Offline and ns.Offline.CurrentKey()
+    local byChar = db.bagPinnedByChar
+    local own = key and type(byChar) == "table" and byChar[key]
+    if type(own) == "table" then return own end
+    if not create then return db.bagPinnedItems end
+    if not key then return nil end
+    own = {}
+    local shared = db.bagPinnedItems
+    if type(shared) == "table" then
+        for k, v in pairs(shared) do own[k] = v end
+    end
+    if type(byChar) ~= "table" then byChar = {}; db.bagPinnedByChar = byChar end
+    byChar[key] = own
+    return own
+end
+ns.PinnedItems = PinnedItems
 
 -- Default bag-type view ("all"|"onebag"|"multibag"), falling back to legacy
 -- bagDefaultOneBag bool (imports converted in ApplyProfileData before DeepMergeDefaults masks it); exposed on EUI so bank file matches.
@@ -436,8 +465,8 @@ EllesmereUI.NewInternals(ns, "_bagsInternals", {
     GetAccentRGB = GetAccentRGB, GetCatTitleSize = GetCatTitleSize, GetColumns = GetColumns,
     GetDefaultBagType = GetDefaultBagType, GetFont = GetFont,
     GetItemLevelAtLocation = GetItemLevelAtLocation, IsGearItem = IsGearItem,
-    IsItemPinned = IsItemPinned, NormalizePinKey = NormalizePinKey, SetBagFont = SetBagFont,
-    SLOT_SIZE = SLOT_SIZE, SPACING = SPACING,
+    IsItemPinned = IsItemPinned, NormalizePinKey = NormalizePinKey, PinnedItems = PinnedItems,
+    SetBagFont = SetBagFont, SLOT_SIZE = SLOT_SIZE, SPACING = SPACING,
     categoryIndexSetters = {}, groupNameSetters = {}, gearCatSetSetters = {},
     anyItemPanelOpenSetters = {}, paintedPanelOpenSetters = {}, slotMetricSetters = {},
 }, {
