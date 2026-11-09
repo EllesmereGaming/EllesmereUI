@@ -36,8 +36,8 @@ C_UnitAuras = {
         if TEST.up[id] then
             -- its caster: TEST.src[id], else the player
             local src = TEST.src[id] or "player"
-            return { spellId = id, duration = 0, expirationTime = 0, sourceUnit = src,
-                isFromPlayerOrPlayerPet = src == "player", applications = TEST.stacks[id], expirationTime = TEST.sleepExpiration }
+            return { spellId = id, duration = 0, expirationTime = TEST.sleepExpiration or 0, sourceUnit = src,
+                isFromPlayerOrPlayerPet = src == "player", applications = TEST.stacks[id] }
         end
     end,
     GetAuraDataByIndex = function(unit, i)
@@ -112,8 +112,8 @@ EllesmereUI = {
 --  it in the game)
 -------------------------------------------------------------------------------
 local EABR = { FOREVER = true }
--- The real SectionShows' rule: an unchecked In Combat hides a section in combat
 function EABR.ShowUnderThresholdApplies() return true end
+-- The real SectionShows' rule: an unchecked In Combat hides a section in combat
 function EABR.SectionShows(where)
     if where and where.in_combat == false and TEST.combat then return false end
     return not (where and where.open_world == false)
@@ -550,8 +550,11 @@ TEST.sleepExpiration = 190
 e = SleepShown(select(2, Collect()))
 assert(e and e.mode == "item" and e.itemID == BAG and e.texture == 500000 + BAG
     and e.expireAt == 190 and e.expireTotal == 90, "Well-Rested should show the bag icon and countdown")
+fo.sleepingBagShowBelow = 0
+EABR._nextDurationRefreshTime = nil
+assert(not SleepShown(select(2, Collect())) and not EABR._nextDurationRefreshTime,
+    "disabling the threshold should restore the stack rule even when Well-Rested is about to expire")
 fo.sleepingBagShowBelow, TEST.sleepExpiration = nil, nil
-assert(not SleepShown(select(2, Collect())), "disabling the threshold should restore the stack rule")
 TEST.up[WELL_RESTED], TEST.stacks[WELL_RESTED] = nil, nil
 TEST.combat = true
 assert(not SleepShown(select(2, Collect())), "the Sleeping Bag showed in combat")
