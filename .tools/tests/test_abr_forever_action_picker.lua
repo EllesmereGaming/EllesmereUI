@@ -196,6 +196,7 @@ function EABR.SectionShows(where)
 end
 function EABR.FvSyncTrackingEvent() end
 function EABR.FvSyncWeaponEvents() end
+function EABR.FvSyncBagEvent() end
 function EABR.ApplyIconBagCount(btn, _, _, _, rank) btn.rank = rank end
 function EABR.HideIconTooltip() end
 EABR.FV_WEAPON_BUFFS = {}

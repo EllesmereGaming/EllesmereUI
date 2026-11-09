@@ -4,7 +4,8 @@
 -- EABR.CollectForever in and out of combat, and the pre-pull snapshot, which
 -- Forever no longer takes. Scenario 7 drives the Weapon Buffs reminder,
 -- scenario 8 a spell group's click and tooltip rank, scenario 9 a custom
--- spell's, scenario 10 the class buffs and Mage Armors.
+-- spell's, scenario 10 the class buffs and Mage Armors, scenario 11 the
+-- Sleeping Bag.
 --   lua .tools/tests/test_abr_forever_combat.lua        (from the repository root)
 local ROOT = arg and arg[1] or "."
 
@@ -23,7 +24,7 @@ local MAIN_SRC = ReadSource("EllesmereUIAuraBuffReminders/EllesmereUIAuraBuffRem
 --  Game API stubs
 -------------------------------------------------------------------------------
 local TEST = { combat = false, up = {}, src = {}, auraReads = 0, trackingWanted = {}, weaponWanted = {},
-    weapon = {}, enchants = {}, bags = {} }
+    weapon = {}, enchants = {}, bags = {}, bagWanted = {}, stacks = {}, itemCountReads = 0, level = 40 }
 
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function GetTime() return 100 end
@@ -36,7 +37,7 @@ C_UnitAuras = {
             -- its caster: TEST.src[id], else the player
             local src = TEST.src[id] or "player"
             return { spellId = id, duration = 0, expirationTime = 0, sourceUnit = src,
-                isFromPlayerOrPlayerPet = src == "player" }
+                isFromPlayerOrPlayerPet = src == "player", applications = TEST.stacks[id] }
         end
     end,
     GetAuraDataByIndex = function(unit, i)
@@ -68,7 +69,13 @@ C_Item = {
     end,
     GetWeaponEnchantInfo = function(ws) return TEST.enchants[ws] or {} end,
     GetItemIconByID = function(id) return 500000 + id end,
+    GetItemCount = function(id)
+        TEST.itemCountReads = TEST.itemCountReads + 1
+        return TEST.bags[id] or 0
+    end,
 }
+function UnitLevel() return TEST.level end
+function GetMaxLevelForPlayerExpansion() return 60 end
 C_SpellBook = {
     GetNumSpellBookSkillLines = function() return 1 end,
     GetSpellBookSkillLineInfo = function() return { itemIndexOffset = 0, numSpellBookItems = #BOOK } end,
@@ -112,6 +119,8 @@ function EABR.SectionShows(where)
 end
 function EABR.FvSyncTrackingEvent(want) TEST.trackingWanted[#TEST.trackingWanted + 1] = want end
 function EABR.FvSyncWeaponEvents(want) TEST.weaponWanted[#TEST.weaponWanted + 1] = want end
+function EABR.FvSyncBagEvent(want) TEST.bagWanted[#TEST.bagWanted + 1] = want end
+EABR.SLEEPING_BAG_BUFF, EABR.SLEEPING_BAG_ITEM, EABR.SLEEPING_BAG_STACKS = 429959, 211527, 3
 -- The main file's catalogue, cut to the one category a priest's blade can take
 EABR.FV_WEAPON_BUFFS = {
     { key = "sharpening", name = "Sharpening Stone", weapon = "BLADED", items = { 2862, 2863 } },
@@ -498,5 +507,57 @@ fo.customClasses, fo.classBuffPicks = nil, nil
 local pal = EABR.FvClassBuffs().PALADIN
 assert(pal[1].menu == "Blessings" and pal[1].label == "Blessing", "the blessing's list and reminder names")
 assert(pal[2].menu == "Important Auras" and pal[2].label == "Aura", "the aura's list and reminder names")
+
+-- 11. the Sleeping Bag: below max level with the bag in the bags, it shows while Well-Rested is
+--     missing or under 3 stacks and its click uses the bag; with no bag it counts the bags once and
+--     listens to nothing until a loading screen or bag change clears the answer; a max-level
+--     character reads neither; nothing in combat or PvP
+local function SleepShown(list)
+    for _, entry in ipairs(list) do
+        if entry.dismissKey == "forever:sleepingbag" then return entry end
+    end
+end
+local BAG, WELL_RESTED = 211527, 429959
+fo.sleepingBag = true
+TEST.itemCountReads = 0
+got, missing = Collect()
+assert(not SleepShown(missing), "the Sleeping Bag showed with no bag")
+assert(TEST.itemCountReads == 1 and TEST.bagWanted[#TEST.bagWanted] == false,
+    "no bag: counted " .. TEST.itemCountReads .. " times or listened to bag changes")
+Collect()
+assert(TEST.itemCountReads == 1, "no bag: the bags were counted again")
+TEST.bags[BAG] = 1
+got, missing = Collect()
+assert(not SleepShown(missing) and TEST.itemCountReads == 1, "a bag bought was read before a loading screen")
+EABR._fvSleepBag = nil
+got, missing = Collect()
+e = SleepShown(missing)
+assert(e and e.mode == "item" and e.itemID == BAG and e.label == "Sleeping" and e.texture == 500000 + BAG,
+    "the Sleeping Bag reminder does not use the bag")
+assert(TEST.bagWanted[#TEST.bagWanted] == true, "with the bag, bag changes were not listened to")
+TEST.up[WELL_RESTED], TEST.stacks[WELL_RESTED] = true, 1
+assert(SleepShown(select(2, Collect())), "one stack of Well-Rested hid the reminder")
+TEST.stacks[WELL_RESTED] = 2
+assert(SleepShown(select(2, Collect())), "two stacks of Well-Rested hid the reminder")
+TEST.stacks[WELL_RESTED] = 3
+assert(not SleepShown(select(2, Collect())), "three stacks of Well-Rested still reminded")
+TEST.up[WELL_RESTED], TEST.stacks[WELL_RESTED] = nil, nil
+TEST.combat = true
+assert(not SleepShown(select(2, Collect())), "the Sleeping Bag showed in combat")
+TEST.combat = false
+local pvp = {}
+EABR.CollectForever(pvp, false, true)
+assert(not SleepShown(pvp), "the Sleeping Bag showed in PvP")
+TEST.level, TEST.itemCountReads, EABR._fvSleepBag = 60, 0, nil
+got, missing = Collect()
+assert(not SleepShown(missing) and TEST.itemCountReads == 0 and TEST.bagWanted[#TEST.bagWanted] == false,
+    "a max-level character read the bags or listened to them")
+assert(EABR._fvMaxLevel == true, "max level was not kept")
+fo.sleepingBag, TEST.bags[BAG], TEST.level, EABR._fvMaxLevel, EABR._fvSleepBag = false, nil, 40, nil, nil
+local opt = OPTIONS_SRC:gsub("\r\n", "\n")
+local campAt, sleepAt = opt:find('text="Camp Benefits"', 1, true), opt:find('text="Sleeping Bag"', 1, true)
+local fedAt = opt:find('_G._EABR_SpellName(19705, "Well Fed")', 1, true)
+assert(campAt and sleepAt and fedAt and campAt < sleepAt and sleepAt < fedAt,
+    "Sleeping Bag is not beside Camp Benefits, before Well Fed")
 
 print("aurabuff reminders forever combat harness: ok")

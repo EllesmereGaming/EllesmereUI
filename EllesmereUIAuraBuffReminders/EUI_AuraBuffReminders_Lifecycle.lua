@@ -628,8 +628,10 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
                 EABR.ReevaluateOwnOtherAuraTracking()
             end)
         else
-            -- The minimap's trackers are read afresh after a loading screen.
+            -- The minimap's trackers and the Sleeping Bag are read afresh after
+            -- a loading screen.
             EABR._fvTrackDirty = true
+            EABR._fvSleepBag = nil
         end
         EABR.ScanEatingState()
         if not InCombatLockdown() then EABR.SyncProviderCastSpell() end
@@ -700,6 +702,7 @@ mainFrame:SetScript("OnEvent", function(_, e, arg1, arg2, arg3)
     -- is intentionally NOT registered: it fires ~1/sec from cooldown ticks, changes nothing reminder-relevant, and would refresh every second and bust the resolved-item cache.
     if e == "BAG_UPDATE_DELAYED" or e == "BAG_UPDATE" then
         InvalidateItemCountCache()
+        EABR._fvSleepBag = nil
     end
 
     -- Equipped-weapon changes alter weapon-enchant resolution (weapon type -> which enchant item/slots show). Item counts are unchanged, so only the resolved cache needs rebuilding.
@@ -832,13 +835,20 @@ if EABR.FOREVER then
         if want == (EABR._fvWeaponEv or false) then return end
         EABR._fvWeaponEv = want
         if want then
-            InvalidateItemCountCache()
             mainFrame:RegisterEvent("WEAPON_ENCHANT_CHANGED")
             mainFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
-            mainFrame:RegisterEvent("BAG_UPDATE_DELAYED")
         else
             mainFrame:UnregisterEvent("WEAPON_ENCHANT_CHANGED")
             mainFrame:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED")
+        end
+    end
+    function EABR.FvSyncBagEvent(want)
+        if want == (EABR._fvBagEv or false) then return end
+        EABR._fvBagEv = want
+        if want then
+            InvalidateItemCountCache()
+            mainFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+        else
             mainFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
         end
     end
