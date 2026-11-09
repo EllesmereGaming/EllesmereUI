@@ -335,6 +335,7 @@ end
 -- The game's toast fades in after its show animation's start delay (read,
 -- never changed): ours waits as long, once, and a beat more (AFTER_GAME).
 local function OnGameToast(manager)
+    if not Enabled() then return end
     local shown = pending and manager.currentDisplayingToast
     local info = shown and shown.toastInfo
     if not (info and info.eventType == Enum.EventToastEventType.LevelUp) then return end
