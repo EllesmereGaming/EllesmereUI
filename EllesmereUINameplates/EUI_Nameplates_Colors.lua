@@ -1063,6 +1063,14 @@ local function GetReactionColor(unit, castSeen)
     end
     -- 6. Enemy player class colors
     if UnitIsPlayer(unit) and UnitCanAttack("player", unit) then
+        -- Enemy Players Use Enemy Color (opt-in): the step 11 fallback color, skipping the
+        -- mob-type steps so a mana user is not painted Spell Casters.
+        if db.enemyPlayerEnemyColor then
+            local simple = db.owBasicColoring
+            if simple == nil then simple = defaults.owBasicColoring end
+            local c = _C((simple and not ns._inDungeon) and "owBasicColor" or "enemyInCombat")
+            return MaybeDarken(c.r, c.g, c.b, UnitAffectingCombat(unit))
+        end
         local _, class = UnitClass(unit)
         -- A secret class token (identity-restricted, i.e. instanced PvP) cannot key a
         -- plain color table, but C_ClassColor accepts it and returns a color that may only
