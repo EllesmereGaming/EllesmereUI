@@ -3446,7 +3446,7 @@ initFrame:SetScript("OnEvent", function(self)
                             s.hiddenItems[key] = not value
                             Apply()
                         end, nil, 10, true)
-                    PP.Point(dropdown, "RIGHT", region, "RIGHT", -20, 0)
+                    EllesmereUI.PanelPP.Point(dropdown, "RIGHT", region, "RIGHT", -20, 0)
                     region._control = dropdown
                     region._lastInline = nil
                     if refresh then EllesmereUI.RegisterWidgetRefresh(refresh) end
@@ -3662,7 +3662,7 @@ initFrame:SetScript("OnEvent", function(self)
                         function(k, v)
                             if v then s[k] = true else s[k] = false end
                         end)
-                    PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+                    EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
                     rightRgn._control = cbDD
                     rightRgn._lastInline = nil
                     if cbDDRefresh then EllesmereUI.RegisterWidgetRefresh(cbDDRefresh) end
@@ -3704,7 +3704,7 @@ initFrame:SetScript("OnEvent", function(self)
                             if v then s[k] = true else s[k] = false end
                             Apply()
                         end)
-                    PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+                    EllesmereUI.PanelPP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
                     leftRgn._control = cbDD
                     leftRgn._lastInline = nil
                     if cbDDRefresh then EllesmereUI.RegisterWidgetRefresh(cbDDRefresh) end
@@ -3771,7 +3771,7 @@ initFrame:SetScript("OnEvent", function(self)
                             Apply()
                         end,
                         { setOrder = function(keys) ns.SetMicroMenuOrder(s, keys); Apply() end })
-                    PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+                    EllesmereUI.PanelPP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
                     leftRgn._control = cbDD
                     leftRgn._lastInline = nil
                     if cbDDRefresh then EllesmereUI.RegisterWidgetRefresh(cbDDRefresh) end

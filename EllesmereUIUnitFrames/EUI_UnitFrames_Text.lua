@@ -542,7 +542,8 @@ ns.ResolveUnitNameColor = function(unit)
     if UnitIsPlayer(unit) or (UnitInPartyIsAI and UnitInPartyIsAI(unit)) then
         local _, class = UnitClass(unit)
         if not issecretvalue(class) and class then
-            local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[class]
+            -- The suite's Class Colors (custom colors, Class Color Darken), as the health bar.
+            local c = EllesmereUI.GetClassColor(class)
             if c then return c.r, c.g, c.b end
         end
         return nil
@@ -1283,6 +1284,10 @@ do
         end
     end
 
+    -- Repaints [group] zones on a raid subgroup move; inert until MarkReads
+    -- builds the first one.
+    local rosterEv = CreateFrame("Frame")
+
     -- Stamps a new zone with the values its pieces read (PIECE_READS): one
     -- field per value class for PaintText's filter, any = an unlisted piece,
     -- and power for the power value pass.
@@ -1292,6 +1297,10 @@ do
             local r = PIECE_READS[pieces[i]]
             if r == nil then
                 z.any = true
+                if pieces[i] == P.group then
+                    z.roster = true
+                    rosterEv:RegisterEvent("GROUP_ROSTER_UPDATE")
+                end
             elseif r ~= "id" then
                 z[r] = true
             end
@@ -1338,6 +1347,20 @@ do
         end
         ns.UF_PowerElementSync(frame)
     end
+
+    -- A raid subgroup move fires only GROUP_ROSTER_UPDATE: no unit event and
+    -- no value tick, so a [group] zone kept its old number. Repaint
+    -- just the frames that show one.
+    rosterEv:SetScript("OnEvent", function()
+        for _, f in pairs(frames) do
+            local zones = type(f) == "table" and f._euiTextZones
+            if zones then
+                for i = 1, #zones do
+                    if zones[i].roster then PaintText(f, f._euiUnit); break end
+                end
+            end
+        end
+    end)
 end
 
 I.EUI_IsSmartPowerPercent, I.ResolveRestrictedClassColor = EUI_IsSmartPowerPercent, ResolveRestrictedClassColor

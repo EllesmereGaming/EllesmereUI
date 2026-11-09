@@ -149,6 +149,17 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                     end
                     ns.RefreshAllSettings()
                   end },
+                { type = "colorpicker", label = "Health Bar Color",
+                  tooltip = "Health bar color for friendly players when Class Colored Health Bar is off.",
+                  disabled = function() return DBVal("classColorFriendly") ~= false end,
+                  get = function()
+                    local c = DBVal("friendlyBarColor") or defaults.friendlyBarColor
+                    return c.r, c.g, c.b
+                  end,
+                  set = function(r, g, b)
+                    DB().friendlyBarColor = { r = r, g = g, b = b }
+                    ns.RefreshFriendlyColors()
+                  end },
                 { type = "toggle", label = "Class Colored Names",
                   get = function() return DBVal("friendlyNameClassColor") == true end,
                   set = function(v)

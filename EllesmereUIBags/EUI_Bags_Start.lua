@@ -627,8 +627,10 @@ local function StartAddon()
     end
     local function BankOpen()
         if not (C_PlayerInteractionManager and C_PlayerInteractionManager.IsInteractingWithNpcOfType) then return false end
-        return (C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.Banker)
-            or C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.AccountBanker)) and true or false
+        local PIT, IsAt = Enum.PlayerInteractionType, C_PlayerInteractionManager.IsInteractingWithNpcOfType
+        -- some bankers open the character bank as CharacterBanker
+        return (IsAt(PIT.Banker) or (PIT.CharacterBanker and IsAt(PIT.CharacterBanker))
+            or IsAt(PIT.AccountBanker)) and true or false
     end
 
     -- One total per item across the bags AND worn gear: equipping, taking off
@@ -955,6 +957,7 @@ local function StartAddon()
         if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
             if interactionType == Enum.PlayerInteractionType.MailInfo
                 or interactionType == Enum.PlayerInteractionType.Banker
+                or interactionType == Enum.PlayerInteractionType.CharacterBanker
                 or interactionType == Enum.PlayerInteractionType.AccountBanker then
                 -- Same settle-window hold as the legacy branch above.
                 _snapshotReady = false

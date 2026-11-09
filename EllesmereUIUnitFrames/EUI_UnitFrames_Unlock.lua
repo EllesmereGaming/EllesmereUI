@@ -34,6 +34,7 @@ local function RegisterUFUnlockElements()
             playerCastbar = "Player Frame Mini Cast Bar",
             targetCastbar = "Target Cast Bar",
             focusCastbar = "Focus Cast Bar",
+            petCastbar = "Pet Cast Bar",
         }
         local elements = {}
         local orderBase = 100
@@ -370,6 +371,8 @@ local function RegisterUFUnlockElements()
                     if not s then return true end
                     if ns.VisEffective(s) == "never" then return true end
                     if unitKey == "player" then return not s.showPlayerCastbar end
+                    -- Pet: off by default, and no bar exists until built at login.
+                    if unitKey == "pet" then return s.showCastbar ~= true end
                     return s.showCastbar == false
                 end,
                 getSize = function()
@@ -490,6 +493,9 @@ local function RegisterUFUnlockElements()
         if ns.GetUnitFrameSource("focus") == "eui" then
             elements[#elements + 1] = MakeCastBarElement("focusCastbar", "focus", 12)
         end
+        if ns.GetUnitFrameSource("pet") == "eui" then
+            elements[#elements + 1] = MakeCastBarElement("petCastbar", "pet", 13)
+        end
 
         EllesmereUI:RegisterUnlockElements(elements, "EllesmereUIUnitFrames")
         -- First sighting of each frame's border pad: the login reload ran before
@@ -512,6 +518,7 @@ local function RegisterUFUnlockElements()
                 { cb = "playerCastbar", parent = "player" },
                 { cb = "targetCastbar", parent = "target" },
                 { cb = "focusCastbar",  parent = "focus" },
+                { cb = "petCastbar",    parent = "pet" },
             }
             local cbPositions = db and db.profile and db.profile.positions
             for _, def in ipairs(CB_DEFAULTS) do

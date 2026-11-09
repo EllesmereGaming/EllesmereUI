@@ -209,7 +209,8 @@ local function CreateHeader()
     -- run counts as stuck (ArmBackstop).
     local SORT_STUCK_AFTER = 5
 
-    local function DoPhysicalSort()
+    -- mergeOnly (category views): consolidate partial stacks, then the visual sort.
+    local function DoPhysicalSort(mergeOnly)
         if InCombatLockdown() or physicalActive then return end  -- confirm popup can outlive the pull
         physicalActive = true
         LockSort()
@@ -220,7 +221,7 @@ local function CreateHeader()
         -- run (item moves), which would cut it short, so it goes out on the
         -- Master channel, and only while the player's sound effects are on
         -- and their volume is above zero.
-        if sfxWas == "1" and (tonumber(GetCVar("Sound_SFXVolume")) or 0) > 0 then
+        if not mergeOnly and sfxWas == "1" and (tonumber(GetCVar("Sound_SFXVolume")) or 0) > 0 then
             PlaySound(SOUNDKIT.UI_BAG_SORTING_01, "Master")
         end
         EllesmereUI.HoldCVar("Sound_EnableSFX", "0", "EllesmereUIBags")
@@ -547,7 +548,7 @@ local function CreateHeader()
         end)
         sortCombatStop:RegisterEvent("PLAYER_REGEN_DISABLED")
         sortCombatStop:RegisterEvent("CVAR_UPDATE")
-        ConsolidateStacks(RunSort)
+        ConsolidateStacks(mergeOnly and function() DoVisualSort(); FinishSort() end or RunSort)
     end
 
     DoVisualSort = function()
@@ -671,7 +672,8 @@ local function CreateHeader()
         else
             -- Sound here, not in DoVisualSort: the first-open auto sort stays silent.
             PlaySound(SOUNDKIT.UI_BAG_SORTING_01)
-            DoVisualSort()
+            -- Merging moves items, so not in combat: the display sort still runs.
+            if InCombatLockdown() then DoVisualSort() else DoPhysicalSort(true) end
         end
     end)
     EUI_Bags._doVisualSort = DoVisualSort

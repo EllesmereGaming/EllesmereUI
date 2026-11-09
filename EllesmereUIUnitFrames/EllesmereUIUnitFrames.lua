@@ -943,6 +943,14 @@ local defaults = {
             debuffSize = 22,
             debuffOffsetX = 0,
             debuffOffsetY = 0,
+            -- Cast bar (opt-in: the bar is built at login only while on, so
+            -- turning it on takes a reload). Position is the unlock mover's.
+            showCastbar = false,
+            castbarWidth = 120,
+            castbarHeight = 12,
+            castbarHideWhenInactive = true,
+            showCastIcon = true,
+            castbarIconInWidth = true,
             -- WoW Forever pets have power (hunter pet focus, warlock pet mana), so
             -- the pet frame carries a power bar there (retail: none).
             powerPosition = (EllesmereUI.IS_FOREVER == true) and "below" or "none",

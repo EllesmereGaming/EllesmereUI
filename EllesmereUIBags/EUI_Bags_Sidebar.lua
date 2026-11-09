@@ -1169,7 +1169,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     if cats[mi] and cats[mi].isUserCreated then groupHasUserCreated = true; break end
                 end
                 displayList[#displayList + 1] = {
-                    catIdx = members[1], name = cat.groupName, icon = groupIcon, isAtlas = groupIsAtlas,
+                    catIdx = members[1], name = EUI_CategoryManager:GroupDisplayName(cat.groupName), icon = groupIcon, isAtlas = groupIsAtlas,
                     count = groupCount, isGroupHeader = true, groupName = cat.groupName,
                     isUserCreated = groupHasUserCreated,
                 }
