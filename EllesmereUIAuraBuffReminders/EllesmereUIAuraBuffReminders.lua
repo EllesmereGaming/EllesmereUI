@@ -62,6 +62,61 @@ if EABR.FOREVER then
         { key = "blessedoil", name = "Blessed Wizard Oil", items = { 23123 } },
         { key = "consecrated", name = "Consecrated Sharpening Stone", items = { 23122 } },
     }
+    -- Built on first use; the labels are translated here, as literals the
+    -- locale key list can see. `on` marks a buff ticked until the user picks
+    -- (each class's always-on buffs); Thorns, Righteous Fury and Shadowform
+    -- start unticked. `menu` names a buff in the options list where its
+    -- reminder's label would read wrong there.
+    function EABR.FvClassBuffs()
+        local t = EABR._fvClassBuffs
+        if t then return t end
+        t = {
+            DRUID = {
+                { key = "thorns", lines = { { 467, 782, 1075, 8914, 9756, 9910 } } },
+            },
+            HUNTER = {
+                { key = "aspect", label = EllesmereUI.L("Aspect"), on = true, own = true, lines = {
+                    { 34074, 415423 }, { 469145 },
+                    { 13159 }, { 5118 }, { 13163 },
+                    { 13161, 1299445, 1299446, 1299447 },
+                    { 20043, 20190 },
+                    { 13165, 14318, 14319, 14320, 14321, 14322, 25296 },
+                } },
+                { key = "trueshot", on = true, lines = { { 1299346, 1299348, 19506, 20905, 20906 } } },
+            },
+            PALADIN = {
+                { key = "blessing", label = EllesmereUI.L("Blessing"), menu = EllesmereUI.L("Blessings"), on = true, ownMemory = true, lines = {
+                    { 19742, 19850, 19852, 19853, 19854, 25290 },
+                    { 20217 },
+                    { 19740, 19834, 19835, 19836, 19837, 19838, 25291 },
+                }, also = { { 25894, 25918 }, { 25898 }, { 25782, 25916 } } },
+                { key = "paladinaura", label = EllesmereUI.L("Aura"), menu = EllesmereUI.L("Important Auras"), on = true, own = true, lines = {
+                    { 19891, 19899, 19900 },
+                    { 19888, 19897, 19898 },
+                    { 19876, 19895, 19896 },
+                    { 19746 },
+                    { 7294, 10298, 10299, 10300, 10301 },
+                    { 465, 10290, 643, 10291, 1032, 10292, 10293 },
+                } },
+                { key = "rfury", lines = { { 25780 } } },
+            },
+            PRIEST = {
+                { key = "innerfire", on = true, lines = { { 588, 7128, 602, 1006, 10951, 10952 } } },
+                { key = "shadowform", lines = { { 15473 } } },
+            },
+            SHAMAN = {
+                { key = "shield", label = EllesmereUI.L("Shield"), on = true, lines = {
+                    { 324, 325, 905, 945, 8134, 10431, 10432 },
+                    { 408510 },
+                } },
+            },
+            WARLOCK = {
+                { key = "demonarmor", label = EllesmereUI.L("Armor"), on = true, lines = { { 687, 696, 706, 1086, 11733, 11734, 11735 } } },
+            },
+        }
+        EABR._fvClassBuffs = t
+        return t
+    end
 end
 
 local _B = {}  -- beacon state table, populated later

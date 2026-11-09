@@ -158,9 +158,51 @@ local function ScoreEntry(entry, needle, stem, ns)
     local a = FieldScore(entry.lLabel, entry.nLabel, needle, stem, ns, 5, 1)
     local b = FieldScore(entry.lLoc, entry.nLoc, needle, stem, ns, 5, 1)
     local c = FieldScore(entry.lTip, entry.nTip, needle, stem, ns, 3, 0)
+    -- Page results also score on the tab name alone: "fonts" hits "Fonts" at
+    -- position 1 instead of late in "Global Settings Fonts".
+    local d = FieldScore(entry.lPage, entry.nPage, needle, stem, ns, 5, 1)
     if b and (not a or b > a) then a = b end
     if c and (not a or c > a) then a = c end
+    if d and (not a or d > a) then a = d end
     return a
+end
+
+-- Tie-break for equal scores: whole text equals the query, then shorter
+-- text, then a fixed order (page, section, option; module in sidebar order,
+-- Global Settings first, plugins last; page; label), since table.sort is not
+-- stable and the candidates come from pairs().
+local KIND_RANK = { page = 1 }
+-- The sidebar's order is its groups' (read at load, before any other addon runs);
+-- every key outside them (plugins, other addons' pages) takes 1000.
+local _moduleRank = { [EllesmereUI.GLOBAL_KEY] = 0 }
+do
+    local n = 0
+    for _, group in ipairs(EllesmereUI.ADDON_GROUPS) do
+        for _, folder in ipairs(group.members) do
+            n = n + 1
+            _moduleRank[folder] = n
+        end
+    end
+end
+local function SortResults(a, b)
+    if a.score ~= b.score then return a.score > b.score end
+    local xa, xb = a.exact == true, b.exact == true
+    if xa ~= xb then return xa end
+    local ea, eb = a.entry, b.entry
+    local ta = ea.displayLabel or ea.label
+    local tb = eb.displayLabel or eb.label
+    if #ta ~= #tb then return #ta < #tb end
+    local ka = KIND_RANK[ea.kind] or (ea.isSection and 2 or 3)
+    local kb = KIND_RANK[eb.kind] or (eb.isSection and 2 or 3)
+    if ka ~= kb then return ka < kb end
+    if ea.module ~= eb.module then
+        local ra, rb = _moduleRank[ea.module] or 1000, _moduleRank[eb.module] or 1000
+        if ra ~= rb then return ra < rb end
+        return ea.module < eb.module
+    end
+    if ea.order and eb.order and ea.order ~= eb.order then return ea.order < eb.order end
+    if ea.page ~= eb.page then return ea.page < eb.page end
+    return ea.label < eb.label
 end
 
 -------------------------------------------------------------------------------
@@ -179,7 +221,7 @@ local function BuildCoarseCandidates()
         if config.pages then
             -- moduleText is the plain-text form used in the haystack.
             local moduleLabel, moduleText = ModuleLabel(config, folder)
-            for _, page in ipairs(config.pages) do
+            for order, page in ipairs(config.pages) do
                 local pageLabel = PageLabel(folder, page)
                 -- A relabeled tab stays findable by its page identity too.
                 local pageText = pageLabel
@@ -193,6 +235,9 @@ local function BuildCoarseCandidates()
                     label = moduleText .. " " .. pageText,
                     lLabel = (moduleText .. " " .. pageText):lower(),
                     nLabel = ((moduleText .. pageText):lower():gsub(" ", "")),
+                    lPage = pageLabel:lower(),
+                    nPage = (pageLabel:lower():gsub(" ", "")),
+                    order = order,
                     displayLabel = pageLabel,
                     moduleLabel = moduleLabel,
                     module = folder,
@@ -395,11 +440,15 @@ local function SearchIndex(query, maxResults)
                 if not folderSet or folderSet[entry.module] then
                     if n == "" then
                         if entry.kind == "page" then
-                            scored[#scored + 1] = { entry = entry, score = 1 }
+                            -- Bare module name: pages in tab order.
+                            scored[#scored + 1] = { entry = entry, score = TIER - entry.order }
                         end
                     else
                         local s = ScoreEntry(entry, n, stem, ns)
-                        if s then scored[#scored + 1] = { entry = entry, score = s } end
+                        if s then
+                            local exact = entry.lLabel == n or entry.lLoc == n or entry.lPage == n
+                            scored[#scored + 1] = { entry = entry, score = s, exact = exact }
+                        end
                     end
                 end
             end
@@ -425,7 +474,7 @@ local function SearchIndex(query, maxResults)
             local s = sc.score + boost
             local existing = seenEntries[sc.entry]
             if existing then
-                if s > existing.score then existing.score = s end
+                if s > existing.score then existing.score = s; existing.exact = sc.exact end
             else
                 sc.score = s
                 seenEntries[sc.entry] = sc
@@ -473,7 +522,7 @@ local function SearchIndex(query, maxResults)
         Merge(ScorePass(filterSet, subNeedle), 6 * TIER) -- above every tier
     end
 
-    table.sort(scored, function(a, b) return a.score > b.score end)
+    table.sort(scored, SortResults)
     local out = {}
     for i = 1, math.min(maxResults, #scored) do out[i] = scored[i].entry end
     return out
@@ -997,7 +1046,7 @@ local function EnsureSearchUI()
         sub:SetJustifyH("LEFT")
 
         row:SetScript("OnEnter", function() hl:SetColorTexture(1, 1, 1, 0.08) end)
-        row:SetScript("OnLeave", function() hl:SetColorTexture(1, 1, 1, i == selIdx and 0.08 or 0) end)
+        row:SetScript("OnLeave", function() hl:SetColorTexture(1, 1, 1, (i == selIdx and results[i]) and 0.08 or 0) end)
 
         row._hl = hl
         row._label = lbl
@@ -1013,11 +1062,15 @@ local function EnsureSearchUI()
     end
 
     local RunSearch
+    -- Set once the index pass has finished: before that, 0 results may only
+    -- mean "not indexed yet", so the "No results" row waits for it.
+    local indexReady = false
     -- Started on focus, before the first letter, so the index is usually
     -- complete by the time a query is typed.
     local function StartPrebuild()
         if _prebuildDone then return end
         RunPrebuildPass(function()
+            indexReady = true
             if sidebarSearchBox:GetText() ~= "" then RunSearch() end
         end)
     end
@@ -1060,14 +1113,29 @@ local function EnsureSearchUI()
                     row._sub:SetText(JoinBreadcrumb(GetModuleDisplayName(entry.module), PageLabel(entry.module, entry.page)))
                 end
                 row:SetScript("OnClick", function() JumpToResult(entry, sidebarSearchBox) end)
+                row:EnableMouse(true)
                 row:Show()
             else
                 row:Hide()
             end
         end
         SetSelected(1)
-        if #results > 0 then
-            local n = math.min(#results, MAX_VISIBLE_RESULTS)
+        local shown = #results
+        if shown == 0 and indexReady and query:match("%S") then
+            -- Inert "No results" row instead of an empty popup. Pipes are
+            -- shown literally so the query cannot inject escape codes.
+            local row = resultRows[1]
+            local q = query:gsub("||", "|"):gsub("|", "||")
+            row._label:SetText(EllesmereUI.Lf("No results for %s", "\"" .. q .. "\""))
+            row._sub:SetText(EllesmereUI.L("Check the spelling or try a different word"))
+            row._hl:SetColorTexture(1, 1, 1, 0)
+            row:SetScript("OnClick", nil)
+            row:EnableMouse(false)
+            row:Show()
+            shown = 1
+        end
+        if shown > 0 then
+            local n = math.min(shown, MAX_VISIBLE_RESULTS)
             popup:SetHeight(n * (RESULT_ROW_H + RESULT_ROW_GAP) - RESULT_ROW_GAP + 8)
             popup:Show()
         else

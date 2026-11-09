@@ -300,6 +300,8 @@ local REZ_SPELL_BY_CLASS = {
     WARLOCK     = 20707,   -- Soulstone
     EVOKER      = 361227,  -- Return
 }
+-- WoW Forever has no Intercession; Redemption rank 1 is the Paladin's rez there.
+if EllesmereUI.IS_FOREVER then REZ_SPELL_BY_CLASS.PALADIN = 7328 end
 local _, playerClassToken = UnitClass("player")
 local playerRezSpell = REZ_SPELL_BY_CLASS[playerClassToken]
 

@@ -11,6 +11,25 @@ if not ns then return end  -- module disabled: no options page
 -- elsewhere this is CreateFrame.
 local CreateFrame = EllesmereUI._Pool.CreateFrame
 
+-- The Talent Conditions picker's texts, in the swing timer's words (made on
+-- the first open).
+local swingTalentTexts
+local function SwingTalentTexts()
+    if not swingTalentTexts then
+        swingTalentTexts = {
+            hint = EllesmereUI.L("Click a talent to require it: Taken, then Not Taken, then cleared. Every condition must hold for the swing timer to show."),
+            none = EllesmereUI.L("No conditions: the swing timer always shows."),
+            met = function(n)
+                return EllesmereUI.Lf("%1$d condition(s), met by your current talents: the swing timer shows.", n)
+            end,
+            notMet = function(n)
+                return EllesmereUI.Lf("%1$d condition(s), not met by your current talents: the swing timer is hidden.", n)
+            end,
+        }
+    end
+    return swingTalentTexts
+end
+
 -- Swing Timer page (WoW Forever only: the page exists only where the client
 -- has C_SwingTimer; see EUI_ResourceBars_SwingTimer.lua). Same widget set as
 -- the GCD Bar page, plus the row/text/range rows the swing timer adds.
@@ -175,6 +194,56 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           getValue = function() local p = DB(); return p and p.swingTimer.hideWhenIdle end,
           setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.hideWhenIdle = v; RefreshST() end }
     );  y = y - h
+    -- Inline cog on Visibility: Forms and Talents. A druid picks the forms the
+    -- timer shows in (the per-form map the other bars' cogs write); any class can
+    -- require talents, saved per class so one profile serves every class. While
+    -- they rule it out, the timer stands down like switched off. A class with no
+    -- forms gets the talent picker straight from the cog.
+    if not EllesmereUI._prebuilding then
+        local function STCfg() local p = DB(); return p and p.swingTimer end
+        local condShow
+        local function OpenTalents()
+            local pf = condShow and condShow._popupFrame
+            if pf and pf:IsShown() then pf:Hide() end
+            local g = STCfg(); if not g then return end
+            local _, class = UnitClass("player")
+            local byClass = g.classTalentConditions
+            EllesmereUI.ShowTalentConditionsPopup({
+                title = EllesmereUI.Lf("Talent Conditions: %1$s", EllesmereUI.L("Swing Timer")),
+                conds = byClass and byClass[class],
+                texts = SwingTalentTexts(),
+                fontKey = "resourceBars",
+                onConfirm = function(list)
+                    local q = STCfg(); if not q then return end
+                    local t = q.classTalentConditions
+                    if list then
+                        if not t then t = {}; q.classTalentConditions = t end
+                        t[class] = list
+                    elseif t then
+                        t[class] = nil
+                        if not next(t) then q.classTalentConditions = nil end
+                    end
+                    RefreshST()
+                end,
+            })
+        end
+        local formRows = env.FormToggleRows(STCfg, RefreshST, "barDisabledForms")
+        if formRows then
+            formRows[#formRows + 1] = { type = "button", label = "Talent Conditions", action = OpenTalents }
+            _, condShow = EllesmereUI.BuildInlineCog(stShowRow._leftRegion, {
+                disabled = stOff, disabledTooltip = ST_TIP,
+                title = "Forms and Talents",
+                rows = formRows,
+            })
+        else
+            EllesmereUI.BuildInlineCog(stShowRow._leftRegion, {
+                disabled = stOff, disabledTooltip = ST_TIP,
+                tip = "Talent Conditions",
+                show = OpenTalents,
+            })
+        end
+    end
+
     if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(stShowRow._rightRegion, {
             title = "Idle Rows",

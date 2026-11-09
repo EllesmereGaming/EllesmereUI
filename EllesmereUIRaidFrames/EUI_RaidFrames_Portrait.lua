@@ -363,7 +363,7 @@ end
 -- colour otherwise, the player's own class in dark mode or with no unit.
 local function PlayerClassColor()
     local _, ct = UnitClass("player")
-    local c = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+    local c = ct and EllesmereUI.GetClassColor(ct)
     if c then return c.r, c.g, c.b end
     return 1, 1, 1
 end
@@ -373,7 +373,7 @@ local function TintBorder(bd, unit, ctOverride)
     local r, g, b
     local s = ns._scaledPartyProxy
     if ctOverride then
-        local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ctOverride]
+        local c = EllesmereUI.GetClassColor(ctOverride)
         if c then r, g, b = c.r, c.g, c.b end
     elseif s and s.healthColorMode == "dark" then
         r, g, b = PlayerClassColor()
@@ -381,7 +381,7 @@ local function TintBorder(bd, unit, ctOverride)
         local _, ct = UnitClass(unit)
         local isPl = UnitIsPlayer(unit)
         if not issecretvalue(ct) and not issecretvalue(isPl) and isPl and ct then
-            local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+            local c = EllesmereUI.GetClassColor(ct)
             if c then r, g, b = c.r, c.g, c.b end
         else
             local re = UnitReaction(unit, "player")

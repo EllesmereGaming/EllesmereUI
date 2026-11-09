@@ -117,6 +117,28 @@ ns.StoreVariantValue   = StoreVariantValue
 ns.ResolveVariantValue = ResolveVariantValue
 ns.IsVariantOf         = IsVariantOf
 
+-- WoW Forever: each rank of a spell is a spell ID of its own, and the ranks
+-- share the spell's name. Blizzard's Cooldown Manager shows a spell's ranks as
+-- one entry (the highest rank known), so a bar lists a spell once, under any
+-- of its ranks: list presence (FindVariantIndex below), the options normalize
+-- pass, the keep/drop pass and the picker's on-bar mark all match ranks by
+-- this name. nil off Forever. Names are client spell data, the same all
+-- session; a name the client has not loaded yet is not kept.
+local RankName
+if EllesmereUI.IS_FOREVER then
+    local names = {}
+    RankName = function(id)
+        if not _IsUsableSID(id) then return nil end
+        local n = names[id]
+        if n == nil then
+            n = C_Spell.GetSpellName(id)
+            if n then names[id] = n end
+        end
+        return n
+    end
+end
+ns.CDMRankName = RankName
+
 -------------------------------------------------------------------------------
 --  CDM category-set constants (Midnight's 9-value CooldownViewerCategory).
 --  CDM_ICON_CD_CATS: cooldown/utility icon categories (Essential, Utility,
@@ -427,9 +449,10 @@ ns.EnumerateCDMViewerSpells = EnumerateCDMViewerSpells
 -- no-op. AddTrackedSpell/RemoveTrackedSpell delegate to these.
 
 --- Find an entry's index in a spell list. Positive IDs (real spells) match by
---- variant family (re-adding any variant is a no-op); negative IDs (trinkets
---- <= -13/-14, item presets <= -100) match by exact equality -- variant
---- resolution doesn't apply to injection markers.
+--- variant family (re-adding any variant is a no-op), then on WoW Forever by
+--- rank (RankName above); negative IDs (trinkets <= -13/-14, item presets
+--- <= -100) match by exact equality -- variant resolution doesn't apply to
+--- injection markers.
 local function FindVariantIndex(spellList, spellID)
     if type(spellList) ~= "table" or type(spellID) ~= "number" or spellID == 0 then
         return nil
@@ -439,6 +462,12 @@ local function FindVariantIndex(spellList, spellID)
             local existing = spellList[i]
             if _IsUsableSID(existing) and IsVariantOf(existing, spellID) then
                 return i
+            end
+        end
+        local name = RankName and RankName(spellID)
+        if name then
+            for i = 1, #spellList do
+                if RankName(spellList[i]) == name then return i end
             end
         end
     else
@@ -635,12 +664,17 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
     local isBuffType = ns.IsBarBuffFamily and ns.IsBarBuffFamily(barKey) or false
 
     -- Variant-keyed lookup of spells already on THIS bar (for onEUIBar flag).
+    -- WoW Forever: plus their names, so a spell listed under another rank
+    -- reads as on the bar (RankName above).
     local ourPool = {}
+    local ourNames = RankName and {}
     local sd = ns.GetBarSpellData(barKey)
     if sd and sd.assignedSpells then
         for _, sid in ipairs(sd.assignedSpells) do
             if sid and sid ~= 0 then
                 StoreVariantValue(ourPool, sid, true, false)
+                local n = ourNames and RankName(sid)
+                if n then ourNames[n] = true end
             end
         end
     end
@@ -655,6 +689,7 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
         local tex  = C_Spell.GetSpellTexture(sid)
         if name then
             local isOnThisBar = (ResolveVariantValue(ourPool, sid) == true)
+                or (ourNames ~= nil and ourNames[name] == true)
             spells[#spells + 1] = {
                 cdID        = e.cdID,
                 spellID     = sid,
@@ -698,7 +733,8 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                             -- Match live grouping so catalog spells sort beside learned peers.
                             cdmCat      = (evc and ce.category == evc.Utility) and 10000 or 0,
                             cdmCatGroup = "cooldown",
-                            onEUIBar    = (ResolveVariantValue(ourPool, ce.sid) == true),
+                            onEUIBar    = (ResolveVariantValue(ourPool, ce.sid) == true)
+                                or (ourNames ~= nil and ourNames[name] == true),
                             isKnown     = known,
                         }
                         StoreVariantValue(seenSid, ce.sid, true, false)
@@ -734,7 +770,8 @@ function ns.GetCDMSpellsForBar(barKey, includeUntalented)
                             icon        = tex,
                             cdmCat      = 0,  -- single buff viewer bucket
                             cdmCatGroup = "buff",
-                            onEUIBar    = (ResolveVariantValue(ourPool, ce.sid) == true),
+                            onEUIBar    = (ResolveVariantValue(ourPool, ce.sid) == true)
+                                or (ourNames ~= nil and ourNames[name] == true),
                             isKnown     = known,
                         }
                         StoreVariantValue(seenSid, ce.sid, true, false)
@@ -838,7 +875,11 @@ function ns.MigrateSpecToBarFilterModelV6()
     -- Step 2: build assignedSet from the LIVE bar list. Default bars
     -- (cooldowns/utility) contribute too -- their assignedSpells under the
     -- new model is "preferred order / explicit assignment" and stay visible.
+    -- WoW Forever: by name too (RankName above), custom spell IDs aside. A
+    -- frame reads as the highest rank known, while the layout can list any
+    -- rank of the spell.
     local assignedSet = {}
+    local assignedNames = RankName and {}
     for _, bd in ipairs(barList) do
         if bd.enabled and not bd.isGhostBar
            and bd.barType ~= "buffs" and bd.barType ~= "custom_buff"
@@ -848,6 +889,9 @@ function ns.MigrateSpecToBarFilterModelV6()
                 for _, sid in ipairs(bs.assignedSpells) do
                     if type(sid) == "number" and sid > 0 then
                         StoreVariantValue(assignedSet, sid, true, false)
+                        local n = assignedNames and not (bs.customSpellIDs and bs.customSpellIDs[sid])
+                            and RankName(sid)
+                        if n then assignedNames[n] = true end
                     end
                 end
             end
@@ -861,10 +905,14 @@ function ns.MigrateSpecToBarFilterModelV6()
     end
     if not ghostBs.assignedSpells then ghostBs.assignedSpells = {} end
 
+    -- WoW Forever: one ghost entry per spell, whatever its rank.
     local existingGhost = {}
+    local ghostNames = RankName and {}
     for _, sid in ipairs(ghostBs.assignedSpells) do
         if type(sid) == "number" and sid > 0 then
             StoreVariantValue(existingGhost, sid, true, false)
+            local n = ghostNames and RankName(sid)
+            if n then ghostNames[n] = true end
         end
     end
 
@@ -903,11 +951,13 @@ function ns.MigrateSpecToBarFilterModelV6()
     -- Walk the union, ghost anything that isn't already assigned or ghosted.
     local addedCount = 0
     for sid in pairs(sidUnion) do
-        local isAssigned = ResolveVariantValue(assignedSet, sid)
-        local isGhosted  = ResolveVariantValue(existingGhost, sid)
+        local name = RankName and RankName(sid)
+        local isAssigned = ResolveVariantValue(assignedSet, sid) or (name and assignedNames[name])
+        local isGhosted  = ResolveVariantValue(existingGhost, sid) or (name and ghostNames[name])
         if not isAssigned and not isGhosted then
             ghostBs.assignedSpells[#ghostBs.assignedSpells + 1] = sid
             StoreVariantValue(existingGhost, sid, true, false)
+            if name then ghostNames[name] = true end
             addedCount = addedCount + 1
         end
     end

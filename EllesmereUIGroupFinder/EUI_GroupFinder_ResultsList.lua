@@ -13,10 +13,11 @@ local EUI = EllesmereUI
 
 local DUNGEONS, RAIDS = 2, 3
 local DELVES = GROUP_FINDER_CATEGORY_ID_DELVES or 121
+local QUESTS, CUSTOM = 1, GROUP_FINDER_CUSTOM_CATEGORY or 6
 local X_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-close.png"
 local CANCEL_H = 18  -- smallest cancel square
 local GAP = 2
-local function Secret(v) return issecretvalue and issecretvalue(v) or false end
+local Secret = EllesmereUI.IsSecret
 local function Readable(t) return type(t) == "table" and not Secret(t) and not (canaccesstable and not canaccesstable(t)) end
 
 -- display settings, in the profile (EllesmereUIGroupFinder.lua)
@@ -285,24 +286,40 @@ local function WhisperLeader(leader)
     frame:AddMessage(EllesmereUI.Lf("Click to whisper the group leader: %1$s", link), 1, 0.82, 0)
 end
 
+-- blizzard's menu under blizzard's tag, so other add-ons' entries (raider.io's
+-- copy link and so on) still show. the owner is our row, which has resultID
+-- like blizzard's does
+local function TaggedMenu(anchor, id, info, leader)
+    MenuUtil.CreateContextMenu(anchor, function(_, root)
+        root:SetTag("MENU_LFG_FRAME_SEARCH_ENTRY")
+        -- a hidden flag is never tested: the title shows the name, as the row does
+        local censored = info.censored
+        if Secret(censored) then censored = nil end
+        root:CreateTitle(censored and CENSORED_LFG_GROUP_NAME or info.name or "")
+        local w = root:CreateButton(WHISPER_LEADER or "Whisper Leader", function() WhisperLeader(leader) end)
+        if leader then
+            w:SetTooltip(function(tip)
+                GameTooltip_AddNormalLine(tip, EllesmereUI.L("Prompts in chat to whisper the party leader."))
+            end)
+        else
+            w:SetEnabled(false)
+            w:SetTooltip(function(tip)
+                GameTooltip_SetTitle(tip, WHISPER or "Whisper")
+                GameTooltip_AddNormalLine(tip, LFG_LIST_MUST_SIGN_UP_TO_WHISPER or "Sign up to whisper the leader")
+            end)
+        end
+        root:CreateButton(LFG_LIST_REPORT_GROUP_FOR or "Report Group", function() LFGList_ReportListing(id, leader) end)
+        root:CreateButton(REPORT_GROUP_FINDER_ADVERTISEMENT or "Report Advertisement",
+            function() LFGList_ReportAdvertisement(id) end)
+    end)
+end
+
 function ns.OwnListMenu(anchor, id)
     local info = C_LFGList.GetSearchResultInfo(id)
     if not Readable(info) then return end
     local leader = info.leaderName
     if Secret(leader) then leader = nil end
-    local items = {
-        { text = WHISPER_LEADER or "Whisper Leader", noLoc = true,
-          isDisabled = function() return not leader end,
-          desc = EllesmereUI.L("Prompts in chat to whisper the party leader."),
-          tooltip = not leader and (LFG_LIST_MUST_SIGN_UP_TO_WHISPER or "Sign up to whisper the leader") or nil,
-          onClick = function() WhisperLeader(leader) end },
-        "---",
-        { text = LFG_LIST_REPORT_GROUP_FOR or "Report Group", noLoc = true,
-          onClick = function() LFGList_ReportListing(id, leader) end },
-        { text = REPORT_GROUP_FINDER_ADVERTISEMENT or "Report Advertisement", noLoc = true,
-          onClick = function() LFGList_ReportAdvertisement(id) end },
-    }
-    EUI.ShowContextMenu(anchor, items)
+    TaggedMenu(anchor, id, info, leader)
 end
 
 -------------------------------------------------------------------------------
@@ -322,6 +339,42 @@ ns.RaidRoleColors = RR_COLORS
 local NEED_ATLAS = { TANK = "groupfinder-icon-role-micro-tank", HEALER = "groupfinder-icon-role-micro-heal",
     DAMAGER = "groupfinder-icon-role-micro-dps" }
 local REMAINING = { TANK = "TANK_REMAINING", HEALER = "HEALER_REMAINING", DAMAGER = "DAMAGER_REMAINING" }
+local PERSON_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png"
+local PLAYERS_COLOR = { 0.4, 0.4, 0.42 }
+-- a count circle's border, the same as the member icons get (ring when round,
+-- border style when square)
+local function CircleEdge(p, round, px, cr, cg, cb, tex, key)
+    p.ring:Hide()
+    p.edge:Hide()
+    if px <= 0 then return end
+    if round then
+        p.ring:ClearAllPoints()
+        p.ring:SetPoint("TOPLEFT", p.bg, "TOPLEFT", -px, px)
+        p.ring:SetPoint("BOTTOMRIGHT", p.bg, "BOTTOMRIGHT", px, -px)
+        p.ring:SetColorTexture(cr, cg, cb, 1)
+        p.ring:Show()
+    else
+        if p.edge._key ~= key then
+            p.edge._key = key
+            EUI.ApplyBorderStyle(p.edge, px, cr, cg, cb, 1, tex)
+        end
+        p.edge:Show()
+    end
+end
+-- the right side follows the activity's display type, as blizzard's rows do:
+-- member icons, role counts, a player count, or nothing
+local function MemberMode(ai, cap)
+    local DT = Enum.LFGListDisplayType
+    local dt = ai and ai.displayType
+    if DT and type(dt) == "number" and not Secret(dt) then
+        if dt == DT.RoleEnumerate or dt == DT.ClassEnumerate then return cap <= 5 and "icons" or "counts" end
+        if dt == DT.RoleCount then return "counts" end
+        if dt == DT.PlayerCount then return "players" end
+        -- HideAll, and a type blizzard's rows do not draw (its newer Comment): nothing
+        return nil
+    end
+    return cap > 5 and "counts" or "icons"
+end
 -- status text + colors
 local G, R, Y = { 0.1, 1, 0.1 }, { 1, 0.25, 0.25 }, { 1, 0.82, 0 }
 -- blizzard's strings have color codes baked in, strip them
@@ -464,9 +517,9 @@ local function MakeRow(i)
         c:Hide()
         r.crowns[k] = c
     end
-    -- raid role counts
+    -- raid role counts, and a 4th circle for a player count
     r.rr = {}
-    for k = 1, 3 do
+    for k = 1, 4 do
         local bg = r:CreateTexture(nil, "ARTWORK", nil, 1)
         local mask = r:CreateMaskTexture()
         mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
@@ -475,8 +528,17 @@ local function MakeRow(i)
         t:SetPoint("CENTER", bg)
         local c = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         c:SetJustifyH("CENTER")
-        bg:Hide(); t:Hide(); c:Hide()
-        r.rr[k] = { bg = bg, mask = mask, icon = t, count = c }
+        -- the member icons' borders: a ring behind round ones, a border frame on square ones
+        local ring = r:CreateTexture(nil, "ARTWORK", nil, 0)
+        local rm = r:CreateMaskTexture()
+        rm:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        rm:SetAllPoints(ring)
+        ring:AddMaskTexture(rm)
+        local edge = CreateFrame("Frame", nil, r)
+        edge:SetAllPoints(bg)
+        edge:EnableMouse(false)
+        bg:Hide(); t:Hide(); c:Hide(); ring:Hide(); edge:Hide()
+        r.rr[k] = { bg = bg, mask = mask, icon = t, count = c, ring = ring, edge = edge }
     end
     -- row art
     r.art = r:CreateTexture(nil, "BACKGROUND", nil, 7)
@@ -793,10 +855,11 @@ local function Fill(r, id)
     end
     table.sort(members, ByRole)
     local cap = ai and ai.maxNumPlayers or 5
+    local mode = MemberMode(ai, cap)
     -- open roles for the empty slots
     local needs = r.needs
     wipe(needs)
-    if ns.OwnListGet("missingIcons") ~= "none" and cap == 5 then
+    if ns.OwnListGet("missingIcons") ~= "none" and mode == "icons" and cap == 5 then
         local counts = C_LFGList.GetSearchResultMemberCounts(id)
         if Readable(counts) then
             for i = 1, #RR_ROLES do
@@ -838,7 +901,7 @@ local function Fill(r, id)
         if t._masked then t:RemoveMaskTexture(r.masks[k]); t._masked = nil end
         t:SetTexCoord(0, 1, 0, 1)
         t:SetDesaturated(false)
-        if cap > 5 then
+        if mode ~= "icons" then
             t:Hide()
         elseif m then
             local icon = specOn and m.spec and ns.GFSpecIcon and ns.GFSpecIcon(m.cls, m.spec)
@@ -907,13 +970,14 @@ local function Fill(r, id)
         end
     end
     -- raid role counts, rating to their left
-    local counts = cap > 5 and C_LFGList.GetSearchResultMemberCounts(id)
+    local counts = mode == "counts" and C_LFGList.GetSearchResultMemberCounts(id)
     if not Readable(counts) then counts = nil end
     local ellIcons = ns.OwnListGet("missingIcons") == "ellesmere"
-    local x = -(r.pad or 6)
+    local round = ns.OwnListGet("iconShape") ~= "square"
+    -- round rings sit outside the circle, so the first one steps in like the member icons
+    local x = -(r.pad or 6) - (round and bpx or 0)
     local isz = r.icons[1]:GetWidth() or 16
     local fsz = ns.OwnListSize("scoreSize")
-    local round = ns.OwnListGet("iconShape") ~= "square"
     for k = 3, 1, -1 do
         local p = r.rr[k]
         local role = RR_ROLES[k]
@@ -928,6 +992,7 @@ local function Fill(r, id)
             p.bg:ClearAllPoints()
             p.bg:SetPoint("RIGHT", r, "RIGHT", x, 0)
             p.bg:Show()
+            CircleEdge(p, round, bpx, br, bg, bb, btex, bkey)
             local tex = ellIcons and ns.RoleIconTex and ns.RoleIconTex(role)
             if tex then p.icon:SetTexture(tex) else p.icon:SetAtlas(NEED_ATLAS[role]) end
             local gsz = math.floor(isz * 0.7 + 0.5)
@@ -938,12 +1003,38 @@ local function Fill(r, id)
             p.count:ClearAllPoints()
             p.count:SetPoint("BOTTOM", p.bg, "TOP", 0, 1)
             p.count:Show()
-            x = x - math.max(isz, math.ceil(p.count:GetStringWidth() or 8)) - 6
+            x = x - math.max(isz, math.ceil(p.count:GetStringWidth() or 8)) - 6 - (round and bpx * 2 or 0)
         else
-            p.bg:Hide(); p.icon:Hide(); p.count:Hide()
+            p.bg:Hide(); p.icon:Hide(); p.count:Hide(); p.ring:Hide(); p.edge:Hide()
         end
     end
-    if counts then
+    -- player count: a grey circle with a person, the number above, like the role counts
+    local players = mode == "players" and n
+    local pc = r.rr[4]
+    if type(players) == "number" and not Secret(players) then
+        pc.bg:SetColorTexture(PLAYERS_COLOR[1], PLAYERS_COLOR[2], PLAYERS_COLOR[3], 1)
+        if round and not pc.masked then pc.bg:AddMaskTexture(pc.mask); pc.masked = true
+        elseif not round and pc.masked then pc.bg:RemoveMaskTexture(pc.mask); pc.masked = nil end
+        pc.bg:SetSize(isz, isz)
+        pc.bg:ClearAllPoints()
+        pc.bg:SetPoint("RIGHT", r, "RIGHT", x, 0)
+        pc.bg:Show()
+        CircleEdge(pc, round, bpx, br, bg, bb, btex, bkey)
+        local gsz = math.floor(isz * 0.7 + 0.5)
+        pc.icon:SetTexture(PERSON_TEX)
+        pc.icon:SetSize(gsz, gsz)
+        pc.icon:Show()
+        SetSize(pc.count, fsz)
+        pc.count:SetText(players)
+        pc.count:ClearAllPoints()
+        pc.count:SetPoint("BOTTOM", pc.bg, "TOP", 0, 1)
+        pc.count:Show()
+        x = x - math.max(isz, math.ceil(pc.count:GetStringWidth() or 8)) - 6 - (round and bpx * 2 or 0)
+    else
+        players = nil
+        pc.bg:Hide(); pc.icon:Hide(); pc.count:Hide(); pc.ring:Hide(); pc.edge:Hide()
+    end
+    if counts or players then
         r.score:ClearAllPoints()
         r.score:SetPoint("RIGHT", r, "RIGHT", x - 6, 0)
         r.scoreRaid = true
@@ -1039,9 +1130,15 @@ local function HoldHidden(f, a)
     guard = false
 end
 
+-- a hidden sign up status (keys, encounters): our rows couldn't tell if a group can be picked
+local function AppSecret(id)
+    local _, status, pending = C_LFGList.GetApplicationInfo(id)
+    return Secret(status) or Secret(pending)
+end
+
 -- one result's secrecy, as AnySecret reads the whole list
 local function ResultSecret(id)
-    if Secret(id) then return true end
+    if Secret(id) or AppSecret(id) then return true end
     local info = C_LFGList.GetSearchResultInfo(id)
     return info ~= nil and (not Readable(info) or Secret(info.activityIDs) or Secret(info.isDelisted))
 end
@@ -1107,6 +1204,9 @@ local function Build()
     SP = LFGListFrame and LFGListFrame.SearchPanel
     if not (SP and SP.ScrollBox) then return end
     frame = CreateFrame("Frame", nil, SP)
+    -- shown only while active: a first visit to quests or custom never turns it
+    -- on, and a shown empty frame there took every click and scroll
+    frame:Hide()
     if LFGListSearchPanel_DoSearch then
         hooksecurefunc("LFGListSearchPanel_DoSearch", function() wipe(posOf); nextPos = 0; selected = nil end)
     end
@@ -1206,21 +1306,25 @@ function AnySecret()
     local res = SP and SP.results
     if type(res) ~= "table" then return false end
     for _, id in ipairs(res) do
-        if Secret(id) then return true end
+        if Secret(id) or AppSecret(id) then return true end
         local info = C_LFGList.GetSearchResultInfo(id)
         if info and (not Readable(info) or Secret(info.activityIDs) or Secret(info.isDelisted)) then return true end
     end
     return false
 end
 
--- ours only on dungeon / raid / delve searches with readable results
+-- the categories our list covers
+local OURS = { [DUNGEONS] = true, [RAIDS] = true, [DELVES] = true, [QUESTS] = true, [CUSTOM] = true }
+
+-- ours on those searches with readable results
 function ns.OwnListRefresh()
     local want = ns.OwnListOn()
     if want and not frame then Build() end
     if not frame then return end
     local cat = SP.categoryID
-    local secret = (GFNS.ExtraResultsSecret and GFNS.ExtraResultsSecret()) or AnySecret()
-    local now = want and SP:IsVisible() and (cat == DUNGEONS or cat == RAIDS or cat == DELVES) and not secret
+    -- the results are walked for secrecy only where our list could show
+    local now = (want and SP:IsVisible() and OURS[cat]
+        and not ((GFNS.ExtraResultsSecret and GFNS.ExtraResultsSecret()) or AnySecret())) and true or false
     if now ~= active then
         active = now
         local a = active and 0 or 1
@@ -1250,6 +1354,14 @@ function ns.OwnListRefresh()
         end
     end
     if active then
+        -- stay over blizzard's faded list and button: if something raises them,
+        -- the mouse would go to rows nobody can see
+        local lv = SP.ScrollBox:GetFrameLevel() + 10
+        if frame:GetFrameLevel() < lv then frame:SetFrameLevel(lv) end
+        if signBtn then
+            lv = SP.SignUpButton:GetFrameLevel() + 5
+            if signBtn:GetFrameLevel() < lv then signBtn:SetFrameLevel(lv) end
+        end
         Collect()
         Paint()
     end

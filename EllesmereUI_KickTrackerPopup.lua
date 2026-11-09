@@ -25,8 +25,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  where Mythic+ Tools is loaded with its settings ready.
 --
 --  Fires once, at PLAYER_LOGIN. Guarded by EllesmereUIDB.kickTrackerIntroShown.
---  Only the newest announcement stays live: the Group Finder announcement
---  (EllesmereUI_GroupFinderPopup.lua) retired when this shipped, so users
+--  Only the newest announcement stays live (the 12.1 launch video's login
+--  trigger in EllesmereUI_VideoGuides.lua is switched off), so users
 --  upgrading across several versions never see two intro popups back to back.
 -------------------------------------------------------------------------------
 
@@ -448,8 +448,7 @@ loader:SetScript("OnEvent", function(self, event, addonName)
             end
             -- Defer behind any older login announcement still pending or open
             -- (all retired today; the chain holds again if one is revived).
-            if EllesmereUI._styleLaunchIntroPending or EllesmereUI._launchVideoIntroPending
-               or EllesmereUI._groupFinderIntroPending then
+            if EllesmereUI._launchVideoIntroPending then
                 C_Timer.After(0.4, TryShow)
                 return
             end
@@ -487,5 +486,5 @@ end)
 SLASH_EUIKTINTRO1 = "/euiktintro"
 SlashCmdList["EUIKTINTRO"] = function()
     if EllesmereUIDB then EllesmereUIDB.kickTrackerIntroShown = nil end
-    EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. "EllesmereUI:|r Kick Tracker announcement reset. It fires on your next /reload.")
+    EllesmereUI.Print(EllesmereUI.COLOR_CODES.BRAND .. EllesmereUI.L("EllesmereUI:|r Kick Tracker announcement reset. It fires on your next /reload."))
 end

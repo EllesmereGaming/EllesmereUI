@@ -286,7 +286,9 @@ end
 local function SetRoundIcon(btn, round)
     if (btn._lvRound or false) == round then return end
     btn._lvRound = round
+    local slotMask = btn._textOverlay._fvIconMask
     if round then
+        if slotMask then btn._lvIcon:RemoveMaskTexture(slotMask) end
         if not btn._lvMask then
             btn._lvMask = btn:CreateMaskTexture()
             btn._lvMask:SetTexture(ROUND_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
@@ -296,6 +298,7 @@ local function SetRoundIcon(btn, round)
         if btn.Cooldown then btn.Cooldown:SetSwipeTexture(ROUND_MASK) end
     else
         btn._lvIcon:RemoveMaskTexture(btn._lvMask)
+        if slotMask then btn._lvIcon:AddMaskTexture(slotMask) end
         if btn.Cooldown then btn.Cooldown:SetSwipeTexture("Interface\\Buttons\\WHITE8X8") end
     end
 end
@@ -750,13 +753,15 @@ local function RenderRow(btn, data, cols, rowW, x, y, stripe, dim)
             end
             icon:Show()
             -- Quality Item Border: square icons only
-            if not round and BP().bagQualityBorder ~= false then
-                local ov = btn._textOverlay
-                if not ov._brdT then ns.CreateInsetBorder(ov) end
+            local ov = btn._textOverlay
+            if not round and (BP().bagQualityBorder ~= false or ns.BagsForever()) then
+                if not (ov._brdT or ov._fvSlotBorder) then ns.CreateInsetBorder(ov, true, icon) end
                 local r, g, b = ns.QualityBorderColor(q)
                 ns.SetInsetBorderColor(ov, r, g, b, 1)
-            elseif btn._textOverlay._brdT then
-                ns.SetInsetBorderColor(btn._textOverlay, 0, 0, 0, 0)
+                if ov._fvSlotBorder then ns.SetForeverSlotQuestBorder(ov, data._isQuest, data._isQuestStarter) end
+            elseif ov._brdT or ov._fvSlotBorder then
+                ns.SetInsetBorderColor(ov, 0, 0, 0, 0)
+                if ov._fvQuestBorder then ov._fvQuestBorder:Hide() end
             end
         else
             local fs = GetCell(btn, id)

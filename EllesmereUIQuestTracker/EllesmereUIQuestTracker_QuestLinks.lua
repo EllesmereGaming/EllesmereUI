@@ -13,29 +13,36 @@ local WOWHEAD_LANG = { deDE = "de/", ptBR = "pt/", esES = "es/", esMX = "mx/", f
 local logHandle, detailHandle, trackerHandle, hoverHandle, addedMenus
 local hoverBlock -- the tracker quest block whose header the cursor entered last
 
+-- A plain positive quest ID the link can be built from.
+function EQT.WowheadQuestOK(questID)
+    return EQT.Cfg("wowheadQuestLinks") and not issecretvalue(questID) and type(questID) == "number"
+        and questID > 0 and questID == math.floor(questID) or false
+end
+
+-- The copy popup; shared with the WoW Forever custom tracker's menu (Custom.lua).
+function EQT.ShowWowheadLink(questID)
+    if not EQT.WowheadQuestOK(questID) then return end
+    local questPath = "quest=" .. string.format("%.0f", questID) .. "/"
+    local lang = EQT.Cfg("wowheadQuestClientLanguage") and WOWHEAD_LANG[GetLocale()] or ""
+    -- The popup translates its own texts.
+    EllesmereUI:ShowInputPopup({
+        title = "Wowhead Link",
+        message = "Press Ctrl+C to copy, then paste the link into your browser.",
+        initialText = "https://www.wowhead.com/" .. site .. lang .. questPath
+            .. (EQT.Cfg("wowheadQuestComments") and "#comments" or ""),
+        maxLetters = 256,
+        confirmText = "Close",
+        hideCancel = true,
+        selectText = true,
+    })
+end
+
 local function AddLinkButton(questID, root)
-    if not EQT.Cfg("wowheadQuestLinks") or addedMenus[root] then return end
-    if issecretvalue(questID) or type(questID) ~= "number"
-        or questID <= 0 or questID ~= math.floor(questID) then return end
+    if addedMenus[root] or not EQT.WowheadQuestOK(questID) then return end
     -- ModifyMenu also visits its last generated description when registered.
     addedMenus[root] = true
-    local questPath = "quest=" .. string.format("%.0f", questID) .. "/"
     root:CreateDivider()
-    root:CreateButton(EllesmereUI.L("Wowhead Link"), function()
-        if not EQT.Cfg("wowheadQuestLinks") then return end
-        local lang = EQT.Cfg("wowheadQuestClientLanguage") and WOWHEAD_LANG[GetLocale()] or ""
-        -- The popup translates its own texts.
-        EllesmereUI:ShowInputPopup({
-            title = "Wowhead Link",
-            message = "Press Ctrl+C to copy, then paste the link into your browser.",
-            initialText = "https://www.wowhead.com/" .. site .. lang .. questPath
-                .. (EQT.Cfg("wowheadQuestComments") and "#comments" or ""),
-            maxLetters = 256,
-            confirmText = "Close",
-            hideCancel = true,
-            selectText = true,
-        })
-    end)
+    root:CreateButton(EllesmereUI.L("Wowhead Link"), function() EQT.ShowWowheadLink(questID) end)
 end
 
 -- Quest rows and the quest-details popup both own their questID. Waypoints

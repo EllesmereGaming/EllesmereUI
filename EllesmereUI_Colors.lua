@@ -696,6 +696,7 @@ function EllesmereUI.ApplyColorsToOUF()
     if EllesmereUI._UFColors and EllesmereUI._UFEngineForceAll then
         EllesmereUI._UFEngineForceAll("ForceUpdate")
     end
+    if EllesmereUI._UFRecolorAllTexts then EllesmereUI._UFRecolorAllTexts() end
     -- 3. Refresh nameplates (enemy + friendly)
     local ns_NP = _G.EllesmereNameplates_NS
     if ns_NP then

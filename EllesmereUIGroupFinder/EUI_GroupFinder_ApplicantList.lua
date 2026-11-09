@@ -28,7 +28,7 @@ local COLS_BASE = { SPEC_COL, ROLE_COL, ILVL_COL }
 local COLS_KEYS = { SPEC_COL, ROLE_COL, ILVL_COL, RATING_COL, KEY_COL }
 local COLS_PVP = { SPEC_COL, ROLE_COL, ILVL_COL, RATING_COL }
 
-local function Secret(v) return issecretvalue and issecretvalue(v) or false end
+local Secret = EllesmereUI.IsSecret
 local function Readable(t) return type(t) == "table" and not Secret(t) and not (canaccesstable and not canaccesstable(t)) end
 
 local AV, frame, head, body, thumb, empty, cover, raidRoles
@@ -218,6 +218,25 @@ local function LineMenu(line)
     if Secret(name) then name = nil end
     -- both of these print the name in chat
     local hidden = ns.OwnListGet("streamerNames")
+    -- names shown: blizzard's tagged menu, so other add-ons' entries (raider.io's
+    -- copy link and so on) still show. names hidden: ours, they'd show the name
+    if not hidden then
+        MenuUtil.CreateContextMenu(line, function(_, root)
+            root:SetTag("MENU_LFG_FRAME_MEMBER_APPLY")
+            root:CreateTitle(name or "")
+            local w = root:CreateButton(WHISPER or "Whisper", function() WhisperLink(name) end)
+            root:CreateButton(LFG_LIST_REPORT_PLAYER or "Report Player", function() LFGList_ReportApplicant(id, name or "") end)
+            local ig = root:CreateButton(IGNORE_PLAYER or "Ignore Player", function()
+                C_FriendList.AddIgnore(name)
+                C_LFGList.DeclineApplicant(id)
+            end)
+            if not name then
+                w:SetEnabled(false)
+                ig:SetEnabled(false)
+            end
+        end)
+        return
+    end
     EUI.ShowContextMenu(line, {
         { text = WHISPER or "Whisper", noLoc = true,
           isDisabled = function() return hidden or not name end,
@@ -265,6 +284,72 @@ local function PrivateTooltip(line, id)
     GameTooltip:Show()
 end
 
+-------------------------------------------------------------------------------
+--  raider.io: its lines on the hover tooltip, and its full profile next to the
+--  window while shift is held (its own side panel only follows blizzard's
+--  rows). public api only, nothing happens without raider.io
+-------------------------------------------------------------------------------
+local rioApi, rioTip, rioWatch, rioLine
+local function Rio()
+    if rioApi == nil then rioApi = _G.RaiderIO or false end
+    return rioApi and type(rioApi.ShowProfile) == "function" and rioApi or nil
+end
+
+-- the hovered applicant's name and realm, nil when hidden or unreadable
+local function RioWho(line)
+    if ns.OwnListGet("streamerNames") or ns.OwnListGet("streamerRating") then return end
+    local id = line:GetParent().applicantID
+    if not id or Secret(id) then return end
+    local full, class = C_LFGList.GetApplicantMemberInfo(id, line.memberIdx)
+    if type(full) ~= "string" or Secret(full) or full == "" then return end
+    local name, realm = strsplit("-", full, 2)
+    return name, realm or GetNormalizedRealmName(), not Secret(class) and class or nil
+end
+
+local function RioLines(line)
+    local api = Rio()
+    local name, realm = RioWho(line)
+    if not (api and name and GameTooltip:IsOwned(line)) then return end
+    local ok, altered = pcall(api.ShowProfile, GameTooltip, name, realm)
+    if ok and altered then GameTooltip:Show() end
+end
+
+local function RioPanel()
+    local api, name, realm, class = Rio(), nil, nil, nil
+    if rioLine and rioLine:IsVisible() and IsShiftKeyDown() then name, realm, class = RioWho(rioLine) end
+    if not (api and name) then
+        if rioTip then rioTip:Hide() end
+        return
+    end
+    rioTip = rioTip or CreateFrame("GameTooltip", "EllesmereUIGroupFinderRioTip", UIParent, "SharedTooltipTemplate")
+    local anchor = PVEFrame or AV
+    rioTip:SetOwner(anchor, "ANCHOR_NONE")
+    rioTip:ClearAllPoints()
+    rioTip:SetPoint("TOPLEFT", anchor, "TOPRIGHT", 4, 0)
+    local cc = class and EUI.GetClassColor(class)
+    rioTip:SetText(name, cc and cc.r or 1, cc and cc.g or 1, cc and cc.b or 1)
+    local ok, altered = pcall(api.ShowProfile, rioTip, name, realm)
+    if ok and altered then rioTip:Show() else rioTip:Hide() end
+end
+
+-- shift is only watched while an applicant is hovered
+local function RioEnter(line)
+    if not Rio() then return end
+    rioLine = line
+    if not rioWatch then
+        rioWatch = CreateFrame("Frame")
+        rioWatch:SetScript("OnEvent", RioPanel)
+    end
+    rioWatch:RegisterEvent("MODIFIER_STATE_CHANGED")
+    RioPanel()
+end
+
+local function RioLeave()
+    rioLine = nil
+    if rioWatch then rioWatch:UnregisterEvent("MODIFIER_STATE_CHANGED") end
+    if rioTip then rioTip:Hide() end
+end
+
 -- blizzard's own applicant tooltip unless something's hidden
 local function LineEnter(line)
     local id = line:GetParent().applicantID
@@ -276,6 +361,13 @@ local function LineEnter(line)
     else
         pcall(LFGListApplicantMember_OnEnter, line)
     end
+    RioLines(line)
+    RioEnter(line)
+end
+
+local function LineLeave()
+    GameTooltip_Hide()
+    RioLeave()
 end
 
 -------------------------------------------------------------------------------
@@ -371,7 +463,7 @@ local function MakeLine(b, k)
     end
     l:SetScript("OnClick", LineMenu)
     l:SetScript("OnEnter", LineEnter)
-    l:SetScript("OnLeave", GameTooltip_Hide)
+    l:SetScript("OnLeave", LineLeave)
     b.lines[k] = l
     return l
 end
@@ -1042,6 +1134,7 @@ local function SetActive(now)
     head:SetShown(active)
     if not active then
         GameTooltip_Hide()
+        RioLeave()
     end
 end
 

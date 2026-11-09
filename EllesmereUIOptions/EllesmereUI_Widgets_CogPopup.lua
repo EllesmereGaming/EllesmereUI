@@ -277,6 +277,19 @@ local function BuildCogPopup(opts)
                     tmpFS:SetText(EllesmereUI.L(row.label))
                     local w = tmpFS:GetStringWidth() + (((row.type == "dropdown" or row.type == "reordercheck") and row.ddWidth) or COG_DD_W)
                     if w > maxDDNeed then maxDDNeed = w end
+                elseif row.type == "toggle" or row.type == "colorpicker" or row.type == "multiswatch" or row.type == "button" then
+                    -- A long label must not run under the right-aligned switch or swatches, or past a button's edges.
+                    tmpFS:SetText(EllesmereUI.L(row.label))
+                    local control = TG_W
+                    if row.type == "colorpicker" then
+                        control = 20
+                    elseif row.type == "multiswatch" then
+                        control = #(row.swatches or {}) * 28
+                    elseif row.type == "button" then
+                        control = 16
+                    end
+                    local w = tmpFS:GetStringWidth() + control
+                    if w > maxDDNeed then maxDDNeed = w end
                 end
             end
             if maxLblW < 10 then maxLblW = 60 end

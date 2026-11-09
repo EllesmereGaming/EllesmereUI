@@ -484,7 +484,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         -- separator ("" = none); plain: the name in the slot colour.
         local function _pvTargetSuffix(literal, plain)
             local _, ct = UnitClass("player")
-            local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+            local cc = ct and EllesmereUI.GetClassColor(ct)
             local tgt = "Target"
             if cc and not plain then
                 tgt = string.format("%s%s|r", EllesmereUI.HexColor(cc.r, cc.g, cc.b), tgt)
@@ -630,7 +630,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             if unitKey == "player" then
                 local _, cls = UnitClass("player")
                 if cls then
-                    local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[cls]
+                    local c = EllesmereUI.GetClassColor(cls)
                     if c then fs:SetTextColor(c.r, c.g, c.b); return end
                 end
             else
@@ -1994,7 +1994,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         if G.name and leftFS:IsShown() then
             leftFS:ClearAllPoints()
             leftFS:SetJustifyH(G.name.justify or "LEFT")
-            ns.UF_BlizzPoint(leftFS, G.name.point, barArea, G.name.point, G.name.x, G.name.y, mirror)
+            local xOffset, yOffset = s.leftTextX or 0, s.leftTextY or 0
+            -- Keep the user's X offset screen-relative when UF_BlizzPoint mirrors it.
+            local x = G.name.x + (mirror and -xOffset or xOffset)
+            ns.UF_BlizzPoint(leftFS, G.name.point, barArea, G.name.point, x, G.name.y + yOffset, mirror)
             leftFS:SetWidth(G.name.w)
         end
 
@@ -2712,7 +2715,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         -- Power percent text in preview
         if ppPreviewFS then
             local ppPos = s.powerPercentText or "none"
-            local ppFmt = s.powerTextFormat or "perpp"
+            local ppFmt = EllesmereUI.PowerTextFormat(s.powerTextFormat or "perpp")
             if ppPos ~= "none" and ppFmt ~= "none" and power then
                 local ppSz = s.powerPercentSize or 9
                 local ppOx = s.powerPercentX or 0

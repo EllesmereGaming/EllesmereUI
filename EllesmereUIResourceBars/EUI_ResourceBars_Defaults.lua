@@ -17,26 +17,27 @@ local UnitClass, GetShapeshiftFormID = UnitClass, GetShapeshiftFormID
 -------------------------------------------------------------------------------
 local _, playerClassFile = UnitClass("player")
 
--- Druid "hide bar text per form", the same buckets on every bar: Cat (1),
--- Bear (5) and Moonkin (31/35) each have their own; any other form, or none,
--- is "Caster" ("mana").
+-- The druid's per-form bucket, the same on every bar: Cat (1), Bear (5, and
+-- WoW Forever's Dire Bear Form, 8) and Moonkin (31/35) each have their own; any
+-- other form, or none, is "Caster" ("mana").
+local function FormBucket()
+    local f = GetShapeshiftFormID()
+    return (f == 1) and "energy" or (f == 5 or f == 8) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
+end
+-- Druid "hide bar text per form", driven by cfg.textDisabledForms.
 _G._ERB_TextHiddenByForm = function(cfg)
     if playerClassFile ~= "DRUID" then return false end
     local df = cfg and cfg.textDisabledForms
     if not df then return false end
-    local f = GetShapeshiftFormID()
-    local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
-    return df[key] and true or false
+    return df[FormBucket()] and true or false
 end
--- Druid "hide whole bar per form": the same buckets as above, driven by
--- cfg.barDisabledForms. Alpha-based hide, safe to flip mid-combat.
+-- Druid "hide whole bar per form", driven by cfg.barDisabledForms (the WoW
+-- Forever swing timer reads it too). Alpha-based hide, safe to flip mid-combat.
 _G._ERB_BarHiddenByForm = function(cfg)
     if playerClassFile ~= "DRUID" then return false end
     local df = cfg and cfg.barDisabledForms
     if not df then return false end
-    local f = GetShapeshiftFormID()
-    local key = (f == 1) and "energy" or (f == 5) and "rage" or (f == 31 or f == 35) and "moonkin" or "mana"
-    return df[key] and true or false
+    return df[FormBucket()] and true or false
 end
 -- Static neutral defaults for custom fill colors; used only as the initial custom
 -- color when the user first enables "Custom Colored" (class/power colors apply

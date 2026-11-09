@@ -437,8 +437,10 @@ qolFrame:SetScript("OnEvent", function(self)
         local function BankOpen()
             if not (C_PlayerInteractionManager and C_PlayerInteractionManager.IsInteractingWithNpcOfType) then return false end
             -- Both bank types: character banker and the warband (account) bank.
-            return (C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.Banker)
-                or C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.AccountBanker)) and true or false
+            local PIT, IsAt = Enum.PlayerInteractionType, C_PlayerInteractionManager.IsInteractingWithNpcOfType
+            -- some bankers open the character bank as CharacterBanker
+            return (IsAt(PIT.Banker) or (PIT.CharacterBanker and IsAt(PIT.CharacterBanker))
+                or IsAt(PIT.AccountBanker)) and true or false
         end
         -- "Exclude Warbound Containers": checks the item's own bind type
         -- instead of asking the bank if it would accept a deposit right now --
@@ -829,6 +831,7 @@ qolFrame:SetScript("OnEvent", function(self)
                     -- The event that actually fires on retail; mail's own delivery can still unlock slots just after close, so settle first like LOOT_CLOSED.
                     C_Timer.After(0.5, function() ScanAndOpen(false, true, false) end)
                 elseif interactionType == Enum.PlayerInteractionType.Banker
+                    or interactionType == Enum.PlayerInteractionType.CharacterBanker
                     or interactionType == Enum.PlayerInteractionType.AccountBanker then
                     -- AccountBanker: the warband bank signals its own type, and
                     -- BankOpen() gates both (same BankFrame).
@@ -1378,6 +1381,8 @@ qolFrame:SetScript("OnEvent", function(self)
                     lootFrame = CreateFrame("Frame")
                     lootFrame:SetScript("OnEvent", function()
                         if IsShiftKeyDown() then return end
+                        -- Nothing to take: no slot empties, so the window would never close by itself.
+                        if GetNumLootItems() == 0 then CloseLoot() return end
                         for i = 1, GetNumLootItems() do
                             local index = i
                             C_Timer.After(0.05 * index, function()

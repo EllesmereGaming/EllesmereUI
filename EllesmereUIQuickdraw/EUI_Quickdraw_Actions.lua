@@ -88,6 +88,16 @@ local REZ_BY_CLASS = {
     DEATHKNIGHT = { battle = 61999 },
     WARLOCK     = { battle = 20707 },
 }
+-- WoW Forever: the vanilla spells, every rank ID listed (rank 1 first).
+if EllesmereUI.IS_FOREVER then
+    REZ_BY_CLASS = {
+        PRIEST  = { single = { 2006, 2010, 10880, 10881, 20770 } },
+        PALADIN = { single = { 7328, 10322, 10324, 20772, 20773 } },
+        SHAMAN  = { single = { 2008, 20609, 20610, 20776, 20777 } },
+        DRUID   = { single = { 437138, 1237948, 1237949, 1237950, 1237951 },
+                    battle = { 20484, 20739, 20742, 20747, 20748 } },
+    }
+end
 
 -- battle, single, group for this character, any of them nil. Filtered by what
 -- is actually in the spellbook, because the macro below picks a branch by
@@ -114,6 +124,14 @@ local function RezKit()
     local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
     local function Known(id)
         if not id then return nil end
+        -- A rank list (Forever) answers with the first rank in the book.
+        if type(id) == "table" then
+            for i = 1, #id do
+                local hit = Known(id[i])
+                if hit then return hit end
+            end
+            return nil
+        end
         if C_SpellBook.IsSpellInSpellBook and bank
            and not C_SpellBook.IsSpellInSpellBook(id, bank, true) then
             return nil
@@ -336,12 +354,25 @@ local function SlotUsable(slot)
     return true
 end
 
+-- Nested palette slots inside a nest fire nothing (one level), so they never count.
+local function NestOffersAny(child)
+    local palette = ReadPalette(child)
+    if not palette then return false end
+    local cp = I.PA(child)
+    local all = cp and cp.hideUnusable == false
+    for _, slot in ipairs(palette.slots) do
+        if slot.kind ~= "palette" and (all or SlotUsable(slot)) then return true end
+    end
+    return false
+end
+
 -- The entries of the palette this character can use ("Hide Unavailable
 -- Actions"). A view, never a mutation: returns the stored array itself while
 -- nothing is filtered, and a fresh dense array otherwise -- the stored slots
 -- keep every entry for the characters that CAN use them. A nested palette
--- that does not load in this spec (Assign to Spec) is left out whatever the
--- setting says; with it off, everything else stays.
+-- that does not load in this spec (Assign to Spec), or that would open with
+-- nothing this character can use under its own setting, is left out whatever
+-- this palette's setting says; with it off, everything else stays.
 function UsableSlots(palette, p)
     local slots = palette and palette.slots
     if not slots then return slots end
@@ -354,7 +385,7 @@ function UsableSlots(palette, p)
         local keep
         if slot.kind == "palette" then
             local child = ChildIndex(slot)
-            keep = not child or ns.PaletteActive(child)
+            keep = not child or (ns.PaletteActive(child) and NestOffersAny(child))
         else
             keep = all or SlotUsable(slot)
         end

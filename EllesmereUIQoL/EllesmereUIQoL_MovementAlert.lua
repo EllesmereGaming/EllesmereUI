@@ -25,9 +25,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 
 local ns = select(2, ...)
 
-local function IsSecret(value)
-    return issecretvalue and issecretvalue(value) or false
-end
+local IsSecret = EllesmereUI.IsSecret
 
 local inCombat = false
 local playerClassToken = select(2, UnitClass("player")) -- class never changes: resolved once
@@ -329,7 +327,7 @@ local function ResolveAlertColor(prefix, useClassKey)
     local ma = MA()
     if ma[useClassKey] then
         local _, classToken = UnitClass("player")
-        local c = classToken and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classToken]
+        local c = classToken and EllesmereUI.GetClassColor(classToken)
         if c then return c.r, c.g, c.b end
     end
     return ma[prefix .. "R"] or 1, ma[prefix .. "G"] or 1, ma[prefix .. "B"] or 1

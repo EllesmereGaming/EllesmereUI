@@ -114,7 +114,7 @@ end
 local function FillColor()
     if Get("classColored") then
         local _, classFile = UnitClass("player")
-        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+        local cc = classFile and EllesmereUI.GetClassColor(classFile)
         if cc then return cc.r, cc.g, cc.b end
     end
     local c = Read()

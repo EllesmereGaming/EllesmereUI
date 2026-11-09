@@ -167,13 +167,7 @@ end
 --  Secret-safe helpers
 -------------------------------------------------------------------------------
 
--- pcall'd as well as presence-tested: issecretvalue is absent on older clients, and the test
--- itself can raise.
-local function IsSecret(v)
-    if not issecretvalue then return false end
-    local ok, r = pcall(issecretvalue, v)
-    return ok and r or false
-end
+local IsSecret = EUI.IsSecret
 
 -- Upvalues instead of closures: these run once per incoming line and per candidate bubble,
 -- and a pcall'd closure would allocate every time.
@@ -183,11 +177,10 @@ local function RawEq()
     _cmpEq = (_cmpA == _cmpB)
 end
 
--- Either side can be a secret string in restricted content, and comparing one raises. That is
--- exactly why the existence test is type() and not "== nil": comparing a secret to nil is the
--- operation our own secret rules forbid (EUI_Chat_EditBox.lua's OnEditBoxPreSendText carries
--- the same note), so a nil belt in front of the guard would itself be the hazard. type()
--- reports a secret's underlying type, so a secret string still reaches the guarded compare.
+-- Either side can be a secret string in restricted content, and comparing one with another
+-- string raises (EUI_Chat_EditBox.lua's OnEditBoxPreSendText carries the same note), so the
+-- compare runs under pcall. type() reports a secret's underlying type, so a secret string
+-- still reaches the guarded compare.
 local function SafeEq(a, b)
     if type(a) ~= "string" or type(b) ~= "string" then return false end
     _cmpA, _cmpB, _cmpEq = a, b, false
@@ -1062,7 +1055,7 @@ end
 function CB.ShowPreview(parent, onResize)
     if not preview then
         preview = NewBubble()
-        preview.text:SetText("The quick brown fox jumps over the lazy dog.")
+        preview.text:SetText(EllesmereUI.L("The quick brown fox jumps over the lazy dog."))
     end
     preview:SetParent(parent)
     preview:SetFrameStrata(parent:GetFrameStrata())

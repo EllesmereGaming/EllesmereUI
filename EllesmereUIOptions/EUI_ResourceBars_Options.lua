@@ -1721,13 +1721,13 @@ initFrame:SetScript("OnEvent", function(self)
         })
     end
 
-    -- Druid-only per-form popup button. `field` picks the map the toggles write: "textDisabledForms" (text rows) or "barDisabledForms" (whole-bar rows).
-    local function AddFormDisableBtn(rgn, leftOf, cfgFn, refreshFn, field, title, tooltip)
+    -- Druid-only per-form toggles, as cog rows (nil for any other class): a row
+    -- is on while that form shows; `field` is the map of the forms switched off,
+    -- "textDisabledForms" (text rows) or "barDisabledForms" (whole bars, and the
+    -- WoW Forever swing timer), read by _ERB_TextHiddenByForm / _ERB_BarHiddenByForm.
+    local function FormToggleRows(cfgFn, refreshFn, field)
         local _, classFile = UnitClass("player")
-        if classFile ~= "DRUID" then return end
-        field = field or "textDisabledForms"
-        title = title or "Enable/Disable per Form"
-        tooltip = tooltip or EllesmereUI.L(title)
+        if classFile ~= "DRUID" then return nil end
         local FORMS = { { key = "mana", label = "Caster" },
                         { key = "rage", label = "Bear" },
                         { key = "energy", label = "Cat" },
@@ -1751,6 +1751,16 @@ initFrame:SetScript("OnEvent", function(self)
                     refreshFn()
                 end }
         end
+        return rows
+    end
+
+    -- Druid-only per-form popup button. `field` picks the map the toggles write: "textDisabledForms" (text rows) or "barDisabledForms" (whole-bar rows).
+    local function AddFormDisableBtn(rgn, leftOf, cfgFn, refreshFn, field, title, tooltip)
+        field = field or "textDisabledForms"
+        local rows = FormToggleRows(cfgFn, refreshFn, field)
+        if not rows then return end
+        title = title or "Enable/Disable per Form"
+        tooltip = tooltip or EllesmereUI.L(title)
         local btn = EllesmereUI.BuildInlineCog(rgn, {
             anchorTo = leftOf, tip = tooltip,
             title = title, bgAlpha = 1,
@@ -4651,7 +4661,7 @@ initFrame:SetScript("OnEvent", function(self)
         TexBgRowCfg = TexBgRowCfg,
         DB = DB, PP = PP, Refresh = Refresh,
         SmoothRefresh = SmoothRefresh, RefreshHealth = RefreshHealth, RebuildHealth = RebuildHealth,
-        AddFormBarBtn = AddFormBarBtn, AddFormTextBtn = AddFormTextBtn,
+        AddFormBarBtn = AddFormBarBtn, AddFormTextBtn = AddFormTextBtn, FormToggleRows = FormToggleRows,
         BuildHashCog = BuildHashCog, BuildThresholdSettingsButton = BuildThresholdSettingsButton, RefreshPower = RefreshPower,
         RebuildPower = RebuildPower, RefreshClass = RefreshClass, RebuildClass = RebuildClass,
         BAND_REPLACES_TIP = BAND_REPLACES_TIP, STAGGER_PCT_TIP = STAGGER_PCT_TIP, CLASS_COLORS = CLASS_COLORS,

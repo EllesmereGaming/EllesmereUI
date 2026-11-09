@@ -82,7 +82,8 @@ local function RegisterUnlockElements()
     local MK = EllesmereUI.MakeUnlockElement
 
     -- Shared helper: save position to a settings sub-table and apply to frame
-    local function MakePosHelpers(getSettings, frame_fn, defaultOffX, defaultOffY)
+    -- centerShiftY: extra Y on a stored CENTER, as the bar's own build adds it.
+    local function MakePosHelpers(getSettings, frame_fn, defaultOffX, defaultOffY, centerShiftY)
         local function savePos(key, point, relPoint, x, y)
             if not point then return end
             local s = getSettings()
@@ -100,7 +101,10 @@ local function RegisterUnlockElements()
             local pos = getSettings().unlockPos
             if not pos then return nil end
             local pt = pos.point
-            return { point = pt, relPoint = pos.relPoint or pt, x = pos.x, y = pos.y }
+            -- The resize re-apply reads this, not applyPos (0 while expand is suppressed).
+            local y = pos.y
+            if centerShiftY and pt == "CENTER" and y then y = y + centerShiftY() end
+            return { point = pt, relPoint = pos.relPoint or pt, x = pos.x, y = y }
         end
         local function clearPos()
             local s = getSettings()
@@ -118,6 +122,7 @@ local function RegisterUnlockElements()
             if f then
                 local pt = pos.point
                 local px, py = pos.x, pos.y
+                if centerShiftY and pt == "CENTER" and py then py = py + centerShiftY() end
                 local PPa = EllesmereUI and EllesmereUI.PP
                 if PPa and px and py then
                     local es = f:GetEffectiveScale()
@@ -224,7 +229,9 @@ local function RegisterUnlockElements()
     do
         local function S() return ERB.db.profile.primary end
         local function SS() return _G._ERB_ResolvePowerCfg() or S() end
-        local save, load, clear, apply = MakePosHelpers(S, function() return primaryBar end, 0, -74)
+        -- Expand Power Bar if No Resource grows it toward the class resource slot.
+        local save, load, clear, apply = MakePosHelpers(S, function() return primaryBar end, 0, -74,
+            function() return ns.ERB_PowerExpandShiftY or 0 end)
         elements[#elements + 1] = MK({
             key = "ERB_Power", label = "Power Bar", group = "Resource Bars", order = 501,
             getFrame = function() return primaryBar end,
@@ -273,6 +280,20 @@ local function RegisterUnlockElements()
             keepMoverWhenAnchored = true,
             onLiveMove = LiveMove,
             savePos = save, loadPos = load, clearPos = clear, applyPos = apply,
+            -- Spec and Conditional Overrides layout layers bank and restore the
+            -- STORED position through these: loadPos reports the expanded CENTER
+            -- while Expand Power Bar if No Resource grows the bar, and a layer
+            -- banking that would save the shift into the stored position.
+            loadRawPos = function()
+                local pos = S().unlockPos
+                if not (pos and pos.point) then return nil end
+                return { point = pos.point, relPoint = pos.relPoint or pos.point, x = pos.x, y = pos.y }
+            end,
+            saveRawPos = function(_, p)
+                if not (p and p.point) then return end
+                S().unlockPos = { point = p.point, relPoint = p.relPoint or p.point, x = p.x, y = p.y }
+                ns.ERB_GroupDirty()
+            end,
         })
     end
 

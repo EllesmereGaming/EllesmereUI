@@ -2,7 +2,9 @@
 -- combat (its Where to Show offers no In Combat entry: always unchecked). Loads
 -- the aura helpers and the collectors over a stubbed internals table and drives
 -- EABR.CollectForever in and out of combat, and the pre-pull snapshot, which
--- Forever no longer takes. Scenario 7 drives the Weapon Buffs reminder.
+-- Forever no longer takes. Scenario 7 drives the Weapon Buffs reminder,
+-- scenario 8 a spell group's click and tooltip rank, scenario 9 a custom
+-- spell's, scenario 10 the class buffs and Mage Armors.
 --   lua .tools/tests/test_abr_forever_combat.lua        (from the repository root)
 local ROOT = arg and arg[1] or "."
 
@@ -15,11 +17,12 @@ end
 local AURAS_SRC = ReadSource("EllesmereUIAuraBuffReminders/EUI_AuraBuffReminders_Auras.lua")
 local REFRESH_SRC = ReadSource("EllesmereUIAuraBuffReminders/EUI_AuraBuffReminders_Refresh.lua")
 local OPTIONS_SRC = ReadSource("EllesmereUIOptions/EUI_AuraBuffReminders_Options.lua")
+local MAIN_SRC = ReadSource("EllesmereUIAuraBuffReminders/EllesmereUIAuraBuffReminders.lua"):gsub("\r\n", "\n")
 
 -------------------------------------------------------------------------------
 --  Game API stubs
 -------------------------------------------------------------------------------
-local TEST = { combat = false, up = {}, auraReads = 0, trackingWanted = {}, weaponWanted = {},
+local TEST = { combat = false, up = {}, src = {}, auraReads = 0, trackingWanted = {}, weaponWanted = {},
     weapon = {}, enchants = {}, bags = {} }
 
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
@@ -29,7 +32,12 @@ function GetTime() return 100 end
 C_UnitAuras = {
     GetPlayerAuraBySpellID = function(id)
         TEST.auraReads = TEST.auraReads + 1
-        if TEST.up[id] then return { spellId = id, duration = 0, expirationTime = 0 } end
+        if TEST.up[id] then
+            -- its caster: TEST.src[id], else the player
+            local src = TEST.src[id] or "player"
+            return { spellId = id, duration = 0, expirationTime = 0, sourceUnit = src,
+                isFromPlayerOrPlayerPet = src == "player" }
+        end
     end,
     GetAuraDataByIndex = function(unit, i)
         TEST.auraReads = TEST.auraReads + 1
@@ -53,6 +61,7 @@ Enum = { SpellBookSpellBank = { Player = 0 }, SpellBookItemType = { Spell = 1 },
 -- Weapons: TEST.weapon[slot] = an item ID (a one-handed sword), TEST.enchants[weaponSlot] = the
 -- game's enchant list for that weapon, TEST.bags[itemID] = how many the bags hold
 function GetInventoryItemID(_, slot) return TEST.weapon[slot] end
+function UnitIsUnit(a, b) return a == b end
 C_Item = {
     GetItemInfoInstant = function(id)
         if id then return id, nil, nil, "INVTYPE_WEAPON", nil, 2, 7 end
@@ -66,7 +75,19 @@ C_SpellBook = {
     GetSpellBookItemType = function(slot) return 1, nil, BOOK[slot] end,
     IsSpellKnown = function(id) for _, sid in ipairs(BOOK) do if sid == id then return true end end return false end,
 }
-C_Spell = { GetSpellName = function(id) return NAMES[id] end }
+-- By name the game answers the highest rank in the spellbook, as /cast resolves
+-- it (a spellbook showing every rank lists them lowest first)
+C_Spell = {
+    GetSpellName = function(id) return NAMES[id] end,
+    GetSpellInfo = function(q)
+        if type(q) == "string" then
+            local top
+            for _, sid in ipairs(BOOK) do if NAMES[sid] == q then top = sid end end
+            return top and { spellID = top, name = q } or nil
+        end
+        return NAMES[q] and { spellID = q, name = NAMES[q] } or nil
+    end,
+}
 
 EllesmereUIDB = {}
 EllesmereUI = {
@@ -76,6 +97,7 @@ EllesmereUI = {
         beneficiaries = { MAGE = true, PRIEST = true } } },
     AuraKit = { AurasRestricted = function() return false end },
     L = function(s) return s end,
+    CharKey = function(sep) return "Tester" .. sep .. "Realm" end,
 }
 
 -------------------------------------------------------------------------------
@@ -124,6 +146,13 @@ assert(loadstring(AURAS_SRC, "=EUI_AuraBuffReminders_Auras.lua"))("EllesmereUIAu
 assert(rawget(I, "broken") == false, "the aura helpers did not load")
 assert(loadstring(REFRESH_SRC, "=EUI_AuraBuffReminders_Refresh.lua"))("EllesmereUIAuraBuffReminders", ns)
 assert(rawget(I, "broken") == false, "the collectors did not load")
+-- the class buff table, cut from the main file and loaded over this EABR
+do
+    local s = MAIN_SRC:find("    function EABR.FvClassBuffs()", 1, true)
+    local e = s and select(2, MAIN_SRC:find("        return t\n    end\n", s, true))
+    assert(s and e, "EABR.FvClassBuffs not found in the main file")
+    assert(loadstring("local EABR = ...\n" .. MAIN_SRC:sub(s, e), "=FvClassBuffs"))(EABR)
+end
 
 local db = { profile = { forever = {
     camp = false, gather = false, gatherClassTrack = true, treasure = false, wellFed = false, mageArmor = false,
@@ -271,5 +300,203 @@ TEST.weapon[16] = nil
 got = Collect()
 assert(got == "forever:1001,forever:g1", "an empty hand reminded: " .. got)
 fo.weapon = false
+
+-- 8. a spell group's click casts its spell by name, and its tooltip is the rank that name
+--    resolves to: the group's own ID leads its rank list, so the list's order says nothing; a
+--    rank learned later is read again once the families are rebuilt
+local function GroupEntry(list, key)
+    for _, entry in ipairs(list) do
+        if entry.dismissKey == key then return entry end
+    end
+end
+NAMES[5001], NAMES[5002], NAMES[5003] = "Shadow Protection", "Shadow Protection", "Shadow Protection"
+BOOK[#BOOK + 1] = 5001
+BOOK[#BOOK + 1] = 5002
+local groupsBefore = fo.customGroups
+fo.customGroups = { groupsBefore[1], { name = "Shadow", ids = { 5003 } } }
+EABR._fvFamDirty = true
+got, missing = Collect()
+assert(got == "forever:1001,forever:g1,forever:g2", "a second spell group: " .. got)
+e = GroupEntry(missing, "forever:g2")
+assert(e.mode == "macro" and e.macro == "/cast [@player] Shadow Protection",
+    "a spell group's click does not cast its spell by name")
+assert(e.spellID == 5002, "ranks 1-2 known, the tooltip is not rank 2: " .. tostring(e.spellID))
+assert(e.label == "Shadow" and e.texture == 5003, "a spell group's label or icon")
+-- rank 3 learned (LEARNED_SPELL_IN_SKILL_LINE marks the families): the group's own ID, now the
+-- top rank, leads a list the lower ranks follow
+BOOK[#BOOK + 1] = 5003
+EABR._fvFamDirty = true
+got, missing = Collect()
+e = GroupEntry(missing, "forever:g2")
+assert(e.spellID == 5003, "a group holding the top rank shows a lower rank's tooltip: " .. tostring(e.spellID))
+fo.customGroups = groupsBefore
+for _ = 1, 3 do BOOK[#BOOK] = nil end
+EABR._fvFamDirty = true
+
+-- 9. a custom spell the character knows casts on click by name, as a spell group does, its
+--    tooltip the rank that name resolves to; one it does not know (a buff someone else casts)
+--    is only shown, and so is one whose name the client has not loaded
+NAMES[3001] = "Mark of the Wild"
+fo.customIDs = { 1001, 3001, 4001 }
+EABR._fvFamDirty = true
+got, missing = Collect()
+assert(got == "forever:1001,forever:3001,forever:4001,forever:g1", "three custom spells: " .. got)
+e = GroupEntry(missing, "forever:1001")
+assert(e.mode == "macro" and e.macro == "/cast [@player] Inner Fire" and e.spellID == 1001,
+    "a known custom spell does not cast by name on click")
+assert(e.label == "Inner Fire" and e.texture == 1001, "a known custom spell's label or icon")
+e = GroupEntry(missing, "forever:3001")
+assert(e.mode == "texture" and e.macro == nil and e.spellID == 3001,
+    "a custom spell the character does not know got a click")
+e = GroupEntry(missing, "forever:4001")
+assert(e.mode == "texture" and e.macro == nil and e.label == "4001",
+    "a custom spell with no name got a click")
+-- rank 2 learned: the stored rank 1 now casts and shows rank 2
+NAMES[1002] = "Inner Fire"
+BOOK[#BOOK + 1] = 1002
+EABR._fvFamDirty = true
+got, missing = Collect()
+e = GroupEntry(missing, "forever:1001")
+assert(e.mode == "macro" and e.spellID == 1002,
+    "a known custom spell's tooltip is not its top rank: " .. tostring(e.spellID))
+BOOK[#BOOK] = nil
+NAMES[1002], NAMES[3001] = nil, nil
+fo.customIDs = { 1001 }
+EABR._fvFamDirty = true
+
+-- 10. the class buffs: ticked by default the always-on buffs (not Thorns, Righteous Fury or Shadowform); the
+--     strongest line known first;
+--     another caster's blessing holds the reminder back unrecorded, the player's own is recorded and the next
+--     reminder casts its rank; a Greater Blessing counts as its line and is never cast; paladin auras count only
+--     when the player's own; an unticked buff; a class with none; the spells the ticked buffs cover (rebuilt as the
+--     ticked set changes); through the section only out of combat and outside PvP, where the user's own custom
+--     spell and a group made only of covered spells stand down, never deleted. Then Mage Armors, same helper.
+local function ClassEntries(class, cfo)
+    local entries = {}
+    EABR.CollectClassBuffs(entries, cfo, false, {}, class)
+    return entries
+end
+local function Recorded(key)
+    local s = EllesmereUIDB.classBuffByChar
+    return s and s["Tester-Realm"] and s["Tester-Realm"][key]
+end
+local bookBefore = #BOOK
+for _, id in ipairs({ 19740, 19834, 19742, 19850, 465, 10290 }) do BOOK[#BOOK + 1] = id end
+NAMES[19740], NAMES[19834], NAMES[25780] = "Blessing of Might", "Blessing of Might", "Righteous Fury"
+local pfo = { classBuffPicks = {} }
+local cb = ClassEntries("PALADIN", pfo)
+e = GroupEntry(cb, "forever:class_blessing")
+assert(e and e.mode == "spell" and e.spellID == 19834, "the strongest blessing: " .. tostring(e and e.spellID))
+e = GroupEntry(cb, "forever:class_paladinaura")
+assert(e and e.spellID == 10290, "the strongest aura: " .. tostring(e and e.spellID))
+assert(not GroupEntry(cb, "forever:class_rfury"), "Righteous Fury showed while off by default")
+TEST.up[19835], TEST.src[19835] = true, "party1"
+assert(not GroupEntry(ClassEntries("PALADIN", pfo), "forever:class_blessing"),
+    "another caster's blessing did not hold the reminder back")
+assert(not Recorded("blessing"), "another caster's blessing was recorded")
+TEST.up[19835], TEST.src[19835] = nil, nil
+TEST.up[19850] = true
+assert(not GroupEntry(ClassEntries("PALADIN", pfo), "forever:class_blessing"), "the player's own Wisdom still reminded")
+assert(Recorded("blessing") == 1, "the player's own Wisdom was not recorded")
+TEST.up[19850] = nil
+e = GroupEntry(ClassEntries("PALADIN", pfo), "forever:class_blessing")
+assert(e and e.spellID == 19850, "the recorded blessing's rank: " .. tostring(e and e.spellID))
+TEST.up[25898] = true
+assert(not GroupEntry(ClassEntries("PALADIN", pfo), "forever:class_blessing"), "a Greater Blessing did not count")
+assert(Recorded("blessing") == 2, "the Greater Blessing's line was not recorded")
+TEST.up[25898] = nil
+TEST.up[465], TEST.src[465] = true, "party2"
+assert(GroupEntry(ClassEntries("PALADIN", pfo), "forever:class_paladinaura"), "another caster's aura cleared the reminder")
+TEST.src[465] = nil
+assert(not GroupEntry(ClassEntries("PALADIN", pfo), "forever:class_paladinaura"),
+    "the player's own aura did not clear the reminder")
+TEST.up[465] = nil
+pfo.classBuffPicks.paladinaura = false
+assert(not GroupEntry(ClassEntries("PALADIN", pfo), "forever:class_paladinaura"), "an unticked buff still reminded")
+assert(#ClassEntries("WARRIOR", pfo) == 0, "a warrior got class buff reminders")
+-- the covered spells: by ID and by name for the ticked buffs only, rebuilt when the ticked set changes
+local cIDs, cNames = EABR.FvClassTracked({ classBuffPicks = {} }, "PALADIN")
+assert(cIDs and cIDs[19740] and cIDs[25898] and cNames["Blessing of Might"] and not cIDs[25780],
+    "the default paladin buffs' spells are not the covered set")
+cIDs = EABR.FvClassTracked({ classBuffPicks = { blessing = false, paladinaura = false, rfury = true } }, "PALADIN")
+assert(cIDs and cIDs[25780] and not cIDs[19740], "the covered set did not follow the ticked buffs")
+assert(EABR.FvClassTracked({ classBuffPicks = { blessing = false, paladinaura = false } }, "PALADIN") == nil,
+    "a covered set with nothing ticked")
+assert(EABR.FvClassTracked({}, "WARRIOR") == nil, "a class without class buffs covers spells")
+-- the defaults of the other classes: the always-on buffs ticked, Shadowform and Thorns not
+for _, id in ipairs({ 588, 15473, 467 }) do BOOK[#BOOK + 1] = id end
+cb = ClassEntries("PRIEST", { classBuffPicks = {} })
+assert(GroupEntry(cb, "forever:class_innerfire") and not GroupEntry(cb, "forever:class_shadowform"),
+    "a priest's defaults: Inner Fire ticked, Shadowform not")
+assert(#ClassEntries("DRUID", { classBuffPicks = {} }) == 0, "Thorns started ticked")
+-- through the section (this harness's player is a priest): Inner Fire, ticked by default, shows and the
+-- user's own reminders for it stand down (the custom spell, by name, and a group made only of it), while a
+-- group of other spells and one with a spell the class buffs do not cover stay
+NAMES[588] = "Inner Fire"
+EABR._fvFamDirty = true
+fo.customGroups[#fo.customGroups + 1] = { name = "Fire", ids = { 1001 } }
+fo.customGroups[#fo.customGroups + 1] = { name = "Mixed", ids = { 1001, 2001 } }
+local function HasLabel(list, label)
+    for _, x in ipairs(list) do if x.label == label then return true end end
+end
+got, cb = Collect()
+assert(got:find("forever:class_innerfire", 1, true), "Inner Fire did not show through the section: " .. got)
+assert(not got:find("forever:1001", 1, true), "the custom Inner Fire showed beside the class buff: " .. got)
+assert(not HasLabel(cb, "Fire"), "a group made only of Inner Fire showed beside the class buff")
+assert(got:find("forever:g1", 1, true), "a group of other spells stood down: " .. got)
+assert(HasLabel(cb, "Mixed"), "a group with a spell the class buffs do not cover stood down")
+TEST.combat = true
+got = Collect()
+assert(got == "", "class buffs showed in combat: " .. got)
+TEST.combat = false
+-- PvP: Class Buffs does not run there, so the user's own reminders show
+cb = {}
+EABR.CollectForever(cb, false, true)
+assert(not GroupEntry(cb, "forever:class_innerfire"), "class buffs showed in PvP")
+assert(GroupEntry(cb, "forever:1001") and HasLabel(cb, "Fire"), "the user's own reminders stood down in PvP")
+-- unticked: they are back, nothing was deleted
+fo.classBuffPicks = { innerfire = false }
+got, cb = Collect()
+assert(got:find("forever:1001", 1, true) and HasLabel(cb, "Fire") and fo.customIDs[1] == 1001,
+    "the user's own reminders did not come back once unticked: " .. got)
+fo.classBuffPicks = nil
+fo.customGroups[#fo.customGroups] = nil
+fo.customGroups[#fo.customGroups] = nil
+NAMES[588], NAMES[19740], NAMES[19834], NAMES[25780] = nil, nil, nil, nil
+-- Mage Armors: nothing up casts the strongest line's best rank, a line up is recorded and leads the next reminder
+EABR.MAGE_ARMORS = { { 168, 7300 }, { 7302 }, { 6117, 22782 } }
+for _, id in ipairs({ 168, 7300, 7302, 6117 }) do BOOK[#BOOK + 1] = id end
+cb = {}
+EABR.CollectMageArmor(cb, false, {})
+assert(#cb == 1 and cb[1].spellID == 6117 and cb[1].dismissKey == "forever:magearmor",
+    "Mage Armors with nothing up: " .. tostring(cb[1] and cb[1].spellID))
+TEST.up[7302] = true
+cb = {}
+EABR.CollectMageArmor(cb, false, {})
+assert(#cb == 0 and EllesmereUIDB.mageArmorByChar["Tester-Realm"] == 2, "Ice Armor up was not recorded")
+TEST.up[7302] = nil
+cb = {}
+EABR.CollectMageArmor(cb, false, {})
+assert(#cb == 1 and cb[1].spellID == 7302, "the recorded armor's rank: " .. tostring(cb[1] and cb[1].spellID))
+for _ = #BOOK, bookBefore + 1, -1 do BOOK[#BOOK] = nil end
+EABR._fvFamDirty = true
+
+-- 11. a custom spell reminds only the classes ticked on its slot, every class while none is unticked (Inner Fire's
+--     class buff unticked here, so its stand-down stays out of it); the options list names the paladin's
+--     Blessing and Aura Blessings and Important Auras, their reminders keep Blessing and Aura
+fo.classBuffPicks = { innerfire = false }
+got = Collect()
+assert(got:find("forever:1001", 1, true), "the custom spell did not show with every class ticked: " .. got)
+fo.customClasses = { [1001] = { PRIEST = false } }
+got = Collect()
+assert(not got:find("forever:1001", 1, true), "the custom spell showed on a class unticked on it: " .. got)
+assert(got:find("forever:g1", 1, true), "a class unticked on a custom spell hid a spell group: " .. got)
+fo.customClasses = { [1001] = { MAGE = false } }
+got = Collect()
+assert(got:find("forever:1001", 1, true), "the custom spell stood down on a class still ticked on it: " .. got)
+fo.customClasses, fo.classBuffPicks = nil, nil
+local pal = EABR.FvClassBuffs().PALADIN
+assert(pal[1].menu == "Blessings" and pal[1].label == "Blessing", "the blessing's list and reminder names")
+assert(pal[2].menu == "Important Auras" and pal[2].label == "Aura", "the aura's list and reminder names")
 
 print("aurabuff reminders forever combat harness: ok")

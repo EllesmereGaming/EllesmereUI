@@ -117,6 +117,17 @@ local function ClassPresetSpells(spellList, class)
     return #usable > 0 and usable or all
 end
 
+-- The dispels the Dispels key casts: this class's preset entries, and on WoW
+-- Forever only the first of them (see the Forever list below). The list is a
+-- fresh table per call, so it is cut in place.
+local function DispelPresetSpells(class)
+    local list = ClassPresetSpells(DISPEL_SPELLS, class)
+    if EllesmereUI.IS_FOREVER then
+        for i = #list, 2, -1 do list[i] = nil end
+    end
+    return list
+end
+
 -- Resurrection spells by class: single (ooc), group (ooc), battle (combat)
 local REZ_BY_CLASS = {
     PRIEST      = { single = 2006,   group = 212036 },
@@ -136,19 +147,22 @@ local REZ_ITEMS = { 269586, 248486 }
 
 -- WoW Forever: the vanilla spells. An entry's alts are its higher ranks and a
 -- rez slot lists every rank ID, rank 1 first; /cast by name casts the highest
--- rank the character knows. Each class's dispels run in priority order (the
--- first known line fires), Paladin is the only class with an external, and
--- there is no group rez, no Warlock entry and no combat rez item.
+-- rank the character knows. Each class's dispels are in priority order and the
+-- Dispels key casts only the first one the character knows (DispelPresetSpells):
+-- a dispel casts even with nothing to remove and starts the GCD, so a later line
+-- could never fire (the others can be bound as spell bindings). Paladin is the
+-- only class with an external, and there is no group rez, no Warlock entry and
+-- no combat rez item.
 if EllesmereUI.IS_FOREVER then
     DISPEL_SPELLS = {
         { id = 527,   name = "Dispel Magic",        class = "PRIEST", alts = { 988 } },
         { id = 552,   name = "Abolish Disease",     class = "PRIEST" },
-        { id = 528,   name = "Cure Disease",        class = "PRIEST" },
+        { id = 528,   name = "Cure Disease",        class = "PRIEST" },   -- before Dispel Magic is learned
         { id = 4987,  name = "Cleanse",             class = "PALADIN" },
         { id = 1152,  name = "Purify",              class = "PALADIN" },  -- before Cleanse is learned
         { id = 2782,  name = "Remove Curse",        class = "DRUID" },
         { id = 2893,  name = "Abolish Poison",      class = "DRUID" },
-        { id = 8946,  name = "Cure Poison",         class = "DRUID" },
+        { id = 8946,  name = "Cure Poison",         class = "DRUID" },    -- before Remove Curse is learned
         { id = 526,   name = "Cure Poison",         class = "SHAMAN" },
         { id = 2870,  name = "Cure Disease",        class = "SHAMAN" },
         { id = 475,   name = "Remove Lesser Curse", class = "MAGE" },
@@ -162,7 +176,8 @@ if EllesmereUI.IS_FOREVER then
         PRIEST  = { single = { 2006, 2010, 10880, 10881, 20770 } },
         PALADIN = { single = { 7328, 10322, 10324, 20772, 20773 } },
         SHAMAN  = { single = { 2008, 20609, 20610, 20776, 20777 } },
-        DRUID   = { battle = { 20484, 20739, 20742, 20747, 20748 } },
+        DRUID   = { single = { 437138, 1237948, 1237949, 1237950, 1237951 },  -- Revive
+                    battle = { 20484, 20739, 20742, 20747, 20748 } },
     }
     REZ_ITEMS = {}
 end
@@ -622,6 +637,12 @@ local function ComputeKnownSignature()
         watchCommandDemon = true
         sigParts[#sigParts + 1] = "|" .. (C_Spell.GetOverrideSpell(119898) or 0)
     end
+    -- WoW Forever: the Dispels key casts the first dispel the character knows,
+    -- so learning a better one (or the book filling in after login) rebuilds it.
+    if hasDispel and EllesmereUI.IS_FOREVER then
+        local sp = DispelPresetSpells(select(2, UnitClass("player")))[1]
+        sigParts[#sigParts + 1] = "|d" .. (sp and sp.id or 0)
+    end
     return table.concat(sigParts)
 end
 
@@ -684,7 +705,7 @@ function ns.CC_FormatKey(keyStr)
     for m in parsed.modifiers:gmatch("([^-]+)") do
         display[#display + 1] = m == "SHIFT" and "Shift" or m == "CTRL" and "Ctrl" or m == "ALT" and "Alt" or m == "META" and "Cmd" or m
     end
-    display[#display + 1] = KEY_DISPLAY[parsed.key] or parsed.key
+    display[#display + 1] = EllesmereUI.L(KEY_DISPLAY[parsed.key]) or parsed.key
     return table.concat(display, " + ")
 end
 ns.CC_ParseKeyString = ParseKeyString
@@ -967,6 +988,41 @@ local function BuildRezLines(binding, guard, standalone, noItem)
     return lines
 end
 
+-- A macro binding's macro index, or nil. An account macro and a character
+-- macro may share a name, and GetMacroIndexByName then returns either one,
+-- so a binding records the tab it was picked from (macroChar true or false)
+-- and is looked up in that tab only: with its own macro gone it casts
+-- nothing rather than a namesake. Bindings saved before that (macroChar nil)
+-- look in the account tab first, then up by name.
+local function GetBindingMacroIndex(b)
+    local name = b.macroName
+    if not name then return nil end
+    local numAccount, numChar = GetNumMacros()
+    local first, last = 1, numAccount or 0
+    if b.macroChar then
+        first, last = MAX_ACCOUNT_MACROS + 1, MAX_ACCOUNT_MACROS + (numChar or 0)
+    end
+    for i = first, last do
+        if GetMacroInfo(i) == name then return i end
+    end
+    if b.macroChar ~= nil then return nil end
+    local idx = GetMacroIndexByName(name)
+    if idx and idx > 0 then return idx end
+    return nil
+end
+
+-- The pickers' "already bound" key for a macro: its name within its own tab,
+-- so a bound character macro does not dim an account macro of the same name.
+local function MacroBoundKey(name, isChar)
+    return (isChar and "char:" or "account:") .. name
+end
+
+-- Marks a binding's macro as bound, in the tab it resolves to.
+local function MarkBoundMacro(set, b)
+    local idx = b.macroName and GetBindingMacroIndex(b)
+    if idx then set[MacroBoundKey(b.macroName, idx > MAX_ACCOUNT_MACROS)] = true end
+end
+
 -- Builds base macrotext (no Smart Rez). Returns nil when no macro wrapping is
 -- needed (applied as a direct spell instead).
 local function BuildBaseMacroText(binding)
@@ -1027,10 +1083,8 @@ local function BuildBaseMacroText(binding)
         end
         return SpellCastLine(binding, "[" .. table.concat(conds, ",") .. guard .. "]")
     elseif binding.type == "macro" then
-        local macroName = binding.macroName
-        if not macroName then return nil end
-        local idx = GetMacroIndexByName(macroName)
-        if not idx or idx == 0 then return nil end
+        local idx = GetBindingMacroIndex(binding)
+        if not idx then return nil end
         local body = GetMacroBody(idx)
         if not body then return nil end
         if binding.oocOnly then
@@ -1076,13 +1130,14 @@ local function BuildBaseMacroText(binding)
         end
         return table.concat(lines, "\n")
     elseif binding.type == "dispel" or binding.type == "external" then
-        local spellList = binding.type == "dispel" and DISPEL_SPELLS or EXTERNAL_SPELLS
         local _, pClass = UnitClass("player")
+        local spells = binding.type == "dispel" and DispelPresetSpells(pClass)
+            or ClassPresetSpells(EXTERNAL_SPELLS, pClass)
         local lines = {}
         if binding.oocOnly then
             lines[#lines + 1] = "/stopmacro [combat]"
         end
-        for _, sp in ipairs(ClassPresetSpells(spellList, pClass)) do
+        for _, sp in ipairs(spells) do
             -- /cast resolves by localized name; hardcoded English sp.name would
             -- silently fail on non-English clients. Fall back to sp.name only if
             -- the API is unavailable/empty.
@@ -1215,7 +1270,7 @@ end
 function ns.CC_GetBindingIcon(b)
     if b.type == "dispel" then
         local _, pc = UnitClass("player")
-        for _, sp in ipairs(ClassPresetSpells(DISPEL_SPELLS, pc)) do
+        for _, sp in ipairs(DispelPresetSpells(pc)) do
             local tex = C_Spell.GetSpellTexture and C_Spell.GetSpellTexture(sp.id)
             if tex then return tex end
         end
@@ -1254,8 +1309,8 @@ function ns.CC_GetBindingIcon(b)
         if info and info.iconID then return info.iconID end
     end
     if b.macroName then
-        local idx = GetMacroIndexByName(b.macroName)
-        if idx and idx > 0 then
+        local idx = GetBindingMacroIndex(b)
+        if idx then
             local _, iconTex = GetMacroInfo(idx)
             if iconTex then return iconTex end
         end
@@ -1274,7 +1329,18 @@ function ns.CC_GetBindingName(b)
     if b.type == "trinket2" then return EllesmereUI.L("Trinket 2") end
     if b.type == "dynamicrez" then return EllesmereUI.L("Dynamic Rez") end
     if b.type == "spell" then return b.spell or EllesmereUI.L("Unknown Spell") end
-    if b.type == "macro" then return b.macroName or EllesmereUI.L("Unknown Macro") end
+    if b.type == "macro" then
+        if not b.macroName then return EllesmereUI.L("Unknown Macro") end
+        -- A character macro reads "(C) name", as in the pickers, so it is told
+        -- apart from an account macro of the same name. A binding saved before
+        -- the tab was recorded shows the tab it resolves to.
+        local isChar = b.macroChar
+        if isChar == nil then
+            local idx = GetBindingMacroIndex(b)
+            isChar = idx ~= nil and idx > MAX_ACCOUNT_MACROS
+        end
+        return isChar and ("(C) " .. b.macroName) or b.macroName
+    end
     if b.type == "item" then
         if b.itemSlot then
             local itemID = GetInventoryItemID("player", b.itemSlot)
@@ -1601,13 +1667,10 @@ local function ResolveBinding(b)
         local rankID = PinnedRankID(b)
         return "spell", rankID and tostring(rankID) or ResolveCastSpellName(b), nil
     elseif b.type == "macro" then
-        local macroName = b.macroName
-        if macroName then
-            local idx = GetMacroIndexByName(macroName)
-            if idx and idx > 0 then
-                local body = GetMacroBody(idx)
-                return "macro", nil, body
-            end
+        local idx = GetBindingMacroIndex(b)
+        if idx then
+            local body = GetMacroBody(idx)
+            return "macro", nil, body
         end
         return nil, nil, nil
     end
@@ -2252,6 +2315,23 @@ local function RepaintFrames(plan, bindings)
     end
 end
 
+-- The bound macros as the last apply read them: for each macro binding, the
+-- macro it finds (its index, or "-" while none matches) and that macro's body.
+-- Empty while no active binding is a macro. UPDATE_MACROS re-applies only
+-- when this changes, so an edit to a macro no binding uses costs one read.
+local macroSig = ""
+local macroParts = {}
+local function MacroSignature(bindings)
+    wipe(macroParts)
+    for _, b in ipairs(bindings) do
+        if b.type == "macro" then
+            local idx = GetBindingMacroIndex(b)
+            macroParts[#macroParts + 1] = idx and (idx .. "\30" .. (GetMacroBody(idx) or "")) or "-"
+        end
+    end
+    return table.concat(macroParts, "\31")
+end
+
 function ns.CC_ApplyBindings()
     if not ccInitialized then pendingApply = true; return end
     if InCombatLockdown() then pendingApply = true; return end
@@ -2295,6 +2375,15 @@ function ns.CC_ApplyBindings()
         ccEventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
     else
         ccEventFrame:UnregisterEvent("BAG_UPDATE_DELAYED")
+    end
+
+    -- A macro binding carries a copy of its macro's text, so macros are watched
+    -- only while an active binding is one: an edit, rename or delete re-applies.
+    macroSig = MacroSignature(bindings)
+    if macroSig ~= "" then
+        ccEventFrame:RegisterEvent("UPDATE_MACROS")
+    else
+        ccEventFrame:UnregisterEvent("UPDATE_MACROS")
     end
 
     -- A "both" binding is a frame binding AND a hover binding: frame attributes
@@ -2695,6 +2784,12 @@ local function OnCCEvent(self, event)
         if CarriedRezItem() ~= rezItemID then
             if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
         end
+    elseif event == "UPDATE_MACROS" then
+        -- A macro was created, edited, renamed or deleted: re-applies only when a
+        -- bound macro now resolves or reads differently.
+        if MacroSignature(GetActiveBindings()) ~= macroSig then
+            if not InCombatLockdown() then ns.CC_ApplyBindings() else pendingApply = true end
+        end
     elseif event == "GROUP_ROSTER_UPDATE" then
         -- Solo <-> party <-> raid transitions change which bindings are active.
         -- GROUP_ROSTER_UPDATE fires every join, leave, promote and zone-in, so
@@ -2999,12 +3094,12 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     local boundSpells, boundMacros, boundItems = {}, {}, {}
     for _, b in ipairs(GetGlobalBindings()) do
         if b.spell then boundSpells[ns.CC_SpellBoundKey(b.spellID, b.spell, b.rankPinned)] = true end
-        if b.macroName then boundMacros[b.macroName] = true end
+        MarkBoundMacro(boundMacros, b)
         if b.itemSlot then boundItems[b.itemSlot] = true end
     end
     for _, b in ipairs(GetSpecBindings()) do
         if b.spell then boundSpells[ns.CC_SpellBoundKey(b.spellID, b.spell, b.rankPinned)] = true end
-        if b.macroName then boundMacros[b.macroName] = true end
+        MarkBoundMacro(boundMacros, b)
         if b.itemSlot then boundItems[b.itemSlot] = true end
     end
     local _, pClass = UnitClass("player")
@@ -3017,7 +3112,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
     end
     if hasDispel then
-        for _, sp in ipairs(ClassPresetSpells(DISPEL_SPELLS, pClass)) do
+        for _, sp in ipairs(DispelPresetSpells(pClass)) do
             -- Matches the localized name stored by the spell picker, so
             -- "already bound" dimming works on non-English clients.
             local n = (C_Spell.GetSpellName and C_Spell.GetSpellName(sp.id)) or sp.name
@@ -3634,7 +3729,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     div:SetPoint("TOPRIGHT", gridChildG, "TOPRIGHT", 0, cy + RGAPG / 2)
                     div:Show()
                 end
-                local dimmedG = (itm.macroName and boundMacros[itm.macroName])
+                local dimmedG = (itm.macroName and boundMacros[MacroBoundKey(itm.macroName, itm.macroChar)])
                     or (itm.itemSlot and boundItems[itm.itemSlot])
                 local cell, iconBd, cellLbl = DressPickerCell(gridChildG, i, cx, cy, CWG, rHG[r],
                     itm.icon, dimmedG, rhtG[r] and itm.name and itm.name ~= "" and itm.name or nil,
@@ -3656,13 +3751,15 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 mtBgG:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.25)
                 local macros = ns.CC_GetGlobalMacros()
                 local mItems = {}
-                for _, m in ipairs(macros) do mItems[#mItems + 1] = { name = m.name, icon = m.icon, macroName = m.name } end
+                for _, m in ipairs(macros) do
+                    mItems[#mItems + 1] = { name = m.name, icon = m.icon, macroName = m.name, macroChar = false }
+                end
                 PopulateGridG(mItems, function(itm)
                     -- Macros default to BOTH reactions (unlike spells, which
                     -- default friendly-only for the click-cast healing case): a
                     -- macro is general-purpose (e.g. mouseover focus/target), so
                     -- friendly-only would leave it dead on enemies.
-                    ns.CC_AddGlobalBinding({ type = "macro", macroName = itm.macroName, icon = itm.icon,
+                    ns.CC_AddGlobalBinding({ type = "macro", macroName = itm.macroName, macroChar = itm.macroChar, icon = itm.icon,
                         enabled = true, oocOnly = false, hovercast = false, hoverFriendly = true, hoverEnemy = true })
                     ns._ccSelSide = "global"; ns._ccSelIndex = #(GetGlobalBindings()); RebuildPage()
                 end)
@@ -3971,7 +4068,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     div:Show()
                 end
                 local dimmed3 = (item.id and ns.CC_IsSpellBound(boundSpells, item.id, item.name, item.lowRank))
-                    or (item.macroName and boundMacros[item.macroName])
+                    or (item.macroName and boundMacros[MacroBoundKey(item.macroName, item.macroChar)])
                     or (item.itemSlot and boundItems[item.itemSlot])
                 -- A WoW Forever lower rank labels itself by its rank.
                 local cell, iconBd, cellLbl3 = DressPickerCell(gridChildQB, i, cx, cy, QB_CELL, rH3[r],
@@ -4009,6 +4106,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                             hoverFriendly = true, hoverEnemy = true, rankPinned = hoveredItem.lowRank }
                     elseif hoveredItem.macroName then
                         binding = { type = "macro", macroName = hoveredItem.macroName,
+                            macroChar = hoveredItem.macroChar,
                             icon = hoveredItem.icon, key = captured, enabled = true,
                             hoverFriendly = true, hoverEnemy = true }
                     elseif hoveredItem.itemSlot then
@@ -4018,7 +4116,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     end
                     if binding then
                         ns.CC_AddSpecBinding(binding)
-                        if hoveredItem.macroName then boundMacros[hoveredItem.macroName] = true
+                        if hoveredItem.macroName then boundMacros[MacroBoundKey(hoveredItem.macroName, hoveredItem.macroChar)] = true
                         elseif hoveredItem.itemSlot then boundItems[hoveredItem.itemSlot] = true
                         else boundSpells[ns.CC_SpellBoundKey(hoveredItem.id, hoveredItem.name or "",
                             hoveredItem.lowRank)] = true end
@@ -4039,6 +4137,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                             hoverFriendly = true, hoverEnemy = true, rankPinned = hoveredItem.lowRank }
                     elseif hoveredItem.macroName then
                         binding = { type = "macro", macroName = hoveredItem.macroName,
+                            macroChar = hoveredItem.macroChar,
                             icon = hoveredItem.icon, key = captured, enabled = true,
                             hoverFriendly = true, hoverEnemy = true }
                     elseif hoveredItem.itemSlot then
@@ -4048,7 +4147,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     end
                     if binding then
                         ns.CC_AddSpecBinding(binding)
-                        if hoveredItem.macroName then boundMacros[hoveredItem.macroName] = true
+                        if hoveredItem.macroName then boundMacros[MacroBoundKey(hoveredItem.macroName, hoveredItem.macroChar)] = true
                         elseif hoveredItem.itemSlot then boundItems[hoveredItem.itemSlot] = true
                         else boundSpells[ns.CC_SpellBoundKey(hoveredItem.id, hoveredItem.name or "",
                             hoveredItem.lowRank)] = true end
@@ -4074,7 +4173,8 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 local mItems = {}
                 for _, m in ipairs(macros) do
                     local prefix = m.isGlobal and "" or "(C) "
-                    mItems[#mItems + 1] = { name = prefix .. m.name, icon = m.icon, macroName = m.name }
+                    mItems[#mItems + 1] = { name = prefix .. m.name, icon = m.icon, macroName = m.name,
+                        macroChar = not m.isGlobal }
                 end
                 PopulateGridQB(mItems)
             else
@@ -4256,7 +4356,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 end
 
                 local dimmed = (item.id and ns.CC_IsSpellBound(boundSpells, item.id, item.name, item.lowRank))
-                    or (item.macroName and boundMacros[item.macroName])
+                    or (item.macroName and boundMacros[MacroBoundKey(item.macroName, item.macroChar)])
                     or (item.itemSlot and boundItems[item.itemSlot])
                 -- A WoW Forever lower rank labels itself by its rank.
                 local cell, iconBdr2, cellLbl2 = DressPickerCell(gridChild, i, cx, cy, CW2, rH2[r],
@@ -4306,11 +4406,12 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                 local mItems = {}
                 for _, m in ipairs(macros) do
                     local prefix = m.isGlobal and "" or "(C) "
-                    mItems[#mItems + 1] = { name = prefix .. m.name, icon = m.icon, macroName = m.name }
+                    mItems[#mItems + 1] = { name = prefix .. m.name, icon = m.icon, macroName = m.name,
+                        macroChar = not m.isGlobal }
                 end
                 PopulateGrid(mItems, function(item)
                     ns.CC_AddSpecBinding({
-                        type = "macro", macroName = item.macroName, icon = item.icon,
+                        type = "macro", macroName = item.macroName, macroChar = item.macroChar, icon = item.icon,
                         enabled = true, oocOnly = false, hovercast = false,
                         -- Both reactions: see the global macro add above.
                         hoverFriendly = true, hoverEnemy = true,

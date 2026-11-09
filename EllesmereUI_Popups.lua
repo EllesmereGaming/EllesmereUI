@@ -185,6 +185,9 @@ function EllesmereUI.MakeActionButton(parent, font, text, r, g, b, opts)
         lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
         brd:SetColor(r, g, b, secondary and 0.35 or 0.9)
     end)
+    -- The label, for a popup that changes its font later (the Talent Conditions
+    -- picker takes its opener's module font).
+    btn._label = lbl
     return btn
 end
 

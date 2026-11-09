@@ -330,7 +330,7 @@ local function SetGuide(id, def)
     ui.blurb:SetWidth(w - 80)
     ui.footnote:SetWidth(w - 80)
     PP.Size(ui.urlWell, def.urlWidth or 350, 34)
-    ui.okLbl:SetText(def.okText or "Okay")
+    ui.okLbl:SetText(EllesmereUI.L(def.okText or "Okay"))
     ui._onDismiss = def.onDismiss
 
     -- Bullet rows: accent-dotted short labels, up to two centered lines; the
@@ -362,17 +362,17 @@ local function SetGuide(id, def)
         PP.Point(ui.urlWell, "TOP", ui.blurb, "BOTTOM", 0, -(gUrl or 18))
     end
 
-    ui.eyebrow:SetText(def.eyebrow or "VIDEO GUIDE")
+    ui.eyebrow:SetText(EllesmereUI.L(def.eyebrow or "VIDEO GUIDE"))
     ui.eyebrow:SetTextColor(accent.r, accent.g, accent.b, 0.9)
     ui.tri:SetColorTexture(accent.r, accent.g, accent.b, 0.9)
     ui.rule:SetColorTexture(accent.r, accent.g, accent.b, 0.35)
-    ui.title:SetText(def.title or "")
-    ui.blurb:SetText(def.blurb or "")
-    ui.hint:SetText("Ctrl+C to copy, Escape to close")
+    ui.title:SetText(EllesmereUI.L(def.title or ""))
+    ui.blurb:SetText(EllesmereUI.L(def.blurb or ""))
+    ui.hint:SetText(EllesmereUI.L("Ctrl+C to copy, Escape to close"))
     ui.hint:SetTextColor(1, 1, 1, 0.45)
     ui.okLbl:SetTextColor(accent.r, accent.g, accent.b, 0.9)
     ui.okBrd:SetColor(accent.r, accent.g, accent.b, 0.9)
-    ui.footnote:SetText(def.footnote or "")
+    ui.footnote:SetText(EllesmereUI.L(def.footnote or ""))
 
     ui.eb._readOnly = def.url or ""
     ui.eb:SetText(def.url or "")
@@ -527,7 +527,7 @@ SlashCmdList["EUIVIDEOS"] = function()
         EllesmereUIDB.tutorialTipsSeen = nil
     end
     RefreshTips()
-    print("|cff00ff98EllesmereUI:|r Video guides and tutorial tips reset. Badges are back; one-time popups will fire again.")
+    print(EllesmereUI.L("|cff00ff98EllesmereUI:|r Video guides and tutorial tips reset. Badges are back; one-time popups will fire again."))
 end
 
 -------------------------------------------------------------------------------
@@ -643,7 +643,7 @@ do
 
     local function ComputeDecision()
         -- RETIRED 2026-09-19: superseded by a newer login announcement (now
-        -- EllesmereUI_GroupFinderPopup.lua) -- only the newest
+        -- EllesmereUI_KickTrackerPopup.lua) -- only the newest
         -- login announcement fires, so users upgrading across versions never
         -- see two intro popups back to back. The guide itself stays reachable
         -- from the Patch Notes video banner and /euivideos. Delete the next
