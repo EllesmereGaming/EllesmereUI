@@ -9,7 +9,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Storage (active profile root):
 --    profile.addonManager = {
 --        defaults = { [addon] = true|false },   -- every character; absent = not managed
---        chars    = { ["Name - Realm"] = { class = classFile,
+--        chars    = { ["Name - Realm"] = { class = classFile, label = "shown name",
 --                                          overrides = { [addon] = true|false } } },
 --        enabled  = true,                       -- the manager is on (off: nothing runs)
 --        menu     = true,                       -- the game menu's AddOns button opens it
@@ -65,6 +65,18 @@ local function CharKey()
     return UnitName("player") .. " - " .. GetRealmName()
 end
 
+-- How this character reads in the window. WoW Forever's realm is a hidden server
+-- name, so there the character reads as "Name Surname", as the game shows it.
+local function CharLabel()
+    if not EllesmereUI.IS_FOREVER then return CharKey() end
+    local name, surname = UnitName("player")
+    if type(surname) == "string" and surname ~= ""
+        and not (issecretvalue and issecretvalue(surname)) then
+        return name .. " " .. surname
+    end
+    return name
+end
+
 -- This character in the store, with the class its name is coloured by.
 local function Remember(s)
     local key = CharKey()
@@ -75,6 +87,7 @@ local function Remember(s)
     end
     c.overrides = c.overrides or {}
     c.class = select(2, UnitClass("player"))
+    c.label = CharLabel()
     return c
 end
 
@@ -555,6 +568,16 @@ end)
 --  first use; this opens it, loading the options addon first.
 -------------------------------------------------------------------------------
 AM.Store, AM.CharKey = Store, CharKey
+
+-- A stored character as the window names it: the label saved at its last login,
+-- else its key (on WoW Forever, the first name alone until it logs in again).
+function AM.Label(key)
+    local s = Store()
+    local c = s and s.chars[key]
+    if c and c.label then return c.label end
+    if EllesmereUI.IS_FOREVER then return key:match("^(.-) %- ") or key end
+    return key
+end
 
 -- Turns the manager on or off. What was chosen stays in the profile.
 function AM.SetEnabled(on)

@@ -541,7 +541,8 @@ local function Selected()
     end
     if not known then sel = me end
     state.sel = sel
-    return sel, sel:match("^(.-) %- ") or sel, chars
+    local who = EllesmereUI.IS_FOREVER and AM.Label(sel) or sel:match("^(.-) %- ") or sel
+    return sel, who, chars
 end
 
 local function CreateWindow()
@@ -751,7 +752,7 @@ local function CreateWindow()
         end
         local _, _, chars = Selected()
         local values = {}
-        for _, key in ipairs(chars) do values[key] = key end
+        for _, key in ipairs(chars) do values[key] = EllesmereUI.AddonManager.Label(key) end
         dd = EllesmereUI.BuildDropdownControl(f, 300, lvl + 3, values, chars,
             function() return state.sel end,
             function(key)
