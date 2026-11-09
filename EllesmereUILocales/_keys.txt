@@ -304,6 +304,7 @@ Blizzard
 Blizzard Style
 Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later.
 Blizzard damage meter is off
+Blizzard's Cooldown Manager has this in %1$s, so it does not show in game. Open Blizzard CDM and move it to %2$s or %3$s.
 Block
 Bloodlust
 Bloodlust / Heroism (Shaman)
