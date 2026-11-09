@@ -326,10 +326,17 @@ local Refresh
 -- Blizzard's layout apply re-anchors the system; a bar update re-anchors the
 -- first slot and Totemic Recall and re-sets the art. Both are answered while
 -- the bar is ours (in combat, at regen).
+local EMTotemSync
+local emSyncedReset
 local function OnSystemAnchor()
     if not owned then return end
     if Blocked() then Queue("CTRefresh", Refresh); return end
     PinBar()
+end
+-- A layout apply (also a layout switch): the store is checked again.
+local function OnLayoutAnchor()
+    OnSystemAnchor()
+    if owned and not Blocked() then emSyncedReset(); EMTotemSync() end
 end
 
 local function OnBarUpdate()
@@ -362,7 +369,7 @@ end
 local function Hook()
     if hooked then return end
     hooked = true
-    hooksecurefunc(bar, "ApplySystemAnchor", OnSystemAnchor)
+    hooksecurefunc(bar, "ApplySystemAnchor", OnLayoutAnchor)
     -- A snap break (Edit Mode resetting, reverting or hiding the system the bar
     -- was snapped to) re-anchors the bar to UIParent: re-pin it the same way.
     if bar.BreakFrameSnap then hooksecurefunc(bar, "BreakFrameSnap", OnSystemAnchor) end
@@ -396,11 +403,54 @@ local function ReleaseSelection()
     if selMouse ~= nil then sel:EnableMouse(selMouse) end
 end
 
+-- Edit Mode's bottom-bar stack re-anchors a bar still in its default position,
+-- also in combat: the active saved layout gets the bar's spot (Uninstall notes it).
+local emAnchor = { point = "TOPLEFT", relativeTo = "UIParent", relativePoint = "BOTTOMLEFT" }
+local emSynced = {}   -- the spot last checked against the store (cleared by a layout apply)
+emSyncedReset = function() emSynced.x, emSynced.y = nil, nil end
+EMTotemSync = function()
+    if Blocked() or not owned or not (C_EditMode and C_EditMode.SaveLayouts) then return end
+    local sysID = Enum.EditModeSystem and Enum.EditModeSystem.TotemActionBar
+    local presetType = Enum.EditModeLayoutType and Enum.EditModeLayoutType.Preset
+    if not sysID or EllesmereUI.EditModeOpen() then return end
+    local left, top, s = bar:GetLeft(), bar:GetTop(), bar:GetScale()
+    if not (left and top and s) then return end
+    emAnchor.offsetX, emAnchor.offsetY = left * s, top * s
+    if emSynced.x == emAnchor.offsetX and emSynced.y == emAnchor.offsetY then return end
+    emSynced.x, emSynced.y = emAnchor.offsetX, emAnchor.offsetY
+    local blob, numPresets = EllesmereUI.EditModeLayoutsForSave()
+    local active = blob and blob.activeLayout
+    local entry = type(active) == "number" and blob.layouts[active]
+    if type(entry) ~= "table" or active <= numPresets or entry.layoutType == presetType then return end
+    if type(entry.systems) ~= "table" then return end
+    local sys
+    for _, si in ipairs(entry.systems) do
+        if type(si) == "table" and si.system == sysID then sys = si; break end
+    end
+    if not sys then return end
+    local ai = sys.anchorInfo
+    if not sys.isInDefaultPosition and sys.anchorInfo2 == nil and type(ai) == "table"
+       and ai.point == emAnchor.point and ai.relativeTo == emAnchor.relativeTo
+       and ai.relativePoint == emAnchor.relativePoint
+       and type(ai.offsetX) == "number" and math.abs(ai.offsetX - emAnchor.offsetX) < 0.5
+       and type(ai.offsetY) == "number" and math.abs(ai.offsetY - emAnchor.offsetY) < 0.5 then
+        return
+    end
+    EllesmereUI.NoteEditModeAnchor(entry, sys, emAnchor)
+    if type(ai) ~= "table" then ai = {}; sys.anchorInfo = ai end
+    ai.point, ai.relativeTo, ai.relativePoint = emAnchor.point, emAnchor.relativeTo, emAnchor.relativePoint
+    ai.offsetX, ai.offsetY = emAnchor.offsetX, emAnchor.offsetY
+    sys.anchorInfo2 = nil
+    sys.isInDefaultPosition = false
+    pcall(C_EditMode.SaveLayouts, blob)
+end
+
 Refresh = function()
     local c = P()
     if not (owned and c) then return end
     Layout(c)
     SkinAll(c)
+    EMTotemSync()
 end
 
 local function Release()
