@@ -485,7 +485,7 @@ local function BuildCardRow(parent, y, opts)
         local hl = row:CreateTexture(nil, "HIGHLIGHT")
         hl:SetAllPoints()
         hl:SetColorTexture(1, 1, 1, 0.05)
-        row._brd = EllesmereUI.MakeBorder(row, 1, 1, 1, 0.08)
+        row._brd = EllesmereUI.MakeRoundedBorder(row, 1, 1, 1, 0.08, hl)
         local icon = row:CreateTexture(nil, "ARTWORK")
         icon:SetSize(26, 26)
         icon:SetPoint("LEFT", row, "LEFT", 8, 0)
@@ -1138,6 +1138,8 @@ RefreshCardsPopup = function()
     y = y - 26
 
     p:SetHeight(-y + 12)
+    -- The height lands after the outline's seat: refit so the bottom edge stays sharp.
+    if p._brd then p._brd:Fit() end
 end
 SetRefreshCardsPopup(RefreshCardsPopup)
 
@@ -1157,7 +1159,7 @@ function EllesmereUI.SpecOverrides_ToggleCardsPopup(anchorBtn)
         local bg = p:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.06, 0.06, 0.07, 0.99)
-        EllesmereUI.MakeBorder(p, 1, 1, 1, 0.15)
+        p._brd = EllesmereUI.MakeRoundedBorder(p, 1, 1, 1, 0.15, bg)
         local title = EllesmereUI.MakeFont(p, 13, nil, ACCENT_R, ACCENT_G, ACCENT_B, 1)
         title:SetPoint("TOP", p, "TOP", 0, -12)
         title:SetText(L("Spec Overrides"))
