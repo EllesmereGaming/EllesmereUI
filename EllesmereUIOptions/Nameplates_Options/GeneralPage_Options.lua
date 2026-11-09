@@ -423,6 +423,12 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                     DB().showNPCTitles = v and true or false
                     if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
                   end },
+                { type = "toggle", label = "Show Raid Marker",
+                  get = function() return DBVal("showNPCRaidMarker") == true end,
+                  set = function(v)
+                    DB().showNPCRaidMarker = v and true or false
+                    if ns.RefreshAllNPCOverlays then ns.RefreshAllNPCOverlays() end
+                  end },
                 { type = "slider", label = "Name Size", min = 6, max = 30, step = 1,
                   get = function() return DBVal("friendlyNPCNameSize") or defaults.friendlyNPCNameSize end,
                   set = function(v)
