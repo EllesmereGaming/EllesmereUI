@@ -900,12 +900,13 @@ initFrame:SetScript("OnEvent", function(self)
                 boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
                 if boxBg.SetSnapToPixelGrid then boxBg:SetSnapToPixelGrid(false); boxBg:SetTexelSnappingBias(0) end
 
-                local boxBrd = EllesmereUI.MakeBorder(box, 0.224, 0.215, 0.207, 0.6, EllesmereUI.PanelPP)
+                local boxBrd = EllesmereUI.MakeRoundedBorder(box, 0.224, 0.215, 0.207, 0.6, boxBg)
 
                 local check = box:CreateTexture(nil, "ARTWORK")
                 check:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
                 check:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
                 check:SetColorTexture(eg.r, eg.g, eg.b, 1)
+                EllesmereUI.RoundBody(box, check, 1)
                 if check.SetSnapToPixelGrid then check:SetSnapToPixelGrid(false); check:SetTexelSnappingBias(0) end
 
                 -- Click area covers the whole cell
@@ -2485,9 +2486,9 @@ initFrame:SetScript("OnEvent", function(self)
             zoneBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
             rgn._lastInline = zoneBtn
 
-            local zoneBrd = EllesmereUI.MakeBorder(zoneBtn, 1, 1, 1, 0.3, EllesmereUI.PanelPP)
             local zoneBg = EllesmereUI.SolidTex(zoneBtn, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, 0.92)
             zoneBg:SetAllPoints()
+            local zoneBrd = EllesmereUI.MakeRoundedBorder(zoneBtn, 1, 1, 1, 0.3, zoneBg)
             local zoneLbl = EllesmereUI.MakeFont(zoneBtn, 12, nil, 1, 1, 1)
             zoneLbl:SetPoint("CENTER")
             zoneLbl:SetText(EllesmereUI.L("Choose Zones"))
@@ -2978,11 +2979,12 @@ initFrame:SetScript("OnEvent", function(self)
             local cbBg = cb:CreateTexture(nil, "BACKGROUND")
             cbBg:SetAllPoints()
             cbBg:SetColorTexture(0.064, 0.052, 0.041, 1)
-            EllesmereUI.MakeBorder(cb, 1, 1, 1, 0.12, EllesmereUI.PanelPP)
+            EllesmereUI.MakeRoundedBorder(cb, 1, 1, 1, 0.12, cbBg)
             local cbCheck = cb:CreateTexture(nil, "OVERLAY")
             cbCheck:SetSize(10, 10)
             cbCheck:SetPoint("CENTER")
             cbCheck:SetColorTexture(eg.r, eg.g, eg.b, 1)
+            EllesmereUI.RoundBody(cb, cbCheck, 2)
             cbCheck:Hide()
             item._cbCheck = cbCheck
 
@@ -3288,7 +3290,7 @@ initFrame:SetScript("OnEvent", function(self)
         addBtnBg:SetAllPoints()
 
         local eg = EllesmereUI.ELLESMERE_GREEN or {r=0.047, g=0.824, b=0.624}
-        local addBtnBorder = EllesmereUI.MakeBorder(addBtn, eg.r, eg.g, eg.b, 0.7, EllesmereUI.PanelPP)
+        local addBtnBorder = EllesmereUI.MakeRoundedBorder(addBtn, eg.r, eg.g, eg.b, 0.7, addBtnBg)
 
         local addBtnText = addBtn:CreateFontString(nil, "OVERLAY")
         addBtnText:SetPoint("CENTER")

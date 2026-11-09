@@ -94,7 +94,7 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
             popup:SetPoint("CENTER", UIParent, "CENTER", 0, 60)
             popup:EnableMouse(true)
             local bg = popup:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0.077, 0.068, 0.058, 1)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
+            P.brd = EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, bg)
             local titleFs = EllesmereUI.MakeFont(popup, 15, nil, 1, 1, 1, 1)
             titleFs:SetPoint("TOP", popup, "TOP", 0, -14); titleFs:SetText("Sync From")
             local subFs = EllesmereUI.MakeFont(popup, 11, nil, 1, 1, 1, 0.45)
@@ -191,6 +191,8 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
             local visH = math.min(listH, MAX_LIST_H)
             P.scroll:SetHeight(visH)
             P.popup:SetHeight(110 + visH)
+            -- Rebuilt while shown (search typing): refit the outline's bottom edge.
+            P.brd:Fit()
             P.scroll:SetVerticalScroll(0)
             if P.updateThumb then P.updateThumb() end
         end

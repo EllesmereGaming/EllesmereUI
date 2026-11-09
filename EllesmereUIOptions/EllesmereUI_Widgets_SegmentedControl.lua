@@ -58,27 +58,34 @@ local function BuildSegmentedControl(cfg)
         measureFS = tmpFS
     end
     tmpFS:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", FONT_SZ, "")
-    local segWidths = {}
+    local segWidths, textW = {}, {}
     local pillW = 0
     for _, key in ipairs(cfg.keys) do
         tmpFS:SetText(EllesmereUI.L(cfg.labels[key] or key))
-        local w = math.ceil(tmpFS:GetStringWidth()) + SEG_PAD * 2
+        textW[key] = math.ceil(tmpFS:GetStringWidth())
+        local w = textW[key] + SEG_PAD * 2
         segWidths[key] = w
         pillW = pillW + w
     end
     tmpFS:Hide()
 
+    -- Square mode: a box with rounded corners. Its segments sit BOX_PAD inside
+    -- one outline, BOX_GAP apart; the checked one carries a rounded marker.
+    local SQUARE = cfg.square and true or false
+    local BOX_PAD, BOX_GAP = 2, 2
+    local boxExtra = SQUARE and (BOX_PAD * 2 + BOX_GAP * (numKeys - 1)) or 0
+
     if not cfg.autoWidth then
-        pillW = cfg.width
+        pillW = cfg.width - boxExtra
         local baseW = math.floor(pillW / numKeys)
         local remainder = pillW - baseW * numKeys
         for idx, key in ipairs(cfg.keys) do
             segWidths[key] = baseW + (idx <= remainder and 1 or 0)
+            -- A long translated label widens its segment instead of overflowing it.
+            segWidths[key] = math.max(segWidths[key], textW[key] + 16)
         end
     end
 
-    -- Square mode option
-    local SQUARE = cfg.square and true or false
     local capW = SQUARE and 0 or SEG_H
     if not SQUARE then
         segWidths[cfg.keys[1]] = math.floor(segWidths[cfg.keys[1]] - capW)
@@ -87,20 +94,21 @@ local function BuildSegmentedControl(cfg)
     pillW = 0
     for _, key in ipairs(cfg.keys) do pillW = pillW + segWidths[key] end
     -- Account for 1px overlap between adjacent segments
-    local overlapTotal = (numKeys - 1) * 1
-    local totalW = pillW + capW * 2 - overlapTotal
+    local overlapTotal = SQUARE and 0 or (numKeys - 1) * 1
+    local totalW = pillW + capW * 2 - overlapTotal + boxExtra
 
     local frame = CreateFrame("Frame", nil, cfg.parent)
     frame:SetSize(totalW, SEG_H)
 
     local pillBody = CreateFrame("Frame", nil, frame)
-    pillBody:SetSize(pillW - overlapTotal, SEG_H)
+    pillBody:SetSize(pillW - overlapTotal + boxExtra, SEG_H)
     PP.Point(pillBody, "TOP", frame, "TOP", 0, 0)
     pillBody:SetFrameLevel(frame:GetFrameLevel() + 1)
 
     local bg = pillBody:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0, 0, 0, 0)  -- transparent; per-segment segBg handles background
+    local boxBdr = SQUARE and EllesmereUI.MakeRoundedBorder(pillBody, INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A, bg)
 
     -------------------------------------------------------------------
     -- Pill caps
@@ -208,12 +216,21 @@ local function BuildSegmentedControl(cfg)
         local thisW = segWidths[key]
 
         local btn = CreateFrame("Button", nil, pillBody)
-        PP.Size(btn, thisW, SEG_H)
-        if i == 1 then
-            PP.Point(btn, "TOPLEFT", pillBody, "TOPLEFT", 0, 0)
+        if SQUARE then
+            PP.Size(btn, thisW, SEG_H - BOX_PAD * 2)
+            if i == 1 then
+                PP.Point(btn, "TOPLEFT", pillBody, "TOPLEFT", BOX_PAD, -BOX_PAD)
+            else
+                PP.Point(btn, "TOPLEFT", segments[i-1].btn, "TOPRIGHT", BOX_GAP, 0)
+            end
         else
-            -- Anchor to previous segment's right edge, shifted 1px left for overlap
-            PP.Point(btn, "TOPLEFT", segments[i-1].btn, "TOPRIGHT", -1, 0)
+            PP.Size(btn, thisW, SEG_H)
+            if i == 1 then
+                PP.Point(btn, "TOPLEFT", pillBody, "TOPLEFT", 0, 0)
+            else
+                -- Anchor to previous segment's right edge, shifted 1px left for overlap
+                PP.Point(btn, "TOPLEFT", segments[i-1].btn, "TOPRIGHT", -1, 0)
+            end
         end
         btn:SetFrameLevel(BASE_LEVEL)
 
@@ -228,31 +245,37 @@ local function BuildSegmentedControl(cfg)
         accentBg:SetColorTexture(ACCENT.r, ACCENT.g, ACCENT.b, 0.05)
         accentBg:Hide()
 
-        -- Full 1px border on all 4 sides matches MakeBorder's pixel-perfect technique: vertical edges inset by 1px to avoid overlapping corners.
-        local segTop = btn:CreateTexture(nil, "ARTWORK", nil, 7)
-        segTop:SetColorTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
-        segTop:SetHeight(1)
-        PP.Point(segTop, "TOPLEFT", btn, "TOPLEFT", 0, 0)
-        PP.Point(segTop, "TOPRIGHT", btn, "TOPRIGHT", 0, 0)
+        -- Square mode: the marker, a rounded outline with segBg as its body.
+        local segTop, segBot, segLeft, segRight, marker
+        if SQUARE then
+            marker = EllesmereUI.MakeRoundedBorder(btn, ACTIVE_R, ACTIVE_G, ACTIVE_B, 0, segBg, 3)
+        else
+            -- Full 1px border on all 4 sides matches MakeBorder's pixel-perfect technique: vertical edges inset by 1px to avoid overlapping corners.
+            segTop = btn:CreateTexture(nil, "ARTWORK", nil, 7)
+            segTop:SetColorTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
+            segTop:SetHeight(1)
+            PP.Point(segTop, "TOPLEFT", btn, "TOPLEFT", 0, 0)
+            PP.Point(segTop, "TOPRIGHT", btn, "TOPRIGHT", 0, 0)
 
-        local segBot = btn:CreateTexture(nil, "ARTWORK", nil, 7)
-        segBot:SetColorTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
-        segBot:SetHeight(1)
-        PP.Point(segBot, "BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
-        PP.Point(segBot, "BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
+            segBot = btn:CreateTexture(nil, "ARTWORK", nil, 7)
+            segBot:SetColorTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
+            segBot:SetHeight(1)
+            PP.Point(segBot, "BOTTOMLEFT", btn, "BOTTOMLEFT", 0, 0)
+            PP.Point(segBot, "BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, 0)
 
-        -- Vertical edges anchored to horizontal edges (inset 1px) to avoid bright corners
-        local segLeft = btn:CreateTexture(nil, "ARTWORK", nil, 7)
-        segLeft:SetColorTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
-        segLeft:SetWidth(1)
-        PP.Point(segLeft, "TOPLEFT", segTop, "BOTTOMLEFT", 0, 0)
-        PP.Point(segLeft, "BOTTOMLEFT", segBot, "TOPLEFT", 0, 0)
+            -- Vertical edges anchored to horizontal edges (inset 1px) to avoid bright corners
+            segLeft = btn:CreateTexture(nil, "ARTWORK", nil, 7)
+            segLeft:SetColorTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
+            segLeft:SetWidth(1)
+            PP.Point(segLeft, "TOPLEFT", segTop, "BOTTOMLEFT", 0, 0)
+            PP.Point(segLeft, "BOTTOMLEFT", segBot, "TOPLEFT", 0, 0)
 
-        local segRight = btn:CreateTexture(nil, "ARTWORK", nil, 7)
-        segRight:SetColorTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
-        segRight:SetWidth(1)
-        PP.Point(segRight, "TOPRIGHT", segTop, "BOTTOMRIGHT", 0, 0)
-        PP.Point(segRight, "BOTTOMRIGHT", segBot, "TOPRIGHT", 0, 0)
+            segRight = btn:CreateTexture(nil, "ARTWORK", nil, 7)
+            segRight:SetColorTexture(INACTIVE_R, INACTIVE_G, INACTIVE_B, INACTIVE_A)
+            segRight:SetWidth(1)
+            PP.Point(segRight, "TOPRIGHT", segTop, "BOTTOMRIGHT", 0, 0)
+            PP.Point(segRight, "BOTTOMRIGHT", segBot, "TOPRIGHT", 0, 0)
+        end
 
         local lbl = btn:CreateFontString(nil, "OVERLAY")
         lbl:SetFont(EllesmereUI.EXPRESSWAY, FONT_SZ, "")
@@ -265,6 +288,7 @@ local function BuildSegmentedControl(cfg)
         segments[i] = {
             key = key, btn = btn, lbl = lbl, w = thisW, segBg = segBg, accentBg = accentBg,
             segTop = segTop, segBot = segBot, segLeft = segLeft, segRight = segRight,
+            marker = marker,
         }
         btnByKey[key] = btn
 
@@ -359,13 +383,13 @@ local function BuildSegmentedControl(cfg)
             seg.segLeft:SetColorTexture(br, bg2, bb, ba)
             seg.segRight:SetColorTexture(br, bg2, bb, ba)
 
-            -- All 4 borders visible, except (pill mode only): first segment hides its left, last hides its right -- the rounded caps draw those edges. In square mode those outer edges are the box border, kept.
+            -- All 4 borders visible, except: first segment hides its left, last hides its right -- the rounded caps draw those edges. (Square mode refreshes in RefreshBox.)
             seg.segTop:Show()
             seg.segBot:Show()
             local isFirst = (idx == 1)
             local isLast  = (idx == #segments)
-            if isFirst and not SQUARE then seg.segLeft:Hide() else seg.segLeft:Show() end
-            if isLast  and not SQUARE then seg.segRight:Hide() else seg.segRight:Show() end
+            if isFirst then seg.segLeft:Hide() else seg.segLeft:Show() end
+            if isLast  then seg.segRight:Hide() else seg.segRight:Show() end
 
             -- Background: disabled = 50% opacity, hover = lighten by 4%, normal = PILL_BGA
             if disabled then
@@ -388,9 +412,6 @@ local function BuildSegmentedControl(cfg)
                 end
             end
         end
-
-        -- Square mode has no caps; the segment borders above are the whole box.
-        if SQUARE then return end
 
         -- Cap borders & fills: match adjacent segment's state (checked/disabled/hover)
         local firstKey = cfg.keys[1]
@@ -437,6 +458,44 @@ local function BuildSegmentedControl(cfg)
             capRightAccent:Hide()
         end
     end
+
+    -- Square mode: the box outline and fill dim only when every segment is
+    -- disabled; the checked segment shows its marker and a 5% accent tint,
+    -- a hovered one lightens by 4%, both as rounded fills inside the box.
+    local function RefreshBox()
+        local hoverIdx = frame._hoverIdx
+        local allDisabled = true
+        for idx, seg in ipairs(segments) do
+            local disabled = cfg.isDisabled and cfg.isDisabled(seg.key)
+            local checked  = cfg.getChecked(seg.key)
+            local boost = (hoverIdx == idx) and BG_HOVER_BOOST or 0
+            if disabled then
+                seg.lbl:SetTextColor(1, 1, 1, 0.20)
+            elseif checked then
+                seg.lbl:SetTextColor(ACTIVE_R, ACTIVE_G, ACTIVE_B, 1.0)
+            else
+                seg.lbl:SetTextColor(1, 1, 1, 0.60)
+            end
+            if disabled then
+                seg.marker:SetColor(ACTIVE_R, ACTIVE_G, ACTIVE_B, 0)
+                seg.segBg:SetColorTexture(0, 0, 0, 0)
+            elseif checked then
+                allDisabled = false
+                seg.marker:SetColor(ACTIVE_R, ACTIVE_G, ACTIVE_B, 1.0)
+                seg.segBg:SetColorTexture(
+                    PILL_BG[1] * 0.95 + ACTIVE_R * 0.05 + boost,
+                    PILL_BG[2] * 0.95 + ACTIVE_G * 0.05 + boost,
+                    PILL_BG[3] * 0.95 + ACTIVE_B * 0.05 + boost, PILL_BGA)
+            else
+                allDisabled = false
+                seg.marker:SetColor(ACTIVE_R, ACTIVE_G, ACTIVE_B, 0)
+                seg.segBg:SetColorTexture(PILL_BG[1] + boost, PILL_BG[2] + boost, PILL_BG[3] + boost, boost > 0 and PILL_BGA or 0)
+            end
+        end
+        boxBdr:SetColor(INACTIVE_R, INACTIVE_G, INACTIVE_B, allDisabled and 0.10 or INACTIVE_A)
+        bg:SetColorTexture(PILL_BG[1], PILL_BG[2], PILL_BG[3], allDisabled and 0.50 or PILL_BGA)
+    end
+    if SQUARE then RefreshAll = RefreshBox end
 
     frame._refreshAll = RefreshAll
     RefreshAll()
