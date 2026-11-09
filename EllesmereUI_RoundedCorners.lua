@@ -1001,13 +1001,14 @@ end
 -- EllesmereUI.RoundBody(parent, body, radius): a background with no outline
 -- (a search field, an input with no border) rounded: body takes a mask of a
 -- rounded rect over its own rect, radius (default 4) in the parent's units,
--- at most what the body's short side holds. The mask is the parent's, so body
+-- at most what the body's short side holds (a body not laid out yet reads
+-- 1 x 1 and takes the radius as given). The mask is the parent's, so body
 -- is the parent's texture or a descendant's; it keeps the mask through
 -- SetColorTexture. Returns the mask.
 function EllesmereUI.RoundBody(parent, body, radius)
     radius = radius or OUTLINE_RADIUS
     local half = HalfSide(body)
-    if half then
+    if half and half > 1 then
         local cap = floor(half - 0.5)
         if radius > cap then radius = cap end
     end
