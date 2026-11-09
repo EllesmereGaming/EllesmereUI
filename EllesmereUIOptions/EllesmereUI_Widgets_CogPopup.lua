@@ -18,7 +18,6 @@ local PoolGen, PoolIsIdle = EllesmereUI._Pool.Gen, EllesmereUI._Pool.IsIdle
 local PP = EllesmereUI.PanelPP
 local SolidTex = EllesmereUI.SolidTex
 local MakeFont = EllesmereUI.MakeFont
-local MakeBorder = EllesmereUI.MakeBorder
 local MakeDropdownArrow = EllesmereUI.MakeDropdownArrow
 local EXPRESSWAY = EllesmereUI.EXPRESSWAY
 local ELLESMERE_GREEN = EllesmereUI.ELLESMERE_GREEN
@@ -395,7 +394,7 @@ local function BuildCogPopup(opts)
 
         local bg = SolidTex(pf, "BACKGROUND", 0.077, 0.068, 0.058, opts.bgAlpha or 0.95)
         bg:SetAllPoints()
-        MakeBorder(pf, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15, PP)
+        EllesmereUI.MakeRoundedBorder(pf, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15, bg)
 
         local titleFS = MakeFont(pf, TITLE_H, "", 1, 1, 1)
         titleFS:SetAlpha(0.7)

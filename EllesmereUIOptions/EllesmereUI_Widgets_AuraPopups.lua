@@ -630,8 +630,9 @@ function EllesmereUI.ShowSpellBlacklistPopup(opts)
     popup:EnableMouse(true)
     popup:SetFrameLevel(dimmer:GetFrameLevel() + 2)
     if EllesmereUI.GetPopupScale then popup:SetScale(EllesmereUI.GetPopupScale()) end
-    EllesmereUI.SolidTex(popup, "BACKGROUND", 13 / 255, 17 / 255, 25 / 255, 0.98):SetAllPoints(popup)
-    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.22)
+    local popBg = EllesmereUI.SolidTex(popup, "BACKGROUND", 13 / 255, 17 / 255, 25 / 255, 0.98)
+    popBg:SetAllPoints(popup)
+    EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.22, popBg)
 
     local title = popup:CreateFontString(nil, "OVERLAY")
     title:SetFont(fontPath, 14, "")

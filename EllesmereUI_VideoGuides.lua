@@ -134,8 +134,8 @@ local function BuildShell()
 
     -- Dimmer: eats stray clicks/wheel; clicking anywhere outside the panel
     -- closes the guide (the popup itself is mouse-enabled, so clicks over it
-    -- never reach this handler). No bump: Show() scales both frames per open,
-    -- so the edge width is read unscaled here, as before. Escape closes (the
+    -- never reach this handler). No bump: Show() scales both frames per open
+    -- (the outline refits on show). Escape closes (the
     -- EditBox path handles it while focused; this covers an unfocused box).
     local dimmer, popup = EllesmereUI.BuildPopupShell("EUIVideoGuide", {
         w = POPUP_W, h = POPUP_H, onDimmerDown = Dismiss, onEscape = Dismiss,
@@ -150,6 +150,8 @@ local function BuildShell()
     PP.Point(well, "TOPLEFT", popup, "TOPLEFT", 0, 0)
     PP.Point(well, "TOPRIGHT", popup, "TOPRIGHT", 0, 0)
     well:SetHeight(ART_H)
+    -- The popup's shape: the well's top corners follow the round outline.
+    well:AddMaskTexture(popup._brd.bodyMask)
     ui.well = well
     local rule = popup:CreateTexture(nil, "BACKGROUND", nil, 2)
     PP.Point(rule, "TOPLEFT", popup, "TOPLEFT", 0, -ART_H)
