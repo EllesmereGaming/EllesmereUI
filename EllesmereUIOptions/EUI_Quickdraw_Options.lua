@@ -833,7 +833,8 @@ initFrame:SetScript("OnEvent", function(self)
                                 local spellID, _, isKnown, spellName =
                                     GetFlyoutSlotInfo(info.actionID, s)
                                 if isKnown then
-                                    Add(spellID, spellName, C_Spell.GetSpellTexture(spellID))
+                                    -- One icon only: the second return would land in rankText.
+                                    Add(spellID, spellName, (C_Spell.GetSpellTexture(spellID)))
                                 end
                             end
                         end

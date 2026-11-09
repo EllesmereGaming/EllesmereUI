@@ -508,6 +508,9 @@ local function OnEvent(self, event, ...)
         -- coalesce the heavy rebuild via a debounce so a burst of node events
         -- rebuilds once, not once per event.
         ns.InvalidateThresholdCaches()
+        -- WoW Forever swing timer: its talent conditions read fresh (the file
+        -- exists only on that client).
+        if ns.ST_TalentChanged then ns.ST_TalentChanged() end
         ns.ScheduleTalentApply()
     elseif event == "UPDATE_SHAPESHIFT_FORM" then
         SetCachedPrimary(GetPrimaryPowerType())
@@ -553,6 +556,9 @@ local function OnEvent(self, event, ...)
         IP.hashEndTime = 0
     elseif event == "PLAYER_ENTERING_WORLD" then
         C_Timer.After(0.5, function()
+            -- WoW Forever swing timer: a talent read the login apply made before
+            -- the talent data was in is read again by this apply.
+            if ns.ST_TalentChanged then ns.ST_TalentChanged() end
             ERB:ApplyAll()
             RegisterUnlockElements()
             -- ApplyAll just cached the power type off a spec that may not have

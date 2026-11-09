@@ -3,8 +3,9 @@
 -- of its own and the ranks share the spell's name, while Blizzard's Cooldown
 -- Manager shows a spell's ranks as one entry. A bar lists the spell once,
 -- under any of its ranks: list presence, the options normalize pass and its
--- live-icon pass, the runtime reseed, the keep/drop pass and the picker's
--- on-bar mark. Retail keeps matching by exact ID and variant only.
+-- live-icon pass, the runtime reseed, the keep/drop pass, the picker's
+-- on-bar mark and import ghosting. Retail keeps matching by exact ID and
+-- variant only.
 EUI_CLIENT_BLOCKED = false
 
 local NAMES = {
@@ -196,6 +197,56 @@ ns.ReconcileAssignedSpellDrops("cooldowns")
 assert(Same(store.cooldowns.assignedSpells, { 689 }),
     "a spell no longer tracked still goes: " .. Show(store.cooldowns.assignedSpells))
 
+-- 7. Import ghosting hides a tracked spell the layout places nowhere, once,
+--    but not one the layout lists under another rank than the frame shows.
+--    A custom spell ID never stands in for a rank.
+local function ImportGhost(nsI, storeI, listed, custom)
+    for _, b in ipairs(nsI.ECME.db.profile.cdmBars.bars) do b.enabled = true end
+    local prof = nsI.GetActiveSpecProfiles()["1"]
+    prof._barFilterModelV6, prof._importGhostMode = nil, true
+    storeI.cooldowns.assignedSpells, storeI.cooldowns.customSpellIDs = listed, custom
+    storeI.utility.assignedSpells = {}
+    storeI.__ghost_cd.assignedSpells = {}
+    nsI.MigrateSpecToBarFilterModelV6()
+    return storeI.__ghost_cd.assignedSpells
+end
+FRAMES = { Frame(101, 2941), Frame(102, 689) }
+ghost = ImportGhost(ns, store, { 348 })
+assert(Same(ghost, { 689 }), "only the unplaced spell is hidden: " .. Show(ghost))
+FRAMES = { Frame(101, 2941) }
+ghost = ImportGhost(ns, store, { 99999 }, { [99999] = true })
+assert(Same(ghost, { 2941 }), "a custom spell ID sharing the name places nothing: " .. Show(ghost))
+-- The frame shows the top rank known, the catalogue names rank 1.
+FRAMES = { Frame(103, 17920) }
+local categorySet = C_CooldownViewer.GetCooldownViewerCategorySet
+C_CooldownViewer.GetCooldownViewerCategorySet = function() return { 103 } end
+ghost = ImportGhost(ns, store, {})
+C_CooldownViewer.GetCooldownViewerCategorySet = categorySet
+assert(#ghost == 1 and NAMES[ghost[1]] == "Searing Pain", "a spell is hidden once: " .. Show(ghost))
+
+-- 8. Routing: a row whose cooldown info does not link the listed rank finds
+--    the bar listing the spell, or the hidden list, by name; a custom spell ID
+--    keeps exact matching.
+NAMES[740], NAMES[9862], NAMES[9863] = "Tranquility", "Tranquility", "Tranquility"
+INFO[105] = { spellID = 740, overrideSpellID = 9863, linkedSpellIDs = {} }
+local bar4 = { key = "bar4", barType = "cooldowns", enabled = true }
+table.insert(ns.ECME.db.profile.cdmBars.bars, bar4)
+ns.barDataByKey.bar4 = bar4
+store.bar4 = { assignedSpells = {} }
+ns._hookInternals = { broken = false }
+assert(loadfile("EllesmereUICooldownManager/EUI_CDM_HookResolve.lua"))("EllesmereUICooldownManager", ns)
+assert(ns._hookInternals.broken == false, "EUI_CDM_HookResolve.lua did not load")
+local function Route(bar4List, ghostList, custom)
+    store.cooldowns.assignedSpells, store.cooldowns.customSpellIDs = {}, nil
+    store.bar4.assignedSpells, store.bar4.customSpellIDs = bar4List, custom
+    store.__ghost_cd.assignedSpells = ghostList
+    ns.RebuildSpellRouteMap()
+    return ns.ResolveCDIDToBar(105, "cooldowns")
+end
+assert(Route({ 9862 }, {}) == "bar4", "a placed spell shows on its bar at the rank known")
+assert(Route({}, { 9862 }) == "__ghost_cd", "a hidden spell stays hidden at the rank known")
+assert(Route({ 9862 }, {}, { [9862] = true }) == "cooldowns", "a custom spell ID keeps exact matching")
+
 -------------------------------------------------------------------------------
 -- Retail: no rank matching
 -------------------------------------------------------------------------------
@@ -212,5 +263,8 @@ store.cooldowns.assignedSpells = { 2941, 348, 689 }
 local list = store.cooldowns.assignedSpells
 ns.CDMO_EnsureAssignedSpells("cooldowns")
 assert(list[1] == 2941 and list[#list] == 689, "retail normalize pass keeps its order")
+FRAMES = { Frame(101, 2941) }
+ghost = ImportGhost(ns, store, { 348 })
+assert(Same(ghost, { 2941 }), "retail import ghosting matches by ID and variant only: " .. Show(ghost))
 
 print("test_cdm_forever_ranks: all checks passed")

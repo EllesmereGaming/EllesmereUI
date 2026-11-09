@@ -162,7 +162,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
     -- Search prebuild on an absorber row: the dropdown indexes nothing, so none is built.
     local standIn = StandIn(parentFrame)
     if standIn then return standIn, standIn end
-    local PP = EllesmereUI.PP or EllesmereUI.PanelPP
+    local PP = EllesmereUI.PanelPP
     opts = opts or {}
     -- Opt-in dynamic items: pass a FUNCTION returning the items array and it re-evaluates on every menu OPEN (the menu rebuilds), so lists that depend on other settings never go stale. A table stays static.
     local itemsFn
@@ -401,11 +401,13 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
             else contentH = contentH + ITEM_H; checkableCount = checkableCount + 1 end
         end
         local SEARCH_H = searchable and 26 or 0
+        -- The box plus its 4-unit gap: the menu reserves exactly what the scroll area skips.
+        local SEARCH_PAD = searchable and (SEARCH_H + 4) or 0
         local CLOSE_BTN_H = closeButton and (6 + 26 + 6) or 0
         contentH = contentH + CLOSE_BTN_H
         local needsScroll = maxVisibleItems and checkableCount > maxVisibleItems
         -- +2 accounts for scroll frame 1px top + 1px bottom insets so non-scrolling menus don't scroll
-        local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4 + CLOSE_BTN_H) or (contentH + 4)) + SEARCH_H + TOP_H
+        local menuH = (needsScroll and (4 + maxVisibleItems * ITEM_H + 4 + CLOSE_BTN_H) or (contentH + 4)) + SEARCH_PAD + TOP_H
         if firstBuild then
             -- One menu per dropdown button for the session: a build that dresses
             -- the button again gets this frame back here, reset to new.
@@ -502,7 +504,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         if searchable then
             if not searchEdit then
                 searchEdit = CreateFrame("EditBox", nil, menu)
-                searchEdit:SetSize(ddW - 16, SEARCH_H)
+                searchEdit:SetSize(ddW - 8, SEARCH_H)
                 searchEdit:SetFont(fontPath, 11, "")
                 searchEdit:SetTextColor(1, 1, 1, 0.9)
                 searchEdit:SetJustifyH("LEFT")
@@ -609,7 +611,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
                 UpdateCBThumb()
             end)
         end
-        local sfTop = -((SEARCH_H > 0 and (SEARCH_H + 8) or 1) + TOP_H)
+        local sfTop = -((SEARCH_PAD > 0 and SEARCH_PAD or 1) + TOP_H)
         sf:ClearAllPoints()
         sf:SetPoint("TOPLEFT", 1, sfTop)
         sf:SetPoint("BOTTOMRIGHT", -1, 1)
@@ -1420,9 +1422,11 @@ end
 function EllesmereUI.AttachRowReorder(host, spec)
     local rows, movable, ITEM_H, SlotY = spec.rows, spec.items, spec.itemH, spec.slotY
     local insLine, state = spec.insLine, spec.state
-    local baseLevel = host:GetFrameLevel() + 2
+    -- Read live: a host raised after this call (a cog popup lifts its open
+    -- dropdown menu) would otherwise park dropped rows behind its background.
+    local function BaseLevel() return host:GetFrameLevel() + 2 end
     local function Park(row)
-        row:SetFrameLevel(baseLevel)
+        row:SetFrameLevel(BaseLevel())
         row:SetAlpha(1)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", host, "TOPLEFT", 1, row._slotY)
@@ -1500,7 +1504,7 @@ function EllesmereUI.AttachRowReorder(host, spec)
                 for mi = 1, #movable do
                     if movable[mi] == self._item then dgFrom = mi; break end
                 end
-                self:SetFrameLevel(baseLevel + 8)
+                self:SetFrameLevel(BaseLevel() + 8)
                 self:SetAlpha(0.8)
                 if spec.onDragStart then spec.onDragStart(self) end
             end
@@ -1559,7 +1563,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
     local standIn = StandIn(parentFrame)
     if standIn then return standIn, standIn end
     opts = opts or {}
-    local PP = EllesmereUI.PP or EllesmereUI.PanelPP
+    local PP = EllesmereUI.PanelPP
     local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.05, g = 0.82, b = 0.62 }
     -- Options panel is Expressway-locked by design (locale-aware: CJK/Cyrillic get the system glyph font). The user's global font intentionally does not restyle the settings UI.
     local fontPath = EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
@@ -1987,7 +1991,7 @@ function EllesmereUI.BuildSliderDropdown(parentFrame, ddW, fLevel, items, opts)
     -- Search prebuild on an absorber row: the dropdown indexes nothing, so none is built.
     local standIn = StandIn(parentFrame)
     if standIn then return standIn, standIn end
-    local PP = EllesmereUI.PP
+    local PP = EllesmereUI.PanelPP
     opts = opts or {}
     local fontPath = EllesmereUI.EXPRESSWAY
     local ddBtn = CreateFrame("Button", nil, parentFrame)

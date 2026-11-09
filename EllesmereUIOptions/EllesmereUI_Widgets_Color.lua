@@ -759,6 +759,9 @@ function EllesmereUI:ShowColorPicker(info, anchorFrame)
     popup:Open(info, anchorFrame)
 end
 
+-- The swatch border sits on a pixel layer at fixed pixel offsets: nothing to refit.
+local function SwatchBorderFit() end
+
 -- Shared color swatch: border + fill + UpdateSwatch + OnClick. Returns swatch (Button), UpdateSwatch (function), caller positions it. Border textures are deferred until first show to keep page builds light.
 local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasAlpha, overrideSize)
     -- Search prebuild on an absorber row: the swatch indexes nothing, so none is built.
@@ -789,20 +792,26 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
     local function BuildBorder()
         if borderBuilt then return end
         borderBuilt = true
-        local T = PP.Scale(CS.BRD_THICK)
+        -- On a pixel layer (one unit = one physical pixel at every Window Scale), so
+        -- each edge stays one whole pixel when the Window Scale changes; a thickness
+        -- snapped to the panel grid once, at build, would thin out at another scale.
+        local L = EllesmereUI.MakePixelLayer(swatch, SwatchBorderFit)
+        local layer = L._frame
+        local T = CS.BRD_THICK
 
-        local wt = swatch:CreateTexture(nil, "BORDER")
+        local wt = layer:CreateTexture(nil, "BORDER")
         wt:SetColorTexture(1, 1, 1, 1)
-        wt:SetPoint("BOTTOMLEFT", swatch, "TOPLEFT", -T, 0); wt:SetPoint("BOTTOMRIGHT", swatch, "TOPRIGHT", T, 0); PP.Height(wt, T)
-        local wb = swatch:CreateTexture(nil, "BORDER")
+        wt:SetPoint("BOTTOMLEFT", layer, "TOPLEFT", -T, 0); wt:SetPoint("BOTTOMRIGHT", layer, "TOPRIGHT", T, 0); wt:SetHeight(T)
+        local wb = layer:CreateTexture(nil, "BORDER")
         wb:SetColorTexture(1, 1, 1, 1)
-        wb:SetPoint("TOPLEFT", swatch, "BOTTOMLEFT", -T, 0); wb:SetPoint("TOPRIGHT", swatch, "BOTTOMRIGHT", T, 0); PP.Height(wb, T)
-        local wl = swatch:CreateTexture(nil, "BORDER")
+        wb:SetPoint("TOPLEFT", layer, "BOTTOMLEFT", -T, 0); wb:SetPoint("TOPRIGHT", layer, "BOTTOMRIGHT", T, 0); wb:SetHeight(T)
+        local wl = layer:CreateTexture(nil, "BORDER")
         wl:SetColorTexture(1, 1, 1, 1)
-        wl:SetPoint("TOPLEFT", swatch, "TOPLEFT", -T, 0); wl:SetPoint("BOTTOMLEFT", swatch, "BOTTOMLEFT", -T, 0); PP.Width(wl, T)
-        local wr = swatch:CreateTexture(nil, "BORDER")
+        wl:SetPoint("TOPLEFT", layer, "TOPLEFT", -T, 0); wl:SetPoint("BOTTOMLEFT", layer, "BOTTOMLEFT", -T, 0); wl:SetWidth(T)
+        local wr = layer:CreateTexture(nil, "BORDER")
         wr:SetColorTexture(1, 1, 1, 1)
-        wr:SetPoint("TOPRIGHT", swatch, "TOPRIGHT", T, 0); wr:SetPoint("BOTTOMRIGHT", swatch, "BOTTOMRIGHT", T, 0); PP.Width(wr, T)
+        wr:SetPoint("TOPRIGHT", layer, "TOPRIGHT", T, 0); wr:SetPoint("BOTTOMRIGHT", layer, "BOTTOMRIGHT", T, 0); wr:SetWidth(T)
+        L:Fit()
     end
 
     local function UpdateSwatch()
