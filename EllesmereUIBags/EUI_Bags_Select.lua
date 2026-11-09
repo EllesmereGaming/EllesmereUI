@@ -727,6 +727,7 @@ end
 function EUI_Bags:OnProfileApplied()
     self.InvalidateSetCategories()
     self:SyncHeaderIcons()
+    ns.BagAnchor.ProfileApplied()
     if self:IsShown() then self:RefreshInventory() end
     ns.RefreshOpenBank()
     EUI_CategoryManager:OnJunkChanged()  -- the new profile may switch the Junk Marker

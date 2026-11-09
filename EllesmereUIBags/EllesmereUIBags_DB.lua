@@ -66,6 +66,8 @@ local BAGS_DEFAULTS = {
         bagBgOpacity          = 100,     -- background opacity for bags and bank (bagBgColor / bagSlotBgColor: nil = default)
         bagWindowLocked       = false,   -- footer lock icon: no resizing or moving
         bankWindowLocked      = false,
+        bagAnchor             = false,
+        bagAnchorCorner       = "BOTTOMRIGHT",
         bagOpenWithCharacter  = false,
         -- bagFrameStrata has no default: unset reads the retired
         -- bagAllowWindowsOverBags (ns.BagFrameStrata)

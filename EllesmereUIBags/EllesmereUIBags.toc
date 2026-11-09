@@ -33,3 +33,4 @@ EllesmereUIBags_QuickActions.lua
 EllesmereUIBags_Offline.lua
 EllesmereUIBags_OfflineView.lua
 EllesmereUIBags_AutoGold.lua
+EllesmereUIBags_Anchor.lua

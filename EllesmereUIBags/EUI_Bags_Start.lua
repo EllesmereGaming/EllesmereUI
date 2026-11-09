@@ -76,13 +76,13 @@ local function StartAddon()
 
     GoldLedger.Register("bags", OnGoldChanged)
 
-    -- Position: default 50px from bottom-left, saved position overrides
     if BP().bagsPosition then
         local pos = BP().bagsPosition
         EUI_Bags:SetPoint(pos.point, UIParent, pos.relativePoint, pos.x, pos.y)
     else
         EUI_Bags:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", -50, 50)
     end
+    ns.BagAnchor.Start()
 
     EUI_Bags:SetClampedToScreen(true)
     EUI_Bags:ApplyWindowLayering()
@@ -93,6 +93,7 @@ local function StartAddon()
     local _bagDragging = false
     local _bagDragStartCX, _bagDragStartCY = 0, 0
     local _bagDragStartLeft, _bagDragStartTop = 0, 0
+    local _bagDragMoved = false
     local _bagDragFrame = CreateFrame("Frame")
     _bagDragFrame:Hide()
     _bagDragFrame:SetScript("OnUpdate", function(self)
@@ -100,30 +101,27 @@ local function StartAddon()
         if not IsMouseButtonDown("LeftButton") then
             _bagDragging = false
             self:Hide()
-            local left, top = EUI_Bags:GetLeft(), EUI_Bags:GetTop()
-            if left and top then
-                local PP = EUI and EUI.PP
-                if PP and PP.Snap then left = PP.Snap(left); top = PP.Snap(top) end
-                BP().bagsPosition = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = top }
-                EUI_Bags:ClearAllPoints()
-                EUI_Bags:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-            end
+            if _bagDragMoved or not BP().bagAnchor then ns.BagAnchor.SaveSpot() end
             return
         end
         local cx, cy = GetCursorPosition()
         local es = EUI_Bags:GetEffectiveScale()
         local newLeft = _bagDragStartLeft + (cx / es - _bagDragStartCX)
         local newTop = _bagDragStartTop + (cy / es - _bagDragStartCY)
+        if not _bagDragMoved and newLeft == _bagDragStartLeft and newTop == _bagDragStartTop then return end
+        _bagDragMoved = true
         EUI_Bags:ClearAllPoints()
         EUI_Bags:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", newLeft, newTop)
     end)
     EUI_Bags:SetScript("OnMouseDown", function(self, button)
         self:Raise()
         self:RepinIconLevels()
-        -- Locked (the footer's lock icon): the window stays put. Nor does it move
-        -- while something is on the cursor: a click on its empty space drops an
-        -- item from outside the bags (the OnMouseUp hook below).
-        if button ~= "LeftButton" or BP().bagWindowLocked or GetCursorInfo() then return end
+        -- Locked (the footer's lock icon): the window stays put, unless anchored,
+        -- where the lock holds only the size. Nor does it move while something is
+        -- on the cursor: a click on its empty space drops an item from outside the
+        -- bags (the OnMouseUp hook below).
+        if button ~= "LeftButton" or GetCursorInfo()
+            or (BP().bagWindowLocked and not BP().bagAnchor) then return end
         local cx, cy = GetCursorPosition()
         local es = self:GetEffectiveScale()
         _bagDragStartCX = cx / es
@@ -131,21 +129,14 @@ local function StartAddon()
         _bagDragStartLeft = self:GetLeft()
         _bagDragStartTop = self:GetTop()
         if not _bagDragStartLeft or not _bagDragStartTop then return end
-        _bagDragging = true
+        _bagDragging, _bagDragMoved = true, false
         _bagDragFrame:Show()
     end)
     EUI_Bags:SetScript("OnMouseUp", function(_, button)
         if button == "LeftButton" and _bagDragging then
             _bagDragging = false
             _bagDragFrame:Hide()
-            local left, top = EUI_Bags:GetLeft(), EUI_Bags:GetTop()
-            if left and top then
-                local PP = EUI and EUI.PP
-                if PP and PP.Snap then left = PP.Snap(left); top = PP.Snap(top) end
-                BP().bagsPosition = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = top }
-                EUI_Bags:ClearAllPoints()
-                EUI_Bags:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-            end
+            if _bagDragMoved or not BP().bagAnchor then ns.BagAnchor.SaveSpot() end
         end
     end)
 
@@ -169,6 +160,7 @@ local function StartAddon()
     -- transitions as Blizzard's container frames do: a Show on an already open
     -- bag fires no OnShow, and the login pre-build never shows the frame.
     EUI_Bags:HookScript("OnShow", function(self)
+        if BP().bagAnchor then ns.BagAnchor.Shown() end
         self:Raise()
         self:RepinIconLevels()
         PlaySound(SOUNDKIT.IG_BACKPACK_OPEN)
