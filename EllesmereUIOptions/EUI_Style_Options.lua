@@ -338,6 +338,34 @@ Register("questtracker", "EllesmereUIQuestTracker",    "Quest Tracker",
     QTProfile, "useBlizzardStyle", "useClassicStyle", "QT_Style")
 Register("chat",         "EllesmereUIChat",            "Chat",
     ChatProfile, "useBlizzardStyle", "useClassicStyle", "ChatStyle")
+-- Bags has only the Forever art so far and stays on its own look at first install.
+if IS_FOREVER then
+    local function BagsProfile()
+        local db = EllesmereUI._bagsDB
+        return db and db.profile
+    end
+    local bags = {
+        key = "bags", folder = "EllesmereUIBags", display = "Bags",
+        styles = { eui = true, forever = true },
+        firstInstall = false,
+        profile = BagsProfile,
+        foreverFlag = "useForeverStyle", foreverLatch = "BagsForever",
+        get = function()
+            local p = BagsProfile()
+            return p and p.useForeverStyle == true and "forever" or "eui"
+        end,
+        set = function(styleKey)
+            local p = BagsProfile()
+            if p then p.useForeverStyle = (styleKey == "forever") or nil end
+        end,
+        active = function()
+            local n = NS("EllesmereUIBags")
+            return n and n.BagsForever and n.BagsForever() and "blizzard" or "eui"
+        end,
+    }
+    MODULES[#MODULES + 1] = bags
+    BY_KEY.bags = bags
+end
 -- One row covers raid, party (in its Raid Frames layout), Friendly Boss and
 -- Extra Frames, on both clients (WoW Forever draws Blizzard Style here).
 -- Either stock style's first visit seeds the stock raid fill (the 12.1 flat
@@ -692,6 +720,10 @@ if IS_FOREVER then
     STYLE_VALUES.forever = "WoW Forever"
 end
 
+local function SupportsStyle(m, styleKey)
+    return not m.styles or m.styles[styleKey]
+end
+
 -- The style the module currently RENDERS (its session latch, not the profile
 -- flags): "eui", "blizzard" or "classic" -- "blizzard" under the WoW Forever
 -- variant too (ask Forever()). "eui" for unknown keys and for disabled
@@ -805,7 +837,7 @@ local function ApplyWholeUIWindows(styleKey, legacy)
     if prof then prof.windowSkinLook = styleKey end
 end
 
--- Every loaded module to one style at once, no prompt: the first-install
+-- Every loaded module taking part in first-install, no prompt: the first-install
 -- style picker (EllesmereUI_StyleChoicePopup.lua) writes the flags and
 -- reloads itself, and on the Forever client so does the module picker (the
 -- WoW Forever look a fresh install starts on, written as its reload is
@@ -818,7 +850,9 @@ function BlizzStyle.ApplyAll(styleKey)
     local legacy = InferredStockStyle()
     for i = 1, #MODULES do
         local m = MODULES[i]
-        if m.profile() then SwitchModuleStyle(m, styleKey) end
+        if m.firstInstall ~= false and SupportsStyle(m, styleKey) and m.profile() then
+            SwitchModuleStyle(m, styleKey)
+        end
     end
     ApplyWholeUIFont(styleKey, legacy)
     ApplyWholeUIWindows(styleKey, legacy)
@@ -975,13 +1009,13 @@ local function PromptStyleChanges(changes, wholeUIStyle)
         end,
     })
 end
--- Apply to All's batch for `styleKey`: every loaded module whose flag differs
--- (disabled modules have no profile to write; matching ones need no reload).
+-- Apply to All's batch for `styleKey`: every loaded module that supports it
+-- and whose flag differs.
 local function StyleChangesFor(styleKey)
     local changes = {}
     for i = 1, #MODULES do
         local m = MODULES[i]
-        if NS(m.folder) ~= nil and m.get() ~= styleKey then
+        if SupportsStyle(m, styleKey) and NS(m.folder) ~= nil and m.get() ~= styleKey then
             changes[#changes + 1] = { m = m, key = styleKey }
         end
     end
@@ -1050,15 +1084,14 @@ function _G._EUI_BuildStylePage(pageName, parent, yOffset)
         })
         if cards then
             local function RefreshCards()
-                local loaded = 0
-                for i = 1, #MODULES do
-                    if NS(MODULES[i].folder) ~= nil then loaded = loaded + 1 end
-                end
                 for key, handle in pairs(cards) do
-                    local differ = 0
+                    local loaded, differ = 0, 0
                     for i = 1, #MODULES do
                         local m = MODULES[i]
-                        if NS(m.folder) ~= nil and m.get() ~= key then differ = differ + 1 end
+                        if SupportsStyle(m, key) and NS(m.folder) ~= nil then
+                            loaded = loaded + 1
+                            if m.get() ~= key then differ = differ + 1 end
+                        end
                     end
                     local inUse = loaded > 0 and differ == 0
                     local pickable = differ > 0 or FontPending(key)
@@ -1103,15 +1136,17 @@ function _G._EUI_BuildStylePage(pageName, parent, yOffset)
                 local items = {}
                 for i = 1, #MODULES do
                     local m = MODULES[i]
-                    local function Off() return not Loaded(m) end
-                    items[i] = { key = m.key, label = m.display, excludeFromSummaryFn = Off,
-                        lockedFn = function() return Off() or PickOf(m) == styleKey end,
-                        -- Only a disabled module explains itself; a checked one
-                        -- just reads as fixed here.
-                        lockedTooltip = function()
-                            if not Off() then return nil end
-                            return EllesmereUI.Lf("Enable %1$s to change its style.", EllesmereUI.L(m.enableName or m.display))
-                        end }
+                    if SupportsStyle(m, styleKey) then
+                        local function Off() return not Loaded(m) end
+                        items[#items + 1] = { key = m.key, label = m.display, excludeFromSummaryFn = Off,
+                            lockedFn = function() return Off() or PickOf(m) == styleKey end,
+                            -- Only a disabled module explains itself; a checked one
+                            -- just reads as fixed here.
+                            lockedTooltip = function()
+                                if not Off() then return nil end
+                                return EllesmereUI.Lf("Enable %1$s to change its style.", EllesmereUI.L(m.enableName or m.display))
+                            end }
+                    end
                 end
                 local dd, ddRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                     host, handle.card:GetWidth(), host:GetFrameLevel() + 3, items,
