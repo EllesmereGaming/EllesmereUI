@@ -4620,12 +4620,19 @@ if EllesmereUI.IS_FOREVER == true then
         if HasEntries(prof.spellSettingsCD) or HasEntries(prof.spellSettingsBuff) then return true end
         local tbb = prof.trackedBuffBars
         if type(tbb) == "table" and HasEntries(tbb.bars) then return true end
+        local glows = prof.barGlows
+        if type(glows) == "table" and type(glows.assignments) == "table" then
+            for _, list in pairs(glows.assignments) do
+                if HasEntries(list) then return true end
+            end
+        end
         if type(prof.barSpells) ~= "table" then return false end
         for bk, bs in pairs(prof.barSpells) do
             if type(bs) == "table" then
                 if HasEntries(bs.customSpellIDs) or HasEntries(bs.customSpellDurations)
                    or HasEntries(bs.spellDurations) or HasEntries(bs.spellSettings)
-                   or HasEntries(bs.barSettings) or HasEntries(bs.hostedBuffSpellIDs) then
+                   or HasEntries(bs.barSettings) or HasEntries(bs.hostedBuffSpellIDs)
+                   or bs._buffDisplayOrderUserModified then
                     return true
                 end
                 local list = bs.assignedSpells
@@ -4647,7 +4654,8 @@ if EllesmereUI.IS_FOREVER == true then
     -- bucket under the Forever key hides a retail-keyed layout of the class. A
     -- profile apply created one, empty, which EUI then filled with Blizzard's
     -- default layout at the next login. Drop it only while it holds no more
-    -- than that: bars a player rebuilt on it stay.
+    -- than that, and only when the key the class reads next holds a layout.
+    -- An imported bucket stays: it is the sharer's, its Hidden CDs stripped.
     EllesmereUI.RegisterMigration({
         id          = "cdm_forever_drop_shadowing_spec_v1",
         scope       = "specProfile",
@@ -4656,22 +4664,25 @@ if EllesmereUI.IS_FOREVER == true then
             local id = tonumber(ctx.specKey)
             local cls = id and EllesmereUI.SpecClassOf(id)
             if not cls or EllesmereUI.FOREVER_CLASS_SPEC[cls] ~= id then return end
-            if HoldsPlayerEdits(ctx.specProfile) then return end
+            if ctx.specProfile._importGhostMode or HoldsPlayerEdits(ctx.specProfile) then return end
             local sp = EllesmereUIDB.spellAssignments.profiles[ctx.profileName].specProfiles
-            local ids = EllesmereUI.ForeverClassSpecIDs(cls)
-            for i = 1, #ids do
-                if HoldsLayout(sp[tostring(ids[i])]) then
-                    sp[ctx.specKey] = nil
-                    return
-                end
-            end
+            local nextKey = EllesmereUI.ForeverClassSpec(cls, EllesmereUI.SpecHasStringEntry, sp)
+            if HoldsLayout(sp[tostring(nextKey)]) then sp[ctx.specKey] = nil end
         end,
     })
+
+    -- GetSpellName is nil for a spell that does not exist. One that exists but
+    -- has no name this early fails the body, so the runner retries next load.
+    local function SpellName(sid)
+        local n = C_Spell.GetSpellName(sid)
+        if not n and C_Spell.DoesSpellExist(sid) then error("no name yet for spell " .. sid) end
+        return n
+    end
 
     -- Each rank of a spell is its own spell ID, and a bar lists a spell once
     -- under any rank. Import ghosting compared IDs only, so it hid the rank a
     -- frame showed when the layout listed another rank of the spell on a
-    -- visible cooldown bar. Spell names are static client data, readable here.
+    -- visible cooldown bar.
     EllesmereUI.RegisterMigration({
         id          = "cdm_forever_ghost_rank_aliases_v1",
         scope       = "specProfile",
@@ -4684,7 +4695,7 @@ if EllesmereUI.IS_FOREVER == true then
             local prof = EllesmereUIDB.profiles and EllesmereUIDB.profiles[ctx.profileName]
             local cdm = type(prof) == "table" and prof.addons and prof.addons.EllesmereUICooldownManager
             local bars = cdm and cdm.cdmBars and cdm.cdmBars.bars
-            if type(bars) ~= "table" then return end
+            if type(bars) ~= "table" then bars = DEFAULT_BARS end
 
             -- Saved bars drop fields equal to the defaults, which list the
             -- Cooldowns, Utility and Buffs bars first.
@@ -4703,7 +4714,7 @@ if EllesmereUI.IS_FOREVER == true then
                         if type(sid) == "number" and sid > 0
                            and not (bs.customSpellIDs and bs.customSpellIDs[sid]) then
                             placedIds[sid] = true
-                            local n = C_Spell.GetSpellName(sid)
+                            local n = SpellName(sid)
                             if n then placedNames[n] = true end
                         end
                     end
@@ -4714,7 +4725,7 @@ if EllesmereUI.IS_FOREVER == true then
             for i = #list, 1, -1 do
                 local sid = list[i]
                 if type(sid) == "number" and sid > 0 and not placedIds[sid] then
-                    local n = C_Spell.GetSpellName(sid)
+                    local n = SpellName(sid)
                     if n and placedNames[n] then table.remove(list, i) end
                 end
             end
