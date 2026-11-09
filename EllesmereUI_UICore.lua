@@ -1677,6 +1677,21 @@ do
         f:SetAttribute(attr, v)
     end
 
+    -- A hand-built modal popup of ours (a named dimmer over its panel) joins the
+    -- controller cursor and answers controller Back from its first open with a
+    -- controller in use; until then nothing is registered or hooked. The panel
+    -- stays a blocker without being a cursor stop, closeBtn is what the
+    -- controller's cancel button presses, and onEscape (nil = hide the dimmer) is
+    -- what Back runs. Call it just before the dimmer's Show (the Cooldown
+    -- Manager's popups, the Talent Conditions picker).
+    function EllesmereUI.PadPopupOpen(dimmer, panel, closeBtn, onEscape)
+        if dimmer._padReg or not EllesmereUI.PadInUse() then return end
+        dimmer._padReg = true
+        EllesmereUI.PadHint(panel, "nodepass")
+        if closeBtn then panel.CloseButton = closeBtn end
+        EllesmereUI.RegisterEscapeClose(dimmer, { padOnly = true, onEscape = onEscape })
+    end
+
     function EllesmereUI.PadCursorShown()
         local cp = PadCP()
         return (cp and cp:IsCursorActive()) and true or false

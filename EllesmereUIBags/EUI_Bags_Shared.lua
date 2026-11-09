@@ -26,7 +26,32 @@ I.categoryIndexSetters[#I.categoryIndexSetters + 1] = function(v) selectedCatego
 -------------------------------------------------------------------------------
 --  Inset border helper (1 physical pixel inside frame edge)
 -------------------------------------------------------------------------------
-local function CreateInsetBorder(btn)
+local FV_SLOT_FRAME = "Interface\\Buttons\\UI-Quickslot2"
+local FV_QUALITY_FRAME = "Interface\\Common\\WhiteIconFrame"
+
+local function CreateInsetBorder(btn, isSlot, icon)
+    if isSlot and ns.BagsForever() then
+        local frame = btn:CreateTexture(nil, "OVERLAY")
+        frame:SetAllPoints(btn)
+        frame:SetTexture(FV_SLOT_FRAME)
+        -- The visible 37x37 area of the stock 64x64 rim, centered one unit down.
+        frame:SetTexCoord(13.5 / 64, 50.5 / 64, 12.5 / 64, 49.5 / 64)
+        local mask = btn.Mask
+        if not mask then
+            mask = btn:CreateMaskTexture()
+            mask:SetAllPoints(btn)
+            mask:SetTexture("Interface\\Common\\common-iconmask", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        end
+        frame:AddMaskTexture(mask)
+        if icon then
+            icon:AddMaskTexture(mask)
+            btn._fvIconMask = mask
+        elseif btn.icon then
+            btn.icon:AddMaskTexture(mask)
+        end
+        btn._fvSlotBorder = frame
+        return
+    end
     local PP = EUI and EUI.PP
     local px = (PP and PP.mult) or 1
     local WHITE = "Interface\\Buttons\\WHITE8X8"
@@ -50,12 +75,38 @@ local function CreateInsetBorder(btn)
 end
 
 local function SetInsetBorderColor(btn, cr, cg, cb, ca)
-    if btn._brdT then
+    local frame = btn._fvSlotBorder
+    if frame then
+        frame.r, frame.g, frame.b, frame.a = cr, cg, cb, ca
+        local color = ca > 0 and (cr ~= cg or cg ~= cb or cr > 0.25)
+        local shade = not color and cr < 0.25 and cr or 1
+        frame:SetVertexColor(shade, shade, shade, ca)
+        local glow = btn._fvQualityBorder
+        if color and not glow then
+            glow = btn:CreateTexture(nil, "OVERLAY", nil, 1)
+            glow:SetAllPoints(btn)
+            glow:SetTexture(FV_QUALITY_FRAME)
+            btn._fvQualityBorder = glow
+        end
+        if glow then
+            glow:SetShown(color)
+            if color then glow:SetVertexColor(cr, cg, cb, ca) end
+        end
+    elseif btn._brdT then
         btn._brdT:SetColorTexture(cr, cg, cb, ca)
         btn._brdB:SetColorTexture(cr, cg, cb, ca)
         btn._brdL:SetColorTexture(cr, cg, cb, ca)
         btn._brdR:SetColorTexture(cr, cg, cb, ca)
     end
+end
+
+local function GetInsetBorderStyle(btn)
+    local frame = btn._fvSlotBorder
+    if frame then return frame.r, frame.g, frame.b, frame.a end
+    local top = btn._brdT
+    if not top then return end
+    local r, g, b, a = top:GetVertexColor()
+    return r, g, b, a, top:GetHeight()
 end
 
 -- Border thickness in px (1 normally, 2 for quest items); must be re-applied per render because item buttons are pooled.
@@ -74,6 +125,33 @@ end
 ns.CreateInsetBorder = CreateInsetBorder
 ns.SetBagFont = SetBagFont
 ns.SetInsetBorderColor = SetInsetBorderColor
+
+function ns.GetSlotQuestFlags(bag, slot)
+    local info = C_Container.GetContainerItemQuestInfo(bag, slot)
+    if info and (info.isQuestItem or info.questID) then
+        return true, info.questID and not info.isActive or nil
+    end
+end
+
+function ns.SetForeverSlotQuestBorder(btn, isQuest, isStarter)
+    local border = btn._fvQuestBorder
+    if isQuest then
+        if not border then
+            border = btn:CreateTexture(nil, "OVERLAY", nil, 2)
+            border:SetPoint("TOPLEFT", btn, "TOPLEFT")
+            border:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", 0, -1)
+            btn._fvQuestBorder = border
+        end
+        local asset = isStarter and TEXTURE_ITEM_QUEST_BANG or TEXTURE_ITEM_QUEST_BORDER
+        if border._asset ~= asset then
+            border._asset = asset
+            border:SetTexture(asset)
+        end
+        border:Show()
+    elseif border then
+        border:Hide()
+    end
+end
 
 -- Item buttons (ContainerFrameItemButtonTemplate) carry frameLevel="10" in
 -- Blizzard's XML, a fixed level that never follows their window: under a window
@@ -99,9 +177,26 @@ function ns.ApplyWindowBackground(bg, overlay)
     overlay:SetAlpha(o)
 end
 
--- slot background: tint over an empty slot's backdrop, alpha is the slot's
--- own base opacity. each painted one is kept (weakly) so a color change can
--- retint them without a relayout
+local slotBackgroundAtlases
+function ns.SetSlotBackgroundTexture(tex, interactive)
+    if ns.BagsForever() then
+        if not slotBackgroundAtlases then slotBackgroundAtlases = {} end
+        local atlas = interactive and "bags-item-slot64" or "bags-item-slot-blank"
+        local exists = slotBackgroundAtlases[atlas]
+        if exists == nil then
+            exists = C_Texture.GetAtlasInfo(atlas) ~= nil
+            slotBackgroundAtlases[atlas] = exists
+        end
+        if exists then
+            tex:SetAtlas(atlas)
+            return
+        end
+    end
+    tex:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\icon-bg.png")
+end
+
+-- Tint over an empty slot's backdrop. Keep painted regions weakly so a
+-- color change can retint them without a relayout.
 local slotBgs = setmetatable({}, { __mode = "k" })
 function ns.PaintSlotBackground(tex, alpha)
     tex._slotBgAlpha = alpha
@@ -220,7 +315,7 @@ function ns.SkinItemButton(btn, opts)
         end
     end
 
-    CreateInsetBorder(btn)
+    CreateInsetBorder(btn, true)
     SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
 
     local textOverlay = CreateFrame("Frame", nil, btn)
@@ -865,6 +960,7 @@ do
 end
 
 I.CreateInsetBorder, I.QUEST_BORDER_COLOR = CreateInsetBorder, QUEST_BORDER_COLOR
+I.GetInsetBorderStyle = GetInsetBorderStyle
 I.SCROLLBAR_HIT_W, I.SetInsetBorderColor = SCROLLBAR_HIT_W, SetInsetBorderColor
 I.SetInsetBorderThickness = SetInsetBorderThickness
 I.broken = false

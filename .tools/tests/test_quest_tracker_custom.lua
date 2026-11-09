@@ -1,7 +1,7 @@
 -- Stub harness: loads the Quest Tracker loader and its WoW Forever custom
 -- tracker outside the game and checks which tracker a profile gets, where the
 -- custom one starts, how its width and height are set and which edge it keeps
--- for each grow direction.
+-- for each grow direction, and its right-click menu's Wowhead Link.
 --   lua .tools/tests/test_quest_tracker_custom.lua        (from the repository root)
 local ROOT = arg and arg[1] or "."
 
@@ -589,6 +589,50 @@ RunTimers()
 assert(reapplied == 0, "a render in Unlock Mode re-applied the link")
 EllesmereUI._unlockActive = false
 cfg.customGroupByZone = false
+
+-------------------------------------------------------------------------------
+--  9. The right-click menu: Wowhead Link (EllesmereUIQuestTracker_QuestLinks.lua)
+--     at its end, after a divider, only while Wowhead Quest Links is on; its
+--     click opens the copy popup on the quest's WoW Forever page
+-------------------------------------------------------------------------------
+assert(loadstring(ReadSource("EllesmereUIQuestTracker/EllesmereUIQuestTracker_QuestLinks.lua"),
+    "=EllesmereUIQuestTracker_QuestLinks.lua"))("EllesmereUIQuestTracker", ns)
+issecretvalue = issecretvalue or function(v) return v == SECRET end
+EllesmereUI.L = EllesmereUI.L or function(s) return s end
+IsInGroup = IsInGroup or function() return false end
+GetLocale = GetLocale or function() return "enUS" end
+local menuItems, popup
+EllesmereUI.ShowContextMenu = function(_, items) menuItems = items end
+function EllesmereUI:ShowInputPopup(opts) popup = opts end
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+local qrow = slotOf[101]._parent
+assert(qrow.kind == "quest" and qrow.id == 101, "no quest row to right-click")
+local function RightClickMenu()
+    menuItems = nil
+    qrow._scripts.OnClick(qrow, "RightButton")
+    assert(menuItems, "a right click opened no menu")
+    return menuItems
+end
+local function WowheadEntry(items)
+    for i, it in ipairs(items) do
+        if type(it) == "table" and it.text == "Wowhead Link" then return it, i end
+    end
+end
+cfg.wowheadQuestLinks = false
+assert(WowheadEntry(RightClickMenu()) == nil, "Wowhead Link while Wowhead Quest Links is off")
+cfg.wowheadQuestLinks = true
+local items = RightClickMenu()
+local entry, at = WowheadEntry(items)
+assert(entry and at == #items and items[at - 1] == "---", "Wowhead Link is not last, after a divider")
+entry.onClick()
+assert(popup and popup.initialText == "https://www.wowhead.com/forever/quest=101/",
+    "the popup's link: " .. tostring(popup and popup.initialText))
+-- turned off between the menu and the click: nothing opens
+popup = nil
+cfg.wowheadQuestLinks = false
+entry.onClick()
+assert(popup == nil, "a click after the option was turned off opened the popup")
 
 RunTimers()
 print("quest tracker custom harness: ok")

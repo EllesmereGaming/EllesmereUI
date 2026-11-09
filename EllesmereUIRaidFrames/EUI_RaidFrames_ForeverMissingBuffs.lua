@@ -144,15 +144,26 @@ local function Choice(s, role, class)
 end
 ns.RF_FvBlessingChoice, ns.RF_FvBlessingKey, ns.RF_FvBlessingExKey = Choice, BLESS_KEY, EX_KEY
 
+-- A list takes a blessing when it holds a key the indicator knows: a saved key
+-- it skips (a blessing the game removed) does not count.
+local function TakesOne(list)
+    for i = 1, #list do
+        if BLESS_INDEX[list[i]] then return true end
+    end
+    return false
+end
+
 -- Blessings are on in a settings table while any role takes one, or any
 -- class exception does.
 local function BlessingsOn(s)
-    if #Choice(s, "TANK") > 0 or #Choice(s, "HEALER") > 0 or #Choice(s, "DAMAGER") > 0 then return true end
+    if TakesOne(Choice(s, "TANK")) or TakesOne(Choice(s, "HEALER")) or TakesOne(Choice(s, "DAMAGER")) then
+        return true
+    end
     for _, key in pairs(EX_KEY) do
         local ex = s[key]
         if type(ex) == "table" then
             for _, list in pairs(ex) do
-                if type(list) == "table" and #list > 0 then return true end
+                if type(list) == "table" and TakesOne(list) then return true end
             end
         end
     end

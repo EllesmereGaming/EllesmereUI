@@ -2261,7 +2261,7 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
                     { tooltip = "Class Colored", hasAlpha = false,
                       getValue = function()
                           local _, ct = UnitClass("player")
-                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                          local cc = ct and EllesmereUI.GetClassColor(ct)
                           if cc then return cc.r, cc.g, cc.b end
                           return 1, 1, 1
                       end,
@@ -2290,7 +2290,7 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
             btbLRgn, btbLRgn:GetFrameLevel() + 5,
             function()
                 local _, classFile = UnitClass("player")
-                local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                local cc = classFile and EllesmereUI.GetClassColor(classFile)
                 if cc then return cc.r, cc.g, cc.b end
                 return 1, 1, 1
             end,
@@ -2394,7 +2394,7 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
                     { tooltip = "Class Colored", hasAlpha = false,
                       getValue = function()
                           local _, ct = UnitClass("player")
-                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                          local cc = ct and EllesmereUI.GetClassColor(ct)
                           if cc then return cc.r, cc.g, cc.b end
                           return 1, 1, 1
                       end,
@@ -2423,7 +2423,7 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
             btbRRgn, btbRRgn:GetFrameLevel() + 5,
             function()
                 local _, classFile = UnitClass("player")
-                local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                local cc = classFile and EllesmereUI.GetClassColor(classFile)
                 if cc then return cc.r, cc.g, cc.b end
                 return 1, 1, 1
             end,
@@ -2631,7 +2631,7 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
                     { tooltip = "Class Colored", hasAlpha = false,
                       getValue = function()
                           local _, ct = UnitClass("player")
-                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                          local cc = ct and EllesmereUI.GetClassColor(ct)
                           if cc then return cc.r, cc.g, cc.b end
                           return 1, 1, 1
                       end,
@@ -2660,7 +2660,7 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
             btbCRgn, btbCRgn:GetFrameLevel() + 5,
             function()
                 local _, classFile = UnitClass("player")
-                local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                local cc = classFile and EllesmereUI.GetClassColor(classFile)
                 if cc then return cc.r, cc.g, cc.b end
                 return 1, 1, 1
             end,

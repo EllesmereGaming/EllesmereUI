@@ -246,6 +246,17 @@ local function ApplyMinimap()
     local crop, cropMask = EBS._MapCrop(p, mapSize)
     local maskID = isCircle and 186178 or cropMask or 130937
     minimap:SetMaskTexture(maskID)
+    -- Minimap button libraries and map pins read this global to place their
+    -- buttons and pins on the map's edge; the 4:3 crop keeps square corners.
+    -- Leave a definition another addon made alone.
+    if GetMinimapShape == nil or GetMinimapShape == EBS._shapeFn then
+        local mapShapeName = isCircle and "ROUND" or "SQUARE"
+        if EBS._shapeName ~= mapShapeName then
+            EBS._shapeName = mapShapeName
+            EBS._shapeFn = function() return mapShapeName end
+            GetMinimapShape = EBS._shapeFn
+        end
+    end
     minimap:SetHitRectInsets(0, 0, crop, crop)
     if crop > 0 and not GetFFD(minimap).layoutFrame then
         local layout = CreateFrame("Frame", nil, UIParent)

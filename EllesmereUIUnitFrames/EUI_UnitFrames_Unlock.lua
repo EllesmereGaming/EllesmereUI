@@ -159,9 +159,10 @@ local function RegisterUFUnlockElements()
                             adjPH = ptH + pSizeAdj
                             if adjPH < 8 then adjPH = 8 end
                         end
-                        s.frameWidth = math.max(PP.Snap(w - adjPH), 50)
+                        s.frameWidth = math.max(PP.Snap(w - adjPH), s.healthVerticalFill and 20 or 50)
                     else
-                        s.frameWidth = math.max(PP.Snap(w), 50)
+                        -- Vertical Fill bars are tall and slim (the options' Bar Width goes to 20).
+                        s.frameWidth = math.max(PP.Snap(w), s.healthVerticalFill and 20 or 50)
                     end
                     -- A size match re-applied at the width the frame already has
                     -- (the settle pass re-runs every match after any anchored

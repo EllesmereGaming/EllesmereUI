@@ -792,9 +792,9 @@ local function BuildColorSwatch(parentFrame, baseLevel, getValue, setValue, hasA
     local function BuildBorder()
         if borderBuilt then return end
         borderBuilt = true
-        -- On a pixel layer (one unit = one physical pixel at every Window Scale): a
-        -- thickness taken from the panel grid at build time thinned out after a
-        -- Window Scale change and lost the right/bottom edge.
+        -- On a pixel layer (one unit = one physical pixel at every Window Scale), so
+        -- each edge stays one whole pixel when the Window Scale changes; a thickness
+        -- snapped to the panel grid once, at build, would thin out at another scale.
         local L = EllesmereUI.MakePixelLayer(swatch, SwatchBorderFit)
         local layer = L._frame
         local T = CS.BRD_THICK

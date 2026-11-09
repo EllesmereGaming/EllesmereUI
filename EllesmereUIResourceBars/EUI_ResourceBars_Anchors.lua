@@ -280,6 +280,20 @@ local function RegisterUnlockElements()
             keepMoverWhenAnchored = true,
             onLiveMove = LiveMove,
             savePos = save, loadPos = load, clearPos = clear, applyPos = apply,
+            -- Spec and Conditional Overrides layout layers bank and restore the
+            -- STORED position through these: loadPos reports the expanded CENTER
+            -- while Expand Power Bar if No Resource grows the bar, and a layer
+            -- banking that would save the shift into the stored position.
+            loadRawPos = function()
+                local pos = S().unlockPos
+                if not (pos and pos.point) then return nil end
+                return { point = pos.point, relPoint = pos.relPoint or pos.point, x = pos.x, y = pos.y }
+            end,
+            saveRawPos = function(_, p)
+                if not (p and p.point) then return end
+                S().unlockPos = { point = p.point, relPoint = p.relPoint or p.point, x = p.x, y = p.y }
+                ns.ERB_GroupDirty()
+            end,
         })
     end
 

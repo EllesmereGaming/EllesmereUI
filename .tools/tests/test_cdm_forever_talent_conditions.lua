@@ -4,6 +4,10 @@
 -- one trait tree, each talent's column and row from the game's positions) and
 -- the Talent Conditions popup drawing those trees side by side. The retail
 -- popup (class tree and spec tree) is driven too, so it is shown unchanged.
+-- The check and the picker are shared (EllesmereUI.TalentConditionsHold in the
+-- shared helpers, EllesmereUI.ShowTalentConditionsPopup in the options): the
+-- Cooldown Manager keeps no copy of either, and a second caller (the swing
+-- timer's shape) gets its own texts, font and list.
 EUI_CLIENT_BLOCKED = false
 
 -------------------------------------------------------------------------------
@@ -19,6 +23,7 @@ local METHODS = {
     HookScript = function(self, name, fn) self._scripts[name] = fn end,
     SetText = function(self, s) self._text = s end,
     GetText = function(self) return self._text end,
+    SetFont = function(self, path) self._font = path end,
     Show = function(self) self._shown = true end,
     Hide = function(self) self._shown = false end,
     SetShown = function(self, v) self._shown = v and true or false end,
@@ -46,6 +51,8 @@ local function Shown(names)
 end
 
 local buttons = {}  -- action buttons by label
+local fontCalls = {} -- module font key -> ApplyModuleFont calls
+local padOpens = 0   -- EllesmereUI.PadPopupOpen calls
 local function Stubs(forever)
     EllesmereUI = {
         IS_FOREVER = forever, _ModuleNS = {}, _popupFrames = {}, PP = {},
@@ -55,8 +62,14 @@ local function Stubs(forever)
             local args = { ... }
             return (s:gsub("%%(%d)%$[sd]", function(i) return tostring(args[tonumber(i)]) end))
         end,
-        ApplyModuleFont = function() end,
-        GetFontPath = function() return "font" end,
+        ApplyModuleFont = function(_, _, _, key)
+            key = key or "global"
+            fontCalls[key] = (fontCalls[key] or 0) + 1
+        end,
+        GetFontPath = function(key) return "font:" .. tostring(key) end,
+        GetFontOutlineFlag = function() return "" end,
+        PadInUse = function() return false end,
+        PadPopupOpen = function() padOpens = padOpens + 1 end,
         GetAccentColor = function() return 1, 1, 1 end,
         MakeBorder = function() return NewFake() end,
         PopupBump = function() return 1 end,
@@ -66,6 +79,7 @@ local function Stubs(forever)
         BuildPopupShell = function() return NewFake(), NewFake() end,
         MakeActionButton = function(_, _, label)
             local b = NewFake()
+            b._label = NewFake()   -- the button's label, as MakeActionButton exposes it
             buttons[label] = b
             return b
         end,
@@ -152,15 +166,18 @@ C_SpecializationInfo = {
 Enum = { TraitNodeType = { Selection = 2, SubTreeSelection = 3 } }
 
 -------------------------------------------------------------------------------
--- 1. The shared helpers (the block at the end of EllesmereUI_SharedHelpers.lua).
+-- 1. The shared helpers (the blocks at the end of EllesmereUI_SharedHelpers.lua:
+-- the talent trees, then the Talent Conditions check).
 -------------------------------------------------------------------------------
-Stubs(true)
-do
+local function LoadShared()
     local src = assert(io.open("EllesmereUI_SharedHelpers.lua", "rb")):read("*a")
     local at = assert(src:find("%-%-  WoW Forever talent trees"), "the talent tree block is in the shared helpers")
+    assert(src:find("%-%-  Talent Conditions: a list of", at), "the Talent Conditions check follows it")
     local block = src:sub((src:find("\ndo\r?\n", at)))
     assert((loadstring or load)(block, "=talent trees"))()
 end
+Stubs(true)
+LoadShared()
 local configID, treeID, trees = EllesmereUI.ForeverTalentTrees()
 assert(configID == 1 and treeID == 1000, "the active config and its tree")
 assert(#trees == 3 and trees[1].name == "Affliction" and trees[2].name == "Demonology"
@@ -189,11 +206,13 @@ end
 local function LoadPopup()
     local ns = {
         IsEmptySlotMarker = function() return false end,
-        PadPopupOpen = function() end,
     }
     EllesmereUI._ModuleNS.EllesmereUICooldownManager = ns
     assert(loadfile("EllesmereUICooldownManager/EllesmereUICdmTalentConditions.lua"))("EllesmereUICooldownManager", ns)
+    -- The options TOC order: the shared picker, then the Cooldown Manager's file.
+    assert(loadfile("EllesmereUIOptions/EllesmereUI_TalentConditionsPopup.lua"))("EllesmereUIOptions", {})
     assert(loadfile("EllesmereUIOptions/EUI_CooldownManager_TalentConditions.lua"))("EllesmereUIOptions", {})
+    assert(EllesmereUI.ShowTalentConditionsPopup, "the shared picker loaded")
     assert(ns.ShowCDMTalentConditionsPopup, "the popup loaded")
     return ns
 end
@@ -272,10 +291,60 @@ assert(ns.TalentCondIsTaken(101) == true and ns.TalentCondIsTaken(102) == false,
 assert(ns.TalentConditionsHold({ { nodeID = 202, taken = true }, { nodeID = 301, taken = false } }),
     "conditions across trees hold")
 
+-- The Cooldown Manager reads the shared check and opens the shared picker,
+-- keeping no copy of either.
+assert(ns.TalentCondIsTaken == EllesmereUI.TalentCondIsTaken
+    and ns.TalentCondInvalidate == EllesmereUI.TalentCondInvalidate, "the CDM uses the shared check")
+do
+    local rt = assert(io.open("EllesmereUICooldownManager/EllesmereUICdmTalentConditions.lua", "rb")):read("*a")
+    assert(not rt:find("local function NodeState", 1, true), "the CDM keeps no copy of the node cache")
+    local op = assert(io.open("EllesmereUIOptions/EUI_CooldownManager_TalentConditions.lua", "rb")):read("*a")
+    assert(not op:find("local function LayoutPanel", 1, true), "the CDM keeps no copy of the picker")
+    -- The picker joins the controller cursor through the shared helper, no copy.
+    local pk = assert(io.open("EllesmereUIOptions/EllesmereUI_TalentConditionsPopup.lua", "rb")):read("*a")
+    assert(not pk:find("_padReg", 1, true), "the picker keeps no copy of the controller cursor hookup")
+end
+assert(padOpens > 0, "the picker opens through EllesmereUI.PadPopupOpen")
+-- The open showed the CDM's own words and font: its title, hint and status.
+local cdmTexts = Shown({
+    ["Talent Conditions: Spell 686"] = true,
+    ["Click a talent to require it: Taken, then Not Taken, then cleared. Every condition must hold for the icon to show."] = true,
+    ["3 condition(s), not met by your current talents: the icon is hidden."] = true,
+})
+assert(#cdmTexts == 3, "the CDM's title, hint and status: " .. table.concat(cdmTexts, " | "))
+assert((fontCalls.cdm or 0) > 0, "the CDM opens the picker in its own font")
+
+-- A second caller (the swing timer's shape): its own title, words, font and list.
+local before = fontCalls.resourceBars or 0
+local mine
+EllesmereUI.ShowTalentConditionsPopup({
+    title = "Talent Conditions: Swing Timer",
+    conds = { { nodeID = 202, spellID = 18694, taken = true } },
+    texts = {
+        hint = "swing hint",
+        none = "swing none",
+        met = function(n) return "swing met " .. n end,
+        notMet = function(n) return "swing not met " .. n end,
+    },
+    fontKey = "resourceBars",
+    onConfirm = function(list) mine = list or false end,
+})
+assert((fontCalls.resourceBars or 0) > before, "the picker's texts take the second caller's font")
+assert(buttons["Save"]._label._font == "font:resourceBars" and buttons["Clear All"]._label._font == "font:resourceBars",
+    "and so do its footer buttons' labels")
+local swing = Shown({ ["Talent Conditions: Swing Timer"] = true, ["swing hint"] = true, ["swing met 1"] = true })
+assert(#swing == 3, "the second caller's title, hint and status: " .. table.concat(swing, " | "))
+-- Clear All, then Save: nothing is kept, and the caller hears none.
+buttons["Clear All"]._scripts.OnClick()
+assert(#Shown({ ["swing none"] = true }) == 1, "an empty list says so in the caller's words")
+buttons["Save"]._scripts.OnClick()
+assert(mine == false, "an emptied list saves as none")
+
 -------------------------------------------------------------------------------
 -- 3. Retail: the class tree and the spec tree, as before.
 -------------------------------------------------------------------------------
 Stubs(false)
+LoadShared()
 made = {}
 ALL = {}
 TrackFrames()

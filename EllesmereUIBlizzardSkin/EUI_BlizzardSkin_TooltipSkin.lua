@@ -49,12 +49,9 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         return true
     end
 
+    -- Size step, step key, color and opacity of a <prefix>Border* configured border
     -- colorOverride (optional {r,g,b}): a caller-computed color for loot window's "quality"
-    local function _applyConfiguredBorder(owner, prefix, legacySize, colorOverride)
-        if not owner or not EllesmereUI.ApplyBorderStyle then return end
-        -- Read the level up front: it is the first widget call this makes, so it doubles as the restriction probe (see _ttUsable).
-        local okLvl, ownerLevel = pcall(owner.GetFrameLevel, owner)
-        if not okLvl then return end
+    local function _resolveConfiguredBorder(prefix, legacySize, colorOverride)
         local db = EllesmereUIDB or {}
         local key = db[prefix .. "BorderThickness"]
         local sizes = { none=0, thin=1, normal=2, heavy=3, strong=4 }
@@ -74,6 +71,15 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         end
         local alpha = db[prefix .. "BorderOpacity"]
         if alpha == nil then alpha = (mode == "custom") and EllesmereUI.RESKIN.BRD_ALPHA or .5 end
+        return db, size, key, color, alpha
+    end
+
+    local function _applyConfiguredBorder(owner, prefix, legacySize, colorOverride)
+        if not owner or not EllesmereUI.ApplyBorderStyle then return end
+        -- Read the level up front: it is the first widget call this makes, so it doubles as the restriction probe (see _ttUsable).
+        local okLvl, ownerLevel = pcall(owner.GetFrameLevel, owner)
+        if not okLvl then return end
+        local db, size, key, color, alpha = _resolveConfiguredBorder(prefix, legacySize, colorOverride)
         local data = GetFFD(owner)
         if not data.configBorder then
             data.configBorder = CreateFrame("Frame", nil, owner, "BackdropTemplate")
@@ -1726,7 +1732,8 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         if _enabled() then
             if not inb.SetTooltipBackdrop then return end
             local cr, cg, cb, ca = EllesmereUI.GetTooltipBg()
-            local br, bgc, bb, ba, size = EllesmereUI.GetTooltipBorder()
+            local _, _, _, _, legacySize = EllesmereUI.GetTooltipBorder()
+            local db, size, key, color, alpha = _resolveConfiguredBorder("tooltip", legacySize)
             local info = {
                 backdropInfo = {
                     bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -1734,10 +1741,28 @@ local FFD, GetFFD = I.FFD, I.GetFFD
                 },
                 centerColor = CreateColor(cr or 0, cg or 0, cb or 0, ca or 0.9),
             }
-            if (size or 0) > 0 then
-                info.backdropInfo.edgeFile = "Interface\\Buttons\\WHITE8X8"
-                info.backdropInfo.edgeSize = size
-                info.borderColor = CreateColor(br or 0, bgc or 0, bb or 0, ba or 1)
+            -- Same style, size and placement as the GameTooltip border (ApplyBorderStyle,
+            -- through EllesmereUI.BorderPlacement), drawn by the one backdrop the engine
+            -- allows; insets keep the fill on the tooltip.
+            if size > 0 then
+                local tex = db.tooltipBorderTexture or "solid"
+                local px = EllesmereUI.BorderPx(db.tooltipBorderThicknessPx, size, tex)
+                local edgeFile = EllesmereUI.ResolveBorderTexture(tex)
+                local edge, ox, oy, sx, sy
+                if edgeFile then
+                    edge, ox, oy, sx, sy = EllesmereUI.BorderPlacement(size, tex,
+                        db.tooltipBorderOffsetX, db.tooltipBorderOffsetY,
+                        db.tooltipBorderShiftX, db.tooltipBorderShiftY, "blizzardSkin", key, px)
+                else
+                    -- Solid: the PP line, (px or size) whole pixels inside the tooltip.
+                    edgeFile = "Interface\\Buttons\\WHITE8X8"
+                    edge, ox, oy, sx, sy = (px or size) * EllesmereUI.PP.mult, 0, 0, 0, 0
+                end
+                info.backdropInfo.edgeFile = edgeFile
+                info.backdropInfo.edgeSize = edge
+                info.backdropInfo.insets = { left = ox - sx, right = ox + sx, top = oy + sy, bottom = oy - sy }
+                info.anchorOffsets = { left = sx - ox, right = sx + ox, top = sy + oy, bottom = sy - oy }
+                info.borderColor = CreateColor(color.r, color.g, color.b, alpha)
             end
             pcall(inb.SetTooltipBackdrop, info)
         elseif inb.ResetTooltipStyle then

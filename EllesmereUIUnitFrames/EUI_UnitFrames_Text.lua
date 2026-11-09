@@ -1079,8 +1079,8 @@ do
     -- Identity-only zones: their pieces read name/level, which change only on
     -- identity edges (UNIT_NAME_UPDATE, UNIT_LEVEL, repoints, provider
     -- callbacks) -- Blizzard paints names on UNIT_NAME_UPDATE alone. Not
-    -- listed: nametotarget (target names churn) and group (roster-driven,
-    -- repainted by the value ticks it always rode).
+    -- listed: nametotarget (target names churn) and group (repainted by the
+    -- roster pass at the end of this block).
     local ZONE_IDENTITY = { name = true, levelname = true, namelevel = true, level = true }
     -- Value-class events and the value each one moves. A value event repaints
     -- only the zones that read that value (a static zone none of them); anything
@@ -1096,9 +1096,10 @@ do
         UNIT_TARGET = "tgt",
     }
     -- What each piece reads: "hp" health, "pp" power, "abs" / "habs" the two
-    -- absorb amounts, "id" name or level only (identity events repaint those).
-    -- A piece not listed (the target pieces and separators, the group number,
-    -- the Name Format twins) makes its zone repaint on every value event.
+    -- absorb amounts, "id" name or level only (identity events repaint those),
+    -- "roster" the raid group number (the roster pass repaints it). A piece not
+    -- listed (the target pieces and separators, the Name Format twins) makes
+    -- its zone repaint on every value event.
     local PIECE_READS = {
         [P.perhp] = "hp", [P.perhpnosign] = "hp", [P.curhpshort] = "hp",
         [P.healthshort] = "hp", [P.maxhpshort] = "hp", [P.curhp] = "hp", [P.maxhp] = "hp",
@@ -1107,6 +1108,7 @@ do
         [P.healabsorb] = "habs", [P.healabsorbshort] = "habs",
         [P.absorbshorttag] = "abs", [P.healabsorbshorttag] = "habs",
         [P.name] = "id", [P.level] = "id", [P.levelcol] = "id", [P.levelcolall] = "id",
+        [P.group] = "roster",
     }
     -- The tags' Name Format modifiers ([name:abbr]): they shape the plain name,
     -- whatever the slot's own Name Format says. [name:last] and [target:last]
@@ -1284,29 +1286,27 @@ do
         end
     end
 
-    -- Repaints [group] zones on a raid subgroup move; inert until MarkReads
-    -- builds the first one.
+    -- The roster pass (end of this block): hidden, and with no event until
+    -- MarkReads stamps the first zone that reads the roster.
     local rosterEv = CreateFrame("Frame")
+    rosterEv:Hide()
 
     -- Stamps a new zone with the values its pieces read (PIECE_READS): one
     -- field per value class for PaintText's filter, any = an unlisted piece,
-    -- and power for the power value pass.
+    -- power for the power value pass and roster for the roster pass.
     local function MarkReads(z)
         local pieces = z.pieces
         for i = 1, #pieces do
             local r = PIECE_READS[pieces[i]]
             if r == nil then
                 z.any = true
-                if pieces[i] == P.group then
-                    z.roster = true
-                    rosterEv:RegisterEvent("GROUP_ROSTER_UPDATE")
-                end
             elseif r ~= "id" then
                 z[r] = true
             end
         end
         if z.abs or z.habs then z.absany = true end
         z.power = z.pp
+        if z.roster then rosterEv:RegisterEvent("GROUP_ROSTER_UPDATE") end
         return z
     end
 
@@ -1349,17 +1349,34 @@ do
     end
 
     -- A raid subgroup move fires only GROUP_ROSTER_UPDATE: no unit event and
-    -- no value tick, so a [group] zone kept its old number. Repaint
-    -- just the frames that show one.
-    rosterEv:SetScript("OnEvent", function()
+    -- no value tick. A burst of them shows the frame once; on the next frame it
+    -- hides itself and repaints only the zones that read the roster (a frame
+    -- without a unit stays as PaintText leaves it). With no such zone left the
+    -- event goes, and MarkReads registers it again.
+    rosterEv:SetScript("OnEvent", function(self) self:Show() end)
+    rosterEv:SetScript("OnUpdate", function(self)
+        self:Hide()
+        local kept = false
         for _, f in pairs(frames) do
             local zones = type(f) == "table" and f._euiTextZones
             if zones then
+                local unit = f._euiUnit
+                local live = unit and UnitExists(unit)
                 for i = 1, #zones do
-                    if zones[i].roster then PaintText(f, f._euiUnit); break end
+                    local z = zones[i]
+                    if z.roster then
+                        kept = true
+                        if live then
+                            local pieces = z.pieces
+                            local n = #pieces
+                            for k = 1, n do scratch[k] = pieces[k](unit) end
+                            z.fs:SetFormattedText(z.fmt, unpack(scratch, 1, n))
+                        end
+                    end
                 end
             end
         end
+        if not kept then self:UnregisterEvent("GROUP_ROSTER_UPDATE") end
     end)
 end
 

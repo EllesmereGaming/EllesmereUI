@@ -378,7 +378,7 @@ function ns.ERB_BuildTotemBarPage(pageName, parent, yOffset)
                     RefreshTotem()
                     EllesmereUI:RefreshPage()
                 end, nil, 8, false)
-            PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
             leftRgn._control = cbDD
             leftRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)

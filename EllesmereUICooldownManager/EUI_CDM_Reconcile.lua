@@ -979,7 +979,7 @@ function ns.CDMDefaultHiddenSet()
     if not infoByID then return nil end
     local set = {}
     -- cooldownDefaultsByID is Blizzard's internal table, not an API: without it
-    -- no entry reads as default-hidden.
+    -- no entry reads as default-hidden, and an entry it lacks is left out.
     if type(defaultsByID) ~= "table" then return set end
     local evc = Enum.CooldownViewerCategory
     local hidden = evc.HiddenActive
@@ -996,7 +996,8 @@ function ns.CDMDefaultHiddenSet()
         end
     end
     for cdID, info in pairs(infoByID) do
-        local defCat = defaultsByID[cdID].category
+        local def = defaultsByID[cdID]
+        local defCat = def and def.category
         if defCat == evc.Essential or defCat == evc.Utility or defCat == hidden then
             local dh = info.category == hidden and defCat == hidden
             Add(info.spellID, dh)

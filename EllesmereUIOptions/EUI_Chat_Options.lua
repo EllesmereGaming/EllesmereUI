@@ -664,7 +664,7 @@ initFrame:SetScript("OnEvent", function(self)
                         })
                     end,
                 })
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
             rightRgn._control = cbDD
             rightRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)

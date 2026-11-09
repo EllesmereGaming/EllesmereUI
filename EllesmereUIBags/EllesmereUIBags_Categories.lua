@@ -462,6 +462,8 @@ end
 local _setGearLookup = {}
 -- setID -> set name, for the on-item set name label (no API call at stamp time)
 local _setNames = {}
+-- WoW Forever: itemID -> setID of the sets' items, refilled each pass
+local _foreverSetItems = {}
 
 local function BuildSetGearLookup()
     wipe(_setGearLookup)
@@ -472,14 +474,16 @@ local function BuildSetGearLookup()
     local wantNames = BP().bagShowSetGearName == true
     -- WoW Forever crashes the client inside GetItemLocations for some sets:
     -- there the sets' item IDs are matched against the container slots instead.
-    local foreverItems = EllesmereUI.IS_FOREVER and {}
+    local foreverItems = EllesmereUI.IS_FOREVER and _foreverSetItems
+    if foreverItems then wipe(foreverItems) end
     for _, setID in ipairs(setIDs) do
         if wantNames then
             _setNames[setID] = C_EquipmentSet.GetEquipmentSetInfo(setID)
         end
         local locs = not foreverItems and C_EquipmentSet.GetItemLocations(setID)
-        if foreverItems then
-            for _, itemID in pairs(C_EquipmentSet.GetItemIDs(setID) or {}) do
+        local ids = foreverItems and C_EquipmentSet.GetItemIDs(setID)
+        if ids then
+            for _, itemID in pairs(ids) do
                 if type(itemID) == "number" and itemID > 0 and not foreverItems[itemID] then
                     foreverItems[itemID] = setID
                 end

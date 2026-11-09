@@ -111,9 +111,10 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                 { type="toggle", label="Vertical Fill",
                   tooltip="Fill the health bar bottom-to-top instead of left-to-right. Reverse Fill flips it to top-to-bottom.",
                   get=function() return SVal("healthVerticalFill", false) end,
-                  -- RefreshPage re-labels the Absorbs Placement dropdowns for the
-                  -- new axis (cog popups bake labels in at first build).
-                  set=function(v) SSet("healthVerticalFill", v); ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage() end },
+                  -- A full rebuild: the size sliders' ranges follow Vertical Fill
+                  -- (baked in at build), and the Absorbs Placement dropdowns
+                  -- re-label for the new axis (cog popups bake labels in too).
+                  set=function(v) SSet("healthVerticalFill", v); ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage(true) end },
             },
         })
     end
@@ -689,7 +690,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             { tooltip = "Class Colored", hasAlpha = false,
                               getValue = function()
                                   local _, ct = UnitClass("player")
-                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  local cc = ct and EllesmereUI.GetClassColor(ct)
                                   if cc then return cc.r, cc.g, cc.b end
                                   return 1, 1, 1
                               end,
@@ -729,7 +730,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                     leftRgn, leftRgn:GetFrameLevel() + 5,
                     function()
                         local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        local cc = classFile and EllesmereUI.GetClassColor(classFile)
                         if cc then return cc.r, cc.g, cc.b end
                         return 1, 1, 1
                     end,
@@ -895,7 +896,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             { tooltip = "Class Colored", hasAlpha = false,
                               getValue = function()
                                   local _, ct = UnitClass("player")
-                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  local cc = ct and EllesmereUI.GetClassColor(ct)
                                   if cc then return cc.r, cc.g, cc.b end
                                   return 1, 1, 1
                               end,
@@ -934,7 +935,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                     rightRgn, rightRgn:GetFrameLevel() + 5,
                     function()
                         local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        local cc = classFile and EllesmereUI.GetClassColor(classFile)
                         if cc then return cc.r, cc.g, cc.b end
                         return 1, 1, 1
                     end,
@@ -1092,7 +1093,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             { tooltip = "Class Colored", hasAlpha = false,
                               getValue = function()
                                   local _, ct = UnitClass("player")
-                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  local cc = ct and EllesmereUI.GetClassColor(ct)
                                   if cc then return cc.r, cc.g, cc.b end
                                   return 1, 1, 1
                               end,
@@ -1131,7 +1132,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                     ctrRgn, ctrRgn:GetFrameLevel() + 5,
                     function()
                         local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        local cc = classFile and EllesmereUI.GetClassColor(classFile)
                         if cc then return cc.r, cc.g, cc.b end
                         return 1, 1, 1
                     end,
@@ -1278,7 +1279,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             { tooltip = "Class Colored", hasAlpha = false,
                               getValue = function()
                                   local _, ct = UnitClass("player")
-                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  local cc = ct and EllesmereUI.GetClassColor(ct)
                                   if cc then return cc.r, cc.g, cc.b end
                                   return 1, 1, 1
                               end,
@@ -1317,7 +1318,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                     etrRgn, etrRgn:GetFrameLevel() + 5,
                     function()
                         local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        local cc = classFile and EllesmereUI.GetClassColor(classFile)
                         if cc then return cc.r, cc.g, cc.b end
                         return 1, 1, 1
                     end,

@@ -270,9 +270,10 @@ local function PrefixedLine(text, shortenOn)
     end
 end
 
--- Only the tooltips the player reads. Addons scan item stats through hidden
--- tooltips of their own (Pawn's PawnPrivateTooltip1) and parse Blizzard's
--- original lines, so rewriting those breaks them.
+-- Only the tooltips the player reads. Other addons read item stats through
+-- hidden tooltips of their own and parse the game's original lines, so
+-- rewriting those breaks them. LootHistoryExtraTooltip: the loot history's
+-- item tooltip under the Gamepad interface style.
 local SHOWN_TIPS = {
     GameTooltip = true,
     ItemRefTooltip = true,
@@ -280,6 +281,7 @@ local SHOWN_TIPS = {
     ShoppingTooltip2 = true,
     ItemRefShoppingTooltip1 = true,
     ItemRefShoppingTooltip2 = true,
+    LootHistoryExtraTooltip = true,
 }
 
 local function SimplifyStatsHook(tooltip)
