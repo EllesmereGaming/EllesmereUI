@@ -50,6 +50,7 @@ local NAME_LINE = { "DiscordIcon", "Level", "ClassIcon", "NewPlayerFriendlyIcon"
 -- right edge. Rows without that line: after the last shown part of the name
 -- line, short of the group data.
 local function UpdateRow(row)
+    if not F.Enabled() then return end   -- off: Apply has hidden the zones
     local zone = Zone(row.resultID)
     if not zone then
         if zoneText[row] then zoneText[row]:Hide() end
@@ -82,6 +83,7 @@ end
 
 -- Tooltip: after the player's role icons, cut to the tooltip's width.
 local function UpdateTooltip(tip, resultID)
+    if not F.Enabled() then return end   -- off: Apply has hidden the zones
     local leader = tip.Leader
     local zone = leader:IsShown() and Zone(resultID)
     if not zone then
