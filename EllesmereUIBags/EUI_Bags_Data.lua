@@ -492,6 +492,8 @@ local function GetVisualOrder()
 end
 
 local function SaveCategoryOrder(key, items)
+    -- A virtual category is runtime-only: its index is no stable key
+    if EUI_CategoryManager:IsVirtual(key) then return end
     local order = GetVisualOrder()
     local list = {}
     for i, data in ipairs(items) do
@@ -501,6 +503,7 @@ local function SaveCategoryOrder(key, items)
 end
 
 local function ApplySavedOrder(key, items)
+    if EUI_CategoryManager:IsVirtual(key) then return end
     local order = GetVisualOrder()
     local saved = order[key]
     if not saved or #saved == 0 then return end

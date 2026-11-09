@@ -545,8 +545,10 @@ local function StopSidebarDrag()
                     end
                     if insertAt < 1 then insertAt = 1 end
                     if insertAt > #cats + 1 then insertAt = #cats + 1 end
-                    -- Junk stays last (as in ReorderCategory)
-                    if cats[#cats] and cats[#cats].isJunk and insertAt > #cats then insertAt = #cats end
+                    -- Virtual categories stay the tail and Junk stays last (as in ReorderCategory)
+                    local last = EUI_CategoryManager:GetSavedCount()
+                    if insertAt > last + 1 then insertAt = last + 1 end
+                    if cats[last] and cats[last].isJunk and insertAt > last then insertAt = last end
                     for b = #ordered, 1, -1 do
                         table.insert(cats, insertAt, ordered[b])
                     end
@@ -1026,8 +1028,8 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 EUI_Bags:RefreshInventory()
             end)
         else
-            -- Equip-set categories are named by the set; renames would not persist
-            if not cat.isEquipSet then
+            -- Equip-set and virtual categories are named by their source; renames would not persist
+            if not cat.isEquipSet and not cat.isVirtual then
             rootDescription:CreateButton(EllesmereUI.L("Rename"), function()
                 if not EUI.ShowInputPopup then return end
                 EUI:ShowInputPopup({
@@ -1218,7 +1220,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             elseif cat.isRecent and BP().bagShowRecentItems == false then
                 -- skip
             else
-                displayList[#displayList + 1] = { catIdx = ci, name = cat.name, icon = cat.icon or 134400, isAtlas = cat.isAtlas, count = count, noMove = cat.noMove, isPinned = cat.isPinned, isRecent = cat.isRecent, isUserCreated = cat.isUserCreated }
+                displayList[#displayList + 1] = { catIdx = ci, name = cat.name, icon = cat.icon or 134400, isAtlas = cat.isAtlas, count = count, noMove = cat.noMove, isPinned = cat.isPinned, isRecent = cat.isRecent, isUserCreated = cat.isUserCreated, isVirtual = cat.isVirtual }
                 if anchor then EmitSetChildren(1) end
             end
         end
@@ -1232,7 +1234,8 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             local keep = true
             if entry.count == 0 then
                 -- Always keep: All Items, OneBag, noMove (Pinned/Recent), user-created
-                if entry.catIdx >= 1 and not entry.noMove and not entry.isUserCreated then
+                -- (virtual categories are noMove too, but hide when empty)
+                if entry.catIdx >= 1 and (not entry.noMove or entry.isVirtual) and not entry.isUserCreated then
                     if entry.isGroupHeader then
                         -- Hide group header if all members are 0
                         keep = false
