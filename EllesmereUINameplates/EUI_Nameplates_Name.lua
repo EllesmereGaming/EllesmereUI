@@ -237,8 +237,19 @@ local function QuestTextMeasure(text, size, font, outline)
     if not (h and h > 0) then h = size end
     return math.ceil(w), math.ceil(h)
 end
+local function QuestTextTypeIconHide(self)
+    local f = self.questTextFrame
+    local icon = self.questTextTypeIcon
+    if icon and icon:IsShown() then icon:Hide() end
+    if f and f._qtTypeIconOn then
+        self.questText:ClearAllPoints()
+        self.questText:SetPoint("CENTER", f, "CENTER", 0, 0)
+        f._qtTypeIconOn = nil
+    end
+end
 -- Hides the frame; the name width, the target arrows and the slot's other elements follow.
 local function QuestTextHide(self, chainedBy)
+    if self.questTextTypeIcon then QuestTextTypeIconHide(self) end
     local f = self.questTextFrame
     if not (f and f:IsShown()) then return end
     f:Hide()
@@ -301,9 +312,52 @@ function NameplateFrame:UpdateQuestText(chainedBy)
             f._qtText, f._qtSize, f._qtFont, f._qtOutline = text, size, font, outline
         end
         w, h = f._qtW, f._qtH
+        if p and p.showQuestObjectiveTypeIcon == true then
+            local typeIcon = self.questTextTypeIcon
+            if not typeIcon then
+                typeIcon = f:CreateTexture(nil, "ARTWORK")
+                typeIcon:SetAtlas("Crosshair_Quest_64")
+                self.questTextTypeIcon = typeIcon
+            end
+            local objectiveType = ns.GetQuestObjectiveType(unit)
+            local art = objectiveType == "monster" and "monster"
+                or (objectiveType == "item" and "item" or "generic")
+            if f._qtTypeIconArt ~= art then
+                if art == "monster" then
+                    typeIcon:SetTexture("Interface\\Icons\\INV_Sword_04")
+                elseif art == "item" then
+                    typeIcon:SetTexture("Interface\\Icons\\INV_Misc_Bag_08")
+                else
+                    typeIcon:SetAtlas("Crosshair_Quest_64")
+                end
+                f._qtTypeIconArt = art
+            end
+            local iconScale = p.questObjectiveTypeIconScale or 100
+            local typeIconSize = math.max(8, math.floor(size * 0.8 * iconScale / 100 + 0.5))
+            local typeW, typeH = typeIconSize, typeIconSize
+            local gap = 2
+            if not f._qtTypeIconOn or f._qtTypeIconCounterW ~= f._qtW
+                or f._qtTypeIconW ~= typeW or f._qtTypeIconGap ~= gap
+                or f._qtTypeIconScale ~= iconScale then
+                fs:ClearAllPoints()
+                fs:SetPoint("CENTER", f, "CENTER", -((typeW + gap) / 2), 0)
+                typeIcon:ClearAllPoints()
+                typeIcon:SetSize(typeW, typeH)
+                typeIcon:SetPoint("LEFT", f, "CENTER", (f._qtW + gap - typeW) / 2, 0)
+                f._qtTypeIconOn = true
+                f._qtTypeIconCounterW, f._qtTypeIconW, f._qtTypeIconGap = f._qtW, typeW, gap
+                f._qtTypeIconScale = iconScale
+            end
+            typeIcon:Show()
+            w = w + gap + typeW
+            if typeH > h then h = typeH end
+        elseif self.questTextTypeIcon then
+            QuestTextTypeIconHide(self)
+        end
         self.questTextIcon:Hide()
         fs:Show()
     else
+        if self.questTextTypeIcon then QuestTextTypeIconHide(self) end
         w, h = iconSz, iconSz
         self.questText:Hide()
         self.questTextIcon:Show()

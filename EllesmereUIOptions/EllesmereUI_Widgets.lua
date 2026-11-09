@@ -507,7 +507,8 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     -- Optional in-menu search box (_menuOpts.searchable): filter field hides non-matching items and repositions the rest. Flat lists only (no subnav, no dividers).
     local _moSearchable = _menuOpts and _menuOpts.searchable
     local SEARCH_H = 26
-    local searchPad = _moSearchable and (SEARCH_H + 8) or 0
+    -- The search box keeps 4 units to the top, both sides and the first row.
+    local searchPad = _moSearchable and (SEARCH_H + 4) or 0
     local searchEdit, searchPlaceholder
     local searchResetScroll  -- assigned inside the scrolling branch; nil otherwise
     local padInit, padStepSync, padReveal  -- controller helpers: padInit (scrolling branch only) builds the other two on first use
@@ -545,7 +546,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
         -- Options panel is Expressway-locked by design; EllesmereUI.EXPRESSWAY is locale-aware (CJK/Cyrillic get the system glyph font). The user's global font intentionally never restyles the settings UI.
         local fontPath = (_moLabelFont and _moLabelFont[1]) or EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF"
         searchEdit = CreateFrame("EditBox", nil, menu)
-        searchEdit:SetSize(menuW - 16, SEARCH_H)
+        searchEdit:SetSize(menuW - 8, SEARCH_H)
         searchEdit:SetPoint("TOP", menu, "TOP", 0, -4)
         searchEdit:SetFrameLevel(menu:GetFrameLevel() + 4)
         searchEdit:SetFont(fontPath, 11, "")

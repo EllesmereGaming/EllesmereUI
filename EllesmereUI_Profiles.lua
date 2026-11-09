@@ -201,7 +201,7 @@ if EllesmereUI.IS_FOREVER == true then AB_BAREWORD.FavorBar = true end
 local UF_BAREWORD = {
     player=true, target=true, focus=true, pet=true, targettarget=true,
     focustarget=true, boss=true, classPower=true,
-    playerCastbar=true, targetCastbar=true, focusCastbar=true,
+    playerCastbar=true, targetCastbar=true, focusCastbar=true, petCastbar=true,
 }
 -- providedFolder (already a local folder: elem.folder, or a payload value that
 -- has been CanonToLocal'd) wins; the static resolution is the fallback.
@@ -778,6 +778,7 @@ local function StampUnlockLayoutIfMissing(prof)
         { cb = "playerCastbar", parent = "player" },
         { cb = "targetCastbar", parent = "target" },
         { cb = "focusCastbar",  parent = "focus" },
+        { cb = "petCastbar",    parent = "pet" },
     }
     for _, def in ipairs(CB_DEFAULTS) do
         if not snap.anchors[def.cb] then
@@ -1846,6 +1847,14 @@ function EllesmereUI.ProfileChangesStyle(profileData)
     if type(profileData) ~= "table" or type(profileData.addons) ~= "table" then return false end
     local reg = EllesmereUI._ModuleNS
     if not reg then return false end
+    -- Bags' WoW Forever style: the incoming profile's own Bags pick, else the
+    -- look most of its modules use (BagsForeverWanted).
+    local bags = EllesmereUI.IS_FOREVER and reg.EllesmereUIBags
+    if bags and bags.BagsForeverWanted then
+        local incoming = profileData.addons.EllesmereUIBags
+        local want = bags.BagsForeverWanted(type(incoming) == "table" and incoming or nil, profileData.addons)
+        if bags.BagsForever() ~= want then return true end
+    end
     for i = 1, #STYLE_FLAGS do
         local f = STYLE_FLAGS[i]
         local mns = reg[f.folder]
@@ -1901,6 +1910,37 @@ function EllesmereUI.RenderedLook()
         if look ~= "blizzard" and look ~= "forever" then return false end
     end
     return look
+end
+
+--- WoW Forever: true when more than half of the loaded modules' styleable
+--- surfaces are on the WoW Forever look in a profile's addons table (nil = the
+--- active profile's): the Blizzard flag set with its Forever sibling, which a
+--- surface with no variant of its own also carries beside the Blizzard flag (as
+--- RenderedLook reads it); the Classic flag wins. Bags' WoW Forever style
+--- follows it while the profile has no Bags style picked. false off the Forever
+--- client and with no loaded surface. Reads settings only.
+function EllesmereUI.ForeverLookMajority(addons)
+    if not EllesmereUI.IS_FOREVER then return false end
+    if addons == nil then
+        local p = EllesmereUI.GetActiveProfileData()
+        addons = p and p.addons
+    end
+    local reg = EllesmereUI._ModuleNS
+    if type(addons) ~= "table" or not reg then return false end
+    local total, forever = 0, 0
+    for i = 1, #STYLE_FLAGS do
+        local f = STYLE_FLAGS[i]
+        if reg[f.folder] and not f.retailOnly then
+            total = total + 1
+            local t = addons[f.data or f.folder]
+            if f.sub and type(t) == "table" then t = t[f.sub] end
+            if type(t) == "table" and t[f.key] and not t[f.classic]
+                and t[f.forever or (f.key:gsub("Blizzard", "Forever", 1))] then
+                forever = forever + 1
+            end
+        end
+    end
+    return forever * 2 > total
 end
 
 -------------------------------------------------------------------------------

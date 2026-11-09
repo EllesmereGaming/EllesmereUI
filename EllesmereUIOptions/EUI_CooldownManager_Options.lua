@@ -8,20 +8,9 @@ local ADDON_NAME = "EllesmereUICooldownManager"
 local ns = EllesmereUI._ModuleNS[ADDON_NAME]  -- module namespace (published by the module at its load)
 if not ns then return end  -- module disabled: no options page
 
--- Controller cursor: a hand-built popup (named dimmer over its panel) joins the
--- controller cursor and answers controller Back from its first open with a
--- controller in use; until then nothing is registered or hooked. The panel
--- stays a blocker without being a cursor stop, closeBtn is what the
--- controller's cancel button presses, and onEscape (nil = hide the dimmer) is
--- what Back runs. Call it just before the dimmer's Show. On ns: shared with the
--- Talent Conditions popup, and no main-chunk local.
-function ns.PadPopupOpen(dimmer, panel, closeBtn, onEscape)
-    if dimmer._padReg or not EllesmereUI.PadInUse() then return end
-    dimmer._padReg = true
-    EllesmereUI.PadHint(panel, "nodepass")
-    if closeBtn then panel.CloseButton = closeBtn end
-    EllesmereUI.RegisterEscapeClose(dimmer, { padOnly = true, onEscape = onEscape })
-end
+-- Controller cursor for the CDM's hand-built popups: the shared
+-- EllesmereUI.PadPopupOpen (EllesmereUI_UICore.lua). On ns: no main-chunk local.
+ns.PadPopupOpen = EllesmereUI.PadPopupOpen
 
 -- Gates a row under Blizzard Style only: the classic kit draws chrome round
 -- the user's own fill and background, so those settings stay live there.
@@ -924,6 +913,27 @@ initFrame:SetScript("OnEvent", function(self)
             ddBtn:HookScript("OnHide", function() if ddMenu then ddMenu:Hide() end end)
             PP.Point(ddBtn, "TOP", headerFrame, "TOP", 0, -20)
 
+            -- (i) next to the picker: what the page does, on hover
+            local info = CreateFrame("Frame", nil, headerFrame)
+            PP.Size(info, 16, 16)
+            PP.Point(info, "LEFT", ddBtn, "RIGHT", 10, 0)
+            info:SetFrameLevel(ddBtn:GetFrameLevel())
+            info:SetMouseClickEnabled(false)
+            info:SetMouseMotionEnabled(true)
+            local infoIco = info:CreateTexture(nil, "OVERLAY")
+            infoIco:SetAllPoints()
+            if infoIco.SetSnapToPixelGrid then infoIco:SetSnapToPixelGrid(false); infoIco:SetTexelSnappingBias(0) end
+            infoIco:SetTexture([[Interface\AddOns\EllesmereUI\media\icons\eui-info.png]])
+            infoIco:SetVertexColor(1, 1, 1, 0.45)
+            info:SetScript("OnEnter", function(self)
+                infoIco:SetVertexColor(1, 1, 1, 0.9)
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L("Makes buttons glow when a chosen buff is active or missing, or when their ability is usable."))
+            end)
+            info:SetScript("OnLeave", function()
+                infoIco:SetVertexColor(1, 1, 1, 0.45)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+
             -- Button grid below dropdown
             local gridTopY = -(20 + DD_H + 20)
 
@@ -1344,7 +1354,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = W:Spacer(parent, y, 8);  y = y - h
 
-        -- A selected slot that is (now) non-glowable falls back to the hint instead of glow settings.
+        -- A selected slot that is (now) non-glowable shows no glow settings (the header tip stays).
         if curBtn and type(curBar) == "string" then
             local cdmIcons = ns.cdmBarIcons and ns.cdmBarIcons[curBar]
             if IsNonGlowableCDMIcon(cdmIcons and cdmIcons[curBtn]) then
@@ -1352,17 +1362,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
-        if not curBtn then
-            local hintFrame = CreateFrame("Frame", nil, parent)
-            hintFrame:SetSize(parent:GetWidth(), 40)
-            hintFrame:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, y)
-            local hintText = hintFrame:CreateFontString(nil, "OVERLAY")
-            hintText:SetFont(FONT_PATH, 12, GetCDMOptOutline())
-            hintText:SetTextColor(0.5, 0.5, 0.5, 1)
-            hintText:SetPoint("CENTER")
-            hintText:SetText(EllesmereUI.L("Left click a button to edit its glow, right click to add a new glow"))
-            y = y - 40
-        else
+        -- No selection: the tip under the button grid is the only hint
+        if curBtn then
             local assignKey, cdmSid
             local isCurCDM = (type(curBar) == "string")
             if isCurCDM then

@@ -43,7 +43,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 -- Everything is gated on the swing API and the engine timer it feeds: on retail
 -- this file returns right below and nothing below exists. Off by default = no
--- frame children, no events, no timers.
+-- frame children, no events, no timers. A druid form switched off, or talent
+-- conditions that do not hold, park it the same way (RuledOut).
 
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
@@ -137,7 +138,8 @@ shell:Hide()
 -- entry painted, false = none), meleeOn / repeatOn (auto attack / auto-repeat
 -- on, from the edges), seeded (both read since the highlight came on), active
 -- (the state painted), aimClass (this class's AIM_CLASS),
--- moveEvents / moving (the movement edges registered / the player moving).
+-- moveEvents / moving (the movement edges registered / the player moving),
+-- ruled (the form or talents ruled the timer out at the last apply, RuledOut).
 -- Per row, _rtt (the latency read for its swing) and, on a guide row, _aimAt
 -- (its Stop by point), _aiming and _aimFrom (an aim phase running, and from
 -- when).
@@ -153,6 +155,26 @@ local function P()
     local db = ERB and ERB.db
     local p = db and db.profile
     return p and p.swingTimer or nil
+end
+
+local _, playerClass = UnitClass("player")
+
+-- Forms and talents (the Visibility row's Forms and Talents cog): true while the
+-- druid's current form is switched off (barDisabledForms, the per-form map the
+-- other bars use) or the talent conditions saved for the player's class do not
+-- hold (classTalentConditions[class], the Talent Conditions picker's list; per
+-- class, so one profile serves every class). Ruled out, the timer stands down
+-- like switched off (ns.ST_Apply).
+local function RuledOut(cfg)
+    if _G._ERB_BarHiddenByForm(cfg) then return true end
+    local byClass = cfg.classTalentConditions
+    local conds = byClass and byClass[playerClass]
+    return conds ~= nil and not EllesmereUI.TalentConditionsHold(conds)
+end
+
+local function HasTalentConds(cfg)
+    local byClass = cfg.classTalentConditions
+    return byClass ~= nil and byClass[playerClass] ~= nil
 end
 
 -- The look the rows wear: the Resource Bars row of Global Settings > Style
@@ -1581,49 +1603,9 @@ local function Teardown()
     EllesmereUI.SetElementVisibility(shell, false)
 end
 
--- Visibility pass: runs from the main file's UpdateVisibility on every edge it
--- sees (combat, target, group, zone, custom conditional) and from the swing
--- edges hideWhenIdle cares about.
-function ns.ST_UpdateVisibility()
-    if not S.built then return end
-    local cfg = P()
-    local ERB = ns.ERB
-    if not (cfg and cfg.enabled and ERB) then return end
-    local vis
-    if EllesmereUI._unlockActive then
-        vis = true
-    else
-        vis = not ERB._inVehicle and ns.ShouldShowBar(cfg)
-        if vis and cfg.hideWhenIdle and S.live == 0 then vis = false end
-    end
-    ERB._moEligible = ERB._moEligible or {}
-    ERB._moEligible[MO_KEY] = (vis == "mouseover")
-    EllesmereUI.SetElementVisibility(shell, vis == true)
-end
-
--- The colour a row's spark paints (by colour key), for the options swatch;
--- unset = true gives the tint it has without a colour of its own.
-function ns.ST_SparkColor(key, unset)
-    local cfg = P()
-    if not cfg then return 1, 1, 1, 1 end
-    for i = 1, #ROWS do
-        if ROWS[i].key == key then
-            local row = S.rows[i]
-            return SparkColor(cfg, ROWS[i], row and row._merged, unset)
-        end
-    end
-    return 1, 1, 1, 1
-end
-
-function ns.ST_Apply()
-    local cfg = P()
-    if not cfg or not cfg.enabled then
-        Teardown()
-        return
-    end
-    EnsureBuilt()
-    shell:SetFrameStrata(cfg.frameStrata or "MEDIUM")
-    shell:Show()
+-- A running timer's events and attack state: the full apply and a resume
+-- after a park both start here.
+local function Arm(cfg)
     RegisterEvents()
     ApplyQueueEvents(cfg)
     ApplyActiveEvents(cfg)
@@ -1637,24 +1619,19 @@ function ns.ST_Apply()
         SeedActive()
     end
     ApplyMoveEvents(cfg)
-    -- Size and stack the rows BEFORE styling them: the textured border is a
-    -- BackdropTemplate nine-slice keyed on first setup, and set up on a 0x0
-    -- row it never paints (cast/GCD bars size first for the same reason).
-    RefreshRows(cfg)
-    ApplyPosition(cfg)
-    ApplyLook(cfg)
-    PaintQueue(cfg)
-    PaintActive(cfg)
-    -- Every row takes its paint here on every apply, always by re-arming the
-    -- bar timer, never by a plain SetValue: a parked timer keeps painting its
-    -- terminal state and SetValue does not repaint it (the GCD bar's idle
-    -- recipe). Unlock movers up: a full bar with a sample time. A row
-    -- mid-swing: its running swing (or Wind-Up reload / aim phase) again, in
-    -- the direction now configured (unlock exit, a Deplete Fill or Movement
-    -- Guide change). A row whose attack is on: parked
-    -- full (waiting), also when the option just came on mid-attack. Otherwise
-    -- the idle render, so a Show Fill Color When Idle change shows at once, not
-    -- at the next swing's end.
+end
+
+-- Every row takes its paint here on every apply, always by re-arming the
+-- bar timer, never by a plain SetValue: a parked timer keeps painting its
+-- terminal state and SetValue does not repaint it (the GCD bar's idle
+-- recipe). Unlock movers up: a full bar with a sample time. A row
+-- mid-swing: its running swing (or Wind-Up reload / aim phase) again, in
+-- the direction now configured (unlock exit, a Deplete Fill or Movement
+-- Guide change). A row whose attack is on: parked
+-- full (waiting), also when the option just came on mid-attack. Otherwise
+-- the idle render, so a Show Fill Color When Idle change shows at once, not
+-- at the next swing's end.
+local function PaintRows(cfg)
     for i = 1, #S.rows do
         local row = S.rows[i]
         local obj = row._durObj
@@ -1696,6 +1673,106 @@ function ns.ST_Apply()
             IdleRow(row, cfg)
         end
     end
+end
+
+-- Back from a park (a shapeshift or talent edit that no longer rules the timer
+-- out): events and the row state come back. The rows kept their spot and look
+-- while parked (a settings change made then runs the full apply, which styles
+-- them), so only rows that came back are restyled.
+local function Resume(cfg)
+    Arm(cfg)
+    if RefreshRows(cfg) then RestyleMarked(cfg) end
+    PaintQueue(cfg)
+    PaintActive(cfg)
+    PaintRows(cfg)
+end
+
+-- Visibility pass: runs from the main file's UpdateVisibility on every edge it
+-- sees (combat, target, group, zone, shapeshift, the debounced pass after a
+-- talent edit, custom conditional) and from the swing edges hideWhenIdle cares
+-- about. A form or talent change that moves the gate (RuledOut) parks the timer
+-- (Teardown) or resumes it; Unlock Mode keeps it running either way, and
+-- leaving Unlock Mode runs the full apply, which parks it while ruled out.
+function ns.ST_UpdateVisibility()
+    if not S.built then return end
+    local cfg = P()
+    local ERB = ns.ERB
+    if not (cfg and cfg.enabled and ERB) then return end
+    local ruled = RuledOut(cfg)
+    if ruled ~= (S.ruled or false) then
+        -- Set first: the row edges below can run this pass again.
+        S.ruled = ruled
+        if not EllesmereUI._unlockActive then
+            if ruled then Teardown() else Resume(cfg) end
+        end
+    end
+    local vis
+    if EllesmereUI._unlockActive then
+        vis = true
+    elseif S.ruled then
+        vis = false
+    else
+        vis = not ERB._inVehicle and ns.ShouldShowBar(cfg)
+        if vis and cfg.hideWhenIdle and S.live == 0 then vis = false end
+    end
+    ERB._moEligible = ERB._moEligible or {}
+    ERB._moEligible[MO_KEY] = (vis == "mouseover")
+    EllesmereUI.SetElementVisibility(shell, vis == true)
+end
+
+-- The colour a row's spark paints (by colour key), for the options swatch;
+-- unset = true gives the tint it has without a colour of its own.
+function ns.ST_SparkColor(key, unset)
+    local cfg = P()
+    if not cfg then return 1, 1, 1, 1 end
+    for i = 1, #ROWS do
+        if ROWS[i].key == key then
+            local row = S.rows[i]
+            return SparkColor(cfg, ROWS[i], row and row._merged, unset)
+        end
+    end
+    return 1, 1, 1, 1
+end
+
+-- Talent edits (Resource Bars' TRAIT_CONFIG_UPDATED / PLAYER_TALENT_UPDATE)
+-- and the apply after each loading screen (a login read can come before the
+-- talent data is in): the shared talent check's cache is read again, by the
+-- debounced visibility pass after an edit and by that apply.
+function ns.ST_TalentChanged()
+    local cfg = P()
+    if cfg and cfg.enabled and HasTalentConds(cfg) then EllesmereUI.TalentCondInvalidate() end
+end
+
+function ns.ST_Apply()
+    local cfg = P()
+    if not cfg or not cfg.enabled then
+        S.ruled = nil
+        Teardown()
+        return
+    end
+    S.ruled = RuledOut(cfg)
+    -- Ruled out by form or talents (outside Unlock Mode, which shows it with its
+    -- sample): laid out and styled as usual, so anchored elements keep their
+    -- spot and a resume needs no restyle, then parked like switched off (no
+    -- events, every row idle, alpha 0).
+    local park = S.ruled and not EllesmereUI._unlockActive
+    EnsureBuilt()
+    shell:SetFrameStrata(cfg.frameStrata or "MEDIUM")
+    shell:Show()
+    if not park then Arm(cfg) end
+    -- Size and stack the rows BEFORE styling them: the textured border is a
+    -- BackdropTemplate nine-slice keyed on first setup, and set up on a 0x0
+    -- row it never paints (cast/GCD bars size first for the same reason).
+    RefreshRows(cfg)
+    ApplyPosition(cfg)
+    ApplyLook(cfg)
+    if park then
+        Teardown()
+        return
+    end
+    PaintQueue(cfg)
+    PaintActive(cfg)
+    PaintRows(cfg)
     ns.ST_UpdateVisibility()
 end
 
@@ -1775,6 +1852,9 @@ function ns.ST_MakeUnlockElement(MK, Rebuild)
         -- The mover resizes the whole stack; the per-row height is what is stored.
         setHeight = function(_, h)
             local cfg = P(); if not cfg then return end
+            -- A spec layout holds the stack height of the character that saved
+            -- it, whose row count can differ; the row height is the profile's.
+            if EllesmereUI._unlockLayerApplying then return end
             local n = ShownCount()
             local sp = RowGap(cfg)
             local v = PP.Snap(math.max((h - (n - 1) * sp) / n, 4))

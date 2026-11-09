@@ -740,7 +740,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end,
                 })
             local PP = EllesmereUI.PP
-            PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
             leftRgn._control = cbDD
             leftRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
@@ -836,7 +836,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end,
                 })
             local PP = EllesmereUI.PP
-            PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
             leftRgn._control = cbDD
             leftRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
@@ -1192,7 +1192,7 @@ initFrame:SetScript("OnEvent", function(self)
                     RefreshMinimap()
                     EllesmereUI:RefreshPage()
                 end)
-            PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
             rgn._control = cbDD
             rgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
@@ -1837,7 +1837,7 @@ initFrame:SetScript("OnEvent", function(self)
                     end
                     RefreshMinimap()
                 end)
-            PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
             rgn._control = cbDD
             rgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)

@@ -887,7 +887,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     local CORE_TIP = {
         rare  = "Elite and rare marks. Always in the same slot as the Quest Indicator.",
         quest = "Marks mobs for your active quests. Always in the same slot as the Elite/Rare Indicator.",
-        questtext = "Shows quest progress such as 2/6 on quest mobs.",
+        questtext = "Shows quest progress such as 2/6 on quest mobs. Optional icon can be displayed alongside the text.",
     }
 
     local function CoreHas(pos, k)
@@ -1887,6 +1887,21 @@ local function BuildDisplayLayout(parent, y, ctx)
             { title = "Quest Indicator", hidden = Lacks("quest"),
               rows = { SizeRow("quest"), InstancesRow("quest") } },
             { title = "Quest Objective Text", hidden = Lacks("questtext"), rows = {
+                { type = "toggle", label = "Show Quest Objective Type Icon",
+                  tooltip = "Shows a sword for monster objectives, a bag for item objectives, and the generic quest icon when the type cannot be matched exactly.",
+                  get = function() return DBVal("showQuestObjectiveTypeIcon") == true end,
+                  set = function(v)
+                      DB().showQuestObjectiveTypeIcon = v
+                      ns.RefreshQuestObjective()
+                      refresh()
+                  end },
+                { type = "slider", label = "Icon Scale", min = 50, max = 200, step = 5,
+                  hidden = function() return DBVal("showQuestObjectiveTypeIcon") ~= true end,
+                  get = function() return DBVal("questObjectiveTypeIconScale") or 100 end,
+                  set = function(v)
+                      DB().questObjectiveTypeIconScale = v
+                      refresh()
+                  end },
                 { type = "slider", label = "Text Size", min = 6, max = 24, step = 1,
                   tooltip = "Size of the quest progress text.",
                   get = function() return ns.NP_QuestTextSize(DB()) end,

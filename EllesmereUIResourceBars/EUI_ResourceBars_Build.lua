@@ -542,6 +542,8 @@ local function BuildBars()
             ppDirSign = ResolveExpandDirSign(pp, sp2)
         end
     end
+    -- The stored-CENTER shift that keeps the far edge fixed (the unlock applyPos adds it too).
+    ns.ERB_PowerExpandShiftY = ppDirSign * ppExpandDelta * 0.5
     -- Clean stale key from the retired suppress/restore system
     if pp._expandWasOn ~= nil then pp._expandWasOn = nil end
     -- SnapForES (round to nearest), NOT PP.Scale (truncate toward zero): 214.6

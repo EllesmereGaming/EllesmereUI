@@ -1008,7 +1008,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     ---------------------------------------------------------------------------
     --  WoW Forever spell groups: one section per group. Slots, left to right:
-    --  Add Spell ID, Rename, one per spell (Remove), Remove Group last.
+    --  Add Spell ID, Rename, one per spell, Remove Group last.
     ---------------------------------------------------------------------------
     local function BuildForeverGroupSections(parent, y)
         local f = FDB()
@@ -1016,7 +1016,7 @@ initFrame:SetScript("OnEvent", function(self)
         for groupIndex, group in ipairs(f.customGroups) do
             local slots = {
                 { type="input", text="Add Spell ID", inputStyle="popup", placeholder="Spell ID", inputWidth=110,
-                  tooltip="Type a spell ID and press Enter to add it to this group. Unknown IDs are ignored.\nThe reminder shows the icon of the first spell in the list.",
+                  tooltip="Type a spell ID and press Enter to add it to this group. Unknown IDs are ignored.\nThe reminder shows the icon of the first spell in the list that you know, or of the spell you picked with the Action Picker.",
                   getValue=function() return "" end,
                   setValue=function(text) AddSpellIDToList(group.ids, text) end },
                 { type="labeledButton", text="Rename Group", buttonText="Rename", width=90,
@@ -1029,6 +1029,11 @@ initFrame:SetScript("OnEvent", function(self)
                     tooltip="Remove this spell from the group.",
                     onClick=function()
                         table.remove(group.ids, spellIndex)
+                        if group.castSpellID == spellID then group.castSpellID = nil end
+                        if group.castRanks then
+                            group.castRanks[spellID] = nil
+                            if not next(group.castRanks) then group.castRanks = nil end
+                        end
                         RefreshAll()
                         EllesmereUI:RefreshPage(true)
                     end }
@@ -1797,6 +1802,19 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        if FOREVER then
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Action Picker",
+                  tooltip="Right-click a spell group or Class Buffs reminder that has more than one spell to choose the spell its left click casts. Scroll over a spell in the picker to choose its rank.",
+                  getValue=function() local f = FDB(); return f and f.pickerEnabled == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.pickerEnabled = v
+                      RefreshAll()
+                  end },
+                EllesmereUI.BlankRowCfg()
+            );  y = y - h
+        end
+
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -----------------------------------------------------------------------
@@ -1869,8 +1887,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         -----------------------------------------------------------------------
         --  WOW FOREVER section: on that client the rest of the page.
-        --  Camp Benefits | Well Fed, Gathering Tracking | Find Treasure,
-        --  Weapon Buffs | Mage Armors or Class Buffs, then the spell-ID entry
+        --  Camp Benefits | Sleeping Bag, Well Fed | Gathering Tracking,
+        --  Find Treasure | Weapon Buffs, Mage Armors or Class Buffs, then the
+        --  spell-ID entry
         --  that adds a custom reminder followed by one slot per tracked spell;
         --  the retail sections below never build.
         -----------------------------------------------------------------------
@@ -1885,7 +1904,7 @@ initFrame:SetScript("OnEvent", function(self)
                 onChange = RefreshAll,
             });  y = y - h
 
-            -- Camp Benefits | Well Fed
+            -- Camp Benefits | Sleeping Bag
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Camp Benefits",
                   tooltip="Reminds you when the Camp Benefits campfire buff is missing.",
@@ -1894,6 +1913,18 @@ initFrame:SetScript("OnEvent", function(self)
                       local f = FDB(); if not f then return end; f.camp = v
                       RefreshAll()
                   end },
+                { type="toggle", text="Sleeping Bag",
+                  tooltip="Reminds you when your Well-Rested buff is missing or under 3 stacks.\nOnly while a Cozy Sleeping Bag is in your bags and you are below max level.\nClick the icon to use it.",
+                  getValue=function() local f = FDB(); return f and f.sleepingBag == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.sleepingBag = v
+                      RefreshAll()
+                  end }
+            );  y = y - h
+
+            -- Well Fed | Gathering Tracking (+ class tracking cog)
+            local gatherRow
+            gatherRow, h = W:DualRow(parent, y,
                 -- The client's own name for the buff (19705, EABR.WELL_FED), so it reads localized.
                 { type="toggle", text=_G._EABR_SpellName(19705, "Well Fed"),
                   tooltip="Reminds you when you have no Well Fed buff.",
@@ -1901,12 +1932,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       local f = FDB(); if not f then return end; f.wellFed = v
                       RefreshAll()
-                  end }
-            );  y = y - h
-
-            -- Gathering Tracking (+ class tracking cog) | Find Treasure
-            local gatherRow
-            gatherRow, h = W:DualRow(parent, y,
+                  end },
                 { type="toggle", text="Gathering Tracking",
                   tooltip="Reminds you when no gathering tracking is on.",
                   getValue=function() local f = FDB(); return f and f.gather == true end,
@@ -1914,18 +1940,11 @@ initFrame:SetScript("OnEvent", function(self)
                       local f = FDB(); if not f then return end; f.gather = v
                       RefreshAll()
                       EllesmereUI:RefreshPage()
-                  end },
-                { type="toggle", text=_G._EABR_SpellName(2481, "Find Treasure"),
-                  tooltip="Reminds Dwarves when Find Treasure is off.",
-                  getValue=function() local f = FDB(); return f and f.treasure == true end,
-                  setValue=function(v)
-                      local f = FDB(); if not f then return end; f.treasure = v
-                      RefreshAll()
                   end }
             );  y = y - h
 
             if not EllesmereUI._prebuilding then
-                EllesmereUI.BuildInlineCog(gatherRow._leftRegion, {
+                EllesmereUI.BuildInlineCog(gatherRow._rightRegion, {
                     title = "Gathering Tracking",
                     disabled = function() local f = FDB(); return not (f and f.gather == true) end,
                     disabledTooltip = "Gathering Tracking",
@@ -1941,6 +1960,13 @@ initFrame:SetScript("OnEvent", function(self)
             local classBuffs = not MAGE and _G._EABR_FvClassBuffs and _G._EABR_FvClassBuffs()[class]
             local weaponRow
             weaponRow, h = W:DualRow(parent, y,
+                { type="toggle", text=_G._EABR_SpellName(2481, "Find Treasure"),
+                  tooltip="Reminds Dwarves when Find Treasure is off.",
+                  getValue=function() local f = FDB(); return f and f.treasure == true end,
+                  setValue=function(v)
+                      local f = FDB(); if not f then return end; f.treasure = v
+                      RefreshAll()
+                  end },
                 { type="toggle", text="Weapon Buffs",
                   tooltip="Reminds you when a weapon has no poison, imbue, stone or oil.\nClick the icon to apply one from your bags.",
                   getValue=function() local f = FDB(); return f and f.weapon == true end,
@@ -1948,18 +1974,24 @@ initFrame:SetScript("OnEvent", function(self)
                       local f = FDB(); if not f then return end; f.weapon = v
                       RefreshAll()
                       EllesmereUI:RefreshPage()
-                  end },
-                MAGE and { type="toggle", text="Mage Armors",
-                  tooltip="Reminds you when no Frost Armor, Ice Armor or Mage Armor is up.\nThe icon is the one you last had on; click it to cast it.",
-                  getValue=function() local f = FDB(); return f and f.mageArmor == true end,
-                  setValue=function(v)
-                      local f = FDB(); if not f then return end; f.mageArmor = v
-                      RefreshAll()
                   end }
-                or classBuffs and { type="label", text="Class Buffs",
-                  tooltip="Reminds you when one of your class's own buffs is missing.\nClick the icon to cast it.\nA custom spell or spell group for a ticked buff pauses meanwhile." }
-                or EllesmereUI.BlankRowCfg()
             );  y = y - h
+
+            local classRow
+            if MAGE or classBuffs then
+                classRow, h = W:DualRow(parent, y,
+                    MAGE and { type="toggle", text="Mage Armors",
+                      tooltip="Reminds you when no Frost Armor, Ice Armor or Mage Armor is up.\nThe icon is the one you last had on; click it to cast it.",
+                      getValue=function() local f = FDB(); return f and f.mageArmor == true end,
+                      setValue=function(v)
+                          local f = FDB(); if not f then return end; f.mageArmor = v
+                          RefreshAll()
+                      end }
+                    or { type="label", text="Class Buffs",
+                      tooltip="Reminds you when one of your class's own buffs is missing.\nClick the icon to cast it.\nA custom spell or spell group for a ticked buff pauses meanwhile." },
+                    EllesmereUI.BlankRowCfg()
+                );  y = y - h
+            end
 
             -- Class Buffs: one checkbox per buff of the class (ticked: its own
             -- default until picked, EABR.FvClassBuffOn)
@@ -1985,7 +2017,7 @@ initFrame:SetScript("OnEvent", function(self)
                     byKey[b.key] = b
                 end
                 local isOn = _G._EABR_FvClassBuffOn
-                local rgn = weaponRow._rightRegion
+                local rgn = classRow._leftRegion
                 local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                     rgn, 170, rgn:GetFrameLevel() + 2, items,
                     function(key) local f = FDB(); return isOn(byKey[key], f and f.classBuffPicks) end,
@@ -2051,7 +2083,7 @@ initFrame:SetScript("OnEvent", function(self)
                   tooltip="Show a reminder before a poison, imbue, stone or oil runs out.\n0 = only once it has run out.\n1-10 = when it has less than this many minutes left.",
                   get=function() local f = FDB(); return f and f.weaponShowBelow or 1 end,
                   set=function(v) local f = FDB(); if f then f.weaponShowBelow = v; RefreshAll() end end }
-                EllesmereUI.BuildInlineCog(weaponRow._leftRegion, {
+                EllesmereUI.BuildInlineCog(weaponRow._rightRegion, {
                     title = "Weapon Buffs",
                     disabled = function() local f = FDB(); return not (f and f.weapon == true) end,
                     disabledTooltip = "Weapon Buffs",
