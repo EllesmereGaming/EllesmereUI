@@ -2614,9 +2614,10 @@ local function BuildNameplatePreview(parent, parentW)
         do
             local stackExtent, cornerExtent = 0, 0
             local function isCorner(s) return s == "topleft" or s == "topright" end
+            -- Extents use iconH: a cropped icon is shorter than its size (width).
             local function addAura(slotVal, count, sz, iconH, spacing, yOff)
                 if slotVal == "top" then
-                    stackExtent = math.max(stackExtent, sz + yOff)
+                    stackExtent = math.max(stackExtent, iconH + yOff)
                 elseif isCorner(slotVal) then
                     -- "up" growth stacks the icons, as PlaceInSlot does
                     local stackH = 0
@@ -2624,7 +2625,7 @@ local function BuildNameplatePreview(parent, parentW)
                         stackH = (count - 1) * (spacing - sz + iconH)
                     end
                     cornerExtent = math.max(cornerExtent,
-                        debuffY + ns.NP_TopCornerLift(slotVal, DB()) + sz + stackH + yOff)
+                        debuffY + ns.NP_TopCornerLift(slotVal, DB()) + iconH + stackH + yOff)
                 end
             end
             addAura(debuffSlotVal, PV_CONST.DEBUFF_COUNT, debuffSz, debuffH, debuffSpacing, debuffYOff)
@@ -2967,9 +2968,9 @@ local function BuildNameplatePreview(parent, parentW)
         -- Add extra height for auras in the "bottom" slot (below cast bar)
         local bottomExtent = 0
         local function isBottomSlot(s) return s == "bottom" end
-        if isBottomSlot(debuffSlotVal) then bottomExtent = math.max(bottomExtent, debuffSz + 2 - debuffYOff) end
-        if isBottomSlot(buffSlotVal) then bottomExtent = math.max(bottomExtent, buffSz + 2 - buffYOff) end
-        if isBottomSlot(ccSlotVal) then bottomExtent = math.max(bottomExtent, ccSz + 2 - ccYOff) end
+        if isBottomSlot(debuffSlotVal) then bottomExtent = math.max(bottomExtent, debuffH + 2 - debuffYOff) end
+        if isBottomSlot(buffSlotVal) then bottomExtent = math.max(bottomExtent, buffH + 2 - buffYOff) end
+        if isBottomSlot(ccSlotVal) then bottomExtent = math.max(bottomExtent, ccH + 2 - ccYOff) end
         if isBottomSlot(rmPos) and showRM then bottomExtent = math.max(bottomExtent, rmSize + 2 - rmYOff) end
         if isBottomSlot(clPos) and showCL then bottomExtent = math.max(bottomExtent, reIconSz + 2 - clYOff) end
         if pf._qt.shown and isBottomSlot(pf._qt.pos) then

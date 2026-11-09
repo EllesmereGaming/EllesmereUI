@@ -227,6 +227,9 @@ do
     -- stores wholesale from an unlockLayout snapshot: the snapshot's TBB entries are stale
     -- copies of whichever spec last saved unlock mode, so the active spec's own entries are re-asserted here.
     EllesmereUI._TBBRestoreUnlockLinks = function()
+        -- Mid-apply, the active-store cache still holds the outgoing profile's
+        -- store, and on WoW Forever the spec key resolves against that store.
+        ns._cachedSpecProfiles = nil
         ns.SyncTBBUnlockLinks(true)
     end
 
