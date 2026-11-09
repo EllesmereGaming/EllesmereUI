@@ -1127,23 +1127,26 @@ do
         pendingTotal, pendingAt = num, GetTime()
     end
 
+    -- Hooks are best-effort: a failed hooksecurefunc must not prevent
+    -- SetCraftBatch from being defined (child addons gate on it).
     if hooksecurefunc then
-        if C_TradeSkillUI and C_TradeSkillUI.CraftRecipe then
-            hooksecurefunc(C_TradeSkillUI, "CraftRecipe", function(_, numCasts)
-                NotePendingCrafts(numCasts)
-            end)
-        end
-        if C_TradeSkillUI and C_TradeSkillUI.CraftEnchant then
-            hooksecurefunc(C_TradeSkillUI, "CraftEnchant", function(_, numCasts)
-                NotePendingCrafts(numCasts)
-            end)
-        end
-        -- Classic-style Create All (still present on Forever for some UIs).
-        if DoTradeSkill then
-            hooksecurefunc("DoTradeSkill", function(_, num)
-                NotePendingCrafts(num)
-            end)
-        end
+        pcall(function()
+            if C_TradeSkillUI and C_TradeSkillUI.CraftRecipe then
+                hooksecurefunc(C_TradeSkillUI, "CraftRecipe", function(_, numCasts)
+                    NotePendingCrafts(numCasts)
+                end)
+            end
+            if C_TradeSkillUI and C_TradeSkillUI.CraftEnchant then
+                hooksecurefunc(C_TradeSkillUI, "CraftEnchant", function(_, numCasts)
+                    NotePendingCrafts(numCasts)
+                end)
+            end
+            if DoTradeSkill then
+                hooksecurefunc("DoTradeSkill", function(_, num)
+                    NotePendingCrafts(num)
+                end)
+            end
+        end)
     end
 
     -- Crafts still queued AFTER the current cast (0 = this is the last one).
