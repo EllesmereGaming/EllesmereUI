@@ -10,7 +10,7 @@ if not ns then return end  -- module disabled: no options page
 local abs = math.abs
 
 local PAGE_DISPLAY   = "Class, Power and Health Bars"
-local PAGE_CASTBAR   = "Cast Bar"
+local PAGE_CASTBAR   = "Cast Bars"
 local PAGE_GCD       = "GCD Bar"
 local PAGE_SWING     = "Swing Timer"   -- WoW Forever only (C_SwingTimer)
 local PAGE_TOTEM     = "Totem Bar"
