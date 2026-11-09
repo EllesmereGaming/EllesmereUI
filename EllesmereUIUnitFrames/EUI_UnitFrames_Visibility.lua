@@ -135,7 +135,7 @@ function ns.UpdateHealthVisibilityUnit(unit)
     local alpha = UnitHealthPercent(unit, false, frame._healthVisCurve)
     ;(frame._visWrap or frame):SetAlpha(alpha)
     local model = frame.Portrait and frame.Portrait.backdrop and frame.Portrait.backdrop._3d
-    if model then model:SetAlpha(alpha) end
+    if model then ns.UF_SetModelAlpha(model, alpha) end
     local mini = ns.UF_MINI_OF and frames[ns.UF_MINI_OF[unit]]
     if mini and not (unit == "player" and db.profile.pet and db.profile.pet.alwaysShow) then
         mini:SetAlpha(alpha)
@@ -191,7 +191,7 @@ local function UnitFrame_OnEnter(self)
             ;(self._visWrap or self):SetAlpha(a)
             -- 3D models don't inherit parent alpha: reveal the portrait too
             local bd3d = self.Portrait and self.Portrait.backdrop and self.Portrait.backdrop._3d
-            if bd3d then bd3d:SetAlpha(a) end
+            if bd3d then ns.UF_SetModelAlpha(bd3d, a) end
             -- Mini-frame inheritance: the companion frame reveals with us.
             -- Always Show Pet Frame opts the pet out (it is already visible
             -- and must not pick up the player's fade alpha).
@@ -242,7 +242,7 @@ local function UnitFrame_OnLeave(self)
         ;(self._visWrap or self):SetAlpha(leaveAlpha)
         -- 3D models don't inherit parent alpha: hide/dim the portrait too
         local bd3d = self.Portrait and self.Portrait.backdrop and self.Portrait.backdrop._3d
-        if bd3d then bd3d:SetAlpha(leaveAlpha) end
+        if bd3d then ns.UF_SetModelAlpha(bd3d, leaveAlpha) end
         -- Mini-frame inheritance: the companion frame hides/dims with us.
         -- Always Show Pet Frame opts the pet out (a leave alpha of 0 would
         -- hide a pet frame that must stay visible).

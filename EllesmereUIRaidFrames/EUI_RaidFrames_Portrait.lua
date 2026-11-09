@@ -702,7 +702,12 @@ function ns.RF_PtModelAlphaApply(bd)
     local m = bd._3dOn and bd._3d
     if not m then return end
     local pc = ns._partyContainerFrame
-    local c = pc and pc:GetAlpha() or 1
+    -- A UIParent fade (models ignore it) scales the mirror too.
+    local c = EllesmereUI.UIScaledAlpha(pc and pc:GetAlpha() or 1)
+    if not ns._ptUIAlphaHooked then
+        ns._ptUIAlphaHooked = true
+        EllesmereUI.OnUIAlphaChanged(ns.RF_PtContainerAlpha)
+    end
     if bd._rSecret then
         m:SetAlphaFromBoolean(bd._rIn, c * bd._rA1, c * bd._rA2)
     else
