@@ -362,6 +362,7 @@ local DEFAULTS = {
             uninterruptibleOverride = false,  -- Own fill color for casts that cannot be interrupted
             uninterruptibleR = 0.5, uninterruptibleG = 0.5, uninterruptibleB = 0.5,
             showTotalDuration = false,
+            showCraftCount    = false,  -- Append " (n/N)" for the current craft in a repeat batch
             fullCraftTime     = false,  -- Duration Text counts down the whole repeat-craft batch
             mergeCrafts       = false,  -- One cast bar spans the whole repeat-craft batch
             latencyEnabled    = false,

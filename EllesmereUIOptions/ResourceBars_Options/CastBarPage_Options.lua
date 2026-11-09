@@ -920,23 +920,48 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
     end
 
 
-    -- Row 5: Craft Batches, plus Show Spell Rank (spell ranks exist only on WoW Forever)
-    -- Craft Batches is stored as fullCraftTime (text) and mergeCrafts (bar + text).
+    -- Craft Batches: independent toggles for count, batch timer text, and merge.
+    -- showCraftCount nil = legacy profile that only had fullCraftTime / mergeCrafts
+    -- (both of those modes used to append the count).
+    local function CraftCountOn(cb)
+        if not cb then return false end
+        if cb.showCraftCount ~= nil then return cb.showCraftCount end
+        return cb.fullCraftTime or cb.mergeCrafts
+    end
+
     _, h = W:DualRow(parent, y,
-        { type = "dropdown", text = "Craft Batches",
-          tooltip = "How the cast bar shows a batch of crafts.",
+        { type = "toggle", text = "Show Craft Count",
+          tooltip = "Appends (n/N) to the spell name while crafting a repeat batch.",
           disabled = castOff,
           disabledTooltip = "Player Cast Bar",
-          values = { off = "Off", text = "Full Time Text", merge = "Merge Bar" },
-          order = { "off", "text", "merge" },
           getValue = function()
-              local p = DB(); if not p then return "off" end
-              return p.castBar.mergeCrafts and "merge" or p.castBar.fullCraftTime and "text" or "off"
+              local p = DB(); return p and CraftCountOn(p.castBar)
           end,
           setValue = function(v)
               local p = DB(); if not p then return end
-              p.castBar.fullCraftTime = v == "text"
-              p.castBar.mergeCrafts = v == "merge"
+              p.castBar.showCraftCount = v
+          end },
+        { type = "toggle", text = "Show Batch Time",
+          tooltip = "Duration text counts down the whole repeat-craft batch (mm:ss) instead of the current craft only.",
+          disabled = castOff,
+          disabledTooltip = "Player Cast Bar",
+          getValue = function() local p = DB(); return p and p.castBar.fullCraftTime end,
+          setValue = function(v)
+              local p = DB(); if not p then return end
+              p.castBar.fullCraftTime = v
+          end }
+    );  y = y - h
+
+    -- Merge Craft Bar, plus Show Spell Rank (spell ranks exist only on WoW Forever)
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Merge Craft Bar",
+          tooltip = "One cast bar spans the whole repeat-craft batch instead of resetting on each craft.",
+          disabled = castOff,
+          disabledTooltip = "Player Cast Bar",
+          getValue = function() local p = DB(); return p and p.castBar.mergeCrafts end,
+          setValue = function(v)
+              local p = DB(); if not p then return end
+              p.castBar.mergeCrafts = v
           end },
         EllesmereUI.IS_FOREVER and
         { type = "toggle", text = "Show Spell Rank",

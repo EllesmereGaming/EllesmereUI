@@ -969,7 +969,9 @@ end
 -- the displayed tenth actually changes. On ns, not a file local.
 function ns.SetCastTimerText(f, now, totalDurMode, totalSuffix, latSuffix)
     local remaining = f._endTime - now
-    if f._craftExtra then
+    -- _craftTimer (not _craftExtra): count-only batches keep the suffix without
+    -- forcing the mm:ss batch countdown, and Merge Bar zeroes _craftExtra.
+    if f._craftTimer then
         EllesmereUI.SetCraftTimerText(f, f._timerText, remaining, totalDurMode)
         return
     end
@@ -1389,6 +1391,7 @@ function ns.ShowIdleCastBar()
     castBarFrame._nativeFill = nil
     castBarFrame._cstKey = nil
     castBarFrame._craftMerge, castBarFrame._craftCastEnd = nil, nil
+    castBarFrame._craftTimer = nil
     ns.ERB_CraftStopWatch(false)
     if ns._rawFillDriver then ns._rawFillDriver:Hide() end
     if castBarFrame._castUninterruptible or castBarFrame._channelPaint then
@@ -1460,7 +1463,7 @@ function ns.ERB_FitCastName(cb)
     if cb.showTimer and f._endTime and f._startTime and not ns.ERB_CastBlizz() then
         local total = cb.showTotalDuration
         local sample
-        if f._craftExtra and f._craftTotal then
+        if f._craftTimer and f._craftTotal then
             local t = f._craftTotal
             sample = format("%d:%02d", floor(t / 60), t % 60) .. (total and f._craftTotalSuffix or "")
         else
@@ -1482,6 +1485,14 @@ function ns.ERB_FitCastName(cb)
     EllesmereUI.FitCastName(fs, fs:GetText(), cb.spellTextSize or 11)
 end
 
+-- Craft-batch display toggles. showCraftCount was added after fullCraftTime /
+-- mergeCrafts; nil means "legacy profile" and follows whichever of those was on
+-- (both modes used to append the count).
+local function CraftCountEnabled(cb)
+    if cb.showCraftCount ~= nil then return cb.showCraftCount end
+    return cb.fullCraftTime or cb.mergeCrafts
+end
+
 OnCastStart = function()
     if not castBarFrame then return end
     local cb = ERB.db.profile.castBar
@@ -1490,14 +1501,17 @@ OnCastStart = function()
     local name, _, _, startTimeMS, endTimeMS, isTradeSkill, _, notInterruptible, spellID, barID = UnitCastingInfo("player")
     if not name then return end
     local castDurSec = (endTimeMS - startTimeMS) / 1000
+    local wantCount = CraftCountEnabled(cb)
+    local wantTimer = cb.fullCraftTime
+    local wantMerge = cb.mergeCrafts
     EllesmereUI.SetCraftBatch(castBarFrame,
-        (cb.fullCraftTime or cb.mergeCrafts) and isTradeSkill,
+        isTradeSkill and (wantCount or wantTimer or wantMerge),
         spellID, barID, castDurSec)
 
     -- Merge Bar: one bar spans the whole batch. The batch start is kept
     -- from the first craft (or backdated by the crafts done). _craftExtra becomes
     -- 0 (queued time now lives in _endTime) so the craft timer reads the batch end.
-    local merge = cb.mergeCrafts and castBarFrame._craftExtra
+    local merge = wantMerge and castBarFrame._craftExtra
     local batchStart = merge and castBarFrame._craftMerge and castBarFrame._craftDone > 0
         and castBarFrame._startTime
         or startTimeMS / 1000 - (merge and castBarFrame._craftDone * castDurSec or 0)
@@ -1517,12 +1531,19 @@ OnCastStart = function()
         castBarFrame._craftCastEnd = nil
         castBarFrame._startTime = startTimeMS / 1000
         castBarFrame._endTime = endTimeMS / 1000
+        -- Count-only: keep (n/N) but leave the timer on the current craft.
+        if not wantTimer then
+            castBarFrame._craftExtra = nil
+        end
     end
+    -- mm:ss batch countdown; Merge Bar without this still uses decimal remaining
+    -- against the extended _endTime.
+    castBarFrame._craftTimer = wantTimer and castBarFrame._craftExtra ~= nil
     castBarFrame._spellName = name
     castBarFrame._spellID = spellID
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     castBarFrame._nameText:SetText(ns.CastDisplayName(cb, name, spellID)
-        .. (castBarFrame._craftExtra and castBarFrame._craftCountSuffix or ""))
+        .. (wantCount and castBarFrame._craftCountSuffix or ""))
     ns.ERB_SetBlizzCastFill("cast")
     ns.ERB_CastOverrideStart(cb, notInterruptible)
     -- The engine timer animates the fill (a merged batch over the whole
@@ -1581,6 +1602,7 @@ OnChannelStart = function()
     castBarFrame._channeling = true
     castBarFrame._empowering = false
     castBarFrame._craftExtra = nil
+    castBarFrame._craftTimer = nil
     castBarFrame._craftMerge, castBarFrame._craftCastEnd = nil, nil
     castBarFrame._castID = channelCastID
     castBarFrame._startTime = startTimeMS / 1000
@@ -1888,6 +1910,7 @@ OnCastStop = function()
     castBarFrame._empowering = false
     castBarFrame._castID = nil
     castBarFrame._craftExtra = nil
+    castBarFrame._craftTimer = nil
     -- The overrun safety path forces a stop here on a missed EMPOWER_STOP, and
     -- clearing _empowering above is exactly what makes OnEmpowerStop early-return
     -- later, so this is the only chance to undo the stage tint.
@@ -1977,6 +2000,7 @@ OnEmpowerStart = function()
     castBarFrame._channeling = false
     castBarFrame._empowering = true
     castBarFrame._craftExtra = nil
+    castBarFrame._craftTimer = nil
     castBarFrame._craftMerge, castBarFrame._craftCastEnd = nil, nil
     castBarFrame._castID = empowerCastID
     castBarFrame._startTime = startTimeMS / 1000
