@@ -406,9 +406,13 @@ local function Build()
         if FOREVER then
             -- WoW Forever: its frame borders are built for a portrait and a
             -- close button (their top corners stand above the frame), so the
-            -- list takes the game's plain dialog box instead.
+            -- list takes the game's plain dialog box instead. A plain frame
+            -- with the backdrop mixin, not BackdropTemplate, whose
+            -- OnSizeChanged script would sit in SendMailFrame's subtree: Paint
+            -- refreshes the edge coordinates itself after each resize.
             topH, inset = FOREVER_TOP, FOREVER_INSET
-            panel = CreateFrame("Frame", "EllesmereUIMailAltList", SendMailFrame, "BackdropTemplate")
+            panel = CreateFrame("Frame", "EllesmereUIMailAltList", SendMailFrame)
+            Mixin(panel, BackdropTemplateMixin)
             panel:SetBackdrop({
                 bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark",
                 edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
@@ -451,7 +455,10 @@ local function Build()
     end
     title:SetText(EllesmereUI.L("Alts"))
     -- A cog in the title band: the list's own menu, on the spot.
-    local cog = CreateFrame("Button", nil, panel)
+    -- On Blizzard's DefaultPanelTemplate the border (NineSlice) sits at frame
+    -- level 500, over any plain child: the cog lives in the title's container
+    -- (510) there.
+    local cog = CreateFrame("Button", nil, (blizzLook and not FOREVER) and panel.TitleContainer or panel)
     cog:SetSize(14, 14)
     local cogY = blizzLook and (FOREVER and -17 or -11) or -(topH / 2)
     cog:SetPoint("RIGHT", panel, "TOPRIGHT", -(inset + 6), cogY)
@@ -572,6 +579,7 @@ Paint = function()
     end
     if blizzLook then h = h + (FOREVER and 8 or 2) end   -- the frame's bottom edge
     panel:SetHeight(h)
+    if panel.SetupTextureCoordinates then panel:SetupTextureCoordinates() end
     if bgArt then WSkin.CoverFit(bgArt, PANEL_W, h) end
     if owner then ReplayHover() end
 end
