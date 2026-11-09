@@ -601,7 +601,7 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
         })
     end
 
-    -- Out of Combat Opacity & Visibility cog: Fade Out of Combat dims the Power bar to this alpha out of combat (100 = no fade; ns.ResolveBarAlpha in UpdateVisibility, which reacts to combat). Show When Energy / Focus / Mana Missing reveal a rule-hidden bar while that resource is below full (ns.ERB_MissingWanted, same pass); Mana also covers a WoW Forever druid's Mana Bar while Shapeshifted.
+    -- Out of Combat Opacity & Visibility cog: Fade Out of Combat dims the Power bar to this alpha out of combat (100 = no fade; ns.ResolveBarAlpha in UpdateVisibility, which reacts to combat). Show When Energy / Focus / Mana Missing show the bar at its normal opacity while that resource is below full, a rule-hidden bar and a faded one alike (ns.ERB_MissingWanted / ns.ERB_MissingLiftFloor, same pass); Mana also covers a WoW Forever druid's Mana Bar while Shapeshifted.
     if not EllesmereUI._prebuilding then
         local rgn = powerBorderRow._leftRegion
         local rows = {
@@ -680,8 +680,9 @@ function ns.ERB_BuildPowerSection(parent, y, ctx)
           disabled = powerOff,
           disabledTooltip = powerDisTip,
           values = { none = "None", smart = "Smart Text", curpp = "Power Value", curmaxpp = "Power Value / Max", perpp = "Power %", both = "Power Value | Power %" },
-          order = { "none", "smart", "curpp", "curmaxpp", "perpp", "both" },
-          getValue = function() local c = cfg(); return c and c.textFormat or "none" end,
+          -- WoW Forever lists no Smart Text (EllesmereUI.PowerTextFormat).
+          order = EllesmereUI.PowerTextFormatOrder({ "none", "smart", "curpp", "curmaxpp", "perpp", "both" }),
+          getValue = function() local c = cfg(); return EllesmereUI.PowerTextFormat(c and c.textFormat or "none") end,
           setValue = function(v)
               local c = cfg(); if not c then return end
               c.textFormat = v; RefreshPower(); EllesmereUI:RefreshPage()

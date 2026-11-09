@@ -340,7 +340,7 @@ initFrame:SetScript("OnEvent", function(self)
         local bg = p:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.098, 0.090, 0.082, 0.97)
-        EllesmereUI.MakeBorder(p, 1, 1, 1, 0.12)
+        p._brd = EllesmereUI.MakeRoundedBorder(p, 1, 1, 1, 0.12, bg)
         p.rows, p.selected = {}, 0
 
         local away = _G.CreateFrame("Frame")
@@ -1295,6 +1295,7 @@ initFrame:SetScript("OnEvent", function(self)
                 p:SetSize(b:GetWidth(), #shown * SUG_ROW_H + 8)
                 p:ClearAllPoints()
                 p:SetPoint("TOPLEFT", b, "BOTTOMLEFT", 0, -2)
+                p._brd:Fit()
                 p:Show()
             end
             local function Typed(b, userInput)

@@ -56,10 +56,10 @@ local boundKeys   -- the keys the toggle holds, space separated
 local queued      -- a repaint is due next frame
 
 -------------------------------------------------------------------------------
---  Talent data
+--  Talent data (the trees and their grid: EllesmereUI.ForeverTalentTrees and
+--  EllesmereUI.TalentTreeGrid, shared with the Cooldown Manager's Talent
+--  Conditions popup)
 -------------------------------------------------------------------------------
-local function ByOrder(a, b) return a.orderIndex < b.orderIndex end
-
 -- The trees whose own name is too long for a tab, by trait group ID.
 local function ShortName(groupID)
     if groupID == 11326 then return EllesmereUI.L("Elemental") end -- Elemental Combat
@@ -69,97 +69,19 @@ end
 
 local function ReadTrees()
     wipe(trees)
-    configID = C_ClassTalents.GetActiveConfigID()
-    local config = configID and C_Traits.GetConfigInfo(configID)
-    treeID = config and config.treeIDs[1]
-    if not treeID then return end
-    local groups = C_Traits.GetGroupDisplayInfoByTreeID(treeID)
-    table.sort(groups, ByOrder)
-    local byGroup = {}
-    for i, g in ipairs(groups) do
-        trees[i] = { groupID = g.groupID, name = ShortName(g.groupID) or g.displayName, nodes = {} }
-        byGroup[g.groupID] = trees[i]
-    end
-    for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID)) do
-        local info = C_Traits.GetNodeInfo(configID, nodeID)
-        if info and info.isVisible and info.entryIDs[1] then
-            for _, groupID in ipairs(info.groupIDs) do
-                local t = byGroup[groupID]
-                if t then
-                    t.nodes[#t.nodes + 1] = nodeID
-                    break
-                end
-            end
-        end
+    local list
+    configID, treeID, list = EllesmereUI.ForeverTalentTrees()
+    if not list then return end
+    for i, t in ipairs(list) do
+        t.name = ShortName(t.groupID) or t.name
+        trees[i] = t
     end
     if tree > #trees then tree = 1 end
 end
 
--- One axis of a tree's grid from its node positions: the first line, the
--- step, and the last line before any position far beyond the rest. The step
--- is the smallest gap between neighbouring positions above a quarter of the
--- median gap: some nodes sit a few units off their line (the hunter's,
--- paladin's and warlock's trees), and a gap that small is the same line, never
--- a step of its own (taken as one, it spread a tree over hundreds of rows).
-local gaps = {}
-local function GridAxis(values)
-    table.sort(values)
-    local n = 0
-    for i = 2, #values do
-        local d = values[i] - values[i - 1]
-        if d > 0 then n = n + 1; gaps[n] = d end
-    end
-    for i = #gaps, n + 1, -1 do gaps[i] = nil end
-    local first = values[1] or 0
-    if n == 0 then return first, 1, first end
-    table.sort(gaps)
-    local least = gaps[math.floor(n / 2) + 1] / 4
-    local step
-    for i = 1, n do
-        if gaps[i] > least then step = gaps[i]; break end
-    end
-    -- Lines follow each other a few steps apart at most; past a bigger jump
-    -- the rest lie off the grid (see Line).
-    local last = first
-    for i = 2, #values do
-        if values[i] - values[i - 1] > 4 * step then break end
-        last = values[i]
-    end
-    return first, step, last
-end
-
--- A position's line (from 0) on one axis. A node far beyond the others whose
--- tenth falls on the grid is read there: an extra zero in the game's data
--- (the hunter's and priest's trees have such nodes).
-local function Line(v, first, step, last)
-    if v > last + 4 * step then
-        local t = v / 10
-        local k = (t - first) / step
-        local r = math.floor(k + 0.5)
-        if r >= 0 and t <= last + step / 4 and math.abs(k - r) < 0.25 then v = t end
-    end
-    return math.floor((v - first) / step + 0.5)
-end
-
 -- Each talent's column and row (from 0) in its tree, from the node positions.
 local function Grid(nodes)
-    local xs, ys, infos = {}, {}, {}
-    for i, nodeID in ipairs(nodes) do
-        local info = C_Traits.GetNodeInfo(configID, nodeID)
-        infos[nodeID] = info
-        xs[i], ys[i] = info.posX, info.posY
-    end
-    local x0, dx, xLast = GridAxis(xs)
-    local y0, dy, yLast = GridAxis(ys)
-    local cells, rows = {}, 0
-    for _, nodeID in ipairs(nodes) do
-        local info = infos[nodeID]
-        local col = Line(info.posX, x0, dx, xLast)
-        local row = Line(info.posY, y0, dy, yLast)
-        cells[nodeID] = { col = col, row = row, info = info }
-        rows = math.max(rows, row)
-    end
-    return cells, rows + 1
+    return EllesmereUI.TalentTreeGrid(configID, nodes)
 end
 
 local function SpellOf(info)

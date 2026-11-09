@@ -802,7 +802,7 @@ local function BuildXPBarPage(pageName, parent, yOffset)
             ctrl:Hide()
         end
         if p1 then cbDD:SetPoint(p1, rel, p2, ax, ay)
-        else EllesmereUI.PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0) end
+        else EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0) end
         rgn._control = cbDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbRefresh)

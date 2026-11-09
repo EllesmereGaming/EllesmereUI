@@ -217,3 +217,6 @@ L["Ooze Covered Truesilver Deposit"] = "[Ooze Covered Truesilver Deposit]"
 L["Ooze Covered Thorium Vein"] = "Filón de torio cubierto de moco"
 L["Ooze Covered Rich Thorium Vein"] = "Filón de torio enriquecido cubierto de moco"
 L["Hakkari Thorium Vein"] = "[Hakkari Thorium Vein]"
+
+-- Group Finder Hide Applicant Info
+L["Note"] = "Nota"

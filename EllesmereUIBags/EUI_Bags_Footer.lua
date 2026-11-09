@@ -259,6 +259,17 @@ local function HideGoldTooltip()
     _goldTT._fadeOutAG:Play()
 end
 
+local function PositionBagMoney(inset)
+    local footer, money = EUI_Bags.Footer, EUI_Bags.Money
+    if not money then return end
+    money:ClearAllPoints()
+    if footer._coinBox then
+        money:SetPoint("RIGHT", footer._coinBox, "RIGHT", -inset, 0)
+    else
+        money:SetPoint("BOTTOMRIGHT", footer, "BOTTOMRIGHT", -inset, 7)
+    end
+end
+
 local function CreateFooter()
     if EUI_Bags.Footer then return end
     local footer = CreateFrame("Frame", nil, EUI_Bags)
@@ -275,7 +286,6 @@ local function CreateFooter()
     end
 
     local money = CreateFrame("Frame", "EUI_BagMoneyFrame", footer, "SmallMoneyFrameTemplate")
-    money:SetPoint("BOTTOMRIGHT", footer, "BOTTOMRIGHT", 0, 7)
     MoneyFrame_SetType(money, "PLAYER")
 
     for _, suffix in ipairs({"GoldButton", "SilverButton", "CopperButton"}) do
@@ -313,8 +323,13 @@ local function CreateFooter()
     ftrSep:SetPoint("TOPLEFT", footer, "TOPLEFT", 0, 0)
     ftrSep:SetPoint("TOPRIGHT", footer, "TOPRIGHT", 0, 0)
     ftrSep:SetColorTexture(0.15, 0.15, 0.15, 1)
+    if ns.BagsForever() then
+        ns.SkinForeverBagFooter(footer, footer.bg, ftrSep)
+        money:SetHeight(16)
+    end
 
     EUI_Bags.Footer, EUI_Bags.Money = footer, money
+    PositionBagMoney(0)
 end
 
 local function UpdateCurrencyDisplays(footerWidth)
@@ -363,7 +378,8 @@ local function UpdateCurrencyDisplays(footerWidth)
     local rowGap = 8
     local bottomPad = 7
     local topPad = 7
-    local leftOffset = 10
+    local coinBox = footer._coinBox
+    local leftOffset = coinBox and 5 or 10
     local rightMargin = 180
     footerWidth = footerWidth or footer:GetWidth() or EUI_Bags:GetWidth() or 0
     if footerWidth <= 0 then footerWidth = EUI_Bags:GetWidth() or 400 end
@@ -403,8 +419,12 @@ local function UpdateCurrencyDisplays(footerWidth)
         local display = pool.displays[layout.idx]
         display:ClearAllPoints()
         local rowFromBottom = numRows - 1 - layout.row
-        local yPos = bottomPad + rowFromBottom * (rowHeight + rowGap)
-        display:SetPoint("BOTTOMLEFT", footer, "BOTTOMLEFT", layout.x, yPos)
+        local yPos = rowFromBottom * (rowHeight + rowGap)
+        if coinBox then
+            display:SetPoint("LEFT", coinBox, "LEFT", layout.x, yPos)
+        else
+            display:SetPoint("BOTTOMLEFT", footer, "BOTTOMLEFT", layout.x, bottomPad + yPos)
+        end
         display:Show()
 
         local hb = pool.hitboxes[layout.idx]
@@ -465,6 +485,13 @@ local function CreateReagentBagUI()
     close:SetScript("OnEnter", function() close.icon:SetAlpha(0.9) end)
     close:SetScript("OnLeave", function() close.icon:SetAlpha(0.7) end)
     close:SetScript("OnClick", function() EUI_BagsReagent:Hide() end)
+    if ns.BagsForever() then
+        ns.LayoutForeverBagHeader(header, 35)
+        header.bg:Hide()
+        ns.AddForeverBagPortrait(header, EUI.ClientIcon(3622222))
+        ns.SkinForeverBagTitle(header.title)
+        ns.PositionForeverBagClose(close)
+    end
     -- Controller cursor: Cancel finds the close button.
     if EUI.PadCP() then EUI_BagsReagent.CloseButton = close end
     EUI_BagsReagent.Header = header
@@ -479,4 +506,5 @@ I.CreateFooter, I.CreateReagentBagUI = CreateFooter, CreateReagentBagUI
 I.GoldLedger, I.OnGoldChanged = GoldLedger, OnGoldChanged
 I.SyncBagFrameToFooter, I.UpdateBagMoneyDisplay = SyncBagFrameToFooter, UpdateBagMoneyDisplay
 I.UpdateCurrencyDisplays = UpdateCurrencyDisplays
+I.PositionBagMoney = PositionBagMoney
 I.broken = false

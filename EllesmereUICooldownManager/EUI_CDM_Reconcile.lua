@@ -364,7 +364,10 @@ function ns.ReconcileAssignedSpellDrops(barKey)
     local NormalizeToBase = ns.NormalizeToBase
     local ResolveToLive   = ns.ResolveToLive
 
-    local displayed
+    -- WoW Forever: an entry listed under another rank of a shown spell is
+    -- shown too (ns.CDMRankName), as the presence check that kept it found it.
+    local RankName = ns.CDMRankName
+    local displayed, displayedNames
     for _, e in ipairs(ns.EnumerateCDMViewerSpells(false)) do
         local sid = e.sid
         if type(sid) == "number" and sid > 0 then
@@ -373,6 +376,11 @@ function ns.ReconcileAssignedSpellDrops(barKey)
             displayed[NormalizeToBase(sid)] = true
             local ov = ResolveToLive(sid)
             if ov then displayed[ov] = true end
+            local n = RankName and RankName(sid)
+            if n then
+                displayedNames = displayedNames or {}
+                displayedNames[n] = true
+            end
         end
     end
     if not (displayed and next(displayed)) then return sd end
@@ -522,8 +530,14 @@ function ns.ReconcileAssignedSpellDrops(barKey)
         end
     end
 
-    -- WoW Forever's full catalogue set, built on first need (see below).
-    local foreverListed
+    -- WoW Forever's full catalogue set and default-hidden set, built on first
+    -- need (see below). A catalogue it cannot read keeps the spell (fails open).
+    local foreverListed, defaultHidden
+    local function DefaultHidden(id)
+        if not EllesmereUI.IS_FOREVER then return false end
+        if defaultHidden == nil then defaultHidden = ns.CDMDefaultHiddenSet() or false end
+        return not defaultHidden or ns.CDMIsDefaultHidden(defaultHidden, id)
+    end
     local writeIdx = 1
     for readIdx = 1, #sd.assignedSpells do
         local id = sd.assignedSpells[readIdx]
@@ -550,6 +564,7 @@ function ns.ReconcileAssignedSpellDrops(barKey)
             -- genuinely user-cleared -> drop.
             local shown = displayed[id] or displayed[NormalizeToBase(id)]
                           or displayed[ResolveToLive(id)]
+                          or (displayedNames ~= nil and displayedNames[RankName(id) or false] == true)
             -- IsPlayerSpell is guarded (nil in some contexts): if
             -- unavailable, `have` is falsy so the spell is treated as
             -- untalented (kept unless the catalog says otherwise).
@@ -565,6 +580,10 @@ function ns.ReconcileAssignedSpellDrops(barKey)
                 -- untalented, conditionally pooled, or a BASE id whose
                 -- tracked cooldown is a talent override the player dropped.
                 -- Hold rank.
+                keep = true
+            elseif DefaultHidden(id) then
+                -- WoW Forever: in Not Displayed by Blizzard's default, not by
+                -- the player: it holds its slot until displayed.
                 keep = true
             elseif have then
                 -- Owned but no longer tracked: the user cleared it from
@@ -759,7 +778,7 @@ function ns.CDMGetProviderDisplayData(provider)
     local ordered = displayData.orderedCooldownIDs
     local infoByID = displayData.cooldownInfoByID
     if type(ordered) ~= "table" or type(infoByID) ~= "table" then return nil, nil end
-    return ordered, infoByID
+    return ordered, infoByID, displayData.cooldownDefaultsByID
 end
 
 -- Active BLIZZARD CDM layout id (the user's "preset"), not to be confused with
@@ -941,6 +960,65 @@ function ns.CDMForeverListedSet()
     end
     if not next(set) then return nil end
     return set
+end
+
+-- WoW Forever: which cooldown and utility entries are in Not Displayed only by
+-- Forever's catalogue default (current category hidden and equal to the
+-- default), keyed by spell id, base and live forms and rank name: true for
+-- those, false for every other cooldown entry, so a key two entries share never
+-- reads as default-hidden. Blizzard saves no category equal to its default, so
+-- an entry the player showed and hid again reads as default-hidden too. nil off
+-- Forever or while the catalogue is not readable. Read with ns.CDMIsDefaultHidden.
+function ns.CDMDefaultHiddenSet()
+    if not EllesmereUI.IS_FOREVER then return nil end
+    local settings = _G.CooldownViewerSettings
+    if not settings or type(settings.GetDataProvider) ~= "function" then return nil end
+    local okP, provider = pcall(settings.GetDataProvider, settings)
+    if not okP or type(provider) ~= "table" then return nil end
+    local _, infoByID, defaultsByID = ns.CDMGetProviderDisplayData(provider)
+    if not infoByID then return nil end
+    local set = {}
+    -- cooldownDefaultsByID is Blizzard's internal table, not an API: without it
+    -- no entry reads as default-hidden, and an entry it lacks is left out.
+    if type(defaultsByID) ~= "table" then return set end
+    local evc = Enum.CooldownViewerCategory
+    local hidden = evc.HiddenActive
+    local NormalizeToBase, ResolveToLive, RankName = ns.NormalizeToBase, ns.ResolveToLive, ns.CDMRankName
+    local function Mark(k, dh)
+        if k ~= nil and set[k] ~= false then set[k] = dh end
+    end
+    local function Add(v, dh)
+        if _IsUsableSID(v) then
+            Mark(v, dh)
+            Mark(NormalizeToBase(v), dh)
+            Mark(ResolveToLive(v), dh)
+            Mark(RankName and RankName(v), dh)
+        end
+    end
+    for cdID, info in pairs(infoByID) do
+        local def = defaultsByID[cdID]
+        local defCat = def and def.category
+        if defCat == evc.Essential or defCat == evc.Utility or defCat == hidden then
+            local dh = info.category == hidden and defCat == hidden
+            Add(info.spellID, dh)
+            Add(info.overrideSpellID, dh)
+            if type(info.linkedSpellIDs) == "table" then
+                for _, lid in ipairs(info.linkedSpellIDs) do Add(lid, dh) end
+            end
+        end
+    end
+    return set
+end
+
+--- True when a stored spell id is a default-hidden entry of `set`
+--- (ns.CDMDefaultHiddenSet): by id, base or live form, by rank name only when
+--- no cooldown entry lists the id.
+function ns.CDMIsDefaultHidden(set, id)
+    local v = set[id]
+    if v == nil then v = set[ns.NormalizeToBase(id)] end
+    if v == nil then v = set[ns.ResolveToLive(id)] end
+    if v == nil and ns.CDMRankName then v = set[ns.CDMRankName(id) or false] end
+    return v == true
 end
 
 -------------------------------------------------------------------------------

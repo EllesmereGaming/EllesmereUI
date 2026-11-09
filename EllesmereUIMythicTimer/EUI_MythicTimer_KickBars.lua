@@ -55,8 +55,10 @@ local GetRaidTargetIndex, SetRaidTargetIconTexture = GetRaidTargetIndex, SetRaid
 local PP = EllesmereUI.PP
 
 -- Fonts: module-wide family/outline/shadow (surface key "mythicTimer"), only
--- per-text sizes are settings.
-local function SetFSFont(fs, size) EllesmereUI.ApplyModuleFont(fs, nil, size, "mythicTimer") end
+-- per-text sizes are settings. A row names a group member, so its texts take a
+-- font family (Cyrillic, Korean and Chinese names draw); no plain SetFont may
+-- reach them after it.
+local function SetFSFont(fs, size) EllesmereUI.ApplyModuleFontFamily(fs, nil, size, "mythicTimer") end
 
 local IMMEDIATE = Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate or 0
 local ELAPSED = Enum.StatusBarTimerDirection and Enum.StatusBarTimerDirection.ElapsedTime or 0

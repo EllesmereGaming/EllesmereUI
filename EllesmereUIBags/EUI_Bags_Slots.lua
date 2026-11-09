@@ -211,7 +211,7 @@ local function GetOrCreateReagentSlot(idx)
         end
     end
 
-    CreateInsetBorder(btn)
+    CreateInsetBorder(btn, true)
     SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
 
     -- Text overlay: above the cooldown swipe, so counts and item levels stay visible
@@ -313,7 +313,7 @@ local function GetOrCreateBagSlot(idx)
     EllesmereUI.ApplyIconTextFont(btn.Count, GetFont(), BP().bagCountFontSize or 11, "bags")
     btn.Count:SetPoint("BOTTOMRIGHT", -2, 2)
     btn.Count:SetTextColor(1, 1, 1)
-    CreateInsetBorder(btn)
+    CreateInsetBorder(btn, true)
     SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
 
     -- Drag-and-drop: equip a bag into this slot, or swap it with the
@@ -708,7 +708,14 @@ end
 -- Quality Item Border: the item's quality color while the option is on (every
 -- display), else the neutral grey an unknown quality gets.
 function ns.QualityBorderColor(quality)
-    local c = BP().bagQualityBorder ~= false and ITEM_QUALITY_COLORS[quality]
+    local c
+    if BP().bagQualityBorder ~= false then
+        if ns.BagsForever() and ColorManager and ColorManager.GetColorDataForBagItemQuality then
+            c = ColorManager.GetColorDataForBagItemQuality(quality)
+        else
+            c = ITEM_QUALITY_COLORS[quality]
+        end
+    end
     if c then return c.r, c.g, c.b end
     return 0.25, 0.25, 0.25
 end

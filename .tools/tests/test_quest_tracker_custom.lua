@@ -1,7 +1,7 @@
 -- Stub harness: loads the Quest Tracker loader and its WoW Forever custom
 -- tracker outside the game and checks which tracker a profile gets, where the
 -- custom one starts, how its width and height are set and which edge it keeps
--- for each grow direction.
+-- for each grow direction, and its right-click menu's Wowhead Link.
 --   lua .tools/tests/test_quest_tracker_custom.lua        (from the repository root)
 local ROOT = arg and arg[1] or "."
 
@@ -13,11 +13,12 @@ local function ReadSource(name)
 end
 local LOADER_SRC = ReadSource("EllesmereUIQuestTracker/EllesmereUIQuestTracker.lua")
 local CUSTOM_SRC = ReadSource("EllesmereUIQuestTracker/EllesmereUIQuestTracker_Custom.lua")
+local AUDIO_SRC = ReadSource("EllesmereUIQuestTracker/EllesmereUIQuestTracker_QuestAudio.lua")
 
--- The widget methods the two files call: a mock frame answers those, and any
+-- The widget methods the files call: a mock frame answers those, and any
 -- other field that was never set reads nil, as on a real frame
 local METHODS = {}
-for _, src in ipairs({ LOADER_SRC, CUSTOM_SRC }) do
+for _, src in ipairs({ LOADER_SRC, CUSTOM_SRC, AUDIO_SRC }) do
     for name in src:gmatch(":([%a_][%w_]*)%s*%(") do METHODS[name] = true end
 end
 
@@ -47,6 +48,7 @@ local function MakeObj(kind, parent)
         if k == "GetHeight" then return function(self) return self._h end end
         if k == "GetEffectiveScale" then return function(self) return self._scale end end
         if k == "GetFrameLevel" then return function() return 1 end end
+        if k == "GetStringHeight" then return function() return 12 end end
         if k == "GetAlpha" then return function() return 1 end end
         if k == "SetPoint" then return function(self, ...) self._point = { ... } end end
         if k == "RegisterEvent" then return function(self, e) self._events[e] = true end end
@@ -73,6 +75,7 @@ function InCombatLockdown() return false end
 function IsInInstance() return false, "none" end
 function UnitGUID() return "Player-1" end
 function GetTime() return 0 end
+function Clamp(v, lo, hi) return math.min(math.max(v, lo), hi) end
 TRACKER_HEADER_QUESTS = "Quests"
 SlashCmdList = {}
 C_AddOns = { IsAddOnLoaded = function() return true end }
@@ -441,6 +444,195 @@ IsZone(1, 1, 1, false, "a custom pick with no colour yet")
 cfg.customZoneR, cfg.customZoneG, cfg.customZoneB = 0.2, 0.5, 0.9
 IsZone(0.2, 0.5, 0.9, false, "a custom pick")
 cfg.customZoneUseAccent, cfg.customZoneR, cfg.customZoneG, cfg.customZoneB = nil, nil, nil, nil
+
+-------------------------------------------------------------------------------
+--  6. Row hooks (EllesmereUI.RegisterQuestTrackerRow): a slot per hook on each
+--     quest title row, the reserved width taken off the title
+-------------------------------------------------------------------------------
+local quests = { 101, 102 }
+C_QuestLog = {
+    GetQuestTimers = function() return nil end,
+    GetNumQuestWatches = function() return #quests end,
+    GetQuestIDForQuestWatchIndex = function(i) return quests[i] end,
+    IsComplete = function() return false end,
+    IsFailed = function() return false end,
+    GetTitleForQuestID = function(id) return "Quest " .. id end,
+    GetQuestDifficultyLevel = function() return 1 end,
+    GetQuestObjectives = function() return {} end,
+    GetNumQuestLogEntries = function() return 0, #quests end,
+    GetMaxNumQuestsCanAccept = function() return 25 end,
+}
+C_SuperTrack = { GetSuperTrackedQuestID = function() return 0 end }
+QuestUtilsOverrides = { GetQuestTitlePrefix = function() end, GetQuestTagText = function() end }
+EQT.QuestLogSnapshot = function() return {}, { [101] = "Elwynn", [102] = "Elwynn" } end
+EQT.AutoTrackOn = function() return false end
+EQT.IsQuestFiltered = function() return false end
+EQT.SortQuestList = function() end
+EQT.GetTitleRGB = function() return 1, 1, 1 end
+EQT.TitleDifficultyOn = function() return false end
+EQT.QuestDifficultyRGB = function() return 1, 1, 1 end
+cfg.customFocusClick, cfg.customGroupByZone = false, false
+cfg.customWidth = 260
+frame._shown = true
+
+local seen, slotOf = {}, {}
+local Register = EllesmereUI.RegisterQuestTrackerRow
+assert(Register("Bad", function() error("hook error") end) == true)
+assert(Register("TestRows", function(slot, questID, title)
+    seen[#seen + 1] = questID
+    slotOf[questID] = slot
+    assert(title and title._kind == "CreateFontString", "no title FontString")
+end, 999) == true)
+assert(Register("TestRows", function() end) == false, "a taken id registered twice")
+assert(Register(nil, function() end) == false and Register("X", nil) == false)
+
+local reported = 0
+geterrorhandler = function() return function() reported = reported + 1 end end
+RunTimers()
+-- one render
+wipe(seen); reported = 0
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(#seen == 2 and seen[1] == 101 and seen[2] == 102, "the hook missed a quest row")
+assert(reported == 2, "a hook error was not reported per row")
+local slot = slotOf[101]
+assert(slot._w == 64 and slot._shown, "the width is not capped at 64")
+local row = slot._parent
+assert(row._w == 260 - 16 - 6 - 64, "the reserved width was not taken off the title")
+assert(slot._point[1] == "BOTTOMLEFT" and slot._point[2] == row and slot._point[4] == 0)
+
+-- the row turned into a zone header: its slots hide
+cfg.customGroupByZone = true
+wipe(seen)
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(#seen == 2 and not slot._shown and row.kind == "zone", "a zone header kept a hook's slot")
+assert(slotOf[101] ~= slot and slotOf[101]._shown)
+cfg.customGroupByZone = false
+
+-------------------------------------------------------------------------------
+--  7. The quest audio bridge (EllesmereUIQuestTracker_QuestAudio.lua) on these
+--     rows: the voice-over addon's Play button in its slot on a quest it
+--     voices, none on one it does not, bound once per quest
+-------------------------------------------------------------------------------
+local bound = {}
+VoiceOver = { QuestOverlayUI = {
+    ShowsTrackerButton = function(_, questID) return questID == 101 end,
+    BindPlayButton = function(_, b, questID) b.questID = questID; bound[#bound + 1] = questID end,
+    SetPlayButtonState = function() end,
+    FollowQueue = function() end,
+} }
+Spoken = {
+    DressBoxButton = function(_, b) function b:SetBox(atlas) self._box = atlas end end,
+    RegisterCallback = function() end,
+}
+ns.UseCustomTracker = function() return true end
+local bootAt = #frames + 1
+assert(loadstring(AUDIO_SRC, "=EllesmereUIQuestTracker_QuestAudio.lua"))("EllesmereUIQuestTracker", ns)
+local boot = frames[bootAt]
+boot._scripts.OnEvent(boot, "PLAYER_LOGIN")
+RunTimers()
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+-- The bridge's slot is the third hook's (after Bad and TestRows).
+local function PlayButtonOn(questID)
+    local r = slotOf[questID]._parent
+    local s = r.slots and r.slots[3]
+    if s then
+        for _, f in ipairs(frames) do
+            if f._parent == s and f._box then return f, r end
+        end
+    end
+    return nil, r
+end
+local play, r101 = PlayButtonOn(101)
+assert(play and play._shown and play.questID == 101, "no Play button on a voiced quest's row")
+assert(#bound == 1 and bound[1] == 101, "the Play button was not bound once to its quest")
+assert(r101._w == 260 - 16 - 6 - 64 - 16, "the bridge's width was not taken off the title")
+assert(PlayButtonOn(102) == nil, "a Play button on a quest without audio")
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(#bound == 1, "a redraw bound the Play button again")
+
+-------------------------------------------------------------------------------
+--  8. A render that changes the tracker's height puts it back on its Unlock
+--     Mode link in that render; one that keeps the height does not, nor does a
+--     render while Unlock Mode is open
+-------------------------------------------------------------------------------
+cfg.customGroupByZone = true
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+reapplied = 0
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(reapplied == 0, "a render that kept the height re-applied the link")
+-- a quest in a new zone: a zone header and a quest row more
+local zones = { [101] = "Elwynn", [102] = "Elwynn", [103] = "Westfall" }
+EQT.QuestLogSnapshot = function() return {}, zones end
+local before = frame._h
+quests[3] = 103
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(frame._h > before, "the new zone did not grow the tracker")
+assert(reapplied == 1 and reappliedKey == "EQT_Tracker", "a height change did not re-apply the link")
+-- turned in: back to the old height, the link re-applied again
+quests[3] = nil
+reapplied = 0
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(frame._h == before and reapplied == 1, "a shrink did not re-apply the link")
+-- Unlock Mode places the tracker itself
+EllesmereUI._unlockActive = true
+reapplied = 0
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+assert(reapplied == 0, "a render in Unlock Mode re-applied the link")
+EllesmereUI._unlockActive = false
+cfg.customGroupByZone = false
+
+-------------------------------------------------------------------------------
+--  9. The right-click menu: Wowhead Link (EllesmereUIQuestTracker_QuestLinks.lua)
+--     at its end, after a divider, only while Wowhead Quest Links is on; its
+--     click opens the copy popup on the quest's WoW Forever page
+-------------------------------------------------------------------------------
+assert(loadstring(ReadSource("EllesmereUIQuestTracker/EllesmereUIQuestTracker_QuestLinks.lua"),
+    "=EllesmereUIQuestTracker_QuestLinks.lua"))("EllesmereUIQuestTracker", ns)
+issecretvalue = issecretvalue or function(v) return v == SECRET end
+EllesmereUI.L = EllesmereUI.L or function(s) return s end
+IsInGroup = IsInGroup or function() return false end
+GetLocale = GetLocale or function() return "enUS" end
+local menuItems, popup
+EllesmereUI.ShowContextMenu = function(_, items) menuItems = items end
+function EllesmereUI:ShowInputPopup(opts) popup = opts end
+EllesmereUI.RefreshQuestTrackerRows()
+RunTimers()
+local qrow = slotOf[101]._parent
+assert(qrow.kind == "quest" and qrow.id == 101, "no quest row to right-click")
+local function RightClickMenu()
+    menuItems = nil
+    qrow._scripts.OnClick(qrow, "RightButton")
+    assert(menuItems, "a right click opened no menu")
+    return menuItems
+end
+local function WowheadEntry(items)
+    for i, it in ipairs(items) do
+        if type(it) == "table" and it.text == "Wowhead Link" then return it, i end
+    end
+end
+cfg.wowheadQuestLinks = false
+assert(WowheadEntry(RightClickMenu()) == nil, "Wowhead Link while Wowhead Quest Links is off")
+cfg.wowheadQuestLinks = true
+local items = RightClickMenu()
+local entry, at = WowheadEntry(items)
+assert(entry and at == #items and items[at - 1] == "---", "Wowhead Link is not last, after a divider")
+entry.onClick()
+assert(popup and popup.initialText == "https://www.wowhead.com/forever/quest=101/",
+    "the popup's link: " .. tostring(popup and popup.initialText))
+-- turned off between the menu and the click: nothing opens
+popup = nil
+cfg.wowheadQuestLinks = false
+entry.onClick()
+assert(popup == nil, "a click after the option was turned off opened the popup")
 
 RunTimers()
 print("quest tracker custom harness: ok")

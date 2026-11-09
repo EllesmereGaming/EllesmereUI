@@ -644,8 +644,6 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
     inst.events = { "HEARTHSTONE_BOUND", "PLAYER_ENTERING_WORLD",
         "BAG_UPDATE_DELAYED", "SPELLS_CHANGED" }
 
-    local _trvFitBuf1 = { "" }
-    local _trvFitBuf2 = { "" }
     local mouseOver = false
     -- Heartbeat demand-gate: the 1s tick runs ONLY while something is cooling,
     -- a timer shows on the bar, or the tooltip is open (live M:SS columns).
@@ -988,12 +986,6 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
         local location, barTimer, coolMask, iconDim = TravelBarText(D(), GetBindLocation() or "?", mouseOver)
         inst._barTimer = barTimer
         inst._lastCoolMask = coolMask
-        if isSide then
-            local slotW = VSlotW(inst)
-            local innerW = max(30, slotW - 8)
-            _trvFitBuf1[1] = location
-            _trvFitBuf2[1] = "00:00:00"
-        end
 
         ns.SetFont(hearthText, fontSize, barCfg)
 
@@ -1049,9 +1041,6 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             hearthButton:SetHeight(totalH)
         else
             local slotW = HBudget(inst, 120)
-            local textBudget = max(30, slotW - iconSz - gap - 8)
-            _trvFitBuf1[1] = location
-            _trvFitBuf2[1] = "00:00:00"
             ns.SetFont(hearthText, fontSize, barCfg)
             hearthText:SetText(location)
             -- +2 matches the top-of-Refresh sizing: this branch re-derives iconSz, which would otherwise silently swallow earlier size bumps.
@@ -1059,6 +1048,21 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             hearthIcon:SetSize(iconSz, iconSz)
             ns.ResetInlineText(hearthText, "LEFT")
             local tw = ns.SnapToPixelGrid(hearthText:GetStringWidth())
+            -- A counting timer sizes as all-zero digits (measured off screen) and never
+            -- shrinks, so the bar holds still.
+            if inst._barTimer then
+                local zeroW = 0
+                local mfs = ns.MeasureFS()
+                if mfs then
+                    ns.SetFont(mfs, fontSize, barCfg)
+                    mfs:SetText((location:gsub("%d", "0")))
+                    zeroW = ns.SnapToPixelGrid(mfs:GetStringWidth())
+                end
+                tw = max(tw, zeroW, inst._trvPeakW or 0)
+                inst._trvPeakW = tw
+            else
+                inst._trvPeakW = nil
+            end
             if location == "" then tw = 0; gap = 0 end
             local totalW = min(slotW, iconSz + gap + tw + 4)
             content:SetSize(totalW, barH)

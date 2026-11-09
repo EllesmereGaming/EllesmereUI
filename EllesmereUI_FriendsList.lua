@@ -13,15 +13,17 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Blizzard's own (it calls SetItemRef), so a right click opens the friend
 --  menu through the code a click on a friend's name in chat runs, and that
 --  menu's Whisper opens the chat box with nothing of ours in between. A left
---  click only selects the friend, as on Blizzard's list: the link frame
---  passes that button on to the row, whose click script touches nothing but
---  our own selection. Field-checked on WoW Forever 1.60.1 (70790): a whisper
---  through the link, the menu's Whisper and entries added to that menu all
---  stayed Blizzard-secure, while a whisper opened from addon code did not.
+--  click only selects the friend, as on Blizzard's list: a click layer of
+--  ours lies over every row's link and takes every button but the right one,
+--  which it passes down to the link (see Clicks), so Blizzard's handler never
+--  sees that click, and the release sets nothing but our own selection.
+--  Field-checked on WoW Forever 1.60.1 (70790): a whisper through the link,
+--  the menu's Whisper and entries added to that menu all stayed
+--  Blizzard-secure, while a whisper opened from addon code did not.
 --  Rules that keep it so:
 --    - never give the link frame a click script (OnClick, OnMouseDown / Up,
 --      OnHyperlinkClick): a post-hook on the link click is safe, a
---      replacement is not; the row's own click script only selects;
+--      replacement is not; a right click is never touched;
 --    - never open a whisper or Blizzard's friend menu from our code
 --      (ChatFrameUtil.SendBNetTell, UnitPopup_OpenMenu);
 --    - our entries reach that menu through Menu.ModifyMenu only, and call
@@ -35,29 +37,43 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  live zone (wrapped text is live on its first two lines only, and an inline
 --  texture is not clickable).
 --
---  Availability: the Social UI friends list must exist and the client's menu
---  code must isolate added entries (Menu.IsMenuProxy came with that change).
---  The list stands down under WoW Forever's Gamepad interface style, where a
+--  Availability: its host starts it, and its host's settings carry its
+--  switch, customTiles (false stands it down; settings without the key keep
+--  it on). On WoW Forever that is the Friends List card's Custom Friends
+--  List Tiles, which follows the card's look until picked: on while the card
+--  is skinned, off under Blizz Default, where the host starts for the list
+--  alone. The Social UI friends list must exist and the client's menu code
+--  must isolate added entries (Menu.IsMenuProxy came with that change). The
+--  list stands down under WoW Forever's Gamepad interface style, where a
 --  controller drives Blizzard's list.
 --
---  Cost: nothing is built, registered or run until the option is on; while
---  on, only while the friends list shows (a child of that view carries the
---  show and hide edge). Friend events are coalesced to one rebuild per frame,
---  a change to one friend that moves nothing repaints that row alone, and
---  rows and headers are pooled: scrolling paints only the rows entering view.
+--  The scroll area is the rect of Blizzard's own list, a tile is inset from
+--  its sides as Blizzard's cards are, and the scroll bar is a frame of ours
+--  made from the template of Blizzard's bar and laid over it: the list looks
+--  like the lists of the window's other tabs. It scrolls as they do too: the
+--  wheel is that bar's own step, with no easing. An online friend's row
+--  wears Blizzard's own card art at the alpha its host gives it (onlineCards;
+--  WoW Forever's card: whole under Blizz Default, a quarter under its tiles).
+--
+--  Cost: at the start one frame is made, a child of the friends view that
+--  carries its show and hide edge; nothing else is built, registered or run
+--  until that view shows, and then only while it shows. Friend events are
+--  coalesced to one rebuild per frame, a change to one friend that moves
+--  nothing repaints that row alone, and rows and headers are pooled:
+--  scrolling paints only the rows entering view.
 --
 --  Groups are account data in EllesmereUIDB.global (outside the profiles and
 --  outside exports): the group list, order, colours and collapsed state, and
 --  each friend's group by BattleTag. A "||EUI:Group||" tag an old Friends
 --  build left in a friend note is read once and never written.
+--
+--  Favorites is Battle.net's own favorite list shown as a section among the
+--  groups, and the friend menu offers it as one: a friend's custom group wins
+--  over it, and a pick that moves a friend into Favorites, or out of it to
+--  the ungrouped friends, sets Battle.net's favorite switch.
 -------------------------------------------------------------------------------
 local FL = {}
 EllesmereUI.FriendsList = FL
-
--- Held back: the list is not released yet. While this is set it is available
--- on no client (FL.Available), so nothing is built or started whatever a
--- profile saved, and the options build no row for it. One line to lift.
-FL.HELD = true
 
 local Kit = EllesmereUI.FriendsKit
 local T = Kit._tile
@@ -73,23 +89,31 @@ local LINK_FILLER = string.rep("M", 64)
 local LINK_TALLER, LINK_ABOVE = 8, 5
 local MENU_TAGS = { "MENU_UNIT_BN_FRIEND", "MENU_UNIT_BN_FRIEND_OFFLINE" }
 local ICONS = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
--- Blizzard's own art from its friend cards: the invite button (34 across on
--- its 70-tall card: ours keeps about that share of the tile) and the status
--- icons
+-- Blizzard's own art from its friend cards: the invite button and the status
+-- icons. The button is 34 across on Blizzard's 70-tall card; ours is halfway
+-- between that share of the tile and a flat 28, plus BTN_EXTRA (StyleRow):
+-- 26 on the default tile.
 local BTN_NORMAL, BTN_PUSHED = "common-button-tertiary-square-normal", "common-button-tertiary-square-pressed"
-local BTN_NATIVE, BTN_SHARE, BTN_MIN = 34, 0.52, 16
+local BTN_NATIVE, BTN_SHARE, BTN_MIN, BTN_FLAT, BTN_EXTRA = 34, 0.52, 16, 28, 2
 local STATUS_ATLAS = {
     online = "friends-status-online", away = "friends-status-away",
     busy = "friends-status-busy", offline = "friends-status-offline",
 }
+-- The status icon against the end of the text before it: its art keeps empty
+-- edges, so it sits a little into the text's box and above its middle
+local STATUS_DX, STATUS_DY = -1, 2
 
-local TILE_MIN, TILE_MAX, TILE_DEFAULT = 24, 70, 46
+local TILE_MIN, TILE_MAX, TILE_DEFAULT = 24, 70, 40
 local HEADER_H = 24
 local ROW_GAP, GROUP_GAP = 2, 4
-local PAD_TOP, PAD_BOTTOM, PAD_LEFT, PAD_RIGHT = 6, 6, 6, 4
-local BAR_STRIP = 14            -- kept free on the right for the scroll bar
+local PAD_TOP, PAD_BOTTOM = 6, 6
+-- A tile's inset from the sides of the scroll area: those of Blizzard's own
+-- list, so a tile is as wide as one of its cards
+local PAD_LEFT, PAD_RIGHT = 10, 7
 local TEXT_GAP = 4              -- between the icon square and the text
 local CHAR_GAP = 5              -- between the Battle.net name and the character after it
+local CHAR_LIFT = 1             -- the character text's bottom above the name's
+local EDGE_PAD = 4              -- between a row's right edge and what sits there
 local NOTE_MAX = 127            -- Blizzard's own limit on a friend note
 local GROUP_NAME_MAX = 32
 
@@ -98,8 +122,7 @@ local KIND_HEADER, KIND_FRIEND = 0, 1
 
 -- The kit's host (settings, look, font): set once by FL.Start
 local host
-local driver, root, sf, content, flusher, ev
-local UpdateThumb, ScrollTo     -- the shared scroll bar's, set as the list is built
+local driver, root, sf, content, bar, flusher, ev, filterX
 local active = false            -- live: shown, listening
 local covering = false          -- Blizzard's list is hidden under ours
 local viewH, rowW = 0, 0
@@ -108,6 +131,7 @@ local ring = 8                  -- pool slots: more than the items one view span
 local styleGen, modelGen, visGen = 0, 0, 0
 local dirtyFull, dirtyInvites = false, false
 local searchActive = false
+local searchCollapsed = {}      -- sections folded during a search, for that search alone
 local hoverRow
 local selectedId                -- the selected friend's account id (a left click picks it)
 local rowPool, headerPool = {}, {}     -- by ring slot
@@ -273,10 +297,27 @@ local function Priority(gi)
     return 5
 end
 
+-- Whether a friend counts as a favorite: Battle.net's flag, or what a menu
+-- pick asked Battle.net for until its answer arrives, so the friend sits
+-- where it was put at once. Kept per account id while the list shows; a flag
+-- the game keeps secret counts as not set.
+local favAsked = {}
+local function IsFavorite(info)
+    local fav = info.isFavorite
+    fav = not IsSecret(fav) and fav == true
+    local id = info.bnetAccountID
+    local asked = favAsked[id]
+    if asked == nil then return fav end
+    if asked == fav then favAsked[id] = nil end
+    return asked
+end
+
+-- The section a friend sits in: its custom group first, then Favorites for a
+-- favorite, else the ungrouped friends
 local function BucketOf(g, info, key)
-    if info.isFavorite then return FAV end
     local name = key and g.friendGroupsByTag[key]
     if name and FindGroup(g, name) then return name end
+    if IsFavorite(info) then return FAV end
     return UNGROUPED
 end
 
@@ -306,46 +347,53 @@ local function MigrateNoteTags(g)
 end
 
 -------------------------------------------------------------------------------
---  Search: Blizzard's own search box and filter menu keep working. The same
---  friends Blizzard's list would show are asked for with the state it keeps.
+--  Search: Blizzard's own search box and filter menu keep working. The game
+--  refuses the friend search call to an addon (C_BattleNet.SearchFriends: a
+--  blocked action), so the list never makes it: Blizzard's list, alive under
+--  ours, runs each search itself and holds the answer in its tree of
+--  sections, and the friends that passed are read from there. Plain getters
+--  only: nothing of Blizzard's is written or asked to work.
 -------------------------------------------------------------------------------
-local searchInfo = {
-    searchText = "", isOnline = false, isOffline = false, isDND = false, isAFK = false,
-    isInQueue = false, isAvailableForQueue = false, tags = {},
-}
 local allowedSet = {}
-local function SearchSet()
-    local view = View()
-    local bar = view.FilterBar and view.FilterBar.SearchBar
-    local text = bar and bar.GetText and bar:GetText() or ""
-    if type(text) ~= "string" or IsSecret(text) then text = "" end
-    local any = text ~= ""
-    searchInfo.isOnline, searchInfo.isOffline, searchInfo.isDND, searchInfo.isAFK = false, false, false, false
-    searchInfo.isInQueue, searchInfo.isAvailableForQueue = false, false
-    local tags = searchInfo.tags
-    wipe(tags)
+
+-- One of Blizzard's filters is ticked
+local function FiltersOn(view)
     local selected = view.selectedSearchFilterOptions
     if type(selected) == "table" then
-        for option, on in pairs(selected) do
-            local si = on and type(option) == "table" and option.searchInfo
-            if type(si) == "table" then
-                any = true
-                if si.tags then
-                    for i = 1, #si.tags do tags[#tags + 1] = si.tags[i] end
-                else
-                    for field, value in pairs(si) do
-                        searchInfo[field] = searchInfo[field] or value
-                    end
-                end
-            end
+        for _, on in pairs(selected) do
+            if on then return true end
         end
     end
-    if not any then return nil end
-    searchInfo.searchText = text
-    local ok, result = pcall(C_BattleNet.SearchFriends, searchInfo)
-    if not ok or type(result) ~= "table" then return nil end
+    return false
+end
+
+-- Blizzard's search box holds text
+local function SearchTextOn(view)
+    local bar = view.FilterBar and view.FilterBar.SearchBar
+    local text = bar and bar.GetText and bar:GetText()
+    return IsSecret(text) or (type(text) == "string" and text ~= "")
+end
+
+-- The friends in Blizzard's list: its sections, then the friends under each
+-- (a section Blizzard shows collapsed still holds its friends)
+local function ReadBlizzardList(view, into)
+    local sections = view.ScrollBox:GetDataProvider():GetRootNode():GetNodes()
+    for i = 1, #sections do
+        local nodes = sections[i]:GetNodes()
+        for k = 1, #nodes do
+            local data = nodes[k]:GetData()
+            local index = data and data.friendIndex
+            if index then into[index] = true end
+        end
+    end
+end
+
+-- The friend indexes a search or filter lets through; nil with none active,
+-- and when Blizzard's list cannot be read (every friend shows then)
+local function SearchSet(view, filtered)
+    if not (filtered or SearchTextOn(view)) then return nil end
     wipe(allowedSet)
-    for i = 1, #result do allowedSet[result[i]] = true end
+    if not pcall(ReadBlizzardList, view, allowedSet) then return nil end
     return allowedSet
 end
 
@@ -376,7 +424,12 @@ local function Rebuild()
     MigrateNoteTags(g)
     modelGen = modelGen + 1
 
-    local allowed = SearchSet()
+    local view = View()
+    local filtered = FiltersOn(view)
+    if filterX then filterX:SetShown(filtered) end
+    local allowed = SearchSet(view, filtered)
+    -- The sections folded during a search open again as it ends
+    if searchActive and not allowed then wipe(searchCollapsed) end
     searchActive = allowed ~= nil
 
     for _, list in pairs(buckets) do wipe(list) end
@@ -419,15 +472,13 @@ local function Rebuild()
     for i = n + 1, recordCount do records[i].info = nil end
     recordCount = n
 
-    local p = Settings()
-    local showUngrouped = not p or p.showUngrouped ~= false
     local order, orderCount = ValidOrder(g)
 
     renderedCount = 0
     for i = 1, orderCount do
         local key = order[i]
         local list = buckets[key]
-        if list and #list > 0 and (key ~= UNGROUPED or showUngrouped) then
+        if list and #list > 0 then
             renderedCount = renderedCount + 1
             rendered[renderedCount] = key
         end
@@ -452,8 +503,15 @@ local function Rebuild()
         end
         head.label = ("%s  (%d/%d)"):format(name, onlineIn[key] or 0, #list)
         y = y + HEADER_H + ROW_GAP
-        -- A search opens every section it finds a friend in
-        if searchActive or not IsCollapsed(g, key) then
+        -- A search opens every section it finds a friend in, until a click
+        -- on the section's header folds it for that search
+        local open
+        if searchActive then
+            open = not searchCollapsed[key]
+        else
+            open = not IsCollapsed(g, key)
+        end
+        if open then
             for k = 1, #list do
                 NewItem(KIND_FRIEND, y, tileH).rec = list[k]
                 y = y + tileH + ROW_GAP
@@ -513,9 +571,28 @@ local function DeleteGroup(name)
     if active then Refill() end
 end
 
-local function SetFriendGroup(key, name)
-    if not key then return end
-    Store().friendGroupsByTag[key] = name
+-- Battle.net's favorite switch for a friend, sent only when the friend is not
+-- already that, or on its way to it
+local function AskFavorite(id, want)
+    local info = C_BattleNet.GetAccountInfoByID(id)
+    if not info or IsFavorite(info) == want then return end
+    favAsked[id] = want
+    BNSetFriendFavoriteFlag(id, want)
+end
+
+-- Puts a friend in one section: a custom group (ours alone; it wins over
+-- Favorites, so Battle.net is not asked), Favorites or the ungrouped friends
+-- (no custom group, and Battle.net's favorite switch on or off)
+local function PlaceFriend(id, key, target)
+    local byTag = Store().friendGroupsByTag
+    if target == FAV or target == UNGROUPED then
+        if key then byTag[key] = nil end
+        AskFavorite(id, target == FAV)
+    elseif key then
+        byTag[key] = target
+    else
+        return
+    end
     if active then Refill() end
 end
 
@@ -565,23 +642,10 @@ local function PromptNewGroup(assignKey)
     })
 end
 
-local function PromptRenameGroup(old)
-    EllesmereUI:ShowInputPopup({
-        title       = "Rename Friend Group",
-        message     = "Enter a new name for this group:",
-        initialText = old,
-        placeholder = "Enter name...",
-        confirmText = "Rename",
-        cancelText  = "Cancel",
-        maxLetters  = GROUP_NAME_MAX,
-        onConfirm   = function(text) RenameGroup(old, text) end,
-    })
-end
-
 local function PromptDeleteGroup(name)
     EllesmereUI:ShowConfirmPopup({
         title       = "Delete Friend Group",
-        message     = EllesmereUI.Lf("Delete the group %1$s? Its friends go back to the Friends section.", name),
+        message     = EllesmereUI.Lf("Delete the group %1$s? Its friends go back to Favorites or the Friends section.", name),
         confirmText = "Delete",
         cancelText  = "Cancel",
         onConfirm   = function() DeleteGroup(name) end,
@@ -635,16 +699,25 @@ end
 
 local TIP_OPTS = { anchor = "right", justify = "LEFT" }
 
--- The pointer comes onto a row: the kit's hover look and the friend's
--- tooltip. Over a link the game runs a frame's hyperlink hover scripts in
--- place of its plain ones (Blizzard's Quick Join rows forward them the same
--- way), and the link covers the row, so both land here.
+-- A row is lit while the pointer is on it or its friend is selected: one look
+-- for both, the kit's hover.
+local function Light(f)
+    local on = hoverRow == f or f.selected == true
+    f.d.hoverBar:SetShown(on)
+    f.d.hoverFill:SetShown(on)
+end
+
+-- The pointer comes onto a row: the hover look and the friend's tooltip.
+-- Over a link the game runs a frame's hyperlink hover scripts in place of its
+-- plain ones (Blizzard's Quick Join rows forward them the same way), and the
+-- link covers the row, so both land here.
 local function RowEnter(hit)
     local f = hit:GetParent()
     if hoverRow == f then return end
+    local old = hoverRow
     hoverRow = f
-    f.d.hoverBar:Show()
-    f.d.hoverFill:Show()
+    if old then Light(old) end
+    Light(f)
     if f.rec and f.rec.info then
         EllesmereUI.ShowWidgetTooltip(f, FriendTooltip(f.rec), TIP_OPTS)
     end
@@ -654,27 +727,22 @@ local function RowLeave(hit)
     local f = hit:GetParent()
     if hoverRow ~= f then return end
     hoverRow = nil
-    f.d.hoverBar:Hide()
-    f.d.hoverFill:Hide()
+    Light(f)
     EllesmereUI.HideWidgetTooltip()
 end
 
 -------------------------------------------------------------------------------
 --  Selection: a left click selects a friend, as on Blizzard's list, and a
---  second one lets go. The look is the kit's selected tile.
+--  second one lets go. A selected row keeps the hover look.
 -------------------------------------------------------------------------------
 local function SetSelected(f, on)
-    if f.selected == on then return end
     f.selected = on
-    f.d.selBar:SetShown(on)
-    f.d.selFill:SetShown(on)
+    Light(f)
 end
 
-local function RowClick(f, button)
-    local rec = f.rec
-    if button ~= "LeftButton" or not (rec and f.item) or not f:IsMouseOver() then return end
+local function ToggleSelected(f)
     PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-    selectedId = (selectedId ~= rec.id) and rec.id or nil
+    selectedId = (selectedId ~= f.rec.id) and f.rec.id or nil
     for i = 1, #rowList do
         local row = rowList[i]
         if row.item then SetSelected(row, row.rec.id == selectedId) end
@@ -682,32 +750,44 @@ local function RowClick(f, button)
 end
 
 -------------------------------------------------------------------------------
---  Click routing: the link frame passes the left button on to the row under
---  it, so a left click selects and only the right click is Blizzard's (its
---  friend menu). The game refuses click routing in combat on every frame, so
---  the rows are made ahead, out of combat (ApplyMetrics); one made in combat
---  keeps the link's own left click, a whisper, until combat ends.
+--  Clicks. The link covers the row, and Blizzard's handler for it opens the
+--  friend menu on the right button and whispers on any other. The game has
+--  settled which frame a click belongs to by the time it tells a press, so
+--  nothing done at the press can take a click back from the link. A left
+--  click is to select, so every row carries a click layer of ours over its
+--  link, there all the time: it takes every button but the right one, which
+--  it passes down to the link, so that click stays Blizzard's from press to
+--  menu. The pointer's movement is passed down too: the link keeps the hover.
+--  Both routings are refused in combat on every frame, so a row made in
+--  combat gets its layer as combat ends and keeps the link's own left click
+--  (a whisper) until then.
 -------------------------------------------------------------------------------
-local needRoute = false
-local RouteRows
+local unrouted = {}     -- rows made in combat: their click layer still to route
 
-local function Route(f)
-    if InCombatLockdown() then
-        if not needRoute then
-            needRoute = true
-            EllesmereUI.CombatQueue.Defer("FriendsListRoute", RouteRows)
-        end
-        return
-    end
-    f.hit:SetPassThroughButtons("LeftButton")
-    f.routed = true
+local function SetLink(f)
+    local info = f.rec.info
+    -- SetFormattedText, so a name the game keeps secret still goes in
+    pcall(f.link.SetFormattedText, f.link, LINK_FORMAT, info.accountName, f.rec.id, info.accountName, LINK_FILLER)
 end
 
-RouteRows = function()
-    needRoute = false
-    for i = 1, #rowList do
-        local f = rowList[i]
-        if not f.routed then Route(f) end
+-- A release on the click layer: the left button selects
+local function CatchRelease(catch, button)
+    local f = catch:GetParent()
+    if button == "LeftButton" and f.item and f.rec and catch:IsMouseOver() then ToggleSelected(f) end
+end
+
+-- The layer's routing (out of combat only), then the layer goes over the link
+local function RouteCatch(f)
+    local catch = f.catch
+    catch:SetPassThroughButtons("RightButton")
+    catch:SetPropagateMouseMotion(true)
+    catch:Show()
+end
+
+local function RoutePending()
+    for i = #unrouted, 1, -1 do
+        RouteCatch(unrouted[i])
+        unrouted[i] = nil
     end
 end
 
@@ -721,18 +801,15 @@ local function LiveIndex(rec)
     if info and info.bnetAccountID == rec.id then return rec.index end
 end
 
--- What the button would do, and in red why it cannot (offline, or Blizzard's
--- invite restriction)
+-- What the button would do, and in red why it cannot (Blizzard's invite
+-- restriction)
 local function InviteEnter(btn)
-    local rec = btn:GetParent().rec
-    local index = LiveIndex(rec)
+    local index = LiveIndex(btn:GetParent().rec)
     local U = FriendsListUtil
     if not (index and U and U.GetBattleNetFriendInviteInfo) then return end
     local text = U.GetBattleNetFriendInviteTypeLabel(U.GetBattleNetFriendInviteInfo(index).inviteType) or ""
     local why
-    if not rec.online then
-        why = SOCIAL_UI_FRIENDS_LIST_PARTY_BUTTON_OFFLINE_TOOLTIP
-    elseif not btn:IsEnabled() and btn.restriction and U.GetBattleNetFriendPartyInviteRestrictionText then
+    if not btn:IsEnabled() and btn.restriction and U.GetBattleNetFriendPartyInviteRestrictionText then
         why = U.GetBattleNetFriendPartyInviteRestrictionText(btn.restriction)
     end
     if why and why ~= "" then
@@ -810,17 +887,19 @@ local function InviteClick(btn)
     end
 end
 
--- As on Blizzard's card: always there, off (and its icon greyed) for a friend
--- who is offline or cannot be invited
+-- Only a friend playing this game has the button (f.playing: the row shows
+-- their character): an offline friend, or one in another game, has nobody to
+-- invite. Off, with its icon greyed, while Blizzard's rules do not let you
+-- invite them. Returns whether the button shows.
 local function UpdateInvite(f, rec)
     local btn = f.PartyButton
     local U = FriendsListUtil
-    if not (U and U.GetBattleNetFriendPartyInviteRestriction and BattleNetFriendPartyInviteRestrictionType) then
+    if not (f.playing and U and U.GetBattleNetFriendPartyInviteRestriction and BattleNetFriendPartyInviteRestrictionType) then
         btn:Hide()
-        return
+        return false
     end
     local restriction = U.GetBattleNetFriendPartyInviteRestriction(rec.index)
-    local enabled = rec.online and restriction == BattleNetFriendPartyInviteRestrictionType.None
+    local enabled = restriction == BattleNetFriendPartyInviteRestrictionType.None
     local guid = rec.info.gameAccountInfo.playerGuid
     local inGroup = guid ~= nil and C_SocialQueue ~= nil and C_SocialQueue.IsSystemSupported ~= nil
         and C_SocialQueue.IsSystemSupported() and C_SocialQueue.GetGroupForPlayer(guid) ~= nil
@@ -843,6 +922,7 @@ local function UpdateInvite(f, rec)
         btn.icon:SetSize(w * k, h * k)
     end
     btn:Show()
+    return true
 end
 
 -------------------------------------------------------------------------------
@@ -857,18 +937,22 @@ local function MakeRow(slot)
     f.d = d
     d.orb:Hide()
     f.status = f:CreateTexture(nil, "OVERLAY", nil, 3)
-
-    -- A left click selects the friend: it reaches the row through the link
-    -- frame above it, which passes that button on (Route)
-    f:SetMouseClickEnabled(true)
-    f:SetMouseMotionEnabled(false)
-    f:SetScript("OnMouseUp", RowClick)
+    -- Blizzard's own card, which an online friend's row wears (PaintRow), at
+    -- the host's alpha for it: whole, it takes the place of the tile's shade
+    -- and online tint; fainter, it lies under them
+    if host.onlineCards then
+        f.card = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+        f.card:SetAllPoints()
+        f.card:SetAlpha(host.onlineCards)
+        f.card:Hide()
+        f.cardWhole = host.onlineCards >= 1
+    end
 
     -- The invite button, in the art of the one on Blizzard's card. Named as
     -- there: the kit hangs its region icon beside it.
     local btn = CreateFrame("Button", nil, f)
     btn:SetFrameLevel(f:GetFrameLevel() + 6)
-    btn:SetPoint("RIGHT", f, "RIGHT", -4, 0)
+    btn:SetPoint("RIGHT", f, "RIGHT", -EDGE_PAD, 0)
     btn:SetNormalAtlas(BTN_NORMAL)
     btn:SetPushedAtlas(BTN_PUSHED)
     btn:SetHighlightAtlas(BTN_NORMAL, "ADD")
@@ -882,7 +966,7 @@ local function MakeRow(slot)
     btn:SetScript("OnMouseUp", InviteRelease)
     f.PartyButton = btn
 
-    -- The click layer. Its click script stays the template's: Blizzard's.
+    -- The link layer. Its click script stays the template's: Blizzard's.
     -- The hover scripts are ours (the template's ask the game tooltip for the
     -- link): the frame's and the link's both, since the link covers the row.
     local hit = CreateFrame("Frame", nil, f, TEMPLATE)
@@ -895,6 +979,24 @@ local function MakeRow(slot)
     hit:SetScript("OnLeave", RowLeave)
     f.hit = hit
 
+    -- The click layer over the link (see Clicks): under the invite button,
+    -- hidden until its routing is set
+    local catch = CreateFrame("Frame", nil, f)
+    catch:SetAllPoints(f)
+    catch:SetFrameLevel(f:GetFrameLevel() + 4)
+    catch:EnableMouse(true)
+    catch:SetScript("OnMouseUp", CatchRelease)
+    catch:SetScript("OnEnter", RowEnter)
+    catch:SetScript("OnLeave", RowLeave)
+    catch:Hide()
+    f.catch = catch
+    if InCombatLockdown() then
+        unrouted[#unrouted + 1] = f
+        EllesmereUI.CombatQueue.Defer("FriendsListRoute", RoutePending)
+    else
+        RouteCatch(f)
+    end
+
     local link = hit:CreateFontString(nil, "ARTWORK")
     link:SetJustifyH("LEFT")
     link:SetJustifyV("TOP")
@@ -905,7 +1007,6 @@ local function MakeRow(slot)
     f:Hide()
     rowPool[slot] = f
     rowList[#rowList + 1] = f
-    Route(f)
     return f
 end
 
@@ -928,15 +1029,17 @@ local function StyleRow(f)
     f.link:SetPoint("TOPLEFT", f.hit, "TOPLEFT", -4, LINK_ABOVE)
     f.link:SetPoint("RIGHT", f.hit, "RIGHT", 2 * size + 12, 0)
 
-    local btnSize = math.max(BTN_MIN, math.min(BTN_NATIVE, math.floor(tileH * BTN_SHARE + 0.5)))
+    local share = math.max(BTN_MIN, math.min(BTN_NATIVE, tileH * BTN_SHARE))
+    local btnSize = math.floor((share + math.min(BTN_FLAT, tileH - 6)) / 2 + 0.5) + BTN_EXTRA
     f.btnSize = btnSize
     f.PartyButton:SetSize(btnSize, btnSize)
 
     local nameSize, lineSize = 15, 12
     if tier == 2 then nameSize = 14 elseif tier == 1 then nameSize, lineSize = 13, 11 end
-    d.name:SetFont(font, nameSize, "")
-    d.charLine:SetFont(font, lineSize, "")
-    d.info:SetFont(font, lineSize, "")
+    -- The kit's lines are font families (they show friends' names and notes)
+    EllesmereUI.SetFontFamily(d.name, font, nameSize, "", true)
+    EllesmereUI.SetFontFamily(d.charLine, font, lineSize, "", true)
+    EllesmereUI.SetFontFamily(d.info, font, lineSize, "", true)
     d.name:SetTextColor(1, 1, 1, 1)
     d.charLine:SetTextColor(1, 1, 1, 1)
     d.info:SetTextColor(1, 1, 1, 1)
@@ -947,14 +1050,15 @@ end
 
 -- Line 1 is the Battle.net name, the character in brackets after it and the
 -- status icon; the place (with the note) is the line below, or the right end
--- of a one-line tile. The texts stop at the invite button, or at the region
--- icon beside it: reserve is the width those keep on the right.
+-- of a one-line tile. The texts stop at the leftmost of the invite button and
+-- the region icon (stop; false with neither, and they run to the row's
+-- edge): reserve is the width those keep on the right.
 local function LayoutText(f, hasChar, stop, reserve)
     local d = f.d
     local name, char = d.name, d.charLine
     local x = tileH + TEXT_GAP
     local avail = rowW - x - reserve - 6
-    local statusW = f.nameSize + 3
+    local statusW = f.nameSize + STATUS_DX
 
     -- The name keeps its own width unless it would crowd the rest out
     local maxName
@@ -1005,18 +1109,30 @@ local function LayoutText(f, hasChar, stop, reserve)
     char:ClearAllPoints()
     info:ClearAllPoints()
     status:ClearAllPoints()
-    char:SetPoint("BOTTOMLEFT", name, "BOTTOMRIGHT", CHAR_GAP, 0)
-    status:SetPoint("LEFT", showChar and char or name, "RIGHT", 3, 0)
+    char:SetPoint("BOTTOMLEFT", name, "BOTTOMRIGHT", CHAR_GAP, CHAR_LIFT)
+    -- The status icon keeps one height on every row, STATUS_DY above the
+    -- name's middle. Beside the character it is set by its bottom against the
+    -- character's, which stands CHAR_LIFT above the name's; the icon is as
+    -- tall as the name, so that is the same height.
+    if showChar then
+        status:SetPoint("BOTTOMLEFT", char, "BOTTOMRIGHT", STATUS_DX, STATUS_DY - CHAR_LIFT)
+    else
+        status:SetPoint("LEFT", name, "RIGHT", STATUS_DX, STATUS_DY)
+    end
     if tier == 1 then
         name:SetPoint("LEFT", f, "LEFT", x, 0)
-        info:SetPoint("LEFT", status, "RIGHT", 8, 0)
+        info:SetPoint("LEFT", status, "RIGHT", 8, -STATUS_DY)
     else
         local gap = tier == 3 and 5 or 3
         local block = f.nameSize + gap + f.lineSize
         name:SetPoint("TOPLEFT", f, "TOPLEFT", x, -math.max(0, (tileH - block) / 2))
         info:SetPoint("TOPLEFT", name, "BOTTOMLEFT", 0, -gap)
     end
-    info:SetPoint("RIGHT", stop, "LEFT", -6, 0)
+    if stop then
+        info:SetPoint("RIGHT", stop, "LEFT", -6, 0)
+    else
+        info:SetPoint("RIGHT", f, "RIGHT", -EDGE_PAD - 6, 0)
+    end
 end
 
 -- The character line in brackets, the brackets in the colour of its level
@@ -1096,29 +1212,42 @@ local function PaintRow(f, it)
     if f.style ~= styleGen then StyleRow(f) end
     f.item, f.gen, f.rec = it, it.gen, rec
 
-    -- The link: SetFormattedText, so a name the game keeps secret still goes in
-    pcall(f.link.SetFormattedText, f.link, LINK_FORMAT, info.accountName, rec.id, info.accountName, LINK_FILLER)
+    SetLink(f)
+
+    -- Every string arrives wrapped in Blizzard's colour codes
+    local charText = T.CharLine(info)
+    local hasChar = charText ~= ""
+    f.playing = hasChar
 
     local p = Settings()
     T.Region(f, d, info)
-    -- The kit sizes its region icon once, as it makes it: ours follows the tile
+    -- The kit sizes its region icon once, as it makes it, and hangs it left of
+    -- the invite button: ours follows the tile, and takes the button's place
+    -- on a row without one
     local region = d.regionBtn
     local regionSize = math.min(28, math.floor(tileH * 0.8))
     if region and f.regionFor ~= tileH then
         f.regionFor = tileH
         region:SetSize(regionSize, regionSize)
     end
-    UpdateInvite(f, rec)
+    local invite = UpdateInvite(f, rec)
+    if region and f.regionBy ~= invite then
+        f.regionBy = invite
+        region:ClearAllPoints()
+        if invite then
+            region:SetPoint("RIGHT", f.PartyButton, "LEFT", -2, 0)
+        else
+            region:SetPoint("RIGHT", f, "RIGHT", -EDGE_PAD, 0)
+        end
+    end
     local regionShown = region ~= nil and region:IsShown()
 
-    -- Every string arrives wrapped in Blizzard's colour codes
-    local charText = T.CharLine(info)
-    local hasChar = charText ~= ""
     d.name:SetText(T.Name(info))
     if hasChar then d.charLine:SetText(Bracketed(info, charText)) end
     d.info:SetText(T.Info(info))
-    LayoutText(f, hasChar, regionShown and region or f.PartyButton,
-        4 + f.btnSize + (regionShown and (2 + regionSize) or 0))
+    LayoutText(f, hasChar, regionShown and region or (invite and f.PartyButton),
+        EDGE_PAD + (invite and f.btnSize or 0) + (regionShown and regionSize or 0)
+            + ((invite and regionShown) and 2 or 0))
 
     local presence = Presence(info)
     if f.presence ~= presence then
@@ -1127,16 +1256,32 @@ local function PaintRow(f, it)
     end
 
     UpdateIcon(f, info, p)
-    d.onlineBg:SetShown(rec.online)
+    if f.card then
+        -- An online friend's row wears Blizzard's own card, as on its list: a
+        -- game-level friend's or a Battle.net friend's, picked as Blizzard picks
+        -- it (a level the game keeps secret counts as Battle.net). Whole, it
+        -- hides the tile's shade (MakeRow). The file is at Lua's local cap,
+        -- hence no constants of its own.
+        local atlas
+        if rec.online then
+            local level, levels = info.friendLevel, Enum.BattleNetFriendLevel
+            atlas = (levels and not IsSecret(level) and level == levels.Title) and "friends-card-default"
+                or "friends-card-battleNet"
+        end
+        if f.cardAtlas ~= atlas then
+            f.cardAtlas = atlas
+            if atlas then f.card:SetAtlas(atlas, false) end
+            f.card:SetShown(atlas ~= nil)
+            if f.cardWhole then d.tileBg:SetShown(atlas == nil) end
+        end
+    end
+    if not f.cardWhole then d.onlineBg:SetShown(rec.online) end
     T.Faction(f, d, info)
     SetSelected(f, rec.id == selectedId)
 
     -- A reused row under the pointer shows the new friend's tooltip
     if hoverRow == f then
         EllesmereUI.ShowWidgetTooltip(f, FriendTooltip(rec), TIP_OPTS)
-    else
-        d.hoverBar:Hide()
-        d.hoverFill:Hide()
     end
 end
 
@@ -1152,15 +1297,26 @@ local function AccentRGB()
     return eg.r, eg.g, eg.b
 end
 
+-- A header icon under the pointer: its hover look and what it does, unless it
+-- is switched off (the first section's up arrow, the last one's down arrow)
 local function HeaderIconEnter(btn)
-    if not btn.off then btn:SetAlpha(ICON_HOVER) end
+    if btn.off then
+        EllesmereUI.HideWidgetTooltip()
+        return
+    end
+    btn:SetAlpha(ICON_HOVER)
+    local tip = btn.tip
+    if type(tip) == "function" then tip = tip(btn) end
+    EllesmereUI.ShowWidgetTooltip(btn, tip)
 end
 
 local function HeaderIconLeave(btn)
     btn:SetAlpha(btn.off and ICON_OFF or ICON_ALPHA)
+    EllesmereUI.HideWidgetTooltip()
 end
 
-local function HeaderIcon(parent, texture, onClick)
+-- tip: the tooltip, or a function of the button that returns it
+local function HeaderIcon(parent, texture, onClick, tip)
     local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(14, 14)
     btn:SetFrameLevel(parent:GetFrameLevel() + 2)
@@ -1168,14 +1324,22 @@ local function HeaderIcon(parent, texture, onClick)
     icon:SetAllPoints()
     icon:SetTexture(ICONS .. texture)
     btn:SetAlpha(ICON_ALPHA)
+    btn.tip = tip
     btn:SetScript("OnEnter", HeaderIconEnter)
     btn:SetScript("OnLeave", HeaderIconLeave)
     btn:SetScript("OnClick", onClick)
     return btn
 end
 
+-- Folds or opens the section; during a search, for that search alone (the
+-- saved state is the one the list keeps without a search)
 local function HeaderClick(h)
-    ToggleCollapsed(h.key)
+    if not searchActive then
+        ToggleCollapsed(h.key)
+        return
+    end
+    searchCollapsed[h.key] = not searchCollapsed[h.key] or nil
+    if active then Refill() end
 end
 
 local function HeaderEnter(h)
@@ -1194,40 +1358,82 @@ local function HeaderDown(btn)
     if not btn.off then MoveGroup(btn:GetParent().key, 1) end
 end
 
-local function HeaderRename(btn)
-    PromptRenameGroup(btn:GetParent().key)
-end
-
 local function HeaderDelete(btn)
     PromptDeleteGroup(btn:GetParent().key)
 end
 
--- A click on the section's name picks its colour (the picker lives in the
--- options addon, which the game will not load in combat)
-local function HeaderColor(btn)
-    local key = btn:GetParent().key
+-- A section name's colour: the one picked for it, else the accent
+local function SectionRGB(key)
+    local color = Store().friendGroupColors[key]
+    if color then return color.r, color.g, color.b end
+    return AccentRGB()
+end
+
+local RepaintHeaders   -- defined with the header painter below
+
+-- The colour picker for a section's name (it lives in the options addon,
+-- which the game will not load in combat). Each pick repaints the section
+-- names in view, and a cancel puts the old colour back.
+local function PickSectionColor(key, anchor, onChange)
     if not key or InCombatLockdown() then return end
     EllesmereUI:EnsureLoaded()
     if not EllesmereUI.ShowColorPicker then return end
     local colors = Store().friendGroupColors
-    local was = colors[key]
-    local r, g, b
-    if was then r, g, b = was.r, was.g, was.b else r, g, b = AccentRGB() end
+    local was, picked = colors[key], nil
+    local function Set(color)
+        colors[key] = color
+        RepaintHeaders()
+        if onChange then onChange() end
+    end
+    local r, g, b = SectionRGB(key)
     EllesmereUI:ShowColorPicker({
         r = r, g = g, b = b,
         hasOpacity = false,
         swatchFunc = function()
             local popup = EllesmereUI._colorPickerPopup
             if not popup then return end
-            local nr, ng, nb = popup:GetColorRGB()
-            colors[key] = { r = nr, g = ng, b = nb }
-            if active then Refill() end
+            picked = picked or {}
+            picked.r, picked.g, picked.b = popup:GetColorRGB()
+            Set(picked)
         end,
-        cancelFunc = function()
-            colors[key] = was
-            if active then Refill() end
-        end,
-    }, btn)
+        cancelFunc = function() Set(was) end,
+    }, anchor)
+end
+
+-- A custom group's name and colour in one popup: the swatch beside the name
+-- opens the colour picker, whose own OK and Cancel keep or drop the colour
+-- (the popup's buttons are the name's alone).
+local function PromptEditGroup(name)
+    EllesmereUI:ShowInputPopup({
+        title       = "Rename Friend Group",
+        message     = "Enter a new name for this group:",
+        initialText = name,
+        placeholder = "Enter name...",
+        confirmText = "Rename",
+        cancelText  = "Cancel",
+        maxLetters  = GROUP_NAME_MAX,
+        swatch      = {
+            get     = function() return SectionRGB(name) end,
+            onClick = function(swatch, repaint) PickSectionColor(name, swatch, repaint) end,
+            tooltip = "Color",
+        },
+        onConfirm   = function(text) RenameGroup(name, text) end,
+    })
+end
+
+-- The pencil: a custom group's popup, or the colour alone for a section that
+-- cannot be renamed
+local function HeaderEdit(btn)
+    local h = btn:GetParent()
+    if h.custom then
+        PromptEditGroup(h.key)
+    else
+        PickSectionColor(h.key, btn)
+    end
+end
+
+local function EditTip(btn)
+    return btn:GetParent().custom and "Edit Group" or "Change Color"
 end
 
 local function MakeHeader(slot)
@@ -1241,14 +1447,14 @@ local function MakeHeader(slot)
     h.hover:SetColorTexture(1, 1, 1, 0.06)
     h.hover:Hide()
 
+    -- A group's name, as the player typed it: a font family, set by PaintHeader
     h.label = h:CreateFontString(nil, "OVERLAY")
-    EllesmereUI.PrimeFontShadow(h.label, true)
     h.label:SetPoint("CENTER", h, "CENTER", 0, 0)
 
-    h.up = HeaderIcon(h, "eui-arrow-up3.png", HeaderUp)
-    h.down = HeaderIcon(h, "eui-arrow-down3.png", HeaderDown)
-    h.edit = HeaderIcon(h, "eui-edit.png", HeaderRename)
-    h.x = HeaderIcon(h, "eui-close.png", HeaderDelete)
+    h.up = HeaderIcon(h, "eui-arrow-up3.png", HeaderUp, "Move Up")
+    h.down = HeaderIcon(h, "eui-arrow-down3.png", HeaderDown, "Move Down")
+    h.edit = HeaderIcon(h, "eui-edit.png", HeaderEdit, EditTip)
+    h.x = HeaderIcon(h, "eui-close.png", HeaderDelete, "Delete Group")
     h.up:SetPoint("LEFT", h, "LEFT", 8, 0)
     h.down:SetPoint("RIGHT", h, "RIGHT", -8, 0)
     h.edit:SetPoint("LEFT", h.up, "RIGHT", 4, 0)
@@ -1257,17 +1463,13 @@ local function MakeHeader(slot)
     h.lineL = h:CreateTexture(nil, "OVERLAY")
     h.lineL:SetColorTexture(1, 1, 1, 0.1)
     h.lineL:SetHeight(1)
+    h.lineL:SetPoint("LEFT", h.edit, "RIGHT", 6, 0)
+    h.lineL:SetPoint("RIGHT", h.label, "LEFT", -6, 0)
     h.lineR = h:CreateTexture(nil, "OVERLAY")
     h.lineR:SetColorTexture(1, 1, 1, 0.1)
     h.lineR:SetHeight(1)
 
-    -- Over the name: a click there picks the colour instead of collapsing
-    h.pick = CreateFrame("Button", nil, h)
-    h.pick:SetFrameLevel(h:GetFrameLevel() + 3)
-    h.pick:SetHeight(HEADER_H)
-    h.pick:SetPoint("CENTER", h.label, "CENTER", 0, 0)
-    h.pick:SetScript("OnClick", HeaderColor)
-
+    -- A click anywhere on the bar but its icons, the name included, collapses
     h:SetScript("OnClick", HeaderClick)
     h:SetScript("OnEnter", HeaderEnter)
     h:SetScript("OnLeave", HeaderLeave)
@@ -1288,28 +1490,32 @@ local function PaintHeader(h, it)
         h.style = styleGen
         h.custom = nil
         h:SetWidth(rowW)
-        h.label:SetFont(T.FontPath(), 12, "")
+        EllesmereUI.SetFontFamily(h.label, T.FontPath(), 12, "", true)
     end
     h.label:SetText(it.label)
-    local color = Store().friendGroupColors[it.key]
-    if color then
-        h.label:SetTextColor(color.r, color.g, color.b, 1)
-    else
-        h.label:SetTextColor(AccentRGB())
-    end
-    h.pick:SetWidth((h.label:GetStringWidth() or 40) + 8)
+    local r, g, b = SectionRGB(it.key)
+    h.label:SetTextColor(r, g, b, 1)
     SetIconOff(h.up, it.first)
     SetIconOff(h.down, it.last)
+    -- Only a custom group can be deleted; every section has the pencil
     if h.custom ~= it.custom then
         h.custom = it.custom
-        h.edit:SetShown(it.custom)
         h.x:SetShown(it.custom)
-        h.lineL:ClearAllPoints()
         h.lineR:ClearAllPoints()
-        h.lineL:SetPoint("LEFT", it.custom and h.edit or h.up, "RIGHT", 6, 0)
-        h.lineL:SetPoint("RIGHT", h.label, "LEFT", -6, 0)
         h.lineR:SetPoint("LEFT", h.label, "RIGHT", 6, 0)
         h.lineR:SetPoint("RIGHT", it.custom and h.x or h.down, "LEFT", -6, 0)
+    end
+    -- Painted again under the pointer (a click on an arrow moved the
+    -- sections): the hovered icon's look and tooltip follow what it does now
+    if h.up:IsMouseMotionFocus() then HeaderIconEnter(h.up) end
+    if h.down:IsMouseMotionFocus() then HeaderIconEnter(h.down) end
+    if h.edit:IsMouseMotionFocus() then HeaderIconEnter(h.edit) end
+end
+
+RepaintHeaders = function()
+    for i = 1, #headerList do
+        local h = headerList[i]
+        if h.item and h:IsShown() then PaintHeader(h, h.item) end
     end
 end
 
@@ -1372,18 +1578,69 @@ local function LayoutVisible()
     HideUnseen(headerList)
 end
 
+-------------------------------------------------------------------------------
+--  The scroll bar: a frame of ours made from the template of Blizzard's own
+--  bar and laid over that bar, so the two lists look alike. It follows the
+--  list (how much is in view, where the view stands, one tile per arrow
+--  press), and a drag of its thumb or a press on an arrow or its track
+--  scrolls the list. So does the wheel, over the list as over the bar: it is
+--  the bar's own wheel step, two tiles a tick, at once, as on Blizzard's list.
+-------------------------------------------------------------------------------
+local barBusy = false   -- the bar and the list are telling each other one spot
+
+local function ScrollRange()
+    return math.max(0, content:GetHeight() - sf:GetHeight())
+end
+
+-- Where the view stands, after a scroll step of the list
+local function SyncBarSpot()
+    local range = ScrollRange()
+    barBusy = true
+    bar:SetScrollPercentage(range > 0 and sf:GetVerticalScroll() / range or 0, true)
+    barBusy = false
+end
+
+-- The whole bar, after the list or the view changed size
+local function SyncBar()
+    local range = ScrollRange()
+    barBusy = true
+    bar:SetVisibleExtentPercentage(range > 0 and sf:GetHeight() / content:GetHeight() or 1)
+    bar:SetPanExtentPercentage(range > 0 and (tileH + ROW_GAP) / range or 0)
+    bar:SetScrollPercentage(range > 0 and sf:GetVerticalScroll() / range or 0, true)
+    barBusy = false
+end
+
+-- The list moved: the rows in view, and the bar unless the bar moved it
+local function OnListScroll()
+    LayoutVisible()
+    if not barBusy then SyncBarSpot() end
+end
+
+-- The list to a spot inside its range, at once
+local function ScrollTo(v)
+    sf:SetVerticalScroll(v)
+    OnListScroll()
+end
+
+-- The bar moved by hand
+local function OnBarScroll(_, percentage)
+    if barBusy then return end
+    barBusy = true
+    ScrollTo(percentage * ScrollRange())
+    barBusy = false
+end
+
 -- Everything from the friend data up: model, scroll range, the rows in view.
--- A wheel scroll in flight keeps going (its own steps clamp to the new range
--- and lay the rows out); only a scroll past the new end is pulled back.
+-- The view keeps its spot; only a spot past the new end is pulled back.
 Refill = function()
     Rebuild()
-    local maxScroll = math.max(0, content:GetHeight() - sf:GetHeight())
-    if sf:GetVerticalScroll() > maxScroll then
-        ScrollTo(maxScroll)
+    local range = ScrollRange()
+    if sf:GetVerticalScroll() > range then
+        ScrollTo(range)
     else
-        UpdateThumb()
         LayoutVisible()
     end
+    SyncBar()
 end
 
 -- The tile height in force and what follows from it
@@ -1399,9 +1656,9 @@ local function ApplyMetrics()
     -- Every row and header in view restyles on the next layout; one the new
     -- layout no longer reaches still holds its item, so that pass hides it
     styleGen = styleGen + 1
-    -- Every row those slots can need is made now, while its click routing
-    -- can be set (Route): scrolling in combat then finds it ready
-    if viewH > 0 and not InCombatLockdown() then
+    -- Every row those slots can need is made now, so a scroll never has to
+    -- make one
+    if viewH > 0 then
         for slot = 1, ring do
             if not rowPool[slot] then MakeRow(slot) end
         end
@@ -1489,6 +1746,7 @@ local function PromptNote(id)
         confirmText = "Save",
         cancelText  = "Cancel",
         maxLetters  = NOTE_MAX,
+        allowEmpty  = true,     -- an empty note deletes it
         onConfirm   = function(text) BNSetFriendNote(id, text or "") end,
     })
 end
@@ -1537,16 +1795,18 @@ local function AddMenuEntries(_, menu, contextData)
     if not info then return end
     local id, key = rec.id, rec.key
     local g = Store()
+    local current = BucketOf(g, info, key)
 
     -- The friend entries Blizzard's menu offers only from its own list. No
-    -- divider before them: they join its last section, as there.
+    -- divider before them: they join its last section, as there. The
+    -- favorite line does what the Favorites entries further down do.
     menu:CreateButton(SET_NOTE or EllesmereUI.L("Set Note"), function() PromptNote(id) end)
-    if info.isFavorite then
+    if current == FAV then
         menu:CreateButton(REMOVE_FAVORITE_STATUS or EllesmereUI.L("Remove Favorite"),
-            function() BNSetFriendFavoriteFlag(id, false) end)
+            function() PlaceFriend(id, key, UNGROUPED) end)
     else
         menu:CreateButton(ADD_FAVORITE_STATUS or EllesmereUI.L("Add Favorite"),
-            function() BNSetFriendFavoriteFlag(id, true) end)
+            function() PlaceFriend(id, key, FAV) end)
     end
     if SocialUIUtil and C_BattleNet.AreFriendTagsEnabled and C_BattleNet.AreFriendTagsEnabled()
         and C_BattleNet.SetFriendTags then
@@ -1554,26 +1814,28 @@ local function AddMenuEntries(_, menu, contextData)
     end
     menu:CreateButton(REMOVE_FRIEND or EllesmereUI.L("Remove Friend"), function() PromptRemove(id) end)
 
-    -- Our own group, after them: the friend's group (a favorite sits in
-    -- Favorites and has none)
-    if key and not info.isFavorite then
+    -- Our own sections, after them: Favorites and the custom groups alike,
+    -- less the one the friend sits in
+    if key then
         menu:CreateDivider()
         menu:CreateTitle("EllesmereUI")
-        local current = g.friendGroupsByTag[key]
-        if current and not FindGroup(g, current) then current = nil end
-        local sub = menu:CreateButton(current and EllesmereUI.L("Move to Group") or EllesmereUI.L("Add to Group"))
+        local grouped = current ~= UNGROUPED
+        local sub = menu:CreateButton(grouped and EllesmereUI.L("Move to Group") or EllesmereUI.L("Add to Group"))
         sub:CreateButton(EllesmereUI.L("New Group..."), function() PromptNewGroup(key) end)
         local list = g.friendGroups
-        if #list > 0 then sub:CreateDivider() end
+        if current ~= FAV or #list > 0 then sub:CreateDivider() end
+        if current ~= FAV then
+            sub:CreateButton(FAVORITES or EllesmereUI.L("Favorites"), function() PlaceFriend(id, key, FAV) end)
+        end
         for i = 1, #list do
             local name = list[i].name
             if name ~= current then
-                sub:CreateButton(name, function() SetFriendGroup(key, name) end)
+                sub:CreateButton(name, function() PlaceFriend(id, key, name) end)
             end
         end
-        if current then
+        if grouped then
             sub:CreateDivider()
-            sub:CreateButton(EllesmereUI.L("Remove from Group"), function() SetFriendGroup(key, nil) end)
+            sub:CreateButton(EllesmereUI.L("Remove from Group"), function() PlaceFriend(id, key, UNGROUPED) end)
         end
     end
 end
@@ -1594,21 +1856,41 @@ local function Build()
     root:EnableMouse(true)
     root:Hide()
 
+    -- The scroll area is the one Blizzard's list has
     sf = CreateFrame("ScrollFrame", nil, root)
-    sf:SetPoint("TOPLEFT", root, "TOPLEFT", 0, 0)
-    sf:SetPoint("BOTTOMRIGHT", root, "BOTTOMRIGHT", -BAR_STRIP, 0)
+    sf:SetAllPoints(view.ScrollBox)
     content = CreateFrame("Frame", nil, sf)
     content:SetSize(1, 1)
     sf:SetScrollChild(content)
-    UpdateThumb, ScrollTo = EllesmereUI.AttachSmoothScrollbar(sf, {
-        child = content, onScroll = LayoutVisible, step = 60,
-        trackParent = root, rightInset = 5, topInset = PAD_TOP, bottomInset = PAD_BOTTOM,
-    })
+    bar = CreateFrame("EventFrame", nil, root, "MinimalScrollBar")
+    bar:SetAllPoints(view.ScrollBar)
+    bar:RegisterCallback(ScrollBarMixin.Event.OnScroll, OnBarScroll, bar)
+    -- The wheel over the list is the bar's own (the template's handler over
+    -- the bar): two tiles a tick, at once
+    sf:EnableMouseWheel(true)
+    sf:SetScript("OnMouseWheel", function(_, delta) bar:OnMouseWheel(delta) end)
     sf:SetScript("OnSizeChanged", function()
         if not active then return end
         ApplyMetrics()
         Refill()
     end)
+
+    -- Blizzard's friends filter shows nothing while a filter is ticked, so
+    -- the house X sits where a filter menu's reset button does. It takes no
+    -- mouse: a click on it reaches the Filter button under it, whose menu
+    -- unticks the filters (a filter changed from our code would run the
+    -- friend search as ours, which the game refuses).
+    local dd = view.FilterBar and view.FilterBar.SearchFilterDropdown
+    if dd then
+        filterX = CreateFrame("Frame", nil, root)
+        filterX:SetSize(10, 10)
+        filterX:SetPoint("CENTER", dd, "TOPRIGHT", -3, 0)
+        local x = filterX:CreateTexture(nil, "OVERLAY", nil, 7)
+        x:SetAllPoints()
+        x:SetAtlas("uitools-icon-close", false)
+        x:SetVertexColor(1, 1, 1, 0.9)
+        filterX:Hide()
+    end
 
     -- Friend events mark the list; this hidden frame redraws it once, on the
     -- next frame, then hides again
@@ -1638,7 +1920,7 @@ end
 
 local function WantActive()
     local p = Settings()
-    if not (p and p.enabled ~= false and p.customList == true) then return false end
+    if not (p and p.enabled ~= false and p.customTiles ~= false) then return false end
     if not FL.Available() or EllesmereUI.PadGamepadUI() then return false end
     if C_SocialRestrictions and C_SocialRestrictions.IsFriendsDisabled
         and C_SocialRestrictions.IsFriendsDisabled() then
@@ -1661,6 +1943,8 @@ local function Park()
         menuHandles[i] = nil
     end
     hoverRow, selectedId = nil, nil
+    wipe(favAsked)
+    wipe(searchCollapsed)
     EllesmereUI.HideWidgetTooltip()
 end
 
@@ -1688,7 +1972,8 @@ local function Activate()
         view.ScrollBox:SetAlpha(0)
         view.ScrollBar:SetAlpha(0)
     end
-    if not active then
+    local opening = not active
+    if opening then
         active = true
         root:Show()
         ev:RegisterEvent("BN_FRIEND_INFO_CHANGED")
@@ -1705,6 +1990,12 @@ local function Activate()
     end
     ApplyMetrics()
     Refill()
+    -- A filter left ticked: Blizzard's list fills as the view shows, which may
+    -- come after this, so the friends it keeps are read once more next frame
+    if opening and searchActive then
+        dirtyFull = true
+        flusher:Show()
+    end
 end
 
 -- The friends view showed, or a setting changed. The list is live only while
@@ -1723,10 +2014,10 @@ end
 -------------------------------------------------------------------------------
 --  Public
 -------------------------------------------------------------------------------
--- The list is released (not FL.HELD), the Social UI friends list exists, and
--- entries added to Blizzard's friend menu are isolated on this client
+-- The Social UI friends list exists, and entries added to Blizzard's friend
+-- menu are isolated on this client
 function FL.Available()
-    return not FL.HELD and View() ~= nil and Menu ~= nil and Menu.ModifyMenu ~= nil and Menu.IsMenuProxy ~= nil
+    return View() ~= nil and Menu ~= nil and Menu.ModifyMenu ~= nil and Menu.IsMenuProxy ~= nil
 end
 
 -- Lowest, highest and default Tile Height, for the options slider
@@ -1738,7 +2029,7 @@ end
 function FL.Refresh()
     if not host then return end
     local p = Settings()
-    if not (p and p.enabled ~= false and p.customList == true and FL.Available()) then
+    if not (p and p.enabled ~= false and p.customTiles ~= false and FL.Available()) then
         if driver then driver:Hide() end
         Park()
         Uncover()
@@ -1755,8 +2046,9 @@ function FL.Refresh()
 end
 
 -- Starts the list for the session, once, after the kit's tiles
--- (Kit.StartTiles): it draws with the same host's settings and font, and
--- only under the EllesmereUI look (a stock look keeps Blizzard's list).
+-- (Kit.StartTiles, with or without its cards): it draws with the same
+-- host's settings and font, and only under the EllesmereUI look (a stock
+-- look keeps Blizzard's list).
 function FL.Start()
     if host then return end
     local h = T.Host()

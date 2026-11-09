@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- applications bar. Nothing hooks in until it's enabled.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.Lite and EllesmereUI.HELD_BACK_ADDONS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.Lite and EllesmereUI.HELD_BACK_ADDONS and EllesmereUI.SetFontFamily) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (group titles, applicant names and notes take font families through SetFontFamily)
 -- Held back from this release (EllesmereUI.HELD_BACK_ADDONS): nothing runs,
 -- and with no namespace published the options page never registers.
 if EllesmereUI.HELD_BACK_ADDONS[ADDON_NAME] then return end
@@ -16,7 +16,7 @@ ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
 local DEFAULTS = {
     padding          = 12,
-    nameColors       = true,
+    nameColors       = false,
     classTooltip     = true,
     leaderRating     = true,
     leaderCrown      = true,
@@ -75,9 +75,56 @@ end
 local readOnly = { search = setmetatable({}, { __index = DEFAULTS, __newindex = function() end }),
                    apps   = setmetatable({}, { __index = APPS_DEFAULTS, __newindex = function() end }) }
 
-function ns.Cfg()
+local function Search()
     local p = Profile()
     return p and p.search or readOnly.search
+end
+
+-- filters belong to the character, everything else to the profile
+local FILTER_KEYS = {}
+for _, k in ipairs({ "ratingOn", "ratingValue", "regions", "delves", "delveTiers", "bosses", "raidDiffs",
+    "raidPlaystyles", "raidRoles", "partyFit", "notDeclined", "hasLust", "hasBrez", "extraMyClass",
+    "extraExpr", "extraRolesAny", "roleCounts", "dimPicks" }) do FILTER_KEYS[k] = true end
+
+local charDB
+local function CharFilters() return charDB and charDB.filters end
+
+local cfg = setmetatable({}, {
+    __index = function(_, k)
+        if FILTER_KEYS[k] then
+            local f = CharFilters()
+            return f and f[k]
+        end
+        return Search()[k]
+    end,
+    __newindex = function(_, k, v)
+        if FILTER_KEYS[k] then
+            local f = CharFilters()
+            if f then f[k] = v end
+            return
+        end
+        Search()[k] = v
+    end,
+})
+
+function ns.Cfg() return cfg end
+
+-- blizzard's dungeon picks for this character, nil until saved once
+function ns.CharBlizzFilter() return charDB and charDB.blizz end
+function ns.SetCharBlizzFilter(t) if charDB then charDB.blizz = t end end
+
+-- the results and applicant lists' display settings, in the profile (read-only
+-- until the profile's ready)
+local ownListRO = setmetatable({}, { __newindex = function() end })
+function ns.OwnListDB()
+    local p = Profile()
+    if not p then return ownListRO end
+    local t = p.ownList
+    if type(t) ~= "table" then
+        t = {}
+        p.ownList = t
+    end
+    return t
 end
 
 function ns.AppsCfg()
@@ -93,10 +140,27 @@ end
 
 function ns.ResetSettings()
     if db then db:ResetProfile() end
+    if charDB then wipe(charDB.filters) end
 end
 
 function GF:OnInitialize()
     db = EllesmereUI.Lite.NewDB("EllesmereUIGroupFinderDB", { profile = { search = DEFAULTS, apps = APPS_DEFAULTS } })
+    if type(EllesmereUIGroupFinderCharDB) ~= "table" then EllesmereUIGroupFinderCharDB = {} end
+    charDB = EllesmereUIGroupFinderCharDB
+    if type(charDB.filters) ~= "table" then
+        -- a character's first login with filters of its own: it starts from a
+        -- copy of the profile's, which stay for the characters that log in later
+        local filters = {}
+        local s = Profile() and Profile().search
+        if s then
+            for k in pairs(FILTER_KEYS) do
+                local v = s[k]
+                if type(v) == "table" then v = CopyTable(v) end
+                filters[k] = v
+            end
+        end
+        charDB.filters = filters
+    end
 end
 
 function GF:OnEnable()

@@ -16,6 +16,8 @@ without breaking anything.
   client it loads at startup and reads only the file for that client's
   language (each file's TOC line names the client languages that read it).
 - Any key you leave out (or any string not yet wrapped) renders in English.
+  One exception: a key missing from `esMX` first takes the `esES` text, and
+  only then English. `esMX` entries always win.
 
 ## Add or improve a language
 

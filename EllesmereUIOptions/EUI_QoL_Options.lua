@@ -88,7 +88,7 @@ local function ShowTransformsPopup()
         local bg = popup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.077, 0.068, 0.058, 1)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, PP)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, bg)
 
         local title = popup:CreateFontString(nil, "OVERLAY")
         title:SetFont(FONT, 22, "")
@@ -177,11 +177,12 @@ local function ShowTransformsPopup()
                 local boxBg = box:CreateTexture(nil, "BACKGROUND")
                 boxBg:SetAllPoints()
                 boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-                row._boxBorder = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6, PP)
+                row._boxBorder = EllesmereUI.MakeRoundedBorder(box, 0.4, 0.4, 0.4, 0.6, boxBg)
                 local check = box:CreateTexture(nil, "ARTWORK")
                 check:SetPoint("TOPLEFT", box, "TOPLEFT", 3, -3)
                 check:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
                 check:SetColorTexture(EG.r, EG.g, EG.b, 1)
+                EllesmereUI.RoundBody(box, check, 1)
                 row._check = check
 
                 local lbl = row:CreateFontString(nil, "OVERLAY")
@@ -211,7 +212,7 @@ local function ShowTransformsPopup()
         local applyBg = applyBtn:CreateTexture(nil, "BACKGROUND")
         applyBg:SetAllPoints()
         applyBg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
-        local applyBrd = EllesmereUI.MakeBorder(applyBtn, EG.r, EG.g, EG.b, 0.9, PP)
+        local applyBrd = EllesmereUI.MakeRoundedBorder(applyBtn, EG.r, EG.g, EG.b, 0.9, applyBg)
         local applyLbl = applyBtn:CreateFontString(nil, "OVERLAY")
         applyLbl:SetFont(FONT, 16, "")
         applyLbl:SetPoint("CENTER")
@@ -1697,22 +1698,11 @@ initFrame:SetScript("OnEvent", function(self)
             ssUpdateState()
         end
 
-        -- Row 4: Rested Indicator (left) |
+        -- Row 4: Rested Indicator (left; mirrored in the Unit Frames player
+        -- EXTRAS, EllesmereUI.RestedIndicatorCfg) |
         local restedRow
         restedRow, h = W:DualRow(parent, y,
-            { type="toggle", text="Rested Indicator",
-              tooltip="Displays a ZZZ indicator on your player frame when you are in a resting area.",
-              getValue=function()
-                if not EllesmereUIDB then return true end
-                return EllesmereUIDB.showRestedIndicator == true
-              end,
-              setValue=function(v)
-                if not EllesmereUIDB then EllesmereUIDB = {} end
-                EllesmereUIDB.showRestedIndicator = v
-                local pf = _G["EllesmereUIUnitFrames_Player"]
-                if pf and pf._restUpdate then pf._restUpdate() end
-                EllesmereUI:RefreshPage()
-              end },
+            EllesmereUI.RestedIndicatorCfg(),
             { type="toggle", text="Target Distance (Range) Text",
               tooltip="Shows the approximate distance to your current target as movable on-screen text (default 30-35). Use the cog for format, alignment, and text size; use Unlock Mode to position or Anchor to your Player Frame.",
               getValue=function()
@@ -1727,54 +1717,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Inline cog on Rested Indicator (left region): Animated, Size, X/Y offsets
-        if not EllesmereUI._prebuilding then
-            local leftRgn = restedRow._leftRegion
-            local function ApplyRestIndicatorPos()
-                local pf = _G["EllesmereUIUnitFrames_Player"]
-                if pf and pf._restPlace then pf._restPlace() end
-            end
-            local function restOff()
-                return not EllesmereUIDB or EllesmereUIDB.showRestedIndicator ~= true
-            end
-            EllesmereUI.BuildInlineCog(leftRgn, {
-                title = "Rested Indicator",
-                rows = {
-                    { type="toggle", label="Animated",
-                      tooltip="Shows the animated rest icon from Blizzard's player frame instead of the ZZZ text.",
-                      get=function() return EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimated == true or false end,
-                      set=function(v)
-                          if not EllesmereUIDB then EllesmereUIDB = {} end
-                          EllesmereUIDB.restedIndicatorAnimated = v
-                          local pf = _G["EllesmereUIUnitFrames_Player"]
-                          if pf and pf._restUpdate then pf._restUpdate() end
-                      end },
-                    { type="slider", label="Size", min=12, max=64, step=1,
-                      disabled=function() return not (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimated == true) end,
-                      disabledTooltip="Animated",
-                      get=function() return (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimatedSize) or 24 end,
-                      set=function(v)
-                          if not EllesmereUIDB then EllesmereUIDB = {} end
-                          EllesmereUIDB.restedIndicatorAnimatedSize = v
-                          ApplyRestIndicatorPos()
-                      end },
-                    { type="slider", label="X Offset", min=-50, max=50, step=1,
-                      get=function() return (EllesmereUIDB and EllesmereUIDB.restedIndicatorXOffset) or 0 end,
-                      set=function(v)
-                          if not EllesmereUIDB then EllesmereUIDB = {} end
-                          EllesmereUIDB.restedIndicatorXOffset = v
-                          ApplyRestIndicatorPos()
-                      end },
-                    { type="slider", label="Y Offset", min=-50, max=50, step=1,
-                      get=function() return (EllesmereUIDB and EllesmereUIDB.restedIndicatorYOffset) or 0 end,
-                      set=function(v)
-                          if not EllesmereUIDB then EllesmereUIDB = {} end
-                          EllesmereUIDB.restedIndicatorYOffset = v
-                          ApplyRestIndicatorPos()
-                      end },
-                },
-                gap = 9, disabled = restOff, disabledTooltip = "Rested Indicator",
-            })
-        end
+        EllesmereUI.BuildRestedIndicatorCog(restedRow._leftRegion)
 
         -- Target Distance settings cog (right slot of the Rested row)
         if not EllesmereUI._prebuilding then

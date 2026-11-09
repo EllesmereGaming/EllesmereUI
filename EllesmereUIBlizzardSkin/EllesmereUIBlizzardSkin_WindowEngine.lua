@@ -230,6 +230,12 @@ local BASE_U, BASE_V = BASE_R - BASE_L, BASE_B - BASE_T
 local function ApplyShellStyle(winKey)
     local entry = _shells[winKey]
     if not entry then return end
+    -- a window's own background color/opacity: the backdrop fades with the
+    -- opacity, the tint takes the color (EUI._ShellLooks[winKey] returns both)
+    local look = EUI and EUI._ShellLooks and EUI._ShellLooks[winKey]
+    local tint, opacity
+    if look then tint, opacity = look() end
+    opacity = (opacity or 100) / 100
     for frame in pairs(entry) do
         local d = FFD[frame]
         if d then
@@ -239,16 +245,20 @@ local function ApplyShellStyle(winKey)
                 if d.bgOverlay then d.bgOverlay:SetAlpha(0) end
                 if d.modernBg then
                     local r, g, b, a = WSkin.GetModernBG()
+                    if tint then r, g, b, a = tint.r, tint.g, tint.b, tint.a or a end
                     d.modernBg:SetColorTexture(r, g, b, a)
                     -- Re-raise the region alpha too: a foreign restrip pass may
                     -- have zeroed it (color alpha and region alpha multiply).
-                    d.modernBg:SetAlpha(1)
+                    d.modernBg:SetAlpha(opacity)
                 end
             else
-                if d.bg then d.bg:SetAlpha(1) end
+                if d.bg then d.bg:SetAlpha(opacity) end
                 -- Region alpha is show/hide only; the darken strength lives in
                 -- the overlay's color alpha (they multiply).
-                if d.bgOverlay then d.bgOverlay:SetAlpha(1) end
+                if d.bgOverlay then
+                    if tint then d.bgOverlay:SetColorTexture(tint.r, tint.g, tint.b, tint.a or 0.62) end
+                    d.bgOverlay:SetAlpha(opacity)
+                end
                 if d.modernBg then d.modernBg:SetColorTexture(0, 0, 0, 0) end
             end
         end
@@ -437,14 +447,30 @@ function WSkin.Inset(inset)
 end
 
 -- size (optional): the size to set; otherwise the string keeps its own (12 if none).
+-- A string already on one of our font families keeps it (WSkin.FontFamily), so a
+-- region walk never pins a name text that took a family.
 function WSkin.Font(fs, r, g, b, size)
     if not fs or not fs.GetFont or (fs.IsForbidden and fs:IsForbidden()) then return end
+    local fo = fs.GetFontObject and fs:GetFontObject()
+    if fo and EUI._fontFamilySet[fo] then return WSkin.FontFamily(fs, r, g, b, size) end
     local _, cur = fs:GetFont()
     if cur and issecretvalue(cur) then return end
     -- 12.0.7: shadows only render from a FontObject, never from instance
     -- SetShadowOffset. Prime BEFORE SetFont (SetFont then restores the face).
     EUI.PrimeFontShadow(fs, Theme.fontShadow)
     fs:SetFont(Theme.fontPath, size or cur or 12, Theme.fontFlag or "")
+    if r then fs:SetTextColor(r, g, b or r) end
+end
+
+-- WSkin.Font for a text that shows other players' writing (names, group titles,
+-- comments): the house font as a font family, which draws the scripts that font
+-- lacks. A string given a family takes every later font write through here,
+-- never through WSkin.Font (a plain SetFont pins the face for good).
+function WSkin.FontFamily(fs, r, g, b, size)
+    if not fs or not fs.GetFont or (fs.IsForbidden and fs:IsForbidden()) then return end
+    local _, cur = fs:GetFont()
+    if cur and issecretvalue(cur) then return end
+    EUI.SetFontFamily(fs, Theme.fontPath, size or cur or 12, Theme.fontFlag or "", Theme.fontShadow)
     if r then fs:SetTextColor(r, g, b or r) end
 end
 

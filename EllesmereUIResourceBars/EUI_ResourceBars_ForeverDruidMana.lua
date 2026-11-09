@@ -170,8 +170,8 @@ local function Paint(force)
 
     if not S.textOn then return end
     local fmt = S.fmt
+    -- A "smart" here reads as the value: WoW Forever has no Smart Text.
     local wantPct = fmt == "perpp" or fmt == "both"
-        or (fmt == "smart" and EllesmereUI.IsSmartPowerPercent and EllesmereUI.IsSmartPowerPercent(MANA))
     local txt
     if wantPct then
         -- Built only for a format that shows it.
@@ -206,12 +206,22 @@ end
 -- lends them changes (shown / hidden, side, size, gap, offsets): a rebuild
 -- that leaves it in place schedules no anchor work. Unlock mode re-applies
 -- every link on exit, so a change there only records.
+local cascadeQueued = false
+local function CascadeSettled()
+    cascadeQueued = false
+    if not EllesmereUI._unlockActive then EllesmereUI.PropagateAnchorChain("ERB_Power") end
+end
 local function NotifyExtent()
     local sig = (S.shown and not S.parked and S.extSide) and S.extSig or nil
     if sig == S.extLast then return end
     S.extLast = sig
     if not EllesmereUI._unlockActive and EllesmereUI.PropagateAnchorChain then
         EllesmereUI.PropagateAnchorChain("ERB_Power")
+        -- A form change cascades mid-rebuild, on the bars' old edges: once more settled.
+        if not cascadeQueued then
+            cascadeQueued = true
+            C_Timer.After(0, CascadeSettled)
+        end
     end
 end
 

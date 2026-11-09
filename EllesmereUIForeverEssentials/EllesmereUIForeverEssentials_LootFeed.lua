@@ -22,13 +22,14 @@ local CALLOUT_GAP = 6 -- Icon Tray: space between the name row and the tiles
 local MONEY_ICON = "Interface\\Icons\\INV_Misc_Coin_02"
 local REP_ICON = "Interface\\Icons\\INV_Misc_Note_02"
 local SKILL_ICON = "Interface\\Icons\\INV_Misc_Book_08"
+local UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 local RATE_FLOOR = 60 -- seconds: the shortest session the hourly rate divides by
 local RATE_TICK = 60 -- seconds between repaints of the hourly rate
 
 -- Settings live in EllesmereUIDB.lootFeed; unset keys read these.
 local DEFAULTS = {
     enabled = false,
-    items = true, money = true, reputation = true, currency = true, skills = true,
+    items = true, money = true, reputation = true, currency = true, skills = true, rolls = false,
     minQuality = 0, showIlvl = true, showPrice = true,
     tracker = false, auctionPrices = false,
     -- BOX: bordered rows, BAR: accent bar on a fading background, TRAY: icon
@@ -805,6 +806,9 @@ local function UpdateSummary()
     SyncClock()
 end
 
+-- Group loot by item name: links from the loot history, and the roll behind each of your wins.
+local rollLinks, wins = {}, {}
+
 -- looted: a real loot line (not a preview sample). earned: one the tracker
 -- counts (looted or won, not bought or a quest reward), even when item rows
 -- are off or the item is below Minimum Quality.
@@ -818,6 +822,8 @@ local function ShowItem(link, count, retried, looted, earned)
         end
         return
     end
+    local won = looted and wins[name]
+    if won then wins[name] = nil end
     local each -- what one counts for, priced only when the tracker or the row needs it
     if looted then
         if earned and Get("tracker") then
@@ -838,6 +844,10 @@ local function ShowItem(link, count, retried, looted, earned)
         if ilvl and ilvl > 0 then sub = EllesmereUI.Lf("ilvl: %d", ilvl) end
     elseif classID == Enum.ItemClass.Questitem and ITEM_BIND_QUEST then
         questSub = "|cffffd100" .. ITEM_BIND_QUEST .. "|r"
+    end
+    if won then
+        won = EllesmereUI.Lf("Won: %s", won)
+        sub = sub and (won .. "  " .. sub) or won
     end
     -- The row shows the tracker's price; the plain vendor one with Use Auctionator Prices off.
     local value
@@ -914,22 +924,99 @@ end
 
 -- Own loot only: the *_SELF lines, the multiple-item formats (link and count)
 -- first, since the single-item ones match their lines too. The flag: the
--- tracker counts it (a pushed item, bought or a quest reward, shows but is no
--- gain).
+-- tracker counts it (a pushed item, bought or a quest reward, and a crafted one
+-- show but are no gain).
 local ITEM_KEYS = {
     { "LOOT_ITEM_SELF_MULTIPLE", true }, { "LOOT_ITEM_SELF", true },
     { "LOOT_ITEM_PUSHED_SELF_MULTIPLE", false }, { "LOOT_ITEM_PUSHED_SELF", false },
     { "LOOT_ITEM_BONUS_ROLL_SELF_MULTIPLE", true }, { "LOOT_ITEM_BONUS_ROLL_SELF", true },
+    { "LOOT_ITEM_CREATED_SELF_MULTIPLE", false }, { "LOOT_ITEM_CREATED_SELF", false },
 }
+
+-- Forever sends some loot lines, like fishing and crafting, with a plain [Name] instead of a link.
+local function ItemString(text)
+    if text:find("|Hitem:", 1, true) then return text end
+    local name = text:match("^%[(.-)%]$")
+    if not name then return end
+    if rollLinks[name] then return rollLinks[name] end
+    local id = C_Item.GetItemInfoInstant(name)
+    return id and "item:" .. id
+end
 
 local function OnLoot(text)
     for _, k in ipairs(ITEM_KEYS) do
-        local link, count = Match(k[1], text)
-        if link then
-            if link:find("|Hitem:", 1, true) then ShowItem(link, tonumber(count) or 1, nil, true, k[2]) end
+        local item, count = Match(k[1], text)
+        if item then
+            local link = ItemString(item)
+            if link then ShowItem(link, tonumber(count) or 1, nil, true, k[2]) end
             return
         end
     end
+end
+
+-- The game's own words for each Enum.EncounterLootDropRollState, English when it lacks one.
+local ROLL_LABELS = {
+    NeedMainSpec = { "NEED", "Need" }, NeedOffSpec = { "NEED", "Need" },
+    Transmog = { "TRANSMOGRIFY", "Transmog" }, Greed = { "GREED", "Greed" },
+}
+
+local function RollText(info)
+    local roll = info and Plain(info.roll, "number")
+    if not roll then return end
+    local state = Plain(info.state, "number")
+    for key, value in pairs(Enum.EncounterLootDropRollState or {}) do
+        local label = value == state and ROLL_LABELS[key]
+        if label then return (_G[label[1]] or label[2]) .. " " .. roll end
+    end
+    return tostring(roll)
+end
+
+-- A nil winner means everyone passed.
+local function ShowRoll(key, link, itemName, winner, class, roll, retried)
+    local name, quality, icon, _
+    if link then
+        name, _, quality, _, _, _, _, _, _, icon = C_Item.GetItemInfo(link)
+        if not name and not retried then
+            Item:CreateFromItemLink(link):ContinueOnItemLoad(function()
+                ShowRoll(key, link, itemName, winner, class, roll, true)
+            end)
+            return
+        end
+    end
+    local color = ITEM_QUALITY_COLORS[quality or 1] or ITEM_QUALITY_COLORS[1]
+    local item = color.hex .. (name or itemName or "?") .. "|r"
+    local text
+    if winner then
+        local cc = class and RAID_CLASS_COLORS[class]
+        if cc then winner = "|c" .. cc.colorStr .. winner .. "|r" end
+        text = EllesmereUI.Lf("%s won %s", winner, item)
+    else
+        text = EllesmereUI.Lf("Everyone passed on %s", item)
+    end
+    Emit(key, { icon = icon or UNKNOWN_ICON, text = text, sub = roll, border = color, link = link,
+        flat = roll and (text .. " (" .. roll .. ")") or text, badge = roll and roll:match("%d+") })
+end
+
+-- The history updates a drop on every pick; it is shown once, when it has a winner or everyone passed.
+local shownDrops = {}
+local function OnDrop(encounterID, lootListID)
+    local key = "roll:" .. encounterID .. ":" .. lootListID
+    if shownDrops[key] then return end
+    local drop = C_LootHistory.GetSortedInfoForDrop(encounterID, lootListID)
+    local winner = drop and drop.winner
+    if not (winner or (drop and drop.allPassed == true)) then return end
+    shownDrops[key] = true
+    local raw = Plain(drop.itemHyperlink, "string")
+    local name = raw and raw:match("%[(.-)%]")
+    local link = raw and raw:find("|Hitem:", 1, true) and raw or nil
+    if link and name then rollLinks[name] = link end
+    local roll = RollText(winner)
+    if winner and winner.isSelf == true then
+        if name and roll then wins[name] = roll end
+        return
+    end
+    ShowRoll(key, link, name, winner and Plain(winner.playerName, "string"),
+        winner and Plain(winner.playerClass, "string"), roll)
 end
 
 -- Money lines spell out each coin with the client's own "%d Gold" etc.
@@ -974,6 +1061,10 @@ local function OnEvent(_, event, ...)
         local id, _, change = ...
         id, change = Plain(id, "number"), Plain(change, "number")
         if id and change and change > 0 then ShowCurrency(id, change) end
+    elseif event == "LOOT_HISTORY_UPDATE_DROP" then
+        local encounterID, lootListID = ...
+        encounterID, lootListID = Plain(encounterID, "number"), Plain(lootListID, "number")
+        if encounterID and lootListID then OnDrop(encounterID, lootListID) end
     end
 end
 
@@ -1026,12 +1117,18 @@ local function Apply()
         if Get(chat.setting) or (chat.tracked and Get("tracker")) then events:RegisterEvent(event) end
     end
     if Get("currency") then events:RegisterEvent("CURRENCY_DISPLAY_UPDATE") end
+    if Get("rolls") and C_LootHistory then events:RegisterEvent("LOOT_HISTORY_UPDATE_DROP") end
 end
 
 -- A sample of every enabled source: the player's capital for reputation and
 -- classic items of three qualities (item id / count pairs). The rows fade like
 -- real ones.
 local PREVIEW_ITEMS = { 19019, 1, 4306, 5, 14047, 12 }
+local function PreviewRoll()
+    local _, link = C_Item.GetItemInfo(PREVIEW_ITEMS[1])
+    if link then ShowRoll("roll:preview", link, nil, "Thrall", "SHAMAN", (GREED or "Greed") .. " 87") end
+end
+
 local function Preview()
     if not Enabled() then return end
     CreateAnchor()
@@ -1045,6 +1142,7 @@ local function Preview()
     if Get("items") then
         for i = 1, #PREVIEW_ITEMS, 2 do ShowItem("item:" .. PREVIEW_ITEMS[i], PREVIEW_ITEMS[i + 1]) end
     end
+    if Get("rolls") then PreviewRoll() end
 end
 
 -------------------------------------------------------------------------------
@@ -1065,6 +1163,7 @@ local requested = {} -- preview items asked of the client, once each
 local function PreviewSamples()
     local list, items = {}, Get("items")
     collect = list
+    if Get("rolls") then PreviewRoll() end
     if items then
         for i = 1, #PREVIEW_ITEMS, 2 do
             local link = "item:" .. PREVIEW_ITEMS[i]
@@ -1079,7 +1178,7 @@ local function PreviewSamples()
     if Get("skills") then ShowSkill(EllesmereUI.L("Swords"), 42) end
     collect = nil
     -- Asked for once the samples are in: the callback can run right away.
-    if items then
+    if items or Get("rolls") then
         for i = 1, #PREVIEW_ITEMS, 2 do
             local id = PREVIEW_ITEMS[i]
             if not requested[id] and not C_Item.GetItemInfo(id) then

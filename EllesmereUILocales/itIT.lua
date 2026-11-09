@@ -195,3 +195,6 @@ L["Input on Top"] = "Input in alto"
 L["Separate Sidebar"] = "Separa barra laterale"
 L["Separates the sidebar from the chat panel and gives it its own background and border."] = "Separa la barra laterale dal pannello chat e le assegna uno sfondo e un bordo propri."
 L["Scenario"] = true
+
+-- Group Finder Hide Applicant Info
+L["Note"] = "Nota"

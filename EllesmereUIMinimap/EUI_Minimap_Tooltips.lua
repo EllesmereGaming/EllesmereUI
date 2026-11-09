@@ -155,6 +155,13 @@ local FTT_NOTE_H  = 12  -- height of the optional note line under a row
 local FTT_NOTE_INDENT = 8
 local FTT_NOTE_MAX_W  = 260  -- longer notes truncate instead of widening the tooltip
 
+-- The name and note lines show other players' writing: a font family (no
+-- outline, no shadow), so Cyrillic, Korean and Chinese letters draw in the
+-- client's own faces. Every font write to those two strings goes through here.
+local function FTTNameFont(fs, size)
+    EllesmereUI.SetFontFamily(fs, FTT_FONT(), size, "", false)
+end
+
 -- Hover-stable hide: small grace period so cursor can travel from button to tooltip
 local _fttHideToken = 0
 local _fttMenuOpen = false
@@ -341,7 +348,7 @@ local function EnsureFTTRow(idx)
     -- Name/zone are centred on the first line (not the button), so a note row can grow
     -- the button downward without moving them.
     local nameFS = btn:CreateFontString(nil, "OVERLAY")
-    nameFS:SetFont(FTT_FONT(), 10, "")
+    FTTNameFont(nameFS, 10)
     nameFS:SetJustifyH("LEFT")
     nameFS:SetPoint("LEFT", btn, "TOPLEFT", 0, -FTT_ROW_H / 2)
     local zoneFS = btn:CreateFontString(nil, "OVERLAY")
@@ -351,7 +358,7 @@ local function EnsureFTTRow(idx)
     -- Optional second line: guild/friend note, indented, truncated to the row width.
     -- One line only: a line break inside a note would overlap the rows around it.
     local noteFS = btn:CreateFontString(nil, "OVERLAY")
-    noteFS:SetFont(FTT_FONT(), 9, "")
+    FTTNameFont(noteFS, 9)
     noteFS:SetJustifyH("LEFT")
     noteFS:SetWordWrap(false)
     noteFS:SetMaxLines(1)
@@ -412,7 +419,7 @@ function ShowFriendsTooltip(anchor)
 
     local font = FTT_FONT()
     for i = 1, #_friendsTTRows do
-        _friendsTTRows[i].name:SetFont(font, 10, "")
+        FTTNameFont(_friendsTTRows[i].name, 10)
         _friendsTTRows[i].zone:SetFont(font, 10, "")
     end
     for i = 1, #_friendsTTHeaders do
@@ -438,7 +445,7 @@ function ShowFriendsTooltip(anchor)
 
     if total == 0 then
         local row = EnsureFTTRow(1)
-        row.name:SetFont(font, 10, "")
+        FTTNameFont(row.name, 10)
         row.name:SetText(EllesmereUI.COLOR_CODES.DIM .. EllesmereUI.L("No friends online") .. "|r")
         row.zone:SetText("")
         tt:SetSize(FTT_PAD * 2 + 140, FTT_PAD + FTT_ROW_H + FTT_PAD)
@@ -498,7 +505,7 @@ function ShowFriendsTooltip(anchor)
             local e = sec.list[i]
             rowIdx = rowIdx + 1
             local row = EnsureFTTRow(rowIdx)
-            row.name:SetFont(font, 10, "")
+            FTTNameFont(row.name, 10)
             row.zone:SetFont(font, 10, "")
 
             local cc = e.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.class]
@@ -539,7 +546,7 @@ function ShowFriendsTooltip(anchor)
             local rowH = FTT_ROW_H
             local note = showNotes and EllesmereUI.StripFriendNoteTag(e.note)
             if note then
-                row.note:SetFont(font, 9, "")
+                FTTNameFont(row.note, 9)
                 row.note:SetText(note)
                 row.note:Show()
                 local ntw = row.note:GetUnboundedStringWidth() or 0
@@ -555,7 +562,7 @@ function ShowFriendsTooltip(anchor)
         if maxRows > 0 and #sec.list > maxRows then
             rowIdx = rowIdx + 1
             local row = EnsureFTTRow(rowIdx)
-            row.name:SetFont(font, 10, "")
+            FTTNameFont(row.name, 10)
             row.name:SetText(EllesmereUI.COLOR_CODES.DIM .. EllesmereUI.Lf("...and %1$d more", #sec.list - maxRows) .. "|r")
             row.zone:SetText("")
             row.button._entry = nil

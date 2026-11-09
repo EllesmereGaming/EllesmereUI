@@ -67,6 +67,7 @@ C_AddOns = { IsAddOnLoaded = function() return true end }
 function UnitClass() return "Druid", "DRUID" end
 combat = false
 function InCombatLockdown() return combat end
+function issecretvalue() return false end
 function forbidden() error("addon read restricted aura state") end
 C_UnitAuras = setmetatable({}, { __index = forbidden })
 UnitAura, UnitDebuff, UnitGUID = forbidden, forbidden, forbidden
@@ -361,6 +362,8 @@ function Paint(plate)
 end
 function NewPlate(unit)
     local plate = { health=New("StatusBar"), _absorbMask={} }
+    -- The real plate re-reads its threat colors here (none in this harness)
+    function plate.UpdateHealthColor() end
     states[plate.health].fill = New("Texture", plate.health)
     states[plate.health].baseColor = { .2, .3, .4 }
     plate.unit = unit

@@ -2422,6 +2422,63 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- Bags' Hide Items in Their Categories (pinned items) defaults on for fresh
+-- installs and future profiles; every already-existing profile keeps it off
+-- unless its user had turned it on. Same mechanism as the Guardian Ironfur
+-- migration below.
+EllesmereUI.RegisterMigration({
+    id          = "bags_hide_pinned_existing_off_v1",
+    scope       = "global",
+    description = "Pin Bags' Hide Items in Their Categories OFF for existing users' profiles; fresh installs and future profiles inherit the new ON default.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        for _, profData in pairs(db.profiles) do
+            -- Only profiles with real child-addon data: an empty/stub profile
+            -- isn't an existing user's.
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local bags = profData.addons.EllesmereUIBags
+                if type(bags) ~= "table" then
+                    bags = {}
+                    profData.addons.EllesmereUIBags = bags
+                end
+                if bags.bagHidePinnedInCategories == nil then
+                    bags.bagHidePinnedInCategories = false
+                end
+            end
+        end
+    end,
+})
+
+-- WoW Forever: fresh installs and future profiles open the bags to MultiBag and
+-- start with Recent Items off; every already-existing profile keeps All Items and
+-- Recent Items on unless its user had changed them. Registered on the Forever
+-- client only, the one whose defaults changed.
+if EllesmereUI.IS_FOREVER == true then
+EllesmereUI.RegisterMigration({
+    id          = "bags_forever_defaults_existing_v1",
+    scope       = "global",
+    description = "Pin Bags' Default Selected Bag to All Items and Show Recent Items ON for existing WoW Forever profiles; fresh installs and future profiles inherit MultiBag and Recent Items off.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        for _, profData in pairs(db.profiles) do
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local bags = profData.addons.EllesmereUIBags
+                if type(bags) ~= "table" then
+                    bags = {}
+                    profData.addons.EllesmereUIBags = bags
+                end
+                if bags.bagShowRecentItems == nil then bags.bagShowRecentItems = true end
+                if bags.bagDefaultBagType == nil then bags.bagDefaultBagType = "all" end
+            end
+        end
+    end,
+})
+end
+
 -- Guardian Druid Ironfur bar ships ON (DEFAULTS.secondary.guardianIronfurBar=true)
 -- for new installs; existing users expect no class resource bar, so pin every
 -- already-existing profile OFF. Runs at parent ADDON_LOADED BEFORE any child NewDB
@@ -2476,6 +2533,35 @@ EllesmereUI.RegisterMigration({
                 if type(rb.secondary) ~= "table" then rb.secondary = {} end
                 if rb.secondary.protIgnorePainBar == nil then
                     rb.secondary.protIgnorePainBar = false
+                end
+            end
+        end
+    end,
+})
+
+-- Group Finder's Colored Group Names (search.nameColors) defaults off for fresh
+-- installs and future profiles; every already-existing profile keeps it on unless
+-- its user had turned it off. Same mechanism as the Guardian Ironfur migration.
+EllesmereUI.RegisterMigration({
+    id          = "groupfinder_name_colors_existing_on_v1",
+    scope       = "global",
+    description = "Pin Group Finder's Colored Group Names ON for existing users' profiles; fresh installs and future profiles inherit the new OFF default.",
+    body = function(ctx)
+        local db = ctx.db
+        if not db or not db.profiles then return end
+        for _, profData in pairs(db.profiles) do
+            -- Only profiles with real child-addon data: an empty/stub profile
+            -- isn't an existing user's.
+            if type(profData) == "table" and type(profData.addons) == "table"
+               and next(profData.addons) then
+                local gf = profData.addons.EllesmereUIGroupFinder
+                if type(gf) ~= "table" then
+                    gf = {}
+                    profData.addons.EllesmereUIGroupFinder = gf
+                end
+                if type(gf.search) ~= "table" then gf.search = {} end
+                if gf.search.nameColors == nil then
+                    gf.search.nameColors = true
                 end
             end
         end
@@ -4502,6 +4588,151 @@ EllesmereUI.RegisterMigration({
 })
 end
 
+-- WoW Forever CDM spell store repairs for imported and switched profiles.
+if EllesmereUI.IS_FOREVER == true then
+    local GHOST_CD = "__ghost_cd"
+    local DEFAULT_BARS = {
+        { key = "cooldowns", barType = "cooldowns" },
+        { key = "utility", barType = "utility" },
+        { key = "buffs", barType = "buffs" },
+    }
+
+    local function HoldsLayout(prof)
+        if type(prof) ~= "table" then return false end
+        if type(prof.barSpells) == "table" then
+            for bk, bs in pairs(prof.barSpells) do
+                if bk ~= GHOST_CD and type(bs) == "table" and type(bs.assignedSpells) == "table"
+                   and #bs.assignedSpells > 0 then
+                    return true
+                end
+            end
+        end
+        local tbb = prof.trackedBuffBars
+        return type(tbb) == "table" and type(tbb.bars) == "table" and #tbb.bars > 0
+    end
+
+    local function HasEntries(t) return type(t) == "table" and next(t) ~= nil end
+
+    -- The reseed and a Repopulate write only Blizzard spell IDs on Cooldowns and
+    -- Utility, plus the item rows they mark in nativeItems. Anything else in the
+    -- bucket was placed or set by the player.
+    local function HoldsPlayerEdits(prof)
+        if HasEntries(prof.spellSettingsCD) or HasEntries(prof.spellSettingsBuff) then return true end
+        local tbb = prof.trackedBuffBars
+        if type(tbb) == "table" and HasEntries(tbb.bars) then return true end
+        local glows = prof.barGlows
+        if type(glows) == "table" and type(glows.assignments) == "table" then
+            for _, list in pairs(glows.assignments) do
+                if HasEntries(list) then return true end
+            end
+        end
+        if type(prof.barSpells) ~= "table" then return false end
+        for bk, bs in pairs(prof.barSpells) do
+            if type(bs) == "table" then
+                if HasEntries(bs.customSpellIDs) or HasEntries(bs.customSpellDurations)
+                   or HasEntries(bs.spellDurations) or HasEntries(bs.spellSettings)
+                   or HasEntries(bs.barSettings) or HasEntries(bs.hostedBuffSpellIDs)
+                   or bs._buffDisplayOrderUserModified then
+                    return true
+                end
+                local list = bs.assignedSpells
+                if type(list) == "table" then
+                    if #list > 0 and bk ~= "cooldowns" and bk ~= "utility" then return true end
+                    for _, sid in ipairs(list) do
+                        if type(sid) == "number" and sid < 0
+                           and not (bs.nativeItems and bs.nativeItems[sid]) then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    -- A class reads its Forever spec key before its retail keys (SpecFor), so a
+    -- bucket under the Forever key hides a retail-keyed layout of the class. A
+    -- profile apply created one, empty, which EUI then filled with Blizzard's
+    -- default layout at the next login. Drop it only while it holds no more
+    -- than that, and only when the key the class reads next holds a layout.
+    -- An imported bucket stays: it is the sharer's, its Hidden CDs stripped.
+    EllesmereUI.RegisterMigration({
+        id          = "cdm_forever_drop_shadowing_spec_v1",
+        scope       = "specProfile",
+        description = "Drop a Forever spec key CDM bucket holding only Blizzard's layout that hides a retail-keyed layout of the same class.",
+        body = function(ctx)
+            local id = tonumber(ctx.specKey)
+            local cls = id and EllesmereUI.SpecClassOf(id)
+            if not cls or EllesmereUI.FOREVER_CLASS_SPEC[cls] ~= id then return end
+            if ctx.specProfile._importGhostMode or HoldsPlayerEdits(ctx.specProfile) then return end
+            local sp = EllesmereUIDB.spellAssignments.profiles[ctx.profileName].specProfiles
+            local nextKey = EllesmereUI.ForeverClassSpec(cls, EllesmereUI.SpecHasStringEntry, sp)
+            if HoldsLayout(sp[tostring(nextKey)]) then sp[ctx.specKey] = nil end
+        end,
+    })
+
+    -- GetSpellName is nil for a spell that does not exist. One that exists but
+    -- has no name this early fails the body, so the runner retries next load.
+    local function SpellName(sid)
+        local n = C_Spell.GetSpellName(sid)
+        if not n and C_Spell.DoesSpellExist(sid) then error("no name yet for spell " .. sid) end
+        return n
+    end
+
+    -- Each rank of a spell is its own spell ID, and a bar lists a spell once
+    -- under any rank. Import ghosting compared IDs only, so it hid the rank a
+    -- frame showed when the layout listed another rank of the spell on a
+    -- visible cooldown bar.
+    EllesmereUI.RegisterMigration({
+        id          = "cdm_forever_ghost_rank_aliases_v1",
+        scope       = "specProfile",
+        description = "Unhide spells the ghost CD bar holds under another rank of a spell placed on a visible cooldown bar.",
+        body = function(ctx)
+            local barSpells = ctx.specProfile.barSpells
+            local ghost = type(barSpells) == "table" and barSpells[GHOST_CD]
+            local list = type(ghost) == "table" and ghost.assignedSpells
+            if type(list) ~= "table" or #list == 0 then return end
+            local prof = EllesmereUIDB.profiles and EllesmereUIDB.profiles[ctx.profileName]
+            local cdm = type(prof) == "table" and prof.addons and prof.addons.EllesmereUICooldownManager
+            local bars = cdm and cdm.cdmBars and cdm.cdmBars.bars
+            if type(bars) ~= "table" then bars = DEFAULT_BARS end
+
+            -- Saved bars drop fields equal to the defaults, which list the
+            -- Cooldowns, Utility and Buffs bars first.
+            local placedNames, placedIds = {}, {}
+            for i, bd in ipairs(bars) do
+                local def = DEFAULT_BARS[i]
+                local key = bd.key or (def and def.key)
+                local barType = bd.barType or (def and def.barType)
+                local enabled = bd.enabled
+                if enabled == nil and def then enabled = true end
+                local bs = key and enabled and not bd.isGhostBar
+                    and barType ~= "buffs" and barType ~= "custom_buff"
+                    and barSpells[key]
+                if type(bs) == "table" and type(bs.assignedSpells) == "table" then
+                    for _, sid in ipairs(bs.assignedSpells) do
+                        if type(sid) == "number" and sid > 0
+                           and not (bs.customSpellIDs and bs.customSpellIDs[sid]) then
+                            placedIds[sid] = true
+                            local n = SpellName(sid)
+                            if n then placedNames[n] = true end
+                        end
+                    end
+                end
+            end
+
+            -- An entry hidden under the placed ID itself stays hidden.
+            for i = #list, 1, -1 do
+                local sid = list[i]
+                if type(sid) == "number" and sid > 0 and not placedIds[sid] then
+                    local n = SpellName(sid)
+                    if n and placedNames[n] then table.remove(list, i) end
+                end
+            end
+        end,
+    })
+end
+
 -- Player Aura Bars icons with a custom Icon Shape used to zoom the spell art far
 -- past their Icon Zoom (the shaped icon grew past its button and still took the
 -- zoom crop), so most players with a shape dragged Icon Zoom down to 0. Shaped
@@ -5430,6 +5661,103 @@ do
         eui.classificationHideRare = np.classificationHideRare
         np.classificationHideRare = true
         np.foreverRareSeeded = true
+    end
+
+    if ClientOK() then
+        EllesmereUI.Lite.OnSavedVariablesLoaded(function()
+            if not ClientOK() then return end
+            local db = EllesmereUIDB
+            if type(db) ~= "table" then
+                -- A brand-new account: nothing to move. Marked at login, so
+                -- its own first session's choices are never overwritten.
+                local f = CreateFrame("Frame")
+                f:RegisterEvent("PLAYER_LOGIN")
+                f:SetScript("OnEvent", function(self)
+                    self:UnregisterAllEvents()
+                    local d = EllesmereUIDB
+                    if type(d) == "table" then
+                        if type(d._migrations) ~= "table" then d._migrations = {} end
+                        d._migrations[FLAG] = true
+                    end
+                end)
+                return
+            end
+            if type(db._migrations) ~= "table" then db._migrations = {} end
+            if db._migrations[FLAG] then return end
+            db._migrations[FLAG] = true
+            if type(db.profiles) == "table" then
+                for _, prof in pairs(db.profiles) do MoveProfile(prof) end
+            end
+        end)
+    end
+end
+
+--------------------------------------------------------------------------------
+--  WoW Forever: power text Smart Text to Power Value (one-time). WoW Forever
+--  offers no Smart Text: it chooses percent or value by spec, and Forever has
+--  no specs (EllesmereUI.PowerTextFormat). An account that already ran
+--  EllesmereUI there has every stored "smart" moved to the value ("curpp")
+--  once: the Unit Frames Power Text and Form Power Text of every frame and the
+--  Resource Bars Power Text and Mana Bar Text, in every stored profile and in
+--  every Spec Override value stored for them (Conditional Overrides keep their
+--  values in the same entries). A "smart" that arrives later (an import) reads
+--  as the value. Account flag, written before the pass; a brand-new account is
+--  marked once its saved data exists. Two client checks, as the blocks above.
+--------------------------------------------------------------------------------
+do
+    local FLAG = "forever_power_text_value_v1"
+    local SMART, VALUE = "smart", "curpp"
+
+    local function ClientOK()
+        local toc = select(4, GetBuildInfo())
+        return EllesmereUI ~= nil and EllesmereUI.IS_FOREVER == true
+            and type(toc) == "number" and toc >= 16000 and toc < 20000
+    end
+
+    -- Spec Override value keys: the module folder, "\31", then the key path's
+    -- segments joined by "\30" (EllesmereUI_SpecOverrides.lua's stored format).
+    local function PowerTextKey(fkey)
+        return fkey:find("^EllesmereUIUnitFrames\31[^\30]+\30powerTextFormat$")
+            or fkey:find("^EllesmereUIUnitFrames\31[^\30]+\30foreverFormTextFormat$")
+            or fkey == "EllesmereUIResourceBars\31primary\30textFormat"
+            or fkey == "EllesmereUIResourceBars\31primary\30foreverDruidMana\30textFormat"
+    end
+
+    local function MoveProfile(prof)
+        if type(prof) ~= "table" then return end
+        local addons = type(prof.addons) == "table" and prof.addons
+        local uf = addons and addons.EllesmereUIUnitFrames
+        if type(uf) == "table" then
+            -- Every frame's settings table (player, target, the mini frames, ...).
+            for _, s in pairs(uf) do
+                if type(s) == "table" then
+                    if s.powerTextFormat == SMART then s.powerTextFormat = VALUE end
+                    if s.foreverFormTextFormat == SMART then s.foreverFormTextFormat = VALUE end
+                end
+            end
+        end
+        local rb = addons and addons.EllesmereUIResourceBars
+        local pp = type(rb) == "table" and rb.primary
+        if type(pp) == "table" then
+            if pp.textFormat == SMART then pp.textFormat = VALUE end
+            local fdm = pp.foreverDruidMana
+            if type(fdm) == "table" and fdm.textFormat == SMART then fdm.textFormat = VALUE end
+        end
+        if type(prof.specOverrides) ~= "table" then return end
+        for _, entry in pairs(prof.specOverrides) do
+            local values = type(entry) == "table" and entry.values
+            if type(values) == "table" then
+                for _, bucket in pairs(values) do
+                    if type(bucket) == "table" then
+                        for fkey, v in pairs(bucket) do
+                            if v == SMART and type(fkey) == "string" and PowerTextKey(fkey) then
+                                bucket[fkey] = VALUE
+                            end
+                        end
+                    end
+                end
+            end
+        end
     end
 
     if ClientOK() then

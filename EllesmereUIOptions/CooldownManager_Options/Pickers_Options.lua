@@ -44,6 +44,11 @@ local function EnsureAssignedSpells(barKeyE)
             end
         end
         local seen = {}
+        -- WoW Forever: one entry per spell, whatever its rank (ns.CDMRankName):
+        -- the first one listed stays where it is, a later rank of it goes.
+        local RankName = ns.CDMRankName
+        local seenRank = RankName and {}
+        local rankCut = false
         local writeIdx = 1
         for readIdx = 1, #sd.assignedSpells do
             local raw = sd.assignedSpells[readIdx]
@@ -57,12 +62,19 @@ local function EnsureAssignedSpells(barKeyE)
                 end
             end
             if not seen[sid] then
-                seen[sid] = true
-                sd.assignedSpells[writeIdx] = sid
-                writeIdx = writeIdx + 1
+                local name = seenRank and not (customN and customN[sid]) and RankName(sid)
+                if name and seenRank[name] then
+                    rankCut = true
+                else
+                    seen[sid] = true
+                    if name then seenRank[name] = true end
+                    sd.assignedSpells[writeIdx] = sid
+                    writeIdx = writeIdx + 1
+                end
             end
         end
         for i = writeIdx, #sd.assignedSpells do sd.assignedSpells[i] = nil end
+        if rankCut then ns._spellOrderDirty = true end
     end
     -- Append any live-bar spells missing from assignedSpells so the preview always
     -- matches the player's CDM bars (e.g. after re-talenting). EXCEPTION: skip while an
@@ -463,7 +475,7 @@ local function ShowCustomItemIDPopup(barKey, onAdded)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
         popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
 
         local title = popup:CreateFontString(nil, "OVERLAY")
         title:SetFont(FONT_PATH, 14, GetCDMOptOutline())
@@ -509,7 +521,7 @@ local function ShowCustomItemIDPopup(barKey, onAdded)
         addBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 16)
         local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
         addBg:SetAllPoints(); addBg:SetColorTexture(ar, ag, ab, 0.15)
-        EllesmereUI.MakeBorder(addBtn, ar, ag, ab, 0.3, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(addBtn, ar, ag, ab, 0.3, addBg)
         local addLbl = addBtn:CreateFontString(nil, "OVERLAY")
         addLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
         addLbl:SetPoint("CENTER"); addLbl:SetText(EllesmereUI.L("Add"))
@@ -523,7 +535,7 @@ local function ShowCustomItemIDPopup(barKey, onAdded)
         cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
         local cBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
         cBg:SetAllPoints(); cBg:SetColorTexture(0.12, 0.12, 0.12, 0.5)
-        EllesmereUI.MakeBorder(cancelBtn, 1, 1, 1, 0.10, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(cancelBtn, 1, 1, 1, 0.10, cBg)
         local cLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
         cLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
         cLbl:SetPoint("CENTER"); cLbl:SetText(EllesmereUI.L("Cancel"))
@@ -618,7 +630,7 @@ local function ShowEquipmentSlotPopup(barKey, onAdded)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
         popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
 
         local title = popup:CreateFontString(nil, "OVERLAY")
         title:SetFont(FONT_PATH, 14, GetCDMOptOutline())
@@ -686,7 +698,7 @@ local function ShowEquipmentSlotPopup(barKey, onAdded)
         addBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 16)
         local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
         addBg:SetAllPoints(); addBg:SetColorTexture(ar, ag, ab, 0.15)
-        EllesmereUI.MakeBorder(addBtn, ar, ag, ab, 0.3, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(addBtn, ar, ag, ab, 0.3, addBg)
         local addLbl = addBtn:CreateFontString(nil, "OVERLAY")
         addLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
         addLbl:SetPoint("CENTER"); addLbl:SetText(EllesmereUI.L("Add"))
@@ -700,7 +712,7 @@ local function ShowEquipmentSlotPopup(barKey, onAdded)
         cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
         local cBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
         cBg:SetAllPoints(); cBg:SetColorTexture(0.12, 0.12, 0.12, 0.5)
-        EllesmereUI.MakeBorder(cancelBtn, 1, 1, 1, 0.10, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(cancelBtn, 1, 1, 1, 0.10, cBg)
         local cLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
         cLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
         cLbl:SetPoint("CENTER"); cLbl:SetText(EllesmereUI.L("Cancel"))
@@ -1362,7 +1374,7 @@ local function ShowDurationPopup(currentVal, onConfirm)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
         popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
         popup._dimmer = dimmer
 
         local title = popup:CreateFontString(nil, "OVERLAY")
@@ -1397,7 +1409,7 @@ local function ShowDurationPopup(currentVal, onConfirm)
         okBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 16)
         local okBg = okBtn:CreateTexture(nil, "BACKGROUND")
         okBg:SetAllPoints(); okBg:SetColorTexture(ar, ag, ab, 0.15)
-        EllesmereUI.MakeBorder(okBtn, ar, ag, ab, 0.3, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(okBtn, ar, ag, ab, 0.3, okBg)
         local okLbl = okBtn:CreateFontString(nil, "OVERLAY")
         okLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
         okLbl:SetPoint("CENTER"); okLbl:SetText(EllesmereUI.L("Save"))
@@ -1410,7 +1422,7 @@ local function ShowDurationPopup(currentVal, onConfirm)
         cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
         local cBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
         cBg:SetAllPoints(); cBg:SetColorTexture(0.12, 0.12, 0.12, 0.5)
-        EllesmereUI.MakeBorder(cancelBtn, 1, 1, 1, 0.10, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(cancelBtn, 1, 1, 1, 0.10, cBg)
         local cLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
         cLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
         cLbl:SetPoint("CENTER"); cLbl:SetText(EllesmereUI.L("Cancel"))
@@ -1467,7 +1479,7 @@ local function ShowAlphaPopup(currentPct, onConfirm, title, hint)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
         popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
         popup._dimmer = dimmer
 
         local titleFS = popup:CreateFontString(nil, "OVERLAY")
@@ -1502,7 +1514,7 @@ local function ShowAlphaPopup(currentPct, onConfirm, title, hint)
         okBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 16)
         local okBg = okBtn:CreateTexture(nil, "BACKGROUND")
         okBg:SetAllPoints(); okBg:SetColorTexture(ar, ag, ab, 0.15)
-        EllesmereUI.MakeBorder(okBtn, ar, ag, ab, 0.3, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(okBtn, ar, ag, ab, 0.3, okBg)
         local okLbl = okBtn:CreateFontString(nil, "OVERLAY")
         okLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
         okLbl:SetPoint("CENTER"); okLbl:SetText(EllesmereUI.L("Save"))
@@ -1515,7 +1527,7 @@ local function ShowAlphaPopup(currentPct, onConfirm, title, hint)
         cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
         local cBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
         cBg:SetAllPoints(); cBg:SetColorTexture(0.12, 0.12, 0.12, 0.5)
-        EllesmereUI.MakeBorder(cancelBtn, 1, 1, 1, 0.10, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(cancelBtn, 1, 1, 1, 0.10, cBg)
         local cLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
         cLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
         cLbl:SetPoint("CENTER"); cLbl:SetText(EllesmereUI.L("Cancel"))
@@ -1574,7 +1586,7 @@ local function ShowThresholdSecondsPopup(currentVal, onConfirm, title, hint)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
         popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
         popup._dimmer = dimmer
 
         local title = popup:CreateFontString(nil, "OVERLAY")
@@ -1609,7 +1621,7 @@ local function ShowThresholdSecondsPopup(currentVal, onConfirm, title, hint)
         okBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 16)
         local okBg = okBtn:CreateTexture(nil, "BACKGROUND")
         okBg:SetAllPoints(); okBg:SetColorTexture(ar, ag, ab, 0.15)
-        EllesmereUI.MakeBorder(okBtn, ar, ag, ab, 0.3, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(okBtn, ar, ag, ab, 0.3, okBg)
         local okLbl = okBtn:CreateFontString(nil, "OVERLAY")
         okLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
         okLbl:SetPoint("CENTER"); okLbl:SetText(EllesmereUI.L("Save"))
@@ -1622,7 +1634,7 @@ local function ShowThresholdSecondsPopup(currentVal, onConfirm, title, hint)
         cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
         local cBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
         cBg:SetAllPoints(); cBg:SetColorTexture(0.12, 0.12, 0.12, 0.5)
-        EllesmereUI.MakeBorder(cancelBtn, 1, 1, 1, 0.10, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(cancelBtn, 1, 1, 1, 0.10, cBg)
         local cLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
         cLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
         cLbl:SetPoint("CENTER"); cLbl:SetText(EllesmereUI.L("Cancel"))
@@ -1682,7 +1694,7 @@ ns.ShowCDMCustomIconPopup = function(currentID, onConfirm)
         popup:EnableMouse(true)
         local popBg = popup:CreateTexture(nil, "BACKGROUND")
         popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
         popup._dimmer = dimmer
 
         local title = popup:CreateFontString(nil, "OVERLAY")
@@ -1730,7 +1742,7 @@ ns.ShowCDMCustomIconPopup = function(currentID, onConfirm)
         okBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 16)
         local okBg = okBtn:CreateTexture(nil, "BACKGROUND")
         okBg:SetAllPoints(); okBg:SetColorTexture(ar, ag, ab, 0.15)
-        EllesmereUI.MakeBorder(okBtn, ar, ag, ab, 0.3, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(okBtn, ar, ag, ab, 0.3, okBg)
         local okLbl = okBtn:CreateFontString(nil, "OVERLAY")
         okLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
         okLbl:SetPoint("CENTER"); okLbl:SetText(EllesmereUI.L("Save"))
@@ -1743,7 +1755,7 @@ ns.ShowCDMCustomIconPopup = function(currentID, onConfirm)
         cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
         local cBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
         cBg:SetAllPoints(); cBg:SetColorTexture(0.12, 0.12, 0.12, 0.5)
-        EllesmereUI.MakeBorder(cancelBtn, 1, 1, 1, 0.10, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(cancelBtn, 1, 1, 1, 0.10, cBg)
         local cLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
         cLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
         cLbl:SetPoint("CENTER"); cLbl:SetText(EllesmereUI.L("Cancel"))

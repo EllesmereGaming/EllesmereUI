@@ -187,7 +187,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
     if not btn._emptyBg then
         btn._emptyBg = btn:CreateTexture(nil, "BACKGROUND", nil, 1)
         btn._emptyBg:SetAllPoints()
-        btn._emptyBg:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\icon-bg.png")
+        ns.SetSlotBackgroundTexture(btn._emptyBg, true)
     end
 
     if not data.info then
@@ -207,6 +207,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         end
         -- Reset to 1px and drop the marker, or a pooled slot vacated by a quest item keeps the 2px gold border + atlas.
         SetInsetBorderThickness(btn, (EUI and EUI.PP and EUI.PP.mult) or 1)
+        if btn._fvQuestBorder then btn._fvQuestBorder:Hide() end
         if btn._questMarker then btn._questMarker:Hide() end
         if btn._junkCoin then btn._junkCoin:Hide() end
         if btn.Cooldown then btn.Cooldown:Clear() end
@@ -231,7 +232,10 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         local quality = data.info.quality or 1
         PaintJunkState(btn, data.info, junkOn and EUI_CategoryManager:IsJunk(data.info.itemID, quality))
 
-        local filtered = data.info.isFiltered
+        -- Search misses, and a pinned item in a OneBag / MultiBag bag section
+        -- (the interactive slot sections) while Dim Items in OneBag/MultiBag
+        -- is on: its bright copy sits in the Pinned Items section.
+        local filtered = data.info.isFiltered or (interactiveEmpties and data._pinDim) or false
         btn:SetAlpha(filtered and 0.2 or 1)
         if btn._textOverlay then btn._textOverlay:SetAlpha(filtered and 0.2 or 1) end
 
@@ -369,7 +373,11 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         -- Quest items get a gold 2px border overriding the 1px quality border;
         -- thickness is re-set every render because buttons are pooled.
         local _bpx = (EUI and EUI.PP and EUI.PP.mult) or 1
-        if data._isQuest then
+        if btn._fvSlotBorder then
+            local r, g, b = QualityBorderColor(quality)
+            SetInsetBorderColor(btn, r, g, b, 1)
+            ns.SetForeverSlotQuestBorder(btn, data._isQuest, data._isQuestStarter)
+        elseif data._isQuest then
             SetInsetBorderThickness(btn, _bpx * 2)
             SetInsetBorderColor(btn, QUEST_BORDER_COLOR.r, QUEST_BORDER_COLOR.g, QUEST_BORDER_COLOR.b, filtered and 0.2 or 1)
         else
@@ -379,7 +387,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
         end
         -- Quest marker atlas (lazy, reused). Only for items that START a quest you
         -- have not accepted; active-quest objective items get the border, no marker.
-        if data._isQuestStarter then
+        if data._isQuestStarter and not btn._fvSlotBorder then
             if not btn._questMarker then
                 local qm = (btn._textOverlay or btn):CreateTexture(nil, "OVERLAY", nil, 6)
                 qm:SetAtlas("Crosshair_Quest_64")
@@ -527,9 +535,9 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
         f:EnableMouse(false)
         f._bg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
         f._bg:SetAllPoints()
-        f._bg:SetTexture("Interface\\AddOns\\EllesmereUIBags\\Media\\icon-bg.png")
+        ns.SetSlotBackgroundTexture(f._bg, false)
         f._bg:SetAlpha(0.35)
-        CreateInsetBorder(f)
+        CreateInsetBorder(f, true)
         SetInsetBorderColor(f, 0, 0, 0, 0.3)
         _emptyPads[idx] = f
         return f
@@ -1073,6 +1081,9 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                 and not showPinAdd
                 and not alwaysShow
 
+            -- sectionName is the group's key; this is what the label shows
+            local label = EUI_CategoryManager:GroupDisplayName(sectionName)
+
             -- Compact: the collector draws this section (EllesmereUIBags_Compact.lua)
             if compactOn then
                 local assignKey
@@ -1082,7 +1093,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
                 end
                 local kind = (showPinAdd and "pinned") or (alwaysShow and "recent")
                     or (useSlotNest and "slot") or (useExpNest and "exp") or "flat"
-                ns.CompactBagsSection(sectionName, sectionItems, kind, assignKey)
+                ns.CompactBagsSection(label, sectionItems, kind, assignKey)
                 return
             end
 
@@ -1092,7 +1103,7 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             hdr:ClearAllPoints()
             hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
             hdr:SetWidth(gridW)
-            hdr._label:SetText(sectionName .. " (" .. itemCount .. ")")
+            hdr._label:SetText(label .. " (" .. itemCount .. ")")
             -- Pinned / Recent: their hint shows while the label is hovered
             if showPinAdd then
                 ns.SetHeaderHint(hdr, EllesmereUI.L("Middle Click to Add or Remove"))

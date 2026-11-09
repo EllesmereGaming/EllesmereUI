@@ -75,6 +75,39 @@ function EAB_VTABLE.GetAutoPagingOptOuts(barKey)
     return bs.disableFormPaging and true or false, bs.disableSkyridingPaging and true or false
 end
 
+-- WoW Forever druid forms by their spot on the stance bar. Casting the form
+-- you are in (a powershift) drops the form and takes it back within a
+-- moment, and the client then reports the form again but not its bonus bar:
+-- every [bonusbar:N] clause stays false until the next real form change, so
+-- a bar paged by them alone sits on the caster page (Blizzard's own bar
+-- does). A [form:i] clause per form, listed after the bonus bar clauses,
+-- holds the form's page meanwhile and decides nothing while the bonus bar
+-- reads right. Spell -> the paging state it stands for: of the druid forms
+-- there, only Cat (bonus bar 1) and Bear and Dire Bear (3) have a bonus bar.
+-- Cat takes its clause only out of stealth: a prowling cat keeps the page
+-- its own bonus bar gives it.
+local FOREVER_FORM_STATE = { [768] = "cat", [5487] = "bear", [9634] = "bear" }
+local FOREVER_FORM_PAGE = { cat = 7, bear = 9 }
+local FOREVER_DRUID = EllesmereUI.IS_FOREVER == true and select(2, UnitClass("player")) == "DRUID"
+
+-- The clauses ("[form:1] 9; [form:3,nostealth] 7") or nil with none. A form
+-- takes the page picked for its state in pagingConfig, else its own page
+-- when useDefaults is set.
+local function ForeverFormClauses(pagingConfig, useDefaults)
+    if not FOREVER_DRUID then return nil end
+    local out
+    for i = 1, GetNumShapeshiftForms() do
+        local _, _, _, spellID = GetShapeshiftFormInfo(i)
+        local state = spellID and not issecretvalue(spellID) and FOREVER_FORM_STATE[spellID]
+        local page = state and ((pagingConfig and pagingConfig[state]) or (useDefaults and FOREVER_FORM_PAGE[state]))
+        if page then
+            local clause = (state == "cat" and "[form:%d,nostealth] %s" or "[form:%d] %s"):format(i, tostring(page))
+            out = out and (out .. "; " .. clause) or clause
+        end
+    end
+    return out
+end
+
 function EAB_VTABLE.BuildPagingConditions(barKey, pagingConfig, defaultPage)
     if not pagingConfig or not next(pagingConfig) then return nil end
     local PG = EAB_VTABLE.PAGING_STATES
@@ -130,6 +163,10 @@ function EAB_VTABLE.BuildPagingConditions(barKey, pagingConfig, defaultPage)
     if barKey == "MainBar" and not noForm and EllesmereUI.IS_FOREVER then
         parts[#parts + 1] = "[bonusbar:1] 7; [bonusbar:2] 8; [bonusbar:3] 9; [bonusbar:4] 10"
     end
+    -- The druid form clauses (see ForeverFormClauses): a form's picked page,
+    -- or on bar 1 its own page unless Form Paging is off.
+    local formClauses = ForeverFormClauses(pagingConfig, barKey == "MainBar" and not noForm)
+    if formClauses then parts[#parts + 1] = formClauses end
     -- Manual pages come before the skyriding clause: the engine only consults
     -- the bonus bar while Blizzard's page is 1 (ActionBarController_UpdateAll),
     -- so [bonusbar:5] listed first pinned the bar to the skyriding page and
@@ -201,6 +238,9 @@ local function GetClassPagingConditions()
             -- class (vanilla warrior stances, druid forms, rogue stealth): page 6 + offset.
             -- Mirror it exactly so ACTIONBUTTONn and the icon agree in every stance.
             conditions = conditions .. "[bonusbar:1] 7; [bonusbar:2] 8; [bonusbar:3] 9; [bonusbar:4] 10; "
+            -- The druid form clauses (see ForeverFormClauses).
+            local formClauses = ForeverFormClauses(nil, true)
+            if formClauses then conditions = conditions .. formClauses .. "; " end
         elseif class == "DRUID" then
             conditions = conditions .. "[bonusbar:1,stealth] 7; [bonusbar:1] 7; [bonusbar:3] 9; [bonusbar:4] 10; "
         elseif class == "ROGUE" then
@@ -664,6 +704,31 @@ end
 function ns._eabBuildPageChildSnippet(baseIndex)
     return ("local page = tonumber(message) or 1; local slot = %d + (page - 1) * 12; self:SetAttribute('action', slot)\n"):format(baseIndex)
         .. ns._eabPageVisSnippet .. ns._eabEmpowerSnippet
+end
+
+-- The druid form clauses follow the stance bar: a form learned, or the list
+-- arriving after the bars were built, rebuilds the paging drivers (out of
+-- combat; RebuildBarPaging leaves a bar alone whose conditions did not move).
+-- Registered for a WoW Forever druid only.
+if FOREVER_DRUID then
+    local lastForms
+    local function RebuildFormPaging()
+        if InCombatLockdown() then
+            ns.CombatQueue.Defer("FormPaging", RebuildFormPaging)
+            return
+        end
+        local forms = ForeverFormClauses(nil, true) or ""
+        if forms == lastForms then return end
+        lastForms = forms
+        if not ns.RebuildBarPaging then return end
+        for barKey in pairs(barFrames) do
+            ns.RebuildBarPaging(barKey, true)
+        end
+    end
+    local formWatcher = CreateFrame("Frame")
+    formWatcher:RegisterEvent("UPDATE_SHAPESHIFT_FORMS")
+    formWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+    formWatcher:SetScript("OnEvent", RebuildFormPaging)
 end
 
 -- Entry points the files after this one re-import by name.

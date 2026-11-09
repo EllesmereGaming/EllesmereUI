@@ -39,12 +39,14 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
     local sharedSizeRow
     local ufhDis, ufhTip, ufhRaw = EllesmereUI.MatchGuard(optState.selectedUnit, "Height")
     local ufwDis, ufwTip, ufwRaw = EllesmereUI.MatchGuard(optState.selectedUnit, "Width")
+    -- Vertical Fill wants tall, narrow bars: the Vertical Fill toggle rebuilds the page.
+    local vertFill = SVal("healthVerticalFill", false) == true
     sharedSizeRow, h = W:DualRow(parent, y,
-        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Health Bar Height", min=15, max=100, step=1,
+        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Health Bar Height", min=15, max=vertFill and 400 or 100, step=1,
           disabled=ufhDis, disabledTooltip=ufhTip, rawTooltip=ufhRaw,
           getValue=function() return SVal("healthHeight", 46) end,
           setValue=function(v) SSet("healthHeight", v) end }),
-        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Bar Width", min=80, max=400, step=1,
+        EllesmereUI.BlizzStyle.Gate("unitframes", { type="slider", text="Bar Width", min=vertFill and 20 or 80, max=400, step=1,
           disabled=ufwDis, disabledTooltip=ufwTip, rawTooltip=ufwRaw,
           getValue=function() return SVal("frameWidth", 181) end,
           setValue=function(v) SSet("frameWidth", v) end }));  y = y - h
@@ -109,9 +111,10 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                 { type="toggle", label="Vertical Fill",
                   tooltip="Fill the health bar bottom-to-top instead of left-to-right. Reverse Fill flips it to top-to-bottom.",
                   get=function() return SVal("healthVerticalFill", false) end,
-                  -- RefreshPage re-labels the Absorbs Placement dropdowns for the
-                  -- new axis (cog popups bake labels in at first build).
-                  set=function(v) SSet("healthVerticalFill", v); ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage() end },
+                  -- A full rebuild: the size sliders' ranges follow Vertical Fill
+                  -- (baked in at build), and the Absorbs Placement dropdowns
+                  -- re-label for the new axis (cog popups bake labels in too).
+                  set=function(v) SSet("healthVerticalFill", v); ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage(true) end },
             },
         })
     end
@@ -687,7 +690,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             { tooltip = "Class Colored", hasAlpha = false,
                               getValue = function()
                                   local _, ct = UnitClass("player")
-                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  local cc = ct and EllesmereUI.GetClassColor(ct)
                                   if cc then return cc.r, cc.g, cc.b end
                                   return 1, 1, 1
                               end,
@@ -727,7 +730,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                     leftRgn, leftRgn:GetFrameLevel() + 5,
                     function()
                         local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        local cc = classFile and EllesmereUI.GetClassColor(classFile)
                         if cc then return cc.r, cc.g, cc.b end
                         return 1, 1, 1
                     end,
@@ -893,7 +896,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             { tooltip = "Class Colored", hasAlpha = false,
                               getValue = function()
                                   local _, ct = UnitClass("player")
-                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  local cc = ct and EllesmereUI.GetClassColor(ct)
                                   if cc then return cc.r, cc.g, cc.b end
                                   return 1, 1, 1
                               end,
@@ -932,7 +935,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                     rightRgn, rightRgn:GetFrameLevel() + 5,
                     function()
                         local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        local cc = classFile and EllesmereUI.GetClassColor(classFile)
                         if cc then return cc.r, cc.g, cc.b end
                         return 1, 1, 1
                     end,
@@ -1090,7 +1093,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             { tooltip = "Class Colored", hasAlpha = false,
                               getValue = function()
                                   local _, ct = UnitClass("player")
-                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  local cc = ct and EllesmereUI.GetClassColor(ct)
                                   if cc then return cc.r, cc.g, cc.b end
                                   return 1, 1, 1
                               end,
@@ -1129,7 +1132,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                     ctrRgn, ctrRgn:GetFrameLevel() + 5,
                     function()
                         local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        local cc = classFile and EllesmereUI.GetClassColor(classFile)
                         if cc then return cc.r, cc.g, cc.b end
                         return 1, 1, 1
                     end,
@@ -1276,7 +1279,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                             { tooltip = "Class Colored", hasAlpha = false,
                               getValue = function()
                                   local _, ct = UnitClass("player")
-                                  local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                                  local cc = ct and EllesmereUI.GetClassColor(ct)
                                   if cc then return cc.r, cc.g, cc.b end
                                   return 1, 1, 1
                               end,
@@ -1315,7 +1318,7 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
                     etrRgn, etrRgn:GetFrameLevel() + 5,
                     function()
                         local _, classFile = UnitClass("player")
-                        local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                        local cc = classFile and EllesmereUI.GetClassColor(classFile)
                         if cc then return cc.r, cc.g, cc.b end
                         return 1, 1, 1
                     end,
@@ -1390,9 +1393,11 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
     local ppTextValues = { ["none"]="None", ["left"]="Left", ["right"]="Right", ["center"]="Center" }
     local ppTextOrder = { "none", "---", "left", "right", "center" }
     local ppFmtValues = { ["none"]="None", ["smart"]="Smart Text", ["curpp"]="Power Value", ["curmaxpp"]="Power Value / Max", ["perpp"]="Power %", ["both"]="Value | %" }
-    local ppFmtOrder = { "none", "smart", "curpp", "curmaxpp", "perpp", "both" }
+    -- WoW Forever lists no Smart Text, and a saved "smart" there reads as the
+    -- value (EllesmereUI.PowerTextFormat).
+    local ppFmtOrder = EllesmereUI.PowerTextFormatOrder({ "none", "smart", "curpp", "curmaxpp", "perpp", "both" })
     -- Power Text alone offers Custom; Form Power Text keeps the lists above.
-    local ppTextFmtOrder = { "none", "---", "custom", "---", "smart", "curpp", "curmaxpp", "perpp", "both" }
+    local ppTextFmtOrder = EllesmereUI.PowerTextFormatOrder({ "none", "---", "custom", "---", "smart", "curpp", "curmaxpp", "perpp", "both" })
 
     -- Row 1: Bar Height + Bar Position. Under a stock style the track fixes
     -- the bar's height and place: the height slot is Hide Power Bar instead
@@ -1580,7 +1585,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
         end)
     sharedPowerRow2, h = W:DualRow(parent, y,
         { type="dropdown", text="Power Text", values=ppTextFmtValues, order=ppTextFmtOrder,
-          getValue=function() return SVal("powerTextFormat", "perpp") end,
+          getValue=function() return EllesmereUI.PowerTextFormat(SVal("powerTextFormat", "perpp")) end,
           setValue=SetPowerTextFormat },
         { type="slider", text="Fill Opacity", min=0, max=100, step=1,
           getValue=function() return SVal("powerBarOpacity", 100) end,
@@ -2382,7 +2387,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                     { type="dropdown", text="Form Power Text", values=ppFmtValues, order=ppFmtOrder,
                       getValue=function()
                           -- An inherited Custom draws Power % on the form bar.
-                          local v = FormVal("foreverFormTextFormat", "powerTextFormat", "perpp")
+                          local v = EllesmereUI.PowerTextFormat(FormVal("foreverFormTextFormat", "powerTextFormat", "perpp"))
                           return v == "custom" and "perpp" or v
                       end,
                       setValue=function(v)
@@ -2398,7 +2403,7 @@ function ns.UFO_BuildPowerBarSection(parent, y, ctx)
                 if not EllesmereUI._prebuilding then
                     EllesmereUI.BuildInlineCog(formTextRow._leftRegion, {
                         disabled = function()
-                            local fmt = FormVal("foreverFormTextFormat", "powerTextFormat", "perpp")
+                            local fmt = EllesmereUI.PowerTextFormat(FormVal("foreverFormTextFormat", "powerTextFormat", "perpp"))
                             return fmt == "none" or fmt == "curpp" or fmt == "curmaxpp"
                         end,
                         disabledTooltip = "This option is only available for formats that display a percentage.",

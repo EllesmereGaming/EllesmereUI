@@ -1288,7 +1288,7 @@ do
         { key = "solid",   name = "Solid" },
         { key = "glow",    name = "Glow",            path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\glow-border",  defaultOffset = 0, defaultOffsetY = 0, scaleOffset = true, defaultThickness = "normal" },
         -- Shadow = the Glow texture drawn behind the frame in black; aliases to glow in default lookups, "behind + black" applied by GetBorderStyleSelectDefaults.
-        { key = "shadow",  name = "Shadow",          path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\glow-border",  defaultOffset = 0, defaultOffsetY = 0, scaleOffset = true, defaultThickness = "normal" },
+        { key = "shadow",  name = "Shadow",          labelKey = "Shadow (Border Style)", path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\glow-border",  defaultOffset = 0, defaultOffsetY = 0, scaleOffset = true, defaultThickness = "normal" },
         { key = "blizz",   name = "Blizzard",        path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\blizz-border", defaultOffset = 3, defaultOffsetY = 2, scaleOffset = true, defaultThickness = "heavy" },
         { key = "lightspark", name = "Lightspark Border", path = "Interface\\AddOns\\EllesmereUI\\media\\borders\\lightspark-border", defaultOffset = 0, defaultOffsetY = 0, scaleOffset = true, defaultThickness = "normal" },
         { key = "dialog",  name = "Blizzard Dialog",  path = "Interface\\DialogFrame\\UI-DialogBox-Border",                 defaultOffset = 4, defaultOffsetY = 4, defaultThickness = "normal" },
@@ -1342,12 +1342,24 @@ do
     end
     local DEFAULT_LSM_OFFSET = 0
 
+    -- A built-in name that means something else elsewhere (Shadow is also the
+    -- priest spec) carries a labelKey of its own, so a locale can tell the two
+    -- apart. English, and a locale without that key, show the plain name.
+    local function BuiltinBorderLabel(entry)
+        local key = entry.labelKey
+        if key then
+            local text = EllesmereUI.L(key)
+            if text ~= key then return text end
+        end
+        return entry.name
+    end
+
     --- Build a sorted list of border texture entries for dropdown widgets.
     function EllesmereUI.GetBorderTextureList()
         local list = {}
         local seen = {}
         for _, entry in ipairs(EllesmereUI._builtinBorderTextures) do
-            list[#list + 1] = { key = entry.key, name = entry.name }
+            list[#list + 1] = { key = entry.key, name = BuiltinBorderLabel(entry) }
             seen[entry.name] = true
         end
         local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
@@ -1785,7 +1797,7 @@ do
             adjX, adjY = adjX * ratio, adjY * ratio
             sx, sy = sx * ratio, sy * ratio
             -- scaleOffset textures: base = edgeSize/2 (border tracks the edge at any size) plus fine-tune adj; other textures: absolute offset, no base.
-            -- EllesmereUI.BorderReach mirrors this placement for size matching: change the two together.
+            -- EllesmereUI.BorderPlacement mirrors this placement (BorderReach and the engine aura tooltip read it): change the two together.
             -- Snap the four anchor offsets to whole physical pixels at the backdrop's own
             -- scale. Offset/shift are units, and at any UI scale where a unit is not a whole
             -- pixel (1.75 px/unit: 2 units = 3.5 px) the backdrop's edges land between pixels;
@@ -1915,19 +1927,17 @@ do
         ["pixels-textured"] = { 0.321, 0.321, 0.321, 0.321 },
     }
 
-    --- How far a textured border's visible line reaches OUTSIDE its frame, per side
-    --- (l, r, t, b; negative = inside), in that frame's units, from ApplyBorderStyle's
-    --- own arguments (ratio = its normalizeScale factor, nil = 1; alpha = the border
-    --- color's alpha; es = the border owner's effective scale, nil = UIParent's / ratio,
-    --- which is right for every owner without its own scale). Mirrors ApplyBorderStyle's
-    --- placement, pixel snap included: change the two together.
-    --- nil when nothing is drawn outside: solid (PP strips sit inside the frame),
-    --- shadow (a shadow is not the frame's edge), size 0, no texture, alpha 0.
-    --- Reads settings only, never a frame.
-    function EllesmereUI.BorderReach(size, tex, offX, offY, shX, shY, addonKey, sizeKey, edgePx, ratio, alpha, es)
-        if not size or size <= 0 or not tex or tex == "" or tex == "solid" or tex == "shadow" then return nil end
-        if alpha and alpha <= 0 then return nil end
-        if not EllesmereUI.ResolveBorderTexture(tex) then return nil end
+    --- Where a textured border's backdrop sits around its frame, from ApplyBorderStyle's
+    --- own arguments (ratio = its normalizeScale factor, nil = 1; es = the border owner's
+    --- effective scale, nil = UIParent's / ratio, which is right for every owner without
+    --- its own scale): edge (the backdrop's edgeSize), ox / oy (how far the backdrop
+    --- reaches past the frame on each side, a scaleOffset texture's half edge included)
+    --- and sx / sy (its shift), in that frame's units, each on whole pixels at es. The
+    --- backdrop's TOPLEFT sits at (-ox + sx, oy + sy) and its BOTTOMRIGHT at
+    --- (ox + sx, -oy + sy). Mirrors ApplyBorderStyle's placement, pixel snap included:
+    --- change the two together. Read by BorderReach and the engine aura tooltip's
+    --- backdrop, which ApplyBorderStyle cannot draw. Reads settings only, never a frame.
+    function EllesmereUI.BorderPlacement(size, tex, offX, offY, shX, shY, addonKey, sizeKey, edgePx, ratio, es)
         local PP = EllesmereUI.PP
         ratio = ratio or 1
         local edge
@@ -1951,8 +1961,7 @@ do
         local ox, oy = (offX or dox) * ratio, (offY or doy) * ratio
         local sx, sy = (shX or dsx) * ratio, (shY or dsy) * ratio
         -- ApplyBorderStyle puts the backdrop's anchors on whole pixels at its own
-        -- effective scale; the reach snaps the same four values the same way (the
-        -- ink below stays fractional: it is texture content, not an anchor).
+        -- effective scale; these four values are snapped the same way.
         if not (es and es > 0.01) then
             es = (UIParent and UIParent:GetEffectiveScale() or 1) / ratio
         end
@@ -1962,6 +1971,22 @@ do
         end
         ox, oy = PP.SnapForES(ox, es), PP.SnapForES(oy, es)
         sx, sy = PP.SnapForES(sx, es), PP.SnapForES(sy, es)
+        return edge, ox, oy, sx, sy
+    end
+
+    --- How far a textured border's visible line reaches OUTSIDE its frame, per side
+    --- (l, r, t, b; negative = inside), in that frame's units, from ApplyBorderStyle's
+    --- own arguments (as BorderPlacement's; alpha = the border color's alpha).
+    --- nil when nothing is drawn outside: solid (PP strips sit inside the frame),
+    --- shadow (a shadow is not the frame's edge), size 0, no texture, alpha 0.
+    --- Reads settings only, never a frame.
+    function EllesmereUI.BorderReach(size, tex, offX, offY, shX, shY, addonKey, sizeKey, edgePx, ratio, alpha, es)
+        if not size or size <= 0 or not tex or tex == "" or tex == "solid" or tex == "shadow" then return nil end
+        if alpha and alpha <= 0 then return nil end
+        if not EllesmereUI.ResolveBorderTexture(tex) then return nil end
+        local edge, ox, oy, sx, sy = EllesmereUI.BorderPlacement(size, tex, offX, offY, shX, shY,
+            addonKey, sizeKey, edgePx, ratio, es)
+        -- The ink stays fractional: it is texture content, not an anchor.
         local ink = EllesmereUI._borderInk[tex]
         local il, ir, it, ib = 0, 0, 0, 0
         if ink then il, ir, it, ib = ink[1] * edge, ink[2] * edge, ink[3] * edge, ink[4] * edge end

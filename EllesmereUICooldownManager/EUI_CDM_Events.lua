@@ -246,8 +246,15 @@ eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
         -- Exception, as insurance: let the first sighting of each bonus bar
         -- through, in case that form's slots (73-132) are only populated when
         -- the player first shifts into it rather than at login.
-        if event ~= "UPDATE_BINDINGS" and event ~= "ACTIONBAR_SLOT_CHANGED"
-           and ns.CDMStableKeybindsEnabled and ns.CDMStableKeybindsEnabled() then
+        --
+        -- Without stable keys the keys follow the page the bars show, so a swap
+        -- rebuilds them on the next frame (ns.CDMKeybindPageSwap), never after
+        -- the slot-storm debounce below.
+        if event ~= "UPDATE_BINDINGS" and event ~= "ACTIONBAR_SLOT_CHANGED" then
+            if not (ns.CDMStableKeybindsEnabled and ns.CDMStableKeybindsEnabled()) then
+                ns.CDMKeybindPageSwap()
+                return
+            end
             local firstSighting = false
             if event == "UPDATE_BONUS_ACTIONBAR" then
                 local offset = GetBonusBarOffset and GetBonusBarOffset() or 0

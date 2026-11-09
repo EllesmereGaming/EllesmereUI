@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  native ScrollBox and buttons: no custom DataProvider, no friend groups.
 -------------------------------------------------------------------------------
 local ADDON_NAME = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.FriendsKit and EllesmereUI.NewFrameData) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.FriendsKit and EllesmereUI.NewFrameData and EllesmereUI.SetFontFamily) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (friends' names and notes take the parent's font families)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -308,11 +308,19 @@ local function SkinRaidGroupButton(btn)
         btn:SetBackdropColor(0.06, 0.06, 0.07, 0.95)
         btn:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.9)
     end
+    -- The member's name takes the font as a font family (it draws the scripts the
+    -- font lacks), with the drop shadow its template font gives it
+    local btnName = btn.GetName and btn:GetName()
+    local nameFS = btnName and _G[btnName .. "Name"]
     local regions2 = { btn:GetRegions() }
     for i = 1, #regions2 do
         local region = regions2[i]
         if region and region:IsObjectType("FontString") then
-            region:SetFont(fontPath, 9, "")
+            if region == nameFS then
+                EllesmereUI.SetFontFamily(region, fontPath, 9, "", true)
+            else
+                region:SetFont(fontPath, 9, "")
+            end
         end
     end
     btn:HookScript("OnEnter", function()
@@ -757,8 +765,14 @@ local function SkinFriendButton(button)
 
     local fontPath = EllesmereUI.GetFontPath("friends") or STANDARD_TEXT_FONT
 
-    local function ApplyFont(fs, size)
+    -- family: the friend's name and info line (place, note) show other players'
+    -- writing and take the font as a font family, which draws the scripts it lacks
+    local function ApplyFont(fs, size, family)
         if not fs or not fs.SetFont then return end
+        if family then
+            EllesmereUI.SetFontFamily(fs, fontPath, size, "", true)
+            return
+        end
         EllesmereUI.PrimeFontShadow(fs, true)
         fs:SetFont(fontPath, size, "")
     end
@@ -785,9 +799,9 @@ local function SkinFriendButton(button)
     button:HookScript("OnLeave", function() hover:Hide(); hoverFill:Hide() end)
 
     local nameText = button.name or button.Name
-    ApplyFont(nameText, 12)
+    ApplyFont(nameText, 12, true)
     local infoText = button.info or button.Info
-    ApplyFont(infoText, 9)
+    ApplyFont(infoText, 9, true)
     local statusText = button.status or button.Status
     ApplyFont(statusText, 9)
     local gameText = button.gameText or button.GameText
@@ -1735,8 +1749,9 @@ local function SkinFriendsFrame()
     -- Above the window skin's atlas frame (+7), below the search results (+10).
     titleBtn:SetFrameLevel(frame:GetFrameLevel() + 8)
 
+    -- The player's BattleTag: a font family, which draws the scripts the font lacks
     local titleLabel = titleBtn:CreateFontString(nil, "OVERLAY")
-    titleLabel:SetFont(fontPath, 12, "")
+    EllesmereUI.SetFontFamily(titleLabel, fontPath, 12, "", false)
     titleLabel:SetTextColor(1, 1, 1, 0.75)
     titleLabel:SetPoint("CENTER", titleBtn, "CENTER", 0, 0)
     titleLabel:SetJustifyH("CENTER")
@@ -1799,7 +1814,7 @@ local function SkinFriendsFrame()
             hint:SetFont(fontPath, 8, "")
             hint:SetTextColor(1, 1, 1, 0.5)
             hint:SetPoint("TOP", copyPopup, "TOP", 0, -6)
-            hint:SetText("Ctrl+C to copy, Escape to close")
+            hint:SetText(EllesmereUI.L("Ctrl+C to copy, Escape to close"))
 
             local eb = CreateFrame("EditBox", nil, copyPopup)
             eb:SetSize(160, 16)
@@ -2286,8 +2301,9 @@ local function SkinFriendsFrame()
             hover:SetAllPoints()
             hover:SetColorTexture(1, 1, 1, 0.06)
 
+            -- A friend's name: a font family, which draws the scripts the font lacks
             local nameFS = row:CreateFontString(nil, "OVERLAY")
-            nameFS:SetFont(fontPath, 11, "")
+            EllesmereUI.SetFontFamily(nameFS, fontPath, 11, "", false)
             nameFS:SetPoint("LEFT", row, "LEFT", 8, 0)
             nameFS:SetWidth((FriendsListFrame:GetWidth() - 30) * 0.75)
             nameFS:SetJustifyH("LEFT")

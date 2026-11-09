@@ -14,7 +14,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  shared with Cursor/BattleRes/Bloodlust: each NewDB merges its own defaults
 --  into the SAME profile table, repointed by the profile system on swap.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer and EllesmereUI.RAID_PREP_IDS) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Shifter's loot windows use the parent's frame placer; Raid Buff Check reads the parent's buff lists)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePlacer and EllesmereUI.RAID_PREP_IDS and EllesmereUI.SetFontFamily) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Shifter's loot windows use the parent's frame placer; Raid Buff Check reads the parent's buff lists; the group death alert, /keys and Raid Buff Check names take the parent's font families)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS["EllesmereUIQoL"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -437,8 +437,10 @@ qolFrame:SetScript("OnEvent", function(self)
         local function BankOpen()
             if not (C_PlayerInteractionManager and C_PlayerInteractionManager.IsInteractingWithNpcOfType) then return false end
             -- Both bank types: character banker and the warband (account) bank.
-            return (C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.Banker)
-                or C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.AccountBanker)) and true or false
+            local PIT, IsAt = Enum.PlayerInteractionType, C_PlayerInteractionManager.IsInteractingWithNpcOfType
+            -- some bankers open the character bank as CharacterBanker
+            return (IsAt(PIT.Banker) or (PIT.CharacterBanker and IsAt(PIT.CharacterBanker))
+                or IsAt(PIT.AccountBanker)) and true or false
         end
         -- "Exclude Warbound Containers": checks the item's own bind type
         -- instead of asking the bank if it would accept a deposit right now --
@@ -829,6 +831,7 @@ qolFrame:SetScript("OnEvent", function(self)
                     -- The event that actually fires on retail; mail's own delivery can still unlock slots just after close, so settle first like LOOT_CLOSED.
                     C_Timer.After(0.5, function() ScanAndOpen(false, true, false) end)
                 elseif interactionType == Enum.PlayerInteractionType.Banker
+                    or interactionType == Enum.PlayerInteractionType.CharacterBanker
                     or interactionType == Enum.PlayerInteractionType.AccountBanker then
                     -- AccountBanker: the warband bank signals its own type, and
                     -- BankOpen() gates both (same BankFrame).
@@ -1378,6 +1381,8 @@ qolFrame:SetScript("OnEvent", function(self)
                     lootFrame = CreateFrame("Frame")
                     lootFrame:SetScript("OnEvent", function()
                         if IsShiftKeyDown() then return end
+                        -- Nothing to take: no slot empties, so the window would never close by itself.
+                        if GetNumLootItems() == 0 then CloseLoot() return end
                         for i = 1, GetNumLootItems() do
                             local index = i
                             C_Timer.After(0.05 * index, function()
@@ -4332,7 +4337,8 @@ do
             outline = (outline == "") and "OUTLINE" or (outline .. ", OUTLINE")
         end
         local size = (EllesmereUIDB and EllesmereUIDB.groupDeathTextSize) or DEFAULT_TEXT_SIZE
-        alertOverlay._text:SetFont(fontPath, size, outline)
+        -- A font family: the alert shows a group member's name, in any script
+        EllesmereUI.SetFontFamily(alertOverlay._text, fontPath, size, outline, false)
         -- Keep the frame (and unlock-mode mover) sized to the alert text, not a fixed wide box.
         alertOverlay:SetSize(size * 7, size + 14)
 

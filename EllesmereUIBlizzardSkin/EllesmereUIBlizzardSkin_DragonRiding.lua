@@ -693,12 +693,15 @@ end
 
 local borderedFrames = {}
 
-local function EnsureBorder(frame)
+-- A frame set is one HUD's frames: { root, speed, stack, sw, icon, classic,
+-- bordered }. The live HUD is one set, the options header's sample another;
+-- the layout and paint passes below take the set they draw.
+local function EnsureBorder(S, frame)
     if not frame or frame._edrBorderAdded then return end
     if not (EllesmereUI and EllesmereUI.PP and EllesmereUI.PP.CreateBorder) then return end
     EllesmereUI.PP.CreateBorder(frame, 0, 0, 0, 1, 1, "OVERLAY", 7)
     frame._edrBorderAdded = true
-    borderedFrames[#borderedFrames + 1] = frame
+    S.bordered[#S.bordered + 1] = frame
 end
 
 local function ApplyBorderEdges(frame, hideL, hideR, hideT, hideB)
@@ -711,14 +714,14 @@ local function ApplyBorderEdges(frame, hideL, hideR, hideT, hideB)
     edges._hideBottom = hideB or nil
 end
 
-local function ApplyBordersAll(L)
+local function ApplyBordersAll(S, L)
     local PP = EllesmereUI and EllesmereUI.PP
     if not PP then return end
     local p = db.profile
     local c = p.borderColor
     -- The Blizzard and Classic WoW UI bar styles draw their own frames instead.
     local thick = L.chrome and 0 or (p.borderThickness or 0)
-    for _, f in ipairs(borderedFrames) do
+    for _, f in ipairs(S.bordered) do
         if thick > 0 then
             PP.UpdateBorder(f, thick, c.r, c.g, c.b, c.a)
             PP.ShowBorder(f)
@@ -748,10 +751,10 @@ local function ApplyBordersAll(L)
             y = y + h + p.gap
             local hideB = gapTouch and i > 1 and rows[i - 1] ~= "speed"
             if key == "speed" then
-                ApplyBorderEdges(speedBar, false, iconTouch, gapTouch and i < #rows, hideB)
+                ApplyBorderEdges(S.speed, false, iconTouch, gapTouch and i < #rows, hideB)
             else
-                local pips, n = stackFrame.pips, SKYRIDING_PIPS
-                if key == "sw" then pips, n = swFrame.pips, SECONDWIND_PIPS end
+                local pips, n = S.stack.pips, SKYRIDING_PIPS
+                if key == "sw" then pips, n = S.sw.pips, SECONDWIND_PIPS end
                 for j = 1, n do
                     local hideR = (stackTouch and j < n) or (iconTouch and j == n)
                     ApplyBorderEdges(pips[j], false, hideR, false, hideB)
@@ -759,7 +762,7 @@ local function ApplyBordersAll(L)
             end
         end
         -- Re-snap so the updated hide flags take effect immediately.
-        for _, f in ipairs(borderedFrames) do
+        for _, f in ipairs(S.bordered) do
             PP.SetBorderSize(f, thick)
         end
     end
@@ -934,31 +937,32 @@ local PANEL_PIECES = {
 -- rows bottom to top, { key, x, y, h } from the root's bottom-left; w = row
 -- width; gap = Element Spacing; spacing = Stack Spacing. Nothing is built for
 -- the modern style.
-local function ApplyColumnChrome(L, geo, w, gap, spacing)
-    local col = rootFrame._edrCol
+local function ApplyColumnChrome(S, L, geo, w, gap, spacing)
+    local root = S.root
+    local col = root._edrCol
     local chrome = L.chrome
     if not chrome or #geo == 0 then
         if col then col:Hide() end
         return
     end
     if not col then
-        col = CreateFrame("Frame", nil, rootFrame)
+        col = CreateFrame("Frame", nil, root)
         col:EnableMouse(false)
         -- Art over every row's fill, pips and borders; under the speed text.
         col.art = CreateFrame("Frame", nil, col)
         col.art:EnableMouse(false)
         col.art:SetAllPoints(col)
         col.seps = {}
-        rootFrame._edrCol = col
+        root._edrCol = col
     end
     -- Under the rows (the panel is their backdrop); the art level above them.
-    local rowLevel = speedBar:GetFrameLevel()
+    local rowLevel = S.speed:GetFrameLevel()
     col:SetFrameLevel(max(0, rowLevel - 1))
     col.art:SetFrameLevel(rowLevel + 9)
 
     local first, last = geo[1], geo[#geo]
     col:ClearAllPoints()
-    col:SetPoint("BOTTOMLEFT", rootFrame, "BOTTOMLEFT", first.x, first.y)
+    col:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", first.x, first.y)
     col:SetSize(w, last.y + last.h - first.y)
     col:Show()
 
@@ -1012,7 +1016,7 @@ local function ApplyColumnChrome(L, geo, w, gap, spacing)
             col.seps[n] = t
         end
         t:ClearAllPoints()
-        t:SetPoint("BOTTOMLEFT", rootFrame, "BOTTOMLEFT", x, y)
+        t:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", x, y)
         t:SetSize(sw, sh)
         t:Show()
     end
@@ -1021,7 +1025,7 @@ local function ApplyColumnChrome(L, geo, w, gap, spacing)
             local below = geo[i - 1]
             Sep(g.x, below.y + below.h + Centre(gap), w, px)
         end
-        local row = g.key == "sky" and stackFrame or g.key == "sw" and swFrame
+        local row = g.key == "sky" and S.stack or g.key == "sw" and S.sw
         if row then
             for j = 1, #row.pips - 1 do
                 local pip = row.pips[j]
@@ -1035,8 +1039,8 @@ end
 -- Whirling Surge icon per bar style: Blizzard = action button frame, rounded
 -- mask and rounded swipe; Classic WoW UI = the vanilla slot ring; modern = the
 -- plain cropped square. The cooldown text is lifted above any frame.
-local function ApplyIconArt(chrome)
-    local f = wsIcon
+local function ApplyIconArt(S, chrome)
+    local f = S.icon
     if chrome and not f.artFrame then
         f.artFrame = CreateFrame("Frame", nil, f)
         f.artFrame:SetAllPoints(f)
@@ -1221,10 +1225,10 @@ end
 
 -- The gem row at 1x: mirrored decor, six cells, decor. Built on first use only,
 -- so the modern style never pays for it.
-local function EnsureClassicFrame()
-    if classicFrame then return classicFrame end
+local function EnsureClassicFrame(S)
+    if S.classic then return S.classic end
     local C = CLASSIC
-    local f = CreateFrame("Frame", nil, rootFrame)
+    local f = CreateFrame("Frame", nil, S.root)
     f:SetSize(CLASSIC_W, CLASSIC_H)
 
     f.decorL = f:CreateTexture(nil, "ARTWORK")
@@ -1247,7 +1251,7 @@ local function EnsureClassicFrame()
         f.cells[i] = cell
         x = x + C.cellW
     end
-    classicFrame = f
+    S.classic = f
     return f
 end
 
@@ -1293,6 +1297,25 @@ local function LayoutPips(frame, pipCount, width, height, spacing)
     end
 end
 
+-- The frames of one set under its root (CreateFrame order is the live HUD's).
+local function NewSet(root, bordered)
+    local S = { root = root, bordered = bordered }
+    S.speed = CreateSpeedBar(root)
+    EnsureBorder(S, S.speed)
+
+    S.stack = CreateStackFrame(root, SKYRIDING_PIPS)
+    for i = 1, SKYRIDING_PIPS do EnsureBorder(S, S.stack.pips[i]) end
+
+    S.sw = CreateStackFrame(root, SECONDWIND_PIPS)
+    for i = 1, SECONDWIND_PIPS do EnsureBorder(S, S.sw.pips[i]) end
+
+    S.icon = CreateWhirlingSurgeIcon(root)
+    EnsureBorder(S, S.icon)
+    return S
+end
+
+local liveSet
+
 function Build()
     if rootFrame then return end
     rootFrame = CreateFrame("Frame", "EllesmereUIDragonRidingAnchor", UIParent)
@@ -1300,27 +1323,15 @@ function Build()
     rootFrame:Hide()
     rootFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 
-    speedBar   = CreateSpeedBar(rootFrame)
-    EnsureBorder(speedBar)
-
-    stackFrame = CreateStackFrame(rootFrame, SKYRIDING_PIPS)
-    for i = 1, SKYRIDING_PIPS do EnsureBorder(stackFrame.pips[i]) end
-
-    swFrame    = CreateStackFrame(rootFrame, SECONDWIND_PIPS)
-    for i = 1, SECONDWIND_PIPS do EnsureBorder(swFrame.pips[i]) end
-
-    wsIcon     = CreateWhirlingSurgeIcon(rootFrame)
-    EnsureBorder(wsIcon)
+    liveSet = NewSet(rootFrame, borderedFrames)
+    speedBar, stackFrame, swFrame, wsIcon = liveSet.speed, liveSet.stack, liveSet.sw, liveSet.icon
 
     Rebuild()
 end
 
-function Rebuild()
-    if not rootFrame then return end
-    local p = db.profile
-    local L = ComputeLayout(p)
-
-    rootFrame:SetSize(L.totalW, L.totalH)
+-- Sizes and anchors one set for the layout L.
+local function LayoutSet(S, p, L)
+    S.root:SetSize(L.totalW, L.totalH)
 
     -- Column rows, bottom to top, the column centred on the icon. Rows not in
     -- the layout are hidden; rows that stay are never hidden and re-shown.
@@ -1328,7 +1339,7 @@ function Rebuild()
     -- laid out: a row or icon re-anchored while hidden and shown afterwards
     -- (Vigor Style Bars <-> Classic Gems, a row or the icon toggled back on)
     -- drew its pips piled up or not at all until a later pass.
-    local rowFrames = { speed = speedBar, sky = stackFrame, sw = swFrame }
+    local rowFrames = { speed = S.speed, sky = S.stack, sw = S.sw }
     local inLayout = {}
     for _, key in ipairs(L.rows) do inLayout[key] = true end
     for key, f in pairs(rowFrames) do
@@ -1345,39 +1356,113 @@ function Rebuild()
         geo[i] = { key = key, x = rx, y = ry, h = h }
         f:Show()
         f:ClearAllPoints()
-        f:SetPoint("BOTTOMLEFT", rootFrame, "BOTTOMLEFT", rx, ry)
+        f:SetPoint("BOTTOMLEFT", S.root, "BOTTOMLEFT", rx, ry)
         f:SetSize(p.width, h)
         if key == "sky" then
-            LayoutPips(stackFrame, SKYRIDING_PIPS, p.width, h, spacing)
+            LayoutPips(S.stack, SKYRIDING_PIPS, p.width, h, spacing)
         elseif key == "sw" then
-            LayoutPips(swFrame, SECONDWIND_PIPS, p.width, h, spacing)
+            LayoutPips(S.sw, SECONDWIND_PIPS, p.width, h, spacing)
         end
         y = y + h + p.gap
     end
-    ApplyColumnChrome(L, geo, p.width, p.gap, spacing)
+    ApplyColumnChrome(S, L, geo, p.width, p.gap, spacing)
 
+    local icon = S.icon
     if L.icon then
-        wsIcon:Show()
-        wsIcon:ClearAllPoints()
-        wsIcon:SetPoint("BOTTOMLEFT", rootFrame, "BOTTOMLEFT",
+        icon:Show()
+        icon:ClearAllPoints()
+        icon:SetPoint("BOTTOMLEFT", S.root, "BOTTOMLEFT",
             clusterX + L.colW + (L.colW > 0 and p.gap or 0), L.iconY)
-        wsIcon:SetSize(L.iconSize, L.iconSize)
+        icon:SetSize(L.iconSize, L.iconSize)
     else
-        wsIcon:Hide()
+        icon:Hide()
     end
-    ApplyIconArt(L.chrome)
+    ApplyIconArt(S, L.chrome)
 
     if L.classic then
-        local f = EnsureClassicFrame()
+        local f = EnsureClassicFrame(S)
         f:Show()
         f:SetScale(L.scale)
         f:ClearAllPoints()
         -- Offsets on a scaled frame are in its own units.
-        f:SetPoint("TOPLEFT", rootFrame, "TOPLEFT", PPSnap((L.totalW - L.classicW) / 2) / L.scale, 0)
-    elseif classicFrame then
-        classicFrame:Hide()
+        f:SetPoint("TOPLEFT", S.root, "TOPLEFT", PPSnap((L.totalW - L.classicW) / 2) / L.scale, 0)
+    elseif S.classic then
+        S.classic:Hide()
     end
 
+end
+
+-- Textures, colours, texts, borders and bevels of one set.
+local function PaintSet(S, p, L)
+    -- Apply bar texture to all StatusBars
+    local texPath = EllesmereUI.ResolveTexturePath(ns.EDR_BAR_TEXTURES, p.barTexture or "none",
+            "Interface\\Buttons\\WHITE8x8")
+    local speed, stack, sw, icon = S.speed, S.stack, S.sw, S.icon
+    speed:SetStatusBarTexture(texPath)
+    for i = 1, SKYRIDING_PIPS do
+        stack.pips[i]:SetStatusBarTexture(texPath)
+    end
+    for i = 1, SECONDWIND_PIPS do
+        sw.pips[i]:SetStatusBarTexture(texPath)
+    end
+
+    local c = p.normalColor
+    speed:SetStatusBarColor(c.r, c.g, c.b, c.a)
+    speed.bg:SetColorTexture(p.speedBarBg.r, p.speedBarBg.g, p.speedBarBg.b, p.speedBarBg.a)
+
+    local tickFrac = (p.thrillThreshold or 0) / (p.maxSpeed > 0 and p.maxSpeed or 1)
+    tickFrac = max(0, min(1, tickFrac))
+    speed.tick:ClearAllPoints()
+    speed.tick:SetPoint("TOP",    speed, "TOPLEFT",    p.width * tickFrac, 0)
+    speed.tick:SetPoint("BOTTOM", speed, "BOTTOMLEFT", p.width * tickFrac, 0)
+    speed.tick:SetWidth(2)
+    speed.tick:SetColorTexture(p.tickColor.r, p.tickColor.g, p.tickColor.b, p.tickColor.a)
+
+    ApplyFont(speed.text, p.speedText.size)
+    speed.text:ClearAllPoints()
+    speed.text:SetPoint(p.speedText.justify or "CENTER", speed,
+        p.speedText.justify or "CENTER",
+        p.speedText.offsetX or 0, p.speedText.offsetY or 0)
+    speed.text:SetJustifyH(p.speedText.justify or "CENTER")
+    speed.text:SetShown(p.speedText.enabled ~= false)
+
+    for i = 1, SKYRIDING_PIPS do
+        local pip = stack.pips[i]
+        pip:SetStatusBarColor(p.skyridingFilled.r, p.skyridingFilled.g, p.skyridingFilled.b, 1)
+        pip.bg:SetColorTexture(p.skyridingBg.r, p.skyridingBg.g, p.skyridingBg.b, p.skyridingBg.a)
+    end
+
+    for i = 1, SECONDWIND_PIPS do
+        local pip = sw.pips[i]
+        pip:SetStatusBarColor(p.secondWindFilled.r, p.secondWindFilled.g, p.secondWindFilled.b, 1)
+        pip.bg:SetColorTexture(p.secondWindBg.r, p.secondWindBg.g, p.secondWindBg.b, p.secondWindBg.a)
+    end
+
+    ApplyFont(icon.text, p.whirlingSurgeText.size)
+    icon.text:ClearAllPoints()
+    icon.text:SetPoint(p.whirlingSurgeText.justify or "CENTER", icon,
+        p.whirlingSurgeText.justify or "CENTER",
+        p.whirlingSurgeText.offsetX or 0, p.whirlingSurgeText.offsetY or 0)
+    icon.text:SetJustifyH(p.whirlingSurgeText.justify or "CENTER")
+    icon.text:SetShown(p.whirlingSurgeText.enabled ~= false)
+
+    ApplyBordersAll(S, L)
+
+    -- Bar style bevel (the column frame is laid out by Rebuild).
+    ApplyRowChrome(speed, L.chrome, p.width, p.speedHeight)
+    ApplyRowChrome(stack, L.chrome, p.width, p.skyridingHeight)
+    ApplyRowChrome(sw, L.chrome, p.width, p.secondWindHeight)
+
+end
+
+local RepaintSample
+
+function Rebuild()
+    if not rootFrame then return end
+    local p = db.profile
+    local L = ComputeLayout(p)
+    LayoutSet(liveSet, p, L)
+    classicFrame = liveSet.classic
     Redraw(L)
     ApplyPos()
     UpdateVisibility()
@@ -1388,64 +1473,7 @@ function Redraw(L)
     if not rootFrame then return end
     local p = db.profile
     L = L or ComputeLayout(p)
-
-    -- Apply bar texture to all StatusBars
-    local texPath = EllesmereUI.ResolveTexturePath(ns.EDR_BAR_TEXTURES, p.barTexture or "none",
-            "Interface\\Buttons\\WHITE8x8")
-    speedBar:SetStatusBarTexture(texPath)
-    for i = 1, SKYRIDING_PIPS do
-        stackFrame.pips[i]:SetStatusBarTexture(texPath)
-    end
-    for i = 1, SECONDWIND_PIPS do
-        swFrame.pips[i]:SetStatusBarTexture(texPath)
-    end
-
-    local c = p.normalColor
-    speedBar:SetStatusBarColor(c.r, c.g, c.b, c.a)
-    speedBar.bg:SetColorTexture(p.speedBarBg.r, p.speedBarBg.g, p.speedBarBg.b, p.speedBarBg.a)
-
-    local tickFrac = (p.thrillThreshold or 0) / (p.maxSpeed > 0 and p.maxSpeed or 1)
-    tickFrac = max(0, min(1, tickFrac))
-    speedBar.tick:ClearAllPoints()
-    speedBar.tick:SetPoint("TOP",    speedBar, "TOPLEFT",    p.width * tickFrac, 0)
-    speedBar.tick:SetPoint("BOTTOM", speedBar, "BOTTOMLEFT", p.width * tickFrac, 0)
-    speedBar.tick:SetWidth(2)
-    speedBar.tick:SetColorTexture(p.tickColor.r, p.tickColor.g, p.tickColor.b, p.tickColor.a)
-
-    ApplyFont(speedBar.text, p.speedText.size)
-    speedBar.text:ClearAllPoints()
-    speedBar.text:SetPoint(p.speedText.justify or "CENTER", speedBar,
-        p.speedText.justify or "CENTER",
-        p.speedText.offsetX or 0, p.speedText.offsetY or 0)
-    speedBar.text:SetJustifyH(p.speedText.justify or "CENTER")
-    speedBar.text:SetShown(p.speedText.enabled ~= false)
-
-    for i = 1, SKYRIDING_PIPS do
-        local pip = stackFrame.pips[i]
-        pip:SetStatusBarColor(p.skyridingFilled.r, p.skyridingFilled.g, p.skyridingFilled.b, 1)
-        pip.bg:SetColorTexture(p.skyridingBg.r, p.skyridingBg.g, p.skyridingBg.b, p.skyridingBg.a)
-    end
-
-    for i = 1, SECONDWIND_PIPS do
-        local pip = swFrame.pips[i]
-        pip:SetStatusBarColor(p.secondWindFilled.r, p.secondWindFilled.g, p.secondWindFilled.b, 1)
-        pip.bg:SetColorTexture(p.secondWindBg.r, p.secondWindBg.g, p.secondWindBg.b, p.secondWindBg.a)
-    end
-
-    ApplyFont(wsIcon.text, p.whirlingSurgeText.size)
-    wsIcon.text:ClearAllPoints()
-    wsIcon.text:SetPoint(p.whirlingSurgeText.justify or "CENTER", wsIcon,
-        p.whirlingSurgeText.justify or "CENTER",
-        p.whirlingSurgeText.offsetX or 0, p.whirlingSurgeText.offsetY or 0)
-    wsIcon.text:SetJustifyH(p.whirlingSurgeText.justify or "CENTER")
-    wsIcon.text:SetShown(p.whirlingSurgeText.enabled ~= false)
-
-    ApplyBordersAll(L)
-
-    -- Bar style bevel (the column frame is laid out by Rebuild).
-    ApplyRowChrome(speedBar, L.chrome, p.width, p.speedHeight)
-    ApplyRowChrome(stackFrame, L.chrome, p.width, p.skyridingHeight)
-    ApplyRowChrome(swFrame, L.chrome, p.width, p.secondWindHeight)
+    PaintSet(liveSet, p, L)
 
     skyridingDirty  = true
     secondWindDirty = true
@@ -1457,7 +1485,85 @@ function Redraw(L)
     lastCdStart, lastCdDur      = -1, -1
     -- Settings applied: the repaint above rides the tick, so arm it if shown.
     SyncTick()
+    -- Every settings path ends here (options, Unlock Mode mover, profile
+    -- switch), so the options header's sample follows them all.
+    RepaintSample()
 end
+
+-------------------------------------------------------------------------------
+--  Options header sample
+--  A second frame set, built the first time the Skyriding page asks, laid out
+--  and painted by the same passes as the live HUD, then filled with fixed
+--  values: 650% speed, 4 of 6 charges and a half-filled fifth, 2 of 3 Second
+--  Wind, a held 12 s Whirling Surge cooldown. It reads no game state, has no
+--  OnUpdate and no events, and is never an unlock element.
+-------------------------------------------------------------------------------
+local sampleSet, samplePlace
+local SAMPLE_SPEED_PCT = 650
+
+local function PaintSample()
+    local p = db and db.profile
+    if not (sampleSet and p) then return end
+    local S = sampleSet
+    local L = ComputeLayout(p)
+    -- The options page scales and anchors the root first: the pixel snaps
+    -- below read the scale the sample shows at.
+    if samplePlace then samplePlace(S.root, L.totalW, L.totalH) end
+    LayoutSet(S, p, L)
+    PaintSet(S, p, L)
+
+    local frac = (p.maxSpeed > 0) and (SAMPLE_SPEED_PCT / p.maxSpeed) or 0
+    S.speed:SetValue(max(0, min(1, frac)))
+    S.speed.text:SetText(FormatSpeedText(SAMPLE_SPEED_PCT))
+    local c = (p.thrillColorToggle and SAMPLE_SPEED_PCT >= (p.thrillThreshold or 0))
+        and p.thrillColor or p.normalColor
+    S.speed:SetStatusBarColor(c.r, c.g, c.b, c.a)
+
+    if L.classic then
+        -- Still gems: no pulse, flash or swirl in the header.
+        for i, cell in ipairs(S.classic.cells) do
+            cell.flashAnim:Stop()
+            cell.pulseAnim:Stop()
+            cell.flash:SetAlpha(0)
+            if cell.flipAnim then cell.flipAnim:Stop(); cell.flip:Hide() end
+            SetClassicFull(cell, i <= 4)
+            local v = (i <= 4 and 1) or (i == 5 and 0.5) or 0
+            cell.bar:SetValue(v)
+            cell.spark:SetShown(v > 0 and v < 1)
+        end
+    else
+        ApplyPipRow(S.stack.pips, SKYRIDING_PIPS, 4, SKYRIDING_PIPS, 0.5, -1, -1, p.skyridingFilled, 0.4)
+    end
+    ApplyPipRow(S.sw.pips, SECONDWIND_PIPS, 2, SECONDWIND_PIPS, 0.6, -1, -1, p.secondWindFilled, 0.4)
+
+    local now = GetTime()
+    S.icon.cd:SetCooldown(now - 8, 20)
+    S.icon.cd:Pause()
+    S.icon.text:SetText(FormatCooldownText(12))
+end
+
+function RepaintSample()
+    if sampleSet and sampleSet.root:IsVisible() then PaintSample() end
+end
+
+-- Shows the sample under parent and paints it. place(root, w, h) runs before
+-- every paint with the HUD's size in its own units, to scale and anchor the
+-- root. Returns the root, or nil before the profile exists.
+function ns.EDR_ShowSample(parent, place)
+    if not (db and db.profile) then return nil end
+    if not sampleSet then
+        sampleSet = NewSet(CreateFrame("Frame", nil, parent), {})
+    end
+    local root = sampleSet.root
+    root:SetParent(parent)
+    root:SetFrameStrata(parent:GetFrameStrata())
+    root:SetFrameLevel(parent:GetFrameLevel() + 5)
+    root:Show()
+    samplePlace = place
+    PaintSample()
+    return root
+end
+ns.EDR_RepaintSample = RepaintSample
 
 -------------------------------------------------------------------------------
 --  Unlock mode

@@ -19,7 +19,11 @@ local function InitAnimationsPage(PP, EAB, PAGE_ANIMATIONS)
     local SECTION_BAR_INTERACTIONS = "BAR INTERACTIONS"
     local SECTION_PROC_GLOW     = "CUSTOM PROC GLOW"
 
-    local interactionTypeValues = { [1] = "Light", [2] = "Medium", [3] = "Strong", [4] = "Solid Color", [5] = "Border", [6] = "None" }
+    -- "Light" here is a strength, not the Holy school or Blessing of Light: it
+    -- has a key of its own, and English (or a locale without it) shows "Light".
+    local lightLabel = EllesmereUI.L("Light (Strength)")
+    if lightLabel == "Light (Strength)" then lightLabel = "Light" end
+    local interactionTypeValues = { [1] = lightLabel, [2] = "Medium", [3] = "Strong", [4] = "Solid Color", [5] = "Border", [6] = "None" }
     local interactionTypeOrder  = { 1, 2, 3, 4, 5, 6 }
     local pushedTypeValues, pushedTypeOrder = interactionTypeValues, interactionTypeOrder
     local highlightTypeValues, highlightTypeOrder = interactionTypeValues, interactionTypeOrder

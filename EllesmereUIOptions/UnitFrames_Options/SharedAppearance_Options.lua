@@ -180,6 +180,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
             { type = "slider", label = "Out of Combat Alpha", min = 0, max = 100, step = 1,
               disabled = function() return not SVal("oocFadeEnabled", false) end,
               disabledTooltip = "Enable Fade Out of Combat first",
+              rawTooltip = true,
               get = function() return math.floor((SVal("oocAlpha", 0.5)) * 100 + 0.5) end,
               set = function(v)
                   SSet("oocAlpha", v / 100)
@@ -766,7 +767,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 end
                 ReloadAndUpdate()
             end)
-        PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
@@ -939,7 +940,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
                 end
                 if UpdateHBSwatchVis then UpdateHBSwatchVis() end
             end)
-        PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+        EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
         rightRgn._control = cbDD
         rightRgn._lastInline = nil
 
@@ -2260,7 +2261,7 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
                     { tooltip = "Class Colored", hasAlpha = false,
                       getValue = function()
                           local _, ct = UnitClass("player")
-                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                          local cc = ct and EllesmereUI.GetClassColor(ct)
                           if cc then return cc.r, cc.g, cc.b end
                           return 1, 1, 1
                       end,
@@ -2289,7 +2290,7 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
             btbLRgn, btbLRgn:GetFrameLevel() + 5,
             function()
                 local _, classFile = UnitClass("player")
-                local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                local cc = classFile and EllesmereUI.GetClassColor(classFile)
                 if cc then return cc.r, cc.g, cc.b end
                 return 1, 1, 1
             end,
@@ -2393,7 +2394,7 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
                     { tooltip = "Class Colored", hasAlpha = false,
                       getValue = function()
                           local _, ct = UnitClass("player")
-                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                          local cc = ct and EllesmereUI.GetClassColor(ct)
                           if cc then return cc.r, cc.g, cc.b end
                           return 1, 1, 1
                       end,
@@ -2422,7 +2423,7 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
             btbRRgn, btbRRgn:GetFrameLevel() + 5,
             function()
                 local _, classFile = UnitClass("player")
-                local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                local cc = classFile and EllesmereUI.GetClassColor(classFile)
                 if cc then return cc.r, cc.g, cc.b end
                 return 1, 1, 1
             end,
@@ -2630,7 +2631,7 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
                     { tooltip = "Class Colored", hasAlpha = false,
                       getValue = function()
                           local _, ct = UnitClass("player")
-                          local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+                          local cc = ct and EllesmereUI.GetClassColor(ct)
                           if cc then return cc.r, cc.g, cc.b end
                           return 1, 1, 1
                       end,
@@ -2659,7 +2660,7 @@ function ns.UFO_BuildTextBarSection(parent, y, ctx)
             btbCRgn, btbCRgn:GetFrameLevel() + 5,
             function()
                 local _, classFile = UnitClass("player")
-                local cc = classFile and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classFile]
+                local cc = classFile and EllesmereUI.GetClassColor(classFile)
                 if cc then return cc.r, cc.g, cc.b end
                 return 1, 1, 1
             end,
@@ -3467,6 +3468,15 @@ function ns.UFO_BuildExtrasSection(parent, y, ctx)
         end
         ns._ufAddPvEye(factionRow._leftRegion, "faction", "faction indicator")
         parent._ufFactionRow = factionRow
+    end
+
+    -- Row 6: Rested Indicator | blank (player only): Quality of Life's EXTRAS
+    -- row mirrored, the same account-wide settings (EllesmereUI.RestedIndicatorCfg).
+    if optState.selectedUnit == "player" then
+        local restRow
+        restRow, h = W:DualRow(parent, y, EllesmereUI.RestedIndicatorCfg(), EllesmereUI.BlankRowCfg())
+        y = y - h
+        EllesmereUI.BuildRestedIndicatorCog(restRow._leftRegion)
     end
 
     -- Row 6: Targeting Sound Effects | blank (target only; one setting for the

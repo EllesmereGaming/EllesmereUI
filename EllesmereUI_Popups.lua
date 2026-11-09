@@ -79,10 +79,10 @@ function EllesmereUI.ClampPopupToScreen(popup, w, h)
 end
 
 -- Announcement popup shell: full-screen dimmer (name.."Dimmer") and a centred panel
--- (name.."Popup") with an edge of physical pixels and Escape handling. opts: w, h; bump
--- (PopupBump mult; nil = caller scales both frames later); strata; dimAlpha; bg {r,g,b};
--- edge {r,g,b,a}; edgePx; clamp (ClampPopupToScreen); onEscape (nil = Escape is only
--- swallowed); onDimmerDown. Other keys propagate. Returns dimmer, popup.
+-- (name.."Popup") with a rounded 1 px outline (popup._brd) and Escape handling. opts: w, h;
+-- bump (PopupBump mult; nil = caller scales both frames later); strata; dimAlpha; bg {r,g,b};
+-- edge {r,g,b,a}; clamp (ClampPopupToScreen); onEscape (nil = Escape is only swallowed);
+-- onDimmerDown. Other keys propagate. Returns dimmer, popup.
 function EllesmereUI.BuildPopupShell(name, opts)
     local strata = opts.strata or "FULLSCREEN_DIALOG"
     local dimmer = CreateFrame("Frame", name .. "Dimmer", UIParent)
@@ -111,19 +111,9 @@ function EllesmereUI.BuildPopupShell(name, opts)
     bg:SetAllPoints()
     bg:SetColorTexture(c[1], c[2], c[3], 1)
 
-    -- Edge width is read after every scale above, so it lands on whole physical pixels.
+    -- The outline sits on a pixel layer: whole physical pixels at every later scale.
     local e = opts.edge or { 1, 1, 1, 0.15 }
-    local edgeW = (1 / (popup:GetEffectiveScale() or 1)) * (opts.edgePx or 1)
-    local function MakeEdge()
-        local t = popup:CreateTexture(nil, "BORDER")
-        t:SetColorTexture(e[1], e[2], e[3], e[4])
-        if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
-        return t
-    end
-    local spT = MakeEdge(); spT:SetPoint("TOPLEFT", 0, 0); spT:SetPoint("TOPRIGHT", 0, 0); spT:SetHeight(edgeW)
-    local spB = MakeEdge(); spB:SetPoint("BOTTOMLEFT", 0, 0); spB:SetPoint("BOTTOMRIGHT", 0, 0); spB:SetHeight(edgeW)
-    local spL = MakeEdge(); spL:SetPoint("TOPLEFT", spT, "BOTTOMLEFT"); spL:SetPoint("BOTTOMLEFT", spB, "TOPLEFT"); spL:SetWidth(edgeW)
-    local spR = MakeEdge(); spR:SetPoint("TOPRIGHT", spT, "BOTTOMRIGHT"); spR:SetPoint("BOTTOMRIGHT", spB, "TOPRIGHT"); spR:SetWidth(edgeW)
+    popup._brd = EllesmereUI.MakeRoundedBorder(popup, e[1], e[2], e[3], e[4], bg)
 
     local onEscape = opts.onEscape
     -- EnableKeyboard and SetPropagateKeyboardInput are protected in combat:
@@ -157,7 +147,8 @@ end
 
 -- Announcement action button, 38 tall: primary is bright, secondary dim. opts: w;
 -- secondary; hoverA (secondary border alpha on hover); hoverRGB {r,g,b} (secondary
--- hovers to that colour instead, border alpha 0.95). The caller anchors it.
+-- hovers to that colour instead, border alpha 0.95); square (the square outline,
+-- for a window that is square by design). The caller anchors it.
 function EllesmereUI.MakeActionButton(parent, font, text, r, g, b, opts)
     local secondary, hoverRGB = opts.secondary, opts.hoverRGB
     local btn = CreateFrame("Button", nil, parent)
@@ -166,7 +157,12 @@ function EllesmereUI.MakeActionButton(parent, font, text, r, g, b, opts)
     local bbg = btn:CreateTexture(nil, "BACKGROUND")
     bbg:SetAllPoints()
     bbg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
-    local brd = MakeBorder(btn, r, g, b, secondary and 0.35 or 0.9, PanelPP)
+    local brd
+    if opts.square then
+        brd = MakeBorder(btn, r, g, b, secondary and 0.35 or 0.9, PanelPP)
+    else
+        brd = EllesmereUI.MakeRoundedBorder(btn, r, g, b, secondary and 0.35 or 0.9, bbg)
+    end
     local lbl = btn:CreateFontString(nil, "OVERLAY")
     lbl:SetFont(font, 15, "")
     PanelPP.Point(lbl, "CENTER", btn, "CENTER", 0, 0)
@@ -185,13 +181,17 @@ function EllesmereUI.MakeActionButton(parent, font, text, r, g, b, opts)
         lbl:SetTextColor(r, g, b, secondary and 0.55 or 0.9)
         brd:SetColor(r, g, b, secondary and 0.35 or 0.9)
     end)
+    -- The label, for a popup that changes its font later (the Talent Conditions
+    -- picker takes its opener's module font).
+    btn._label = lbl
     return btn
 end
 
 -- Fading popup button (confirm and input popups): 125x27; text and border lerp from the
 -- default to the hover colours over 0.1s. Exposes btn._lbl, btn._resetAnim and
 -- btn._setColors (new colours, same argument order as the defaults below).
-function EllesmereUI.MakePopupButton(parent, anchorPoint, anchorTo, anchorRef, xOff, yOff, defR, defG, defB, defA, hovR, hovG, hovB, hovA, bDefR, bDefG, bDefB, bDefA, bHovR, bHovG, bHovB, bHovA)
+-- square (optional): the square outline, for a window that is square by design.
+function EllesmereUI.MakePopupButton(parent, anchorPoint, anchorTo, anchorRef, xOff, yOff, defR, defG, defB, defA, hovR, hovG, hovB, hovA, bDefR, bDefG, bDefB, bDefA, bHovR, bHovG, bHovB, bHovA, square)
     local FADE_DUR = 0.1
     local btn = CreateFrame("Button", nil, parent)
     btn:SetSize(125, 27)
@@ -200,7 +200,12 @@ function EllesmereUI.MakePopupButton(parent, anchorPoint, anchorTo, anchorRef, x
 
     local bg = SolidTex(btn, "BACKGROUND", 0, 0, 0, 0.5)
     bg:SetAllPoints()
-    local brd = MakeBorder(btn, bDefR, bDefG, bDefB, bDefA)
+    local brd
+    if square then
+        brd = MakeBorder(btn, bDefR, bDefG, bDefB, bDefA)
+    else
+        brd = EllesmereUI.MakeRoundedBorder(btn, bDefR, bDefG, bDefB, bDefA, bg)
+    end
 
     local lbl = MakeFont(btn, 12, nil, defR, defG, defB)
     lbl:SetAlpha(defA)
@@ -346,10 +351,11 @@ local function MakePopupCheckbox(popup, width)
     cbBox:SetFrameLevel(cbRow:GetFrameLevel() + 1)
     local cbBoxBg = SolidTex(cbBox, "BACKGROUND", 0.103, 0.095, 0.088, 1)
     cbBoxBg:SetAllPoints()
-    MakeBorder(cbBox, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.25)
+    EllesmereUI.MakeRoundedBorder(cbBox, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.25, cbBoxBg)
     local cbCheck = SolidTex(cbBox, "ARTWORK", EG.r, EG.g, EG.b, 1)
     cbCheck:SetPoint("TOPLEFT", 3, -3)
     cbCheck:SetPoint("BOTTOMRIGHT", -3, 3)
+    EllesmereUI.RoundBody(cbBox, cbCheck, 1)
     cbCheck:Hide()
 
     local cbLabel = MakeFont(cbRow, 11, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
@@ -423,8 +429,9 @@ local function CreateConfirmPopup()
     popup._popBgAtlas = popBgAtlas
     popup._popBgOverlay = popBgOverlay
 
-    -- Pixel-perfect border
-    MakeBorder(popup, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15)
+    popup._brd = EllesmereUI.MakeRoundedBorder(popup, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15, popBgFlat)
+    EllesmereUI.RoundBody(popup, popBgAtlas)
+    EllesmereUI.RoundBody(popup, popBgOverlay)
 
     -- Title
     local title = MakeFont(popup, 16, "", 1, 1, 1)
@@ -690,6 +697,8 @@ function EllesmereUI:ShowConfirmPopup(opts)
     end
 
     popup:SetHeight((popup._baseH or 176) + overflowH + scaleWarnH + cbH + typeH)
+    -- A popup shown again keeps its layer seat: refit for the new height.
+    popup._brd:Fit()
     popup._cancelBtn._lbl:SetText(EllesmereUI.L(opts.cancelText or "Cancel"))
     popup._confirmBtn._lbl:SetText(EllesmereUI.L(opts.confirmText or "Confirm"))
     -- onDismiss: called on escape/click-outside. Falls back to onCancel if not provided.
@@ -842,7 +851,7 @@ local function CreateInfoPopup()
 
     local popBg = SolidTex(popup, "BACKGROUND", 0.077, 0.068, 0.058, 1)
     popBg:SetAllPoints()
-    MakeBorder(popup, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15)
+    EllesmereUI.MakeRoundedBorder(popup, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15, popBg)
 
     -- Title
     local title = MakeFont(popup, 15, "", 1, 1, 1)
@@ -1030,7 +1039,9 @@ function EllesmereUI:ShowInputPopup(opts)
         popup._popBgAtlas = popBgAtlas
         popup._popBgOverlay = popBgOverlay
 
-        MakeBorder(popup, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15)
+        popup._brd = EllesmereUI.MakeRoundedBorder(popup, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15, popBgFlat)
+        EllesmereUI.RoundBody(popup, popBgAtlas)
+        EllesmereUI.RoundBody(popup, popBgOverlay)
 
         local title = MakeFont(popup, 16, "", 1, 1, 1)
         title:SetPoint("TOP", popup, "TOP", 0, -20)
@@ -1192,7 +1203,7 @@ function EllesmereUI:ShowInputPopup(opts)
         extraBtn:SetFrameLevel(popup:GetFrameLevel() + 2)
         local extraBg = SolidTex(extraBtn, "BACKGROUND", 0, 0, 0, 0.5)
         extraBg:SetAllPoints()
-        MakeBorder(extraBtn, 1, 1, 1, 0.25)
+        EllesmereUI.MakeRoundedBorder(extraBtn, 1, 1, 1, 0.25, extraBg)
         local extraLbl = MakeFont(extraBtn, 12, nil, 1, 1, 1)
         extraLbl:SetAlpha(0.6)
         extraLbl:SetPoint("CENTER")
@@ -1274,6 +1285,7 @@ function EllesmereUI:ShowInputPopup(opts)
                 popup._flashEmpty()
                 return
             end
+            if popup._closePicker then popup._closePicker() end
             local shown, cb = popup._handle, popup._onConfirmCb
             if cb then
                 if popup._cbRow:IsShown() then cb(txt, popup._cbChecked) else cb(txt) end
@@ -1322,6 +1334,61 @@ function EllesmereUI:ShowInputPopup(opts)
     popup._info._tip = opts.infoTooltip
     popup._info._tipOpts = opts.infoTooltipOpts
     popup._info:SetShown(opts.infoTooltip ~= nil)
+    -- Optional colour swatch left of the input (opts.swatch = { get, onClick,
+    -- tooltip }), built on its first use. It is painted from get() -> r, g, b
+    -- as the popup shows and each time the caller's onClick(swatch, repaint)
+    -- calls repaint(). The caller opens the colour picker, and an open one
+    -- closes with the popup: before a confirm runs its callback, and when the
+    -- popup is dismissed (so the picker's own cancel comes first).
+    local sw = opts.swatch
+    if sw and not popup._swatch then
+        local swatch = CreateFrame("Button", nil, popup)
+        PanelPP.Size(swatch, 20, 20)
+        PanelPP.Point(swatch, "RIGHT", popup._inputFrame, "LEFT", -8, 0)
+        swatch:SetFrameLevel(popup:GetFrameLevel() + 3)
+        local fill = SolidTex(swatch, "ARTWORK", 1, 1, 1, 1)
+        fill:SetAllPoints()
+        EllesmereUI.MakeRoundedBorder(swatch, 1, 1, 1, 0.9, fill)
+        popup._paintSwatch = function()
+            local o = popup._swatchOpts
+            if not o then return end
+            local r, g, b = o.get()
+            fill:SetColorTexture(r or 1, g or 1, b or 1, 1)
+        end
+        popup._closePicker = function()
+            local picker = popup._swatchOpts and EllesmereUI._colorPickerPopup
+            if picker and picker:IsShown() then picker:Hide() end
+        end
+        swatch:SetScript("OnClick", function(self)
+            local o = popup._swatchOpts
+            if o and o.onClick then o.onClick(self, popup._paintSwatch) end
+        end)
+        swatch:SetScript("OnEnter", function(self)
+            local o = popup._swatchOpts
+            if o and o.tooltip then
+                self._tipShown = true
+                EllesmereUI.ShowWidgetTooltip(self, EllesmereUI.L(o.tooltip))
+            end
+        end)
+        local function SwatchLeave(self)
+            if self._tipShown then
+                self._tipShown = nil
+                EllesmereUI.HideWidgetTooltip()
+            end
+        end
+        swatch:SetScript("OnLeave", SwatchLeave)
+        swatch:SetScript("OnHide", SwatchLeave)
+        popup._dimmer:HookScript("OnHide", popup._closePicker)
+        popup._swatch = swatch
+    end
+    popup._swatchOpts = sw
+    if popup._swatch then
+        popup._swatch:SetShown(sw ~= nil)
+        if sw then popup._paintSwatch() end
+        -- The info badge steps left of a shown swatch
+        popup._info:ClearAllPoints()
+        PanelPP.Point(popup._info, "RIGHT", sw and popup._swatch or popup._inputFrame, "LEFT", -8, 0)
+    end
     popup._msg:SetText(EllesmereUI.L(opts.message or ""))
     popup._placeholder:SetText(EllesmereUI.L(opts.placeholder or "Enter name..."))
     popup._cancelBtn._lbl:SetText(EllesmereUI.L(opts.cancelText or "Cancel"))
@@ -1424,9 +1491,13 @@ function EllesmereUI:ShowInputPopup(opts)
         dd:SetFrameLevel(popup:GetFrameLevel() + 20)
         dd:SetPoint("TOPLEFT", popup._inputFrame, "BOTTOMLEFT", 0, -2)
         dd:SetWidth(inputW)
+        -- Full height up front: the outline's body mask (shared by the rows) is
+        -- shaped once here and keeps that radius for every later row count.
+        dd:SetHeight(ROWS * ROW_H + 21)
         dd:EnableMouse(true)
-        SolidTex(dd, "BACKGROUND", 0.04, 0.035, 0.03, 0.97):SetAllPoints()
-        MakeBorder(dd, 1, 1, 1, 0.2)
+        local ddBg = SolidTex(dd, "BACKGROUND", 0.04, 0.035, 0.03, 0.97)
+        ddBg:SetAllPoints()
+        dd._brd = EllesmereUI.MakeRoundedBorder(dd, 1, 1, 1, 0.2, ddBg)
         local rows = {}
         for i = 1, ROWS do
             local row = CreateFrame("Button", nil, dd)
@@ -1435,7 +1506,10 @@ function EllesmereUI:ShowInputPopup(opts)
             row:SetPoint("TOPRIGHT", dd, "TOPRIGHT", -1, -1 - (i - 1) * ROW_H)
             row._sel = SolidTex(row, "BACKGROUND", 1, 1, 1, 0.18)
             row._sel:SetAllPoints()
+            -- The list's shape: the first row keeps its round corners.
+            row._sel:AddMaskTexture(dd._brd.bodyMask)
             row._bar = SolidTex(row, "ARTWORK", 1, 1, 1, 1)
+            row._bar:AddMaskTexture(dd._brd.bodyMask)
             row._bar:SetPoint("TOPLEFT"); row._bar:SetPoint("BOTTOMLEFT")
             PanelPP.Width(row._bar, 2)
             row._key = MakeFont(row, 11, nil, 1, 1, 1, 0.9)
@@ -1510,6 +1584,7 @@ function EllesmereUI:ShowInputPopup(opts)
             legend:ClearAllPoints()
             legend:SetPoint("TOPLEFT", legendDiv, "BOTTOMLEFT", 7, -4)
             dd:SetHeight(n * ROW_H + 21)
+            dd._brd:Fit()
             dd:Show()
         end
         -- A click outside the list closes it (the panel search's pattern):
@@ -1652,6 +1727,7 @@ function EllesmereUI:ShowInputPopup(opts)
     end
 
     popup:SetHeight(194 + math.max(0, (opts.inputHeight or 28) - 28) + extraH + warnH + scaleWarnH + belowH + cbH)
+    popup._brd:Fit()
 
     popup._cancelBtn:SetScript("OnClick", function()
         popup._dimmer:Hide()

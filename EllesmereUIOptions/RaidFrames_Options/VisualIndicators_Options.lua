@@ -176,10 +176,10 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             -- if the names are not loaded. Reads go through the runtime's
             -- resolver over the page's raw, party-aware reads, so an unset
             -- role shows what it does.
-            local blessOrder = { "none", "might", "wisdom", "kings", "light" }
+            local blessOrder = { "none", "might", "wisdom", "kings" }
             local blessItems = {}
-            local BLESS_ID = { might = 19740, wisdom = 19742, kings = 20217, light = 19977 }
-            local BLESS_EN = { might = "Might", wisdom = "Wisdom", kings = "Kings", light = "Light" }
+            local BLESS_ID = { might = 19740, wisdom = 19742, kings = 20217 }
+            local BLESS_EN = { might = "Might", wisdom = "Wisdom", kings = "Kings" }
             local blessValues = { none = "None" }
             local full, common = {}, nil
             for i = 2, #blessOrder do
@@ -309,6 +309,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   items={
                       { key="missingBuffsFort",      label="Fortitude",        fixed=true },
                       { key="missingBuffsMark",      label="Mark of the Wild", fixed=true },
+                      { key="missingBuffsIntellect", label="Arcane Intellect", fixed=true },
                       { key="missingBuffsSpirit",    label="Spirit",           fixed=true },
                       { key="missingBuffsThorns",    label="Thorns",           fixed=true },
                       { key="missingBuffsSalvation", label="Salvation",        fixed=true },

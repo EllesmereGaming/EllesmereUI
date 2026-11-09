@@ -235,6 +235,9 @@ local DISPELLABLE = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.D
 -- "helpful auras that show on enemy nameplates even if non-stealable" -- the
 -- purpose-built enemy-buff curation token (source-verified 2026-08-16).
 local IMPORTANT = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.Important
+-- "Dispellable By Me" (npEnemyBuffDispelByMe, retail, nil = off): Important
+-- and Only Dispellable narrow "dispellable" to the group's own dispels.
+local RAID_DISPELLABLE = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.RaidPlayerDispellable
 
 -- Effective glow state: the Dispel Glow setting AND the player's offensive
 -- dispel capability (the option promises "you can dispel this", and the
@@ -1033,16 +1036,27 @@ end
 -- keeps the union overlap-free), narrowed to IMPORTANT in Important mode and
 -- whole in Show All mode, parked at 0 in Dispellable mode. Important mode
 -- therefore shows important OR dispellable, Show All every buff, and
--- Dispellable the glow group alone. All are composed filter STRINGS with
--- INCLUDE_NAME_PLATE_ONLY (matches Blizzard's own buffFilterString) --
--- C-evaluated, so the split holds on secret enemy data in instanced PvP and
--- the glow needs no per-aura signal (the machinery #1509 deleted). The
--- Dispel Glow setting never touches these filters -- it is only the style
--- the "np" group wears, so every shown dispellable buff glows.
+-- Dispellable the glow group alone. On retail, Dispellable By Me
+-- (BuffDispelByMe) narrows "dispellable" to the group's own dispels in
+-- Important and Dispellable mode: both groups then take RAID_DISPELLABLE in
+-- place of DISPELLABLE, so they stay exact complements. All are composed
+-- filter STRINGS with INCLUDE_NAME_PLATE_ONLY (matches Blizzard's own
+-- buffFilterString) -- C-evaluated, so the split holds on secret enemy data in
+-- instanced PvP and the glow needs no per-aura signal (the machinery #1509
+-- deleted). The Dispel Glow setting never touches these filters -- it is only
+-- the style the "np" group wears, so every shown dispellable buff glows.
 local function BuffMode()
     local m = PVal("npEnemyBuffFilter")
     if m == "dispellable" or m == "showall" then return m end
     return "important"
+end
+
+-- Important or Only Dispellable with "Dispellable By Me" on (retail only;
+-- Show All never reads it).
+local function BuffDispelByMe()
+    local mode = BuffMode()
+    return not EllesmereUI.IS_FOREVER and RAID_DISPELLABLE ~= nil and mode ~= "showall"
+        and PVal("npEnemyBuffDispelByMe") == true
 end
 
 local function BuffFilterGlow()
@@ -1050,7 +1064,7 @@ local function BuffFilterGlow()
     -- Stale-client shape only: without the DISPELLABLE token the union cannot
     -- be expressed, so Important mode keeps the old curated single group.
     if BuffMode() == "important" and IMPORTANT and not DISPELLABLE then t[#t + 1] = IMPORTANT end
-    if DISPELLABLE then t[#t + 1] = DISPELLABLE end
+    if DISPELLABLE then t[#t + 1] = BuffDispelByMe() and RAID_DISPELLABLE or DISPELLABLE end
     return t
 end
 
@@ -1062,7 +1076,8 @@ local function BuffFilterPlain()
     if mode == "dispellable" or not DISPELLABLE then return nil end
     local t = { "HELPFUL", "INCLUDE_NAME_PLATE_ONLY" }
     if mode == "important" and IMPORTANT then t[#t + 1] = IMPORTANT end
-    t[#t + 1] = "!" .. DISPELLABLE
+    -- The same token the glow group uses, so the two stay exact complements.
+    t[#t + 1] = "!" .. (BuffDispelByMe() and RAID_DISPELLABLE or DISPELLABLE)
     return t
 end
 
@@ -1415,20 +1430,21 @@ end
 
 ------------------------------------------------------------------------------
 -- Core Positions chains: the elements sharing one slot (the raid marker, the Rare/Quest
--- indicator, the faction badge, the three aura rows), laid out one after another in the
--- slot's order (<pos>SlotOrder: the option keys joined by commas; unset = the default
--- order), <pos>SlotElementSpacing apart (unset = the first aura row's Spacing in that
--- order, else the global aura spacing). A slot holding fewer than two of them costs one
--- count, and every element keeps the placement its own pass gave it. With two or more,
--- every pass that places a member (UpdateRaidIcon / UpdateClassification / UpdateFaction
--- in Name.lua; AnchorNPContainer: attach, re-anchors, the lockout, the cast icon push)
--- ends here, and the chain places every shown member again: the first by its own rule
--- (the pivot), each later one off the one before it. Left and Right grow outward, the
+-- indicator, the Quest Objective Text, the faction badge, the three aura rows), laid out one
+-- after another in the slot's order (<pos>SlotOrder: the option keys joined by commas; unset
+-- = the default order), <pos>SlotElementSpacing apart (unset = the first aura row's Spacing
+-- in that order, else the global aura spacing). A slot holding fewer than two of them costs
+-- one count, and every element keeps the placement its own pass gave it. With two or more,
+-- every pass that places a member (UpdateRaidIcon / UpdateClassification / UpdateQuestText /
+-- UpdateFaction in Name.lua; AnchorNPContainer: attach, re-anchors, the lockout, the cast
+-- icon push) ends here, and the chain places every shown member again: the first by its own
+-- rule (the pivot), each later one off the one before it. Left and Right grow outward, the
 -- corners by the slot's Grow, Top and Bottom around the first shown aura row, which keeps
 -- its centred spot: the members before it in the order hang off its left edge, the ones
--- after off its right. Every element keeps its own height (an icon centred on the bar, a
--- row on the bar's bottom), so alone or chained it sits where it always did. A hidden
--- member (no marker, no mark, no badge) is skipped, so the chain closes up; an empty row
+-- after off its right. Every element keeps its own size and height (an icon centred on the
+-- bar at the size its update gave it, _npSz; a row on the bar's bottom), so alone or chained
+-- it sits where it always did. A hidden member (no marker, no mark, no text, no badge) is
+-- skipped, so the chain closes up; an empty row
 -- keeps its spacing (its width is engine-secret). The cast-lockout icon leads the Crowd
 -- Control row, which chains off it in the chain's direction. A member after a row hangs
 -- from the row's engine-sized corner, which only an aspect-born frame may (plate.coreHost,
@@ -1436,17 +1452,17 @@ end
 -- and the Kick Tracker the chain's outermost element on a side.
 ------------------------------------------------------------------------------
 local Chain = {
-    DEFAULT = "debuffs,buffs,ccs,raidmarker,rare,quest,faction",
+    DEFAULT = "debuffs,buffs,ccs,raidmarker,rare,quest,questtext,faction",
     -- Option key -> member (rare and quest are one frame).
     MEMBER = { debuffs = "debuffs", buffs = "buffs", ccs = "cc", raidmarker = "raid",
-        rare = "class", quest = "class", faction = "faction" },
+        rare = "class", quest = "class", questtext = "qtext", faction = "faction" },
     orderMemo = {},   -- [pos] = { src = the saved string, list = { member, ... } }
     keys = {},        -- [pos] = the slot's setting keys (no string building per pass)
     m = {},           -- the slot's members in order (ChainMembers)
     -- The plate's shown members (ChainShown): the frame the chain places, the frame the
     -- next member hangs off, the bottom edge of the member's own placement, row or icon,
-    -- the member id.
-    lead = {}, trail = {}, base = {}, row = {}, id = {},
+    -- the member id, an icon's height (0 for a row).
+    lead = {}, trail = {}, base = {}, row = {}, id = {}, sz = {},
     busy = false,
 }
 
@@ -1460,23 +1476,31 @@ local function ChainKeys(pos)
 end
 
 -- The slot's order: its saved string parsed once per value; members a saved order lacks
--- follow in the default order.
+-- follow in the default order, except the Quest Objective Text, which a saved order that
+-- holds the Quest Indicator but not it reads right after the Quest Indicator.
 local function ChainOrder(pos)
     local src = PVal(ChainKeys(pos).order)
     if type(src) ~= "string" then src = Chain.DEFAULT end
     local memo = Chain.orderMemo[pos]
     if memo and memo.src == src then return memo.list end
     local list, seen = {}, {}
-    local function take(s)
-        for key in string.gmatch(s, "[^,]+") do
-            local id = Chain.MEMBER[key]
-            if id and not seen[id] then
-                seen[id] = true
-                list[#list + 1] = id
-            end
+    local function add(id)
+        if id and not seen[id] then
+            seen[id] = true
+            list[#list + 1] = id
         end
     end
-    take(src)
+    local function take(s, textAfterQuest)
+        for key in string.gmatch(s, "[^,]+") do
+            add(Chain.MEMBER[key])
+            if textAfterQuest and key == "quest" then add("qtext") end
+        end
+    end
+    local hasText = false
+    for key in string.gmatch(src, "[^,]+") do
+        if key == "questtext" then hasText = true; break end
+    end
+    take(src, not hasText)
     take(Chain.DEFAULT)
     Chain.orderMemo[pos] = { src = src, list = list }
     return list
@@ -1485,12 +1509,16 @@ end
 -- The members the slot holds, in its order, into Chain.m; returns their count. A member
 -- counts while its own position key names the slot: the badge riding the Rare/Quest
 -- indicator is part of that member, Crowd Control inside the debuff row is the debuff row's.
+-- The Rare/Quest member counts only while one of its halves is on or the badge rides it.
 local function ChainMembers(pos)
     local m = Chain.m
     local n = 0
     local ds, bs, cs = ns.GetAuraSlots()
     local raid, class = ns.GetRaidMarkerPos(), ns.GetClassificationSlot()
+    if PVal("classificationHideRare") and not ns.NP_QuestIconOn()
+        and PVal("classificationIncludeFaction") ~= true then class = "none" end
     local fac = (PVal("classificationIncludeFaction") ~= true) and ns.NP_GetFactionSlot() or "none"
+    local qtext = ns.NP_GetQuestTextSlot()
     local order = ChainOrder(pos)
     for i = 1, #order do
         local id = order[i]
@@ -1500,6 +1528,7 @@ local function ChainMembers(pos)
         elseif id == "cc" then at = cs
         elseif id == "raid" then at = raid
         elseif id == "class" then at = class
+        elseif id == "qtext" then at = qtext
         else at = fac end
         if at == pos then
             n = n + 1
@@ -1558,13 +1587,13 @@ local function ChainBase(pos, id, isRow, sz, yOff, barH)
 end
 
 -- The plate's shown members of the slot, in order, into Chain.lead / trail / base / row /
--- id; returns their count. A row counts only while shown and last placed in this very
--- slot (IsSideRow); the Crowd Control row behind its lockout icon is led by the icon.
+-- id / sz; returns their count. A row counts only while shown and last placed in this very
+-- slot (IsSideRow); the Crowd Control row behind its lockout icon is led by the icon. An
+-- icon's height is the one its update gave it (_npSz), else the slot's size.
 local function ChainShown(plate, pos, n)
     local b = active[plate]
     local _, yOff = ns.GetSlotOffsets(pos)
     local barH = ns.GetHealthBarHeight()
-    local sz = ns.GetSlotSize(pos)
     local k = 0
     for i = 1, n do
         local id = Chain.m[i]
@@ -1577,6 +1606,8 @@ local function ChainShown(plate, pos, n)
             if not (lead and lead:IsShown()) and PVal("classificationIncludeFaction") == true then
                 lead = plate.factionFrame
             end
+        elseif id == "qtext" then
+            lead = plate.questTextFrame
         elseif id == "faction" then
             lead = plate.factionFrame
         else
@@ -1594,12 +1625,16 @@ local function ChainShown(plate, pos, n)
         end
         if lead and lead:IsShown() then
             k = k + 1
+            local sz = 0
+            if not isRow then sz = lead._npSz or ns.GetSlotSize(pos) end
             Chain.lead[k], Chain.trail[k], Chain.row[k], Chain.id[k] = lead, trail or lead, isRow or false, id
+            Chain.sz[k] = sz
             Chain.base[k] = ChainBase(pos, id, isRow, sz, yOff, barH)
         end
     end
     for i = k + 1, #Chain.lead do
         Chain.lead[i], Chain.trail[i], Chain.base[i], Chain.row[i], Chain.id[i] = nil, nil, nil, nil, nil
+        Chain.sz[i] = nil
     end
     return k
 end
@@ -1626,7 +1661,7 @@ local function ChainPlaceOwn(plate, pos, i)
         AnchorNPContainer(c, id, plate, pos)
     else
         local xOff, yOff = ns.GetSlotOffsets(pos)
-        ns.NP_PlaceSlotIcon(plate, lead, pos, xOff, yOff, (id == "raid") and 0 or 2, ns.GetSlotSize(pos))
+        ns.NP_PlaceSlotIcon(plate, lead, pos, xOff, yOff, (id == "raid") and 0 or 2, Chain.sz[i])
     end
 end
 
@@ -1868,7 +1903,7 @@ function ns.NPC_SideRow(plate, side, a0, a1)
         for i = k, 1, -1 do
             local id = Chain.id[i]
             local y = Chain.base[i]
-            local h = Chain.row[i] and (NPHeight(id, NPSize(id))) or ns.GetSlotSize(side)
+            local h = Chain.row[i] and (NPHeight(id, NPSize(id))) or Chain.sz[i]
             if not a0 or (y < a1 and a0 < y + h) then return Chain.trail[i], y, h end
         end
         return nil
@@ -2141,7 +2176,12 @@ local function GeoFP()
         PVal("topSlotElementSpacing"), PVal("rightSlotElementSpacing"), PVal("leftSlotElementSpacing"),
         PVal("toprightSlotElementSpacing"), PVal("topleftSlotElementSpacing"), PVal("bottomSlotElementSpacing"),
         PVal("raidMarkerPos"), PVal("classificationSlot"), PVal("factionSlot"),
-        PVal("classificationIncludeFaction"))
+        PVal("classificationIncludeFaction"),
+        -- The Rare/Quest member's halves decide whether it is a member at all.
+        PVal("classificationHideRare") and true or false, ns.NP_QuestIconOn(),
+        -- The Quest Objective Text's slot: its own key and, while that is unset, the legacy
+        -- view (Replace Quest Icon with Objective, the Quest Indicator box and slot).
+        PVal("questTextSlot"), ns.NP_GetQuestTextSlot())
 end
 
 local function CfgFP()
@@ -2149,7 +2189,7 @@ local function CfgFP()
     -- with the container config rather than with the styles.
     return FP(PVal("maxDebuffs"), PVal("showAllDebuffs"), BuffMode(), NPB.Split(),
         PVal("debuffIncludeCC"), ns.NPF_FP(), PVal("hideBloodPlagueCopies") ~= false,
-        NPF_SunderOn())
+        NPF_SunderOn(), BuffDispelByMe())
 end
 
 local function ReanchorActive()

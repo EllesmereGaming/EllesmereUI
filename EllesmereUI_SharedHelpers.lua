@@ -929,6 +929,29 @@ function EllesmereUI.PlainString(v)
 end
 
 -------------------------------------------------------------------------------
+--  Power text formats ("smart", "curpp", "perpp", ...): WoW Forever offers no
+--  Smart Text, which chooses percent or value by spec, and Forever has no
+--  specs. There a saved "smart" reads as the value (Power Value, "curpp"; the
+--  Unit Frames smart rule, EllesmereUI.IsSmartPowerPercent, answers no there),
+--  and every format list leaves it out. Stored values moved once
+--  (forever_power_text_value_v1, EllesmereUI_Migration.lua).
+-------------------------------------------------------------------------------
+function EllesmereUI.PowerTextFormat(fmt)
+    if fmt == "smart" and EllesmereUI.IS_FOREVER then return "curpp" end
+    return fmt
+end
+-- A format dropdown's order list for this client: the same table, or on WoW
+-- Forever a copy without "smart".
+function EllesmereUI.PowerTextFormatOrder(order)
+    if not EllesmereUI.IS_FOREVER then return order end
+    local out = {}
+    for i = 1, #order do
+        if order[i] ~= "smart" then out[#out + 1] = order[i] end
+    end
+    return out
+end
+
+-------------------------------------------------------------------------------
 --  Guard table of a split module: the main file's names that its part files
 --  re-import. setters maps Set<Name> to a list in t; Set<Name>(v) hands v to
 --  every function in that list, and a function added to the list after a
@@ -1133,34 +1156,82 @@ do
 end
 
 -------------------------------------------------------------------------------
+--  Cast names: the client names the quest-object cast "Opening - No Text";
+--  cast bars show the plain "Opening". A secret or non-string name is returned
+--  as it is.
+-------------------------------------------------------------------------------
+function EllesmereUI.CleanCastName(name)
+    if issecretvalue(name) or type(name) ~= "string" then return name end
+    local clean = name:gsub("%s*%-%s*No Text$", "")
+    return clean ~= "" and clean or name
+end
+
+-------------------------------------------------------------------------------
 --  Show Full Spell Name (cast bars). Shrinks the spell name's font just enough
 --  for the whole name to fit the FontString's set width, and puts it back at
 --  baseSize for names that already fit. Measured on a private FontString that
 --  only ever holds clean text, so the cast text's own (possibly secret) metrics
 --  are never read. A secret name stays at baseSize and truncates as before.
+--  A name on one of our font families (EllesmereUI.SetFontFamily: it may hold a
+--  target's name) keeps a family at every size and is measured on one, so a
+--  Cyrillic, Korean or Chinese name is measured in the face that draws it.
 -------------------------------------------------------------------------------
 do
     local floor = math.floor
     local MIN_SIZE = 6
-    local measure
+    local measure, measureFam
+
+    -- fs's face, size and flags. A string on one of our families gives its roman
+    -- member's (the chosen font, whatever script the text holds), true, and
+    -- whether the family carries a shadow; any other string its own GetFont.
+    local function FontOf(fs)
+        local fo = fs:GetFontObject()
+        local set = EllesmereUI._fontFamilySet
+        if fo and set and set[fo] and fo.GetFontObjectForAlphabet then
+            local roman = fo:GetFontObjectForAlphabet("roman")
+            local face, size, flags
+            if roman then face, size, flags = roman:GetFont() end
+            if face then
+                local _, _, _, sa = fo:GetShadowColor()
+                return face, size, flags, true, (sa or 0) > 0
+            end
+        end
+        local face, size, flags = fs:GetFont()
+        return face, size, flags, false, false
+    end
+
+    -- Two measuring strings: a plain SetFont pins a string's face, so the one that
+    -- takes families never takes a plain font.
+    local function MeasureString(fam)
+        local m
+        if fam then m = measureFam else m = measure end
+        if not m then
+            m = UIParent:CreateFontString(nil, "BACKGROUND")
+            m:SetPoint("TOPLEFT", UIParent, "BOTTOMRIGHT", 100, -100)
+            m:SetAlpha(0)
+            if fam then measureFam = m else measure = m end
+        end
+        return m
+    end
 
     -- Width of a clean string in fs's font face (at size, or fs's own size).
     local function Measure(fs, str, size)
-        local font, cur, flags = fs:GetFont()
+        local font, cur, flags, isFam, shadow = FontOf(fs)
         if not font then return 0 end
-        if not measure then
-            measure = UIParent:CreateFontString(nil, "BACKGROUND")
-            measure:SetPoint("TOPLEFT", UIParent, "BOTTOMRIGHT", 100, -100)
-            measure:SetAlpha(0)
+        local fam = isFam and EllesmereUI.GetFontFamily(font, size or cur, flags, shadow)
+        local m = MeasureString(fam)
+        if fam then
+            m:SetFontObject(fam)
+        else
+            m:SetFont(font, size or cur, flags)
         end
-        measure:SetFont(font, size or cur, flags)
-        measure:SetText(str)
-        return measure:GetUnboundedStringWidth() or 0
+        m:SetText(str)
+        return m:GetUnboundedStringWidth() or 0
     end
     EllesmereUI.MeasureCastText = Measure
 
     function EllesmereUI.FitCastName(fs, str, baseSize)
-        local font, cur, flags = fs:GetFont()
+        local font, cur, flags, isFam, shadow = FontOf(fs)
         if not font then return end
         local size = baseSize
         local room = fs:GetWidth()
@@ -1173,7 +1244,13 @@ do
                 if size < MIN_SIZE then size = MIN_SIZE end
             end
         end
-        if cur ~= size then fs:SetFont(font, size, flags) end
+        if cur ~= size then
+            if isFam then
+                EllesmereUI.SetFontFamily(fs, font, size, flags, shadow)
+            else
+                fs:SetFont(font, size, flags)
+            end
+        end
     end
 end
 
@@ -1202,4 +1279,192 @@ function EllesmereUI.AddRestFlipbook(frame, tex, duration)
     frame:SetScript("OnShow", function() anim:Play() end)
     frame:SetScript("OnHide", function() anim:Stop() end)
     return anim
+end
+
+-------------------------------------------------------------------------------
+--  WoW Forever talent trees, read by Forever Essentials' Classic Talents
+--  window and the Talent Conditions picker (EllesmereUI.ShowTalentConditionsPopup).
+--  The active config's one trait tree holds the class's three vanilla trees
+--  as trait groups.
+-------------------------------------------------------------------------------
+do
+    local function ByOrder(a, b) return a.orderIndex < b.orderIndex end
+
+    -- The active config ID and tree ID, and the trees in their order, each
+    -- { groupID, name, nodes = { nodeID, ... } } with its visible talents
+    -- (name: the game's own). The list is nil while there is no tree.
+    function EllesmereUI.ForeverTalentTrees()
+        local configID = C_ClassTalents.GetActiveConfigID()
+        local config = configID and C_Traits.GetConfigInfo(configID)
+        local treeID = config and config.treeIDs[1]
+        if not treeID then return configID, nil, nil end
+        local groups = C_Traits.GetGroupDisplayInfoByTreeID(treeID)
+        table.sort(groups, ByOrder)
+        local trees, byGroup = {}, {}
+        for i, g in ipairs(groups) do
+            trees[i] = { groupID = g.groupID, name = g.displayName, nodes = {} }
+            byGroup[g.groupID] = trees[i]
+        end
+        for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID)) do
+            local info = C_Traits.GetNodeInfo(configID, nodeID)
+            if info and info.isVisible and info.entryIDs[1] then
+                for _, groupID in ipairs(info.groupIDs) do
+                    local t = byGroup[groupID]
+                    if t then
+                        t.nodes[#t.nodes + 1] = nodeID
+                        break
+                    end
+                end
+            end
+        end
+        return configID, treeID, trees
+    end
+
+    -- One axis of a tree's grid from its node positions: the first line, the
+    -- step, and the last line before any position far beyond the rest. The step
+    -- is the smallest gap between neighbouring positions above a quarter of the
+    -- median gap: some nodes sit a few units off their line (the hunter's,
+    -- paladin's and warlock's trees), and a gap that small is the same line, never
+    -- a step of its own (taken as one, it spread a tree over hundreds of rows).
+    local gaps = {}
+    local function GridAxis(values)
+        table.sort(values)
+        local n = 0
+        for i = 2, #values do
+            local d = values[i] - values[i - 1]
+            if d > 0 then n = n + 1; gaps[n] = d end
+        end
+        for i = #gaps, n + 1, -1 do gaps[i] = nil end
+        local first = values[1] or 0
+        if n == 0 then return first, 1, first end
+        table.sort(gaps)
+        local least = gaps[math.floor(n / 2) + 1] / 4
+        local step
+        for i = 1, n do
+            if gaps[i] > least then step = gaps[i]; break end
+        end
+        -- Lines follow each other a few steps apart at most; past a bigger jump
+        -- the rest lie off the grid (see Line).
+        local last = first
+        for i = 2, #values do
+            if values[i] - values[i - 1] > 4 * step then break end
+            last = values[i]
+        end
+        return first, step, last
+    end
+
+    -- A position's line (from 0) on one axis. A node far beyond the others whose
+    -- tenth falls on the grid is read there: an extra zero in the game's data
+    -- (the hunter's and priest's trees have such nodes).
+    local function Line(v, first, step, last)
+        if v > last + 4 * step then
+            local t = v / 10
+            local k = (t - first) / step
+            local r = math.floor(k + 0.5)
+            if r >= 0 and t <= last + step / 4 and math.abs(k - r) < 0.25 then v = t end
+        end
+        return math.floor((v - first) / step + 0.5)
+    end
+
+    -- Each talent's column and row (from 0) in its tree, from the node
+    -- positions: cells[nodeID] = { col, row, info } and the row count.
+    function EllesmereUI.TalentTreeGrid(configID, nodes)
+        local xs, ys, infos = {}, {}, {}
+        for i, nodeID in ipairs(nodes) do
+            local info = C_Traits.GetNodeInfo(configID, nodeID)
+            infos[nodeID] = info
+            xs[i], ys[i] = info.posX, info.posY
+        end
+        local x0, dx, xLast = GridAxis(xs)
+        local y0, dy, yLast = GridAxis(ys)
+        local cells, rows = {}, 0
+        for _, nodeID in ipairs(nodes) do
+            local info = infos[nodeID]
+            local col = Line(info.posX, x0, dx, xLast)
+            local row = Line(info.posY, y0, dy, yLast)
+            cells[nodeID] = { col = col, row = row, info = info }
+            rows = math.max(rows, row)
+        end
+        return cells, rows + 1
+    end
+end
+
+-------------------------------------------------------------------------------
+--  Talent Conditions: a list of { nodeID, entryID, spellID, taken } holds
+--  while every talent it names is taken (a committed rank) or not taken, as
+--  each entry asks. entryID only for a choice node (which side must be
+--  picked); spellID is for display only. Read by the Cooldown Manager's
+--  per-icon conditions and the WoW Forever swing timer; the picker is
+--  EllesmereUI.ShowTalentConditionsPopup (EllesmereUIOptions).
+--
+--  Node states are cached per node for the active talent config (a new config
+--  ID starts the cache over). Each reader wipes it on its own talent events
+--  through EllesmereUI.TalentCondInvalidate, so nothing here listens.
+-------------------------------------------------------------------------------
+do
+    -- nodeID -> the node's committed entryID when taken (true if the client
+    -- reports a rank but no entry), false when not taken or not in the tree.
+    local nodeState, nodeConfig = {}, nil
+
+    function EllesmereUI.TalentCondInvalidate()
+        wipe(nodeState)
+        nodeConfig = nil
+    end
+
+    local function NodeState(nodeID, configID)
+        if configID ~= nodeConfig then
+            wipe(nodeState)
+            nodeConfig = configID
+        end
+        local st = nodeState[nodeID]
+        if st == nil then
+            st = false
+            -- Guarded: a saved nodeID can outlive a talent-tree rework in a patch.
+            -- Runs on a cache miss only (once per node per talent change).
+            local ok, info
+            if configID then ok, info = pcall(C_Traits.GetNodeInfo, configID, nodeID) end
+            if ok and info then
+                -- Committed state only: activeRank/activeEntry also count picks staged
+                -- in the talent UI and never applied. A granted rank (activeRank above
+                -- ranksPurchased) cannot be staged, so it counts as taken as well.
+                local committed = info.entryIDsWithCommittedRanks
+                if committed and #committed > 0 then
+                    st = committed[1]
+                elseif (info.activeRank or 0) > (info.ranksPurchased or 0) then
+                    st = (info.activeEntry and info.activeEntry.entryID) or true
+                end
+            end
+            nodeState[nodeID] = st
+        end
+        return st
+    end
+
+    local function IsTaken(nodeID, entryID, configID)
+        local st = NodeState(nodeID, configID)
+        if st == false then return false end
+        return entryID == nil or st == entryID
+    end
+
+    -- True when the node (or, for a choice node, that side of it) is taken now.
+    function EllesmereUI.TalentCondIsTaken(nodeID, entryID)
+        return IsTaken(nodeID, entryID, C_ClassTalents.GetActiveConfigID())
+    end
+
+    -- True when every condition in the list holds (an empty or missing list
+    -- holds). A node that is not in the active tree reads as not taken.
+    -- configID: the config a caller already read for a whole pass (false =
+    -- none); nil reads the active one.
+    function EllesmereUI.TalentConditionsHold(conds, configID)
+        if type(conds) ~= "table" then return true end
+        if configID == nil then configID = C_ClassTalents.GetActiveConfigID() end
+        for i = 1, #conds do
+            local c = conds[i]
+            if type(c) == "table" and c.nodeID then
+                if IsTaken(c.nodeID, c.entryID, configID or nil) ~= (c.taken ~= false) then
+                    return false
+                end
+            end
+        end
+        return true
+    end
 end

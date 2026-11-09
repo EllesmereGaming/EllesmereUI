@@ -20,7 +20,7 @@ local EUI = EllesmereUI
 local ns = select(2, ...)
 local Offline = ns.Offline
 local I = ns._bagsInternals
-if not (Offline and I) then return end  -- wow forever, or a bags file didn't load
+if not (Offline and I) then return end  -- a bags file didn't load
 
 local GetItemInfo, GetItemInfoInstant = C_Item.GetItemInfo, C_Item.GetItemInfoInstant
 local _emptyP = {}
@@ -166,56 +166,91 @@ local function OpenPicker(v, owner)
     EUI.ShowContextMenu(owner, items, { below = true, fontKey = "bags" })
 end
 
+local function CreatePickerButton(v, header)
+    local forever = ns.BagsForever()
+    local scale = header:GetParent()._foreverBagFrameScale or 1
+    local button = CreateFrame("Button", nil, header)
+    button:SetSize(20 * scale, 20 * scale)
+
+    local bg
+    if forever and C_Texture.GetAtlasInfo("common-button-tertiary-square-normal") then
+        button:SetNormalAtlas("common-button-tertiary-square-normal")
+        if C_Texture.GetAtlasInfo("common-button-tertiary-square-pressed") then
+            button:SetPushedAtlas("common-button-tertiary-square-pressed")
+        end
+        if C_Texture.GetAtlasInfo("common-button-tertiary-square-hover") then
+            button:SetHighlightAtlas("common-button-tertiary-square-hover")
+        end
+    else
+        bg = button:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(1, 1, 1, 0.06)
+        EUI.MakeBorder(button, 1, 1, 1, 0.15, EUI.PP)
+    end
+
+    local icon = button:CreateTexture(nil, "OVERLAY")
+    if forever and C_Texture.GetAtlasInfo("socialqueuing-icon-group") then
+        icon:SetAtlas("socialqueuing-icon-group")
+        icon:SetDesaturated(true)
+        icon:SetSize(15 * scale, 13 * scale)
+    else
+        icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png")
+        icon:SetSize(14 * scale, 14 * scale)
+    end
+    if forever then icon:SetVertexColor(1, 0.86, 0.63) end
+    icon:SetPoint("CENTER")
+    icon:SetAlpha(0.8)
+
+    button:SetScript("OnClick", function(self) OpenPicker(v, self) end)
+    button:SetScript("OnEnter", function(self)
+        icon:SetAlpha(1)
+        if bg then bg:SetColorTexture(1, 1, 1, 0.14) end
+        EUI.ShowWidgetTooltip(self, EllesmereUI.L("Choose an alt"))
+    end)
+    button:SetScript("OnLeave", function()
+        icon:SetAlpha(0.8)
+        if bg then bg:SetColorTexture(1, 1, 1, 0.06) end
+        EUI.HideWidgetTooltip()
+    end)
+    return button
+end
+
 -- title: the window's title font string, count: the item count next to it
 local function SyncTitle(v, title, count)
     if not (title and count) then return end
     local on = Offline.Enabled()
     if on and not v.pick then
-        local hdr = title:GetParent()
-        -- small square button with the person icon
-        local b = CreateFrame("Button", nil, hdr)
-        b:SetSize(20, 20)
-        b.bg = b:CreateTexture(nil, "BACKGROUND")
-        b.bg:SetAllPoints()
-        b.bg:SetColorTexture(1, 1, 1, 0.06)
-        EUI.MakeBorder(b, 1, 1, 1, 0.15, EUI.PP)
-        b.arrow = b:CreateTexture(nil, "OVERLAY")
-        b.arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png")
-        b.arrow:SetSize(14, 14)
-        b.arrow:SetPoint("CENTER")
-        b.arrow:SetAlpha(0.8)
-        b:SetScript("OnClick", function(self) OpenPicker(v, self) end)
-        b:SetScript("OnEnter", function(self)
-            self.arrow:SetAlpha(1)
-            self.bg:SetColorTexture(1, 1, 1, 0.14)
-            EUI.ShowWidgetTooltip(self, EllesmereUI.L("Choose an alt"))
-        end)
-        b:SetScript("OnLeave", function(self)
-            self.arrow:SetAlpha(0.8)
-            self.bg:SetColorTexture(1, 1, 1, 0.06)
-            EUI.HideWidgetTooltip()
-        end)
-        v.pick = { btn = b }
+        v.pick = { btn = CreatePickerButton(v, title:GetParent()) }
     end
-    count:ClearAllPoints()
     local p = v.pick
+    if p then p.btn:SetShown(on) end
+    if on then
+        local c = Offline.Char(ShownKey(v))
+        local name = (c and c.name) or UnitName("player") or ""
+        local class = (c and c.class) or select(2, UnitClass("player"))
+        title:SetText(v.word(Hex(class) .. name .. "|r"))
+    else
+        title:SetText(v.plain())
+    end
+    local hdr = title:GetParent()
+    if hdr._foreverTitleY then
+        if on then p.btn:SetPoint("LEFT", hdr, "TOPLEFT", 55, hdr._foreverControlsY) end
+        title:SetPoint("LEFT", hdr, "TOPLEFT", on and 83 or 55, hdr._foreverTitleY)
+        return
+    end
+
+    count:ClearAllPoints()
     -- the button takes the title's spot (bags shift it for the sidebar arrow), the title goes after
     local pt, rel, relPt, x, y = title:GetPoint(1)
     if p and rel ~= p.btn then p.base = { pt, rel, relPt, x, y } end
-    if p then p.btn:SetShown(on) end
     if not on then
         if p and p.base then
             title:ClearAllPoints()
             title:SetPoint(unpack(p.base))
         end
-        title:SetText(v.plain())
         count:SetPoint("LEFT", title, "RIGHT", 8, 0)
         return
     end
-    local c = Offline.Char(ShownKey(v))
-    local name = (c and c.name) or UnitName("player") or ""
-    local class = (c and c.class) or select(2, UnitClass("player"))
-    title:SetText(v.word(Hex(class) .. name .. "|r"))
     p.btn:ClearAllPoints()
     p.btn:SetPoint("LEFT", p.base[2], p.base[3], p.base[4], p.base[5])
     title:ClearAllPoints()
@@ -262,7 +297,7 @@ local function PaintTabs(v)
         t.line:SetColorTexture(r, g, b, 1)
         t.line:SetShown(on)
         -- the bank window lists the tabs in its sidebar instead
-        t:SetShown(v.mode == "bank" and not v.side)
+        t:SetShown(v.mode == "bank" and not v.side and (t.key ~= "warband" or Offline.HasWarband()))
     end
 end
 
@@ -396,7 +431,7 @@ local function Slot(v, i)
     local hl = b:CreateTexture(nil, "HIGHLIGHT")
     hl:SetAllPoints()
     hl:SetColorTexture(1, 1, 1, 0.08)
-    ns.CreateInsetBorder(b)
+    ns.CreateInsetBorder(b, true)
     b:SetScript("OnEnter", SlotOnEnter)
     b:SetScript("OnLeave", SlotOnLeave)
     b:SetScript("OnClick", SlotOnClick)
@@ -418,6 +453,7 @@ local function Head(v, i)
     f.line:SetPoint("LEFT", f.label, "RIGHT", 6, 0)
     f.line:SetPoint("RIGHT", -SPACING, 0)
     f.line:SetColorTexture(0.7, 0.7, 0.7, 0.2)
+    if ns.BagsForever() then ns.SetForeverBagSectionColors(f.label, f.line) end
     v.heads[i] = f
     return f
 end
@@ -635,7 +671,7 @@ local function PaintSlot(b, it)
         b.Level:SetText("")
     end
     b._r, b._g, b._b = ns.QualityBorderColor(it.q)
-    if it.q <= 1 and BP().bagQualityBorder ~= false then b._r, b._g, b._b = 0.25, 0.25, 0.25 end
+    if not b._fvSlotBorder and it.q <= 1 and BP().bagQualityBorder ~= false then b._r, b._g, b._b = 0.25, 0.25, 0.25 end
     ns.SetInsetBorderColor(b, b._r, b._g, b._b, 1)
     b:Show()
 end
@@ -856,9 +892,10 @@ Place = function(v, mode, left, top, bottom)
     end
     Build(v)
     local win = v.win
+    local rightInset = ns.BagsForever() and -7 or -1
     v.panel:ClearAllPoints()
     v.panel:SetPoint("TOPLEFT", win, "TOPLEFT", left, -top)
-    v.panel:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -1, bottom)
+    v.panel:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", rightInset, bottom)
     v.panel:SetFrameLevel(win:GetFrameLevel() + 40)
     if not v.panel:IsShown() then v.track.PadSync(EUI.PadInUse()) end
     v.panel:Show()
@@ -990,7 +1027,9 @@ if EUI_Bank then
             if first > 1 then entries[first].split = true end
         end
         Add("bank", EllesmereUI.L("All Bank Tabs"), EllesmereUI.L("OneBank"), 413587, 1542860, c and c.bank, "CharacterBankTab_")
-        Add("warband", EllesmereUI.L("All Warbank Tabs"), EllesmereUI.L("OneWarbank"), 1542854, 1542854, Offline.Warband().tabs, "AccountBankTab_")
+        if Offline.HasWarband() then
+            Add("warband", EllesmereUI.L("All Warbank Tabs"), EllesmereUI.L("OneWarbank"), 1542854, 1542854, Offline.Warband().tabs, "AccountBankTab_")
+        end
 
         local collapsed = BP().bankSidebarCollapsed
         local w = side:GetWidth()
@@ -1020,12 +1059,7 @@ if EUI_Bank then
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", side, "TOPLEFT", 0, y)
             row:SetWidth(w)
-            row.icon:ClearAllPoints()
-            if collapsed then
-                row.icon:SetPoint("CENTER")
-            else
-                row.icon:SetPoint("LEFT", 8 + (e.nested and 10 or 0), 0)
-            end
+            ns.AnchorBagSidebarIcon(row.icon, collapsed, 8 + (e.nested and 10 or 0))
             row.icon:SetTexture(EllesmereUI.ClientIcon(e.icon))
             row.icon:SetAlpha(row.on and 1 or 0.75)
             row.label:SetShown(not collapsed)

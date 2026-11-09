@@ -4,14 +4,15 @@
 ## Group: EllesmereUI
 ## Notes: EllesmereUI community translations. Loads on demand for non-English locales.
 ## Author: Ellesmere
-## Version: 9.7.8
+## Version: 9.8.3
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Community translation files (one per locale; only the active one builds
-# entries). Loaded by EllesmereUI_Locale.lua at the parent's ADDON_LOADED
-# whenever the effective locale is non-English. Each line's
+# entries, plus esES under esMX as its per-key fallback). Loaded by
+# EllesmereUI_Locale.lua at the parent's ADDON_LOADED whenever the
+# effective locale is non-English. Each line's
 # [AllowLoadTextLocale ...] names the game client languages that read the
 # file at all: its own language, the paired language a client may pick in
 # EUI Options Language (esMX clients read esES; zhCN and zhTW read each

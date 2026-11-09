@@ -22,6 +22,17 @@ local GetSettingsForUnit, UnitToSettingsKey = I.GetSettingsForUnit, I.UnitToSett
 local db
 I.dbSetters[#I.dbSetters + 1] = function(v) db = v end
 
+-- True while the game withholds this unit's identity (inside instances: a
+-- unit that is neither player-controlled nor in the group). A model refuses
+-- such a unit (PlayerModel:SetUnit needs the identity), so the 3D lanes
+-- stand down for it. An answer that cannot be read counts as withheld.
+local ShouldUnitIdentityBeSecret = C_Secrets and C_Secrets.ShouldUnitIdentityBeSecret
+local function IdentityHidden(unit)
+    if not ShouldUnitIdentityBeSecret then return false end
+    local hidden = ShouldUnitIdentityBeSecret(unit)
+    return issecretvalue(hidden) or hidden == true
+end
+
 local UF_ICONS_PATH = "Interface\\AddOns\\EllesmereUI\\media\\icons\\"
 local CLASS_FULL_SPRITE_BASE = UF_ICONS_PATH .. "class-full\\"
 local CLASS_FULL_COORDS = EllesmereUI.CLASS_ICON_SPRITE_COORDS
@@ -181,6 +192,9 @@ do
         Resolve(model, key)
     end
     function ns.UF_CanMirrorPortrait2D(model, unit, onReady)
+        -- No model for a unit whose identity is withheld: its portrait stays
+        -- unflipped, and the model is left as it is.
+        if IdentityHidden(unit) then return false end
         -- IDs may be secret: only type() and issecretvalue() ever test them.
         local guid = UnitGUID(unit)
         local key = (not issecretvalue(guid)) and guid or nil
@@ -319,21 +333,36 @@ function PortraitOverride(self, event, evtUnit, fallback)
     end
     if hasStateChanged then
         if isModel then
-            if not isAvailable then
-                element:SetCamDistanceScale(0.25)
-                element:SetPortraitZoom(0)
-                element:SetPosition(0, 0, 0.25)
+            -- A model refuses a unit whose identity the game withholds (an
+            -- enemy inside an instance), and the refused call leaves nothing
+            -- to draw: that unit's 2D portrait stands in on the backdrop's 2D
+            -- texture, and the model comes back with the next unit it can show.
+            local stand = element.backdrop and element.backdrop._2d
+            if stand and isAvailable and IdentityHidden(u) then
                 element:ClearModel()
-                element:SetModel([[Interface\Buttons\TalkToMeQuestionMark.m2]])
+                element:Hide()
+                SetPortraitTexture(stand, u, stand._blizzNoMask)
+                if stand.PostUpdate then stand:PostUpdate(u) end
+                stand:Show()
             else
-                local uKey3d = UnitToSettingsKey(self._euiBaseUnit or u)
-                local uS3d = uKey3d and db.profile[uKey3d]
-                local camScale = ((uS3d and uS3d.portrait3dZoom) or 100) / 100
-                element:ClearModel()
-                element:SetUnit(u)
-                element:SetPortraitZoom(1)
-                element:SetPosition(0, 0, 0)
-                element:SetCamDistanceScale(camScale)
+                if stand then stand:Hide() end
+                element:Show()
+                if not isAvailable then
+                    element:SetCamDistanceScale(0.25)
+                    element:SetPortraitZoom(0)
+                    element:SetPosition(0, 0, 0.25)
+                    element:ClearModel()
+                    element:SetModel([[Interface\Buttons\TalkToMeQuestionMark.m2]])
+                else
+                    local uKey3d = UnitToSettingsKey(self._euiBaseUnit or u)
+                    local uS3d = uKey3d and db.profile[uKey3d]
+                    local camScale = ((uS3d and uS3d.portrait3dZoom) or 100) / 100
+                    element:ClearModel()
+                    element:SetUnit(u)
+                    element:SetPortraitZoom(1)
+                    element:SetPosition(0, 0, 0)
+                    element:SetCamDistanceScale(camScale)
+                end
             end
         elseif element.isClass then
             -- Class sprite lane: the engine painter is the single portrait
@@ -1003,7 +1032,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
             -- Dark mode: always the player's own class color.
             local _, classToken = UnitClass("player")
             if classToken then
-                local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken]
+                local c = EllesmereUI.GetClassColor(classToken)
                 if c then bR, bG, bB = c.r, c.g, c.b end
             end
         elseif unitToken and UnitExists(unitToken) then
@@ -1011,7 +1040,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
             -- for NPCs, tapped grey).
             local _, classToken = UnitClass(unitToken)
             if UnitIsPlayer(unitToken) and not issecretvalue(classToken) and classToken then
-                local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken]
+                local c = EllesmereUI.GetClassColor(classToken)
                 if c then bR, bG, bB = c.r, c.g, c.b end
             elseif UnitIsTapDenied and UnitIsTapDenied(unitToken) then
                 bR, bG, bB = 0.6, 0.6, 0.6
@@ -1029,7 +1058,7 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
             -- Fallback: player class color.
             local _, classToken = UnitClass("player")
             if classToken then
-                local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[classToken]
+                local c = EllesmereUI.GetClassColor(classToken)
                 if c then bR, bG, bB = c.r, c.g, c.b end
             end
         end
@@ -1215,6 +1244,15 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
 
     -- Outer Ring / Inner Shadow (round shapes); nothing built while off.
     ns.UF_PortraitExtras(backdrop, uSettings, shape)
+end
+-- Whether a frame shows its portrait, the frame layout's rule: a stock style
+-- always carries one, otherwise Portrait Mode and Show Portrait decide. An
+-- indicator set to Portrait centres on it only while it shows, never on a
+-- hidden backdrop (the options preview places them the same way).
+function ns.UF_PortraitShown(s)
+    if ns.UF_Blizz() then return true end
+    local pStyle = (s and s.portraitStyle) or db.profile.portraitStyle or "attached"
+    return pStyle ~= "none" and not (s and s.showPortrait == false)
 end
 local function CreatePortrait(frame, side, frameHeight, unit)
     local portraitHeight = frameHeight or 46

@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: EllesmereUI settings panel. Loads on demand when you open EllesmereUI options.
 ## Author: Ellesmere
-## Version: 9.7.8
+## Version: 9.8.3
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -25,6 +25,7 @@ EllesmereUI_Widgets_CheckboxDropdowns.lua
 EllesmereUI_Widgets_Visibility.lua
 EllesmereUI_Widgets_PageParts.lua
 EllesmereUI_GlowOptions.lua
+EllesmereUI_TalentConditionsPopup.lua
 EUI_Colors_Options.lua
 EUI_Profiles_Options.lua
 EUI_WhatsNew_Options.lua

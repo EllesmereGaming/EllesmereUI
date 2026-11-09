@@ -132,7 +132,9 @@ do
             end
             r.unit = unit
             local nameFS, valFS = r.nameFS, r.valFS
-            nameFS:SetFont(fontPath, size, outline)
+            -- The name a font family (other players' names), with no shadow as
+            -- the value's plain font.
+            EllesmereUI.SetFontFamily(nameFS, fontPath, size, outline, false)
             valFS:SetFont(fontPath, size, outline)
             -- Value color: power color per unit, or the custom color.
             if powerMode then

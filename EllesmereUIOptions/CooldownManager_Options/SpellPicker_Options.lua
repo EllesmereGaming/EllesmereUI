@@ -404,7 +404,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
             end
             if ns.IsEmptySlotMarker(spellID) then
                 -- Empty slots only expose identity-level conditions, never icon styling.
-                if not EllesmereUI.IS_FOREVER and not isBuffBar and not (bd and bd.isGhostBar) then
+                if not isBuffBar and not (bd and bd.isGhostBar) then
                     local store = ns.GetSpellSettingsStore(barKey, true)
                     if store then
                         local ss = store[spellID] or {}
@@ -4691,10 +4691,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 -- Talent Conditions (cd/util family, real spells only; per-spell ONLY like
                 -- Replace with Buff -- no tiers, no apply strip). The icon shows only while
                 -- every picked condition holds (EllesmereUICdmTalentConditions.lua); the
-                -- tree popup lives in EUI_CooldownManager_TalentConditions.lua. Closes the menu (popup flow).
-                -- Not on WoW Forever: its vanilla trees have no class/spec split for the popup to draw.
-                if not EllesmereUI.IS_FOREVER
-                   and not isBuffBar and not isHostedBuff and not (bd and bd.isGhostBar)
+                -- tree popup lives in EUI_CooldownManager_TalentConditions.lua (on WoW Forever,
+                -- the three vanilla trees). Closes the menu (popup flow).
+                if not isBuffBar and not isHostedBuff and not (bd and bd.isGhostBar)
                    and type(spellID) == "number" and spellID > 0
                    and not ((ns._myRacialsSet and ns._myRacialsSet[spellID])
                             or (sd.customSpellIDs and sd.customSpellIDs[spellID])) then

@@ -34,11 +34,17 @@ local BTN_TXT_HA = EllesmereUI.BTN_TXT_HA
 -- colours = { bg_r,bg_g,bg_b,bg_a, bg_hr,bg_hg,bg_hb,bg_ha,
 --             brd_r,brd_g,brd_b,brd_a, brd_hr,brd_hg,brd_hb,brd_ha,
 --             txt_r,txt_g,txt_b,txt_a, txt_hr,txt_hg,txt_hb,txt_ha }
-local function MakeStyledButton(btn, text, fontSize, colours, onClick)
+-- square (optional): the square outline, for a window that is square by design.
+local function MakeStyledButton(btn, text, fontSize, colours, onClick, square)
     local c = colours
     local bg  = SolidTex(btn, "BACKGROUND", c[1], c[2], c[3], c[4])
     bg:SetAllPoints()
-    local brd = MakeBorder(btn, c[9], c[10], c[11], c[12], PP)
+    local brd
+    if square then
+        brd = MakeBorder(btn, c[9], c[10], c[11], c[12], PP)
+    else
+        brd = EllesmereUI.MakeRoundedBorder(btn, c[9], c[10], c[11], c[12], bg)
+    end
     local lbl = MakeFont(btn, fontSize, nil, c[17], c[18], c[19])
     -- The resting alpha lives in the text colour, as the hover scripts below set it
     -- (a region alpha on top would multiply with it after the first hover).
@@ -234,7 +240,11 @@ local function GetTooltipFrame()
         bg:SetAllPoints()
         tooltipFrame.bg = bg
         MakeBorder(tooltipFrame, 1, 1, 1, 0.15, PP)
-        tooltipFrame.text = MakeFont(tooltipFrame, 10, nil, 1, 1, 1, 0.80)
+        -- The panel font as a font family: the tooltip also shows friends' names
+        -- and notes, whose scripts the panel font may lack.
+        tooltipFrame.text = tooltipFrame:CreateFontString(nil, "OVERLAY")
+        EllesmereUI.SetFontFamily(tooltipFrame.text, EllesmereUI.EXPRESSWAY, 10, "", false)
+        tooltipFrame.text:SetTextColor(1, 1, 1, 0.80)
         tooltipFrame.text:SetPoint("TOPLEFT", 8, -8)
         tooltipFrame.text:SetPoint("TOPRIGHT", -8, -8)
         tooltipFrame.text:SetWordWrap(true)
@@ -626,6 +636,7 @@ end
 --                        setValue(v) the whole number, floored at min (or 1)
 --    icon = texture      a cropped 16px icon before the label
 --    noLoc = true        the label as given (no L())
+--    desc = "..."        a small grey line under the label (as given, no L())
 --  opts (optional): below = true hangs the menu off `anchor`'s bottom-left edge
 --  instead of the cursor (the dropdown placement of the options widgets);
 --  minWidth widens the menu to the anchor's width so it reads as a dropdown.
@@ -954,6 +965,18 @@ local function CtxIcon(row)
     return icon
 end
 
+-- the small line under a label, made on first need
+local function CtxDesc(row)
+    local d = row._desc
+    if not d then
+        d = row:CreateFontString(nil, "OVERLAY")
+        d:SetJustifyH("LEFT")
+        d:SetWordWrap(false)
+        row._desc = d
+    end
+    return d
+end
+
 local function CtxLayout(panel, items, minW, fontKey)
     local look = panel._look
     if look.popupBorder and not panel._art and EllesmereUI._applyBlizzardConfiguredBorder
@@ -987,6 +1010,13 @@ local function CtxLayout(panel, items, minW, fontKey)
             local w = mfs:GetStringWidth() or 0
             if item.onRemove then w = w + 20 end
             if w > widest then widest = w end
+            if item.desc then
+                mfs:SetFont(fontPath, size - 2, outline)
+                mfs:SetText(item.desc)
+                w = mfs:GetStringWidth() or 0
+                if w > widest then widest = w end
+                mfs:SetFont(fontPath, size, outline)
+            end
             if item.icon then iconW = 22 end
         end
     end
@@ -1017,9 +1047,12 @@ local function CtxLayout(panel, items, minW, fontKey)
         if row._box then row._box:Hide() end
         if row._icon then row._icon:Hide() end
         if row._rm then row._rm:Hide() end
+        if row._desc then row._desc:Hide() end
+        local desc = type(item) == "table" and item.desc
         -- The label starts past the item's icon.
-        lbl:SetPoint("LEFT", row, "LEFT", look.left + ((type(item) == "table" and item.icon) and 22 or 0), 0)
-        local h = look.rowH
+        lbl:SetPoint("LEFT", row, "LEFT", look.left + ((type(item) == "table" and item.icon) and 22 or 0), desc and 6 or 0)
+        lbl:SetPoint("RIGHT", row, "RIGHT", look.right, desc and 6 or 0)
+        local h = desc and look.rowH + 10 or look.rowH
         if item == "---" then
             h = look.sepH
             row._item, row._disabled = nil, true
@@ -1029,6 +1062,15 @@ local function CtxLayout(panel, items, minW, fontKey)
         else
             row._item = item
             lbl:SetText(item.noLoc and item.text or L(item.text or ""))
+            if desc then
+                local d = CtxDesc(row)
+                d:SetFont(fontPath, size - 2, outline)
+                d:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -3)
+                d:SetPoint("RIGHT", row, "RIGHT", look.right, 0)
+                d:SetText(desc)
+                d:SetTextColor(1, 1, 1, (item.isDisabled and item.isDisabled()) and 0.25 or 0.5)
+                d:Show()
+            end
             if item.icon then
                 local ic = CtxIcon(row)
                 ic:SetPoint("LEFT", row, "LEFT", look.left, 0)
@@ -1194,6 +1236,18 @@ do
             row[surname] = full
         end
         return full
+    end
+
+    -- True for your own unit on WoW Forever while Blizzard's "My Surname" (UnitSurnameOwn)
+    -- is off, when your name is your first name alone: the [name:last] and [target:last]
+    -- tags show nothing for it, so "[name:first] [name:last]" reads as the first name.
+    function EllesmereUI.OwnSurnameHidden(unit)
+        if not IS_FOREVER or not unit then return false end
+        local PI = C_PlayerInfo
+        if not (PI and PI.ShouldDisplaySurname) or PI.ShouldDisplaySurname() then return false end
+        local isMe = UnitIsUnit(unit, "player")
+        if issecretvalue(isMe) then return false end
+        return isMe == true
     end
 
     -- Name Format, on every client:
@@ -1433,7 +1487,9 @@ end -- IS_FOREVER
 --    PadInUse()             PadCP() or PadNative(): the controller signal
 --    PadConnected()         gamepad support is on and a controller is
 --                           connected (not the last input: no mouse flicker)
---    WatchPad(owner, fn)    fn(padOn) once per burst of PadConnected() edges
+--    PadModeOn()            what the controller hides follow: WoW Forever's
+--                           Gamepad interface style, elsewhere PadConnected()
+--    WatchPad(owner, fn)    fn(padOn) once per burst of PadModeOn() edges
 --    UnwatchPad(owner)      stop following; the last one drops the events
 --    PadGamepadUI()         WoW Forever's Gamepad interface style is on
 --    PadTaintStandDown()    that style is on and its navigation still lets an
@@ -1497,23 +1553,40 @@ do
         return PadGamepadUI() and _G.SmartNavigationSecureHelper == nil
     end
 
+    -- What the controller hides (Global Settings > Gamepad) follow. On WoW
+    -- Forever its Gamepad interface style: Blizzard's own gamepad bars and cast
+    -- bar show only under it, so a controller left connected during keyboard and
+    -- mouse play hides nothing. Elsewhere a connected controller.
+    local function PadModeOn()
+        if IS_FOREVER then return PadGamepadUI() end
+        return PadConnected()
+    end
+
     EllesmereUI.PadCP        = PadCP
     EllesmereUI.PadNative    = PadNative
     EllesmereUI.PadInUse     = PadInUse
     EllesmereUI.PadConnected = PadConnected
     EllesmereUI.PadGamepadUI = PadGamepadUI
     EllesmereUI.PadTaintStandDown = PadTaintStandDown
+    EllesmereUI.PadModeOn    = PadModeOn
 
-    -- Following PadConnected(): one shared watcher for every feature that hides
+    -- Following PadModeOn(): one shared watcher for every feature that hides
     -- or shows something with the controller. Its frame is built at the first
-    -- WatchPad and holds GAME_PAD_CONNECTED / GAME_PAD_DISCONNECTED and the
-    -- GamePadEnable CVAR_UPDATE only while at least one watcher exists. Edges
-    -- come in bursts (a reconnect is DISCONNECTED then CONNECTED, a second pad
-    -- adds its own, the CVar can land beside them), so a burst arms ONE flush
-    -- next frame that reads PadConnected() once and calls every watcher's
-    -- fn(padOn). WatchPad never calls fn itself: the caller reads
-    -- PadConnected() when it starts watching. Watching again replaces fn.
+    -- WatchPad and holds its events only while at least one watcher exists:
+    -- GAME_PAD_CONNECTED / GAME_PAD_DISCONNECTED and the GamePadEnable
+    -- CVAR_UPDATE, or on WoW Forever the interface style's
+    -- INPUT_DEVICE_INTERFACE_TRANSITION (the style reads right one frame later,
+    -- when the flush runs). Edges come in bursts (a reconnect is DISCONNECTED
+    -- then CONNECTED, a second pad adds its own, the CVar can land beside them),
+    -- so a burst arms ONE flush next frame that reads PadModeOn() once and calls
+    -- every watcher's fn(padOn). WatchPad never calls fn itself: the caller
+    -- reads PadModeOn() when it starts watching. Watching again replaces fn.
     do
+        -- The style transition, where the client knows it (an unknown event
+        -- name errors at registration).
+        local STYLE_EVENT = IS_FOREVER and not (C_EventUtils and C_EventUtils.IsEventValid
+            and not C_EventUtils.IsEventValid("INPUT_DEVICE_INTERFACE_TRANSITION"))
+            and "INPUT_DEVICE_INTERFACE_TRANSITION" or nil
         local watchers, watchFrame, flushArmed, flushOwners
 
         local function FlushPad()
@@ -1525,7 +1598,7 @@ do
                 n = n + 1
                 flushOwners[n] = owner
             end
-            local on = PadConnected()
+            local on = PadModeOn()
             -- One failing watcher must not stop the rest (or strand the
             -- snapshot slots): report it and carry on.
             for i = 1, n do
@@ -1554,9 +1627,13 @@ do
                 watchFrame:SetScript("OnEvent", OnPadEdge)
             end
             if next(watchers) == nil then
-                watchFrame:RegisterEvent("GAME_PAD_CONNECTED")
-                watchFrame:RegisterEvent("GAME_PAD_DISCONNECTED")
-                watchFrame:RegisterEvent("CVAR_UPDATE")
+                if IS_FOREVER then
+                    if STYLE_EVENT then watchFrame:RegisterEvent(STYLE_EVENT) end
+                else
+                    watchFrame:RegisterEvent("GAME_PAD_CONNECTED")
+                    watchFrame:RegisterEvent("GAME_PAD_DISCONNECTED")
+                    watchFrame:RegisterEvent("CVAR_UPDATE")
+                end
             end
             watchers[owner] = fn
         end
@@ -1604,6 +1681,21 @@ do
         if f:IsProtected() and InCombatLockdown() then return end
         if v == nil then v = true end
         f:SetAttribute(attr, v)
+    end
+
+    -- A hand-built modal popup of ours (a named dimmer over its panel) joins the
+    -- controller cursor and answers controller Back from its first open with a
+    -- controller in use; until then nothing is registered or hooked. The panel
+    -- stays a blocker without being a cursor stop, closeBtn is what the
+    -- controller's cancel button presses, and onEscape (nil = hide the dimmer) is
+    -- what Back runs. Call it just before the dimmer's Show (the Cooldown
+    -- Manager's popups, the Talent Conditions picker).
+    function EllesmereUI.PadPopupOpen(dimmer, panel, closeBtn, onEscape)
+        if dimmer._padReg or not EllesmereUI.PadInUse() then return end
+        dimmer._padReg = true
+        EllesmereUI.PadHint(panel, "nodepass")
+        if closeBtn then panel.CloseButton = closeBtn end
+        EllesmereUI.RegisterEscapeClose(dimmer, { padOnly = true, onEscape = onEscape })
     end
 
     function EllesmereUI.PadCursorShown()

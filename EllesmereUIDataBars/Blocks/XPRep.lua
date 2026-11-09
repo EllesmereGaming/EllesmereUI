@@ -299,6 +299,8 @@ ns.BlockFactories.xprep = function(blockCfg, slot, content, barCtx)
         end
 
         if not showText then
+            -- SetText on a never-fonted FontString hard-errors; text Off from load never fonts it.
+            ns.SetFont(nameText, textHeight, barCfg)
             nameText:SetText("")
             inst._xpExtend = 0
             local width = isSide and max(24, VSlotW(inst) - 8) or max(20, min(120, HBudget(inst, 300)))

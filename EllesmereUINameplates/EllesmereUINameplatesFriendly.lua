@@ -144,22 +144,27 @@ end
 --  Friendly name-only font override
 --  When name-only mode is active we replace the system nameplate fonts with
 --  our own (Expressway) so Blizzard renders friendly names in our style.
---  Original font info is saved once and restored when switching to health-bar
---  mode.
+--  Both objects are font families: they change member by member
+--  (SetFontObjectFace), so the members for the scripts our font lacks keep
+--  Blizzard's Cyrillic, Korean and Chinese faces. Each member's original font
+--  is saved once and restored when switching to health-bar mode.
 -------------------------------------------------------------------------------
 local origNamePlateFont, origNamePlateOutlined
 local fontOverrideApplied = false
 
 local function SaveOriginalFonts()
-    if origNamePlateFont then return end
-    if SystemFont_NamePlate and SystemFont_NamePlate.GetFont then
-        local file, height, flags = SystemFont_NamePlate:GetFont()
-        origNamePlateFont = { file = file, height = height, flags = flags }
+    if not origNamePlateFont then
+        origNamePlateFont = EllesmereUI.SnapshotFontObject(SystemFont_NamePlate)
     end
-    if SystemFont_NamePlate_Outlined and SystemFont_NamePlate_Outlined.GetFont then
-        local file, height, flags = SystemFont_NamePlate_Outlined:GetFont()
-        origNamePlateOutlined = { file = file, height = height, flags = flags }
+    if not origNamePlateOutlined then
+        origNamePlateOutlined = EllesmereUI.SnapshotFontObject(SystemFont_NamePlate_Outlined)
     end
+end
+
+-- The outline flags a snapshot read (a family's roman member, or a plain object).
+local function SnapFlags(snap)
+    local s = snap and (snap.plain or snap.roman)
+    return s and s.flags
 end
 
 -- User-configurable size for friendly name-only player names. The names render
@@ -196,12 +201,12 @@ local function GetSubTextSize()
     return (fp and fp.friendlyBelowNameSize) or 12
 end
 
--- Shared font object for the guild sub texts (full-plate subText1 and the
--- name-only overlay lines). Restyling this one object live-updates every
--- attached FontString engine-side -- the exact mechanism the name-only name
--- size uses via SystemFont_NamePlate -- so size / font / slug changes never
--- need to find and touch individual plates.
-local subtitleFont = CreateFont("EllesmereUIFriendlySubtitleFont")
+-- The guild sub texts (full-plate subText1) take one font family for the
+-- subtitle font, size and outline (a guild name is other players' writing).
+-- Every built sub text is listed once, at its build, so a size / font / slug
+-- change re-applies the family to each of them (pooled plates included) and
+-- nothing is looked up per plate. The memo is the family's whole key.
+local subTexts = {}   -- every built subText1, in build order (pooled plates are never freed)
 local _sfFile, _sfSize, _sfFlags
 local function ApplySubtitleFont()
     local file = GetFont()
@@ -209,9 +214,10 @@ local function ApplySubtitleFont()
     local flags = (EllesmereUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG"
     if file == _sfFile and size == _sfSize and flags == _sfFlags then return end
     _sfFile, _sfSize, _sfFlags = file, size, flags
-    subtitleFont:SetFont(file, size, flags)
+    for i = 1, #subTexts do
+        EllesmereUI.SetFontFamily(subTexts[i], file, size, flags, false)
+    end
 end
-ApplySubtitleFont()
 
 local _ffFile, _ffSize
 local function ApplyFriendlyFontOverride(force)
@@ -228,15 +234,11 @@ local function ApplyFriendlyFontOverride(force)
     -- and this relayout is the only lever that clears Blizzard's per-instance
     -- height, so the deferred re-apply forces it there (once per burst).
     if not force and fontOverrideApplied and font == _ffFile and size == _ffSize then return end
-    -- Restore to known-good originals first so we read the correct height
-    -- even if Blizzard reset the font objects after a CVar change.
+    -- Restore to known-good originals first, so a member the new font does not
+    -- take (a script it lacks) is back on Blizzard's own face.
     if fontOverrideApplied then
-        if origNamePlateFont and SystemFont_NamePlate and SystemFont_NamePlate.SetFont then
-            SystemFont_NamePlate:SetFont(origNamePlateFont.file, origNamePlateFont.height, origNamePlateFont.flags or "")
-        end
-        if origNamePlateOutlined and SystemFont_NamePlate_Outlined and SystemFont_NamePlate_Outlined.SetFont then
-            SystemFont_NamePlate_Outlined:SetFont(origNamePlateOutlined.file, origNamePlateOutlined.height, origNamePlateOutlined.flags or "OUTLINE")
-        end
+        EllesmereUI.RestoreFontObject(SystemFont_NamePlate, origNamePlateFont)
+        EllesmereUI.RestoreFontObject(SystemFont_NamePlate_Outlined, origNamePlateOutlined)
         fontOverrideApplied = false
     end
     -- Blizzard picks the name's font object by Nameplate Style: Modern/Block
@@ -247,20 +249,18 @@ local function ApplyFriendlyFontOverride(force)
     -- one thing added here is OUTLINE where the object's own flags lack one.
     -- Everything else the object carries (SLUG, an outline already present)
     -- stays exactly as read, so already-outlined names render unchanged.
+    -- The flags are the saved originals' (every member of these objects has
+    -- the same), which is what the objects carry after the restore above.
     local function WithOutline(flags)
         flags = flags or ""
         if flags:find("OUTLINE", 1, true) then return flags end
         if flags == "" then return "OUTLINE" end
         return flags .. ", OUTLINE"
     end
-    if SystemFont_NamePlate and SystemFont_NamePlate.SetFont then
-        local _, _, flags = SystemFont_NamePlate:GetFont()
-        SystemFont_NamePlate:SetFont(font, size, WithOutline(flags))
-    end
-    if SystemFont_NamePlate_Outlined and SystemFont_NamePlate_Outlined.SetFont then
-        local _, _, flags = SystemFont_NamePlate_Outlined:GetFont()
-        SystemFont_NamePlate_Outlined:SetFont(font, size, WithOutline(flags))
-    end
+    -- Our font, size and outline on every member that takes the font (the
+    -- scripts it draws); the other members keep Blizzard's faces at our size.
+    EllesmereUI.SetFontObjectFace(SystemFont_NamePlate, font, size, WithOutline(SnapFlags(origNamePlateFont)), nil)
+    EllesmereUI.SetFontObjectFace(SystemFont_NamePlate_Outlined, font, size, WithOutline(SnapFlags(origNamePlateOutlined)), nil)
     _ffFile, _ffSize = font, size
     fontOverrideApplied = true
 end
@@ -268,12 +268,8 @@ end
 local function RestoreFriendlyFontOverride()
     if not fontOverrideApplied then return end
     fontOverrideApplied = false
-    if origNamePlateFont and SystemFont_NamePlate and SystemFont_NamePlate.SetFont then
-        SystemFont_NamePlate:SetFont(origNamePlateFont.file, origNamePlateFont.height, origNamePlateFont.flags or "")
-    end
-    if origNamePlateOutlined and SystemFont_NamePlate_Outlined and SystemFont_NamePlate_Outlined.SetFont then
-        SystemFont_NamePlate_Outlined:SetFont(origNamePlateOutlined.file, origNamePlateOutlined.height, origNamePlateOutlined.flags or "OUTLINE")
-    end
+    EllesmereUI.RestoreFontObject(SystemFont_NamePlate, origNamePlateFont)
+    EllesmereUI.RestoreFontObject(SystemFont_NamePlate_Outlined, origNamePlateOutlined)
 end
 
 -- Name-only fonts are applied globally via the SystemFont_NamePlate override above.
@@ -452,7 +448,7 @@ local function AcquireOverlay()
     overlay.name = overlay:CreateFontString(nil, "OVERLAY")
     SetFSFont(overlay.name, 9, "")
     overlay.name:SetPoint("CENTER", overlay, "CENTER", 0, 0)
-    -- 12.0.7: shadow is primed by SetFSFont above (FontObject-based); instance shadow removed.
+    -- The shadow rides the font family SetFSFont gives it (a font object).
     if overlay.name.SetSnapToPixelGrid then
         overlay.name:SetSnapToPixelGrid(false)
     end
@@ -463,7 +459,7 @@ local function AcquireOverlay()
     overlay.title = overlay:CreateFontString(nil, "OVERLAY")
     SetFSFont(overlay.title, 9, "")
     overlay.title:SetPoint("TOP", overlay.name, "BOTTOM", 0, -1)
-    -- 12.0.7: shadow is primed by SetFSFont above (FontObject-based); instance shadow removed.
+    -- The shadow rides the font family SetFSFont gives it (a font object).
     if overlay.title.SetSnapToPixelGrid then
         overlay.title:SetSnapToPixelGrid(false)
     end
@@ -472,6 +468,30 @@ local function AcquireOverlay()
     end
     overlay.title:Hide()
     return overlay
+end
+
+local function ShowNPCRaidMarker()
+    local fp = FP()
+    return fp and fp.showNPCRaidMarker == true
+end
+
+-- SuppressNPCNameplate hides Blizzard's RaidTargetFrame with the UnitFrame,
+-- so the overlay draws its own marker above the name.
+local function UpdateOverlayRaidIcon(overlay)
+    local idx = GetRaidTargetIndex and GetRaidTargetIndex(overlay.unit)
+    if not idx then
+        if overlay.raid then overlay.raid:Hide() end
+        return
+    end
+    if not overlay.raid then
+        overlay.raid = overlay:CreateTexture(nil, "OVERLAY")
+        overlay.raid:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+        overlay.raid:SetPoint("BOTTOM", overlay.name, "TOP", 0, 2)
+    end
+    SetRaidTargetIconTexture(overlay.raid, idx)
+    local sz = ns.GetRaidMarkerSize()
+    overlay.raid:SetSize(sz, sz)
+    overlay.raid:Show()
 end
 
 local NPC_OVERLAY_FONT_SIZE = 13
@@ -491,12 +511,12 @@ local function GetNPCTitleSize()
 end
 
 -- Font and color for both overlay lines. Shared by the first paint and by the
--- option rows, which re-style live overlays rather than rebuilding them.
+-- option rows, which re-style live overlays rather than rebuilding them. Both
+-- lines are font families (AcquireOverlay's first font is one), so every font
+-- write here goes through SetFontFamily too.
 local function ApplyOverlayStyle(overlay, unit)
     local font, outline, shadow = GetFont(), GetNPOutline(), GetNPUseShadow()
-    local Prime = EllesmereUI and EllesmereUI.PrimeFontShadow
-    if Prime then Prime(overlay.name, shadow) end
-    overlay.name:SetFont(font, GetNPCOverlayNameSize(), outline)
+    EllesmereUI.SetFontFamily(overlay.name, font, GetNPCOverlayNameSize(), outline, shadow)
     overlay.name:SetTextColor(GetNPCNameColor(unit))
     if overlay.name.SetSnapToPixelGrid then
         overlay.name:SetSnapToPixelGrid(false)
@@ -504,8 +524,7 @@ local function ApplyOverlayStyle(overlay, unit)
     if overlay.name.SetTexelSnappingBias then
         overlay.name:SetTexelSnappingBias(0)
     end
-    if Prime then Prime(overlay.title, shadow) end
-    overlay.title:SetFont(font, GetNPCTitleSize(), outline)
+    EllesmereUI.SetFontFamily(overlay.title, font, GetNPCTitleSize(), outline, shadow)
     overlay.title:SetTextColor(GetNPCTitleColor(unit))
 end
 
@@ -547,12 +566,18 @@ local function ShowNPCOverlay(nameplate, unit)
         overlay.title:Hide()
     end
     overlay.unit = unit
+    if ShowNPCRaidMarker() then
+        UpdateOverlayRaidIcon(overlay)
+        overlay:RegisterEvent("RAID_TARGET_UPDATE")
+    end
     -- Listen for name updates (server may not have sent the name yet)
     overlay:RegisterUnitEvent("UNIT_NAME_UPDATE", unit)
     overlay:SetScript("OnEvent", function(self, event, ...)
         if event == "UNIT_NAME_UPDATE" then
             local updatedName = FormatNPCName(UnitName(self.unit) or "")
             self.name:SetText(updatedName)
+        elseif event == "RAID_TARGET_UPDATE" then
+            UpdateOverlayRaidIcon(self)
         end
     end)
     npcOverlays[nameplate] = overlay
@@ -564,6 +589,7 @@ local function HideNPCOverlay(nameplate)
     overlay:UnregisterAllEvents()
     overlay:Hide()
     overlay.title:Hide()
+    if overlay.raid then overlay.raid:Hide() end
     overlay:SetParent(UIParent)
     overlay:ClearAllPoints()
     overlay.unit = nil
@@ -1007,6 +1033,12 @@ local function SuppressBlizzardUF(unit, nameplate)
     if uf.WidgetContainer then
         uf.WidgetContainer:SetParent(nameplate)
     end
+    -- Keep the soft-target interact icon visible too, as the enemy plate does:
+    -- world objects (herbs, ore, mailboxes) land here as non-attackable
+    -- non-players, and their icon lives on this UnitFrame.
+    if uf.SoftTargetFrame then
+        uf.SoftTargetFrame:SetParent(nameplate)
+    end
 
     modifiedUFs[unit] = { uf = uf, nameplate = nameplate }
 
@@ -1036,6 +1068,9 @@ local function RestoreBlizzardUF(unit)
     uf:SetParent(entry.nameplate)
     if uf.WidgetContainer then
         uf.WidgetContainer:SetParent(uf)
+    end
+    if uf.SoftTargetFrame then
+        uf.SoftTargetFrame:SetParent(uf)
     end
     uf:SetAlpha(1)
     uf:Show()
@@ -1328,10 +1363,12 @@ local friendlyFrameCache = CreateFramePool("Frame", UIParent, nil, nil, false, f
     -- Below Name sub text (player title / guild). Populated by UpdateSubText;
     -- empty FontStrings render nothing. The name's anchor lifts to make room
     -- when lines are present, so these always sit between name and bar.
-    -- Attached to the shared subtitleFont object so size / font / slug
-    -- changes live-update without touching the plate.
+    -- Listed for ApplySubtitleFont, which re-applies the subtitle family on
+    -- a size / font / slug change; its first font is the current one.
     plate.subText1 = plate:CreateFontString(nil, "OVERLAY")
-    plate.subText1:SetFontObject(subtitleFont)
+    ApplySubtitleFont()
+    subTexts[#subTexts + 1] = plate.subText1
+    EllesmereUI.SetFontFamily(plate.subText1, _sfFile, _sfSize, _sfFlags, false)
     -- Anchored in UpdateSubText against the HEALTH BAR with the same computed number
     -- that positions the name -- never against the name's own rect, which re-derives
     -- from text metrics every render and jitters on a moving plate.
@@ -1523,8 +1560,8 @@ function FriendlyFrame:UpdateSubText()
     local lines = 0
     local size = 0
     if ModeHasGuild(GetBelowNameMode()) and UnitIsPlayer(unit) then
-        -- Font lives on the shared subtitleFont object; only the content and
-        -- the name-lift offset are per-plate.
+        -- The font is ApplySubtitleFont's (set at build and on a change); only
+        -- the content and the name-lift offset are per-plate.
         size = GetSubTextSize()
         lines = ApplySubText(self.subText1, unit)
     elseif self._subOff == 4 then
@@ -1893,7 +1930,7 @@ end
 -- Live-apply a Subtitle Text setting change (mode / size / color) from the
 -- options panel, in whichever friendly mode is active.
 function ns.RefreshFriendlyBelowName()
-    -- Size / font / slug propagate through the shared font object.
+    -- Size / font / slug: the subtitle family on every built sub text.
     ApplySubtitleFont()
     ns.NP_FriendlyLevelWatch()
     -- Full-plate mode: repaint the name (the title is part of it now) plus
@@ -2023,8 +2060,8 @@ function ns.UpdateFriendlyNameplateSystem()
     local shouldEnable = IsFriendlyEnabled()       -- health-bar mode
     local nameOnly     = IsNameOnlyMode()           -- name-only mode
 
-    -- Re-derive the shared subtitle font (login profile load, profile
-    -- switches, slug toggles). Value-memoized, near-free when unchanged.
+    -- Re-derive the subtitle font (login profile load, profile switches,
+    -- slug toggles). Value-memoized, near-free when unchanged.
     ApplySubtitleFont()
     ns.NP_FriendlyLevelWatch()
 

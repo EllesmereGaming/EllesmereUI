@@ -1404,6 +1404,19 @@ local function SetFS(fs, size, flags)
     fs:SetFont(path, size or FONT_SZ, outline)
 end
 
+-- SetFS for a table row's primary texts: the Player column names group members,
+-- so they take a font family (Cyrillic, Korean and Chinese names draw), with no
+-- shadow, as SetFS draws them. These texts are made with no font of their own
+-- (a plain SetFont would pin their face), and every font write to them comes here.
+local function SetRowFS(fs, size, flags)
+    local path    = (EUI.GetFontPath("mythicTimer")) or FONT_FALLBACK
+    local outline = flags
+    if outline == nil then
+        outline = (EUI.GetFontOutlineFlag("mythicTimer")) or ""
+    end
+    EUI.SetFontFamily(fs, path, size or FONT_SZ, outline, false)
+end
+
 local function Hex(r, g, b)
     return format("%02x%02x%02x", floor((r or 1) * 255), floor((g or 1) * 255), floor((b or 1) * 255))
 end
@@ -1521,7 +1534,7 @@ end
 -- below. Called at creation and again whenever the setting changes.
 local function StampRowFonts(row, size)
     for key, fs in pairs(row.text) do
-        SetFS(fs, size)
+        SetRowFS(fs, size)
     end
     for _, sfs in pairs(row.sub) do
         SetFS(sfs, size - 2, "")
@@ -1536,8 +1549,9 @@ local function MakeRow(parent, size)
     row.text, row.sub, row.icons = {}, {}, {}
     local px = (EUI.PP and EUI.PP.mult) or 1
     for _, col in ipairs(COLUMNS) do
-        local fs = EUI.MakeFont(row, size, nil, 1, 1, 1, 1)
-        SetFS(fs, size)
+        local fs = row:CreateFontString(nil, "OVERLAY")
+        SetRowFS(fs, size)
+        fs:SetTextColor(1, 1, 1, 1)
         fs:SetJustifyH(col.justify or (col.kind == "icon" and "CENTER" or "LEFT"))
         fs:SetWordWrap(false)
         row.text[col.key] = fs
@@ -1686,7 +1700,7 @@ local function BuildWindow()
     for _, col in ipairs(COLUMNS) do
         local fs = colHdr.text[col.key]
         if fs then
-            SetFS(fs, COLHDR_SZ)
+            SetRowFS(fs, COLHDR_SZ)
             fs:SetTextColor(1, 1, 1, 0.45)
         end
     end

@@ -790,14 +790,28 @@ end
 
 -- WoW Forever wraps tracker titles in a difficulty color code while the
 -- showQuestDifficultyColor CVar is on, and an inline code beats SetTextColor.
--- Only the focused title drops it; Blizzard sets every title again on the
--- next update, so the color comes back once the focus moves on.
+-- The focused title drops it; Blizzard sets every title again on the next
+-- update, so the color comes back once the focus moves on.
 local IS_FOREVER = EllesmereUI.IS_FOREVER
 local function StripTitleColorCodes(fs)
     local text = fs:GetText()
-    if not text or issecretvalue(text) then return end
+    if not text or issecretvalue(text) or not text:find("|c", 1, true) then return end
     local plain = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|cn[^:]*:", ""):gsub("|r", "")
     if plain ~= text then fs:SetText(plain) end
+end
+
+-- Title Difficulty Colors (WoW Forever; the Colors section's toggle) is the
+-- game's own showQuestDifficultyColor option, which Blizzard's tracker and
+-- quest log follow; the skin and the custom tracker read it here. Retail has
+-- no quest title difficulty colors.
+local function TitleDifficultyOn()
+    if not IS_FOREVER then return false end
+    return C_CVar.GetCVarBool("showQuestDifficultyColor") == true
+end
+-- A quest's difficulty color for the player's level, or nil.
+local function QuestDifficultyRGB(questID)
+    local c = GetDifficultyColor(C_PlayerInfo.GetContentDifficultyQuestForPlayer(questID))
+    if c then return c.r, c.g, c.b end
 end
 
 -- Lightweight color-only refresh. Called on hover (OnEnter/OnLeave) and
@@ -810,21 +824,28 @@ local function ApplyFocusHighlight(block)
     local isFocus = qID and (qID == GetSuperTrackedIDCached())
     local isDone  = qID and C_QuestLog and C_QuestLog.IsComplete
                     and C_QuestLog.IsComplete(qID)
+    -- With Title Difficulty Colors off, a code Blizzard wrote while it was on
+    -- stays in the title until Blizzard sets it again: it goes here too.
+    local diff = TitleDifficultyOn()
+    if IS_FOREVER and (isFocus or not diff) then StripTitleColorCodes(fs) end
     local r, g, b
     if isFocus then
         r, g, b = GetFocusRGB()
-        if IS_FOREVER then StripTitleColorCodes(fs) end
     elseif isDone then
         r, g, b = GetCompletedRGB()
     else
-        r, g, b = GetTitleRGB()
+        -- On: the quest's difficulty color, for a title Blizzard has not set
+        -- again since the option came on (it carries no code yet).
+        if diff and qID then r, g, b = QuestDifficultyRGB(qID) end
+        if not r then r, g, b = GetTitleRGB() end
     end
     fs:SetTextColor(r, g, b)
 end
 
--- Shared with the custom tracker (Custom.lua).
+-- Shared with the custom tracker (Custom.lua) and the options.
 EQT.GetFont = GetFont
 EQT.GetTitleRGB, EQT.GetCompletedRGB, EQT.GetFocusRGB = GetTitleRGB, GetCompletedRGB, GetFocusRGB
+EQT.TitleDifficultyOn, EQT.QuestDifficultyRGB = TitleDifficultyOn, QuestDifficultyRGB
 EQT.GetHeaderRGB, EQT.GetLineRGB = GetHeaderRGB, GetLineRGB
 
 -- Skip all skinning work when the tracker is force-hidden (M+, raid, arena).

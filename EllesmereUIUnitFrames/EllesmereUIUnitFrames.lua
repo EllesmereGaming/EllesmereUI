@@ -1,7 +1,7 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
 local GetSpecialization = (C_SpecializationInfo and C_SpecializationInfo.GetSpecialization) or GetSpecialization
 local addonName, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.AbsorbGlow and EllesmereUI.SetCraftBatch and EllesmereUI.FitCastName and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.PadGamepadUI and EllesmereUI.SetEditModeChildInert) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard frame suppression hides through the parent's HideFrame, the player absorb glow line is the parent's AbsorbGlow, the player cast bar's Full Craft Time is the parent's SetCraftBatch, Show Full Spell Name is the parent's FitCastName, and the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, and the Name Format asks its UnitNameFormat, and the WoW Forever gamepad target menu keeps Blizzard's TargetFrame live through its PadGamepadUI and SetEditModeChildInert)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.AbsorbGlow and EllesmereUI.SetCraftBatch and EllesmereUI.FitCastName and EllesmereUI.CleanCastName and EllesmereUI.AbbreviateValue and EllesmereUI.IsZeroValue and EllesmereUI.UnitNameFormat and EllesmereUI.OwnSurnameHidden and EllesmereUI.PadGamepadUI and EllesmereUI.SetEditModeChildInert and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.PadModeOn) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Blizzard frame suppression hides through the parent's HideFrame, the player absorb glow line is the parent's AbsorbGlow, the player cast bar's Full Craft Time is the parent's SetCraftBatch, Show Full Spell Name is the parent's FitCastName, the cast name drops the quest-object " - No Text" through its CleanCastName, and the health texts format through the parent's AbbreviateValue, the [absorb:abr] tags blank at zero through its IsZeroValue, and the Name Format asks its UnitNameFormat, the [name:last] and [target:last] tags its OwnSurnameHidden, and the WoW Forever gamepad target menu keeps Blizzard's TargetFrame live through its PadGamepadUI and SetEditModeChildInert, and the frame texts take their font family through its ApplyModuleFontFamily, and the gamepad cast bar hide follows its PadModeOn)
 EllesmereUI._ModuleNS[addonName] = ns  -- LOD options files read this module ns via the registry
 
 local math_floor, math_ceil, math_max, math_min, math_abs =
@@ -751,7 +751,7 @@ local defaults = {
             eliteIndicatorPosition = "topleft",
             eliteIndicatorX = 0,
             eliteIndicatorY = 0,
-            eliteIndicatorShowInInstances = false,
+            eliteIndicatorShowInInstances = (EllesmereUI.IS_FOREVER == true) and true or false,  -- WoW Forever: on
             eliteIndicatorStyle = "badge",  -- "badge" | "pixelsDragon"
             -- A saved "wingless" style and these five keys read as the Portrait
             -- Dragon (ns.UF_DragonSettings) until a setter pins them over.
@@ -943,6 +943,14 @@ local defaults = {
             debuffSize = 22,
             debuffOffsetX = 0,
             debuffOffsetY = 0,
+            -- Cast bar (opt-in: the bar is built at login only while on, so
+            -- turning it on takes a reload). Position is the unlock mover's.
+            showCastbar = false,
+            castbarWidth = 120,
+            castbarHeight = 12,
+            castbarHideWhenInactive = true,
+            showCastIcon = true,
+            castbarIconInWidth = true,
             -- WoW Forever pets have power (hunter pet focus, warlock pet mana), so
             -- the pet frame carries a power bar there (retail: none).
             powerPosition = (EllesmereUI.IS_FOREVER == true) and "below" or "none",
@@ -1429,8 +1437,13 @@ local function GetSelectedFont(unitKey)
     return cachedFontPath
 end
 
+-- The frames' texts can show other players' names, so they take the module
+-- font as a font family: the font draws the letters it has and the client's
+-- own faces draw Cyrillic, Korean and Chinese. A plain SetFont would pin a
+-- string's face for good, so every font write to these strings goes through
+-- here (or ApplyModuleFontFamily).
 local function SetFSFont(fs, size, flags)
-  EllesmereUI.ApplyModuleFont(fs, GetSelectedFont(), size or 12, "unitFrames", flags)
+  EllesmereUI.ApplyModuleFontFamily(fs, GetSelectedFont(), size or 12, "unitFrames", flags)
 end
 
 -- Shared cast-bar text anchoring (mirrors the nameplate cast text system). Three
