@@ -1244,6 +1244,7 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
         local btnScale = ddBtn:GetEffectiveScale()
         local uiScale = UIParent:GetEffectiveScale()
         menu:SetScale(btnScale / uiScale)
+        EllesmereUI.SeatDropdownMenu(menu)
         ApplyHover()
         menu:Show()
         -- Track the open menu globally so popup outside-click watchers don't treat clicks on rows that extend below the popup as a dismissing outside click.
@@ -1959,6 +1960,7 @@ function EllesmereUI.BuildReorderCBDropdown(parentFrame, ddW, fLevel, items, get
         local btnScale = ddBtn:GetEffectiveScale()
         local uiScale = UIParent:GetEffectiveScale()
         menu:SetScale(btnScale / uiScale)
+        EllesmereUI.SeatDropdownMenu(menu)
         ApplyHover()
         menu:Show()
         menu:SetScript("OnUpdate", function(self)
@@ -2141,6 +2143,7 @@ function EllesmereUI.BuildSliderDropdown(parentFrame, ddW, fLevel, items, opts)
         for i = 1, #refreshers do refreshers[i]() end
         -- The menu lives on the overlay parent: match the panel's scale.
         menu:SetScale(ddBtn:GetEffectiveScale() / UIParent:GetEffectiveScale())
+        EllesmereUI.SeatDropdownMenu(menu)
         Paint(true)
         menu:Show()
         EllesmereUI._openDropdownMenu = menu

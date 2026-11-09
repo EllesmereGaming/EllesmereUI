@@ -542,7 +542,7 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     menu:Hide()
     local menuBg = SolidTex(menu, "BACKGROUND", mBgR, mBgG, mBgB, mBgA)
     menuBg:SetAllPoints()
-    MakeRoundedBorder(menu, mBrR, mBrG, mBrB, mBrA, menuBg, nil, true)
+    menu._ddBrd = MakeRoundedBorder(menu, mBrR, mBrG, mBrB, mBrA, menuBg, nil, true)
 
     if _moSearchable then
         -- Options panel is Expressway-locked by design; EllesmereUI.EXPRESSWAY is locale-aware (CJK/Cyrillic get the system glyph font). The user's global font intentionally never restyles the settings UI.
@@ -1364,6 +1364,35 @@ local function BuildDropdownMenu(ddBtn, menuW, order, values, getValue, setValue
     return menu, menuItems, Refresh
 end
 
+-- EllesmereUI.SeatDropdownMenu(menu): a list hangs off its button, so a button
+-- on a half pixel (a centred header dropdown) put every row and caption on one
+-- too. Call after the list's scale is set: nudges its anchor so its top left
+-- corner lands on a whole screen pixel. The caller's own offsets stay the base,
+-- so repeated opens never drift.
+do
+    local floor, abs = math.floor, math.abs
+    function EllesmereUI.SeatDropdownMenu(menu)
+        if menu:GetNumPoints() ~= 1 then return end
+        local pt, rel, rpt, x, y = menu:GetPoint(1)
+        -- Not the offsets this function set (read back as floats): the caller
+        -- anchored the list again, so those are the new base.
+        local sx, sy = menu._seatedX, menu._seatedY
+        if not sx or abs(x - sx) > 0.01 or abs(y - sy) > 0.01 then
+            menu._seatX, menu._seatY = x, y
+        end
+        x, y = menu._seatX, menu._seatY
+        menu:SetPoint(pt, rel, rpt, x, y)
+        local l, t = menu:GetLeft(), menu:GetTop()
+        local k = menu:GetEffectiveScale() / EllesmereUI.PP.perfect
+        if l and t and k > 0 and not (issecretvalue(l) or issecretvalue(t)) then
+            l, t = l * k, t * k
+            x, y = x + (floor(l + 0.5) - l) / k, y + (floor(t + 0.5) - t) / k
+            menu:SetPoint(pt, rel, rpt, x, y)
+        end
+        menu._seatedX, menu._seatedY = x, y
+    end
+end
+
 -- Wire OnEnter/OnLeave/OnClick/OnShow/OnHide for a dropdown button + menu. s = { bg_r..a, bg_hr..ha, brd_r..a, brd_hr..ha, txt_r..a, txt_hr..ha } (24 values)
 -- ddBtn._valueDimA, when set, holds the value text at that alpha in both states (a greyed-out current value stays greyed under the cursor).
 local function WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s, keepClickHandler)
@@ -1415,6 +1444,10 @@ local function WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s, keep
             while f and f ~= UIParent do s = s * (f:GetScale() or 1); f = f:GetParent() end
             self:SetScale(s)
         end
+        -- Seat the list, then its outline: the outline's layer fit on its own
+        -- show, before this scale and seat.
+        EllesmereUI.SeatDropdownMenu(self)
+        if self._ddBrd then self._ddBrd:Fit() end
         -- Track the open menu globally so popups don't treat clicks on it (which can extend outside the popup/panel) as a dismissing outside click.
         EllesmereUI._openDropdownMenu = self
         ApplyHover()
