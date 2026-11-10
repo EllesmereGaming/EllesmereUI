@@ -263,8 +263,13 @@ function ns.UF_ForeverKit()
         bar.mx, bar.my = -l * kx, t * ky
         bar.mw, bar.mh = mw * kx, mh * ky
     end
-    Fit(P.health, 88, 45.5, 123, 15, 4, 123, 9, 21, 128, 32)
-    Fit(P.power, 88, 61.5, 123, 10, 4, 123, 4, 11, 128, 16)
+    -- Half a pixel short: the full 123 laid the fill's bright end over the
+    -- rim, 122 left a gap before it.
+    Fit(P.health, 88, 45.5, 122.5, 15, 4, 123, 9, 21, 128, 32)
+    -- The Forever mana mask's opening ends a column later than the health
+    -- one's: fitted at 123 its rounded right end fell past the bar, which
+    -- then ended square over the rim.
+    Fit(P.power, 88, 61.5, 123, 10, 4, 124, 4, 11, 128, 16)
     P.name = { point = "CENTER", x = 33, y = 13, w = 116, justify = "CENTER" }
     P.badge = { point = "BOTTOMLEFT", x = 13, y = 7, size = 39, atlas = circle }
     P.level = { point = "CENTER", x = 0, y = -0.5, justify = "CENTER", skullDy = 0.5 }
