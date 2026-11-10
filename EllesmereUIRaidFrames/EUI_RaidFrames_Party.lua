@@ -553,6 +553,25 @@ ns._UpdatePartyIndicatorScale = function()
     if ns._RefreshProxyModes then ns._RefreshProxyModes() end
 end
 
+-- A party header frame showing or hiding: re-place the self button and the stack (Show Self
+-- Last, centered growth) on the next frame, or once combat ends.
+local function PartySlotsRun()
+    ns._partySlotsPending = nil
+    if not (ns._partySlotsFollow and ns._partyFramesVisible) then return end
+    if InCombatLockdown() then
+        ns.CombatQueue.Defer("party-slots", PartySlotsRun)
+        return
+    end
+    local s = db.profile
+    local pw, ph, pcs = ns.RF_PartyDims(s)
+    ns._PositionPartySlots(PixelSnap(pw), PixelSnap(ph), PixelSnap(pcs) + ns.PT_AlongPitch(s), ns._PartyGrowth(s))
+end
+ns._PartySlotsQueue = function()
+    if not ns._partySlotsFollow or ns._partySlotsPending then return end
+    ns._partySlotsPending = true
+    C_Timer.After(0, PartySlotsRun)
+end
+
 -- Create a single SecureGroupHeader for party frames (5 buttons max).
 -- Called once from OnEnable.
 ns._CreatePartyHeader = function()
@@ -610,6 +629,8 @@ ns._CreatePartyHeader = function()
             GetFFD(btn)._isParty = true
             ns._StyleButtonSecure(btn)
             ns._partyAllButtons[#ns._partyAllButtons + 1] = btn
+            btn:HookScript("OnShow", ns._PartySlotsQueue)
+            btn:HookScript("OnHide", ns._PartySlotsQueue)
         end
     end
 
@@ -715,16 +736,36 @@ ns._PositionPartySlots = function(bw, bh, cs, unitGrowth)
     -- shown frames sit centered in the always-5-slot container: (5 - shown)/2
     -- slots along the growth axis. Solo is the shown=1 case of the same math,
     -- and the Center When Solo cog forces it while solo regardless of the growth mode.
+    -- The header's own shown frames, not GetNumGroupMembers: the header lays out on its own
+    -- events, and a count that disagrees put the self button on a member's slot.
+    local hdrShown
+    -- Not while the header's showPlayer is about to flip (the caller sets it after this
+    -- pass): its frames then still count the player the wrong way; the flip re-places.
+    if ns._partyContainerFrame:IsVisible()
+        and ns._partyHeader:GetAttribute("showPlayer") == (not hideSelf and not useSelf) then
+        hdrShown = 0
+        for i = 1, 5 do
+            local b = ns._partyHeader[i]
+            if b and b:IsShown() then hdrShown = hdrShown + 1 end
+        end
+    end
     local centerShift = 0
     local centered = (s.partyFlipGrowth == "centered")
+    -- Header frames showing or hiding re-place the stack while it depends on the count.
+    ns._partySlotsFollow = live and IsInGroup() and (centered or (useSelf and pSelfLast)) or nil
     if not live then
         -- Hidden set: the stack starts at the first slot (see useSelf above).
     elseif not IsInGroup() then
         if centered or s.partyCenterWhenSolo then centerShift = 2 end
     elseif centered then
-        local shown = GetNumGroupMembers() or 0
-        if shown > 5 then shown = 5 end
-        if hideSelf then shown = shown - 1 end
+        local shown
+        if hdrShown then
+            shown = hdrShown + (useSelf and 1 or 0)
+        else
+            shown = GetNumGroupMembers() or 0
+            if shown > 5 then shown = 5 end
+            if hideSelf then shown = shown - 1 end
+        end
         if shown < 1 then shown = 1 end
         centerShift = (5 - shown) / 2
     end
@@ -735,7 +776,7 @@ ns._PositionPartySlots = function(bw, bh, cs, unitGrowth)
     if useSelf then
         local selfSlot, hdrSlot = 0, 1
         if pSelfLast then
-            local numOthers = (GetNumGroupMembers() or 1) - 1
+            local numOthers = hdrShown or ((GetNumGroupMembers() or 1) - 1)
             if numOthers < 0 then numOthers = 0 end
             selfSlot, hdrSlot = numOthers, 0
         end
