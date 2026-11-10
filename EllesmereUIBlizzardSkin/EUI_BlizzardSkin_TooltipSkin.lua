@@ -162,13 +162,34 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     -- (their window packs call it on show).
     EllesmereUI._skinBlizzardTooltipFrame = _ttSkin
 
-    local function _ttFonts(tt, startFrom)
-        if not tt or tt:IsForbidden() or not _enabled() then return end
+    -- Face, outline and the two line sizes, with Blizzard's shared tooltip font objects
+    -- synced to them. Lines another addon adds after OnShow (Raider.IO, Archon Tooltip)
+    -- draw from those objects and never meet the per-line pass below; the login
+    -- failsafe (ApplyModuleFontFailsafe) gives the objects our face but keeps their
+    -- native size, so those lines came out larger than the rest of the tooltip.
+    -- Synced only when a value changes, since a font object change re-flows every
+    -- string inheriting it. Small takes the body size, as the per-line pass does.
+    local _ttObjSynced = {}
+    local function _ttFontSpec()
         local fp = EllesmereUI.GetFontPath("blizzardSkin") or STANDARD_TEXT_FONT
         local ol = EllesmereUI.GetFontOutlineFlag("blizzardSkin") or ""
         local scale = EllesmereUIDB and EllesmereUIDB.tooltipFontScale or 1.0
         local titleSize = math.floor(13 * scale + 0.5)
         local bodySize  = math.floor(11 * scale + 0.5)
+        local s = _ttObjSynced
+        if s.fp ~= fp or s.ol ~= ol or s.title ~= titleSize or s.body ~= bodySize then
+            s.fp, s.ol, s.title, s.body = fp, ol, titleSize, bodySize
+            local setFace = EllesmereUI.SetFontObjectFace
+            setFace(_G.GameTooltipHeaderText, fp, titleSize, ol)
+            setFace(_G.GameTooltipText, fp, bodySize, ol)
+            setFace(_G.GameTooltipTextSmall, fp, bodySize, ol)
+        end
+        return fp, ol, titleSize, bodySize
+    end
+
+    local function _ttFonts(tt, startFrom)
+        if not tt or tt:IsForbidden() or not _enabled() then return end
+        local fp, ol, titleSize, bodySize = _ttFontSpec()
         -- pcall'd for the same reason as _ttUsable, and this is the first widget call here.
         local okName, name = pcall(tt.GetName, tt)
         if not okName or not name then return end
@@ -1014,6 +1035,8 @@ local FFD, GetFFD = I.FFD, I.GetFFD
 
     -- Visual reskin: dark bg/border (via _ttHook -> _ttSkin), EUI fonts, and restyled status bar. Gated on "Reskin Tooltip" (customTooltips).
     local function _ttInitVisual()
+        -- Shared font objects in step from login, not from the first tooltip shown.
+        _ttFontSpec()
         for _, tt in ipairs({
             _GameTooltip, ShoppingTooltip1, ShoppingTooltip2,
             ItemRefTooltip, ItemRefShoppingTooltip1, ItemRefShoppingTooltip2,
