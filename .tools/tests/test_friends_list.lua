@@ -1884,6 +1884,9 @@ do
     assert(tile.Ruleset(Forever("Forever - Normal - Mulgore", true)) == "Normal")
     assert(tile.Ruleset(Forever("Forever - Roleplay PvP - Tirisfal Glades", false)) == "Roleplay PvP (Europe)")
     assert(tile.Info(Forever("Forever - Normal - Mulgore", true)) == "Mulgore|cff808080 - Normal|r")
+    local empty = Forever("", true)
+    empty.gameAccountInfo.realmName = "CAMWOWUS2Realm10RPPvP"
+    assert(tile.Ruleset(empty) == "Roleplay PvP", "an empty richPresence lost the ruleset")
     local retail = Forever("Silvermoon City - Earthen Ring", true)
     retail.gameAccountInfo.wowProjectID = 1
     assert(tile.Ruleset(retail) == nil and tile.Info(retail) == "Mulgore", "a retail friend got a ruleset")

@@ -1137,10 +1137,13 @@ end
 -- ("Forever - Roleplay PvP - Tirisfal Glades"), plus their region when it is
 -- not ours. nil for anyone else.
 local WOW_PROJECT_FOREVER = 18
+-- realmName suffix ("CAMWOWUS2Realm10RPPvP") -> ruleset, for an empty richPresence
+local REALM_RULESETS = { PvE = "Normal", PvP = "PvP", RP = "Roleplay", RPPvP = "Roleplay PvP" }
 local function ForeverRuleset(accountInfo)
     local gi = accountInfo and accountInfo.gameAccountInfo
     if not (gi and gi.isOnline and gi.wowProjectID == WOW_PROJECT_FOREVER) then return nil end
     local ruleset = gi.richPresence and gi.richPresence:match("^.- %- (.-) %- ")
+        or REALM_RULESETS[gi.realmName and gi.realmName:match("Realm%d+(%a+)$") or ""]
     if not ruleset or ruleset == "" then return nil end
     if gi.isInCurrentRegion == false and FriendsListUtil and FriendsListUtil.GetRegionName then
         ruleset = ruleset .. " (" .. FriendsListUtil.GetRegionName(accountInfo) .. ")"
