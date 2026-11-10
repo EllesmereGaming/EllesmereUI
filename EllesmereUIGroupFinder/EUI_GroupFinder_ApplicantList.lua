@@ -170,11 +170,12 @@ end
 
 -- icon lives on a child frame, the skin's restrip fades direct textures
 local function SquareButton(parent, atlas, onClick)
-    local btn = CreateFrame("Button", nil, parent)
+    local btn = ns.NewButton and ns.NewButton(parent) or CreateFrame("Button", nil, parent)
     btn:SetMotionScriptsWhileDisabled(true)
     local skin = EUI._ModuleNS and EUI._ModuleNS.EllesmereUIBlizzardSkin
     local S = skin and skin.WSkin
-    if S and S.Button then
+    if not (ns.SkinOn and ns.SkinOn()) then  -- the template's rounded art
+    elseif S and S.Button then
         S.Button(btn)
     else
         local bg = btn:CreateTexture(nil, "BACKGROUND")
@@ -392,7 +393,13 @@ local function MakeLine(b, k)
     l.memberIdx = k
     l.hl = l:CreateTexture(nil, "HIGHLIGHT")
     l.hl:SetPoint("TOPLEFT", l, "TOPLEFT", 0, 0)
-    l.hl:SetColorTexture(1, 1, 1, 0.06)
+    if ns.SkinOn and not ns.SkinOn() then
+        -- blizzard's blue bar
+        l.hl:SetAtlas("groupfinder-highlightbar-blue")
+        l.hl:SetBlendMode("ADD")
+    else
+        l.hl:SetColorTexture(1, 1, 1, 0.06)
+    end
     l.leaver = l:CreateTexture(nil, "ARTWORK")
     l.leaver:SetAtlas("groupfinder-icon-leaver")
     l.leaver:SetSize(12, 12)
@@ -485,7 +492,7 @@ local function MakeBlock(i, parent, store)
     local b = CreateFrame("Frame", nil, parent or body)
     b.bg = b:CreateTexture(nil, "BACKGROUND")
     b.bg:SetAllPoints()
-    b.bg:SetColorTexture(1, 1, 1, 0.03)
+    b.bg:SetColorTexture(1, 1, 1, (ns.SkinOn and not ns.SkinOn()) and 0.04 or 0.03)
     -- status underline
     b.under = b:CreateTexture(nil, "ARTWORK", nil, 7)
     b.under:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, 0)
@@ -897,11 +904,19 @@ local function LayoutFrame()
     if key == layoutKey then return end
     layoutKey = key
     frame:ClearAllPoints()
-    frame:SetPoint("TOPLEFT", AV.ScrollBox, "TOPLEFT", pad, 0)
-    frame:SetPoint("BOTTOMRIGHT", AV.ScrollBox, "BOTTOMRIGHT", BOX_RIGHT - pad / 2 + barW / 2, bottomY)
     body:ClearAllPoints()
     body:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-    body:SetPoint("BOTTOMRIGHT", AV.ScrollBox, "BOTTOMRIGHT", BOX_RIGHT - pad, bottomY)
+    if ns.SkinOn and not ns.SkinOn() and AV.Inset then
+        -- blizzard's inset shows: the rows sit inside it, the scroll thumb in its right edge
+        frame:SetPoint("TOP", AV.ScrollBox, "TOP", 0, 0)
+        frame:SetPoint("LEFT", AV.Inset, "LEFT", ns.STOCK_ROWS_L, 0)
+        frame:SetPoint("BOTTOMRIGHT", AV.Inset, "BOTTOMRIGHT", -(ns.STOCK_ROWS_R - ns.STOCK_BAR), ns.STOCK_ROWS_L)
+        body:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -ns.STOCK_BAR, 0)
+    else
+        frame:SetPoint("TOPLEFT", AV.ScrollBox, "TOPLEFT", pad, 0)
+        frame:SetPoint("BOTTOMRIGHT", AV.ScrollBox, "BOTTOMRIGHT", BOX_RIGHT - pad / 2 + barW / 2, bottomY)
+        body:SetPoint("BOTTOMRIGHT", AV.ScrollBox, "BOTTOMRIGHT", BOX_RIGHT - pad, bottomY)
+    end
     head:ClearAllPoints()
     head:SetPoint("BOTTOMLEFT", body, "TOPLEFT", 0, 3)
     head:SetPoint("BOTTOMRIGHT", body, "TOPRIGHT", -btnRoom, 3)
