@@ -1133,10 +1133,33 @@ local function BuildCharLine(accountInfo)
     return shown
 end
 
+-- WoW Forever friend's ruleset, the middle of richPresence
+-- ("Forever - Roleplay PvP - Tirisfal Glades"), plus their region when it is
+-- not ours. nil for anyone else.
+local WOW_PROJECT_FOREVER = 18
+-- realmName suffix ("CAMWOWUS2Realm10RPPvP") -> ruleset, for an empty richPresence
+local REALM_RULESETS = { PvE = "Normal", PvP = "PvP", RP = "Roleplay", RPPvP = "Roleplay PvP" }
+local function ForeverRuleset(accountInfo)
+    local gi = accountInfo and accountInfo.gameAccountInfo
+    if not (gi and gi.isOnline and gi.wowProjectID == WOW_PROJECT_FOREVER) then return nil end
+    local ruleset = gi.richPresence and gi.richPresence:match("^.- %- (.-) %- ")
+        or REALM_RULESETS[gi.realmName and gi.realmName:match("Realm%d+(%a+)$") or ""]
+    if not ruleset or ruleset == "" then return nil end
+    if gi.isInCurrentRegion == false and FriendsListUtil and FriendsListUtil.GetRegionName then
+        ruleset = ruleset .. " (" .. FriendsListUtil.GetRegionName(accountInfo) .. ")"
+    end
+    return ruleset
+end
+
 local function BuildInfo(accountInfo)
     local text = ""
     if FriendsListUtil and FriendsListUtil.BuildLocationDisplayText then
         text = FriendsListUtil.BuildLocationDisplayText(accountInfo) or ""
+    end
+    local ruleset = ForeverRuleset(accountInfo)
+    if ruleset then
+        local c = FRIENDS_GRAY_COLOR or NORMAL_FONT_COLOR
+        text = text .. c:WrapTextInColorCode((text ~= "" and " - " or "") .. ruleset)
     end
     if text == "" then
         local gi = accountInfo.gameAccountInfo
@@ -1318,7 +1341,9 @@ local function RegionOnLeave()
     EllesmereUI.HideWidgetTooltip()
 end
 function Kit.UpdateRegionButton(frame, d, gameAccountInfo, anchor, show)
-    local mini = show and gameAccountInfo and GetFriendMiniRegion(gameAccountInfo)
+    -- Same-region friends never carry a mark.
+    local mini = show and gameAccountInfo and gameAccountInfo.isInCurrentRegion ~= true
+        and GetFriendMiniRegion(gameAccountInfo)
     local full = mini and GetFullRegion(mini)
     if not (mini and full and full ~= GetMyFullRegion()) then
         if d.regionBtn then d.regionBtn:Hide() end
@@ -1440,6 +1465,7 @@ Kit._tile = {
     CharLine     = BuildCharLine,
     LevelColor   = LocationColor,
     Info         = BuildInfo,
+    Ruleset      = ForeverRuleset,
     State        = TileState,
     ClassFile    = GetClassFile,
     ClassIconTex = SetClassIconTex,
