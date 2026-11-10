@@ -4048,12 +4048,13 @@ initFrame:SetScript("OnEvent", function(self)
             tb:Hide()
             return
         end
+        local reachL, reachR, reachT, textY = ns.ERB_CastChromeGeom(cb)
         local frameAtlas = ns.ERB_BlizzAtlas("frame")
         if frameAtlas then
             ns.ERB_StockAtlas(fr, frameAtlas)
             fr:ClearAllPoints()
-            fr:SetPoint("TOPLEFT", pf.barFrame, "TOPLEFT", -2, 2)
-            fr:SetPoint("BOTTOMRIGHT", pf.barFrame, "BOTTOMRIGHT", 2, -2)
+            fr:SetPoint("TOPLEFT", pf.barFrame, "TOPLEFT", -reachL, reachT)
+            fr:SetPoint("BOTTOMRIGHT", pf.barFrame, "BOTTOMRIGHT", reachR, -2)
             fr:Show()
         else
             fr:Hide()
@@ -4067,7 +4068,7 @@ initFrame:SetScript("OnEvent", function(self)
             tb:Show()
             local nameText = pf.spellText
             local side = cb.spellTextSide or "left"
-            local x, y = cb.spellTextX or 0, cb.spellTextY or 0
+            local x, y = cb.spellTextX or 0, (cb.spellTextY or 0) + textY
             nameText:ClearAllPoints()
             if side == "right" then
                 nameText:SetJustifyH("RIGHT")

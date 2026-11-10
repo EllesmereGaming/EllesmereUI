@@ -26,6 +26,10 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
     env.SetCastBarPreviewFill(math.random(30, 85) / 100)
     ShuffleCastBarIcons()
     EllesmereUI:SetContentHeader(_castBarPreviewBuilder)
+    -- The builder draws the plain mock; the style (Blizzard Style, WoW
+    -- Forever, Classic WoW UI) lands with the update, which a first visit
+    -- otherwise never runs (only a cached page's restore does).
+    UpdateCastBarPreview()
 
     -- Clear this page's own click mappings (the table is shared with the display page, whose
     -- cached preview keeps its own; never from a hidden pre-build -- see the matching guard in
