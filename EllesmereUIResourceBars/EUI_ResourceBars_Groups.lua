@@ -713,15 +713,16 @@ function ns.ERB_SetBlizzCastFill(kind)
     f._blizzFillKind = kind
     f._bar:GetStatusBarTexture():SetAtlas(atlas)
 end
--- Blizzard Style frame art reach past the fill (left, right, top) and the
--- spell name's nudge in the text box; the live bar and the options preview
+-- Blizzard Style frame art reach past the fill (left, right, top), the
+-- spell name's nudge in the text box and the timer's on the bar; the live bar and the options preview
 -- both seat from here. The WoW Forever art's thicker rim drawn 2px out
 -- covers the bar's top edge and the icon's border, so it sits flush there;
--- its text box, under that rim too, needs the name 2px lower to centre it.
+-- its text box, under that rim too, needs the name 2px lower to centre it,
+-- and the timer on the bar drops 1px to centre on the fill the rim leaves.
 function ns.ERB_CastChromeGeom(cb)
-    if not ns.ERB_CastForever() then return 2, 2, 2, 0 end
+    if not ns.ERB_CastForever() then return 2, 2, 2, 0, 0 end
     local iconIn = ns.ERB_CastIconW(cb) > 0
-    return (iconIn and not cb.iconOnRight) and 0 or 2, (iconIn and cb.iconOnRight) and 0 or 2, 0, -2
+    return (iconIn and not cb.iconOnRight) and 0 or 2, (iconIn and cb.iconOnRight) and 0 or 2, 0, -2, -1
 end
 -- Frame art around the bar plus, under Blizzard Style, the text box under it
 -- (the spell name moves into the box, honouring the Spell Text side and

@@ -574,7 +574,8 @@ end
         local pt, xb, jh = ns.GetCastTextAnchor(durSide, false, timerW)
         timerText:ClearAllPoints()
         timerText:SetJustifyH(jh)
-        timerText:SetPoint(pt, bar, pt, xb + (cb.timerX or 0), cb.timerY or 0)
+        local _, _, _, _, timerNudge = ns.ERB_CastChromeGeom(cb)
+        timerText:SetPoint(pt, bar, pt, xb + (cb.timerX or 0), (cb.timerY or 0) + timerNudge)
         timerText:Show()
         ns.ERB_CastTextColor(timerText, cb.timerR, cb.timerG, cb.timerB, cb.timerA)
     else

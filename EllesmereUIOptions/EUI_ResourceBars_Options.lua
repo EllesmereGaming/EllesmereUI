@@ -4353,7 +4353,8 @@ initFrame:SetScript("OnEvent", function(self)
             local pt, xb, jh = ns.GetCastTextAnchor(cbDurSide, false, cbTimerW)
             pf.timerText:ClearAllPoints()
             pf.timerText:SetJustifyH(jh)
-            pf.timerText:SetPoint(pt, pf.bar, pt, xb + (cb.timerX or 0), cb.timerY or 0)
+            local _, _, _, _, timerNudge = ns.ERB_CastChromeGeom(cb)
+            pf.timerText:SetPoint(pt, pf.bar, pt, xb + (cb.timerX or 0), (cb.timerY or 0) + timerNudge)
             -- Preview total cast time is 3.0s; mirror the live "elapsed / total" mode.
             if cb.showTotalDuration then
                 pf.timerText:SetText(string.format("%.1f / %.1f", 3.0 * _castBarPreviewFill, 3.0))
