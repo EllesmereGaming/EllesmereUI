@@ -103,7 +103,7 @@ local function ApplyPreviewData(f, index, roles, classTokens)
             local r = pct < 0.5 and 1 or (1 - (pct - 0.5) * 2)
             local g = pct > 0.5 and 1 or (pct * 2)
             f._health:SetStatusBarColor(r, g, 0, (s.healthBarOpacity or 100) / 100)
-        elseif mode == "customDynamic" then
+        elseif mode == "customDynamic" or mode == "customBicolor" then
             if fillTex then fillTex:SetAlpha(1) end
             local r, g, b = ns.ResolveDynamicColor(s, healthPct / 100)
             f._health:SetStatusBarColor(r, g, b, (s.healthBarOpacity or 100) / 100)

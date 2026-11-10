@@ -430,7 +430,7 @@ local defaults = {
         healthBarTexture = "atrocity",
         healthBarOpacity = 100,
         textureBg = false,  -- Textured Background (Health Bar Fill cog)
-        healthColorMode  = "class",  -- "class", "dark", "classic", "custom", "customDynamic", "classReactive"
+        healthColorMode  = "class",  -- "class", "dark", "classic", "custom", "customDynamic", "customBicolor", "classReactive"
         customFillColor  = { r = 37/255, g = 193/255, b = 29/255 },
         -- Custom Dynamic Colors: health-percent gradient stops; defaults match
         -- the Classic curve so switching from Classic looks identical at first.

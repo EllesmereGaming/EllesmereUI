@@ -1232,7 +1232,7 @@ ns._UpdateButtonHealth = function(button, unit)
             else
                 r, g, b = GetHealthColor(unit, s)
             end
-            if mode == "classic" or mode == "customDynamic" or mode == "classReactive" then
+            if mode == "classic" or mode == "customDynamic" or mode == "customBicolor" or mode == "classReactive" then
                 local fillTex = health:GetStatusBarTexture()
                 if fillTex then fillTex:SetAlpha(1) end
                 health:SetStatusBarColor(r, g, b, (s.healthBarOpacity or 100) / 100)

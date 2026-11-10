@@ -146,7 +146,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
                                 local r = pct < 0.5 and 1 or (1 - (pct - 0.5) * 2)
                                 local g = pct > 0.5 and 1 or (pct * 2)
                                 f._health:SetStatusBarColor(r, g, 0, (s.healthBarOpacity or 100) / 100)
-                            elseif s.healthColorMode == "customDynamic" then
+                            elseif s.healthColorMode == "customDynamic" or s.healthColorMode == "customBicolor" then
                                 local r, g, b = ns.ResolveDynamicColor(s, st.current / 100)
                                 f._health:SetStatusBarColor(r, g, b, (s.healthBarOpacity or 100) / 100)
                             elseif s.healthColorMode == "classReactive" then
@@ -305,10 +305,13 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
     if not EllesmereUI._prebuilding then
         local rgn = row._leftRegion
 
-        -- Gradient thresholds cog: built first so every swatch lands left of it; live only in Custom Dynamic.
+        -- Gradient Thresholds cog: built first so the swatches land left of it, like every other inline cog; live only in the Custom Dynamic modes.
         local thresholdCog = EllesmereUI.BuildInlineCog(rgn, {
-            disabled = function() return SVal("healthColorMode", "class") ~= "customDynamic" end,
-            disabledTooltip = "Only available with Custom Dynamic Colors",
+            disabled = function()
+                local m = SVal("healthColorMode", "class")
+                return m ~= "customDynamic" and m ~= "customBicolor"
+            end,
+            disabledTooltip = "Only available with the Custom Dynamic modes",
             rawTooltip = true,
             title = "Gradient Thresholds",
             rows = {
@@ -385,7 +388,8 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
         local function UpdateSwatchVis()
             local mode = SVal("healthColorMode", "class")
             if thresholdCog and thresholdCog._euiCogState then thresholdCog._euiCogState() end
-            local isDynamic = mode == "customDynamic"
+            local isBicolor = mode == "customBicolor"
+            local isDynamic = mode == "customDynamic" or isBicolor
             -- Class Reactive shares the dynamic stops but its 100% color IS
             -- the class color: only the 0%/50% swatches apply there.
             local isClassReactive = mode == "classReactive"
@@ -398,9 +402,12 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
                 else swatch:SetAlpha(0.3); block:Show() end
             end
             for i, sw in ipairs(dynSwatches) do
-                -- dynSwatches[1] = the 100% stop (class-driven in Class Reactive).
-                if isDynamic or (isClassReactive and i > 1) then sw:Show() else sw:Hide() end
+                -- dynSwatches[1] = the 100% stop (class-driven in Class Reactive); Bicolor has no 50% stop.
+                if (isDynamic and not (isBicolor and i == 2)) or (isClassReactive and i > 1) then sw:Show() else sw:Hide() end
             end
+            -- Bicolor closes the gap the hidden 50% swatch leaves.
+            dynSwatches[1]:ClearAllPoints()
+            dynSwatches[1]:SetPoint("RIGHT", isBicolor and dynSwatches[3] or dynSwatches[2], "LEFT", -6, 0)
         end
         EllesmereUI.RegisterWidgetRefresh(UpdateSwatchVis)
         UpdateSwatchVis()

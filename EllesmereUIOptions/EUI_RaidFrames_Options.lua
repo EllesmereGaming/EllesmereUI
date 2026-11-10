@@ -803,8 +803,9 @@ initFrame:SetScript("OnEvent", function(self)
         ["classic"]       = "Classic",
         ["custom"]        = "Custom Color",
         ["customDynamic"] = "Custom Dynamic Colors",
+        ["customBicolor"] = "Custom Dynamic Bicolor",
     }
-    local healthColorOrder = { "class", "classReactive", "dark", "classic", "custom", "customDynamic" }
+    local healthColorOrder = { "class", "classReactive", "dark", "classic", "custom", "customDynamic", "customBicolor" }
 
     local absorbStyleValues = {
         ["none"]            = "None",
