@@ -4608,10 +4608,10 @@ initFrame:SetScript("OnEvent", function(self, event)
             return IsShiftKeyDown()
         end
 
-        -- Shared dedup check: only scan last 5 lines (we add at most 3)
+        -- Shared dedup check: only scan last 6 lines (we add at most 4)
         local function hasDupLine(tooltip, name, tag)
             local n = tooltip:NumLines()
-            local start = n - 4
+            local start = n - 5
             if start < 1 then start = 1 end
             for i = n, start, -1 do
                 local fs = _G[name .. "TextLeft" .. i]
@@ -4755,6 +4755,30 @@ initFrame:SetScript("OnEvent", function(self, event)
             end
         end
 
+        -- Total owned across bags, character bank and warband bank (current character only).
+        local function ItemTotalOwnedHook(tooltip, data)
+            if not (EllesmereUIDB and EllesmereUIDB.showItemTotalOwned) then return end
+            if not data or not data.id then return end
+            if _isSecret and _isSecret(data.id) then return end
+            if not tooltip or not tooltip.GetName then return end
+            local ok, name = pcall(tooltip.GetName, tooltip)
+            if not ok or not name then return end
+            if name == "ItemSocketingDescription" then return end
+            if hasDupLine(tooltip, name, "Total Owned") then return end
+
+            local bags  = C_Item.GetItemCount(data.id, false, false, false, false) or 0
+            local total = C_Item.GetItemCount(data.id, true, false, true, true) or 0
+            if total <= 0 then return end
+            -- A single unstackable item (gear) adds nothing the tooltip doesn't already say.
+            if total == 1 and (select(8, C_Item.GetItemInfo(data.id)) or 1) <= 1 then return end
+            local text = tostring(total)
+            if bags ~= total then
+                text = text .. " (" .. bags .. " bags, " .. (total - bags) .. " bank)"
+            end
+            tooltip:AddDoubleLine("Total Owned", text, 1, 1, 1, 1, 1, 1)
+            tooltip:Show()
+        end
+
         -- Macros surface as their own tooltip type, so the Spell hook above never fires for
         -- them (GetSpell() also returns nil on a macro tooltip). The spell #showtooltip resolved
         -- to (honoring conditionals) is exposed as the FIRST tooltip line's tooltipID, read from the tooltip data.
@@ -4791,6 +4815,7 @@ initFrame:SetScript("OnEvent", function(self, event)
             TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Macro, MacroSpellIDTooltipHook)
         end
         TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ItemIdMaxStackHook)
+        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, ItemTotalOwnedHook)
 
         -- Live toggle: when a selected modifier is pressed/released while a tooltip is hovered,
         -- re-process the shown GameTooltip so the ID and Max Stack lines appear/disappear without

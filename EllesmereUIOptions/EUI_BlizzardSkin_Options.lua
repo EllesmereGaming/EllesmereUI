@@ -877,6 +877,20 @@ initFrame:SetScript("OnEvent", function(self)
             BorderOffsetRow("tooltip",ttReskinOff,TooltipBorderApply)
         end
 
+        -- Show Total Owned (reskin-independent, like Max Stack). Last row: only it may have an empty slot.
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Total Owned for Items",
+              tooltip="Adds how many of an item you own across your bags, bank and warband bank to its tooltip.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.showItemTotalOwned or false
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.showItemTotalOwned = v
+              end },
+            EllesmereUI.BlankRowCfg()
+        );  y = y - h
+
         -----------------------------------------------------------------------
         --  Blizzard Bars, Popups & Buttons: on-screen elements that are not
         --  windows, so they get plain toggles here rather than cards on the
@@ -4512,6 +4526,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.tooltipHealthStripHeight = nil
                 EllesmereUIDB.showItemMaxStacks = nil
                 EllesmereUIDB.itemStackModifier = nil
+                EllesmereUIDB.showItemTotalOwned = nil
                 EllesmereUIDB.tooltipShowGuildRank = nil
                 EllesmereUIDB.tooltipShowMount = nil
                 EllesmereUIDB.tooltipShowTarget = nil

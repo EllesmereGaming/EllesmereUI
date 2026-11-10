@@ -2123,7 +2123,7 @@ do
         "tooltipBuffsPerRow", "tooltipBuffOffsetX", "tooltipBuffOffsetY",
         "tooltipBgColor", "tooltipBgOpacity", "tooltipBorderSize",
         "showSpellID", "spellIDModifier", "showIconID", "showItemID",
-        "showItemMaxStacks", "itemStackModifier",
+        "showItemMaxStacks", "itemStackModifier", "showItemTotalOwned",
         "reskinPopupsMenus", "reskinGameMenu", "reskinQueuePopup",
         "showQueueTimer", "queueTimerTextColor", "queueTimerTextSize",
         "queueTimerBarHeight", "queueTimerTextOffsetY",
