@@ -276,10 +276,12 @@ function ns.UF_ForeverKit()
     P.pvp = { point = "TOP", relPoint = "TOPLEFT", x = 22, y = -65, scale = 0.8 }
     P.vis.b, P.pad.bottom = 7, 7
     -- The target bars draw over the art, so a bar a pixel past its track
-    -- shows over the rim: health spans 23..144 and power 24..145, the
-    -- inside of the Forever rim (22..145 overran it by a pixel or two).
-    Fit(T.health, 23, 44, 121, 15, 4, 123, 10, 22, 128, 32)
-    Fit(T.power, 24, 60, 121, 10, 68, 187, 4, 11, 256, 16)
+    -- shows over the rim: both span 23..145, the inside of the Forever rim
+    -- (22..145 overran its left edge). The mana mask's opening has no
+    -- rounded end on the left, so that corner stays square; fitting the
+    -- mask past it only shortens the bar.
+    Fit(T.health, 23, 44, 122, 15, 4, 123, 10, 22, 128, 32)
+    Fit(T.power, 23, 60, 122, 10, 68, 187, 4, 11, 256, 16)
     -- Both Forever target bars end alike: Hide Power Bar's stretched health
     -- mask fits, not the retail art's joined one.
     T.mergedHealth = nil
