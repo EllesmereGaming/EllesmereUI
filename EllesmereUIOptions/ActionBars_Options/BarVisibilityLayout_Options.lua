@@ -234,8 +234,10 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
                   lockedTooltip = "This option requires a bar set to Mouseover" },
             }
             if rgn._control then rgn._control:Hide() end
+            -- Wider than the standard 170: its longest rows ("Show When Spellbook
+            -- Is Open") must fit on the closed button and in the list.
             local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rgn, 170, rgn:GetFrameLevel() + 2, items,
+                rgn, 240, rgn:GetFrameLevel() + 2, items,
                 function(k)
                     if k == "mouseoverShowAll" then
                         return EAB.db.profile.mouseoverShowAll and true or false

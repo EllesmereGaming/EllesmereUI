@@ -861,9 +861,10 @@ EllesmereUI._onScaleChanged[#EllesmereUI._onScaleChanged + 1] = RefitLayers
 -- keeps the mask through SetColorTexture). clip (dropdown lists): on every
 -- show, the textures in the scroll content of the parent's scroll frames take
 -- a mask of the shape 1 unit in, so a row scrolled to an edge keeps the
--- corners round (once the mask's art has loaded: ClipWhenLoaded). Only scroll
--- content, which sits inside the list by construction: a list's other
--- children may lie outside it (a side submenu), where the mask would hide them.
+-- corners round (once the mask's art and the texture's own have loaded:
+-- ClipWhenLoaded). Only scroll content, which sits inside the list by
+-- construction: a list's other children may lie outside it (a side submenu),
+-- where the mask would hide them.
 -- width (default 1): the edge in whole pixels, for a heavier ring (a pulse);
 -- the radius keeps room for it.
 local OUTLINE_RADIUS = 4
@@ -936,15 +937,28 @@ end
 -- The clip walk (walks never nest): every texture in the scroll content of
 -- the parent's own scroll frames takes the inner mask once per pool dress
 -- (the pool's reset takes it off a texture it hands out again). Edit boxes
--- are skipped (the engine makes some of their regions).
-local cMask, cSet
+-- are skipped (the engine makes some of their regions). A texture whose own
+-- art is still loading (a spell icon the session has not shown yet) goes
+-- without the mask, losing one an earlier show gave it, and waits in
+-- artWaiting (texture -> its list) for the art: see the wait below.
+local cMask, cSet, cOwner
+local artWaiting
 local ClipFrame
 local function ClipRegions(...)
     for i = 1, select("#", ...) do
         local reg = select(i, ...)
         if reg:GetObjectType() == "Texture" then
             local g = PoolDress(reg) or 0
-            if cSet[reg] ~= g and AddMask(reg, cMask) then cSet[reg] = g end
+            if reg.IsObjectLoaded and not reg:IsObjectLoaded() then
+                if cSet[reg] == g then
+                    RemoveMask(reg, cMask)
+                    cSet[reg] = nil
+                end
+                if not artWaiting then artWaiting = setmetatable({}, WEAK_K) end
+                artWaiting[reg] = cOwner
+            elseif cSet[reg] ~= g and AddMask(reg, cMask) then
+                cSet[reg] = g
+            end
         end
     end
 end
@@ -965,10 +979,12 @@ local function ClipScrolls(...)
         end
     end
 end
+local StartWait
 local function ClipContent(o)
-    cMask, cSet = o.innerMask, o.clipped
+    cMask, cSet, cOwner = o.innerMask, o.clipped, o
     ClipScrolls(o.parent:GetChildren())
-    cMask, cSet = nil, nil
+    cMask, cSet, cOwner = nil, nil, nil
+    if artWaiting and next(artWaiting) then StartWait() end
 end
 
 -- The client loads texture files in the background, and a rounded mask's art
@@ -979,6 +995,13 @@ end
 -- card's clip and accent, wait for the art, as Blizzard's map waits for its
 -- tiles: a frame of ours, shown only while something waits, finishes each once
 -- its mask has loaded. Until then a texture draws unmasked (square corners).
+-- The same holds for a masked texture's OWN art: a list of spell icons the
+-- session had not shown yet drew most of them blank, or as a small stale
+-- image, until the pointer crossed their rows. So the walk leaves a texture
+-- whose art is still loading without the mask (it then draws as any texture
+-- does once its art arrives), and the same frame gives it the mask once the
+-- art is in, while its list is still open; a list closed meanwhile drops
+-- its waits, and its next show walks it again.
 local clipWait, clipWaiting, maskWaiting
 local function ClipWaitTick(self)
     for o in pairs(clipWaiting) do
@@ -997,11 +1020,22 @@ local function ClipWaitTick(self)
             if PoolDress(tex) == w.gen then AddMask(tex, w.m) end
         end
     end
-    if not next(clipWaiting) and not next(maskWaiting) then self:Hide() end
+    for tex, o in pairs(artWaiting) do
+        local layer = o._frame
+        if layers[layer] ~= o or not layer:IsVisible() then
+            artWaiting[tex] = nil
+        elseif tex:IsObjectLoaded() then
+            artWaiting[tex] = nil
+            local g = PoolDress(tex) or 0
+            if o.clipped[tex] ~= g and AddMask(tex, o.innerMask) then o.clipped[tex] = g end
+        end
+    end
+    if not next(clipWaiting) and not next(maskWaiting) and not next(artWaiting) then self:Hide() end
 end
-local function StartWait()
+function StartWait()
     if not clipWait then
         clipWaiting, maskWaiting = setmetatable({}, WEAK_K), setmetatable({}, WEAK_K)
+        if not artWaiting then artWaiting = setmetatable({}, WEAK_K) end
         clipWait = CreateFrame("Frame")
         clipWait:Hide()
         clipWait:SetScript("OnUpdate", ClipWaitTick)

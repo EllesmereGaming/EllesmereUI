@@ -87,12 +87,14 @@ end
 -- cover vehicle/override/possess or a temporary transformation's bar -- those replace
 -- abilities outright, so suppressing them would leave no way to use them. Only ever
 -- true for MainBar, the only bar the engine drives off bonusbar and the only one with
--- these toggles.
+-- these toggles. WoW Forever has no skyriding and its options offer no Skyriding
+-- Paging, so a saved disableSkyridingPaging reads as unset there.
 function EAB_VTABLE.GetAutoPagingOptOuts(barKey)
     if barKey ~= "MainBar" then return false, false end
     local bs = EAB and EAB.db and EAB.db.profile and EAB.db.profile.bars.MainBar
     if not bs then return false, false end
-    return bs.disableFormPaging and true or false, bs.disableSkyridingPaging and true or false
+    local noSky = bs.disableSkyridingPaging and not EllesmereUI.IS_FOREVER
+    return bs.disableFormPaging and true or false, noSky and true or false
 end
 
 -- WoW Forever druid forms by their spot on the stance bar. Casting the form

@@ -1292,6 +1292,18 @@ function ns.UFO_BuildPortraitSection(parent, y, ctx)
                     UpdatePreview()
                 end,
             }
+            -- A 3D model draws over the shape's border; on, it sits inside the
+            -- border and under it (ns.UF_PortraitShapeModel).
+            rows[#rows + 1] = { type="toggle", label="3D Portrait Below Border",
+                tooltip="Draws a 3D portrait inside the shape's border instead of over it.",
+                disabled=function()
+                    return SVal("portraitMode", "2d") ~= "3d" or SVal("detachedPortraitShape", "portrait") == "none"
+                end,
+                disabledTooltip="This option requires the 3D Art Style and a Shape other than None.",
+                rawTooltip=true,
+                get=function() return SVal("portrait3dBelowBorder", false) end,
+                set=function(v) SSet("portrait3dBelowBorder", v or nil); UpdatePreview() end,
+            }
         end
         EllesmereUI.BuildInlineCog(sharedPortraitModeRow._leftRegion, {
             title = "Portrait Settings",

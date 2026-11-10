@@ -298,9 +298,10 @@ _dragUpdateFrame:SetScript("OnUpdate", function()
 
         local cats = EUI_CategoryManager:GetCategories()
 
-        -- Block drops onto/above special entries (Pinned Items, Recent Items) -- nothing drags above the divider.
+        -- Block drops onto/above special entries (Pinned Items, Recent Items) -- nothing drags above the divider,
+        -- and nothing lands among the virtual categories at the tail.
         local targetCatCheck = cats[target]
-        if targetCatCheck and (targetCatCheck.isPinned or targetCatCheck.isRecent) then
+        if targetCatCheck and (targetCatCheck.isPinned or targetCatCheck.isRecent or targetCatCheck.isVirtual) then
             line:Hide(); hl:Hide()
             _dragDropMode = nil; _dragDropTarget = nil
             return
@@ -966,8 +967,8 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
     local cats = EUI_CategoryManager:GetCategories()
     local cat = cats[catIdx]
     if not cat then return end
-    -- Set children have no menu actions (rename/group/hide all N/A): no empty menu
-    if cat.isEquipSet then return end
+    -- Set children and virtual categories have no menu actions (rename/group/hide all N/A): no empty menu
+    if cat.isEquipSet or cat.isVirtual then return end
 
     MenuUtil.CreateContextMenu(btn, function(_, rootDescription)
         local myGroup = cat.groupName
@@ -1028,8 +1029,8 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 EUI_Bags:RefreshInventory()
             end)
         else
-            -- Equip-set and virtual categories are named by their source; renames would not persist
-            if not cat.isEquipSet and not cat.isVirtual then
+            -- Equip-set categories are named by the set; renames would not persist
+            if not cat.isEquipSet then
             rootDescription:CreateButton(EllesmereUI.L("Rename"), function()
                 if not EUI.ShowInputPopup then return end
                 EUI:ShowInputPopup({

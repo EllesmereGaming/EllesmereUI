@@ -113,11 +113,15 @@ local function Skin()
     local m = CM._ModuleNS.EllesmereUIBlizzardSkin
     return m and m.WSkin
 end
--- eui's group finder skin is on; off, our parts take blizzard's look (a reload swaps, like the skin)
+-- eui's group finder skin is on; off, our parts take blizzard's look. read once per session, at login,
+-- when the window skin itself installs: a card toggle swaps both with the reload it asks for
 function XF.SkinOn()
-    if not Skin() then return false end
-    if EllesmereUIDB and EllesmereUIDB.reskinLFGMenu == false then return false end
-    return not (CM.BlizzWindowSkinsKilled and CM.BlizzWindowSkinsKilled())
+    local on = XF.skinOn
+    if on ~= nil then return on end
+    local style = CM.GetBlizzWindowStyle  -- nil while blizzard skins+ is off
+    on = (Skin() ~= nil and style ~= nil and style("lfg") ~= "off") and true or false
+    if IsLoggedIn() then XF.skinOn = on end
+    return on
 end
 ns.SkinOn = XF.SkinOn
 local function ThemeBorder()
@@ -2373,8 +2377,8 @@ local function SkinnedButton(parent, w, h, keepKeys, decorate)
     if decorate then decorate(b) end
     local S = Skin()
     if stock then
-        -- a clear edge, coloured only for picked squares (on b itself, so SetBorderColor finds it)
-        CM.PanelPP.CreateBorder(b, 0, 0, 0, 0, 1, "OVERLAY", 7)
+        -- no edge of ours: a picked square holds the template's highlight on (XF.PickBorder), and a
+        -- border colour write on a frame with no border does nothing
         return b
     elseif S and S.Button then
         S.Button(b, keepKeys)
@@ -2525,9 +2529,10 @@ local function MakeDelveSquare(parent)
     line:SetPoint("TOPLEFT", fs, "BOTTOMLEFT", 0, -1)
     line:SetPoint("TOPRIGHT", fs, "BOTTOMRIGHT", 0, -1)
     line:SetHeight(2)
-    local r, g, bl, a = ThemeBorder()
-    if not XF.SkinOn() then a = 0 end
-    CM.PanelPP.CreateBorder(b.edge, r, g, bl, a, 1, "OVERLAY", 7)
+    if XF.SkinOn() then
+        local r, g, bl, a = ThemeBorder()
+        CM.PanelPP.CreateBorder(b.edge, r, g, bl, a, 1, "OVERLAY", 7)
+    end
     b.gold:Hide()
     b:SetScript("OnEnter", DelveEnter)
     b:SetScript("OnLeave", XF.Untip)

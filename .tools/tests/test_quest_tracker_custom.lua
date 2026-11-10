@@ -462,6 +462,7 @@ C_QuestLog = {
     GetMaxNumQuestsCanAccept = function() return 25 end,
 }
 C_SuperTrack = { GetSuperTrackedQuestID = function() return 0 end }
+C_TradeSkillUI = { GetRecipesTracked = function() return {} end }   -- no tracked recipes
 QuestUtilsOverrides = { GetQuestTitlePrefix = function() end, GetQuestTagText = function() end }
 EQT.QuestLogSnapshot = function() return {}, { [101] = "Elwynn", [102] = "Elwynn" } end
 EQT.AutoTrackOn = function() return false end

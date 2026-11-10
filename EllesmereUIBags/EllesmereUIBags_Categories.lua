@@ -480,9 +480,10 @@ function CategoryManager:GetSavedCount()
     return #self:GetCategories() - (_virtual and #_virtual or 0)
 end
 
--- Is this a virtual category's index (or key)? Costs nothing while none is registered.
+-- Is this index a virtual category's? Costs nothing while none is registered.
 function CategoryManager:IsVirtual(index)
-    local cat = _virtual and self._categories and self._categories[index]
+    if not _virtual then return false end
+    local cat = self:GetCategories()[index]
     return cat and cat.isVirtual or false
 end
 
@@ -565,6 +566,9 @@ local _virtualClaim = false
 local function AskVirtual(classify, ...)
     _virtualClaim = classify(...) and true or false
 end
+-- True while the providers are asked: a provider cannot register, unregister
+-- or ask for a repaint from inside its own classify call
+local _asking = false
 
 -- Classify a single item. Returns category index (1-based) or nil for empty slots.
 -- bag/slot are needed for C_Container.GetContainerItemQuestInfo; quality is
@@ -601,14 +605,19 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot, quality)
 
     -- Virtual categories: the providers answer before the built-in rules (their
     -- cats are the tail of the list). A provider error is reported, never stops
-    -- the pass, and counts as "no".
-    if _virtual then
+    -- the pass, and counts as "no". Junk is not offered: what Sell Junk sells
+    -- stays in the Junk category.
+    if _virtual and not self:IsJunk(itemID, quality) then
         local base = #cats - #_virtual
+        local claimed
+        _asking = true
         for i, rec in ipairs(_virtual) do
             _virtualClaim = false
             securecallfunction(AskVirtual, rec.classify, itemLink, itemID, bag, slot, quality)
-            if _virtualClaim then return base + i end
+            if _virtualClaim then claimed = base + i; break end
         end
+        _asking = false
+        if claimed then return claimed end
     end
 
     -- Fixed item lists (Forever camp items) win over item-class matching; the
@@ -1194,10 +1203,28 @@ end
 --    def.classify  function(itemLink, itemID, bag, slot, quality) -> true to
 --                  claim the item. bag and slot are nil for another character's
 --                  items; quality may be nil. The first claim by order wins.
---  Items the user filed or marked, and reagent / special bag items, are not
---  offered to providers.
+--  Items the user filed or marked, junk (grey items while the Junk Marker is
+--  on) and reagent / special bag items are not offered to providers. A change
+--  repaints the bags once, on the next frame. A provider cannot register,
+--  unregister or ask for a repaint from inside its own classify call.
 -------------------------------------------------------------------------------
--- The list changed: rebuild it (the open view re-resolves by key) and repaint.
+-- One repaint for every change made in a frame: a request shows a hidden frame
+-- whose next update hides it, then repaints the bags and an open bank.
+local _repaint
+local function QueueRepaint()
+    if not _repaint then
+        _repaint = CreateFrame("Frame")
+        _repaint:SetScript("OnUpdate", function(self)
+            self:Hide()
+            local bags = _G.EUI_Bags
+            if bags and bags.RefreshInventory then bags:RefreshInventory() end
+            if ns.RefreshOpenBank then ns.RefreshOpenBank() end
+        end)
+    end
+    _repaint:Show()
+end
+
+-- The list changed: rebuild it now (the open view re-resolves by key), repaint next.
 local function VirtualChanged(self)
     local bags = _G.EUI_Bags
     if bags and bags.InvalidateSetCategories then
@@ -1205,8 +1232,7 @@ local function VirtualChanged(self)
     else
         self:OnEquipmentSetsChanged()
     end
-    if bags and bags.RefreshInventory then bags:RefreshInventory() end
-    if ns.RefreshOpenBank then ns.RefreshOpenBank() end
+    QueueRepaint()
 end
 
 local function VirtualBefore(a, b)
@@ -1216,6 +1242,7 @@ end
 
 -- Registering an id again replaces it. Returns true when registered.
 function CategoryManager:RegisterVirtualCategory(id, def)
+    if _asking then return false end
     if type(id) ~= "string" or id == "" then return false end
     if type(def) ~= "table" or type(def.classify) ~= "function" then return false end
     _virtual = _virtual or {}
@@ -1237,7 +1264,7 @@ end
 
 -- Returns true when the id was registered.
 function CategoryManager:UnregisterVirtualCategory(id)
-    if not _virtual then return false end
+    if not _virtual or _asking then return false end
     for i, rec in ipairs(_virtual) do
         if rec.id == id then
             table.remove(_virtual, i)
@@ -1251,11 +1278,14 @@ end
 
 -- A provider's answers changed (its data loaded, its rules changed): classify again.
 function CategoryManager:RefreshVirtualCategories()
-    if not _virtual then return end
-    local bags = _G.EUI_Bags
-    if bags and bags.RefreshInventory then bags:RefreshInventory() end
-    if ns.RefreshOpenBank then ns.RefreshOpenBank() end
+    if not _virtual or _asking then return end
+    self:OnVirtualAnswersChanged()
+    QueueRepaint()
 end
+
+-- What RefreshVirtualCategories reports through: the offline views watch this
+-- one, so a provider's kept reference to the function above still reaches them.
+function CategoryManager:OnVirtualAnswersChanged() end
 
 -------------------------------------------------------------------------------
 --  Global accessor

@@ -997,8 +997,9 @@ function ns.RenderListView(items, opts)
             sl[#sl + 1] = d
         end
     end
-    -- Pinned first, category (or bag) order, Junk last
-    local RANK = { pinned = -2, recent = -1, main = 0, junk = math.huge }
+    -- Pinned first, category (or bag) order, Junk after the last saved category
+    -- (virtual categories follow it, as in the grid and the sidebar)
+    local RANK = { pinned = -2, recent = -1, main = 0, junk = EUI_CategoryManager:GetSavedCount() + 0.5 }
     table.sort(order, function(a, b)
         return (RANK[a.key] or a.key) < (RANK[b.key] or b.key)
     end)

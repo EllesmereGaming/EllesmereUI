@@ -517,11 +517,19 @@ end)
 local function _C(key)
     return (p and p[key]) or defaults[key]
 end
--- Neutral health-bar color: enemyInCombat tint while in combat, else neutral color. Shared by
--- every precedence step resolving to "neutral" (step 5, neutral+mini carve-out 7b, dungeon 10d).
+-- Neutral health-bar color: the enemy fallback's color while in combat (All Enemies while
+-- Simple Coloring When Not In M+ applies outside 5-man dungeons, as step 11 picks it, else
+-- Enemies), else the neutral color. Shared by every precedence step resolving to "neutral"
+-- (step 5, neutral+mini carve-out 7b, dungeon 10d).
 local function ResolveNeutralColor(unit)
     if UnitAffectingCombat(unit) then
-        local c = _C("enemyInCombat")
+        local key = "enemyInCombat"
+        if not ns._inDungeon then
+            local simple = p and p.owBasicColoring
+            if simple == nil then simple = defaults.owBasicColoring end
+            if simple then key = "owBasicColor" end
+        end
+        local c = _C(key)
         return c.r, c.g, c.b
     end
     local c = _C("neutral")
@@ -1094,9 +1102,10 @@ local function GetReactionColor(unit, castSeen)
     local classification = UnitClassification(unit)
     -- Simple Coloring When Not In M+ (inline cog on Enemy Types): outside 5-man dungeons, collapse the
     -- mob-type colors (Mini Enemies, Spell Casters, Mini-Bosses, Bosses) into flat owBasicColor
-    -- at the enemy fallback (step 11). Neutral unaffected (it returns at step 5 outside dungeons,
-    -- or at 10d, above the fallback, while it carries health-bar threat data). Same dungeon gate
-    -- as Mini Coloring M+ Only (ns._inDungeon).
+    -- at the enemy fallback (step 11). Neutral keeps its own color out of combat (it returns at
+    -- step 5 outside dungeons, or at 10d, above the fallback, while it carries health-bar threat
+    -- data) and takes owBasicColor in combat (ResolveNeutralColor). Same dungeon gate as Mini
+    -- Coloring M+ Only (ns._inDungeon).
     local owBasic = false
     if not ns._inDungeon then
         owBasic = defaults.owBasicColoring

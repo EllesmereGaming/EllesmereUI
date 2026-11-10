@@ -630,34 +630,41 @@ local function GetOrCreateButton(slot, parent, info, index, skipProtected)
                 if onPress then onPress(self, down, pressBindCmd) end
             end)
         end
-        -- When the pickup modifier is held (shift-click to move abilities),
-        -- clear useOnKeyDown for the duration of that mouse click: the down
-        -- edge never casts (a drag consumes the action instead), and a click
-        -- without a drag casts on RELEASE -- matching Blizzard's buttons,
-        -- which force useOnKeyDown off for hardware mouse clicks
-        -- (SecureTemplates.lua) and so act on the up edge.
-        -- MOUSE-ONLY via IsUnderMouse (rect test): keybinds ALSO arrive as
-        -- OnClick (SetOverrideBindingClick dispatch for all bars), and a
-        -- modified KEYBIND press must cast on its configured edge.
+        -- Cast Actions on Key Down is for keys. A mouse click acts on
+        -- RELEASE, as on Blizzard's buttons, which force useOnKeyDown off
+        -- for hardware mouse clicks (SecureTemplates.lua). Our buttons run
+        -- the secure template's own OnClick, which treats every click as a
+        -- key press, so this wrap clears useOnKeyDown for the duration of a
+        -- mouse click: the down edge never casts (a drag from it moves the
+        -- action, or does nothing on locked bars, without using it), and a
+        -- click without a drag casts on the up edge. A hold-and-release
+        -- spell still starts on the press: pressAndHoldAction decides its
+        -- edge, not useOnKeyDown.
+        -- MOUSE-ONLY via IsUnderMouse (rect test): click-routed keybinds
+        -- ALSO arrive as OnClick (SetOverrideBindingClick), and a KEYBIND
+        -- press must cast on its configured edge. A key pressed while the
+        -- cursor rests on its own button passes the test and counts as a
+        -- mouse click.
         -- The pre-body must return its message on the UP click and ONLY
         -- there: a wrap's post-body only executes when the pre returns a
         -- message (SecureHandlers.lua), so no message = the flip sticks
         -- (#1165's delayed presses / late GCD swipes), and a DOWN-edge
-        -- message = the restore lands before the release and a shift-click
+        -- message = the restore lands before the release and the click
         -- casts on neither edge. Both shapes shipped and failed; keep the
         -- message on the up edge.
         -- eabPickupFlipped marks OUR flip: useOnKeyDown=false is also a
-        -- legitimate user setting (press-and-hold casting), and the flag
-        -- keeps the restore from ever forcing those users back to true.
-        -- A drag consumes the up edge and strands the flip; the next down
-        -- click (mouse or keybind) clears it BEFORE the native handler
-        -- runs, so that press still acts on its configured edge.
+        -- legitimate user setting (key down off), and the flag keeps the
+        -- restore from ever forcing those users back to true.
+        -- A drag consumes the up edge and strands the flip. The next
+        -- keybind press clears it BEFORE the native handler runs, so that
+        -- press still acts on its configured edge; the next mouse click
+        -- keeps it and restores on its own release.
         if not btn:GetAttribute("eabPickupWrap") and not InCombatLockdown() then
             btn:SetAttribute("eabPickupWrap", true)
             SecureHandlerWrapScript(btn, "OnClick", btn, [[
                 local flipped = self:GetAttribute("eabPickupFlipped")
                 if down then
-                    if IsModifiedClick("PICKUPACTION") and self:IsUnderMouse() then
+                    if self:IsUnderMouse() then
                         if self:GetAttribute("useOnKeyDown") ~= false then
                             self:SetAttribute("eabPickupFlipped", true)
                             self:SetAttribute("useOnKeyDown", false)

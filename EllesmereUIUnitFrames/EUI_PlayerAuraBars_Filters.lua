@@ -375,6 +375,9 @@ function ns.PAB_CopyBM2FiltersIn()
     if not (br and s) then return false end
     local src = br.Filters() or {}
     local altsMap = br.PresetAlts and br.PresetAlts() or nil
+    -- An id typed into a library filter tracks that aura alone there, so it
+    -- comes over alone (an older library has no such ids).
+    local typedIn = br.SpellExact
     local nameToId = NameToId(FilterStore(s).list)
     for i = 1, #src do
         local sf = src[i]
@@ -392,7 +395,7 @@ function ns.PAB_CopyBM2FiltersIn()
                     local state = on and true or false
                     spells[id] = state
                     local a = altsMap and altsMap[id]
-                    if a then
+                    if a and not (typedIn and typedIn(sf, id)) then
                         for j = 1, #a do spells[a[j]] = state end
                     end
                 end
