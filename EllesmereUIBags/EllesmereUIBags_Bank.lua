@@ -2859,7 +2859,7 @@ local function DragBlock(sel, scope)
     local group, i = sel.group, nil
     if not group then
         for ci, c in ipairs(cats) do if c._defaultName == sel.key then i = ci; break end end
-        if not i or cats[i].isJunk or cats[i].isEquipSet then return nil end
+        if not i or cats[i].isJunk or cats[i].isEquipSet or cats[i].isVirtual then return nil end
         group = cats[i].groupName
     end
     if scope == "top" then

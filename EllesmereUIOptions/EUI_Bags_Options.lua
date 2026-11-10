@@ -534,7 +534,8 @@ initFrame:SetScript("OnEvent", function(self)
                         local cats = _G.EUI_CategoryManager:GetCategories()
                         for ci, cat in ipairs(cats) do
                             -- isEquipSet excluded: per-character keys, governed by the split toggle instead
-                            if not cat.isCatchAll and not cat.isPinned and not cat.isRecent and not cat.isReagentBag and not cat.isSpecialBag and not cat.isEquipSet then
+                            -- isVirtual excluded: runtime-only, its addon owns it (a saved key would outlive it)
+                            if not cat.isCatchAll and not cat.isPinned and not cat.isRecent and not cat.isReagentBag and not cat.isSpecialBag and not cat.isEquipSet and not cat.isVirtual then
                                 catItems[#catItems + 1] = { key = cat._defaultName, label = cat.name }
                             end
                         end
