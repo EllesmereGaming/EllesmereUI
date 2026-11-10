@@ -1150,6 +1150,9 @@ initFrame:SetScript("OnEvent", function(self)
     ECHAT.RefreshVisibility()
     EUI.RegisterVisibilityUpdater(ECHAT.RefreshVisibility)
 
+    -- Chat Bar (EUI_Chat_Bar.lua): nothing is built while it is off.
+    if p.chatBarEnabled and ECHAT.ApplyChatBar then ECHAT.ApplyChatBar() end
+
     ---------------------------------------------------------------------------
     --  14. Hide Blizzard social buttons (quick join, menu, channel, voice)
     ---------------------------------------------------------------------------
