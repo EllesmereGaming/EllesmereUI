@@ -416,8 +416,8 @@ assert(ticker._shown, "no timer for the signed-up group in view")
 T.now = T.now + 61
 ticker._scripts.OnUpdate(ticker, 1.0)
 local five = RowFor(5)
--- signed up with 240 s left of 300 (60 s gone), then 61 s more
-assert(five and five.timer._text == "2:01", "the timer did not count: " .. tostring(five and five.timer._text))
+-- signed up with 240 s left of 300 (60 s gone), then 61 s more: 2:59 left
+assert(five and five.timer._text == "2:59", "the timer did not count: " .. tostring(five and five.timer._text))
 T.apps = {}
 T.status[5] = nil
 Event("LFG_LIST_APPLICATION_STATUS_UPDATED", 5, "none", "applied")

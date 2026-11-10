@@ -83,7 +83,7 @@ end
 -- filters belong to the character, everything else to the profile
 local FILTER_KEYS = {}
 for _, k in ipairs({ "ratingOn", "ratingValue", "regions", "delves", "delveTiers", "bosses", "raidDiffs",
-    "raidPlaystyles", "raidRoles", "partyFit", "notDeclined", "hasLust", "hasBrez", "extraMyClass",
+    "raidPlaystyles", "raidRoles", "partyFit", "notDeclined", "hasLust", "hasBrez", "extraMyClass", "raidMyClass",
     "extraExpr", "extraRolesAny", "roleCounts", "dimPicks" }) do FILTER_KEYS[k] = true end
 
 local charDB
