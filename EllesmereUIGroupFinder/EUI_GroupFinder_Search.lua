@@ -113,13 +113,34 @@ local function Skin()
     local m = CM._ModuleNS.EllesmereUIBlizzardSkin
     return m and m.WSkin
 end
+-- eui's group finder skin is on; off, our parts take blizzard's look (a reload swaps, like the skin)
+function XF.SkinOn()
+    if not Skin() then return false end
+    if EllesmereUIDB and EllesmereUIDB.reskinLFGMenu == false then return false end
+    return not (CM.BlizzWindowSkinsKilled and CM.BlizzWindowSkinsKilled())
+end
+ns.SkinOn = XF.SkinOn
 local function ThemeBorder()
+    if not XF.SkinOn() then return 0.38, 0.38, 0.38, 1 end  -- blizzard's search box grey
     local S = Skin()
     local T = S and S.Theme
     if T and T.brdR then return T.brdR, T.brdG, T.brdB, T.brdA end
     return 0.2, 0.2, 0.2, 1
 end
 ns.Skin, ns.ThemeBorder = Skin, ThemeBorder
+-- an unpicked square's edge: the theme's, or none on blizzard's rounded button
+function XF.RestBorder(f)
+    if XF.SkinOn() then CM.PanelPP.SetBorderColor(f, ThemeBorder()) else CM.PanelPP.SetBorderColor(f, 0, 0, 0, 0) end
+end
+-- a picked square: a white edge, or blizzard's highlight held on
+function XF.PickBorder(sq, edge, on)
+    if XF.SkinOn() then
+        if on then CM.PanelPP.SetBorderColor(edge, 1, 1, 1, 1) else XF.RestBorder(edge) end
+        return
+    end
+    XF.RestBorder(edge)
+    if on then sq:LockHighlight() else sq:UnlockHighlight() end
+end
 ns.BOTTOM_Y = BOTTOM_Y
 local function SetBorderColor(frame, r, g, b, a)
     CM.PanelPP.SetBorderColor(frame, r, g, b, a)
@@ -837,7 +858,7 @@ function XF.ExtraFilterActive()
     if not SP or (SP.categoryID ~= DUNGEONS and SP.categoryID ~= RAIDS) then return false end
     local c = Cfg()
     if c.partyFit or c.notDeclined or c.hasLust or c.hasBrez then return true end
-    if ns.ExtraClassKeep and c.extraMyClass then return true end
+    if ns.ExtraClassKeep and c[SP.categoryID == RAIDS and "raidMyClass" or "extraMyClass"] then return true end
     if ns.ExtraExprActive and ns.ExtraExprActive() then return true end
     for _, r in ipairs(XF.COUNT_ROLES) do if XF.CountRule(r.key) then return true end end
     return false
@@ -898,7 +919,7 @@ function XF.ExtraKeep(id, info, need)
     if ns.ExtraExprKeep and not ns.ExtraExprKeep(id, info) then return false end
     -- has / missing bloodlust, battle res and your class
     if ns.ExtraClassKeep then
-        if not ns.ExtraClassKeep(id, info, c) then return false end
+        if not ns.ExtraClassKeep(id, info, c, SP and SP.categoryID == RAIDS) then return false end
     elseif c.hasLust or c.hasBrez then
         local n = info and info.numMembers
         if type(n) == "number" and not IsSecret(n) then
@@ -1764,7 +1785,7 @@ local function AddRoleItems(m, y, raids)
     local K = ns.ExtraClassRows and { Cfg = Cfg, Refilter = Refilter, Paint = Paint, Font = XF.Font,
         ITEM_H = ITEM_H, ITEM_FONT = ITEM_FONT, CHECK_SZ = CHECK_SZ, ThemeBorder = ThemeBorder, ThemeFill = ThemeFill,
         ClickOff = XF.ClickOff, Tip = XF.Tip, Untip = XF.Untip, Accent = Accent, parent = SP,
-        MenuItem = MenuItem, ClassLine = XF.ClassLine, FLAG_KEYS = XF.FLAG_KEYS,
+        MenuItem = MenuItem, ClassLine = XF.ClassLine, FLAG_KEYS = XF.FLAG_KEYS, raids = raids,
         AddCountRow = XF.AddCountRow, COUNT_ROLES = XF.COUNT_ROLES,
         OpListOver = function() return XF.opList and XF.opList:IsShown() and XF.opList:IsMouseOver() or false end }
     for _, r in ipairs(ROLES) do
@@ -2340,9 +2361,10 @@ end
 -------------------------------------------------------------------------------
 -- buttons
 -------------------------------------------------------------------------------
--- button in the skin's look (WSkin.button).
+-- button in the skin's look (WSkin.button); skin off, blizzard's rounded menu button
 local function SkinnedButton(parent, w, h, keepKeys, decorate)
-    local b = CreateFrame("Button", nil, parent)
+    local stock = not XF.SkinOn()
+    local b = CreateFrame("Button", nil, parent, stock and "UIMenuButtonStretchTemplate" or nil)
     b:SetSize(w, h)
     b:SetNormalFontObject("GameFontHighlight")
     b:SetHighlightFontObject("GameFontHighlight")
@@ -2350,7 +2372,11 @@ local function SkinnedButton(parent, w, h, keepKeys, decorate)
     b:SetText(" ")
     if decorate then decorate(b) end
     local S = Skin()
-    if S and S.Button then
+    if stock then
+        -- a clear edge, coloured only for picked squares (on b itself, so SetBorderColor finds it)
+        CM.PanelPP.CreateBorder(b, 0, 0, 0, 0, 1, "OVERLAY", 7)
+        return b
+    elseif S and S.Button then
         S.Button(b, keepKeys)
     else
         local bg = b:CreateTexture(nil, "BACKGROUND")
@@ -2402,7 +2428,7 @@ end
 -- blizzard's cancel x restyled, its button still gets the click
 function XF.CancelLook(entry)
     local cb = entry and entry.CancelButton
-    if type(cb) ~= "table" or not cb.GetRegions then return end
+    if type(cb) ~= "table" or not cb.GetRegions or not XF.SkinOn() then return end
     local d = FFD[cb]
     if not d then
         d = {}
@@ -2444,13 +2470,22 @@ end
 
 -- dungeon square: a skinned button with the icon inset 1px.
 local function MakeSquare(parent)
-    local px = CM.PP.mult
+    local px = XF.SkinOn() and CM.PP.mult or 3  -- blizzard's button: its black inside
     local b = SkinnedButton(parent, BTN, BTN, { "Icon" }, function(btn)
         btn:SetText("")
         btn.Icon = btn:CreateTexture(nil, "ARTWORK")
         btn.Icon:SetPoint("TOPLEFT", btn, "TOPLEFT", px, -px)
         btn.Icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -px, px)
         btn.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        if not XF.SkinOn() then
+            -- rounded corners, to sit inside blizzard's rounded button
+            local mask = btn:CreateMaskTexture()
+            mask:SetAtlas("UI-HUD-ActionBar-IconFrame-Mask")
+            -- the mask's own clear margin sits outside the icon, so the icon keeps its size
+            mask:SetPoint("TOPLEFT", btn.Icon, "TOPLEFT", -3, 3)
+            mask:SetPoint("BOTTOMRIGHT", btn.Icon, "BOTTOMRIGHT", 3, -3)
+            btn.Icon:AddMaskTexture(mask)
+        end
     end)
     b.icon = b.Icon
     b:SetScript("OnEnter", SquareEnter)
@@ -2491,6 +2526,7 @@ local function MakeDelveSquare(parent)
     line:SetPoint("TOPRIGHT", fs, "BOTTOMRIGHT", 0, -1)
     line:SetHeight(2)
     local r, g, bl, a = ThemeBorder()
+    if not XF.SkinOn() then a = 0 end
     CM.PanelPP.CreateBorder(b.edge, r, g, bl, a, 1, "OVERLAY", 7)
     b.gold:Hide()
     b:SetScript("OnEnter", DelveEnter)
@@ -2653,6 +2689,15 @@ end
 local function MakeBossSquare(parent)
     local b = MakeSquare(parent)
     b.icon:SetTexCoord(0.25, 0.75, 0, 1)
+    if not XF.SkinOn() then
+        -- alive / dead outline around the icon, above blizzard's rounded edge
+        b.state = CreateFrame("Frame", nil, b)
+        b.state:SetPoint("TOPLEFT", b.icon, "TOPLEFT", -1, 1)
+        b.state:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 1, -1)
+        b.state:SetFrameLevel(b:GetFrameLevel() + 2)
+        b.state:EnableMouse(false)
+        CM.PanelPP.CreateBorder(b.state, 0, 0, 0, 0, 1, "OVERLAY", 7)
+    end
     b:SetScript("OnEnter", BossEnter)
     b:SetScript("OnClick", function(self)
         if self.boss then OpenBossPick(self) end
@@ -2924,7 +2969,7 @@ Paint = function()
             local on = chosenDelves and chosenDelves[sq.delve.groupID] == true or false
             sq.on = on
             sq:GetFontString():SetAlpha(on and 1 or 0.4)
-            if on then SetBorderColor(sq.edge, 1, 1, 1, 1) else SetBorderColor(sq.edge, ThemeBorder()) end
+            XF.PickBorder(sq, sq.edge, on)
             sq.gold:SetShown(bountiful[sq.delve.name] == true)
         end
     end
@@ -2946,9 +2991,11 @@ Paint = function()
             sq.icon:SetDesaturated(chosenBosses ~= nil and not on)
             sq.icon:SetAlpha((chosenBosses == nil or on) and 1 or 0.45)
             -- green: alive, red: dead
-            if pick == "dead" then SetBorderColor(sq, 1, 0.15, 0.15, 1)
-            elseif on then SetBorderColor(sq, 0.2, 1, 0.3, 1)
-            else SetBorderColor(sq, ThemeBorder()) end
+            local edge = sq.state or sq
+            if pick == "dead" then SetBorderColor(edge, 1, 0.15, 0.15, 1)
+            elseif on then SetBorderColor(edge, 0.2, 1, 0.3, 1)
+            else XF.RestBorder(edge) end
+            if not XF.SkinOn() then if on then sq:LockHighlight() else sq:UnlockHighlight() end end
         end
     end
     local def = DungeonsDefault(f)
@@ -2958,7 +3005,7 @@ Paint = function()
             sq.on = on
             sq.icon:SetDesaturated(not def and not on)
             sq.icon:SetAlpha((def or on) and 1 or 0.45)
-            if on then SetBorderColor(sq, 1, 1, 1, 1) else SetBorderColor(sq, ThemeBorder()) end
+            XF.PickBorder(sq, sq, on)
         end
     end
     local filter = SP.FilterButton
@@ -3099,7 +3146,7 @@ local function CogFilterButton(btn)
         if type(c.raidPlaystyles) == "table" then wipe(c.raidPlaystyles) end
         if type(c.raidRoles) == "table" then wipe(c.raidRoles) end
         c.partyFit, c.notDeclined, c.hasLust, c.hasBrez = nil, nil, nil, nil
-        c.extraMyClass = nil
+        c.extraMyClass, c.raidMyClass = nil, nil
         if ns.ExtraExprReset then ns.ExtraExprReset() end
         if type(c.roleCounts) == "table" then wipe(c.roleCounts) end
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
@@ -3186,8 +3233,9 @@ function XF.SquareAbbr(sq, d, size)
     if on then
         sq.abbr:ClearAllPoints()
         if Cfg().dungeonScore == true then
-            sq.abbr:SetPoint("TOPLEFT", sq, "TOPLEFT", -4, -2)
-            sq.abbr:SetPoint("TOPRIGHT", sq, "TOPRIGHT", 4, -2)
+            local y = XF.SkinOn() and -2 or -4  -- clear of blizzard's rounded edge
+            sq.abbr:SetPoint("TOPLEFT", sq, "TOPLEFT", -4, y)
+            sq.abbr:SetPoint("TOPRIGHT", sq, "TOPRIGHT", 4, y)
             sq.abbr:SetJustifyV("TOP")
         else
             sq.abbr:SetPoint("LEFT", sq, "LEFT", -4, 0)
@@ -3227,7 +3275,7 @@ function XF.SquareScore(sq, d, size)
         XF.Font(fs, math.max(8, math.floor(size * 0.42)), "")
         fs:ClearAllPoints()
         if Cfg().dungeonAbbr == true then
-            fs:SetPoint("BOTTOM", sq, "BOTTOM", 0, 2)
+            fs:SetPoint("BOTTOM", sq, "BOTTOM", 0, XF.SkinOn() and 2 or 4)
         else
             fs:SetPoint("CENTER", sq, "CENTER", 0, 0)
         end
@@ -3662,6 +3710,13 @@ local function LayoutEntryFields()
     end
 end
 
+-- the switch's width, or blizzard's check box with the skin off
+function XF.CheckW(cb)
+    if XF.SkinOn() then return 30 end
+    local w = cb:GetWidth()
+    return (type(w) == "number" and w > 0) and w or 22
+end
+
 -- option row alignment
 function XF.AlignEntryRows()
     XF.alignQueued = nil
@@ -3701,7 +3756,7 @@ function XF.AlignEntryRows()
             cb:SetPoint("LEFT", row, "LEFT", sl - rl, 0)
             if row.Label then
                 row.Label:ClearAllPoints()
-                row.Label:SetPoint("LEFT", cb, "LEFT", 30 + 6, 0)  -- switch width + 6
+                row.Label:SetPoint("LEFT", cb, "LEFT", XF.CheckW(cb) + 6, 0)
             end
         end
     end
@@ -3715,7 +3770,7 @@ function XF.AlignEntryRows()
         pcb:SetPoint("LEFT", prow, "LEFT", bl - pl, 0)
         if prow.Label then
             prow.Label:ClearAllPoints()
-            prow.Label:SetPoint("LEFT", pcb, "LEFT", 30 + 6, 0)  -- switch width + 6
+            prow.Label:SetPoint("LEFT", pcb, "LEFT", XF.CheckW(pcb) + 6, 0)
         end
     end
 end
@@ -3849,7 +3904,7 @@ end
 local function LayoutEntrySwitches()
     if InCombatLockdown() then XF.Defer("entrySwitches", LayoutEntrySwitches) return end
     local EC = LFGListFrame and LFGListFrame.EntryCreation
-    if not EC then return end
+    if not EC or not XF.SkinOn() then return end
     for _, k in ipairs(XF.ENTRY_SWITCH_ROWS) do
         SwitchCheckbox(EC[k])
     end
