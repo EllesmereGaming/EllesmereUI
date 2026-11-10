@@ -4420,6 +4420,7 @@ do
         EllesmereUIMinimap = true,
         EllesmereUIFriends = true,
         EllesmereUIChat = true,
+        EllesmereUIMessaging = true,
         EllesmereUIDamageMeters = true,
         EllesmereUIBags = true,
         EllesmereUIDataBars = true,
