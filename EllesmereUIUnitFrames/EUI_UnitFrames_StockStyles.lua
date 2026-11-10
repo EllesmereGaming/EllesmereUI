@@ -270,8 +270,11 @@ function ns.UF_ForeverKit()
     P.level = { point = "CENTER", x = 0, y = -0.5, justify = "CENTER", skullDy = 0.5 }
     P.pvp = { point = "TOP", relPoint = "TOPLEFT", x = 22, y = -65, scale = 0.8 }
     P.vis.b, P.pad.bottom = 7, 7
-    Fit(T.health, 22, 44, 123, 15, 4, 123, 10, 22, 128, 32)
-    Fit(T.power, 22, 60, 123, 10, 68, 187, 4, 11, 256, 16)
+    -- The target bars draw over the art, so a bar a pixel past its track
+    -- shows over the rim: health spans 23..144 and power 24..145, the
+    -- inside of the Forever rim (22..145 overran it by a pixel or two).
+    Fit(T.health, 23, 44, 121, 15, 4, 123, 10, 22, 128, 32)
+    Fit(T.power, 24, 60, 121, 10, 68, 187, 4, 11, 256, 16)
     -- Both Forever target bars end alike: Hide Power Bar's stretched health
     -- mask fits, not the retail art's joined one.
     T.mergedHealth = nil
