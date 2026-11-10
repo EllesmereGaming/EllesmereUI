@@ -59,6 +59,39 @@ local SyncCalendarInvites, DismissCalendarInvites
 local _greatVaultBtn = nil
 local _portalBtn = nil
 
+-- Outside the gamepad style our click opens the tracking menu. A press on ours while it is
+-- open lets Blizzard's menu manager close it first, so that click must not reopen it.
+do
+    local opened, watch = false, nil
+    local function Done()
+        opened = false
+        if watch then watch:UnregisterEvent("GLOBAL_MOUSE_UP") end
+    end
+    local function MenuOpen(blizBtn) return blizBtn.menu ~= nil and blizBtn.menu:IsShown() end
+    -- After our click opened it: closed by something else (a release off ours) forgets it.
+    function EBS._TrackingMenuOpened(blizBtn, ours)
+        opened = MenuOpen(blizBtn)
+        if not opened then return end
+        if not watch then
+            watch = CreateFrame("Frame")
+            watch:SetScript("OnEvent", function()
+                if not MenuOpen(blizBtn) and not ours:IsMouseOver() then Done() end
+            end)
+        end
+        watch:RegisterEvent("GLOBAL_MOUSE_UP")
+    end
+    -- True when this click closed the menu our click opened (it is gone now).
+    function EBS._TrackingMenuClosedByPress(blizBtn)
+        if not opened or MenuOpen(blizBtn) then return false end
+        Done()
+        return true
+    end
+    -- Closed while the mouse was away (Escape): forgotten on the way back in.
+    function EBS._TrackingMenuForget(blizBtn)
+        if opened and not MenuOpen(blizBtn) then Done() end
+    end
+end
+
 local function BuildCustomIndicators(minimap)
     if _customIndicators.tracking then
         -- Re-apply accent to the friends icon: a later ApplyAll (e.g. PLAYER_ENTERING_WORLD, after
@@ -75,6 +108,12 @@ local function BuildCustomIndicators(minimap)
     _customIndicators.tracking = CreateIndicatorBtn("_tracking", minimap,
         "UI-HUD-Minimap-Tracking-Up", "UI-HUD-Minimap-Tracking-Mouseover", "UI-HUD-Minimap-Tracking-Down",
         function(self)
+            -- Gamepad UI: Blizzard's own button takes the click instead (SyncTrackingHotspot);
+            -- a press here closed its open menu, so it takes clicks again.
+            if EBS._TrackingHotspotActive() then
+                EBS._TrackingClickState()
+                return
+            end
             local blizBtn = MinimapCluster and MinimapCluster.Tracking and MinimapCluster.Tracking.Button
             if not blizBtn or not blizBtn.OpenMenu then return end
 
@@ -82,6 +121,7 @@ local function BuildCustomIndicators(minimap)
                 blizBtn.menu:Hide()
                 return
             end
+            if EBS._TrackingMenuClosedByPress(blizBtn) then return end
 
             -- Position hidden Blizzard button at our custom button
             blizBtn:ClearAllPoints()
@@ -94,11 +134,16 @@ local function BuildCustomIndicators(minimap)
                 blizBtn.menu:ClearAllPoints()
                 blizBtn.menu:SetPoint("TOPRIGHT", self, "TOPLEFT", -4, 0)
             end
+            EBS._TrackingMenuOpened(blizBtn, self)
         end)
     local trackBaseEnter = _customIndicators.tracking:GetScript("OnEnter")
     local trackBaseLeave = _customIndicators.tracking:GetScript("OnLeave")
     _customIndicators.tracking:SetScript("OnEnter", function(self)
         if trackBaseEnter then trackBaseEnter(self) end
+        -- Before a press: follow a live switch of the gamepad style and settle the hotspot.
+        if EBS._TrackingHotspotActive() then EBS._TrackingClickState() end
+        local blizBtn = MinimapCluster and MinimapCluster.Tracking and MinimapCluster.Tracking.Button
+        if blizBtn then EBS._TrackingMenuForget(blizBtn) end
         if not GetFFD(self).freeMoveJustDragged then
             EllesmereUI.ShowWidgetTooltip(self, "Tracking", { anchor = EBS._Grow.TT(), scale = GetCustomTooltipScale() })
         end
@@ -253,6 +298,86 @@ local function BuildCustomIndicators(minimap)
     if not EllesmereUI.IS_FOREVER then
         _greatVaultBtn = CreateGreatVaultBtn(minimap)
         _portalBtn = CreatePortalBtn(minimap)
+    end
+end
+
+-- Gamepad UI only: Blizzard's tracking button takes the clicks on ours, so its menu
+-- opens from a hardware press (closing an addon-opened one taints the gamepad bindings).
+local SyncTrackingHotspot
+do
+    local shiftEv, home, active, upEv
+    local function Btns()
+        return MinimapCluster and MinimapCluster.Tracking and MinimapCluster.Tracking.Button,
+            _customIndicators.tracking
+    end
+    -- No clicks while its menu is open: the menu's close check sees ours under the mouse, so
+    -- a press on ours closes it instead of close+reopen. Settled on release, enter and click.
+    function EBS._TrackingClickState()
+        local blizBtn = Btns()
+        if not (active and blizBtn) then return end
+        local mp = EBS.db and EBS.db.profile.minimap
+        local shift = mp and mp.freeMoveBtns and IsShiftKeyDown()
+        blizBtn:SetMouseClickEnabled(not shift and not (blizBtn.IsMenuOpen and blizBtn:IsMenuOpen()))
+    end
+    -- The style is read live (no event): our button's enter and click re-check it.
+    function EBS._TrackingHotspotActive()
+        local mp = EBS.db and EBS.db.profile.minimap
+        if mp and active ~= (EllesmereUI.PadGamepadUI() and true or false) then SyncTrackingHotspot(mp) end
+        return active
+    end
+    SyncTrackingHotspot = function(p)
+        local blizBtn, ours = Btns()
+        if not (blizBtn and ours) then return end
+        local on = EllesmereUI.PadGamepadUI() and not p.hideTrackingButton and ours:IsShown() or false
+        if on then
+            if not home then
+                local w, h = blizBtn:GetSize()
+                home = { blizBtn:GetParent(), w, h, blizBtn:GetPoint(1) }
+            end
+            -- Its menu hangs from its bottom-left: the frame sits just above ours, so the menu
+            -- opens beside ours (as the click handler places it); the hit rect is moved onto ours.
+            local w, h = ours:GetSize()
+            if blizBtn:GetParent() ~= ours then blizBtn:SetParent(ours) end
+            blizBtn:ClearAllPoints()
+            blizBtn:SetSize(w, h)
+            blizBtn:SetPoint("BOTTOMLEFT", ours, "TOPLEFT", -4, 0)
+            blizBtn:SetHitRectInsets(4, -4, h, -h)
+            blizBtn:SetAlpha(0)
+            blizBtn:SetFrameLevel(ours:GetFrameLevel() + 5)
+        elseif home and blizBtn:GetParent() == ours then
+            blizBtn:SetParent(home[1])
+            blizBtn:ClearAllPoints()
+            blizBtn:SetSize(home[2], home[3])
+            if home[4] then blizBtn:SetPoint(home[4], home[5], home[6], home[7], home[8]) end
+            blizBtn:SetHitRectInsets(0, 0, 0, 0)
+            blizBtn:SetAlpha(1)
+            blizBtn:EnableMouse(false)
+        end
+        -- Free Move drags ours with Shift held, so the hotspot steps aside meanwhile.
+        local fm = on and p.freeMoveBtns and true or false
+        if fm and not shiftEv then
+            shiftEv = CreateFrame("Frame")
+            shiftEv:SetScript("OnEvent", function()
+                local mp = EBS.db and EBS.db.profile.minimap
+                if mp then SyncTrackingHotspot(mp) end
+            end)
+        end
+        if shiftEv then
+            if fm then shiftEv:RegisterEvent("MODIFIER_STATE_CHANGED")
+            else shiftEv:UnregisterEvent("MODIFIER_STATE_CHANGED") end
+        end
+        active = on
+        if on and not upEv then
+            upEv = CreateFrame("Frame")
+            upEv:SetScript("OnEvent", function() EBS._TrackingClickState() end)
+        end
+        if upEv then
+            if on then upEv:RegisterEvent("GLOBAL_MOUSE_UP") else upEv:UnregisterEvent("GLOBAL_MOUSE_UP") end
+        end
+        if not on then return end
+        -- Clicks only: hover stays on ours (its tooltip and art), Blizzard's tooltip never shows.
+        blizBtn:SetMouseMotionEnabled(false)
+        EBS._TrackingClickState()
     end
 end
 
@@ -1218,6 +1343,8 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
             ApplyBtnOffset(frame)
         end
     end
+
+    SyncTrackingHotspot(p)
 
     -- After layout so the managed-button list and alpha reflect the shown state.
     MO_Refresh(p)
