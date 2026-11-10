@@ -1873,6 +1873,23 @@ do
     note(("host without cards: %d rows drawn, %d hooks added (the view's search)"):format(#rows2, #T.hooks - hooksBefore))
 end
 
+-- WoW Forever friends: the info line adds the ruleset from richPresence, and the region when not ours
+do
+    local tile = Kit._tile
+    FriendsListUtil.GetRegionName = function() return "Europe" end
+    local function Forever(rich, inRegion)
+        return { note = "", gameAccountInfo = { isOnline = true, wowProjectID = 18, areaName = "Mulgore",
+            richPresence = rich, isInCurrentRegion = inRegion } }
+    end
+    assert(tile.Ruleset(Forever("Forever - Normal - Mulgore", true)) == "Normal")
+    assert(tile.Ruleset(Forever("Forever - Roleplay PvP - Tirisfal Glades", false)) == "Roleplay PvP (Europe)")
+    assert(tile.Info(Forever("Forever - Normal - Mulgore", true)) == "Mulgore|cff808080 - Normal|r")
+    local retail = Forever("Silvermoon City - Earthen Ring", true)
+    retail.gameAccountInfo.wowProjectID = 1
+    assert(tile.Ruleset(retail) == nil and tile.Info(retail) == "Mulgore", "a retail friend got a ruleset")
+    FriendsListUtil.GetRegionName = nil
+end
+
 note(("popups shown: %d, tooltips: %d, reads of the list under ours: %d"):format(#T.popups, T.tooltips, T.searchCalls))
 print(table.concat(out, "\n"))
 print("friends list harness: ok")
