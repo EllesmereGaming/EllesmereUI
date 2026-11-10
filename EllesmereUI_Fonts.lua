@@ -907,6 +907,20 @@ function EllesmereUI.ApplyGlobalFontToGameText()
             EllesmereUI._FontObjectFaceInto(obj, swap and path or nil, nil, nil, scale, done)
         end
     end
+    -- premade groups' first category label keeps the client face (built before this pass); give it ours
+    if swap and EventUtil and EventUtil.ContinueOnAddOnLoaded then
+        local old = EllesmereUI._clientFontPath
+        EventUtil.ContinueOnAddOnLoaded("Blizzard_GroupFinder", function()
+            if not LFGListCategorySelection_AddButton then return end
+            hooksecurefunc("LFGListCategorySelection_AddButton", function(cs, i)
+                local b = cs and type(cs.CategoryButtons) == "table" and cs.CategoryButtons[i]
+                local label = b and b.Label
+                if not (label and label.GetFont) then return end
+                local face, size, flags = label:GetFont()  -- not in an and-chain, that keeps only face
+                if face == old and size then label:SetFont(path, size, flags or "") end
+            end)
+        end)
+    end
 end
 
 -- Module-scoped font failsafe (always on, independent of "Apply to All Game Text"). Chat,
