@@ -493,8 +493,12 @@ end
             spark:SetSize(ss, ss)
             sparkY = C.sparkY * h / C.barH
         else
-            spark:SetSize(8, h)
+            local _, _, _, _, _, sparkExtraH, sparkNudge, sparkW = ns.ERB_CastChromeGeom(cb)
+            spark:SetSize(sparkW, h + sparkExtraH)
+            sparkY = sparkNudge
         end
+        -- The per-tick re-anchor (UpdateCastBar) keeps this offset.
+        castBarFrame._sparkY = sparkY
         spark:ClearAllPoints()
 
         if cb.gradientEnabled and castBarFrame._gradClip then
@@ -1233,7 +1237,7 @@ SetUpdateCastBar(function(dt)
         if castBarFrame._sparkAnchor ~= target then
             castBarFrame._sparkAnchor = target
             castBarFrame._spark:ClearAllPoints()
-            castBarFrame._spark:SetPoint("CENTER", target, "RIGHT", 0, 0)
+            castBarFrame._spark:SetPoint("CENTER", target, "RIGHT", 0, castBarFrame._sparkY or 0)
         end
     end
 end)

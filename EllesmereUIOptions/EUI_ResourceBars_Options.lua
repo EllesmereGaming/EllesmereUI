@@ -4275,7 +4275,9 @@ initFrame:SetScript("OnEvent", function(self)
                 pf.spark:SetSize(ss, ss)
                 sparkY = C.sparkY * h / C.barH
             else
-                pf.spark:SetSize(8, h)
+                local _, _, _, _, _, sparkExtraH, sparkNudge, sparkW = ns.ERB_CastChromeGeom(cb)
+                pf.spark:SetSize(sparkW, h + sparkExtraH)
+                sparkY = sparkNudge
             end
             pf.spark:ClearAllPoints()
             pf.spark:SetPoint("CENTER", fillTex, "RIGHT", 0, sparkY)
