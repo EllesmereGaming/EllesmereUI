@@ -650,10 +650,14 @@ local function Encounters(jid)
         end
     end
     for i = 1, 30 do
-        local name, _, encID = EJ_GetEncounterInfoByIndex(i)
+        local name, _, encID = EJ_GetEncounterInfoByIndex(i, jid)
         if not name then break end
-        local icon = EJ_GetCreatureInfo and select(5, EJ_GetCreatureInfo(1, encID))
-        out[#out + 1] = { key = encID, name = name, icon = icon }
+        -- the selection can lag behind, so keep only bosses the journal files under this raid
+        local own = EJ_GetEncounterInfo and select(6, EJ_GetEncounterInfo(encID))
+        if not own or own == jid then
+            local icon = EJ_GetCreatureInfo and select(5, EJ_GetCreatureInfo(1, encID))
+            out[#out + 1] = { key = encID, name = name, icon = icon }
+        end
     end
     if prevInst then EJ_SelectInstance(prevInst) end
     if prevDiff and EJ_SetDifficulty then EJ_SetDifficulty(prevDiff) end
