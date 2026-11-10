@@ -74,8 +74,10 @@ local function UpdateRow(row)
     fs:SetPoint("LEFT", after, "RIGHT", gap, 0)
     fs:SetText(zone)
     fs:SetWidth(0)
-    local left = after:GetRight()
-    if left and limit and fs:GetWidth() > limit - left - gap - 8 then
+    -- The row's edges can be secret during a restriction: no clamp then.
+    local left, width = after:GetRight(), fs:GetWidth()
+    if left and limit and not (issecretvalue(left) or issecretvalue(limit) or issecretvalue(width))
+        and width > limit - left - gap - 8 then
         fs:SetWidth(math.max(limit - left - gap - 8, 1))
     end
     fs:Show()
