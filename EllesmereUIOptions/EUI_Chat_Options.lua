@@ -36,6 +36,7 @@ initFrame:SetScript("OnEvent", function(self)
         if ECHAT.ApplyBackground  then ECHAT.ApplyBackground()  end
         if ECHAT.ApplyFonts       then ECHAT.ApplyFonts()       end
         if ECHAT.RefreshVisibility then ECHAT.RefreshVisibility() end
+        if ECHAT.ApplyChatBar     then ECHAT.ApplyChatBar()     end
     end
 
     local function BuildPage(pageName, parent, yOffset)
@@ -796,6 +797,80 @@ initFrame:SetScript("OnEvent", function(self)
             { type="label", text="" });  y = y - h
 
         end -- isSidebar
+
+        -- -- CHAT BAR ----------------------------------------------------------
+        if pageName == "Chat Bar" then
+            local function ApplyBar()
+                if ECHAT.ApplyChatBar then ECHAT.ApplyChatBar() end
+            end
+            local function BarOff() return not Cfg("chatBarEnabled") end
+            local function Slider(text, key, lo, hi, step, def)
+                return { type="slider", text=text, min=lo, max=hi, step=step,
+                    disabled=BarOff, disabledTooltip="Enable Chat Bar",
+                    getValue=function() return Cfg(key) or def end,
+                    setValue=function(v) Set(key, v); ApplyBar() end }
+            end
+            local function Toggle(text, key)
+                return { type="toggle", text=text,
+                    disabled=BarOff, disabledTooltip="Enable Chat Bar",
+                    getValue=function() return Cfg(key) ~= false end,
+                    setValue=function(v) Set(key, v); ApplyBar() end }
+            end
+
+            local hdr
+            hdr, h = W:SectionHeader(parent, "CHAT BAR", y); y = y - h
+            EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ECHAT_ChatBar",
+                disabled = BarOff, disabledTooltip = "Enable Chat Bar" })
+
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Enable Chat Bar",
+                  tooltip="Shows a row of buttons that switch the chat channel of the input box. Channels with a number (General, Trade) can only be picked out of combat.",
+                  getValue=function() return Cfg("chatBarEnabled") == true end,
+                  setValue=function(v)
+                      Set("chatBarEnabled", v)
+                      ApplyBar()
+                      EllesmereUI:RefreshPage()
+                  end },
+                { type="dropdown", text="Button Style",
+                  values={ text="Text", square="Square", block="Solid" },
+                  order={ "text", "square", "block" },
+                  disabled=BarOff, disabledTooltip="Enable Chat Bar",
+                  getValue=function() return Cfg("chatBarStyle") or "square" end,
+                  setValue=function(v) Set("chatBarStyle", v); ApplyBar() end })
+            y = y - h
+
+            _, h = W:DualRow(parent, y,
+                Slider("Button Width", "chatBarButtonWidth", 14, 40, 1, 22),
+                Slider("Button Height", "chatBarButtonHeight", 14, 40, 1, 20))
+            y = y - h
+
+            _, h = W:DualRow(parent, y,
+                Slider("Button Spacing", "chatBarSpacing", 0, 10, 1, 2),
+                Slider("Font Size", "chatBarFontSize", 8, 20, 1, 11))
+            y = y - h
+
+            _, h = W:DualRow(parent, y,
+                Slider("Background Opacity", "chatBarBgAlpha", 0, 1, 0.05, 0.65),
+                Toggle("Show Border", "chatBarShowBorder"))
+            y = y - h
+
+            _, h = W:SectionHeader(parent, "BUTTONS", y); y = y - h
+
+            _, h = W:DualRow(parent, y, Toggle("Say", "chatBarShowSay"), Toggle("Yell", "chatBarShowYell")); y = y - h
+            _, h = W:DualRow(parent, y, Toggle("Emote", "chatBarShowEmote"), Toggle("Party", "chatBarShowParty")); y = y - h
+            _, h = W:DualRow(parent, y, Toggle("Instance", "chatBarShowInstance"), Toggle("Raid", "chatBarShowRaid")); y = y - h
+            _, h = W:DualRow(parent, y, Toggle("Raid Warning", "chatBarShowRaidWarning"), Toggle("Guild", "chatBarShowGuild")); y = y - h
+            _, h = W:DualRow(parent, y, Toggle("Officer", "chatBarShowOfficer"), Toggle("World Channels", "chatBarShowWorldChannels")); y = y - h
+            _, h = W:DualRow(parent, y, Toggle("Roll", "chatBarShowRoll"), Toggle("Ready Check", "chatBarShowReadyCheck")); y = y - h
+
+            local hideCfg = Toggle("Hide Unavailable Channels", "chatBarHideUnavailable")
+            hideCfg.tooltip = "Hides the buttons of channels you cannot write to right now, like Party outside a group or Officer without the rank."
+            _, h = W:DualRow(parent, y, Toggle("Reload UI", "chatBarShowReload"), hideCfg); y = y - h
+
+            local pullCfg = Slider("Pull Timer Duration", "chatBarPullDuration", 3, 15, 1, 10)
+            pullCfg.tooltip = "Right-click the Ready Check button to start a pull timer of this many seconds."
+            _, h = W:DualRow(parent, y, pullCfg, EllesmereUI.BlankRowCfg()); y = y - h
+        end
 
         if isTabs then
             -- Classic WoW UI (the vanilla tab sheet) and WoW Forever (the
@@ -1654,18 +1729,18 @@ initFrame:SetScript("OnEvent", function(self)
     -- paints its own tabs with the Tabs page's typography).
     local blizzTabsStyle = EllesmereUI.BlizzStyle and EllesmereUI.BlizzStyle.Active("chat") == "blizzard"
         and not EllesmereUI.BlizzStyle.Forever("chat")
-    local chatPages = blizzTabsStyle and { "Chat", "Sidebar" } or { "Chat", "Tabs", "Sidebar" }
+    local chatPages = blizzTabsStyle and { "Chat", "Sidebar", "Chat Bar" } or { "Chat", "Tabs", "Sidebar", "Chat Bar" }
     -- Chat Bubbles live in Blizzard Skins+: this tab links straight there, so it
     -- is offered only while that module is loaded.
     if EllesmereUI._ModuleNS["EllesmereUIBlizzardSkin"] then chatPages[#chatPages + 1] = "Chat Bubbles" end
 
     EllesmereUI:RegisterModule("EllesmereUIChat", {
         title       = "Chat",
-        description = "Chat frame reskin, clickable URLs, copy chat, sidebar icons.",
+        description = "Chat frame reskin, clickable URLs, copy chat, sidebar icons, chat bar.",
         pages       = chatPages,
         pageLinks   = { ["Chat Bubbles"] = { module = "EllesmereUIBlizzardSkin", page = "Chat Bubbles" } },
         buildPage   = function(pageName, p, yOffset) return BuildPage(pageName, p, yOffset) end,
-        searchTerms = "chat tabs border spacing background sidebar friends voice url copy whisper channel abbreviate shortened class color names timestamps timestamp all messages font size",
+        searchTerms = "chat tabs border spacing background sidebar friends voice url copy whisper channel abbreviate shortened class color names timestamps timestamp all messages font size chat bar channel buttons say party raid guild roll ready check pull",
         onReset = function()
             local d = _G._ECHAT_DB
             if d and d.ResetProfile then d:ResetProfile() end
