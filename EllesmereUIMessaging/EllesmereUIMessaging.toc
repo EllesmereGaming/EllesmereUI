@@ -1,0 +1,28 @@
+## Interface: 120000, 120001, 120005, 120007, 120100, 120105, 16001
+## Title: |cff0cd29fEllesmereUI|r Messaging
+## Category: |cff0cd29fEllesmere|rUI
+## Group: EllesmereUI
+## Notes: Whispers in one tabbed window, in the EllesmereUI look.
+## Author: Ellesmere
+## Version: 9.8.2
+## Dependencies: EllesmereUI
+## SavedVariables: EllesmereUIMessagingDB
+## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
+
+# EllesmereUIMessagingDB is vestigial, as for every child (EllesmereUI.Lite
+# NewDB keeps it empty): settings and history live in EllesmereUIDB, profile
+# settings under profiles[<name>].addons.EllesmereUIMessaging, the whisper
+# history under global.messagingHistory.
+
+# Core: settings, conversations, whisper events, sending, history store
+EllesmereUIMessaging.lua
+
+# UI: whisper windows, history browser, minimap icon
+EUI_Messaging_Window.lua
+EUI_Messaging_History.lua
+EUI_Messaging_Minimap.lua
+
+# Friends window / menus / reply integration and slash commands
+EUI_Messaging_Intercept.lua
+
+# Options (EllesmereUIOptions: EUI_Messaging_Options.lua)

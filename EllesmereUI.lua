@@ -735,6 +735,7 @@ local ADDON_ROSTER = {
     { folder = "EllesmereUIQuestTracker",      display = "Quest Tracker",        search_name = "EllesmereUI Quest Tracker"           },
     { folder = "EllesmereUIMinimap",           display = "Minimap",              search_name = "EllesmereUI Minimap"                 },
     { folder = "EllesmereUIChat",              display = "Chat",                 search_name = "EllesmereUI Chat"                    },
+    { folder = "EllesmereUIMessaging",         display = "Messaging",            search_name = "EllesmereUI Messaging"               },
     { folder = "EllesmereUIDamageMeters",      display = "Damage Meters",        search_name = "EllesmereUI Damage Meters"           },
     { folder = "EllesmereUIBags",              display = "Bags",                 search_name = "EllesmereUI Bags"                    },
     { folder = "EllesmereUIDataBars",          display = "DataBars",             search_name = "EllesmereUI DataBars"                },
@@ -793,6 +794,7 @@ EllesmereUI.ADDON_GROUPS = {
         members = {
             "EllesmereUIBlizzardSkin",
             "EllesmereUIChat",
+            "EllesmereUIMessaging",
             "EllesmereUIBags",
             "EllesmereUIQuestTracker",
             "EllesmereUIGroupFinder",

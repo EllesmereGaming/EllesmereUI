@@ -50,6 +50,7 @@ EUI_AuraBuffReminders_Options.lua
 EUI_Bags_Options.lua
 EUI_BlizzardSkin_Options.lua
 EUI_Chat_Options.lua
+EUI_Messaging_Options.lua
 CooldownManager_Options\BarsPage_Options.lua
 CooldownManager_Options\BuffBarsPage_Options.lua
 CooldownManager_Options\LivePreview_Options.lua
