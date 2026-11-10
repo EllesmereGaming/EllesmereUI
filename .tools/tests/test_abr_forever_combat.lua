@@ -24,15 +24,20 @@ local MAIN_SRC = ReadSource("EllesmereUIAuraBuffReminders/EllesmereUIAuraBuffRem
 --  Game API stubs
 -------------------------------------------------------------------------------
 local TEST = { combat = false, up = {}, src = {}, auraReads = 0, trackingWanted = {}, weaponWanted = {},
-    weapon = {}, enchants = {}, bags = {}, bagWanted = {}, stacks = {}, itemCountReads = 0, level = 40 }
+    weapon = {}, enchants = {}, bags = {}, bagWanted = {}, stacks = {}, itemCountReads = 0, level = 40,
+    sleepWatchWanted = {}, restricted = false, secretAura = {} }
 
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function GetTime() return 100 end
 
--- The player's auras: TEST.up[id] = true while that spell's aura is up
+-- The player's auras: TEST.up[id] = true while that spell's aura is up. Under the
+-- aura restriction (TEST.restricted) an aura of a secret spell (TEST.secretAura[id])
+-- reads absent, as the game's by-ID lookups do.
+C_Secrets = { ShouldSpellAuraBeSecret = function(id) return TEST.secretAura[id] == true end }
 C_UnitAuras = {
     GetPlayerAuraBySpellID = function(id)
         TEST.auraReads = TEST.auraReads + 1
+        if TEST.restricted and TEST.secretAura[id] then return nil end
         if TEST.up[id] then
             -- its caster: TEST.src[id], else the player
             local src = TEST.src[id] or "player"
@@ -102,7 +107,7 @@ EllesmereUI = {
     -- EllesmereUI_BuffPresets.lua builds the real table in the game).
     FOREVER_BUFF_FAMILIES = { ai = { names = {}, single = {}, group = {}, ids = {},
         beneficiaries = { MAGE = true, PRIEST = true } } },
-    AuraKit = { AurasRestricted = function() return false end },
+    AuraKit = { AurasRestricted = function() return TEST.restricted end },
     L = function(s) return s end,
     CharKey = function(sep) return "Tester" .. sep .. "Realm" end,
 }
@@ -120,6 +125,7 @@ end
 function EABR.FvSyncTrackingEvent(want) TEST.trackingWanted[#TEST.trackingWanted + 1] = want end
 function EABR.FvSyncWeaponEvents(want) TEST.weaponWanted[#TEST.weaponWanted + 1] = want end
 function EABR.FvSyncBagEvent(want) TEST.bagWanted[#TEST.bagWanted + 1] = want end
+function EABR.FvSyncSleepBagWatch(want) TEST.sleepWatchWanted[#TEST.sleepWatchWanted + 1] = want end
 EABR.SLEEPING_BAG_BUFF, EABR.SLEEPING_BAG_ITEM, EABR.SLEEPING_BAG_STACKS = 429959, 211527, 3
 -- The main file's catalogue, cut to the one category a priest's blade can take
 EABR.FV_WEAPON_BUFFS = {
@@ -524,17 +530,45 @@ got, missing = Collect()
 assert(not SleepShown(missing), "the Sleeping Bag showed with no bag")
 assert(TEST.itemCountReads == 1 and TEST.bagWanted[#TEST.bagWanted] == false,
     "no bag: counted " .. TEST.itemCountReads .. " times or listened to bag changes")
+assert(TEST.sleepWatchWanted[#TEST.sleepWatchWanted] == true, "no bag: the watcher for a bag arriving is off")
 Collect()
 assert(TEST.itemCountReads == 1, "no bag: the bags were counted again")
+-- With Weapon Buffs on, its bag listener already hears every bag change: no watcher beside it.
+fo.weapon = true
+Collect()
+assert(TEST.bagWanted[#TEST.bagWanted] == true and TEST.sleepWatchWanted[#TEST.sleepWatchWanted] == false,
+    "Weapon Buffs on: the arrival watcher ran beside the shared bag listener")
+fo.weapon = false
+Collect()
+assert(TEST.bagWanted[#TEST.bagWanted] == false and TEST.sleepWatchWanted[#TEST.sleepWatchWanted] == true,
+    "Weapon Buffs off again: the arrival watcher did not take over")
+assert(TEST.itemCountReads == 1, "no bag: Weapon Buffs made the Sleeping Bag count again")
 TEST.bags[BAG] = 1
 got, missing = Collect()
-assert(not SleepShown(missing) and TEST.itemCountReads == 1, "a bag bought was read before a loading screen")
-EABR._fvSleepBag = nil
+assert(not SleepShown(missing) and TEST.itemCountReads == 1, "a bag bought was read before the watcher saw it")
+-- The watcher's catch (Lifecycle: a bag change finds the bag) or a loading screen.
+EABR._fvSleepBag = true
 got, missing = Collect()
 e = SleepShown(missing)
 assert(e and e.mode == "item" and e.itemID == BAG and e.label == "Sleeping" and e.texture == 500000 + BAG,
     "the Sleeping Bag reminder does not use the bag")
 assert(TEST.bagWanted[#TEST.bagWanted] == true, "with the bag, bag changes were not listened to")
+assert(TEST.sleepWatchWanted[#TEST.sleepWatchWanted] == false, "with the bag, the arrival watcher still ran")
+-- Under the aura lock a secret Well-Rested reads absent: no reminder while it is secret.
+TEST.restricted, TEST.secretAura[WELL_RESTED] = true, true
+TEST.up[WELL_RESTED], TEST.stacks[WELL_RESTED] = true, 3
+assert(not SleepShown(select(2, Collect())), "a secret Well-Rested under the aura lock showed the reminder")
+TEST.secretAura[WELL_RESTED] = nil
+assert(not SleepShown(select(2, Collect())), "a readable Well-Rested at 3 stacks under the lock still reminded")
+TEST.stacks[WELL_RESTED] = 1
+assert(SleepShown(select(2, Collect())), "a readable Well-Rested at 1 stack under the lock hid the reminder")
+TEST.restricted, TEST.up[WELL_RESTED], TEST.stacks[WELL_RESTED] = false, nil, nil
+-- A stand-down (resting, a vehicle...) forgets the count, so a bag bought meanwhile is counted.
+EABR.FvStandDown()
+assert(EABR._fvSleepBag == nil and TEST.sleepWatchWanted[#TEST.sleepWatchWanted] == false,
+    "the stand-down kept the bag count or the watcher")
+TEST.itemCountReads = 0
+assert(SleepShown(select(2, Collect())) and TEST.itemCountReads == 1, "after a stand-down the bag was not counted again")
 TEST.up[WELL_RESTED], TEST.stacks[WELL_RESTED] = true, 1
 assert(SleepShown(select(2, Collect())), "one stack of Well-Rested hid the reminder")
 TEST.stacks[WELL_RESTED] = 2
@@ -548,10 +582,17 @@ TEST.combat = false
 local pvp = {}
 EABR.CollectForever(pvp, false, true)
 assert(not SleepShown(pvp), "the Sleeping Bag showed in PvP")
+-- A stand-down while the watcher listens (no bag yet) stops it.
+TEST.bags[BAG], EABR._fvSleepBag = nil, nil
+Collect()
+assert(TEST.sleepWatchWanted[#TEST.sleepWatchWanted] == true, "no bag again: the arrival watcher is off")
+EABR.FvStandDown()
+assert(TEST.sleepWatchWanted[#TEST.sleepWatchWanted] == false, "the stand-down left the arrival watcher listening")
 TEST.level, TEST.itemCountReads, EABR._fvSleepBag = 60, 0, nil
 got, missing = Collect()
 assert(not SleepShown(missing) and TEST.itemCountReads == 0 and TEST.bagWanted[#TEST.bagWanted] == false,
     "a max-level character read the bags or listened to them")
+assert(TEST.sleepWatchWanted[#TEST.sleepWatchWanted] == false, "a max-level character ran the arrival watcher")
 assert(EABR._fvMaxLevel == true, "max level was not kept")
 fo.sleepingBag, TEST.bags[BAG], TEST.level, EABR._fvMaxLevel, EABR._fvSleepBag = false, nil, 40, nil, nil
 local opt = OPTIONS_SRC:gsub("\r\n", "\n")

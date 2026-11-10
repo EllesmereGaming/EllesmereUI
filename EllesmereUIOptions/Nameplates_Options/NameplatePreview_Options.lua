@@ -206,13 +206,6 @@ local function ChainPreview(cx)
     end
 end
 
-local function QuestTextIconLayout(counterW, counterH, fontSize, scale)
-    local iconSize = math.max(8, math.floor(fontSize * 0.8 * scale / 100 + 0.5))
-    local gap = 2
-    return counterW + gap + iconSize, math.max(counterH, iconSize),
-        -((iconSize + gap) / 2), (counterW + gap - iconSize) / 2, iconSize
-end
-
 -- Core Text slot colours by the slot's Text Coloring mode. The preview is a
 -- hostile NPC at the player's level: Hostility / Class shows the Hostile name
 -- colour, Level Difficulty that level's difficulty colour (friendly levels
@@ -1736,7 +1729,7 @@ local function BuildNameplatePreview(parent, parentW)
                 if DBVal("showQuestObjectiveTypeIcon") == true then
                     local scale = DBVal("questObjectiveTypeIconScale") or 100
                     local textX, iconX, iconSize
-                    w, h, textX, iconX, iconSize = QuestTextIconLayout(counterW, counterH, textSize, scale)
+                    w, h, textX, iconX, iconSize = ns.NP_QuestTypeIconLayout(counterW, counterH, textSize, scale)
                     local icon = qt.icon
                     if not icon then
                         icon = f:CreateTexture(nil, "ARTWORK")

@@ -130,6 +130,10 @@ DEFAULT_CATEGORIES[#DEFAULT_CATEGORIES + 1] = {
     name = "Junk", types = {}, isJunk = true, appendLast = true, noGroup = true, icon = ns.JUNK_COIN,
 }
 
+-- Providers of virtual categories (see RegisterVirtualCategory), sorted by
+-- order then id; nil until the first registration.
+local _virtual
+
 -------------------------------------------------------------------------------
 --  Init
 --  Builds the runtime category list from hardcoded defaults + saved user state
@@ -348,6 +352,22 @@ function CategoryManager:InitCategories()
         end
     end
 
+    -- Virtual categories come last, after Junk: no saved index moves.
+    if _virtual then
+        for _, rec in ipairs(_virtual) do
+            cats[#cats + 1] = {
+                _defaultName = "Virtual:" .. rec.id,
+                name         = rec.name,
+                types        = {},
+                icon         = rec.icon,
+                isAtlas      = rec.isAtlas,
+                isVirtual    = true,
+                noGroup      = true,
+                noMove       = true,
+            }
+        end
+    end
+
     self._categories = cats
 
     -- setID -> category index, for split-mode classification. The same pass
@@ -386,9 +406,10 @@ function CategoryManager:SaveState()
     local sawJunk = false
     for _, cat in ipairs(cats) do
         if cat.isJunk then sawJunk = true end
-        if cat.isEquipSet then
-            -- Runtime-only children of the "Item Set Gear" anchor: never persisted;
-            -- InitCategories re-appends them after the anchor each rebuild.
+        if cat.isEquipSet or cat.isVirtual then
+            -- Runtime-only: children of the "Item Set Gear" anchor and virtual
+            -- categories are never persisted; InitCategories re-appends them
+            -- each rebuild.
             -- (skip)
         else
             userOrder[#userOrder + 1] = cat._defaultName
@@ -451,6 +472,19 @@ function CategoryManager:GetCategories()
         self:InitCategories()
     end
     return self._categories
+end
+
+-- Categories that persist: all but the virtual tail (indices 1..n are the only
+-- ones saved data may key on).
+function CategoryManager:GetSavedCount()
+    return #self:GetCategories() - (_virtual and #_virtual or 0)
+end
+
+-- Is this index a virtual category's? Costs nothing while none is registered.
+function CategoryManager:IsVirtual(index)
+    if not _virtual then return false end
+    local cat = self:GetCategories()[index]
+    return cat and cat.isVirtual or false
 end
 
 -------------------------------------------------------------------------------
@@ -526,6 +560,16 @@ local ITEM_TYPE_OVERRIDES = {
 -- WoW Forever's special bags (ns.SpecialBags) for the running ClassifyAll pass
 local _classifySpecial
 
+-- A virtual provider's answer, set by AskVirtual inside securecallfunction
+-- (stays false when the provider errors)
+local _virtualClaim = false
+local function AskVirtual(classify, ...)
+    _virtualClaim = classify(...) and true or false
+end
+-- True while the providers are asked: a provider cannot register, unregister
+-- or ask for a repaint from inside its own classify call
+local _asking = false
+
 -- Classify a single item. Returns category index (1-based) or nil for empty slots.
 -- bag/slot are needed for C_Container.GetContainerItemQuestInfo; quality is
 -- optional (resolved from the link when nil)
@@ -557,6 +601,23 @@ function CategoryManager:ClassifyItem(itemLink, itemID, bag, slot, quality)
                 if cat._defaultName == assignedKey then return i end
             end
         end
+    end
+
+    -- Virtual categories: the providers answer before the built-in rules (their
+    -- cats are the tail of the list). A provider error is reported, never stops
+    -- the pass, and counts as "no". Junk is not offered: what Sell Junk sells
+    -- stays in the Junk category.
+    if _virtual and not self:IsJunk(itemID, quality) then
+        local base = #cats - #_virtual
+        local claimed
+        _asking = true
+        for i, rec in ipairs(_virtual) do
+            _virtualClaim = false
+            securecallfunction(AskVirtual, rec.classify, itemLink, itemID, bag, slot, quality)
+            if _virtualClaim then claimed = base + i; break end
+        end
+        _asking = false
+        if claimed then return claimed end
     end
 
     -- Fixed item lists (Forever camp items) win over item-class matching; the
@@ -763,9 +824,14 @@ function CategoryManager:ReorderCategory(fromIndex, toIndex)
     -- Equip-set categories move as a block via their anchor; a single one dragged
     -- out would snap back on the next rebuild (SaveState collapses the block).
     if cats[fromIndex].isEquipSet then return end
+    -- Virtual categories are the list's tail: they never move, and nothing
+    -- lands among or after them
+    if cats[fromIndex].isVirtual then return end
+    local last = self:GetSavedCount()
+    if toIndex > last + 1 and toIndex <= #cats + 1 then toIndex = last + 1 end
     -- Junk stays last: it never moves, and nothing lands after it
     if cats[fromIndex].isJunk then return end
-    if cats[#cats].isJunk and toIndex > #cats then toIndex = #cats end
+    if cats[last].isJunk and toIndex > last then toIndex = last end
     if fromIndex == toIndex or toIndex < 1 or toIndex > #cats + 1 then return end
     local entry = table.remove(cats, fromIndex)
     local insertAt = toIndex
@@ -1069,6 +1135,7 @@ function CategoryManager:CanAssignToCategory(catIndex)
     if not cat then return false end
     if cat.isPinned or cat.isRecent or cat.isReagentBag or cat.isSpecialBag then return false end
     if cat.isEquipSet then return false end  -- membership comes from the set itself
+    if cat.isVirtual then return false end   -- ... or from its provider
     return true
 end
 
@@ -1122,6 +1189,103 @@ end
 function CategoryManager:OnEquipmentSetsChanged()
     self._categories = nil
 end
+
+-------------------------------------------------------------------------------
+--  Virtual categories (public API for other addons)
+--  Runtime-only categories filled by a callback. They sit after every saved
+--  category and after Junk, so no saved index moves, and nothing about them is
+--  ever written to the saved variables: a provider that goes away leaves no
+--  trace. They cannot be renamed, moved, grouped, hidden or assigned to.
+--    def.name      shown name
+--    def.icon      file ID, path or atlas (default: the question mark)
+--    def.isAtlas   true when def.icon is an atlas
+--    def.order     virtual categories sort by this, then by id (default 0)
+--    def.classify  function(itemLink, itemID, bag, slot, quality) -> true to
+--                  claim the item. bag and slot are nil for another character's
+--                  items; quality may be nil. The first claim by order wins.
+--  Items the user filed or marked, junk (grey items while the Junk Marker is
+--  on) and reagent / special bag items are not offered to providers. A change
+--  repaints the bags once, on the next frame. A provider cannot register,
+--  unregister or ask for a repaint from inside its own classify call.
+-------------------------------------------------------------------------------
+-- One repaint for every change made in a frame: a request shows a hidden frame
+-- whose next update hides it, then repaints the bags and an open bank.
+local _repaint
+local function QueueRepaint()
+    if not _repaint then
+        _repaint = CreateFrame("Frame")
+        _repaint:SetScript("OnUpdate", function(self)
+            self:Hide()
+            local bags = _G.EUI_Bags
+            if bags and bags.RefreshInventory then bags:RefreshInventory() end
+            if ns.RefreshOpenBank then ns.RefreshOpenBank() end
+        end)
+    end
+    _repaint:Show()
+end
+
+-- The list changed: rebuild it now (the open view re-resolves by key), repaint next.
+local function VirtualChanged(self)
+    local bags = _G.EUI_Bags
+    if bags and bags.InvalidateSetCategories then
+        bags.InvalidateSetCategories()
+    else
+        self:OnEquipmentSetsChanged()
+    end
+    QueueRepaint()
+end
+
+local function VirtualBefore(a, b)
+    if a.order ~= b.order then return a.order < b.order end
+    return a.id < b.id
+end
+
+-- Registering an id again replaces it. Returns true when registered.
+function CategoryManager:RegisterVirtualCategory(id, def)
+    if _asking then return false end
+    if type(id) ~= "string" or id == "" then return false end
+    if type(def) ~= "table" or type(def.classify) ~= "function" then return false end
+    _virtual = _virtual or {}
+    for i, rec in ipairs(_virtual) do
+        if rec.id == id then table.remove(_virtual, i); break end
+    end
+    _virtual[#_virtual + 1] = {
+        id       = id,
+        name     = type(def.name) == "string" and def.name ~= "" and def.name or id,
+        icon     = def.icon or 134400,
+        isAtlas  = def.isAtlas and true or nil,
+        order    = tonumber(def.order) or 0,
+        classify = def.classify,
+    }
+    table.sort(_virtual, VirtualBefore)
+    VirtualChanged(self)
+    return true
+end
+
+-- Returns true when the id was registered.
+function CategoryManager:UnregisterVirtualCategory(id)
+    if not _virtual or _asking then return false end
+    for i, rec in ipairs(_virtual) do
+        if rec.id == id then
+            table.remove(_virtual, i)
+            if #_virtual == 0 then _virtual = nil end
+            VirtualChanged(self)
+            return true
+        end
+    end
+    return false
+end
+
+-- A provider's answers changed (its data loaded, its rules changed): classify again.
+function CategoryManager:RefreshVirtualCategories()
+    if not _virtual or _asking then return end
+    self:OnVirtualAnswersChanged()
+    QueueRepaint()
+end
+
+-- What RefreshVirtualCategories reports through: the offline views watch this
+-- one, so a provider's kept reference to the function above still reaches them.
+function CategoryManager:OnVirtualAnswersChanged() end
 
 -------------------------------------------------------------------------------
 --  Global accessor

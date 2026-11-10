@@ -12,7 +12,7 @@ EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read th
 local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 
 -- WoW Forever runs a reduced module: the Raid Buffs section over that client's
--- four buffs (EABR.CollectForeverRaidBuffs) and one Forever-only section (the
+-- own buffs (EABR.CollectForeverRaidBuffs) and one Forever-only section (the
 -- Camp Benefits campfire buff, the Sleeping Bag's Well-Rested buff, gathering
 -- tracking, Find Treasure and custom spell IDs) collected by
 -- EABR.CollectForever, with every other retail collector, its events and its
@@ -255,6 +255,7 @@ local LABEL_OVERRIDES = {
     ["Devotion Aura"]           = "Aura",
     ["Power Word: Fortitude"]   = "Fortitude",
     ["Arcane Intellect"]        = "Intellect",
+    ["Divine Spirit"]           = "Spirit",
     ["Battle Shout"]            = "Shout",
     ["Hunter's Mark"]           = "Mark",
     ["Earth Shield (Ally)"]     = "Ally",

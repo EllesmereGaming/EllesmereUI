@@ -16,7 +16,7 @@ local EUI = EllesmereUI
 
 local BP, GetAccentRGB, GetFont, IsGearItem = I.BP, I.GetAccentRGB, I.GetFont, I.IsGearItem
 local IsItemPinned, NormalizePinKey = I.IsItemPinned, I.NormalizePinKey
-local SetBagFont, _openItemPanels = I.SetBagFont, I._openItemPanels
+local SetBagFont, _openItemPanels, PinnedItems = I.SetBagFont, I._openItemPanels, I.PinnedItems
 local itemSlots, SetInsetBorderColor = I.itemSlots, I.SetInsetBorderColor
 local GetInsetBorderStyle, SetInsetBorderThickness = I.GetInsetBorderStyle, I.SetInsetBorderThickness
 
@@ -71,8 +71,8 @@ function ns.PinCursorItem()
     -- The third return is the item link: pins are keyed by it (NormalizePinKey)
     local cursorType, itemID, cursorLink = GetCursorInfo()
     if cursorType ~= "item" or not itemID then return false end
-    if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
-    local pinned = EllesmereUIDB.bagPinnedItems
+    local pinned = PinnedItems(true)
+    if not pinned then ClearCursor(); return true end
     if not IsItemPinned(pinned, cursorLink, itemID) then
         pinned[NormalizePinKey(cursorLink, itemID)] = IsGearItem(cursorLink) and 1 or 999
     end
@@ -604,7 +604,7 @@ end
 local function GatherJunkSlots(slots, ids)
     local special = ns.SpecialBags()
     local setGear = EUI_CategoryManager:GetSetGearLookup()
-    local pinned = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+    local pinned = PinnedItems()
     local kept = 0
     for bag = 0, 5 do
         if not (special and special[bag]) then
@@ -845,11 +845,11 @@ EnterPinSelectMode = function()
                 if bagID and slotID and slotID > 0 then
                     local info = C_Container.GetContainerItemInfo(bagID, slotID)
                     if info and info.itemID then
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
+                        local pinned = PinnedItems(true)
+                        if not pinned then ClearPinHover(); ExitPinSelectMode(); return end
                         local itemLink = C_Container.GetContainerItemLink(bagID, slotID)
                         local pinKey = NormalizePinKey(itemLink, info.itemID)
-                        EllesmereUIDB.bagPinnedItems[pinKey] = (EllesmereUIDB.bagPinnedItems[pinKey] or 0) + 1
+                        pinned[pinKey] = (pinned[pinKey] or 0) + 1
                         ClearPinHover()
                         ExitPinSelectMode()
                         EUI_Bags:RefreshInventory()

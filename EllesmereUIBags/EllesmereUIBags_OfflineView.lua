@@ -494,7 +494,8 @@ local function WatchCategories()
     local CM = _G.EUI_CategoryManager
     for _, m in ipairs({ "InitCategories", "SaveState", "RenameCategory", "ReorderCategory", "GroupCategories",
         "AddToGroup", "UngroupCategory", "DisbandGroup", "RenameGroup", "AddCustomCategory", "RemoveCustomCategory",
-        "AssignItem", "UnassignItem", "ToggleJunk", "OnJunkChanged", "OnEquipmentSetsChanged" }) do
+        "AssignItem", "UnassignItem", "ToggleJunk", "OnJunkChanged", "OnEquipmentSetsChanged",
+        "OnVirtualAnswersChanged" }) do
         if CM and type(CM[m]) == "function" then hooksecurefunc(CM, m, BumpCat) end
     end
 end

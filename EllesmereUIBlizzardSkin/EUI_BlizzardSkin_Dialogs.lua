@@ -127,7 +127,7 @@ do
     -- Blizzard_QuickKeybind is LoadOnDemand, so the frame may not exist at login: try after login, with ADDON_LOADED as the late-load fallback.
     local _qkbHooked = false
     local function TryHookQKB()
-        if _qkbHooked or EllesmereUI.BlizzSkinPadStandDown() then return end
+        if _qkbHooked then return end
         if not EllesmereUIDB then return end
         if EllesmereUIDB.reskinQueuePopup == false then return end
         local qkb = QuickKeybindFrame
@@ -359,7 +359,6 @@ do
         if not GameMenuFrame then return end
         -- Independent toggle, default on: this is a popup menu, not a window, so no master reskin setting (window-skins style included) governs it.
         if EllesmereUIDB and EllesmereUIDB.reskinGameMenu == false then return end
-        if EllesmereUI.BlizzSkinPadStandDown() then return end
 
         local RS = EllesmereUI.RESKIN
 

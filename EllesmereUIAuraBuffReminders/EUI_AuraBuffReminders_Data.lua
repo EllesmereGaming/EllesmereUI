@@ -57,12 +57,15 @@ local RAID_BUFFS = {
     { key="sky",    class="SHAMAN",  name="Skyfury",                castSpell=462854, buffIDs=RAID_BUFF_IDS.sky,    check="raid" },
     -- Hunter's Mark: disabled (under maintenance); entry intentionally omitted.
 }
--- WoW Forever: that client's four raid buffs replace the list (there it is
--- read only by its own Raid Buffs: EABR.CollectForeverRaidBuffs and the
--- options grid). Same keys as retail, so a profile's switches move between
--- the clients. castSpell = rank 1 (label and options icon); fam = the shared
--- buff family (every rank, the group version, other casters' versions);
--- selfCast = cast with no target.
+-- WoW Forever: that client's raid buffs replace the list (there it is read
+-- only by its own Raid Buffs: EABR.CollectForeverRaidBuffs and the options
+-- grid). The first four keep the retail keys, so a profile's switches move
+-- between the clients; Divine Spirit is Forever's own. castSpell = rank 1
+-- (label and options icon); fam = the shared buff family (every rank, the
+-- group version, other casters' versions); selfCast = cast with no target;
+-- talent = a talent spell, so a groupmate of the class may not have it (no
+-- "I am missing others' buffs" reminder). A class's buffs are listed in the
+-- order its provider reminders show.
 if EABR.FOREVER then
     RAID_BUFFS = {
         { key="motw",   class="DRUID",   name="Mark of the Wild",      castSpell=1126, dismissKey="raidbuff:motw",
@@ -73,6 +76,8 @@ if EABR.FOREVER then
           fam=EllesmereUI.FOREVER_BUFF_FAMILIES.fort },
         { key="ai",     class="MAGE",    name="Arcane Intellect",      castSpell=1459, dismissKey="raidbuff:ai",
           fam=EllesmereUI.FOREVER_BUFF_FAMILIES.ai, benefit="intellect" },
+        { key="spirit", class="PRIEST",  name="Divine Spirit",         castSpell=14752, dismissKey="raidbuff:spirit",
+          fam=EllesmereUI.FOREVER_BUFF_FAMILIES.spirit, talent=true },
     }
 end
 

@@ -220,11 +220,7 @@ end
 
 -------------------------------------------------------------------------------
 --  Hook Installation (at login, with PLAYER_ENTERING_WORLD as the retry when
---  SpellFlyout is not there yet). WoW Forever's Gamepad interface style shows
---  and hides the flyout from secure code, where a hook of ours would taint
---  it on a client whose navigation still can be (EllesmereUI.PadTaintStandDown):
---  there the flyout keeps Blizzard's look for the session, decided once
---  logged in.
+--  SpellFlyout is not there yet).
 -------------------------------------------------------------------------------
 local function InstallBlizzFlyoutHook()
     local sf = _G.SpellFlyout
@@ -241,7 +237,7 @@ do
     hookFrame:RegisterEvent("PLAYER_LOGIN")
     hookFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
     hookFrame:SetScript("OnEvent", function(self)
-        if EllesmereUI.PadTaintStandDown() or InstallBlizzFlyoutHook() then
+        if InstallBlizzFlyoutHook() then
             self:UnregisterAllEvents()
             self:SetScript("OnEvent", nil)
         end

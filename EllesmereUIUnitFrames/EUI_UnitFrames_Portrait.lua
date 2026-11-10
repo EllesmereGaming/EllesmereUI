@@ -265,6 +265,24 @@ end
 -- runs only after a real repaint: 2D heals what SetPortraitTexture resets, 3D
 -- re-applies zoom after SetUnit -- nothing to heal without a repaint.
 -- fallback: the class lane's resolved non-player fallback, when the painter has it.
+-- A model mirrors its frame's alpha by hand; the mirrored value is kept so a
+-- UIParent fade (EllesmereUI.UIScaledAlpha) can scale it again on change.
+do
+    local mirrored = setmetatable({}, { __mode = "k" })
+    local listening = false
+    local function Reapply()
+        for m, a in pairs(mirrored) do m:SetAlpha(EllesmereUI.UIScaledAlpha(a)) end
+    end
+    function ns.UF_SetModelAlpha(model, a)
+        mirrored[model] = a
+        if not listening then
+            listening = true
+            EllesmereUI.OnUIAlphaChanged(Reapply)
+        end
+        model:SetAlpha(EllesmereUI.UIScaledAlpha(a))
+    end
+end
+
 local PortraitOverride  -- forward declaration; painter registrations below the definition
 local SwapPortraitMode  -- forward declaration; the portrait painter swaps through it
 function PortraitOverride(self, event, evtUnit, fallback)
@@ -1001,6 +1019,90 @@ function ns.UF_SetClassPortraitPoints(tex, host, zoom, insetX, insetY)
     PP.Point(tex, "BOTTOMRIGHT", host, "BOTTOMRIGHT", -insetX, insetY)
 end
 
+-- A 3D portrait in a detached shape. The model is a child frame of the
+-- portrait host, so it draws over every texture of the host whatever their
+-- draw layers, and a model takes no mask. While fit is on (3D Portrait Below
+-- Border, the unit's portrait3dBelowBorder, on a 3D portrait with a shape
+-- ring) the ring rests on a holder two levels over the host, one over the
+-- model: a child of the host, so the host's shape mask still clips it.
+-- The cast icon overlay (Show Icon on Portrait) takes the ring while the icon
+-- shows and hands it back to host._ringHome. The model is laid inside the
+-- ring: each edge one pixel under the ring's solid band (its inner edge is
+-- where 2D art shows uncovered), never outside the mask's opening (about 12
+-- of its 128 texels in), and laid again when the host resizes. A round or
+-- angled shape still shows the model's corners past the ring. Fit off (the
+-- default): the ring stays on the host and the model fills the host, drawing
+-- over the ring. host = the live backdrop or the options preview frame; model
+-- may be nil.
+local function ShapeModelEdge(len, shape, size)
+    local exp = 7 - size
+    local unmasked = ns.UF_UNMASKED_RING[shape]
+    local inner
+    if unmasked then
+        local ri = unmasked - exp
+        inner = ri + 9 / 128 * (len - 2 * ri)
+    else
+        inner = -exp + (MASK_INSETS[shape] or 17) / 128 * (len + 2 * exp)
+    end
+    local mi = (size >= 1) and 1 or 0
+    local open = mi + 12 / 128 * (len - 2 * mi)
+    if inner - 1 > open then return inner - 1 end
+    return open
+end
+local function LayShapeModel(host, model, fit, shape, size)
+    local ix, iy = 0, 0
+    if fit then
+        local w, h = host:GetWidth(), host:GetHeight()
+        if w < 1 then w = 46 end
+        if h < 1 then h = 46 end
+        ix, iy = ShapeModelEdge(w, shape, size), ShapeModelEdge(h, shape, size)
+    end
+    model:ClearAllPoints()
+    PP.Point(model, "TOPLEFT", host, "TOPLEFT", ix, -iy)
+    PP.Point(model, "BOTTOMRIGHT", host, "BOTTOMRIGHT", -ix, iy)
+end
+-- The holder's OnSizeChanged: a host resized outside the shape pass. A hidden
+-- ring means the shape or the detached mode went away (those passes lay the
+-- model out themselves).
+local function ShapeModelResized(holder)
+    local host = holder._host
+    local ring = host and host._shapeBorderTex
+    if holder._fit and ring and ring:IsShown() then
+        LayShapeModel(host, holder._model, true, holder._shape, holder._size)
+    end
+end
+function ns.UF_PortraitShapeModel(host, ring, model, fit, shape, size)
+    fit = (fit and model and ring) and true or false
+    local holder = host._ringLift
+    if fit and not holder then
+        holder = POOL.CreateFrame("Frame", nil, host)
+        holder:SetAllPoints(host)
+        host._ringLift = holder
+    end
+    local home = host
+    if holder then
+        holder._fit = fit or nil
+        if fit then
+            holder._host, holder._model, holder._shape, holder._size = host, model, shape, size
+            if holder:GetScript("OnSizeChanged") ~= ShapeModelResized then
+                holder:SetScript("OnSizeChanged", ShapeModelResized)
+            end
+            local strata = host:GetFrameStrata()
+            if holder:GetFrameStrata() ~= strata then holder:SetFrameStrata(strata) end
+            local lvl = host:GetFrameLevel() + 2
+            if holder:GetFrameLevel() ~= lvl then holder:SetFrameLevel(lvl) end
+            home = holder
+        end
+    end
+    host._ringHome = (home ~= host) and home or nil
+    if ring then
+        local at = ring:GetParent()
+        local castOverlay = host._castIconOverlay
+        if at ~= home and not (castOverlay and at == castOverlay) then ring:SetParent(home) end
+    end
+    if model then LayShapeModel(host, model, fit, shape, size) end
+end
+
 -- Apply a detached portrait shape (mask + border overlay) to a portrait backdrop;
 -- creates the mask/border textures on first call, then updates them.
 --   backdrop  : the portrait backdrop frame
@@ -1234,13 +1336,12 @@ local function ApplyDetachedPortraitShape(backdrop, uSettings, unitToken)
         ns.UF_SetClassPortraitPoints(backdrop._class, backdrop,
             uSettings and uSettings.portraitClassZoom, classInset + oL, classInset - oT)
     end
-    if backdrop._3d then
-        -- 3D models ignore SetClipsChildren, so keep them inside the backdrop
-        -- bounds. Art scale is not applied to 3D (camera zoom is fixed).
-        backdrop._3d:ClearAllPoints()
-        PP.Point(backdrop._3d, "TOPLEFT", backdrop, "TOPLEFT", 0, 0)
-        PP.Point(backdrop._3d, "BOTTOMRIGHT", backdrop, "BOTTOMRIGHT", 0, 0)
-    end
+    -- 3D Portrait Below Border (off by default): a 3D portrait sits inside
+    -- the ring and under it; off, it fills the backdrop and draws over the
+    -- ring (art scale is not applied to 3D: camera zoom is fixed).
+    local artMode = (uSettings and uSettings.portraitMode) or db.profile.portraitMode or "2d"
+    local below = artMode == "3d" and uSettings ~= nil and uSettings.portrait3dBelowBorder == true
+    ns.UF_PortraitShapeModel(backdrop, sbt, backdrop._3d, below, shape, rawBorderSize)
 
     -- Outer Ring / Inner Shadow (round shapes); nothing built while off.
     ns.UF_PortraitExtras(backdrop, uSettings, shape)
@@ -1537,7 +1638,7 @@ function SwapPortraitMode(frame, painting)
         if not bd._3d then return end
         -- A model ignores parent alpha: take the body's current fade until
         -- the visibility pass mirrors it.
-        bd._3d:SetAlpha((frame._visWrap or frame):GetAlpha())
+        ns.UF_SetModelAlpha(bd._3d, (frame._visWrap or frame):GetAlpha())
         bd._3d:Show()
         bd._3d.backdrop = bd
         bd._3d.is2D = false

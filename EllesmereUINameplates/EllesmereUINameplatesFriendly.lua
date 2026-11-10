@@ -472,14 +472,19 @@ end
 
 local function ShowNPCRaidMarker()
     local fp = FP()
-    return fp and fp.showNPCRaidMarker == true
+    return fp and fp.showNPCRaidMarker ~= false
 end
 
 -- SuppressNPCNameplate hides Blizzard's RaidTargetFrame with the UnitFrame,
--- so the overlay draws its own marker above the name.
+-- so the overlay draws its own marker above the name. Like the friendly
+-- plates' marker, it stays hidden while the Raid Marker element is off.
 local function UpdateOverlayRaidIcon(overlay)
-    local idx = GetRaidTargetIndex and GetRaidTargetIndex(overlay.unit)
-    if not idx then
+    local idx
+    if ns.GetRaidMarkerPos() ~= "none" then
+        idx = GetRaidTargetIndex(overlay.unit)
+    end
+    -- type() is taint-safe: "nil" / "number" without reading a secret index
+    if type(idx) == "nil" then
         if overlay.raid then overlay.raid:Hide() end
         return
     end
@@ -1587,7 +1592,8 @@ function FriendlyFrame:UpdateRaidIcon()
     local pos = ns.GetRaidMarkerPos()
     if pos == "none" then self.raidFrame:Hide(); return end
     local idx = GetRaidTargetIndex and GetRaidTargetIndex(self.unit)
-    if not idx then self.raidFrame:Hide(); return end
+    -- type() is taint-safe: "nil" / "number" without reading a secret index
+    if type(idx) == "nil" then self.raidFrame:Hide(); return end
     SetRaidTargetIconTexture(self.raid, idx)
     local sz = ns.GetRaidMarkerSize()
     local rmY = ns.GetRaidMarkerYOffset()

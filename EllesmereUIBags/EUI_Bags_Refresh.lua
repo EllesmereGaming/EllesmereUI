@@ -31,7 +31,7 @@ local TakeBagSnapshot, UpdatePawnArrow = I.TakeBagSnapshot, I.UpdatePawnArrow
 local VisualSortCompare, UpdateBagMoneyDisplay = I.VisualSortCompare, I.UpdateBagMoneyDisplay
 local UpdateCurrencyDisplays, SCROLLBAR_HIT_W = I.UpdateCurrencyDisplays, I.SCROLLBAR_HIT_W
 local SetInsetBorderColor, GetOrCreateBagSlot = I.SetInsetBorderColor, I.GetOrCreateBagSlot
-local GetOrCreateReagentSlot = I.GetOrCreateReagentSlot
+local GetOrCreateReagentSlot, PinnedItems = I.GetOrCreateReagentSlot, I.PinnedItems
 local BuildSidebarButtons, GetSidebarWidth = I.BuildSidebarButtons, I.GetSidebarWidth
 local SetGearCatSet, SetPaintedPanelOpen = I.SetGearCatSet, I.SetPaintedPanelOpen
 
@@ -735,7 +735,7 @@ function EUI_Bags:RefreshInventory()
         end
     end
     local showPinned = BP().bagShowPinnedItems ~= false
-    local pinnedSet = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+    local pinnedSet = PinnedItems()
     local hidePinned = BP().bagHidePinnedInCategories == true
     -- Dim Items in OneBag/MultiBag: in those views (-1 / -2), while the Pinned
     -- Items quickview shows there, a pinned item is drawn dimmed in its bag

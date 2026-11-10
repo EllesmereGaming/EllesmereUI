@@ -44,7 +44,7 @@ local function HideBorder(button)
         button.NormalTexture:SetAlpha(0)
     end
     if button.Border then
-        -- Show Equipped Item Color (Icon Effects) keeps Blizzard's
+        -- Equipped Item Color (Effects > Item Information) keeps Blizzard's
         -- equipped-item border, in our square art; its shown state stays
         -- with the updates.
         if EAB.db.profile.showEquippedBorder then
@@ -74,7 +74,7 @@ local function SetSquareTexture(texture, texPath)
     texture:SetAllPoints(texture:GetParent())
 end
 
--- Show Equipped Item Color (Icon Effects, profile.showEquippedBorder):
+-- Equipped Item Color (Effects > Item Information, profile.showEquippedBorder):
 -- Blizzard's equipped-item border on a square button, in our square highlight
 -- art and the equipped item's rarity color (Blizzard's own green at half
 -- opacity when the item cannot be found). The art swap fires the Border's
@@ -121,7 +121,7 @@ do
 
     -- The equipped-item Border from live slot contents, for every path that
     -- changes what a button holds (slot changes, page flips, bar reveals,
-    -- setup). Our square buttons show it only with Show Equipped Item Color
+    -- setup). Our square buttons show it only with Equipped Item Color
     -- on; the Blizzard and Classic styles keep Blizzard's own look.
     function ns.AB_SyncEquippedBorder(btn, action)
         local bd = btn.Border
@@ -554,7 +554,7 @@ local function MakeButtonSquare(btn)
     end
     -- Blizzard's equipped-item Border: it calls Border:SetAtlas()/Show() on
     -- refreshes (its Show follows a green SetVertexColor) and EAB owns the
-    -- visible border, so it is suppressed, unless Show Equipped Item Color
+    -- visible border, so it is suppressed, unless Equipped Item Color
     -- keeps it (in our square art and the item's rarity color).
     if btn.Border and not fd.borderHooked then
         local function BorderRefresh(self)
@@ -837,7 +837,7 @@ local function ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brd
             end
         end
         -- Re-enable Blizzard's Border texture (a custom shape hides it while
-        -- Show Equipped Item Color is off)
+        -- Equipped Item Color is off)
         if btn.Border then
             SetSquareTexture(btn.Border, HIGHLIGHT_TEXTURES[1])
         end
@@ -935,7 +935,7 @@ local function ApplyShapeToButton(btn, shape, brdOn, brdR, brdG, brdB, brdA, brd
     if btn.Flash then pcall(btn.Flash.AddMaskTexture, btn.Flash, overlayMask) end
     if btn.QuickKeybindHighlightTexture then pcall(btn.QuickKeybindHighlightTexture.AddMaskTexture, btn.QuickKeybindHighlightTexture, overlayMask) end
     -- The equipped-item Border follows the shape like the overlays above
-    -- (Show Equipped Item Color); with that option off it stays hidden.
+    -- (Equipped Item Color); with that option off it stays hidden.
     if btn.Border then
         pcall(btn.Border.AddMaskTexture, btn.Border, overlayMask)
         if not EAB.db.profile.showEquippedBorder then btn.Border:Hide() end

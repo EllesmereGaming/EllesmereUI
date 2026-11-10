@@ -1849,7 +1849,7 @@ local function InitializeFrames()
                 -- handlers mirror it too when they reveal a mouseover frame.
                 local bd3d = frame.Portrait and frame.Portrait.backdrop and frame.Portrait.backdrop._3d
                 if bd3d then
-                    bd3d:SetAlpha(bodyAlpha)
+                    ns.UF_SetModelAlpha(bd3d, bodyAlpha)
                 end
 
                 -- A class resource bar unlocked from the frame is parented to UIParent

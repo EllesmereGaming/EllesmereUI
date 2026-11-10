@@ -229,7 +229,7 @@ layerUpdateFrame:SetScript("OnEvent", function() EUI_Bags:ApplyWindowLayering() 
 -- tab via the TokenFrame.OnTokenWatchChanged sync below) is per-character, so
 -- a shared store can only bleed across characters. Stored at the EllesmereUIDB
 -- ROOT beside the module's other per-character data (goldLedger,
--- bagPinnedItems, bagItemAssignments), NEVER in the bag profile:
+-- bagPinnedByChar, bagItemAssignments), NEVER in the bag profile:
 -- ApplyProfileData wipes db.profile wholesale on import (would erase every
 -- character's currencies), and profile exports must not ship a character
 -- roster (the PRIVATE_ADDON_KEYS leak class).
@@ -269,6 +269,39 @@ local function CurrencyOrder()
     return t
 end
 EUI._BagsCurrencyOrder = CurrencyOrder
+
+-- The pin table in use. Each character has its own (Pins per Character, on
+-- unless EllesmereUIDB.bagPinsPerCharacter is false): its table in
+-- EllesmereUIDB.bagPinnedByChar, by BagsCharKey. A character reads the shared
+-- pins (bagPinnedItems) until its first pin or unpin, which copies them into
+-- its own table; after that the shared pins are neither read nor written for
+-- it. With the option off every character reads and writes the shared pins,
+-- and the copies stay as they are for when it is turned on again.
+-- create: a pin action is about to write. nil then means there is no table
+-- to write (the character's identity is not readable yet): callers skip.
+local function PinnedItems(create)
+    local db = EllesmereUIDB
+    if not db then return nil end
+    if db.bagPinsPerCharacter == false then
+        if create and not db.bagPinnedItems then db.bagPinnedItems = {} end
+        return db.bagPinnedItems
+    end
+    local key = BagsCharKey()
+    local byChar = db.bagPinnedByChar
+    local own = key and type(byChar) == "table" and byChar[key]
+    if type(own) == "table" then return own end
+    if not create then return db.bagPinnedItems end
+    if not key then return nil end
+    own = {}
+    local shared = db.bagPinnedItems
+    if type(shared) == "table" then
+        for k, v in pairs(shared) do own[k] = v end
+    end
+    if type(byChar) ~= "table" then byChar = {}; db.bagPinnedByChar = byChar end
+    byChar[key] = own
+    return own
+end
+ns.PinnedItems = PinnedItems
 
 -- Default bag-type view ("all"|"onebag"|"multibag"), falling back to legacy
 -- bagDefaultOneBag bool (imports converted in ApplyProfileData before DeepMergeDefaults masks it); exposed on EUI so bank file matches.
@@ -436,8 +469,8 @@ EllesmereUI.NewInternals(ns, "_bagsInternals", {
     GetAccentRGB = GetAccentRGB, GetCatTitleSize = GetCatTitleSize, GetColumns = GetColumns,
     GetDefaultBagType = GetDefaultBagType, GetFont = GetFont,
     GetItemLevelAtLocation = GetItemLevelAtLocation, IsGearItem = IsGearItem,
-    IsItemPinned = IsItemPinned, NormalizePinKey = NormalizePinKey, SetBagFont = SetBagFont,
-    SLOT_SIZE = SLOT_SIZE, SPACING = SPACING,
+    IsItemPinned = IsItemPinned, NormalizePinKey = NormalizePinKey, PinnedItems = PinnedItems,
+    SetBagFont = SetBagFont, SLOT_SIZE = SLOT_SIZE, SPACING = SPACING,
     categoryIndexSetters = {}, groupNameSetters = {}, gearCatSetSetters = {},
     anyItemPanelOpenSetters = {}, paintedPanelOpenSetters = {}, slotMetricSetters = {},
 }, {

@@ -448,6 +448,7 @@ function ECHAT.TogglePortalFlyout(anchorBtn)
             flyout:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", (bRight + 4) / fs, (bTop + 4) / fs)
         end
         ECHAT.HostPopup(flyout)
+        flyout._toggle = anchorBtn
         flyout:Show()
     end
 end

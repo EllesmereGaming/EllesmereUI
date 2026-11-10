@@ -1103,6 +1103,41 @@ do
     EllesmereUI.SyncPortraitClick = Sync
 end
 
+-- 3D models ignore parent alpha, UIParent's too: UIScaledAlpha applies a UIParent
+-- fade to a model's mirrored alpha; OnUIAlphaChanged hooks UIParent:SetAlpha lazily.
+do
+    local listeners, lastAlpha
+    local function Notify()
+        -- The listeners' one input is UIParent's alpha: a SetAlpha that repeats the last
+        -- one moves nothing. A secret alpha cannot be compared, so it always notifies.
+        local ui = UIParent:GetAlpha()
+        if issecretvalue(ui) then
+            lastAlpha = nil
+        elseif ui == lastAlpha then
+            return
+        else
+            lastAlpha = ui
+        end
+        for i = 1, #listeners do listeners[i]() end
+    end
+    function EllesmereUI.UIScaledAlpha(a)
+        local ui = UIParent:GetAlpha()
+        if issecretvalue(ui) or ui >= 1 then return a end
+        if issecretvalue(a) then return ui <= 0 and 0 or a end
+        return a * ui
+    end
+    function EllesmereUI.OnUIAlphaChanged(fn)
+        if not listeners then
+            listeners = {}
+            hooksecurefunc(UIParent, "SetAlpha", Notify)
+        end
+        for i = 1, #listeners do
+            if listeners[i] == fn then return end
+        end
+        listeners[#listeners + 1] = fn
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Full Craft Time (player cast bars). A repeat craft queues the rest of the
 --  batch behind the current cast. SetCraftBatch fills f._craftExtra (seconds

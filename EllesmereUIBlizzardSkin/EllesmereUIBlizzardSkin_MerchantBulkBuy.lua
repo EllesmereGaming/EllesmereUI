@@ -312,7 +312,7 @@ local SKIN = {
     font = function(fs, size) WSkin.Font(fs, nil, nil, nil, size) end,
     button = function(parent, w, h, label)
         local b = EUI.MakePopupButton(parent, "CENTER", parent, "CENTER", 0, 0,
-            1, 1, 1, 0.7, 1, 1, 1, 0.9, 1, 1, 1, 0.5, 1, 1, 1, 0.6)
+            1, 1, 1, 0.7, 1, 1, 1, 0.9, 1, 1, 1, 0.5, 1, 1, 1, 0.6, true)
         b:SetSize(w, h)
         b:ClearAllPoints()
         WSkin.Font(b._lbl, nil, nil, nil, 12)

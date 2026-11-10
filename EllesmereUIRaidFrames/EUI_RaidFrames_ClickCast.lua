@@ -3147,7 +3147,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         local kbBg = EllesmereUI.SolidTex(kbBtn, "BACKGROUND",
             EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
         kbBg:SetAllPoints()
-        kbBtn._border = EllesmereUI.MakeBorder(kbBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+        kbBtn._border = EllesmereUI.MakeRoundedBorder(kbBtn, 1, 1, 1, EllesmereUI.DD_BRD_A, kbBg)
         local kbLbl = EllesmereUI.MakeFont(kbBtn, 13, nil, 1, 1, 1)
         kbLbl:SetAlpha(EllesmereUI.DD_TXT_A)
         kbLbl:SetPoint("CENTER")
@@ -3436,7 +3436,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         popBg:SetAllPoints()
         popBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
         popup:EnableMouse(true)
-        EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+        EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, popBg)
         ns._ccGridPopup = popup
 
         local scroll = CreateFrame("ScrollFrame", nil, popup)
@@ -3600,6 +3600,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     addGlobalBtn:SetFrameLevel(leftChild:GetFrameLevel() + 1)
     local agBg = addGlobalBtn:CreateTexture(nil, "BACKGROUND")
     agBg:SetAllPoints(); agBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+    EllesmereUI.RoundBody(addGlobalBtn, agBg)
     local agLbl = MakeFont(addGlobalBtn, 12, 1, 1, 1, 1)
     agLbl:SetPoint("CENTER"); agLbl:SetText(EllesmereUI.L("Add Global Binding"))
     addGlobalBtn:SetScript("OnEnter", function() agBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 1) end)
@@ -3624,28 +3625,18 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             local pBg = popup:CreateTexture(nil, "BACKGROUND")
             pBg:SetAllPoints(); pBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
             popup:EnableMouse(true)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+            EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, pBg)
 
-            local macroToggleG = CreateFrame("Button", nil, popup)
-            macroToggleG:SetSize((popupWG - INSETG * 2) / 3 - 2, 26)
-            macroToggleG:SetPoint("TOPLEFT", popup, "TOPLEFT", INSETG, -INSETG)
-            local mtBgG = macroToggleG:CreateTexture(nil, "BACKGROUND"); mtBgG:SetAllPoints()
-            local mtHlG = macroToggleG:CreateTexture(nil, "HIGHLIGHT"); mtHlG:SetAllPoints(); mtHlG:SetColorTexture(1, 1, 1, 0.1)
-            local mtLblG = MakeFont(macroToggleG, 12, 1, 1, 1, 0.9); mtLblG:SetPoint("CENTER"); mtLblG:SetText(EllesmereUI.L("Macros"))
-
-            local itemToggleG = CreateFrame("Button", nil, popup)
-            itemToggleG:SetSize((popupWG - INSETG * 2) / 3 - 2, 26)
-            itemToggleG:SetPoint("LEFT", macroToggleG, "RIGHT", 3, 0)
-            local itBgG = itemToggleG:CreateTexture(nil, "BACKGROUND"); itBgG:SetAllPoints()
-            local itHlG = itemToggleG:CreateTexture(nil, "HIGHLIGHT"); itHlG:SetAllPoints(); itHlG:SetColorTexture(1, 1, 1, 0.1)
-            local itLblG = MakeFont(itemToggleG, 12, 1, 1, 1, 0.9); itLblG:SetPoint("CENTER"); itLblG:SetText(EllesmereUI.L("Items"))
-
-            local actionToggleG = CreateFrame("Button", nil, popup)
-            actionToggleG:SetSize((popupWG - INSETG * 2) / 3 - 2, 26)
-            actionToggleG:SetPoint("LEFT", itemToggleG, "RIGHT", 3, 0)
-            local atBgG = actionToggleG:CreateTexture(nil, "BACKGROUND"); atBgG:SetAllPoints()
-            local atHlG = actionToggleG:CreateTexture(nil, "HIGHLIGHT"); atHlG:SetAllPoints(); atHlG:SetColorTexture(1, 1, 1, 0.1)
-            local atLblG = MakeFont(actionToggleG, 12, 1, 1, 1, 0.9); atLblG:SetPoint("CENTER"); atLblG:SetText(EllesmereUI.L("Actions"))
+            -- The shared segment switch; each open sets the mode and the handler
+            -- (its build refreshes once, before ccPickers holds this popup).
+            local tabsG, _, tabsRefreshG = EllesmereUI.BuildSegmentedControl({
+                parent = popup, square = true, height = 26, width = popupWG - INSETG * 2,
+                keys = { "macro", "item", "action" },
+                labels = { macro = "Macros", item = "Items", action = "Actions" },
+                getChecked = function(key) local u = ccPickers.global; return u ~= nil and u.mode == key end,
+                onToggle = function(key) ccPickers.global.onTab(key) end,
+            })
+            tabsG:SetPoint("TOPLEFT", popup, "TOPLEFT", INSETG, -INSETG)
 
             local gridScrollG = CreateFrame("ScrollFrame", nil, popup)
             gridScrollG:SetPoint("TOPLEFT", popup, "TOPLEFT", INSETG, -(INSETG + 40))
@@ -3668,14 +3659,11 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
             ui = {
                 popup = popup, scroll = gridScrollG, child = gridChildG,
-                macroToggle = macroToggleG, mtBg = mtBgG, mtLbl = mtLblG,
-                itemToggle = itemToggleG, itBg = itBgG, itLbl = itLblG,
-                actionToggle = actionToggleG, atBg = atBgG, atLbl = atLblG,
+                tabsRefresh = tabsRefreshG,
             }
             ccPickers.global = ui
         end
         local popup, gridScrollG, gridChildG = ui.popup, ui.scroll, ui.child
-        local mtBgG, itBgG = ui.mtBg, ui.itBg
         -- Left edge flush with right edge of left sidebar, centered vertically on the add button
         local btnMidYG = select(2, addGlobalBtn:GetCenter()) or 0
         local sidebarMidYG = select(2, leftOuter:GetCenter()) or 0
@@ -3687,12 +3675,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         popup:ClearAllPoints()
         popup:SetPoint("LEFT", leftOuter, "RIGHT", 0, offsetYG)
         ns._ccGridPopup = popup
-        StyleFont(ui.mtLbl, 12, 1, 1, 1, 0.9)
-        StyleFont(ui.itLbl, 12, 1, 1, 1, 0.9)
-        StyleFont(ui.atLbl, 12, 1, 1, 1, 0.9)
         gridScrollG:SetVerticalScroll(0)
 
-        local toggleModeG = "macro"
+        ui.mode = "macro"
 
         -- Reuse the same grid constants as BuildIconGridPopup
         local GCG = 5; local ISZG = 32; local CWG = 48; local CGAPG = 19
@@ -3743,12 +3728,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
 
         local function UpdateToggleG()
-            mtBgG:SetColorTexture(1, 1, 1, 0.05)
-            itBgG:SetColorTexture(1, 1, 1, 0.05)
-            ui.atBg:SetColorTexture(1, 1, 1, 0.05)
+            ui.tabsRefresh()
             gridScrollG:SetVerticalScroll(0)
-            if toggleModeG == "macro" then
-                mtBgG:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.25)
+            if ui.mode == "macro" then
                 local macros = ns.CC_GetGlobalMacros()
                 local mItems = {}
                 for _, m in ipairs(macros) do
@@ -3763,8 +3745,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                         enabled = true, oocOnly = false, hovercast = false, hoverFriendly = true, hoverEnemy = true })
                     ns._ccSelSide = "global"; ns._ccSelIndex = #(GetGlobalBindings()); RebuildPage()
                 end)
-            elseif toggleModeG == "item" then
-                itBgG:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.25)
+            elseif ui.mode == "item" then
                 local eqItems = ns.CC_GetEquippedItems()
                 PopulateGridG(eqItems, function(itm)
                     ns.CC_AddGlobalBinding({ type = "item", itemSlot = itm.itemSlot, itemName = itm.name, icon = itm.icon,
@@ -3772,7 +3753,6 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     ns._ccSelSide = "global"; ns._ccSelIndex = #(GetGlobalBindings()); RebuildPage()
                 end)
             else -- "action"
-                ui.atBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.25)
                 PopulateGridG(CC_GetActionItems(), function(itm)
                     ns.CC_AddGlobalBinding({ type = itm.type, customAction = true,
                         enabled = true, oocOnly = false, hovercast = false })
@@ -3782,9 +3762,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
         UpdateToggleG()
 
-        ui.macroToggle:SetScript("OnClick", function() toggleModeG = "macro"; UpdateToggleG() end)
-        ui.itemToggle:SetScript("OnClick", function() toggleModeG = "item"; UpdateToggleG() end)
-        ui.actionToggle:SetScript("OnClick", function() toggleModeG = "action"; UpdateToggleG() end)
+        ui.onTab = function(key) ui.mode = key; UpdateToggleG() end
 
         popup:SetScript("OnShow", function(p)
             p:SetScript("OnUpdate", function(m)
@@ -3811,6 +3789,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     stickyGlobalBtn:SetFrameLevel(leftOuter:GetFrameLevel() + 5)
     local sgBg = stickyGlobalBtn:CreateTexture(nil, "BACKGROUND")
     sgBg:SetAllPoints(); sgBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+    EllesmereUI.RoundBody(stickyGlobalBtn, sgBg)
     local sgLbl = MakeFont(stickyGlobalBtn, 12, 1, 1, 1, 1)
     sgLbl:SetPoint("CENTER"); sgLbl:SetText(EllesmereUI.L("Add Global Binding"))
     stickyGlobalBtn:SetScript("OnEnter", function() sgBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 1) end)
@@ -3890,6 +3869,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     addSpecBtn:SetFrameLevel(rightChild:GetFrameLevel() + 1)
     local asBg = addSpecBtn:CreateTexture(nil, "BACKGROUND")
     asBg:SetAllPoints(); asBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+    EllesmereUI.RoundBody(addSpecBtn, asBg)
     local asLbl = MakeFont(addSpecBtn, 11, 1, 1, 1, 1)
     asLbl:SetPoint("CENTER"); asLbl:SetText(EllesmereUI.L("Add New"))
     addSpecBtn:SetScript("OnEnter", function() asBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 1) end)
@@ -3901,6 +3881,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     qbBtn:SetFrameLevel(rightChild:GetFrameLevel() + 1)
     local qbBg = qbBtn:CreateTexture(nil, "BACKGROUND")
     qbBg:SetAllPoints(); qbBg:SetColorTexture(0.25, 0.25, 0.25, 0.6)
+    EllesmereUI.RoundBody(qbBtn, qbBg)
     local qbLbl = MakeFont(qbBtn, 11, 1, 1, 1, 0.5)
     qbLbl:SetPoint("CENTER"); qbLbl:SetText(EllesmereUI.L("Quickbind"))
     qbBtn:SetScript("OnEnter", function() qbBg:SetColorTexture(0.35, 0.35, 0.35, 0.8); qbLbl:SetAlpha(0.9) end)
@@ -3942,36 +3923,23 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
             local pBg = popup:CreateTexture(nil, "BACKGROUND")
             pBg:SetAllPoints(); pBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+            EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, pBg)
 
             local titleLbl = MakeFont(popup, 13, 1, 1, 1, 0.9)
             titleLbl:SetPoint("TOP", popup, "TOP", 0, -QB_INSET)
             titleLbl:SetText(EllesmereUI.L("Quickbind: hover a spell, press a key"))
 
-            local toggleInnerQB = popupWQB - QB_INSET * 2
-            local toggleBtnWQB = floor(toggleInnerQB / 3) - 2
             local toggleTopQB = -(QB_INSET + 22)
 
-            local spellTglQB = CreateFrame("Button", nil, popup)
-            spellTglQB:SetSize(toggleBtnWQB, 26)
-            spellTglQB:SetPoint("TOPLEFT", popup, "TOPLEFT", QB_INSET, toggleTopQB)
-            local stBgQB = spellTglQB:CreateTexture(nil, "BACKGROUND"); stBgQB:SetAllPoints()
-            local stHlQB = spellTglQB:CreateTexture(nil, "HIGHLIGHT"); stHlQB:SetAllPoints(); stHlQB:SetColorTexture(1, 1, 1, 0.1)
-            local stLblQB = MakeFont(spellTglQB, 12, 1, 1, 1, 0.9); stLblQB:SetPoint("CENTER"); stLblQB:SetText(EllesmereUI.L("Spells"))
-
-            local macroTglQB = CreateFrame("Button", nil, popup)
-            macroTglQB:SetSize(toggleBtnWQB, 26)
-            macroTglQB:SetPoint("LEFT", spellTglQB, "RIGHT", 3, 0)
-            local mtBgQB = macroTglQB:CreateTexture(nil, "BACKGROUND"); mtBgQB:SetAllPoints()
-            local mtHlQB = macroTglQB:CreateTexture(nil, "HIGHLIGHT"); mtHlQB:SetAllPoints(); mtHlQB:SetColorTexture(1, 1, 1, 0.1)
-            local mtLblQB = MakeFont(macroTglQB, 12, 1, 1, 1, 0.9); mtLblQB:SetPoint("CENTER"); mtLblQB:SetText(EllesmereUI.L("Macros"))
-
-            local itemTglQB = CreateFrame("Button", nil, popup)
-            itemTglQB:SetSize(toggleBtnWQB, 26)
-            itemTglQB:SetPoint("LEFT", macroTglQB, "RIGHT", 3, 0)
-            local itBgQB = itemTglQB:CreateTexture(nil, "BACKGROUND"); itBgQB:SetAllPoints()
-            local itHlQB = itemTglQB:CreateTexture(nil, "HIGHLIGHT"); itHlQB:SetAllPoints(); itHlQB:SetColorTexture(1, 1, 1, 0.1)
-            local itLblQB = MakeFont(itemTglQB, 12, 1, 1, 1, 0.9); itLblQB:SetPoint("CENTER"); itLblQB:SetText(EllesmereUI.L("Items"))
+            -- The shared segment switch; each open sets the mode and the handler.
+            local tabsQB, _, tabsRefreshQB = EllesmereUI.BuildSegmentedControl({
+                parent = popup, square = true, height = 26, width = popupWQB - QB_INSET * 2,
+                keys = { "spell", "macro", "item" },
+                labels = { spell = "Spells", macro = "Macros", item = "Items" },
+                getChecked = function(key) local u = ccPickers.qb; return u ~= nil and u.mode == key end,
+                onToggle = function(key) ccPickers.qb.onTab(key) end,
+            })
+            tabsQB:SetPoint("TOPLEFT", popup, "TOPLEFT", QB_INSET, toggleTopQB)
 
             local gridScrollQB = CreateFrame("ScrollFrame", nil, popup)
             gridScrollQB:SetPoint("TOPLEFT", popup, "TOPLEFT", QB_INSET, toggleTopQB - 36)
@@ -3993,6 +3961,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             doneBtn:SetFrameLevel(popup:GetFrameLevel() + 3)
             local doneBg = doneBtn:CreateTexture(nil, "BACKGROUND")
             doneBg:SetAllPoints(); doneBg:SetColorTexture(0.25, 0.25, 0.25, 0.6)
+            EllesmereUI.RoundBody(doneBtn, doneBg)
             local doneLbl = MakeFont(doneBtn, 11, 1, 1, 1, 0.5)
             doneLbl:SetPoint("CENTER"); doneLbl:SetText(EllesmereUI.L("Done"))
             doneBtn:SetScript("OnEnter", function() doneBg:SetColorTexture(0.35, 0.35, 0.35, 0.8); doneLbl:SetAlpha(0.9) end)
@@ -4010,26 +3979,20 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
             ui = {
                 dimmer = dimmer, title = titleLbl, scroll = gridScrollQB, child = gridChildQB,
-                spellTgl = spellTglQB, stBg = stBgQB, stLbl = stLblQB,
-                macroTgl = macroTglQB, mtBg = mtBgQB, mtLbl = mtLblQB,
-                itemTgl = itemTglQB, itBg = itBgQB, itLbl = itLblQB,
+                tabsRefresh = tabsRefreshQB,
                 doneBg = doneBg, doneLbl = doneLbl,
             }
             ccPickers.qb = ui
         end
         local dimmer, gridScrollQB, gridChildQB = ui.dimmer, ui.scroll, ui.child
-        local stBgQB, mtBgQB, itBgQB = ui.stBg, ui.mtBg, ui.itBg
         ns._ccQBPopup = dimmer
         StyleFont(ui.title, 13, 1, 1, 1, 0.9)
-        StyleFont(ui.stLbl, 12, 1, 1, 1, 0.9)
-        StyleFont(ui.mtLbl, 12, 1, 1, 1, 0.9)
-        StyleFont(ui.itLbl, 12, 1, 1, 1, 0.9)
         StyleFont(ui.doneLbl, 11, 1, 1, 1, 0.5)
         ui.doneLbl:SetAlpha(1)
         ui.doneBg:SetColorTexture(0.25, 0.25, 0.25, 0.6)
         gridScrollQB:SetVerticalScroll(0)
 
-        local toggleModeQB = "spell"
+        ui.mode = "spell"
 
         -- Hovered item reference (set by cell OnEnter/OnLeave)
         local hoveredItem = nil
@@ -4161,14 +4124,10 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
 
         function UpdateToggleQB()
-            local selA = { accentColor.r, accentColor.g, accentColor.b, 0.25 }
-            local offA = { 1, 1, 1, 0.05 }
-            stBgQB:SetColorTexture(toggleModeQB == "spell" and selA[1] or offA[1], toggleModeQB == "spell" and selA[2] or offA[2], toggleModeQB == "spell" and selA[3] or offA[3], toggleModeQB == "spell" and selA[4] or offA[4])
-            mtBgQB:SetColorTexture(toggleModeQB == "macro" and selA[1] or offA[1], toggleModeQB == "macro" and selA[2] or offA[2], toggleModeQB == "macro" and selA[3] or offA[3], toggleModeQB == "macro" and selA[4] or offA[4])
-            itBgQB:SetColorTexture(toggleModeQB == "item" and selA[1] or offA[1], toggleModeQB == "item" and selA[2] or offA[2], toggleModeQB == "item" and selA[3] or offA[3], toggleModeQB == "item" and selA[4] or offA[4])
-            if toggleModeQB == "spell" then
+            ui.tabsRefresh()
+            if ui.mode == "spell" then
                 PopulateGridQB(ns.CC_GetClassSpells())
-            elseif toggleModeQB == "macro" then
+            elseif ui.mode == "macro" then
                 local macros = ns.CC_GetAllMacros()
                 local mItems = {}
                 for _, m in ipairs(macros) do
@@ -4183,9 +4142,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
         UpdateToggleQB()
 
-        ui.spellTgl:SetScript("OnClick", function() toggleModeQB = "spell"; UpdateToggleQB() end)
-        ui.macroTgl:SetScript("OnClick", function() toggleModeQB = "macro"; UpdateToggleQB() end)
-        ui.itemTgl:SetScript("OnClick", function() toggleModeQB = "item"; UpdateToggleQB() end)
+        ui.onTab = function(key) ui.mode = key; UpdateToggleQB() end
 
         dimmer:SetScript("OnHide", function(self)
             self:UnregisterEvent("PLAYER_REGEN_DISABLED")
@@ -4222,39 +4179,17 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
             local pBg = popup:CreateTexture(nil, "BACKGROUND")
             pBg:SetAllPoints(); pBg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
             popup:EnableMouse(true)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+            EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, pBg)
 
-            local toggleInner = popupW - INSET2 * 2
-            -- Four tabs and three 3px gaps fill the row exactly.
-            local toggleBtnW = (toggleInner - 9) / 4
-
-            local spellToggle = CreateFrame("Button", nil, popup)
-            spellToggle:SetSize(toggleBtnW, 26)
-            spellToggle:SetPoint("TOPLEFT", popup, "TOPLEFT", INSET2, -INSET2)
-            local stBg = spellToggle:CreateTexture(nil, "BACKGROUND"); stBg:SetAllPoints()
-            local stHl = spellToggle:CreateTexture(nil, "HIGHLIGHT"); stHl:SetAllPoints(); stHl:SetColorTexture(1, 1, 1, 0.1)
-            local stLbl = MakeFont(spellToggle, 12, 1, 1, 1, 0.9); stLbl:SetPoint("CENTER"); stLbl:SetText(EllesmereUI.L("Spells"))
-
-            local macroToggle = CreateFrame("Button", nil, popup)
-            macroToggle:SetSize(toggleBtnW, 26)
-            macroToggle:SetPoint("LEFT", spellToggle, "RIGHT", 3, 0)
-            local mtBg = macroToggle:CreateTexture(nil, "BACKGROUND"); mtBg:SetAllPoints()
-            local mtHl = macroToggle:CreateTexture(nil, "HIGHLIGHT"); mtHl:SetAllPoints(); mtHl:SetColorTexture(1, 1, 1, 0.1)
-            local mtLbl = MakeFont(macroToggle, 12, 1, 1, 1, 0.9); mtLbl:SetPoint("CENTER"); mtLbl:SetText(EllesmereUI.L("Macros"))
-
-            local itemToggle = CreateFrame("Button", nil, popup)
-            itemToggle:SetSize(toggleBtnW, 26)
-            itemToggle:SetPoint("LEFT", macroToggle, "RIGHT", 3, 0)
-            local itBg = itemToggle:CreateTexture(nil, "BACKGROUND"); itBg:SetAllPoints()
-            local itHl = itemToggle:CreateTexture(nil, "HIGHLIGHT"); itHl:SetAllPoints(); itHl:SetColorTexture(1, 1, 1, 0.1)
-            local itLbl = MakeFont(itemToggle, 12, 1, 1, 1, 0.9); itLbl:SetPoint("CENTER"); itLbl:SetText(EllesmereUI.L("Items"))
-
-            local actionToggle = CreateFrame("Button", nil, popup)
-            actionToggle:SetSize(toggleBtnW, 26)
-            actionToggle:SetPoint("LEFT", itemToggle, "RIGHT", 3, 0)
-            local atBg = actionToggle:CreateTexture(nil, "BACKGROUND"); atBg:SetAllPoints()
-            local atHl = actionToggle:CreateTexture(nil, "HIGHLIGHT"); atHl:SetAllPoints(); atHl:SetColorTexture(1, 1, 1, 0.1)
-            local atLbl = MakeFont(actionToggle, 12, 1, 1, 1, 0.9); atLbl:SetPoint("CENTER"); atLbl:SetText(EllesmereUI.L("Actions"))
+            -- The shared segment switch; each open sets the mode and the handler.
+            local tabs, _, tabsRefresh = EllesmereUI.BuildSegmentedControl({
+                parent = popup, square = true, height = 26, width = popupW - INSET2 * 2,
+                keys = { "spell", "macro", "item", "action" },
+                labels = { spell = "Spells", macro = "Macros", item = "Items", action = "Actions" },
+                getChecked = function(key) local u = ccPickers.spec; return u ~= nil and u.mode == key end,
+                onToggle = function(key) ccPickers.spec.onTab(key) end,
+            })
+            tabs:SetPoint("TOPLEFT", popup, "TOPLEFT", INSET2, -INSET2)
 
             -- Grid scroll area (inset on all sides, below toggle row)
             local gridScroll = CreateFrame("ScrollFrame", nil, popup)
@@ -4279,15 +4214,11 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
 
             ui = {
                 popup = popup, scroll = gridScroll, child = gridChild,
-                spellToggle = spellToggle, stBg = stBg, stLbl = stLbl,
-                macroToggle = macroToggle, mtBg = mtBg, mtLbl = mtLbl,
-                itemToggle = itemToggle, itBg = itBg, itLbl = itLbl,
-                actionToggle = actionToggle, atBg = atBg, atLbl = atLbl,
+                tabsRefresh = tabsRefresh,
             }
             ccPickers.spec = ui
         end
         local popup, gridScroll, gridChild = ui.popup, ui.scroll, ui.child
-        local stBg, mtBg, itBg = ui.stBg, ui.mtBg, ui.itBg
         -- Right edge flush with left edge of right sidebar, centered vertically on the add button
         local btnMidY = select(2, addSpecBtn:GetCenter()) or 0
         local sidebarMidY = select(2, rightOuter:GetCenter()) or 0
@@ -4300,13 +4231,9 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         popup:SetPoint("RIGHT", rightOuter, "LEFT", 0, offsetY)
 
         ns._ccSpecPopup = popup
-        StyleFont(ui.stLbl, 12, 1, 1, 1, 0.9)
-        StyleFont(ui.mtLbl, 12, 1, 1, 1, 0.9)
-        StyleFont(ui.itLbl, 12, 1, 1, 1, 0.9)
-        StyleFont(ui.atLbl, 12, 1, 1, 1, 0.9)
         gridScroll:SetVerticalScroll(0)
 
-        local toggleMode = "spell"
+        ui.mode = "spell"
 
         local GC2 = 5
         local ISZ2 = 32
@@ -4381,15 +4308,10 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
 
         local function UpdateToggle()
-            local selA = accentColor.r and { accentColor.r, accentColor.g, accentColor.b, 0.25 } or { 0.05, 0.82, 0.62, 0.25 }
-            local offA = { 1, 1, 1, 0.05 }
-            stBg:SetColorTexture(toggleMode == "spell" and selA[1] or offA[1], toggleMode == "spell" and selA[2] or offA[2], toggleMode == "spell" and selA[3] or offA[3], toggleMode == "spell" and selA[4] or offA[4])
-            mtBg:SetColorTexture(toggleMode == "macro" and selA[1] or offA[1], toggleMode == "macro" and selA[2] or offA[2], toggleMode == "macro" and selA[3] or offA[3], toggleMode == "macro" and selA[4] or offA[4])
-            itBg:SetColorTexture(toggleMode == "item" and selA[1] or offA[1], toggleMode == "item" and selA[2] or offA[2], toggleMode == "item" and selA[3] or offA[3], toggleMode == "item" and selA[4] or offA[4])
-            ui.atBg:SetColorTexture(toggleMode == "action" and selA[1] or offA[1], toggleMode == "action" and selA[2] or offA[2], toggleMode == "action" and selA[3] or offA[3], toggleMode == "action" and selA[4] or offA[4])
+            ui.tabsRefresh()
             gridScroll:SetVerticalScroll(0)
 
-            if toggleMode == "spell" then
+            if ui.mode == "spell" then
                 local spells = ns.CC_GetClassSpells()
                 PopulateGrid(spells, function(item)
                     ns.CC_AddSpecBinding({
@@ -4401,7 +4323,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     })
                     ns._ccSelSide = "spec"; ns._ccSelIndex = #(GetSpecBindings()); RebuildPage()
                 end)
-            elseif toggleMode == "macro" then
+            elseif ui.mode == "macro" then
                 local macros = ns.CC_GetAllMacros()
                 local mItems = {}
                 for _, m in ipairs(macros) do
@@ -4418,7 +4340,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
                     })
                     ns._ccSelSide = "spec"; ns._ccSelIndex = #(GetSpecBindings()); RebuildPage()
                 end)
-            elseif toggleMode == "item" then
+            elseif ui.mode == "item" then
                 local eqItems = ns.CC_GetEquippedItems()
                 PopulateGrid(eqItems, function(item)
                     ns.CC_AddSpecBinding({
@@ -4439,10 +4361,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         end
         UpdateToggle()
 
-        ui.spellToggle:SetScript("OnClick", function() toggleMode = "spell"; UpdateToggle() end)
-        ui.macroToggle:SetScript("OnClick", function() toggleMode = "macro"; UpdateToggle() end)
-        ui.itemToggle:SetScript("OnClick", function() toggleMode = "item"; UpdateToggle() end)
-        ui.actionToggle:SetScript("OnClick", function() toggleMode = "action"; UpdateToggle() end)
+        ui.onTab = function(key) ui.mode = key; UpdateToggle() end
 
         -- Auto-close on click outside (dropdown pattern: poll IsMouseButtonDown)
         popup:SetScript("OnShow", function(p)
@@ -4475,6 +4394,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     stickySpecBtn:SetFrameLevel(rightOuter:GetFrameLevel() + 5)
     local ssBg = stickySpecBtn:CreateTexture(nil, "BACKGROUND")
     ssBg:SetAllPoints(); ssBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+    EllesmereUI.RoundBody(stickySpecBtn, ssBg)
     local ssLbl = MakeFont(stickySpecBtn, 11, 1, 1, 1, 1)
     ssLbl:SetPoint("CENTER"); ssLbl:SetText(EllesmereUI.L("Add New"))
     stickySpecBtn:SetScript("OnEnter", function() ssBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 1) end)
@@ -4490,6 +4410,7 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
     stickyQBBtn:SetFrameLevel(rightOuter:GetFrameLevel() + 5)
     local sqBg = stickyQBBtn:CreateTexture(nil, "BACKGROUND")
     sqBg:SetAllPoints(); sqBg:SetColorTexture(0.25, 0.25, 0.25, 0.6)
+    EllesmereUI.RoundBody(stickyQBBtn, sqBg)
     local sqLbl = MakeFont(stickyQBBtn, 11, 1, 1, 1, 0.5)
     sqLbl:SetPoint("CENTER"); sqLbl:SetText(EllesmereUI.L("Quickbind"))
     stickyQBBtn:SetScript("OnEnter", function() sqBg:SetColorTexture(0.35, 0.35, 0.35, 0.8); sqLbl:SetAlpha(0.9) end)
@@ -4559,20 +4480,28 @@ function ns.CC_BuildPage(pageName, parent, yOffset)
         pill:SetSize(toggleW, toggleH)
         PP.Point(pill, "RIGHT", row, "RIGHT", -SIDE_PAD, 0)
         pill:SetFrameLevel(row:GetFrameLevel() + 2)
-        local pillBg = pill:CreateTexture(nil, "BACKGROUND"); pillBg:SetAllPoints()
-        local knob = pill:CreateTexture(nil, "OVERLAY")
-        knob:SetSize(toggleH - 4, toggleH - 4)
+        -- Pill and knob on a pixel layer, as the settings toggle draws them.
+        local L = EllesmereUI.MakePixelLayer(pill, EllesmereUI.TogglePillFit)
+        local pillBg = L._frame:CreateTexture(nil, "BACKGROUND"); pillBg:SetAllPoints(L._frame)
+        local knob = L._frame:CreateTexture(nil, "OVERLAY")
+        L.track, L.knob, L.pad = pillBg, knob, 2
         local function Refresh()
-            if getValue() then
-                pillBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 1)
-                knob:SetColorTexture(1, 1, 1, 1)
-                knob:ClearAllPoints(); knob:SetPoint("RIGHT", pill, "RIGHT", -2, 0)
+            local on = getValue()
+            if on then
+                pillBg:SetVertexColor(accentColor.r, accentColor.g, accentColor.b, 1)
+                knob:SetVertexColor(1, 1, 1, 1)
             else
-                pillBg:SetColorTexture(0.25, 0.25, 0.25, 1)
-                knob:SetColorTexture(0.5, 0.5, 0.5, 1)
-                knob:ClearAllPoints(); knob:SetPoint("LEFT", pill, "LEFT", 2, 0)
+                pillBg:SetVertexColor(0.25, 0.25, 0.25, 1)
+                knob:SetVertexColor(0.5, 0.5, 0.5, 1)
+            end
+            local pad = L.padPx
+            if pad then
+                knob:ClearAllPoints()
+                knob:SetPoint("TOPLEFT", L._frame, "TOPLEFT", on and (L.wp - pad - L.d) or pad, -pad)
             end
         end
+        L.apply = Refresh
+        L:Fit()
         Refresh()
         pill:SetScript("OnClick", function()
             local gen = PoolGen(pill)

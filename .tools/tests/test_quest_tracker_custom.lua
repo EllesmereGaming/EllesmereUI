@@ -103,7 +103,6 @@ EllesmereUI = {
     _ModuleNS = {},
     Lite = { NewDB = function(_, defaults) return { profile = DeepCopy(defaults.profile) } end },
     NewCombatQueue = function() return { Defer = function() end } end,
-    PadTaintStandDown = function() return false end,
     IsSecret = function(v) return v == SECRET end,
     PrimeFontShadow = function() end,
     GetFontUseShadow = function() return false end,
@@ -463,6 +462,7 @@ C_QuestLog = {
     GetMaxNumQuestsCanAccept = function() return 25 end,
 }
 C_SuperTrack = { GetSuperTrackedQuestID = function() return 0 end }
+C_TradeSkillUI = { GetRecipesTracked = function() return {} end }   -- no tracked recipes
 QuestUtilsOverrides = { GetQuestTitlePrefix = function() end, GetQuestTagText = function() end }
 EQT.QuestLogSnapshot = function() return {}, { [101] = "Elwynn", [102] = "Elwynn" } end
 EQT.AutoTrackOn = function() return false end

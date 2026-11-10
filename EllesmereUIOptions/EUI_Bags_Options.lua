@@ -470,6 +470,19 @@ initFrame:SetScript("OnEvent", function(self)
                               db.profile.bagDimPinnedInOneBag = v
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
+                        -- Account-wide, on unless turned off: only the off state is stored.
+                        { type="toggle", label="Pins per Character",
+                          tooltip="Each character keeps its own pinned items, starting from the shared ones.",
+                          get=function() return not (EllesmereUIDB and EllesmereUIDB.bagPinsPerCharacter == false) end,
+                          set=function(v)
+                              if not EllesmereUIDB then return end
+                              if v then
+                                  EllesmereUIDB.bagPinsPerCharacter = nil
+                              else
+                                  EllesmereUIDB.bagPinsPerCharacter = false
+                              end
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
                     },
                 })
             end
@@ -521,7 +534,8 @@ initFrame:SetScript("OnEvent", function(self)
                         local cats = _G.EUI_CategoryManager:GetCategories()
                         for ci, cat in ipairs(cats) do
                             -- isEquipSet excluded: per-character keys, governed by the split toggle instead
-                            if not cat.isCatchAll and not cat.isPinned and not cat.isRecent and not cat.isReagentBag and not cat.isSpecialBag and not cat.isEquipSet then
+                            -- isVirtual excluded: runtime-only, its addon owns it (a saved key would outlive it)
+                            if not cat.isCatchAll and not cat.isPinned and not cat.isRecent and not cat.isReagentBag and not cat.isSpecialBag and not cat.isEquipSet and not cat.isVirtual then
                                 catItems[#catItems + 1] = { key = cat._defaultName, label = cat.name }
                             end
                         end
@@ -1315,6 +1329,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- Wipe per-character data from root DB
             if EllesmereUIDB then
                 EllesmereUIDB.bagPinnedItems = nil
+                EllesmereUIDB.bagPinnedByChar = nil
+                EllesmereUIDB.bagPinsPerCharacter = nil
                 EllesmereUIDB.bagItemAssignments = nil
                 EllesmereUIDB.bagJunkPrev = nil
                 -- Legacy gold stores: they stay on disk until a gold module loads and absorbs them.

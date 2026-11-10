@@ -76,7 +76,11 @@ local function Stubs(forever)
         ClampPopupToScreen = function() end,
         ShowWidgetTooltip = function() end,
         HideWidgetTooltip = function() end,
-        BuildPopupShell = function() return NewFake(), NewFake() end,
+        BuildPopupShell = function()
+            local popup = NewFake()
+            popup._brd = NewFake()   -- the shell's rounded outline, re-fit after each relayout
+            return NewFake(), popup
+        end,
         MakeActionButton = function(_, _, label)
             local b = NewFake()
             b._label = NewFake()   -- the button's label, as MakeActionButton exposes it

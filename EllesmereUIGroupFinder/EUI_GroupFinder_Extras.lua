@@ -135,8 +135,8 @@ local function OpenNear(pop, btn, bounds, pad)
 end
 
 -- arrow button + its list. modes = { label, hint, icon }, get() = index,
--- set(i) on pick. caller places it
-local function Dropdown(owner, K, modes, Get, Set)
+-- set(i) on pick, up opens it above the button. caller places it
+local function Dropdown(owner, K, modes, Get, Set, up)
     local btn = ArrowButton(owner, K)
     function btn:ShowMode()
         local mode = modes[Get()] or modes[1]
@@ -200,8 +200,13 @@ local function Dropdown(owner, K, modes, Get, Set)
             else it.text:SetTextColor(CM.TEXT_DIM_R, CM.TEXT_DIM_G, CM.TEXT_DIM_B, CM.TEXT_DIM_A) end
         end
         list:ClearAllPoints()
-        list:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
-        list:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, -2)
+        if up then
+            list:SetPoint("BOTTOMLEFT", btn, "TOPLEFT", 0, 2)
+            list:SetPoint("BOTTOMRIGHT", btn, "TOPRIGHT", 0, 2)
+        else
+            list:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -2)
+            list:SetPoint("TOPRIGHT", btn, "BOTTOMRIGHT", 0, -2)
+        end
         list:Show()
     end)
     btn:SetScript("OnHide", function() list:Hide() end)
@@ -212,7 +217,7 @@ end
 
 local function Divider(m, y)
     local div = m:CreateTexture(nil, "ARTWORK")
-    div:SetHeight(CM.PP.mult)
+    if ns.GFHairline then ns.GFHairline(div) else div:SetHeight(CM.PP.mult) end
     div:SetColorTexture(1, 1, 1, 0.10)
     div:SetPoint("TOPLEFT", m, "TOPLEFT", 10, -y - 3)
     div:SetPoint("TOPRIGHT", m, "TOPRIGHT", -10, -y - 3)
@@ -515,6 +520,7 @@ local CLASS_ROWS = {
         K.ClassLine("PALADIN", EllesmereUI.L("Intercession (Paladin)")),
         EllesmereUI.L("Engineering and other items don't count.") } end },
     { key = "extraMyClass", pick = "extraMyClassMissing", missingDefault = true,
+      raidKey = "raidMyClass", raidPick = "raidMyClassMissing",  -- the raids tab keeps its own
       has = "Has Class", missing = "No Class",  -- class name added at build
       Tip = function(K)
         local name, file = MyClass()
@@ -522,18 +528,27 @@ local CLASS_ROWS = {
       end },
 }
 
-local function Missing(c, row)
-    local v = c[row.pick]
+-- the row's keys on this tab
+local function Keys(row, raids)
+    if raids and row.raidKey then return row.raidKey, row.raidPick end
+    return row.key, row.pick
+end
+
+local function Missing(c, row, raids)
+    local _, pick = Keys(row, raids)
+    local v = c[pick]
     if v == nil then return row.missingDefault == true end
     return v == true
 end
 
 GFNS.ExtraClassRows = function(m, y, K)
-    if K.FLAG_KEYS and not tContains(K.FLAG_KEYS, "extraMyClass") then
-        K.FLAG_KEYS[#K.FLAG_KEYS + 1] = "extraMyClass"
+    for _, k in ipairs({ "extraMyClass", "raidMyClass" }) do
+        if K.FLAG_KEYS and not tContains(K.FLAG_KEYS, k) then K.FLAG_KEYS[#K.FLAG_KEYS + 1] = k end
     end
+    local raids = K.raids
     m.extraRolesEnd = y
     m.extraItemH = K.ITEM_H
+    m.extraK = K
     local roleG, miscG = Block(m, y), Block(m, y + K.ITEM_H)
     m.extraClassGrp, m.extraMiscGrp = roleG, miscG
     local ry, my = 0, 0
@@ -544,6 +559,7 @@ GFNS.ExtraClassRows = function(m, y, K)
             K.Tip(self, title, unpack(lines))
         end
         local inRoles = row.key == "extraMyClass"
+        local key, pick = Keys(row, raids)
         local has, missing = row.has, row.missing
         local hasBtn, missingBtn
         local icon = row.spell and C_Spell.GetSpellTexture(row.spell)
@@ -557,21 +573,21 @@ GFNS.ExtraClassRows = function(m, y, K)
         end
         local item = K.MenuItem(inRoles and roleG or miscG, inRoles and ry or my, "", function()
             local c = K.Cfg()
-            c[row.key] = (not c[row.key]) or nil
+            c[key] = (not c[key]) or nil
             K.Refilter()
             K.Paint()
         end)
-        m.items["flag_" .. row.key] = item
+        m.items["flag_" .. key] = item
         item.label:Hide()
         local btn = Dropdown(item, K, {
             { label = has, button = hasBtn, icon = icon },
             { label = missing, button = missingBtn, icon = icon },
-        }, function() return Missing(K.Cfg(), row) and 2 or 1 end,
+        }, function() return Missing(K.Cfg(), row, raids) and 2 or 1 end,
         function(i)
             -- picking turns the class row on; lust / brez leave the box alone
             local c = K.Cfg()
-            c[row.pick] = (i == 2)
-            if inRoles then c[row.key] = true end
+            c[pick] = (i == 2)
+            if inRoles then c[key] = true end
         end)
         btn:SetHeight(K.ITEM_H - 2)
         btn:SetPoint("LEFT", item, "LEFT", 8 + K.CHECK_SZ + 7, 0)
@@ -585,8 +601,9 @@ GFNS.ExtraClassRows = function(m, y, K)
 end
 
 -- false = drop the group. secret members don't count
-GFNS.ExtraClassKeep = function(id, info, c)
-    if not (c.hasLust or c.hasBrez or c.extraMyClass) then return true end
+GFNS.ExtraClassKeep = function(id, info, c, raids)
+    local mineKey = raids and "raidMyClass" or "extraMyClass"
+    if not (c.hasLust or c.hasBrez or c[mineKey]) then return true end
     local n = info and info.numMembers
     if type(n) ~= "number" or Secret(n) then return true end
     local _, mine = MyClass()
@@ -602,7 +619,7 @@ GFNS.ExtraClassKeep = function(id, info, c)
         end
     end
     for _, row in ipairs(CLASS_ROWS) do
-        if c[row.key] and have[row.key] == Missing(c, row) then return false end
+        if c[Keys(row, raids)] and have[row.key] == Missing(c, row, raids) then return false end
     end
     return true
 end
@@ -715,6 +732,11 @@ function ns.RowArtFor(resultID)
     local ai = Activity(resultID)
     return ai and Art(ai.mapID)
 end
+-- the same for an instance's map id (the settings preview)
+function ns.RowArtForMap(mapID)
+    if not RowArtOn() then return nil end
+    return Art(mapID)
+end
 ns.ROW_ART = { crop = ART_CROP, share = ART_SHARE, alpha = ART_ALPHA, mask = FADE_MASK }
 
 -- art under blizzard's text, the tag on our overlay above
@@ -802,48 +824,6 @@ if ns.WhenGroupFinder then
     end)
 end
 
--- group settings: our extra rows
-local groupMenu
-GFNS.ExtraGroupMenu = function(list)
-    if not groupMenu then
-        groupMenu = {}
-        -- listing ends at the first title, misc is the last
-        local listingEnd, misc
-        for i, spec in ipairs(list) do
-            if i > 1 and spec.title then
-                listingEnd = listingEnd or i
-                misc = i
-            end
-        end
-        listingEnd = listingEnd or #list + 1
-        -- end of listing: region tags (us), show playstyle
-        local listing = {}
-        if ns.RegionList() then
-            listing[#listing + 1] = { key = "extraRegionTags", label = EllesmereUI.L("Region Tags"), default = true,
-                tip = ns.RegionIsLanguage()
-                    and EllesmereUI.L("Shows the leader's realm language (EN, DE, FR, ES, IT, PT, RU) after each group's playstyle.")
-                    or EllesmereUI.L("Shows OCE, NA, MEX or BRA after each group's playstyle, from the leader's realm."),
-                onToggle = RetagRows }
-        end
-        listing[#listing + 1] = { key = "extraShowPlaystyle", label = EllesmereUI.L("Show Playstyle"), default = true,
-            tip = EllesmereUI.L("Each group's playstyle (Learning, Relaxed, Competitive, Carry Offered) on its third line."),
-            onToggle = RetagRows }
-        for i, spec in ipairs(list) do
-            if i == listingEnd then for _, d in ipairs(listing) do groupMenu[#groupMenu + 1] = d end end
-            if i == misc then
-                -- misc becomes display
-                groupMenu[#groupMenu + 1] = { title = EllesmereUI.L("Display") }
-            else
-                groupMenu[#groupMenu + 1] = spec
-            end
-        end
-        if listingEnd > #list then for _, d in ipairs(listing) do groupMenu[#groupMenu + 1] = d end end
-        -- sort by, end of display
-        groupMenu[#groupMenu + 1] = { key = "extraSortBy", label = EllesmereUI.L("Sort By"), choice = ns.SORT_MODES }
-    end
-    return groupMenu
-end
-
 -- results list order (saved as extraSortBy)
 ns.SORT_MODES = {
     { key = "default", label = EllesmereUI.L("Default") },
@@ -854,7 +834,7 @@ ns.SORT_MODES = {
 }
 
 -- a menu row: label + dropdown
-local function ChoiceItem(col, y, spec, G)
+local function ChoiceItem(col, y, spec, G, up)
     local item = CreateFrame("Frame", nil, col)
     item:SetHeight(G.ITEM_H)
     item:SetPoint("TOPLEFT", col, "TOPLEFT", 1, -y)
@@ -870,72 +850,13 @@ local function ChoiceItem(col, y, spec, G)
         for i, mode in ipairs(modes) do if mode.key == v then return i end end
         return 1
     end
-    local btn = Dropdown(item, G, modes, Get, function(i) G.Cfg()[spec.key] = modes[i].key end)
+    local btn = Dropdown(item, G, modes, Get, function(i) G.Cfg()[spec.key] = modes[i].key end, up)
     btn:SetHeight(G.ITEM_H - 2)
     btn:SetPoint("LEFT", item.label, "RIGHT", 10, 0)
     btn:SetPoint("RIGHT", item, "RIGHT", -8, 0)
     item.btn = btn
     function item:Paint() self.btn:ShowMode() end
     return item
-end
-
--- group settings in two columns: listing across both, sign up under it
--- on the left, display on the right
-local GROUP_COL_W = 200
-GFNS.ExtraGroupColumns = function(m, list, G)
-    m:SetWidth(GROUP_COL_W * 2)
-    local sections = {}
-    for _, spec in ipairs(list) do
-        if spec.title or #sections == 0 then sections[#sections + 1] = { title = spec.title, items = {} } end
-        if not spec.title then table.insert(sections[#sections].items, spec) end
-    end
-    m.extraCols = {}
-    local cols, ys = {}, {}
-    for k, point in ipairs({ "TOPLEFT", "TOP" }) do
-        local col = CreateFrame("Frame", nil, m)
-        col:SetPoint("TOPLEFT", m, point, 0, 0)
-        col:SetWidth(GROUP_COL_W)
-        col:SetHeight(1)
-        m.extraCols[k] = col
-        cols[k], ys[k] = col, 3
-    end
-    local function Item(k, spec)
-        local item
-        if spec.choice then item = ChoiceItem(cols[k], ys[k], spec, G)
-        else item = G.SwitchItem(cols[k], ys[k], spec) end
-        m.items[#m.items + 1] = item
-        ys[k] = ys[k] + G.ITEM_H
-    end
-    local function Section(k, sec)
-        if sec.title then ys[k] = G.AddSection(cols[k], ys[k], sec.title) end
-        for _, spec in ipairs(sec.items) do Item(k, spec) end
-    end
-    -- listing: title left, rows split over both columns
-    local first = sections[1]
-    if first then
-        if first.title then
-            ys[1] = G.AddSection(cols[1], ys[1], first.title)
-            ys[2] = ys[1]
-        end
-        local half = math.ceil(#first.items / 2)
-        for i, spec in ipairs(first.items) do Item(i <= half and 1 or 2, spec) end
-        local y = math.max(ys[1], ys[2])
-        ys[1], ys[2] = y, y
-    end
-    if sections[2] then Section(1, sections[2]) end
-    for i = 3, #sections do Section(2, sections[i]) end
-    return math.max(ys[1], ys[2])
-end
-
--- as wide as the top row
-GFNS.ExtraGroupMenuPlace = function(m, owner, refresh)
-    if not (m.extraCols and refresh and refresh:GetRight() and owner and owner:GetLeft()) then return end
-    local w = (refresh:GetRight() * refresh:GetEffectiveScale() - owner:GetLeft() * owner:GetEffectiveScale())
-        / m:GetEffectiveScale()
-    if w < 100 then return end
-    w = math.floor(w + 0.5)
-    m:SetWidth(w)
-    for _, col in ipairs(m.extraCols) do col:SetWidth(w / 2) end
 end
 
 -------------------------------------------------------------------------------
@@ -974,14 +895,18 @@ local function LayoutMisc(menu, side)
     end
     PlaceBlock(miscG, menu, y)
     y = y + miscG:GetHeight()
-    -- centre on the side panel's taller row
-    local nudge = 0
-    if rowsY and y == rowsY + miscG:GetHeight() and side.extraEndY and menu.extraItemH then
-        local nextH = side.extraEndY - y
-        if nextH > menu.extraItemH then nudge = math.floor((nextH - menu.extraItemH) / 2) end
+    PlaceBlock(roleG, menu, y)
+    y = y + roleG:GetHeight()
+    -- sort by under your class, its list opening upwards
+    local K = menu.extraK
+    if K then
+        local row = CreateFrame("Frame", nil, menu)
+        row:SetPoint("TOPLEFT", menu, "TOPLEFT", 0, -y)
+        row:SetPoint("TOPRIGHT", menu, "TOPRIGHT", 0, -y)
+        row:SetHeight(K.ITEM_H)
+        ChoiceItem(row, 0, { key = "extraSortBy", label = EllesmereUI.L("Sort By"), choice = ns.SORT_MODES }, K, true)
+        y = y + K.ITEM_H
     end
-    PlaceBlock(roleG, menu, y + nudge)
-    y = y + nudge + roleG:GetHeight()
     local h = math.max(side and side.extraEndY and (side.extraEndY + 3) or 0, y + 3)
     menu:SetHeight(h)
     if side then side:SetHeight(h) end
@@ -1012,5 +937,4 @@ GFNS.ExtraDecorateMenu = function(menu, side)
     end
 end
 
-GFNS.ExtraPersonTex = "Interface\\AddOns\\" .. FOLDER .. "\\media\\icons\\eui-person.png"
 GFNS.ExtraRaidTex = "Interface\\AddOns\\" .. FOLDER .. "\\media\\icons\\eui-raid.png"

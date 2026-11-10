@@ -133,10 +133,17 @@ local function ForeverCatalogue()
                 [1008] = { class = "MAGE", alts = { 8455, 10169, 10170 } },  -- Amplify Magic
                 [604] = { class = "MAGE", alts = { 8450, 8451, 10173, 10174 } },  -- Dampen Magic
             },
-            -- Aura spell ids of the vanilla flasks, elixirs and potions. Flasks,
-            -- protection potions, Free Action and Limited Invulnerability are
-            -- checked by default; the rest start unchecked.
+            -- Aura spell ids of the vanilla flasks, elixirs, potions, food and
+            -- drink. Flasks, protection potions, Free Action and Limited
+            -- Invulnerability are checked by default; the rest start unchecked.
             consumables = {
+                -- Food and Drink: every eating or drinking aura a Forever item
+                -- casts (each food and drink rank is its own id).
+                [433] = { class = "ALL", disabled = true, alts = { 434, 435, 1127, 1129, 1131, 2639,
+                    5004, 5006, 5007, 6410, 7737, 10256, 24005, 24707, 24869, 25660, 29008, 29073,
+                    470362, 470369, 1225769, 1225771, 1225772 } },  -- Food
+                [430] = { class = "ALL", disabled = true, alts = { 431, 432, 1133, 1135, 1137, 22734,
+                    24355, 29007, 468767 } },  -- Drink
                 [17626] = { class = "ALL" },  -- Flask of the Titans
                 [17628] = { class = "ALL" },  -- Flask of Supreme Power
                 [17627] = { class = "ALL" },  -- Flask of Distilled Wisdom

@@ -665,7 +665,7 @@ local function FriendTooltip(rec)
     tipBuf[1] = T.Name(info)
     if rec.online and gi then
         if rec.priority == 1 and gi.characterName then
-            local realm = gi.realmDisplayName or gi.realmName
+            local realm = T.Ruleset(info) or gi.realmDisplayName or gi.realmName
             n = n + 1
             tipBuf[n] = (realm and realm ~= "") and (gi.characterName .. "-" .. realm) or gi.characterName
             if gi.characterLevel and gi.className and FRIENDS_LEVEL_TEMPLATE then

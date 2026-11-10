@@ -322,12 +322,12 @@ local function ShowKickTrackerPopup()
     -- the popup's bottom center.
     local BTN_W, BTN_GAP = 190, 14
     local mainBtn = EllesmereUI.MakeActionButton(popup, FONT, isOn and EllesmereUI.L("Open Settings") or EllesmereUI.L("Turn It On"),
-        EG.r, EG.g, EG.b, { w = BTN_W })
+        EG.r, EG.g, EG.b, { w = BTN_W, square = true })
     PP.Point(mainBtn, "BOTTOMRIGHT", popup, "BOTTOM", -BTN_GAP / 2, 44)
     mainBtn:SetScript("OnClick", function() Finish(true) end)
 
     local laterBtn = EllesmereUI.MakeActionButton(popup, FONT, isOn and EllesmereUI.L("Got It") or EllesmereUI.L("Maybe Later"),
-        1, 1, 1, { w = BTN_W, secondary = true, hoverA = 0.8 })
+        1, 1, 1, { w = BTN_W, secondary = true, hoverA = 0.8, square = true })
     PP.Point(laterBtn, "BOTTOMLEFT", popup, "BOTTOM", BTN_GAP / 2, 44)
     laterBtn:SetScript("OnClick", function() Finish(false) end)
 

@@ -2373,7 +2373,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     local pbg = popup:CreateTexture(nil, "BACKGROUND")
                     pbg:SetAllPoints()
                     pbg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-                    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+                    EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, pbg)
                     -- Click-away close (not while the dropdown's own menu is open).
                     popup:SetScript("OnShow", function(p2)
                         p2:SetScript("OnUpdate", function(m)
@@ -2412,6 +2412,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     local cBg = cBtn:CreateTexture(nil, "BACKGROUND")
                     cBg:SetAllPoints()
                     cBg:SetColorTexture(ac.r, ac.g, ac.b, 0.8)
+                    EllesmereUI.RoundBody(cBtn, cBg)
                     local cLbl = cBtn:CreateFontString(nil, "OVERLAY")
                     EllesmereUI.PrimeFontShadow(cLbl, true)
                     cLbl:SetFont(fontPath, 12, "")
@@ -2711,6 +2712,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
         local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
         addBg:SetAllPoints()
         addBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+        EllesmereUI.RoundBody(addBtn, addBg)
 
         local addLabel = addBtn:CreateFontString(nil, "OVERLAY")
         -- Drop shadow via the shadow FontObject, primed BEFORE SetFont (SetShadowOffset alone does not render).
@@ -2762,7 +2764,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local bg = popup:CreateTexture(nil, "BACKGROUND")
                 bg:SetAllPoints()
                 bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-                EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+                EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, bg)
 
                 -- Auto-close when clicking outside (but not on child dropdown menus)
                 popup:SetScript("OnShow", function(p)
@@ -2791,6 +2793,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     if p._v2Filters then wipe(p._v2Filters) end
                     if p._v2NegFilters then wipe(p._v2NegFilters) end
                     if p._v2Extras then wipe(p._v2Extras) end
+                    if p._v2Exact then wipe(p._v2Exact) end
                 end)
 
                 local py = -POPUP_PAD
@@ -2801,6 +2804,8 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 popup._v2Filters = {}
                 popup._v2NegFilters = {}
                 popup._v2Extras = {}
+                -- Extras typed through Custom Spell ID: tracked as that aura alone.
+                popup._v2Exact = {}
 
                 local indLbl2 = popup:CreateFontString(nil, "OVERLAY")
                 indLbl2:SetFont(fontPath, 11, "")
@@ -2896,6 +2901,14 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                     -- Dynamic items: fresh per menu open. Spells already supplied by
                     -- CHECKED filters are excluded from Presets (redundant as extras); picked extras always show under Selected.
                     local function ByLabel(a, b) return a.label < b.label end
+                    -- Custom Spell ID: a typed ID is tracked as that aura alone,
+                    -- one already picked from Presets included, and the closed
+                    -- dropdown names it at once.
+                    local idAction = ns.BM2_SpellIdAction(function(id)
+                        popup._v2Extras[id] = true
+                        popup._v2Exact[id] = true
+                        popup._exRefresh(true)
+                    end)
                     local function EItems()
                         -- WoW Forever: a rank alternate stands for its family's
                         -- primary, so Presets offers no second row for that buff.
@@ -2929,22 +2942,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         end
                         table.sort(selList, ByLabel)
                         table.sort(rest, ByLabel)
-                        local eItems = {
-                            { isTopAction = true, label = "Custom Spell ID", onClick = function()
-                                EllesmereUI:ShowInputPopup({
-                                    title = EllesmereUI.L("Add Spell ID"),
-                                    message = EllesmereUI.L("Enter the spell ID to track on this indicator."),
-                                    confirmText = EllesmereUI.L("Add"),
-                                    cancelText = EllesmereUI.L("Cancel"),
-                                    onConfirm = function(text)
-                                        local id = tonumber(text or "")
-                                        if id and id > 0 and not popup._v2Extras[id] then
-                                            popup._v2Extras[id] = true
-                                        end
-                                    end,
-                                })
-                            end },
-                        }
+                        local eItems = { idAction }
                         if #selList > 0 then
                             eItems[#eItems + 1] = { isHeader = true, label = "Selected" }
                             for i = 1, #selList do eItems[#eItems + 1] = selList[i] end
@@ -2957,7 +2955,10 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         popup, ddW, popup:GetFrameLevel() + 2,
                         EItems,
                         function(k) return popup._v2Extras[k] and true or false end,
-                        function(k, v) popup._v2Extras[k] = v and true or nil end,
+                        function(k, v)
+                            popup._v2Extras[k] = v and true or nil
+                            if not v then popup._v2Exact[k] = nil end
+                        end,
                         nil, 10, true)
                     exDD:SetSize(ddW, ROW_H)
                     exDD:SetPoint("TOPLEFT", popup, "TOPLEFT", POPUP_PAD, exDDY)
@@ -2974,6 +2975,7 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                 local cBg = cBtn:CreateTexture(nil, "BACKGROUND")
                 cBg:SetAllPoints()
                 cBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+                EllesmereUI.RoundBody(cBtn, cBg)
                 local cTx = cBtn:CreateFontString(nil, "OVERLAY")
                 cTx:SetPoint("CENTER")
                 cTx:SetFont(fontPath, 12, "")
@@ -3004,6 +3006,9 @@ function ns.BM_BuildPage(pageName, parent, yOffset)
                         table.sort(exList)
                         for i = 1, #exList do
                             newInd.spells[#newInd.spells + 1] = exList[i]
+                            if popup._v2Exact[exList[i]] then
+                                ns.BM2_SetSpellExact(newInd, exList[i], true)
+                            end
                         end
                         selectedIndicator = newInd
                     end

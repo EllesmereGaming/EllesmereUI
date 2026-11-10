@@ -559,7 +559,7 @@ function S.Button(parent, text, opts)
     w = math.max(w, h)
     P.Size(b, w, h)
 
-    local bg, border, label = EUI.MakeStyledButton(b, "", fontHeight, EUI.WB_COLOURS)
+    local bg, border, label = EUI.MakeStyledButton(b, "", fontHeight, EUI.WB_COLOURS, nil, not S.rounded)
     label:SetFontObject(font)
     label:SetAlpha(1)
     label:SetJustifyH("CENTER")

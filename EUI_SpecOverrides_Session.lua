@@ -14,7 +14,8 @@ local I = EUI_NS._soInternals
 if not I or I.broken then return end
 I.broken = true
 
-local BlacklistedFKey, CurrentSpecID, DBFor = I.BlacklistedFKey, I.CurrentSpecID, I.DBFor
+local BlacklistedFKey, ConflictSpec = I.BlacklistedFKey, I.ConflictSpec
+local CurrentSpecID, DBFor = I.CurrentSpecID, I.DBFor
 local EDIT_B, EDIT_G, EDIT_R, EntryOwning = I.EDIT_B, I.EDIT_G, I.EDIT_R, I.EntryOwning
 local FKeyLoaded, FOLDER_BLACKLIST, GetGroups = I.FKeyLoaded, I.FOLDER_BLACKLIST, I.GetGroups
 local GetStore, HasRegisteredDefault, L = I.GetStore, I.HasRegisteredDefault, I.L
@@ -26,6 +27,7 @@ local HarvestDefaults, HarvestGroup = I.HarvestDefaults, I.HarvestGroup
 local WriteDefaultValues, WriteGroupValues = I.WriteDefaultValues, I.WriteGroupValues
 local WriteSpecValues, Cond, CurrentContext = I.WriteSpecValues, I.Cond, I.CurrentContext
 local DiffProfiles, IsExcludedContext = I.DiffProfiles, I.IsExcludedContext
+local SlotReads = I.SlotReads
 local RequestGoldWalk, SnapshotProfiles = I.RequestGoldWalk, I.SnapshotProfiles
 local UpdateEditLocks, SetEditGroup = I.UpdateEditLocks, I.SetEditGroup
 local SetDefaultView, SetEnterSnap = I.SetDefaultView, I.SetEnterSnap
@@ -130,7 +132,92 @@ local function BuildEntryCrumb(module, element, page, section)
     return table.concat(parts, "  >  ")
 end
 
-local function AutoCapture(changes)
+-- The entry a slot with no entry under its name already has in the session's OWN
+-- store (the conditional store in a conditional session, else the spec store), so a
+-- row renamed or moved keeps its one entry. Proof is a key the slot's getters read
+-- (cfg traced through SlotReads; a setter's write to another row's key is never
+-- read by this slot, so it never counts):
+--   1. the entry owning one of `owned` (the same edit's fkeys that store owned
+--      already; the captured paths never are) that the slot reads;
+--   2. else an entry under the slot's own label on the same page (a row moved to
+--      another section) whose every key the slot reads (a size key's exact-size
+--      partner counts with it), for an edit that writes only keys no entry owns.
+-- Only an entry of the same module and element qualifies, and on the spec side never
+-- one a conflicting group owns (its values never bank in this session). nil = none.
+local function SlotOwnerEntry(cfg, owned, condSession, module, element, page, slotLabel, sStore)
+    local reads = SlotReads(cfg)
+    if not next(reads) then return nil end
+    local owning = condSession and Cond.EntryOwning or EntryOwning
+    local function Qualifies(e)
+        return e and e.module == module and (e.element or "") == (element or "")
+           and (condSession or not ConflictSpec(e, _editGroup)) and true or false
+    end
+    for i = 1, (owned and #owned or 0) do
+        if reads[owned[i]] then
+            local e = owning(owned[i])
+            if Qualifies(e) then return e end
+        end
+    end
+    for _, e in ipairs(sStore or {}) do
+        local def = e.values and e.values.default
+        if type(def) == "table" and e.slotLabel == slotLabel
+           and (e.page or "") == (page or "") and Qualifies(e) then
+            local any, all = false, true
+            for fkey in pairs(def) do
+                local base = type(fkey) == "string" and fkey:match("^(.*)Px$")
+                if reads[fkey] or (base and reads[base] and PxCo.Partner(base) == fkey) then
+                    any = true
+                else
+                    all = false
+                end
+            end
+            if any and all then return e end
+        end
+    end
+    return nil
+end
+
+-- The slot's current name and place, on the entry it already has.
+local function TakeOverEntry(entry, slotLabel, module, element, page, section)
+    entry.label, entry.slotLabel = slotLabel, slotLabel
+    entry.crumb = BuildEntryCrumb(module, element, page, section) or entry.crumb
+    entry.page, entry.section, entry.element = page, section, element
+end
+
+-- An edit that writes only keys the session's store already owns captures nothing,
+-- but a renamed or moved slot still takes over the entry it has (SlotOwnerEntry's
+-- proof: a key the slot's getters read). Values are untouched. Same attribution,
+-- context and burst guards as AutoCapture below.
+local function RelabelOwnedSlot(owned)
+    if EllesmereUI._prebuilding then return end
+    local snap = _lastAttr.snap
+    if not (snap and snap.cfg and (GetTime() - _lastAttr.time) < 3) then return end
+    local section = snap.section
+    if IsExcludedContext(section) or #owned > 12 then return end
+    local condSession = Cond._edit
+    local sStore = condSession and Cond.GetStore(true) or GetStore(true)
+    if not sStore then return end
+    local cfg = snap.cfg
+    local slotLabel = tostring(cfg.text or "?")
+    local module = EllesmereUI:GetActiveModule()
+    local page = EllesmereUI:GetActivePage()
+    local element = CurrentContext()
+    for _, e in ipairs(sStore) do
+        if e.slotLabel == slotLabel and e.module == module
+           and (e.element or "") == (element or "")
+           and (e.page or "") == (page or "")
+           and (e.section or "") == (section or "") then
+            return  -- already under this slot's name
+        end
+    end
+    local entry = SlotOwnerEntry(cfg, owned, condSession, module, element, page, slotLabel, sStore)
+    if entry then TakeOverEntry(entry, slotLabel, module, element, page, section) end
+end
+
+-- changes: the edit's fkeys no entry of the session's store owns (captured here);
+-- owned (optional): the same edit's fkeys that store already owns (array of fkeys),
+-- read only to find the entry a renamed or moved slot already has.
+local function AutoCapture(changes, owned)
     -- Hidden search prebuild: selector setters and lazy page seeding write
     -- db.profile from a pass the user never sees -- never capture them.
     if EllesmereUI._prebuilding then return end
@@ -229,6 +316,13 @@ local function AutoCapture(changes)
         end
     end
     local isNew = false
+    if not entry then
+        -- No entry under this slot's name: the entry the slot already has (its row
+        -- was renamed or moved) takes the slot's current name and place instead of
+        -- a second entry starting.
+        entry = SlotOwnerEntry(cfg, owned, condSession, module, element, page, slotLabel, sStore)
+        if entry then TakeOverEntry(entry, slotLabel, module, element, page, section) end
+    end
     if not entry then
         isNew = true
         entry = {
@@ -465,23 +559,31 @@ local function WatchTick()
     local diffs = DiffProfiles(_watchSnap)
     if #diffs == 0 then return end
     if not _watchResync then
-        local newOnes = nil
+        local newOnes, ownedOnes = nil, nil
         for _, c in ipairs(diffs) do
+            -- Conditional session: spec-owned fkeys are editable here too
+            -- (each store keeps its own value; the session shows
+            -- conditional-over-default) but spec still wins at RUNTIME.
+            -- Cond-owned fkeys bank at exit.
+            local owned
             if Cond._edit then
-                -- Conditional session: spec-owned fkeys are editable here too
-                -- (each store keeps its own value; the session shows
-                -- conditional-over-default) but spec still wins at RUNTIME.
-                -- Cond-owned fkeys bank at exit.
-                if not Cond.EntryOwning(c.fkey) then
-                    newOnes = newOnes or {}
-                    newOnes[#newOnes + 1] = c
-                end
-            elseif not EntryOwning(c.fkey) then
+                owned = Cond.EntryOwning(c.fkey)
+            else
+                owned = EntryOwning(c.fkey)
+            end
+            if not owned then
                 newOnes = newOnes or {}
                 newOnes[#newOnes + 1] = c
+            else
+                ownedOnes = ownedOnes or {}
+                ownedOnes[#ownedOnes + 1] = c.fkey
             end
         end
-        if newOnes then AutoCapture(newOnes) end
+        if newOnes then
+            AutoCapture(newOnes, ownedOnes)
+        elseif ownedOnes then
+            RelabelOwnedSlot(ownedOnes)
+        end
     end
     SetWatchResync(false)
     _watchSnap = SnapshotProfiles()
@@ -574,7 +676,7 @@ local function ProcessNotifiedWrites()
     end
     local diffs = DiffProfiles(_watchSnap)
     if #diffs == 0 then return end
-    local newOnes
+    local newOnes, ownedOnes
     for _, c in ipairs(diffs) do
         -- Ownership filter mirrors WatchTick's session branch: in a cond
         -- session cond-owned fkeys bank at exit (HarvestEdit); everything else
@@ -588,9 +690,16 @@ local function ProcessNotifiedWrites()
         if not owned then
             newOnes = newOnes or {}
             newOnes[#newOnes + 1] = c
+        else
+            ownedOnes = ownedOnes or {}
+            ownedOnes[#ownedOnes + 1] = c.fkey
         end
     end
-    if newOnes then AutoCapture(newOnes) end
+    if newOnes then
+        AutoCapture(newOnes, ownedOnes)
+    elseif ownedOnes then
+        RelabelOwnedSlot(ownedOnes)
+    end
     _watchSnap = SnapshotProfiles()
 end
 
@@ -843,10 +952,8 @@ local function EnsureEditBanner()
     local bg = editBanner:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.05, 0.05, 0.06, 0.92)
-    local brd = editBanner:CreateTexture(nil, "BORDER")
-    brd:SetPoint("BOTTOMLEFT"); brd:SetPoint("BOTTOMRIGHT")
-    brd:SetHeight(1)
-    brd:SetColorTexture(EDIT_R, EDIT_G, EDIT_B, 0.7)
+    -- Rounded gold outline, as the Unlock Mode override banner.
+    EllesmereUI.MakeRoundedBorder(editBanner, EDIT_R, EDIT_G, EDIT_B, 0.7, bg)
     editBannerText = editBanner:CreateFontString(nil, "OVERLAY")
     editBannerText:SetFont(EllesmereUI.EXPRESSWAY or "Fonts\\FRIZQT__.TTF", 13, "")
     editBannerText:SetPoint("TOPLEFT", editBanner, "TOPLEFT", 16, -8)
@@ -858,8 +965,9 @@ local function EnsureEditBanner()
     local done = CreateFrame("Button", nil, editBanner)
     done:SetSize(74, 24)
     done:SetPoint("RIGHT", editBanner, "RIGHT", -12, 0)
-    EllesmereUI.SolidTex(done, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
-    local dbrd = EllesmereUI.MakeBorder(done, 1, 1, 1, 0.22)
+    local dbg = EllesmereUI.SolidTex(done, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
+    dbg:SetAllPoints()
+    local dbrd = EllesmereUI.MakeRoundedBorder(done, 1, 1, 1, 0.22, dbg)
     local dlbl = EllesmereUI.MakeFont(done, 11, nil, 1, 1, 1, 0.9)
     dlbl:SetPoint("CENTER")
     dlbl:SetText(L("Done"))

@@ -1,11 +1,19 @@
 -- Run from the repository root: lua .tools/tests/test_loot_feed_rolls.lua
 CreateColor = function() return {} end
 issecretvalue = function() return false end
+-- GetClassColor stands in for the suite's palette with a custom druid colour (Blizzard's is ff7c0a).
 EllesmereUI = { IS_FOREVER = true, _Pool = {},
-    L = function(s) return s end, Lf = function(s, ...) return s:format(...) end }
+    L = function(s) return s end, Lf = function(s, ...) return s:format(...) end,
+    GetClassColor = function() return { r = 0.2, g = 0.4, b = 0.6 } end,
+    HexColor = function(r, g, b)
+        return ("|cff%02x%02x%02x"):format(math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
+    end }
+-- Settings ShowItem reads as numbers or must read off; every other one reads on.
+local SETTINGS = { minQuality = 0, showPrice = false, tracker = false, auctionPrices = false }
 local module = {
     Feature = function()
-        return { Get = function() return true end, Cfg = function() return {} end,
+        return { Get = function(k) if SETTINGS[k] ~= nil then return SETTINGS[k] end return true end,
+            Cfg = function() return {} end,
             Enabled = function() return true end, Start = function() end }
     end,
 }
@@ -35,13 +43,15 @@ local apply = EllesmereUI._LootFeed.Apply
 local onEvent = assert(Upvalue(apply, "OnEvent"), "OnEvent not reachable")
 local onLoot = assert(Upvalue(apply, "CHAT_EVENTS")).CHAT_MSG_LOOT.handler
 local rows, items = {}, {}
+local realShowItem = assert(Upvalue(onLoot, "ShowItem"), "ShowItem not reachable")
 Stub(onEvent, "Emit", function(key, data) rows[#rows + 1] = { key = key, data = data } end)
 Stub(onLoot, "ShowItem", function(link) items[#items + 1] = link end)
 
 ITEM_QUALITY_COLORS = { [1] = { hex = "|cffffffff" }, [2] = { hex = "|cff1eff00" }, [3] = { hex = "|cff0070dd" } }
 RAID_CLASS_COLORS = { DRUID = { colorStr = "ffff7c0a" } }
 NEED, GREED = "Bedarf", "Gier"
-Enum = { EncounterLootDropRollState = { NeedMainSpec = 0, NeedOffSpec = 1, Transmog = 2, Greed = 3, NoRoll = 4, Pass = 5 } }
+Enum = { EncounterLootDropRollState = { NeedMainSpec = 0, NeedOffSpec = 1, Transmog = 2, Greed = 3, NoRoll = 4, Pass = 5 },
+    ItemClass = { Weapon = 2, Armor = 4, Questitem = 12 } }
 LOOT_ITEM_SELF = "You receive loot: %s"
 local STAFF = "|cff0070dd|Hitem:7001::::::::20:::::|h[Odo's Ley Staff]|h|r"
 local CLOAK = "|cff1eff00|Hitem:6566::::::::20::::1:740:|h[Shimmering Cloak of the Gorilla]|h|r"
@@ -69,7 +79,7 @@ drops["2752:232866561"].winner = Player("Esvi Emberfern", 92, 0)
 Drop(2752, 232866561)
 assert(#rows == 1, "a drop with a winner shows one row")
 local d = rows[1].data
-assert(d.text == "|cffff7c0aEsvi Emberfern|r won |cff0070ddOdo's Ley Staff|r", "class-colored winner, quality-colored item: " .. d.text)
+assert(d.text == "|cff336699Esvi Emberfern|r won |cff0070ddOdo's Ley Staff|r", "the suite's class colour on the winner, quality-colored item: " .. d.text)
 assert(d.sub == "Bedarf 92" and d.badge == "92", "the winning roll in the client's words: " .. tostring(d.sub))
 assert(d.icon == 135150 and d.link == STAFF, "the item's own icon and link")
 Drop(2752, 232866561)
@@ -92,11 +102,23 @@ onLoot("You receive loot: [Shimmering Cloak of the Gorilla]")
 assert(items[1] == CLOAK, "a random-suffix item you won resolves through the history's link")
 assert(assert(Upvalue(onEvent, "wins"))["Shimmering Cloak of the Gorilla"] == "Bedarf 88",
     "the item's loot row picks up your roll")
+realShowItem(CLOAK, 1, nil, true, true)
+assert(#rows == 4 and rows[4].data.sub == "Won: Bedarf 88" and rows[4].data.link == CLOAK,
+    "the real loot row shows your roll: " .. tostring(rows[4] and rows[4].data.sub))
+assert(Upvalue(onEvent, "wins")["Shimmering Cloak of the Gorilla"] == nil, "the roll is used once")
+realShowItem(CLOAK, 1, nil, true, true)
+assert(#rows == 5 and rows[5].data.sub == nil, "a later loot of the same item carries no roll")
+rows[4], rows[5] = nil, nil
 
 drops["0:10"] = { itemHyperlink = "|[Broken]|r", winner = Player("Brunssi Kalja", nil, 3) }
 Drop(0, 10)
 assert(#rows == 4 and rows[4].data.icon:find("QuestionMark") and rows[4].data.sub == nil
     and rows[4].data.text:find("Brunssi Kalja|r won |cffffffffBroken|r", 1, true),
     "an unusable link and a winner without a roll still give a readable row")
+
+drops["0:11"] = { itemHyperlink = STAFF, winner = Player("Nobody Known", 50, 3, { playerClass = "NOTACLASS" }) }
+Drop(0, 11)
+assert(#rows == 5 and rows[5].data.text == "Nobody Known won |cff0070ddOdo's Ley Staff|r",
+    "a class the game does not know leaves the winner uncoloured: " .. tostring(rows[5] and rows[5].data.text))
 
 print("loot feed roll results OK")

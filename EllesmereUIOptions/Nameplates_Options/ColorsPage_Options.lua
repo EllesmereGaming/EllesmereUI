@@ -1546,7 +1546,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
         })
     end
 
-    -- Color Casting Enemies | (blank, last row of the section)
+    -- Color Casting Enemies | Enemy Players Use Enemy Color
     local castingRow
     castingRow, h = W:DualRow(parent, y,
         { type="toggle", text="Color Casting Enemies",
@@ -1557,7 +1557,13 @@ local function BuildColorsPage(pageName, parent, yOffset)
             EllesmereUI:RefreshPage()
           end,
           tooltip="Enemies not colored as Spell Casters take the Interruptible Caster or Uninterruptible Caster color once they cast a spell that can or cannot be interrupted." },
-        EllesmereUI.BlankRowCfg());  y = y - h
+        { type="toggle", text="Enemy Players Use Enemy Color",
+          getValue=function() return DBVal("enemyPlayerEnemyColor") == true end,
+          setValue=function(v)
+            DB().enemyPlayerEnemyColor = v
+            RefreshAllPlates()
+          end,
+          tooltip="Enemy players take the Enemies color instead of their class color." });  y = y - h
 
     -- Inline cog with the mob types each applies to, then the Interruptible / Uninterruptible swatches.
     if not EllesmereUI._prebuilding then

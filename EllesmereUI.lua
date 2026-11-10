@@ -345,6 +345,34 @@ EllesmereUI.CLASS_ICON_SPRITE_COORDS = {
     DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
 }
 
+-- EUI LEGENDS event roster (PERMANENT): the event winners + team members who
+-- earned a spot in the suite's previews, with class-balancing filler names. The
+-- Raid & Party Frames preview fills its slots 2-20 with these in this order (Name,
+-- class and role travel together through its role sort; hpal = a holy paladin),
+-- and Group Finder's settings preview names its sample members and applicants
+-- from it, a member's own class first. Read-only.
+EllesmereUI.PREVIEW_ROSTER = {
+    { name = "Xeno",          class = "MONK",        role = "TANK" },
+    { name = "Grimjaw",       class = "WARRIOR",     role = "TANK" },
+    { name = "Stickymittens", class = "PALADIN",     role = "HEALER", hpal = true },
+    { name = "Toxik",         class = "MONK",        role = "HEALER" },
+    { name = "Delasteve",     class = "PALADIN",     role = "HEALER", hpal = true },
+    { name = "Burne",         class = "DRUID",       role = "HEALER" },
+    { name = "Lily",          class = "PALADIN",     role = "HEALER", hpal = true },
+    { name = "Kulia",         class = "PALADIN",     role = "HEALER", hpal = true },
+    { name = "Thiaspriest",   class = "PRIEST",      role = "DAMAGER" },
+    { name = "Pelleas",       class = "SHAMAN",      role = "DAMAGER" },
+    { name = "Khardi",        class = "HUNTER",      role = "DAMAGER" },
+    { name = "Morgath",       class = "DEATHKNIGHT", role = "DAMAGER" },
+    { name = "Drakmoor",      class = "DEMONHUNTER", role = "DAMAGER" },
+    { name = "Embertide",     class = "EVOKER",      role = "DAMAGER" },
+    { name = "Elyndra",       class = "MAGE",        role = "DAMAGER" },
+    { name = "Fenwick",       class = "ROGUE",       role = "DAMAGER" },
+    { name = "Zulkhar",       class = "WARLOCK",     role = "DAMAGER" },
+    { name = "Luneth",        class = "DRUID",       role = "DAMAGER" },
+    { name = "Stormhelm",     class = "SHAMAN",      role = "DAMAGER" },
+}
+
 -- Font (Expressway lives in EllesmereUI/media)
 local EXPRESSWAY = MEDIA_PATH .. "fonts\\Expressway.ttf"
 
@@ -394,7 +422,9 @@ end
 -- hearthstone column, all secure. Build lazily, never in combat; the caller
 -- caches the frame and owns anchoring. opts: name (frame name prefix), bg
 -- ({r,g,b}), labelFont, labelFlags, clamp (clamp to screen), unitEvents
--- (register the cast events for "player" only).
+-- (register the cast events for "player" only). Out of combat a left click
+-- anywhere else closes it; the caller names the button that toggles it before
+-- each Show (flyout._toggle = button), whose own click then closes it.
 function EllesmereUI.CreatePortalFlyout(opts)
     if InCombatLockdown() then return nil end
     local floor = math.floor
@@ -632,11 +662,13 @@ function EllesmereUI.CreatePortalFlyout(opts)
         RefreshHearthCooldowns()
     end
 
-    -- Events live only while shown: cooldown + cast highlight refresh.
+    -- Events live only while shown: cooldown + cast highlight refresh, and the
+    -- mouse press that closes it.
     local CAST_EVENTS = { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_SUCCEEDED",
                           "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED" }
     flyout:SetScript("OnShow", function(self)
         self:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+        self:RegisterEvent("GLOBAL_MOUSE_DOWN")
         for _, ev in ipairs(CAST_EVENTS) do
             if opts.unitEvents then self:RegisterUnitEvent(ev, "player") else self:RegisterEvent(ev) end
         end
@@ -658,6 +690,14 @@ function EllesmereUI.CreatePortalFlyout(opts)
         if event == "SPELL_UPDATE_COOLDOWN" then
             RefreshPortalButtons()
             RefreshHearthCooldowns()
+        elseif event == "GLOBAL_MOUSE_DOWN" then
+            -- A left click anywhere else closes it (unit is the mouse button here).
+            -- A press on its toggle is left alone: that button's click closes it.
+            local toggle = self._toggle
+            if unit == "LeftButton" and not InCombatLockdown() and not self:IsMouseOver()
+               and not (toggle and toggle:IsVisible() and toggle:IsMouseOver()) then
+                self:Hide()
+            end
         elseif unit == "player" then
             local casting = (event == "UNIT_SPELLCAST_START") and spellID or nil
             for _, btn in ipairs(portalBtns) do
@@ -3372,7 +3412,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.8.3"
+EllesmereUI.VERSION = "9.8.4"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

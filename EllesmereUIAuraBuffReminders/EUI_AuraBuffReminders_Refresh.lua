@@ -762,7 +762,12 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     EABR.FvSyncTrackingEvent(shows and not inPvP
         and ((fo.gather == true and fo.gatherClassTrack ~= false) or fo.treasure == true) or false)
     EABR.FvSyncWeaponEvents(shows and fo.weapon == true or false)
-    local sleepBag = shows and fo.sleepingBag == true and not inPvP and EABR.FvSleepingBagOwned()
+    local wantBag = shows and fo.sleepingBag == true and not inPvP
+    local sleepBag = wantBag and EABR.FvSleepingBagOwned()
+    -- No bag yet below max level: a light watcher hears one arrive, unless
+    -- Weapon Buffs' bag listener (below) already hears every bag change.
+    EABR.FvSyncSleepBagWatch(wantBag and not sleepBag and not EABR._fvMaxLevel
+        and fo.weapon ~= true or false)
     EABR.FvSyncBagEvent(shows and (fo.weapon == true or sleepBag) or false)
     local watchPickerSpells = shows and PickerEnabled() or false
     if watchPickerSpells ~= (EABR._fvPickerSpellEvents or false) then
@@ -786,7 +791,9 @@ function EABR.CollectForever(missing, inInstance, inPvP)
             missing[#missing+1] = e
         end
     end
-    if sleepBag then
+    local sleepIDs = EABR._fvSleepIDs
+    if not sleepIDs then sleepIDs = { EABR.SLEEPING_BAG_BUFF }; EABR._fvSleepIDs = sleepIDs end
+    if sleepBag and not (auraLock and not EABR.FvRanksReadable(sleepIDs)) then
         local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, EABR.SLEEPING_BAG_BUFF)
         local stacks = ok and not isSecret(aura) and (aura and aura.applications or 0)
         if stacks and not isSecret(stacks) and stacks < EABR.SLEEPING_BAG_STACKS then
@@ -893,7 +900,7 @@ end
 
 -------------------------------------------------------------------------------
 --  WoW Forever Raid Buffs: the retail section's two views over that client's
---  four buffs (RAID_BUFFS). A member has a buff while an aura with one of its
+--  buffs (RAID_BUFFS). A member has a buff while an aura with one of its
 --  family's names is up (every rank, the group version, other casters'
 --  versions). Under the game's aura restriction a buff is read only while none
 --  of its ranks is secret (a secret aura would read absent while up), and
@@ -985,8 +992,10 @@ end
 -- plus the first one without it (the click's target). A member whose answer
 -- cannot be read counts on neither side. The found aura instances
 -- (EABR._fvInst, kept outside the watch so the pass that first builds it
--- records them too) feed the group aura probe (EABR.FvAuraRelevant).
-function EABR.FvCoverage(fam, benefit)
+-- records them too) feed the group aura probe (EABR.FvAuraRelevant); keep
+-- adds them to the ones an earlier call of the same pass found (a class that
+-- provides two buffs).
+function EABR.FvCoverage(fam, benefit, keep)
     local inst = EABR._fvInst
     if not inst then inst = {}; EABR._fvInst = inst end
     local raid = IsInRaid()
@@ -998,7 +1007,7 @@ function EABR.FvCoverage(fam, benefit)
         local u = list[i]
         if not u then break end
         local rec = inst[u]
-        if rec then wipe(rec) end
+        if rec and not keep then wipe(rec) end
         if _unitOk(u) and UnitIsPlayer(u) and _unitInRange(u) and EABR.UnitBenefits(u, benefit) then
             if not rec then rec = {}; inst[u] = rec end
             local has = EABR.FvUnitHas(u, fam, rec)
@@ -1030,13 +1039,23 @@ end
 -- their class's buff; with "Others are missing my buff" in a group it counts
 -- the in-range members who benefit, otherwise the player alone. Receiver ("I
 -- am missing others' buffs"): a buff of another class the player lacks while a
--- member of that class is in range (informational, no click). Out of combat
--- the pass also picks the provider's cast (EABR.SyncProviderCastSpell binds
--- it), and every pass syncs the group watch to what it read.
+-- member of that class is in range (informational, no click; never a talent
+-- buff). Out of combat the pass also picks the provider's cast
+-- (EABR.SyncProviderCastSpell binds it), and every pass syncs the group watch
+-- to what it read. One button casts the provider's buffs, so a class that
+-- provides two (a priest with Divine Spirit) shows one provider reminder at a
+-- time: the first of its buffs in list order that is missing and not
+-- dismissed, with the button bound to its cast; with none showing, the button
+-- stays bound to the first buff it provides. Under lockdown the binding
+-- cannot change, so only the buff the button casts shows there; another waits
+-- for the end of combat.
 function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
     local rb = db.profile.raidBuffs
-    local watch, roster = nil, false
+    local watch = EABR._fvWatchFams
+    if watch then wipe(watch) else watch = {}; EABR._fvWatchFams = watch end
+    local roster = false
     local castSpell, castUnit
+    local provided, covered, idle, idleFirst = false, false, nil, nil
     local lockdown = InCombatLockdown()
     if rb and EABR.SectionShows(rb.whereToShow, inInstance) then
         local sw = rb.showWhen
@@ -1050,20 +1069,32 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
                 local fam = buff.fam
                 local iCast = buff.class == playerClass
                     and (EABR.FvHighest(fam.single) or EABR.FvHighest(fam.group)) ~= nil
-                if iCast and othersMissing then watch = fam end
-                if not iCast and iAmMissing then roster = true end
-                local doReceiver = not iCast and groupClasses and groupClasses[buff.class]
+                if iCast and othersMissing then watch[#watch + 1] = fam end
+                if not iCast and iAmMissing and not buff.talent then roster = true end
+                local doReceiver = not iCast and not buff.talent and groupClasses and groupClasses[buff.class]
                     and EABR.PlayerBenefitsFromBuff(buff)
                 if (iCast or doReceiver) and EABR.FvReadable(fam, restricted) then
                     local isMissing, have, total, first
                     if iCast and othersMissing and grouped then
-                        have, total, first = EABR.FvCoverage(fam, buff.benefit)
+                        have, total, first = EABR.FvCoverage(fam, buff.benefit, covered)
+                        covered = true
                         isMissing = total > 0 and have < total
                     else
                         isMissing = EABR.FvUnitHas("player", fam) == false
                     end
-                    if iCast and not lockdown then
-                        castSpell, castUnit = EABR.FvPickCast(buff, first)
+                    if iCast then
+                        if not idle then idle, idleFirst = buff, first end
+                        -- Under lockdown: the spell the button casts, a rank or
+                        -- group version of the one buff that may show.
+                        local bound = lockdown and EABR._providerCastSpell
+                        isMissing = isMissing and not provided and not _dismissedUntilLoad[buff.dismissKey]
+                            and not (bound and not (tContains(fam.single, bound) or tContains(fam.group, bound)))
+                        if isMissing then
+                            provided = true
+                            if not lockdown then
+                                castSpell, castUnit = EABR.FvPickCast(buff, first)
+                            end
+                        end
                     end
                     if isMissing then
                         local e = AcquireEntry()
@@ -1090,7 +1121,10 @@ function EABR.CollectForeverRaidBuffs(missing, playerClass, inInstance)
             end
         end
     end
-    if not lockdown then EABR._fvCastSpell, EABR._fvCastUnit = castSpell, castUnit end
+    if not lockdown then
+        if not provided and idle then castSpell, castUnit = EABR.FvPickCast(idle, idleFirst) end
+        EABR._fvCastSpell, EABR._fvCastUnit = castSpell, castUnit
+    end
     EABR.FvSyncGroupWatch(watch, roster)
 end
 
@@ -1102,6 +1136,10 @@ function EABR.FvStandDown()
     EABR.FvSyncTrackingEvent(false)
     EABR.FvSyncWeaponEvents(false)
     EABR.FvSyncBagEvent(false)
+    -- Bag changes go unheard while the section stands down (resting in a city,
+    -- for one): the Sleeping Bag is counted again when it is back.
+    EABR.FvSyncSleepBagWatch(false)
+    EABR._fvSleepBag = nil
     if EABR._fvPickerSpellEvents then EABR.FvSyncPickerSpellEvents(false) end
     if EABR.ValidateOpenPicker then EABR.ValidateOpenPicker() end
     if EABR._durationTimer then
@@ -1498,23 +1536,25 @@ end
 
 -------------------------------------------------------------------------------
 --  WoW Forever Raid Buffs group watch, synced by every collector pass to what
---  it read (fam = the provider's buff while its coverage counts the group,
---  roster = a receiver reminder is possible): GROUP_ROSTER_UPDATE while either
---  applies; while grouped also UNIT_IN_RANGE_UPDATE and UNIT_CONNECTION per
---  group token, plus UNIT_AURA for a provider, each aura event probing its own
---  added and removed auras before a refresh is asked (EABR.FvAuraRelevant).
+--  it read (fams = the list of the provider's buffs whose coverage counts the
+--  group, or nil; roster = a receiver reminder is possible):
+--  GROUP_ROSTER_UPDATE while either applies; while grouped also
+--  UNIT_IN_RANGE_UPDATE and UNIT_CONNECTION per group token, plus UNIT_AURA
+--  for a provider, each aura event probing its own added and removed auras
+--  before a refresh is asked (EABR.FvAuraRelevant).
 --  Nothing is registered otherwise (Refresh also stands it down while it
 --  shows nothing: the options panel open, a vehicle, dead, resting).
 --  RegisterUnitEvent takes two units, so the tokens ride one frame per pair:
 --  party1-4 in a party (the player's own auras come through the main frame),
 --  raid1-40 in a raid.
 -------------------------------------------------------------------------------
-function EABR.FvSyncGroupWatch(fam, roster)
-    local any = fam ~= nil or roster
+function EABR.FvSyncGroupWatch(fams, roster)
+    local n = fams and #fams or 0
+    local any = n > 0 or roster
     local W = EABR._fvWatch
     if not W then
         if not any then return end
-        W = { ids = {}, frames = {} }
+        W = { ids = {}, frames = {}, fams = {} }
         -- With a refresh already queued there is nothing to probe.
         local function OnUnitEvent(_, event, unit, info)
             if refreshQueued then return end
@@ -1534,10 +1574,17 @@ function EABR.FvSyncGroupWatch(fam, roster)
         W.world:SetScript("OnEvent", function() RequestRefresh() end)
         EABR._fvWatch = W
     end
-    if W.fam ~= fam then
-        W.fam = fam
+    -- The watched buffs, copied (the collector reuses its list).
+    local same = #W.fams == n
+    for i = 1, n do
+        if W.fams[i] ~= fams[i] then same = false end
+    end
+    if not same then
+        wipe(W.fams)
         wipe(W.ids)
-        if fam then
+        for i = 1, n do
+            local fam = fams[i]
+            W.fams[i] = fam
             for _, id in ipairs(fam.ids) do W.ids[id] = true end
         end
     end
@@ -1550,7 +1597,7 @@ function EABR.FvSyncGroupWatch(fam, roster)
         end
     end
     local mode = any and IsInGroup() and (IsInRaid() and "raid" or "party") or nil
-    local auraOn = mode ~= nil and fam ~= nil
+    local auraOn = mode ~= nil and n > 0
     if W.mode ~= mode or W.auraOn ~= auraOn then
         W.mode, W.auraOn = mode, auraOn
         for _, f in ipairs(W.frames) do
@@ -1567,36 +1614,44 @@ function EABR.FvSyncGroupWatch(fam, roster)
     end
 end
 
--- One group aura event against the watched buff: an added aura of it, or the
--- removal of one the last pass found on that member, asks for a refresh; a
--- full update always does; a payload the restriction made unreadable does
--- while the buff itself stays readable.
+-- Whether any watched buff stays readable under the restriction.
+local function FvWatchReadable(W)
+    local fams = W.fams
+    for i = 1, #fams do
+        if EABR.FvReadable(fams[i], true) then return true end
+    end
+    return false
+end
+
+-- One group aura event against the watched buffs: an added aura of one, or
+-- the removal of one the last pass found on that member, asks for a refresh;
+-- a full update always does; a payload the restriction made unreadable does
+-- while a watched buff itself stays readable.
 function EABR.FvAuraRelevant(unit, info)
     local W = EABR._fvWatch
-    local fam = W and W.fam
-    if not fam then return false end
+    if not (W and W.fams[1]) then return false end
     if not info then return true end
-    if isSecret(info) then return EABR.FvReadable(fam, true) end
+    if isSecret(info) then return FvWatchReadable(W) end
     local full = info.isFullUpdate
-    if isSecret(full) then return EABR.FvReadable(fam, true) end
+    if isSecret(full) then return FvWatchReadable(W) end
     if full then return true end
     local added = info.addedAuras
     if added then
-        if isSecret(added) then return EABR.FvReadable(fam, true) end
+        if isSecret(added) then return FvWatchReadable(W) end
         for i = 1, #added do
             local aura = added[i]
-            if isSecret(aura) then return EABR.FvReadable(fam, true) end
+            if isSecret(aura) then return FvWatchReadable(W) end
             local sid = aura.spellId
-            if isSecret(sid) then return EABR.FvReadable(fam, true) end
+            if isSecret(sid) then return FvWatchReadable(W) end
             if sid and W.ids[sid] then return true end
         end
     end
     local removed, found = info.removedAuraInstanceIDs, EABR._fvInst and EABR._fvInst[unit]
     if removed and found and next(found) then
-        if isSecret(removed) then return EABR.FvReadable(fam, true) end
+        if isSecret(removed) then return FvWatchReadable(W) end
         for i = 1, #removed do
             local iid = removed[i]
-            if isSecret(iid) then return EABR.FvReadable(fam, true) end
+            if isSecret(iid) then return FvWatchReadable(W) end
             if found[iid] then return true end
         end
     end

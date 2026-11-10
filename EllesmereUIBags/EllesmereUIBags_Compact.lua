@@ -783,7 +783,7 @@ local function SyncZones()
         for i = 1, zoneItemN do
             if zoneItem[i] == itemID then zoneHeld[zoneItemKey[i]] = true end
         end
-        pinned = ns.IsItemPinned(EllesmereUIDB.bagPinnedItems, link, itemID) and true or false
+        pinned = ns.IsItemPinned(ns.PinnedItems(), link, itemID) and true or false
     end
     for i = 1, zoneN do
         local z = zones[i]

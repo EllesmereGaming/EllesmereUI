@@ -58,7 +58,6 @@ function XF.Untip()
     XF.tipOwner = nil
     CM.HideWidgetTooltip()
 end
-XF.PERSON_ATLAS = "groupfinder-icon-friend"
 
 -- our text in the module's font
 function XF.Font(fs, size, flags)
@@ -114,13 +113,38 @@ local function Skin()
     local m = CM._ModuleNS.EllesmereUIBlizzardSkin
     return m and m.WSkin
 end
+-- eui's group finder skin is on; off, our parts take blizzard's look. read once per session, at login,
+-- when the window skin itself installs: a card toggle swaps both with the reload it asks for
+function XF.SkinOn()
+    local on = XF.skinOn
+    if on ~= nil then return on end
+    local style = CM.GetBlizzWindowStyle  -- nil while blizzard skins+ is off
+    on = (Skin() ~= nil and style ~= nil and style("lfg") ~= "off") and true or false
+    if IsLoggedIn() then XF.skinOn = on end
+    return on
+end
+ns.SkinOn = XF.SkinOn
 local function ThemeBorder()
+    if not XF.SkinOn() then return 0.38, 0.38, 0.38, 1 end  -- blizzard's search box grey
     local S = Skin()
     local T = S and S.Theme
     if T and T.brdR then return T.brdR, T.brdG, T.brdB, T.brdA end
     return 0.2, 0.2, 0.2, 1
 end
 ns.Skin, ns.ThemeBorder = Skin, ThemeBorder
+-- an unpicked square's edge: the theme's, or none on blizzard's rounded button
+function XF.RestBorder(f)
+    if XF.SkinOn() then CM.PanelPP.SetBorderColor(f, ThemeBorder()) else CM.PanelPP.SetBorderColor(f, 0, 0, 0, 0) end
+end
+-- a picked square: a white edge, or blizzard's highlight held on
+function XF.PickBorder(sq, edge, on)
+    if XF.SkinOn() then
+        if on then CM.PanelPP.SetBorderColor(edge, 1, 1, 1, 1) else XF.RestBorder(edge) end
+        return
+    end
+    XF.RestBorder(edge)
+    if on then sq:LockHighlight() else sq:UnlockHighlight() end
+end
 ns.BOTTOM_Y = BOTTOM_Y
 local function SetBorderColor(frame, r, g, b, a)
     CM.PanelPP.SetBorderColor(frame, r, g, b, a)
@@ -838,7 +862,7 @@ function XF.ExtraFilterActive()
     if not SP or (SP.categoryID ~= DUNGEONS and SP.categoryID ~= RAIDS) then return false end
     local c = Cfg()
     if c.partyFit or c.notDeclined or c.hasLust or c.hasBrez then return true end
-    if ns.ExtraClassKeep and c.extraMyClass then return true end
+    if ns.ExtraClassKeep and c[SP.categoryID == RAIDS and "raidMyClass" or "extraMyClass"] then return true end
     if ns.ExtraExprActive and ns.ExtraExprActive() then return true end
     for _, r in ipairs(XF.COUNT_ROLES) do if XF.CountRule(r.key) then return true end end
     return false
@@ -899,7 +923,7 @@ function XF.ExtraKeep(id, info, need)
     if ns.ExtraExprKeep and not ns.ExtraExprKeep(id, info) then return false end
     -- has / missing bloodlust, battle res and your class
     if ns.ExtraClassKeep then
-        if not ns.ExtraClassKeep(id, info, c) then return false end
+        if not ns.ExtraClassKeep(id, info, c, SP and SP.categoryID == RAIDS) then return false end
     elseif c.hasLust or c.hasBrez then
         local n = info and info.numMembers
         if type(n) == "number" and not IsSecret(n) then
@@ -1530,6 +1554,7 @@ end
 -- display settings changed: redecorate the visible rows.
 function XF.Redecorate()
     XF.NewPass()
+    if ns.OwnListPreviewPaint then ns.OwnListPreviewPaint() end
     if not (SP and SP:IsVisible()) then return end
     local box = SP.ScrollBox
     if box and box.ForEachFrame then box:ForEachFrame(DecorateEntry) end
@@ -1565,9 +1590,16 @@ local function AddClassesByRole(tooltip, resultID)
     if not ai then return end
     local n = info.numMembers
     if type(n) ~= "number" or IsSecret(n) or n < 1 then return end
+    local players = {}
+    for i = 1, n do players[i] = C_LFGList.GetSearchResultPlayerInfo(resultID, i) or false end
+    local DT = Enum.LFGListDisplayType
+    XF.AddMembers(tooltip, players, DT and (ai.displayType == DT.RoleEnumerate or ai.displayType == DT.ClassEnumerate))
+end
+
+-- the member lines from player info tables (the settings preview hands its own)
+function XF.AddMembers(tooltip, players, enumerate)
     local byRole = { TANK = {}, HEALER = {}, DAMAGER = {} }
-    for i = 1, n do
-        local p = C_LFGList.GetSearchResultPlayerInfo(resultID, i)
+    for _, p in ipairs(players) do
         local role, class = p and p.assignedRole, p and p.classFilename
         if role and class and not IsSecret(role) and not IsSecret(class) and byRole[role] then
             local list = byRole[role]
@@ -1575,8 +1607,7 @@ local function AddClassesByRole(tooltip, resultID)
         end
     end
     -- dungeons/arenas already list roles and classes, so just add the names.
-    local DT = Enum.LFGListDisplayType
-    if DT and (ai.displayType == DT.RoleEnumerate or ai.displayType == DT.ClassEnumerate) then
+    if enumerate then
         local names = {}
         for _, role in ipairs(XF.ROLE_ORDER) do
             for _, p in ipairs(byRole[role]) do
@@ -1610,6 +1641,7 @@ local function AddClassesByRole(tooltip, resultID)
     end
     if added then tooltip:Show() end
 end
+ns.GFTooltipMembers = XF.AddMembers
 
 local ITEM_H, CHECK_SZ, ITEM_FONT = 20, 12, 9
 
@@ -1665,10 +1697,30 @@ local function MenuItem(parent, y, text, onClick)
 end
 
 -- section title, with a divider above all but the first.
+-- menu dividers: one screen pixel tall at the window's scale, fitted again each
+-- time their menu shows (the window can be rescaled in between)
+local hairlines = {}  -- parent -> its dividers
+local function FitHairline(tex)
+    local es = tex:GetParent():GetEffectiveScale()
+    if es and es > 0 then tex:SetHeight(CM.PP.perfect / es) end
+end
+function XF.Hairline(tex)
+    local p = tex:GetParent()
+    local list = hairlines[p]
+    if not list then
+        list = {}
+        hairlines[p] = list
+        p:HookScript("OnShow", function() for _, t in ipairs(list) do FitHairline(t) end end)
+    end
+    list[#list + 1] = tex
+    FitHairline(tex)
+end
+ns.GFHairline = XF.Hairline
+
 local function AddSection(m, y, title)
     if y > 4 then
         local div = m:CreateTexture(nil, "ARTWORK")
-        div:SetHeight(CM.PP.mult)
+        XF.Hairline(div)
         div:SetColorTexture(1, 1, 1, 0.10)
         div:SetPoint("TOPLEFT", m, "TOPLEFT", 10, -y - 3)
         div:SetPoint("TOPRIGHT", m, "TOPRIGHT", -10, -y - 3)
@@ -1737,7 +1789,7 @@ local function AddRoleItems(m, y, raids)
     local K = ns.ExtraClassRows and { Cfg = Cfg, Refilter = Refilter, Paint = Paint, Font = XF.Font,
         ITEM_H = ITEM_H, ITEM_FONT = ITEM_FONT, CHECK_SZ = CHECK_SZ, ThemeBorder = ThemeBorder, ThemeFill = ThemeFill,
         ClickOff = XF.ClickOff, Tip = XF.Tip, Untip = XF.Untip, Accent = Accent, parent = SP,
-        MenuItem = MenuItem, ClassLine = XF.ClassLine, FLAG_KEYS = XF.FLAG_KEYS,
+        MenuItem = MenuItem, ClassLine = XF.ClassLine, FLAG_KEYS = XF.FLAG_KEYS, raids = raids,
         AddCountRow = XF.AddCountRow, COUNT_ROLES = XF.COUNT_ROLES,
         OpListOver = function() return XF.opList and XF.opList:IsShown() and XF.opList:IsMouseOver() or false end }
     for _, r in ipairs(ROLES) do
@@ -2003,7 +2055,8 @@ local function AddRatingRow(m, y)
         end
     end
     local rowF = CreateFrame("Frame", nil, m)
-    rowF:SetHeight(ITEM_H + 4)
+    -- a row like the others, so it lines up with the other column's rows
+    rowF:SetHeight(ITEM_H)
     rowF:SetPoint("TOPLEFT", m, "TOPLEFT", 1, -y)
     rowF:SetPoint("TOPRIGHT", m, "TOPRIGHT", -1, -y)
     local RATING = EllesmereUI.L("Min. Rating")
@@ -2044,7 +2097,7 @@ local function AddRatingRow(m, y)
         Paint()
     end)
     m.rating = { box = box, cb = cb, label = label }
-    return y + ITEM_H + 4
+    return y + ITEM_H
 end
 
 -- restore the saved rating when ticked again.
@@ -2287,180 +2340,6 @@ local function BuildRaidDiffMenu()
     m:Hide()
 end
 
--- show specialization changed: redraw (icon size stays put)
-function XF.SpecIconsChanged(menu)
-    if menu and menu.items then
-        for _, it in ipairs(menu.items) do it:Paint() end
-    end
-    XF.Redecorate()
-end
-
--- group settings menu (person button): list look and sign-up options.
-XF.GROUP_MENU = {
-    { title = EllesmereUI.L("Listing") },
-    { key = "leaderRating",   label = EllesmereUI.L("Leader Rating"),
-      tip = EllesmereUI.L("Shows the group leader's Mythic+ rating next to the role icons.") },
-    { key = "specIcons",      label = EllesmereUI.L("Show Specialization"),
-      tip = EllesmereUI.L("Shows each member's specialization icon in place of the game's class and role icons. Off, the game's own icons stay."),
-      onToggle = function(menu) XF.SpecIconsChanged(menu) end },
-    { key = "leaderCrown",    label = EllesmereUI.L("Show Group Leader"),
-      tip = EllesmereUI.L("Puts a small crown above the group leader's icon.") },
-    { key = "classTooltip",   label = EllesmereUI.L("Members in Tooltip"),
-      tip = EllesmereUI.L("Group tooltips add each member's name (dungeons and arenas, where Blizzard already lists the roles and classes), or a line per member with role, specialization, class and name (other groups).") },
-    { title = EllesmereUI.L("Sign Up") },
-    { key = "cancelOldest",   label = EllesmereUI.L("Cancel Oldest Application"),
-      tip = EllesmereUI.L("At the application limit, clicking a group cancels your oldest pending application so you can sign up.") },
-    { key = "persistSignupNote", label = EllesmereUI.L("Persistent Signup Note"), core = "_applyPersistSignupNote",
-      tip = EllesmereUI.L("Keeps the note you typed in the Sign Up dialog between sign ups.") },
-    { title = EllesmereUI.L("Misc") },
-    { key = "dungeonAbbr",    label = EllesmereUI.L("Dungeon Names"),
-      tip = EllesmereUI.L("Each dungeon square shows the dungeon's short name (e.g. KR for Kings' Rest)."),
-      onToggle = function() ns.Search_Layout() end },
-    { key = "dungeonScore",   label = EllesmereUI.L("Dungeon Keystone Level"),
-      tip = EllesmereUI.L("Each dungeon square shows your best keystone level this season, colored by its score rarity."),
-      onToggle = function() ns.Search_Layout() end },
-}
-XF.MENU_SW_W, XF.MENU_SW_H = 22, 12
-
-function XF.GroupOpt(key, default)
-    local v = Cfg()[key]
-    if v == nil then v = ns.DEFAULTS[key] end
-    if v == nil then v = default end
-    return v and true or false
-end
-
-function XF.ItemOn(spec)
-    if spec.core then return EllesmereUIDB[spec.key] and true or false end
-    return XF.GroupOpt(spec.key, spec.default)
-end
-
--- menu row with a small switch; click anywhere to flip it.
-function XF.SwitchItem(m, y, spec)
-    local item = CreateFrame("Button", nil, m)
-    item:SetHeight(ITEM_H)
-    item:SetPoint("TOPLEFT", m, "TOPLEFT", 1, -y)
-    item:SetPoint("TOPRIGHT", m, "TOPRIGHT", -1, -y)
-    local sw = CreateFrame("Frame", nil, item)
-    sw:SetSize(XF.MENU_SW_W, XF.MENU_SW_H)
-    sw:SetPoint("LEFT", item, "LEFT", 8, 0)
-    sw:EnableMouse(false)
-    sw.track = sw:CreateTexture(nil, "BACKGROUND")
-    sw.track:SetAllPoints()
-    sw.knob = sw:CreateTexture(nil, "ARTWORK")
-    sw.knob:SetSize(XF.MENU_SW_H - 4, XF.MENU_SW_H - 4)
-    item.sw = sw
-    local tR, tG, tB, tA = CM.TEXT_DIM_R, CM.TEXT_DIM_G, CM.TEXT_DIM_B, CM.TEXT_DIM_A
-    item.label = item:CreateFontString(nil, "OVERLAY")
-    XF.Font(item.label, ITEM_FONT)
-    item.label:SetPoint("LEFT", sw, "RIGHT", 7, 0)
-    item.label:SetPoint("RIGHT", item, "RIGHT", -6, 0)
-    item.label:SetJustifyH("LEFT")
-    item.label:SetWordWrap(false)
-    item.label:SetText(spec.label)
-    item.label:SetTextColor(tR, tG, tB, tA)
-    local hl = item:CreateTexture(nil, "ARTWORK", nil, -1)
-    hl:SetAllPoints()
-    hl:SetColorTexture(1, 1, 1, 0)
-    item:SetScript("OnEnter", function(self)
-        self.label:SetTextColor(1, 1, 1, 1)
-        hl:SetColorTexture(1, 1, 1, CM.DD_ITEM_HL_A)
-        if spec.tip then XF.Tip(self, spec.label, spec.tip) end
-    end)
-    item:SetScript("OnLeave", function(self)
-        self.label:SetTextColor(tR, tG, tB, tA)
-        hl:SetColorTexture(1, 1, 1, 0)
-        XF.Untip()
-    end)
-    function item:Paint()
-        local on = XF.ItemOn(spec)
-        self.sw.knob:ClearAllPoints()
-        if on then
-            local r, g, b = Accent()
-            self.sw.track:SetColorTexture(r, g, b, 0.75)
-            self.sw.knob:SetColorTexture(1, 1, 1, 1)
-            self.sw.knob:SetPoint("RIGHT", self.sw, "RIGHT", -2, 0)
-        else
-            self.sw.track:SetColorTexture(0.267, 0.267, 0.267, 0.65)
-            self.sw.knob:SetColorTexture(1, 1, 1, 0.5)
-            self.sw.knob:SetPoint("LEFT", self.sw, "LEFT", 2, 0)
-        end
-    end
-    item:SetScript("OnClick", function(self)
-        if spec.core then
-            EllesmereUIDB[spec.key] = not XF.ItemOn(spec)
-            CM[spec.core]()
-        else
-            Cfg()[spec.key] = not XF.GroupOpt(spec.key, spec.default)
-        end
-        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-        self:Paint()
-        if spec.onToggle then spec.onToggle(m) else XF.Redecorate() end
-    end)
-    item:Paint()
-    return item
-end
-
-function XF.BuildGroupMenu()
-    local m = CreateFrame("Frame", nil, SP)
-    XF.groupMenu = m
-    m:SetFrameStrata("FULLSCREEN_DIALOG")
-    m:EnableMouse(true)
-    m:SetFrameLevel(300)
-    m:SetClampedToScreen(true)
-    m:SetWidth(200)
-    local bg = m:CreateTexture(nil, "BACKGROUND")
-    bg:SetAllPoints()
-    local r, g, b = ThemeFill()
-    bg:SetColorTexture(r, g, b, 0.98)
-    local S = Skin()
-    if S and S.AddBorder then S.AddBorder(m) else CM.MakeBorder(m, ThemeBorder()) end
-    m.items = {}
-    local y = 3
-    local list = ns.ExtraGroupMenu and ns.ExtraGroupMenu(XF.GROUP_MENU) or XF.GROUP_MENU
-    if ns.ExtraGroupColumns then
-        -- two-column layout
-        y = ns.ExtraGroupColumns(m, list, { AddSection = AddSection, SwitchItem = XF.SwitchItem,
-            ITEM_H = ITEM_H,
-            -- for the sort dropdown
-            Cfg = Cfg, Refilter = Refilter, Paint = Paint, Font = XF.Font, ITEM_FONT = ITEM_FONT,
-            ThemeBorder = ThemeBorder, ClickOff = XF.ClickOff, Tip = XF.Tip, Untip = XF.Untip,
-            Accent = Accent, parent = SP })
-    else
-    for _, spec in ipairs(list) do
-        if spec.title then
-            y = AddSection(m, y, spec.title)
-        else
-            m.items[#m.items + 1] = XF.SwitchItem(m, y, spec)
-            y = y + ITEM_H
-        end
-    end
-    end
-    m:SetHeight(y + 3)
-    m:SetScript("OnShow", function(self)
-        for _, it in ipairs(self.items) do it:Paint() end
-        DimForMenu(true)
-        local face = XF.FilterFace()
-        if face then face:SetAlpha(1) end
-    end)
-    m:SetScript("OnHide", function() DimForMenu(false) end)
-    XF.ClickOff(m, function(self)
-        return self:IsMouseOver() or (self.owner and self.owner:IsMouseOver())
-            or (ns.ExtraInside and ns.ExtraInside()) or false  -- the sort dropdown's list
-    end)
-    m:Hide()
-end
-
-function XF.ToggleGroupMenu(owner)
-    if not XF.groupMenu then XF.BuildGroupMenu() end
-    local m = XF.groupMenu
-    if m:IsShown() then m:Hide(); return end
-    m.owner = owner
-    m:ClearAllPoints()
-    m:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, -SQ_GAP)
-    if ns.ExtraGroupMenuPlace then ns.ExtraGroupMenuPlace(m, owner, refreshBtn) end
-    m:Show()
-end
-
 local function ToggleMenu()
     if SP.categoryID == RAIDS then
         if not raidDiffMenu then BuildRaidDiffMenu() end
@@ -2486,9 +2365,10 @@ end
 -------------------------------------------------------------------------------
 -- buttons
 -------------------------------------------------------------------------------
--- button in the skin's look (WSkin.button).
+-- button in the skin's look (WSkin.button); skin off, blizzard's rounded menu button
 local function SkinnedButton(parent, w, h, keepKeys, decorate)
-    local b = CreateFrame("Button", nil, parent)
+    local stock = not XF.SkinOn()
+    local b = CreateFrame("Button", nil, parent, stock and "UIMenuButtonStretchTemplate" or nil)
     b:SetSize(w, h)
     b:SetNormalFontObject("GameFontHighlight")
     b:SetHighlightFontObject("GameFontHighlight")
@@ -2496,7 +2376,11 @@ local function SkinnedButton(parent, w, h, keepKeys, decorate)
     b:SetText(" ")
     if decorate then decorate(b) end
     local S = Skin()
-    if S and S.Button then
+    if stock then
+        -- no edge of ours: a picked square holds the template's highlight on (XF.PickBorder), and a
+        -- border colour write on a frame with no border does nothing
+        return b
+    elseif S and S.Button then
         S.Button(b, keepKeys)
     else
         local bg = b:CreateTexture(nil, "BACKGROUND")
@@ -2548,7 +2432,7 @@ end
 -- blizzard's cancel x restyled, its button still gets the click
 function XF.CancelLook(entry)
     local cb = entry and entry.CancelButton
-    if type(cb) ~= "table" or not cb.GetRegions then return end
+    if type(cb) ~= "table" or not cb.GetRegions or not XF.SkinOn() then return end
     local d = FFD[cb]
     if not d then
         d = {}
@@ -2590,13 +2474,22 @@ end
 
 -- dungeon square: a skinned button with the icon inset 1px.
 local function MakeSquare(parent)
-    local px = CM.PP.mult
+    local px = XF.SkinOn() and CM.PP.mult or 3  -- blizzard's button: its black inside
     local b = SkinnedButton(parent, BTN, BTN, { "Icon" }, function(btn)
         btn:SetText("")
         btn.Icon = btn:CreateTexture(nil, "ARTWORK")
         btn.Icon:SetPoint("TOPLEFT", btn, "TOPLEFT", px, -px)
         btn.Icon:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -px, px)
         btn.Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        if not XF.SkinOn() then
+            -- rounded corners, to sit inside blizzard's rounded button
+            local mask = btn:CreateMaskTexture()
+            mask:SetAtlas("UI-HUD-ActionBar-IconFrame-Mask")
+            -- the mask's own clear margin sits outside the icon, so the icon keeps its size
+            mask:SetPoint("TOPLEFT", btn.Icon, "TOPLEFT", -3, 3)
+            mask:SetPoint("BOTTOMRIGHT", btn.Icon, "BOTTOMRIGHT", 3, -3)
+            btn.Icon:AddMaskTexture(mask)
+        end
     end)
     b.icon = b.Icon
     b:SetScript("OnEnter", SquareEnter)
@@ -2636,8 +2529,10 @@ local function MakeDelveSquare(parent)
     line:SetPoint("TOPLEFT", fs, "BOTTOMLEFT", 0, -1)
     line:SetPoint("TOPRIGHT", fs, "BOTTOMRIGHT", 0, -1)
     line:SetHeight(2)
-    local r, g, bl, a = ThemeBorder()
-    CM.PanelPP.CreateBorder(b.edge, r, g, bl, a, 1, "OVERLAY", 7)
+    if XF.SkinOn() then
+        local r, g, bl, a = ThemeBorder()
+        CM.PanelPP.CreateBorder(b.edge, r, g, bl, a, 1, "OVERLAY", 7)
+    end
     b.gold:Hide()
     b:SetScript("OnEnter", DelveEnter)
     b:SetScript("OnLeave", XF.Untip)
@@ -2799,6 +2694,15 @@ end
 local function MakeBossSquare(parent)
     local b = MakeSquare(parent)
     b.icon:SetTexCoord(0.25, 0.75, 0, 1)
+    if not XF.SkinOn() then
+        -- alive / dead outline around the icon, above blizzard's rounded edge
+        b.state = CreateFrame("Frame", nil, b)
+        b.state:SetPoint("TOPLEFT", b.icon, "TOPLEFT", -1, 1)
+        b.state:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 1, -1)
+        b.state:SetFrameLevel(b:GetFrameLevel() + 2)
+        b.state:EnableMouse(false)
+        CM.PanelPP.CreateBorder(b.state, 0, 0, 0, 0, 1, "OVERLAY", 7)
+    end
     b:SetScript("OnEnter", BossEnter)
     b:SetScript("OnClick", function(self)
         if self.boss then OpenBossPick(self) end
@@ -2862,7 +2766,7 @@ local function BuildRaidMenu()
     end)
     y = y + ITEM_H
     local sdiv = raidMenu:CreateTexture(nil, "ARTWORK")
-    sdiv:SetHeight(1)
+    XF.Hairline(sdiv)
     sdiv:SetColorTexture(1, 1, 1, 0.10)
     sdiv:SetPoint("TOPLEFT", raidMenu, "TOPLEFT", 1, -y - 3)
     sdiv:SetPoint("TOPRIGHT", raidMenu, "TOPRIGHT", -1, -y - 3)
@@ -2890,7 +2794,7 @@ local function BuildRaidMenu()
         y = y + ITEM_H
     end
     local div = raidMenu:CreateTexture(nil, "ARTWORK")
-    div:SetHeight(1)
+    XF.Hairline(div)
     div:SetColorTexture(1, 1, 1, 0.10)
     div:SetPoint("TOPLEFT", raidMenu, "TOPLEFT", 1, -y - 3)
     div:SetPoint("TOPRIGHT", raidMenu, "TOPRIGHT", -1, -y - 3)
@@ -2958,7 +2862,7 @@ local function BuildTierMenu()
     end)
     y = y + ITEM_H
     local div = tierMenu:CreateTexture(nil, "ARTWORK")
-    div:SetHeight(1)
+    XF.Hairline(div)
     div:SetColorTexture(1, 1, 1, 0.10)
     div:SetPoint("TOPLEFT", tierMenu, "TOPLEFT", 1, -y - 3)
     div:SetPoint("TOPRIGHT", tierMenu, "TOPRIGHT", -1, -y - 3)
@@ -3070,7 +2974,7 @@ Paint = function()
             local on = chosenDelves and chosenDelves[sq.delve.groupID] == true or false
             sq.on = on
             sq:GetFontString():SetAlpha(on and 1 or 0.4)
-            if on then SetBorderColor(sq.edge, 1, 1, 1, 1) else SetBorderColor(sq.edge, ThemeBorder()) end
+            XF.PickBorder(sq, sq.edge, on)
             sq.gold:SetShown(bountiful[sq.delve.name] == true)
         end
     end
@@ -3092,9 +2996,11 @@ Paint = function()
             sq.icon:SetDesaturated(chosenBosses ~= nil and not on)
             sq.icon:SetAlpha((chosenBosses == nil or on) and 1 or 0.45)
             -- green: alive, red: dead
-            if pick == "dead" then SetBorderColor(sq, 1, 0.15, 0.15, 1)
-            elseif on then SetBorderColor(sq, 0.2, 1, 0.3, 1)
-            else SetBorderColor(sq, ThemeBorder()) end
+            local edge = sq.state or sq
+            if pick == "dead" then SetBorderColor(edge, 1, 0.15, 0.15, 1)
+            elseif on then SetBorderColor(edge, 0.2, 1, 0.3, 1)
+            else XF.RestBorder(edge) end
+            if not XF.SkinOn() then if on then sq:LockHighlight() else sq:UnlockHighlight() end end
         end
     end
     local def = DungeonsDefault(f)
@@ -3104,7 +3010,7 @@ Paint = function()
             sq.on = on
             sq.icon:SetDesaturated(not def and not on)
             sq.icon:SetAlpha((def or on) and 1 or 0.45)
-            if on then SetBorderColor(sq, 1, 1, 1, 1) else SetBorderColor(sq, ThemeBorder()) end
+            XF.PickBorder(sq, sq, on)
         end
     end
     local filter = SP.FilterButton
@@ -3155,7 +3061,7 @@ end
 -------------------------------------------------------------------------------
 -- layout
 -------------------------------------------------------------------------------
--- the group settings button as seen
+-- the top-row settings button as seen
 function XF.FilterFace()
     local f = SP and SP.FilterButton
     local d = f and FFD[f]
@@ -3163,7 +3069,7 @@ function XF.FilterFace()
 end
 ns.GFFilterFace = XF.FilterFace
 
--- blizzard's filter dropdown becomes our cog.
+-- blizzard's filter dropdown becomes our settings cog.
 local function CogFilterButton(btn)
     if not btn or FFD[btn] then return end
     local d = { size = BTN }
@@ -3181,7 +3087,8 @@ local function CogFilterButton(btn)
     d.cogFrame:SetFrameLevel(d.face:GetFrameLevel() + 3)
     d.cogFrame:EnableMouse(false)
     d.cog = d.cogFrame:CreateTexture(nil, "OVERLAY")
-    if ns.ExtraPersonTex then d.cog:SetTexture(ns.ExtraPersonTex) else d.cog:SetAtlas(XF.PERSON_ATLAS, false) end
+    d.cog:SetTexture(COG_TEX)
+    d.cog:SetSize(14, 14)
     d.cog:SetDesaturated(true)
     d.cog:SetVertexColor(XF.GLYPH, XF.GLYPH, XF.GLYPH)
     d.cog:SetPoint("CENTER")
@@ -3197,7 +3104,7 @@ local function CogFilterButton(btn)
         if InCombatLockdown() then XF.Defer("layout", XF.Layout) return end
         self:SetSize(fd.size, fd.size)
     end)
-    -- opens our group settings menu: a click catcher sits over it
+    -- opens the group finder settings: a click catcher sits over it
     btn:EnableMouse(false)
     local catcher = CreateFrame("Button", nil, row)
     catcher:SetAllPoints(d.face)
@@ -3207,17 +3114,20 @@ local function CogFilterButton(btn)
     wash:SetColorTexture(1, 1, 1, 0.1)
     catcher:SetScript("OnEnter", function(self)
         d.cog:SetAlpha(1)
-        XF.Tip(self, EllesmereUI.L("Group Settings"))
+        XF.Tip(self, EllesmereUI.L("Group Filters Settings"))
     end)
     catcher:SetScript("OnLeave", function()
         d.cog:SetAlpha(0.8)
         XF.Untip()
     end)
-    catcher:SetScript("OnClick", function(self)
+    catcher:SetScript("OnClick", function()
         XF.Untip()
-        XF.ToggleGroupMenu(self)
+        if InCombatLockdown() then
+            CM.PrintError(EllesmereUI.L("Cannot open options during combat."))
+            return
+        end
+        CM:ShowModule(ADDON_NAME)
     end)
-    catcher:SetScript("OnHide", function() if XF.groupMenu then XF.groupMenu:Hide() end end)
     d.catcher = catcher
 
     -- reset uses blizzard's own defaults.
@@ -3241,7 +3151,7 @@ local function CogFilterButton(btn)
         if type(c.raidPlaystyles) == "table" then wipe(c.raidPlaystyles) end
         if type(c.raidRoles) == "table" then wipe(c.raidRoles) end
         c.partyFit, c.notDeclined, c.hasLust, c.hasBrez = nil, nil, nil, nil
-        c.extraMyClass = nil
+        c.extraMyClass, c.raidMyClass = nil, nil
         if ns.ExtraExprReset then ns.ExtraExprReset() end
         if type(c.roleCounts) == "table" then wipe(c.roleCounts) end
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
@@ -3328,8 +3238,9 @@ function XF.SquareAbbr(sq, d, size)
     if on then
         sq.abbr:ClearAllPoints()
         if Cfg().dungeonScore == true then
-            sq.abbr:SetPoint("TOPLEFT", sq, "TOPLEFT", -4, -2)
-            sq.abbr:SetPoint("TOPRIGHT", sq, "TOPRIGHT", 4, -2)
+            local y = XF.SkinOn() and -2 or -4  -- clear of blizzard's rounded edge
+            sq.abbr:SetPoint("TOPLEFT", sq, "TOPLEFT", -4, y)
+            sq.abbr:SetPoint("TOPRIGHT", sq, "TOPRIGHT", 4, y)
             sq.abbr:SetJustifyV("TOP")
         else
             sq.abbr:SetPoint("LEFT", sq, "LEFT", -4, 0)
@@ -3369,7 +3280,7 @@ function XF.SquareScore(sq, d, size)
         XF.Font(fs, math.max(8, math.floor(size * 0.42)), "")
         fs:ClearAllPoints()
         if Cfg().dungeonAbbr == true then
-            fs:SetPoint("BOTTOM", sq, "BOTTOM", 0, 2)
+            fs:SetPoint("BOTTOM", sq, "BOTTOM", 0, XF.SkinOn() and 2 or 4)
         else
             fs:SetPoint("CENTER", sq, "CENTER", 0, 0)
         end
@@ -3640,46 +3551,12 @@ function XF.PanelShown()
     Layout()
 end
 
--- bottom rows
-XF.COG_H = 22
-function XF.SettingsCog(panel)
-    if not (panel and LFGListFrame) then return nil end
-    local cog = XF.cog
-    if not cog then
-        cog = GlyphButton(LFGListFrame, XF.COG_H, COG_TEX)
-        cog.Glyph:SetSize(14, 14)
-        cog.Glyph:SetVertexColor(XF.GLYPH, XF.GLYPH, XF.GLYPH)
-        cog:SetScript("OnEnter", function(self)
-            self.Glyph:SetAlpha(1)
-            XF.Tip(self, EllesmereUI.L("Group Filters Settings"))
-        end)
-        cog:SetScript("OnLeave", function(self) self.Glyph:SetAlpha(0.8); XF.Untip() end)
-        cog:SetScript("OnClick", function()
-            XF.Untip()
-            if InCombatLockdown() then
-                CM.PrintError(EllesmereUI.L("Cannot open options during combat."))
-                return
-            end
-            CM:ShowModule(ADDON_NAME)
-        end)
-        XF.cog = cog
-    end
-    local pad = tonumber(Cfg().padding) or 12
-    if cog:GetParent() ~= panel then cog:SetParent(panel) end
-    cog:ClearAllPoints()
-    cog:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", pad, BOTTOM_Y)
-    cog:SetFrameLevel(panel:GetFrameLevel() + 10)
-    cog:Show()
-    return cog
-end
-
--- bottom row: cog, then the buttons split the rest of the width.
+-- bottom row: the buttons split the width.
 local function PinBottomButtons(panel, lefts, right)
     if not panel or InCombatLockdown() then return end
     if type(lefts) ~= "table" then lefts = { lefts } end
     local pad = tonumber(Cfg().padding) or 12
-    local cog = XF.SettingsCog(panel)
-    local x0 = pad + (cog and (XF.COG_H + SQ_GAP) or 0)
+    local x0 = pad
     local pw = panel:GetWidth()
     local w = (type(pw) == "number" and pw > 0) and (pw - pad - x0 - SQ_GAP) / 2 or nil
     for _, k in ipairs(lefts) do
@@ -3838,6 +3715,13 @@ local function LayoutEntryFields()
     end
 end
 
+-- the switch's width, or blizzard's check box with the skin off
+function XF.CheckW(cb)
+    if XF.SkinOn() then return 30 end
+    local w = cb:GetWidth()
+    return (type(w) == "number" and w > 0) and w or 22
+end
+
 -- option row alignment
 function XF.AlignEntryRows()
     XF.alignQueued = nil
@@ -3877,7 +3761,7 @@ function XF.AlignEntryRows()
             cb:SetPoint("LEFT", row, "LEFT", sl - rl, 0)
             if row.Label then
                 row.Label:ClearAllPoints()
-                row.Label:SetPoint("LEFT", cb, "LEFT", 30 + 6, 0)  -- switch width + 6
+                row.Label:SetPoint("LEFT", cb, "LEFT", XF.CheckW(cb) + 6, 0)
             end
         end
     end
@@ -3891,7 +3775,7 @@ function XF.AlignEntryRows()
         pcb:SetPoint("LEFT", prow, "LEFT", bl - pl, 0)
         if prow.Label then
             prow.Label:ClearAllPoints()
-            prow.Label:SetPoint("LEFT", pcb, "LEFT", 30 + 6, 0)  -- switch width + 6
+            prow.Label:SetPoint("LEFT", pcb, "LEFT", XF.CheckW(pcb) + 6, 0)
         end
     end
 end
@@ -4025,7 +3909,7 @@ end
 local function LayoutEntrySwitches()
     if InCombatLockdown() then XF.Defer("entrySwitches", LayoutEntrySwitches) return end
     local EC = LFGListFrame and LFGListFrame.EntryCreation
-    if not EC then return end
+    if not EC or not XF.SkinOn() then return end
     for _, k in ipairs(XF.ENTRY_SWITCH_ROWS) do
         SwitchCheckbox(EC[k])
     end
@@ -4039,11 +3923,10 @@ local function LayoutEntryButtons()
 end
 ns.Search_LayoutEntry = LayoutEntryButtons
 
--- the listed group's bottom row: cog, then three equal buttons
+-- the listed group's bottom row: three equal buttons
 local function LayoutViewerButtons(AV)
     local pad = tonumber(Cfg().padding) or 12
-    local cog = XF.SettingsCog(AV)
-    local x0 = pad + (cog and (XF.COG_H + SQ_GAP) or 0)
+    local x0 = pad
     local pw = AV:GetWidth()
     if not (type(pw) == "number" and pw > 0) then return end
     local w = (pw - pad - x0 - SQ_GAP * 2) / 3
@@ -4116,7 +3999,6 @@ local function RestoreViewer(AV)
     AV.EditButton:ClearAllPoints()
     AV.EditButton:SetPoint("BOTTOMRIGHT", AV, "BOTTOMRIGHT", -3, 4)
     AV.EditButton:SetWidth(90)
-    if XF.cog and XF.cog:GetParent() == AV then XF.cog:Hide() end
     XF.viewerRefresh:Hide()
     local blz = AV.RefreshButton
     blz:SetAlpha(1)

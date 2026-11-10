@@ -306,18 +306,26 @@ end
 -- Collapsed sections, keyed by category _defaultName, "junk", or
 -- "<section key>/<subtype>" for sub-sections. Saved in the profile.
 -- Shift-click on a top-level section collapses or expands all of them.
+-- A virtual category's ("Virtual:...") state lasts the session: nothing of it is saved.
+local _virtualCollapsed = {}
+local function IsCollapsed(key)
+    return _virtualCollapsed[key] or (BP().bagListCollapsed or _emptyP)[key] == true
+end
+local function SetCollapsed(set, key, v)
+    if key:find("^Virtual:") then _virtualCollapsed[key] = v else set[key] = v end
+end
 local function ToggleCollapsed(self)
     local p = BP()
     local set = p.bagListCollapsed
     if not set then set = {}; p.bagListCollapsed = set end
     if IsShiftKeyDown() and not self._sub then
-        local collapse = not set[self._key] or nil
+        local collapse = not IsCollapsed(self._key) or nil
         for i = 1, _sectionsUsed do
             local s = _sections[i]
-            if not s._sub then set[s._key] = collapse end
+            if not s._sub then SetCollapsed(set, s._key, collapse) end
         end
     else
-        set[self._key] = not set[self._key] or nil
+        SetCollapsed(set, self._key, not IsCollapsed(self._key) or nil)
     end
     Refresh()
 end
@@ -876,7 +884,7 @@ local function PlaceSection(key, label, count, x, y, w, sub)
     s._label:SetText(label)
     s._count:SetText(count)
     s._key, s._sub = key, sub
-    local collapsed = (BP().bagListCollapsed or _emptyP)[key] == true
+    local collapsed = IsCollapsed(key) and true or false
     -- Arrow points right when collapsed, down when open
     s._arrow:SetRotation(collapsed and math.pi or math.pi / 2)
     if s._clearBtn then
@@ -989,8 +997,9 @@ function ns.RenderListView(items, opts)
             sl[#sl + 1] = d
         end
     end
-    -- Pinned first, category (or bag) order, Junk last
-    local RANK = { pinned = -2, recent = -1, main = 0, junk = math.huge }
+    -- Pinned first, category (or bag) order, Junk after the last saved category
+    -- (virtual categories follow it, as in the grid and the sidebar)
+    local RANK = { pinned = -2, recent = -1, main = 0, junk = EUI_CategoryManager:GetSavedCount() + 0.5 }
     table.sort(order, function(a, b)
         return (RANK[a.key] or a.key) < (RANK[b.key] or b.key)
     end)

@@ -425,7 +425,6 @@ function EllesmereUI.SetFontFamily(fs, path, size, flags, shadow)
     fs._font, fs._fontSize, fs._family = path, size, true
     TEST.families = TEST.families + 1
 end
-function EllesmereUI.PadTaintStandDown() return false end
 function EllesmereUI.PadGamepadUI() return TEST.gamepad end
 function EllesmereUI.IsSecret(v) return issecretvalue(v) end
 function EllesmereUI.ClassTokenFromLocalized() return "MAGE" end
@@ -1872,6 +1871,113 @@ do
         assert(frame.elementData == nil, "a Blizzard card was painted by a host without cards")
     end
     note(("host without cards: %d rows drawn, %d hooks added (the view's search)"):format(#rows2, #T.hooks - hooksBefore))
+end
+
+-- WoW Forever friends (project 18). The ruleset comes from the middle of the
+-- rich presence, else from the realm name's suffix through our own names, with
+-- the region when it is not ours. It goes on the info line only where
+-- Blizzard's line is the zone: a friend on our own client with an area name.
+-- Where that line is the rich presence (a viewer on another client, no zone
+-- yet) it names the ruleset already. The custom list's tooltip names it in
+-- place of the realm, and a friend in our own region never carries the region
+-- icon.
+do
+    local tile = Kit._tile
+    local keepProject, keepLine, keepL = WOW_PROJECT_ID, FriendsListUtil.BuildLocationDisplayText, EllesmereUI.L
+    WOW_PROJECT_ID = 18 -- the viewer plays WoW Forever
+    FriendsListUtil.GetRegionName = function() return "Europe" end
+    -- Blizzard's own line: the zone for a friend on the viewer's client who has
+    -- one, else the whole rich presence (FriendsListUtil.ShouldShowRichPresenceOnly).
+    FriendsListUtil.BuildLocationDisplayText = function(info)
+        local gi = info.gameAccountInfo
+        if gi.wowProjectID == WOW_PROJECT_ID and gi.areaName ~= nil then return gi.areaName end
+        return gi.richPresence or ""
+    end
+    local function Forever(rich, inRegion, more)
+        local gi = { isOnline = true, clientProgram = "WoW", wowProjectID = 18, areaName = "Mulgore",
+            richPresence = rich, isInCurrentRegion = inRegion }
+        for k, v in pairs(more or {}) do gi[k] = v end
+        return { note = "", gameAccountInfo = gi }
+    end
+    assert(tile.Ruleset(Forever("Forever - Normal - Mulgore", true)) == "Normal")
+    assert(tile.Ruleset(Forever("Forever - Roleplay PvP - Tirisfal Glades", false)) == "Roleplay PvP (Europe)")
+    assert(tile.Ruleset(Forever("Forever - Roleplay PvP - Tirisfal Glades - Brill", true)) == "Roleplay PvP")
+    assert(tile.Info(Forever("Forever - Normal - Mulgore", true)) == "Mulgore|cff808080 - Normal|r")
+    assert(tile.Info(Forever("Forever - Roleplay PvP - Tirisfal Glades", false)) == "Mulgore|cff808080 - Roleplay PvP (Europe)|r",
+        "a friend in another region lost the region on the info line")
+    -- An empty zone leaves the ruleset on its own, with no separator before it.
+    assert(tile.Info(Forever("Forever - Normal - Mulgore", true, { areaName = "" })) == "|cff808080Normal|r",
+        "an empty zone kept the separator")
+
+    -- A rich presence that names no ruleset: the realm name's suffix, through
+    -- our locale.
+    local asked = {}
+    EllesmereUI.L = function(s) asked[#asked + 1] = s; return "<" .. s .. ">" end
+    local function Realm(suffix, rich)
+        return Forever(rich or "", true, { realmName = "CAMWOWUS2Realm10" .. suffix })
+    end
+    assert(tile.Ruleset(Realm("RPPvP")) == "<Roleplay PvP>", "an empty richPresence lost the ruleset")
+    assert(tile.Ruleset(Realm("PvE")) == "<Normal>" and tile.Ruleset(Realm("PvP")) == "<PvP>"
+        and tile.Ruleset(Realm("RP")) == "<Roleplay>", "a realm suffix names the wrong ruleset")
+    assert(#asked == 4, "the realm names did not go through the locale once each")
+    assert(tile.Ruleset(Realm("PvE", "Forever - Mulgore")) == "<Normal>", "a two-part presence did not fall back to the realm")
+    assert(tile.Ruleset(Realm("PvE", "Forever -  - Mulgore")) == "<Normal>", "an empty middle did not fall back to the realm")
+    assert(tile.Ruleset(Realm("HC")) == nil, "an unknown realm suffix named a ruleset")
+    assert(tile.Ruleset(Forever("", true, { realmName = "Silvermoon" })) == nil, "a realm with no suffix named a ruleset")
+    assert(tile.Ruleset(Forever("", true)) == nil and tile.Ruleset(Forever(nil, true)) == nil, "no presence and no realm named a ruleset")
+    asked = {}
+    assert(tile.Ruleset(Forever("Forever - PvP - Durotar", true, { realmName = "CAMWOWUS1Realm3PvE" })) == "PvP" and #asked == 0,
+        "the rich presence's own word was replaced or translated")
+    EllesmereUI.L = keepL
+
+    -- Nobody else has one: an offline friend, a friend on another project.
+    assert(tile.Ruleset(Forever("Forever - Normal - Mulgore", true, { isOnline = false })) == nil, "an offline friend got a ruleset")
+    local retail = Forever("Silvermoon City - Earthen Ring", true, { wowProjectID = 1 })
+    assert(tile.Ruleset(retail) == nil and tile.Info(retail) == "Silvermoon City - Earthen Ring", "a retail friend got a ruleset")
+    local threePart = Forever("Dornogal - Coreway - Earthen Ring", true, { wowProjectID = 1, realmName = "CAMWOWUS1Realm3PvE" })
+    assert(tile.Ruleset(threePart) == nil, "a friend on another project got a ruleset from a three-part presence")
+    threePart.gameAccountInfo.wowProjectID = nil
+    assert(tile.Ruleset(threePart) == nil, "a friend with no project got a ruleset")
+
+    -- No zone yet: Blizzard's line is the rich presence, which is left as it is.
+    local noZone = Forever("Forever - Normal", true, { realmName = "CAMWOWUS1Realm3PvE" })
+    noZone.gameAccountInfo.areaName = nil
+    assert(tile.Ruleset(noZone) == "Normal" and tile.Info(noZone) == "Forever - Normal", "a friend with no zone got the ruleset twice")
+
+    -- A viewer on another client sees the rich presence too: nothing is added,
+    -- and the ruleset is still there for a tooltip.
+    WOW_PROJECT_ID = 1
+    local seen = Forever("Forever - Normal - Mulgore", true)
+    assert(tile.Info(seen) == "Forever - Normal - Mulgore", "a viewer on another client got the ruleset twice: " .. tile.Info(seen))
+    assert(tile.Ruleset(seen) == "Normal")
+    WOW_PROJECT_ID = 18
+
+    -- The custom list's tooltip names the ruleset where a realm would stand.
+    assert(LIST_SRC:find("local realm = T.Ruleset(info) or gi.realmDisplayName or gi.realmName", 1, true),
+        "the friend tooltip does not name the ruleset")
+
+    -- The region icon. A friend whose realm is not known is looked up by the
+    -- realm in the rich presence, the other region's list first: one the game
+    -- says is in our own region never carries the icon.
+    local frame, d = CreateFrame("Button", nil, UIParent), {}
+    local gi = { isOnline = true, clientProgram = "WoW", wowProjectID = 1, realmName = "",
+        richPresence = "Orgrimmar - Silvermoon", isInCurrentRegion = false }
+    Kit.UpdateRegionButton(frame, d, gi, nil, true)
+    assert(d.regionBtn and d.regionBtn._shown, "a friend in another region has no region icon")
+    gi.isInCurrentRegion = true
+    Kit.UpdateRegionButton(frame, d, gi, nil, true)
+    assert(not d.regionBtn._shown, "a friend in our own region kept a region icon")
+    local d2 = {}
+    Kit.UpdateRegionButton(frame, d2, gi, nil, true)
+    assert(d2.regionBtn == nil, "a friend in our own region had a region icon built")
+    gi.isInCurrentRegion = false
+    Kit.UpdateRegionButton(frame, d, gi, nil, false)
+    assert(not d.regionBtn._shown, "the region icon showed with Region Icons off")
+    Kit.UpdateRegionButton(frame, d, gi, nil, true)
+    assert(d.regionBtn._shown, "the region icon did not come back for a friend in another region")
+
+    WOW_PROJECT_ID, FriendsListUtil.BuildLocationDisplayText = keepProject, keepLine
+    FriendsListUtil.GetRegionName = nil
 end
 
 note(("popups shown: %d, tooltips: %d, reads of the list under ours: %d"):format(#T.popups, T.tooltips, T.searchCalls))

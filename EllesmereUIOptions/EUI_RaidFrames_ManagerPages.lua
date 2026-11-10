@@ -2366,6 +2366,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
         local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
         addBg:SetAllPoints()
         addBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+        EllesmereUI.RoundBody(addBtn, addBg)
 
         local addLabel = addBtn:CreateFontString(nil, "OVERLAY")
         -- Drop shadow via the shadow FontObject, primed BEFORE SetFont
@@ -2410,7 +2411,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 local bg = popup:CreateTexture(nil, "BACKGROUND")
                 bg:SetAllPoints()
                 bg:SetColorTexture(0.067, 0.067, 0.067, 0.95)
-                EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.2, PP)
+                EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.2, bg)
 
                 -- Pending filter picks for the new tile (wiped on hide)
                 popup._dmFilters = {}
@@ -2516,6 +2517,7 @@ function ns.DMP_BuildPage(pageName, parent, yOffset)
                 local cBg = cBtn:CreateTexture(nil, "BACKGROUND")
                 cBg:SetAllPoints()
                 cBg:SetColorTexture(accentColor.r, accentColor.g, accentColor.b, 0.8)
+                EllesmereUI.RoundBody(cBtn, cBg)
                 local cTx = cBtn:CreateFontString(nil, "OVERLAY")
                 cTx:SetPoint("CENTER")
                 cTx:SetFont(fontPath, 12, "")
@@ -2948,7 +2950,7 @@ function ns.BMP_ShowFilterEditor(show, hide)
     popup:EnableMouse(true)
     local popBg = EllesmereUI.SolidTex(popup, "BACKGROUND", 0.077, 0.068, 0.058, 1)
     popBg:SetAllPoints()
-    EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15)
+    EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
     local ppScale = EllesmereUI.GetPopupScale() or 1
     popup:SetScale(ppScale)
 
@@ -3048,7 +3050,8 @@ function ns.BMP_ShowFilterEditor(show, hide)
     side:SetFrameLevel(popup:GetFrameLevel() + 1)
     local sideBg = EllesmereUI.SolidTex(side, "BACKGROUND", 0, 0, 0, 0.35)
     sideBg:SetAllPoints()
-    EllesmereUI.MakeBorder(side, 1, 1, 1, 0.10)
+    -- Flush with the popup's bottom-right corner: same shape, rows clipped to it.
+    EllesmereUI.MakeRoundedBorder(side, 1, 1, 1, 0.10, sideBg, nil, true)
 
     -- Sidebar content scrolls when it outgrows the popup (standard smooth
     -- scroll + thin custom bar; bar shows only on overflow).
@@ -3322,7 +3325,9 @@ function ns.BMP_ShowFilterEditor(show, hide)
             cancelText = EllesmereUI.L("Cancel"),
             onConfirm = function(text)
                 local id = tonumber(text or "")
-                if id and ns.BM2_AddCustomSpell(sel.id, id) then
+                -- Typed: the ID tracks that aura alone (a Search Spells
+                -- pick above keeps the buff's other versions).
+                if id and ns.BM2_AddCustomSpell(sel.id, id, true) then
                     Apply()
                     Rebuild()
                 end
@@ -3387,11 +3392,12 @@ function ns.BMP_ShowFilterEditor(show, hide)
         local boxBg = box:CreateTexture(nil, "BACKGROUND")
         boxBg:SetAllPoints()
         boxBg:SetColorTexture(0.114, 0.106, 0.099, 1)
-        local boxBrd = EllesmereUI.MakeBorder(box, 0.4, 0.4, 0.4, 0.6)
+        local boxBrd = EllesmereUI.MakeRoundedBorder(box, 0.4, 0.4, 0.4, 0.6, boxBg)
         local chk = box:CreateTexture(nil, "ARTWORK")
         chk:SetPoint("TOPLEFT", box, "TOPLEFT", 2, -2)
         chk:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -2, 2)
         chk:SetColorTexture(eg.r, eg.g, eg.b, 1)
+        EllesmereUI.RoundBody(box, chk, 2)
         local on = sel.spells[id] and true or false
         local ico = srow:CreateTexture(nil, "ARTWORK")
         ico:SetSize(22, 22)
@@ -3594,7 +3600,8 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
     end
 
     -- RIGHT: Extra Spells searchable checkbox dropdown; "Custom Spell ID"
-    -- rides the menu as a pinned top action above the search bar.
+    -- rides the menu as a pinned top action above the search bar
+    -- (ns.BM2_SpellIdAction).
     do
         local rgn = row._rightRegion
         if rgn._control then rgn._control:Hide() end
@@ -3604,23 +3611,25 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
             for i = 1, #sp do if sp[i] == id then return true end end
             return false
         end
-        local function ShowCustomIdPopup()
-            EllesmereUI:ShowInputPopup({
-                title = EllesmereUI.L("Add Spell ID"),
-                message = EllesmereUI.L("Enter the spell ID to track on this indicator."),
-                confirmText = EllesmereUI.L("Add"),
-                cancelText = EllesmereUI.L("Cancel"),
-                onConfirm = function(text)
-                    local id = tonumber(text or "")
-                    if id and id > 0 and not HasDirect(id) then
-                        ind.spells = ind.spells or {}
-                        ind.spells[#ind.spells + 1] = id
-                        if ns.ReloadFrames then ns.ReloadFrames() end
-                        EllesmereUI:RefreshPage(true)
-                    end
-                end,
-            })
-        end
+        -- A typed ID tracks that aura alone, not the rest of its curated
+        -- family; typing one already picked from Presets narrows it the same
+        -- way. (WoW Forever writes no mark: a typed rank stands for every
+        -- rank, and one that came with a profile stays as it is.)
+        local idAction = ns.BM2_SpellIdAction(function(id)
+            local ex = ind.exactSpells
+            local was = ex and ex[id]
+            local added = not HasDirect(id)
+            if added then
+                ind.spells = ind.spells or {}
+                ind.spells[#ind.spells + 1] = id
+            end
+            ns.BM2_SetSpellExact(ind, id, true)
+            ex = ind.exactSpells
+            if added or (ex and ex[id]) ~= was then
+                if ns.ReloadFrames then ns.ReloadFrames() end
+                EllesmereUI:RefreshPage(true)
+            end
+        end)
         -- Universe = curated preset primaries (name-sorted) plus any custom
         -- ids already on the indicator that fall outside it.
         -- Two groups: "Selected" = everything currently assigned (universe
@@ -3673,9 +3682,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
             end
             table.sort(selected, ByLabel)
             table.sort(rest, ByLabel)
-            local items = {
-                { isTopAction = true, label = "Custom Spell ID", onClick = ShowCustomIdPopup },
-            }
+            local items = { idAction }
             if #selected > 0 then
                 items[#items + 1] = { isHeader = true, label = "Selected" }
                 for i = 1, #selected do items[#items + 1] = selected[i] end
@@ -3696,6 +3703,9 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                     for i = #ind.spells, 1, -1 do
                         if ind.spells[i] == k then table.remove(ind.spells, i) end
                     end
+                    -- The typed mark leaves with the entry: a later pick from
+                    -- Presets keeps the curated family.
+                    ns.BM2_SetSpellExact(ind, k, false)
                 end
                 if ns.ReloadFrames then ns.ReloadFrames() end
             end,

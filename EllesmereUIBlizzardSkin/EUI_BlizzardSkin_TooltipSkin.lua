@@ -205,7 +205,6 @@ local FFD, GetFFD = I.FFD, I.GetFFD
 
     local function _ttHook(tt)
         if not tt or tt:IsForbidden() or _ttSkinned[tt] then return end
-        if EllesmereUI.BlizzSkinPadStandDown() then return end
         _ttSkinned[tt] = true
         tt:HookScript("OnShow", _ttOnShow)
     end
@@ -670,9 +669,6 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     local function _ttShowBuffs(guid, unit)
         local db = EllesmereUIDB
         if not (unit and db and db.tooltipShowBuffs) then return end
-        -- Its GameTooltip hooks stand down with the others under the gamepad
-        -- interface style.
-        if EllesmereUI.BlizzSkinPadStandDown() then return end
         local AK = EllesmereUI.AuraKit
         if not _ttBuffs then
             -- noTooltips: no hover tooltips (they would take over GameTooltip);
@@ -1018,7 +1014,6 @@ local FFD, GetFFD = I.FFD, I.GetFFD
 
     -- Visual reskin: dark bg/border (via _ttHook -> _ttSkin), EUI fonts, and restyled status bar. Gated on "Reskin Tooltip" (customTooltips).
     local function _ttInitVisual()
-        if EllesmereUI.BlizzSkinPadStandDown() then return end
         for _, tt in ipairs({
             _GameTooltip, ShoppingTooltip1, ShoppingTooltip2,
             ItemRefTooltip, ItemRefShoppingTooltip1, ItemRefShoppingTooltip2,
@@ -1058,9 +1053,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         if _ttDataInited then return end
         _ttDataInited = true
         -- Clear the recorded identity on hide so a late inspect result can never append to a closed/switched tooltip. HookScript (never SetScript) keeps the secure OnHide handler intact.
-        if not EllesmereUI.BlizzSkinPadStandDown() then
-            _GameTooltip:HookScript("OnHide", function() _tipShownGUID = nil end)
-        end
+        _GameTooltip:HookScript("OnHide", function() _tipShownGUID = nil end)
         -- Item level inspect pacing starts at login, so the request history from other
         -- addons is already being tracked before the first hover.
         if not EllesmereUIDB or EllesmereUIDB.tooltipItemLevel ~= false then _insp.Activate() end
@@ -1176,10 +1169,6 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     end
 
     local function _menuInit()
-        -- Under WoW Forever's Gamepad interface style, closing a skinned menu
-        -- runs SmartNavigation's protected interact call tainted: menus keep
-        -- Blizzard's look there.
-        if EllesmereUI.BlizzSkinPadStandDown() then return end
         if not _G.Menu or not _G.Menu.GetManager then return end
         local mgr = _G.Menu.GetManager()
         if not mgr then return end
@@ -1336,7 +1325,6 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     end
 
     local function _popupInit()
-        if EllesmereUI.BlizzSkinPadStandDown() then return end
         for i = 1, STATICPOPUP_NUMDIALOGS or 4 do
             local popup = _G["StaticPopup" .. i]
             if popup then
@@ -1439,7 +1427,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
 
     -- Install OnShow/OnHide hooks once. Hooks cannot be uninstalled, so they self-gate (OnShow early-returns when off, OnHide is a raw weak-table lookup); never called before the first enable.
     local function _resGlowInit()
-        if _resGlowHooked or EllesmereUI.BlizzSkinPadStandDown() then return end
+        if _resGlowHooked then return end
         _resGlowHooked = true
         for i = 1, STATICPOPUP_NUMDIALOGS or 4 do
             local popup = _G["StaticPopup" .. i]
@@ -2081,7 +2069,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         -- Hook OnShow so the skin applies the moment the acceptance panel appears, before any specific event fires.
         local _statusHooked = false
         local function HookStatusOnShow()
-            if _statusHooked or EllesmereUI.BlizzSkinPadStandDown() then return end
+            if _statusHooked then return end
             local status = _G.LFGDungeonReadyStatus
             if not status then return end
             _statusHooked = true
@@ -2173,7 +2161,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         -- of any Dungeon Finder UI ever being opened locally, so it is hooked directly.
         local _roleCheckHooked = false
         local function HookRoleCheckOnShow()
-            if _roleCheckHooked or EllesmereUI.BlizzSkinPadStandDown() then return end
+            if _roleCheckHooked then return end
             local popup = _G.LFDRoleCheckPopup
             if not popup then return end
             _roleCheckHooked = true

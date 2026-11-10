@@ -1148,7 +1148,6 @@ local GetFFD = I.GetFFD
         -- the user has never chosen, and that now means "leave Blizzard's
         -- button alone".
         if not (EllesmereUIDB and EllesmereUIDB.reskinExtraActionButton == true) then return end
-        if EllesmereUI.BlizzSkinPadStandDown() then return end
 
         local d = GetFFD(btn)
         local style = btn.style
@@ -1209,7 +1208,6 @@ local GetFFD = I.GetFFD
             hooksecurefunc("ExtraActionBar_Update", StripExtraAction)
         end
         if not (EllesmereUIDB and EllesmereUIDB.reskinExtraActionButton == true) then return end
-        if EllesmereUI.BlizzSkinPadStandDown() then return end
         StripExtraAction()
         if C_Timer then
             C_Timer.After(0, StripExtraAction)
@@ -1239,7 +1237,6 @@ local GetFFD = I.GetFFD
         -- buttons and get identical treatment, so two settings was a
         -- distinction without a difference. DEFAULT OFF, by request.
         if not (EllesmereUIDB and EllesmereUIDB.reskinExtraActionButton == true) then return end
-        if EllesmereUI.BlizzSkinPadStandDown() then return end
 
         local style = f.Style
         if style then
@@ -1313,7 +1310,6 @@ local GetFFD = I.GetFFD
             end
         end
         if not (EllesmereUIDB and EllesmereUIDB.reskinExtraActionButton == true) then return end
-        if EllesmereUI.BlizzSkinPadStandDown() then return end
         StripZoneAbility()
         if C_Timer then
             C_Timer.After(0, StripZoneAbility)

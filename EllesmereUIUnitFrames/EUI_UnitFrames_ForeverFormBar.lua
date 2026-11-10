@@ -17,6 +17,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  The main file calls ns.UF_ForeverFormBar where the player power bar is
 --  built and restyled; on every other client and class it stays nil.
+--  Bottom-anchored player auras keep clear of the bar while it shows under
+--  the frame (ns.UF_ForeverFormBarShown, read by the aura containers' bottom
+--  reserve): each time it shows, hides or is laid out again, the bar asks
+--  for one re-anchor on the next frame.
 --  Cost: off = no frames, no events. On: UNIT_DISPLAYPOWER only, plus the
 --  form power's events while the bar shows.
 -------------------------------------------------------------------------------
@@ -34,12 +38,25 @@ local UnitPower, UnitPowerMax, UnitPowerType = UnitPower, UnitPowerMax, UnitPowe
 local evf = CreateFrame("Frame")
 -- bar (the StatusBar), settings (player settings as last applied), on (the
 -- option is on and the power bar draws), live (form power events registered),
+-- shown (the bar shows, as the aura reserve last heard),
 -- pt / token (the form's power type as last read), text ("cur" / "pct" /
 -- "both" while the text shows, else nil) with its format strings fmtPct and
 -- fmtBoth (built per apply, so a paint builds no string).
-local S = { on = false, live = false }
+local S = { on = false, live = false, shown = false }
 
 local Secret = EllesmereUI.IsSecret
+
+-- The bar while it shows, else nil: the bottom-anchored player auras reserve
+-- the space it takes under the frame (EUI_UnitFrames_AuraContainers.lua).
+function ns.UF_ForeverFormBarShown()
+    if S.shown then return S.bar end
+end
+
+-- One re-anchor of the player auras on the next frame (a no-op unless they
+-- are bottom-anchored).
+local function Reanchor()
+    if EllesmereUI.UF_RequestResourceReanchor then EllesmereUI.UF_RequestResourceReanchor() end
+end
 
 -- The form text's own setting; unset follows the power bar's.
 local function FormVal(s, key, base, def)
@@ -113,12 +130,16 @@ local function SetLive(on)
 end
 
 -- Shows the bar while the form runs on a power other than mana. A secret
--- read keeps the last verdict.
-local function Sync()
+-- read keeps the last verdict. laidOut: the bar was just laid out, so a
+-- shown bar may have moved.
+local function Sync(laidOut)
     local bar = S.bar
     if not bar then return end
     local pt, token = UnitPowerType("player")
-    if Secret(pt) or Secret(token) then return end
+    if Secret(pt) or Secret(token) then
+        if laidOut and S.shown then Reanchor() end
+        return
+    end
     local show = S.on and pt ~= MANA
     if show then
         S.pt, S.token = pt, token
@@ -127,6 +148,10 @@ local function Sync()
     end
     SetLive(show)
     bar:SetShown(show)
+    if show ~= S.shown or (show and laidOut) then
+        S.shown = show
+        Reanchor()
+    end
 end
 
 evf:SetScript("OnEvent", function(_, event, _, token)
@@ -253,6 +278,10 @@ function ns.UF_ForeverFormBar(frame, power, s)
         evf:UnregisterAllEvents()
         S.live = false
         if S.bar then S.bar:Hide() end
+        if S.shown then
+            S.shown = false
+            Reanchor()
+        end
         return
     end
     if not S.bar then Build(frame) end
@@ -267,7 +296,7 @@ function ns.UF_ForeverFormBar(frame, power, s)
     Layout(frame, power, s)
     StyleText(s)
     evf:RegisterUnitEvent("UNIT_DISPLAYPOWER", "player")
-    Sync()
+    Sync(true)
 end
 
 -- The form bar's own options re-apply only this bar: a full frame reload per
@@ -276,5 +305,5 @@ function ns.UF_ForeverFormBarRelayout()
     if not (S.on and S.bar) then return end
     Layout(S.frame, S.power, S.settings)
     StyleText(S.settings)
-    Sync()
+    Sync(true)
 end

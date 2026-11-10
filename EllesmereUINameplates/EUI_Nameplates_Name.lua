@@ -247,6 +247,16 @@ local function QuestTextTypeIconHide(self)
         f._qtTypeIconOn = nil
     end
 end
+-- The objective type icon beside the count: its size follows the text size and Icon Scale, 2 px
+-- right of the count. Returns the element's width and height, the count's x offset from the
+-- frame's centre, the icon's left edge from the centre and the icon's size. The options
+-- preview lays its sample out with the same function.
+function ns.NP_QuestTypeIconLayout(counterW, counterH, fontSize, scale)
+    local iconSize = math.max(8, math.floor(fontSize * 0.8 * scale / 100 + 0.5))
+    local gap = 2
+    return counterW + gap + iconSize, math.max(counterH, iconSize),
+        -((iconSize + gap) / 2), (counterW + gap - iconSize) / 2, iconSize
+end
 -- Hides the frame; the name width, the target arrows and the slot's other elements follow.
 local function QuestTextHide(self, chainedBy)
     if self.questTextTypeIcon then QuestTextTypeIconHide(self) end
@@ -332,25 +342,20 @@ function NameplateFrame:UpdateQuestText(chainedBy)
                 end
                 f._qtTypeIconArt = art
             end
-            local iconScale = p.questObjectiveTypeIconScale or 100
-            local typeIconSize = math.max(8, math.floor(size * 0.8 * iconScale / 100 + 0.5))
-            local typeW, typeH = typeIconSize, typeIconSize
-            local gap = 2
-            if not f._qtTypeIconOn or f._qtTypeIconCounterW ~= f._qtW
-                or f._qtTypeIconW ~= typeW or f._qtTypeIconGap ~= gap
-                or f._qtTypeIconScale ~= iconScale then
+            local fullW, fullH, textX, iconX, iconSize = ns.NP_QuestTypeIconLayout(f._qtW, f._qtH, size,
+                p.questObjectiveTypeIconScale or 100)
+            -- Laid out again only when the count's width or the icon's size moved.
+            if not f._qtTypeIconOn or f._qtTypeIconCounterW ~= f._qtW or f._qtTypeIconW ~= iconSize then
                 fs:ClearAllPoints()
-                fs:SetPoint("CENTER", f, "CENTER", -((typeW + gap) / 2), 0)
+                fs:SetPoint("CENTER", f, "CENTER", textX, 0)
                 typeIcon:ClearAllPoints()
-                typeIcon:SetSize(typeW, typeH)
-                typeIcon:SetPoint("LEFT", f, "CENTER", (f._qtW + gap - typeW) / 2, 0)
+                typeIcon:SetSize(iconSize, iconSize)
+                typeIcon:SetPoint("LEFT", f, "CENTER", iconX, 0)
                 f._qtTypeIconOn = true
-                f._qtTypeIconCounterW, f._qtTypeIconW, f._qtTypeIconGap = f._qtW, typeW, gap
-                f._qtTypeIconScale = iconScale
+                f._qtTypeIconCounterW, f._qtTypeIconW = f._qtW, iconSize
             end
             typeIcon:Show()
-            w = w + gap + typeW
-            if typeH > h then h = typeH end
+            w, h = fullW, fullH
         elseif self.questTextTypeIcon then
             QuestTextTypeIconHide(self)
         end

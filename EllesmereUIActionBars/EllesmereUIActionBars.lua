@@ -8,7 +8,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  + _childupdate-eab-page with explicit action attrs.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.PadTaintStandDown and EllesmereUI.PadGamepadUI and EllesmereUI.PadModeOn and EllesmereUI.RequestTimePlayed and EllesmereUI.FormatDuration) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame; WoW Forever's Gamepad interface style is read through its PadGamepadUI and PadTaintStandDown, and Hide Bar When Using Gamepad follows its PadModeOn; the XP bar's Time This Level asks /played through RequestTimePlayed and its time texts read FormatDuration)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFramePoint and EllesmereUI.HideFrame and EllesmereUI._Pool and EllesmereUI.PadGamepadUI and EllesmereUI.PadModeOn and EllesmereUI.RequestTimePlayed and EllesmereUI.FormatDuration) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the extra bars move Edit Mode systems through the parent's SetFramePoint, and Blizzard's main bar hides through its HideFrame; WoW Forever's Gamepad interface style is read through its PadGamepadUI, and Hide Bar When Using Gamepad follows its PadModeOn; the XP bar's Time This Level asks /played through RequestTimePlayed and its time texts read FormatDuration)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local EAB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.EAB = EAB
@@ -42,87 +42,162 @@ end
 -- sites that defer the same work share a key (e.g. "UpdateKeybinds").
 ns.CombatQueue = EllesmereUI.NewCombatQueue(ns.TakeShell())
 
--- "Hide Count at 0" (Icon Effects): hide a zero charge/stack count via the
--- count fontstring's ALPHA, never its text -- text is co-owned: Blizzard's
--- mixin keeps SPELL_UPDATE_CHARGES registered and rewrites Count with the raw
--- value every charge event, but nothing engine-side touches alpha (same as
--- the CDM twin). Memoized so only real changes write; fails open on SECRET
--- values (combat) so the count shows rather than risk a tainted compare. Off
--- = one profile read + memo compare, zero machinery. (On ns, not a
--- chunk local.)
-ns._EABZeroCountAlpha = function(fd, fs, v, action)
-    local pdb = EAB.db and EAB.db.profile
-    if not (pdb and pdb.hideZeroCount) then
-        -- OFF fast path: reads + memo compare only, except healing a leftover hidden
-        -- stamp so a button can't stay stuck invisible after a toggle/profile switch.
-        -- Profile read IS the gate: a cached flag would go stale across profiles.
-        if fd._zeroCountAlpha == 0 then
-            fd._zeroCountAlpha = 1
-            fs:SetAlpha(1)
+-- Count text visibility through the count fontstring's ALPHA, never its text
+-- -- text is co-owned: Blizzard's mixin keeps SPELL_UPDATE_CHARGES registered
+-- and rewrites Count with the raw value every charge event, but nothing
+-- engine-side touches alpha (same as the CDM twin). Two settings decide it:
+--   Charge Numbers (per bar hideChargeCount / hideStackCount / hideItemCount,
+--   true = hidden, unset = shown): a hidden kind hides the count outright.
+--   "Hide Count at 0" (profile hideZeroCount): hides a zero charge/stack count.
+-- A hidden kind wins; otherwise the zero rule decides. Memoized in
+-- fd._zeroCountAlpha (0 hidden, 1 shown, false = written from a secret, so
+-- what shows is unknown); fails open on SECRET values (combat) so the count
+-- shows rather than risk a tainted compare. Neither set = a few table reads +
+-- a memo compare, no API call. (On ns, not a chunk local.)
+do -- Count text visibility
+    -- How the bar's Charge Numbers settings take the count this action shows,
+    -- with no secret compared or tested: "hide" when its kind is hidden;
+    -- "gate" plus the action's secret use count, which as an alpha hides the
+    -- count exactly while it reads 0 (the charges show then); nil when the
+    -- count is left to the zero rule. The kinds follow Blizzard's count
+    -- (C_ActionBar.GetActionDisplayCount): an item, consumable or stackable
+    -- action shows its item count (Item Count); any other action its use
+    -- count while that is above 0 (Stacks), else its charges while it has
+    -- more than one (Charges). A third return hands the zero rule the
+    -- action's charge info once it was read here.
+    local function HiddenKind(s, action)
+        local CA = C_ActionBar
+        -- Never secret (none of the three carries a secrecy flag).
+        if CA.IsItemAction(action) or CA.IsConsumableAction(action) or CA.IsStackableAction(action) then
+            if s.hideItemCount then return "hide" end
+            return nil
         end
-        return
-    end
-    local a = 1
-    if action then
-        -- Charge spells route EXCLUSIVELY through the count: SetAlpha clamps
-        -- to [0,1], so alpha := currentCharges hides at exactly 0 and shows
-        -- at 1+ with no comparison needed. Never infer zero charges from an active
-        -- cooldown record -- charges banked while the main cooldown runs (e.g. Feint)
-        -- would hide a real count. SetAlpha accepts secret numbers
-        -- (AllowedWhenTainted), so the same write runs in and out of instanced combat;
-        -- a secret count writes through with the memo dirtied, never stored/compared.
-        local ci = C_ActionBar.GetActionCharges and C_ActionBar.GetActionCharges(action)
+        local hideCharges, hideStacks = s.hideChargeCount, s.hideStackCount
+        if hideCharges and hideStacks then return "hide" end
+        if not (hideCharges or hideStacks) then return nil end
+        -- maxCharges is never secret; the use count is while cooldowns are
+        -- restricted.
+        local ci = CA.GetActionCharges(action)
+        -- Only a plain table is handed on (the caller tests it for nil).
+        if not (type(ci) == "table" and not (issecretvalue and issecretvalue(ci))) then ci = nil end
         local mc = ci and ci.maxCharges
-        if mc ~= nil and not (issecretvalue and issecretvalue(mc)) and mc > 1 then
-            local cc = ci.currentCharges
-            -- issecretvalue FIRST, and type() rather than == nil for the missing
-            -- case. The count is secret whenever cooldowns are restricted, and
-            -- comparing a secret to nil is the operation our own secret rules
-            -- forbid -- so ordering the nil "belt" ahead of the guard made the
-            -- belt the hazard, and a throw strands the count HIDDEN rather than
-            -- protecting it. Same defect and same fix as the CDM counterpart in
-            -- EllesmereUICdmHooks (EvalZeroChargeTextFrame).
-            if issecretvalue and issecretvalue(cc) then
-                fd._zeroCountAlpha = nil
-                fs:SetAlpha(cc)
-            elseif type(cc) ~= "number" then
-                if fd._zeroCountAlpha ~= 1 then
-                    fd._zeroCountAlpha = 1
-                    fs:SetAlpha(1)
+        if not (type(mc) == "number" and not (issecretvalue and issecretvalue(mc)) and mc > 1) then
+            if hideStacks then return "hide" end
+            return nil, nil, ci
+        end
+        local uc = CA.GetActionUseCount(action)
+        if issecretvalue and issecretvalue(uc) then
+            -- Telling the stacks from the charges needs the secret: Charges
+            -- hidden rides it as the alpha, Stacks hidden fails open.
+            if hideCharges then return "gate", uc end
+            return nil, nil, ci
+        end
+        if type(uc) == "number" and uc > 0 then
+            if hideStacks then return "hide" end
+            return nil, nil, ci
+        end
+        if hideCharges then return "hide" end
+        return nil, nil, ci
+    end
+
+    ns._EABZeroCountAlpha = function(fd, fs, v, action)
+        local pdb = EAB.db and EAB.db.profile
+        -- The charge info HiddenKind read, reused by the zero rule below.
+        local chargeInfo
+        -- Charge Numbers: the profile read IS the gate (a cached flag would go
+        -- stale across profiles and overrides); unset on every kind = no API call.
+        if action and pdb then
+            local bars, key = pdb.bars, fd.barKey
+            local s = bars and key and bars[key]
+            if s and (s.hideChargeCount or s.hideStackCount or s.hideItemCount) then
+                local how, gate
+                how, gate, chargeInfo = HiddenKind(s, action)
+                if how == "hide" then
+                    if fd._zeroCountAlpha ~= 0 then
+                        fd._zeroCountAlpha = 0
+                        fs:SetAlpha(0)
+                    end
+                    return
+                elseif how == "gate" then
+                    fd._zeroCountAlpha = false
+                    fs:SetAlpha(gate)
+                    return
                 end
-            else
-                a = cc > 1 and 1 or cc
-                if fd._zeroCountAlpha ~= a then
-                    fd._zeroCountAlpha = a
-                    fs:SetAlpha(a)
-                end
+            end
+        end
+        if not (pdb and pdb.hideZeroCount) then
+            -- OFF fast path: reads + memo compare only, except healing a leftover hidden
+            -- or secret-written stamp so a button can't stay stuck invisible after a
+            -- toggle/profile switch.
+            local z = fd._zeroCountAlpha
+            if z == 0 or z == false then
+                fd._zeroCountAlpha = 1
+                fs:SetAlpha(1)
             end
             return
         end
-        -- Non-charge: mixin shows GetActionCount for consumables/stackables
-        -- (including 0); display string is only the cheap first check.
-        -- issecretvalue FIRST: v is GetActionDisplayCount's return, which the
-        -- API documents as secret whenever cooldowns are restricted, and
-        -- comparing a secret to nil is the operation our own rules forbid --
-        -- the same ordering defect this function's charge branch above already
-        -- carries a comment about. The nil case needs no test of its own:
-        -- nil == 0 is simply false.
-        if not (issecretvalue and issecretvalue(v))
-           and (v == 0 or v == "0") then
-            a = 0
-        elseif (IsConsumableAction and IsConsumableAction(action))
-            or (IsStackableAction and IsStackableAction(action)) then
-            local c = GetActionCount and GetActionCount(action)
-            if c ~= nil and not (issecretvalue and issecretvalue(c)) and c == 0 then
+        local a = 1
+        if action then
+            -- Charge spells route EXCLUSIVELY through the count: SetAlpha clamps
+            -- to [0,1], so alpha := currentCharges hides at exactly 0 and shows
+            -- at 1+ with no comparison needed. Never infer zero charges from an active
+            -- cooldown record -- charges banked while the main cooldown runs (e.g. Feint)
+            -- would hide a real count. SetAlpha accepts secret numbers
+            -- (AllowedWhenTainted), so the same write runs in and out of instanced combat;
+            -- a secret count writes through with the memo dirtied, never stored/compared.
+            local ci = chargeInfo or (C_ActionBar.GetActionCharges and C_ActionBar.GetActionCharges(action))
+            local mc = ci and ci.maxCharges
+            if mc ~= nil and not (issecretvalue and issecretvalue(mc)) and mc > 1 then
+                local cc = ci.currentCharges
+                -- issecretvalue FIRST, and type() rather than == nil for the missing
+                -- case. The count is secret whenever cooldowns are restricted, and
+                -- comparing a secret to nil is the operation our own secret rules
+                -- forbid -- so ordering the nil "belt" ahead of the guard made the
+                -- belt the hazard, and a throw strands the count HIDDEN rather than
+                -- protecting it. Same defect and same fix as the CDM counterpart in
+                -- EllesmereUICdmHooks (EvalZeroChargeTextFrame).
+                if issecretvalue and issecretvalue(cc) then
+                    fd._zeroCountAlpha = false
+                    fs:SetAlpha(cc)
+                elseif type(cc) ~= "number" then
+                    if fd._zeroCountAlpha ~= 1 then
+                        fd._zeroCountAlpha = 1
+                        fs:SetAlpha(1)
+                    end
+                else
+                    a = cc > 1 and 1 or cc
+                    if fd._zeroCountAlpha ~= a then
+                        fd._zeroCountAlpha = a
+                        fs:SetAlpha(a)
+                    end
+                end
+                return
+            end
+            -- Non-charge: mixin shows GetActionCount for consumables/stackables
+            -- (including 0); display string is only the cheap first check.
+            -- issecretvalue FIRST: v is GetActionDisplayCount's return, which the
+            -- API documents as secret whenever cooldowns are restricted, and
+            -- comparing a secret to nil is the operation our own rules forbid --
+            -- the same ordering defect this function's charge branch above already
+            -- carries a comment about. The nil case needs no test of its own:
+            -- nil == 0 is simply false.
+            if not (issecretvalue and issecretvalue(v))
+               and (v == 0 or v == "0") then
                 a = 0
+            elseif (IsConsumableAction and IsConsumableAction(action))
+                or (IsStackableAction and IsStackableAction(action)) then
+                local c = GetActionCount and GetActionCount(action)
+                if c ~= nil and not (issecretvalue and issecretvalue(c)) and c == 0 then
+                    a = 0
+                end
             end
         end
+        if fd._zeroCountAlpha ~= a then
+            fd._zeroCountAlpha = a
+            fs:SetAlpha(a)
+        end
     end
-    if fd._zeroCountAlpha ~= a then
-        fd._zeroCountAlpha = a
-        fs:SetAlpha(a)
-    end
-end
+end -- Count text visibility
 
 -- Cold-path helper table for module-level behavior that benefits from a
 -- shared dispatch surface without adding more direct top-level helpers.
@@ -204,7 +279,7 @@ function ns.AB_Forever()
     return ns.AB_Style() == "blizzard"
 end
 
--- WoW Forever's frame and dividers behind a bar (Show Bar Background), under
+-- WoW Forever's frame and dividers behind a bar (Bar Frame), under
 -- the variant only: the bar's own foreverBarBg. nil reads the bar's default:
 -- Action Bar 1 follows the profile-wide foreverHideBarBg (shown unless it is
 -- set), every other bar is off.
@@ -742,7 +817,7 @@ end
 -- Blizzard data bar override (let Blizzard control XP + Rep via Edit Mode). WoW
 -- Forever keeps Blizzard's own bars by default (the per-client default rule).
 defaults.profile.useBlizzardDataBars = (EllesmereUI.IS_FOREVER == true)
--- Show Equipped Item Color (Icon Effects): on by default on WoW Forever only.
+-- Equipped Item Color (Effects > Item Information): on by default on WoW Forever only.
 defaults.profile.showEquippedBorder = (EllesmereUI.IS_FOREVER == true)
 -- Stock vehicle / override bar suppression. Opt-in, and inert until switched
 -- on: no frame, no events and no hook exist while it is false.
