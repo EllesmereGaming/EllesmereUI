@@ -4510,8 +4510,13 @@ initFrame:SetScript("OnEvent", function(self)
         end
         _castBarPreviewFrames.bar = bar
 
-        -- Spark
-        local spark = bar:CreateTexture(nil, "OVERLAY", nil, 1)
+        -- Spark, in a host clipped to the bar as the live spark sits in its
+        -- clip frame: a spark taller than the bar shows only its middle.
+        local sparkHost = CreateFrame("Frame", nil, barFrame)
+        sparkHost:SetAllPoints(bar)
+        sparkHost:SetClipsChildren(true)
+        sparkHost:SetFrameLevel(bar:GetFrameLevel() + 2)
+        local spark = sparkHost:CreateTexture(nil, "OVERLAY", nil, 1)
         spark:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\cast_spark.tga")
         spark:SetBlendMode("ADD")
         spark:SetSize(8, h)
