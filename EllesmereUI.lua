@@ -422,7 +422,9 @@ end
 -- hearthstone column, all secure. Build lazily, never in combat; the caller
 -- caches the frame and owns anchoring. opts: name (frame name prefix), bg
 -- ({r,g,b}), labelFont, labelFlags, clamp (clamp to screen), unitEvents
--- (register the cast events for "player" only).
+-- (register the cast events for "player" only). Out of combat a left click
+-- anywhere else closes it; the caller names the button that toggles it before
+-- each Show (flyout._toggle = button), whose own click then closes it.
 function EllesmereUI.CreatePortalFlyout(opts)
     if InCombatLockdown() then return nil end
     local floor = math.floor
@@ -459,7 +461,6 @@ function EllesmereUI.CreatePortalFlyout(opts)
     local guard = CreateFrame("Frame")
     guard:RegisterEvent("PLAYER_REGEN_DISABLED")
     guard:SetScript("OnEvent", function() flyout:Hide() end)
-
 
     local function NewButton(name, size)
         local btn = CreateFrame("Button", name, flyout, "SecureActionButtonTemplate")
@@ -661,11 +662,13 @@ function EllesmereUI.CreatePortalFlyout(opts)
         RefreshHearthCooldowns()
     end
 
-    -- Events live only while shown: cooldown + cast highlight refresh.
+    -- Events live only while shown: cooldown + cast highlight refresh, and the
+    -- mouse press that closes it.
     local CAST_EVENTS = { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_SUCCEEDED",
                           "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED" }
     flyout:SetScript("OnShow", function(self)
         self:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+        self:RegisterEvent("GLOBAL_MOUSE_DOWN")
         for _, ev in ipairs(CAST_EVENTS) do
             if opts.unitEvents then self:RegisterUnitEvent(ev, "player") else self:RegisterEvent(ev) end
         end
@@ -687,6 +690,14 @@ function EllesmereUI.CreatePortalFlyout(opts)
         if event == "SPELL_UPDATE_COOLDOWN" then
             RefreshPortalButtons()
             RefreshHearthCooldowns()
+        elseif event == "GLOBAL_MOUSE_DOWN" then
+            -- A left click anywhere else closes it (unit is the mouse button here).
+            -- A press on its toggle is left alone: that button's click closes it.
+            local toggle = self._toggle
+            if unit == "LeftButton" and not InCombatLockdown() and not self:IsMouseOver()
+               and not (toggle and toggle:IsVisible() and toggle:IsMouseOver()) then
+                self:Hide()
+            end
         elseif unit == "player" then
             local casting = (event == "UNIT_SPELLCAST_START") and spellID or nil
             for _, btn in ipairs(portalBtns) do
@@ -701,23 +712,6 @@ function EllesmereUI.CreatePortalFlyout(opts)
                 end
             end
         end
-    end)
-
-    -- Click-away close (as the minimap addon flyout), hooked after the OnShow/OnHide scripts
-    -- above so they keep it; the frame under the mouse at open (its toggle) is spared.
-    local clickOff, opener = CreateFrame("Frame"), nil
-    clickOff:SetScript("OnEvent", function(_, _, button)
-        if button ~= "LeftButton" or InCombatLockdown() or flyout:IsMouseOver() then return end
-        if opener and opener:IsMouseOver() then return end
-        flyout:Hide()
-    end)
-    flyout:HookScript("OnShow", function()
-        opener = GetMouseFoci and GetMouseFoci()[1] or nil
-        clickOff:RegisterEvent("GLOBAL_MOUSE_DOWN")
-    end)
-    flyout:HookScript("OnHide", function()
-        opener = nil
-        clickOff:UnregisterEvent("GLOBAL_MOUSE_DOWN")
     end)
 
     -- Escape to close

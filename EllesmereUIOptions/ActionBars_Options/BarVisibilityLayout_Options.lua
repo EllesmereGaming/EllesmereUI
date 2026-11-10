@@ -221,15 +221,9 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
             end
             local items = {
                 -- Available in EVERY visibility mode (unlike Show During Drag,
-                -- whose behavior IS the default outside Never). It is locked
-                -- while WoW Forever's Gamepad interface style is on where its
-                -- navigation can still be tainted (EllesmereUI.PadTaintStandDown),
-                -- and while the runtime has stood it down for the session
-                -- (EAB._sbOff).
+                -- whose behavior IS the default outside Never).
                 { key = "spellbookShow", label = "Show When Spellbook Is Open",
-                  tooltip = "While the spellbook or macro panel is open, this bar appears so you can drag abilities onto it.",
-                  lockedFn = function() return EAB._sbOff == true or EllesmereUI.PadTaintStandDown() end,
-                  lockedTooltip = "This option does not work with the Gamepad interface style (after switching away from it, reload to use it)." },
+                  tooltip = "While the spellbook or macro panel is open, this bar appears so you can drag abilities onto it." },
                 { key = "dragShow", label = "Show During Drag",
                   tooltip = "While dragging a spell or item, this bar appears so you can drop onto it.",
                   lockedFn = NeverOnly,

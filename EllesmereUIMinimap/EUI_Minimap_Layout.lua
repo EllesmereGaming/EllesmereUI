@@ -247,12 +247,6 @@ local function BuildCustomIndicators(minimap)
         EllesmereUI.HideWidgetTooltip()
     end)
 
-    -- Not under WoW Forever's Gamepad interface style where its navigation can still
-    -- be tainted (EllesmereUI.PadTaintStandDown): it takes over a panel opened from
-    -- our insecure click and makes protected calls, so the open is blocked (and the
-    -- blocked-action popup can freeze the client). Every reader guards on the nil
-    -- button.
-    if not EllesmereUI.PadTaintStandDown() then
     -- Friends Online button
     _customIndicators.friends = CreateIndicatorBtn("_friends", minimap,
         FRIENDS_ATLAS, FRIENDS_ATLAS, nil,
@@ -261,8 +255,6 @@ local function BuildCustomIndicators(minimap)
                 UIErrorsFrame:AddMessage(ERR_NOT_IN_COMBAT, 1.0, 0.3, 0.3, 1.0)
                 return
             end
-            -- Switched to that style mid-session: opening the panel from here is blocked.
-            if EllesmereUI.PadTaintStandDown() then return end
             ToggleFriendsFrame()
         end)
     -- Not in INDICATOR_ATLAS_RATIO, so the icon uses inset anchoring; desaturated idle.
@@ -290,8 +282,6 @@ local function BuildCustomIndicators(minimap)
         HideFriendsTooltip()
     end)
 
-    end -- not PadTaintStandDown
-
     -- Great Vault + M+ Portal buttons: built once, anchored in LayoutIndicatorFrames.
     -- Neither exists on WoW Forever (no vault, no keystone portals): the buttons are
     -- never built there, every reader guards on nil, and the options drop their rows.
@@ -305,7 +295,7 @@ end
 -- opens from a hardware press (closing an addon-opened one taints the gamepad bindings).
 local SyncTrackingHotspot
 do
-    local shiftEv, home, active, upEv
+    local ev, home, active
     local function Btns()
         return MinimapCluster and MinimapCluster.Tracking and MinimapCluster.Tracking.Button,
             _customIndicators.tracking
@@ -353,26 +343,17 @@ do
             blizBtn:SetAlpha(1)
             blizBtn:EnableMouse(false)
         end
-        -- Free Move drags ours with Shift held, so the hotspot steps aside meanwhile.
+        -- The click state is settled on every release, and on a modifier key while Free
+        -- Move is on: it drags ours with Shift held, so the hotspot steps aside meanwhile.
         local fm = on and p.freeMoveBtns and true or false
-        if fm and not shiftEv then
-            shiftEv = CreateFrame("Frame")
-            shiftEv:SetScript("OnEvent", function()
-                local mp = EBS.db and EBS.db.profile.minimap
-                if mp then SyncTrackingHotspot(mp) end
-            end)
-        end
-        if shiftEv then
-            if fm then shiftEv:RegisterEvent("MODIFIER_STATE_CHANGED")
-            else shiftEv:UnregisterEvent("MODIFIER_STATE_CHANGED") end
-        end
         active = on
-        if on and not upEv then
-            upEv = CreateFrame("Frame")
-            upEv:SetScript("OnEvent", function() EBS._TrackingClickState() end)
+        if on and not ev then
+            ev = CreateFrame("Frame")
+            ev:SetScript("OnEvent", function() EBS._TrackingClickState() end)
         end
-        if upEv then
-            if on then upEv:RegisterEvent("GLOBAL_MOUSE_UP") else upEv:UnregisterEvent("GLOBAL_MOUSE_UP") end
+        if ev then
+            if on then ev:RegisterEvent("GLOBAL_MOUSE_UP") else ev:UnregisterEvent("GLOBAL_MOUSE_UP") end
+            if fm then ev:RegisterEvent("MODIFIER_STATE_CHANGED") else ev:UnregisterEvent("MODIFIER_STATE_CHANGED") end
         end
         if not on then return end
         -- Clicks only: hover stays on ours (its tooltip and art), Blizzard's tooltip never shows.

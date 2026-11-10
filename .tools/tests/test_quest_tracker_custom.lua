@@ -103,7 +103,6 @@ EllesmereUI = {
     _ModuleNS = {},
     Lite = { NewDB = function(_, defaults) return { profile = DeepCopy(defaults.profile) } end },
     NewCombatQueue = function() return { Defer = function() end } end,
-    PadTaintStandDown = function() return false end,
     IsSecret = function(v) return v == SECRET end,
     PrimeFontShadow = function() end,
     GetFontUseShadow = function() return false end,

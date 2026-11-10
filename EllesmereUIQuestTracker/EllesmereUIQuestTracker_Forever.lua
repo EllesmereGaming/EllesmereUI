@@ -56,21 +56,6 @@ do
 end
 
 -------------------------------------------------------------------------------
--- Gamepad interface style: Blizzard's SmartNavigation drives the tracker from
--- secure code, so where that navigation can still be tainted
--- (EllesmereUI.PadTaintStandDown) watch list edits (whose synchronous handlers
--- rewrite its navigation and can empty a list under D-pad focus) and the
--- recolors in the block hover hook stand down. Decided once logged in; a later
--- style switch stands the tools down too and asks for a reload, once.
--------------------------------------------------------------------------------
-local standDown, styleAsked
-local function StandDown()
-    if standDown == nil then standDown = EllesmereUI.PadTaintStandDown() end
-    return standDown
-end
-EQT.QuestToolsStandDown = StandDown
-
--------------------------------------------------------------------------------
 -- Quest sorting, filtering and zone auto-track. The tracker lists watched
 -- quests in watch-index order, so editing the watch list sorts and filters
 -- it without touching the tracker. Blizzard's zone-change distance sort is
@@ -99,7 +84,7 @@ local passZone, passInInstance, passInstance
 -- with no watch edits, so the tools need no experimental switch there.
 local function Exp()
     if ns.UseCustomTracker() then return true end
-    return Cfg("questWatchExperimental") == true and not StandDown()
+    return Cfg("questWatchExperimental") == true
 end
 -- Quest Log Order is the base mode (a saved "default", the retired Blizzard
 -- order mode, reads as it).
@@ -159,7 +144,6 @@ local function HasLeftovers()
 end
 
 local function WatchesActive()
-    if StandDown() then return false end
     return SortOn() or FilterOn() or AutoOn() or HasLeftovers()
 end
 
@@ -471,8 +455,6 @@ end
 local function ApplyWatches()
     watchPending = false
     selfEdit = false
-    -- A pass queued before a style switch stood the tools down.
-    if StandDown() then return end
     if not CanEditWatches() then
         instancePass = false
         if MapOpen() and not mapDeferred then
@@ -511,24 +493,6 @@ function QueueWatches()
     C_Timer.After(0, ApplyWatches)
 end
 
--- A style switch since login: the tools stand down until a reload.
-local function StyleCheck()
-    if styleAsked or EllesmereUI.PadTaintStandDown() == StandDown() then return end
-    styleAsked = true
-    standDown = true
-    EQT.ApplyQuestWatches()
-    -- The Gamepad style's D-pad cannot reach the popup, so chat says it too.
-    -- A confirm, not RequestReload: an event cannot reload, its click can.
-    EllesmereUI.PrintError(EllesmereUI.L("The interface style changed. Type /reload so the quest tracker matches it."))
-    EllesmereUI:ShowConfirmPopup({
-        title       = EllesmereUI.L("Reload Required"),
-        message     = EllesmereUI.L("The interface style changed. Reload so the quest tracker matches it."),
-        confirmText = EllesmereUI.L("Reload Now"),
-        cancelText  = EllesmereUI.L("Later"),
-        reload      = true,
-    })
-end
-
 -- QUEST_WATCH_UPDATE fires before the log holds the new counts, so the probe
 -- waits for the QUEST_LOG_UPDATE that follows it, and a pass runs only when
 -- a quest turned complete or back (or Progress sorts the list).
@@ -554,9 +518,6 @@ local function OnWatchEvent(_, event, arg1)
         local inInstance, kind = IsInInstance()
         instancePass = inInstance and kind == "party"
         QueueWatches()
-    elseif event == "INPUT_DEVICE_INTERFACE_TRANSITION" then
-        -- The style is read one frame after the transition event.
-        C_Timer.After(0, StyleCheck)
     else
         QueueWatches()
     end
@@ -633,7 +594,7 @@ function EQT.ApplyQuestWatches()
     local sortOn = SortOn()
     if sortWasOn and not sortOn then restoreOrder = true end
     sortWasOn = sortOn
-    if sortOn or StandDown() then restoreOrder = false end
+    if sortOn then restoreOrder = false end
     local on = WatchesActive()
     if not watchFrame then
         if not (on or restoreOrder) then return end
@@ -666,10 +627,6 @@ function EQT.ApplyQuestWatches()
     if FilterCfg("filterTrivial") then watchFrame:RegisterEvent("PLAYER_LEVEL_UP") end
     -- New quests are not always auto-watched by Blizzard.
     if AutoOn() then watchFrame:RegisterEvent("QUEST_ACCEPTED") end
-    if not (C_EventUtils and C_EventUtils.IsEventValid
-            and not C_EventUtils.IsEventValid("INPUT_DEVICE_INTERFACE_TRANSITION")) then
-        watchFrame:RegisterEvent("INPUT_DEVICE_INTERFACE_TRANSITION")
-    end
     QueueWatches()
 end
 
@@ -903,7 +860,7 @@ function EQT.ColorObjectiveLines(block)
     if not lines then return end
     local progress, dim = Cfg("objProgressColor"), Cfg("objDimCompleted")
     local questID = type(block.id) == "number" and block.id
-    if not ((progress or dim) and questID) or StandDown() or EllesmereUI.PadTaintStandDown() then
+    if not ((progress or dim) and questID) then
         if next(colored) == nil then return end
         for _, line in pairs(lines) do
             local fs = line.Text

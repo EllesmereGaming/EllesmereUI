@@ -239,7 +239,6 @@ do
     local _comparisonManagerHookInstalled = false
     local _comparisonHideHookInstalled = false
     local function InstallComparisonHooks()
-        if EllesmereUI.BlizzSkinPadStandDown() then return end
         InstallComparisonPreCall()
 
         if not _comparisonHideHookInstalled then
@@ -330,7 +329,7 @@ do
     end
     local _modeShowHookInstalled = false
     local function EnsureModeShowHook()
-        if _modeShowHookInstalled or EllesmereUI.BlizzSkinPadStandDown() then return end
+        if _modeShowHookInstalled then return end
         _modeShowHookInstalled = true
         -- Item data can hide and re-show the tooltip without another SetOwner,
         -- including after asynchronous data arrives. Re-apply before it renders.

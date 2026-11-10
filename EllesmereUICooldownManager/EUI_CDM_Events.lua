@@ -493,19 +493,13 @@ SlashCmdList.ECME = function(msg)
 end
 
 -- /cd toggles Blizzard's Cooldown Manager settings: out of combat, a frame
--- later (off the chat line, as the parent's commands run). WoW Forever's
--- Gamepad interface style blocks opening a Blizzard panel from addon code
--- where its navigation can still be tainted (EllesmereUI.PadTaintStandDown).
--- The /cd alias itself is set in ECME:OnInitialize, and only while Quality of
--- Life's "Type /cd to open Blizzard CDM" is on.
+-- later (off the chat line, as the parent's commands run). The /cd alias
+-- itself is set in ECME:OnInitialize, and only while Quality of Life's
+-- "Type /cd to open Blizzard CDM" is on.
 SlashCmdList.EUIBLIZZCDM = function()
     C_Timer.After(0, function()
         if InCombatLockdown() then
             EllesmereUI.PrintError(EllesmereUI.L("Cannot open the Cooldown Manager during combat."))
-            return
-        end
-        if EllesmereUI.PadTaintStandDown() then
-            EllesmereUI.PrintError(EllesmereUI.L("Cannot open the Cooldown Manager with the Gamepad interface style."))
             return
         end
         OpenBlizzardCDMTab()

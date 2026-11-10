@@ -425,7 +425,6 @@ function EllesmereUI.SetFontFamily(fs, path, size, flags, shadow)
     fs._font, fs._fontSize, fs._family = path, size, true
     TEST.families = TEST.families + 1
 end
-function EllesmereUI.PadTaintStandDown() return false end
 function EllesmereUI.PadGamepadUI() return TEST.gamepad end
 function EllesmereUI.IsSecret(v) return issecretvalue(v) end
 function EllesmereUI.ClassTokenFromLocalized() return "MAGE" end

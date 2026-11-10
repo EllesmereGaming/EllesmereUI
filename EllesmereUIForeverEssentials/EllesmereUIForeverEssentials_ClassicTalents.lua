@@ -543,7 +543,7 @@ local function Bind()
     if not toggle then return end
     if on then
         toggle:RegisterEvent("UPDATE_BINDINGS")
-        if not microLayer and not EllesmereUI.PadTaintStandDown() then
+        if not microLayer then
             microLayer = module.MicroClickLayer("TalentMicroButton", Toggle)
         end
     else
