@@ -531,11 +531,11 @@ end
                 end
             end
         end
-        -- Blizzard Style: the stock fill art has shaped ends, the zone is a
+        -- WoW Forever: the stock fill art has shaped ends, the zone is a
         -- plain rectangle; masked to the fill's shape so its corners never
         -- show past the fill (a channel's front zone left a red corner pixel
         -- at the frame art's rounded corner). Once: the style is latched.
-        if blizzKit then
+        if blizzKit and ns.ERB_CastForever() then
             local m = castBarFrame._latencyMask
             if not m then
                 local fillAtlas = ns.ERB_BlizzAtlas("cast")
