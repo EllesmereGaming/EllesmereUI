@@ -16,6 +16,15 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Characters Shown and Minimum Level. A right click on an ignored character
 --  offers Show This Character Again. Nothing here opens the EllesmereUI options.
 --
+--  Tabs under the title pick what the list shows (mailAltListTab): Characters
+--  (the roster), Guild (the guild roster, by last time online) or Friends (the
+--  game's friend list; where the game has none, as on WoW Forever, the
+--  Battle.net friends seen in this game, each character kept in
+--  EllesmereUIDB.mailAltFriends so it stays listed while its player is away).
+--  Sort By, Max Characters Shown and Minimum Level apply to every tab;
+--  ignoring is for the player's own characters. The tabs are plain buttons of
+--  ours (no Blizzard tab template, whose OnShow would sit under SendMailFrame).
+--
 --  The roster, EllesmereUIDB.mailAltRoster (by player GUID, which a rename
 --  keeps), is written at every login and logout even while the list is off
 --  (owner decision 2026-10-24): two small writes a session and nothing during
@@ -69,6 +78,7 @@ local MAX_ROWS   = 20       -- the Max Characters Shown slider's top
 -- WoW Forever lists "Name Surname": a wider panel.
 local PANEL_W    = EllesmereUI.IS_FOREVER and 200 or 170
 local ROW_H      = 22
+local TAB_H      = 20       -- the tab strip under the title
 local ICON_SIZE  = 16
 local LIST_PAD   = 4        -- above the first row and below the last
 local EMPTY_PAD  = 10       -- around the empty-list note
@@ -99,10 +109,14 @@ local sortRoster                  -- the roster the comparators read during one 
 local menuGuid                    -- the row the right-click menu was opened on
 local myGuid                      -- this character, read at login (never in its own list)
 local paintedGen, paintedFaction  -- the class colour palette and faction the list was painted with
-local MENU, IGNORED_MENU, Changed
+local MENU, IGNORED_MENU, Changed, BuildTabs
 local showIgnored = false         -- the title's right click: ignored characters listed too (this session)
 local ignoredShown = {}           -- player GUIDs of the ignored characters in the shown list
 local ignoredCount = 0            -- ignored characters this page could mail
+local tabs = {}                   -- the tab buttons, by tab key
+local contacts = {}               -- the Guild or Friends entries of one paint, by mail address
+local source                      -- the map the shown keys index: the roster, or contacts
+local listTop                     -- where the rows start: below the title band and the tabs
 
 -------------------------------------------------------------------------------
 --  Settings and the roster
@@ -131,6 +145,12 @@ local function Roster()
         db.mailAltRoster = r
     end
     return r
+end
+
+local TAB_KEYS = { alts = true, guild = true, friends = true }
+local function Tab()
+    local t = Setting("mailAltListTab", "alts")
+    return TAB_KEYS[t] and t or "alts"
 end
 
 local function Hidden()
@@ -225,6 +245,91 @@ local function ByRecent(a, b)
 end
 local SORTS = { recent = ByRecent, level = ByLevel, name = ByName }
 
+local function PlainLevel(level)
+    if type(level) == "number" and not IsSecret(level) and level > 0 then return level end
+end
+
+local function ClassFile(classID, localized)
+    local info = classID and not IsSecret(classID) and C_CreatureInfo.GetClassInfo(classID)
+    if info and info.classFile then return info.classFile end
+    return EUI.ClassTokenFromLocalized(localized)
+end
+
+-- Guild: every member but this character, online ones seen now and the
+-- others at their last time online (the game counts it in hours).
+local function GatherGuild(me, now)
+    if not IsInGuild() then return end
+    for i = 1, GetNumGuildMembers() do
+        local name, _, _, level, _, _, _, _, online, _, class, _, _, _, _, _, guid = GetGuildRosterInfo(i)
+        name, class = PlainString(name), PlainString(class)
+        if name and class and PlainString(guid) ~= me then
+            local seen = now
+            if not online and GetGuildRosterLastOnline then
+                local y, m, d, h = GetGuildRosterLastOnline(i)
+                seen = now - ((((y or 0) * 12 + (m or 0)) * 30 + (d or 0)) * 24 + (h or 0)) * 3600
+            end
+            local target = Ambiguate(name, "mail")
+            contacts[target] = { name = Ambiguate(name, "guild"), target = target, class = class,
+                level = PlainLevel(level), seen = seen }
+        end
+    end
+end
+
+-- The Battle.net friends' characters seen in this game, by mail address.
+local function Friends()
+    local db = EllesmereUIDB
+    if type(db) ~= "table" then return nil end
+    if type(db.mailAltFriends) ~= "table" then db.mailAltFriends = {} end
+    return db.mailAltFriends
+end
+
+-- A Battle.net friend playing this game: its character kept.
+local function RememberFriend(acc, now)
+    local ga = acc and acc.gameAccountInfo
+    if not (ga and ga.isOnline and ga.clientProgram == BNET_CLIENT_WOW) then return end
+    if ga.wowProjectID and ga.wowProjectID ~= WOW_PROJECT_ID then return end
+    local name = PlainString(ga.characterName)
+    local class = ClassFile(ga.classID, ga.className)
+    local store = Friends()
+    if not (name and class and store) then return end
+    local e = store[name]
+    if type(e) ~= "table" then
+        e = {}
+        store[name] = e
+    end
+    e.name, e.target, e.class = name, name, class
+    e.level = PlainLevel(ga.characterLevel) or e.level
+    e.faction = PlainString(ga.factionName) or e.faction
+    e.seen = now
+end
+
+-- The game's friend list where it has one; else the Battle.net friends'
+-- characters, those online now recorded first.
+local function LegacyFriends()
+    return C_FriendList.IsLegacyFriendSystemEnabled()
+end
+
+local function GatherFriends(now)
+    if LegacyFriends() then
+        for i = 1, C_FriendList.GetNumFriends() do
+            local f = C_FriendList.GetFriendInfoByIndex(i)
+            local name = f and PlainString(f.name)
+            local class = f and ClassFile(nil, f.className)
+            if name and class then
+                contacts[name] = { name = Ambiguate(name, "guild"), target = name, class = class,
+                    level = PlainLevel(f.level), seen = f.connected and now or 0 }
+            end
+        end
+        return
+    end
+    for i = 1, BNGetNumFriends() do RememberFriend(C_BattleNet.GetFriendAccountInfo(i), now) end
+    local store = Friends()
+    if not store then return end
+    for key, e in pairs(store) do
+        if type(e) == "table" and type(e.name) == "string" and e.class then contacts[key] = e end
+    end
+end
+
 local function Collect()
     wipe(shown)
     wipe(ignoredShown)
@@ -237,22 +342,34 @@ local function Collect()
     local me = myGuid or PlainString(UnitGUID("player"))
     local hidden = Hidden()
     local minLevel = NumberSetting("mailAltListMinLevel", DEFAULT_MIN_LEVEL)
-    -- WoW Forever: another ruleset is out of reach altogether.
-    local own = FOREVER and OwnRealmKey()
-    for guid, e in pairs(roster) do
-        if guid ~= me and type(e) == "table" and type(e.name) == "string" and e.realmKey
-           and (not own or e.realmKey == own) then
-            mailable = mailable + 1
-            if hidden and hidden[guid] then
-                ignoredCount = ignoredCount + 1
-                if showIgnored then ignoredShown[guid] = true end
-            elseif (e.level or 0) >= minLevel then
-                shown[#shown + 1] = guid
+    local tab = Tab()
+    if tab == "alts" then
+        source = roster
+        -- WoW Forever: another ruleset is out of reach altogether.
+        local own = FOREVER and OwnRealmKey()
+        for guid, e in pairs(roster) do
+            if guid ~= me and type(e) == "table" and type(e.name) == "string" and e.realmKey
+               and (not own or e.realmKey == own) then
+                mailable = mailable + 1
+                if hidden and hidden[guid] then
+                    ignoredCount = ignoredCount + 1
+                    if showIgnored then ignoredShown[guid] = true end
+                elseif (e.level or 0) >= minLevel then
+                    shown[#shown + 1] = guid
+                end
             end
+        end
+    else
+        wipe(contacts)
+        source = contacts
+        if tab == "guild" then GatherGuild(me, time()) else GatherFriends(time()) end
+        for key, e in pairs(contacts) do
+            mailable = mailable + 1
+            if (e.level or 0) >= minLevel then shown[#shown + 1] = key end
         end
     end
     local comparator = SORTS[Setting("mailAltListSort", DEFAULT_SORT)] or ByRecent
-    sortRoster = roster
+    sortRoster = source
     sort(shown, comparator)
     for i = #shown, Clamp(NumberSetting("mailAltListMax", DEFAULT_MAX), 1, MAX_ROWS) + 1, -1 do shown[i] = nil end
     -- The ignored ones, when asked: after the others, up to the list's top.
@@ -272,9 +389,10 @@ end
 -------------------------------------------------------------------------------
 local Paint, Place
 
+local MenuFor
+
 local function RowEnter(self)
-    local roster = Roster()
-    local e = self._guid and roster and roster[self._guid]
+    local e = self._guid and source and source[self._guid]
     if type(e) ~= "table" then return end
     local c = EUI.GetClassColor(e.class)
     local head = e.name
@@ -288,7 +406,8 @@ local function RowEnter(self)
             or EllesmereUI.L("Only Warbound items can be mailed to this character."))
     end
     EUI.ShowWidgetTooltip(self, text .. "\n" .. EUI.COLOR_CODES.DIM
-        .. EllesmereUI.L("Click to mail, right-click for options.") .. "|r",
+        .. (MenuFor(self) and EllesmereUI.L("Click to mail, right-click for options.")
+            or EllesmereUI.L("Click to mail.")) .. "|r",
         { anchor = "right", justify = "LEFT" })
 end
 
@@ -299,8 +418,11 @@ end
 local function RowClick(self, button)
     if not self._guid then return end
     if button == "RightButton" then
-        menuGuid = self._guid
-        EUI.ShowContextMenu(self, self._ignored and IGNORED_MENU or MENU)
+        local menu = MenuFor(self)
+        if menu then
+            menuGuid = self._guid
+            EUI.ShowContextMenu(self, menu)
+        end
         return
     end
     local box = SendMailNameEditBox
@@ -341,8 +463,8 @@ local function NewRow(i)
     r:SetScript("OnClick", RowClick)
     r:SetScript("OnEnter", RowEnter)
     r:SetScript("OnLeave", RowLeave)
-    r:SetPoint("TOPLEFT", panel, "TOPLEFT", inset, -(topH + LIST_PAD + (i - 1) * ROW_H))
-    r:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -inset, -(topH + LIST_PAD + (i - 1) * ROW_H))
+    r:SetPoint("TOPLEFT", panel, "TOPLEFT", inset, -(listTop + LIST_PAD + (i - 1) * ROW_H))
+    r:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -inset, -(listTop + LIST_PAD + (i - 1) * ROW_H))
     rows[i] = r
     return r
 end
@@ -396,6 +518,57 @@ local function PaintBackdrop()
     else
         bgFlat:SetColorTexture(0, 0, 0, 0)
     end
+end
+
+-- The tab strip: plain buttons, the shown tab bright and underlined.
+local TAB_LIST = { "alts", "guild", "friends" }
+
+local function PaintTabs()
+    local cur = Tab()
+    for key, b in pairs(tabs) do
+        b._text:SetAlpha(key == cur and 1 or 0.5)
+        b._line:SetShown(key == cur)
+    end
+end
+
+local function SetTab(key)
+    if not EllesmereUIDB or Tab() == key then return end
+    EllesmereUIDB.mailAltListTab = key
+    if key == "guild" and IsInGuild() then C_GuildInfo.GuildRoster() end
+    PaintTabs()
+    Changed()
+end
+
+BuildTabs = function()
+    -- Clear of the title band (Blizz Default's frame edge reaches into it).
+    local top = topH + 2
+    listTop = top + TAB_H
+    local w = (PANEL_W - inset * 2) / #TAB_LIST
+    local labels = { alts = EllesmereUI.L("Characters"), guild = EllesmereUI.L("Guild"),
+        friends = EllesmereUI.L("Friends") }
+    for i, key in ipairs(TAB_LIST) do
+        local b = CreateFrame("Button", nil, panel)
+        b:SetSize(w, TAB_H)
+        b:SetPoint("TOPLEFT", panel, "TOPLEFT", inset + (i - 1) * w, -top)
+        local text = b:CreateFontString(nil, "OVERLAY", blizzLook and "GameFontNormalSmall" or nil)
+        if not blizzLook then WSkin.Font(text, 1, 1, 1, 11) end
+        text:SetPoint("LEFT", 2, 0)
+        text:SetPoint("RIGHT", -2, 0)
+        text:SetWordWrap(false)
+        text:SetText(labels[key])
+        local line = b:CreateTexture(nil, "ARTWORK")
+        line:SetHeight(2)
+        line:SetPoint("BOTTOMLEFT", 6, 0)
+        line:SetPoint("BOTTOMRIGHT", -6, 0)
+        if blizzLook then line:SetColorTexture(1, 0.82, 0, 0.9) else line:SetColorTexture(1, 1, 1, 0.8) end
+        local hl = b:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints()
+        hl:SetColorTexture(1, 1, 1, 0.06)
+        b._text, b._line = text, line
+        b:SetScript("OnClick", function() SetTab(key) end)
+        tabs[key] = b
+    end
+    PaintTabs()
 end
 
 local function Build()
@@ -454,6 +627,7 @@ local function Build()
         WSkin.OnStylesChanged(PaintBackdrop)
     end
     title:SetText(EllesmereUI.L("Alts"))
+    BuildTabs()
     -- A cog in the title band: the list's own menu, on the spot.
     -- On Blizzard's DefaultPanelTemplate the border (NineSlice) sits at frame
     -- level 500, over any plain child: the cog lives in the title's container
@@ -508,30 +682,54 @@ local function Build()
     -- panel is first placed, and a width taken from unplaced anchors measures
     -- the text as one unwrapped line (a panel too short, the note cut off).
     emptyNote:SetWidth(PANEL_W - EMPTY_PAD * 2)
-    emptyNote:SetPoint("TOP", panel, "TOP", 0, -(topH + EMPTY_PAD))
+    emptyNote:SetPoint("TOP", panel, "TOP", 0, -(listTop + EMPTY_PAD))
     emptyNote:SetJustifyH("CENTER")
     emptyNote:SetSpacing(2)
+end
+
+-- Why the shown tab lists nobody.
+local function EmptyText()
+    local tab = Tab()
+    if tab == "guild" then
+        if not IsInGuild() then return ERR_GUILD_PLAYER_NOT_IN_GUILD or "" end
+        if mailable == 0 then
+            return GetNumGuildMembers() == 0 and (RETRIEVING_DATA or "")
+                or EllesmereUI.L("No one else is in your guild.")
+        end
+    elseif tab == "friends" then
+        if mailable == 0 then
+            return LegacyFriends() and EllesmereUI.L("Your friends list is empty.")
+                or EllesmereUI.L("Your Battle.net friends' characters show here once seen in this game.")
+        end
+    else
+        if mailable == 0 then return EllesmereUI.L("Log into your other characters to list them here.") end
+        return EllesmereUI.L("Your other characters are hidden by Shown Characters or Minimum Level.")
+            .. (ignoredCount > 0 and ("\n" .. EllesmereUI.L("The cog shows the ignored ones.")) or "")
+    end
+    return EllesmereUI.L("Everyone here is hidden by Minimum Level.")
 end
 
 Paint = function()
     dirty = false
     paintedGen = EUI._dmGen
     Collect()
-    local roster = Roster()
     local own = OwnRealmKey()
     local realms = ConnectedRealms()
     local myFaction = FOREVER and paintedFaction
     local n = #shown
     for i = 1, n do
         local guid = shown[i]
-        local e = roster[guid]
+        local e = source[guid]
         local r = rows[i] or NewRow(i)
-        local foreign = e.realmKey ~= own
+        -- A guild member or a friend (e.target): its mail address as the game gave it.
+        local foreign = not e.target and e.realmKey ~= own
         -- Any mail reaches this realm or a connected one, either faction;
         -- another realm takes Warbound items only and shows dimmed. WoW
         -- Forever: the same ruleset only (Collect), and the same faction.
         local limited
-        if FOREVER then
+        if e.target then
+            limited = FOREVER and myFaction ~= nil and e.faction ~= nil and e.faction ~= myFaction
+        elseif FOREVER then
             limited = myFaction ~= nil and e.faction ~= nil and e.faction ~= myFaction
         else
             limited = not realms[e.realmKey]
@@ -540,14 +738,18 @@ Paint = function()
         r._guid, r._foreign, r._limited, r._ignored = guid, foreign, limited, ignored
         -- Mail addresses another realm's character as "Name-Realm", and a
         -- WoW Forever character by its full name, "Name Surname".
-        if FOREVER then
+        if e.target then
+            r._target = e.target
+        elseif FOREVER then
             r._target = e.surname and (e.name .. " " .. e.surname) or e.name
         else
             r._target = foreign and (e.name .. "-" .. e.realmKey) or e.name
         end
         DressIcon(r._icon, e.class)
         local c = EUI.GetClassColor(e.class)
-        if FOREVER then
+        if e.target then
+            r._name:SetText(e.name)
+        elseif FOREVER then
             r._name:SetText(e.surname and (e.name .. " " .. e.surname) or e.name)
         else
             r._name:SetText(foreign and (e.name .. FOREIGN_SERVER_LABEL) or e.name)
@@ -568,14 +770,11 @@ Paint = function()
     local h
     if n > 0 then
         emptyNote:Hide()
-        h = topH + LIST_PAD * 2 + n * ROW_H
+        h = listTop + LIST_PAD * 2 + n * ROW_H
     else
-        emptyNote:SetText(mailable == 0
-            and EllesmereUI.L("Log into your other characters to list them here.")
-            or (EllesmereUI.L("Your other characters are hidden by Shown Characters or Minimum Level.")
-                .. (ignoredCount > 0 and ("\n" .. EllesmereUI.L("The cog shows the ignored ones.")) or "")))
+        emptyNote:SetText(EmptyText())
         emptyNote:Show()
-        h = topH + EMPTY_PAD * 2 + math.ceil(emptyNote:GetStringHeight())
+        h = listTop + EMPTY_PAD * 2 + math.ceil(emptyNote:GetStringHeight())
     end
     if blizzLook then h = h + (FOREVER and 8 or 2) end   -- the frame's bottom edge
     panel:SetHeight(h)
@@ -632,7 +831,10 @@ end
 local function ShowPanel()
     if not panel then Build() end
     panel:Show()
-    if dirty or paintedGen ~= EUI._dmGen or paintedFaction ~= PlainString((UnitFactionGroup("player"))) then
+    -- Guild members and friends come and go: their tabs repaint on every show.
+    local tab = Tab()
+    if tab == "guild" and IsInGuild() then C_GuildInfo.GuildRoster() end
+    if dirty or tab ~= "alts" or paintedGen ~= EUI._dmGen or paintedFaction ~= PlainString((UnitFactionGroup("player"))) then
         Paint()
     end
     Place()
@@ -696,6 +898,19 @@ MENU = {
       end },
 }
 
+-- A Battle.net friend's character: forget it (a moved or deleted one).
+local FRIEND_MENU = {
+    { text = "Remove Character",
+      tooltip = "Forgets this character until it is seen online again.",
+      onClick = function()
+          local store = Friends()
+          if store and menuGuid then
+              store[menuGuid] = nil
+              Changed()
+          end
+      end },
+}
+
 -- An ignored character (shown on request): undo the ignore, or forget it.
 IGNORED_MENU = {
     { text = "Show This Character Again",
@@ -705,6 +920,14 @@ IGNORED_MENU = {
       end },
     MENU[2],
 }
+
+-- A row's right-click menu: the player's own characters and the remembered
+-- Battle.net friends have one; the guild and the game's friend list none.
+MenuFor = function(row)
+    local tab = Tab()
+    if tab == "alts" then return row._ignored and IGNORED_MENU or MENU end
+    if tab == "friends" and not LegacyFriends() then return FRIEND_MENU end
+end
 
 -------------------------------------------------------------------------------
 --  Hooks: tab switches and the letter window
@@ -733,7 +956,29 @@ local function HookMail()
     end
 end
 
+-- While the list is on: a guild or friend list update repaints its shown tab,
+-- and a Battle.net friend entering this game is remembered.
+local CONTACT_EVENTS = { "GUILD_ROSTER_UPDATE", "FRIENDLIST_UPDATE", "BN_FRIEND_INFO_CHANGED" }
+local function WatchContacts(on)
+    for i = 1, #CONTACT_EVENTS do
+        if on then ev:RegisterEvent(CONTACT_EVENTS[i]) else ev:UnregisterEvent(CONTACT_EVENTS[i]) end
+    end
+end
+
+local function OnContacts(event, arg1)
+    if event == "BN_FRIEND_INFO_CHANGED" and arg1 and not LegacyFriends() then
+        RememberFriend(C_BattleNet.GetFriendAccountInfo(arg1), time())
+    end
+    local tab = Tab()
+    if tab == "alts" or not (panel and panel:IsVisible()) then return end
+    if (event == "GUILD_ROSTER_UPDATE") == (tab == "guild") then
+        Paint()
+        Place()
+    end
+end
+
 local function Install()
+    WatchContacts(true)
     if hooked then return end
     if C_AddOns.IsAddOnLoaded("Blizzard_MailFrame") then
         HookMail()
@@ -760,7 +1005,9 @@ function ns.MailAlts.Refresh()
         -- Visible, not shown: SendMailFrame keeps its shown flag while the
         -- mailbox is closed, and the panel paints only where it can measure.
         if hooked and SendMailFrame:IsVisible() then ShowPanel() end
-    elseif panel then
+    else
+        WatchContacts(false)
+        if not panel then return end
         panel:Hide()
         local owner = EUI.ContextMenuOwner()
         if owner and owner._mailAltRow then EUI.CloseContextMenu() end
@@ -816,6 +1063,8 @@ ev:SetScript("OnEvent", function(self, event, arg1)
         if Enabled() then Install() end
     elseif event == "PLAYER_LOGOUT" then
         RecordPlayer()
+    elseif event ~= "ADDON_LOADED" then
+        OnContacts(event, arg1)
     elseif arg1 == "Blizzard_MailFrame" then
         self:UnregisterEvent("ADDON_LOADED")
         HookMail()

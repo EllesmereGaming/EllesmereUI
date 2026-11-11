@@ -2309,7 +2309,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Show Alt List",
-              tooltip="Lists your alts beside Send Mail.",
+              tooltip="Lists your alts beside Send Mail; its tabs also list your guild and your friends.",
               getValue=On,
               setValue=function(v)
                   Set("mailAltList", v)
@@ -4656,6 +4656,7 @@ initFrame:SetScript("OnEvent", function(self)
                     "tooltipBgOpacity", "showSpellID", "spellIDModifier", "showIconID",
                     "showItemID", "friendsListCard",
                     "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
+                    "mailAltListTab",
                     -- Shown Characters (the roster itself is recorded data, not a setting)
                     "mailAltHidden",
                 }) do EllesmereUIDB[k] = nil end

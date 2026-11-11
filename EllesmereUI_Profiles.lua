@@ -2099,7 +2099,8 @@ end
 -- friendsFramePos (dragged panel positions, resolution- bound), tooltipFixedPos (stale
 -- account key; the live one is per-profile and rides the profile itself),
 -- blizzWindowModernBG (dead key, read nowhere), mailAltRoster / mailAltHidden (the
--- player's own characters and which of them the Mail card's Alt List leaves out).
+-- player's own characters and which of them the Mail card's Alt List leaves out),
+-- mailAltFriends (the friends' characters it has seen), mailAltListTab (its shown tab).
 -------------------------------------------------------------------------------
 local BLIZZ_SKIN_GLOBAL_KEYS = {}
 do
@@ -2460,6 +2461,7 @@ end
 --                         untracked, collapsed, opened and pinned quests
 --    mailAltRoster        the Mail card's Alt List: every character recorded
 --    mailAltHidden        and the ones its Shown Characters leaves out
+--    mailAltFriends       and the Battle.net friends' characters it has seen
 --    raidHoroscope        Party Mode's Should I Raid Tonight?: each
 --                         character's birthday
 --    cdmCachedBarSizes    Cooldown Manager bar sizes cached per character
@@ -2506,6 +2508,7 @@ local FULL_EXPORT_EXCLUDED = {
     cdmRepopulateDone     = true,
     mailAltRoster         = true,
     mailAltHidden         = true,
+    mailAltFriends        = true,
     raidHoroscope         = true,
     cdmCachedBarSizes     = true,
     bagCurrencyByChar     = true,
