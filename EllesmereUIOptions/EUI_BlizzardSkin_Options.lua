@@ -72,6 +72,32 @@ initFrame:SetScript("OnEvent", function(self)
             apply = apply,
         }
     end
+    -- A Border Style dropdown whose first entry, Default, leaves <prefix>BorderTexture unset
+    -- (the surface's own border): its values and order, and the write for a pick.
+    local function DefaultableBorderValues()
+        local values, order = EllesmereUI.GetBorderTextureDropdown()
+        values.default = "Default"
+        table.insert(order, 1, "default")
+        return values, order
+    end
+    local function SetDefaultableBorderStyle(prefix, v)
+        local db = EllesmereUIDB
+        if v == "default" then
+            db[prefix.."BorderTexture"] = nil
+        else
+            local c, b = EllesmereUI.GetBorderStyleSelectDefaults(v)
+            db[prefix.."BorderTexture"] = v
+            db[prefix.."BorderBehind"] = b
+            db[prefix.."BorderColor"] = c
+            -- Full opacity and the style's own size: the 18% default leaves textured art faded
+            db[prefix.."BorderOpacity"] = 1
+            local size = EllesmereUI.GetBorderDefaultSize(nil, v)
+            if size then db[prefix.."BorderThickness"] = EllesmereUI.BORDER_LABEL_OF_STEP[size] end
+        end
+        db[prefix.."BorderOffsetX"] = nil
+        db[prefix.."BorderOffsetY"] = nil
+        if db[prefix.."BorderThicknessPx"] then db[prefix.."BorderThicknessPx"] = false end
+    end
     -- A border row's inline controls: the Accent | Class | Custom color mode swatches left of
     -- its Border Size, and the Show Behind cog (allowBehind) left of its style. opts: apply =
     -- run after a pick (the Loot Window card's live refresh); quality = { key, tip } adds a
@@ -234,6 +260,10 @@ initFrame:SetScript("OnEvent", function(self)
     local function PopupPreviewRepaint()
         if EllesmereUI._repaintPopupPreview then EllesmereUI._repaintPopupPreview() end
     end
+
+    -- Timer Bars texture dropdown, built once: the SharedMedia append keeps
+    -- one consumer per table.
+    local timerBarTexValues, timerBarTexOrder
 
     local function BuildTooltipsPage(pageName, parent, yOffset)
         if not EllesmereUIDB then EllesmereUIDB = {} end
@@ -1088,6 +1118,236 @@ initFrame:SetScript("OnEvent", function(self)
             end
             EllesmereUI.RegisterWidgetRefresh(UpdQueueTimerState)
             UpdQueueTimerState()
+        end
+
+        -----------------------------------------------------------------------
+        --  Timer Bars: Blizzard's breath, fatigue and feign death bars
+        --  (EUI_BlizzardSkin_HUD.lua). Look settings apply live through
+        --  EllesmereUI._TimerBarsRefresh; only the reskin toggle needs a reload.
+        -----------------------------------------------------------------------
+        local TB = EllesmereUI.TIMER_BARS
+        if TB then
+            local prefix = "timerBars"
+            local PP = EllesmereUI.PanelPP
+            local function tbOff()
+                return not (EllesmereUIDB and EllesmereUIDB.reskinTimerBars == true)
+            end
+            local function Get(key, default)
+                local v = EllesmereUIDB[key]
+                if v == nil then return default end
+                return v
+            end
+            local function apply()
+                if EllesmereUI._TimerBarsRefresh then EllesmereUI._TimerBarsRefresh() end
+            end
+            local function Set(key, v)
+                EllesmereUIDB[key] = v
+                apply()
+            end
+            local function GetColor(key, default)
+                local c = EllesmereUIDB[key] or default
+                return c.r, c.g, c.b, 1
+            end
+            local function SetColor(key)
+                return function(r, g, b) Set(key, { r = r, g = g, b = b }) end
+            end
+            local function AccentFill()
+                local EG = EllesmereUI.ELLESMERE_GREEN
+                return EG.r, EG.g, EG.b, 1
+            end
+            local function typeColorsOn() return Get("timerBarsTypeColors", false) == true end
+            local function textOff() return tbOff() or Get("timerBarsShowText", true) == false end
+            local function borderOff() return tbOff() or not EllesmereUIDB[prefix.."BorderTexture"] end
+
+            _, h = W:SectionHeader(parent, "TIMER BARS", y);  y = y - h
+
+            if not timerBarTexValues then
+                local tex, names, order = EllesmereUI.BuildBarTextureTables()
+                EllesmereUI.AppendSharedMediaTextures(names, order, nil, tex)
+                timerBarTexValues, timerBarTexOrder = {}, {}
+                for _, key in ipairs(order) do
+                    if key ~= "---" then timerBarTexValues[key] = names[key] or key end
+                    timerBarTexOrder[#timerBarTexOrder + 1] = key
+                end
+            end
+
+            -- Reskin Timer Bars | Bar Texture
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Reskin Timer Bars",
+                  tooltip="Restyles Blizzard's breath, fatigue and feign death bars",
+                  getValue=function()
+                      -- DEFAULT OFF: opt-in, so nil reads as unchecked.
+                      return EllesmereUIDB and EllesmereUIDB.reskinTimerBars == true
+                  end,
+                  setValue=function(v)
+                      EllesmereUIDB.reskinTimerBars = v and true or false
+                      EllesmereUI:RefreshPage()
+                      -- Reload-bound: decided once at login, so OFF hooks nothing.
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Timer bar reskin requires a UI reload to apply.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Later",
+                          reload      = true,
+                      })
+                  end },
+                { type="dropdown", text="Bar Texture",
+                  disabled=tbOff, disabledTooltip="Reskin Timer Bars",
+                  values=timerBarTexValues, order=timerBarTexOrder,
+                  getValue=function() return Get("timerBarsTexture", "none") end,
+                  setValue=function(v) Set("timerBarsTexture", v) end }
+            ); y = y - h
+
+            -- Fill Color (opacity + Custom | Class | Accent) | Background (opacity + color)
+            local colorRow
+            colorRow, h = W:DualRow(parent, y,
+                { type="slider", text="Fill Color", min=0, max=100, step=1, trackWidth=120,
+                  tooltip="Opacity of the bar fill.",
+                  disabled=tbOff, disabledTooltip="Reskin Timer Bars",
+                  getValue=function() return Get("timerBarsFillOpacity", TB.FILL_OPACITY) end,
+                  setValue=function(v) Set("timerBarsFillOpacity", v) end },
+                { type="slider", text="Background", min=0, max=100, step=1, trackWidth=120,
+                  tooltip="Opacity of the bar background.",
+                  disabled=tbOff, disabledTooltip="Reskin Timer Bars",
+                  getValue=function() return Get("timerBarsBgOpacity", 100) end,
+                  setValue=function(v) Set("timerBarsBgOpacity", v) end }
+            ); y = y - h
+            if not EllesmereUI._prebuilding then
+                local function FillMode() return Get("timerBarsFillMode", "accent") end
+                local function ModeSwatch(mode, tip, getValue, setValue)
+                    return { tooltip = tip,
+                      disabled = function() return tbOff() or typeColorsOn() end,
+                      disabledTooltip = function() return tbOff() and "Reskin Timer Bars" or "Color by Timer Type" end,
+                      requireState = function() return tbOff() and "enabled" or "disabled" end,
+                      getValue = getValue, setValue = setValue or function() end,
+                      onClick = function(self)
+                          if FillMode() ~= mode or not setValue then
+                              Set("timerBarsFillMode", mode); EllesmereUI:RefreshPage()
+                              return
+                          end
+                          if self._eabOrigClick then self._eabOrigClick(self) end
+                      end,
+                      refreshAlpha = function() return FillMode() == mode and 1 or 0.3 end }
+                end
+                EllesmereUI.BuildInlineSwatches(colorRow._leftRegion, {
+                    ModeSwatch("custom", "Custom Color",
+                        function() if EllesmereUIDB.timerBarsFillColor then return GetColor("timerBarsFillColor") end return AccentFill() end,
+                        function(r, g, b)
+                            EllesmereUIDB.timerBarsFillMode = "custom"
+                            Set("timerBarsFillColor", { r = r, g = g, b = b })
+                        end),
+                    ModeSwatch("class", "Class Color", function()
+                        local _, classFile = UnitClass("player")
+                        local cc = classFile and EllesmereUI.GetClassColor(classFile)
+                        if cc then return cc.r, cc.g, cc.b, 1 end
+                        return 1, 1, 1, 1
+                    end),
+                    ModeSwatch("accent", "Accent Color", AccentFill),
+                }, { disabled = tbOff, disabledTooltip = "Reskin Timer Bars" })
+                EllesmereUI.BuildInlineSwatches(colorRow._rightRegion, {
+                    { tooltip = "Background Color",
+                      getValue = function() return GetColor("timerBarsBgColor", TB.BG) end,
+                      setValue = SetColor("timerBarsBgColor") },
+                }, { disabled = tbOff, disabledTooltip = "Reskin Timer Bars" })
+            end
+
+            -- Color by Timer Type (Breath | Fatigue | Feign Death) | Show Name (cog + color)
+            local typeRow
+            typeRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Color by Timer Type",
+                  tooltip="Gives each timer its own fill color in place of the fill color above.",
+                  disabled=tbOff, disabledTooltip="Reskin Timer Bars",
+                  getValue=typeColorsOn,
+                  setValue=function(v) Set("timerBarsTypeColors", v and true or false); EllesmereUI:RefreshPage() end },
+                { type="toggle", text="Show Name",
+                  disabled=tbOff, disabledTooltip="Reskin Timer Bars",
+                  getValue=function() return Get("timerBarsShowText", true) ~= false end,
+                  setValue=function(v) Set("timerBarsShowText", v and true or false); EllesmereUI:RefreshPage() end }
+            ); y = y - h
+            if not EllesmereUI._prebuilding then
+                local function TypeSwatch(tk, tip)
+                    return { tooltip = tip,
+                      disabled = function() return tbOff() or not typeColorsOn() end,
+                      disabledTooltip = function() return tbOff() and "Reskin Timer Bars" or "Color by Timer Type" end,
+                      getValue = function() return GetColor("timerBars"..tk.."Color", TB.TYPE[tk]) end,
+                      setValue = SetColor("timerBars"..tk.."Color") }
+                end
+                EllesmereUI.BuildInlineSwatches(typeRow._leftRegion, {
+                    TypeSwatch("Breath", "Breath"),
+                    TypeSwatch("Fatigue", "Fatigue"),
+                    TypeSwatch("Feign", "Feign Death"),
+                }, { disabled = tbOff, disabledTooltip = "Reskin Timer Bars" })
+                EllesmereUI.BuildInlineCog(typeRow._rightRegion, {
+                    title = "Name Text",
+                    disabled = textOff, disabledTooltip = "Show Name",
+                    rows = {
+                        { type="slider", label="Text Size", min=6, max=24, step=1,
+                          get=function() return Get("timerBarsTextSize", TB.TEXT_SIZE) end,
+                          set=function(v) Set("timerBarsTextSize", v) end },
+                        { type="slider", label="Text Offset X", min=-100, max=100, step=1,
+                          get=function() return Get("timerBarsTextX", 0) end,
+                          set=function(v) Set("timerBarsTextX", v) end },
+                        { type="slider", label="Text Offset Y", min=-20, max=20, step=1,
+                          get=function() return Get("timerBarsTextY", 0) end,
+                          set=function(v) Set("timerBarsTextY", v) end },
+                    },
+                })
+                EllesmereUI.BuildInlineSwatches(typeRow._rightRegion, {
+                    { tooltip = "Text Color",
+                      getValue = function() return GetColor("timerBarsTextColor", { r = 1, g = 1, b = 1 }) end,
+                      setValue = SetColor("timerBarsTextColor") },
+                }, { disabled = textOff, disabledTooltip = "Show Name" })
+            end
+
+            -- Width | Height, capped at Blizzard's timer frame (its size belongs to Edit Mode).
+            _, h = W:DualRow(parent, y,
+                { type="slider", text="Width", min=TB.MIN_W, max=TB.MAX_W, step=1,
+                  disabled=tbOff, disabledTooltip="Reskin Timer Bars",
+                  getValue=function() return Get("timerBarsWidth", TB.WIDTH) end,
+                  setValue=function(v) Set("timerBarsWidth", v) end },
+                { type="slider", text="Height", min=TB.MIN_H, max=TB.MAX_H, step=1,
+                  disabled=tbOff, disabledTooltip="Reskin Timer Bars",
+                  getValue=function() return Get("timerBarsHeight", TB.HEIGHT) end,
+                  setValue=function(v) Set("timerBarsHeight", v) end }
+            ); y = y - h
+
+            -- Border Style | Border Size, as on the Loot Window card: Default keeps the 1px black edge.
+            local bValues, bOrder = DefaultableBorderValues()
+            local borderRow
+            borderRow, h = W:DualRow(parent, y,
+                { type="dropdown", text="Border Style",
+                  disabled=tbOff, disabledTooltip="Reskin Timer Bars",
+                  values=bValues, order=bOrder,
+                  getValue=function() return EllesmereUIDB[prefix.."BorderTexture"] or "default" end,
+                  setValue=function(v)
+                      SetDefaultableBorderStyle(prefix, v)
+                      apply()
+                      EllesmereUI:RefreshPage(true)
+                  end },
+                BorderSizeSlider(prefix, "Border Size", borderOff, apply, "Border Style")
+            ); y = y - h
+            AttachBorderControls(borderRow, prefix, borderOff, false, { apply = apply })
+            -- Corner Radius (EllesmereUI_RoundedCorners.lua), left of the color swatches.
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(borderRow._rightRegion, {
+                    title = "Corner Radius", tip = "Corner Radius",
+                    disabled = function()
+                        return tbOff() or not EllesmereUI.RoundedStyleOK(EllesmereUIDB[prefix.."BorderTexture"])
+                    end,
+                    disabledTooltip = function()
+                        if tbOff() then return "Reskin Timer Bars" end
+                        return "This option requires the Solid, Glow or Shadow border style."
+                    end,
+                    rows = EllesmereUI.RoundedCornerRows({
+                        { type = "slider", label = "Corner Radius", min = 0, max = EllesmereUI.ROUNDED_MAX_RADIUS, step = 1,
+                          get = function() return Get("timerBarsCornerRadius", 0) end,
+                          set = function(v) Set("timerBarsCornerRadius", v) end },
+                    }, function() return EllesmereUIDB.timerBarsCornerMask end,
+                       function(v) Set("timerBarsCornerMask", v) end),
+                })
+            end
+            local ocfgL, ocfgR = BorderOffsetCfgs(prefix, borderOff, apply, "Border Style")
+            if ocfgL then _, h = W:DualRow(parent, y, ocfgL, ocfgR); y = y - h end
         end
 
         return math.abs(y)
@@ -2126,9 +2386,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         _, h = WSCardSection(parent, "BORDER", y);  y = y - h
 
-        local texValues, texOrder = EllesmereUI.GetBorderTextureDropdown()
-        texValues.default = "Default"
-        table.insert(texOrder, 1, "default")
+        local texValues, texOrder = DefaultableBorderValues()
 
         local row
         row, h = W:DualRow(parent, y,
@@ -2141,22 +2399,7 @@ initFrame:SetScript("OnEvent", function(self)
               end,
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
-                  local db = EllesmereUIDB
-                  if v == "default" then
-                      db[prefix.."BorderTexture"] = nil
-                  else
-                      local c, b = EllesmereUI.GetBorderStyleSelectDefaults(v)
-                      db[prefix.."BorderTexture"] = v
-                      db[prefix.."BorderBehind"] = b
-                      db[prefix.."BorderColor"] = c
-                      -- Full opacity and the style's own size: the 18% default leaves textured art faded
-                      db[prefix.."BorderOpacity"] = 1
-                      local size = EllesmereUI.GetBorderDefaultSize(nil, v)
-                      if size then db[prefix.."BorderThickness"] = EllesmereUI.BORDER_LABEL_OF_STEP[size] end
-                  end
-                  db[prefix.."BorderOffsetX"] = nil
-                  db[prefix.."BorderOffsetY"] = nil
-                  if db[prefix.."BorderThicknessPx"] then db[prefix.."BorderThicknessPx"] = false end
+                  SetDefaultableBorderStyle(prefix, v)
                   refresh()
                   EllesmereUI:RefreshPage(true)
               end },
@@ -4537,7 +4780,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.popupMenuButtonBackgroundColor=nil
                 EllesmereUIDB.popupMenuButtonTextColorMode=nil
                 EllesmereUIDB.popupMenuButtonTextColor=nil
-                for _,prefix in ipairs({"popupMenu","popupMenuButton","tooltip","lootWindow","lootIcon"}) do
+                for _,prefix in ipairs({"popupMenu","popupMenuButton","tooltip","lootWindow","lootIcon","timerBars"}) do
                     for _,suffix in ipairs({"BorderTexture","BorderThickness","BorderThicknessPx","BorderColor","BorderColorMode","BorderOpacity","BorderOffsetX","BorderOffsetY","BorderShiftX","BorderShiftY","BorderBehind"}) do
                         EllesmereUIDB[prefix..suffix]=nil
                     end
@@ -4612,6 +4855,26 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinWidgetBars = nil
                 EllesmereUIDB.widgetBarMinSize = nil
                 EllesmereUIDB.reskinExtraActionButton = nil
+                EllesmereUIDB.reskinTimerBars = nil
+                EllesmereUIDB.timerBarsTexture = nil
+                EllesmereUIDB.timerBarsFillMode = nil
+                EllesmereUIDB.timerBarsFillColor = nil
+                EllesmereUIDB.timerBarsFillOpacity = nil
+                EllesmereUIDB.timerBarsBgColor = nil
+                EllesmereUIDB.timerBarsBgOpacity = nil
+                EllesmereUIDB.timerBarsTypeColors = nil
+                EllesmereUIDB.timerBarsBreathColor = nil
+                EllesmereUIDB.timerBarsFatigueColor = nil
+                EllesmereUIDB.timerBarsFeignColor = nil
+                EllesmereUIDB.timerBarsShowText = nil
+                EllesmereUIDB.timerBarsTextSize = nil
+                EllesmereUIDB.timerBarsTextColor = nil
+                EllesmereUIDB.timerBarsTextX = nil
+                EllesmereUIDB.timerBarsTextY = nil
+                EllesmereUIDB.timerBarsWidth = nil
+                EllesmereUIDB.timerBarsHeight = nil
+                EllesmereUIDB.timerBarsCornerRadius = nil
+                EllesmereUIDB.timerBarsCornerMask = nil
                 EllesmereUIDB.lfgRememberRoles = nil
                 EllesmereUIDB.lfgSavedRoles = nil
                 EllesmereUIDB.showMythicRating = nil
