@@ -31,8 +31,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  no bar uses the glow, and the aura-edge hooks then return at once.
 -------------------------------------------------------------------------------
 local _, ns = ...
--- WoW Forever (ns.CDM_ANTI_CLIP, EllesmereUICooldownManager.lua).
-if not ns.CDM_ANTI_CLIP then return end
+-- WoW Forever (ns.CDM_ANTI_CLIP, EllesmereUICooldownManager.lua), unless paused.
+if not ns.CDM_ANTI_CLIP or ns.CDM_ANTI_CLIP_PAUSED then return end
 
 local GetTime = GetTime
 local UnitCastingInfo, UnitChannelInfo = UnitCastingInfo, UnitChannelInfo

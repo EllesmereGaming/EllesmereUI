@@ -265,6 +265,10 @@ initFrame:SetScript("OnEvent", function(self)
             end
         end
 
+        -- WoW Forever: the Anti-Clip Glow is paused (bug #152), so its rows show None, greyed out.
+        local function AntiClipPaused() return true end
+        local ANTI_CLIP_PAUSED_TIP = "WoW Forever has no pandemic window: a refreshed debuff keeps no remaining time. The Anti-Clip Glow that stands in for it is temporarily unavailable while it is being fixed."
+
         -- Pandemic Glow of one CDM bar, shared by the Glows page and the CDM Bars
         -- page row. getBd resolves the bar at call time; onChange defaults to the
         -- shared rebuild (the bar page passes its own). nil pandemicGlow = never
@@ -276,7 +280,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- Blizzard Default bar reads as None, as the bar draws it.
         local function PandemicDesc(getBd, onChange)
             local antiClip = ns.CDM_ANTI_CLIP
+            local paused = ns.CDM_ANTI_CLIP_PAUSED
             return {
+                isOff = paused and AntiClipPaused or nil,
+                disabled = paused and AntiClipPaused or nil,
+                disabledTooltip = paused and ANTI_CLIP_PAUSED_TIP or nil, rawTooltip = paused or nil,
                 view = ns.GLOW_VIEW, host = "icon", excludes = { [4] = true },
                 extras = not antiClip and { { value = -1, label = "Blizzard Default" } } or nil,
                 caps = { mode = true, params = true, bg = true },
@@ -372,11 +380,17 @@ initFrame:SetScript("OnEvent", function(self)
         -- ns.PG_TbbEffectiveStyle). getBd resolves the bar at call time, so the
         -- Tracking Bars page (selected bar) and the Glows page share this.
         local function TbbDesc(getBd, onChange)
+            local paused = ns.CDM_ANTI_CLIP_PAUSED
             return {
                 view = ns.GLOW_VIEW, host = "bar", excludes = EllesmereUI.Glows.RECT_EXCLUDES,
                 caps = { mode = true, params = true, bg = true },
                 defaultColor = { r = 1, g = 1, b = 0 },
-                isOff = function() local bd = getBd(); return not bd or bd.pandemicGlow ~= true end,
+                isOff = function()
+                    if paused then return true end
+                    local bd = getBd(); return not bd or bd.pandemicGlow ~= true
+                end,
+                disabled = paused and AntiClipPaused or nil,
+                disabledTooltip = paused and ANTI_CLIP_PAUSED_TIP or nil, rawTooltip = paused or nil,
                 onChange = onChange,
                 get = function(f)
                     local bd = getBd(); if not bd then return nil end

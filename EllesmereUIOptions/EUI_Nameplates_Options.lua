@@ -323,7 +323,12 @@ initFrame:SetScript("OnEvent", function(self)
             },
             caps = { mode = true, params = true, bg = true },
             defaultColor = defaults.pandemicGlowColor,
-            isOff = function() return DBVal("pandemicGlow") ~= true end,
+            isOff = function() return ns.NP_PANDEMIC_NONE or DBVal("pandemicGlow") ~= true end,
+            -- WoW Forever: greyed out (ns.NP_PANDEMIC_NONE, EUI_Nameplates_Layout.lua).
+            disabled = ns.NP_PANDEMIC_NONE and function() return true end or nil,
+            disabledTooltip = ns.NP_PANDEMIC_NONE
+                and "WoW Forever has no pandemic window: a refreshed debuff keeps no remaining time, so this glow never shows." or nil,
+            rawTooltip = ns.NP_PANDEMIC_NONE or nil,
             onChange = RefreshAuraGlows,
             get = function(f)
                 local d = DB()

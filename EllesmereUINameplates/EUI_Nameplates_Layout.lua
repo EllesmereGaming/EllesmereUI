@@ -115,7 +115,11 @@ local function GetPandemicGlowSpeed()
     return (p and p.pandemicGlowSpeed) or defaults.pandemicGlowSpeed
 end
 ns.GetPandemicGlowSpeed = GetPandemicGlowSpeed
+-- WoW Forever: off. A refresh carries no time over there, so Blizzard never opens the window.
+local PANDEMIC_NONE = EllesmereUI.IS_FOREVER == true
+ns.NP_PANDEMIC_NONE = PANDEMIC_NONE
 function ns.GetPandemicGlow()
+    if PANDEMIC_NONE then return false end
     local v = p and p.pandemicGlow
     if v == nil then v = defaults.pandemicGlow end
     return v == true
