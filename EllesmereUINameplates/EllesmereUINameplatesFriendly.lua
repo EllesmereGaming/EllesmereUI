@@ -664,9 +664,9 @@ local function PaintFriendlyColors(plate, unit, fp)
         if ok or not useClass then
             if useClass then
                 plate.health:SetStatusBarColor(r, g, b)
-            elseif UnitInParty(unit) or UnitInRaid(unit) then
-                -- Group members: the engine's selection tint, the lighter blue
-                -- Blizzard's own plates show for them.
+            elseif ns.NP_Forever() and (UnitInParty(unit) or UnitInRaid(unit)) then
+                -- WoW Forever style, group members: the engine's selection
+                -- tint, the lighter blue the stock plate shows for them.
                 plate.health:SetStatusBarColor(UnitSelectionColor(unit, true))
             else
                 local bc = (fp and fp.friendlyBarColor) or ns.defaults.friendlyBarColor
