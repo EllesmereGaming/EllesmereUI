@@ -374,8 +374,9 @@ local NEED_ATLAS = { TANK = "groupfinder-icon-role-micro-tank", HEALER = "groupf
 local BLIZZ_RR_ATLAS = { TANK = "groupfinder-icon-role-large-tank", HEALER = "groupfinder-icon-role-large-heal",
     DAMAGER = "groupfinder-icon-role-large-dps" }
 local BLIZZ_RR_SCALE = 1.22  -- art size over its visible ring
--- blizzard's grey for a delisted group's text
-local DELISTED_COLOR = LFG_LIST_DELISTED_FONT_COLOR or CreateColor(0.3, 0.3, 0.3)
+-- blizzard's grey for a delisted group's text (a plain {r, g, b} table, not a colour object)
+local DC = LFG_LIST_DELISTED_FONT_COLOR
+local DR, DG, DB = DC and DC.r or 0.3, DC and DC.g or 0.3, DC and DC.b or 0.3
 local REMAINING = { TANK = "TANK_REMAINING", HEALER = "HEALER_REMAINING", DAMAGER = "DAMAGER_REMAINING" }
 local PERSON_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png"
 local PLAYERS_COLOR = { 0.4, 0.4, 0.42 }
@@ -843,7 +844,7 @@ local LIVE = {
 -- a font string in the delisted grey, or back to the colour it was made with
 local function Grey(fs, gone)
     if not fs.baseColor then fs.baseColor = { fs:GetTextColor() } end
-    if gone then fs:SetTextColor(DELISTED_COLOR:GetRGB())
+    if gone then fs:SetTextColor(DR, DG, DB)
     else local c = fs.baseColor; fs:SetTextColor(c[1], c[2], c[3], c[4]) end
 end
 
@@ -871,7 +872,7 @@ local function LineThree(r, id, info, src)
     if tag then
         if r.l3prev then Put(r, r.sep2, 4) end
         r.tag:SetText(tag)
-        if gone then r.tag:SetTextColor(DELISTED_COLOR:GetRGB()) else r.tag:SetTextColor(tr, tg, tb, 1) end
+        if gone then r.tag:SetTextColor(DR, DG, DB) else r.tag:SetTextColor(tr, tg, tb, 1) end
         Put(r, r.tag, 4)
         if flag then
             local fh = math.max(8, ns.OwnListSize("lineSize"))
@@ -908,7 +909,7 @@ local function Fill(r, id, src)
     local nr, ng, nb
     nr, ng, nb = src.nameColor(id, info, ai)  -- "and" would drop g and b
     if not nr then nr, ng, nb = FriendColor(info) end
-    if gone then r.name:SetTextColor(DELISTED_COLOR:GetRGB())
+    if gone then r.name:SetTextColor(DR, DG, DB)
     elseif nr then r.name:SetTextColor(nr, ng, nb) else r.name:SetTextColor(1, 0.82, 0) end
     r.act:SetText(ai and ai.fullName or "")
     Grey(r.act, gone)
