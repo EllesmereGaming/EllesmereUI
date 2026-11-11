@@ -93,7 +93,7 @@ local function EnsureCastGlowOverlay(self, field, levelOffset)
     if not ov then
         ov = CreateFrame("Frame", nil, self.cast)
         ov:SetAllPoints(self.cast)
-        ov:SetFrameLevel(self.cast:GetFrameLevel() + levelOffset)
+        if levelOffset then ov:SetFrameLevel(self.cast:GetFrameLevel() + levelOffset) end
         ov:EnableMouse(false)
         self[field] = ov
     end
@@ -105,18 +105,57 @@ local IMP_GLOW_KEYS = EllesmereUI.Glows.FlatKeys("importantCastGlow")
 local TGT_GLOW_KEYS = EllesmereUI.Glows.FlatKeys("castTargetGlow")
 -- One scratch spec for every plate and both glows: StartSpecGlow reads it synchronously.
 local castGlowSpec = {}
+-- Square-art styles (Action Button, GCD, Modern, Classic) stretched to a bar reach far into
+-- both ends, over the cast text. They draw on their own overlay behind the bar, so only the
+-- halo outside it shows.
+local STRETCHED_ON_BAR = EllesmereUI.Glows.RECT_EXCLUDES
+-- In the plate they get a glow this much larger (x bar height) on each side, so more of the
+-- halo clears the bar. Not when lifted: there it would draw over the health bar.
+local BEHIND_PAD = 0.15
 
--- Starts the glow on a cast bar overlay. Restarts only when the setting or the bar size changed.
-local function StartCastGlow(self, ov, cfg, k)
+-- Starts the glow on the glow's front overlay (above the bar) or, for a stretched style, its
+-- behind overlay, stopping the other. Restarts only when the setting or the bar size changed.
+-- frontOffset / liftedBehindOffset: levels relative to the bar. Returns the overlay.
+local function StartCastGlow(self, cfg, k, frontField, behindField, frontOffset, liftedBehindOffset)
     local Glows = EllesmereUI.Glows
     local style = cfg[k.style] or defaults[k.style] or 1
     if type(style) ~= "number" or style < 1 or style > #PANDEMIC_GLOW_STYLES then style = 1 end
     local spec = Glows.SpecFromFlat(castGlowSpec, cfg, k, cfg[k.mode] or "custom", defaults)
     spec.style = ns.NP_TO_SHARED_GLOW[style] or 1
-    local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
+    local behind = STRETCHED_ON_BAR[Glows.ResolveStyle(spec.style, "bar")]
+    local other = self[behind and frontField or behindField]
+    if other and other:IsShown() then
+        Glows.StopAllGlows(other)
+        other:SetAlpha(0)
+        other:Hide()
+    end
+    local cast = self.cast
+    local ov
+    if behind then
+        ov = EnsureCastGlowOverlay(self, behindField)
+        local strata, lvl
+        if self._castOverlayLifted then
+            -- Lifted (Casts In Front): an unflattened frame, a lower level is behind the bar.
+            strata, lvl = cast:GetFrameStrata(), cast:GetFrameLevel() + liftedBehindOffset
+            if lvl < 0 then lvl = 0 end
+        else
+            -- In the plate the draw layer beats frame level: go under the plate (as the target glow).
+            strata, lvl = "BACKGROUND", 1
+        end
+        if ov:GetFrameStrata() ~= strata then ov:SetFrameStrata(strata) end
+        if ov:GetFrameLevel() ~= lvl then ov:SetFrameLevel(lvl) end
+    else
+        ov = EnsureCastGlowOverlay(self, frontField, frontOffset)
+    end
+    local pW, pH = cast:GetWidth(), cast:GetHeight()
     if pW < 5 then pW = 100 end
     if pH < 5 then pH = 14 end
+    if behind and not self._castOverlayLifted then
+        local pad = 2 * BEHIND_PAD * pH
+        pW, pH = pW + pad, pH + pad
+    end
     Glows.StartSpecGlow(ov, spec, pW, pH, "bar")
+    return ov
 end
 
 -- Reads self._castImportant, cached by UpdateCast just before.
@@ -130,8 +169,8 @@ function NameplateFrame:UpdateImportantCastGlow()
         self:ClearImportantCastGlow(); return
     end
 
-    local ov = EnsureCastGlowOverlay(self, "_importantCastOverlay", 5)
-    StartCastGlow(self, ov, cfg, IMP_GLOW_KEYS)
+    local ov = StartCastGlow(self, cfg, IMP_GLOW_KEYS, "_impGlowFront", "_impGlowBehind", 5, -2)
+    self._importantCastOverlay = ov
     self._importantGlowActive = true
 
     -- SetAlphaFromBoolean handles the secret boolean taint-free.
@@ -143,15 +182,14 @@ end
 -- Cast Targets You Glow (opt-in): the cast bar glows while the cast's target is the player.
 -- PlayerIsSpellTarget is SECRET, so it only drives the overlay's alpha. Read at cast start,
 -- as Blizzard's own nameplate cast bar does. Runs after UpdateImportantCastGlow: while the
--- important glow shows, it wins (this overlay sits above it), so the important flag folds
--- into this alpha.
+-- important glow shows, it wins, so the important flag folds into this alpha.
 function NameplateFrame:UpdateCastTargetGlow()
     local cfg = p or defaults
     if not cfg.castTargetGlow or not PlayerIsSpellTarget then
         self:ClearCastTargetGlow(); return
     end
-    local ov = EnsureCastGlowOverlay(self, "_castTargetOverlay", 6)
-    StartCastGlow(self, ov, cfg, TGT_GLOW_KEYS)
+    local ov = StartCastGlow(self, cfg, TGT_GLOW_KEYS, "_tgtGlowFront", "_tgtGlowBehind", 6, -1)
+    self._castTargetOverlay = ov
     self._castTargetGlowActive = true
     ov:Show()
     if self._importantGlowActive then
