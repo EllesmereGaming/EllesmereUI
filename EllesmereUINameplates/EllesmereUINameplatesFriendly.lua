@@ -19,6 +19,7 @@ local pairs, ipairs = pairs, ipairs
 local UnitHealth, UnitHealthMax = UnitHealth, UnitHealthMax
 local UnitName, UnitIsUnit = UnitName, UnitIsUnit
 local UnitCanAttack, UnitIsPlayer = UnitCanAttack, UnitIsPlayer
+local UnitInParty, UnitInRaid, UnitSelectionColor = UnitInParty, UnitInRaid, UnitSelectionColor
 local UnitClass, UnitIsDeadOrGhost = UnitClass, UnitIsDeadOrGhost
 local UnitExists, UnitHealthPercent = UnitExists, UnitHealthPercent
 local GetRaidTargetIndex, SetRaidTargetIconTexture = GetRaidTargetIndex, SetRaidTargetIconTexture
@@ -663,6 +664,10 @@ local function PaintFriendlyColors(plate, unit, fp)
         if ok or not useClass then
             if useClass then
                 plate.health:SetStatusBarColor(r, g, b)
+            elseif UnitInParty(unit) or UnitInRaid(unit) then
+                -- Group members: the engine's selection tint, the lighter blue
+                -- Blizzard's own plates show for them.
+                plate.health:SetStatusBarColor(UnitSelectionColor(unit, true))
             else
                 local bc = (fp and fp.friendlyBarColor) or ns.defaults.friendlyBarColor
                 plate.health:SetStatusBarColor(bc.r, bc.g, bc.b)

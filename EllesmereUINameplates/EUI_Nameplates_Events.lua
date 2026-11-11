@@ -239,6 +239,10 @@ factionFrame:SetScript("OnEvent", function(_, event, unit)
     or event == "PLAYER_ROLES_ASSIGNED"
     or event == "GROUP_ROSTER_UPDATE" then
         RefreshThreatContextAndPlateColors()
+        -- Joining or leaving a group moves a friendly player's bar tint.
+        if event == "GROUP_ROSTER_UPDATE" and ns.RefreshFriendlyColors then
+            ns.RefreshFriendlyColors()
+        end
         if event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
             UpdateFactionFrameForZone()
         end
