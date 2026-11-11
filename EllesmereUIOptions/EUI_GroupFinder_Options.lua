@@ -376,13 +376,20 @@ initFrame:SetScript("OnEvent", function(self)
                   ns.SetOwnListValue("missingIcons", v)
                   if ns.Redecorate then ns.Redecorate() end  -- blizzard's list too
               end },
+            { type = "dropdown", text = "Raid Role Icons",
+              tooltip = "The tank, healer and damage circles on raid groups.",
+              values = { ellesmere = "EllesmereUI", blizzard = "Blizzard" }, order = { "ellesmere", "blizzard" },
+              getValue = function() return ns.OwnListGet("raidRoleIcons") end,
+              setValue = function(v) ns.SetOwnListValue("raidRoleIcons", v) end })
+        y = y - h
+        _, h = W:DualRow(parent, y,
             { type = "toggle", text = "Row Art",
               tooltip = "The instance's art across the left half of each group, fading out to the right.",
               getValue = function() return ns.Cfg().extraRowArt == true end,
               setValue = function(v)
                   ns.Cfg().extraRowArt = v and true or false
                   if ns.GFRetagRows then ns.GFRetagRows() end
-              end })
+              end }, EUI.BlankRowCfg())
         y = y - h
         local function Shown(key, default)
             local v = ns.Cfg()[key]

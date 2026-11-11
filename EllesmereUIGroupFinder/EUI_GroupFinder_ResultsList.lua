@@ -38,6 +38,7 @@ function ns.SetOwnListSize(k, v)
 end
 -- display settings
 local DISPLAY_DEFAULTS = { iconShape = "circle", borderTexture = "solid", borderSize = 1, missingIcons = "blizzard",
+    raidRoleIcons = "ellesmere",
     appsFirst = true, signupClicks = "double", visibility = "hidden",
     lineDelisted = false, lineAccepted = false, lineCancelled = false, lineDeclined = false }
 function ns.OwnListGet(k)
@@ -369,6 +370,12 @@ local RR_COLORS = { TANK = { 0.16, 0.38, 0.78 }, HEALER = { 0.16, 0.62, 0.24 }, 
 ns.RaidRoleColors = RR_COLORS
 local NEED_ATLAS = { TANK = "groupfinder-icon-role-micro-tank", HEALER = "groupfinder-icon-role-micro-heal",
     DAMAGER = "groupfinder-icon-role-micro-dps" }
+-- blizzard's raid role circles, gold ring included
+local BLIZZ_RR_ATLAS = { TANK = "groupfinder-icon-role-large-tank", HEALER = "groupfinder-icon-role-large-heal",
+    DAMAGER = "groupfinder-icon-role-large-dps" }
+local BLIZZ_RR_SCALE = 1.22  -- art size over its visible ring
+-- blizzard's grey for a delisted group's text
+local DELISTED_COLOR = LFG_LIST_DELISTED_FONT_COLOR or CreateColor(0.3, 0.3, 0.3)
 local REMAINING = { TANK = "TANK_REMAINING", HEALER = "HEALER_REMAINING", DAMAGER = "DAMAGER_REMAINING" }
 local PERSON_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png"
 local PLAYERS_COLOR = { 0.4, 0.4, 0.42 }
@@ -833,9 +840,19 @@ local LIVE = {
 }
 
 -- line three: playstyle | region | time since you signed up
+-- a font string in the delisted grey, or back to the colour it was made with
+local function Grey(fs, gone)
+    if not fs.baseColor then fs.baseColor = { fs:GetTextColor() } end
+    if gone then fs:SetTextColor(DELISTED_COLOR:GetRGB())
+    else local c = fs.baseColor; fs:SetTextColor(c[1], c[2], c[3], c[4]) end
+end
+
 local function LineThree(r, id, info, src)
     local parts = r.line3
     for i = 1, #parts do parts[i]:Hide() end
+    local gone = r.gone
+    Grey(r.sep1, gone); Grey(r.style, gone); Grey(r.sep2, gone); Grey(r.sep3, gone); Grey(r.timer, gone)
+    r.flag:SetDesaturated(gone)
     r.signedAt = nil
     r.l3prev = nil
     if (r.lines or 0) < 3 then return end
@@ -854,7 +871,7 @@ local function LineThree(r, id, info, src)
     if tag then
         if r.l3prev then Put(r, r.sep2, 4) end
         r.tag:SetText(tag)
-        r.tag:SetTextColor(tr, tg, tb, 1)
+        if gone then r.tag:SetTextColor(DELISTED_COLOR:GetRGB()) else r.tag:SetTextColor(tr, tg, tb, 1) end
         Put(r, r.tag, 4)
         if flag then
             local fh = math.max(8, ns.OwnListSize("lineSize"))
@@ -877,6 +894,10 @@ local function Fill(r, id, src)
     r.resultID = id
     local info = src.info(id)
     if not Readable(info) then r:Hide() return end
+    -- delisted: greyed like blizzard's, not faded
+    local gone = info.isDelisted
+    gone = not Secret(gone) and gone and true or false
+    r.gone = gone
     -- protected text, straight to the font string
     r.name:SetText(info.name)
     local acts = info.activityIDs
@@ -887,8 +908,10 @@ local function Fill(r, id, src)
     local nr, ng, nb
     nr, ng, nb = src.nameColor(id, info, ai)  -- "and" would drop g and b
     if not nr then nr, ng, nb = FriendColor(info) end
-    if nr then r.name:SetTextColor(nr, ng, nb) else r.name:SetTextColor(1, 0.82, 0) end
+    if gone then r.name:SetTextColor(DELISTED_COLOR:GetRGB())
+    elseif nr then r.name:SetTextColor(nr, ng, nb) else r.name:SetTextColor(1, 0.82, 0) end
     r.act:SetText(ai and ai.fullName or "")
+    Grey(r.act, gone)
     -- the note, only where the list left room for it (protected text, straight to the font string)
     local note = r.noteRoom and NoteText(info)
     if note then
@@ -1045,12 +1068,13 @@ local function Fill(r, id, src)
         r.crowns[k]:Hide()
         r.rings[k]:Hide()
         role:Hide()
-        role:SetDesaturated(false)
+        role:SetDesaturated(gone)
         role:SetAlpha(1)
         bf:Hide()
         if t._masked then t:RemoveMaskTexture(r.masks[k]); t._masked = nil end
         t:SetTexCoord(0, 1, 0, 1)
-        t:SetDesaturated(false)
+        t:SetDesaturated(gone)
+        r.crowns[k]:SetDesaturated(gone)
         if mode ~= "icons" then
             t:Hide()
         elseif m then
@@ -1122,7 +1146,7 @@ local function Fill(r, id, src)
     -- raid role counts, rating to their left
     local counts = mode == "counts" and src.counts(id)
     if not Readable(counts) then counts = nil end
-    local ellIcons = ns.OwnListGet("missingIcons") == "ellesmere"
+    local blizzRR = ns.OwnListGet("raidRoleIcons") == "blizzard"
     local round = ns.OwnListGet("iconShape") ~= "square"
     -- round rings sit outside the circle, so the first one steps in like the member icons
     local x = -(r.pad or 6) - (round and bpx or 0)
@@ -1136,20 +1160,45 @@ local function Fill(r, id, src)
         local num = counts and counts[role]
         if counts and type(num) == "number" and not Secret(num) then
             -- icon centered, count above
-            local c = RR_COLORS[role]
-            p.bg:SetColorTexture(c[1], c[2], c[3], 1)
-            if round and not p.masked then p.bg:AddMaskTexture(p.mask); p.masked = true
-            elseif not round and p.masked then p.bg:RemoveMaskTexture(p.mask); p.masked = nil end
-            p.bg:SetSize(isz, isz)
+            local edge = 0
+            if blizzRR then
+                -- blizzard's circle as one texture, no mask or border of ours
+                if p.masked then p.bg:RemoveMaskTexture(p.mask); p.masked = nil end
+                p.bg:SetAtlas(BLIZZ_RR_ATLAS[role])
+                p.icon:SetTexture(nil)
+                p.ring:Hide(); p.edge:Hide()
+            else
+                local c = RR_COLORS[role]
+                p.bg:SetColorTexture(c[1], c[2], c[3], 1)
+                if round and not p.masked then p.bg:AddMaskTexture(p.mask); p.masked = true
+                elseif not round and p.masked then p.bg:RemoveMaskTexture(p.mask); p.masked = nil end
+                CircleEdge(p, round, bpx, br, bg, bb, btex, bkey)
+                p.icon:SetAtlas(NEED_ATLAS[role])
+                local gsz = math.floor(isz * 0.7 + 0.5)
+                p.icon:SetSize(gsz, gsz)
+                edge = round and bpx * 2 or 0
+            end
+            p.bg:SetDesaturated(gone)
+            p.icon:SetDesaturated(gone)
             p.bg:ClearAllPoints()
-            p.bg:SetPoint("RIGHT", r.mid, "RIGHT", x, 0)
+            if blizzRR then
+                -- the art has a clear margin round its ring: grow it till the ring matches ours, same centre
+                edge = round and bpx * 2 or 0
+                local sz = math.floor((isz + edge) * BLIZZ_RR_SCALE + 0.5) - 2
+                p.bg:SetSize(sz, sz)
+                p.bg:SetPoint("CENTER", r.mid, "RIGHT", x - isz / 2, 0)
+            else
+                p.bg:SetSize(isz, isz)
+                p.bg:SetPoint("RIGHT", r.mid, "RIGHT", x, 0)
+            end
             p.bg:Show()
-            CircleEdge(p, round, bpx, br, bg, bb, btex, bkey)
-            local tex = ellIcons and ns.RoleIconTex and ns.RoleIconTex(role)
-            if tex then p.icon:SetTexture(tex) else p.icon:SetAtlas(NEED_ATLAS[role]) end
-            local gsz = math.floor(isz * 0.7 + 0.5)
-            p.icon:SetSize(gsz, gsz)
-            x = x - PlaceCount(p, num, isz, fsz, inside) - 6 - (round and bpx * 2 or 0)
+            x = x - PlaceCount(p, num, isz, fsz, inside) - 6 - edge
+            if blizzRR and not inside then
+                -- the number on the ring's top, not the art's
+                p.count:ClearAllPoints()
+                p.count:SetPoint("BOTTOMLEFT", p.bg, "CENTER", -isz * 1.5, isz / 2 + 1)
+                p.count:SetPoint("BOTTOMRIGHT", p.bg, "CENTER", isz * 1.5, isz / 2 + 1)
+            end
         else
             p.bg:Hide(); p.icon:Hide(); p.count:Hide(); p.ring:Hide(); p.edge:Hide()
         end
@@ -1159,6 +1208,8 @@ local function Fill(r, id, src)
     local pc = r.rr[4]
     if type(players) == "number" and not Secret(players) then
         pc.bg:SetColorTexture(PLAYERS_COLOR[1], PLAYERS_COLOR[2], PLAYERS_COLOR[3], 1)
+        pc.bg:SetDesaturated(gone)
+        pc.icon:SetDesaturated(gone)
         if round and not pc.masked then pc.bg:AddMaskTexture(pc.mask); pc.masked = true
         elseif not round and pc.masked then pc.bg:RemoveMaskTexture(pc.mask); pc.masked = nil end
         pc.bg:SetSize(isz, isz)
@@ -1191,7 +1242,7 @@ local function Fill(r, id, src)
         r.sel:SetColorTexture(ar, ag, ab, selected == id and 0.18 or 0)
     end
     if dimmed[id] then r:SetAlpha(0.35)
-    else r:SetAlpha((st and st ~= STATUS.applied and st ~= STATUS.invited) and 0.5 or 1) end
+    else r:SetAlpha((st and st ~= STATUS.applied and st ~= STATUS.invited and not gone) and 0.5 or 1) end
     r:Show()
 end
 
