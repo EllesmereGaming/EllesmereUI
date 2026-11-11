@@ -1840,19 +1840,34 @@ end
 -- type<N> from SetClickAttr. Own secure frame, OOC only -> no taint risk.
 -- plan is the bindings' ResolvePlan (keys already parsed).
 local function NeutralizeDefaultClicks(frame, plan)
-    local b1, b2 = false, false
+    local b1, b2, leftTarget, rightMenu = false, false, false, false
     for i = 1, #plan do
         local r = plan[i]
         if r.frame then
             local parsed = r.parsed
             if parsed.isMouseButton and parsed.modifiers == "" then
-                if parsed.buttonNum == 1 then b1 = true
-                elseif parsed.buttonNum == 2 then b2 = true end
+                if parsed.buttonNum == 1 then
+                    b1 = true
+                    leftTarget = r.aType == "target" and not r.b.oocOnly
+                elseif parsed.buttonNum == 2 then
+                    b2 = true
+                    rightMenu = r.aType == "togglemenu" and not r.b.oocOnly
+                end
             end
         end
     end
-    frame:SetAttribute("*type1", nil)
-    frame:SetAttribute("*type2", nil)
+    -- Left-click bound to Target keeps targeting with a modifier held (a held Shift for a
+    -- keybind); a modifier+left binding of its own still wins over the wildcard.
+    if leftTarget then
+        EllesmereUI.SetLeftClickTarget(frame)
+    else
+        frame:SetAttribute("*type1", nil)
+        frame:SetAttribute("*macrotext1", nil)
+    end
+    -- Same for right-click bound to Menu: the secure menu proxy opens with a modifier held.
+    local menuMacro = rightMenu and EllesmereUI.GetSecureMenuMacro and EllesmereUI.GetSecureMenuMacro(frame)
+    frame:SetAttribute("*type2", menuMacro and "macro" or nil)
+    frame:SetAttribute("*macrotext2", menuMacro or nil)
     frame:SetAttribute("*clickbutton2", nil)
     if not b1 then frame:SetAttribute("type1", "none") end
     if not b2 then frame:SetAttribute("type2", "none") end
@@ -1961,8 +1976,9 @@ local function DoRegisterFrame(frame)
     -- them exactly (raid -> target, EUI frames -> none) across cycles.
     if originalTargetAttrs[frame] == nil then
         originalTargetAttrs[frame] = {
-            type1     = frame:GetAttribute("type1"),
-            starType1 = frame:GetAttribute("*type1"),
+            type1      = frame:GetAttribute("type1"),
+            starType1  = frame:GetAttribute("*type1"),
+            starMacro1 = frame:GetAttribute("*macrotext1"),
         }
     end
     frame:RegisterForClicks(GetClickDirection())
@@ -2034,10 +2050,10 @@ local function DoUnregisterFrame(frame)
     if o then
         frame:SetAttribute("type1", o.type1)
         frame:SetAttribute("*type1", o.starType1)
+        frame:SetAttribute("*macrotext1", o.starMacro1)
     else
         -- Never captured (shouldn't happen): fall back to the raid default.
-        frame:SetAttribute("type1", "target")
-        frame:SetAttribute("*type1", "target")
+        EllesmereUI.SetLeftClickTarget(frame)
     end
     if EllesmereUI.AttachSecureUnitMenu then
         EllesmereUI.AttachSecureUnitMenu(frame)

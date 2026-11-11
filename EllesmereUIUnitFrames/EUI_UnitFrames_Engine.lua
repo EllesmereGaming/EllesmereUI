@@ -941,7 +941,7 @@ function Engine.SpawnUnitFrame(unit, name)
     frame.EnableElement = Frame_EnableElement
     frame.DisableElement = Frame_DisableElement
     frame:SetAttribute("unit", unit)
-    frame:SetAttribute("*type1", "target")
+    EllesmereUI.SetLeftClickTarget(frame)
     frame:SetAttribute("toggleForVehicle", true)
     EllesmereUI.AttachSecureUnitMenu(frame)
     -- The secure environment rewrites the unit attribute on vehicle and pet

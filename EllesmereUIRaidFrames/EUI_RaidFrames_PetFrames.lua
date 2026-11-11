@@ -364,7 +364,7 @@ end
 -- map: the unit -> button map the button keeps itself in (none for your own Beside Owner pet).
 PF.StyleButton = function(b, map)
     b:RegisterForClicks("AnyUp")
-    b:SetAttribute("*type1", "target")
+    ns.EllesmereUI.SetLeftClickTarget(b)
     -- The engine gates SecureUnitButton's togglemenu; route right-click through a SecureActionButton proxy so the menu works without taint.
     EllesmereUI.AttachSecureUnitMenu(b)
     FB.BuildVisuals(b, true)
