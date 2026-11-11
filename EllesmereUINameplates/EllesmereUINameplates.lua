@@ -434,6 +434,7 @@ local defaults = {
     rareEliteIconSize = 20,
     castBarHeight = 17,
     castBarOffsetY = 0,
+    castBarOffsetX = 0,
     castBarSparkEnabled = true,
     castOverlayEnabled = false,
     hideEnemyNameWhileCasting = false,
