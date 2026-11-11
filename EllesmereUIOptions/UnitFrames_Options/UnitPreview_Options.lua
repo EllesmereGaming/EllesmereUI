@@ -22,7 +22,7 @@ local PoolOwned = EllesmereUI._Pool.Owned
 function ns.UFO_BuildUnitPreview(parent, unitKey, side)
     local env = ns._UFO_OptEnv
     local ApplyClassIconTexture_Preview, ApplyPreviewPortraitShape, BlizzPreviewScale, CLASS_FULL_COORDS = env.ApplyClassIconTexture_Preview, env.ApplyPreviewPortraitShape, env.BlizzPreviewScale, env.CLASS_FULL_COORDS
-    local GetUFOptOutline, PP, PREVIEW_FONT, ResolveBlizzPreview = env.GetUFOptOutline, env.PP, env.PREVIEW_FONT, env.ResolveBlizzPreview
+    local PP, PREVIEW_FONT, ResolveBlizzPreview = env.PP, env.PREVIEW_FONT, env.ResolveBlizzPreview
     local SOLID_BACKDROP, SetPVFont, _previewBuffIcons, _previewCreatureNames = env.SOLID_BACKDROP, env.SetPVFont, env._previewBuffIcons, env._previewCreatureNames
     local allPreviews, db, optState, unitSide = env.allPreviews, env.db, env.optState, env.unitSide
     -- Preview clamps the aura Y offset to this magnitude so a large offset
@@ -484,7 +484,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         -- separator ("" = none); plain: the name in the slot colour.
         local function _pvTargetSuffix(literal, plain)
             local _, ct = UnitClass("player")
-            local cc = ct and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[ct]
+            local cc = ct and EllesmereUI.GetClassColor(ct)
             local tgt = "Target"
             if cc and not plain then
                 tgt = string.format("%s%s|r", EllesmereUI.HexColor(cc.r, cc.g, cc.b), tgt)
@@ -630,7 +630,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             if unitKey == "player" then
                 local _, cls = UnitClass("player")
                 if cls then
-                    local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[cls]
+                    local c = EllesmereUI.GetClassColor(cls)
                     if c then fs:SetTextColor(c.r, c.g, c.b); return end
                 end
             else
@@ -672,7 +672,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
 
 
         local ec = s.extraTextContent or "none"
-        extraFS:SetFont(PREVIEW_FONT, (s.extraTextSize or s.textSize or 12), GetUFOptOutline())
+        SetPVFont(extraFS, PREVIEW_FONT, (s.extraTextSize or s.textSize or 12))
         extraFS:ClearAllPoints()
         extraFS:SetWidth(0)
         if ec ~= "none" then
@@ -697,7 +697,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         end
 
         -- Each text position renders independently; Center does not hide Left/Right.
-        centerFS:SetFont(PREVIEW_FONT, csz, GetUFOptOutline())
+        SetPVFont(centerFS, PREVIEW_FONT, csz)
         centerFS:ClearAllPoints()
         if cc ~= "none" then
             centerFS:SetJustifyH("CENTER")
@@ -709,7 +709,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             centerFS:Hide()
         end
 
-        leftFS:SetFont(PREVIEW_FONT, lsz, GetUFOptOutline())
+        SetPVFont(leftFS, PREVIEW_FONT, lsz)
         leftFS:ClearAllPoints()
         if lc ~= "none" then
             leftFS:SetJustifyH("LEFT")
@@ -734,7 +734,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             leftFS:Hide()
         end
 
-        rightFS:SetFont(PREVIEW_FONT, rsz, GetUFOptOutline())
+        SetPVFont(rightFS, PREVIEW_FONT, rsz)
         rightFS:ClearAllPoints()
         if rc ~= "none" then
             rightFS:SetJustifyH("RIGHT")
@@ -1099,7 +1099,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             local rsz = s.btbRightSize or 11
             local csz = s.btbCenterSize or 11
 
-            btbLeftFS:SetFont(PREVIEW_FONT, lsz, GetUFOptOutline())
+            SetPVFont(btbLeftFS, PREVIEW_FONT, lsz)
             btbLeftFS:ClearAllPoints()
             if lc ~= "none" then
                 btbLeftFS:SetJustifyH("LEFT")
@@ -1110,7 +1110,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 PreviewPowerColor(btbLeftFS, lc, s.btbLeftPowerColor, s.btbLeftCustomFormat)
             else btbLeftFS:Hide() end
 
-            btbRightFS:SetFont(PREVIEW_FONT, rsz, GetUFOptOutline())
+            SetPVFont(btbRightFS, PREVIEW_FONT, rsz)
             btbRightFS:ClearAllPoints()
             if rc ~= "none" then
                 btbRightFS:SetJustifyH("RIGHT")
@@ -1121,7 +1121,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 PreviewPowerColor(btbRightFS, rc, s.btbRightPowerColor, s.btbRightCustomFormat)
             else btbRightFS:Hide() end
 
-            btbCenterFS:SetFont(PREVIEW_FONT, csz, GetUFOptOutline())
+            SetPVFont(btbCenterFS, PREVIEW_FONT, csz)
             btbCenterFS:ClearAllPoints()
             if cc ~= "none" then
                 btbCenterFS:SetJustifyH("CENTER")
@@ -1754,13 +1754,15 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         local lvOn = Lv and s.blizzShowLevel ~= false
         if lb then lb:SetShown((lvOn and B) and true or false) end
         if lvOn then
-            -- The name's font object (shadow) and face, as live. (A plain
-            -- call: `nf and nf:GetFont()` would keep only the face.)
+            -- The name's font object (shadow) and face, as live: a name on a
+            -- font family gives its roman member's face. (A plain call:
+            -- `nf and nf:GetFont()` would keep only the face.)
             local nf = pf._nameFS
             if nf then
-                local face, size, flags = nf:GetFont()
+                local fo = nf:GetFontObject()
+                local src = (fo and EllesmereUI._fontFamilySet[fo] and fo:GetFontObjectForAlphabet("roman")) or nf
+                local face, size, flags = src:GetFont()
                 if face then
-                    local fo = nf:GetFontObject()
                     if fo then lf:SetFontObject(fo) end
                     lf:SetFont(face, s.blizzLevelSize or size, flags)
                 end
@@ -1992,7 +1994,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         if G.name and leftFS:IsShown() then
             leftFS:ClearAllPoints()
             leftFS:SetJustifyH(G.name.justify or "LEFT")
-            ns.UF_BlizzPoint(leftFS, G.name.point, barArea, G.name.point, G.name.x, G.name.y, mirror)
+            local xOffset, yOffset = s.leftTextX or 0, s.leftTextY or 0
+            -- Keep the user's X offset screen-relative when UF_BlizzPoint mirrors it.
+            local x = G.name.x + (mirror and -xOffset or xOffset)
+            ns.UF_BlizzPoint(leftFS, G.name.point, barArea, G.name.point, x, G.name.y + yOffset, mirror)
             leftFS:SetWidth(G.name.w)
         end
 
@@ -2710,12 +2715,12 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         -- Power percent text in preview
         if ppPreviewFS then
             local ppPos = s.powerPercentText or "none"
-            local ppFmt = s.powerTextFormat or "perpp"
+            local ppFmt = EllesmereUI.PowerTextFormat(s.powerTextFormat or "perpp")
             if ppPos ~= "none" and ppFmt ~= "none" and power then
                 local ppSz = s.powerPercentSize or 9
                 local ppOx = s.powerPercentX or 0
                 local ppOy = s.powerPercentY or 0
-                ppPreviewFS:SetFont(PREVIEW_FONT, ppSz, GetUFOptOutline())
+                SetPVFont(ppPreviewFS, PREVIEW_FONT, ppSz)
                 ppPreviewFS:ClearAllPoints()
                 if ph > 0 then
                     if ppPos == "left" then
@@ -2960,7 +2965,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 if castNameFS2 then
                     local spellName = (unitKey == "player") and (optState._previewCastSpell and optState._previewCastSpell.name or "Spell Name") or "Spell Name"
                     castNameFS2:SetText(spellName)
-                    castNameFS2:SetFont(PREVIEW_FONT, s.castSpellNameSize or 11, GetUFOptOutline())
+                    SetPVFont(castNameFS2, PREVIEW_FONT, s.castSpellNameSize or 11)
                     local snC = s.castSpellNameColor or { r=1, g=1, b=1 }
                     castNameFS2:SetTextColor(snC.r, snC.g, snC.b)
                     castNameFS2:ClearAllPoints()
@@ -2977,7 +2982,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 if castTimeFS then
                     local spCastTime = (optState._previewCastSpell and optState._previewCastSpell.castTime) or 3.0
                     castTimeFS:SetText(string.format("%.1f", spCastTime * (1 - (optState._previewCastFill or 0.6))))
-                    castTimeFS:SetFont(PREVIEW_FONT, s.castDurationSize or 10, GetUFOptOutline())
+                    SetPVFont(castTimeFS, PREVIEW_FONT, s.castDurationSize or 10)
                     local dtC = s.castDurationColor or { r=1, g=1, b=1 }
                     castTimeFS:SetTextColor(dtC.r, dtC.g, dtC.b)
                     castTimeFS:SetShown(showDur)
@@ -2990,7 +2995,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                     end
                 end
                 if castTargetFS then
-                    castTargetFS:SetFont(PREVIEW_FONT, s.castSpellTargetSize or 11, GetUFOptOutline())
+                    SetPVFont(castTargetFS, PREVIEW_FONT, s.castSpellTargetSize or 11)
                     local tsC = s.castSpellTargetColor or { r=1, g=1, b=1 }
                     castTargetFS:SetTextColor(tsC.r, tsC.g, tsC.b)
                     castTargetFS:SetShown(showTgt)
@@ -4107,8 +4112,10 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 combatInd:SetSize(ciSz, ciSz)
                 combatInd:ClearAllPoints()
                 -- "healthbar" is the stored value labeled "Center" in the dropdown;
-                -- "center" is a render alias for it.
-                if ciPos == "portrait" and portraitFrame and sp then
+                -- "center" is a render alias for it. Portrait follows the live
+                -- rule (ns.UF_PortraitShown): a stock style (blizzG) always
+                -- shows its portrait, whatever Portrait Mode says.
+                if ciPos == "portrait" and portraitFrame and (sp or blizzG) then
                     combatInd:SetPoint("CENTER", portraitFrame, "CENTER", ciOx, ciOy)
                 elseif ciPos == "textbar" then
                     combatInd:SetPoint("CENTER", btbFrame or pf, "CENTER", ciOx, ciOy)
@@ -4176,7 +4183,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 EllesmereUI.SetFactionArt(factionInd, fStyle, fac, EllesmereUI.FactionBadgeFor(fStyle, "player"))
                 factionInd:SetSize(fSz, fSz)
                 factionInd:ClearAllPoints()
-                if fPos == "portrait" and portraitFrame and sp then
+                if fPos == "portrait" and portraitFrame and (sp or blizzG) then
                     factionInd:SetPoint("CENTER", portraitFrame, "CENTER", fOx, fOy)
                 else
                     local anchor =
@@ -4200,7 +4207,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             local isPT = unitKey == "player" or unitKey == "target"
             local function PlaceCorner(tex, pos, ox, oy)
                 tex:ClearAllPoints()
-                if pos == "portrait" and portraitFrame and sp then
+                if pos == "portrait" and portraitFrame and (sp or blizzG) then
                     tex:SetPoint("CENTER", portraitFrame, "CENTER", ox, oy)
                 else
                     local anchor =

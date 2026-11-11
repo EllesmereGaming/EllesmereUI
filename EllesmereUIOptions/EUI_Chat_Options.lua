@@ -288,7 +288,7 @@ initFrame:SetScript("OnEvent", function(self)
             do
                 local rgn = borderRow._leftRegion
                 EllesmereUI.BuildInlineCog(rgn, {
-                    icon = EllesmereUI.DIRECTIONS_ICON, anchorTo = rgn._control,
+                    anchorTo = rgn._control,
                     title = "Border Options",
                     captureRegion = rgn,
                     rows = {
@@ -664,7 +664,7 @@ initFrame:SetScript("OnEvent", function(self)
                         })
                     end,
                 })
-            PP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
+            EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rightRgn, "RIGHT", -20, 0)
             rightRgn._control = cbDD
             rightRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
@@ -1212,7 +1212,7 @@ initFrame:SetScript("OnEvent", function(self)
             do
                 local rgn = borderRow._leftRegion
                 EllesmereUI.BuildInlineCog(rgn, {
-                    icon = EllesmereUI.DIRECTIONS_ICON, chain = false,
+                    chain = false,
                     disabled = tabBordersDisabled,
                     disabledTooltip = TabBorderDisabledTip,
                     title="Tab Border Options", captureRegion=rgn,

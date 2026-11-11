@@ -228,7 +228,7 @@ BuildPopup = function()
         if cdInfo and cdInfo.duration and cdInfo.duration > 0 then
             EUI.ShowWidgetTooltip(self, "Teleport on Cooldown")
         elseif EUI.ShowWidgetTooltip then
-            EUI.ShowWidgetTooltip(self, "Teleport to " .. (pendingName or "dungeon"))
+            EUI.ShowWidgetTooltip(self, EUI.Lf("Teleport to %s", pendingName or EUI.L("dungeon")))
         end
     end)
     secureBtn:SetScript("OnLeave", function()

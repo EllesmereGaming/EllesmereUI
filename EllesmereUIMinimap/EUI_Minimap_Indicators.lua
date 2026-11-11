@@ -438,6 +438,7 @@ local function ToggleMinimapPortalFlyout(anchorBtn)
         else
             flyout:SetPoint("TOPRIGHT", UIParent, "BOTTOMLEFT", (bLeft - 4) / fs, (bTop + 4) / fs)
         end
+        flyout._toggle = anchorBtn
         flyout:Show()
     end
 end

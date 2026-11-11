@@ -58,10 +58,10 @@ local PAGE_DISPLAY        = "Bar Display"
 local PAGE_XPBAR          = "XP Bar"
 local PAGE_MENUBAGSREP    = "Menu, Bags & Rep Bars"
 local PAGE_ANIMATIONS     = "Bar Animations"
-local SECTION_ICON_APPEARANCE = "ICONS"
+local SECTION_ICON_APPEARANCE = "APPEARANCE"
 local SECTION_LAYOUT      = "LAYOUT"
 local SECTION_TEXT        = "TEXT"
-local SECTION_VISIBILITY  = "VISIBILITY"
+local SECTION_VISIBILITY  = "VISIBILITY & FADING"
 
 -- EllesmereUI is created by another addon in the suite; wait for it.
 local initFrame = CreateFrame("Frame")
@@ -547,7 +547,6 @@ initFrame:SetScript("OnEvent", function(self)
               set=function(v) o.write("endCapOffsetY", v) end }
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "End Cap Settings",
-                icon = C.stock and EllesmereUI.RESIZE_ICON or nil,
                 disabled = function()
                     return C.Vertical() or C.Off()
                 end,
@@ -649,9 +648,9 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- The sections live in ActionBars_Options\BarVisibilityLayout_Options.lua
-        -- (Bar 10 caution, VISIBILITY, LAYOUT) and BarAppearance_Options.lua (BAR
-        -- BACKGROUND, ICON APPEARANCE, ICON EFFECTS, PAGING, TEXT); the second
-        -- returns the rows the click navigation below maps to.
+        -- (Bar 10 caution, VISIBILITY & FADING, LAYOUT) and BarAppearance_Options.lua
+        -- (APPEARANCE, EFFECTS, BEHAVIOR & PAGING, TEXT); the second returns the
+        -- rows the click navigation below maps to.
         local ctx = {
             BgDisabled = BgDisabled, SDB = SDB, SGet = SGet, SSeedTextOffsets = SSeedTextOffsets,
             SSet = SSet, SSetColor = SSetColor, SUpdatePreview = SUpdatePreview,
@@ -673,7 +672,7 @@ initFrame:SetScript("OnEvent", function(self)
             local clickMappings = {
                 icon       = { section = iconsSectionHeader, target = classColorBorderRow },
                 keybind    = { section = textSectionHeader,  target = keybindRow, slotSide = "right" },
-                charges    = { section = textSectionHeader,  target = chargesRow, slotSide = "left" },
+                charges    = { section = textSectionHeader,  target = chargesRow, slotSide = "right" },
             }
 
             local function NavigateToSetting(key)

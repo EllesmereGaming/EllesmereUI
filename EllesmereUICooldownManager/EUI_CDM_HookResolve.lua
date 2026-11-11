@@ -512,6 +512,9 @@ ns._divertedSlotCD = {}
 --- EUI_CDM_HookReanchor.lua Phase 1 and 3). On ns: 200-local cap.
 ns._divertedItemCD = {}
 ns._nativeItemKeyByCat = {}
+-- WoW Forever: CD-family claims by rank name (ns.CDMRankName), for a row whose
+-- cooldown info does not link the rank a bar lists. On ns: 200-local cap.
+ns._divertedRankCD = {}
 -- "Replace with Buff" (per-spell cd/util setting): buff identity -> the cooldown
 -- spellID whose slot the buff's viewer frame takes while the aura is active.
 -- Spell-keyed map is variant-expanded on write; the cooldownID map serves
@@ -704,6 +707,7 @@ function ns.RebuildSpellRouteMap()
     wipe(ns._divertedSlotCD)
     wipe(ns._divertedItemCD)
     wipe(ns._nativeItemKeyByCat)
+    wipe(ns._divertedRankCD)
     wipe(ns._buffReplaceTarget)
     wipe(ns._buffReplaceTargetCd)
     wipe(ns._buffReplaceBars)
@@ -748,14 +752,18 @@ function ns.RebuildSpellRouteMap()
         end
     end
 
+    local RankName = ns.CDMRankName
     local function CollectDiversionsFor(bd, skipPositiveSet)
         local sd = ns.GetBarSpellData(bd.key)
         if not sd or not sd.assignedSpells then return end
         local targetMap = IsBuffFamily and IsBuffFamily(bd) and _divertedSpellsBuff or _divertedSpellsCD
+        local byRank = RankName and targetMap == _divertedSpellsCD
         for _, sid in ipairs(sd.assignedSpells) do
             if type(sid) == "number" and sid > 0 then
                 if not skipPositiveSet or not skipPositiveSet[sid] then
                     StoreDirect(targetMap, sid, bd.key)
+                    local n = byRank and not (sd.customSpellIDs and sd.customSpellIDs[sid]) and RankName(sid)
+                    if n then ns._divertedRankCD[n] = bd.key end
                 end
             else
                 -- Equipment slot entry: routes Blizzard's own equipment cooldown
@@ -1121,6 +1129,11 @@ local function ResolveCDIDToBar(cdID, viewerDefaultBar)
                 routedBar = RVV(divertMap, lid)
                 if routedBar then break end
             end
+        end
+        -- WoW Forever: a row that does not link the listed rank goes by its name.
+        local RankName = ns.CDMRankName
+        if not routedBar and RankName and viewerDefaultBar ~= "buffs" then
+            routedBar = ns._divertedRankCD[RankName(info.overrideSpellID) or RankName(info.spellID) or false]
         end
     end
 

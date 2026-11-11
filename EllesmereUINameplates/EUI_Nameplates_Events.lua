@@ -208,6 +208,7 @@ local function RefreshThreatContextAndPlateColors()
     -- stale quest-mob decisions that were made under a different context.
     wipe(questMobCache)
     wipe(ns._questObjText)
+    if ns._questObjectiveTypeEnabled then ns.InvalidateQuestObjectiveTypeCache() end
     for _, plate in pairs(ns.plates) do
         plate:UpdateHealthColor()
     end
@@ -425,6 +426,7 @@ manager:SetScript("OnEvent", function(self, event, unit)
     elseif event == "NAME_PLATE_UNIT_REMOVED" then
         questMobCache[unit] = nil
         ns._questObjText[unit] = nil
+        if ns._questObjectiveTypeEnabled then ns._questObjType[unit] = nil end
         -- The driver has already released this base's UnitFrame (base.UnitFrame is nil
         -- here); its parked pieces come back on the next acquire (ns.NP_ReclaimBlizzardFrame).
         local nameplate = C_NamePlate.GetNamePlateForUnit(unit)

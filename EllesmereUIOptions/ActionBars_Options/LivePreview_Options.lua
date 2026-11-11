@@ -780,6 +780,16 @@ local function BuildLivePreview(parent, yOff)
                         ctText = realBtn.Count:GetText() or ""
                     end
                     countFS:SetText(ctText)
+                    -- Charge Numbers: while the bar hides a kind of count, the
+                    -- sample takes the live count's alpha, which the runtime
+                    -- sets by the count's kind (passed through as it reads,
+                    -- never compared); otherwise it shows in full.
+                    if realBtn and realBtn.Count and (settings.hideChargeCount
+                        or settings.hideStackCount or settings.hideItemCount) then
+                        countFS:SetAlpha(realBtn.Count:GetAlpha())
+                    else
+                        countFS:SetAlpha(1)
+                    end
                 end
                 EllesmereUI.ApplyIconTextFont(countFS, fontPath, scaledCTSize, "actionBars")
                 countFS:SetTextColor(ctColor.r, ctColor.g, ctColor.b)

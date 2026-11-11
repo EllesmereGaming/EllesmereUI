@@ -230,6 +230,12 @@ local BASE_U, BASE_V = BASE_R - BASE_L, BASE_B - BASE_T
 local function ApplyShellStyle(winKey)
     local entry = _shells[winKey]
     if not entry then return end
+    -- a window's own background color/opacity: the backdrop fades with the
+    -- opacity, the tint takes the color (EUI._ShellLooks[winKey] returns both)
+    local look = EUI and EUI._ShellLooks and EUI._ShellLooks[winKey]
+    local tint, opacity
+    if look then tint, opacity = look() end
+    opacity = (opacity or 100) / 100
     for frame in pairs(entry) do
         local d = FFD[frame]
         if d then
@@ -239,16 +245,20 @@ local function ApplyShellStyle(winKey)
                 if d.bgOverlay then d.bgOverlay:SetAlpha(0) end
                 if d.modernBg then
                     local r, g, b, a = WSkin.GetModernBG()
+                    if tint then r, g, b, a = tint.r, tint.g, tint.b, tint.a or a end
                     d.modernBg:SetColorTexture(r, g, b, a)
                     -- Re-raise the region alpha too: a foreign restrip pass may
                     -- have zeroed it (color alpha and region alpha multiply).
-                    d.modernBg:SetAlpha(1)
+                    d.modernBg:SetAlpha(opacity)
                 end
             else
-                if d.bg then d.bg:SetAlpha(1) end
+                if d.bg then d.bg:SetAlpha(opacity) end
                 -- Region alpha is show/hide only; the darken strength lives in
                 -- the overlay's color alpha (they multiply).
-                if d.bgOverlay then d.bgOverlay:SetAlpha(1) end
+                if d.bgOverlay then
+                    if tint then d.bgOverlay:SetColorTexture(tint.r, tint.g, tint.b, tint.a or 0.62) end
+                    d.bgOverlay:SetAlpha(opacity)
+                end
                 if d.modernBg then d.modernBg:SetColorTexture(0, 0, 0, 0) end
             end
         end
@@ -437,14 +447,30 @@ function WSkin.Inset(inset)
 end
 
 -- size (optional): the size to set; otherwise the string keeps its own (12 if none).
+-- A string already on one of our font families keeps it (WSkin.FontFamily), so a
+-- region walk never pins a name text that took a family.
 function WSkin.Font(fs, r, g, b, size)
     if not fs or not fs.GetFont or (fs.IsForbidden and fs:IsForbidden()) then return end
+    local fo = fs.GetFontObject and fs:GetFontObject()
+    if fo and EUI._fontFamilySet[fo] then return WSkin.FontFamily(fs, r, g, b, size) end
     local _, cur = fs:GetFont()
     if cur and issecretvalue(cur) then return end
     -- 12.0.7: shadows only render from a FontObject, never from instance
     -- SetShadowOffset. Prime BEFORE SetFont (SetFont then restores the face).
     EUI.PrimeFontShadow(fs, Theme.fontShadow)
     fs:SetFont(Theme.fontPath, size or cur or 12, Theme.fontFlag or "")
+    if r then fs:SetTextColor(r, g, b or r) end
+end
+
+-- WSkin.Font for a text that shows other players' writing (names, group titles,
+-- comments): the house font as a font family, which draws the scripts that font
+-- lacks. A string given a family takes every later font write through here,
+-- never through WSkin.Font (a plain SetFont pins the face for good).
+function WSkin.FontFamily(fs, r, g, b, size)
+    if not fs or not fs.GetFont or (fs.IsForbidden and fs:IsForbidden()) then return end
+    local _, cur = fs:GetFont()
+    if cur and issecretvalue(cur) then return end
+    EUI.SetFontFamily(fs, Theme.fontPath, size or cur or 12, Theme.fontFlag or "", Theme.fontShadow)
     if r then fs:SetTextColor(r, g, b or r) end
 end
 
@@ -1132,17 +1158,90 @@ function WSkin.QuestRewardTiles(frame)
     end
 end
 
+-- Item button icons. The newer item button code (WoW Forever's today; retail's
+-- may follow) undoes a one-time square in two ways, both handled here so every
+-- SquareIcon caller, ours and the skinning API's, gets the same square icon:
+--  - ItemButtonMixin:PostOnLoad rounds the icon's corners with the button's own
+--    Mask (the normal and pushed textures' too). A corner rounding, not a shape,
+--    so SquareIcon drops it (Unround) and squares the icon as on retail.
+--  - SetItemButtonTexture resets the icon's tex coords on every call. SquareIcon
+--    records the button's own icon (Keep) and post-hooks the setter, global and
+--    method (QualityBorder's two routes), to square it again once the coords read
+--    full. An atlas (the empty slot art) keeps its own coords, and on a client
+--    whose setter keeps the crop the hook only reads it.
+-- Weak: a pooled button going away takes its entry; the hook tests the registry
+-- first, so an unrelated item button costs one table lookup.
+local ItemCrop = { tiles = setmetatable({}, { __mode = "k" }), hooked = false }
+
+-- The texture SetItemButtonTexture paints: Blizzard's GetItemButtonIconTexture,
+-- which errors on an unnamed button without an icon key.
+function ItemCrop.OwnIcon(btn)
+    local n = btn.GetName and btn:GetName()
+    return btn.Icon or btn.icon or (n and _G[n .. "IconTexture"])
+end
+
+-- Remove `only` from tex's masks, or every mask when `only` is nil.
+function ItemCrop.DropMasks(tex, only)
+    if not (tex and tex.GetNumMaskTextures and tex.RemoveMaskTexture) then return end
+    for i = tex:GetNumMaskTextures(), 1, -1 do
+        local m = tex:GetMaskTexture(i)
+        if m and (not only or m == only) then tex:RemoveMaskTexture(m) end
+    end
+end
+
+-- The stock rounding only: an item button's own Mask as the icon's one mask.
+-- Any other mask is a shape, and the icon stays native.
+function ItemCrop.Unround(btn, icon)
+    if btn.IsForbidden and btn:IsForbidden() then return end
+    local m = btn.Mask
+    if not (m and type(btn.SetItemButtonTexture) == "function" and icon.GetNumMaskTextures
+            and icon:GetNumMaskTextures() == 1 and icon:GetMaskTexture(1) == m) then
+        return
+    end
+    ItemCrop.DropMasks(icon, m)
+    ItemCrop.DropMasks(btn.GetNormalTexture and btn:GetNormalTexture(), m)
+    ItemCrop.DropMasks(btn.GetPushedTexture and btn:GetPushedTexture(), m)
+end
+
+function ItemCrop.OnTexture(btn)
+    local icon = ItemCrop.tiles[btn]
+    if not icon then return end
+    local l, _, _, _, r = icon:GetTexCoord()
+    if l == 0 and r == 1 then pcall(icon.SetTexCoord, icon, 0.08, 0.92, 0.08, 0.92) end
+end
+
+function ItemCrop.Keep(btn, icon)
+    if ItemCrop.tiles[btn] == icon then return end
+    if (btn.IsForbidden and btn:IsForbidden()) or ItemCrop.OwnIcon(btn) ~= icon then return end
+    ItemCrop.tiles[btn] = icon
+    local d = GetFFD(btn)
+    if type(btn.SetItemButtonTexture) == "function" and not d.cropMethodHook then
+        d.cropMethodHook = true
+        pcall(hooksecurefunc, btn, "SetItemButtonTexture", ItemCrop.OnTexture)
+    end
+    -- Buttons with no method (quest reward tiles) go through the global alone.
+    if not ItemCrop.hooked and type(_G.SetItemButtonTexture) == "function" then
+        ItemCrop.hooked = true
+        hooksecurefunc("SetItemButtonTexture", ItemCrop.OnTexture)
+    end
+end
+
 -- Square an icon texture (crop the baked bevel) and optionally border it.
 --
 -- `quality` true asks for the rarity-colored border above instead of the plain
 -- black one. Routed through here rather than called alongside it so the MASK
 -- GUARDS below stay the single authority: a masked icon renders as a shape,
 -- and a square border drawn round it is exactly as wrong as a square crop.
+-- An item button's own icon is the exception both ways (ItemCrop above): its
+-- stock corner rounding goes, and its crop survives SetItemButtonTexture. The
+-- button is `parent`, else the icon's own parent.
 --
 -- Returns true when the crop actually happened, so a caller that needs to
 -- border a masked-icon surface itself can tell whether it may.
 function WSkin.SquareIcon(icon, parent, quality)
     if not icon or not icon.SetTexCoord then return end
+    local btn = parent or (icon.GetParent and icon:GetParent())
+    if btn then ItemCrop.Unround(btn, icon) end
     -- A texture with a MaskTexture rejects SetTexCoord outright (hard Lua
     -- error, e.g. the special first-catch loot toast masks its icon). Leave
     -- masked icons fully native -- no crop, and no square border drawn
@@ -1154,6 +1253,7 @@ function WSkin.SquareIcon(icon, parent, quality)
     -- itself is the only reliable probe -- on rejection the icon stays
     -- native, same as the counted case.
     if not pcall(icon.SetTexCoord, icon, 0.08, 0.92, 0.08, 0.92) then return end
+    if btn then ItemCrop.Keep(btn, icon) end
     if parent then
         if quality then
             WSkin.QualityBorder(parent, icon)
@@ -1162,6 +1262,47 @@ function WSkin.SquareIcon(icon, parent, quality)
         end
     end
     return true
+end
+
+-- The house item slot (bag, bank and inventory buttons of the ItemButton family;
+-- the public skinning API's S.ItemButton): the icon square-cropped on a dark
+-- plate, a square 1px border in the item's rarity color (black when common or
+-- empty; it follows SetItemButtonQuality, QualityBorder above) and a flat hover.
+-- Faded: the slot frame art (NormalTexture) and the round quality ring
+-- (IconBorder, whose color drives the square border). Every mask goes, so a
+-- round template squares too: the icon's, the normal and pushed textures' and
+-- the overlays' that sit on the icon. Everything functional stays as it is:
+-- count, cooldown, the search, context and profession overlays, the quest, junk
+-- and upgrade marks, the new item glow, the pushed art.
+-- opts.icon: the icon texture when it is not the button's Icon / icon /
+-- <name>IconTexture. A re-call repaints the rarity border and nothing else.
+local ITEM_SLOT_OVERLAYS = { "searchOverlay", "ItemContextOverlay", "IconOverlay", "IconOverlay2" }
+function WSkin.ItemButton(btn, opts)
+    if not btn or (btn.IsForbidden and btn:IsForbidden()) then return end
+    local icon = (opts and opts.icon) or ItemCrop.OwnIcon(btn)
+    if not (icon and icon.SetTexCoord) then return end
+    local d = GetFFD(btn)
+    if not d.itemSlot then
+        d.itemSlot = true
+        local nt = btn.GetNormalTexture and btn:GetNormalTexture()
+        ItemCrop.DropMasks(icon)
+        ItemCrop.DropMasks(nt)
+        ItemCrop.DropMasks(btn.GetPushedTexture and btn:GetPushedTexture())
+        for i = 1, #ITEM_SLOT_OVERLAYS do ItemCrop.DropMasks(btn[ITEM_SLOT_OVERLAYS[i]]) end
+        if nt then nt:SetAlpha(0) end
+        if btn.IconBorder and btn.IconBorder.SetAlpha then btn.IconBorder:SetAlpha(0) end
+        if not Theme.insetR then ResolveTheme() end
+        local plate = btn:CreateTexture(nil, "BACKGROUND", nil, -7)
+        plate:SetColorTexture(Theme.insetR, Theme.insetG, Theme.insetB, 1)
+        plate:SetAllPoints(icon)
+        local ht = btn.GetHighlightTexture and btn:GetHighlightTexture()
+        if ht then
+            ht:SetColorTexture(1, 1, 1, 0.08)
+            ht:ClearAllPoints()
+            ht:SetAllPoints(icon)
+        end
+    end
+    WSkin.SquareIcon(icon, btn, true)
 end
 
 -- Remove a PortraitFrameTemplate's corner portrait.

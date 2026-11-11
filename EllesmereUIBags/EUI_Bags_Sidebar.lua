@@ -17,11 +17,11 @@ local EUI = EllesmereUI
 
 local BP, GetAccentRGB, GetDefaultBagType = I.BP, I.GetAccentRGB, I.GetDefaultBagType
 local GetFont, IsItemPinned, NormalizePinKey = I.GetFont, I.IsItemPinned, I.NormalizePinKey
-local SetBagFont, ClearGroupOrder, HEADER_H = I.SetBagFont, I.ClearGroupOrder, I.HEADER_H
+local SetBagFont, ClearGroupOrder = I.SetBagFont, I.ClearGroupOrder
 local ResortAfterGroupChange, SIDEBAR_BTN_H = I.ResortAfterGroupChange, I.SIDEBAR_BTN_H
 local SIDEBAR_ICON_SIZE, SIDEBAR_INDENT = I.SIDEBAR_ICON_SIZE, I.SIDEBAR_INDENT
 local SIDEBAR_PAD, SIDEBAR_W_COLLAPSED = I.SIDEBAR_PAD, I.SIDEBAR_W_COLLAPSED
-local SIDEBAR_W_EXPANDED = I.SIDEBAR_W_EXPANDED
+local SIDEBAR_W_EXPANDED, PinnedItems = I.SIDEBAR_W_EXPANDED, I.PinnedItems
 local SetSelectedCategoryIndex = I.SetSelectedCategoryIndex
 local SetSelectedGroupName = I.SetSelectedGroupName
 
@@ -48,6 +48,11 @@ local function GetSidebarWidth()
     local p = BP()
     if not p.bagSidebarCollapsed then return SIDEBAR_W_EXPANDED end
     return p.bagHideSidebarIconsCollapsed == true and 0 or SIDEBAR_W_COLLAPSED
+end
+
+-- The item grid starts after the full width, including the window rim.
+local function GetSidebarContentWidth(sidebar)
+    return math.max(0, GetSidebarWidth() - sidebar._leftInset)
 end
 
 -------------------------------------------------------------------------------
@@ -79,7 +84,6 @@ local function EnsureDragGhost()
     g.bg:SetColorTexture(0.08, 0.08, 0.08, 0.9)
     g.icon = g:CreateTexture(nil, "ARTWORK")
     g.icon:SetSize(SIDEBAR_ICON_SIZE, SIDEBAR_ICON_SIZE)
-    g.icon:SetPoint("LEFT", 8, 0)
     g.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     g.label = g:CreateFontString(nil, "OVERLAY")
     SetBagFont(g.label, 11)
@@ -294,9 +298,10 @@ _dragUpdateFrame:SetScript("OnUpdate", function()
 
         local cats = EUI_CategoryManager:GetCategories()
 
-        -- Block drops onto/above special entries (Pinned Items, Recent Items) -- nothing drags above the divider.
+        -- Block drops onto/above special entries (Pinned Items, Recent Items) -- nothing drags above the divider,
+        -- and nothing lands among the virtual categories at the tail.
         local targetCatCheck = cats[target]
-        if targetCatCheck and (targetCatCheck.isPinned or targetCatCheck.isRecent) then
+        if targetCatCheck and (targetCatCheck.isPinned or targetCatCheck.isRecent or targetCatCheck.isVirtual) then
             line:Hide(); hl:Hide()
             _dragDropMode = nil; _dragDropTarget = nil
             return
@@ -416,7 +421,7 @@ StartSidebarDrag = function(btnSelf, catIdx, catName, catIcon, catIsAtlas)
     _dragDropTarget = nil
 
     local ghost = EnsureDragGhost()
-    ghost:SetSize(GetSidebarWidth(), SIDEBAR_BTN_H)
+    ghost:SetSize(btnSelf:GetWidth(), SIDEBAR_BTN_H)
     if catIsAtlas then
         ghost.icon:SetAtlas(catIcon or "")
         ghost.icon:SetTexCoord(0, 1, 0, 1)
@@ -426,6 +431,7 @@ StartSidebarDrag = function(btnSelf, catIdx, catName, catIcon, catIsAtlas)
     end
     ghost.label:SetText(catName or "?")
     local collapsed = BP().bagSidebarCollapsed
+    ns.AnchorBagSidebarIcon(ghost.icon, collapsed and ns.BagsForever(), 8)
     if collapsed then ghost.label:Hide() else ghost.label:Show() end
     ghost:Show()
 
@@ -540,8 +546,10 @@ local function StopSidebarDrag()
                     end
                     if insertAt < 1 then insertAt = 1 end
                     if insertAt > #cats + 1 then insertAt = #cats + 1 end
-                    -- Junk stays last (as in ReorderCategory)
-                    if cats[#cats] and cats[#cats].isJunk and insertAt > #cats then insertAt = #cats end
+                    -- Virtual categories stay the tail and Junk stays last (as in ReorderCategory)
+                    local last = EUI_CategoryManager:GetSavedCount()
+                    if insertAt > last + 1 then insertAt = last + 1 end
+                    if cats[last] and cats[last].isJunk and insertAt > last then insertAt = last end
                     for b = #ordered, 1, -1 do
                         table.insert(cats, insertAt, ordered[b])
                     end
@@ -686,10 +694,14 @@ end
 local function CreateSidebar()
     if EUI_Bags._sidebar then return end
 
+    local forever = ns.BagsForever()
+    local inset = forever and ns.ForeverBagSidebarInset(EUI_Bags) or 0
     local sidebar = CreateFrame("Frame", nil, EUI_Bags)
-    sidebar:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", 0, -(HEADER_H))
-    sidebar:SetPoint("BOTTOMLEFT", EUI_Bags.Footer, "TOPLEFT", 0, 0)
-    sidebar:SetWidth(GetSidebarWidth())
+    sidebar._leftInset = inset
+    local width = GetSidebarContentWidth(sidebar)
+    sidebar:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", inset, -EUI_Bags.Header:GetHeight())
+    sidebar:SetPoint("BOTTOMLEFT", EUI_Bags.Footer, "TOPLEFT", inset, 0)
+    sidebar:SetWidth(width)
     sidebar.bg = sidebar:CreateTexture(nil, "BACKGROUND", nil, 2)
     sidebar.bg:SetAllPoints()
     sidebar.bg:SetColorTexture(0, 0, 0, 0.25)
@@ -710,6 +722,12 @@ local function CreateSidebar()
     -- sidebar hides (Hide Sidebar Icons When Collapsed; BuildSidebarButtons)
     local titleArrow = ns.SidebarArrowButton(EUI_Bags.Header, "Expand Sidebar")
     titleArrow:SetPoint("LEFT", EUI_Bags.Header, "LEFT", 8, 0)
+    if forever then
+        sidebar.bg:SetColorTexture(0.10, 0.065, 0.035, 0.45)
+        sidebar.sep:SetColorTexture(0.45, 0.33, 0.21, 0.85)
+        titleArrow:ClearAllPoints()
+        titleArrow:SetPoint("LEFT", EUI_Bags.Header, "TOPLEFT", 39, EUI_Bags.Header._foreverControlsY)
+    end
     titleArrow._icon:SetRotation(math.pi)
     titleArrow:Hide()
 
@@ -722,7 +740,7 @@ local function CreateSidebar()
 
         BP().bagSidebarCollapsed = not BP().bagSidebarCollapsed
         UpdateCollapseArrow()
-        sidebar:SetWidth(GetSidebarWidth())
+        sidebar:SetWidth(GetSidebarContentWidth(sidebar))
         EUI_Bags:RefreshInventory()
 
         if onRightSide and oldRight and oldTop then
@@ -744,7 +762,7 @@ local function CreateSidebar()
     sidebarSF:SetPoint("BOTTOMRIGHT", sidebar, "BOTTOMRIGHT", 0, 0)
     sidebarSF:EnableMouseWheel(true)
     local sidebarChild = CreateFrame("Frame", nil, sidebarSF)
-    sidebarChild:SetWidth(GetSidebarWidth())
+    sidebarChild:SetWidth(width)
     sidebarSF:SetScrollChild(sidebarChild)
 
     local SIDEBAR_SCROLL_STEP = 28
@@ -828,7 +846,7 @@ local function PadCategoryEntries(root, btn, cat, catIdx, isGroupHeader, isGroup
 
     -- Pinned Items: every pinned item in the bags, once per pin key.
     if cat.isPinned then
-        local pinned = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+        local pinned = PinnedItems()
         local seen
         for bag = 0, 5 do
             for slot = 1, (pinned and C_Container.GetContainerNumSlots(bag) or 0) do
@@ -841,7 +859,7 @@ local function PadCategoryEntries(root, btn, cat, catIdx, isGroupHeader, isGroup
                         seen[key] = true
                         local itemID = info.itemID
                         rows[#rows + 1] = { text = link or tostring(itemID), fn = function()
-                            local p = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+                            local p = PinnedItems(true)
                             if p then p[key] = nil; p[itemID] = nil end
                             EUI_Bags:RefreshInventory()
                         end }
@@ -949,8 +967,8 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
     local cats = EUI_CategoryManager:GetCategories()
     local cat = cats[catIdx]
     if not cat then return end
-    -- Set children have no menu actions (rename/group/hide all N/A): no empty menu
-    if cat.isEquipSet then return end
+    -- Set children and virtual categories have no menu actions (rename/group/hide all N/A): no empty menu
+    if cat.isEquipSet or cat.isVirtual then return end
 
     MenuUtil.CreateContextMenu(btn, function(_, rootDescription)
         local myGroup = cat.groupName
@@ -964,7 +982,7 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 EUI:ShowInputPopup({
                     title = "Rename Group",
                     message = EllesmereUI.L("Enter a new name for this group:"),
-                    placeholder = myGroup,
+                    placeholder = EUI_CategoryManager:GroupDisplayName(myGroup),
                     confirmText = "Rename",
                     cancelText = "Cancel",
                     onConfirm = function(newName)
@@ -1048,7 +1066,7 @@ local function ShowCategoryContextMenu(btn, catIdx, isGroupHeader, isGroupMember
                 if #groupNames > 0 then
                     local addSub = rootDescription:CreateButton(EllesmereUI.L("Add to Group"))
                     for _, gn in ipairs(groupNames) do
-                        addSub:CreateButton(gn, function()
+                        addSub:CreateButton(EUI_CategoryManager:GroupDisplayName(gn), function()
                             EUI_CategoryManager:AddToGroup(catIdx, gn)
                             EUI_Bags:RefreshInventory()
                         end)
@@ -1079,7 +1097,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
     local sidebar = EUI_Bags._sidebar
     if not sidebar then return end
     local collapsed = BP().bagSidebarCollapsed
-    local sidebarW = GetSidebarWidth()
+    local sidebarW = GetSidebarContentWidth(sidebar)
     sidebar:SetWidth(sidebarW)
     -- A collapsed sidebar with no icon strip hides; its expand arrow sits left
     -- of the window title meanwhile (the tip on the categories waits for it)
@@ -1089,8 +1107,10 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         sidebar:SetShown(not hidden)
         local hdr = EUI_Bags.Header
         EUI_Bags._titleArrow:SetShown(hidden)
-        hdr.title:ClearAllPoints()
-        hdr.title:SetPoint("LEFT", hdr, "LEFT", hidden and 24 or 8, 0)
+        if not ns.BagsForever() then
+            hdr.title:ClearAllPoints()
+            hdr.title:SetPoint("LEFT", hdr, "LEFT", hidden and 24 or 8, 0)
+        end
         if hidden and EUI_Bags._catTip then EUI_Bags._catTip:Hide() end
     end
     -- Nothing to paint on a hidden sidebar: un-hiding comes back through here
@@ -1169,7 +1189,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
                     if cats[mi] and cats[mi].isUserCreated then groupHasUserCreated = true; break end
                 end
                 displayList[#displayList + 1] = {
-                    catIdx = members[1], name = cat.groupName, icon = groupIcon, isAtlas = groupIsAtlas,
+                    catIdx = members[1], name = EUI_CategoryManager:GroupDisplayName(cat.groupName), icon = groupIcon, isAtlas = groupIsAtlas,
                     count = groupCount, isGroupHeader = true, groupName = cat.groupName,
                     isUserCreated = groupHasUserCreated,
                 }
@@ -1201,7 +1221,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             elseif cat.isRecent and BP().bagShowRecentItems == false then
                 -- skip
             else
-                displayList[#displayList + 1] = { catIdx = ci, name = cat.name, icon = cat.icon or 134400, isAtlas = cat.isAtlas, count = count, noMove = cat.noMove, isPinned = cat.isPinned, isRecent = cat.isRecent, isUserCreated = cat.isUserCreated }
+                displayList[#displayList + 1] = { catIdx = ci, name = cat.name, icon = cat.icon or 134400, isAtlas = cat.isAtlas, count = count, noMove = cat.noMove, isPinned = cat.isPinned, isRecent = cat.isRecent, isUserCreated = cat.isUserCreated, isVirtual = cat.isVirtual }
                 if anchor then EmitSetChildren(1) end
             end
         end
@@ -1215,7 +1235,8 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
             local keep = true
             if entry.count == 0 then
                 -- Always keep: All Items, OneBag, noMove (Pinned/Recent), user-created
-                if entry.catIdx >= 1 and not entry.noMove and not entry.isUserCreated then
+                -- (virtual categories are noMove too, but hide when empty)
+                if entry.catIdx >= 1 and (not entry.noMove or entry.isVirtual) and not entry.isUserCreated then
                     if entry.isGroupHeader then
                         -- Hide group header if all members are 0
                         keep = false
@@ -1384,12 +1405,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         -- entry.indent: true = 1 level (legacy group members), or a number of levels
         local indentLv = (entry.indent == true and 1) or entry.indent or 0
         local leftPad = (indentLv ~= 0 and not collapsed) and (8 + INDENT * indentLv) or 8
-        btn._icon:ClearAllPoints()
-        if collapsed then
-            btn._icon:SetPoint("CENTER", btn, "CENTER", 0, 0)
-        else
-            btn._icon:SetPoint("LEFT", btn, "LEFT", leftPad, 0)
-        end
+        ns.AnchorBagSidebarIcon(btn._icon, collapsed, leftPad)
         if entry.isAtlas then
             btn._icon:SetAtlas(entry.icon)
             btn._icon:SetTexCoord(0, 1, 0, 1)

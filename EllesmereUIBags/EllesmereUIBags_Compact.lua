@@ -746,7 +746,7 @@ end
 -- A category whose blocks already hold the item keeps no zone (Pinned: an
 -- item already pinned), so a drop on its own category still reaches the item
 -- buttons (stack merges, swaps); a nested section's blocks count as one. A
--- pinned item counts toward its own category too: with Hide from Other
+-- pinned item counts toward its own category too: with Hide Items in Their
 -- Categories it shows only in the Pinned block.
 -- The zones register no events: the bag window's cursor watch (StartAddon,
 -- registered only while the window shows) calls ns.CompactZonesSync on every
@@ -783,7 +783,7 @@ local function SyncZones()
         for i = 1, zoneItemN do
             if zoneItem[i] == itemID then zoneHeld[zoneItemKey[i]] = true end
         end
-        pinned = ns.IsItemPinned(EllesmereUIDB.bagPinnedItems, link, itemID) and true or false
+        pinned = ns.IsItemPinned(ns.PinnedItems(), link, itemID) and true or false
     end
     for i = 1, zoneN do
         local z = zones[i]

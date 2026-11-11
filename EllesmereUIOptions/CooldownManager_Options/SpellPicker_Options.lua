@@ -156,7 +156,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
     -- Background + border (standard dropdown style)
     local bg = menu:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints(); bg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
-    EllesmereUI.MakeBorder(menu, 1, 1, 1, mBrdA, EllesmereUI.PP)
+    EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, mBrdA, bg, nil, true)
 
     -- Build item list: tracked first (minus current), divider, rest, disabled at bottom
     local tracked = {}
@@ -404,7 +404,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
             end
             if ns.IsEmptySlotMarker(spellID) then
                 -- Empty slots only expose identity-level conditions, never icon styling.
-                if not EllesmereUI.IS_FOREVER and not isBuffBar and not (bd and bd.isGhostBar) then
+                if not isBuffBar and not (bd and bd.isGhostBar) then
                     local store = ns.GetSpellSettingsStore(barKey, true)
                     if store then
                         local ss = store[spellID] or {}
@@ -1159,7 +1159,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                     s:EnableMouse(true)
                     local bg = s:CreateTexture(nil, "BACKGROUND")
                     bg:SetAllPoints(); bg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
-                    EllesmereUI.MakeBorder(s, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                    EllesmereUI.MakeRoundedBorder(s, 1, 1, 1, mBrdA, bg, nil, true)
                     local sInner = CreateFrame("Frame", nil, s)
                     sInner:SetWidth(SUBW)
                     sInner:SetPoint("TOPLEFT")
@@ -1926,7 +1926,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                         local subBg = sub:CreateTexture(nil, "BACKGROUND")
                         subBg:SetAllPoints()
                         subBg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
-                        EllesmereUI.MakeBorder(sub, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                        EllesmereUI.MakeRoundedBorder(sub, 1, 1, 1, mBrdA, subBg, nil, true)
 
                         local subInner = CreateFrame("Frame", nil, sub)
                         subInner:SetWidth(subW)
@@ -2423,6 +2423,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             local seBg = searchEdit:CreateTexture(nil, "BACKGROUND")
                             seBg:SetAllPoints()
                             seBg:SetColorTexture(0, 0, 0, 0.4)
+                            EllesmereUI.RoundBody(searchEdit, seBg)
                             local sePh = searchEdit:CreateFontString(nil, "OVERLAY")
                             sePh:SetFont(FONT_PATH, 11, "")
                             sePh:SetTextColor(0.5, 0.5, 0.5, 0.6)
@@ -2434,7 +2435,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             subInner:ClearAllPoints()
                             local sf = CreateFrame("ScrollFrame", nil, sub)
                             sf:SetPoint("TOPLEFT", 0, -searchPad)
-                            sf:SetPoint("BOTTOMRIGHT")
+                            sf:SetPoint("BOTTOMRIGHT", 0, 1)
                             sf:SetFrameLevel(sub:GetFrameLevel() + 1)
                             sf:EnableMouseWheel(true)
                             sf:SetScrollChild(subInner)
@@ -2481,7 +2482,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             sub:SetSize(subW, FLYOUT_MAX_H)
                             subInner:ClearAllPoints()
                             local sf = CreateFrame("ScrollFrame", nil, sub)
-                            sf:SetPoint("TOPLEFT"); sf:SetPoint("BOTTOMRIGHT")
+                            sf:SetPoint("TOPLEFT", 0, -1); sf:SetPoint("BOTTOMRIGHT", 0, 1)
                             sf:SetFrameLevel(sub:GetFrameLevel() + 1)
                             sf:EnableMouseWheel(true)
                             sf:SetScrollChild(subInner)
@@ -3488,7 +3489,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                             local subBg = sub:CreateTexture(nil, "BACKGROUND")
                             subBg:SetAllPoints()
                             subBg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
-                            EllesmereUI.MakeBorder(sub, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                            EllesmereUI.MakeRoundedBorder(sub, 1, 1, 1, mBrdA, subBg, nil, true)
                             local labels = {}
                             local subH = 4
 
@@ -4690,10 +4691,9 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 -- Talent Conditions (cd/util family, real spells only; per-spell ONLY like
                 -- Replace with Buff -- no tiers, no apply strip). The icon shows only while
                 -- every picked condition holds (EllesmereUICdmTalentConditions.lua); the
-                -- tree popup lives in EUI_CooldownManager_TalentConditions.lua. Closes the menu (popup flow).
-                -- Not on WoW Forever: its vanilla trees have no class/spec split for the popup to draw.
-                if not EllesmereUI.IS_FOREVER
-                   and not isBuffBar and not isHostedBuff and not (bd and bd.isGhostBar)
+                -- tree popup lives in EUI_CooldownManager_TalentConditions.lua (on WoW Forever,
+                -- the three vanilla trees). Closes the menu (popup flow).
+                if not isBuffBar and not isHostedBuff and not (bd and bd.isGhostBar)
                    and type(spellID) == "number" and spellID > 0
                    and not ((ns._myRacialsSet and ns._myRacialsSet[spellID])
                             or (sd.customSpellIDs and sd.customSpellIDs[spellID])) then
@@ -5249,7 +5249,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
             optState._customTrackingSub:SetPoint("TOPLEFT", ctItem, "TOPRIGHT", 2, 0)
             local subBg = optState._customTrackingSub:CreateTexture(nil, "BACKGROUND")
             subBg:SetAllPoints(); subBg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
-            EllesmereUI.MakeBorder(optState._customTrackingSub, 1, 1, 1, mBrdA, EllesmereUI.PP)
+            EllesmereUI.MakeRoundedBorder(optState._customTrackingSub, 1, 1, 1, mBrdA, subBg, nil, true)
             local subInner = CreateFrame("Frame", nil, optState._customTrackingSub)
             subInner:SetWidth(subW); subInner:SetPoint("TOPLEFT")
             local subH = 4
@@ -5307,7 +5307,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
             if totalSubH > SUB_MAX_H then
                 optState._customTrackingSub:SetHeight(SUB_MAX_H)
                 local sf = CreateFrame("ScrollFrame", nil, optState._customTrackingSub)
-                sf:SetPoint("TOPLEFT"); sf:SetPoint("BOTTOMRIGHT")
+                sf:SetPoint("TOPLEFT", 0, -1); sf:SetPoint("BOTTOMRIGHT", 0, 1)
                 sf:SetFrameLevel(optState._customTrackingSub:GetFrameLevel() + 1)
                 sf:EnableMouseWheel(true); sf:SetScrollChild(subInner)
                 subInner:SetWidth(subW)
@@ -5508,6 +5508,64 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
             mH = mH + ITEM_H
         end
 
+        -- WoW Forever Paladins: Seals, the stand-in for Blizzard's Seals entry
+        -- (EUI_CDM_ForeverSeals.lua), named by the client's own spell name.
+        do
+        local sSid = ns.CDM_SEALS_SPELL
+        local sName = sSid and C_Spell.GetSpellName(sSid)
+        if sName then
+            local sTex = C_Spell.GetSpellTexture(sSid)
+            local isAdded = alreadyOnBar[sSid]
+            local si = CreateFrame("Button", nil, inner)
+            si:SetHeight(ITEM_H)
+            si:SetPoint("TOPLEFT", inner, "TOPLEFT", 1, -mH)
+            si:SetPoint("TOPRIGHT", inner, "TOPRIGHT", -1, -mH)
+            si:SetFrameLevel(menu:GetFrameLevel() + 2)
+            local siLbl = si:CreateFontString(nil, "OVERLAY")
+            siLbl:SetFont(FONT_PATH, 11, GetCDMOptOutline())
+            siLbl:SetPoint("LEFT", 10, 0)
+            siLbl:SetJustifyH("LEFT")
+            siLbl:SetText(sName)
+            if sTex then
+                local siIco = si:CreateTexture(nil, "ARTWORK")
+                siIco:SetSize(ITEM_H - 2, ITEM_H - 2)
+                siIco:SetPoint("RIGHT", si, "RIGHT", -6, 0)
+                siIco:SetTexture(sTex)
+                siIco:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+                if isAdded then siIco:SetDesaturated(true); siIco:SetAlpha(0.4) end
+            end
+            local siHl = si:CreateTexture(nil, "ARTWORK")
+            siHl:SetAllPoints(); siHl:SetColorTexture(1, 1, 1, 0); siHl:SetAlpha(0)
+            if isAdded then
+                siLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA * 0.4)
+                local sTooltipName = bd and (bd.name or bd.key) or barKey
+                si:SetScript("OnEnter", function()
+                    EllesmereUI.ShowWidgetTooltip(si, EllesmereUI.Lf("Already on %s", EllesmereUI.L(sTooltipName)))
+                end)
+                si:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            else
+                siLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                si:SetScript("OnEnter", function()
+                    siLbl:SetTextColor(1, 1, 1, 1)
+                    siHl:SetColorTexture(1, 1, 1, hlA); siHl:SetAlpha(1)
+                end)
+                si:SetScript("OnLeave", function()
+                    siLbl:SetTextColor(tDimR, tDimG, tDimB, tDimA)
+                    siHl:SetAlpha(0)
+                end)
+                -- Other bars stay claimable (AddTrackedSpell auto-moves it).
+                si:SetScript("OnClick", function()
+                    menu:Hide()
+                    EnsureAssignedSpells(barKey)
+                    ns.AddTrackedSpell(barKey, sSid)
+                    RefreshCDPreview()
+                end)
+            end
+            allItems[#allItems + 1] = si
+            mH = mH + ITEM_H
+        end
+        end -- Seals
+
         -- "Potions & Healthstone" flyout subnav
         local _potionsSub
         menu._potionsSub = nil  -- reference for OnUpdate close-check
@@ -5561,7 +5619,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
                 local subBg = _potionsSub:CreateTexture(nil, "BACKGROUND")
                 subBg:SetAllPoints()
                 subBg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
-                EllesmereUI.MakeBorder(_potionsSub, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                EllesmereUI.MakeRoundedBorder(_potionsSub, 1, 1, 1, mBrdA, subBg, nil, true)
 
                 local subInner = CreateFrame("Frame", nil, _potionsSub)
                 subInner:SetWidth(subW)
@@ -5982,7 +6040,7 @@ local function ShowSpellPicker(anchorFrame, barKey, slotIndex, excludeSet, onSel
     if totalH > MAX_H then
         menu:SetHeight(MAX_H)
         local sf = CreateFrame("ScrollFrame", nil, menu)
-        sf:SetPoint("TOPLEFT"); sf:SetPoint("BOTTOMRIGHT")
+        sf:SetPoint("TOPLEFT", 0, -1); sf:SetPoint("BOTTOMRIGHT", 0, 1)
         sf:SetFrameLevel(menu:GetFrameLevel() + 1)
         sf:EnableMouseWheel(true)
         sf:SetScrollChild(inner)

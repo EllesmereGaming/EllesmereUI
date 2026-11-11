@@ -19,7 +19,7 @@ local floor, max = math.floor, math.max
 local _B, DEFAULT_TEXT_COLOR, EABR = I._B, I.DEFAULT_TEXT_COLOR, I.EABR
 local GetPlayerClass, GetTextAnchorPoints = I.GetPlayerClass, I.GetTextAnchorPoints
 local InCombat, Known, ResolveFontPath = I.InCombat, I.Known, I.ResolveFontPath
-local ResolveGlowTint, SetABRFont, Tex = I.ResolveGlowTint, I.SetABRFont, I.Tex
+local ResolveGlowTint, SetABRFont, SpellName, Tex = I.ResolveGlowTint, I.SetABRFont, I.SpellName, I.Tex
 local RAID_BUFFS, _dismissedUntilLoad = I.RAID_BUFFS, I._dismissedUntilLoad
 local GLOW_VIEW, StopAllGlows = I.GLOW_VIEW, I.StopAllGlows
 
@@ -400,6 +400,7 @@ local function ShowCombatIcon(m)
         f._text:Hide()
     end
     EABR.ApplyEatingVisual(f, m)
+    EABR.ApplyIconExpiry(f, m)
     EABR.ApplyIconTooltipData(f, m)
     EABR.ApplyIconQuality(f, (not m.isEating) and m.qualityAtlas or nil)
     if m.groupTotal then
@@ -520,6 +521,7 @@ local function ShowCursorIcon(iconIdx, m)
         f._text:Hide()
     end
     EABR.ApplyEatingVisual(f, m)
+    EABR.ApplyIconExpiry(f, m)
     EABR.ApplyIconTooltipData(f, m)
     EABR.ApplyIconQuality(f, (not m.isEating) and m.qualityAtlas or nil)
     if m.groupTotal then
@@ -1091,7 +1093,7 @@ function EABR.SizeIconBagCount(f, sz)
     fs:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", dx, dy)
 end
 
-function EABR.ApplyIconBagCount(f, count, outOfStock, substitute)
+function EABR.ApplyIconBagCount(f, count, outOfStock, substitute, spellRank)
     if not f then return end
     EABR.CreateIconBagCountOverlay(f)
     f._outOfStock = outOfStock and true or nil
@@ -1105,10 +1107,10 @@ function EABR.ApplyIconBagCount(f, count, outOfStock, substitute)
         fs:SetTextColor(1, 0.2, 0.2, 1)
         EABR.SizeIconBagCount(f, f:GetWidth() or ICON_SIZE)
         fs:Show()
-    elseif showCount and count and count > 0 then
+    elseif spellRank or (showCount and count and count > 0) then
         f._bagCountShown = true
-        fs:SetText(count)
-        if substitute then
+        fs:SetText(spellRank or count)
+        if substitute and not spellRank then
             fs:SetTextColor(1, 0.82, 0, 1)
         else
             fs:SetTextColor(1, 1, 1, 1)
@@ -1155,6 +1157,7 @@ function EABR.ClearEatingVisual(f)
         f._eabrEatingOnUpdate = nil
     end
     if f._count then f._count:Hide() end
+    if f._expiryBinding then f._expiryBinding:SetEnabled(false) end
     f._eabrEatingIcon = nil
 end
 
@@ -1208,6 +1211,35 @@ function EABR.ApplyEatingVisual(f, m)
     f:SetScript("OnUpdate", EABR.EatingTick)
 end
 
+function EABR.ApplyIconExpiry(f, m)
+    local expireAt = m and m.expireAt
+    local binding = f._expiryBinding
+    if not expireAt then
+        if binding then binding:SetEnabled(false) end
+        return
+    end
+    if not (C_DurationUtil and C_DurationUtil.CreateDurationTextBinding) then return end
+    local count = EABR.CreateIconCountOverlay(f)
+    if not binding then
+        f._expiryDuration = C_DurationUtil.CreateDuration()
+        binding = C_DurationUtil.CreateDurationTextBinding()
+        binding:SetFontString(count)
+        binding:SetDuration(f._expiryDuration)
+        local fmt = EllesmereUI.AuraKit.GetDurationFormatter(false)
+        if fmt then binding:SetFormatter(fmt) end
+        f._expiryBinding = binding
+    end
+    local p = db and db.profile.display
+    SetABRFont(count, ResolveFontPath(), max(14, floor(((p and p.textSize) or 11) * 1.15)))
+    count:SetTextColor(1, 1, 1, 1)
+    f._expiryDuration:SetTimeFromEnd(expireAt, m.expireTotal)
+    binding:SetEnabled(true)
+    count:Show()
+end
+
+local ShowForeverGroupMenu
+local iconPickerStyle
+
 local function GetOrCreateIcon(index)
     if iconPool[index] then return iconPool[index] end
     -- SecureActionButtonTemplate for click-to-cast in combat
@@ -1220,9 +1252,7 @@ local function GetOrCreateIcon(index)
 
     -- Middle-click dismiss: hide this reminder until the next loading screen.
     -- Right-click on a multi-pet-cycle reminder previews the next pet without
-    -- casting (ShowIcon's pass-through toggle decides whether this reminder
-    -- claims the click at all, vs letting it fall through like every other
-    -- reminder does).
+    -- casting. On a clickable spell group it opens the spell picker.
     btn:HookScript("PostClick", function(self, button, down)
         if button == "MiddleButton" and self._dismissKey then
             _dismissedUntilLoad[self._dismissKey] = true
@@ -1232,6 +1262,8 @@ local function GetOrCreateIcon(index)
         elseif button == "RightButton" and self._petCycleTotal then
             EABR._petCycleIndex = ((EABR._petCycleIndex or 1) % self._petCycleTotal) + 1
             if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+        elseif button == "RightButton" and self._foreverGroup and not InCombat() then
+            ShowForeverGroupMenu(self)
         end
     end)
 
@@ -1314,6 +1346,186 @@ local function SetIconMacro(btn, macrotext, texture, spellID)
     btn._tooltipItem = nil
 end
 
+local pickerSpellData = {}
+
+function EABR.ForeverPickerSpellData(id, ranked)
+    local data = pickerSpellData[id]
+    if not data or (ranked and not data.rank) then
+        local name = SpellName(id)
+        if not name then return end
+        local subtext = C_Spell.GetSpellSubtext(id)
+        local rank = subtext and subtext:match("%d+")
+        if subtext and subtext ~= "" then name = name .. "(" .. subtext .. ")" end
+        -- A faded pooled button can still receive clicks during lockdown.
+        data = { macro = "/cast [@player,nocombat] " .. name, rank = rank }
+        -- Retry incomplete metadata for spells with more than one known rank.
+        if rank or not ranked then pickerSpellData[id] = data end
+    end
+    return data.macro, data.rank
+end
+
+ShowForeverGroupMenu = function(btn)
+    local group = btn._foreverGroup
+    local profile = db.profile
+    local forever = profile.forever
+    local settings = group.settings
+    if not group.actions then settings = group end
+    local function SaveSettings()
+        if not settings then
+            settings = {}
+            group.actions[group.key] = settings
+            group.settings = settings
+        end
+        return settings
+    end
+    local ids, seen = {}, {}
+    for _, spellID in ipairs(group.ids) do
+        local castID, ranks = EABR.ForeverGroupCastSpell(group, spellID)
+        if castID and (not group.actions or C_SpellBook.IsSpellKnown(castID)) then
+            local index = seen[ranks]
+            if not index then
+                index = #ids + 1
+                seen[ranks] = index
+                ids[index] = spellID
+            elseif settings and spellID == settings.castSpellID then
+                ids[index] = spellID
+            end
+        end
+    end
+    local function IsSelected(spellID)
+        return btn._tooltipSpell == EABR.ForeverGroupCastSpell(group, spellID)
+    end
+    local function IsCurrent()
+        if InCombat() or db.profile ~= profile or profile.forever ~= forever or not (forever and forever.pickerEnabled)
+            or btn._foreverGroup ~= group or not btn:IsVisible() then return false end
+        if group.actions then
+            return forever and forever.classBuffActions == group.actions and group.actions[group.key] == settings
+        end
+        return forever and forever.customGroups and tContains(forever.customGroups, group)
+    end
+    local function CanChange(spellID)
+        return IsCurrent() and tContains(group.ids, spellID)
+    end
+    local function ApplySpell(id, ranked)
+        local macro, rank = EABR.ForeverPickerSpellData(id, ranked)
+        if not macro then return end
+        SetIconMacro(btn, macro, Tex(id), id)
+        EABR.ApplyIconBagCount(btn, nil, nil, nil, rank)
+    end
+    local function SelectSpell(spellID)
+        if not CanChange(spellID) then return end
+        local id, ranks = EABR.ForeverGroupCastSpell(group, spellID)
+        if not id or (group.actions and not C_SpellBook.IsSpellKnown(id)) then return end
+        SaveSettings().castSpellID = spellID
+        ApplySpell(id, #ranks > 1)
+    end
+    local function AddRankControl(button, spellID)
+        button:AddInitializer(function(frame)
+            local badge = frame:AttachFontString()
+            badge:SetFontObject(NumberFontNormalSmall)
+            badge:SetDrawLayer("OVERLAY", 7)
+            badge:SetWidth(30)
+            badge:SetJustifyH("RIGHT")
+            badge:SetPoint("CENTER", frame, "CENTER", 0, -10)
+            local id, ranks = EABR.ForeverGroupCastSpell(group, spellID)
+            if not id then return end
+            local _, rank = EABR.ForeverPickerSpellData(id, #ranks > 1)
+            badge:SetText(rank or "")
+            if #ranks < 2 then return end
+            frame:EnableMouseWheel(true)
+            frame:SetScript("OnMouseWheel", function(_, delta)
+                if delta == 0 or not CanChange(spellID) then return end
+                local current, known, at = EABR.ForeverGroupCastSpell(group, spellID)
+                if not current then return end
+                local nextRank = at + (delta > 0 and 1 or -1)
+                local nextID = known[nextRank]
+                if not nextID or (group.actions and not C_SpellBook.IsSpellKnown(nextID)) then return end
+                local _, rank = EABR.ForeverPickerSpellData(nextID, true)
+                if nextRank < #known and not rank then return end
+                local selected = btn._tooltipSpell == current
+                if nextRank < #known then
+                    local saved = SaveSettings()
+                    if not saved.castRanks then saved.castRanks = {} end
+                    saved.castRanks[spellID] = nextID
+                elseif settings and settings.castRanks then
+                    settings.castRanks[spellID] = nil
+                    if not next(settings.castRanks) then settings.castRanks = nil end
+                end
+                if selected then ApplySpell(nextID, true) end
+                badge:SetText(rank or "")
+                if GameTooltip:IsOwned(frame) then GameTooltip:SetSpellByID(nextID) end
+            end)
+        end)
+        button:AddResetter(function(frame)
+            frame:SetScript("OnMouseWheel", nil)
+            frame:EnableMouseWheel(false)
+        end)
+    end
+    if #ids < 2 or not (MenuUtil and MenuUtil.CreateContextMenu and MenuVariants
+        and MenuConstants and MenuConstants.HorizontalGridDirection) then return end
+    EABR.HideIconTooltip(btn)
+    if not iconPickerStyle then
+        local inset = { left = 4, right = 4, top = 4, bottom = 4 }
+        local padding = { width = 0, height = 0 }
+        iconPickerStyle = CreateFromMixins(MenuVariants.GetDefaultContextMenuMixin(), {
+            GetInset = function() return inset end,
+            GetChildExtentPadding = function() return padding end,
+            Generate = function(frame)
+                local background = frame:AttachTexture()
+                background:SetAtlas("common-dropdown-bg")
+                background:SetAllPoints()
+                background:SetAlpha(0.925)
+            end,
+        })
+    end
+    local previousStyle = btn.menuMixin
+    btn.menuMixin = iconPickerStyle
+    local menu = MenuUtil.CreateContextMenu(btn, function(_, root)
+        root:AddMenuReleasedCallback(function() EABR.ValidateOpenPicker = nil end)
+        local columns = math.min(#ids, max(1, floor((UIParent:GetWidth() - 32) / 42)))
+        root:SetGridMode(MenuConstants.HorizontalGridDirection, columns, 2)
+        -- The context menu otherwise applies a minimum width meant for text rows.
+        root:SetMaximumWidth(columns * 38 + 8)
+        for _, id in ipairs(ids) do
+            local button = root:CreateButton("", SelectSpell, id)
+            button:AddInitializer(function(frame, description)
+                local spellID = description:GetData()
+                if IsSelected(spellID) then
+                    local border = frame:AttachTexture()
+                    border:SetSize(38, 38)
+                    border:SetPoint("CENTER")
+                    border:SetColorTexture(1, 0.82, 0, 1)
+                end
+                local icon = frame:AttachTexture()
+                icon:SetDrawLayer("ARTWORK", 1)
+                icon:SetSize(34, 34)
+                icon:SetPoint("CENTER")
+                icon:SetTexture(Tex(spellID) or 134400)
+                return 38, 38
+            end)
+            button:SetTooltip(function(tooltip, description)
+                local owner = tooltip:GetOwner()
+                tooltip:SetOwner(owner, "ANCHOR_NONE")
+                tooltip:ClearAllPoints()
+                tooltip:SetPoint("BOTTOMLEFT", owner, "TOPRIGHT", 4, 4)
+                local spellID = EABR.ForeverGroupCastSpell(group, description:GetData())
+                if spellID then tooltip:SetSpellByID(spellID) end
+            end)
+            AddRankControl(button, id)
+        end
+    end)
+    btn.menuMixin = previousStyle
+    if menu then
+        EABR.ValidateOpenPicker = function()
+            if not IsCurrent() then menu:Close() end
+        end
+    end
+    if menu and not InputUtil.IsGamepadUIEnabled() then
+        local point = menu:GetPoint()
+        menu:ClearAllPoints()
+        InputUtil.AnchorRegionToCursor(menu, point == "BOTTOMLEFT" and "BOTTOM" or "TOP")
+    end
+end
 
 -------------------------------------------------------------------------------
 --  Data-driven setup: eliminates per-refresh closure + table allocations
@@ -1336,12 +1548,15 @@ do
         e.tooltipItem = nil
         e.cat = nil; e.data = nil; e.dismissKey = nil; e.petCycleTotal = nil
         e.isEating = nil; e.eatingExpirationTime = nil
+        e.expireAt = nil; e.expireTotal = nil
         e.qualityAtlas = nil
         e.bagCount = nil
         e.substitute = nil
         e.groupHave = nil
         e.groupTotal = nil
         e.requestKey = nil; e.requestName = nil
+        e.foreverGroup = nil
+        e.spellRank = nil
         return e
     end
 
@@ -1364,6 +1579,7 @@ do
         else -- "texture"
             SetIconTexture(btn, m.texture, m.label)
             if m.spellID then btn._tooltipSpell = m.spellID end
+            if m.tooltipItem then btn._tooltipItem = m.tooltipItem end
         end
         btn._text:SetText(m.label or "")
         btn._icon:SetDesaturated(m.desaturated or false)

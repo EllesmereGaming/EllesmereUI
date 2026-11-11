@@ -251,7 +251,8 @@ local function MakeRow(i)
         stripe:SetColorTexture(1, 1, 1, 0.03)
         stripe:SetAllPoints(r)
     end
-    r.name = Text(r, 11, 1, 1, 1)
+    -- A member's name: a font family, which draws the scripts the font lacks
+    r.name = RT.NameText(frame, r, 11, 1, 1, 1)
     r.name:SetPoint("LEFT", r, "LEFT", 4, 0)
     r.name:SetWidth(NAME_W - 6)
     r.name:SetJustifyH("LEFT")

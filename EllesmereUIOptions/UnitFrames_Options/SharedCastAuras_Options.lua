@@ -127,51 +127,6 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
           disabled=cbhDis, disabledTooltip=cbhTip, rawTooltip=cbhRaw,
           getValue=GetCastbarHeight,
           setValue=function(v) SetCastbarHeight(v); ReloadAndUpdate(); UpdatePreview() end });  y = y - h
-    -- Inline cast color swatch(es) on Show Cast Bar
-    if not EllesmereUI._prebuilding then
-        local leftRgn = sharedCastRow1._leftRegion
-        local function AddCastColorSwatch(tooltip, colorKey, fallback, disabledFn)
-            local sw, updateSw = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
-                function()
-                    local c = SGetSupported(colorKey)
-                    c = c or fallback
-                    return c.r, c.g, c.b, 1
-                end,
-                function(r, g, b)
-                    SSetSupported(colorKey, { r = r, g = g, b = b })
-                    ReloadAndUpdate(); UpdatePreview()
-                end, false, 20)
-            PP.Point(sw, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
-            sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, tooltip) end)
-            sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            leftRgn._lastInline = sw
-            -- Optional disabled gate: grey (0.3) + non-interactive when disabledFn
-            -- is true; used by the default-off Interrupt Ready Mid-Cast swatch so
-            -- it tracks its enable toggle in the cog.
-            if disabledFn then
-                local function applySwState()
-                    local off = disabledFn()
-                    sw:SetAlpha(off and 0.3 or 1)
-                    sw:EnableMouse(not off)
-                    if updateSw then updateSw() end
-                end
-                applySwState()
-                EllesmereUI.RegisterWidgetRefresh(applySwState)
-            end
-        end
-        if optState.selectedUnit == "target" or optState.selectedUnit == "focus" then
-            -- Inline swatches anchor right-to-left: Mid-Cast added first (rightmost),
-            -- then CD, then Interruptible, matching Nameplates' left-to-right order.
-            -- Mid-Cast greys unless its enable toggle in the cog is on.
-            AddCastColorSwatch("Interrupt Ready Mid-Cast", "castbarInterruptMidCastColor", { r = 0.318, g = 0.820, b = 0.357 },
-                function() return not SValSupported("castbarInterruptMidCastEnabled", false) end)
-            AddCastColorSwatch("Interrupt on CD", "castbarInterruptReadyColor", { r = 0.92, g = 0.35, b = 0.20 })
-            AddCastColorSwatch("Uninterruptible Cast", "castbarUninterruptibleColor", { r = 0.5, g = 0.5, b = 0.5 })
-            AddCastColorSwatch("Interruptible Cast", "castbarFillColor", { r = 0.863, g = 0.820, b = 0.639 })
-        else
-            AddCastColorSwatch("Fill Color", "castbarFillColor", { r = 1, g = 0.7, b = 0 })
-        end
-    end
     -- Sync icon: Show Cast Bar + Fill Color (left region)
     if not EllesmereUI._prebuilding then
         local rgn = sharedCastRow1._leftRegion
@@ -324,6 +279,51 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
             title = "Cast Bar",
             rows = cogRows,
         })
+    end
+    -- Inline cast color swatch(es) on Show Cast Bar
+    if not EllesmereUI._prebuilding then
+        local leftRgn = sharedCastRow1._leftRegion
+        local function AddCastColorSwatch(tooltip, colorKey, fallback, disabledFn)
+            local sw, updateSw = EllesmereUI.BuildColorSwatch(leftRgn, leftRgn:GetFrameLevel() + 5,
+                function()
+                    local c = SGetSupported(colorKey)
+                    c = c or fallback
+                    return c.r, c.g, c.b, 1
+                end,
+                function(r, g, b)
+                    SSetSupported(colorKey, { r = r, g = g, b = b })
+                    ReloadAndUpdate(); UpdatePreview()
+                end, false, 20)
+            PP.Point(sw, "RIGHT", leftRgn._lastInline or leftRgn._control, "LEFT", -8, 0)
+            sw:SetScript("OnEnter", function(self) EllesmereUI.ShowWidgetTooltip(self, tooltip) end)
+            sw:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            leftRgn._lastInline = sw
+            -- Optional disabled gate: grey (0.3) + non-interactive when disabledFn
+            -- is true; used by the default-off Interrupt Ready Mid-Cast swatch so
+            -- it tracks its enable toggle in the cog.
+            if disabledFn then
+                local function applySwState()
+                    local off = disabledFn()
+                    sw:SetAlpha(off and 0.3 or 1)
+                    sw:EnableMouse(not off)
+                    if updateSw then updateSw() end
+                end
+                applySwState()
+                EllesmereUI.RegisterWidgetRefresh(applySwState)
+            end
+        end
+        if optState.selectedUnit == "target" or optState.selectedUnit == "focus" then
+            -- Inline swatches anchor right-to-left: Mid-Cast added first (rightmost),
+            -- then CD, then Interruptible, matching Nameplates' left-to-right order.
+            -- Mid-Cast greys unless its enable toggle in the cog is on.
+            AddCastColorSwatch("Interrupt Ready Mid-Cast", "castbarInterruptMidCastColor", { r = 0.318, g = 0.820, b = 0.357 },
+                function() return not SValSupported("castbarInterruptMidCastEnabled", false) end)
+            AddCastColorSwatch("Interrupt on CD", "castbarInterruptReadyColor", { r = 0.92, g = 0.35, b = 0.20 })
+            AddCastColorSwatch("Uninterruptible Cast", "castbarUninterruptibleColor", { r = 0.5, g = 0.5, b = 0.5 })
+            AddCastColorSwatch("Interruptible Cast", "castbarFillColor", { r = 0.863, g = 0.820, b = 0.639 })
+        else
+            AddCastColorSwatch("Fill Color", "castbarFillColor", { r = 1, g = 0.7, b = 0 })
+        end
     end
     -- Sync icon: Cast Bar Height (right region)
     if not EllesmereUI._prebuilding then
@@ -680,7 +680,7 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
         })
     end
 
-    -- Row 3: Spell Name (position dropdown + swatch + cog) | Duration (same). Cast
+    -- Row 3: Spell Name (position dropdown + cog + swatch) | Duration (same). Cast
     -- text dropdowns mirror nameplates: Name/Target are None/Left/Right/Center and
     -- may not share a side (setting one bumps the other to None). Duration is
     -- None/Right/Left; "None" sets showCastDuration=false but still reserves a slot,
@@ -715,22 +715,6 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
             end
             ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
           end });  y = y - h
-    -- Inline color swatch on Spell Name Size
-    if not EllesmereUI._prebuilding then
-        local snRgn = castTextRow._leftRegion
-        local snSw = EllesmereUI.BuildColorSwatch(snRgn, snRgn:GetFrameLevel() + 5,
-            function()
-                local c = SGetSupported("castSpellNameColor")
-                c = c or { r=1, g=1, b=1 }
-                return c.r, c.g, c.b, 1
-            end,
-            function(r, g, b)
-                UNIT_DB_MAP[optState.selectedUnit]().castSpellNameColor = { r=r, g=g, b=b }
-                ReloadAndUpdate(); UpdatePreview()
-            end, false, 20)
-        snSw:SetPoint("RIGHT", snRgn._lastInline or snRgn._control, "LEFT", -12, 0)
-        snRgn._lastInline = snSw
-    end
     -- Inline cog on Spell Name Size: X/Y offsets (+ target/focus combine)
     if not EllesmereUI._prebuilding then
         local snCogRgn = castTextRow._leftRegion
@@ -765,21 +749,21 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
             rows = snCogRows,
         })
     end
-    -- Inline color swatch on Duration Size
+    -- Inline color swatch on Spell Name Size
     if not EllesmereUI._prebuilding then
-        local dtRgn = castTextRow._rightRegion
-        local dtSw = EllesmereUI.BuildColorSwatch(dtRgn, dtRgn:GetFrameLevel() + 5,
+        local snRgn = castTextRow._leftRegion
+        local snSw = EllesmereUI.BuildColorSwatch(snRgn, snRgn:GetFrameLevel() + 5,
             function()
-                local c = SGetSupported("castDurationColor")
+                local c = SGetSupported("castSpellNameColor")
                 c = c or { r=1, g=1, b=1 }
                 return c.r, c.g, c.b, 1
             end,
             function(r, g, b)
-                UNIT_DB_MAP[optState.selectedUnit]().castDurationColor = { r=r, g=g, b=b }
+                UNIT_DB_MAP[optState.selectedUnit]().castSpellNameColor = { r=r, g=g, b=b }
                 ReloadAndUpdate(); UpdatePreview()
             end, false, 20)
-        dtSw:SetPoint("RIGHT", dtRgn._lastInline or dtRgn._control, "LEFT", -12, 0)
-        dtRgn._lastInline = dtSw
+        snSw:SetPoint("RIGHT", snRgn._lastInline or snRgn._control, "LEFT", -8, 0)
+        snRgn._lastInline = snSw
     end
     -- Inline cog on Duration Size: toggle + X/Y offsets
     if not EllesmereUI._prebuilding then
@@ -805,6 +789,22 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
             title = "Duration",
             rows = dtCogRows,
         })
+    end
+    -- Inline color swatch on Duration Size
+    if not EllesmereUI._prebuilding then
+        local dtRgn = castTextRow._rightRegion
+        local dtSw = EllesmereUI.BuildColorSwatch(dtRgn, dtRgn:GetFrameLevel() + 5,
+            function()
+                local c = SGetSupported("castDurationColor")
+                c = c or { r=1, g=1, b=1 }
+                return c.r, c.g, c.b, 1
+            end,
+            function(r, g, b)
+                UNIT_DB_MAP[optState.selectedUnit]().castDurationColor = { r=r, g=g, b=b }
+                ReloadAndUpdate(); UpdatePreview()
+            end, false, 20)
+        dtSw:SetPoint("RIGHT", dtRgn._lastInline or dtRgn._control, "LEFT", -8, 0)
+        dtRgn._lastInline = dtSw
     end
 
     -- Sync icons: Spell Name Size + Color (left) and Duration Size + Color (right)
@@ -901,7 +901,7 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
         })
     end
 
-    -- Row 4: Spell Target (position dropdown + swatch + cog) | Reverse Fill
+    -- Row 4: Spell Target (position dropdown + cog + swatch) | Reverse Fill
     castTargetRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Spell Target", values=castTextPosValues, order=castTextPosOrder,
           -- Combine Spell Name and Target appends the target to the spell
@@ -931,22 +931,6 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
         { type="toggle", text="Reverse Fill",
           getValue=function() return SValSupported("castReverseFill", false) end,
           setValue=function(v) SSetSupported("castReverseFill", v); ReloadAndUpdate(); UpdatePreview() end });  y = y - h
-    -- Inline color swatch on Spell Target Size
-    if not EllesmereUI._prebuilding then
-        local trgRgn = castTargetRow._leftRegion
-        local trgSw = EllesmereUI.BuildColorSwatch(trgRgn, trgRgn:GetFrameLevel() + 5,
-            function()
-                local c = SGetSupported("castSpellTargetColor")
-                c = c or { r=1, g=1, b=1 }
-                return c.r, c.g, c.b, 1
-            end,
-            function(r, g, b)
-                UNIT_DB_MAP[optState.selectedUnit]().castSpellTargetColor = { r=r, g=g, b=b }
-                ReloadAndUpdate(); UpdatePreview()
-            end, false, 20)
-        trgSw:SetPoint("RIGHT", trgRgn._lastInline or trgRgn._control, "LEFT", -12, 0)
-        trgRgn._lastInline = trgSw
-    end
     -- Inline cog on Spell Target Size: toggle + X/Y offsets
     if not EllesmereUI._prebuilding then
         local tgCogRgn = castTargetRow._leftRegion
@@ -964,6 +948,22 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
                   set=function(v) SSetSupported("castSpellTargetY", v); ReloadAndUpdate(); UpdatePreview() end },
             },
         })
+    end
+    -- Inline color swatch on Spell Target Size
+    if not EllesmereUI._prebuilding then
+        local trgRgn = castTargetRow._leftRegion
+        local trgSw = EllesmereUI.BuildColorSwatch(trgRgn, trgRgn:GetFrameLevel() + 5,
+            function()
+                local c = SGetSupported("castSpellTargetColor")
+                c = c or { r=1, g=1, b=1 }
+                return c.r, c.g, c.b, 1
+            end,
+            function(r, g, b)
+                UNIT_DB_MAP[optState.selectedUnit]().castSpellTargetColor = { r=r, g=g, b=b }
+                ReloadAndUpdate(); UpdatePreview()
+            end, false, 20)
+        trgSw:SetPoint("RIGHT", trgRgn._lastInline or trgRgn._control, "LEFT", -8, 0)
+        trgRgn._lastInline = trgSw
     end
 
     -- Sync icons: Spell Target Size + Color (left)
@@ -1362,7 +1362,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     -- Directions cog on Buff Icon Size (X/Y offsets, spacing)
     if not EllesmereUI._prebuilding then
         local rightRgn = sharedAddRow2._rightRegion
-        EllesmereUI.BuildInlineCog(rightRgn, { icon = EllesmereUI.DIRECTIONS_ICON, disabled = BuffDisabled, disabledTooltip = "Buff Display",
+        EllesmereUI.BuildInlineCog(rightRgn, { disabled = BuffDisabled, disabledTooltip = "Buff Display",
             title = "Buff Position",
             rows = ns.UFO_AuraPositionRows("buff", SValSupported, SSetSupported),
         })
@@ -1387,7 +1387,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     -- Directions cog on Buff Duration Size (X/Y offsets) -- disabled with the row
     if not EllesmereUI._prebuilding then
         local leftRgn = sharedBuffRow2._leftRegion
-        EllesmereUI.BuildInlineCog(leftRgn, { icon = EllesmereUI.DIRECTIONS_ICON, disabled = buffDurOff, disabledTooltip = buffDurTip,
+        EllesmereUI.BuildInlineCog(leftRgn, { disabled = buffDurOff, disabledTooltip = buffDurTip,
             title = "Duration Text",
             rows = {
                 { type="slider", label="Offset X", min=-100, max=100, step=1,
@@ -1414,7 +1414,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     -- Directions cog on Buff Stack Size (X/Y offsets)
     if not EllesmereUI._prebuilding then
         local rightRgn = sharedBuffRow2._rightRegion
-        EllesmereUI.BuildInlineCog(rightRgn, { icon = EllesmereUI.DIRECTIONS_ICON, disabled = BuffDisabled, disabledTooltip = "Buff Display",
+        EllesmereUI.BuildInlineCog(rightRgn, { disabled = BuffDisabled, disabledTooltip = "Buff Display",
             title = "Stack Position",
             rows = {
                 { type="dropdown", label="Position",
@@ -1507,7 +1507,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     -- Directions cog on Debuff Icon Size (X/Y offsets, spacing)
     if not EllesmereUI._prebuilding then
         local rightRgn = sharedAddRow3._rightRegion
-        EllesmereUI.BuildInlineCog(rightRgn, { icon = EllesmereUI.DIRECTIONS_ICON, disabled = DebuffDisabled, disabledTooltip = "Debuff Display",
+        EllesmereUI.BuildInlineCog(rightRgn, { disabled = DebuffDisabled, disabledTooltip = "Debuff Display",
             title = "Debuff Position",
             rows = ns.UFO_AuraPositionRows("debuff", SValSupported, SSetSupported),
         })
@@ -1532,7 +1532,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     -- Directions cog on Debuff Duration Size (X/Y offsets) -- disabled with the row
     if not EllesmereUI._prebuilding then
         local leftRgn = sharedDebuffRow2._leftRegion
-        EllesmereUI.BuildInlineCog(leftRgn, { icon = EllesmereUI.DIRECTIONS_ICON, disabled = debuffDurOff, disabledTooltip = debuffDurTip,
+        EllesmereUI.BuildInlineCog(leftRgn, { disabled = debuffDurOff, disabledTooltip = debuffDurTip,
             title = "Duration Text",
             rows = {
                 { type="slider", label="Offset X", min=-100, max=100, step=1,
@@ -1559,7 +1559,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     -- Directions cog on Debuff Stack Size (X/Y offsets)
     if not EllesmereUI._prebuilding then
         local rightRgn = sharedDebuffRow2._rightRegion
-        EllesmereUI.BuildInlineCog(rightRgn, { icon = EllesmereUI.DIRECTIONS_ICON, disabled = DebuffDisabled, disabledTooltip = "Debuff Display",
+        EllesmereUI.BuildInlineCog(rightRgn, { disabled = DebuffDisabled, disabledTooltip = "Debuff Display",
             title = "Stack Position",
             rows = {
                 { type="dropdown", label="Position",
@@ -1638,7 +1638,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
 
         if not EllesmereUI._prebuilding then
             local rgn = auraBorderRow._leftRegion
-            local cogBtn = EllesmereUI.BuildInlineCog(rgn, { icon = EllesmereUI.DIRECTIONS_ICON,
+            local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
                 title="Border Options",
                 rows={
                     { type="slider", label="Shift X", min=-10, max=10, step=1,
@@ -2292,7 +2292,6 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
             rgn._lastInline = eyeBtn
             local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-            EllesmereUI.AccentGlyph(eyeBtn, eyeTex)
             eyeTex:SetAllPoints()
             local function RefreshDispelEye()
                 eyeTex:SetTexture(optState.showDispelOverlayPreview and EYE_INVISIBLE or EYE_VISIBLE)
@@ -2369,7 +2368,6 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
               setValue=function(v) db.profile.dispelOverlayByMe = v and true or false; DispelRefresh() end });  y = y - h
         if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineCog(iconRow._leftRegion, {
-                icon = EllesmereUI.RESIZE_ICON,
                 disabled = function() return db.profile.showDispelIcons ~= true end,
                 disabledTooltip = "This option requires a Type Icon Position other than None",
                 title = "Dispel Icon",

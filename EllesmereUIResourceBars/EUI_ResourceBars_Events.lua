@@ -508,6 +508,9 @@ local function OnEvent(self, event, ...)
         -- coalesce the heavy rebuild via a debounce so a burst of node events
         -- rebuilds once, not once per event.
         ns.InvalidateThresholdCaches()
+        -- WoW Forever swing timer: its talent conditions read fresh (the file
+        -- exists only on that client).
+        if ns.ST_TalentChanged then ns.ST_TalentChanged() end
         ns.ScheduleTalentApply()
     elseif event == "UPDATE_SHAPESHIFT_FORM" then
         SetCachedPrimary(GetPrimaryPowerType())
@@ -553,6 +556,9 @@ local function OnEvent(self, event, ...)
         IP.hashEndTime = 0
     elseif event == "PLAYER_ENTERING_WORLD" then
         C_Timer.After(0.5, function()
+            -- WoW Forever swing timer: a talent read the login apply made before
+            -- the talent data was in is read again by this apply.
+            if ns.ST_TalentChanged then ns.ST_TalentChanged() end
             ERB:ApplyAll()
             RegisterUnlockElements()
             -- ApplyAll just cached the power type off a spec that may not have
@@ -570,7 +576,13 @@ local function OnEvent(self, event, ...)
         local unit = ...
         if unit == "player" and castBarFrame and castBarFrame._casting then
             local name, _, _, startTimeMS, endTimeMS = UnitCastingInfo("player")
-            if name then
+            if name and castBarFrame._craftMerge then
+                -- Merged craft batch: shift the batch end by the pushback.
+                local tail = castBarFrame._endTime - castBarFrame._craftCastEnd
+                castBarFrame._craftCastEnd = endTimeMS / 1000
+                castBarFrame._endTime = castBarFrame._craftCastEnd + tail
+                ns.ApplyCastTimer("craft")
+            elseif name then
                 castBarFrame._startTime = startTimeMS / 1000
                 castBarFrame._endTime = endTimeMS / 1000
                 castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)

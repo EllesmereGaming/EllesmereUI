@@ -29,9 +29,11 @@ end
 
 --------------------------------------------------------------------------------
 --  Fonts (module surface "mythicTimer": family/outline/shadow are global,
---  only sizes are per-bar settings).
+--  only sizes are per-bar settings). A bar's target text names a player, so
+--  the bar texts take a font family (Cyrillic, Korean and Chinese names
+--  draw); no plain SetFont may reach them after it.
 --------------------------------------------------------------------------------
-local function SetFSFont(fs, size) EllesmereUI.ApplyModuleFont(fs, nil, size, "mythicTimer") end
+local function SetFSFont(fs, size) EllesmereUI.ApplyModuleFontFamily(fs, nil, size, "mythicTimer") end
 
 --------------------------------------------------------------------------------
 --  State: two bar objects, built lazily. `bars.target` / `bars.focus`.

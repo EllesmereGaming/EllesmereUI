@@ -788,8 +788,9 @@ Kit.ICON_STYLE_ORDER = {
 --  population, the click handler and the right-click menu. We own: paint.
 --
 --  A host starts it once per session (Kit.StartTiles) with its settings,
---  its look and its font; the host's settings page repaints through
---  Kit.RedecorateTiles.
+--  its look and its font, or for the custom friends list alone (cards =
+--  false: nothing here touches Blizzard's cards); the host's settings page
+--  repaints through Kit.RedecorateTiles.
 -------------------------------------------------------------------------------
 -- External weak-keyed state. Never write custom keys onto a Blizzard frame.
 local FFD, GetFFD = EllesmereUI.NewFrameData()
@@ -827,7 +828,9 @@ local FFD, GetFFD = EllesmereUI.NewFrameData()
 -- below-default text size genuinely scales the row under 70.
 --
 -- So nothing here writes the row height. Do not re-attempt; both shapes are
--- already disproven.
+-- already disproven. Another tile height is the custom friends list's
+-- (EllesmereUI_FriendsList.lua): rows of our own drawn over Blizzard's list,
+-- never a change to Blizzard's cards.
 --
 -- The tile's icon square: the name starts past it.
 local TILE_TARGET_H     = 46
@@ -1030,9 +1033,10 @@ local function SkinStructure(card)
 
     d.classIcon = card:CreateTexture(nil, "ARTWORK", nil, 2)
 
+    -- The three lines show friends' names and notes: font families (a family
+    -- draws the scripts the chosen font lacks), never a plain SetFont.
     d.name = card:CreateFontString(nil, "OVERLAY")
-    EllesmereUI.PrimeFontShadow(d.name, true)
-    d.name:SetFont(FontPath(), TILE_NAME_SIZE, "")
+    EllesmereUI.SetFontFamily(d.name, FontPath(), TILE_NAME_SIZE, "", true)
     d.name:SetJustifyH("LEFT")
     d.name:SetWordWrap(false)
     -- Horizontal inset is re-resolved per paint in PaintCard (it follows the
@@ -1041,15 +1045,13 @@ local function SkinStructure(card)
 
     -- Character name + level, its own line under the Battle.net name.
     d.charLine = card:CreateFontString(nil, "OVERLAY")
-    EllesmereUI.PrimeFontShadow(d.charLine, true)
-    d.charLine:SetFont(FontPath(), TILE_CHAR_SIZE, "")
+    EllesmereUI.SetFontFamily(d.charLine, FontPath(), TILE_CHAR_SIZE, "", true)
     d.charLine:SetJustifyH("LEFT")
     d.charLine:SetWordWrap(false)
     d.charLine:SetPoint("TOPLEFT", d.name, "BOTTOMLEFT", 0, TILE_LINE_GAP)
 
     d.info = card:CreateFontString(nil, "OVERLAY")
-    EllesmereUI.PrimeFontShadow(d.info, true)
-    d.info:SetFont(FontPath(), TILE_INFO_SIZE, "")
+    EllesmereUI.SetFontFamily(d.info, FontPath(), TILE_INFO_SIZE, "", true)
     d.info:SetJustifyH("LEFT")
     d.info:SetWordWrap(false)
     -- Anchored per paint: it follows charLine when there is one, otherwise the
@@ -1131,13 +1133,52 @@ local function BuildCharLine(accountInfo)
     return shown
 end
 
+-- WoW Forever friend's ruleset, the middle of richPresence
+-- ("Forever - Roleplay PvP - Tirisfal Glades"), plus their region when it is
+-- not ours. nil for anyone else. The project id is a literal: the client
+-- defines its constant only on WoW Forever, and a viewer on another client
+-- has such friends too.
+local WOW_PROJECT_FOREVER = 18
+-- realmName suffix ("CAMWOWUS2Realm10RPPvP") -> ruleset, for a richPresence
+-- that names none: our own names, worded as the rich presence words them.
+local function RealmRuleset(suffix)
+    if suffix == "PvE" then return EllesmereUI.L("Normal") end
+    if suffix == "PvP" then return EllesmereUI.L("PvP") end
+    if suffix == "RP" then return EllesmereUI.L("Roleplay") end
+    if suffix == "RPPvP" then return EllesmereUI.L("Roleplay PvP") end
+end
+local function ForeverRuleset(accountInfo)
+    local gi = accountInfo and accountInfo.gameAccountInfo
+    if not (gi and gi.isOnline and gi.wowProjectID == WOW_PROJECT_FOREVER) then return nil end
+    local ruleset = gi.richPresence and gi.richPresence:match("^.- %- (.-) %- ")
+    if not ruleset or ruleset == "" then
+        ruleset = RealmRuleset(gi.realmName and gi.realmName:match("Realm%d+(%a+)$"))
+    end
+    if not ruleset then return nil end
+    if gi.isInCurrentRegion == false and FriendsListUtil and FriendsListUtil.GetRegionName then
+        ruleset = ruleset .. " (" .. FriendsListUtil.GetRegionName(accountInfo) .. ")"
+    end
+    return ruleset
+end
+
 local function BuildInfo(accountInfo)
     local text = ""
     if FriendsListUtil and FriendsListUtil.BuildLocationDisplayText then
         text = FriendsListUtil.BuildLocationDisplayText(accountInfo) or ""
     end
+    -- A WoW Forever friend on our own client: the ruleset after the zone, in
+    -- the zone's colour. Where Blizzard's line is the friend's rich presence
+    -- instead (seen from another client, or no zone yet), that names the
+    -- ruleset already.
+    local gi = accountInfo.gameAccountInfo
+    if gi and gi.areaName and IsSameProjectOnline(gi) then
+        local ruleset = ForeverRuleset(accountInfo)
+        if ruleset then
+            text = text .. LocationColor(accountInfo):WrapTextInColorCode(
+                (gi.areaName ~= "" and " - " or "") .. ruleset)
+        end
+    end
     if text == "" then
-        local gi = accountInfo.gameAccountInfo
         local cp = gi and gi.clientProgram
         if gi and gi.isOnline and (cp == "App" or cp == "BSAp") then
             local loc = GetLocale()
@@ -1316,7 +1357,9 @@ local function RegionOnLeave()
     EllesmereUI.HideWidgetTooltip()
 end
 function Kit.UpdateRegionButton(frame, d, gameAccountInfo, anchor, show)
-    local mini = show and gameAccountInfo and GetFriendMiniRegion(gameAccountInfo)
+    -- Same-region friends never carry a mark.
+    local mini = show and gameAccountInfo and gameAccountInfo.isInCurrentRegion ~= true
+        and GetFriendMiniRegion(gameAccountInfo)
     local full = mini and GetFullRegion(mini)
     if not (mini and full and full ~= GetMyFullRegion()) then
         if d.regionBtn then d.regionBtn:Hide() end
@@ -1363,6 +1406,10 @@ end
 local function PaintCard(card)
     if not TILE_PAINT then return end
     if not Enabled() then return end
+    -- The custom friends list (EllesmereUI_FriendsList.lua) covers Blizzard's
+    -- cards while it shows: they stay unpainted, on file for the catch-up
+    -- when it stands down (Kit.RedecorateTiles).
+    if Kit._listShown then GetFFD(card); return end
 
     local ed = card.elementData
     local accountInfo = ed and ed.accountInfo
@@ -1420,6 +1467,29 @@ local function PaintCard(card)
     d.selBar:SetShown(sel)
     d.selFill:SetShown(sel)
 end
+
+-- The tile pieces the custom friends list (EllesmereUI_FriendsList.lua) draws
+-- its own rows with, so the two never drift apart. Skin builds the tile art,
+-- the three text lines and the status orb on any frame (a row of ours
+-- included); its state is the kit's frame data for that frame. LevelColor is
+-- the colour the character line's level takes.
+Kit._tile = {
+    Host         = function() return host end,
+    FontPath     = FontPath,
+    Skin         = SkinStructure,
+    Name         = BuildName,
+    CharLine     = BuildCharLine,
+    LevelColor   = LocationColor,
+    Info         = BuildInfo,
+    Ruleset      = ForeverRuleset,
+    State        = TileState,
+    ClassFile    = GetClassFile,
+    ClassIconTex = SetClassIconTex,
+    Faction      = UpdateFaction,
+    Orb          = UpdateOrb,
+    Region       = UpdateRegion,
+    OFFLINE_ICON = OFFLINE_ICON,
+}
 
 -------------------------------------------------------------------------------
 --  Stock styles (Blizzard Style / Classic WoW UI): Blizzard's own card, laid
@@ -1694,15 +1764,14 @@ local activeDecorator
 -- h.Settings: returns the settings table (enabled, showClassIcons, iconStyle,
 -- classColorNames, factionBanners, showRegionIcons); h.style: "eui" paints
 -- the EllesmereUI tiles, any other look only decorates Blizzard's cards;
--- h.fontKey: the font the tiles take.
+-- h.fontKey: the font the tiles take; h.cards: false starts the host for the
+-- custom friends list alone (EllesmereUI_FriendsList.lua draws its rows with
+-- these pieces), with no hook on Blizzard's cards, which stay Blizzard's own.
+-- Such a host may start later in the session: it waits for no card.
 function Kit.StartTiles(h)
     if host then return end
-    -- WoW Forever's Gamepad interface style navigates Blizzard's windows from
-    -- secure code, and the tile hover hooks are script hooks on Blizzard's
-    -- cards, so the tiles stand down for the session under it where that
-    -- navigation can still be tainted (EllesmereUI.PadTaintStandDown).
-    if EllesmereUI.PadTaintStandDown() then return end
     host = h
+    if h.cards == false then return end
     if h.style ~= "eui" then
         -- Stock styles decorate whichever window Blizzard shows (the switch
         -- is server-side and can flip mid-session). Blizzard keeps its own
@@ -1796,13 +1865,8 @@ local function AutoAcceptOnEvent(self, event, _, _, _, _, _, _, inviterGUID)
         end
         if isFriend then
             AcceptGroup()
-            -- WoW Forever's Gamepad interface style runs Blizzard's popups from
-            -- secure code: its invite popup is left to it where that navigation
-            -- can still be tainted (EllesmereUI.PadTaintStandDown).
-            if not EllesmereUI.PadTaintStandDown() then
-                autoAcceptHidePopup = true
-                self:RegisterEvent("GROUP_ROSTER_UPDATE")
-            end
+            autoAcceptHidePopup = true
+            self:RegisterEvent("GROUP_ROSTER_UPDATE")
         end
     elseif event == "GROUP_ROSTER_UPDATE" and autoAcceptHidePopup then
         autoAcceptHidePopup = false

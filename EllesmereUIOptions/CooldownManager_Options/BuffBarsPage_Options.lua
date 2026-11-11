@@ -626,7 +626,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             popup:EnableMouse(true)
             local popBg = popup:CreateTexture(nil, "BACKGROUND")
             popBg:SetAllPoints(); popBg:SetColorTexture(0.077, 0.068, 0.058, 1)
-            EllesmereUI.MakeBorder(popup, 1, 1, 1, 0.15, EllesmereUI.PP)
+            EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.15, popBg)
 
             local title = popup:CreateFontString(nil, "OVERLAY")
             title:SetFont(FONT_PATH, 14, GetCDMOptOutline())
@@ -651,7 +651,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             sidBox:SetJustifyH("LEFT")
             local sidBg = sidBox:CreateTexture(nil, "BACKGROUND")
             sidBg:SetAllPoints(); sidBg:SetColorTexture(0.060, 0.049, 0.037, 1)
-            EllesmereUI.MakeBorder(sidBox, 1, 1, 1, 0.12, EllesmereUI.PP)
+            EllesmereUI.MakeRoundedBorder(sidBox, 1, 1, 1, 0.12, sidBg)
             local sidPh = sidBox:CreateFontString(nil, "ARTWORK")
             sidPh:SetFont(FONT_PATH, 12, GetCDMOptOutline())
             sidPh:SetPoint("LEFT", sidBox, "LEFT", 4, 0)
@@ -679,7 +679,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             durBox:SetJustifyH("LEFT")
             local durBg = durBox:CreateTexture(nil, "BACKGROUND")
             durBg:SetAllPoints(); durBg:SetColorTexture(0.060, 0.049, 0.037, 1)
-            EllesmereUI.MakeBorder(durBox, 1, 1, 1, 0.12, EllesmereUI.PP)
+            EllesmereUI.MakeRoundedBorder(durBox, 1, 1, 1, 0.12, durBg)
             local durPh = durBox:CreateFontString(nil, "ARTWORK")
             durPh:SetFont(FONT_PATH, 12, GetCDMOptOutline())
             durPh:SetPoint("LEFT", durBox, "LEFT", 4, 0)
@@ -704,7 +704,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             addBtn:SetPoint("BOTTOMRIGHT", popup, "BOTTOM", -4, 16)
             local addBg = addBtn:CreateTexture(nil, "BACKGROUND")
             addBg:SetAllPoints(); addBg:SetColorTexture(ar, ag, ab, 0.15)
-            EllesmereUI.MakeBorder(addBtn, ar, ag, ab, 0.3, EllesmereUI.PP)
+            EllesmereUI.MakeRoundedBorder(addBtn, ar, ag, ab, 0.3, addBg)
             local addLbl = addBtn:CreateFontString(nil, "OVERLAY")
             addLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
             addLbl:SetPoint("CENTER"); addLbl:SetText(EllesmereUI.L("Add"))
@@ -718,7 +718,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             cancelBtn:SetPoint("BOTTOMLEFT", popup, "BOTTOM", 4, 16)
             local cBg = cancelBtn:CreateTexture(nil, "BACKGROUND")
             cBg:SetAllPoints(); cBg:SetColorTexture(0.12, 0.12, 0.12, 0.5)
-            EllesmereUI.MakeBorder(cancelBtn, 1, 1, 1, 0.10, EllesmereUI.PP)
+            EllesmereUI.MakeRoundedBorder(cancelBtn, 1, 1, 1, 0.10, cBg)
             local cLbl = cancelBtn:CreateFontString(nil, "OVERLAY")
             cLbl:SetFont(FONT_PATH, 12, GetCDMOptOutline())
             cLbl:SetPoint("CENTER"); cLbl:SetText(EllesmereUI.L("Cancel"))
@@ -815,7 +815,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
 
         local mbg = menu:CreateTexture(nil, "BACKGROUND")
         mbg:SetAllPoints(); mbg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
-        EllesmereUI.MakeBorder(menu, 1, 1, 1, mBrdA, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, mBrdA, mbg, nil, true)
 
         local inner = CreateFrame("Frame", nil, menu)
         inner:SetWidth(menuW)
@@ -1219,7 +1219,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         if totalH > MAX_H then
             menu:SetHeight(MAX_H)
             local sf = CreateFrame("ScrollFrame", nil, menu)
-            sf:SetPoint("TOPLEFT"); sf:SetPoint("BOTTOMRIGHT")
+            sf:SetPoint("TOPLEFT", 0, -1); sf:SetPoint("BOTTOMRIGHT", 0, 1)
             sf:SetFrameLevel(menu:GetFrameLevel() + 1)
             sf:EnableMouseWheel(true)
             sf:SetScrollChild(inner)
@@ -1333,7 +1333,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         local bg = stPopup:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.077, 0.068, 0.058, 0.97)
-        PP.CreateBorder(stPopup, 1, 1, 1, 0.18, 1, "BORDER", 7)
+        stPopup._brd = EllesmereUI.MakeRoundedBorder(stPopup, 1, 1, 1, 0.18, bg)
 
         local clickCatcher = CreateFrame("Button", nil, stPopup)
         clickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -1403,7 +1403,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         _stAddBtn:SetFrameLevel(stPopup:GetFrameLevel() + 3)
         local abg = EllesmereUI.SolidTex(_stAddBtn, "BACKGROUND", 0.069, 0.058, 0.047, 0.92)
         abg:SetAllPoints()
-        _stAddBtn._border = EllesmereUI.MakeBorder(_stAddBtn, 1, 1, 1, 0.4, PP)
+        _stAddBtn._border = EllesmereUI.MakeRoundedBorder(_stAddBtn, 1, 1, 1, 0.4, abg)
         _stAddLbl = EllesmereUI.MakeFont(_stAddBtn, 12, nil, 1, 1, 1)
         _stAddLbl:SetAlpha(0.5)
         _stAddLbl:SetPoint("CENTER")
@@ -1467,7 +1467,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         local inBg = input:CreateTexture(nil, "BACKGROUND")
         inBg:SetAllPoints()
         inBg:SetColorTexture(0.12, 0.12, 0.12, 0.8)
-        EllesmereUI.MakeBorder(input, 1, 1, 1, 0.08, PP)
+        EllesmereUI.MakeRoundedBorder(input, 1, 1, 1, 0.08, inBg)
         row.input = input
 
         -- Commit on focus loss (Enter clears focus -> triggers this; Escape sets
@@ -1584,6 +1584,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
 
         local totalH = math.abs(curY) + ST_PAD
         PP.Size(stPopup, ST_POPUP_W, totalH)
+        stPopup._brd:Fit()
     end
 
     -- params = { getCfg, refreshFn, anchor }
@@ -1809,7 +1810,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             ddBtn:SetFrameLevel(parentFrame:GetFrameLevel() + 5)
             local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
             ddBg:SetAllPoints(); ddBg:SetColorTexture(mBgR, mBgG, mBgB, mBgA)
-            local ddBrd = EllesmereUI.MakeBorder(ddBtn, 1, 1, 1, mBrdA, EllesmereUI.PanelPP)
+            local ddBrd = EllesmereUI.MakeRoundedBorder(ddBtn, 1, 1, 1, mBrdA, ddBg)
             local ddLbl = ddBtn:CreateFontString(nil, "OVERLAY")
             ddLbl:SetFont(FONT_PATH, 13, GetCDMOptOutline())
             ddLbl:SetAlpha(mTxtA)
@@ -1884,7 +1885,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 sm:SetSize(W, 8 + ITEM_H * 2)
                 local smBg = sm:CreateTexture(nil, "BACKGROUND")
                 smBg:SetAllPoints(); smBg:SetColorTexture(mBgR, mBgG, mBgB, mBgHA)
-                EllesmereUI.MakeBorder(sm, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                EllesmereUI.MakeRoundedBorder(sm, 1, 1, 1, mBrdA, smBg, nil, true)
                 -- A fixed spot, as the CDM icon menu sits under its icon: beside the clicked
                 -- row, just outside the bar menu, so it covers no other bar.
                 sm:SetPoint("TOPLEFT", anchorRow, "TOPRIGHT", 4, 0)
@@ -2016,7 +2017,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 menu:SetPoint("TOPRIGHT", ddBtn, "BOTTOMRIGHT", 0, -2)
                 local bg = menu:CreateTexture(nil, "BACKGROUND")
                 bg:SetAllPoints(); bg:SetColorTexture(mBgR, mBgG, mBgB, mBgHA)
-                EllesmereUI.MakeBorder(menu, 1, 1, 1, mBrdA, EllesmereUI.PP)
+                EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, mBrdA, bg, nil, true)
 
                 -- Rows build on an inner frame so tall menus can scroll.
                 local inner = CreateFrame("Frame", nil, menu)
@@ -2554,7 +2555,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 if totalH > MENU_MAX_H then
                     menu:SetHeight(MENU_MAX_H)
                     local sf = CreateFrame("ScrollFrame", nil, menu)
-                    sf:SetPoint("TOPLEFT"); sf:SetPoint("BOTTOMRIGHT")
+                    sf:SetPoint("TOPLEFT", 0, -1); sf:SetPoint("BOTTOMRIGHT", 0, 1)
                     sf:SetFrameLevel(menu:GetFrameLevel() + 1)
                     sf:EnableMouseWheel(true)
                     sf:SetScrollChild(inner)
@@ -2648,18 +2649,11 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 PP.Point(card, "TOPLEFT", cardRow, "TOPLEFT", xOff, 0)
                 card:SetFrameLevel(cardRow:GetFrameLevel() + 2)
 
-                local cbg = card:CreateTexture(nil, "BACKGROUND")
-                cbg:SetAllPoints()
-                cbg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
-                local cbrd = EllesmereUI.MakeBorder(card, 1, 1, 1, 0.12, PP)
+                local cbrd = EllesmereUI.MakeRoundedCard(card, 0.12, 0.50, 2)
+                local cbg, accentLine = cbrd.bg, cbrd.accent
 
                 -- Accent top edge
-                local accentLine = card:CreateTexture(nil, "ARTWORK", nil, 7)
                 accentLine:SetColorTexture(EGc.r, EGc.g, EGc.b, 0.6)
-                PP.Point(accentLine, "TOPLEFT", card, "TOPLEFT", 1, -1)
-                PP.Point(accentLine, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
-                accentLine:SetHeight(2)
-                if accentLine.SetSnapToPixelGrid then accentLine:SetSnapToPixelGrid(false); accentLine:SetTexelSnappingBias(0) end
 
                 local cIcon = card:CreateTexture(nil, "ARTWORK")
                 cIcon:SetSize(CARD_ICON, CARD_ICON)
@@ -2795,10 +2789,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             PP.Size(prRow, cardTotalW, PR_ROW_H)
             PP.Point(prRow, "TOPLEFT", parent, "TOPLEFT", PADc, y)
 
-            local prBg = prRow:CreateTexture(nil, "BACKGROUND")
-            prBg:SetAllPoints()
-            prBg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
-            EllesmereUI.MakeBorder(prRow, 1, 1, 1, 0.10, PP)
+            local prBg = EllesmereUI.MakeRoundedCard(prRow, 0.10, 0.50).bg
 
             -- "Preset Style" label (accent, matching "Active Profile")
             local prLbl = EllesmereUI.MakeFont(prRow, 12, nil, EGc.r, EGc.g, EGc.b, 0.7)
@@ -2831,7 +2822,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             local prDDBg = prDD:CreateTexture(nil, "BACKGROUND")
             prDDBg:SetAllPoints()
             prDDBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, EllesmereUI.DD_BG_A)
-            local prDDBrd = EllesmereUI.MakeBorder(prDD, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+            local prDDBrd = EllesmereUI.MakeRoundedBorder(prDD, 1, 1, 1, EllesmereUI.DD_BRD_A, prDDBg)
             -- Resting alpha on the text colour, the channel PrApplyNormal /
             -- PrApplyHover write, so a hover and leave land back on it.
             local prDDLbl = EllesmereUI.MakeFont(prDD, 13, nil, 1, 1, 1, EllesmereUI.DD_TXT_A)
@@ -2859,7 +2850,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             local prMenuBg = prMenu:CreateTexture(nil, "BACKGROUND")
             prMenuBg:SetAllPoints()
             prMenuBg:SetColorTexture(EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.98)
-            EllesmereUI.MakeBorder(prMenu, 1, 1, 1, EllesmereUI.DD_BRD_A, PP)
+            EllesmereUI.MakeRoundedBorder(prMenu, 1, 1, 1, EllesmereUI.DD_BRD_A, prMenuBg, nil, true)
             prMenu:SetScript("OnShow", function(self)
                 local sc = prDD:GetEffectiveScale() / UIParent:GetEffectiveScale()
                 self:SetScale(sc)
@@ -3271,7 +3262,6 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 local rgn = shiftRow._rightRegion
                 EllesmereUI.BuildInlineCog(rgn, {
                     title = "Shift Offset",
-                    icon = EllesmereUI.DIRECTIONS_ICON,
                     rows = {
                         { type = "slider", pixel = true, label = "Extra Y Offset", min = -50, max = 50, step = 1,
                           get = function()
@@ -3581,7 +3571,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                     RefreshTBB()
                 end,
                 true, 20)
-            PP.Point(swatch, "RIGHT", ctrl, "LEFT", -12, 0)
+            PP.Point(swatch, "RIGHT", region._lastInline or ctrl, "LEFT", -8, 0)
             region._lastInline = swatch
 
             local block = CreateFrame("Frame", nil, swatch)
@@ -3666,14 +3656,11 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                   RefreshTBB(); EllesmereUI:RefreshPage()
               end }
         );  y = y - h
-        AddTBBTextSwatch(nameRow, nameRow._leftRegion, "name")
-        AddTBBTextSwatch(nameRow, nameRow._rightRegion, "timer")
         -- Cog on Name Text: custom name, text size, wrap + x/y
         do
             local rgn = nameRow._leftRegion
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Name Text Settings",
-                icon = EllesmereUI.DIRECTIONS_ICON,
                 disabled = function()
                     local bd = SelectedTBB()
                     if bd and bd.verticalOrientation then return true end
@@ -3726,6 +3713,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 },
             })
         end
+        AddTBBTextSwatch(nameRow, nameRow._leftRegion, "name")
         -- Sync icon on Name Text
         do
             local rgn = nameRow._leftRegion
@@ -3801,7 +3789,6 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Duration Text Settings",
                 rows = durationRows,
-                icon = EllesmereUI.DIRECTIONS_ICON,
                 disabled = function()
                     local bd = SelectedTBB()
                     local pos = bd and bd.timerPosition
@@ -3811,6 +3798,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 disabledTooltip = "This option requires a Duration Text position other than None",
             })
         end
+        AddTBBTextSwatch(nameRow, nameRow._rightRegion, "timer")
         -- Sync icon on Duration Text
         do
             local rgn = nameRow._rightRegion
@@ -3870,12 +3858,10 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                   RefreshTBB()
               end }
         );  y = y - h
-        AddTBBTextSwatch(stacksRow, stacksRow._leftRegion, "stacks")
         do
             local rgn = stacksRow._leftRegion
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Stacks Text Settings",
-                icon = EllesmereUI.DIRECTIONS_ICON,
                 disabled = function()
                     local bd = SelectedTBB()
                     return bd and (bd.stacksPosition or "center") == "none"
@@ -3903,6 +3889,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 },
             })
         end
+        AddTBBTextSwatch(stacksRow, stacksRow._leftRegion, "stacks")
         -- Sync icon on Stacks Text
         do
             local rgn = stacksRow._leftRegion
@@ -4116,7 +4103,7 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         --  DISPLAY
         -------------------------------------------------------------------
         local displayHeader
-        displayHeader, h = W:SectionHeader(parent, "Display", y);  y = y - h
+        displayHeader, h = W:SectionHeader(parent, "DISPLAY", y);  y = y - h
         y = EllesmereUI.BlizzStyle.Note(parent, y, "cdmbars")
 
         -- Visibility: one control, the shared axis list plus the TBB-only Hide When
@@ -4371,7 +4358,6 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
             do
                 local rgn = tbbBsRow._leftRegion
                 local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
-                    icon = EllesmereUI.DIRECTIONS_ICON,
                     title = "Border Options",
                     rows = {
                         { type = "slider", label = "Shift X", min = -10, max = 10, step = 1,
@@ -4565,14 +4551,9 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 EllesmereUI.SL_INPUT_G or 0.08,
                 EllesmereUI.SL_INPUT_B or 0.08,
                 (EllesmereUI.SL_INPUT_A or 0.5) + (EllesmereUI.MW_INPUT_ALPHA_BOOST or 0.15))
-            -- Border matching slider input box
-            if PP.CreateBorder then
-                PP.CreateBorder(box,
-                    EllesmereUI.BORDER_R or 0.15,
-                    EllesmereUI.BORDER_G or 0.15,
-                    EllesmereUI.BORDER_B or 0.15,
-                    EllesmereUI.SL_INPUT_BRD_A or 0.4, 1)
-            end
+            -- Border matching slider input box (rounded, as its value box is)
+            EllesmereUI.MakeRoundedBorder(box, EllesmereUI.BORDER_R, EllesmereUI.BORDER_G,
+                EllesmereUI.BORDER_B, EllesmereUI.SL_INPUT_BRD_A, bg)
 
             box:SetScript("OnEnterPressed", function(self)
                 self:ClearFocus()
@@ -4661,6 +4642,21 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
         do
             local rgn = threshRow._leftRegion
             local ctrl = rgn._control
+            -- Cog: opens the multi-threshold editor. Stays usable while multi is
+            -- on, since it is the only way back out of it.
+            EllesmereUI.BuildInlineCog(rgn, {
+                show = function(self)
+                    ShowStackThreshEditor({
+                        getCfg    = SelectedTBB,
+                        refreshFn = RefreshTBB,
+                        anchor    = self,
+                    })
+                end,
+                tip = StackThreshHelpTip(),
+                disabled = function() local bd = SelectedTBB(); return not (bd and bd.stackThresholdEnabled) end,
+                disabledTooltip = "Stack Threshold",
+            })
+
             local threshSwatch, updateThreshSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, threshRow:GetFrameLevel() + 3,
                 function()
@@ -4673,7 +4669,8 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                     bd.stackThresholdR, bd.stackThresholdG, bd.stackThresholdB, bd.stackThresholdA = r, g, b, a; RefreshTBB()
                 end,
                 true, 20)
-            PP.Point(threshSwatch, "RIGHT", ctrl, "LEFT", -8, 0)
+            PP.Point(threshSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+            rgn._lastInline = threshSwatch
             local threshBlock = CreateFrame("Frame", nil, threshSwatch)
             threshBlock:SetAllPoints(); threshBlock:SetFrameLevel(threshSwatch:GetFrameLevel() + 10)
             threshBlock:EnableMouse(true)
@@ -4686,22 +4683,6 @@ local function InitBuffBarsPage(PP, DB, Refresh, FONT_PATH, GetCDMOptOutline, Ga
                 EllesmereUI.ShowWidgetTooltip(threshSwatch, EllesmereUI.DisabledTooltip("Stack Threshold"))
             end)
             threshBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            -- Cog: opens the multi-threshold editor. Stays usable while multi is
-            -- on, since it is the only way back out of it.
-            EllesmereUI.BuildInlineCog(rgn, {
-                anchorTo = threshSwatch,
-                show = function(self)
-                    ShowStackThreshEditor({
-                        getCfg    = SelectedTBB,
-                        refreshFn = RefreshTBB,
-                        anchor    = self,
-                    })
-                end,
-                tip = StackThreshHelpTip(),
-                disabled = function() local bd = SelectedTBB(); return not (bd and bd.stackThresholdEnabled) end,
-                disabledTooltip = "Stack Threshold",
-            })
 
             local function UpdateThreshSwatchState()
                 local bd = SelectedTBB()

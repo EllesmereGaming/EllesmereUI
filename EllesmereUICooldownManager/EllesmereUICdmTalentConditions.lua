@@ -18,86 +18,31 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Cost: nothing until some saved spell has a condition. ns._cdmAnyTalentCond is
 --  set once by RescanTalentCondFlag at setup, or by the options popup on first
 --  use (monotonic, like the other per-spell gates). Once set, the reanchor asks
---  the filter per claimed cooldown frame; the answer comes from a node-state
---  cache filled lazily from C_Traits, one lookup per node. The cache is keyed by
---  the active config ID (changes on a spec swap only) and wiped by
---  ns.TalentCondInvalidate on every talent event (edits and loadout loads keep
---  the config ID). Talent edits already queue a full CDM rebuild, which re-runs
---  the filter, so no events of our own are registered.
+--  the filter per claimed cooldown frame. The check itself is the parent's
+--  (EllesmereUI.TalentConditionsHold in EllesmereUI_SharedHelpers.lua, shared
+--  with the WoW Forever swing timer): a node-state cache filled lazily from
+--  C_Traits, one lookup per node, keyed by the active config ID (changes on a
+--  spec swap only) and wiped by ns.TalentCondInvalidate on every talent event
+--  (edits and loadout loads keep the config ID). Talent edits already queue a
+--  full CDM rebuild, which re-runs the filter, so no events of our own are
+--  registered.
 -------------------------------------------------------------------------------
 local _, ns = ...
 
 local wipe = wipe
 local tremove = table.remove
 
--- nodeID -> the node's committed entryID when taken (true if the client reports
--- a rank but no entry), false when not taken or not part of the active tree.
-local _nodeState = {}
-local _nodeStateConfig = nil
+local Hold = EllesmereUI.TalentConditionsHold
 
 -- Talent edit landed (TRAIT_CONFIG_UPDATED and friends): forget every node.
-function ns.TalentCondInvalidate()
-    wipe(_nodeState)
-    _nodeStateConfig = nil
-end
-
-local function NodeState(nodeID, configID)
-    if configID ~= _nodeStateConfig then
-        -- Spec swap: a different config, so every cached rank is stale.
-        wipe(_nodeState)
-        _nodeStateConfig = configID
-    end
-    local st = _nodeState[nodeID]
-    if st == nil then
-        st = false
-        -- Guarded: a saved nodeID can outlive a talent-tree rework in a patch.
-        -- Runs on a cache miss only (once per node per talent change).
-        local ok, info
-        if configID then ok, info = pcall(C_Traits.GetNodeInfo, configID, nodeID) end
-        if ok and info then
-            -- Committed state only: activeRank/activeEntry also count picks staged
-            -- in the talent UI and never applied. A granted rank (activeRank above
-            -- ranksPurchased) cannot be staged, so it counts as taken as well.
-            local committed = info.entryIDsWithCommittedRanks
-            if committed and #committed > 0 then
-                st = committed[1]
-            elseif (info.activeRank or 0) > (info.ranksPurchased or 0) then
-                st = (info.activeEntry and info.activeEntry.entryID) or true
-            end
-        end
-        _nodeState[nodeID] = st
-    end
-    return st
-end
-
-local function IsTaken(nodeID, entryID, configID)
-    local st = NodeState(nodeID, configID)
-    if st == false then return false end
-    return entryID == nil or st == entryID
-end
-
--- A node that is not in the active tree reads as not taken.
-local function Hold(conds, configID)
-    if type(conds) ~= "table" then return true end
-    for i = 1, #conds do
-        local c = conds[i]
-        if type(c) == "table" and c.nodeID then
-            if IsTaken(c.nodeID, c.entryID, configID) ~= (c.taken ~= false) then
-                return false
-            end
-        end
-    end
-    return true
-end
+ns.TalentCondInvalidate = EllesmereUI.TalentCondInvalidate
 
 -- True when the node (or, for a choice node, that side of it) is taken right now.
-function ns.TalentCondIsTaken(nodeID, entryID)
-    return IsTaken(nodeID, entryID, C_ClassTalents.GetActiveConfigID())
-end
+ns.TalentCondIsTaken = EllesmereUI.TalentCondIsTaken
 
 -- True when every condition in the list holds (an empty or missing list holds).
 function ns.TalentConditionsHold(conds)
-    return Hold(conds, C_ClassTalents.GetActiveConfigID())
+    return Hold(conds)
 end
 
 -- Empty Slots are injected after TalentCondFilterPass, with no spell resolver.
@@ -167,7 +112,7 @@ function ns.TalentCondFilterPass(cdFrames)
                 local hide = false
                 if conds then
                     if configID == nil then configID = C_ClassTalents.GetActiveConfigID() or false end
-                    hide = not Hold(conds, configID or nil)
+                    hide = not Hold(conds, configID)
                 end
                 if hide then
                     tremove(frames, i)

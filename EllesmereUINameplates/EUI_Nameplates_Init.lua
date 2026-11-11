@@ -142,7 +142,7 @@ do
         "classPowerClassColors", "classPowerCustomColor", "classPowerGap",
         "classPowerShape", "classPowerBorder", "classPowerBorderColor", "classPowerBorderSize",
         "textSlotTop", "textSlotRight", "textSlotLeft", "textSlotCenter",
-        "textSlotBottomLeft", "textSlotBottomRight",
+        "textSlotBottomLeft", "textSlotBottomRight", "textSlotTopLeft", "textSlotTopRight",
         "nameYOffset",
         "healthBarHeight", "healthBarWidth", "castBarHeight",
     }

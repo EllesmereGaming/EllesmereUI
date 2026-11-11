@@ -856,7 +856,13 @@ end
 -- The copies follow the name: its host (and so its strata), its shown state,
 -- font, shadow, justification, wrapping and text. The text may be secret: it
 -- only passes from one font string to the others. shownOnly: just the shown
--- state (the name hides while casting, a hot path).
+-- state (the name hides while casting, a hot path). The name is a font family
+-- (the module's SetFSFont), so each copy takes that same family object, never a
+-- plain SetFont (it would pin the copy's face), and a Cyrillic, Korean or
+-- Chinese name draws there too. The family object is read rather than the name's
+-- GetFont: the member that draws a name is chosen by its text, which may be
+-- secret, and the object names the family exactly. A client without font
+-- families gives the name a plain font, and the copies take it the same way.
 local function MirrorName(plate, shownOnly)
     local b = bundles[plate]
     local nk = b and b.nameKit
@@ -871,7 +877,10 @@ local function MirrorName(plate, shownOnly)
     root:SetFrameStrata(host:GetFrameStrata())
     root:SetFrameLevel(host:GetFrameLevel() + 1)
     LevelChains(nk)
-    local font, size, flags = name:GetFont()
+    local fam = name:GetFontObject()
+    if not (fam and EllesmereUI._fontFamilySet[fam]) then fam = nil end
+    local font, size, flags
+    if not fam then font, size, flags = name:GetFont() end
     local sr, sg, sb, sa = name:GetShadowColor()
     local sx, sy = name:GetShadowOffset()
     local jh, jv = name:GetJustifyH(), name:GetJustifyV()
@@ -879,7 +888,11 @@ local function MirrorName(plate, shownOnly)
     local text = name:GetText()
     for i = 1, nk.used do
         local fs = nk.chains[i].copy
-        if font then fs:SetFont(font, size, flags or "") end
+        if fam then
+            if fs:GetFontObject() ~= fam then fs:SetFontObject(fam) end
+        elseif font then
+            fs:SetFont(font, size, flags or "")
+        end
         fs:SetShadowColor(sr, sg, sb, sa)
         fs:SetShadowOffset(sx, sy)
         fs:SetJustifyH(jh)

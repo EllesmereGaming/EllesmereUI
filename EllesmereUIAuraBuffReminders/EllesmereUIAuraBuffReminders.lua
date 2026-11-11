@@ -12,14 +12,18 @@ EllesmereUI._ModuleNS[ADDON_NAME] = select(2, ...)  -- LOD options files read th
 local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 
 -- WoW Forever runs a reduced module: the Raid Buffs section over that client's
--- four buffs (EABR.CollectForeverRaidBuffs) and one Forever-only section (the
--- Camp Benefits campfire buff, gathering tracking, Find Treasure and custom
--- spell IDs) collected by EABR.CollectForever, with every other retail
--- collector, its events and its options sections off. Both values live on
--- EABR, where every split file reads them; retail reads FOREVER as false at
--- each gate and nothing else changes there.
+-- own buffs (EABR.CollectForeverRaidBuffs) and one Forever-only section (the
+-- Camp Benefits campfire buff, the Sleeping Bag's Well-Rested buff, gathering
+-- tracking, Find Treasure and custom spell IDs) collected by
+-- EABR.CollectForever, with every other retail collector, its events and its
+-- options sections off. Both values live on EABR, where every split file reads
+-- them; retail reads FOREVER as false at each gate and nothing else changes
+-- there.
 EABR.FOREVER = EllesmereUI.IS_FOREVER == true
 EABR.CAMP_BENEFITS = 1229741
+EABR.SLEEPING_BAG_BUFF = 429959
+EABR.SLEEPING_BAG_ITEM = 211527
+EABR.SLEEPING_BAG_STACKS = 3
 -- WoW Forever gathering trackers, in cast preference order: Find Herbs, Find
 -- Minerals. Both are self-buffs there and share one slot with the class
 -- trackers. Find Treasure (Dwarf) is no aura and stacks with any of them.
@@ -39,6 +43,85 @@ EABR.MAGE_ARMORS = {
     { 7302, 7320, 10219, 10220 },   -- Ice Armor 1-4
     { 6117, 22782, 22783 },         -- Mage Armor 1-3
 }
+if EABR.FOREVER then
+    EABR.FV_WEAPON_BUFFS = {
+        { key = "instant", name = "Instant Poison", imbue = true, class = "ROGUE", items = { 6947, 6949, 6950, 8926, 8927, 8928 } },
+        { key = "deadly", name = "Deadly Poison", imbue = true, class = "ROGUE", items = { 2892, 2893, 8984, 8985, 20844 } },
+        { key = "crippling", name = "Crippling Poison", imbue = true, class = "ROGUE", items = { 3775, 3776 } },
+        { key = "mindnumbing", name = "Mind-numbing Poison", imbue = true, class = "ROGUE", items = { 5237, 6951, 9186 } },
+        { key = "wound", name = "Wound Poison", imbue = true, class = "ROGUE", items = { 10918, 10920, 10921, 10922 } },
+        { key = "windfury", imbue = true, class = "SHAMAN", spells = { 8232, 8235, 10486, 16362 } },
+        { key = "flametongue", imbue = true, class = "SHAMAN", spells = { 8024, 8027, 8030, 16339, 16341, 16342 } },
+        { key = "frostbrand", imbue = true, class = "SHAMAN", spells = { 8033, 8038, 10456, 16355, 16356 } },
+        { key = "rockbiter", imbue = true, class = "SHAMAN", spells = { 8017, 8018, 8019, 10399, 16314, 16315, 16316 } },
+        { key = "firestone", name = "Firestone", imbue = true, class = "WARLOCK", items = { 1254, 13699, 13700, 13701 } },
+        { key = "spellstone", name = "Spellstone", imbue = true, class = "WARLOCK", items = { 5522, 13602, 13603 } },
+        { key = "sharpening", name = "Sharpening Stone", weapon = "BLADED", items = { 2862, 287978, 2863, 2871, 7964, 12404 } },
+        { key = "weightstone", name = "Weightstone", weapon = "BLUNT", items = { 3239, 3240, 3241, 7965, 12643 } },
+        { key = "elemental", name = "Elemental Sharpening Stone", items = { 18262, 287980 } },
+        { key = "wizardoil", name = "Wizard Oil", items = { 20744, 20746, 287979, 20750, 20749 } },
+        { key = "manaoil", name = "Mana Oil", items = { 20745, 20747, 20748 } },
+        { key = "shadowoil", name = "Shadow Oil", items = { 3824 } },
+        { key = "frostoil", name = "Frost Oil", items = { 3829 } },
+        { key = "blessedoil", name = "Blessed Wizard Oil", items = { 23123 } },
+        { key = "consecrated", name = "Consecrated Sharpening Stone", items = { 23122 } },
+    }
+    -- Built on first use; the labels are translated here, as literals the
+    -- locale key list can see. `on` marks a buff ticked until the user picks
+    -- (each class's always-on buffs); Thorns, Righteous Fury and Shadowform
+    -- start unticked. `menu` names a buff in the options list where its
+    -- reminder's label would read wrong there.
+    function EABR.FvClassBuffs()
+        local t = EABR._fvClassBuffs
+        if t then return t end
+        t = {
+            DRUID = {
+                { key = "thorns", lines = { { 467, 782, 1075, 8914, 9756, 9910 } } },
+            },
+            HUNTER = {
+                { key = "aspect", label = EllesmereUI.L("Aspect"), on = true, own = true, lines = {
+                    { 34074, 415423 }, { 469145 },
+                    { 13159 }, { 5118 }, { 13163 },
+                    { 13161, 1299445, 1299446, 1299447 },
+                    { 20043, 20190 },
+                    { 13165, 14318, 14319, 14320, 14321, 14322, 25296 },
+                } },
+                { key = "trueshot", on = true, lines = { { 1299346, 1299348, 19506, 20905, 20906 } } },
+            },
+            PALADIN = {
+                { key = "blessing", label = EllesmereUI.L("Blessing"), menu = EllesmereUI.L("Blessings"), on = true, ownMemory = true, lines = {
+                    { 19742, 19850, 19852, 19853, 19854, 25290 },
+                    { 20217 },
+                    { 19740, 19834, 19835, 19836, 19837, 19838, 25291 },
+                }, also = { { 25894, 25918 }, { 25898 }, { 25782, 25916 } } },
+                { key = "paladinaura", label = EllesmereUI.L("Aura"), menu = EllesmereUI.L("Important Auras"), on = true, own = true, lines = {
+                    { 19891, 19899, 19900 },
+                    { 19888, 19897, 19898 },
+                    { 19876, 19895, 19896 },
+                    { 19746 },
+                    { 7294, 10298, 10299, 10300, 10301 },
+                    { 465, 10290, 643, 10291, 1032, 10292, 10293 },
+                } },
+                { key = "rfury", lines = { { 25780 } } },
+            },
+            PRIEST = {
+                { key = "innerfire", on = true, lines = { { 588, 7128, 602, 1006, 10951, 10952 } } },
+                { key = "shadowform", lines = { { 15473 } } },
+            },
+            SHAMAN = {
+                { key = "shield", label = EllesmereUI.L("Shield"), on = true, lines = {
+                    { 324, 325, 905, 945, 8134, 10431, 10432 },
+                    { 408510 },
+                } },
+            },
+            WARLOCK = {
+                { key = "demonarmor", label = EllesmereUI.L("Armor"), on = true, lines = { { 687, 696, 706, 1086, 11733, 11734, 11735 } } },
+            },
+        }
+        EABR._fvClassBuffs = t
+        return t
+    end
+end
 
 local _B = {}  -- beacon state table, populated later
 -- The two spellbook checks Blizzard's IsPlayerSpell / IsSpellKnown wrap, called
@@ -172,6 +255,7 @@ local LABEL_OVERRIDES = {
     ["Devotion Aura"]           = "Aura",
     ["Power Word: Fortitude"]   = "Fortitude",
     ["Arcane Intellect"]        = "Intellect",
+    ["Divine Spirit"]           = "Spirit",
     ["Battle Shout"]            = "Shout",
     ["Hunter's Mark"]           = "Mark",
     ["Earth Shield (Ally)"]     = "Ally",

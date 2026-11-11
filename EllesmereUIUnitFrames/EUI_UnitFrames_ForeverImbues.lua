@@ -2,18 +2,23 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EUI_UnitFrames_ForeverImbues.lua  (WoW Forever only)
 --
---  Weapon imbues (Rockbiter, Flametongue, Windfury...) on the Player Aura
---  Bars Buffs bar. On WoW Forever an imbue is its own weapon enchant type
---  (Enum.ItemEnchantType.Imbue) beside the temporary one (oils, stones), and
---  C_PaperDollInfo.GetTemporaryEnchantmentInfo -- the one source the aura
---  container's weapon-enchant cells read -- reports only the temporary one.
---  C_Item.GetWeaponEnchantInfo lists every enchant per weapon, so the imbues
---  are drawn here as cells of the bar's own style (AK.CreateStyledCell),
+--  The weapon enchants the Player Aura Bars Buffs bar's own weapon-enchant
+--  cells leave out. On WoW Forever a weapon can carry an imbue (Rockbiter,
+--  Windfury, a rogue's poisons: Enum.ItemEnchantType.Imbue) and a temporary
+--  enchant (oils, stones) at once, while C_PaperDollInfo.
+--  GetTemporaryEnchantmentInfo -- the one source those engine cells read --
+--  reports one enchant per weapon: since the 1.60.1 launch the imbue, which
+--  takes priority, and before it only the temporary one. C_Item.
+--  GetWeaponEnchantInfo lists every enchant per weapon, so the one the engine
+--  cell does not show (an oil or stone under an imbue; on an older client the
+--  imbue) is drawn here as a cell of the bar's own style (AK.CreateStyledCell),
 --  leading the bar where the engine's weapon-enchant cells lead it: the
 --  container moves along its growth by the cells shown and its line
 --  shortens by as much, so the bar keeps its box. Centered growth has no
 --  fixed leading corner: there the cells sit as a line of their own just
---  before the bar (above it, or left of it for vertical growth).
+--  before the bar (above it, or left of it for vertical growth). A cell shows
+--  its weapon's icon, or the enchant's own while the game's Display Temporary
+--  Enchant Icon CVar is on, as Blizzard's buff frame does.
 --
 --  The Player Aura Bars file calls ns.PAB_FvImbueLayout (ApplyEnchants),
 --  ns.PAB_FvImbueSync (SyncEnchantEvents) and ns.PAB_FvImbueCount
@@ -30,7 +35,7 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 local ET, WS = Enum.ItemEnchantType, Enum.WeaponSlot
 if not (ET and ET.Imbue and WS and C_Item and C_Item.GetWeaponEnchantInfo) then return end
 
-local IMBUE = ET.Imbue
+local IMBUE, TEMPORARY = ET.Imbue, ET.Temporary
 local STYLE = "playerAuraBars_buffs" -- the default Buffs bar's style key
 -- Weapons in cell order from the bar's corner: the engine's weapon-enchant
 -- cells run in reverse slot order, so main hand sits next to the rest.
@@ -40,12 +45,16 @@ local INV = {
     [WS.OffHand] = INVSLOT_OFFHAND or 17,
     [WS.Ranged] = INVSLOT_RANGED or 18,
 }
+-- Each weapon's place among the bar's declared weapon-enchant slots (main hand,
+-- off hand, ranged: ENCH_INV_SLOTS in EUI_PlayerAuraBars_Bars.lua).
+local DECLARED = { [WS.MainHand] = 1, [WS.OffHand] = 2, [WS.Ranged] = 3 }
 
 local on = false
-local shown = {}       -- imbues in cell order: { inv, icon, charges, endTime, total }
-local numShown = 0     -- imbues the last scan found
+local shown = {}       -- enchants in cell order: { inv, icon, charges, endTime, total }
+local numShown = 0     -- enchants the last scan found
 local numLaidFrom = 0  -- numShown the last layout was built from
 local numLaid = 0      -- cells the last layout placed (they come off the aura budget)
+local numDeclared = 0  -- weapon-enchant slots the bar declared at its last layout
 local track = {}       -- weapon slot -> { id, endTime, total }
 local cells = {}       -- cell index -> { f, d, dur, binding, inv }
 local events
@@ -54,21 +63,50 @@ local function Readable(v)
     return v ~= nil and not issecretvalue(v)
 end
 
+local function Active(e)
+    return Readable(e.hasEnchant) and e.hasEnchant and Readable(e.enchantType)
+        and Readable(e.timeLeft) and e.timeLeft > 0
+end
+
+-- The enchant ID the bar's own weapon-enchant cell shows for this weapon, or nil:
+-- what GetTemporaryEnchantmentInfo reports, on a slot the bar declared, with a
+-- duration (the engine cells hide permanent enchants).
+local function EngineEnchantID(ws)
+    if DECLARED[ws] > numDeclared then return nil end
+    local info = C_PaperDollInfo.GetTemporaryEnchantmentInfo(INV[ws])
+    if not (info and Readable(info.hasExpirationTime) and info.hasExpirationTime) then return nil end
+    return Readable(info.enchantID) and info.enchantID or nil
+end
+
 -- Fills `shown` from the weapons; returns the count. Equipment data, read on
 -- the weapon events and at each layout only.
 local function Scan()
     local n, now = 0, GetTime()
+    local enchantIcon = C_CVar.GetCVarBool("displayTemporaryEnchantIcon")
     for _, ws in ipairs(WEAPONS) do
         local list = C_Item.GetWeaponEnchantInfo(ws)
-        local found
+        local imbue, temp
         if type(list) == "table" then
             for _, e in ipairs(list) do
-                if Readable(e.hasEnchant) and e.hasEnchant and Readable(e.enchantType)
-                    and e.enchantType == IMBUE and Readable(e.timeLeft) and e.timeLeft > 0 then
-                    found = e
-                    break
+                if Active(e) then
+                    if e.enchantType == IMBUE then imbue = e
+                    elseif e.enchantType == TEMPORARY then temp = e end
                 end
             end
+        end
+        -- The engine cell's enchant: told apart by ID, else the imbue (it takes
+        -- priority in what the game reports).
+        local engine, covered = (imbue or temp) and EngineEnchantID(ws), nil
+        if engine then
+            covered = (temp and temp.enchantID == engine) and temp or imbue or temp
+        end
+        -- A cell here for the other one: an imbue the engine cell leaves out, or
+        -- an oil or stone under the imbue it shows.
+        local found
+        if imbue and imbue ~= covered then
+            found = imbue
+        elseif temp and covered and temp ~= covered then
+            found = temp
         end
         if found then
             local left = found.timeLeft / 1000
@@ -86,7 +124,7 @@ local function Scan()
             if not s then s = {}; shown[n] = s end
             s.inv = INV[ws]
             local icon = found.enchantIconID
-            if not (Readable(icon) and icon ~= 0) then
+            if not (enchantIcon and Readable(icon) and icon ~= 0) then
                 icon = GetInventoryItemTexture("player", s.inv) or 134400
             end
             s.icon = icon
@@ -176,6 +214,7 @@ end
 -- group layout (element size and spacing), `anchor` the container's point.
 function ns.PAB_FvImbueLayout(container, parent, cfg, grid, layout, anchor)
     if not (on and container and parent and cfg and grid and layout and anchor) then return end
+    numDeclared = grid.enchSlots or 0
     Scan()
     numLaidFrom = numShown
     local n = math.min(numShown, grid.enchSlots or 0)

@@ -501,7 +501,7 @@ local function BuildBars()
             healthBar._text:SetTextColor(hp.textFillR or 1, hp.textFillG or 1, hp.textFillB or 1, hp.textFillA or 1)
         end
         healthBar:Show()
-        healthBar:SetAlpha(ns.ResolveBarAlpha(hp))
+        healthBar:SetAlpha(ns.ERB_MissingBarAlpha(healthBar, hp))
         ApplyBarOrientation(healthBar, hpOri)
         ns.ApplyFillOpacity(healthBar, hpOri, hp.fillOpacity)
         if IsSpecDisabled(hp) then
@@ -542,6 +542,8 @@ local function BuildBars()
             ppDirSign = ResolveExpandDirSign(pp, sp2)
         end
     end
+    -- The stored-CENTER shift that keeps the far edge fixed (the unlock applyPos adds it too).
+    ns.ERB_PowerExpandShiftY = ppDirSign * ppExpandDelta * 0.5
     -- Clean stale key from the retired suppress/restore system
     if pp._expandWasOn ~= nil then pp._expandWasOn = nil end
     -- SnapForES (round to nearest), NOT PP.Scale (truncate toward zero): 214.6
@@ -702,7 +704,7 @@ local function BuildBars()
         if hidePower then
             EllesmereUI.SetElementVisibility(primaryBar, false)
         else
-            primaryBar:SetAlpha(ns.ResolveBarAlpha(pp))
+            primaryBar:SetAlpha(ns.ERB_MissingBarAlpha(primaryBar, pp))
         end
         ApplyBarOrientation(primaryBar, ppOri)
         ns.ApplyFillOpacity(primaryBar, ppOri, pp.fillOpacity)

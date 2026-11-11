@@ -13,7 +13,6 @@ EUI_NS = EUI_NS.__euiCoreNS or EUI_NS  -- standalone builds: the core's own tabl
 local PP                  = EllesmereUI.PP
 local PanelPP             = EllesmereUI.PanelPP
 local MakeFont            = EllesmereUI.MakeFont
-local MakeBorder          = EllesmereUI.MakeBorder
 local SolidTex            = EllesmereUI.SolidTex
 local lerp                = EllesmereUI.lerp
 local RegAccent           = EllesmereUI.RegAccent
@@ -1421,8 +1420,8 @@ local function BuildSidebar()
     local sbBg = SolidTex(sidebarSearchFrame, "BACKGROUND",
         EllesmereUI.SL_INPUT_R, EllesmereUI.SL_INPUT_G, EllesmereUI.SL_INPUT_B, EllesmereUI.SL_INPUT_A + 0.10)
     sbBg:SetAllPoints()
-    local sbBrd = MakeBorder(sidebarSearchFrame,
-        EllesmereUI.BORDER_R, EllesmereUI.BORDER_G, EllesmereUI.BORDER_B, 0.10)
+    local sbBrd = EllesmereUI.MakeRoundedBorder(sidebarSearchFrame,
+        EllesmereUI.BORDER_R, EllesmereUI.BORDER_G, EllesmereUI.BORDER_B, 0.10, sbBg)
 
     local sbEdit = CreateFrame("EditBox", nil, sidebarSearchFrame)
     sbEdit:SetAllPoints()
@@ -2320,13 +2319,13 @@ local function BuildSidebar()
     resCpuLabel:SetPoint("BOTTOMRIGHT", resCpuText, "TOPRIGHT", 0, 3)
     resCpuLabel:SetJustifyH("RIGHT")
     resCpuLabel:SetAlpha(0.5)
-    resCpuLabel:SetText("CPU Usage:")
+    resCpuLabel:SetText(EllesmereUI.L("CPU Usage:"))
 
     local resPerfLabel = MakeFont(sidebar, 10, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
     resPerfLabel:SetPoint("BOTTOMRIGHT", resCpuLabel, "TOPRIGHT", 0, 11)
     resPerfLabel:SetJustifyH("RIGHT")
     resPerfLabel:SetAlpha(0.5)
-    resPerfLabel:SetText("All EUI Addons")
+    resPerfLabel:SetText(EllesmereUI.L("All EUI Addons"))
 
     local resDivider = sidebar:CreateTexture(nil, "ARTWORK")
     resDivider:SetColorTexture(1, 1, 1, 0.15)
@@ -3003,9 +3002,9 @@ local function BuildFooter(rightW, rightX)
         PanelPP.Size(btn, w, h)
         PanelPP.Point(btn, anchorPoint, anchorTo, anchorRel, ax, ay)
         btn:SetFrameLevel(parent:GetFrameLevel() + 1)
-        local brd = MakeBorder(btn, brdR, brdG, brdB, brdA, PanelPP)
         local bg = SolidTex(btn, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, .92)
         bg:SetAllPoints()
+        local brd = EllesmereUI.MakeRoundedBorder(btn, brdR, brdG, brdB, brdA, bg)
         local lbl = MakeFont(btn, 13, nil, textR, textG, textB)
         lbl:SetAlpha(textA); lbl:SetPoint("CENTER"); lbl:SetText(EllesmereUI.L(label))
         btn._label = lbl
@@ -3131,7 +3130,7 @@ local function BuildFooter(rightW, rightX)
 
                 local bg = SolidTex(linkPopup, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, 0.97)
                 bg:SetAllPoints()
-                MakeBorder(linkPopup, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15)
+                EllesmereUI.MakeRoundedBorder(linkPopup, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15, bg)
 
                 local hint = MakeFont(linkPopup, 11, nil, TEXT_SECTION.r, TEXT_SECTION.g, TEXT_SECTION.b, TEXT_SECTION.a)
                 hint:SetPoint("TOP", linkPopup, "TOP", 0, -10)
@@ -3145,7 +3144,8 @@ local function BuildFooter(rightW, rightX)
                 eb:SetJustifyH("CENTER")
                 local ebBg = SolidTex(eb, "BACKGROUND", 0.112, 0.105, 0.098, 1)
                 ebBg:SetPoint("TOPLEFT", -6, 4); ebBg:SetPoint("BOTTOMRIGHT", 6, -4)
-                MakeBorder(eb, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.02)
+                EllesmereUI.RoundBody(eb, ebBg)
+                EllesmereUI.MakeRoundedBorder(eb, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.02)
                 eb:SetScript("OnEscapePressed", function(self) self:ClearFocus(); HideLinkPopup() end)
                 eb:SetScript("OnMouseUp", function(self) self:HighlightText() end)
                 linkPopup:EnableMouse(true)
@@ -3231,9 +3231,9 @@ local function BuildFooter(rightW, rightX)
         PanelPP.Size(btn, DONE_BTN_W, FOOTER_BTN_H)
         PanelPP.Point(btn, "BOTTOMRIGHT", footerFrame, "BOTTOMRIGHT", -FOOTER_PAD, FOOTER_Y)
         btn:SetFrameLevel(footerFrame:GetFrameLevel() + 1)
-        local brd = MakeBorder(btn, ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 0.7, PanelPP)
         local bg = SolidTex(btn, "BACKGROUND", DARK_BG.r, DARK_BG.g, DARK_BG.b, .92)
         bg:SetAllPoints()
+        local brd = EllesmereUI.MakeRoundedBorder(btn, ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 0.7, bg)
         local lbl = MakeFont(btn, 13, nil, ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b)
         lbl:SetAlpha(0.7); lbl:SetPoint("CENTER"); lbl:SetText(EllesmereUI.L("Close"))
         -- Hover animation reads from ELLESMERE_GREEN live
@@ -3394,7 +3394,7 @@ BuildTabs = function(pageNames, disabledPages, disabledTooltips)
 
         local searchBg = SolidTex(searchFrame, "BACKGROUND", STYLE.SL_INPUT_R, STYLE.SL_INPUT_G, STYLE.SL_INPUT_B, STYLE.SL_INPUT_A + 0.10)
         searchBg:SetAllPoints()
-        local searchBrd = MakeBorder(searchFrame, STYLE.BORDER_R, STYLE.BORDER_G, STYLE.BORDER_B, 0.10)
+        local searchBrd = EllesmereUI.MakeRoundedBorder(searchFrame, STYLE.BORDER_R, STYLE.BORDER_G, STYLE.BORDER_B, 0.10, searchBg)
 
         local editBox = CreateFrame("EditBox", nil, searchFrame)
         editBox:SetAllPoints()
@@ -3832,7 +3832,75 @@ local function GetDropdownValueText(region)
     return tostring(val)
 end
 
+-- "No results" hint for the module search box, with a link that hands the
+-- query to the sidebar search. Built on first use, parented to the scroll
+-- child (not the page wrapper, so the filter never sees it). nil hides it.
+local SetInlineEmptyHint
+do
+    local hint
+    SetInlineEmptyHint = function(query)
+        if not query then
+            if hint then hint:Hide() end
+            return
+        end
+        if not hint then
+            hint = CreateFrame("Frame", nil, contentFrame)
+            PanelPP.Size(hint, 600, 100)
+            -- Blizzard's own search box magnifier (SearchBoxTemplate).
+            local icon = hint:CreateTexture(nil, "ARTWORK")
+            icon:SetAtlas("common-search-magnifyingglass")
+            icon:SetDesaturated(true)
+            icon:SetVertexColor(TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, 0.6)
+            PanelPP.Size(icon, 24, 24)
+            PanelPP.Point(icon, "TOP", hint, "TOP", 0, 0)
+            hint._text = MakeFont(hint, 14, nil, TEXT_DIM.r, TEXT_DIM.g, TEXT_DIM.b, TEXT_DIM.a)
+            PanelPP.Point(hint._text, "TOPLEFT", hint, "TOPLEFT", 0, -34)
+            PanelPP.Point(hint._text, "TOPRIGHT", hint, "TOPRIGHT", 0, -34)
+            hint._text:SetJustifyH("CENTER")
+            hint._text:SetWordWrap(false)
+            local link = CreateFrame("Button", nil, hint)
+            link:SetPoint("TOP", hint._text, "BOTTOM", 0, -8)
+            local linkFS = MakeFont(link, 13, nil, ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+            linkFS:SetPoint("LEFT")
+            linkFS:SetText(EllesmereUI.L("Search all modules"))
+            local arrow = link:CreateTexture(nil, "ARTWORK")
+            arrow:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-arrow-right.png")
+            arrow:SetVertexColor(ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
+            PanelPP.Size(arrow, 12, 12)
+            PanelPP.Point(arrow, "LEFT", linkFS, "RIGHT", 4, 0)
+            RegAccent({ type = "callback", fn = function(r, g, b)
+                linkFS:SetTextColor(r, g, b, 1)
+                arrow:SetVertexColor(r, g, b, 1)
+            end })
+            PanelPP.Size(link, linkFS:GetStringWidth() + 16, 18)
+            link:SetAlpha(0.8)
+            link:SetScript("OnEnter", function() link:SetAlpha(1) end)
+            link:SetScript("OnLeave", function() link:SetAlpha(0.8) end)
+            link:SetScript("OnClick", function()
+                local box = tabBar and tabBar._searchBox
+                local q = box and box:GetText() or ""
+                -- Clear this box first: it restores the page and cancels its
+                -- debounce; then the sidebar search takes over the query.
+                if box then box:SetText(""); box:ClearFocus() end
+                local sb = EllesmereUI._sidebarSearchBox
+                if sb and q ~= "" then
+                    sb:SetText(q)
+                    sb:SetFocus()
+                    sb:SetCursorPosition(#q)
+                end
+            end)
+        end
+        local q = query:gsub("||", "|"):gsub("|", "||")
+        hint._text:SetText(EllesmereUI.Lf("No results for %s", "\"" .. q .. "\""))
+        hint:ClearAllPoints()
+        PanelPP.Point(hint, "TOP", contentFrame, "TOP", 0, -40)
+        hint:SetFrameLevel(contentFrame:GetFrameLevel() + 20)
+        hint:Show()
+    end
+end
+
 function EllesmereUI:ApplyInlineSearch(query, skipHighlights)
+    SetInlineEmptyHint(nil)
     if not activeModule or not activePage then return end
     -- Active search force-expands every "Show Less Common" section (links hidden);
     -- clearing collapses back to session state. MUST run before the cache lookup below:
@@ -4141,6 +4209,10 @@ function EllesmereUI:ApplyInlineSearch(query, skipHighlights)
 
     -- Resize content to fit visible items only
     local visibleH = math.abs(y - startY)
+    if #visibleSections == 0 and #visibleOrphans == 0 and query:match("%S") then
+        SetInlineEmptyHint(query)
+        visibleH = 140
+    end
     contentFrame:SetHeight(visibleH + 30)
 
     if scrollFrame and scrollFrame.SetVerticalScroll then
@@ -5634,7 +5706,7 @@ end
 --  (a module can opt out of the latter with searchPrebuild = false).
 --  Developer guide: PLUGINS_API.md.
 -------------------------------------------------------------------------------
-EllesmereUI.PLUGIN_API_VERSION = 4
+EllesmereUI.PLUGIN_API_VERSION = 5
 
 do
     local PREFIX          = EUI_NS.PLUGIN_PREFIX

@@ -67,7 +67,9 @@ ns.GCDShell = CreateFrame("Frame", "ERB_GCDBarFrame", UIParent)
 -- Effective bar alpha: oocAlpha when "Fade Out of Combat" is on and out of combat, else
 -- normal opacity (off by default). EVERY SetAlpha site routes through this -- some
 -- events (UNIT_MAXHEALTH/UNIT_MAXPOWER) rebuild with no following UpdateVisibility, so
--- folding the fade in here keeps a rebuild from clobbering it. On ns.
+-- folding the fade in here keeps a rebuild from clobbering it. The Health and Power
+-- bars go through ns.ERB_MissingBarAlpha, which keeps a bar Show When Missing reveals
+-- at its normal opacity (its wrapper carries the fade). On ns.
 function ns.ResolveBarAlpha(cfg)
     if cfg and cfg.oocFadeEnabled and not isInCombat then
         return cfg.oocAlpha or 0.5

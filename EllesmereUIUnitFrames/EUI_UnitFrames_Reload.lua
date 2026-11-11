@@ -90,6 +90,109 @@ ReloadFramesBody = function()
     local castbarOpacity = profile.castbarOpacity
     local enabled = profile.enabledFrames
 
+    -- A frame's castbar pass (focus, and the pet when it has one): size, icon,
+    -- border, colors and text from the unit's settings.
+    local function ApplyUnitCastbar(frame, unit, settings)
+        if frame.Castbar then
+            local castbarBg = frame.Castbar:GetParent()
+            if castbarBg then
+                if settings.showCastbar ~= false then
+                    if not frame:IsElementEnabled("Castbar") then
+                        frame:EnableElement("Castbar")
+                    end
+                    local cbW3 = settings.castbarWidth or 181
+                    local cbH3 = settings.castbarHeight or 14
+                    PP.Size(castbarBg, cbW3, cbH3)
+                    if castbarBg._bgTex then
+                        local cbg = settings.castBgColor
+                        castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
+                    end
+                    local fIconOffX, fIconOffY = CastIconOffsets(unit, settings)
+                    LayoutCastbarIcon(frame.Castbar, CastIconInWidth(unit, settings), settings.castbarHeight or 14, CastIconOnRight(unit, settings), fIconOffX, fIconOffY, CastIconShown(unit, settings), settings.castbarStockBorderScale,
+                        ns.UF_CastIconPortrait(frame.Castbar, frame, settings, unit))
+                    ns.UF_ApplyCastBorder(frame.Castbar, settings, nil, unit)
+                    if frame.Castbar._iconFrame then
+                        PP.Size(frame.Castbar._iconFrame, cbH3, cbH3)
+                        if not frame.Castbar:IsShown() then
+                            frame.Castbar._iconFrame:Hide()
+                        elseif settings.showCastIcon == false then
+                            frame.Castbar._iconFrame:Hide()
+                        else
+                            frame.Castbar._iconFrame:Show()
+                        end
+                    end
+                    -- Position owned by centralized unlock system
+                    -- Respect hide-while-not-casting: only show bg if inactive hiding is off or cast is active
+                    if settings.castbarHideWhenInactive and not frame.Castbar:IsShown() then
+                        castbarBg:Hide()
+                    else
+                        castbarBg:Show()
+                    end
+                else
+                    if frame:IsElementEnabled("Castbar") then
+                        frame:DisableElement("Castbar")
+                    end
+                    frame.Castbar:Hide()
+                    castbarBg:Hide()
+                end
+            end
+            -- Store per-unit settings for PostCastStart
+            frame.Castbar._eufSettings = settings
+            -- A glow already showing takes new Important Cast Glow settings now.
+            if frame.Castbar._impGlowActive then ns.UpdateUnitFrameImportantGlow(frame.Castbar) end
+            -- Resolve per-unit fill color
+            local fCbColor = castbarColor
+            if settings.castbarFillColor then
+                fCbColor = settings.castbarFillColor
+            end
+            -- Fill Opacity below 100: tint layer carries the visible
+            -- fill; zero the base so it cannot bleed through.
+            frame.Castbar:SetStatusBarColor(fCbColor.r, fCbColor.g, fCbColor.b,
+                ((settings.castFillOpacity or 100) < 100) and 0 or castbarOpacity)
+            ns.ApplyCastFillOpacity(frame.Castbar, settings)
+            if frame.Castbar:IsShown() then
+                ApplyUnitFrameCastColor(frame.Castbar)
+                UpdateUnitFrameKickTick(frame.Castbar)
+            end
+            -- Apply cast bar text settings
+            if frame.Castbar.Text then
+                local snSz = settings.castSpellNameSize or 11
+                SetFSFont(frame.Castbar.Text, snSz)
+                local snC = settings.castSpellNameColor or { r=1, g=1, b=1 }
+                frame.Castbar.Text:SetTextColor(snC.r, snC.g, snC.b)
+            end
+            if frame.Castbar.Time then
+                local dtSz = settings.castDurationSize or 10
+                SetFSFont(frame.Castbar.Time, dtSz)
+                local dtC = settings.castDurationColor or { r=1, g=1, b=1 }
+                frame.Castbar.Time:SetTextColor(dtC.r, dtC.g, dtC.b)
+                frame.Castbar._showDuration = settings.showCastDuration ~= false
+                frame.Castbar._durationSize = dtSz
+                if frame.Castbar._showDuration and frame.Castbar:IsShown() then
+                    frame.Castbar.Time:Show()
+                elseif not frame.Castbar._showDuration then
+                    frame.Castbar.Time:Hide()
+                end
+            end
+            if frame.Castbar.Target then
+                local tsSz = settings.castSpellTargetSize or 11
+                SetFSFont(frame.Castbar.Target, tsSz)
+                local tsC = settings.castSpellTargetColor or { r=1, g=1, b=1 }
+                frame.Castbar.Target:SetTextColor(tsC.r, tsC.g, tsC.b)
+                frame.Castbar._showTarget = settings.showCastTarget ~= false
+                frame.Castbar._nameSide = settings.castSpellNameSide or "left"
+                frame.Castbar._tgtSide  = settings.castSpellTargetSide or "right"
+                frame.Castbar._durSide  = settings.castDurationSide or "right"
+                if not frame.Castbar._showTarget then
+                    frame.Castbar.Target:Hide()
+                end
+                if frame.Castbar._layoutTextZones then
+                    frame.Castbar:_layoutTextZones()
+                end
+            end
+        end
+    end
+
     -- Apply frame strata to all spawned unit frames
     local ufStrata = profile.frameStrata or "MEDIUM"
     for unitKey, frame in pairs(frames) do
@@ -1173,104 +1276,7 @@ ReloadFramesBody = function()
                 end
 
                 -- Castbar (focus)
-                if frame.Castbar then
-                    local castbarBg = frame.Castbar:GetParent()
-                    if castbarBg then
-                        if settings.showCastbar ~= false then
-                            if not frame:IsElementEnabled("Castbar") then
-                                frame:EnableElement("Castbar")
-                            end
-                            local cbW3 = settings.castbarWidth or 181
-                            local cbH3 = settings.castbarHeight or 14
-                            PP.Size(castbarBg, cbW3, cbH3)
-                            if castbarBg._bgTex then
-                                local cbg = settings.castBgColor
-                                castbarBg._bgTex:SetColorTexture(cbg and cbg.r or 0, cbg and cbg.g or 0, cbg and cbg.b or 0, settings.castBgAlpha or 0.5)
-                            end
-                            local fIconOffX, fIconOffY = CastIconOffsets("focus", settings)
-                            LayoutCastbarIcon(frame.Castbar, CastIconInWidth("focus", settings), settings.castbarHeight or 14, CastIconOnRight("focus", settings), fIconOffX, fIconOffY, CastIconShown("focus", settings), settings.castbarStockBorderScale,
-                                ns.UF_CastIconPortrait(frame.Castbar, frame, settings, "focus"))
-                            ns.UF_ApplyCastBorder(frame.Castbar, settings, nil, "focus")
-                            if frame.Castbar._iconFrame then
-                                PP.Size(frame.Castbar._iconFrame, cbH3, cbH3)
-                                if not frame.Castbar:IsShown() then
-                                    frame.Castbar._iconFrame:Hide()
-                                elseif settings.showCastIcon == false then
-                                    frame.Castbar._iconFrame:Hide()
-                                else
-                                    frame.Castbar._iconFrame:Show()
-                                end
-                            end
-                            -- Position owned by centralized unlock system
-                            -- Respect hide-while-not-casting: only show bg if inactive hiding is off or cast is active
-                            if settings.castbarHideWhenInactive and not frame.Castbar:IsShown() then
-                                castbarBg:Hide()
-                            else
-                                castbarBg:Show()
-                            end
-                        else
-                            if frame:IsElementEnabled("Castbar") then
-                                frame:DisableElement("Castbar")
-                            end
-                            frame.Castbar:Hide()
-                            castbarBg:Hide()
-                        end
-                    end
-                    -- Store per-unit settings for PostCastStart
-                    frame.Castbar._eufSettings = settings
-                    -- A glow already showing takes new Important Cast Glow settings now.
-                    if frame.Castbar._impGlowActive then ns.UpdateUnitFrameImportantGlow(frame.Castbar) end
-                    -- Resolve per-unit fill color
-                    local fCbColor = castbarColor
-                    if settings.castbarFillColor then
-                        fCbColor = settings.castbarFillColor
-                    end
-                    -- Fill Opacity below 100: tint layer carries the visible
-                    -- fill; zero the base so it cannot bleed through.
-                    frame.Castbar:SetStatusBarColor(fCbColor.r, fCbColor.g, fCbColor.b,
-                        ((settings.castFillOpacity or 100) < 100) and 0 or castbarOpacity)
-                    ns.ApplyCastFillOpacity(frame.Castbar, settings)
-                    if frame.Castbar:IsShown() then
-                        ApplyUnitFrameCastColor(frame.Castbar)
-                        UpdateUnitFrameKickTick(frame.Castbar)
-                    end
-                    -- Apply cast bar text settings
-                    if frame.Castbar.Text then
-                        local snSz = settings.castSpellNameSize or 11
-                        SetFSFont(frame.Castbar.Text, snSz)
-                        local snC = settings.castSpellNameColor or { r=1, g=1, b=1 }
-                        frame.Castbar.Text:SetTextColor(snC.r, snC.g, snC.b)
-                    end
-                    if frame.Castbar.Time then
-                        local dtSz = settings.castDurationSize or 10
-                        SetFSFont(frame.Castbar.Time, dtSz)
-                        local dtC = settings.castDurationColor or { r=1, g=1, b=1 }
-                        frame.Castbar.Time:SetTextColor(dtC.r, dtC.g, dtC.b)
-                        frame.Castbar._showDuration = settings.showCastDuration ~= false
-                        frame.Castbar._durationSize = dtSz
-                        if frame.Castbar._showDuration and frame.Castbar:IsShown() then
-                            frame.Castbar.Time:Show()
-                        elseif not frame.Castbar._showDuration then
-                            frame.Castbar.Time:Hide()
-                        end
-                    end
-                    if frame.Castbar.Target then
-                        local tsSz = settings.castSpellTargetSize or 11
-                        SetFSFont(frame.Castbar.Target, tsSz)
-                        local tsC = settings.castSpellTargetColor or { r=1, g=1, b=1 }
-                        frame.Castbar.Target:SetTextColor(tsC.r, tsC.g, tsC.b)
-                        frame.Castbar._showTarget = settings.showCastTarget ~= false
-                        frame.Castbar._nameSide = settings.castSpellNameSide or "left"
-                        frame.Castbar._tgtSide  = settings.castSpellTargetSide or "right"
-                        frame.Castbar._durSide  = settings.castDurationSide or "right"
-                        if not frame.Castbar._showTarget then
-                            frame.Castbar.Target:Hide()
-                        end
-                        if frame.Castbar._layoutTextZones then
-                            frame.Castbar:_layoutTextZones()
-                        end
-                    end
-                end
+                ApplyUnitCastbar(frame, "focus", settings)
 
                 UpdateBordersForScale(frame, unit)
                 ReparentBarsToClip(frame, ns.UF_PowerPos(settings), settings)
@@ -1345,6 +1351,7 @@ ReloadFramesBody = function()
                     end
                 end
 
+                if unit == "pet" and frame.Castbar then ApplyUnitCastbar(frame, unit, settings) end
                 UpdateBordersForScale(frame, unit)
                 ReparentBarsToClip(frame, ns.UF_PowerPos(settings), settings)
 
@@ -1747,11 +1754,12 @@ ReloadFramesBody = function()
                 ns.ApplyBossBorderState(frame)
             end
 
-            -- Helper: set font on a FontString, using donor font for mini frames
+            -- Helper: set font on a FontString, using donor font for mini frames.
+            -- A font family, as SetFSFont gives.
             local function SetMiniFont(fs, sz)
                 if not fs or not fs.SetFont then return end
                 if isMiniFrame then
-                    EllesmereUI.ApplyModuleFont(fs, donorFontPath, sz or 12, "unitFrames")
+                    EllesmereUI.ApplyModuleFontFamily(fs, donorFontPath, sz or 12, "unitFrames")
                 else
                     SetFSFont(fs, sz)
                 end
@@ -2006,7 +2014,7 @@ end
 -- the three cast bars (a Custom Border Style border, the Classic frame; the
 -- cast bar pass runs inside the same reload sweep).
 ns.UF_PAD_KEYS = { "player", "target", "focus", "pet", "targettarget", "focustarget",
-    "playerCastbar", "targetCastbar", "focusCastbar" }
+    "playerCastbar", "targetCastbar", "focusCastbar", "petCastbar" }
 
 -- Size matching: the width and height the unit frame's textured border draws
 -- OUTSIDE the frame, from exactly what the reload sweep's unified border apply

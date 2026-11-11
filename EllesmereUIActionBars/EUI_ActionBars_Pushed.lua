@@ -518,7 +518,9 @@ do
                 local held = false
                 if keys then
                     for i = 1, #keys do
-                        if IsKeyDown(keys[i]) then held = true; break end
+                        -- IsKeyDown reads no non-ASCII key name (the Nordic section key):
+                        -- such a key stays lit until its binding's key-up below.
+                        if IsKeyDown(keys[i]) or keys[i]:find("[\128-\255]") then held = true; break end
                     end
                 end
                 if not held then
@@ -560,10 +562,18 @@ do
             end
             _pollFrame:Show()
         end
+        local function HidePushedForSlot(slot)
+            local btn = allButtons[slot]
+            if not (btn and _activePushed[btn]) then return end
+            if btn.PushedTexture then btn.PushedTexture:Hide() end
+            _activePushed[btn] = nil
+            _activePushedN = _activePushedN - 1
+        end
         -- ActionButtonDown/MultiActionButtonDown fire on key press regardless
         -- of "cast on key down" CVar. This ensures pushed texture shows while
         -- the key is held for both key-down and key-up casting modes.
         hooksecurefunc("ActionButtonDown", function(id) ShowPushedForSlot(id) end)
+        hooksecurefunc("ActionButtonUp", function(id) HidePushedForSlot(id) end)
         if MultiActionButtonDown then
             local multiBarPage = {
                 MultiBarBottomLeft  = 6,
@@ -580,6 +590,12 @@ do
                 local slot = (page - 1) * 12 + id
                 ShowPushedForSlot(slot)
             end)
+            if MultiActionButtonUp then
+                hooksecurefunc("MultiActionButtonUp", function(barName, id)
+                    local page = multiBarPage[barName]
+                    if page then HidePushedForSlot((page - 1) * 12 + id) end
+                end)
+            end
         end
     end
 end

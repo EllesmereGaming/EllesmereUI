@@ -42,10 +42,24 @@ local CHECK_OPTS = { borderInset = 4, hover = 0.18 }
 
 -- FontStrings already given the house font (pooled lines are reused as is).
 local fonted = setmetatable({}, { __mode = "k" })
-local function FontOnce(fs)
+-- family: a text that shows other players' writing (leader and member names,
+-- comments, guild names) takes the house font as a font family, which draws the
+-- scripts that font lacks.
+local function FontOnce(fs, family)
     if fonted[fs] then return end
     fonted[fs] = true
-    WSkin.Font(fs)
+    if family then WSkin.FontFamily(fs) else WSkin.Font(fs) end
+end
+-- The keys of the texts that show other players' writing, on the frame that holds
+-- them: a result row's leader (Name), a who row's player, guild and its sortable
+-- column (Variable, which can show the guild), the entry tooltip's leader and
+-- member names (Name) and the group's comment (Comment).
+local WRITING_KEYS = { "Name", "GuildName", "Variable", "Comment" }
+local function ShowsWriting(fr, fs)
+    for i = 1, #WRITING_KEYS do
+        if fr[WRITING_KEYS[i]] == fs then return true end
+    end
+    return false
 end
 
 local function FadeLFGArt(fr, depth)
@@ -54,7 +68,8 @@ local function FadeLFGArt(fr, depth)
     local regions = { fr:GetRegions() }
     for i = 1, #regions do
         local r = regions[i]
-        local a = r.GetAtlas and r:GetAtlas()
+        -- Result rows' class and role icons carry secret atlases in instances.
+        local a = r.GetAtlas and EllesmereUI.PlainString(r:GetAtlas())
         if a then
             local la = a:lower()
             for _, w in ipairs(LFG_FADE) do
@@ -115,7 +130,7 @@ local function SkinBrowseFrame(row)
     local regions = { row:GetRegions() }
     for i = 1, #regions do
         local r = regions[i]
-        if r:GetObjectType() == "FontString" then FontOnce(r) end
+        if r:GetObjectType() == "FontString" then FontOnce(r, ShowsWriting(row, r)) end
     end
 end
 
@@ -128,7 +143,7 @@ local function SkinWhoRow(row)
     local regions = { row:GetRegions() }
     for i = 1, #regions do
         local r = regions[i]
-        if r:GetObjectType() == "FontString" then FontOnce(r) end
+        if r:GetObjectType() == "FontString" then FontOnce(r, ShowsWriting(row, r)) end
     end
 end
 
@@ -171,7 +186,7 @@ local function FontTip(fr, depth)
     local regions = { fr:GetRegions() }
     for i = 1, #regions do
         local r = regions[i]
-        if r:GetObjectType() == "FontString" then FontOnce(r) end
+        if r:GetObjectType() == "FontString" then FontOnce(r, ShowsWriting(fr, r)) end
     end
     local children = { fr:GetChildren() }
     for i = 1, #children do FontTip(children[i], depth + 1) end

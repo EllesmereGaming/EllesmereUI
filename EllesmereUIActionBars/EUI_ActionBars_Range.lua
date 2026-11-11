@@ -11,7 +11,6 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 local _, ns = ...
 
 local ipairs, pairs, pcall = ipairs, pairs, pcall
-local wipe = wipe
 local hooksecurefunc = hooksecurefunc
 local C_Timer_After = C_Timer.After
 local EFD = ns.EFD
@@ -33,12 +32,16 @@ local _range = {
     outOfRange = {},      -- [actionSlot] = true  (currently out of range)
     eventFrame = nil,     -- lazy-created event frame
     slotPending = false,  -- debounce for per-slot range re-enable
+    pageBars = {},        -- [barKey] = true: bars whose page moved this frame
+    pagePending = false,  -- one deferred re-acquire for all of them
 }
 
 -- Resolve a button's action slot without reading btn.action: protected
 -- (secret value in Midnight), reading it in combat taints. Uses a lookup
--- table built at setup; MainBar derives the page offset from the bar frame's
--- actionpage attribute (set by _onstate-page).
+-- table built at setup; a paged bar (MainBar always, bars 2-10 while custom
+-- paging conditions are installed) derives the page offset from its frame's
+-- actionpage attribute, set by _onstate-page with each button's action
+-- (index + (page - 1) * 12, ns._eabBuildPageChildSnippet).
 local function GetButtonActionSlot(btn)
     local info = buttonToBar[btn]
     if not info then return nil end
@@ -51,6 +54,12 @@ local function GetButtonActionSlot(btn)
         local frame = barFrames["MainBar"]
         local page = frame and tonumber(frame:GetAttribute("actionpage")) or EAB_VTABLE.GetActionBarPage()
         offset = (page - 1) * NUM_ACTIONBAR_BUTTONS
+    else
+        local frame = barFrames[info.barKey]
+        if frame and frame._eabPagingConds then
+            local page = tonumber(frame:GetAttribute("actionpage"))
+            if page then offset = (page - 1) * NUM_ACTIONBAR_BUTTONS end
+        end
     end
     return offset + info.index
 end
@@ -164,6 +173,33 @@ local function EnableRangeCheckForBar(barKey)
     ns._eabRangeSweepBar(barKey)
 end
 
+-- A bar's page edge: its frame's "state-page" write (the OnAttributeChanged
+-- hook in EUI_ActionBars_Bars.lua), which runs after _onstate-page has set the
+-- frame's actionpage and its buttons' actions. ACTIONBAR_PAGE_CHANGED cannot
+-- drive this: it fires before the state driver applies the page (the driver
+-- re-evaluates on its next update), so the bar would re-acquire the page it is
+-- leaving. Each bar that paged re-acquires once, a frame later: every bar
+-- flipped in one driver pass (a vehicle, a form) shares one flush, and none of
+-- it runs inside that secure pass.
+local function FlushPageEdges()
+    _range.pagePending = false
+    for barKey in pairs(_range.pageBars) do
+        _range.pageBars[barKey] = nil
+        EnableRangeCheckForBar(barKey)
+    end
+end
+-- On ns, not a local: the hook lives in EUI_ActionBars_Bars.lua.
+ns._eabRangePageEdge = function(barKey)
+    if not _range.anyEnabled then return end
+    local s = EAB.db.profile.bars[barKey]
+    if not (s and s.outOfRangeColoring) then return end
+    _range.pageBars[barKey] = true
+    if not _range.pagePending then
+        _range.pagePending = true
+        C_Timer_After(0, FlushPageEdges)
+    end
+end
+
 -- Disable range checking for all slots on a bar and clear tints
 local function DisableRangeCheckForBar(barKey)
     ns._eabReleaseRangeSlots(barKey)
@@ -225,8 +261,8 @@ function EAB:ApplyRangeColoring()
                 -- Slot->buttons map fast path (dispatcher-maintained) avoids
                 -- scanning all bars x all buttons per flip. Belt: re-verify
                 -- the live slot per hit so a stale entry can only skip, never
-                -- mis-tint; paging edges that stale the map also wipe and
-                -- re-derive range state, healing anything skipped. Dormant
+                -- mis-tint; paging edges that stale the map also re-acquire
+                -- and re-derive range state, healing anything skipped. Dormant
                 -- bars skip (reveal repaints from the outOfRange cache).
                 local smap = ns._slotBtnMap
                 local mapClean = smap and not ns._slotBtnMapDirty
@@ -328,33 +364,12 @@ function EAB:ApplyRangeColoring()
                     end)
                 end
             elseif event == "ACTIONBAR_PAGE_CHANGED" then
-                -- No offset update needed: GetButtonActionSlot reads MainBar's
-                -- actionpage attribute dynamically. A page flip remaps MainBar
-                -- action ids with no per-slot SLOT_CHANGED, so the filled-slot
-                -- fast lists must rebuild.
+                -- A page flip remaps MainBar action ids with no per-slot
+                -- SLOT_CHANGED, so the filled-slot fast lists must rebuild (the
+                -- flag belongs to the cooldown walker). Range checks follow the
+                -- bar's own page edge instead (ns._eabRangePageEdge): this
+                -- event fires before the new page is applied.
                 ns._cdFilledDirty = true
-                -- Clear all range state and re-enable for the new slots; skipped
-                -- when the feature is off everywhere (the dirty flag above stays
-                -- -- it belongs to the cooldown walker, not range).
-                if not _range.anyEnabled then return end
-                wipe(_range.outOfRange)
-                for _, info in ipairs(BAR_CONFIG) do
-                    local s = EAB.db.profile.bars[info.key]
-                    if s and s.outOfRangeColoring then
-                        local btns = barButtons[info.key]
-                        if btns then
-                            for _, btn in ipairs(btns) do
-                                local rfd = EFD(btn)
-                                if rfd.rangeTinted then
-                                    local ico = btn.icon or btn.Icon
-                                    if ico then ico:SetVertexColor(1, 1, 1) end
-                                    rfd.rangeTinted = nil
-                                end
-                            end
-                        end
-                        EnableRangeCheckForBar(info.key)
-                    end
-                end
             elseif event == "ACTION_USABLE_CHANGED" then
                 -- Blizzard resets icon vertex colors on usability changes;
                 -- re-apply range tint on any out-of-range buttons.
