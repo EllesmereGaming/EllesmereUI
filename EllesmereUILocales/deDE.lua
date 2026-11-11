@@ -10189,4 +10189,17 @@ L["Reminds you to remove this talent in the activities checked here."] = "Erinne
 L["Select a Talent"] = "Talent auswählen"
 L["Picked"] = "Ausgewählt"
 L["Click: pick this talent"] = "Klick: Dieses Talent auswählen"
+
+-- Chat Bar: button labels (abbreviations)
+L["Say (chat bar label)"] = "S"
+L["Yell (chat bar label)"] = "Sch"
+L["Emote (chat bar label)"] = "E"
+L["Party (chat bar label)"] = "Gr"
+L["Instance (chat bar label)"] = "I"
+L["Raid (chat bar label)"] = "SZ"
+L["Raid Warning (chat bar label)"] = "SZW"
+L["Guild (chat bar label)"] = "G"
+L["Officer (chat bar label)"] = "O"
+L["Roll (chat bar label)"] = "W"
+L["Ready Check (chat bar label)"] = "BC"
 L["Click the talent this reminder is for."] = "Klicke auf das Talent, für das diese Erinnerung gilt."

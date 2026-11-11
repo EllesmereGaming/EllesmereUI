@@ -11296,6 +11296,19 @@ L["Picked"] = "Escolhido"
 L["Click: pick this talent"] = "Clique: escolher este talento"
 L["Click the talent this reminder is for."] = "Clique no talento deste lembrete."
 
+-- Chat Bar: button labels (abbreviations)
+L["Say (chat bar label)"] = "D"
+L["Yell (chat bar label)"] = "Gr"
+L["Emote (chat bar label)"] = "E"
+L["Party (chat bar label)"] = "G"
+L["Instance (chat bar label)"] = "I"
+L["Raid (chat bar label)"] = "R"
+L["Raid Warning (chat bar label)"] = "AR"
+L["Guild (chat bar label)"] = "Gu"
+L["Officer (chat bar label)"] = "O"
+L["Roll (chat bar label)"] = "Ro"
+L["Ready Check (chat bar label)"] = "VP"
+
 -- == Talent Reminders Import / Export ==========================================
 L["Export All"] = "Exportar tudo"
 L["Export Talent Reminders"] = "Exportar Lembretes de Talentos"
