@@ -35,6 +35,7 @@ EUI_PlayerAuraBars_Style.lua
 EUI_PlayerAuraBars_Groups.lua
 EUI_PlayerAuraBars_Config.lua
 EUI_PlayerAuraBars_Bars.lua
+EUI_PlayerAuraBars_Visibility.lua
 EUI_PlayerAuraBars_Filters.lua
 EUI_PlayerAuraBars_CustomBars.lua
 EUI_PlayerAuraBars_Preview.lua
