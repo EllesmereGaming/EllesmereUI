@@ -198,3 +198,16 @@ L["Scenario"] = true
 
 -- Group Finder Hide Applicant Info
 L["Note"] = "Nota"
+
+-- Chat Bar: button labels (abbreviations)
+L["Say (chat bar label)"] = "D"
+L["Yell (chat bar label)"] = "U"
+L["Emote (chat bar label)"] = "E"
+L["Party (chat bar label)"] = "G"
+L["Instance (chat bar label)"] = "I"
+L["Raid (chat bar label)"] = "In"
+L["Raid Warning (chat bar label)"] = "AI"
+L["Guild (chat bar label)"] = "Gi"
+L["Officer (chat bar label)"] = "Uf"
+L["Roll (chat bar label)"] = "Da"
+L["Ready Check (chat bar label)"] = "AP"

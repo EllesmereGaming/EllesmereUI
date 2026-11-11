@@ -756,6 +756,17 @@ initFrame:SetScript("OnEvent", function(self)
             end)
         end
 
+        -- Other chat surfaces outside the overlay (the Chat Bar's buttons)
+        -- report their hover here, counted with the sidebar's.
+        function ECHAT.ChatHover(on)
+            if on then
+                _hoverCount = _hoverCount + 1
+            else
+                _hoverCount = max(0, _hoverCount - 1)
+            end
+            UpdateHoverState()
+        end
+
         -- Edit box focus tracking -- only ChatFrame1 (permanent, no secret
         -- values). Hooking temp whisper edit boxes (11+) taints their
         -- execution context, causing secret value errors on BN_WHISPER tellTarget.

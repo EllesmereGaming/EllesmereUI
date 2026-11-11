@@ -10529,3 +10529,18 @@ L["Reminds you of the first checked blessing a damage dealer lacks, top to botto
 L["Nameplate Icon"] = "名條圖示"
 L["Nameplate Kick Icons use this to auto-assign kicks when a mob is first marked."] = "名條中斷圖示會藉此在怪物首次被標記時自動分配中斷"
 L["Dismiss this warning"] = "關閉此警告"
+
+-- Chat Bar: button labels (abbreviations)
+L["Say (chat bar label)"] = "說"
+L["Yell (chat bar label)"] = "喊"
+L["Emote (chat bar label)"] = "表"
+L["Party (chat bar label)"] = "隊"
+L["Instance (chat bar label)"] = "副"
+L["Raid (chat bar label)"] = "團"
+L["Raid Warning (chat bar label)"] = "警"
+L["Guild (chat bar label)"] = "會"
+L["Officer (chat bar label)"] = "幹"
+L["Roll (chat bar label)"] = "骰"
+L["Timer (chat bar label)"] = "時"
+L["Ready Check (chat bar label)"] = "準"
+L["Reload UI (chat bar label)"] = "重"

@@ -11132,3 +11132,16 @@ L["Tints red the vendor items you already have (known recipes, mounts, pets, toy
 L["Hide Owned (%d)"] = "Ocultar Obtidos (%d)"
 L["Show Owned (%d)"] = "Mostrar Obtidos (%d)"
 L["Click to hide the items you already have, or to show them again."] = "Clique para ocultar os itens que você já tem ou para mostrá-los de novo."
+
+-- Chat Bar: button labels (abbreviations)
+L["Say (chat bar label)"] = "D"
+L["Yell (chat bar label)"] = "Gr"
+L["Emote (chat bar label)"] = "E"
+L["Party (chat bar label)"] = "G"
+L["Instance (chat bar label)"] = "I"
+L["Raid (chat bar label)"] = "R"
+L["Raid Warning (chat bar label)"] = "AR"
+L["Guild (chat bar label)"] = "Gu"
+L["Officer (chat bar label)"] = "O"
+L["Roll (chat bar label)"] = "Ro"
+L["Ready Check (chat bar label)"] = "VP"

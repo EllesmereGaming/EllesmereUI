@@ -335,6 +335,18 @@ local function HeavyPlateLeave(self)
     if p then EUI.ForeverHeavyShown(p.lift, false) end
 end
 
+-- A plate's hover lift, for a button that drives its own hover (the Chat
+-- Bar, whose own OnEnter/OnLeave replace the hooks FV_Plate adds).
+function ECHAT.FV_PlateLift(btn, shown)
+    local p = btn._fvPlate
+    if not p then return end
+    if p.heavy then
+        EUI.ForeverHeavyShown(p.lift, shown)
+    else
+        ShowLift(p, shown)
+    end
+end
+
 function ECHAT.FV_Plate(btn, on)
     local p = btn._fvPlate
     if not p then

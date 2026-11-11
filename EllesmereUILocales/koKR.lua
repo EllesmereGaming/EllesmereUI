@@ -13974,3 +13974,18 @@ L["Tints red the vendor items you already have (known recipes, mounts, pets, toy
 L["Hide Owned (%d)"] = "보유 숨기기 (%d)"
 L["Show Owned (%d)"] = "보유 표시 (%d)"
 L["Click to hide the items you already have, or to show them again."] = "클릭하면 이미 가지고 있는 아이템을 숨기거나 다시 표시합니다."
+
+
+-- Chat Bar: button labels (abbreviations)
+L["Say (chat bar label)"] = "말"
+L["Yell (chat bar label)"] = "외"
+L["Emote (chat bar label)"] = "감"
+L["Party (chat bar label)"] = "파"
+L["Instance (chat bar label)"] = "인"
+L["Raid (chat bar label)"] = "공"
+L["Raid Warning (chat bar label)"] = "경"
+L["Guild (chat bar label)"] = "길"
+L["Officer (chat bar label)"] = "관"
+L["Roll (chat bar label)"] = "주"
+L["Timer (chat bar label)"] = "타"
+L["Ready Check (chat bar label)"] = "준"
