@@ -241,6 +241,8 @@ factionFrame:SetScript("OnEvent", function(_, event, unit)
         RefreshThreatContextAndPlateColors()
         if event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
             UpdateFactionFrameForZone()
+            -- Entering or leaving an instance changes the plate frame width.
+            ns.RefreshHitboxSize()
         end
         if event == "PLAYER_ENTERING_WORLD" then
             -- Initial PEW can fire before difficulty/instance data settles.
@@ -542,6 +544,7 @@ manager:SetScript("OnEvent", function(self, event, unit)
         for _, plate in pairs(ns.plates) do
             plate:UpdateHealthColor()
         end
+        if event == "PLAYER_REGEN_ENABLED" and ns._hitboxPending then ns.RefreshHitboxSize() end
         if ns._oocAlpha < 1 then ns.NT_ApplyAll() end
     elseif event == "DISPLAY_SIZE_CHANGED" or event == "UI_SCALE_CHANGED" then
         if ns.ApplyNamePlateClickArea then
