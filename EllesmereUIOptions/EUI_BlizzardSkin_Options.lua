@@ -992,16 +992,18 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v)
                   if not EllesmereUIDB then EllesmereUIDB = {} end
                   EllesmereUIDB.reskinTimerBars = v and true or false
+                  if v and EllesmereUI._TimerBarsInstall then EllesmereUI._TimerBarsInstall() end
                   -- Shows or hides the TIMER BARS section below.
                   EllesmereUI:RefreshPage(true)
-                  -- Reload-bound: decided once at login, so OFF hooks nothing.
-                  EllesmereUI:ShowConfirmPopup({
-                      title       = "Reload Required",
-                      message     = "Timer bar reskin requires a UI reload to apply.",
-                      confirmText = "Reload Now",
-                      cancelText  = "Later",
-                      reload      = true,
-                  })
+                  if not v then
+                      EllesmereUI:ShowConfirmPopup({
+                          title       = "Reload Required",
+                          message     = "Disabling the timer bar reskin requires a UI reload to restore Blizzard's default style.",
+                          confirmText = "Reload Now",
+                          cancelText  = "Later",
+                          reload      = true,
+                      })
+                  end
               end }
 
         -- The regions the inline controls below sit on, whichever slot their
@@ -1147,7 +1149,7 @@ initFrame:SetScript("OnEvent", function(self)
         --  Timer Bars: Blizzard's breath, fatigue and feign death bars
         --  (EUI_BlizzardSkin_HUD.lua). Shown only while "Reskin Timer Bars"
         --  (above) is on. Look settings apply live through
-        --  EllesmereUI._TimerBarsRefresh; only the toggle needs a reload.
+        --  EllesmereUI._TimerBarsRefresh; only turning it off needs a reload.
         -----------------------------------------------------------------------
         local TB = EllesmereUI.TIMER_BARS
         if TB and EllesmereUIDB.reskinTimerBars == true then

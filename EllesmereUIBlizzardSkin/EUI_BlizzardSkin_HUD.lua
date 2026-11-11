@@ -1322,8 +1322,9 @@ local GetFFD = I.GetFFD
     ---------------------------------------------------------------------------
     --  Timer bars (MirrorTimerContainer): breath, fatigue, feign death.
     --
-    --  DEFAULT OFF and reload-bound: with the setting off the event frame drops
-    --  its only event at login and nothing is hooked. Writes stay on the
+    --  DEFAULT OFF: with the setting off the event frame drops its only event
+    --  at login and nothing is hooked until the options toggle turns it on
+    --  (turning it off takes a reload). Writes stay on the
     --  StatusBar and the timer frames' own regions. The timer frames' size and
     --  points belong to the Edit Mode layout and are never touched, so the bar
     --  size is capped at the timer frame. Blizzard's Setup re-applies its atlas
@@ -1473,15 +1474,13 @@ local GetFFD = I.GetFFD
         for i = 1, #timers do SkinMirrorTimer(timers[i]) end
     end
 
-    local mtEv = CreateFrame("Frame")
-    mtEv:RegisterEvent("PLAYER_LOGIN")
-    mtEv:SetScript("OnEvent", function(self)
-        self:UnregisterAllEvents()
-        self:SetScript("OnEvent", nil)
-        if not (EllesmereUIDB and EllesmereUIDB.reskinTimerBars == true) then return end
+    local tbInstalled
+    local function InstallTimerBars()
+        if tbInstalled then return end
         local c = _G.MirrorTimerContainer
         if not (c and c.mirrorTimers and type(c.SetupTimer) == "function"
                 and type(c.GetActiveTimer) == "function") then return end
+        tbInstalled = true
         tbContainer = c
         tbTextures = EllesmereUI.BuildBarTextureTables()
         -- All three up front: Edit Mode shows them without a running timer.
@@ -1493,6 +1492,16 @@ local GetFFD = I.GetFFD
         if W and W.OnLooksChanged then W.OnLooksChanged(RefreshTimerBars) end
         -- Options write-through; nil while the reskin is off.
         EllesmereUI._TimerBarsRefresh = RefreshTimerBars
+    end
+    -- The options toggle turns the reskin on live; off needs a reload.
+    EllesmereUI._TimerBarsInstall = InstallTimerBars
+
+    local mtEv = CreateFrame("Frame")
+    mtEv:RegisterEvent("PLAYER_LOGIN")
+    mtEv:SetScript("OnEvent", function(self)
+        self:UnregisterAllEvents()
+        self:SetScript("OnEvent", nil)
+        if EllesmereUIDB and EllesmereUIDB.reskinTimerBars == true then InstallTimerBars() end
     end)
 end)()
 
