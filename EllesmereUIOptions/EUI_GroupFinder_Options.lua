@@ -227,14 +227,15 @@ initFrame:SetScript("OnEvent", function(self)
         -- status color: a checklist, one color each
         local LINE_ITEMS = {
             { key = "lineDelisted",  label = "Delisted", tooltip = "The group was delisted." },
-            { key = "lineAccepted",  label = "Accepted", tooltip = "Applied and waiting, or invited." },
+            { key = "lineSigned",    label = "Signed Up", tooltip = "You applied and are waiting for an answer." },
+            { key = "lineAccepted",  label = "Accepted", tooltip = "The group invited you." },
             { key = "lineCancelled", label = "Canceled", tooltip = "You cancelled the application." },
             { key = "lineDeclined",  label = "Declined", tooltip = "Declined, the group filled, or the application timed out." },
         }
         local lineRow
         lineRow, h = W:DualRow(parent, y,
             -- placeholder, the checklist replaces it
-            { type = "dropdown", text = "Status Effect",
+            { type = "dropdown", text = "Row Highlight",
               tooltip = "Marks the groups you applied to in their status color, with a line under the group or a tinted row.",
               values = { __placeholder = "..." }, order = { "__placeholder" },
               getValue = function() return "__placeholder" end,
@@ -273,13 +274,20 @@ initFrame:SetScript("OnEvent", function(self)
                     set = function(r, g, b) ns.SetOwnListValue(line[5], { r = r, g = g, b = b }) end }
             end
             EUI.BuildInlineCog(rgn, {
-                title = "Status Effect",
+                title = "Row Highlight",
                 rows = {
                     { type = "dropdown", label = "Style",
-                      values = { underline = "Underline", row = "Row Highlight" }, order = { "underline", "row" },
-                      get = function() return ns.OwnListGet("statusStyle") == "row" and "row" or "underline" end,
+                      values = { none = "None", underline = "Underline", row = "Full Row" }, order = { "none", "underline", "row" },
+                      get = function()
+                          local v = ns.OwnListGet("statusStyle")
+                          return (v == "row" or v == "none") and v or "underline"
+                      end,
                       set = function(v) ns.SetOwnListValue("statusStyle", v) end },
                     Picker("lineDelisted", "Delisted Color"),
+                    { type = "slider", label = "Delisted Opacity", min = 0, max = 100, step = 5,
+                      get = function() return tonumber(ns.OwnListGet("delistedOpacity")) or 50 end,
+                      set = function(v) ns.SetOwnListValue("delistedOpacity", v) end },
+                    Picker("lineSigned", "Signed Up Color"),
                     Picker("lineAccepted", "Accepted Color"),
                     Picker("lineCancelled", "Canceled Color"),
                     Picker("lineDeclined", "Declined Color"),

@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  blizzard's list stays alive underneath, faded out. we only read the
 --  applicants and draw them with more columns, nothing written to blizzard's
 --  panel. secret values: we step aside. without leader rights it's the same
---  list under our own "group forming" cover, no buttons.
+--  list, no buttons, "your group is forming" dimmed beside the title.
 -------------------------------------------------------------------------------
 local FOLDER, ns = ...
 if EllesmereUI.HELD_BACK_ADDONS[FOLDER] then return end -- held back (EllesmereUIGroupFinder.lua)
@@ -1034,7 +1034,18 @@ end
 local function Paint()
     if not active then return end
     empowered = LFGListUtil_IsEntryEmpowered() and true or false
+    -- not the leader: a dim note beside the listing's title, the rows stay usable (right click)
     cover:SetShown(not empowered)
+    if not empowered then
+        local title = AV.EntryName
+        local w = title and title:GetStringWidth()
+        cover:ClearAllPoints()
+        if type(w) == "number" and not Secret(w) and w > 0 then
+            cover:SetPoint("LEFT", title, "LEFT", w + 8, 0)
+        elseif title then
+            cover:SetPoint("LEFT", title, "RIGHT", 8, 0)
+        end
+    end
     rowH = tonumber(ns.OwnListGet("applicantRowHeight")) or 36
     btnSize = math.max(18, math.min(rowH - 8, 24))
     btnRoom = btnSize * 2 + GAP + 8
@@ -1128,19 +1139,9 @@ local function Build()
     thumb = frame:CreateTexture(nil, "OVERLAY")
     thumb:SetWidth(3)
     thumb:SetColorTexture(1, 1, 1, 0.3)
-    -- blizzard's cover would sit under our rows, so ours goes on top of them
-    cover = CreateFrame("Frame", nil, frame)
-    cover:SetAllPoints(body)
-    cover:SetFrameLevel(frame:GetFrameLevel() + 20)
-    cover:EnableMouse(true)
-    cover:EnableMouseWheel(true)
-    cover:SetScript("OnMouseWheel", Wheel)
-    local tint = cover:CreateTexture(nil, "BACKGROUND")
-    tint:SetAllPoints()
-    tint:SetColorTexture(0.035, 0.071, 0.118, 0.5)
-    local forming = cover:CreateFontString(nil, "ARTWORK", "GameFontNormalMed2")
-    forming:SetPoint("CENTER", cover, "CENTER", 0, 20)
-    forming:SetText(LFG_LIST_GROUP_FORMING or "Your group is currently forming.")
+    -- blizzard's cover stays faded; ours is only a note by the title (on frame, so it hides with our list)
+    cover = frame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    cover:SetText(EllesmereUI.L("Your group is forming"))
     cover:Hide()
     -- our column titles over blizzard's
     head = CreateFrame("Frame", nil, AV)

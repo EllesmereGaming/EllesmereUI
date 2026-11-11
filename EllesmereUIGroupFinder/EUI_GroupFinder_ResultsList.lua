@@ -40,9 +40,12 @@ end
 local DISPLAY_DEFAULTS = { iconShape = "circle", borderTexture = "solid", borderSize = 1, missingIcons = "blizzard",
     raidRoleIcons = "ellesmere",
     appsFirst = true, signupClicks = "double", visibility = "hidden",
-    lineDelisted = false, lineAccepted = false, lineCancelled = false, lineDeclined = false }
+    lineDelisted = false, lineAccepted = false, lineCancelled = false, lineDeclined = false, delistedOpacity = 50 }
+-- signed up was part of accepted: until it's set, it follows accepted's switch and color
+local FOLLOWS = { lineSigned = "lineAccepted", color_lineSigned = "color_lineAccepted" }
 function ns.OwnListGet(k)
     local v = DB()[k]
+    if v == nil and FOLLOWS[k] then return ns.OwnListGet(FOLLOWS[k]) end
     if v == nil then return DISPLAY_DEFAULTS[k] end
     return v
 end
@@ -374,9 +377,8 @@ local NEED_ATLAS = { TANK = "groupfinder-icon-role-micro-tank", HEALER = "groupf
 local BLIZZ_RR_ATLAS = { TANK = "groupfinder-icon-role-large-tank", HEALER = "groupfinder-icon-role-large-heal",
     DAMAGER = "groupfinder-icon-role-large-dps" }
 local BLIZZ_RR_SCALE = 1.22  -- art size over its visible ring
--- blizzard's grey for a delisted group's text (a plain {r, g, b} table, not a colour object)
-local DC = LFG_LIST_DELISTED_FONT_COLOR
-local DR, DG, DB = DC and DC.r or 0.3, DC and DC.g or 0.3, DC and DC.b or 0.3
+-- a delisted group's text colour: the delisted row highlight colour, set on each paint
+local DR, DG, DB = 0x5B / 255, 0x5B / 255, 0x5B / 255
 local REMAINING = { TANK = "TANK_REMAINING", HEALER = "HEALER_REMAINING", DAMAGER = "DAMAGER_REMAINING" }
 local PERSON_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png"
 local PLAYERS_COLOR = { 0.4, 0.4, 0.42 }
@@ -435,12 +437,13 @@ local STATUS = {
 }
 -- underline setting + color per status
 -- each status: its switch, its own color and the key of the user's color
-local LINE_DELISTED  = { "lineDelisted", 0.6, 0.6, 0.6, "color_lineDelisted" }
+local LINE_DELISTED  = { "lineDelisted", 0x5B / 255, 0x5B / 255, 0x5B / 255, "color_lineDelisted" }
+local LINE_SIGNED    = { "lineSigned", 0.1, 0.9, 0.1, "color_lineSigned" }
 local LINE_ACCEPTED  = { "lineAccepted", 0.1, 0.9, 0.1, "color_lineAccepted" }
 local LINE_CANCELLED = { "lineCancelled", 1, 0.55, 0.1, "color_lineCancelled" }
 local LINE_DECLINED  = { "lineDeclined", 1, 0.2, 0.2, "color_lineDeclined" }
 -- by switch, for the settings page's color pickers
-ns.STATUS_LINES = { lineDelisted = LINE_DELISTED, lineAccepted = LINE_ACCEPTED,
+ns.STATUS_LINES = { lineDelisted = LINE_DELISTED, lineSigned = LINE_SIGNED, lineAccepted = LINE_ACCEPTED,
     lineCancelled = LINE_CANCELLED, lineDeclined = LINE_DECLINED }
 -- a status's color: the user's, else its own
 local function StatusColor(line)
@@ -450,7 +453,7 @@ local function StatusColor(line)
 end
 local LINE_OF = {
     [STATUS.declined_delisted] = LINE_DELISTED,
-    [STATUS.applied] = LINE_ACCEPTED, [STATUS.invited] = LINE_ACCEPTED, [STATUS.inviteaccepted] = LINE_ACCEPTED,
+    [STATUS.applied] = LINE_SIGNED, [STATUS.invited] = LINE_ACCEPTED, [STATUS.inviteaccepted] = LINE_ACCEPTED,
     [STATUS.cancelled] = LINE_CANCELLED,
     [STATUS.declined] = LINE_DECLINED, [STATUS.declined_full] = LINE_DECLINED, [STATUS.timedout] = LINE_DECLINED,
     [STATUS.invitedeclined] = LINE_DECLINED, [STATUS.failed] = LINE_DECLINED,
@@ -899,6 +902,7 @@ local function Fill(r, id, src)
     local gone = info.isDelisted
     gone = not Secret(gone) and gone and true or false
     r.gone = gone
+    if gone then DR, DG, DB = StatusColor(LINE_DELISTED) end
     -- protected text, straight to the font string
     r.name:SetText(info.name)
     local acts = info.activityIDs
@@ -962,7 +966,7 @@ local function Fill(r, id, src)
         local cr, cg, cb = 1, 1, 1
         if ns.GFRatingColor then cr, cg, cb = ns.GFRatingColor(score) end
         r.score:SetText(score)
-        r.score:SetTextColor(cr, cg, cb)
+        if r.gone then r.score:SetTextColor(DR, DG, DB) else r.score:SetTextColor(cr, cg, cb) end
     else
         r.score:SetText("")
     end
@@ -971,16 +975,18 @@ local function Fill(r, id, src)
     if not Secret(delisted) and delisted then st = STATUS.declined_delisted end  -- secret check first
     if st then
         r.status:SetText(st[1])
-        -- same color as the status effect
+        -- same color as the row highlight
         local sl = LINE_OF[st]
         if sl then r.status:SetTextColor(StatusColor(sl)) else r.status:SetTextColor(st[2], st[3], st[4], 1) end
     else
         r.status:SetText("")
     end
-    -- status effect: an underline, or the whole row tinted
+    -- row highlight: an underline, or the whole row tinted
     local line = st and LINE_OF[st]
     local on = line and ns.OwnListGet(line[1]) ~= false or false
-    local rowFx = on and ns.OwnListGet("statusStyle") == "row" or false
+    local style = ns.OwnListGet("statusStyle")
+    if style == "none" then on = false end  -- the status text keeps its colour
+    local rowFx = on and style == "row" or false
     if on then
         local lr, lg, lb = StatusColor(line)
         -- solid, so it reads the same over any window background (the preview's is darker)
@@ -1243,7 +1249,8 @@ local function Fill(r, id, src)
         r.sel:SetColorTexture(ar, ag, ab, selected == id and 0.18 or 0)
     end
     if dimmed[id] then r:SetAlpha(0.35)
-    else r:SetAlpha((st and st ~= STATUS.applied and st ~= STATUS.invited and not gone) and 0.5 or 1) end
+    elseif gone then r:SetAlpha((tonumber(ns.OwnListGet("delistedOpacity")) or 50) / 100)  -- the delisted opacity setting
+    else r:SetAlpha((st and st ~= STATUS.applied and st ~= STATUS.invited) and 0.5 or 1) end
     r:Show()
 end
 
