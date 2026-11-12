@@ -495,7 +495,7 @@ local function WatchCategories()
     for _, m in ipairs({ "InitCategories", "SaveState", "RenameCategory", "ReorderCategory", "GroupCategories",
         "AddToGroup", "UngroupCategory", "DisbandGroup", "RenameGroup", "AddCustomCategory", "RemoveCustomCategory",
         "AssignItem", "UnassignItem", "ToggleJunk", "OnJunkChanged", "OnEquipmentSetsChanged",
-        "RefreshVirtualCategories" }) do
+        "OnVirtualAnswersChanged" }) do
         if CM and type(CM[m]) == "function" then hooksecurefunc(CM, m, BumpCat) end
     end
 end

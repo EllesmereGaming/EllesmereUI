@@ -3325,7 +3325,9 @@ function ns.BMP_ShowFilterEditor(show, hide)
             cancelText = EllesmereUI.L("Cancel"),
             onConfirm = function(text)
                 local id = tonumber(text or "")
-                if id and ns.BM2_AddCustomSpell(sel.id, id) then
+                -- Typed: the ID tracks that aura alone (a Search Spells
+                -- pick above keeps the buff's other versions).
+                if id and ns.BM2_AddCustomSpell(sel.id, id, true) then
                     Apply()
                     Rebuild()
                 end
@@ -3598,7 +3600,8 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
     end
 
     -- RIGHT: Extra Spells searchable checkbox dropdown; "Custom Spell ID"
-    -- rides the menu as a pinned top action above the search bar.
+    -- rides the menu as a pinned top action above the search bar
+    -- (ns.BM2_SpellIdAction).
     do
         local rgn = row._rightRegion
         if rgn._control then rgn._control:Hide() end
@@ -3608,23 +3611,25 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
             for i = 1, #sp do if sp[i] == id then return true end end
             return false
         end
-        local function ShowCustomIdPopup()
-            EllesmereUI:ShowInputPopup({
-                title = EllesmereUI.L("Add Spell ID"),
-                message = EllesmereUI.L("Enter the spell ID to track on this indicator."),
-                confirmText = EllesmereUI.L("Add"),
-                cancelText = EllesmereUI.L("Cancel"),
-                onConfirm = function(text)
-                    local id = tonumber(text or "")
-                    if id and id > 0 and not HasDirect(id) then
-                        ind.spells = ind.spells or {}
-                        ind.spells[#ind.spells + 1] = id
-                        if ns.ReloadFrames then ns.ReloadFrames() end
-                        EllesmereUI:RefreshPage(true)
-                    end
-                end,
-            })
-        end
+        -- A typed ID tracks that aura alone, not the rest of its curated
+        -- family; typing one already picked from Presets narrows it the same
+        -- way. (WoW Forever writes no mark: a typed rank stands for every
+        -- rank, and one that came with a profile stays as it is.)
+        local idAction = ns.BM2_SpellIdAction(function(id)
+            local ex = ind.exactSpells
+            local was = ex and ex[id]
+            local added = not HasDirect(id)
+            if added then
+                ind.spells = ind.spells or {}
+                ind.spells[#ind.spells + 1] = id
+            end
+            ns.BM2_SetSpellExact(ind, id, true)
+            ex = ind.exactSpells
+            if added or (ex and ex[id]) ~= was then
+                if ns.ReloadFrames then ns.ReloadFrames() end
+                EllesmereUI:RefreshPage(true)
+            end
+        end)
         -- Universe = curated preset primaries (name-sorted) plus any custom
         -- ids already on the indicator that fall outside it.
         -- Two groups: "Selected" = everything currently assigned (universe
@@ -3677,9 +3682,7 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
             end
             table.sort(selected, ByLabel)
             table.sort(rest, ByLabel)
-            local items = {
-                { isTopAction = true, label = "Custom Spell ID", onClick = ShowCustomIdPopup },
-            }
+            local items = { idAction }
             if #selected > 0 then
                 items[#items + 1] = { isHeader = true, label = "Selected" }
                 for i = 1, #selected do items[#items + 1] = selected[i] end
@@ -3700,6 +3703,9 @@ function ns.BMP_BuildAssignedFilters(parent, sy, ind, fontPath)
                     for i = #ind.spells, 1, -1 do
                         if ind.spells[i] == k then table.remove(ind.spells, i) end
                     end
+                    -- The typed mark leaves with the entry: a later pick from
+                    -- Presets keeps the curated family.
+                    ns.BM2_SetSpellExact(ind, k, false)
                 end
                 if ns.ReloadFrames then ns.ReloadFrames() end
             end,

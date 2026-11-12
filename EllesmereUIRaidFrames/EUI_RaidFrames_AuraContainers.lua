@@ -1145,7 +1145,7 @@ local function BmIndicators(d)
     return ns.BM2_SpecIndicators(d and (d._isParty and "party" or "raid") or nil)
 end
 
-local function BmIncludeMap(spellID)
+local function BmIncludeMap(spellID, exact)
     local map = { [spellID] = true }
     if ns.BM_PrimaryByAlt then
         for alt, prim in pairs(ns.BM_PrimaryByAlt) do
@@ -1154,7 +1154,9 @@ local function BmIncludeMap(spellID)
     end
     -- v2 curated alternates (same buff under talent/rank ids): resolution keeps ONE
     -- entry per buff family, so the family's alt ids must all match the primary's slot.
-    if ns.BM2_PresetAlts then
+    -- An exact id (the view's exactSpells) matches its own aura alone, so a
+    -- same-named family member stays with the indicator that names it.
+    if ns.BM2_PresetAlts and not exact then
         local alts = ns.BM2_PresetAlts[spellID]
         if alts then
             for i = 1, #alts do map[alts[i]] = true end
@@ -1247,8 +1249,18 @@ local function BmSignature(inds, specKey, mode)
             if cmode == "g" then
                 ownTag = BmEffOwnOnly(ind) and ":o" or ":a"
             end
+            -- Exact ids narrow the include maps, which slots take at
+            -- creation, so they are structural too.
+            local exTag = ""
+            local ex = ind.exactSpells
+            if ex then
+                local sp = ind.spells or {}
+                for k = 1, #sp do
+                    if ex[sp[k]] then exTag = exTag .. ":x" .. sp[k] end
+                end
+            end
             parts[#parts + 1] = tostring(ind.id or ("x" .. i)) .. ":" .. (ind.type or "icon")
-                .. ":" .. table.concat(ind.spells or {}, "-")
+                .. ":" .. table.concat(ind.spells or {}, "-") .. exTag
                 .. ":" .. tostring(ind.showWhen or "present")
                 .. ":" .. cmode .. ownTag
                 .. (ind.showOwnAllSpecs and ":s" or "")
@@ -1273,12 +1285,14 @@ end
 -- PLAYER filter token instead.
 local function BuildBmCand(ind, spells, spellID)
     local include
+    local ex = ind.exactSpells
     if spellID then
-        include = BmIncludeMap(spellID)
+        include = BmIncludeMap(spellID, ex and ex[spellID])
     else
         include = {}
         for k = 1, #(spells or {}) do
-            for id in pairs(BmIncludeMap(spells[k])) do include[id] = true end
+            local sid = spells[k]
+            for id in pairs(BmIncludeMap(sid, ex and ex[sid])) do include[id] = true end
         end
     end
     return { includeSpellIDs = include }

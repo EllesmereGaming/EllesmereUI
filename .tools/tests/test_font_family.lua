@@ -693,4 +693,90 @@ for _, a in ipairs(ALPHABETS) do
 end
 GameTooltipText, GameTooltipHeaderText, GameTooltipTextSmall = nil, nil, nil
 
+-------------------------------------------------------------------------------
+--  8. Premade Groups' category labels are copies of GameFontNormal taken as
+--     each button is built, so one built before the game text pass keeps the
+--     client's face: a hook on the button builder gives a label still on that
+--     face the global one, at its own size and flags. Only with Apply to All
+--     Game Text; never under Blizzard Default (the same face) or on WoW
+--     Forever (no such window)
+-------------------------------------------------------------------------------
+do
+    local function Pass(fonts, opts)
+        opts = opts or {}
+        E = Load("enUS", { db = { fonts = fonts } })
+        local waits, hooks = {}, {}
+        EventUtil = { ContinueOnAddOnLoaded = function(name, fn)
+            waits[#waits + 1] = { name, fn }
+            if not opts.later then fn() end
+        end }
+        hooksecurefunc = function(name, fn) hooks[#hooks + 1] = { name, fn } end
+        if not opts.noBuilder then LFGListCategorySelection_AddButton = function() end end
+        if opts.forever then E.IS_FOREVER = true end
+        E.ApplyGlobalFontToGameText()
+        return waits, hooks
+    end
+    local function Done()
+        EventUtil, hooksecurefunc, LFGListCategorySelection_AddButton = nil, nil, nil
+    end
+    local function Label(face, size, flags)
+        local l = { _face = face, _size = size, _flags = flags, _sets = 0 }
+        function l:GetFont() return self._face, self._size, self._flags end
+        function l:SetFont(f, s, fl)
+            assert(type(f) == "string" and type(s) == "number" and type(fl) == "string",
+                "a bad SetFont on a category label")
+            self._face, self._size, self._flags = f, s, fl
+            self._sets = self._sets + 1
+        end
+        return l
+    end
+
+    local waits, hooks = Pass({ global = "Poppins", applyToAllGameText = true })
+    assert(#waits == 1 and waits[1][1] == "Blizzard_GroupFinder", "the pass does not wait for the group finder")
+    assert(#hooks == 1 and hooks[1][1] == "LFGListCategorySelection_AddButton",
+        "no hook on the category button builder")
+    local onButton = hooks[1][2]
+    -- built before the pass (the client's face), after it, with an outline, with no flags
+    local first, later = Label(FRIZ, 12, ""), Label(POP, 13.2, "")
+    local outlined, bare = Label(FRIZ, 14, "OUTLINE"), Label(FRIZ, 12, nil)
+    local cs = { CategoryButtons = { { Label = first }, { Label = later }, { Label = outlined }, { Label = bare }, {} } }
+    for i = 1, 6 do onButton(cs, i) end  -- button 5 has no label, 6 does not exist
+    assert(first._face == POP and first._size == 12 and first._flags == "" and first._sets == 1,
+        "the label built before the pass did not take the global face at its own size")
+    assert(later._sets == 0, "a label built after the pass was set again")
+    assert(outlined._face == POP and outlined._size == 14 and outlined._flags == "OUTLINE",
+        "a label lost its own size or outline")
+    assert(bare._face == POP and bare._flags == "", "a label with no flags")
+    for i = 1, 6 do onButton(cs, i) end
+    assert(first._sets == 1 and outlined._sets == 1 and bare._sets == 1, "a label on the global face was set again")
+    onButton(nil, 1)
+    onButton({}, 1)
+    onButton({ CategoryButtons = "x" }, 1)
+    Done()
+
+    -- the group finder loads later: nothing is hooked until then
+    waits, hooks = Pass({ global = "Poppins", applyToAllGameText = true }, { later = true })
+    assert(#waits == 1 and #hooks == 0, "the builder was hooked before the group finder loaded")
+    waits[1][2]()
+    assert(#hooks == 1, "the builder was not hooked once the group finder loaded")
+    Done()
+    -- loaded with no builder function: nothing to hook
+    waits, hooks = Pass({ global = "Poppins", applyToAllGameText = true }, { noBuilder = true })
+    assert(#waits == 1 and #hooks == 0, "a missing builder was hooked")
+    Done()
+
+    -- nothing waits: the option off (the scale alone too), Blizzard Default, WoW Forever
+    local quiet = {
+        { "both settings off", { global = "Poppins" } },
+        { "the scale alone", { global = "Poppins", gameTextScale = 120 } },
+        { "Blizzard Default", { global = "__blizzard", applyToAllGameText = true } },
+        { "WoW Forever", { global = "Poppins", applyToAllGameText = true }, { forever = true } },
+    }
+    for _, q in ipairs(quiet) do
+        waits, hooks = Pass(q[2], q[3])
+        assert(#waits == 0 and #hooks == 0, q[1] .. ": the pass waits for the group finder")
+        Done()
+    end
+end
+
 print("font family harness: ok")

@@ -131,15 +131,13 @@ local function TimeLeft(at)
     return string.format("%d:%02d", math.floor(s / 60), s % 60)
 end
 
--- a friend or guildmate in the group: blizzard's blue name
+-- a friend or guildmate in the group: blizzard's blue name (once per row paint: no table)
 local function FriendColor(info)
-    local n = 0
-    for _, k in ipairs({ "numBNetFriends", "numCharFriends", "numGuildMates" }) do
-        local v = info[k]
-        if Secret(v) then return nil end
-        n = n + (tonumber(v) or 0)
+    local bn, char, guild = info.numBNetFriends, info.numCharFriends, info.numGuildMates
+    if Secret(bn) or Secret(char) or Secret(guild) then return nil end
+    if (tonumber(bn) or 0) + (tonumber(char) or 0) + (tonumber(guild) or 0) > 0 and BATTLENET_FONT_COLOR then
+        return BATTLENET_FONT_COLOR:GetRGB()
     end
-    if n > 0 and BATTLENET_FONT_COLOR then return BATTLENET_FONT_COLOR:GetRGB() end
 end
 
 -- blizzard's row check, plus the relisted case

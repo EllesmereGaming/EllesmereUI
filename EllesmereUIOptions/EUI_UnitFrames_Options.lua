@@ -1611,12 +1611,10 @@ initFrame:SetScript("OnEvent", function(self)
                 PP.Point(pFrame._previewTex, "BOTTOMRIGHT", pFrame, "BOTTOMRIGHT", oR, oB)
             end
         end
-        if pFrame._previewModel then
-            -- 3D models ignore SetClipsChildren, so pin them to the frame bounds.
-            pFrame._previewModel:ClearAllPoints()
-            PP.Point(pFrame._previewModel, "TOPLEFT", pFrame, "TOPLEFT", 0, 0)
-            PP.Point(pFrame._previewModel, "BOTTOMRIGHT", pFrame, "BOTTOMRIGHT", 0, 0)
-        end
+        -- 3D Portrait Below Border: the model inside the ring and under it,
+        -- as on the live portrait; off, it fills the frame over the ring.
+        ns.UF_PortraitShapeModel(pFrame, pFrame._shapeBorderTex, pFrame._previewModel,
+            pFrame._previewMode == "3d" and s.portrait3dBelowBorder == true, shape, rawBorderSize)
 
         -- Outer Ring / Inner Shadow: the live portrait's own helper. A shown
         -- Outer Ring and an unmasked ring below Size 7 reach past the frame,

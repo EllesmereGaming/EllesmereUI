@@ -46,6 +46,31 @@ local function QueueViewerAnchor(frame)
     viewerRestore:Show()
 end
 
+-- CD/utility icons the reanchor parked before any claim decorated them (a
+-- spell on Hidden CDs or on no bar since login) have no SetPoint hook from
+-- DecorateFrame. Blizzard's next layout puts such an icon back in the
+-- viewer's grid with its tooltip motion on, where it catches hover at alpha
+-- 0 over whatever sits under that slot. This hook queues it for the park
+-- below; the park itself (relative to UIParent) passes, and once a claim
+-- has decorated it, DecorateFrame's hook keeps it.
+local parkWatched = setmetatable({}, { __mode = "k" })
+
+local function OnParkedIconSetPoint(frame, _, relativeTo)
+    if relativeTo == UIParent then return end
+    local fd = hookFrameData[frame]
+    if fd and fd.decorated then return end
+    frame:SetAlpha(0)
+    QueueViewerAnchor(frame)
+end
+
+local function WatchParkedIcon(frame)
+    if parkWatched[frame] then return end
+    local fd = hookFrameData[frame]
+    if fd and fd.decorated then return end
+    parkWatched[frame] = true
+    hooksecurefunc(frame, "SetPoint", OnParkedIconSetPoint)
+end
+
 local function RestoreViewerAnchors(viewer)
     for frame in pairs(viewerPending) do
         -- A nested refresh must not restore another viewer's unfinished grid.
@@ -63,6 +88,9 @@ local function RestoreViewerAnchors(viewer)
                 frame:ClearAllPoints()
                 frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10000, 10000)
                 fd._parkGuard = nil
+            elseif parkWatched[frame] then
+                frame:ClearAllPoints()
+                frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10000, 10000)
             end
         end
     end
@@ -1603,4 +1631,5 @@ end
 
 I.CategorizeFrame, I.DecorateFrame = CategorizeFrame, DecorateFrame
 I.QueueViewerAnchor, I.RestoreViewerAnchors = QueueViewerAnchor, RestoreViewerAnchors
+I.WatchParkedIcon = WatchParkedIcon
 I.broken = false

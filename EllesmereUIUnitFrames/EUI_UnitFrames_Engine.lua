@@ -888,6 +888,19 @@ local function Frame_EnableElement(self, elementName)
         local fn = painters[channel]
         if fn then fn(self, self._euiUnit, "ForceUpdate") end
     elseif channel then
+        -- A channel with no unit events (the raid marker) is attached only
+        -- when its element existed at spawn: one turned on later joins the
+        -- frame's repaint list here, so a target or focus swap, a show and
+        -- every other full repaint paint it too.
+        local info = attached[self]
+        if info and not CHANNEL_EVENTS[channel] then
+            local chans = info.channels
+            local listed = false
+            for i = 1, #chans do
+                if chans[i] == channel then listed = true break end
+            end
+            if not listed then chans[#chans + 1] = channel end
+        end
         -- A paint earlier in this frame (the settings reload repaints every
         -- frame first) skipped the element while it was off: its stamp must
         -- not eat this one.

@@ -6,9 +6,9 @@ if not EllesmereUI.IS_FOREVER then return end
 -- Our own quest tracker frame, used instead of ObjectiveTrackerFrame when the
 -- Custom Quest Tracker option is on. Blizzard's tracker is muted (alpha 0,
 -- click-through, see EQT.MuteBlizzardTracker) and never skinned or fed watch
--- list edits. This file only reads the quest log and watch list: untracking,
--- zone auto-track, filters and sorting all live in our own list (the
--- Forever file's quest tools, read-only).
+-- list edits. This file only reads the quest log, the watch list and the
+-- tracked recipes: untracking, zone auto-track, filters and sorting all live
+-- in our own list (the Forever file's quest tools, read-only).
 -------------------------------------------------------------------------------
 local _, ns = ...
 local EQT = ns.EQT
@@ -176,8 +176,8 @@ local function StyleText(fs, size)
     end
 end
 
-local SIZE_KEY = { zone = "customZoneFontSize", quest = "titleFontSize", obj = "objectiveFontSize" }
-local SIZE_DEF = { zone = 13, quest = 12, obj = 10 }
+local SIZE_KEY = { zone = "customZoneFontSize", quest = "titleFontSize", recipe = "titleFontSize", obj = "objectiveFontSize" }
+local SIZE_DEF = { zone = 13, quest = 12, recipe = 12, obj = 10 }
 
 -- key: objective identity, so a flash survives re-renders of the same row.
 local function AcquireLine(kind, id, text, x, y, width, key)
@@ -615,6 +615,128 @@ local function AddTimer(questID, y, width, x)
 end
 
 -------------------------------------------------------------------------------
+-- Tracked recipes. Blizzard lists them in its tracker's Professions module,
+-- muted with the rest of that tracker, so they follow the quests here under a
+-- Professions header: each recipe with its required reagents, written as
+-- Blizzard writes them. A click on a recipe goes to its block in Blizzard's
+-- tracker through the header overlay below (out of combat), so Blizzard's own
+-- code opens the recipe, untracks it or opens its menu.
+-------------------------------------------------------------------------------
+local RECIPE_KEY = "@recipes"                 -- the header's id, never a zone name
+local RECIPE_COLLAPSED = "z:" .. RECIPE_KEY   -- its key in the collapsed set
+local reagentState = {}     -- a reagent line's progress, for ObjectiveRGBA
+local recipeEvents = false  -- bag and currency events: while a recipe is listed
+local nameAsked = {}        -- itemID -> true once its name was asked for, false if it never loads
+local nameWait, nameListen = false, false  -- a reagent name is loading; ITEM_DATA_LOAD_RESULT registered
+local schematics = {}       -- recipe id (negative: recraft) -> its schematic, until the tracked recipes change
+
+-- One required reagent slot: "- 2/4 Linen Cloth". A reagent whose item name
+-- has not loaded is left out, asked for once; its load renders the list again.
+local function AddReagent(id, slot, y, width, x)
+    local r = slot.reagents and slot.reagents[1]
+    if not r then return y end
+    local name
+    if ProfessionsUtil.IsReagentSlotBasicRequired(slot) then
+        if r.itemID then
+            name = C_Item.GetItemNameByID(r.itemID)
+            if not name and nameAsked[r.itemID] ~= false then
+                nameWait = true
+                if not nameAsked[r.itemID] then
+                    nameAsked[r.itemID] = true
+                    C_Item.RequestLoadItemDataByID(r.itemID)
+                end
+            end
+        elseif r.currencyID then
+            local info = C_CurrencyInfo.GetCurrencyInfo(r.currencyID)
+            name = info and info.name
+        end
+    elseif ProfessionsUtil.IsReagentSlotModifyingRequired(slot) and slot.slotInfo then
+        name = slot.slotInfo.slotText
+    end
+    if not name then return y end
+    local text
+    if slot:IsVariableQuantityReagent(r) then
+        text = PROFESSIONS_TRACKER_REAGENT_RANGE_FORMAT:format(slot:GetVariableQuantityRange(r))
+        reagentState.finished, reagentState.numRequired = false, 0
+    else
+        local need = slot:GetQuantityRequired(r)
+        local have = ProfessionsUtil.AccumulateReagentsInPossession(slot.reagents)
+        text = PROFESSIONS_TRACKER_REAGENT_COUNT_FORMAT:format(have, need)
+        reagentState.finished, reagentState.numFulfilled, reagentState.numRequired = have >= need, have, need
+    end
+    local l, h = AcquireLine("obj", id, "- " .. PROFESSIONS_TRACKER_REAGENT_FORMAT:format(text, name), x, y, width - x)
+    l.text:SetTextColor(ObjectiveRGBA(reagentState))
+    return y + h + (Cfg("customObjSpacing") or 1)
+end
+
+-- id: the recipe, negative for a recraft, as Blizzard keys its blocks.
+local function AddRecipeList(list, isRecraft, y, width, titleX, objX)
+    for _, recipeID in ipairs(list) do
+        local id = isRecraft and -recipeID or recipeID
+        -- A recipe's schematic is game data: read once and kept until the
+        -- tracked recipes change (names and counts are read on every pass).
+        local schematic = schematics[id]
+        if not schematic then
+            schematic = ProfessionsUtil.GetRecipeSchematic(recipeID, isRecraft)
+            schematics[id] = schematic
+        end
+        local name = schematic.name or ""
+        if isRecraft then name = PROFESSIONS_CRAFTING_FORM_RECRAFTING_HEADER:format(name) end
+        local l, h = AcquireLine("recipe", id, name, titleX, y, math.max(TITLE_MIN_W, width - titleX))
+        l.text:SetTextColor(EQT.GetTitleRGB())
+        y = y + h + 2
+        -- Modifying reagent slots first, as Blizzard lists them.
+        local slots = schematic.reagentSlotSchematics
+        for _, slot in ipairs(slots) do
+            if ProfessionsUtil.IsReagentSlotModifyingRequired(slot) then
+                y = AddReagent(id, slot, y, width, objX)
+            end
+        end
+        for _, slot in ipairs(slots) do
+            if ProfessionsUtil.IsReagentSlotRequired(slot) and not ProfessionsUtil.IsReagentSlotModifyingRequired(slot) then
+                y = AddReagent(id, slot, y, width, objX)
+            end
+        end
+        y = y + (Cfg("customQuestSpacing") or 4)
+    end
+    return y
+end
+
+-- The Professions section, after the quests. Its bag and currency events
+-- (reagent counts) are registered only while a recipe is tracked.
+local function AddRecipes(y, width, titleX, objX, collapsed, zr, zg, zb)
+    local list, recrafts = C_TradeSkillUI.GetRecipesTracked(false), C_TradeSkillUI.GetRecipesTracked(true)
+    local any = (list[1] or recrafts[1]) ~= nil
+    if any ~= recipeEvents then
+        recipeEvents = any
+        if any then
+            evt:RegisterEvent("BAG_UPDATE_DELAYED")
+            evt:RegisterEvent("CURRENCY_DISPLAY_UPDATE")
+        else
+            evt:UnregisterEvent("BAG_UPDATE_DELAYED")
+            evt:UnregisterEvent("CURRENCY_DISPLAY_UPDATE")
+        end
+    end
+    nameWait = false
+    if any then
+        if y > 0 then y = y + 6 end
+        local shut = collapsed[RECIPE_COLLAPSED]
+        local l, h = AcquireLine("zone", RECIPE_KEY, (shut and "+ " or "") .. PROFESSIONS_TRACKER_HEADER_PROFESSION, 0, y, width)
+        l.text:SetTextColor(zr, zg, zb, 1)
+        y = y + h + 3
+        if not shut then
+            y = AddRecipeList(list, false, y, width, titleX, objX)
+            y = AddRecipeList(recrafts, true, y, width, titleX, objX)
+        end
+    end
+    if nameWait ~= nameListen then
+        nameListen = nameWait
+        if nameWait then evt:RegisterEvent("ITEM_DATA_LOAD_RESULT") else evt:UnregisterEvent("ITEM_DATA_LOAD_RESULT") end
+    end
+    return y
+end
+
+-------------------------------------------------------------------------------
 -- Quest item buttons (customItemButtons). Secure, so they live on their own
 -- layer under UIParent and are placed by screen position, never anchored to
 -- our frame (which must stay free to move and hide in combat). In combat a
@@ -827,6 +949,7 @@ local function Render()
                 y = y + (Cfg("customQuestSpacing") or 4)
             end
         end
+        y = AddRecipes(y, width, titleX, objX, collapsed, zr, zg, zb)
     end
     for i = used + 1, #lines do lines[i]:Hide() end
 
@@ -1000,9 +1123,12 @@ end
 -- ForceTaint_Strong into them), and on every setting the untrack modifier
 -- (QUESTWATCHTOGGLE, Shift by default) untracks the quest in the game's own watch
 -- list, so the quest log follows (or, with the chat box open, puts its link in
--- chat). Only for a quest Blizzard's tracker lists; placed by screen position like
--- the item buttons; out of combat only: it hides when combat starts, and a click
--- then takes our own path. Open Quest Details uses our own window (Details.lua).
+-- chat). Over a tracked recipe it takes every left and right click to the
+-- recipe's block, whose own code opens the recipe, untracks it, links it or
+-- opens its menu. Only for a quest or recipe Blizzard's tracker lists; placed by
+-- screen position like the item buttons; out of combat only: it hides when
+-- combat starts, and a click then takes our own path (none for a recipe). Open
+-- Quest Details uses our own window (Details.lua).
 -------------------------------------------------------------------------------
 local QUEST_MODULES = { "QuestObjectiveTracker", "CampaignQuestObjectiveTracker" }
 -- The untrack modifier as a secure attribute prefix (a single-modifier binding)
@@ -1018,14 +1144,24 @@ local function BlizzardHeader(questID)
     end
 end
 
+-- The header button of Blizzard's block for a tracked recipe (id: negative
+-- for a recraft, as Blizzard keys its blocks), if it has one.
+local function RecipeHeader(id)
+    local module = _G.ProfessionsRecipeTracker
+    local block = module and module.GetExistingBlock and module:GetExistingBlock(id)
+    return block and block.HeaderButton
+end
+
 local function Overlay()
     if overlay then return overlay end
     overlay = CreateFrame("Button", nil, itemLayer, "SecureActionButtonTemplate")
     overlay:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    -- The left clicks set per quest (ShowOverlay) go to Blizzard's header; the
-    -- rest go to PostClick, our own line click.
+    -- The clicks set per line (ShowOverlay) go to Blizzard's header; the rest
+    -- go to PostClick, our own line click.
     overlay:SetAttribute("useOnKeyDown", false)
     overlay:SetScript("PostClick", function(self, button)
+        -- A recipe: Blizzard's recipe block took the click.
+        if self.line.kind == "recipe" then return end
         if button == "LeftButton" then
             local prefix = SecureButton_GetModifierPrefix(self)
             if self:GetAttribute(prefix .. "type1") == "click" then
@@ -1054,7 +1190,9 @@ end
 -- Covers the part of the line inside the scroll view.
 local function ShowOverlay(l)
     if InCombatLockdown() then return end
-    local header = BlizzardHeader(l.id)
+    local recipe = l.kind == "recipe"
+    local header
+    if recipe then header = RecipeHeader(l.id) else header = BlizzardHeader(l.id) end
     if not header then return end
     local top, bottom = math.min(l:GetTop(), scroll:GetTop()), math.max(l:GetBottom(), scroll:GetBottom())
     if top <= bottom then return end
@@ -1064,15 +1202,18 @@ local function ShowOverlay(l)
     o:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l:GetLeft() * s, top * s)
     o:SetSize(l:GetWidth() * s, (top - bottom) * s)
     -- Plain left click: Open Quest Log only. The untrack modifier: always.
-    local map = Cfg("customClickAction") == "map"
+    -- A recipe: every left and right click.
+    local map = recipe or Cfg("customClickAction") == "map"
     o:SetAttribute("type1", map and "click" or nil)
     o:SetAttribute("clickbutton1", map and header or nil)
     local untrack = UNTRACK_PREFIX[GetModifiedClick("QUESTWATCHTOGGLE") or ""]
     for _, prefix in pairs(UNTRACK_PREFIX) do
-        local on = prefix == untrack
+        local on = recipe or prefix == untrack
         o:SetAttribute(prefix .. "type1", on and "click" or nil)
         o:SetAttribute(prefix .. "clickbutton1", on and header or nil)
     end
+    o:SetAttribute("type2", recipe and "click" or nil)
+    o:SetAttribute("clickbutton2", recipe and header or nil)
     o.line = l
     o:Show()
 end
@@ -1109,6 +1250,8 @@ end
 
 function OnLineEnter(self)
     UpdateHover()
+    -- A recipe: only the overlay that takes its clicks to Blizzard's block.
+    if self.kind == "recipe" then ShowOverlay(self); return end
     if self.kind ~= "quest" then return end
     ShowOverlay(self)
     GameTooltip:SetOwner(self, TooltipSide())
@@ -1471,7 +1614,7 @@ local EVENTS = {
     "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED", "QUEST_ACCEPTED", "QUEST_REMOVED",
     "SUPER_TRACKING_CHANGED", "ZONE_CHANGED", "ZONE_CHANGED_NEW_AREA",
     "PLAYER_ENTERING_WORLD", "PLAYER_LEVEL_UP", "ENCOUNTER_START", "ENCOUNTER_END",
-    "PLAYER_REGEN_DISABLED",
+    "PLAYER_REGEN_DISABLED", "TRACKED_RECIPE_UPDATE",
 }
 
 evt:SetScript("OnEvent", function(_, event, questID, added)
@@ -1493,6 +1636,13 @@ evt:SetScript("OnEvent", function(_, event, questID, added)
     elseif event == "EDIT_MODE_LAYOUTS_UPDATED" then
         SeedSoon()
         return
+    elseif event == "ITEM_DATA_LOAD_RESULT" then
+        -- A reagent name the recipe list asked for (questID is the item here,
+        -- added whether it loaded); any other item load is not ours.
+        if not nameAsked[questID] then return end
+        if not added then nameAsked[questID] = false end
+    elseif event == "TRACKED_RECIPE_UPDATE" then
+        wipe(schematics)
     elseif event == "QUEST_WATCH_LIST_CHANGED" then
         -- Tracking it again in the quest log brings it back.
         if questID and added then CharDB().ctUntracked[questID] = nil end

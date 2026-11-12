@@ -868,6 +868,9 @@ end
 -- scale can never compound); either setting requires a reload (no undo path: off/100% =
 -- that half skipped, defaults kept). Scale works without the face swap too -- each
 -- object keeps its own face at the scaled size.
+-- The font objects the pass leaves alone: the floating combat text's, which the
+-- Combat Text Font setting owns.
+EllesmereUI._GAME_TEXT_KEEP = { "CombatTextFont", "SystemFont_World" }
 function EllesmereUI.ApplyGlobalFontToGameText()
     local db = EllesmereUI.GetFontsDB()
     -- Zero cost while fully off: both settings absent (scale 100 stores nil)
@@ -900,6 +903,24 @@ function EllesmereUI.ApplyGlobalFontToGameText()
     local fonts = (GetFonts and GetFonts()) or {}
     local ours = EllesmereUI._fontFamilySet
     local done = {}
+    -- The floating combat text over the player draws with CombatTextFont (on the
+    -- SystemFont_World family), the numbers over enemies with DAMAGE_TEXT_FONT. Both
+    -- follow the Combat Text Font setting alone, so the pass marks those two objects,
+    -- their own fonts and every member as done and leaves them as they are.
+    local keep = EllesmereUI._GAME_TEXT_KEEP
+    local alphabets = EllesmereUI._FONT_ALPHABETS
+    for k = 1, #keep do
+        local obj = _G[keep[k]]
+        if obj and type(obj) == "table" then
+            done[obj] = true
+            if obj.GetFontObjectForAlphabet then
+                for a = 1, #alphabets do
+                    local ok, member = pcall(obj.GetFontObjectForAlphabet, obj, alphabets[a])
+                    if ok and member then done[member] = true end
+                end
+            end
+        end
+    end
     for i = 1, #fonts do
         local obj = _G[fonts[i]]
         -- Guard each: GetFonts may list entries that are not usable font objects.
@@ -907,9 +928,13 @@ function EllesmereUI.ApplyGlobalFontToGameText()
             EllesmereUI._FontObjectFaceInto(obj, swap and path or nil, nil, nil, scale, done)
         end
     end
-    -- premade groups' first category label keeps the client face (built before this pass); give it ours
-    if swap and EventUtil and EventUtil.ContinueOnAddOnLoaded then
-        local old = EllesmereUI._clientFontPath
+    -- Premade Groups' category labels are copies of GameFontNormal taken as each button
+    -- is built, with no font object to follow, so one built before this pass (the first:
+    -- Blizzard's XML declares it) keeps the client's face. A label still on that face
+    -- takes the global one at its own size. Nothing to do under Blizzard Default (the
+    -- same face) or on WoW Forever (no such window, so the wait would never end).
+    local old = EllesmereUI._clientFontPath
+    if swap and path ~= old and not EllesmereUI.IS_FOREVER and EventUtil and EventUtil.ContinueOnAddOnLoaded then
         EventUtil.ContinueOnAddOnLoaded("Blizzard_GroupFinder", function()
             if not LFGListCategorySelection_AddButton then return end
             hooksecurefunc("LFGListCategorySelection_AddButton", function(cs, i)

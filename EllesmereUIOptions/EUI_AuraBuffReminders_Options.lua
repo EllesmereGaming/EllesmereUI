@@ -13,7 +13,7 @@ local PAGE_TALENTS   = "Talent Reminders"
 local PAGE_UNLOCK    = "Unlock Mode"
 
 -- WoW Forever: the page keeps CORE, DISPLAY and RAID BUFFS (that client's
--- locations and four buffs) and swaps every other retail section for the one
+-- locations and its own buffs) and swaps every other retail section for the one
 -- Forever section (Camp Benefits + custom spell IDs); the Talent Reminders
 -- page does not exist there.
 local FOREVER = EllesmereUI.IS_FOREVER == true
@@ -1819,7 +1819,7 @@ initFrame:SetScript("OnEvent", function(self)
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
         -----------------------------------------------------------------------
-        --  RAID BUFFS section (WoW Forever: its own locations and its four
+        --  RAID BUFFS section (WoW Forever: its own locations and its own
         --  buffs, which the module exports as the raid buff list there)
         -----------------------------------------------------------------------
         local raidBufHdr

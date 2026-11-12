@@ -1135,16 +1135,26 @@ end
 
 -- WoW Forever friend's ruleset, the middle of richPresence
 -- ("Forever - Roleplay PvP - Tirisfal Glades"), plus their region when it is
--- not ours. nil for anyone else.
+-- not ours. nil for anyone else. The project id is a literal: the client
+-- defines its constant only on WoW Forever, and a viewer on another client
+-- has such friends too.
 local WOW_PROJECT_FOREVER = 18
--- realmName suffix ("CAMWOWUS2Realm10RPPvP") -> ruleset, for an empty richPresence
-local REALM_RULESETS = { PvE = "Normal", PvP = "PvP", RP = "Roleplay", RPPvP = "Roleplay PvP" }
+-- realmName suffix ("CAMWOWUS2Realm10RPPvP") -> ruleset, for a richPresence
+-- that names none: our own names, worded as the rich presence words them.
+local function RealmRuleset(suffix)
+    if suffix == "PvE" then return EllesmereUI.L("Normal") end
+    if suffix == "PvP" then return EllesmereUI.L("PvP") end
+    if suffix == "RP" then return EllesmereUI.L("Roleplay") end
+    if suffix == "RPPvP" then return EllesmereUI.L("Roleplay PvP") end
+end
 local function ForeverRuleset(accountInfo)
     local gi = accountInfo and accountInfo.gameAccountInfo
     if not (gi and gi.isOnline and gi.wowProjectID == WOW_PROJECT_FOREVER) then return nil end
     local ruleset = gi.richPresence and gi.richPresence:match("^.- %- (.-) %- ")
-        or REALM_RULESETS[gi.realmName and gi.realmName:match("Realm%d+(%a+)$") or ""]
-    if not ruleset or ruleset == "" then return nil end
+    if not ruleset or ruleset == "" then
+        ruleset = RealmRuleset(gi.realmName and gi.realmName:match("Realm%d+(%a+)$"))
+    end
+    if not ruleset then return nil end
     if gi.isInCurrentRegion == false and FriendsListUtil and FriendsListUtil.GetRegionName then
         ruleset = ruleset .. " (" .. FriendsListUtil.GetRegionName(accountInfo) .. ")"
     end
@@ -1156,13 +1166,19 @@ local function BuildInfo(accountInfo)
     if FriendsListUtil and FriendsListUtil.BuildLocationDisplayText then
         text = FriendsListUtil.BuildLocationDisplayText(accountInfo) or ""
     end
-    local ruleset = ForeverRuleset(accountInfo)
-    if ruleset then
-        local c = FRIENDS_GRAY_COLOR or NORMAL_FONT_COLOR
-        text = text .. c:WrapTextInColorCode((text ~= "" and " - " or "") .. ruleset)
+    -- A WoW Forever friend on our own client: the ruleset after the zone, in
+    -- the zone's colour. Where Blizzard's line is the friend's rich presence
+    -- instead (seen from another client, or no zone yet), that names the
+    -- ruleset already.
+    local gi = accountInfo.gameAccountInfo
+    if gi and gi.areaName and IsSameProjectOnline(gi) then
+        local ruleset = ForeverRuleset(accountInfo)
+        if ruleset then
+            text = text .. LocationColor(accountInfo):WrapTextInColorCode(
+                (gi.areaName ~= "" and " - " or "") .. ruleset)
+        end
     end
     if text == "" then
-        local gi = accountInfo.gameAccountInfo
         local cp = gi and gi.clientProgram
         if gi and gi.isOnline and (cp == "App" or cp == "BSAp") then
             local loc = GetLocale()

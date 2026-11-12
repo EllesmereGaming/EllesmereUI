@@ -219,7 +219,8 @@ local defaults = {
     -- starts identical to "Enemies" (see GetReactionColor).
     miniColoringMPlusOnly = false,  -- on = Mini Enemies color only in 5-mans; off = everywhere
     -- Simple Coloring When Not In M+ (inline cog on Enemy Types): outside 5-mans, mob-type colors (Mini
-    -- Enemies/Casters/Mini-Bosses/Bosses) collapse to owBasicColor; Neutral stays own color.
+    -- Enemies/Casters/Mini-Bosses/Bosses) collapse to owBasicColor; Neutral keeps its own color out of
+    -- combat and takes owBasicColor in combat.
     owBasicColoring = false,
     owBasicColor = { r = 0.800, g = 0.137, b = 0.137 },
     -- Color Casting Enemies: a mob without a mana pool takes the Interruptible color once it

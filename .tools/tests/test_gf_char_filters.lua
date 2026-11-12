@@ -72,6 +72,14 @@ assert(T.profile.search.regions.eu == nil and T.profile.search.ratingValue == 20
 assert(cfg.ratingValue == 2500 and first.filters.regions.eu == true)
 cfg.iconSize = 150
 assert(T.profile.search.iconSize == 150 and first.filters.iconSize == nil, "a display setting left the profile")
+-- Your Class: each tab's tick is the character's; the raids tab's Has / No pick is the profile's, like the dungeons one
+cfg.extraMyClass, cfg.raidMyClass, cfg.raidMyClassMissing = true, true, false
+assert(first.filters.extraMyClass == true and first.filters.raidMyClass == true
+    and T.profile.search.extraMyClass == nil and T.profile.search.raidMyClass == nil,
+    "a Your Class tick left the character")
+assert(T.profile.search.raidMyClassMissing == false and first.filters.raidMyClassMissing == nil,
+    "the raids tab's Has / No pick is not in the profile")
+cfg.extraMyClass, cfg.raidMyClass, cfg.raidMyClassMissing = nil, nil, nil
 
 -- the results list's display settings: in the profile
 ns.OwnListDB().rowHeight = 44

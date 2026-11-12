@@ -158,7 +158,8 @@ end
 --  opts.disabled (fn) + disabledTooltip/rawTooltip/requireState (as
 --  ResolveDisabledTip): greyed and click-blocked while it answers true, the
 --  reason on hover, re-checked with the page's widgets.
---  Returns: ddBtn, refreshFn
+--  Returns: ddBtn, refreshFn. refreshFn(true) also reads a dynamic items list
+--  again while the menu is closed, for a change made outside the menu.
 -------------------------------------------------------------------------------
 function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, getFn, setFn, onChanged, maxVisibleItems, searchable, closeButton, onMenuClosed, opts)
     -- Search prebuild on an absorber row: the dropdown indexes nothing, so none is built.
@@ -1303,10 +1304,16 @@ function EllesmereUI.BuildVisOptsCBDropdown(parentFrame, ddW, fLevel, items, get
     ddBtn:SetScript("OnClick", function() ShowMenu() end)
     ddBtn:HookScript("OnHide", function() if menu then menu:Hide() end end)
 
-    local function RefreshAll()
+    -- RefreshAll(true), opt-in: a dynamic list is read again first, so the summary
+    -- names a change made outside the menu while it is closed (an entry typed into
+    -- a popup). A page refresh calls it with no argument and reads nothing again.
+    local function RefreshAll(reread)
         -- A caller may keep this past a page pass that dressed ddBtn (and with it
         -- the kept menu) for another build.
         if PoolGen(ddBtn) ~= dressGen then return end
+        if reread == true and itemsFn and not (menu and menu:IsShown()) then
+            items = itemsFn() or {}
+        end
         UpdateLabel()
         if menu then
             for _, r in ipairs(menu._rows or {}) do

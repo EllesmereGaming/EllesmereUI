@@ -410,10 +410,12 @@ end
 
 -- While the cast icon shows on the portrait (backdrop +2), the backdrop's shape
 -- border, inner shadow and Outer Ring move onto an overlay at backdrop +3, so
--- the icon sits under them; when it hides they go back under a 3D model. The
--- overlay is a child of the backdrop, so the backdrop's shape mask still clips
--- them. Built through the options page pool (the preview shares this), which
--- also hands a pooled texture back to its own frame on reset.
+-- the icon sits under them; when it hides they go back to the backdrop, the
+-- shape border to its rest over a 3D model (bd._ringHome, from
+-- ns.UF_PortraitShapeModel). The overlay is a child of the backdrop, so the
+-- backdrop's shape mask still clips them. Built through the options page pool
+-- (the preview shares this), which also hands a pooled texture back to its
+-- own frame on reset.
 local function MoveDecoration(tex, parent)
     if tex and tex:GetParent() ~= parent then tex:SetParent(parent) end
 end
@@ -431,7 +433,7 @@ local function CastIconPortraitOverlay(bd, on)
         return
     end
     local parent = on and overlay or bd
-    MoveDecoration(bd._shapeBorderTex, parent)
+    MoveDecoration(bd._shapeBorderTex, on and overlay or bd._ringHome or bd)
     MoveDecoration(bd._innerShadow, parent)
     MoveDecoration(bd._outerRing, parent)
 end

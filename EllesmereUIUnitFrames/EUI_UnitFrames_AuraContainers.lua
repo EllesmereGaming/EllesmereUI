@@ -1959,13 +1959,25 @@ end
 -- stack's per-bar rects (EllesmereUI.ERB_PlayerStackBars: physical pixels, steady
 -- through the combat/target/group visibility modes); this reserves the span down to
 -- the lowest bar actually DOCKED under the frame, walking the chain so a bar sitting
--- elsewhere is never reserved.
+-- elsewhere is never reserved. On WoW Forever the frame's own form power bar (a
+-- druid's Power Type Mana + Form Power, EUI_UnitFrames_ForeverFormBar.lua) joins the
+-- chain while it shows: it hangs under the power bar, outside the frame box.
 local function ResourceStackBelowFrame(unit, frame)
     if unit ~= "player" then return 0 end
     frame = frame or _G[CB_FRAME_NAMES.player]
     local getBars = EllesmereUI.ERB_PlayerStackBars
-    if not (frame and getBars) then return 0 end
-    local bars = getBars()
+    local formBar = ns.UF_ForeverFormBarShown and ns.UF_ForeverFormBarShown()
+    if not (frame and (getBars or formBar)) then return 0 end
+    local bars = getBars and getBars()
+    if formBar then
+        local l, r = secretNum(formBar:GetLeft()), secretNum(formBar:GetRight())
+        local t, b = secretNum(formBar:GetTop()), secretNum(formBar:GetBottom())
+        if l and r and t and b then
+            local s = formBar:GetEffectiveScale() or 1
+            bars = bars or {}
+            bars[#bars + 1] = { l = l * s, r = r * s, t = t * s, b = b * s }
+        end
+    end
     if not bars then return 0 end
     local fl = secretNum(frame:GetLeft())
     local fr = secretNum(frame:GetRight())
@@ -2130,7 +2142,8 @@ local function AnchorContainer(container, frame, unit, base, s, buffContainer, r
         if not cbH or cbH <= 0 then cbH = 14 end
         cbOff = -cbH
     end
-    -- Resource Bars stack (power bar / class resource / Forever shapeshift mana)
+    -- Resource Bars stack (power bar / class resource / Forever shapeshift mana), and
+    -- the frame's own Forever form power bar,
     -- below the player frame: reserve down to its bottom edge the same way, and keep
     -- whichever reserve reaches LOWER (the cast bar may sit above or below it). Same
     -- bottom-anchor + non-Blizzard-aspect gate as the cast bar; player-only inside
@@ -3535,10 +3548,12 @@ end
 -- no registered events, and non-bottom-anchored players never arm anything. Per-bar
 -- VISIBILITY modes (combat/target/group alpha) are intentionally NOT handled -- the
 -- footprint (ERB_PlayerStackBars) is predicate-based, so alpha toggles do not move it.
+-- The WoW Forever form power bar (EUI_UnitFrames_ForeverFormBar.lua) arms it too, when
+-- it shows, hides or is laid out again.
 do
     local function BottomAnchored(a) return a == "bottomleft" or a == "bottomright" end
     local function PlayerWantsStackReserve()
-        if not EllesmereUI.ERB_PlayerStackBars then return false end
+        if not (EllesmereUI.ERB_PlayerStackBars or ns.UF_ForeverFormBarShown) then return false end
         local s = SettingsFor("player")
         return s ~= nil and (BottomAnchored(s.debuffAnchor) or BottomAnchored(s.buffAnchor))
     end
