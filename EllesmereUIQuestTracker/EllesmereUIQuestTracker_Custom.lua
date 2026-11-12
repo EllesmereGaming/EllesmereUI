@@ -165,7 +165,7 @@ end
 -------------------------------------------------------------------------------
 -- Lines: one pooled Button per row (zone header, quest title, objective).
 -------------------------------------------------------------------------------
-local OnLineClick, OnLineEnter, OnLineLeave, ToggleFocus, SyncItems, HideOverlay, Queue  -- defined below
+local OnLineClick, OnLineEnter, OnLineLeave, ToggleFocus, SyncItems, HideOverlay, Queue, BlizzardHeader  -- defined below
 
 -- Outline and shadow follow the Fonts page's Module Outline.
 local function StyleText(fs, size)
@@ -1053,12 +1053,58 @@ end
 -- For the details window (Details.lua).
 EQT.CustomQuestActions = { Focus = ToggleFocus, Untrack = Untrack, Abandon = Abandon }
 
+-- Open Quest Log menu entry: a secure button over its row clicks the quest's
+-- header in Blizzard's tracker, as the overlay below does for Open Quest Log.
+-- Out of combat only, for a quest Blizzard's tracker lists.
+local logBtn
+
+local function HideLogButton()
+    if logBtn and not InCombatLockdown() then logBtn:Hide() end
+end
+
+local function ForwardScript(self, script)
+    local row = self.row
+    local fn = row and row:GetScript(script)
+    if fn then fn(row) end
+end
+
+local function ShowLogButton(i, header)
+    local row = EllesmereUI.ContextMenuRow(i)
+    if not row or InCombatLockdown() then return end
+    local left, top = row:GetLeft(), row:GetTop()
+    if not (left and top) then return end
+    if not logBtn then
+        logBtn = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
+        logBtn:SetFrameStrata("FULLSCREEN_DIALOG")
+        logBtn:RegisterForClicks("LeftButtonUp")
+        logBtn:SetAttribute("useOnKeyDown", false)
+        logBtn:SetAttribute("type1", "click")
+        logBtn:SetScript("PostClick", function() EllesmereUI.CloseContextMenu() end)
+        logBtn:SetScript("OnEnter", function(self) ForwardScript(self, "OnEnter") end)
+        logBtn:SetScript("OnLeave", function(self) ForwardScript(self, "OnLeave") end)
+    end
+    local s = row:GetEffectiveScale() / logBtn:GetEffectiveScale()
+    logBtn:ClearAllPoints()
+    logBtn:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left * s, top * s)
+    logBtn:SetSize(row:GetWidth() * s, row:GetHeight() * s)
+    logBtn:SetFrameLevel(row:GetFrameLevel() + 5)
+    logBtn:SetAttribute("clickbutton1", header)
+    logBtn.row = row
+    logBtn:Show()
+end
+
 local function Disabled() return true end
-local MENU_OPTS = { fontKey = "questTracker" }
+local MENU_OPTS = { fontKey = "questTracker", onHide = HideLogButton }
 
 -- The quest's title heads the menu as a disabled row.
 local function ShowMenu(owner, questID)
     local items = { { text = C_QuestLog.GetTitleForQuestID(questID) or "", noLoc = true, isDisabled = Disabled } }
+    local header = not InCombatLockdown() and BlizzardHeader(questID)
+    local logRow
+    if header then
+        items[#items + 1] = { text = EllesmereUI.L("Open Quest Log"), noLoc = true }
+        logRow = #items
+    end
     if Cfg("customFocusClick") then
         local focused = C_SuperTrack.GetSuperTrackedQuestID() == questID
         items[#items + 1] = { text = focused and STOP_SUPER_TRACK_QUEST or SUPER_TRACK_QUEST, noLoc = true,
@@ -1082,6 +1128,7 @@ local function ShowMenu(owner, questID)
             onClick = function() EQT.ShowWowheadLink(questID) end }
     end
     EllesmereUI.ShowContextMenu(owner, items, MENU_OPTS)
+    if logRow then ShowLogButton(logRow, header) end
 end
 
 local function ToggleCollapsed(key)
@@ -1136,7 +1183,7 @@ local UNTRACK_PREFIX = { SHIFT = "shift-", CTRL = "ctrl-", ALT = "alt-" }
 local overlay
 
 -- The header button of Blizzard's block for the quest, if it has one.
-local function BlizzardHeader(questID)
+function BlizzardHeader(questID)
     for _, name in ipairs(QUEST_MODULES) do
         local module = _G[name]
         local block = module and module.GetExistingBlock and module:GetExistingBlock(questID)
@@ -1623,6 +1670,7 @@ evt:SetScript("OnEvent", function(_, event, questID, added)
         -- legal until this handler returns: last chance to hide secure buttons,
         -- which would otherwise stay clickable on a hidden tracker.
         if overlay then overlay:Hide() end
+        if logBtn then logBtn:Hide() end
         if CanHideInCombat() then
             for _, b in ipairs(items) do b:Hide() end
             ns.CombatQueue.Defer("EQT_CustomItems", SyncItems)
