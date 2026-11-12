@@ -127,6 +127,12 @@ initFrame:SetScript("OnEvent", function(self)
     for _, ev in ipairs(URL_EVENTS) do
         ChatFrame_AddMessageEventFilter(ev, UrlFilter)
     end
+	
+	-- WoW:F sends CHAT_MSG_SYSTEM with an empty message so we drop it to never render a timestamp-only message.
+    ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(self, event, msg)
+        if issecretvalue and issecretvalue(msg) then return false end
+        return msg == ""
+    end)
 
     ---------------------------------------------------------------------------
     --  3. Temporary window (whisper) detection.
