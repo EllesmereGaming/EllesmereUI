@@ -437,6 +437,8 @@ local defaults = {
         dynamicColor100  = { r = 0, g = 1, b = 0 },   -- full health
         dynamicColor50   = { r = 1, g = 1, b = 0 },   -- half health
         dynamicColor0    = { r = 1, g = 0, b = 0 },   -- empty health
+        dynamicLow       = 0,     -- health % at or below which the 0% color holds (0-20)
+        dynamicHigh      = 100,   -- health % at or above which the 100% color holds (80-100)
         customBgColor    = { r = 17/255, g = 17/255, b = 17/255 },
         bgClassColored   = false,
         bgDarkness       = 50,

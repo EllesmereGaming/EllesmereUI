@@ -80,7 +80,7 @@ do
     local map = {
         healthBar = {
             "healthBarTexture", "healthBarOpacity", "healthColorMode",
-            "customFillColor", "dynamicColor100", "dynamicColor50", "dynamicColor0",
+            "customFillColor", "dynamicColor100", "dynamicColor50", "dynamicColor0", "dynamicLow", "dynamicHigh",
             "customBgColor", "bgClassColored", "bgDarkness", "smoothBars",
             "healPrediction", "healPredOpacity", "healPredColor",
             "healthVerticalFill", "healthInvertFill",
