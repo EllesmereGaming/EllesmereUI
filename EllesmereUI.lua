@@ -1391,7 +1391,7 @@ end
 -- that character at login, level-up and logout:
 --   name      the full name (with the surname on WoW Forever)
 --   realm     the realm (retail) or ruleset (WoW Forever): RealmGroupName
---   realmKey  the realm as mail addresses it ("Area52")
+--   realmKey  the realm as mail addresses it ("Area52"); the ruleset on WoW Forever
 --   class, race (file tokens: "MAGE", "Scourge"), level, faction
 --   seen      time() of the last write
 -- A read that comes back unknown or secret keeps the stored value.
@@ -1403,7 +1403,11 @@ local function RecordIdentity(level)
     first = Plain(first)
     if first then c.name = EllesmereUI.WithSurname(first, Plain(surname), true) end
     c.realm = Plain(EllesmereUI.RealmGroupName()) or c.realm
-    c.realmKey = Plain(GetNormalizedRealmName and GetNormalizedRealmName()) or c.realmKey
+    if EllesmereUI.IS_FOREVER then
+        c.realmKey = c.realm
+    else
+        c.realmKey = Plain(GetNormalizedRealmName and GetNormalizedRealmName()) or c.realmKey
+    end
     local _, class = UnitClass("player")
     c.class = Plain(class) or c.class
     local _, race = UnitRace("player")

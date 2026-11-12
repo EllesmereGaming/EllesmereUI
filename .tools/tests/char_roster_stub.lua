@@ -16,11 +16,12 @@ return function(EUI, o, path)
     s = src:sub(1, s):match(".*()\n") or 1
     local e = assert(src:find("\n%-%- \"Name%-Realm\" whisper/invite target%.", s), "roster section end not found")
     o = o or {}
-    EUI.RealmGroupName = EUI.RealmGroupName or function() return o.group or o.realm or "Realm" end
-    EUI.PlainString = EUI.PlainString or function(v)
+    -- rawget: a test's EllesmereUI may answer every missing field with a stub
+    EUI.RealmGroupName = rawget(EUI, "RealmGroupName") or function() return o.group or o.realm or "Realm" end
+    EUI.PlainString = rawget(EUI, "PlainString") or function(v)
         if type(v) == "string" and v ~= o.secret and v ~= "" then return v end
     end
-    EUI.WithSurname = EUI.WithSurname or function(n, s) return s and (n .. " " .. s) or n end
+    EUI.WithSurname = rawget(EUI, "WithSurname") or function(n, s) return s and (n .. " " .. s) or n end
     local handler
     local env = setmetatable({
         CreateFrame = function()

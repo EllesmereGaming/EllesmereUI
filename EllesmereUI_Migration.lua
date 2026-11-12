@@ -4025,6 +4025,7 @@ local CHAR_ROSTER_STORES = {
     { "mageArmorByChar",      "mageArmor" },
     { "classBuffByChar",      "classBuff" },
     { "spellUprankChars",     "spellUprank" },
+    { "lootFeedHistory",      "lootFeedHistory" },
 }
 
 local CHAR_IDENTITY = { "name", "realm", "realmKey", "class", "race", "level", "faction", "seen" }
@@ -4040,6 +4041,10 @@ local function LiftIdentity(c)
     for _, src in ipairs(CHAR_IDENTITY_FROM) do
         local t = c[src.field]
         if type(t) == "table" then
+            -- the Mail card kept a WoW Forever surname apart; the roster's name has it
+            if type(t.name) == "string" and type(t.surname) == "string" then
+                t.name, t.surname = t.name .. " " .. t.surname, nil
+            end
             for _, f in ipairs(CHAR_IDENTITY) do
                 if c[f] == nil then c[f] = t[f] end
                 if not (src.keep and src.keep[f]) then t[f] = nil end
@@ -4047,6 +4052,8 @@ local function LiftIdentity(c)
             if src.drop then c[src.field] = nil end
         end
     end
+    -- WoW Forever mails within a ruleset: its realm is the mail key there
+    if EllesmereUI.IS_FOREVER and c.realmKey == nil then c.realmKey = c.realm end
 end
 
 local function RosterKey(key)

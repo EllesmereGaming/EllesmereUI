@@ -2097,7 +2097,8 @@ end
 -- friendsFramePos (dragged panel positions, resolution- bound), tooltipFixedPos (stale
 -- account key; the live one is per-profile and rides the profile itself),
 -- blizzWindowModernBG (dead key, read nowhere), the character roster and its mailAltHidden
--- (the player's own characters and which of them the Mail card's Alt List leaves out).
+-- (the player's own characters and which of them the Mail card's Alt List leaves out),
+-- mailAltFriends (the friends' characters it has seen), mailAltListTab (its shown tab).
 -------------------------------------------------------------------------------
 local BLIZZ_SKIN_GLOBAL_KEYS = {}
 do
@@ -2453,6 +2454,7 @@ local FULL_EXPORT_EXCLUDED = {
     chars                 = true, -- every character's own data, by GUID (EllesmereUI.Chars)
     goldLedger            = true, -- warband gold and the tracking switch
     groupFinderApps       = true, -- Group Finder application counts (account, session)
+    mailAltFriends        = true, -- Mail card Alt List: friends' characters seen
     dataBarsGold          = true, -- legacy gold keys: on disk until Bags or
     characterGold         = true, -- DataBars loads and absorbs them
     warbandGold           = true,
@@ -2470,6 +2472,7 @@ local FULL_EXPORT_EXCLUDED = {
     cdmCachedBarSizes     = true, -- CDM bar sizes
     mailAltRoster         = true, -- Mail card Alt List
     mailAltHidden         = true, -- and the characters it hides
+    lootFeedHistory       = true, -- Forever Loot History rows
     raidHoroscope         = true, -- Party Mode birthdays
     bagCurrencyByChar     = true, -- Bags tracked currencies
     bagPinnedByChar       = true, -- Bags pinned items

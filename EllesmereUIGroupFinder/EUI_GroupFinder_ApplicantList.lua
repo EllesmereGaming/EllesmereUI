@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  blizzard's list stays alive underneath, faded out. we only read the
 --  applicants and draw them with more columns, nothing written to blizzard's
 --  panel. secret values: we step aside. without leader rights it's the same
---  list under our own "group forming" cover, no buttons.
+--  list, no buttons, "your group is forming" dimmed under the dungeon.
 -------------------------------------------------------------------------------
 local FOLDER, ns = ...
 if EllesmereUI.HELD_BACK_ADDONS[FOLDER] then return end -- held back (EllesmereUIGroupFinder.lua)
@@ -170,11 +170,12 @@ end
 
 -- icon lives on a child frame, the skin's restrip fades direct textures
 local function SquareButton(parent, atlas, onClick)
-    local btn = CreateFrame("Button", nil, parent)
+    local btn = ns.NewButton and ns.NewButton(parent) or CreateFrame("Button", nil, parent)
     btn:SetMotionScriptsWhileDisabled(true)
     local skin = EUI._ModuleNS and EUI._ModuleNS.EllesmereUIBlizzardSkin
     local S = skin and skin.WSkin
-    if S and S.Button then
+    if not (ns.SkinOn and ns.SkinOn()) then  -- the template's rounded art
+    elseif S and S.Button then
         S.Button(btn)
     else
         local bg = btn:CreateTexture(nil, "BACKGROUND")
@@ -392,7 +393,13 @@ local function MakeLine(b, k)
     l.memberIdx = k
     l.hl = l:CreateTexture(nil, "HIGHLIGHT")
     l.hl:SetPoint("TOPLEFT", l, "TOPLEFT", 0, 0)
-    l.hl:SetColorTexture(1, 1, 1, 0.06)
+    if ns.SkinOn and not ns.SkinOn() then
+        -- blizzard's blue bar
+        l.hl:SetAtlas("groupfinder-highlightbar-blue")
+        l.hl:SetBlendMode("ADD")
+    else
+        l.hl:SetColorTexture(1, 1, 1, 0.06)
+    end
     l.leaver = l:CreateTexture(nil, "ARTWORK")
     l.leaver:SetAtlas("groupfinder-icon-leaver")
     l.leaver:SetSize(12, 12)
@@ -485,7 +492,7 @@ local function MakeBlock(i, parent, store)
     local b = CreateFrame("Frame", nil, parent or body)
     b.bg = b:CreateTexture(nil, "BACKGROUND")
     b.bg:SetAllPoints()
-    b.bg:SetColorTexture(1, 1, 1, 0.03)
+    b.bg:SetColorTexture(1, 1, 1, (ns.SkinOn and not ns.SkinOn()) and 0.04 or 0.03)
     -- status underline
     b.under = b:CreateTexture(nil, "ARTWORK", nil, 7)
     b.under:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 0, 0)
@@ -897,11 +904,19 @@ local function LayoutFrame()
     if key == layoutKey then return end
     layoutKey = key
     frame:ClearAllPoints()
-    frame:SetPoint("TOPLEFT", AV.ScrollBox, "TOPLEFT", pad, 0)
-    frame:SetPoint("BOTTOMRIGHT", AV.ScrollBox, "BOTTOMRIGHT", BOX_RIGHT - pad / 2 + barW / 2, bottomY)
     body:ClearAllPoints()
     body:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-    body:SetPoint("BOTTOMRIGHT", AV.ScrollBox, "BOTTOMRIGHT", BOX_RIGHT - pad, bottomY)
+    if ns.SkinOn and not ns.SkinOn() and AV.Inset then
+        -- blizzard's inset shows: the rows sit inside it, the scroll thumb in its right edge
+        frame:SetPoint("TOP", AV.ScrollBox, "TOP", 0, 0)
+        frame:SetPoint("LEFT", AV.Inset, "LEFT", ns.STOCK_ROWS_L, 0)
+        frame:SetPoint("BOTTOMRIGHT", AV.Inset, "BOTTOMRIGHT", -(ns.STOCK_ROWS_R - ns.STOCK_BAR), ns.STOCK_ROWS_L)
+        body:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -ns.STOCK_BAR, 0)
+    else
+        frame:SetPoint("TOPLEFT", AV.ScrollBox, "TOPLEFT", pad, 0)
+        frame:SetPoint("BOTTOMRIGHT", AV.ScrollBox, "BOTTOMRIGHT", BOX_RIGHT - pad / 2 + barW / 2, bottomY)
+        body:SetPoint("BOTTOMRIGHT", AV.ScrollBox, "BOTTOMRIGHT", BOX_RIGHT - pad, bottomY)
+    end
     head:ClearAllPoints()
     head:SetPoint("BOTTOMLEFT", body, "TOPLEFT", 0, 3)
     head:SetPoint("BOTTOMRIGHT", body, "TOPRIGHT", -btnRoom, 3)
@@ -1019,7 +1034,18 @@ end
 local function Paint()
     if not active then return end
     empowered = LFGListUtil_IsEntryEmpowered() and true or false
+    -- not the leader: a dim note under the dungeon, level with the role icons; the rows stay usable (right click)
     cover:SetShown(not empowered)
+    if not empowered then
+        local title, roles = AV.EntryName, AV.DataDisplay
+        local tl, rl = title and title:GetLeft(), roles and roles:GetLeft()
+        cover:ClearAllPoints()
+        if tl and rl then
+            cover:SetPoint("LEFT", roles, "LEFT", tl - rl, 0)
+        elseif title then
+            cover:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -24)
+        end
+    end
     rowH = tonumber(ns.OwnListGet("applicantRowHeight")) or 36
     btnSize = math.max(18, math.min(rowH - 8, 24))
     btnRoom = btnSize * 2 + GAP + 8
@@ -1113,19 +1139,9 @@ local function Build()
     thumb = frame:CreateTexture(nil, "OVERLAY")
     thumb:SetWidth(3)
     thumb:SetColorTexture(1, 1, 1, 0.3)
-    -- blizzard's cover would sit under our rows, so ours goes on top of them
-    cover = CreateFrame("Frame", nil, frame)
-    cover:SetAllPoints(body)
-    cover:SetFrameLevel(frame:GetFrameLevel() + 20)
-    cover:EnableMouse(true)
-    cover:EnableMouseWheel(true)
-    cover:SetScript("OnMouseWheel", Wheel)
-    local tint = cover:CreateTexture(nil, "BACKGROUND")
-    tint:SetAllPoints()
-    tint:SetColorTexture(0.035, 0.071, 0.118, 0.5)
-    local forming = cover:CreateFontString(nil, "ARTWORK", "GameFontNormalMed2")
-    forming:SetPoint("CENTER", cover, "CENTER", 0, 20)
-    forming:SetText(LFG_LIST_GROUP_FORMING or "Your group is currently forming.")
+    -- blizzard's cover stays faded; ours is only a note under the dungeon (on frame, so it hides with our list)
+    cover = frame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    cover:SetText(EllesmereUI.L("Your group is forming"))
     cover:Hide()
     -- our column titles over blizzard's
     head = CreateFrame("Frame", nil, AV)

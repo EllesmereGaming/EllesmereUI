@@ -263,15 +263,25 @@ function ns.UF_ForeverKit()
         bar.mx, bar.my = -l * kx, t * ky
         bar.mw, bar.mh = mw * kx, mh * ky
     end
-    Fit(P.health, 88, 45.5, 123, 15, 4, 123, 9, 21, 128, 32)
-    Fit(P.power, 88, 61.5, 123, 10, 4, 123, 4, 11, 128, 16)
+    -- Half a pixel short: the full 123 laid the fill's bright end over the
+    -- rim, 122 left a gap before it.
+    Fit(P.health, 88, 45.5, 122.5, 15, 4, 123, 9, 21, 128, 32)
+    -- The Forever mana mask's opening ends a column later than the health
+    -- one's: fitted at 123 its rounded right end fell past the bar, which
+    -- then ended square over the rim.
+    Fit(P.power, 88, 61.5, 123, 10, 4, 124, 4, 11, 128, 16)
     P.name = { point = "CENTER", x = 33, y = 13, w = 116, justify = "CENTER" }
     P.badge = { point = "BOTTOMLEFT", x = 13, y = 7, size = 39, atlas = circle }
     P.level = { point = "CENTER", x = 0, y = -0.5, justify = "CENTER", skullDy = 0.5 }
     P.pvp = { point = "TOP", relPoint = "TOPLEFT", x = 22, y = -65, scale = 0.8 }
     P.vis.b, P.pad.bottom = 7, 7
-    Fit(T.health, 22, 44, 123, 15, 4, 123, 10, 22, 128, 32)
-    Fit(T.power, 22, 60, 123, 10, 68, 187, 4, 11, 256, 16)
+    -- The target bars draw over the art, so a bar a pixel past its track
+    -- shows over the rim: both span 23..145, the inside of the Forever rim
+    -- (22..145 overran its left edge). The mana mask's opening has no
+    -- rounded end on the left, so that corner stays square; fitting the
+    -- mask past it only shortens the bar.
+    Fit(T.health, 23, 44, 122, 15, 4, 123, 10, 22, 128, 32)
+    Fit(T.power, 23, 60, 122, 10, 68, 187, 4, 11, 256, 16)
     -- Both Forever target bars end alike: Hide Power Bar's stretched health
     -- mask fits, not the retail art's joined one.
     T.mergedHealth = nil
@@ -1589,6 +1599,25 @@ function ns.UF_SetBlizzCastFill(cb, kind)
     cb._blizzFillKind = kind
     cb:GetStatusBarTexture():SetAtlas(atlas)
 end
+-- Blizzard Style cast frame art reach past the bar (left, right, top), the
+-- spell name's nudge in the text box and the timer's on the bar; the live
+-- bars and the options preview both seat from here. `iconSide` is the side
+-- an icon sits flush against the bar ("left" | "right" | nil). The WoW
+-- Forever art's thicker rim drawn 2px out covers the bar's top edge and the
+-- icon's border, so it sits flush there; its text box, under that rim too,
+-- needs the name 2px lower to centre it, and the timer on the bar drops 1px
+-- to centre on the fill the rim leaves.
+function ns.UF_CastChromeGeom(iconSide)
+    if not ns.UF_Forever() then return 2, 2, 2, 0, 0 end
+    return iconSide == "left" and 0 or 2, iconSide == "right" and 0 or 2, 0, -2, -1
+end
+-- The side a live cast bar's icon sits flush against it, for UF_CastChromeGeom
+-- (nil while the icon is off or offset away from the bar).
+function ns.UF_CastIconFlushSide(cb)
+    if not (cb and cb._icoShown) then return nil end
+    if (cb._icoOffX or 0) ~= 0 or (cb._icoOffY or 0) ~= 0 then return nil end
+    return cb._icoOnRight and "right" or "left"
+end
 -- Spell name into the text box under the bar (honouring its side + offsets).
 function ns.UF_BlizzCastText(cb)
     local box = cb and cb._blizzTextBox
@@ -1603,7 +1632,8 @@ function ns.UF_BlizzCastText(cb)
     w = w or 0
     cb.Text:ClearAllPoints()
     local side = cb._nameSide or "left"
-    local ox, oy = cb._nameOX or 0, cb._nameOY or 0
+    local _, _, _, nameY = ns.UF_CastChromeGeom()
+    local ox, oy = cb._nameOX or 0, (cb._nameOY or 0) + nameY
     if side == "right" then
         cb.Text:SetJustifyH("RIGHT")
         cb.Text:SetPoint("RIGHT", box, "RIGHT", -8 + ox, oy)
@@ -1754,10 +1784,11 @@ function ns.UF_ApplyBlizzCastbar(cb)
     if cb._blizzArtFr and cb._blizzArtFr:GetFrameLevel() ~= artLvl then cb._blizzArtFr:SetFrameLevel(artLvl) end
     local frAtlas = ns.UF_BlizzAtlas(ns.UF_CAST_BLIZZ.frame)
     if frAtlas then
+        local reachL, reachR, reachT = ns.UF_CastChromeGeom(ns.UF_CastIconFlushSide(cb))
         ns.UF_StockAtlas(cb._blizzFrame, frAtlas)
         cb._blizzFrame:ClearAllPoints()
-        cb._blizzFrame:SetPoint("TOPLEFT", cb, "TOPLEFT", -2, 2)
-        cb._blizzFrame:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", 2, -2)
+        cb._blizzFrame:SetPoint("TOPLEFT", cb, "TOPLEFT", -reachL, reachT)
+        cb._blizzFrame:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", reachR, -2)
         cb._blizzFrame:Show()
     else
         cb._blizzFrame:Hide()

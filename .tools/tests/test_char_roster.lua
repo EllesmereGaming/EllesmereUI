@@ -164,6 +164,17 @@ do
         and db.groupFinderApps.dungeon.chars == nil, "old stores dropped, their other keys kept")
     spec.body({ db = db })
     check(c["Player-1"].lastSpec == 1 and c["Moo-Normal"].lastSpec == 1485, "a second run changes nothing")
+
+    -- WoW Forever: the Mail card's surname joins the name; the ruleset is the mail key
+    env.EllesmereUI.IS_FOREVER = true
+    local fv = {
+        mailAltRoster = { ["Player-7"] = { name = "Ann", surname = "Vale", realm = "PvP", realmKey = "PvP" } },
+        timePlayedChars = { ["Player-8"] = { total = 1, name = "Cy Dorn", realm = "Normal" } },
+    }
+    spec.body({ db = fv })
+    check(fv.chars["Player-7"].name == "Ann Vale" and fv.chars["Player-7"].surname == nil, "Forever name with surname")
+    check(fv.chars["Player-8"].realmKey == "Normal", "Forever realmKey is the ruleset")
+    env.EllesmereUI.IS_FOREVER = nil
 end
 
 if fails > 0 then

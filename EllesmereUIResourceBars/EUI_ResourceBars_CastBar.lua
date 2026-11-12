@@ -493,8 +493,12 @@ end
             spark:SetSize(ss, ss)
             sparkY = C.sparkY * h / C.barH
         else
-            spark:SetSize(8, h)
+            local _, _, _, _, _, sparkExtraH, sparkNudge, sparkW = ns.ERB_CastChromeGeom(cb)
+            spark:SetSize(sparkW, h + sparkExtraH)
+            sparkY = sparkNudge
         end
+        -- The per-tick re-anchor (UpdateCastBar) keeps this offset.
+        castBarFrame._sparkY = sparkY
         spark:ClearAllPoints()
 
         if cb.gradientEnabled and castBarFrame._gradClip then
@@ -531,6 +535,24 @@ end
                 end
             end
         end
+        -- WoW Forever: the stock fill art has shaped ends, the zone is a
+        -- plain rectangle; masked to the fill's shape so its corners never
+        -- show past the fill (a channel's front zone left a red corner pixel
+        -- at the frame art's rounded corner). Once: the style is latched.
+        if blizzKit and ns.ERB_CastForever() then
+            local m = castBarFrame._latencyMask
+            if not m then
+                local fillAtlas = ns.ERB_BlizzAtlas("cast")
+                if fillAtlas then
+                    m = bar:CreateMaskTexture()
+                    m:SetAtlas(fillAtlas)
+                    m:SetAllPoints(bar)
+                    castBarFrame._latencyMask = m
+                end
+            end
+            ns.ERB_MaskTex(castBarFrame._latencyOverlay, m)
+            ns.ERB_MaskTex(castBarFrame._latencyOverlayFront, m)
+        end
     else
         if castBarFrame._latencyOverlay then castBarFrame._latencyOverlay:Hide() end
         if castBarFrame._latencyOverlayFront then castBarFrame._latencyOverlayFront:Hide() end
@@ -556,7 +578,8 @@ end
         local pt, xb, jh = ns.GetCastTextAnchor(durSide, false, timerW)
         timerText:ClearAllPoints()
         timerText:SetJustifyH(jh)
-        timerText:SetPoint(pt, bar, pt, xb + (cb.timerX or 0), cb.timerY or 0)
+        local _, _, _, _, timerNudge = ns.ERB_CastChromeGeom(cb)
+        timerText:SetPoint(pt, bar, pt, xb + (cb.timerX or 0), (cb.timerY or 0) + timerNudge)
         timerText:Show()
         ns.ERB_CastTextColor(timerText, cb.timerR, cb.timerG, cb.timerB, cb.timerA)
     else
@@ -1214,7 +1237,7 @@ SetUpdateCastBar(function(dt)
         if castBarFrame._sparkAnchor ~= target then
             castBarFrame._sparkAnchor = target
             castBarFrame._spark:ClearAllPoints()
-            castBarFrame._spark:SetPoint("CENTER", target, "RIGHT", 0, 0)
+            castBarFrame._spark:SetPoint("CENTER", target, "RIGHT", 0, castBarFrame._sparkY or 0)
         end
     end
 end)

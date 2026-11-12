@@ -4048,12 +4048,13 @@ initFrame:SetScript("OnEvent", function(self)
             tb:Hide()
             return
         end
+        local reachL, reachR, reachT, textY = ns.ERB_CastChromeGeom(cb)
         local frameAtlas = ns.ERB_BlizzAtlas("frame")
         if frameAtlas then
             ns.ERB_StockAtlas(fr, frameAtlas)
             fr:ClearAllPoints()
-            fr:SetPoint("TOPLEFT", pf.barFrame, "TOPLEFT", -2, 2)
-            fr:SetPoint("BOTTOMRIGHT", pf.barFrame, "BOTTOMRIGHT", 2, -2)
+            fr:SetPoint("TOPLEFT", pf.barFrame, "TOPLEFT", -reachL, reachT)
+            fr:SetPoint("BOTTOMRIGHT", pf.barFrame, "BOTTOMRIGHT", reachR, -2)
             fr:Show()
         else
             fr:Hide()
@@ -4067,7 +4068,7 @@ initFrame:SetScript("OnEvent", function(self)
             tb:Show()
             local nameText = pf.spellText
             local side = cb.spellTextSide or "left"
-            local x, y = cb.spellTextX or 0, cb.spellTextY or 0
+            local x, y = cb.spellTextX or 0, (cb.spellTextY or 0) + textY
             nameText:ClearAllPoints()
             if side == "right" then
                 nameText:SetJustifyH("RIGHT")
@@ -4274,7 +4275,9 @@ initFrame:SetScript("OnEvent", function(self)
                 pf.spark:SetSize(ss, ss)
                 sparkY = C.sparkY * h / C.barH
             else
-                pf.spark:SetSize(8, h)
+                local _, _, _, _, _, sparkExtraH, sparkNudge, sparkW = ns.ERB_CastChromeGeom(cb)
+                pf.spark:SetSize(sparkW, h + sparkExtraH)
+                sparkY = sparkNudge
             end
             pf.spark:ClearAllPoints()
             pf.spark:SetPoint("CENTER", fillTex, "RIGHT", 0, sparkY)
@@ -4352,7 +4355,8 @@ initFrame:SetScript("OnEvent", function(self)
             local pt, xb, jh = ns.GetCastTextAnchor(cbDurSide, false, cbTimerW)
             pf.timerText:ClearAllPoints()
             pf.timerText:SetJustifyH(jh)
-            pf.timerText:SetPoint(pt, pf.bar, pt, xb + (cb.timerX or 0), cb.timerY or 0)
+            local _, _, _, _, timerNudge = ns.ERB_CastChromeGeom(cb)
+            pf.timerText:SetPoint(pt, pf.bar, pt, xb + (cb.timerX or 0), (cb.timerY or 0) + timerNudge)
             -- Preview total cast time is 3.0s; mirror the live "elapsed / total" mode.
             if cb.showTotalDuration then
                 pf.timerText:SetText(string.format("%.1f / %.1f", 3.0 * _castBarPreviewFill, 3.0))
@@ -4506,8 +4510,13 @@ initFrame:SetScript("OnEvent", function(self)
         end
         _castBarPreviewFrames.bar = bar
 
-        -- Spark
-        local spark = bar:CreateTexture(nil, "OVERLAY", nil, 1)
+        -- Spark, in a host clipped to the bar as the live spark sits in its
+        -- clip frame: a spark taller than the bar shows only its middle.
+        local sparkHost = CreateFrame("Frame", nil, barFrame)
+        sparkHost:SetAllPoints(bar)
+        sparkHost:SetClipsChildren(true)
+        sparkHost:SetFrameLevel(bar:GetFrameLevel() + 2)
+        local spark = sparkHost:CreateTexture(nil, "OVERLAY", nil, 1)
         spark:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\cast_spark.tga")
         spark:SetBlendMode("ADD")
         spark:SetSize(8, h)

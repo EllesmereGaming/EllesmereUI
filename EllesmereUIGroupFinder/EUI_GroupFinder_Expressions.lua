@@ -530,7 +530,7 @@ local function Paint(K)
     if not btn then return end
     local f, err = Current()
     if f then btn.Glyph:SetVertexColor(K.Accent()) else btn.Glyph:SetVertexColor(K.GLYPH, K.GLYPH, K.GLYPH) end
-    btn.activeEdge:SetShown(f ~= nil)
+    if GFNS.ActiveLook then GFNS.ActiveLook(btn, f ~= nil) else btn.activeEdge:SetShown(f ~= nil) end
     if shown and box then shown:SetText(Colorize(box:GetText())) end
     if not status then return end
     local text = box and box:GetText() or ""
@@ -565,7 +565,7 @@ local function Build(SP, K)
     bg:SetAllPoints()
     local fr, fg, fb = K.ThemeFill()
     bg:SetColorTexture(fr, fg, fb, 0.98)
-    CM.MakeBorder(panel, K.ThemeBorder())
+    if not (GFNS.StockBox and GFNS.StockBox(panel, bg)) then CM.MakeBorder(panel, K.ThemeBorder()) end
 
     local title = panel:CreateFontString(nil, "OVERLAY")
     K.Font(title, 9)
@@ -574,7 +574,7 @@ local function Build(SP, K)
     title:SetText(EllesmereUI.L("Expressions"))
 
     -- clear button, skinned
-    local clear = CreateFrame("Button", nil, panel)
+    local clear = GFNS.NewButton and GFNS.NewButton(panel) or CreateFrame("Button", nil, panel)
     clear:SetSize(46, 16)
     clear:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, -4)
     clear:SetNormalFontObject("GameFontHighlight")
@@ -587,7 +587,8 @@ local function Build(SP, K)
     ct:SetTextColor(CM.TEXT_DIM_R, CM.TEXT_DIM_G, CM.TEXT_DIM_B, CM.TEXT_DIM_A)
     local skin = CM._ModuleNS and CM._ModuleNS.EllesmereUIBlizzardSkin
     local S = skin and skin.WSkin
-    if S and S.Button then
+    if not (GFNS.SkinOn and GFNS.SkinOn()) then  -- the template's rounded art
+    elseif S and S.Button then
         S.Button(clear, { "Label" })
     else
         local cbg = clear:CreateTexture(nil, "BACKGROUND")
