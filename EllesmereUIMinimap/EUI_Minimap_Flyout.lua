@@ -203,6 +203,19 @@ function EBS._MouseOverFlyoutChild(panel)
     return false
 end
 
+-- A dropdown menu is open: a grouped button's own menu sits outside the panel, and hiding
+-- the panel on a press there would close the menu with its owner before the choice runs.
+local OLD_DROPDOWNS = { "DropDownList1", "L_DropDownList1" }
+function EBS._AnyDropdownOpen()
+    local mgr = Menu and Menu.GetManager and Menu.GetManager()
+    if mgr and mgr.IsAnyMenuOpen and mgr:IsAnyMenuOpen() then return true end
+    for i = 1, #OLD_DROPDOWNS do
+        local list = _G[OLD_DROPDOWNS[i]]
+        if list and list.IsShown and list:IsShown() then return true end
+    end
+    return false
+end
+
 local function LayoutFlyoutButtons()
     if not flyoutPanel then return end
     local buttons = CollectFlyoutButtons()
@@ -399,7 +412,8 @@ local function EnsureFlyoutPanel()
                 if IsMouseButtonDown("LeftButton")
                    and not m:IsMouseOver()
                    and not (flyoutToggle and flyoutToggle:IsMouseOver())
-                   and not EBS._MouseOverFlyoutChild(m) then
+                   and not EBS._MouseOverFlyoutChild(m)
+                   and not EBS._AnyDropdownOpen() then
                     m:Hide()
                 end
             end)
