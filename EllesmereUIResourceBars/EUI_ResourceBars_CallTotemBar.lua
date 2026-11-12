@@ -367,10 +367,32 @@ local function OnFlyoutArrow(arrow, _, parent)
     if not (side or arrowMoved) then return end
     arrowMoved = side
     arrow:ClearAllPoints()
-    if side then
+    if side and c.flyoutDirection == "LEFT" then
+        arrow:SetPoint("RIGHT", parent, "LEFT", 0, 0)
+    elseif side then
         arrow:SetPoint("LEFT", parent, "RIGHT", 0, 0)
     else
         arrow:SetPoint("BOTTOM", parent, "TOP", 0, 0)
+    end
+end
+
+-- Blizzard opens the flyout above its slot, over the buttons above it in a
+-- column; a vertical bar opens it beside the slot (Flyout Direction) instead.
+local FLYOUT = _G.MultiCastFlyoutFrame
+local flyoutMoved = false
+local function OnFlyoutToggle(flyout, _, parent)
+    if not (flyout and parent) or flyout.parent ~= parent or not flyout:IsShown() then return end
+    local c = owned and P()
+    local side = (c and c.orientation == "VERTICAL") or false
+    if not (side or flyoutMoved) then return end
+    flyoutMoved = side
+    flyout:ClearAllPoints()
+    if not side then
+        flyout:SetPoint("BOTTOM", parent, "TOP", 0, 0)
+    elseif c.flyoutDirection == "LEFT" then
+        flyout:SetPoint("BOTTOMRIGHT", parent, "BOTTOMLEFT", -2, 0)
+    else
+        flyout:SetPoint("BOTTOMLEFT", parent, "BOTTOMRIGHT", 2, 0)
     end
 end
 
@@ -391,6 +413,9 @@ local function Hook()
     hooksecurefunc("MultiCastActionBarFrame_Update", OnBarUpdate)
     if _G.MultiCastFlyoutFrameOpenButton_Show then
         hooksecurefunc("MultiCastFlyoutFrameOpenButton_Show", OnFlyoutArrow)
+    end
+    if FLYOUT and _G.MultiCastFlyoutFrame_ToggleFlyout then
+        hooksecurefunc("MultiCastFlyoutFrame_ToggleFlyout", OnFlyoutToggle)
     end
 end
 
