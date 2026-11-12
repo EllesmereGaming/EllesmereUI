@@ -149,7 +149,7 @@ local function ShowGoldTooltip(anchor)
     local ledger = GoldLedger.Data()
     local totalGold = 0
     local charList = {}
-    for charID, data in pairs(ledger.chars) do
+    for charID, data in pairs(GoldLedger.Chars()) do
         charList[#charList + 1] = { id = charID, data = data }
         totalGold = totalGold + data.money
     end

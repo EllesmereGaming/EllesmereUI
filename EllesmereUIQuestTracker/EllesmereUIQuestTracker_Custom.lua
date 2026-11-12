@@ -80,11 +80,8 @@ local TITLE_MIN_W = 40         -- the narrowest a quest title gets, whatever the
 local charDB
 local function CharDB()
     if charDB then return charDB end
-    local all = EllesmereUIDB.questTrackerChars
-    if type(all) ~= "table" then all = {}; EllesmereUIDB.questTrackerChars = all end
-    local guid = UnitGUID("player")
-    local sv = all[guid]
-    if type(sv) ~= "table" then sv = {}; all[guid] = sv end
+    local sv = EllesmereUI.CharData("questTracker", true)
+    if not sv then return {} end -- GUID unread: a throwaway, not cached
     if type(sv.ctUntracked) ~= "table" then sv.ctUntracked = {} end
     if type(sv.ctCollapsed) ~= "table" then sv.ctCollapsed = {} end
     if type(sv.ctDoneOpen) ~= "table" then sv.ctDoneOpen = {} end

@@ -109,8 +109,8 @@ EllesmereUI = {
         beneficiaries = { MAGE = true, PRIEST = true } } },
     AuraKit = { AurasRestricted = function() return TEST.restricted end },
     L = function(s) return s end,
-    CharKey = function(sep) return "Tester" .. sep .. "Realm" end,
 }
+dofile(".tools/tests/char_roster_stub.lua")(EllesmereUI, { guid = "Player-1" })
 
 -------------------------------------------------------------------------------
 --  The internals the two files read (the main file and the earlier parts build
@@ -392,8 +392,8 @@ local function ClassEntries(class, cfo)
     return entries
 end
 local function Recorded(key)
-    local s = EllesmereUIDB.classBuffByChar
-    return s and s["Tester-Realm"] and s["Tester-Realm"][key]
+    local s = EllesmereUIDB.chars and EllesmereUIDB.chars["Player-1"]
+    return s and s.classBuff and s.classBuff[key]
 end
 local bookBefore = #BOOK
 for _, id in ipairs({ 19740, 19834, 19742, 19850, 465, 10290 }) do BOOK[#BOOK + 1] = id end
@@ -488,7 +488,7 @@ assert(#cb == 1 and cb[1].spellID == 6117 and cb[1].dismissKey == "forever:magea
 TEST.up[7302] = true
 cb = {}
 EABR.CollectMageArmor(cb, false, {})
-assert(#cb == 0 and EllesmereUIDB.mageArmorByChar["Tester-Realm"] == 2, "Ice Armor up was not recorded")
+assert(#cb == 0 and EllesmereUIDB.chars["Player-1"].mageArmor == 2, "Ice Armor up was not recorded")
 TEST.up[7302] = nil
 cb = {}
 EABR.CollectMageArmor(cb, false, {})

@@ -120,11 +120,8 @@ local charDB
 local function CharDB()
     if charDB then return charDB end
     if not EllesmereUIDB then EllesmereUIDB = {} end
-    local all = EllesmereUIDB.questWatchChars
-    if type(all) ~= "table" then all = {}; EllesmereUIDB.questWatchChars = all end
-    local guid = UnitGUID("player")
-    local sv = all[guid]
-    if type(sv) ~= "table" then sv = {}; all[guid] = sv end
+    local sv = EllesmereUI.CharData("questWatch", true)
+    if not sv then return {} end -- GUID unread: a throwaway, not cached
     for _, k in ipairs(CHAR_SETS) do
         if type(sv[k]) ~= "table" then sv[k] = {} end
     end
@@ -134,9 +131,8 @@ end
 
 -- Leftovers from a feature that was turned off still need undoing. Reads only.
 local function HasLeftovers()
-    local all = EllesmereUIDB and EllesmereUIDB.questWatchChars
-    local sv = type(all) == "table" and all[UnitGUID("player")]
-    if type(sv) ~= "table" then return false end
+    local sv = EllesmereUI.CharData("questWatch")
+    if not sv then return false end
     for _, k in ipairs(CHAR_SETS) do
         if type(sv[k]) == "table" and next(sv[k]) ~= nil then return true end
     end

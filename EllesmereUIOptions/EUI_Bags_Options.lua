@@ -1329,7 +1329,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Wipe per-character data from root DB
             if EllesmereUIDB then
                 EllesmereUIDB.bagPinnedItems = nil
-                EllesmereUIDB.bagPinnedByChar = nil
+                EllesmereUI.ClearCharField("bagPinned")
                 EllesmereUIDB.bagPinsPerCharacter = nil
                 EllesmereUIDB.bagItemAssignments = nil
                 EllesmereUIDB.bagJunkPrev = nil
@@ -1337,7 +1337,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.characterGold = nil
                 EllesmereUIDB.dataBarsGold = nil
                 EllesmereUIDB.warbandGold = nil
-                EllesmereUIDB.bagCurrencyByChar = nil
+                EllesmereUI.ClearCharField("bagCurrency")
                 -- offline bank: its switches and every saved inventory
                 EllesmereUIDB.bagOfflineBank = nil
                 EllesmereUIDB.bagTooltipCounts = nil
