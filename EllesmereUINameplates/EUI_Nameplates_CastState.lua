@@ -358,7 +358,8 @@ local function SetupAuraCVars()
         EllesmereUI.SetCVar("nameplateMaxAlphaDistance", 40, "EllesmereUINameplates")
         EllesmereUI.SetCVar("nameplateMinAlpha", 0.6, "EllesmereUINameplates")
         EllesmereUI.SetCVar("nameplateMinAlphaDistance", -100000, "EllesmereUINameplates")
-        EllesmereUI.SetCVar("nameplateMaxDistance", 60, "EllesmereUINameplates")
+        -- Forever caps this cvar at 45; a higher value shortens its plate range
+        EllesmereUI.SetCVar("nameplateMaxDistance", EllesmereUI.IS_FOREVER and 45 or 60, "EllesmereUINameplates")
         EllesmereUI.SetCVar("nameplateMaxScale", 1, "EllesmereUINameplates")
         -- Neutralize Blizzard's selected-target scaling: the EUI plate is a child of the base
         -- nameplate, so Blizzard's scaling shows through our own SetScale (min/max pinned to 1
