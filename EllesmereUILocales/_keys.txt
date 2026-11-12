@@ -1154,7 +1154,7 @@ Only your own counts.
 Opacity
 Open Bank Slots
 Open Great Vault
-Open Quest Log
+Open Quest Details
 Open Run Summary
 Open Settings
 Open Slots

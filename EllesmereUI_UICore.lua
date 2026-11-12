@@ -774,11 +774,6 @@ local function CtxPanelHidden(self)
     end
     if self._sub then self._sub:Hide() end
     if _ctxOpen == self then _ctxOpen = nil end
-    local onHide = not self:IsShown() and self._onHide
-    if onHide then
-        self._onHide = nil
-        onHide()
-    end
     if self._tip then
         self._tip = nil
         EllesmereUI.HideWidgetTooltip()
@@ -1152,10 +1147,6 @@ local function ShowContextMenu(anchor, items, opts)
     end
     if _ctxOpen and _ctxOpen ~= panel then _ctxOpen:Hide() end
     if panel._sub then panel._sub:Hide() end
-    -- opts.onHide runs once, when this menu closes or another replaces it.
-    local onHide = panel._onHide
-    panel._onHide = opts and opts.onHide
-    if onHide then onHide() end
     panel._owner = anchor
     panel._fontKey = opts and opts.fontKey
     panel._pickOnDown = opts and opts.pickOnDown
@@ -1207,12 +1198,6 @@ end
 
 function EllesmereUI.CloseContextMenu()
     if _ctxOpen then _ctxOpen:Hide() end
-end
-
--- Row i (an index into the items it was given) of the open menu, if shown.
-function EllesmereUI.ContextMenuRow(i)
-    local row = _ctxOpen and _ctxOpen._items[i]
-    return row and row:IsShown() and row or nil
 end
 
 -------------------------------------------------------------------------------
