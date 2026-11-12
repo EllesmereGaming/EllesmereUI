@@ -1687,6 +1687,8 @@ ReloadFramesBody = function()
                 elseif frame.Power.bg then
                     frame.Power.bg:SetColorTexture(17/255, 17/255, 17/255, 1)
                 end
+                -- The repaint above clears any gray; let the ForceUpdate below redo it.
+                frame.Power._grayedOut = false
                 frame.Power:SetReverseFill(settings.powerReverseFill and true or false)
                 -- Reverse-fill direction is only final here; re-derive Fill Opacity state
                 -- (ApplyPowerBarAlpha above ran before this SetReverseFill, so a direction
