@@ -50,11 +50,9 @@ local CUSTOM_FILL_DEFAULT = { 1, 1, 1 }
 -- settings. Everything else of its look is the Player Cast Bar's (its size
 -- too, until Own Size). A fresh table per call. OFF by default: nothing is
 -- built, registered or hidden until a bar is turned on.
-local function MirrorTimerDefaults(anchorY, r, g, b)
+local function MirrorTimerDefaults(r, g, b)
     return {
         enabled       = false,
-        anchorX       = 0,
-        anchorY       = anchorY,
         fillR = r, fillG = g, fillB = b, fillA = 1,
         ownSize       = false,   -- its own Width and Height instead of the cast bar's
         width         = 220,
@@ -63,7 +61,6 @@ local function MirrorTimerDefaults(anchorY, r, g, b)
         lowWarnAt     = 30,      -- percent of the bar left where the warning starts
         hideBlizzard  = true,    -- Blizzard's bar for this timer goes invisible while this one is on
         showUnderNumbers = false, -- countdowns: kept on under the game's golden numbers
-        unlockPos     = nil,
     }
 end
 
@@ -489,12 +486,14 @@ local DEFAULTS = {
         },
         -- Mirror Timers: the timer bars (Breath, Fatigue, Feign Death and the
         -- countdowns), set in the OTHER BARS section of the Cast Bars page.
+        -- unlockPos: their stack's one Unlock Mode position.
         mirrorTimer = {
-            breath  = MirrorTimerDefaults(300, 0, 0.5, 1),
-            fatigue = MirrorTimerDefaults(270, 1, 0.9, 0),
-            feign   = MirrorTimerDefaults(240, 1, 0.7, 0),
-            pvp     = MirrorTimerDefaults(210, 0.8, 0.1, 0.1),
-            countdown = MirrorTimerDefaults(180, 1, 0.8, 0.2),
+            breath  = MirrorTimerDefaults(0, 0.5, 1),
+            fatigue = MirrorTimerDefaults(1, 0.9, 0),
+            feign   = MirrorTimerDefaults(1, 0.7, 0),
+            pvp     = MirrorTimerDefaults(0.8, 0.1, 0.1),
+            countdown = MirrorTimerDefaults(1, 0.8, 0.2),
+            unlockPos = nil,
         },
         -- Sunfury Arcane Mage Arcane Soul callout (EUI_ResourceBars_ArcaneSoul.lua).
         -- Flat colour keys per module convention; OFF by default, and nothing at

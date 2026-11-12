@@ -630,12 +630,8 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["ERB_Power"]         = { module = "EllesmereUIResourceBars",       page = "Class, Power and Health Bars", sectionName = "POWER BAR",            highlightText = "Bar Height" },
     ["ERB_ClassResource"] = { module = "EllesmereUIResourceBars",       page = "Class, Power and Health Bars", sectionName = "CLASS RESOURCE BAR",   highlightText = "Bar Height" },
     ["ERB_CastBar"]       = { module = "EllesmereUIResourceBars",       page = "Cast Bars",                    sectionName = "BAR DISPLAY",          highlightText = "Bar Height" },
-    -- Mirror Timers: their rows in the OTHER BARS section of the Cast Bars page.
-    ["ERB_MirrorBreath"]  = { module = "EllesmereUIResourceBars",       page = "Cast Bars",                    sectionName = "OTHER BARS",           highlightText = "Breath" },
-    ["ERB_MirrorFatigue"] = { module = "EllesmereUIResourceBars",       page = "Cast Bars",                    sectionName = "OTHER BARS",           highlightText = "Fatigue" },
-    ["ERB_MirrorFeign"]   = { module = "EllesmereUIResourceBars",       page = "Cast Bars",                    sectionName = "OTHER BARS",           highlightText = "Feign Death" },
-    ["ERB_MirrorPvP"]     = { module = "EllesmereUIResourceBars",       page = "Cast Bars",                    sectionName = "OTHER BARS",           highlightText = "Battle Start" },
-    ["ERB_MirrorCountdown"] = { module = "EllesmereUIResourceBars",     page = "Cast Bars",                    sectionName = "OTHER BARS",           highlightText = "Group Countdown" },
+    -- Mirror Timers: their stack's one mover, the OTHER BARS section of the Cast Bars page.
+    ["ERB_MirrorBars"]    = { module = "EllesmereUIResourceBars",       page = "Cast Bars",                    sectionName = "OTHER BARS" },
 
     -- Action Bars (all share "Bar Display" page; dropdown pre-selected to correct bar)
     ["MainBar"]   = { module = "EllesmereUIActionBars",          page = "Bar Display",                  sectionName = "LAYOUT",  preSelectFn = SelectActionBar("MainBar"),   highlightText = "Icon Size" },

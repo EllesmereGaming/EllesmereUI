@@ -10,11 +10,14 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- surfaces. This file reads the same call at 20 Hz, only while an unpaused
 -- timer is up; nothing at all runs the rest of the time.
 --
--- One bar per timer, each with its own position and Unlock Mode mover:
--- Breath (BREATH), Fatigue (EXHAUSTION), Feign Death (FEIGNDEATH, and DEATH,
--- which Blizzard paints the same way), Battle Start and Group Countdown (the
--- game's countdowns, see KINDS). They are set in the OTHER BARS section of
--- the Cast Bars page.
+-- One bar per timer: Breath (BREATH), Fatigue (EXHAUSTION), Feign Death
+-- (FEIGNDEATH, and DEATH, which Blizzard paints the same way), Battle Start
+-- and Group Countdown (the game's countdowns, see KINDS). They are set in the
+-- OTHER BARS section of the Cast Bars page.
+--
+-- One Unlock Mode mover (Other Bars) places them all: the bars up at once
+-- stack under it, one under the other in KINDS order, and close up as one
+-- ends. In Unlock Mode every bar turned on shows a sample in the stack.
 --
 -- The look is the Player Cast Bar's (View): size, border, texture,
 -- background, spark, corners, its Spell Text as the timer's name and its
@@ -38,14 +41,14 @@ local EllesmereUI = _G.EllesmereUI
 if not (GetMirrorTimerProgress and GetMirrorTimerInfo) then return end
 
 -- id: the settings table under profile.mirrorTimer; timers: the client's
--- timer names this bar shows; name: the selector and mover name; sampleFrac:
+-- timer names this bar shows; name: its name in the options; sampleFrac:
 -- the fill the Unlock Mode and options previews show.
 local KINDS = {
-    { id = "breath",  unlock = "ERB_MirrorBreath",  name = "Breath",      sampleFrac = 0.7,  order = 509,
+    { id = "breath", name = "Breath", sampleFrac = 0.7,
       timers = { BREATH = true }, clientLabel = "BREATH_LABEL" },
-    { id = "fatigue", unlock = "ERB_MirrorFatigue", name = "Fatigue",     sampleFrac = 0.45, order = 510,
+    { id = "fatigue", name = "Fatigue", sampleFrac = 0.45,
       timers = { EXHAUSTION = true }, clientLabel = "EXHAUSTION_LABEL" },
-    { id = "feign",   unlock = "ERB_MirrorFeign",   name = "Feign Death", sampleFrac = 0.6,  order = 511,
+    { id = "feign", name = "Feign Death", sampleFrac = 0.6,
       timers = { FEIGNDEATH = true, DEATH = true }, spell = 5384 },
 }
 -- The game's TimerTracker bars, counted from the event's end time (no mirror
@@ -56,12 +59,12 @@ local KINDS = {
 local START_TYPES = Enum and Enum.StartTimerType
 local START_KIND = {}  -- timer type -> kind
 if START_TYPES and START_TYPES.PvPBeginTimer then
-    KINDS[#KINDS + 1] = { id = "pvp", unlock = "ERB_MirrorPvP", name = "Battle Start", sampleFrac = 0.55,
-        order = 512, timers = {}, startType = START_TYPES.PvPBeginTimer, numbersAt = 11 }
+    KINDS[#KINDS + 1] = { id = "pvp", name = "Battle Start", sampleFrac = 0.55,
+        timers = {}, startType = START_TYPES.PvPBeginTimer, numbersAt = 11 }
 end
 if START_TYPES and START_TYPES.PlayerCountdown then
-    KINDS[#KINDS + 1] = { id = "countdown", unlock = "ERB_MirrorCountdown", name = "Group Countdown",
-        sampleFrac = 0.5, order = 513, timers = {}, startType = START_TYPES.PlayerCountdown, keepOnWorld = true,
+    KINDS[#KINDS + 1] = { id = "countdown", name = "Group Countdown",
+        sampleFrac = 0.5, timers = {}, startType = START_TYPES.PlayerCountdown, keepOnWorld = true,
         numbersAt = 31 }
 end
 -- numbersAt: the seconds left where the game swaps its bar for its golden
@@ -99,6 +102,10 @@ ns.MT_KINDS, ns.MT_KIND_BY_ID = KINDS, KIND_BY_ID
 local eventFrame = CreateFrame("Frame")
 
 local S = {}   -- events, blizzHidden, unlockHooked
+local UNLOCK_KEY = "ERB_MirrorBars"
+ns.MT_UNLOCK_KEY = UNLOCK_KEY
+local STACK_GAP = 3     -- between two bars, past what their borders reach out
+local holder            -- the stack's frame (ours), made on first enable
 
 -------------------------------------------------------------------------------
 --  Settings access
@@ -112,6 +119,13 @@ local function Cfg(id)
     return m and m[id] or nil
 end
 ns.MT_Cfg = Cfg
+
+-- The stack's saved position: the mirrorTimer table's own unlockPos.
+local function StackCfg()
+    local ERB = ns.ERB
+    local p = ERB and ERB.db and ERB.db.profile
+    return p and p.mirrorTimer or nil
+end
 
 -- What a bar is drawn with: the Player Cast Bar's settings, and its own width
 -- and height while Own Size is on. Its fill colour and Low Warning are
@@ -474,26 +488,64 @@ local function PaintLive(K, cfg)
     Paint(K, cfg, (a.value or 0) / max, (a.value or 0) / 1000, a.rising, a.paused)
 end
 
--- Position: the unlock anchor chain first, then a saved unlock position, then
--- the CENTER offsets (the GCD bar's three-way split). cfg: the bar's own
--- settings; view: its look (the size).
-local function ApplyPosition(K, cfg, view)
-    local f = K.frame
-    f:SetSize(view.width or 220, view.height or 20)
-    if EllesmereUI._TryOverrideAnchor and EllesmereUI._TryOverrideAnchor(K.unlock, f) then
+-- The stack: the bars up (K.up) one under the other from the holder's top,
+-- in KINDS order. The holder is as wide as the widest bar turned on and as
+-- tall as all of them stacked, the mover's size in Unlock Mode.
+local function Gap(view)
+    local _, padH = ns.ERB_EuiBorderPad(view)
+    return (padH or 0) + STACK_GAP
+end
+
+local function StackSize()
+    local w, h = 0, 0
+    for _, K in ipairs(KINDS) do
+        local cfg, view = Cfg(K.id), View(K)
+        if cfg and cfg.enabled and view then
+            w = math.max(w, view.width or 220)
+            h = h + (h > 0 and Gap(view) or 0) + (view.height or 20)
+        end
+    end
+    return (w > 0 and w or 220), (h > 0 and h or 20)
+end
+
+local function Layout()
+    if not holder then return end
+    local y = 0
+    for _, K in ipairs(KINDS) do
+        if K.built and K.up then
+            local view = View(K)
+            if view then
+                K.frame:ClearAllPoints()
+                K.frame:SetPoint("TOP", holder, "TOP", 0, -y)
+                y = y + (view.height or 20) + Gap(view)
+            end
+        end
+    end
+end
+
+-- Position: the unlock anchor chain first, then the saved unlock position,
+-- then CENTER 0, 300.
+local function PlaceStack()
+    if not holder then
+        holder = CreateFrame("Frame", "ERB_MirrorBars", UIParent)
+        holder:EnableMouse(false)
+    end
+    holder:SetSize(StackSize())
+    if EllesmereUI._TryOverrideAnchor and EllesmereUI._TryOverrideAnchor(UNLOCK_KEY, holder) then
         return
     end
     if EllesmereUI._unlockActive then return end
-    local pos = cfg.unlockPos
+    local m = StackCfg()
+    local pos = m and m.unlockPos
     if pos and pos.point then
-        local anchored = EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(K.unlock)
-        if anchored and f:GetLeft() then return end
-        local sx, sy = ns.SnapXY(pos.x or 0, pos.y or 0, f, pos)
-        f:ClearAllPoints()
-        f:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, sx, sy)
+        local anchored = EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored(UNLOCK_KEY)
+        if anchored and holder:GetLeft() then return end
+        local sx, sy = ns.SnapXY(pos.x or 0, pos.y or 0, holder, pos)
+        holder:ClearAllPoints()
+        holder:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, sx, sy)
     else
-        f:ClearAllPoints()
-        f:SetPoint("CENTER", UIParent, "CENTER", cfg.anchorX or 0, cfg.anchorY or 300)
+        holder:ClearAllPoints()
+        holder:SetPoint("CENTER", UIParent, "CENTER", 0, 300)
     end
 end
 
@@ -501,6 +553,10 @@ local function UpdateVisibility(K)
     if not K.built then return end
     local cfg = Cfg(K.id)
     local on = cfg and cfg.enabled and (K.sample or (K.active and not K.active.underNumbers)) and true or false
+    if K.up ~= on then
+        K.up = on
+        Layout()
+    end
     EllesmereUI.SetElementVisibility(K.frame, on)
 end
 
@@ -723,7 +779,7 @@ local function ApplyKind(K)
     local view = View(K)
     K.frame:SetFrameStrata(view.frameStrata or "MEDIUM")
     K.frame:Show()
-    ApplyPosition(K, cfg, view)
+    K.frame:SetSize(view.width or 220, view.height or 20)
     ApplyLook(K, view)
     PaintLive(K, cfg)
     UpdateVisibility(K)
@@ -734,6 +790,10 @@ function ns.MT_Apply()
     local any = false
     for _, K in ipairs(KINDS) do
         if ApplyKind(K) then any = true end
+    end
+    if any then
+        PlaceStack()
+        Layout()   -- a bar's height may have changed
     end
     if any and not S.events then
         S.events = true
@@ -759,12 +819,11 @@ function ns.MT_Apply()
 end
 
 -------------------------------------------------------------------------------
---  Unlock elements, one per bar
+--  Unlock element: one mover for the whole stack
 -------------------------------------------------------------------------------
 
-function ns.MT_MakeUnlockElements(MK, Rebuild)
+function ns.MT_MakeUnlockElements(MK)
     if not MK then return nil end
-    local PP = EllesmereUI.PP
 
     if not S.unlockHooked and EllesmereUI.RegisterUnlockModeListener then
         S.unlockHooked = true
@@ -776,62 +835,46 @@ function ns.MT_MakeUnlockElements(MK, Rebuild)
         end)
     end
 
-    local out = {}
-    for _, K in ipairs(KINDS) do
-        local id = K.id
-        out[#out + 1] = MK({
-            key = K.unlock, label = KindName(K), group = "Resource Bars", order = K.order,
-            getFrame = function() return K.built and K.frame or nil end,
-            isHidden = function() local cfg = Cfg(id); return not (cfg and cfg.enabled) end,
-            getSize  = function()
-                local v = View(K)
-                return (v and v.width or 220), (v and v.height or 20)
-            end,
-            getMatchPad = function() return ns.ERB_EuiBorderPad(View(K)) end,
-            -- A resize here gives the bar its own size (Own Size), from the one it shows.
-            setWidth = function(_, w)
-                local cfg, v = Cfg(id), View(K); if not (cfg and v) then return end
-                cfg.height = v.height
-                cfg.ownSize = true
-                cfg.width = PP.Snap(math.max(w, 10))
-                Rebuild()
-            end,
-            setHeight = function(_, h)
-                local cfg, v = Cfg(id), View(K); if not (cfg and v) then return end
-                cfg.width = v.width
-                cfg.ownSize = true
-                cfg.height = PP.Snap(math.max(h, 4))
-                Rebuild()
-            end,
-            savePos = function(_, point, relPoint, x, y)
-                if not point then return end
-                local cfg = Cfg(id); if not cfg then return end
-                cfg.unlockPos = { point = point, relPoint = relPoint or point, x = x, y = y }
-                if not EllesmereUI._unlockActive and K.built then
-                    K.frame:ClearAllPoints()
-                    K.frame:SetPoint(point, UIParent, relPoint or point, x, y)
-                end
-            end,
-            loadPos = function()
-                local cfg = Cfg(id)
-                local pos = cfg and cfg.unlockPos
-                if not pos then return nil end
-                return { point = pos.point, relPoint = pos.relPoint or pos.point, x = pos.x, y = pos.y }
-            end,
-            clearPos = function()
-                local cfg = Cfg(id); if not cfg then return end
-                cfg.unlockPos = nil
-                cfg.anchorX = nil; cfg.anchorY = nil
-            end,
-            applyPos = function()
-                local cfg = Cfg(id)
-                local pos = cfg and cfg.unlockPos
-                if not (pos and K.built) then return end
-                local sx, sy = ns.SnapXY(pos.x, pos.y, K.frame, pos)
-                K.frame:ClearAllPoints()
-                K.frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, sx, sy)
-            end,
-        })
+    local function AnyOn()
+        for _, K in ipairs(KINDS) do
+            local cfg = Cfg(K.id)
+            if cfg and cfg.enabled then return true end
+        end
+        return false
     end
-    return out
+
+    -- The bars are sized in the options (Own Size), not from the mover.
+    return { MK({
+        key = UNLOCK_KEY, label = EllesmereUI.L("Other Bars"), group = "Resource Bars",
+        noResize = true,
+        getFrame = function() return holder end,
+        isHidden = function() return not AnyOn() end,
+        getSize  = StackSize,
+        savePos = function(_, point, relPoint, x, y)
+            if not point then return end
+            local m = StackCfg(); if not m then return end
+            m.unlockPos = { point = point, relPoint = relPoint or point, x = x, y = y }
+            if not EllesmereUI._unlockActive and holder then
+                holder:ClearAllPoints()
+                holder:SetPoint(point, UIParent, relPoint or point, x, y)
+            end
+        end,
+        loadPos = function()
+            local m = StackCfg()
+            local pos = m and m.unlockPos
+            if not pos then return nil end
+            return { point = pos.point, relPoint = pos.relPoint or pos.point, x = pos.x, y = pos.y }
+        end,
+        clearPos = function()
+            local m = StackCfg(); if m then m.unlockPos = nil end
+        end,
+        applyPos = function()
+            local m = StackCfg()
+            local pos = m and m.unlockPos
+            if not (pos and holder) then return end
+            local sx, sy = ns.SnapXY(pos.x, pos.y, holder, pos)
+            holder:ClearAllPoints()
+            holder:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, sx, sy)
+        end,
+    }) }
 end

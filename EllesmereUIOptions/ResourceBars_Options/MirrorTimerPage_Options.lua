@@ -22,12 +22,12 @@ function ns.ERB_BuildTimerBarRows(parent, y)
     local function C(id) local p = DB(); return p and p.mirrorTimer and p.mirrorTimer[id] end
     local function Refresh(K)
         if _G._ERB_Apply then _G._ERB_Apply() end
-        if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized(K.unlock) end
+        if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized(ns.MT_UNLOCK_KEY) end
     end
 
     local function Toggle(K)
         return { type = "toggle", text = K.name,
-            tooltip = "Your own bar for this timer, drawn like the Player Cast Bar. Move it in Unlock Mode.",
+            tooltip = "Your own bar for this timer, drawn like the Player Cast Bar. In Unlock Mode, Other Bars moves them all: the bars up at once stack one under the other.",
             getValue = function() local c = C(K.id); return c and c.enabled end,
             setValue = function(v)
                 local c = C(K.id); if not c then return end
