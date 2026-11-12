@@ -16,11 +16,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Characters Shown and Minimum Level. A right click on an ignored character
 --  offers Show This Character Again. Nothing here opens the EllesmereUI options.
 --
---  Tabs under the title pick what the list shows (mailAltListTab): Characters
---  (the roster), Guild (the guild roster, by last time online) or Friends (the
---  game's friend list; where the game has none, as on WoW Forever, the
+--  On WoW Forever, tabs under the title pick what the list shows
+--  (mailAltListTab): Characters (the roster), Guild (the guild roster, by last
+--  time online) or Friends (Forever has no character friend list: the
 --  Battle.net friends seen in this game, each character kept in
 --  EllesmereUIDB.mailAltFriends so it stays listed while its player is away).
+--  On retail the list keeps to the player's own characters, with no tabs.
 --  Sort By, Max Characters Shown and Minimum Level apply to every tab;
 --  ignoring is for the player's own characters. The tabs are plain buttons of
 --  ours (no Blizzard tab template, whose OnShow would sit under SendMailFrame).
@@ -149,6 +150,7 @@ end
 
 local TAB_KEYS = { alts = true, guild = true, friends = true }
 local function Tab()
+    if not FOREVER then return "alts" end
     local t = Setting("mailAltListTab", "alts")
     return TAB_KEYS[t] and t or "alts"
 end
@@ -303,25 +305,8 @@ local function RememberFriend(acc, now)
     e.seen = now
 end
 
--- The game's friend list where it has one; else the Battle.net friends'
--- characters, those online now recorded first.
-local function LegacyFriends()
-    return C_FriendList.IsLegacyFriendSystemEnabled()
-end
-
+-- The Battle.net friends' characters, those online now recorded first.
 local function GatherFriends(now)
-    if LegacyFriends() then
-        for i = 1, C_FriendList.GetNumFriends() do
-            local f = C_FriendList.GetFriendInfoByIndex(i)
-            local name = f and PlainString(f.name)
-            local class = f and ClassFile(nil, f.className)
-            if name and class then
-                contacts[name] = { name = Ambiguate(name, "guild"), target = name, class = class,
-                    level = PlainLevel(f.level), seen = f.connected and now or 0 }
-            end
-        end
-        return
-    end
     for i = 1, BNGetNumFriends() do RememberFriend(C_BattleNet.GetFriendAccountInfo(i), now) end
     local store = Friends()
     if not store then return end
@@ -540,6 +525,10 @@ local function SetTab(key)
 end
 
 BuildTabs = function()
+    if not FOREVER then
+        listTop = topH
+        return
+    end
     -- Clear of the title band (Blizz Default's frame edge reaches into it).
     local top = topH + 2
     listTop = top + TAB_H
@@ -698,8 +687,7 @@ local function EmptyText()
         end
     elseif tab == "friends" then
         if mailable == 0 then
-            return LegacyFriends() and EllesmereUI.L("Your friends list is empty.")
-                or EllesmereUI.L("Your Battle.net friends' characters show here once seen in this game.")
+            return EllesmereUI.L("Your Battle.net friends' characters show here once seen in this game.")
         end
     else
         if mailable == 0 then return EllesmereUI.L("Log into your other characters to list them here.") end
@@ -922,11 +910,11 @@ IGNORED_MENU = {
 }
 
 -- A row's right-click menu: the player's own characters and the remembered
--- Battle.net friends have one; the guild and the game's friend list none.
+-- Battle.net friends have one; the guild none.
 MenuFor = function(row)
     local tab = Tab()
     if tab == "alts" then return row._ignored and IGNORED_MENU or MENU end
-    if tab == "friends" and not LegacyFriends() then return FRIEND_MENU end
+    if tab == "friends" then return FRIEND_MENU end
 end
 
 -------------------------------------------------------------------------------
@@ -956,17 +944,17 @@ local function HookMail()
     end
 end
 
--- While the list is on: a guild or friend list update repaints its shown tab,
--- and a Battle.net friend entering this game is remembered.
-local CONTACT_EVENTS = { "GUILD_ROSTER_UPDATE", "FRIENDLIST_UPDATE", "BN_FRIEND_INFO_CHANGED" }
+-- While the list is on (WoW Forever: the tabs): a guild or Battle.net update
+-- repaints its shown tab, and a Battle.net friend entering this game is remembered.
+local CONTACT_EVENTS = { "GUILD_ROSTER_UPDATE", "BN_FRIEND_INFO_CHANGED" }
 local function WatchContacts(on)
     for i = 1, #CONTACT_EVENTS do
-        if on then ev:RegisterEvent(CONTACT_EVENTS[i]) else ev:UnregisterEvent(CONTACT_EVENTS[i]) end
+        if on and FOREVER then ev:RegisterEvent(CONTACT_EVENTS[i]) else ev:UnregisterEvent(CONTACT_EVENTS[i]) end
     end
 end
 
 local function OnContacts(event, arg1)
-    if event == "BN_FRIEND_INFO_CHANGED" and arg1 and not LegacyFriends() then
+    if event == "BN_FRIEND_INFO_CHANGED" and arg1 then
         RememberFriend(C_BattleNet.GetFriendAccountInfo(arg1), time())
     end
     local tab = Tab()

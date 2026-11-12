@@ -2309,7 +2309,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         row, h = W:DualRow(parent, y,
             { type="toggle", text="Show Alt List",
-              tooltip="Lists your alts beside Send Mail; its tabs also list your guild and your friends.",
+              tooltip=EllesmereUI.IS_FOREVER and "Lists your alts beside Send Mail; its tabs also list your guild and your friends."
+                  or "Lists your alts beside Send Mail.",
               getValue=On,
               setValue=function(v)
                   Set("mailAltList", v)
