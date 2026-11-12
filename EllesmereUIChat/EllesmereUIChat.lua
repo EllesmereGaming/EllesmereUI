@@ -165,6 +165,7 @@ local CHAT_DEFAULTS = {
             -- Chat Bar (EUI_Chat_Bar.lua), opt-in
             chatBarEnabled = false,
             chatBarBgCustom = false,
+            chatBarActiveStyle = "line",
             chatBarButtonWidth = 22,
             chatBarButtonHeight = 20,
             chatBarSpacing = 2,

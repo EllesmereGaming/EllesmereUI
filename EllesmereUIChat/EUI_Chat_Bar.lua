@@ -35,16 +35,18 @@ local events = CreateFrame("Frame")
 
 -- Button labels: `en` is the English abbreviation; a locale gives its own
 -- under the `abbr` key (EllesmereUILocales, "<name> (chat bar label)").
+-- `name` is the tooltip. Labels and tooltips follow the EUI options language
+-- (EllesmereUI.L), not the client's, like the rest of the addon.
 local CHANNELS = {
-    { key = "chatBarShowSay",         chatType = "SAY",           abbr = "Say (chat bar label)",          en = "S" },
-    { key = "chatBarShowYell",        chatType = "YELL",          abbr = "Yell (chat bar label)",         en = "Y" },
-    { key = "chatBarShowInstance",    chatType = "INSTANCE_CHAT", abbr = "Instance (chat bar label)",     en = "I" },
-    { key = "chatBarShowParty",       chatType = "PARTY",         abbr = "Party (chat bar label)",        en = "P" },
-    { key = "chatBarShowRaid",        chatType = "RAID",          abbr = "Raid (chat bar label)",         en = "R" },
-    { key = "chatBarShowRaidWarning", chatType = "RAID_WARNING",  abbr = "Raid Warning (chat bar label)", en = "RW" },
-    { key = "chatBarShowGuild",       chatType = "GUILD",         abbr = "Guild (chat bar label)",        en = "G" },
-    { key = "chatBarShowOfficer",     chatType = "OFFICER",       abbr = "Officer (chat bar label)",      en = "O" },
-    { key = "chatBarShowEmote",       chatType = "EMOTE",         abbr = "Emote (chat bar label)",        en = "E" },
+    { key = "chatBarShowSay",         chatType = "SAY",           abbr = "Say (chat bar label)",          en = "S", name = "Say" },
+    { key = "chatBarShowYell",        chatType = "YELL",          abbr = "Yell (chat bar label)",         en = "Y", name = "Yell" },
+    { key = "chatBarShowInstance",    chatType = "INSTANCE_CHAT", abbr = "Instance (chat bar label)",     en = "I", name = "Instance" },
+    { key = "chatBarShowParty",       chatType = "PARTY",         abbr = "Party (chat bar label)",        en = "P", name = "Party" },
+    { key = "chatBarShowRaid",        chatType = "RAID",          abbr = "Raid (chat bar label)",         en = "R", name = "Raid" },
+    { key = "chatBarShowRaidWarning", chatType = "RAID_WARNING",  abbr = "Raid Warning (chat bar label)", en = "RW", name = "Raid Warning" },
+    { key = "chatBarShowGuild",       chatType = "GUILD",         abbr = "Guild (chat bar label)",        en = "G", name = "Guild" },
+    { key = "chatBarShowOfficer",     chatType = "OFFICER",       abbr = "Officer (chat bar label)",      en = "O", name = "Officer" },
+    { key = "chatBarShowEmote",       chatType = "EMOTE",         abbr = "Emote (chat bar label)",        en = "E", name = "Emote" },
 }
 
 local function Short(abbr, en)
@@ -72,14 +74,61 @@ local function Flag(v)
     return v and true or false
 end
 
+-- Leader or assistant of the group (everyone is one in an everyone-assist raid).
+local function CanLead()
+    return Flag(UnitIsGroupLeader("player")) or Flag(UnitIsGroupAssistant("player"))
+        or (Flag(IsInRaid()) and Flag(IsEveryoneAssistant and IsEveryoneAssistant()))
+end
+
+-- The timer follows the rules of the boss mod that shows it (BigWigs wins
+-- when both are loaded, as its /pull and /break do), read from their code:
+--   BigWigs /pull (Pull.lua): solo, the leader or an assist, the tank of a
+--     group-finder group, anyone in a home party (not a raid).
+--   BigWigs /break (Break.lua): solo, the leader or an assist.
+--   DBM CreatePullTimer / CreateBreakTimer (UserTimers.lua): solo, the
+--     leader or an assist, the tank of a group-finder group; never in a
+--     battleground.
+-- Without either the game's countdown is all there is: BigWigs' /pull rule
+-- (it runs that very countdown), and the break as BigWigs'.
+-- Encounters and the chat lockdown are refused by all of them; the timer's
+-- usable() and the combat lock cover those.
+local function BossMod()
+    if _G.BigWigsAPI then return "bigwigs" end
+    if _G.DBM then return "dbm" end
+end
+
+local function GroupFinderTank()
+    return Flag(IsInGroup(LE_PARTY_CATEGORY_INSTANCE)) and UnitGroupRolesAssigned("player") == "TANK"
+end
+
+local function InBattleground()
+    local _, instanceType = IsInInstance()
+    return instanceType == "pvp"
+end
+
+local function CanCountdown()
+    if not Flag(IsInGroup()) then return true end
+    if BossMod() == "dbm" then
+        return (CanLead() or GroupFinderTank()) and not InBattleground()
+    end
+    return CanLead() or GroupFinderTank()
+        or (Flag(IsInGroup(LE_PARTY_CATEGORY_HOME)) and not Flag(IsInRaid()))
+end
+
+local function CanBreak()
+    if not Flag(IsInGroup()) then return true end
+    if BossMod() == "dbm" then
+        return (CanLead() or GroupFinderTank()) and not InBattleground()
+    end
+    return CanLead()
+end
+
 local function Available(chatType)
     if chatType == "PARTY" then return Flag(IsInGroup(LE_PARTY_CATEGORY_HOME)) end
     if chatType == "INSTANCE_CHAT" then return Flag(IsInGroup(LE_PARTY_CATEGORY_INSTANCE)) end
     if chatType == "RAID" then return Flag(IsInRaid(LE_PARTY_CATEGORY_HOME)) end
     if chatType == "RAID_WARNING" then
-        if not Flag(IsInRaid()) then return false end
-        return Flag(UnitIsGroupLeader("player")) or Flag(UnitIsGroupAssistant("player"))
-            or Flag(IsEveryoneAssistant and IsEveryoneAssistant())
+        return Flag(IsInRaid()) and CanLead()
     end
     if chatType == "GUILD" then return Flag(IsInGuild()) end
     if chatType == "OFFICER" then
@@ -107,17 +156,12 @@ local KITS = {
     },
 }
 local GOLD_R, GOLD_G, GOLD_B = 1, 0.82, 0
--- The picked channel under the stock looks, as the WoW Forever selected tab:
--- a warm light rising inside the button's frame (GLOW_INSET in from its
--- edges). Blizzard Style and Classic also lay that tab's dark warm body
--- (FILL_*) under it; WoW Forever warms its own plate instead.
+-- The picked channel under Blizzard Style and Classic fills the inside of
+-- the button's frame (FILL_INSET in from its edges) with the channel's
+-- colour; WoW Forever colours its own plate instead.
 -- Inset { sides, top, bottom }: Blizzard's plate is thicker at the bottom,
 -- the vanilla bevel is thick all round.
-local GLOW_INSET = { blizzard = { 4, 4, 6 }, classic = { 5, 5, 5 }, forever = { 3, 3, 3 } }
-local GLOW_BOTTOM = CreateColor(1, 0.7, 0.35, 0.35)
-local GLOW_TOP = CreateColor(1, 0.7, 0.35, 0)
-local FILL_BOTTOM = CreateColor(0.17, 0.09, 0.035, 0.95)
-local FILL_TOP = CreateColor(0.12, 0.063, 0.024, 0.95)
+local FILL_INSET = { blizzard = { 4, 4, 6 }, classic = { 5, 5, 5 } }
 
 local function LatchLook()
     local style = ns.ChatStyle and ns.ChatStyle() or "eui"
@@ -167,39 +211,65 @@ local function IsActive(btn)
     return true
 end
 
--- The picked channel: the EllesmereUI look underlines it in the accent colour
--- (as the chat tabs mark the selected one). The stock looks light it from
--- inside like the WoW Forever selected tab.
+local ACTIVE_STEP = 0.21
+
+-- The picked channel. The EllesmereUI look, chatBarActiveStyle:
+--   "line" (default): the button darkens and is underlined in the channel's
+--     colour;
+--   "fill": the button fills with a dark shade of the channel's colour.
+-- Blizzard Style, Classic and WoW Forever always fill (the inside of their
+-- frame, or the Forever plate). A filled button's label turns white so it
+-- stays readable.
+local FILL_SHADE = 0.45
+
 local function PaintButton(btn)
     local active = IsActive(btn)
-    btn.text:SetTextColor(LabelColor(btn))
+    local cr, cg, cb = LabelColor(btn)
+    local cfg = DB()
+    local fill = active and (look ~= "eui" or cfg.chatBarActiveStyle == "fill")
+    if fill then
+        btn.text:SetTextColor(1, 1, 1)
+    else
+        btn.text:SetTextColor(cr, cg, cb)
+    end
+    local sr, sg, sb = cr * FILL_SHADE, cg * FILL_SHADE, cb * FILL_SHADE
     if look == "eui" then
-        local cfg = DB()
         -- The chat background's opacity unless the bar has its own; darker
         -- while picked, by the step between an idle and the selected tab.
+        -- The idle buttons stop that step short of opaque, so the picked one
+        -- stays darker at any opacity.
         local a
         if cfg.chatBarBgCustom then
             a = cfg.chatBarBgAlpha or cfg.bgAlpha or 0.65
         else
             a = cfg.bgAlpha or 0.65
         end
-        if active then a = min(1, a + 0.21) end
-        btn.bg:SetColorTexture(cfg.bgR or 0.03, cfg.bgG or 0.045, cfg.bgB or 0.05, a)
-        -- The underline follows the tabs' Active Underline setting.
-        local underline = active and cfg.activeUnderline ~= false
-        if underline then
-            local ar, ag, ab = EUI.GetAccentColor()
-            btn.underline:SetColorTexture(ar, ag, ab, 1)
+        a = min(a, 1 - ACTIVE_STEP)
+        if active then a = a + ACTIVE_STEP end
+        if fill then
+            btn.bg:SetColorTexture(sr, sg, sb, max(a, 0.9))
+        else
+            btn.bg:SetColorTexture(cfg.bgR or 0.03, cfg.bgG or 0.045, cfg.bgB or 0.05, a)
         end
-        btn.underline:SetShown(underline)
+        local line = active and not fill
+        if line then btn.underline:SetColorTexture(cr, cg, cb, 1) end
+        btn.underline:SetShown(line)
         return
     end
-    btn.glow:SetShown(active)
-    if btn.fill then btn.fill:SetShown(active) end
-    if look == "forever" and btn._down ~= active then
-        btn._down = active
-        local c = active and ECHAT.FV.tabSel or ECHAT.FV.plateFill
-        btn._fvPlate.fill:SetColorTexture(c[1], c[2], c[3], c[4])
+    if btn.fill then
+        if fill then
+            btn.fill:SetGradient("VERTICAL", CreateColor(sr, sg, sb, 0.95),
+                CreateColor(sr * 0.75, sg * 0.75, sb * 0.75, 0.95))
+        end
+        btn.fill:SetShown(fill)
+    end
+    if look == "forever" then
+        if fill then
+            btn._fvPlate.fill:SetColorTexture(sr, sg, sb, 1)
+        else
+            local c = ECHAT.FV.plateFill
+            btn._fvPlate.fill:SetColorTexture(c[1], c[2], c[3], c[4])
+        end
     end
 end
 
@@ -213,6 +283,26 @@ end
 -- is repainted on the next frame, once the reset has landed.
 local function RefreshSoon()
     C_Timer.After(0, RefreshActive)
+end
+
+-- One rule for every button: it is usable or it is not. An unusable one is
+-- hidden with chatBarHideUnavailable, else shown dimmed; either way it takes
+-- no click and no hover. Usable: a channel the player can write to
+-- (Available), a tool whose own usable() holds (rights, lockdown).
+-- In combat the same goes for world channels (their restricted body stands
+-- down) and the tools; those dim there only with chatBarDimInCombat.
+local function CombatLocked(btn)
+    return btn.channelId ~= nil or btn.chatType == nil
+end
+
+local function Usable(btn)
+    if btn.usable then return btn.usable() end
+    if btn.chatType and not btn.channelId then return Available(btn.chatType) end
+    return true
+end
+
+local function Inert(btn)
+    return (InCombatLockdown() and CombatLocked(btn)) or not Usable(btn)
 end
 
 -- After a channel click: with chatBarOpenOnClick (off by default), open the
@@ -232,18 +322,8 @@ local function OpenChat(btn, button, down)
     -- Both edges reach PostClick (AnyUp + AnyDown); act on the one the
     -- secure action used.
     if (down and true or false) ~= GetCVarBool("ActionButtonUseKeyDown") then return end
-    if btn.channelId and InCombatLockdown() then return end
-    if InChatLockdown() then return end
+    if Inert(btn) or InChatLockdown() then return end
     if ActivateChat and box then ActivateChat(box) end
-end
-
--- Hovering the bar counts as hovering the chat: it lifts the idle fade
--- the same way (ECHAT.ChatHover, EUI_Chat_Init.lua).
--- Out of use in combat: world channels (their restricted body stands down)
--- and the utility buttons (their clicks stand down). In combat they ignore
--- hover too, and dim with chatBarDimInCombat.
-local function CombatLocked(btn)
-    return btn.channelId ~= nil or btn.chatType == nil
 end
 
 -- Hover is drawn by hand (not a HIGHLIGHT layer) so a button out of use in
@@ -253,11 +333,13 @@ local function SetHover(btn, on)
     if look == "forever" then ECHAT.FV_PlateLift(btn, on) end
 end
 
+-- Hovering the bar counts as hovering the chat: it lifts the idle fade
+-- the same way (ECHAT.ChatHover, EUI_Chat_Init.lua), inert buttons included.
 local function OnEnter(btn)
     if ECHAT.ChatHover then ECHAT.ChatHover(true) end
-    if CombatLocked(btn) and InCombatLockdown() then return end
+    if Inert(btn) then return end
     SetHover(btn, true)
-    EUI.ShowWidgetTooltip(btn, btn.tip)
+    EUI.ShowWidgetTooltip(btn, btn.tipFn and btn.tipFn() or btn.tip)
 end
 
 local function OnLeave(btn)
@@ -295,25 +377,15 @@ local function NewButton(secure)
             btn.underline = underline
         end
     end
-    if look ~= "eui" then
-        local x, top, bottom = unpack(GLOW_INSET[look])
-        if look ~= "forever" then
-            local fill = btn:CreateTexture(nil, "BORDER")
-            fill:SetPoint("TOPLEFT", x, -top)
-            fill:SetPoint("BOTTOMRIGHT", -x, bottom)
-            fill:SetTexture("Interface\\Buttons\\WHITE8X8")
-            fill:SetGradient("VERTICAL", FILL_BOTTOM, FILL_TOP)
-            fill:Hide()
-            btn.fill = fill
-        end
-        local glow = btn:CreateTexture(nil, "ARTWORK")
-        glow:SetPoint("TOPLEFT", x, -top)
-        glow:SetPoint("BOTTOMRIGHT", -x, bottom)
-        glow:SetTexture("Interface\\Buttons\\WHITE8X8")
-        glow:SetBlendMode("ADD")
-        glow:SetGradient("VERTICAL", GLOW_BOTTOM, GLOW_TOP)
-        glow:Hide()
-        btn.glow = glow
+    local inset = FILL_INSET[look]
+    if inset then
+        local x, top, bottom = inset[1], inset[2], inset[3]
+        local fill = btn:CreateTexture(nil, "BORDER")
+        fill:SetPoint("TOPLEFT", x, -top)
+        fill:SetPoint("BOTTOMRIGHT", -x, bottom)
+        fill:SetTexture("Interface\\Buttons\\WHITE8X8")
+        fill:Hide()
+        btn.fill = fill
     end
     btn.text = btn:CreateFontString(nil, "OVERLAY")
     btn.text:SetPoint("CENTER")
@@ -360,50 +432,53 @@ end
 -- chatBarBreakAnnounce; middle click resets both.
 
 local function Secs(n)
-    return format(_G.SECOND_ONELETTER_ABBR or "%d s", n)
+    return EllesmereUI.Lf("%1$d sec", n)
 end
 
 local function Mins(n)
-    return format(_G.MINUTE_ONELETTER_ABBR or "%d m", n)
+    return EllesmereUI.Lf("%1$d min", n)
 end
 
--- Blizzard's countdown travels through chat, which refuses it in lockdown.
+-- The pull is the game's own countdown: BigWigs and DBM run exactly that for
+-- /pull and draw their pull bar for any countdown (START_PLAYER_COUNTDOWN),
+-- and a countdown of 0 cancels it for both. It travels through chat, which
+-- refuses it in lockdown.
 local function Countdown(secs)
     if InChatLockdown() then return end
     C_PartyInfo.DoCountdown(secs)
 end
 
-local function StartPull(secs)
-    local handler = SlashCmdList.BIGWIGSPULL or SlashCmdList.DEADLYBOSSMODSPULL
-    if handler then handler(tostring(secs)) end
-    Countdown(secs)
+-- The game has no break timer: BigWigs and DBM send theirs as addon messages
+-- each understands (BigWigs' /break also sends DBM's). Without either the
+-- break falls back to the game's countdown, which boss mods in the group
+-- show as a pull, so the group notice says it is a break.
+-- BigWigs registers /break as SlashCmdList["break"] (trusted only with
+-- BigWigs up); DBM's /dbm takes "break N" (0 cancels for both).
+local function BreakHandler()
+    local bigWigs = _G.BigWigsAPI and SlashCmdList["break"]
+    if bigWigs then return bigWigs end
+    local dbm = SlashCmdList.DEADLYBOSSMODS
+    if dbm then
+        return function(mins) dbm("break " .. mins) end
+    end
 end
 
--- A break runs on the boss mod's break bar (minutes), else the game's
--- countdown.
 local function StartBreak(mins)
-    local bigWigs, dbm = SlashCmdList.BIGWIGSBREAK, SlashCmdList.DEADLYBOSSMODS
-    if bigWigs then
-        bigWigs(tostring(mins))
-    elseif dbm then
-        dbm("break " .. mins)
+    local handler = BreakHandler()
+    if handler then
+        handler(tostring(mins))
     else
         Countdown(mins * 60)
     end
 end
 
--- Middle click: cancels both, the boss mod's bars and the game's countdown
--- (a 0 cancels each).
+-- Middle click: cancels the pull countdown (the button is usable only for
+-- whoever may start one) and, under the same rule as starting it, the break.
 local function StopTimers()
-    local pull = SlashCmdList.BIGWIGSPULL or SlashCmdList.DEADLYBOSSMODSPULL
-    if pull then pull("0") end
-    local bigWigs, dbm = SlashCmdList.BIGWIGSBREAK, SlashCmdList.DEADLYBOSSMODS
-    if bigWigs then
-        bigWigs("0")
-    elseif dbm then
-        dbm("break 0")
-    end
     Countdown(0)
+    if not CanBreak() then return end
+    local handler = BreakHandler()
+    if handler then handler("0") end
 end
 
 -- The group's chat for the break notice: the instance group first (its
@@ -423,34 +498,51 @@ local function AnnounceBreak(mins)
     C_ChatInfo.SendChatMessage(EllesmereUI.Lf("Break for %1$d min.", mins), chatType)
 end
 
-local function TimerTip(cfg)
-    return EllesmereUI.L("Pull Timer") .. " (" .. Secs(cfg.chatBarPullDuration or 10) .. ")\n"
-        .. EllesmereUI.L("Right Click") .. ": " .. EllesmereUI.L("Break Timer")
-        .. " (" .. Mins(cfg.chatBarBreakMinutes or 5) .. ")\n"
-        .. EllesmereUI.L("Middle Click") .. ": " .. EllesmereUI.L("Reset Timer")
+-- Built on hover: the break line follows the player's rights (grey, with
+-- the reason, without them) and whether a boss mod runs the break.
+local function TimerTip()
+    local cfg = DB()
+    local tip = EllesmereUI.L("Pull Timer") .. " (" .. Secs(cfg.chatBarPullDuration or 10) .. ")"
+    local breakLine = EllesmereUI.L("Right Click") .. ": " .. EllesmereUI.L("Break Timer")
+        .. " (" .. Mins(cfg.chatBarBreakMinutes or 5) .. ")"
+    if CanBreak() then
+        tip = tip .. "\n" .. breakLine
+        if not BreakHandler() then
+            tip = tip .. "\n|cff999999" .. EllesmereUI.L("Without BigWigs or DBM: the game's countdown and a group notice.") .. "|r"
+        end
+    else
+        -- Grey, with the reason: the right click does nothing for this player.
+        tip = tip .. "\n|cff999999" .. breakLine .. "\n"
+            .. EllesmereUI.L("Only the group's leader or an assist can start a break.") .. "|r"
+    end
+    tip = tip .. "\n" .. EllesmereUI.L("Middle Click") .. ": " .. EllesmereUI.L("Reset Timer")
+    return tip
 end
 
--- Roll, Raid Check, Timer and Reload stand down in combat.
-local function NewUtilButton(label, tip, onClick)
+-- Roll, Raid Check, Timer and Reload: no click while inert (Inert).
+local function NewUtilButton(label, tip, onClick, usable)
     local btn = NewButton(false)
     btn.label = label
     btn.tip = tip
+    btn.usable = usable
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     btn:SetScript("OnClick", function(self, button)
-        if InCombatLockdown() then return end
+        if Inert(self) then return end
         onClick(self, button)
     end)
     return btn
 end
 
--- chatBarDimInCombat: the buttons out of use in combat dim there.
-local COMBAT_ALPHA = 0.35
+local DIM_ALPHA = 0.35
 
-local function PaintCombat(inCombat)
-    local a = inCombat and COMBAT_ALPHA or 1
+-- Unusable buttons are dim; in combat the combat-locked ones too, with
+-- chatBarDimInCombat. inCombat comes from the combat events.
+local function PaintState(inCombat)
+    local dimCombat = inCombat and DB().chatBarDimInCombat ~= false
     for i = 1, #shown do
         local btn = shown[i]
-        if CombatLocked(btn) then btn:SetAlpha(a) end
+        local dim = not Usable(btn) or (dimCombat and CombatLocked(btn))
+        btn:SetAlpha(dim and DIM_ALPHA or 1)
     end
 end
 
@@ -458,8 +550,11 @@ local function Build()
     LatchLook()
     box = DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.editBox or _G.ChatFrame1EditBox
     bar = CreateFrame("Frame", nil, UIParent)
+    -- Above the chat tab strip (MEDIUM 100, EllesmereUIChat_Tabs.lua): the
+    -- bar sits on its top edge, and at the same level the strip could draw
+    -- over the buttons' bottom pixels.
     bar:SetFrameStrata("MEDIUM")
-    bar:SetFrameLevel(100)
+    bar:SetFrameLevel(110)
     bar:SetSize(1, 1)
     bar:SetAlpha(_alpha or 1)
     bar:Hide()
@@ -472,7 +567,7 @@ local function Build()
         local info = CHANNELS[i]
         local btn = NewChannelButton(info.chatType)
         btn.label = Short(info.abbr, info.en)
-        btn.tip = _G[info.chatType] or info.chatType
+        btn.tip = EllesmereUI.L(info.name)
         stdButtons[i] = btn
     end
 
@@ -483,20 +578,24 @@ local function Build()
         EllesmereUI.L("Ready Check") .. "\n" .. EllesmereUI.L("Right Click") .. ": " .. EllesmereUI.L("Role Check"),
         function(_, button)
             if button == "RightButton" then InitiateRolePoll() else DoReadyCheck() end
-        end)
-    -- Its tooltip names the set duration (Layout).
+        end,
+        function() return Flag(IsInGroup()) and CanLead() end)
     utilButtons.pull = NewUtilButton(Short("Timer (chat bar label)", "T"), nil, function(_, button)
         local cfg = DB()
         if button == "MiddleButton" then
             StopTimers()
         elseif button == "RightButton" then
+            if not CanBreak() then return end
             local mins = cfg.chatBarBreakMinutes or 5
             StartBreak(mins)
             if cfg.chatBarBreakAnnounce ~= false then AnnounceBreak(mins) end
         else
-            StartPull(cfg.chatBarPullDuration or 10)
+            Countdown(cfg.chatBarPullDuration or 10)
         end
-    end)
+    end,
+    -- The countdown travels through chat, which a lockdown refuses.
+    function() return CanCountdown() and not InChatLockdown() end)
+    utilButtons.pull.tipFn = TimerTip
     utilButtons.pull:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
     utilButtons.reload = NewUtilButton(Short("Reload UI (chat bar label)", "RL"), EllesmereUI.L("Reload UI"), function(_, button)
         if button == "LeftButton" then ReloadUI() end
@@ -543,8 +642,12 @@ local function Layout()
     local hideUnavailable = cfg.chatBarHideUnavailable ~= false
     for i = 1, #CHANNELS do
         local info = CHANNELS[i]
-        if cfg[info.key] ~= false and (not hideUnavailable or Available(info.chatType)) then
-            shown[#shown + 1] = stdButtons[i]
+        local btn = stdButtons[i]
+        local usable = Available(info.chatType)
+        -- An unusable channel shown dim must not pick its type either.
+        btn:SetAttribute("type1", usable and "attribute" or nil)
+        if cfg[info.key] ~= false and (usable or not hideUnavailable) then
+            shown[#shown + 1] = btn
         end
     end
 
@@ -568,13 +671,18 @@ local function Layout()
         end
     end
 
-    if cfg.chatBarShowRoll ~= false then shown[#shown + 1] = utilButtons.roll end
-    if cfg.chatBarShowReadyCheck ~= false then shown[#shown + 1] = utilButtons.ready end
-    if cfg.chatBarShowPullTimer ~= false then
-        utilButtons.pull.tip = TimerTip(cfg)
-        shown[#shown + 1] = utilButtons.pull
+    local tools = {
+        { "chatBarShowRoll", utilButtons.roll },
+        { "chatBarShowReadyCheck", utilButtons.ready },
+        { "chatBarShowPullTimer", utilButtons.pull },
+        { "chatBarShowReload", utilButtons.reload },
+    }
+    for i = 1, #tools do
+        local key, btn = tools[i][1], tools[i][2]
+        if cfg[key] ~= false and (not hideUnavailable or Usable(btn)) then
+            shown[#shown + 1] = btn
+        end
     end
-    if cfg.chatBarShowReload ~= false then shown[#shown + 1] = utilButtons.reload end
 
     local w, h = cfg.chatBarButtonWidth or 22, cfg.chatBarButtonHeight or 20
     local gap = cfg.chatBarSpacing or 2
@@ -589,7 +697,7 @@ local function Layout()
         PaintButton(btn)
         btn:Show()
     end
-    PaintCombat(false)
+    PaintState(false)
     local count = #shown
     bar:SetSize(count > 0 and (count * w + (count - 1) * gap) or 1, h)
     ApplyPosition()
@@ -597,9 +705,9 @@ end
 
 local function OnEvent(_, event)
     if event == "PLAYER_REGEN_DISABLED" then
-        PaintCombat(true)
+        PaintState(true)
     elseif event == "PLAYER_REGEN_ENABLED" then
-        PaintCombat(false)
+        PaintState(false)
     else
         Layout()
     end
@@ -647,11 +755,18 @@ local function Enable()
         events:RegisterEvent("PLAYER_REGEN_ENABLED")
     end
     if cfg.chatBarShowWorldChannels ~= false then events:RegisterEvent("CHANNEL_UI_UPDATE") end
-    if cfg.chatBarHideUnavailable ~= false then
-        events:RegisterEvent("GROUP_ROSTER_UPDATE")
-        events:RegisterEvent("PARTY_LEADER_CHANGED")
-        events:RegisterEvent("PLAYER_GUILD_UPDATE")
-    end
+    -- What makes a button usable or not: group, rights, role, guild rank,
+    -- and the chat messaging lockdown (encounter, Mythic+, rated PvP).
+    events:RegisterEvent("GROUP_ROSTER_UPDATE")
+    events:RegisterEvent("PARTY_LEADER_CHANGED")
+    events:RegisterEvent("PLAYER_ROLES_ASSIGNED")
+    events:RegisterEvent("PLAYER_GUILD_UPDATE")
+    events:RegisterEvent("ENCOUNTER_START")
+    events:RegisterEvent("ENCOUNTER_END")
+    events:RegisterEvent("CHALLENGE_MODE_START")
+    events:RegisterEvent("CHALLENGE_MODE_COMPLETED")
+    events:RegisterEvent("CHALLENGE_MODE_RESET")
+    events:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     if EventRegistry and EventRegistry.RegisterCallback then
         EventRegistry:RegisterCallback("ChatFrame.OnEditBoxFocusLost", RefreshSoon, "EUI_ChatBar")
         EventRegistry:RegisterCallback("ChatFrame.OnEditBoxHide", RefreshSoon, "EUI_ChatBar")
