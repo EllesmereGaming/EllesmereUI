@@ -733,20 +733,38 @@ ns._PositionPartySlots = function(bw, bh, cs, unitGrowth)
 
     local sb = ns._partySelfButton
     if useSelf then
-        local selfSlot, hdrSlot = 0, 1
+        local hdrSlot = pSelfLast and 0 or 1
+        ns._partyHeader:ClearAllPoints()
+        ns._partyHeader:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(slotStepX * hdrSlot) + cShiftX, PixelSnap(slotStepY * hdrSlot) + cShiftY)
         if pSelfLast then
+            -- Self Last: the self button hangs off the header's far edge. The
+            -- header sizes itself to its shown children on every child pass,
+            -- in combat too, so a member who joins mid-fight pushes the self
+            -- button along instead of covering it. Pre-size it the same way.
             local numOthers = (GetNumGroupMembers() or 1) - 1
-            if numOthers < 0 then numOthers = 0 end
-            selfSlot, hdrSlot = numOthers, 0
+            if numOthers < 1 then numOthers = 1 end
+            if slotStepX ~= 0 then
+                ns._partyHeader:SetSize(numOthers * bw + (numOthers - 1) * cs, bh)
+            else
+                ns._partyHeader:SetSize(bw, numOthers * bh + (numOthers - 1) * cs)
+            end
         end
         if sb then
             sb:SetSize(bw, bh)
             sb:ClearAllPoints()
-            sb:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(slotStepX * selfSlot) + cShiftX, PixelSnap(slotStepY * selfSlot) + cShiftY)
+            if not pSelfLast then
+                sb:SetPoint(basePoint, ns._partyContainerFrame, basePoint, cShiftX, cShiftY)
+            elseif unitGrowth == "RIGHT" then
+                sb:SetPoint("TOPLEFT", ns._partyHeader, "TOPRIGHT", cs, 0)
+            elseif unitGrowth == "LEFT" then
+                sb:SetPoint("TOPRIGHT", ns._partyHeader, "TOPLEFT", -cs, 0)
+            elseif unitGrowth == "UP" then
+                sb:SetPoint("BOTTOMLEFT", ns._partyHeader, "TOPLEFT", 0, cs)
+            else -- DOWN
+                sb:SetPoint("TOPLEFT", ns._partyHeader, "BOTTOMLEFT", 0, -cs)
+            end
             if not InCombatLockdown() then sb:Show() end
         end
-        ns._partyHeader:ClearAllPoints()
-        ns._partyHeader:SetPoint(basePoint, ns._partyContainerFrame, basePoint, PixelSnap(slotStepX * hdrSlot) + cShiftX, PixelSnap(slotStepY * hdrSlot) + cShiftY)
     else
         if sb and not InCombatLockdown() then sb:Hide() end
         ns._partyHeader:ClearAllPoints()
