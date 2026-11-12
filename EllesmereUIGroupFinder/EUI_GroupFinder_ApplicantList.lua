@@ -4,7 +4,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  blizzard's list stays alive underneath, faded out. we only read the
 --  applicants and draw them with more columns, nothing written to blizzard's
 --  panel. secret values: we step aside. without leader rights it's the same
---  list, no buttons, "your group is forming" dimmed beside the title.
+--  list, no buttons, "your group is forming" dimmed under the dungeon.
 -------------------------------------------------------------------------------
 local FOLDER, ns = ...
 if EllesmereUI.HELD_BACK_ADDONS[FOLDER] then return end -- held back (EllesmereUIGroupFinder.lua)
@@ -1034,16 +1034,16 @@ end
 local function Paint()
     if not active then return end
     empowered = LFGListUtil_IsEntryEmpowered() and true or false
-    -- not the leader: a dim note beside the listing's title, the rows stay usable (right click)
+    -- not the leader: a dim note under the dungeon, level with the role icons; the rows stay usable (right click)
     cover:SetShown(not empowered)
     if not empowered then
-        local title = AV.EntryName
-        local w = title and title:GetStringWidth()
+        local title, roles = AV.EntryName, AV.DataDisplay
+        local tl, rl = title and title:GetLeft(), roles and roles:GetLeft()
         cover:ClearAllPoints()
-        if type(w) == "number" and not Secret(w) and w > 0 then
-            cover:SetPoint("LEFT", title, "LEFT", w + 8, 0)
+        if tl and rl then
+            cover:SetPoint("LEFT", roles, "LEFT", tl - rl, 0)
         elseif title then
-            cover:SetPoint("LEFT", title, "RIGHT", 8, 0)
+            cover:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -24)
         end
     end
     rowH = tonumber(ns.OwnListGet("applicantRowHeight")) or 36
@@ -1139,7 +1139,7 @@ local function Build()
     thumb = frame:CreateTexture(nil, "OVERLAY")
     thumb:SetWidth(3)
     thumb:SetColorTexture(1, 1, 1, 0.3)
-    -- blizzard's cover stays faded; ours is only a note by the title (on frame, so it hides with our list)
+    -- blizzard's cover stays faded; ours is only a note under the dungeon (on frame, so it hides with our list)
     cover = frame:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     cover:SetText(EllesmereUI.L("Your group is forming"))
     cover:Hide()
