@@ -704,9 +704,20 @@ do
         local r, g, b = GetAccentRGB()
         depositItemsLabel:SetTextColor(r, g, b, 1)
         depositItemsBtn:SetWidth(depositItemsLabel:GetStringWidth() + 16)
-        depositItemsBtn:Show()
-        withdrawMoneyBtn:Show()
-        depositMoneyBtn:Show()
+        depositItemsBtn:SetShown(C_Bank.DoesBankTypeSupportAutoDeposit(depositItemsBtn._bankType))
+        -- Warband gold and its buttons only where the client has a usable Warbank (none on Forever)
+        local acct = Enum.BankType.Account
+        local moneyOk = C_Bank.CanViewBank(acct) and C_Bank.DoesBankTypeSupportMoneyTransfer(acct)
+        withdrawMoneyBtn:SetShown(moneyOk)
+        depositMoneyBtn:SetShown(moneyOk)
+        warbandGold:SetShown(moneyOk)
+        warbandHitbox:SetShown(moneyOk)
+        depositItemsBtn:ClearAllPoints()
+        if moneyOk then
+            depositItemsBtn:SetPoint("RIGHT", withdrawMoneyBtn, "LEFT", -8, 0)
+        else
+            depositItemsBtn:SetPoint("RIGHT", warbandGold, "RIGHT", 0, 0)
+        end
     end
 end
 
