@@ -1886,6 +1886,7 @@ Your base bank slots come with a free bank tab. Open it once to start using your
 Your current spec has an assigned profile so you cannot switch to another. Please unassign to switch.
 Your favorite keybind
 Your friends and guildmates in the group.
+Your group is forming
 Your group's interrupts on the enemy nameplates themselves: who kicked what, who is ready next and where the next kick should land. It keeps working inside Mythic+ keys.
 Your mail cannot reach the other faction.
 Your oldest transmog

@@ -89,7 +89,8 @@ end
 
 -- skinned dropdown button: label, grey hint, arrow
 local function ArrowButton(owner, K)
-    local btn = CreateFrame("Button", nil, owner)
+    local btn = GFNS.NewButton and GFNS.NewButton(owner) or CreateFrame("Button", nil, owner)
+    local stock = not (GFNS.SkinOn and GFNS.SkinOn())
     btn:SetNormalFontObject("GameFontHighlight")
     btn:SetText(" ")
     btn.Arrow = btn:CreateTexture(nil, "OVERLAY")
@@ -104,7 +105,8 @@ local function ArrowButton(owner, K)
     btn.Icon:Hide()
     local skin = CM._ModuleNS and CM._ModuleNS.EllesmereUIBlizzardSkin
     local S = skin and skin.WSkin
-    if S and S.Button then
+    if stock then  -- the template's rounded art
+    elseif S and S.Button then
         S.Button(btn, { "Arrow", "Label", "Hint", "Icon", "IconMask" })
     else
         local bg = btn:CreateTexture(nil, "BACKGROUND")
@@ -161,7 +163,7 @@ local function Dropdown(owner, K, modes, Get, Set, up)
     local lbg = list:CreateTexture(nil, "BACKGROUND")
     lbg:SetAllPoints()
     lbg:SetColorTexture(0, 0, 0, 1)
-    CM.MakeBorder(list, K.ThemeBorder())
+    if not (GFNS.StockBox and GFNS.StockBox(list, lbg)) then CM.MakeBorder(list, K.ThemeBorder()) end
     list.items = {}
     for i, mode in ipairs(modes) do
         local it = CreateFrame("Button", nil, list)
@@ -272,7 +274,7 @@ GFNS.ExtraRoleCounts = function(m, y, K)
     pbg:SetAllPoints()
     local fr, fg, fb = K.ThemeFill()
     pbg:SetColorTexture(fr, fg, fb, 0.98)
-    CM.MakeBorder(pop, K.ThemeBorder())
+    if not (GFNS.StockBox and GFNS.StockBox(pop, pbg)) then CM.MakeBorder(pop, K.ThemeBorder()) end
     pops[#pops + 1] = pop
 
     -- while open: veil over both columns, eats clicks
