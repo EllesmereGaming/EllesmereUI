@@ -263,15 +263,25 @@ function ns.UF_ForeverKit()
         bar.mx, bar.my = -l * kx, t * ky
         bar.mw, bar.mh = mw * kx, mh * ky
     end
-    Fit(P.health, 88, 45.5, 123, 15, 4, 123, 9, 21, 128, 32)
-    Fit(P.power, 88, 61.5, 123, 10, 4, 123, 4, 11, 128, 16)
+    -- Half a pixel short: the full 123 laid the fill's bright end over the
+    -- rim, 122 left a gap before it.
+    Fit(P.health, 88, 45.5, 122.5, 15, 4, 123, 9, 21, 128, 32)
+    -- The Forever mana mask's opening ends a column later than the health
+    -- one's: fitted at 123 its rounded right end fell past the bar, which
+    -- then ended square over the rim.
+    Fit(P.power, 88, 61.5, 123, 10, 4, 124, 4, 11, 128, 16)
     P.name = { point = "CENTER", x = 33, y = 13, w = 116, justify = "CENTER" }
     P.badge = { point = "BOTTOMLEFT", x = 13, y = 7, size = 39, atlas = circle }
     P.level = { point = "CENTER", x = 0, y = -0.5, justify = "CENTER", skullDy = 0.5 }
     P.pvp = { point = "TOP", relPoint = "TOPLEFT", x = 22, y = -65, scale = 0.8 }
     P.vis.b, P.pad.bottom = 7, 7
-    Fit(T.health, 22, 44, 123, 15, 4, 123, 10, 22, 128, 32)
-    Fit(T.power, 22, 60, 123, 10, 68, 187, 4, 11, 256, 16)
+    -- The target bars draw over the art, so a bar a pixel past its track
+    -- shows over the rim: both span 23..145, the inside of the Forever rim
+    -- (22..145 overran its left edge). The mana mask's opening has no
+    -- rounded end on the left, so that corner stays square; fitting the
+    -- mask past it only shortens the bar.
+    Fit(T.health, 23, 44, 122, 15, 4, 123, 10, 22, 128, 32)
+    Fit(T.power, 23, 60, 122, 10, 68, 187, 4, 11, 256, 16)
     -- Both Forever target bars end alike: Hide Power Bar's stretched health
     -- mask fits, not the retail art's joined one.
     T.mergedHealth = nil
