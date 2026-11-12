@@ -93,6 +93,17 @@ _G._EUI_BuildFlightTimerPage = function(pageName, parent, yOffset)
           getValue = function() return FT.Get("fade") end,
           setValue = function(v) FT.Cfg().fade = v end }
     );  y = y - h
+    _, h = W:DualRow(parent, y,
+        { type = "toggle", text = "Flight Time on the Map",
+          tooltip = "On the flight map, a destination's tooltip shows how long the flight takes.",
+          disabled = off, disabledTooltip = "Flight Timer",
+          getValue = function() return FT.Get("mapTooltip") end,
+          setValue = function(v)
+              FT.Cfg().mapTooltip = v
+              FT.Apply()
+          end },
+        EllesmereUI.BlankRowCfg()
+    );  y = y - h
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 
