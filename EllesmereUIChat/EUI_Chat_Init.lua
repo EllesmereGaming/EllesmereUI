@@ -129,6 +129,18 @@ initFrame:SetScript("OnEvent", function(self)
     end
 
     ---------------------------------------------------------------------------
+    --  2d. WoW Forever sends empty CHAT_MSG_SYSTEM events: drop them so they
+    --      never land in the chat buffer as an empty or stamp-only row.
+    ---------------------------------------------------------------------------
+    if EUI.IS_FOREVER then
+        local function EmptySystemFilter(self, event, msg)
+            if issecretvalue and issecretvalue(msg) then return false end
+            return msg == ""
+        end
+        ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", EmptySystemFilter)
+    end
+
+    ---------------------------------------------------------------------------
     --  3. Temporary window (whisper) detection.
     ---------------------------------------------------------------------------
     -- Shared skin pass: skins unskinned frames, re-strips tabs, re-applies font,
