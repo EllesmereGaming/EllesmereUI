@@ -2468,6 +2468,8 @@ end
 --    mageArmorByChar      AuraBuff Reminders (WoW Forever): the mage armor
 --                         each character last had up
 --    classBuffByChar      and the class buff lines each character last had up
+--    lootFeedHistory      Forever Essentials' Loot History: each character's
+--                         latest Loot Feed rows
 --    spellUprankChars     Forever Essentials' Auto Uprank Spells on Bars: the
 --                         highest spell ranks each character and pet has had
 --    global               friend groups: the groups, their order and colours,
@@ -2512,6 +2514,7 @@ local FULL_EXPORT_EXCLUDED = {
     bagPinnedByChar       = true,
     mageArmorByChar       = true,
     classBuffByChar       = true,
+    lootFeedHistory       = true,
     spellUprankChars      = true,
     global                = true,
     cogSeen               = true,
