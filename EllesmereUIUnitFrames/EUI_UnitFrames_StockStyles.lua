@@ -1589,6 +1589,25 @@ function ns.UF_SetBlizzCastFill(cb, kind)
     cb._blizzFillKind = kind
     cb:GetStatusBarTexture():SetAtlas(atlas)
 end
+-- Blizzard Style cast frame art reach past the bar (left, right, top), the
+-- spell name's nudge in the text box and the timer's on the bar; the live
+-- bars and the options preview both seat from here. `iconSide` is the side
+-- an icon sits flush against the bar ("left" | "right" | nil). The WoW
+-- Forever art's thicker rim drawn 2px out covers the bar's top edge and the
+-- icon's border, so it sits flush there; its text box, under that rim too,
+-- needs the name 2px lower to centre it, and the timer on the bar drops 1px
+-- to centre on the fill the rim leaves.
+function ns.UF_CastChromeGeom(iconSide)
+    if not ns.UF_Forever() then return 2, 2, 2, 0, 0 end
+    return iconSide == "left" and 0 or 2, iconSide == "right" and 0 or 2, 0, -2, -1
+end
+-- The side a live cast bar's icon sits flush against it, for UF_CastChromeGeom
+-- (nil while the icon is off or offset away from the bar).
+function ns.UF_CastIconFlushSide(cb)
+    if not (cb and cb._icoShown) then return nil end
+    if (cb._icoOffX or 0) ~= 0 or (cb._icoOffY or 0) ~= 0 then return nil end
+    return cb._icoOnRight and "right" or "left"
+end
 -- Spell name into the text box under the bar (honouring its side + offsets).
 function ns.UF_BlizzCastText(cb)
     local box = cb and cb._blizzTextBox
@@ -1603,7 +1622,8 @@ function ns.UF_BlizzCastText(cb)
     w = w or 0
     cb.Text:ClearAllPoints()
     local side = cb._nameSide or "left"
-    local ox, oy = cb._nameOX or 0, cb._nameOY or 0
+    local _, _, _, nameY = ns.UF_CastChromeGeom()
+    local ox, oy = cb._nameOX or 0, (cb._nameOY or 0) + nameY
     if side == "right" then
         cb.Text:SetJustifyH("RIGHT")
         cb.Text:SetPoint("RIGHT", box, "RIGHT", -8 + ox, oy)
@@ -1754,10 +1774,11 @@ function ns.UF_ApplyBlizzCastbar(cb)
     if cb._blizzArtFr and cb._blizzArtFr:GetFrameLevel() ~= artLvl then cb._blizzArtFr:SetFrameLevel(artLvl) end
     local frAtlas = ns.UF_BlizzAtlas(ns.UF_CAST_BLIZZ.frame)
     if frAtlas then
+        local reachL, reachR, reachT = ns.UF_CastChromeGeom(ns.UF_CastIconFlushSide(cb))
         ns.UF_StockAtlas(cb._blizzFrame, frAtlas)
         cb._blizzFrame:ClearAllPoints()
-        cb._blizzFrame:SetPoint("TOPLEFT", cb, "TOPLEFT", -2, 2)
-        cb._blizzFrame:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", 2, -2)
+        cb._blizzFrame:SetPoint("TOPLEFT", cb, "TOPLEFT", -reachL, reachT)
+        cb._blizzFrame:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", reachR, -2)
         cb._blizzFrame:Show()
     else
         cb._blizzFrame:Hide()

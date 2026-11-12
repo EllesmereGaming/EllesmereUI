@@ -2089,10 +2089,12 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                     fr = castbar:CreateTexture(nil, "OVERLAY", nil, 2)
                     castbar._blizzFrame = fr
                 end
+                local reachL, reachR, reachT = ns.UF_CastChromeGeom(
+                    castIconFrame and castIconFrame:IsShown() and (onRight and "right" or "left") or nil)
                 ns.UF_StockAtlas(fr, frAtlas)
                 fr:ClearAllPoints()
-                fr:SetPoint("TOPLEFT", castbar, "TOPLEFT", -2, 2)
-                fr:SetPoint("BOTTOMRIGHT", castbar, "BOTTOMRIGHT", 2, -2)
+                fr:SetPoint("TOPLEFT", castbar, "TOPLEFT", -reachL, reachT)
+                fr:SetPoint("BOTTOMRIGHT", castbar, "BOTTOMRIGHT", reachR, -2)
                 fr:Show()
             end
             if tbOn then
@@ -2106,7 +2108,8 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                 tb:SetPoint("TOPLEFT", castbar, "BOTTOMLEFT", 0, 3)
                 tb:SetPoint("BOTTOMRIGHT", castbar, "BOTTOMRIGHT", 0, -13)
                 tb:Show()
-                local ox, oy = s.castSpellNameX or 0, s.castSpellNameY or 0
+                local _, _, _, nameY = ns.UF_CastChromeGeom()
+                local ox, oy = s.castSpellNameX or 0, (s.castSpellNameY or 0) + nameY
                 castNameFS2:ClearAllPoints()
                 if nameSide == "right" then
                     castNameFS2:SetJustifyH("RIGHT")
@@ -2991,7 +2994,8 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                         castTimeFS:SetWidth(pvTimerW)
                         castTimeFS:SetJustifyH(jh)
                         castTimeFS:ClearAllPoints()
-                        castTimeFS:SetPoint(pt, castbar, pt, xb + (s.castDurationX or 0), (s.castDurationY or 0))
+                        local _, _, _, _, timerY = ns.UF_CastChromeGeom()
+                        castTimeFS:SetPoint(pt, castbar, pt, xb + (s.castDurationX or 0), (s.castDurationY or 0) + timerY)
                     end
                 end
                 if castTargetFS then
