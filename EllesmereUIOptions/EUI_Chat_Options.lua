@@ -878,7 +878,7 @@ initFrame:SetScript("OnEvent", function(self)
                     disabledTooltip = not STOCK and function()
                         return BarOff() and "Enable Chat Bar" or "Custom Background Opacity"
                     end or nil,
-                    title = "Background Opacity",
+                    title = "Background",
                     rows = {
                         { type="slider", label="Opacity", min=0, max=100, step=5,
                           get=function()
@@ -891,8 +891,8 @@ initFrame:SetScript("OnEvent", function(self)
             end
             y = y - h
 
-            local hideCfg = Toggle("Hide Unavailable Channels", "chatBarHideUnavailable")
-            hideCfg.tooltip = "Hides the buttons of channels you cannot write to right now, like Party outside a group or Officer without the rank."
+            local hideCfg = Toggle("Hide Unavailable Buttons", "chatBarHideUnavailable")
+            hideCfg.tooltip = "Hides the buttons you cannot use right now: channels like Party outside a group or Officer without the rank, Raid Check unless you lead or assist the group, and Pull Timer where BigWigs or DBM would not let you start one and during boss encounters, Mythic+ and rated PvP. Off: they stay on the bar, dimmed, and ignore clicks."
             local combatCfg = Toggle("Dim in Combat", "chatBarDimInCombat")
             combatCfg.tooltip = "Dims the buttons you cannot use in combat: the numbered channels, Roll, Raid Check, Pull Timer and Reload UI. In combat they ignore clicks and hover either way."
             _, h = W:DualRow(parent, y, hideCfg, combatCfg); y = y - h
@@ -901,8 +901,19 @@ initFrame:SetScript("OnEvent", function(self)
             -- (EUI_Chat_Bar.lua, OpenChat), so the tooltip says what it risks.
             local openCfg = Toggle("Open Input Box on Click", "chatBarOpenOnClick")
             openCfg.getValue = function() return Cfg("chatBarOpenOnClick") == true end
-            openCfg.tooltip = "Opens the chat input box when you click a channel button. Off: the click only picks the channel, and Enter opens the box on it.\n\nDuring boss encounters, Mythic+ and rated PvP the click never opens the box.\n\nWarning: opening the box from an addon may stop your messages from sending in those fights."
-            _, h = W:DualRow(parent, y, openCfg, EllesmereUI.BlankRowCfg()); y = y - h
+            openCfg.tooltip = "Opens the chat input box when you click a channel button. Off: the click only picks the channel, and Enter opens the box on it.\n\nDuring boss encounters, Mythic+ and rated PvP the click never opens the box.\n\n|cffff4d4dWarning: opening the box from an addon may stop your messages from sending in those fights.|r"
+            -- How the picked channel is marked in the EllesmereUI look
+            -- (chatBarActiveStyle, EUI_Chat_Bar.lua).
+            local markerCfg = { type="dropdown", text="Active Channel",
+                tooltip="How the picked channel is marked: a line in the channel's color under the button, or the whole button filled with that color.",
+                disabled=BarOff, disabledTooltip="Enable Chat Bar",
+                values={ line = "Underline", fill = "Channel Color Fill" },
+                order={ "line", "fill" },
+                getValue=function() return Cfg("chatBarActiveStyle") or "line" end,
+                setValue=function(v) Set("chatBarActiveStyle", v); ApplyBar() end }
+            -- Blizzard Style, Classic and WoW Forever always fill the button.
+            if STOCK then BS.Gate("chat", markerCfg) end
+            _, h = W:DualRow(parent, y, openCfg, markerCfg); y = y - h
 
             -- Channels in pairs that belong together: the group finder's
             -- instance chat with the group, raid with its warning, guild with officers;
@@ -938,10 +949,10 @@ initFrame:SetScript("OnEvent", function(self)
                           tooltip="Left-click the Pull Timer button to start a pull timer of this many seconds.",
                           get=Num("chatBarPullDuration", 10), set=SetNum("chatBarPullDuration") },
                         { type="slider", label="Break Duration (min)", min = 1, max = 30, step = 1,
-                          tooltip="Right-click the Pull Timer button to start a break of this many minutes. It runs on the BigWigs or DBM break bar, or on the game's countdown without them.",
+                          tooltip="Right-click the Pull Timer button to start a break of this many minutes. It runs on the BigWigs or DBM break bar; without them it runs on the game's countdown, which boss mods in the group show as a pull.",
                           get=Num("chatBarBreakMinutes", 5), set=SetNum("chatBarBreakMinutes") },
                         { type="toggle", label="Announce Break",
-                          tooltip="Tells your raid or group in chat when you start a break.",
+                          tooltip="Tells your raid or group in chat when you start a break. Only the group's leader or an assist can start one.",
                           get=function() return Cfg("chatBarBreakAnnounce") ~= false end,
                           set=function(v) Set("chatBarBreakAnnounce", v); ApplyBar() end },
                     },
