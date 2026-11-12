@@ -796,11 +796,23 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     if sleepBag and not (auraLock and not EABR.FvRanksReadable(sleepIDs)) then
         local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, EABR.SLEEPING_BAG_BUFF)
         local stacks = ok and not isSecret(aura) and (aura and aura.applications or 0)
-        if stacks and not isSecret(stacks) and stacks < EABR.SLEEPING_BAG_STACKS then
+        local expireAt, remaining
+        local showBelow = fo.sleepingBagShowBelow or 0
+        if ok and showBelow > 0 and EABR.ShowUnderThresholdApplies() and not isSecret(aura) and aura then
+            local expiration = aura.expirationTime
+            if not isSecret(expiration) and expiration then
+                local left = expiration - GetTime()
+                if left > 0 and FvNeeds(left, showBelow * 60) then
+                    expireAt, remaining = expiration, left
+                end
+            end
+        end
+        if expireAt or (stacks and not isSecret(stacks) and stacks < EABR.SLEEPING_BAG_STACKS) then
             local item = EABR.SLEEPING_BAG_ITEM
             local e = AcquireEntry()
             e.mode = "item"; e.itemID = item
             e.texture = C_Item.GetItemIconByID(item) or Tex(EABR.SLEEPING_BAG_BUFF)
+            e.expireAt, e.expireTotal = expireAt, remaining
             e.label = EllesmereUI.L("Sleeping")
             e.cat = "forever"; e.dismissKey = "forever:sleepingbag"
             missing[#missing+1] = e
