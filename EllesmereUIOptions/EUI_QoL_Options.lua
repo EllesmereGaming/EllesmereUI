@@ -2722,6 +2722,7 @@ initFrame:SetScript("OnEvent", function(self)
             if EllesmereUI._applyCombatAlert then EllesmereUI._applyCombatAlert() end
             if EllesmereUI._applyPotionAlert then EllesmereUI._applyPotionAlert() end
             if EllesmereUI._applyTalentAlert then EllesmereUI._applyTalentAlert() end
+            if EllesmereUI._applyLegacyAlert then EllesmereUI._applyLegacyAlert() end
             if EllesmereUI._applyTargetDistance then EllesmereUI._applyTargetDistance() end
             if EllesmereUI._applyHideTransforms then EllesmereUI._applyHideTransforms() end
             if EllesmereUI._applyQuickSignup then EllesmereUI._applyQuickSignup() end

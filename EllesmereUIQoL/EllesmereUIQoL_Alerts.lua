@@ -571,22 +571,20 @@ if EUI.IS_FOREVER then
 
     -- Points available to spend, or 0 while the system is locked or unread.
     local function Available()
-        local LC = Constants and Constants.LegacyConsts
-        if not (LC and C_Traits and C_MajorFactions) then return 0 end
-        local renown = C_MajorFactions.GetCurrentRenownLevel(LC.LEGACY_REWARD_TRACK_FACTION_ID)
-        if type(renown) ~= "number" or renown <= 0 then return 0 end
+        local LC = Constants.LegacyConsts
+        if C_MajorFactions.GetCurrentRenownLevel(LC.LEGACY_REWARD_TRACK_FACTION_ID) <= 0 then return 0 end
         local treeID = LC.LEGACY_TREE_PROFESSIONS_ID
         local configID = C_Traits.GetConfigIDByTreeID(treeID)
         if not configID then return 0 end
         local infos = C_Traits.GetTreeCurrencyInfo(configID, treeID, false)
         local info = infos and infos[1]
-        local qty = info and info.quantity
-        return type(qty) == "number" and qty or 0
+        return info and info.quantity or 0
     end
 
+    local function OnDismiss() dismissed = true end
     local function Line()
         local line = Alerts.Line("legacy")
-        line.onDismiss = function() dismissed = true end
+        line.onDismiss = OnDismiss
         return line
     end
 
@@ -633,15 +631,11 @@ if EUI.IS_FOREVER then
                 end)
                 -- Opening the Legacy window counts as seeing the alert. It is
                 -- load-on-demand: hook it once it exists.
-                if EventUtil and EventUtil.ContinueOnAddOnLoaded then
-                    EventUtil.ContinueOnAddOnLoaded("Blizzard_LegacySystem", function()
-                        if LegacySystemFrame then
-                            LegacySystemFrame:HookScript("OnShow", function()
-                                if installed then Line().Dismiss() end
-                            end)
-                        end
+                EventUtil.ContinueOnAddOnLoaded("Blizzard_LegacySystem", function()
+                    LegacySystemFrame:HookScript("OnShow", function()
+                        if installed then Line().Dismiss() end
                     end)
-                end
+                end)
             end
             MarkDirty()
         elseif not on and installed then

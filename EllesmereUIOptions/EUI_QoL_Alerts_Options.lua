@@ -115,7 +115,7 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
     if EllesmereUI.IS_FOREVER then
         row3, h = W:DualRow(parent, y,
             { type="toggle", text="Unspent Legacy Points Alert",
-              tooltip="Shows on-screen text while you have Legacy points to spend. It stays up until you spend them or open the Legacy window, and returns when you earn more. Use the cog to set the text, size and color; use Unlock Mode to reposition the alerts.",
+              tooltip="Shows on-screen text while you have Legacy points to spend, until you spend them or open the Legacy window.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.legacyAlertEnabled or false
               end,
