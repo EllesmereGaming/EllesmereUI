@@ -1023,6 +1023,7 @@ local function Untrack(questID)
 end
 
 local function TogglePin(questID)
+    if InCombatLockdown() then return end
     local pinned = CharDB().ctPinned
     pinned[questID] = not pinned[questID] or nil
     Queue()
@@ -1064,12 +1065,13 @@ local function ShowMenu(owner, questID)
         items[#items + 1] = { text = focused and STOP_SUPER_TRACK_QUEST or SUPER_TRACK_QUEST, noLoc = true,
             onClick = function() ToggleFocus(questID) end }
     end
-    items[#items + 1] = { noLoc = true,
+    items[#items + 1] = { noLoc = true, isDisabled = InCombatLockdown,
         text = CharDB().ctPinned[questID] and EllesmereUI.L("Unpin") or EllesmereUI.L("Pin to Top"),
         onClick = function() TogglePin(questID) end }
     items[#items + 1] = { text = OBJECTIVES_STOP_TRACKING, noLoc = true, onClick = function() Untrack(questID) end }
     if IsInGroup() and C_QuestLog.IsPushableQuest(questID) then
-        items[#items + 1] = { text = SHARE_QUEST, noLoc = true, onClick = function()
+        items[#items + 1] = { text = SHARE_QUEST, noLoc = true, isDisabled = InCombatLockdown, onClick = function()
+            if InCombatLockdown() then return end
             QuestLogPushQuest(C_QuestLog.GetLogIndexForQuestID(questID))
         end }
     end
