@@ -6767,3 +6767,9 @@ L["Ignored: right-click to show it again."] = "Masqué : clic droit pour le réa
 L["The cog shows the ignored ones."] = "La roue dentée affiche les personnages masqués."
 L["Click for the list's options."] = "Clic : les options de la liste."
 L["Last Played"] = "Joué en dernier"
+
+-- Unspent Legacy Points alert (EllesmereUIQoL_Alerts.lua, WoW Forever)
+L["Unspent Legacy points"] = "Points Legacy non dépensés"
+L["Unspent Legacy Points Alert"] = "Alerte de points Legacy non dépensés"
+L["Unspent Legacy Points Alert Settings"] = "Réglages de l'alerte de points Legacy"
+L["Shows on-screen text while you have Legacy points to spend, until you spend them or open the Legacy window."] = "Affiche un texte à l'écran tant qu'il vous reste des points Legacy à dépenser, jusqu'à ce que vous les dépensiez ou ouvriez la fenêtre Legacy."
