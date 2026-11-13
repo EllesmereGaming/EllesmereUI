@@ -1145,6 +1145,11 @@ RefreshCardsPopup = function()
     p:SetHeight(-y + 12)
     -- The height lands after the outline's seat: refit so the bottom edge stays sharp.
     if p._brd then p._brd:Fit() end
+    -- The cards fit on their own show, before this height: a clamp that moves the popup leaves them soft.
+    local shown = p._cards
+    if shown then
+        for i = 1, p._cardN do shown[i]._brd:Fit() end
+    end
 end
 SetRefreshCardsPopup(RefreshCardsPopup)
 
