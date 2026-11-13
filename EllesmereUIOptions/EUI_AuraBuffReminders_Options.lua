@@ -1956,6 +1956,8 @@ initFrame:SetScript("OnEvent", function(self)
                           tooltip="Show the reminder before Well Fed expires. Set to 0 to show it only after the buff expires.",
                           get=function() local f = FDB(); return f and f.wellFedShowBelow or 0 end,
                           set=function(v) local f = FDB(); if f then f.wellFedShowBelow = v ~= 0 and v or nil; RefreshAll() end end },
+                                                    },
+                })
                 EllesmereUI.BuildInlineCog(campRow._rightRegion, {
                     title = "Sleeping Bag",
                     disabled = function() local f = FDB(); return not (f and f.sleepingBag) end,
