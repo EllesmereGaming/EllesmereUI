@@ -12527,3 +12527,29 @@ L["With Simple Coloring When Not In M+ on, neutral enemies you fight take the Al
 L["With debuff Tooltips set to Shown on Modifier, debuffs placed outside a frame no longer leave an empty area that takes clicks for that member."] = "Если «Подсказки» дебаффов «Показаны с модификатором», дебаффы за пределами рамки больше не оставляют пустую область, которая перехватывает клики по этому участнику."
 L["With the Group Finder window skin off, the results list, filter bar and dungeon squares now use Blizzard's look."] = "При выключенном оформлении окна поиска группы список результатов, панель фильтров и квадраты подземелий теперь выглядят как у Blizzard."
 L["Your Class is now a separate filter on the Dungeons and Raids tabs."] = "«Ваш класс» теперь отдельный фильтр на вкладках «Подземелья» и «Рейды»."
+
+-- Blizzard Skins: Timer Bars (breath, fatigue, feign death)
+L["TIMER BARS"] = "ПОЛОСЫ ТАЙМЕРОВ"
+L["Reskin Timer Bars"] = "Изменить оформление полос таймеров"
+L["Timer Bars"] = "Полосы таймеров"
+L["Restyles Blizzard's breath, fatigue and feign death bars"] = "Меняет оформление полос Blizzard: дыхание, усталость и «Притвориться мертвым»"
+L["Disabling the timer bar reskin requires a UI reload to restore Blizzard's default style."] = "Отключение изменения оформления полос таймеров требует перезагрузки интерфейса для восстановления стандартного стиля Blizzard."
+L["Color by Timer Type"] = "Цвет по типу таймера"
+L["Gives each timer its own fill color in place of the fill color above."] = "Задает каждому таймеру свой цвет заливки вместо цвета заливки выше."
+L["Breath"] = "Дыхание"
+L["Fatigue"] = "Усталость"
+L["Feign Death"] = "Притвориться мертвым"
+L["Opacity of the bar background."] = "Непрозрачность фона полосы."
+L["Text Offset X"] = "Смещение текста по X"
+
+-- Nameplates: Blizzard Nameplate Size, group/raid brackets
+L["Blizzard Nameplate Size"] = "Размер индикаторов Blizzard"
+L["Blizzard's nameplate size: 1 Small, 2 Medium, 3 Large (default), 4 Extra Large, 5 Huge.\n\nIt sizes the Blizzard nameplates still shown with EUI Nameplates on, such as friendly players inside instances. EUI's own nameplates are not affected.\n\nWith Make Friendly Nameplates Name Only on, it only sets the width names have room for; the size difference is visible only with Name Only off.\n\nRequires a UI reload."] = "Размер индикаторов здоровья Blizzard: 1 — маленький, 2 — средний, 3 — большой (по умолчанию), 4 — очень большой, 5 — огромный.\n\nМеняет размер индикаторов Blizzard, которые остаются при включенных индикаторах EUI, например у союзников в подземельях. Индикаторы EUI не меняются.\n\nПри включенном «Только имена союзников» задает только ширину места под имя; разница в размере видна, только когда режим «Только имя» выключен.\n\nТребует перезагрузки интерфейса."
+L["Changing Blizzard Nameplate Size requires a UI reload to take effect."] = "Изменение «Размера индикаторов Blizzard» вступит в силу после перезагрузки интерфейса."
+L["Show [] Around Group/Raid"] = "Показывать [] у группы/рейда"
+L["Wraps party members' names in party-blue [Name] brackets (including your own raid subgroup) and other raid members' names in raid-orange [Name] brackets."] = "Заключает имена участников группы в синие скобки [Имя] (включая вашу подгруппу рейда), а имена остальных участников рейда — в оранжевые скобки [Имя]."
+
+-- Aura Buff Reminders: Well Fed threshold; Bags: gold tracking
+L["Show the reminder before Well Fed expires. Set to 0 to show it only after the buff expires."] = "Показывать напоминание до окончания «Сытости». 0 — показывать, только когда бафф закончился."
+L["Gold Tracking Options"] = "Параметры отслеживания золота"
+L["Display silver and copper values alongside gold in the bags hover tooltip."] = "Показывать серебро и медь рядом с золотом в подсказке сумок."
