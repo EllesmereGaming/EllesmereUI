@@ -39,6 +39,29 @@ local CHAT_MSG_EVENTS = {
     -- callback and OnChar hook already reset the fade.
 }
 
+-- Optional wake groups (options: Also Wake On), all off by default. types are
+-- ChatTypeInfo keys: "CHAT_MSG_" .. type is the event name. Blizzard adds the
+-- skill, loot, money, system and achievement lines with no event name, so
+-- init section 6 also matches those by the line's chat type id.
+local IDLE_WAKE_GROUPS = {
+    { key = "emotes", label = "Emotes",
+      types = { "EMOTE", "TEXT_EMOTE" } },
+    { key = "skillxp", label = "Skill-ups and XP",
+      types = { "SKILL", "COMBAT_XP_GAIN" } },
+    { key = "rephonor", label = "Reputation and Honor",
+      types = { "COMBAT_FACTION_CHANGE", "COMBAT_HONOR_GAIN" } },
+    { key = "loot", label = "Loot and Money",
+      types = { "LOOT", "MONEY", "CURRENCY" } },
+    { key = "system", label = "System Messages",
+      types = { "SYSTEM" } },
+    { key = "achievements", label = "Achievements",
+      types = { "ACHIEVEMENT", "GUILD_ACHIEVEMENT" } },
+    { key = "npc", label = "NPC Speech",
+      types = { "MONSTER_SAY", "MONSTER_YELL", "MONSTER_EMOTE", "MONSTER_WHISPER",
+                "MONSTER_PARTY", "RAID_BOSS_EMOTE", "RAID_BOSS_WHISPER" } },
+}
+ECHAT.IDLE_WAKE_GROUPS = IDLE_WAKE_GROUPS
+
 -------------------------------------------------------------------------------
 --  Tabs are fully owned (EllesmereUIChat_Tabs.lua): our buttons over our own
 --  strip, styled from the same settings, with Blizzard's strip hidden. The
@@ -349,4 +372,5 @@ local function SkinEditBox(cf)
 end
 
 I._skinned, I.CHAT_MSG_EVENTS, I.SkinEditBox = _skinned, CHAT_MSG_EVENTS, SkinEditBox
+I.IDLE_WAKE_GROUPS = IDLE_WAKE_GROUPS
 I.broken = false

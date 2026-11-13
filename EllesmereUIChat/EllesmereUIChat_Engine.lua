@@ -885,7 +885,7 @@ local function EngineTail(cf, msg, r, g, b, chatTypeID, accessID, typeID, event,
         EngineTabObserver(cf, event)
     end
     if EngineIdleObserver then
-        EngineIdleObserver(cf, event)
+        EngineIdleObserver(cf, event, chatTypeID)
     end
 end
 
