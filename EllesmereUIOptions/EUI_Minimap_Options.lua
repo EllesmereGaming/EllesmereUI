@@ -97,7 +97,7 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Visibility row builder (reused across all pages)
     ---------------------------------------------------------------------------
-    local PP = EllesmereUI.PP
+    local PP = EllesmereUI.PanelPP
     -- One control for both halves (see EllesmereUI.BuildVisibilityRow): the mode axes
     -- and the option axes are Show/Hide lanes of the same list now. Storage is
     -- unchanged, so nothing else in this module had to move. The right DualRow slot
@@ -481,7 +481,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- slider. Modes are mutually exclusive: class > accent > custom.
         if not EllesmereUI._prebuilding then
             local rgn = borderRow._rightRegion
-            local PPl = EllesmereUI.PP
+            local PPl = EllesmereUI.PanelPP
 
             -- Accent swatch (nearest the control): live theme accent.
             local accentSwatch, updateAccent = EllesmereUI.BuildColorSwatch(
