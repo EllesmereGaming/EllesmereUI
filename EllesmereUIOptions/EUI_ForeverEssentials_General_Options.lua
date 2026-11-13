@@ -383,7 +383,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Search Other Languages",
-          tooltip = "Adds Choose Languages to the cog menu of the Looking For Group window: each language you tick or untick there searches again, in the languages ticked (all by default), not only your game's. The refresh button still searches your language only.",
+          tooltip = "Adds Choose Languages to the cog menu of the Looking For Group window, to search in other languages than your game's.",
           getValue = function() return LL.Get("enabled") end,
           setValue = function(v)
               LL.Cfg().enabled = v

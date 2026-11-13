@@ -69,7 +69,6 @@ end
 -- Menu.ModifyMenu cannot be undone: added once, its entries follow the setting.
 local function Apply()
     if added or not F.Enabled() then return end
-    if not (C_LFGList and Menu and Menu.ModifyMenu) then return end
     added = true
     Menu.ModifyMenu("MENU_LFG_LISTING_SETTINGS", AddMenuEntries)
 end
