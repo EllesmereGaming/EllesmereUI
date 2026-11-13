@@ -13750,7 +13750,6 @@ L["Officer (chat bar label)"] = "官"
 L["Roll (chat bar label)"] = "骰"
 L["Timer (chat bar label)"] = "时"
 L["Ready Check (chat bar label)"] = "就"
-L["Reload UI (chat bar label)"] = "重"
 
 
 -- Chat Bar: options and tooltips
