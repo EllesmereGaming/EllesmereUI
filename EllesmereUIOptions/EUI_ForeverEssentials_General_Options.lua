@@ -469,7 +469,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local NG = EllesmereUI._InGameNavigation
     _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Show Waypoints in the World",
-          tooltip = "Shows the game's own waypoint marker in the world: an icon with the distance, and an arrow at the screen edge while the destination is out of sight. It goes away when you get close.",
+          tooltip = "Shows the game's own waypoint marker in the world: an icon with the distance, and an arrow at the screen edge while the destination is out of sight.",
           getValue = function() return NG.Get("enabled") end,
           setValue = function(v)
               if not NG.Set(v) then
