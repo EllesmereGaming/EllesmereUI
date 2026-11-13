@@ -21,6 +21,10 @@ local BP, CurrencyOrder, SetBagFont, FOOTER_H = I.BP, I.CurrencyOrder, I.SetBagF
 -------------------------------------------------------------------------------
 local GoldLedger = EllesmereUI.GetGoldLedger()
 
+local GOLD_ICON   = "|TInterface\\MoneyFrame\\UI-GoldIcon:14|t"
+local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:14|t"
+local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:14|t"
+
 local function FormatNumberWithCommas(num)
     local str = tostring(math.floor(num))
     local result = ""
@@ -34,8 +38,48 @@ local function FormatNumberWithCommas(num)
 end
 
 local function FormatGoldOnly(gold)
-    local goldAmount = math.floor(gold / 10000)
-    return FormatNumberWithCommas(goldAmount) .. "|TInterface\\MoneyFrame\\UI-GoldIcon:14|t"
+    local goldAmount = math.floor((gold or 0) / 10000)
+    return FormatNumberWithCommas(goldAmount) .. GOLD_ICON
+end
+
+local function MoneyTokens(copper, showSilverCopper)
+    copper = copper or 0
+    if not showSilverCopper then
+        local g = math.floor(copper / 10000)
+        return FormatNumberWithCommas(g) .. GOLD_ICON, nil, nil
+    end
+    local g = math.floor(copper / 10000)
+    local s = math.floor((copper % 10000) / 100)
+    local c = copper % 100
+    return FormatNumberWithCommas(g) .. GOLD_ICON, s .. SILVER_ICON, c .. COPPER_ICON
+end
+
+-- Measures token width while accounting for inline |T...|t coin textures.
+-- On WoW Forever / 3.3.5 client, GetStringWidth() strips |T...|t escape codes
+-- without adding the texture width.
+local _ttTextureWidthChecked
+local _ttTextureWidthIncluded
+
+local function CheckTextureWidthSupport(fs)
+    if _ttTextureWidthChecked then return _ttTextureWidthIncluded end
+    local orig = fs:GetText()
+    fs:SetText(".")
+    local w1 = fs:GetStringWidth() or 0
+    fs:SetText(".|TInterface\\MoneyFrame\\UI-GoldIcon:14|t")
+    local w2 = fs:GetStringWidth() or 0
+    fs:SetText(orig or "")
+    _ttTextureWidthIncluded = (w2 - w1) >= 10
+    _ttTextureWidthChecked = true
+    return _ttTextureWidthIncluded
+end
+
+local function TokenWidth(fs, text)
+    if not text then return 0 end
+    local w = fs:GetStringWidth() or 0
+    if not CheckTextureWidthSupport(fs) then
+        w = w + 14
+    end
+    return w
 end
 
 local WARBANK_GOLD_R, WARBANK_GOLD_G, WARBANK_GOLD_B = 1, 0.8, 0.5
@@ -70,7 +114,7 @@ end
 -------------------------------------------------------------------------------
 local _goldTT
 local _goldTTRows = {}
-local GOLD_COL_GAP = 20
+local GOLD_COL_GAP = 24
 local GOLD_ROW_H = 14
 local GOLD_PAD = 8
 
@@ -120,7 +164,7 @@ local function EnsureGoldRows(count)
     for i = 1, count do
         if not _goldTTRows[i] then
             _goldTTRows[i] = {}
-            for col = 0, 1 do
+            for col = 0, 3 do
                 local fs = tt:CreateFontString(nil, "OVERLAY")
                 fs:SetFont(fontPath, 11, fontFlags)
                 fs:SetJustifyH(col == 0 and "LEFT" or "RIGHT")
@@ -131,8 +175,9 @@ local function EnsureGoldRows(count)
     tt._title:SetFont(fontPath, 11, fontFlags)
     tt._hint:SetFont(fontPath, 10, fontFlags)
     for i = 1, count do
-        for col = 0, 1 do
+        for col = 0, 3 do
             _goldTTRows[i][col]:SetFont(fontPath, 11, fontFlags)
+            _goldTTRows[i][col]:SetJustifyH(col == 0 and "LEFT" or "RIGHT")
         end
     end
 end
@@ -145,6 +190,7 @@ end
 
 local function ShowGoldTooltip(anchor)
     if not GoldLedger.IsTracking() then return end
+    local showSilverCopper = BP().bagGoldShowSilverCopper == true
 
     local ledger = GoldLedger.Data()
     local totalGold = 0
@@ -168,57 +214,136 @@ local function ShowGoldTooltip(anchor)
     EnsureGoldRows(rowCount)
     local tt = GetGoldTooltip()
 
-    local colWidths = { 0, 0 }
+    local maxNameW, maxGoldW, maxSilW, maxCopW = 0, 0, 0, 0
+
     for r, entry in ipairs(charList) do
         local nameFS = _goldTTRows[r][0]
         local goldFS = _goldTTRows[r][1]
+        local silFS  = _goldTTRows[r][2]
+        local copFS  = _goldTTRows[r][3]
         local cc = RAID_CLASS_COLORS[entry.data.class] or { r = 1, g = 1, b = 1 }
         local hex = string.format("%02x%02x%02x", cc.r * 255, cc.g * 255, cc.b * 255)
         nameFS:SetText("|cff" .. hex .. StripRealm(entry.data.name or entry.id) .. "|r")
-        goldFS:SetText(FormatGoldOnly(entry.data.money))
-        goldFS:SetTextColor(1, 1, 1, 1)
-        nameFS:Show(); goldFS:Show()
+        nameFS:Show()
         local nw = nameFS:GetStringWidth() or 0
-        local gw = goldFS:GetStringWidth() or 0
-        if nw > colWidths[1] then colWidths[1] = nw end
-        if gw > colWidths[2] then colWidths[2] = gw end
+        if nw > maxNameW then maxNameW = nw end
+
+        local gText, sText, cText = MoneyTokens(entry.data.money, showSilverCopper)
+        goldFS:SetText(gText)
+        goldFS:SetTextColor(1, 1, 1, 1)
+        goldFS:Show()
+        local gw = TokenWidth(goldFS, gText)
+        if gw > maxGoldW then maxGoldW = gw end
+
+        if showSilverCopper then
+            silFS:SetText(sText)
+            silFS:SetTextColor(1, 1, 1, 1)
+            silFS:Show()
+            local sw = TokenWidth(silFS, sText)
+            if sw > maxSilW then maxSilW = sw end
+
+            copFS:SetText(cText)
+            copFS:SetTextColor(1, 1, 1, 1)
+            copFS:Show()
+            local cw = TokenWidth(copFS, cText)
+            if cw > maxCopW then maxCopW = cw end
+        else
+            silFS:Hide()
+            copFS:Hide()
+        end
     end
 
     local totalRow = #charList + 1
     if warbandGold then
         local nameFS = _goldTTRows[totalRow][0]
         local goldFS = _goldTTRows[totalRow][1]
+        local silFS  = _goldTTRows[totalRow][2]
+        local copFS  = _goldTTRows[totalRow][3]
         nameFS:SetText("|cffffcc80" .. EllesmereUI.L("Warbank") .. "|r")
-        goldFS:SetText(FormatGoldOnly(warbandGold))
-        goldFS:SetTextColor(WARBANK_GOLD_R, WARBANK_GOLD_G, WARBANK_GOLD_B, 1)
-        nameFS:Show(); goldFS:Show()
+        nameFS:Show()
         local nw = nameFS:GetStringWidth() or 0
-        local gw = goldFS:GetStringWidth() or 0
-        if nw > colWidths[1] then colWidths[1] = nw end
-        if gw > colWidths[2] then colWidths[2] = gw end
+        if nw > maxNameW then maxNameW = nw end
+
+        local gText, sText, cText = MoneyTokens(warbandGold, showSilverCopper)
+        goldFS:SetText(gText)
+        goldFS:SetTextColor(WARBANK_GOLD_R, WARBANK_GOLD_G, WARBANK_GOLD_B, 1)
+        goldFS:Show()
+        local gw = TokenWidth(goldFS, gText)
+        if gw > maxGoldW then maxGoldW = gw end
+
+        if showSilverCopper then
+            silFS:SetText(sText)
+            silFS:SetTextColor(WARBANK_GOLD_R, WARBANK_GOLD_G, WARBANK_GOLD_B, 1)
+            silFS:Show()
+            local sw = TokenWidth(silFS, sText)
+            if sw > maxSilW then maxSilW = sw end
+
+            copFS:SetText(cText)
+            copFS:SetTextColor(WARBANK_GOLD_R, WARBANK_GOLD_G, WARBANK_GOLD_B, 1)
+            copFS:Show()
+            local cw = TokenWidth(copFS, cText)
+            if cw > maxCopW then maxCopW = cw end
+        else
+            silFS:Hide()
+            copFS:Hide()
+        end
         totalRow = totalRow + 1
     end
 
     local totalNameFS = _goldTTRows[totalRow][0]
     local totalGoldFS = _goldTTRows[totalRow][1]
+    local totalSilFS  = _goldTTRows[totalRow][2]
+    local totalCopFS  = _goldTTRows[totalRow][3]
     totalNameFS:SetText("|cffffcc80" .. EllesmereUI.L("Total") .. "|r")
-    totalGoldFS:SetText(FormatGoldOnly(totalGold))
-    totalGoldFS:SetTextColor(1, 1, 0.5, 1)
-    totalNameFS:Show(); totalGoldFS:Show()
+    totalNameFS:Show()
     local tnw = totalNameFS:GetStringWidth() or 0
-    local tgw = totalGoldFS:GetStringWidth() or 0
-    if tnw > colWidths[1] then colWidths[1] = tnw end
-    if tgw > colWidths[2] then colWidths[2] = tgw end
+    if tnw > maxNameW then maxNameW = tnw end
+
+    local gText, sText, cText = MoneyTokens(totalGold, showSilverCopper)
+    totalGoldFS:SetText(gText)
+    totalGoldFS:SetTextColor(1, 1, 0.5, 1)
+    totalGoldFS:Show()
+    local tgw = TokenWidth(totalGoldFS, gText)
+    if tgw > maxGoldW then maxGoldW = tgw end
+
+    if showSilverCopper then
+        totalSilFS:SetText(sText)
+        totalSilFS:SetTextColor(1, 1, 0.5, 1)
+        totalSilFS:Show()
+        local tsw = TokenWidth(totalSilFS, sText)
+        if tsw > maxSilW then maxSilW = tsw end
+
+        totalCopFS:SetText(cText)
+        totalCopFS:SetTextColor(1, 1, 0.5, 1)
+        totalCopFS:Show()
+        local tcw = TokenWidth(totalCopFS, cText)
+        if tcw > maxCopW then maxCopW = tcw end
+    else
+        totalSilFS:Hide()
+        totalCopFS:Hide()
+    end
 
     for i = totalRow + 1, #_goldTTRows do
         _goldTTRows[i][0]:Hide()
         _goldTTRows[i][1]:Hide()
+        _goldTTRows[i][2]:Hide()
+        _goldTTRows[i][3]:Hide()
+    end
+
+    local TOKEN_GAP = 6
+    local totalMoneyW
+    if showSilverCopper then
+        totalMoneyW = maxGoldW + TOKEN_GAP + maxSilW + TOKEN_GAP + maxCopW
+    else
+        totalMoneyW = maxGoldW
     end
 
     local titleTop = GOLD_PAD + (tt._title:GetStringHeight() or 14) + 6
     local col1X = GOLD_PAD
-    local col2X = col1X + colWidths[1] + GOLD_COL_GAP
-    local totalW = col2X + colWidths[2] + GOLD_PAD
+    local totalW = col1X + maxNameW + GOLD_COL_GAP + totalMoneyW + GOLD_PAD
+
+    local silRight = -(GOLD_PAD + maxCopW + TOKEN_GAP)
+    local goldRight = silRight - maxSilW - TOKEN_GAP
 
     for r = 1, rowCount do
         local y = -(titleTop + (r - 1) * GOLD_ROW_H)
@@ -226,8 +351,27 @@ local function ShowGoldTooltip(anchor)
         if r == totalRow then y = y - 4 end
         _goldTTRows[r][0]:ClearAllPoints()
         _goldTTRows[r][0]:SetPoint("TOPLEFT", tt, "TOPLEFT", col1X, y)
-        _goldTTRows[r][1]:ClearAllPoints()
-        _goldTTRows[r][1]:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -GOLD_PAD, y)
+        _goldTTRows[r][0]:SetJustifyH("LEFT")
+
+        if showSilverCopper then
+            _goldTTRows[r][3]:ClearAllPoints()
+            _goldTTRows[r][3]:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -GOLD_PAD, y)
+            _goldTTRows[r][3]:SetJustifyH("RIGHT")
+
+            _goldTTRows[r][2]:ClearAllPoints()
+            _goldTTRows[r][2]:SetPoint("TOPRIGHT", tt, "TOPRIGHT", silRight, y)
+            _goldTTRows[r][2]:SetJustifyH("RIGHT")
+
+            _goldTTRows[r][1]:ClearAllPoints()
+            _goldTTRows[r][1]:SetPoint("TOPRIGHT", tt, "TOPRIGHT", goldRight, y)
+            _goldTTRows[r][1]:SetJustifyH("RIGHT")
+        else
+            _goldTTRows[r][1]:ClearAllPoints()
+            _goldTTRows[r][1]:SetPoint("TOPRIGHT", tt, "TOPRIGHT", -GOLD_PAD, y)
+            _goldTTRows[r][1]:SetJustifyH("RIGHT")
+            _goldTTRows[r][2]:Hide()
+            _goldTTRows[r][3]:Hide()
+        end
     end
 
     local lastRowY = titleTop + (rowCount - 1) * GOLD_ROW_H + 4 + GOLD_ROW_H + 6

@@ -73,42 +73,59 @@ do
     local DEF50  = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 }
     local DEF0   = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 }
     local dynCurve
-    local r0, g0, b0, r50, g50, b50, r100, g100, b100
+    local r0, g0, b0, r50, g50, b50, r100, g100, b100, lo0, hi0
+
+    -- Low / High thresholds (percent): at or below Low the 0% color holds, at or above High
+    -- the 100% color holds. Clamped to their slider ranges so the stops stay in order.
+    local function Thresholds(s)
+        local lo = math.max(0, math.min(s.dynamicLow or 0, 20)) / 100
+        local hi = math.max(80, math.min(s.dynamicHigh or 100, 100)) / 100
+        return lo, hi
+    end
+
     function ns.GetCustomDynamicCurve(s)
         s = s or db.profile
         local c0   = s.dynamicColor0   or DEF0
         local c50  = s.dynamicColor50  or DEF50
         local c100 = s.dynamicColor100 or DEF100
+        local lo, hi = Thresholds(s)
         if not (dynCurve
             and r0   == c0.r   and g0   == c0.g   and b0   == c0.b
             and r50  == c50.r  and g50  == c50.g  and b50  == c50.b
-            and r100 == c100.r and g100 == c100.g and b100 == c100.b) then
+            and r100 == c100.r and g100 == c100.g and b100 == c100.b
+            and lo0 == lo and hi0 == hi) then
             dynCurve = C_CurveUtil.CreateColorCurve()
             dynCurve:SetType(Enum.LuaCurveType.Linear)
-            dynCurve:AddPoint(0,   CreateColor(c0.r,   c0.g,   c0.b,   1))
-            dynCurve:AddPoint(0.5, CreateColor(c50.r,  c50.g,  c50.b,  1))
-            dynCurve:AddPoint(1,   CreateColor(c100.r, c100.g, c100.b, 1))
+            dynCurve:AddPoint(0, CreateColor(c0.r, c0.g, c0.b, 1))
+            if lo > 0 then dynCurve:AddPoint(lo, CreateColor(c0.r, c0.g, c0.b, 1)) end
+            dynCurve:AddPoint(0.5, CreateColor(c50.r, c50.g, c50.b, 1))
+            if hi < 1 then dynCurve:AddPoint(hi, CreateColor(c100.r, c100.g, c100.b, 1)) end
+            dynCurve:AddPoint(1, CreateColor(c100.r, c100.g, c100.b, 1))
             r0, g0, b0       = c0.r, c0.g, c0.b
             r50, g50, b50    = c50.r, c50.g, c50.b
             r100, g100, b100 = c100.r, c100.g, c100.b
+            lo0, hi0         = lo, hi
         end
         return dynCurve
     end
 
     -- Clean-number interpolation matching the curve, for previews where the
-    -- percent is a known fake (0-1): linear 0/50 below half, 50/100 above.
+    -- percent is a known fake (0-1): flat past the Low / High thresholds, linear between.
     function ns.ResolveDynamicColor(s, pct01)
         s = s or db.profile
         local c0   = s.dynamicColor0   or DEF0
         local c50  = s.dynamicColor50  or DEF50
         local c100 = s.dynamicColor100 or DEF100
+        local lo, hi = Thresholds(s)
+        if pct01 >= hi then return c100.r, c100.g, c100.b end
+        if pct01 <= lo then return c0.r, c0.g, c0.b end
         if pct01 >= 0.5 then
-            local t = (pct01 - 0.5) * 2
+            local t = (pct01 - 0.5) / (hi - 0.5)
             return c50.r + (c100.r - c50.r) * t,
                    c50.g + (c100.g - c50.g) * t,
                    c50.b + (c100.b - c50.b) * t
         end
-        local t = pct01 * 2
+        local t = (pct01 - lo) / (0.5 - lo)
         return c0.r + (c50.r - c0.r) * t,
                c0.g + (c50.g - c0.g) * t,
                c0.b + (c50.b - c0.b) * t

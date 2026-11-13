@@ -223,6 +223,14 @@ local function CreateHeader()
     -- Seconds a pass's item moves may take to show in a bag update before the
     -- run counts as stuck (ArmBackstop).
     local SORT_STUCK_AFTER = 5
+    -- A round's wait ends when BAG_UPDATE_DELAYED says the batch of server
+    -- answers is over and no item is locked any more. This many seconds after
+    -- the first bag update it ends anyway (BAG_UPDATE_DELAYED can be missing, or
+    -- an item can stay locked for another reason): the wait a round always had.
+    local SORT_SETTLE_AFTER = 0.15
+    -- The end of a run: repaint and new-item detection come back once nothing is
+    -- locked. Looked at every SORT_TAIL_STEP seconds, at most SORT_TAIL_STEPS times.
+    local SORT_TAIL_STEP, SORT_TAIL_STEPS = 0.05, 6
 
     -- mergeOnly (category views): consolidate partial stacks, then the visual sort.
     local function DoPhysicalSort(mergeOnly)
@@ -267,6 +275,48 @@ local function CreateHeader()
                 StopWaiting(consolidateFrame)
                 StopWaiting(retryFrame)
                 FinishSort()
+            end)
+        end
+
+        -- True while an item of bags bagMin..bagMax is locked: a move still in
+        -- flight (the server has not answered it yet).
+        local function AnyLocked(bagMin, bagMax)
+            for bag = bagMin, bagMax do
+                for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                    local info = C_Container.GetContainerItemInfo(bag, slot)
+                    if info and info.isLocked then return true end
+                end
+            end
+            return false
+        end
+
+        -- After a pass sent item moves: waits until they are settled, then calls
+        -- go() once. Settled = BAG_UPDATE_DELAYED (the batch of answers is over)
+        -- with no locked item left in bags bagMin..bagMax. Else SORT_SETTLE_AFTER
+        -- seconds after the first bag update. No update at all: the backstop.
+        -- f is the phase's own frame; its run token drops a stale wait.
+        local function WaitSettled(f, token, bagMin, bagMax, go)
+            local settle = {}
+            f._settle = settle
+            local timer = false
+            local function Go()
+                if f._runToken ~= token or f._settle ~= settle then return end
+                f._settle = nil
+                f._wait = nil
+                f:UnregisterAllEvents()
+                go()
+            end
+            f:RegisterEvent("BAG_UPDATE")
+            f:RegisterEvent("BAG_UPDATE_DELAYED")
+            ArmBackstop(f, token)
+            f:SetScript("OnEvent", function(_, event)
+                if f._runToken ~= token or f._settle ~= settle then return end
+                if event == "BAG_UPDATE_DELAYED" and not AnyLocked(bagMin, bagMax) then
+                    Go()
+                elseif not timer then
+                    timer = true
+                    C_Timer.After(SORT_SETTLE_AFTER, Go)
+                end
             end)
         end
 
@@ -350,24 +400,16 @@ local function CreateHeader()
             if not consolidateFrame then consolidateFrame = CreateFrame("Frame") end
             local runToken = {}
             consolidateFrame._runToken = runToken
-            consolidateFrame:RegisterEvent("BAG_UPDATE")
-            ArmBackstop(consolidateFrame, runToken)
-            consolidateFrame:SetScript("OnEvent", function(self)
-                if self._runToken ~= runToken then return end
-                self._wait = nil
-                self:UnregisterAllEvents()
+            local function NextPass()
                 consolidateRetry = consolidateRetry + 1
-                C_Timer.After(0.15, function()
-                    if consolidateFrame._runToken ~= runToken then return end
-                    if consolidateRetry < 30 and DoOnePass() then
-                        self:RegisterEvent("BAG_UPDATE")
-                        ArmBackstop(self, runToken)
-                    else
-                        self:SetScript("OnEvent", nil)
-                        onDone()
-                    end
-                end)
-            end)
+                if consolidateRetry < 30 and DoOnePass() then
+                    WaitSettled(consolidateFrame, runToken, 0, 5, NextPass)
+                else
+                    consolidateFrame:SetScript("OnEvent", nil)
+                    onDone()
+                end
+            end
+            WaitSettled(consolidateFrame, runToken, 0, 5, NextPass)
         end
 
         -----------------------------------------------------------------------
@@ -498,11 +540,21 @@ local function CreateHeader()
                 C_Timer.After(3, UnlockSort)
                 return
             end
-            C_Timer.After(0.3, function()
+            -- Repaint and new-item detection come back once nothing is locked: a
+            -- move still in flight looks like a lost item to DetectNewItems, which
+            -- would flag it new later. At most SORT_TAIL_STEPS looks (the old 0.3 s).
+            local looks = 0
+            local function Tail()
+                looks = looks + 1
+                if looks < SORT_TAIL_STEPS and AnyLocked(0, 5) then
+                    C_Timer.After(SORT_TAIL_STEP, Tail)
+                    return
+                end
                 EUI_Bags.refreshEnabled = true
                 EUI_Bags:RefreshInventory()
                 C_Timer.After(3, UnlockSort)
-            end)
+            end
+            C_Timer.After(SORT_TAIL_STEP, Tail)
         end
 
         local function RunRetryLoop(bagMin, bagMax, onDone)
@@ -513,25 +565,20 @@ local function CreateHeader()
             if not retryFrame then retryFrame = CreateFrame("Frame") end
             local runToken = {}
             retryFrame._runToken = runToken
-            retryFrame:RegisterEvent("BAG_UPDATE")
-            ArmBackstop(retryFrame, runToken)
-            retryFrame:SetScript("OnEvent", function(self)
-                if self._runToken ~= runToken then return end
-                self._wait = nil
-                self:UnregisterAllEvents()
+            local function NextRound()
                 retryCount = retryCount + 1
-                C_Timer.After(0.15, function()
-                    if retryFrame._runToken ~= runToken then return end
-                    local moved = ComputeAndExecute(bagMin, bagMax)
-                    if moved and retryCount < 15 then
-                        self:RegisterEvent("BAG_UPDATE")
-                        ArmBackstop(self, runToken)
-                    else
-                        self:SetScript("OnEvent", nil)
-                        onDone()
-                    end
-                end)
-            end)
+                -- Once per round, draw the moves made so far. refreshEnabled
+                -- stays false (no event repaint, no new-item detection).
+                EUI_Bags:RefreshInventory()
+                local moved = ComputeAndExecute(bagMin, bagMax)
+                if moved and retryCount < 15 then
+                    WaitSettled(retryFrame, runToken, bagMin, bagMax, NextRound)
+                else
+                    retryFrame:SetScript("OnEvent", nil)
+                    onDone()
+                end
+            end
+            WaitSettled(retryFrame, runToken, bagMin, bagMax, NextRound)
         end
 
         local function RunSort()

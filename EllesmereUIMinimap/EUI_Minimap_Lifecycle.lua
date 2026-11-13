@@ -242,15 +242,17 @@ do
         { text = "Talents",         microButton = "PlayerSpellsMicroButton" },
         { text = "Professions",     microButton = "ProfessionMicroButton" },
         { divider = true },
-        { text = "Group Finder",    microButton = "LFDMicroButton" },
-        { text = "Adventure Guide", microButton = "EJMicroButton" },
-        { text = "Achievements",    microButton = "AchievementMicroButton" },
+        { text = "Group Finder",    microButton = "LFDMicroButton",
+          forever = { text = "Group Finder", fn = function() if ToggleGroupFinderFrame then ToggleGroupFinderFrame() end end } },
+        { text = "Adventure Guide", microButton = "EJMicroButton", noForever = true },
+        { text = "Achievements",    microButton = "AchievementMicroButton",
+          forever = { text = "Legacy", microButton = "LegacyMicroButton" } },
         { text = "Collections",     microButton = "CollectionsMicroButton" },
         { text = "Quest Log",       microButton = "QuestLogMicroButton" },
         { divider = true },
         { text = "Friends",         microButton = "QuickJoinToastButton" },
         { text = "Guild",           microButton = "GuildMicroButton" },
-        { text = "Housing",         microButton = "HousingMicroButton" },
+        { text = "Housing",         microButton = "HousingMicroButton", noForever = true },
         { text = "Calendar",        fn = function() if ToggleCalendar then ToggleCalendar() end end },
         { divider = true },
         { text = "Game Menu",       fn = function() ToggleFrame(GameMenuFrame) end },
@@ -295,8 +297,14 @@ do
         end)
 
         local y = -PADDING
+        -- Forever: no Adventure Guide or Housing UI, Achievements is Legacy, and the
+        -- vanilla-style Group Finder opens through Blizzard's toggle, not its micro button.
+        local fv = EllesmereUI.IS_FOREVER == true
         for _, item in ipairs(menuItems) do
-            if item.divider then
+            if fv and item.forever then item = item.forever end
+            if fv and item.noForever then
+                -- not on this client
+            elseif item.divider then
                 local div = menuFrame:CreateTexture(nil, "ARTWORK")
                 div:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 8, y - 4)
                 div:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -8, y - 4)

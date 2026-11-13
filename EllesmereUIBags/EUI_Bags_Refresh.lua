@@ -827,6 +827,27 @@ function EUI_Bags:RefreshInventory()
         if show then displayItems[#displayItems + 1] = data end
     end
 
+    -- 4a. A virtual view (another addon's entry in the top list) is selected: each
+    -- shown item gets its group. Nothing runs while no view is registered.
+    local view = EUI_CategoryManager:GetViewByIndex(selectedCategoryIndex)
+    if view then
+        -- _vg = the item's group (0 = Other). A view that keeps Pinned / Recent (the same
+        -- switches as All Items) also marks the items those sections repeat: _vgPin, _vgRec.
+        -- As in All Items, such an item stays in its group too. Only a pinned item that is
+        -- hidden in its category (_pinnedOnly, Hide Items in Their Categories) leaves it: _vgOnly.
+        local keepPin = view.keepPinned and showPinned and pinnedSet or nil
+        local keepRec = view.keepRecent and showRecent and EUI_Bags._recentItems or nil
+        for _, data in ipairs(displayItems) do
+            local info = data.info
+            local itemID = info and info.itemID
+            data._vg = EUI_CategoryManager:ClassifyView(view, data.itemLink, itemID,
+                data.bag, data.slot, info and info.quality)
+            data._vgPin = keepPin and itemID and IsItemPinned(keepPin, data.itemLink, itemID) or nil
+            data._vgOnly = data._vgPin and data._pinnedOnly or nil
+            data._vgRec = keepRec and itemID and not data._pinnedOnly and keepRec[itemID] and true or nil
+        end
+    end
+
     -- 4b. Pending resort: sort + save order for categories invalidated by group changes (reuses already-scanned tempItems, no bag re-scan).
     if next(_pendingResortCats) or next(_pendingResortGroups) then
         local cats = EUI_CategoryManager:GetCategories()
@@ -908,6 +929,11 @@ function EUI_Bags:RefreshInventory()
                 if hasSetChild then S = S + 1 end
             end
             if S < 1 then S = 1 end
+        elseif view then
+            -- Virtual view: one section per group (+ "Other", + Pinned / Recent when
+            -- it keeps them); no empty slots drawn
+            n = #displayItems
+            S = #view.groups + 1 + (view.keepPinned and 1 or 0) + (view.keepRecent and 1 or 0)
         elseif selectedCategoryIndex == -2 then
             -- MultiBag: one section per bag that has slots (+ reagent)
             n = #tempItems + #emptySlots
@@ -987,15 +1013,20 @@ function EUI_Bags:RefreshInventory()
             leftX = sidebarW, topY = -(headerH + 1),
             allItems = isAllItems,
             slotView = (selectedCategoryIndex == -1 and "one") or (selectedCategoryIndex == -2 and "multi") or nil,
+            -- A virtual view: sections by its groups; Pinned / Recent sections only
+            -- when it keeps them (view.keepPinned / keepRecent)
+            view = view,
             -- Same rule as the grid's Recent Items section
-            recent = (showRecent and (isAllItems or (selectedCategoryIndex < 0 and BP().bagRecentInOneBag == true)))
+            recent = (showRecent and (view and view.keepRecent
+                or not view and (isAllItems or (selectedCategoryIndex < 0 and BP().bagRecentInOneBag == true))))
                 and EUI_Bags._recentItems or nil,
             -- The Recent Items tab: its items in one newest-first section
             recentOnly = isRecentView or nil,
             -- Empty rows only when nothing is search-filtered out
             emptySlots = (#displayItems == #liveItems) and liveEmpty or nil,
             -- Same rule as the grid's Pinned Items section
-            pinned = (showPinned and (isAllItems or (selectedCategoryIndex < 0 and BP().bagPinnedInOneBag ~= false)))
+            pinned = (showPinned and (view and view.keepPinned
+                or not view and (isAllItems or (selectedCategoryIndex < 0 and BP().bagPinnedInOneBag ~= false))))
                 and pinnedSet or nil,
         })
         sf:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", sidebarW, -(headerH + 1 + colHdrH))
