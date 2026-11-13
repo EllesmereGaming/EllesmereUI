@@ -6767,3 +6767,17 @@ L["Ignored: right-click to show it again."] = "Masqué : clic droit pour le réa
 L["The cog shows the ignored ones."] = "La roue dentée affiche les personnages masqués."
 L["Click for the list's options."] = "Clic : les options de la liste."
 L["Last Played"] = "Joué en dernier"
+
+-- == Resource Bars: other bars (Breath, Fatigue, Feign Death, countdowns) ==
+L["Breath"] = "Souffle"
+L["Fatigue"] = "Fatigue"
+L["Feign Death"] = "Feindre la mort"
+L["Battle Start"] = "Début de la bataille"
+L["Group Countdown"] = "Compte à rebours de groupe"
+L["Low Warning"] = "Alerte niveau bas"
+L["Warn When Left"] = "Alerte quand il reste"
+L["The bar turns red and blinks once it runs down to Warn When Left."] = "La barre passe au rouge et clignote quand elle descend jusqu'à « Alerte quand il reste »."
+L["When this much of the bar is left, in percent, the bar turns red and blinks."] = "Quand il reste ce pourcentage de la barre, elle passe au rouge et clignote."
+L["Shows this timer on a bar drawn like the Player Cast Bar; Other Bars in Unlock Mode moves them all."] = "Affiche ce minuteur sur une barre dessinée comme la barre d'incantation du joueur ; Autres barres, en mode Déverrouillage, les déplace toutes."
+L["OTHER BARS"] = "AUTRES BARRES"
+L["Other Bars"] = "Autres barres"
