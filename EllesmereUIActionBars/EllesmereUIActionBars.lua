@@ -589,6 +589,9 @@ local defaults = {
         highlightBorderMatchBar = false,
         castHighlightBorder = false,
         showCastHighlight = true,
+        -- WoW Forever: buttons holding an on-next-swing attack show the weapon
+        -- swing as a cooldown swipe (EUI_ActionBars_ForeverSwingSweep.lua).
+        swingTimerSwipe = false,
         -- Show the recharge countdown on charge spells while a charge is
         -- still banked (mirrors "Show numbers for cooldowns" CVar onto the
         -- recharge timer). Off = Blizzard default (number only at 0 charges).
