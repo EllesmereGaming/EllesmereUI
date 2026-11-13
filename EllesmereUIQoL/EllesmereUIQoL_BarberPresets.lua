@@ -11,7 +11,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  nothing is bought until the player presses Blizzard's Accept.
 -------------------------------------------------------------------------------
 local EUI = EllesmereUI
-local PP  = EUI and EUI.PP
+local PP  = EUI.PP
 
 local MAX_PRESETS = 12
 local PANEL_W     = 220
@@ -107,9 +107,7 @@ local function ApplyPreset(preset)
     end
     -- Same refresh Blizzard runs after its own choice change; the barber has
     -- no protected frames or actions.
-    if BarberShopFrame and BarberShopFrame.UpdateCharCustomizationFrame then
-        BarberShopFrame:UpdateCharCustomizationFrame()
-    end
+    BarberShopFrame:UpdateCharCustomizationFrame()
 end
 
 -------------------------------------------------------------------------------
@@ -134,7 +132,7 @@ local function MakeButton(parent, w, h)
     local bg = btn:CreateTexture(nil, "BACKGROUND")
     bg:SetAllPoints()
     bg:SetColorTexture(0.044, 0.034, 0.026, 0.9)
-    if PP and PP.CreateBorder then PP.CreateBorder(btn, 0, 0, 0, 1, 1, "OVERLAY", 7) end
+    PP.CreateBorder(btn, 0, 0, 0, 1, 1, "OVERLAY", 7)
     local hover = btn:CreateTexture(nil, "HIGHLIGHT")
     hover:SetAllPoints()
     hover:SetColorTexture(1, 1, 1, 0.12)
@@ -157,7 +155,8 @@ local function GetRow(i)
         Refresh()
     end)
 
-    -- Delete takes two clicks: the first arms it and turns it red.
+    -- Delete takes two clicks: the first arms it and turns it red. Not
+    -- ShowConfirmPopup: it sits under UIParent, which the barber hides.
     local del = MakeButton(panel, ROW_H, ROW_H)
     del:SetPoint("LEFT", row, "RIGHT", ROW_GAP, 0)
     del._label:ClearAllPoints()
@@ -182,7 +181,7 @@ local function GetRow(i)
 end
 
 local function TrySave()
-    local name = strtrim(nameBox:GetText() or "")
+    local name = strtrim(nameBox:GetText())
     if name == "" then nameBox:SetFocus(); return end
     -- A full list keeps the typed name (Enter skips the disabled button).
     if not SavePreset(name) then return end
@@ -225,7 +224,7 @@ local function SavePosition()
 end
 
 local function BuildPanel()
-    if panel or not BarberShopFrame then return end
+    if panel then return end
 
     panel = CreateFrame("Frame", "EUIBarberPresets", BarberShopFrame)
     panel:SetWidth(PANEL_W)
@@ -251,7 +250,7 @@ local function BuildPanel()
     local overlay = panel:CreateTexture(nil, "BACKGROUND", nil, 1)
     overlay:SetAllPoints()
     overlay:SetColorTexture(0, 0, 0, 0.55)
-    if PP and PP.CreateBorder then PP.CreateBorder(panel, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
+    PP.CreateBorder(panel, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7)
 
     local hdrBg = panel:CreateTexture(nil, "BORDER")
     hdrBg:SetColorTexture(0, 0, 0, 0.25)
@@ -266,7 +265,7 @@ local function BuildPanel()
     local iBg = input:CreateTexture(nil, "BACKGROUND")
     iBg:SetAllPoints()
     iBg:SetColorTexture(0, 0, 0, 0.5)
-    if PP and PP.CreateBorder then PP.CreateBorder(input, 1, 1, 1, 0.2, 1, "OVERLAY", 7) end
+    PP.CreateBorder(input, 1, 1, 1, 0.2, 1, "OVERLAY", 7)
 
     nameBox = CreateFrame("EditBox", nil, input)
     nameBox:SetPoint("TOPLEFT", 8, -1)
@@ -304,7 +303,6 @@ end
 -- Opening the barber, or switching body type, altered form or mount, changes
 -- the preset list. Post-hooks on BarberShopFrame: no script on our panel.
 local function HookBarber()
-    if not BarberShopFrame then return end
     local function Changed()
         if not Enabled() then return end
         if panel and panel:IsShown() then pendingDelete = nil; Refresh() end

@@ -6769,7 +6769,7 @@ L["Click for the list's options."] = "Clic : les options de la liste."
 L["Last Played"] = "Joué en dernier"
 -- Barber Shop Presets (EllesmereUIQoL_BarberPresets.lua)
 L["Barber Shop Presets"] = "Préréglages du coiffeur"
-L["Adds a panel to the barber shop to save your current appearance as a named preset and apply it again later. Applying a preset only previews it; press Accept to buy the change."] = "Ajoute un panneau chez le coiffeur pour enregistrer votre apparence actuelle sous un nom et la réappliquer plus tard. Appliquer un préréglage n'en affiche qu'un aperçu ; appuyez sur Accepter pour payer le changement."
+L["Adds a panel to the barber shop to save your appearance as a named preset and preview it again later."] = "Ajoute un panneau chez le coiffeur pour enregistrer votre apparence sous un nom et en revoir l'aperçu plus tard."
 L["Appearance Presets"] = "Préréglages d'apparence"
 L["Preset name"] = "Nom du préréglage"
 L["No presets for this look yet."] = "Pas encore de préréglage pour cette apparence."

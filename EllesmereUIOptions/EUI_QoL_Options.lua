@@ -2483,7 +2483,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- row of its own on WoW Forever (same barber shop, no bonus rolls).
         local function barberPresetsCfg()
             return { type="toggle", text=EllesmereUI.L("Barber Shop Presets"),
-                tooltip=EllesmereUI.L("Adds a panel to the barber shop to save your current appearance as a named preset and apply it again later. Applying a preset only previews it; press Accept to buy the change."),
+                tooltip=EllesmereUI.L("Adds a panel to the barber shop to save your appearance as a named preset and preview it again later."),
                 getValue=function()
                     return EllesmereUIDB and EllesmereUIDB.barberPresetsEnabled == true
                 end,

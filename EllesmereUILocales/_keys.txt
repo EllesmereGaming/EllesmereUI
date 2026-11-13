@@ -202,7 +202,7 @@ Additional Features
 Addon
 Addon authors: this guide shows how to add your settings to EllesmereUI.
 Addon not loaded
-Adds a panel to the barber shop to save your current appearance as a named preset and apply it again later. Applying a preset only previews it; press Accept to buy the change.
+Adds a panel to the barber shop to save your appearance as a named preset and preview it again later.
 After anchoring, drag to an edge and choose a grow direction to maintain its corner spot as bars change size.
 After optimizing, the button changes to 'Restore My Graphics Settings', which reverts every change.
 Agi
