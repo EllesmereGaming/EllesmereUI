@@ -945,6 +945,30 @@ initFrame:SetScript("OnEvent", function(self)
             BorderOffsetRow("tooltip",ttReskinOff,TooltipBorderApply)
         end
 
+        -- Rounded Corners (tooltipRoundedCorners, on unless false): the game
+        -- tooltip with a solid border only; a textured style keeps its art.
+        do
+            local function roundOff()
+                return ttReskinOff() or (EllesmereUIDB.tooltipBorderTexture or "solid") ~= "solid"
+            end
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Rounded Corners", disabled=roundOff,
+                  disabledTooltip=function()
+                      return ttReskinOff() and "Reskin Tooltip" or "This option only applies to the Solid border style"
+                  end,
+                  getValue=function() return EllesmereUIDB.tooltipRoundedCorners ~= false end,
+                  setValue=function(v)
+                      -- Stored only when off (on is the unset default).
+                      if v then
+                          EllesmereUIDB.tooltipRoundedCorners = nil
+                      else
+                          EllesmereUIDB.tooltipRoundedCorners = false
+                      end
+                      TooltipPreviewRepaint()
+                  end },
+                EllesmereUI.BlankRowCfg());  y = y - h
+        end
+
         -----------------------------------------------------------------------
         --  Blizzard Bars, Popups & Buttons: on-screen elements that are not
         --  windows, so they get plain toggles here rather than cards on the

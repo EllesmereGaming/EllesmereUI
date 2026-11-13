@@ -140,6 +140,45 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     end
     EllesmereUI._getPopupMenuButtonTextColor = _getElementColor
 
+    -- Rounded corners (tooltipRoundedCorners, on unless false) for a solid
+    -- border: a rounded outline in the configured colour and width on our own
+    -- pixel layer, our bg masked to the same shape (state in FFD, nothing on
+    -- the tooltip). A textured style keeps its square art. Returns true while
+    -- the rounded outline stands in for the configured border.
+    local function _ttRefit(layer)
+        local o = FFD[layer] and FFD[layer].outline
+        if o then o:Fit() end
+    end
+
+    local function _ttRound(tt, legacySize)
+        local data = GetFFD(tt)
+        local o = data.round
+        local db, size, _, color, alpha = _resolveConfiguredBorder("tooltip", legacySize)
+        local on = db.tooltipRoundedCorners ~= false
+            and (db.tooltipBorderTexture or "solid") == "solid"
+            and EllesmereUI.MakeRoundedBorder ~= nil
+        if not on then
+            if o then o:SetShown(false) end
+            return false
+        end
+        -- The solid line's width in whole pixels, as the square border draws it.
+        local w = size > 0 and (EllesmereUI.BorderPx(db.tooltipBorderThicknessPx, size, "solid") or size) or 1
+        w = math.max(1, math.floor(w + 0.5))
+        if not o or o.width ~= w then
+            -- A new width needs a new hole; the old outline stays hidden.
+            if o then o:SetShown(false) end
+            o = EllesmereUI.MakeRoundedBorder(tt, 1, 1, 1, 1, data.bg, nil, nil, w)
+            GetFFD(o._frame).outline = o
+            -- The tooltip grows with its lines while shown (no OnShow then).
+            o._frame:SetScript("OnSizeChanged", _ttRefit)
+            data.round = o
+        end
+        o:SetColor(color.r, color.g, color.b, size > 0 and alpha or 0)
+        o:SetShown(true)
+        o:Fit()
+        return true
+    end
+
     local function _ttSkin(tt, _, isEmbedded)
         if not tt or tt:IsForbidden() or not _enabled() then return end
         -- Embedded tooltips (EmbeddedItemTooltip, reward block inside a world-quest tooltip) render INSIDE a parent; skip bg/border to avoid a nested-tooltip look.
@@ -156,7 +195,13 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         GetFFD(tt).bg:Show()
         -- Border size/color (Blizz UI Enhanced > Blizzard Tooltip > Border), same reapply-every-call pattern; size 0 hides the border.
         local _, _, _, _, legacySize = EllesmereUI.GetTooltipBorder()
-        _applyConfiguredBorder(tt, "tooltip", legacySize)
+        if _ttRound(tt, legacySize) then
+            EllesmereUI._hideBlizzardConfiguredBorder(tt)
+        else
+            _applyConfiguredBorder(tt, "tooltip", legacySize)
+            local cb = FFD[tt] and FFD[tt].configBorder
+            if cb then cb:Show() end
+        end
     end
     -- The same look for Blizzard's tooltip-like frames that are not GameTooltips
     -- (their window packs call it on show).
