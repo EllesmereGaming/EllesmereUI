@@ -2130,12 +2130,19 @@ do
         "queueTimerBarHeight", "queueTimerTextOffsetY",
         "resurrectAcceptGlow",
         "reskinWidgetBars", "widgetBarMinSize", "reskinExtraActionButton",
+        "reskinTimerBars", "timerBarsTexture", "timerBarsFillMode",
+        "timerBarsFillColor", "timerBarsFillOpacity", "timerBarsBgColor",
+        "timerBarsBgOpacity", "timerBarsTypeColors", "timerBarsBreathColor",
+        "timerBarsFatigueColor", "timerBarsFeignColor", "timerBarsShowText",
+        "timerBarsTextSize", "timerBarsTextColor", "timerBarsTextX",
+        "timerBarsTextY", "timerBarsWidth", "timerBarsHeight",
+        "timerBarsCornerRadius", "timerBarsCornerMask",
         "popupMenuButtonBackgroundColor", "popupMenuButtonTextColorMode",
         "popupMenuButtonTextColor",
         "accentReskinElements",
     })
     -- Shared border-editor key sets (tooltip / popup menu / popup menu button)
-    for _, prefix in ipairs({ "tooltip", "popupMenu", "popupMenuButton", "lootWindow", "lootIcon" }) do
+    for _, prefix in ipairs({ "tooltip", "popupMenu", "popupMenuButton", "lootWindow", "lootIcon", "timerBars" }) do
         for _, suffix in ipairs({
             "BorderTexture", "BorderThickness", "BorderThicknessPx", "BorderColor",
             "BorderColorMode", "BorderOpacity", "BorderOffsetX",
