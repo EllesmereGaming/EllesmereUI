@@ -14,12 +14,13 @@ local _, module = ...
 local F = module.Feature("lfgZones", { enabled = false })
 
 local hooked = false
--- Result row or tooltip leader frame -> our frame holding the zone FontString.
+-- Result row or tooltip leader frame -> the zone FontString (a region of
+-- ours on it: no child frame under Blizzard's rows).
 local zoneText = setmetatable({}, { __mode = "k" })
 
 -- The zone of a solo listing's player, or nil (a group, none sent, or secret).
 local function Zone(resultID)
-    if not (F.Enabled() and resultID) then return nil end
+    if not resultID then return nil end
     local info = C_LFGList.GetSearchResultInfo(resultID)
     local count = info and info.numMembers
     if count == nil or issecretvalue(count) or count ~= 1 then return nil end
@@ -29,18 +30,30 @@ local function Zone(resultID)
     return area
 end
 
--- Our own frame over the row (or tooltip leader), holding the zone text.
-local function ZoneString(frame)
-    local holder = zoneText[frame]
-    if not holder then
-        holder = CreateFrame("Frame", nil, frame)
-        holder:SetAllPoints()
-        holder.text = holder:CreateFontString(nil, "ARTWORK", "GameFontDisableSmallLeft")
-        holder.text:SetWordWrap(false)
-        zoneText[frame] = holder
+-- Shows zone on host after the region after, cut to end margin short of
+-- limit; no zone hides it. The edges can be secret during a restriction: no
+-- cut then.
+local function Put(host, zone, after, gap, limit, margin)
+    local fs = zoneText[host]
+    if not zone then
+        if fs then fs:Hide() end
+        return
     end
-    holder:Show()
-    return holder.text
+    if not fs then
+        fs = host:CreateFontString(nil, "ARTWORK", "GameFontDisableSmallLeft")
+        fs:SetWordWrap(false)
+        zoneText[host] = fs
+    end
+    fs:ClearAllPoints()
+    fs:SetPoint("LEFT", after, "RIGHT", gap, 0)
+    fs:SetText(zone)
+    fs:SetWidth(0)
+    local left, width = after:GetRight(), fs:GetWidth()
+    if left and limit and not (issecretvalue(left) or issecretvalue(limit) or issecretvalue(width)) then
+        local room = limit - left - gap - margin
+        if width > room then fs:SetWidth(math.max(room, 1)) end
+    end
+    fs:Show()
 end
 
 -- The parts after the player's name on a result row, left to right.
@@ -52,10 +65,7 @@ local NAME_LINE = { "DiscordIcon", "Level", "ClassIcon", "NewPlayerFriendlyIcon"
 local function UpdateRow(row)
     if not F.Enabled() then return end   -- off: Apply has hidden the zones
     local zone = Zone(row.resultID)
-    if not zone then
-        if zoneText[row] then zoneText[row]:Hide() end
-        return
-    end
+    if not zone then return Put(row) end
     local after, gap, limit
     local playstyle = row.PlaystyleLabel
     if playstyle then
@@ -69,18 +79,7 @@ local function UpdateRow(row)
             if part and part:IsShown() then after = part end
         end
     end
-    local fs = ZoneString(row)
-    fs:ClearAllPoints()
-    fs:SetPoint("LEFT", after, "RIGHT", gap, 0)
-    fs:SetText(zone)
-    fs:SetWidth(0)
-    -- The row's edges can be secret during a restriction: no clamp then.
-    local left, width = after:GetRight(), fs:GetWidth()
-    if left and limit and not (issecretvalue(left) or issecretvalue(limit) or issecretvalue(width))
-        and width > limit - left - gap - 8 then
-        fs:SetWidth(math.max(limit - left - gap - 8, 1))
-    end
-    fs:Show()
+    Put(row, zone, after, gap, limit, 8)
 end
 
 -- Tooltip: after the player's role icons, cut to the tooltip's width.
@@ -88,24 +87,12 @@ local function UpdateTooltip(tip, resultID)
     if not F.Enabled() then return end   -- off: Apply has hidden the zones
     local leader = tip.Leader
     local zone = leader:IsShown() and Zone(resultID)
-    if not zone then
-        if zoneText[leader] then zoneText[leader]:Hide() end
-        return
-    end
+    if not zone then return Put(leader) end
     local after = leader.Level
     for _, icon in ipairs(leader.Roles) do
         if icon:IsShown() then after = icon end
     end
-    local fs = ZoneString(leader)
-    fs:ClearAllPoints()
-    fs:SetPoint("LEFT", after, "RIGHT", 4, 0)
-    fs:SetText(zone)
-    fs:SetWidth(0)
-    local start, edge = after:GetRight(), tip:GetRight()
-    if start and edge and fs:GetWidth() > edge - start - 15 then
-        fs:SetWidth(math.max(edge - start - 15, 1))
-    end
-    fs:Show()
+    Put(leader, zone, after, 4, tip:GetRight(), 11)
 end
 
 local function Hook()
@@ -117,7 +104,7 @@ end
 -- Turning it off hides the zones already drawn.
 local function Apply()
     if not F.Enabled() then
-        for _, holder in pairs(zoneText) do holder:Hide() end
+        for _, fs in pairs(zoneText) do fs:Hide() end
         return
     end
     if hooked then return end
