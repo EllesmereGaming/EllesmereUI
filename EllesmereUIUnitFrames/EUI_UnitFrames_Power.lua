@@ -690,7 +690,8 @@ local function CreatePowerBar(frame, unit, settings)
             self._grayedOut = true
             if self.bg then
                 self.bg:SetColorTexture(0.25, 0.25, 0.25, 1)
-                self.bg:SetAlpha(1)
+                -- Gray tints the bg; its opacity stays the user's Background Opacity.
+                self.bg:SetAlpha((s.customPowerBgAlpha or 100) / 100)
             end
         elseif not shouldGray and self._grayedOut then
             self._grayedOut = false
