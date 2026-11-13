@@ -1644,6 +1644,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             if tt.NineSlice then tt.NineSlice:SetAlpha(1) end
             if data.bg then data.bg:Hide() end
             if data.configBorder then data.configBorder:Hide() end
+            if data.round then data.round:SetShown(false) end
             local nm = tt:GetName()
             for i = 1, tt:NumLines() do
                 local left, right = _G[nm .. "TextLeft" .. i], _G[nm .. "TextRight" .. i]
