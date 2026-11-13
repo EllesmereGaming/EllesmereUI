@@ -359,6 +359,7 @@ Cannot open options during combat.
 Cannot open options during combat. The Kick Tracker is under Mythic+ Tools in /eui.
 Cannot open the Cooldown Manager during combat.
 Capricorn
+Cast Bar Position
 Cast Timer Settings
 Categories
 Categories can be dragged\nto reorder them.

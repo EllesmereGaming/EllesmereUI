@@ -256,6 +256,8 @@ local function BuildDisplayLayout(parent, y, ctx)
                 ns.ApplyBorderWrapToAll()
                 -- Corner Radius stands down while the wrap is on: square or re-round the plates.
                 if (DBVal("cornerRadius") or 0) > 0 then ns.RefreshBorder(); ns.RefreshCastBorder() end
+                -- Cast Bar X Offset stands down too: re-place the cast bars.
+                if (DBVal("castBarOffsetX") or 0) ~= 0 then ns.RefreshAllSettings() end
                 UpdatePreview()
                 -- Show Seam Line's and Corner Radius's disabled states follow this toggle.
                 EllesmereUI:RefreshPage()
