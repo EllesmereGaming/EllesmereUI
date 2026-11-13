@@ -200,6 +200,19 @@ if EllesmereUI.IS_FOREVER then
     }) do
         CHANNEL_TICK_DATA[id] = { ticks = 2 }                      -- Penance
     end
+    -- Warlock channels, every rank a Warlock learns (ticks = duration / interval, wago.tools wowf).
+    local WARLOCK_TICKS = {
+        [5]  = { 689, 699, 709, 7651, 11699, 11700,                -- Drain Life (5s / 1s)
+                 1120, 8288, 8289, 11675,                          -- Drain Soul (15s / 3s)
+                 5138, 6226, 11703, 11704 },                       -- Drain Mana (5s / 1s)
+        [15] = { 403677, 403685, 403686, 403687, 403688, 403689,   -- Drain Life, 15s version
+                 1949, 11683, 11684 },                             -- Hellfire (15s / 1s)
+        [4]  = { 5740, 6219, 11677, 11678 },                       -- Rain of Fire (8s / 2s)
+        [6]  = { 1316697 },                                        -- Wrack (6s / 1s)
+    }
+    for n, ids in pairs(WARLOCK_TICKS) do
+        for _, id in ipairs(ids) do CHANNEL_TICK_DATA[id] = { ticks = n } end
+    end
 end
 
 
