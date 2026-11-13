@@ -178,8 +178,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     --  GENERAL: Auto Uprank Spells on Bars | Classic Windows (the vanilla
     --  spellbook and talent window as one checkbox dropdown), then Most
     --  Valuable Quest Reward (EllesmereUIForeverEssentials_QuestRewards.lua) |
-    --  Gathering Skill in Tooltips (EllesmereUIForeverEssentials_GatherSkill.lua,
-    --  its Minimap row in the cog), then Auto Summon Pet | Favorites per
+    --  Gathering Skill in Tooltips (EllesmereUIForeverEssentials_GatherSkill.lua),
+    --  then Auto Summon Pet | Favorites per
     --  Character. Every control reads and writes its feature's own key and
     --  runs that feature's own apply.
     ---------------------------------------------------------------------------
@@ -246,8 +246,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         EllesmereUI.RegisterWidgetRefresh(cwRefresh)
     end
 
-    local rewardRow
-    rewardRow, h = W:DualRow(parent, y,
+    _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Most Valuable Quest Reward",
           tooltip = "Among a quest's reward choices, a money bag marks the one that sells for most, its count included.",
           getValue = function() return QR.Get("enabled") end,
@@ -261,25 +260,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
           setValue = function(v)
               GS.Cfg().enabled = v
               GS.Apply()
-              EllesmereUI:RefreshPage()  -- the cog's disabled state
           end }
     );  y = y - h
-    if not EllesmereUI._prebuilding then
-        EllesmereUI.BuildInlineCog(rewardRow._rightRegion, {
-            title = "Gathering Skill in Tooltips",
-            rows = {
-                { type = "toggle", label = "Minimap",
-                  tooltip = "Also adds the required skill to herb and ore names on the minimap.",
-                  get = function() return GS.Get("minimap") end,
-                  set = function(v)
-                      GS.Cfg().minimap = v
-                      GS.Apply()
-                  end },
-            },
-            disabled = function() return not GS.Get("enabled") end,
-            disabledTooltip = "Gathering Skill in Tooltips",
-        })
-    end
 
     -- Auto Summon Pet | Favorites per Character
     -- (EllesmereUIForeverEssentials_PetSummon.lua), while the Pet Journal exists.
@@ -429,7 +411,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local markersRow
     markersRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Show Map Markers",
-          tooltip = "Shows boats, zeppelins, dungeon entrances, flight points and zone exits on the world map; click one to link it in chat.",
+          tooltip = "Shows boats, zeppelins, dungeon entrances, flight points and zone exits on the world map; click one to link it in chat. The cog and the map's filter button pick which ones.",
           getValue = function() return MT.Get("enabled") end,
           setValue = function(v)
               MT.Cfg().enabled = v
@@ -463,31 +445,22 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         })
     end
 
-    -- Map Markers: one toggle; the cog picks the sets, all shown until turned
-    -- off.
+    -- Map Markers: one toggle; the cog picks the kinds, as the map's filter
+    -- menu does, all shown until turned off.
     if not EllesmereUI._prebuilding then
-        local function setRow(label, tooltip, key)
-            return { type = "toggle", label = label, tooltip = tooltip,
-                get = function() return MT.Get(key) end,
+        local TIPS = {
+            exits = "On zone maps, an arrow on each road out of the zone, pointing to the zone it leads to.",
+            flights = "On zone maps, the flight masters, those you have not found yet included.",
+        }
+        local rows = {}
+        for _, key in ipairs(MT.Kinds) do
+            rows[#rows + 1] = { type = "toggle", label = MT.Labels[key], tooltip = TIPS[key],
+                get = function() return MT.Want(key) end,
                 set = function(v)
                     MT.Cfg()[key] = v
                     MT.Apply()
                 end }
         end
-        local rows = {
-            setRow("Transports",
-                "Boats, zeppelins and the tram, from the world map down, with where each one goes when you hover it.",
-                "transports"),
-            setRow("Zone Exits",
-                "On zone maps, an arrow on each road out of the zone, pointing to the zone it leads to.",
-                "exits"),
-            setRow("Instance Entrances",
-                "Dungeon and raid entrances, on continent and zone maps; hover one for its name.",
-                "instances"),
-            setRow("Flight Points",
-                "On zone maps, the flight masters, those you have not found yet included.",
-                "flights"),
-        }
         EllesmereUI.BuildInlineCog(markersRow._leftRegion, {
             title = "Map Markers",
             rows = rows,

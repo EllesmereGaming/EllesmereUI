@@ -28,16 +28,29 @@ local function Count(t)
 end
 
 -------------------------------------------------------------------------------
--- The accessor, cut from the main file. It reads the character key through
--- BagsCharKey, handed in here.
+-- The accessor, cut from the main file, over the real character roster
+-- (EllesmereUI.CharData); who.guid is the character logged in.
 -------------------------------------------------------------------------------
 local main = Read(MAIN)
 local a0 = assert(main:find("local function PinnedItems(create)", 1, true), "accessor not found")
 local a1 = assert(main:find("ns.PinnedItems = PinnedItems", a0, true), "accessor export not found")
-local curKey = "Tester - Realm"
-local chunk = assert(loadstring("local BagsCharKey = ...\n" .. main:sub(a0, a1 - 1) .. "\nreturn PinnedItems"))
-local PinnedItems = chunk(function() return curKey end)
+EllesmereUI = {}
+local who = dofile(".tools/tests/char_roster_stub.lua")(EllesmereUI, { guid = "Player-1" })
+local chunk = assert(loadstring(main:sub(a0, a1 - 1) .. "\nreturn PinnedItems"))
+local PinnedItems = chunk()
 check(main:find("PinnedItems = PinnedItems,", a1, true) ~= nil, "the accessor is handed to the part files")
+-- A character's own pins in the roster, and how many characters have some.
+local function Own(guid)
+    local c = type(EllesmereUIDB.chars) == "table" and EllesmereUIDB.chars[guid]
+    return type(c) == "table" and c.bagPinned or nil
+end
+local function Owners()
+    local n = 0
+    for _, c in pairs(type(EllesmereUIDB.chars) == "table" and EllesmereUIDB.chars or {}) do
+        if type(c) == "table" and c.bagPinned then n = n + 1 end
+    end
+    return n
+end
 
 -- 1. no account table: nothing to read or write, and none is made
 EllesmereUIDB = nil
@@ -48,31 +61,31 @@ check(EllesmereUIDB == nil, "no account table: none made")
 EllesmereUIDB = { bagPinnedItems = { [6948] = 1, ["a:1"] = 999 } }
 local shared = EllesmereUIDB.bagPinnedItems
 check(PinnedItems() == shared, "unset: a character reads the shared pins before its first pin action")
-check(EllesmereUIDB.bagPinnedByChar == nil, "unset: reads make no roster")
+check(Owners() == 0, "unset: reads make no copy")
 local own = PinnedItems(true)
 check(own ~= shared and own[6948] == 1 and own["a:1"] == 999, "unset: the first pin action copies the shared pins")
-check(EllesmereUIDB.bagPinnedByChar["Tester - Realm"] == own, "the copy is filed under the character's key")
+check(Own("Player-1") == own, "the copy is filed under the character's GUID")
 own["b:2"] = 1
 own[6948] = nil
 check(shared[6948] == 1 and shared["b:2"] == nil and Count(shared) == 2, "the shared pins are not written while on")
 check(PinnedItems() == own and PinnedItems(true) == own, "the character now reads and writes its own pins")
 
 -- 3. another character starts from the shared pins, not from the first one's
-curKey = "Alt - Realm"
+who.guid = "Player-2"
 check(PinnedItems() == shared, "a second character still reads the shared pins")
 local alt = PinnedItems(true)
 check(alt ~= own and alt ~= shared and alt[6948] == 1 and alt["b:2"] == nil, "a second character gets its own copy")
-check(Count(EllesmereUIDB.bagPinnedByChar) == 2, "two characters, two entries")
+check(Owners() == 2, "two characters, two entries")
 
 -- 4. off: everyone on the shared pins, the copies kept
 EllesmereUIDB.bagPinsPerCharacter = false
 check(PinnedItems() == shared and PinnedItems(true) == shared, "off: shared pins for reads and writes")
 shared["c:3"] = 1
-check(EllesmereUIDB.bagPinnedByChar["Tester - Realm"] == own and own["c:3"] == nil, "off: the copies stay as they were")
+check(Own("Player-1") == own and own["c:3"] == nil, "off: the copies stay as they were")
 -- back on: each character has its own set again, as it left it
 EllesmereUIDB.bagPinsPerCharacter = nil
 check(PinnedItems() == alt, "on again: the character's own pins are back")
-curKey = "Tester - Realm"
+who.guid = "Player-1"
 check(PinnedItems() == own and own["b:2"] == 1, "on again: the first character's too")
 -- a build that stored true for on reads as on
 EllesmereUIDB.bagPinsPerCharacter = true
@@ -80,15 +93,15 @@ check(PinnedItems() == own, "a stored true reads as on")
 EllesmereUIDB.bagPinsPerCharacter = nil
 
 -- 5. identity not readable yet: reads fall back to the shared pins, a write gets nil
-curKey = nil
-check(PinnedItems() == shared, "no key: reads the shared pins")
-check(PinnedItems(true) == nil, "no key: a pin action gets no table")
-check(Count(EllesmereUIDB.bagPinnedByChar) == 2, "no key: no entry made")
+who.guid = nil
+check(PinnedItems() == shared, "no GUID: reads the shared pins")
+check(PinnedItems(true) == nil, "no GUID: a pin action gets no table")
+check(Owners() == 2, "no GUID: no entry made")
 
 -- 6. no shared pins yet: the first pin action starts an empty set of its own
 EllesmereUIDB = {}
-curKey = "Fresh - Realm"
-check(PinnedItems() == nil and EllesmereUIDB.bagPinnedByChar == nil, "fresh: a read returns nil and makes nothing")
+who.guid = "Player-3"
+check(PinnedItems() == nil and Owners() == 0, "fresh: a read returns nil and makes nothing")
 local fresh = PinnedItems(true)
 check(type(fresh) == "table" and Count(fresh) == 0, "fresh: an empty set of its own")
 check(EllesmereUIDB.bagPinnedItems == nil, "fresh: the shared table is not made while on")
@@ -97,15 +110,15 @@ EllesmereUIDB = { bagPinsPerCharacter = false }
 check(PinnedItems() == nil, "off, fresh: a read returns nil")
 local made = PinnedItems(true)
 check(type(made) == "table" and made == EllesmereUIDB.bagPinnedItems, "off, fresh: a pin action makes the shared table")
-check(EllesmereUIDB.bagPinnedByChar == nil, "off: no roster")
+check(Owners() == 0, "off: no copy")
 
 -- 7. a damaged roster value does not break it
-EllesmereUIDB = { bagPinnedByChar = "x" }
+EllesmereUIDB = { chars = "x" }
 check(PinnedItems() == nil, "damaged roster: a read returns the shared pins (none)")
-check(type(PinnedItems(true)) == "table" and type(EllesmereUIDB.bagPinnedByChar) == "table", "damaged roster: replaced on a pin action")
-EllesmereUIDB = { bagPinnedByChar = { ["Fresh - Realm"] = 5 }, bagPinnedItems = { [1] = 1 } }
+check(type(PinnedItems(true)) == "table" and type(Own("Player-3")) == "table", "damaged roster: replaced on a pin action")
+EllesmereUIDB = { chars = { ["Player-3"] = { bagPinned = 5 } }, bagPinnedItems = { [1] = 1 } }
 check(PinnedItems() == EllesmereUIDB.bagPinnedItems, "damaged entry: a read returns the shared pins")
-check(type(PinnedItems(true)) == "table" and EllesmereUIDB.bagPinnedByChar["Fresh - Realm"][1] == 1, "damaged entry: replaced by a copy")
+check(type(PinnedItems(true)) == "table" and Own("Player-3")[1] == 1, "damaged entry: replaced by a copy")
 
 -------------------------------------------------------------------------------
 -- The option's row (the Pinned Items Options cog): on unless turned off, only
@@ -130,7 +143,7 @@ check(refreshed == 2, "option: the bags repaint when turned back on")
 EllesmereUIDB.bagPinsPerCharacter = true
 check(row.get() == true, "option: a stored true reads as on")
 -- the row and the accessor agree
-EllesmereUIDB = { bagPinnedItems = { [7] = 1 }, bagPinnedByChar = { ["Fresh - Realm"] = { [8] = 1 } } }
+EllesmereUIDB = { bagPinnedItems = { [7] = 1 }, chars = { ["Player-3"] = { bagPinned = { [8] = 1 } } } }
 check(PinnedItems()[8] == 1, "on: the character's own pins")
 row.set(false)
 check(PinnedItems()[7] == 1 and PinnedItems()[8] == nil, "turned off in the options: the shared pins")
@@ -146,7 +159,7 @@ check(EllesmereUIDB == nil, "option without an account table writes nothing")
 local reset0 = assert(options:find("onReset = function()", 1, true), "reset not found")
 local resetText = options:sub(reset0, reset0 + 2500)
 check(resetText:find("EllesmereUIDB.bagPinnedItems = nil", 1, true) ~= nil, "reset clears the shared pins")
-check(resetText:find("EllesmereUIDB.bagPinnedByChar = nil", 1, true) ~= nil, "reset clears every character's pins")
+check(resetText:find('EllesmereUI.ClearCharField("bagPinned")', 1, true) ~= nil, "reset clears every character's pins")
 check(resetText:find("EllesmereUIDB.bagPinsPerCharacter = nil", 1, true) ~= nil, "reset puts the switch back to its default")
 
 -------------------------------------------------------------------------------
@@ -157,7 +170,7 @@ local profiles = Read(PROFILES)
 local x0 = assert(profiles:find("local FULL_EXPORT_EXCLUDED = {", 1, true), "export exclusions not found")
 local x1 = assert(profiles:find("\n}", x0, true), "export exclusions end not found")
 local excluded = profiles:sub(x0, x1)
-check(excluded:find("%f[%w]bagPinnedByChar%s*=%s*true") ~= nil, "per-character pins are left out of a full export")
+check(excluded:find("%f[%w]chars%s*=%s*true") ~= nil, "per-character pins (the roster) are left out of a full export")
 check(excluded:find("%f[%w]bagPinsPerCharacter%f[%W]") == nil, "the switch travels with a full export")
 check(excluded:find("%f[%w]bagPinnedItems%f[%W]") == nil, "the shared pins travel with a full export")
 

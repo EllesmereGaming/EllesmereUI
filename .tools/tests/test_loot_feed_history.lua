@@ -22,9 +22,9 @@ local shift = true
 IsShiftKeyDown = function() return shift end
 EllesmereUI = { IS_FOREVER = true, _Pool = {}, PP = Fake(),
     L = function(s) return s end, Lf = function(s, ...) return s:format(...) end,
-    CharKey = function(sep) return "Direktsaft Traube" .. sep .. "Forever" end,
     ApplyModuleFont = function() end, GetBorderCompanion = function() end }
 setmetatable(EllesmereUI, { __index = function() return function() end end })
+local who = dofile(".tools/tests/char_roster_stub.lua")(EllesmereUI, { guid = "Player-1" })
 local cfg = { enabled = true, history = true, maxRows = 3 }
 EllesmereUIDB = { lootFeed = cfg }
 local module = {
@@ -64,7 +64,7 @@ push("item:a", Row("a", "Staff"))
 push("money", Row("m", "Money 1"))
 push("money", Row("m", "Money 2"))
 assert(cfg.historyByChar == nil, "the history stays out of the settings")
-local list = EllesmereUIDB.lootFeedHistory["Direktsaft Traube - Forever"]
+local list = EllesmereUIDB.chars["Player-1"].lootFeedHistory
 assert(list and #list == 2, "kept per character; a refilled row updates its entry")
 assert(list[1].text == "Money 2" and list[1].key == "money" and list[2].text == "Staff", "newest first")
 assert(list[2].border.r == 0 and list[2].border.color == nil and list[2].border.hex == nil,
@@ -104,11 +104,11 @@ assert(#list == 50 and list[1].text == "Fresh Loot", "a lower Rows to Keep trims
 push("item:after", Row("after", "After"))
 assert(#list == 50 and list[1].text == "After", "and keeps to the new length")
 
-EllesmereUI.CharKey = function() return nil end
+who.guid = nil
 apply()
 push("item:nokey", Row("nokey", "No Key"))
 local stores = 0
-for _ in pairs(EllesmereUIDB.lootFeedHistory) do stores = stores + 1 end
+for _ in pairs(EllesmereUIDB.chars) do stores = stores + 1 end
 assert(stores == 1 and list[1].text == "After", "nothing is kept while the character key is unknown")
 
 print("loot feed history OK")

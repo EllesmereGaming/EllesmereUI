@@ -2345,7 +2345,16 @@ initFrame:SetScript("OnEvent", function(self)
                   if EllesmereUI._Merchant_RefreshExpand then EllesmereUI._Merchant_RefreshExpand() end
                   EllesmereUI:RefreshPage()
               end },
-            EllesmereUI.BlankRowCfg()
+            { type="toggle", text="Flag/Hide Owned Items",
+              tooltip="Tints red the vendor items you already have (known recipes, mounts, pets, toys...) and, with Expand Vendor UI, adds a button that hides them.",
+              getValue=function()
+                  return EllesmereUIDB and EllesmereUIDB.merchantMarkOwned == true
+              end,
+              setValue=function(v)
+                  if not EllesmereUIDB then EllesmereUIDB = {} end
+                  EllesmereUIDB.merchantMarkOwned = v
+                  if EllesmereUI._Merchant_RefreshOwned then EllesmereUI._Merchant_RefreshOwned() end
+              end }
         ); y = y - h
         BuildExpandCog(row._leftRegion)
         AttachDisabledOverlay(row)
@@ -4908,15 +4917,16 @@ initFrame:SetScript("OnEvent", function(self)
                     "charSheetEnchantSize", "inspectShowEnchants", "inspectShowItemLevel",
                     "inspectShowUpgradeTrack", "merchantShowAsList", "merchantListRowHeight",
                     "merchantShowItemLevel", "merchantBulkBuy", "merchantExpand", "merchantCols", "merchantRows",
+                    "merchantMarkOwned", "merchantHideKnown",
                     "tooltipItemLevel", "tooltipShowMode",
                     "tooltipShowModifier", "tooltipGrowthDirection", "tooltipBgColor",
                     "tooltipBgOpacity", "showSpellID", "spellIDModifier", "showIconID",
                     "showItemID", "friendsListCard",
                     "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
                     "mailAltListTab",
-                    -- Shown Characters (the roster itself is recorded data, not a setting)
-                    "mailAltHidden",
                 }) do EllesmereUIDB[k] = nil end
+                -- Shown Characters (the roster itself is recorded data, not a setting)
+                EllesmereUI.ClearCharField("mailAltHidden")
                 EllesmereUIDB.characterFramePos = nil
                 EllesmereUIDB.friendsFramePos = nil
             end

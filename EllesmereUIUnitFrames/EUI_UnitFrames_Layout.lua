@@ -209,6 +209,13 @@ end
 local function ApplyClassColor(fs, unit, useClassColor, customR, customG, customB)
     if not fs then return end
     if useClassColor and unit then
+        if unit == "pet" then
+            local _, ct = UnitClass("player")
+            if ct and not issecretvalue(ct) then
+                local cc = EllesmereUI.GetClassColor(ct)
+                if cc then fs:SetTextColor(cc.r, cc.g, cc.b); return end
+            end
+        end
         -- Class color for players (and AI party members), reaction color for NPCs,
         -- matching the health bar and the custom Enemy Colors override. Shared
         -- with the eui-tgtname tag via ns.ResolveUnitNameColor.
