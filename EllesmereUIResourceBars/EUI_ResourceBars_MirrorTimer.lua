@@ -14,7 +14,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- One bar per timer: Breath (BREATH), Fatigue (EXHAUSTION), Feign Death
 -- (FEIGNDEATH, and DEATH, which Blizzard paints the same way), Battle Start
 -- and Group Countdown (the game's countdowns, see KINDS). They are set in the
--- OTHER BARS section of the Cast Bar page: a switch and a fill colour each.
+-- OTHER BARS section of the Cast Bar page: a switch and a fill colour each,
+-- and in its cog the Low Warning.
+--
+-- Low Warning (optional, per bar): once a draining bar is down to Warn When
+-- Left, its fill turns red and blinks; a refilling bar never warns. A one-shot
+-- timer set at each start fires it, and the blink is an animation the engine
+-- plays.
 --
 -- One Unlock Mode mover (Other Bars) places them all: the bars up at once
 -- stack under it, one under the other in KINDS order, and close up as one
@@ -210,6 +216,16 @@ local function BuildBar(obj)
     if fmt then binding:SetFormatter(fmt) end
     binding:SetEnabled(false)
     obj.binding = binding
+
+    -- Low Warning's blink: the fill and spark fade in and out, played by the
+    -- engine.
+    local pulse = clip:CreateAnimationGroup()
+    pulse:SetLooping("BOUNCE")
+    local fade = pulse:CreateAnimation("Alpha")
+    fade:SetFromAlpha(1)
+    fade:SetToAlpha(0.35)
+    fade:SetDuration(0.3)
+    obj.pulse = pulse
     obj.built = true
 end
 
@@ -407,19 +423,50 @@ local function Run(obj, left, total, rising)
     obj.binding:SetEnabled(true)
 end
 
+local WARN_R, WARN_G, WARN_B = 1, 0.1, 0.1
+
+-- Low Warning on (red, blinking unless blink is false) or off (the fill colour).
+local function Warn(K, on, blink)
+    local cfg = Cfg(K.id)
+    if on then
+        K.bar:SetStatusBarColor(WARN_R, WARN_G, WARN_B, cfg and cfg.fillA or 1)
+    elseif cfg then
+        K.bar:SetStatusBarColor(cfg.fillR or 1, cfg.fillG or 1, cfg.fillB or 1, cfg.fillA or 1)
+    end
+    if on and blink ~= false then
+        if not K.pulse:IsPlaying() then K.pulse:Play() end
+    else
+        K.pulse:Stop()
+    end
+end
+
+-- Arms Low Warning for a draining bar at frac of its total (seconds), moving
+-- unless paused: on now if already down to Warn When Left, else a one-shot
+-- timer for when it gets there. No frac: no warning.
+local function ArmWarn(K, frac, total, paused)
+    if K.warnTimer then K.warnTimer:Cancel(); K.warnTimer = nil end
+    local cfg = Cfg(K.id)
+    local at = cfg and cfg.lowWarn and (cfg.lowWarnAt or 30) / 100 or 0
+    if not (frac and at > 0) then return Warn(K, false) end
+    if frac <= at then return Warn(K, true, not paused) end
+    Warn(K, false)
+    if not paused then K.warnTimer = C_Timer.NewTimer((frac - at) * total, K.warnNow) end
+end
+
 -- The bar's state: its sample in Unlock Mode, else its live timer.
 local function Show(K)
     if K.sample then
         K.label:SetText(KindName(K))
         Hold(K, K.sampleFrac, 60 * K.sampleFrac)
-        return
+        return ArmWarn(K)
     end
     local a = K.active
-    if not a then return end
+    if not a then return ArmWarn(K) end
     K.label:SetText(a.label or "")
     if a.endTime then
-        Run(K, a.endTime - GetTime(), a.total)
-        return
+        local left = a.endTime - GetTime()
+        Run(K, left, a.total)
+        return ArmWarn(K, left / a.total, a.total)
     end
     -- value and max in ms, moving by scale per second.
     local max = a.max > 0 and a.max or 1
@@ -427,10 +474,13 @@ local function Show(K)
     local rate = a.scale
     if a.paused or rate == 0 then
         Hold(K, v / max, v / 1000)
+        ArmWarn(K, v / max, 0, true)
     elseif rate < 0 then
         Run(K, v / 1000 / -rate, max / 1000 / -rate)
+        ArmWarn(K, v / max, max / 1000 / -rate)
     else
         Run(K, (max - v) / 1000 / rate, max / 1000 / rate, true)
+        ArmWarn(K)   -- refilling: never warns
     end
 end
 
@@ -551,6 +601,7 @@ end
 local function Clear(K)
     K.active = nil
     if K.stepTimer then K.stepTimer:Cancel(); K.stepTimer = nil end
+    ArmWarn(K)
     UpdateVisibility(K)
 end
 
@@ -677,6 +728,7 @@ local function ApplyKind(K, view)
         K.frame = CreateFrame("Frame", "ERB_Mirror_" .. K.id, UIParent)
         K.frame:SetFrameLevel(15)
         K.stepAside = function() StepAside(K) end
+        K.warnNow = function() K.warnTimer = nil; Warn(K, true) end
         BuildBar(K)
     end
     K.frame:SetFrameStrata(view.frameStrata or "MEDIUM")

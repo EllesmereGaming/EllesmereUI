@@ -47,11 +47,16 @@ end
 local CUSTOM_FILL_DEFAULT = { 1, 1, 1 }
 
 -- Mirror Timers (EUI_ResourceBars_MirrorTimer.lua): one timer bar's own
--- settings, its switch and fill colour; the rest of its look is the Player
--- Cast Bar's. A fresh table per call. OFF by default: nothing is built,
--- registered or hidden until a bar is turned on.
+-- settings, its switch, fill colour and Low Warning; the rest of its look is
+-- the Player Cast Bar's. A fresh table per call. OFF by default: nothing is
+-- built, registered or hidden until a bar is turned on.
 local function MirrorTimerDefaults(r, g, b)
-    return { enabled = false, fillR = r, fillG = g, fillB = b, fillA = 1 }
+    return {
+        enabled   = false,
+        fillR = r, fillG = g, fillB = b, fillA = 1,
+        lowWarn   = false,   -- red and blinking once lowWarnAt percent is left
+        lowWarnAt = 30,      -- percent of the bar left where the warning starts
+    }
 end
 
 local DEFAULTS = {
