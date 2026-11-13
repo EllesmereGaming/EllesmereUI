@@ -2460,6 +2460,8 @@ local function CollectAndReanchor()
         for bk in pairs(ns._missingFlipBars) do ns.QueueShiftLayout(bk) end
         wipe(ns._missingFlipBars)
     end
+    -- WoW Forever: the Swing Timer swipe follows the icons this pass placed.
+    if ns.CDM_SwingSweepSync then ns.CDM_SwingSweepSync() end
 end
 
 -- Also Show Below (EllesmereUICdmHooks.lua): a deadline or the buff ticker
