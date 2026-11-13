@@ -416,6 +416,7 @@ Click to close.
 Click to edit this bar
 Click to edit.
 Click to filter by this boss
+Click to hide the items you already have, or to show them again.
 Click to link it in chat.
 Click to mail, right-click for options.
 Click to mail.
@@ -893,7 +894,6 @@ Item ID
 Item Level
 Item Level:
 Items
-Items you already know, have learned or have collected (recipes, mounts, pets, toys...) are tinted red. Click to hide them from the list, or to show them again.
 Its Cooldown Manager spells come from the other game client and will not be imported.
 Keep Mine
 Key

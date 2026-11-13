@@ -6770,7 +6770,7 @@ L["Last Played"] = "Joué en dernier"
 
 -- Blizzard Skin (Merchant): Flag/Hide Owned Items
 L["Flag/Hide Owned Items"] = "Signaler/masquer les objets acquis"
-L["Tints red the vendor items you already know, have learned or have collected (recipes, mounts, pets, toys...), in every vendor layout. With Expand Vendor UI, a button at the top right also hides them."] = "Teinte en rouge les objets du marchand que vous connaissez, avez appris ou collectionnés (recettes, montures, mascottes, jouets...), dans toutes les présentations du marchand. Avec Expand Vendor UI, un bouton en haut à droite permet aussi de les masquer."
+L["Tints red the vendor items you already have (known recipes, mounts, pets, toys...) and, with Expand Vendor UI, adds a button that hides them."] = "Teinte en rouge les objets du marchand que vous avez déjà (recettes connues, montures, mascottes, jouets...) et, avec Expand Vendor UI, ajoute un bouton qui les masque."
 L["Hide Owned (%d)"] = "Masquer les acquis (%d)"
 L["Show Owned (%d)"] = "Afficher les acquis (%d)"
-L["Items you already know, have learned or have collected (recipes, mounts, pets, toys...) are tinted red. Click to hide them from the list, or to show them again."] = "Les objets que vous connaissez, avez appris ou collectionnés (recettes, montures, mascottes, jouets...) sont teintés en rouge. Cliquez pour les masquer de la liste, ou pour les afficher à nouveau."
+L["Click to hide the items you already have, or to show them again."] = "Cliquez pour masquer les objets que vous avez déjà, ou pour les afficher à nouveau."

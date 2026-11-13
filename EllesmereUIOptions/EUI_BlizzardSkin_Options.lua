@@ -2346,7 +2346,7 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUI:RefreshPage()
               end },
             { type="toggle", text="Flag/Hide Owned Items",
-              tooltip="Tints red the vendor items you already know, have learned or have collected (recipes, mounts, pets, toys...), in every vendor layout. With Expand Vendor UI, a button at the top right also hides them.",
+              tooltip="Tints red the vendor items you already have (known recipes, mounts, pets, toys...) and, with Expand Vendor UI, adds a button that hides them.",
               getValue=function()
                   return EllesmereUIDB and EllesmereUIDB.merchantMarkOwned == true
               end,
