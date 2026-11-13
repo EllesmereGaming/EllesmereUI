@@ -4914,9 +4914,9 @@ initFrame:SetScript("OnEvent", function(self)
                     "showItemID", "friendsListCard",
                     "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
                     "mailAltListTab",
-                    -- Shown Characters (the roster itself is recorded data, not a setting)
-                    "mailAltHidden",
                 }) do EllesmereUIDB[k] = nil end
+                -- Shown Characters (the roster itself is recorded data, not a setting)
+                EllesmereUI.ClearCharField("mailAltHidden")
                 EllesmereUIDB.characterFramePos = nil
                 EllesmereUIDB.friendsFramePos = nil
             end

@@ -3997,6 +3997,119 @@ EllesmereUI.RegisterMigration({
     end,
 })
 
+-- Per-character stores, each its own map of characters, fold into one roster:
+-- EllesmereUIDB.chars[guid][field]. A GUID key moves as is; a name key
+-- ("Name-Realm", "Name - Realm") moves as "Name-Realm" and EllesmereUI.Chars()
+-- ties it to the GUID when that character next logs in. A field the roster
+-- already holds wins. get turns a store's entry into the field's value. Then
+-- who each character is (name, realm, class, ...) moves out of the feature
+-- tables that kept a copy onto the entry itself (EllesmereUI.lua writes it
+-- from then on); the Mail card's roster entry was only that, so it goes.
+-- An older build's realm is its RealmGroupName already: realm, or ruleset.
+local CHAR_ROSTER_STORES = {
+    { "lastSpecByChar",       "lastSpec" },
+    { "qolUpgradeCalcChars",  "upgradeCalc", function(v) return type(v) == "table" and v.upgradeCalc or nil end },
+    { "xpBarChars",           "xpBar" },
+    { "timePlayedChars",      "timePlayed" },
+    { "travelHearths",        "travelHearth" },
+    { "questWatchChars",      "questWatch" },
+    { "questTrackerChars",    "questTracker" },
+    { "mailAltRoster",        "mailAlt" },
+    { "mailAltHidden",        "mailAltHidden" },
+    { "raidHoroscope",        "horoscope" },
+    { "cdmCachedBarSizes",    "cdmBarSizes" },
+    { "cdmRepopulatePending", "cdmRepopulatePending" },
+    { "cdmRepopulateDone",    "cdmRepopulateDone" },
+    { "bagCurrencyByChar",    "bagCurrency" },
+    { "bagPinnedByChar",      "bagPinned" },
+    { "mageArmorByChar",      "mageArmor" },
+    { "classBuffByChar",      "classBuff" },
+    { "spellUprankChars",     "spellUprank" },
+    { "lootFeedHistory",      "lootFeedHistory" },
+}
+
+local CHAR_IDENTITY = { "name", "realm", "realmKey", "class", "race", "level", "faction", "seen" }
+-- Sources most complete first; keep: fields the source still needs itself.
+local CHAR_IDENTITY_FROM = {
+    { field = "mailAlt", drop = true },
+    { field = "timePlayed", keep = { level = true } },
+    { field = "gold" },
+    { field = "travelHearth" },
+}
+
+local function LiftIdentity(c)
+    for _, src in ipairs(CHAR_IDENTITY_FROM) do
+        local t = c[src.field]
+        if type(t) == "table" then
+            -- the Mail card kept a WoW Forever surname apart; the roster's name has it
+            if type(t.name) == "string" and type(t.surname) == "string" then
+                t.name, t.surname = t.name .. " " .. t.surname, nil
+            end
+            for _, f in ipairs(CHAR_IDENTITY) do
+                if c[f] == nil then c[f] = t[f] end
+                if not (src.keep and src.keep[f]) then t[f] = nil end
+            end
+            if src.drop then c[src.field] = nil end
+        end
+    end
+    -- WoW Forever mails within a ruleset: its realm is the mail key there
+    if EllesmereUI.IS_FOREVER and c.realmKey == nil then c.realmKey = c.realm end
+end
+
+local function RosterKey(key)
+    if type(key) ~= "string" or key == "Unknown-Unknown" then return nil end
+    local name, realm = key:match("^(.-) %- (.+)$")
+    if name then return name .. "-" .. realm end
+    return key
+end
+
+local function FoldIntoRoster(chars, store, field, get)
+    if type(store) ~= "table" then return end
+    for key, v in pairs(store) do
+        local rk = RosterKey(key)
+        if get then v = get(v) end
+        if rk and v ~= nil then
+            local c = chars[rk]
+            if type(c) ~= "table" then c = {}; chars[rk] = c end
+            if c[field] == nil then c[field] = v end
+        end
+    end
+end
+
+EllesmereUI.RegisterMigration({
+    id          = "char_roster_v1",
+    scope       = "global",
+    description = "Fold every per-character store into EllesmereUIDB.chars[guid].",
+    body        = function(ctx)
+        local db = ctx.db
+        if type(db) ~= "table" then return end
+        local chars = type(db.chars) == "table" and db.chars or {}
+        db.chars = chars
+        for _, s in ipairs(CHAR_ROSTER_STORES) do
+            FoldIntoRoster(chars, db[s[1]], s[2], s[3])
+            db[s[1]] = nil
+        end
+        local gl = db.goldLedger
+        if type(gl) == "table" then
+            FoldIntoRoster(chars, gl.chars, "gold")
+            gl.chars = nil
+        end
+        local pet = db.petSummon
+        if type(pet) == "table" then
+            FoldIntoRoster(chars, pet.chars, "petSummon")
+            pet.chars = nil
+        end
+        local gf = type(db.groupFinderApps) == "table" and db.groupFinderApps.dungeon
+        if type(gf) == "table" then
+            FoldIntoRoster(chars, gf.chars, "groupFinderApps")
+            gf.chars = nil
+        end
+        for _, c in pairs(chars) do
+            if type(c) == "table" then LiftIdentity(c) end
+        end
+    end,
+})
+
 -- The options panel is pinned to physical pixels (baseScale =
 -- GetScreenWidth()/physW), holding a constant physical size that does NOT follow
 -- the UI Scale slider. Fine at 1080p, but above it the same pixel count covers
