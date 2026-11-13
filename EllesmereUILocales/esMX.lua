@@ -197,26 +197,6 @@ L["Separates the sidebar from the chat panel and gives it its own background and
 L["Scenario"] = "Gesta"
 
 -- Ore node names (Gathering Skill in Tooltips): the client's own names, needed to recognize the nodes
-L["Copper Vein"] = "Filón de cobre"
-L["Tin Vein"] = "Filón de estaño"
-L["Silver Vein"] = "Filón de plata"
-L["Gold Vein"] = "Filón de oro"
-L["Iron Deposit"] = "Depósito de hierro"
-L["Mithril Deposit"] = "Depósito de mitril"
-L["Truesilver Deposit"] = "Depósito de veraplata"
-L["Incendicite Mineral Vein"] = "Filón de incendicita"
-L["Lesser Bloodstone Deposit"] = "Depósito de sangrita inferior"
-L["Indurium Mineral Vein"] = "Filón de indurio"
-L["Small Thorium Vein"] = "Filón pequeño de torio"
-L["Rich Thorium Vein"] = "Filón de torio enriquecido"
-L["Dark Iron Deposit"] = "Depósito de hierro negro"
-L["Ooze Covered Silver Vein"] = "[Ooze Covered Silver Vein]"
-L["Ooze Covered Gold Vein"] = "[Ooze Covered Gold Vein]"
-L["Ooze Covered Mithril Deposit"] = "Depósito de mitril cubierto de moco"
-L["Ooze Covered Truesilver Deposit"] = "[Ooze Covered Truesilver Deposit]"
-L["Ooze Covered Thorium Vein"] = "Filón de torio cubierto de moco"
-L["Ooze Covered Rich Thorium Vein"] = "Filón de torio enriquecido cubierto de moco"
-L["Hakkari Thorium Vein"] = "[Hakkari Thorium Vein]"
 
 -- Group Finder Hide Applicant Info
 L["Note"] = "Nota"
