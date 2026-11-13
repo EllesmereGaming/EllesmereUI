@@ -876,6 +876,12 @@ local _titledNameGuard = false
 local function UpdateNameOnlyText(nameFS)
     local unit = nameFSUnits[nameFS]
     if not unit or not UnitExists(unit) then return end
+    -- A recycled plate leaves a token another plate now owns: write only through the owner's plate.
+    local np = C_NamePlate.GetNamePlateForUnit(unit)
+    if not (np and np.UnitFrame and np.UnitFrame.name == nameFS) then
+        nameFSUnits[nameFS], nameFSText[nameFS] = nil, nil
+        return
+    end
     -- Nameplate tokens are recycled: a plate reused for an enemy keeps our
     -- hook and a stale friendly token, so never write on a hostile unit
     -- (Blizzard's own name write is already correct there).
@@ -1206,11 +1212,12 @@ end)
 hooksecurefunc(NamePlateDriverFrame, "OnNamePlateRemoved", function(_, unit)
     -- Guard: Blizzard settings panel can fire this with "preview" which is not a valid unit
     if not unit or not unit:find("^nameplate") then return end
-    -- Clean up the NPC overlay if present. The player name-only text needs no
-    -- teardown -- it lives on Blizzard's own FontString, which Blizzard
-    -- rewrites when the plate is reused (our SetText hook recomposes then).
+    -- Clean up the NPC overlay if present, and release the name FontString's
+    -- player token: a reused plate must not recompose a name from it.
     local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
     if nameplate then
+        local nfs = nameplate.UnitFrame and nameplate.UnitFrame.name
+        if nfs then nameFSUnits[nfs], nameFSText[nfs] = nil, nil end
         HideNPCOverlay(nameplate)
         nameOnlyNPCSuppressed[nameplate] = nil
     end
