@@ -13,9 +13,9 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --
 --  World object tooltips carry no object ID, so a node is known by its name:
 --  a herb node bears its herb's name, read from the herb item in the client's
---  language; an ore node's name comes from the locale files (the game's own
---  names in each language, read through EllesmereUI.L: game data, so never
---  reworded). Required skills: the game's (Classic objects). Nodes WoW
+--  language; an ore node's name comes from the game names in the client's
+--  language (EllesmereUI.GameName, whatever the options language: game data,
+--  so never reworded). Required skills: the game's (Classic objects). Nodes WoW
 --  Forever added are left as the game shows them until their skill is known.
 -------------------------------------------------------------------------------
 local _, module = ...
@@ -35,7 +35,7 @@ local HERBS = {
     [13466] = 285, [13467] = 290, [13468] = 300,
 }
 
--- Ore node name (English; the locale files hold the others) = the skill it needs.
+-- Ore node name (English; EllesmereUILocales/<code>_GameNames.lua hold the others) = the skill it needs.
 local ORES = {
     ["Copper Vein"] = 1, ["Tin Vein"] = 65, ["Incendicite Mineral Vein"] = 65,
     ["Silver Vein"] = 75, ["Ooze Covered Silver Vein"] = 75, ["Lesser Bloodstone Deposit"] = 75,
@@ -44,6 +44,14 @@ local ORES = {
     ["Truesilver Deposit"] = 230, ["Ooze Covered Truesilver Deposit"] = 230, ["Dark Iron Deposit"] = 230,
     ["Small Thorium Vein"] = 245, ["Ooze Covered Thorium Vein"] = 245, ["Rich Thorium Vein"] = 275,
     ["Ooze Covered Rich Thorium Vein"] = 275, ["Hakkari Thorium Vein"] = 275,
+}
+
+-- Herb nodes some languages name unlike their herb (English node name = herb
+-- item ID); their names come from EllesmereUI.GameName.
+local HERB_NODES = {
+    ["Silverleaf"] = 765, ["Mageroyal"] = 785, ["Grave Moss"] = 3369, ["Khadgar's Whisker"] = 3358,
+    ["Firebloom"] = 4625, ["Purple Lotus"] = 8831, ["Gromsblood"] = 8846,
+    ["Mountain Silversage"] = 13465, ["Plaguebloom"] = 13466,
 }
 
 -- Localized node name = { skill line, required skill }; built on first use,
@@ -71,8 +79,11 @@ end
 local function Build()
     nodes = {}
     for name, lvl in pairs(ORES) do
-        nodes[EllesmereUI.L(name)] = { MINING, lvl }
+        nodes[EllesmereUI.GameName(name)] = { MINING, lvl }
         nodes[name] = { MINING, lvl }
+    end
+    for name, itemID in pairs(HERB_NODES) do
+        nodes[EllesmereUI.GameName(name)] = { HERBALISM, HERBS[itemID] }
     end
     for itemID in pairs(HERBS) do
         if not AddHerb(itemID) then
@@ -207,6 +218,7 @@ local function Apply()
     end
     if hooked then return end
     hooked = true
+    EllesmereUI.LoadGameNames()
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, OnObjectTooltip)
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.MinimapMouseover, OnMinimapTooltip)
 end
