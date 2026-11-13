@@ -201,6 +201,7 @@ if EABR.FOREVER then
         gatherClassTrack = true,  -- an active class tracking also hides it
         treasure = false,   -- Find Treasure reminder (Dwarf); opt-in, it shows while it is off
         wellFed = false,    -- Well Fed reminder; opt-in, matched by aura name (every food has its own spell ID)
+        wellFedShowBelow = 0,
         mageArmor = false,  -- Mage armor reminder (Mage); opt-in, it shows while no Frost/Ice/Mage Armor rank is up
         weapon = false,
         weaponLowRank = false,

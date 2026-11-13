@@ -655,6 +655,26 @@ local function FvNeeds(left, warnSec)
     return false
 end
 
+local function FvAuraExpiration(aura)
+    if isSecret(aura) or not aura then return end
+    local expiration = aura.expirationTime
+    if not isSecret(expiration) and expiration and expiration > 0 then return expiration end
+end
+
+local function FvFoodExpiration()
+    local latest
+    for _, id in ipairs(EABR.FOOD_BUFFS) do
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
+        if not ok or isSecret(aura) then return end
+        if aura then
+            local expiration = FvAuraExpiration(aura)
+            if not expiration then return end
+            if not latest or expiration > latest then latest = expiration end
+        end
+    end
+    return latest
+end
+
 local function FvWeaponEntry(missing, hand, label, dismissKey, buff, spellID, itemID, hideNoItem, left)
     if buff.spells and not spellID then return end
     if buff.items and not itemID and hideNoItem then return end
@@ -848,12 +868,26 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     if fo.wellFed and open then
         local name = SpellName(EABR.WELL_FED) or "Well Fed"
         local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
-        if ok and not isSecret(aura) and not aura and not PlayerHasAuraByID(EABR.FOOD_BUFFS) then
+        local show, expireAt
+        local warnSec = (fo.wellFedShowBelow or 0) * 60
+        if ok and not isSecret(aura) then
+            local fallback = not aura and PlayerHasAuraByID(EABR.FOOD_BUFFS)
+            show = not aura and not fallback
+            if not show and warnSec > 0 and EABR.ShowUnderThresholdApplies() then
+                expireAt = aura and FvAuraExpiration(aura) or (fallback and FvFoodExpiration())
+                if expireAt then
+                    local remaining = expireAt - GetTime()
+                    show = remaining > 0 and FvNeeds(remaining, warnSec)
+                end
+            end
+        end
+        if show then
             local e = AcquireEntry()
             e.mode = "texture"; e.spellID = EABR.WELL_FED
             e.texture = Tex(EABR.WELL_FED)
             e.label = name
             e.cat = "forever"; e.dismissKey = "forever:wellfed"
+            if expireAt then e.expireAt, e.expireTotal = expireAt, warnSec end
             missing[#missing+1] = e
         end
     end
