@@ -6767,3 +6767,7 @@ L["Ignored: right-click to show it again."] = "Masqué : clic droit pour le réa
 L["The cog shows the ignored ones."] = "La roue dentée affiche les personnages masqués."
 L["Click for the list's options."] = "Clic : les options de la liste."
 L["Last Played"] = "Joué en dernier"
+-- Search Other Languages (EllesmereUIForeverEssentials_LFGLanguages.lua)
+L["Search Other Languages"] = "Chercher dans d'autres langues"
+L["Choose Languages"] = "Choix des langues"
+L["Adds Choose Languages to the cog menu of the Looking For Group window, to search in other languages than your game's."] = "Ajoute « Choix des langues » au menu du rouage de la fenêtre Recherche de groupe, pour chercher dans d'autres langues que celle de votre jeu."
