@@ -6768,6 +6768,12 @@ L["The cog shows the ignored ones."] = "La roue dentée affiche les personnages 
 L["Click for the list's options."] = "Clic : les options de la liste."
 L["Last Played"] = "Joué en dernier"
 
+-- Blizzard Skin (Merchant): Flag/Hide Owned Items
+L["Flag/Hide Owned Items"] = "Signaler/masquer les objets acquis"
+L["Tints red the vendor items you already have (known recipes, mounts, pets, toys...) and, with Expand Vendor UI, adds a button that hides them."] = "Teinte en rouge les objets du marchand que vous avez déjà (recettes connues, montures, mascottes, jouets...) et, avec Expand Vendor UI, ajoute un bouton qui les masque."
+L["Hide Owned (%d)"] = "Masquer les acquis (%d)"
+L["Show Owned (%d)"] = "Afficher les acquis (%d)"
+L["Click to hide the items you already have, or to show them again."] = "Cliquez pour masquer les objets que vous avez déjà, ou pour les afficher à nouveau."
 -- == Resource Bars: other bars (Breath, Fatigue, Feign Death, countdowns) ==
 L["Breath"] = "Souffle"
 L["Fatigue"] = "Fatigue"
