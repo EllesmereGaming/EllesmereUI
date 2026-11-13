@@ -232,6 +232,7 @@ local function PaintButton(btn)
     else
         btn.text:SetTextColor(cr, cg, cb)
     end
+    if btn.icon then btn.icon:SetVertexColor(cr, cg, cb) end
     local sr, sg, sb = cr * FILL_SHADE, cg * FILL_SHADE, cb * FILL_SHADE
     if look == "eui" then
         -- The chat background's opacity unless the bar has its own; darker
@@ -597,9 +598,15 @@ local function Build()
     function() return CanCountdown() and not InChatLockdown() end)
     utilButtons.pull.tipFn = TimerTip
     utilButtons.pull:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
-    utilButtons.reload = NewUtilButton(Short("Reload UI (chat bar label)", "RL"), EllesmereUI.L("Reload UI"), function(_, button)
+    utilButtons.reload = NewUtilButton(nil, EllesmereUI.L("Reload UI"), function(_, button)
         if button == "LeftButton" then ReloadUI() end
     end)
+    -- An icon, not a label: the circular arrow the addon uses for resets,
+    -- tinted with the look's label colour (PaintButton).
+    local icon = utilButtons.reload:CreateTexture(nil, "OVERLAY")
+    icon:SetTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\unlock-reset.png")
+    icon:SetPoint("CENTER")
+    utilButtons.reload.icon = icon
 end
 
 local function DefaultPosition()
@@ -693,7 +700,13 @@ local function Layout()
         btn:SetSize(w, h)
         btn:SetPoint("LEFT", bar, "LEFT", (i - 1) * (w + gap), 0)
         btn.text:SetFont(font, size, flags)
-        btn.text:SetText(btn.label)
+        btn.text:SetText(btn.label or "")
+        -- The icon matches the capital letters (its arrow fills about 0.8 of
+        -- the texture; tuned by eye in game).
+        if btn.icon then
+            local s = min(w, h, size * 1.15)
+            btn.icon:SetSize(s, s)
+        end
         PaintButton(btn)
         btn:Show()
     end
