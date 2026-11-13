@@ -1399,10 +1399,10 @@ end
 --  spec's icons by then) once Blizzard has loaded its saved layouts, never
 --  during combat. A profile installer that writes
 --  Blizzard CDM layouts calls it before its ReloadUI. Requests are kept per
---  character, by the game's own spec IDs, in EllesmereUIDB.cdmRepopulatePending.
+--  character, by the game's own spec IDs, in its roster entry's cdmRepopulatePending.
 --  EllesmereUI.GetCDMRepopulateStatus([specID]) tells the installer how a
 --  request went: "pending" while queued, then "done" with the time and the
---  Blizzard layout ID the run read (EllesmereUIDB.cdmRepopulateDone, cleared by
+--  Blizzard layout ID the run read (cdmRepopulateDone, cleared by
 --  a new request for that spec), or nil when no run finished.
 -------------------------------------------------------------------------------
 local function LiveSpecID()
@@ -1437,21 +1437,18 @@ function EllesmereUI.RequestCDMRepopulate(specIDs)
         end
     end
     if #ids == 0 then return false end
-    local pending = EllesmereUIDB.cdmRepopulatePending or {}
-    EllesmereUIDB.cdmRepopulatePending = pending
-    local charKey = ns.GetCharKey()
-    local mine = pending[charKey] or {}
-    pending[charKey] = mine
+    local char = EllesmereUI.CharEntry(true)
+    if not char then return false end
+    local mine = char.cdmRepopulatePending or {}
+    char.cdmRepopulatePending = mine
     -- A new request's status starts over: an older run's record never stands
     -- in for this one.
-    local done = EllesmereUIDB.cdmRepopulateDone
-    local runs = done and done[charKey]
+    local runs = char.cdmRepopulateDone
     for _, id in ipairs(ids) do
         mine[id] = true
         if runs then runs[id] = nil end
     end
-    if runs and not next(runs) then done[charKey] = nil end
-    if done and not next(done) then EllesmereUIDB.cdmRepopulateDone = nil end
+    if runs and not next(runs) then char.cdmRepopulateDone = nil end
     return true
 end
 
@@ -1462,11 +1459,11 @@ function EllesmereUI.GetCDMRepopulateStatus(specID)
     if not EllesmereUIDB then return nil end
     if specID == nil then specID = LiveSpecID() end
     if not IsSpecID(specID) then return nil end
-    local charKey = ns.GetCharKey()
-    local pending = EllesmereUIDB.cdmRepopulatePending
-    if pending and pending[charKey] and pending[charKey][specID] then return "pending" end
-    local done = EllesmereUIDB.cdmRepopulateDone
-    local run = done and done[charKey] and done[charKey][specID]
+    local char = EllesmereUI.CharEntry()
+    if not char then return nil end
+    local pending = char.cdmRepopulatePending
+    if pending and pending[specID] then return "pending" end
+    local run = char.cdmRepopulateDone and char.cdmRepopulateDone[specID]
     if run then return "done", run.time, run.layoutID end
     return nil
 end
@@ -1477,10 +1474,8 @@ end
 -- defaults (a new character's first login can reach the final pass first),
 -- so the request waits for the data-loaded wake in EUI_CDM_Lifecycle.lua.
 function ns.RunQueuedRepopulate()
-    local pending = EllesmereUIDB and EllesmereUIDB.cdmRepopulatePending
-    if not pending then return end
-    local charKey = ns.GetCharKey()
-    local mine = pending[charKey]
+    local char = EllesmereUIDB and EllesmereUI.CharEntry()
+    local mine = char and char.cdmRepopulatePending
     if not mine then return end
     local id = LiveSpecID()
     if not id or not mine[id] then return end
@@ -1494,14 +1489,11 @@ function ns.RunQueuedRepopulate()
     end
     -- Taken off the queue before it runs, so a failure can never repeat it.
     mine[id] = nil
-    if not next(mine) then pending[charKey] = nil end
-    if not next(pending) then EllesmereUIDB.cdmRepopulatePending = nil end
+    if not next(mine) then char.cdmRepopulatePending = nil end
     -- Recorded only once the run finished (GetCDMRepopulateStatus).
     if ns.RepopulateFromBlizzard(true) then
-        local done = EllesmereUIDB.cdmRepopulateDone or {}
-        EllesmereUIDB.cdmRepopulateDone = done
-        local runs = done[charKey] or {}
-        done[charKey] = runs
+        local runs = char.cdmRepopulateDone or {}
+        char.cdmRepopulateDone = runs
         runs[id] = { time = time(), layoutID = ns.GetActiveCDMLayoutID() }
     end
 end

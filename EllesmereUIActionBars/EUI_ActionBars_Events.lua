@@ -478,9 +478,13 @@ function EAB_VTABLE.ForceButtonRefresh(btn, action)
         -- No `or ""` on the raw return: it is secret while cooldowns are
         -- restricted, and coercing one before the guard is what strands the
         -- count. SetText accepts a secret, so only the plain nil needs healing.
-        local display = C_ActionBar.GetActionDisplayCount(action)
-        if not (issecretvalue and issecretvalue(display)) and display == nil then
-            display = ""
+        -- Empty slot: blank, as Blizzard's Update does; never read its count.
+        local display = ""
+        if HasAction(action) then
+            display = C_ActionBar.GetActionDisplayCount(action)
+            if not (issecretvalue and issecretvalue(display)) and display == nil then
+                display = ""
+            end
         end
         btn.Count:SetText(display)
         ns._EABZeroCountAlpha(EFD(btn), btn.Count, display, action)

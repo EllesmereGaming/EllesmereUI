@@ -1791,7 +1791,7 @@ local function BuildNameplatePreview(parent, parentW)
         end
         cast:ClearAllPoints()
         cast:SetSize(math.max(1, pCastW - pIconW), castH)
-        cast:SetPoint("TOPLEFT", health, "BOTTOMLEFT", pShiftX, pCastY)
+        cast:SetPoint("TOPLEFT", health, "BOTTOMLEFT", pShiftX + ns.GetCastBarOffsetX(), pCastY)
         do
             local cTexKey = DBVal("castBarTexture") or "none"
             local cTexPath = EllesmereUI.ResolveTexturePath(ns.healthBarTextures, cTexKey, "Interface\\Buttons\\WHITE8x8")

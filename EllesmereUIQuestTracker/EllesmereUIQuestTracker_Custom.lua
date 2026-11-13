@@ -80,11 +80,8 @@ local TITLE_MIN_W = 40         -- the narrowest a quest title gets, whatever the
 local charDB
 local function CharDB()
     if charDB then return charDB end
-    local all = EllesmereUIDB.questTrackerChars
-    if type(all) ~= "table" then all = {}; EllesmereUIDB.questTrackerChars = all end
-    local guid = UnitGUID("player")
-    local sv = all[guid]
-    if type(sv) ~= "table" then sv = {}; all[guid] = sv end
+    local sv = EllesmereUI.CharData("questTracker", true)
+    if not sv then return {} end -- GUID unread: a throwaway, not cached
     if type(sv.ctUntracked) ~= "table" then sv.ctUntracked = {} end
     if type(sv.ctCollapsed) ~= "table" then sv.ctCollapsed = {} end
     if type(sv.ctDoneOpen) ~= "table" then sv.ctDoneOpen = {} end
@@ -1023,6 +1020,7 @@ local function Untrack(questID)
 end
 
 local function TogglePin(questID)
+    if InCombatLockdown() then return end
     local pinned = CharDB().ctPinned
     pinned[questID] = not pinned[questID] or nil
     Queue()
@@ -1064,12 +1062,13 @@ local function ShowMenu(owner, questID)
         items[#items + 1] = { text = focused and STOP_SUPER_TRACK_QUEST or SUPER_TRACK_QUEST, noLoc = true,
             onClick = function() ToggleFocus(questID) end }
     end
-    items[#items + 1] = { noLoc = true,
+    items[#items + 1] = { noLoc = true, isDisabled = InCombatLockdown,
         text = CharDB().ctPinned[questID] and EllesmereUI.L("Unpin") or EllesmereUI.L("Pin to Top"),
         onClick = function() TogglePin(questID) end }
     items[#items + 1] = { text = OBJECTIVES_STOP_TRACKING, noLoc = true, onClick = function() Untrack(questID) end }
     if IsInGroup() and C_QuestLog.IsPushableQuest(questID) then
-        items[#items + 1] = { text = SHARE_QUEST, noLoc = true, onClick = function()
+        items[#items + 1] = { text = SHARE_QUEST, noLoc = true, isDisabled = InCombatLockdown, onClick = function()
+            if InCombatLockdown() then return end
             QuestLogPushQuest(C_QuestLog.GetLogIndexForQuestID(questID))
         end }
     end

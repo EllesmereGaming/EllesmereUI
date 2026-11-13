@@ -434,29 +434,17 @@ local function CollectLines(missing, auraLock, ids, lines, last, dismissKey, lab
     if id then return nil, EABR.FvSpellEntry(missing, id, dismissKey, label) end
 end
 
-local function CharStore(field)
-    local store = EllesmereUIDB[field]
-    local keys = EABR._fvCharKeys
-    if not keys then keys = {}; EABR._fvCharKeys = keys end
-    local key = keys[field]
-    if not key then
-        key = EllesmereUI.CharKey("-", store)
-        keys[field] = key
-    end
-    return store, key
-end
-
 -- Mage armors (WoW Forever): one reminder while no rank of Frost Armor, Ice
--- Armor or Mage Armor is up; the line up is recorded in
--- EllesmereUIDB.mageArmorByChar by EllesmereUI.CharKey.
+-- Armor or Mage Armor is up; the line up is recorded in this character's
+-- roster entry (mageArmor).
 function EABR.CollectMageArmor(missing, auraLock, ids)
-    local store, key = CharStore("mageArmorByChar")
-    local last = store and key and store[key]
+    local char = EllesmereUI.CharEntry()
+    local last = char and char.mageArmor
     local up = CollectLines(missing, auraLock, ids, EABR.MAGE_ARMORS, last,
         "forever:magearmor", EllesmereUI.L("Armor"))
-    if up and up ~= last and key then
-        if not store then store = {}; EllesmereUIDB.mageArmorByChar = store end
-        store[key] = up
+    if up and up ~= last then
+        char = char or EllesmereUI.CharEntry(true)
+        if char then char.mageArmor = up end
     end
 end
 
@@ -564,8 +552,7 @@ function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
     local list = EABR.FvClassBuffs()[class]
     if not list then return end
     local picks = fo.classBuffPicks
-    local store, key = CharStore("classBuffByChar")
-    local rec = store and key and store[key]
+    local rec = EllesmereUI.CharData("classBuff")
     for i = 1, #list do
         local buff = list[i]
         if ClassBuffOn(buff, picks) then
@@ -576,11 +563,9 @@ function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
                 buff.label, buff.also,
                 buff.own or buff.ownMemory, buff.ownMemory)
             if entry and PickerEnabled() then ApplyClassBuffPicker(entry, fo, buff) end
-            if up and up ~= last and key and buff.lines[2] then
-                if not store then store = {}; EllesmereUIDB.classBuffByChar = store end
-                rec = store[key]
-                if not rec then rec = {}; store[key] = rec end
-                rec[buff.key] = up
+            if up and up ~= last and buff.lines[2] then
+                rec = rec or EllesmereUI.CharData("classBuff", true)
+                if rec then rec[buff.key] = up end
             end
         end
     end
@@ -653,6 +638,26 @@ local function FvNeeds(left, warnSec)
     local nextAt = EABR._nextDurationRefreshTime
     if not nextAt or at < nextAt then EABR._nextDurationRefreshTime = at end
     return false
+end
+
+local function FvAuraExpiration(aura)
+    if isSecret(aura) or not aura then return end
+    local expiration = aura.expirationTime
+    if not isSecret(expiration) and expiration and expiration > 0 then return expiration end
+end
+
+local function FvFoodExpiration()
+    local latest
+    for _, id in ipairs(EABR.FOOD_BUFFS) do
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
+        if not ok or isSecret(aura) then return end
+        if aura then
+            local expiration = FvAuraExpiration(aura)
+            if not expiration then return end
+            if not latest or expiration > latest then latest = expiration end
+        end
+    end
+    return latest
 end
 
 local function FvWeaponEntry(missing, hand, label, dismissKey, buff, spellID, itemID, hideNoItem, left)
@@ -848,12 +853,26 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     if fo.wellFed and open then
         local name = SpellName(EABR.WELL_FED) or "Well Fed"
         local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
-        if ok and not isSecret(aura) and not aura and not PlayerHasAuraByID(EABR.FOOD_BUFFS) then
+        local show, expireAt
+        local warnSec = (fo.wellFedShowBelow or 0) * 60
+        if ok and not isSecret(aura) then
+            local fallback = not aura and PlayerHasAuraByID(EABR.FOOD_BUFFS)
+            show = not aura and not fallback
+            if not show and warnSec > 0 and EABR.ShowUnderThresholdApplies() then
+                expireAt = aura and FvAuraExpiration(aura) or (fallback and FvFoodExpiration())
+                if expireAt then
+                    local remaining = expireAt - GetTime()
+                    show = remaining > 0 and FvNeeds(remaining, warnSec)
+                end
+            end
+        end
+        if show then
             local e = AcquireEntry()
             e.mode = "texture"; e.spellID = EABR.WELL_FED
             e.texture = Tex(EABR.WELL_FED)
             e.label = name
             e.cat = "forever"; e.dismissKey = "forever:wellfed"
+            if expireAt then e.expireAt, e.expireTotal = expireAt, warnSec end
             missing[#missing+1] = e
         end
     end

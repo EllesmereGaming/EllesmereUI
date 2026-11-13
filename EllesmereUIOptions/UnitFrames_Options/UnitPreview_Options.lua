@@ -333,12 +333,16 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
         -- Custom fill color is skipped when class-colored. Boss preview is
         -- always hostile-red: the real boss frame never class-colors.
         local cFill = settings.customFillColor
-        local isClassColored = settings.healthClassColored and unitKey ~= "boss"
+        local isClassColored = settings.healthClassColored
         if isClassColored then
-            local _, classToken = UnitClass("player")
-            local cc = RAID_CLASS_COLORS[classToken]
-            if cc then hR, hG, hB = cc.r, cc.g, cc.b
-            else hR, hG, hB = 37/255, 193/255, 29/255 end
+            if unitKey == "boss" then
+                hR, hG, hB = 0.8, 0.2, 0.2
+            else
+                local _, classToken = UnitClass("player")
+                local cc = RAID_CLASS_COLORS[classToken]
+                if cc then hR, hG, hB = cc.r, cc.g, cc.b
+                else hR, hG, hB = 37/255, 193/255, 29/255 end
+            end
         elseif cFill then
             hR, hG, hB = cFill.r, cFill.g, cFill.b
         elseif unitKey == "player" then
@@ -627,7 +631,7 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
     local function PreviewClassColor(fs, useCC, customR, customG, customB)
         if not fs then return end
         if useCC then
-            if unitKey == "player" then
+            if unitKey == "player" or unitKey == "pet" then
                 local _, cls = UnitClass("player")
                 if cls then
                     local c = EllesmereUI.GetClassColor(cls)
@@ -2440,12 +2444,16 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
             else
                 -- Custom fill skipped when class-colored; boss is always hostile-red.
                 local cFill = s.customFillColor
-                local isCC = s.healthClassColored and unitKey ~= "boss"
+                local isCC = s.healthClassColored
                 if isCC then
-                    local _, ct = UnitClass("player")
-                    local cc = RAID_CLASS_COLORS[ct]
-                    if cc then uHR, uHG, uHB = cc.r, cc.g, cc.b
-                    else uHR, uHG, uHB = 37/255, 193/255, 29/255 end
+                    if unitKey == "boss" then
+                        uHR, uHG, uHB = 0.8, 0.2, 0.2
+                    else
+                        local _, ct = UnitClass("player")
+                        local cc = RAID_CLASS_COLORS[ct]
+                        if cc then uHR, uHG, uHB = cc.r, cc.g, cc.b
+                        else uHR, uHG, uHB = 37/255, 193/255, 29/255 end
+                    end
                 elseif cFill then
                     uHR, uHG, uHB = cFill.r, cFill.g, cFill.b
                 elseif unitKey == "player" then
