@@ -47,21 +47,11 @@ end
 local CUSTOM_FILL_DEFAULT = { 1, 1, 1 }
 
 -- Mirror Timers (EUI_ResourceBars_MirrorTimer.lua): one timer bar's own
--- settings. Everything else of its look is the Player Cast Bar's (its size
--- too, until Own Size). A fresh table per call. OFF by default: nothing is
--- built, registered or hidden until a bar is turned on.
+-- settings, its switch and fill colour; the rest of its look is the Player
+-- Cast Bar's. A fresh table per call. OFF by default: nothing is built,
+-- registered or hidden until a bar is turned on.
 local function MirrorTimerDefaults(r, g, b)
-    return {
-        enabled       = false,
-        fillR = r, fillG = g, fillB = b, fillA = 1,
-        ownSize       = false,   -- its own Width and Height instead of the cast bar's
-        width         = 220,
-        height        = 20,
-        lowWarn       = false,   -- red and blinking once lowWarnAt percent is left
-        lowWarnAt     = 30,      -- percent of the bar left where the warning starts
-        hideBlizzard  = true,    -- Blizzard's bar for this timer goes invisible while this one is on
-        showUnderNumbers = false, -- countdowns: kept on under the game's golden numbers
-    }
+    return { enabled = false, fillR = r, fillG = g, fillB = b, fillA = 1 }
 end
 
 local DEFAULTS = {
@@ -485,7 +475,7 @@ local DEFAULTS = {
             unlockPos     = nil,
         },
         -- Mirror Timers: the timer bars (Breath, Fatigue, Feign Death and the
-        -- countdowns), set in the OTHER BARS section of the Cast Bars page.
+        -- countdowns), set in the OTHER BARS section of the Cast Bar page.
         -- unlockPos: their stack's one Unlock Mode position.
         mirrorTimer = {
             breath  = MirrorTimerDefaults(0, 0.5, 1),
