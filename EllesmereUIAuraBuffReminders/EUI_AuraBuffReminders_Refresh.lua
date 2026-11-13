@@ -434,6 +434,83 @@ local function CollectLines(missing, auraLock, ids, lines, last, dismissKey, lab
     if id then return nil, EABR.FvSpellEntry(missing, id, dismissKey, label) end
 end
 
+do
+    -- Use the client's localized name for the food family, shared by many spell IDs.
+    local NUTRITIOUS_FOOD = 1248377
+    local watch, watching, foods, pending, invalidated
+
+    function EABR.IsForeverFoodCurrent(snapshot)
+        return snapshot == foods
+    end
+
+    function EABR.GetForeverFood()
+        if foods then return foods end
+        local found = {}
+        invalidated = false
+        local name = SpellName(NUTRITIOUS_FOOD)
+        if not name then
+            if not watch:IsEventRegistered("SPELL_DATA_LOAD_RESULT") then
+                watch:RegisterEvent("SPELL_DATA_LOAD_RESULT")
+                C_Spell.RequestLoadSpellData(NUTRITIOUS_FOOD)
+            end
+        else
+            for bag = 0, NUM_BAG_SLOTS do
+                for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                    local info = C_Container.GetContainerItemInfo(bag, slot)
+                    local id = info and info.itemID
+                    if id and not pending[id] then
+                        if found[id] then
+                            found[id] = found[id] + info.stackCount
+                        elseif select(6, C_Item.GetItemInfoInstant(id)) == Enum.ItemClass.Consumable then
+                            if not C_Item.IsItemDataCachedByID(id) then
+                                if not next(pending) then watch:RegisterEvent("ITEM_DATA_LOAD_RESULT") end
+                                pending[id] = true
+                                C_Item.RequestLoadItemDataByID(id)
+                            elseif C_Item.GetItemSpell(id) == name then
+                                found[id] = info.stackCount
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        -- A synchronous load result queues another refresh. Leave the cache empty for that pass.
+        if not invalidated then foods = found end
+        return found
+    end
+
+    function EABR.SyncForeverFoodWatch(want)
+        if want == watching then return end
+        watching = want
+        foods = nil
+        if not want then
+            if watch then watch:UnregisterAllEvents(); wipe(pending) end
+            return
+        end
+        if not watch then
+            pending = {}
+            watch = CreateFrame("Frame")
+            watch:SetScript("OnEvent", function(_, event, id, success)
+                if event == "ITEM_DATA_LOAD_RESULT" then
+                    if not pending[id] then return end
+                    pending[id] = nil
+                    if not next(pending) then watch:UnregisterEvent(event) end
+                    if not success then return end
+                elseif event == "SPELL_DATA_LOAD_RESULT" then
+                    if id ~= NUTRITIOUS_FOOD then return end
+                    watch:UnregisterEvent(event)
+                    if not success then return end
+                end
+                invalidated = true
+                foods = nil
+                if EABR.ValidateOpenPicker then EABR.ValidateOpenPicker() end
+                if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+            end)
+        end
+        watch:RegisterEvent("BAG_UPDATE_DELAYED")
+    end
+end
+
 -- Mage armors (WoW Forever): one reminder while no rank of Frost Armor, Ice
 -- Armor or Mage Armor is up; the line up is recorded in this character's
 -- roster entry (mageArmor).
@@ -784,7 +861,11 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     if watchPickerSpells ~= (EABR._fvPickerSpellEvents or false) then
         EABR.FvSyncPickerSpellEvents(watchPickerSpells)
     end
-    if not shows then return end
+    local watchFood = watchPickerSpells and not inPvP and fo.wellFed or false
+    if not shows then
+        EABR.SyncForeverFoodWatch(false)
+        return
+    end
     local open = not inPvP
     -- Under the aura lock a secret aura reads absent, so an aura reminder
     -- shows only while none of its spells is secret.
@@ -854,7 +935,7 @@ function EABR.CollectForever(missing, inInstance, inPvP)
         if not scanned then treasureUp = EABR.FvTrackingState() end
         if not treasureUp then EABR.FvSpellEntry(missing, tid, "forever:treasure") end
     end
-    if fo.wellFed and open then
+    if fo.wellFed and open and not _dismissedUntilLoad["forever:wellfed"] then
         local name = SpellName(EABR.WELL_FED) or "Well Fed"
         local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
         -- Shown while no food buff is up and, with Show Below set, that many minutes before
@@ -873,6 +954,7 @@ function EABR.CollectForever(missing, inInstance, inPvP)
                 end
             end
         end
+        EABR.SyncForeverFoodWatch(watchFood and show == true)
         if show then
             local e = AcquireEntry()
             e.mode = "texture"; e.spellID = EABR.WELL_FED
@@ -880,8 +962,23 @@ function EABR.CollectForever(missing, inInstance, inPvP)
             e.label = name
             e.cat = "forever"; e.dismissKey = "forever:wellfed"
             if expireAt then e.expireAt, e.expireTotal = expireAt, remaining end
+            if watchFood then
+                local foods = EABR.GetForeverFood()
+                e.foreverFood = next(foods) and foods or nil
+                local id = fo.wellFedItem
+                if id and foods[id] then
+                    e.mode = "macro"
+                    e.macro = EABR.ForeverFoodMacro(id)
+                    e.spellID = nil
+                    e.tooltipItem = id
+                    e.texture = C_Item.GetItemIconByID(id) or e.texture
+                    e.bagCount = foods[id]
+                end
+            end
             missing[#missing+1] = e
         end
+    else
+        EABR.SyncForeverFoodWatch(false)
     end
     if fo.mageArmor and open and GetPlayerClass() == "MAGE" then
         EABR.CollectMageArmor(missing, auraLock, ids)
@@ -1170,6 +1267,7 @@ end
 -- watch and the minimap, weapon and bag events); the next pass that can show
 -- re-arms them.
 function EABR.FvStandDown()
+    EABR.SyncForeverFoodWatch(false)
     EABR.FvSyncGroupWatch(nil, false)
     EABR.FvSyncTrackingEvent(false)
     EABR.FvSyncWeaponEvents(false)

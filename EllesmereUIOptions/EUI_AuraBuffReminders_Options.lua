@@ -1806,7 +1806,7 @@ initFrame:SetScript("OnEvent", function(self)
         if FOREVER then
             _, h = W:DualRow(parent, y,
                 { type="toggle", text="Action Picker",
-                  tooltip="Right-click a spell group or Class Buffs reminder that has more than one spell to choose the spell its left click casts. Scroll over a spell in the picker to choose its rank.",
+                  tooltip="Right-click a spell group or Class Buffs reminder that has more than one spell to choose the spell its left click casts. Scroll over a spell in the picker to choose its rank. Right-click the Well Fed reminder to choose food from your bags.",
                   getValue=function() local f = FDB(); return f and f.pickerEnabled == true end,
                   setValue=function(v)
                       local f = FDB(); if not f then return end; f.pickerEnabled = v
