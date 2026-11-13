@@ -320,6 +320,7 @@ local defaults = {
     friendlyBelowNameGuildBrackets = true,
     friendlyShowLevel = false,
     friendlyLevelDiffColor = false,
+    friendlyGroupBrackets = false,
     showEnemyPets = false,
     font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",
     textSlotTop = "enemyName",

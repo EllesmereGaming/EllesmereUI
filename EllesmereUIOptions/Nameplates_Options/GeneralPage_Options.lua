@@ -367,6 +367,14 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                     DB().friendlyBelowNameGuildBrackets = v and true or false
                     if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
                   end },
+                { type = "toggle", label = "Show [] Around Group/Raid",
+                  tooltip = "Wraps party members' names in party-blue [Name] brackets (including your own raid subgroup) and other raid members' names in raid-orange [Name] brackets.",
+                  rawTooltip = true,
+                  get = function() return DBVal("friendlyGroupBrackets") == true end,
+                  set = function(v)
+                    DB().friendlyGroupBrackets = v and true or false
+                    if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                  end },
             },
         })
     end

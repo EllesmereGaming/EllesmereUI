@@ -687,7 +687,7 @@ local function PT_Build(owner, globalName)
     local frame = CreateFrame("Button", globalName, owner, "SecureUnitButtonTemplate")
     frame:SetAttribute("useparent-unit", true)
     frame:SetAttribute("unitsuffix", "target")
-    frame:SetAttribute("*type1", "target")
+    ns.EllesmereUI.SetLeftClickTarget(frame)
     frame:RegisterForClicks("AnyUp")
     frame:Hide()
 
