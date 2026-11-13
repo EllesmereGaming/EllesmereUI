@@ -503,6 +503,7 @@ local DEFAULTS = {
             showTimer     = true,
             timerSize     = 11,
             orientation   = "HORIZONTAL",  -- "HORIZONTAL" or "VERTICAL"
+            flyoutDirection = "RIGHT",     -- vertical only: "RIGHT" or "LEFT"
             borderSize    = 1,
             borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
             borderTexture = "solid",
