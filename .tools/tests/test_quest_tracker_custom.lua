@@ -114,6 +114,7 @@ EllesmereUI = {
     EvalVisibility = function() return false end,
     MakeUnlockElement = function(t) return t end,
 }
+dofile(".tools/tests/char_roster_stub.lua")(EllesmereUI, { guid = "Player-1" })
 function EllesmereUI:RegisterUnlockElements(list) unlockElement = list[1] end
 function EllesmereUI:RegisterUnlockModeListener(_, fn) unlockListener = fn end
 

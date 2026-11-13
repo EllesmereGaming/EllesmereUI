@@ -56,6 +56,7 @@ EllesmereUI = { IS_FOREVER = true, COLOR_CODES = { BRAND = "" },
     Lf = function(s, ...) return (s:gsub("%%(%d)%$", "%%")):format(...) end,
     Print = function(s) printed[#printed + 1] = s end,
     CombatQueue = { Defer = function(key, fn) queued[key] = fn end } }
+dofile(".tools/tests/char_roster_stub.lua")(EllesmereUI, { guid = "Player-1" })
 local module = { Feature = function(_, defaults)
     return { Get = function(k) if cfg[k] == nil then return defaults[k] end return cfg[k] end,
         Cfg = function() return cfg end, Enabled = function() return cfg.enabled end,
@@ -164,7 +165,7 @@ NextFrame()
 assert(playerReads == reads + 1, "a learned spell missing from the spellbook was not read whole")
 
 -- 6. the memory: per character by GUID and per pet, outside the settings
-local mine = EllesmereUIDB.spellUprankChars and EllesmereUIDB.spellUprankChars["Player-1"]
+local mine = EllesmereUI.CharData("spellUprank")
 assert(mine and mine.player["Shadow Bolt"] == 705 and mine.pets["Imp:Fizzbang"].Firebolt == 7800,
     "the highest ranks are not remembered per character and pet")
 assert(cfg.known == nil, "the memory went into the settings")

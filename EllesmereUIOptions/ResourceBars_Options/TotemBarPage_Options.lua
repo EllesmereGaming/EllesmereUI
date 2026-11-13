@@ -24,6 +24,7 @@ end
 -- tooltip (req, raw), and enableRow(y, sizeCfg, RefreshTotem) -> row, h: the
 -- first row, whose left slot turns the bar on and whose right slot is sizeCfg
 -- (Icon Size). mapIcon / mapTimer: the preview's click mapping keys.
+-- flyoutCog: a Flyout Direction cog on Orientation (the call totem bar).
 local function BuildTotemSection(parent, y, S)
     local env = ns._ERB_OptEnv
     local DB = env.DB
@@ -254,7 +255,8 @@ local function BuildTotemSection(parent, y, S)
     -- Row 4: Frame Strata | Orientation
     local tmStrataValues = EllesmereUI.FRAME_STRATA_LABELS
     local tmStrataOrder = EllesmereUI.FRAME_STRATA_ORDER_BASE
-    _, h = W:DualRow(parent, y,
+    local orientRow
+    orientRow, h = W:DualRow(parent, y,
         { type = "dropdown", text = "Frame Strata",
           tooltip = "Controls the order that overlapping elements display in. Set higher to show above other elements.",
           disabled = totemOff,
@@ -276,8 +278,32 @@ local function BuildTotemSection(parent, y, S)
           setValue = function(v)
               local t = T(); if not t then return end
               t.orientation = v; RefreshTotem()
+              EllesmereUI:RefreshPage()
           end }
     );  y = y - h
+
+    -- Flyout Direction cog on Orientation
+    if S.flyoutCog and not EllesmereUI._prebuilding then
+        local rgn = orientRow._rightRegion
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Flyout Settings",
+            disabled = function()
+                local t = T()
+                return totemOff() or not (t and t.orientation == "VERTICAL")
+            end,
+            disabledTooltip = "Vertical Orientation",
+            rows = {
+                { type = "dropdown", label = "Flyout Direction",
+                  values = { RIGHT = "Right", LEFT = "Left" },
+                  order = { "RIGHT", "LEFT" },
+                  get = function() local t = T(); return t and (t.flyoutDirection or "RIGHT") end,
+                  set = function(v)
+                      local t = T(); if not t then return end
+                      t.flyoutDirection = v; RefreshTotem()
+                  end },
+            },
+        })
+    end
 
     -- Click mappings for the preview's hit overlays (never from a hidden pre-build)
     if not EllesmereUI._prebuilding then
@@ -396,6 +422,7 @@ function ns.ERB_BuildTotemBarPage(pageName, parent, yOffset)
             title = "CALL TOTEM BAR",
             key = "callTotemBar", unlockKey = "ERB_CallTotemBar",
             mapIcon = "callTotemIcon", mapTimer = "callTotemTimer",
+            flyoutCog = true,
             off = function()
                 local p = DB()
                 local c = p and p.callTotemBar
