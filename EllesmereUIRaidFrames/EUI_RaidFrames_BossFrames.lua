@@ -281,6 +281,10 @@ end
 -- gradient modes read as damage states, and many NPCs carry real class tokens (a friendly add can
 -- come out yellow).
 FB.PaintBarColor = function(b, owner, s)
+    if owner and owner ~= FB and (owner.PaintPetBarColor or owner.PaintBarColor) then
+        (owner.PaintPetBarColor or owner.PaintBarColor)(b, s)
+        return
+    end
     local health = b._health
     -- Dark Mode (the raid frames' Health Color mode) wins over the frames' own colour, as on the raid frames.
     if s.healthColorMode == "dark" then
