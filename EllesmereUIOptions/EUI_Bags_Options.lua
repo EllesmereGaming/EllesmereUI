@@ -1016,7 +1016,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(junkDDRefresh)
             end
 
-            -- Bag Top Bar Icons (+ inline cog: Sort to Bottom) | Gold Tracking and History
+            -- Bag Top Bar Icons (+ inline cog: Sort to Bottom) | Gold Tracking and History (+ inline cog: Show Silver and Copper)
             local iconsRow
             iconsRow, h = W:DualRow(parent, y,
                 { type="label", text="Bag Top Bar Icons",
@@ -1024,7 +1024,10 @@ initFrame:SetScript("OnEvent", function(self)
                 { type="toggle", text="Gold Tracking and History",
                   tooltip="Track and display gold amounts from all your characters on hover.",
                   getValue=function() return EllesmereUI.GetGoldLedger().IsTracking() end,
-                  setValue=function(v) EllesmereUI.GetGoldLedger().SetTracking(v) end }
+                  setValue=function(v)
+                      EllesmereUI.GetGoldLedger().SetTracking(v)
+                      EllesmereUI:RefreshPage()
+                  end }
             ); y = y - h
 
             -- Bag Top Bar Icons dropdown (left side), its Sort Options cog to the left
@@ -1093,6 +1096,22 @@ initFrame:SetScript("OnEvent", function(self)
                                   end
                               end
                               p.bagSortToBottom = v
+                          end },
+                    },
+                })
+
+                -- Inline cog for Gold Tracking and History: "Show Silver and Copper"
+                EllesmereUI.BuildInlineCog(iconsRow._rightRegion, {
+                    chain = false,
+                    disabled = function() return not EllesmereUI.GetGoldLedger().IsTracking() end,
+                    disabledTooltip = "Gold Tracking and History",
+                    title = "Gold Tracking Options",
+                    rows = {
+                        { type="toggle", label="Show Silver and Copper",
+                          tooltip="Display silver and copper values alongside gold in the bags hover tooltip.",
+                          get=function() return db.profile.bagGoldShowSilverCopper == true end,
+                          set=function(v)
+                              db.profile.bagGoldShowSilverCopper = v and true or false
                           end },
                     },
                 })
