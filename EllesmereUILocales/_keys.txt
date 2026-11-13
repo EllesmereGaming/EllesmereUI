@@ -976,6 +976,7 @@ Macros can't be changed in combat.
 Main Bags (%d / %d)
 Major Features
 Makes buttons glow when a chosen buff is active or missing, or when their ability is usable.
+Map Markers
 Map pins cannot be placed inside instances.
 Map pins cannot be placed on %1$s.
 Marked mobs show their kicker's icon before the first kick lands

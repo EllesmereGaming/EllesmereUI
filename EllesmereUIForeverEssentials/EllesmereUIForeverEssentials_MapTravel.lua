@@ -4,7 +4,8 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  EllesmereUIForeverEssentials_MapTravel.lua  (WoW Forever only)
 --  Map Markers: travel pins by zoom level. The world map shows transports,
 --  a continent adds instance entrances, a zone adds flight points and its
---  exits; each set has its cog toggle. Hovering a pin names it; a left click
+--  exits; each kind has its toggle, in the cog and in the map's own filter
+--  menu (Menu.ModifyMenu on its tag). Hovering a pin names it; a left click
 --  prints its map pin link in chat, as /way does, pointing at the zone it
 --  stands in; a right click goes on to the map (back out a level).
 --
@@ -19,9 +20,22 @@ local _, module = ...
 local F = module.Feature("mapTravel", { enabled = false, transports = true, exits = true, instances = true,
     flights = true })
 
--- A set of pins shows while Map Markers is on and its cog toggle too.
+-- The kinds, in the order the cog and the filter menu list them.
+local KINDS = { "boats", "zeppelins", "skycutters", "trams", "portals", "dungeons", "raids", "exits", "flights" }
+-- Each kind shows until turned off. Before, one toggle covered every
+-- transport and one every instance: an unset kind follows it.
+local FORMER = { boats = "transports", zeppelins = "transports", skycutters = "transports",
+    trams = "transports", portals = "transports", dungeons = "instances", raids = "instances" }
+
+local function Want(key)
+    local v = F.Get(key)
+    if v == nil then v = F.Get(FORMER[key]) end
+    return v
+end
+
+-- A kind's pins show while Map Markers is on and its toggle too.
 local function On(key)
-    return F.Get("enabled") and F.Get(key)
+    return F.Get("enabled") and Want(key)
 end
 
 local PIN_SIZE   = 22
@@ -35,6 +49,9 @@ local KIND_ATLAS = {
     skycutter = "vehicle-air-alliance",
     portal    = "mageportalalliance",
 }
+-- A transport's toggle (MapTravelData's kinds).
+local KIND_KEY = { boat = "boats", zeppelin = "zeppelins", skycutter = "skycutters", tram = "trams",
+    portal = "portals" }
 
 local data, provider, layer, waiter, taxiWatch
 local added = false
@@ -43,7 +60,28 @@ local shownKey  -- what the pins show (map and toggles); nil when cleared
 local shownMap  -- the map the pins are on
 
 local function AnyOn()
-    return On("transports") or On("exits") or On("instances") or On("flights")
+    for i = 1, #KINDS do
+        if On(KINDS[i]) then return true end
+    end
+    return false
+end
+
+-- One number for the toggles that are on (bit i: KINDS[i]).
+local function OnMask()
+    local mask, bit = 0, 1
+    for i = 1, #KINDS do
+        if On(KINDS[i]) then mask = mask + bit end
+        bit = bit * 2
+    end
+    return mask
+end
+
+-- Any transport kind on.
+local function AnyTransport()
+    for _, key in pairs(KIND_KEY) do
+        if On(key) then return true end
+    end
+    return false
 end
 
 -- A pin's tooltip, led by its icon (a transport's lines carry their own).
@@ -239,15 +277,24 @@ local function ExitRotation(zone, x, y, dest)
     return math.atan2(-dx, -dy)  -- the atlas points up; screen y grows down
 end
 
--- A zone's transports, those of one place (a dock's boats, a tower's
--- zeppelins) sharing one pin whose tooltip lists them all. Built once per zone.
+-- A zone's shown transports, those of one place (a dock's boats, a tower's
+-- zeppelins) sharing one pin whose tooltip lists them all. Built once per
+-- zone, again when the toggles change.
 local GROUP_DIST = 7  -- percent of the zone map
-local transportGroups = {}
+local transportGroups, groupsMask = {}, nil
 local function TransportGroups(zone)
+    local mask = OnMask()
+    if mask ~= groupsMask then
+        wipe(transportGroups)
+        groupsMask = mask
+    end
     local groups = transportGroups[zone]
     if groups then return groups end
     groups = {}
-    local list = data.transports[zone] or {}
+    local list = {}
+    for _, t in ipairs(data.transports[zone] or {}) do
+        if On(KIND_KEY[t[3]]) then list[#list + 1] = t end
+    end
     for i = 1, #list do
         local t = list[i]
         local g
@@ -273,20 +320,25 @@ local function TransportGroups(zone)
     return groups
 end
 
+-- An instance entrance shows by its kind's toggle (i[4]: a raid).
+local function ShowsInstance(i)
+    return On(i[4] and "raids" or "dungeons")
+end
+
 -- A zone map's pins.
 local function DrawZone(zone)
-    if On("transports") then
+    if AnyTransport() then
         local groups = TransportGroups(zone)
         for i = 1, #groups do
             local g = groups[i]
             Place(g.x / 100, g.y / 100, g.atlas, PIN_SIZE, g.tip, nil, g.count, g.link)
         end
     end
-    if On("instances") then
-        local list = data.instances[zone]
-        if list then
-            for i = 1, #list do
-                local e = list[i]
+    local list = data.instances[zone]
+    if list then
+        for i = 1, #list do
+            local e = list[i]
+            if ShowsInstance(e) then
                 Place(e[1] / 100, e[2] / 100, e[4] and "raid" or "dungeon", INSTANCE_SIZE, InstanceTip(e),
                     nil, nil, InstanceLink(e))
             end
@@ -318,7 +370,7 @@ end
 -- A world or continent map's pins: the transports, and on a continent the
 -- instance entrances too, each linking back to its zone.
 local function DrawWider(map, instances)
-    if On("transports") then
+    if AnyTransport() then
         for zone in pairs(data.transports) do
             local groups = TransportGroups(zone)
             for i = 1, #groups do
@@ -331,11 +383,12 @@ local function DrawWider(map, instances)
             end
         end
     end
-    if instances and On("instances") then
+    if instances then
         for zone, list in pairs(data.instances) do
             for i = 1, #list do
                 local e = list[i]
-                local x, y = OnWiderMap(zone, map, e[1] / 100, e[2] / 100)
+                local x, y
+                if ShowsInstance(e) then x, y = OnWiderMap(zone, map, e[1] / 100, e[2] / 100) end
                 if x then
                     local p = Place(x, y, e[4] and "raid" or "dungeon", INSTANCE_SIZE, InstanceTip(e),
                         nil, nil, InstanceLink(e))
@@ -388,10 +441,8 @@ end
 -- pin keeps its tooltip.
 local function Refresh(force)
     local mapID = WorldMapFrame:GetMapID()
-    -- One number for the map and the four toggles: no string per refresh.
-    local key = mapID and (mapID * 16 + (On("transports") and 1 or 0)
-        + (On("instances") and 2 or 0) + (On("exits") and 4 or 0)
-        + (On("flights") and 8 or 0))
+    -- One number for the map and the toggles: no string per refresh.
+    local key = mapID and (mapID * 2 ^ #KINDS + OnMask())
     if key and key == shownKey and force ~= true then
         Rescale()
         return
@@ -431,9 +482,49 @@ local function Build()
     provider.OnGlobalAlphaChanged = function(self) layer:SetAlpha(self:GetMap():GetGlobalAlpha()) end
 end
 
+-- The toggles' names, for the cog and the filter menu.
+local KIND_LABEL = { boats = "Boats", zeppelins = "Zeppelins", skycutters = "Skycutters", trams = "Tram",
+    portals = "Portals", dungeons = "Dungeons", raids = "Raids", exits = "Zone Exits", flights = "Flight Points" }
+
+local Apply
+
+local function Toggle(key)
+    F.Cfg()[key] = not Want(key)
+    Apply()
+end
+
+-- The map's own filter menu lists the toggles below its filters while Map
+-- Markers is on. ModifyMenu also visits the last menu built when registered,
+-- so each menu gets them once.
+local menuHandle, menuDone
+local function AddFilters(_, root)
+    if menuDone[root] then return end
+    menuDone[root] = true
+    root:CreateDivider()
+    root:CreateTitle(EllesmereUI.L("Map Markers"))
+    for i = 1, #KINDS do
+        local key = KINDS[i]
+        root:CreateCheckbox(EllesmereUI.L(KIND_LABEL[key]), function() return Want(key) end, function()
+            Toggle(key)
+            return MenuResponse.Refresh
+        end)
+    end
+end
+
+local function WatchMenu(on)
+    if on and not menuHandle and Menu and Menu.ModifyMenu then
+        menuDone = menuDone or setmetatable({}, { __mode = "k" })
+        menuHandle = Menu.ModifyMenu("MENU_WORLD_MAP_TRACKING", AddFilters)
+    elseif not on and menuHandle then
+        menuHandle:Unregister()
+        menuHandle = nil
+    end
+end
+
 -- Nothing exists until Map Markers is first on; off, the provider is removed.
 -- The world map loads on demand, so building may wait for it.
-local function Apply()
+function Apply()
+    WatchMenu(F.Get("enabled"))
     if not AnyOn() then
         if added then
             WorldMapFrame:RemoveDataProvider(provider)
@@ -478,9 +569,11 @@ end
 -- Options-page entry points.
 EllesmereUI._MapTravel = {
     Get = F.Get,
-    On = On,
+    Want = Want,
     Cfg = F.Cfg,
     Apply = Apply,
+    Kinds = KINDS,
+    Labels = KIND_LABEL,
 }
 
 F.Start(Apply)

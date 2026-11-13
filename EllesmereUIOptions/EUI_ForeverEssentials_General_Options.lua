@@ -429,7 +429,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     local markersRow
     markersRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Show Map Markers",
-          tooltip = "Shows boats, zeppelins, dungeon entrances, flight points and zone exits on the world map; click one to link it in chat.",
+          tooltip = "Shows boats, zeppelins, dungeon entrances, flight points and zone exits on the world map; click one to link it in chat. The cog and the map's filter button pick which ones.",
           getValue = function() return MT.Get("enabled") end,
           setValue = function(v)
               MT.Cfg().enabled = v
@@ -463,31 +463,22 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         })
     end
 
-    -- Map Markers: one toggle; the cog picks the sets, all shown until turned
-    -- off.
+    -- Map Markers: one toggle; the cog picks the kinds, as the map's filter
+    -- menu does, all shown until turned off.
     if not EllesmereUI._prebuilding then
-        local function setRow(label, tooltip, key)
-            return { type = "toggle", label = label, tooltip = tooltip,
-                get = function() return MT.Get(key) end,
+        local TIPS = {
+            exits = "On zone maps, an arrow on each road out of the zone, pointing to the zone it leads to.",
+            flights = "On zone maps, the flight masters, those you have not found yet included.",
+        }
+        local rows = {}
+        for _, key in ipairs(MT.Kinds) do
+            rows[#rows + 1] = { type = "toggle", label = MT.Labels[key], tooltip = TIPS[key],
+                get = function() return MT.Want(key) end,
                 set = function(v)
                     MT.Cfg()[key] = v
                     MT.Apply()
                 end }
         end
-        local rows = {
-            setRow("Transports",
-                "Boats, zeppelins and the tram, from the world map down, with where each one goes when you hover it.",
-                "transports"),
-            setRow("Zone Exits",
-                "On zone maps, an arrow on each road out of the zone, pointing to the zone it leads to.",
-                "exits"),
-            setRow("Instance Entrances",
-                "Dungeon and raid entrances, on continent and zone maps; hover one for its name.",
-                "instances"),
-            setRow("Flight Points",
-                "On zone maps, the flight masters, those you have not found yet included.",
-                "flights"),
-        }
         EllesmereUI.BuildInlineCog(markersRow._leftRegion, {
             title = "Map Markers",
             rows = rows,
