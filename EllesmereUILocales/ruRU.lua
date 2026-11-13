@@ -6383,7 +6383,6 @@ L["Most Valuable Quest Reward"] = "Самая ценная награда за �
 L["Among a quest's reward choices, a money bag marks the one that sells for most, its count included."] = "Среди наград на выбор за задание мешок с деньгами отмечает ту, что продается дороже всего, с учетом количества."
 L["Gathering Skill in Tooltips"] = "Навык сбора в подсказках"
 L["Adds the skill a herb or ore node needs to its tooltip, colored by your chance to raise your skill there."] = "Добавляет в подсказку травы или руды нужный навык, цветом по шансу повысить на ней навык."
-L["Also adds the required skill to herb and ore names on the minimap."] = "Также добавляет нужный навык к названиям трав и руды на миникарте."
 L["Auto Summon Pet"] = "Автопризыв питомца"
 L["Brings a random favorite pet back after loading screens, flights and deaths; a pet you dismiss stays away."] = "Возвращает случайного избранного питомца после экранов загрузки, полетов и смертей; отозванный вами питомец не возвращается."
 L["Favorites per Character"] = "Избранное для каждого персонажа"

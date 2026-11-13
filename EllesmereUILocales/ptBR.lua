@@ -9321,7 +9321,6 @@ L["A better group finder: narrow the list down to the groups you want and see wh
 L["A member whose class has one of these spells:"] = "Um membro cuja classe tenha uma destas magias:"
 L["Absorb Shields"] = "Escudos de Absorção"
 L["Adds the skill a herb or ore node needs to its tooltip, colored by your chance to raise your skill there."] = "Adiciona à dica o nível de habilidade que um ponto de erva ou minério exige, colorido conforme sua chance de aumentar sua habilidade ali."
-L["Also adds the required skill to herb and ore names on the minimap."] = "Também adiciona a habilidade necessária aos nomes de ervas e minérios no minimapa."
 L["Announce Progress"] = "Anunciar Progresso"
 L["Apply Hide Power Bar to all Frames"] = "Aplicar Ocultar Barra de Poder a todos os Quadros"
 L["At the application limit, clicking a group cancels your oldest pending application so you can sign up."] = "No limite de candidaturas, clicar em um grupo cancela sua candidatura pendente mais antiga para que você possa se inscrever."

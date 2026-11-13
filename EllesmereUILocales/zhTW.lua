@@ -7298,7 +7298,6 @@ L["Adds a line to the macro. Lines run top to bottom."] = "在巨集中新增一
 L["Adds a matching divider beside the icon (Box) or the accent bar (Icon Tray)."] = "在圖示（方框）或強調色條（圖示托盤）旁加上相配的分隔線。"
 L["Adds a Target/Focus switch to the meter header."] = "在統計視窗的標題列加上「目標／專注目標」切換鈕。"
 L["Adds the skill a herb or ore node needs to its tooltip, colored by your chance to raise your skill there."] = "在草藥或礦點的提示資訊中加入所需技能等級，並依你在該處提升技能的機率著色。"
-L["Also adds the required skill to herb and ore names on the minimap."] = "也會在小地圖上的草藥與礦點名稱加上所需技能等級。"
 L["Alt is held down."]             = "按住 Alt。"
 L["Among a quest's reward choices, a money bag marks the one that sells for most, its count included."] = "在任務的可選獎勵中，以錢袋標出售價最高的一項（已計入數量）。"
 L["An extra bar showing how much threat takes aggro from the tank."] = "額外顯示一條，標示需要多少仇恨才會從坦克身上搶走仇恨。"

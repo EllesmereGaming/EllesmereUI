@@ -5986,7 +5986,6 @@ L["Lightens the black behind the maximized world map."] = "Éclaircit le noir de
 L["Show the Game Behind the Map"] = "Voir le jeu derrière la carte"
 -- Gathering Skill in Tooltips (EllesmereUIForeverEssentials_GatherSkill.lua)
 L["Gathering Skill in Tooltips"] = "Compétence de récolte dans les infobulles"
-L["Also adds the required skill to herb and ore names on the minimap."] = "Ajoute aussi la compétence requise aux noms des herbes et des filons sur la minicarte."
 L["Adds the skill a herb or ore node needs to its tooltip, colored by your chance to raise your skill there."] = "Ajoute la compétence requise à l'infobulle des herbes et des filons, colorée selon vos chances de progresser."
 -- Ore node names, as the French client shows them
 L["Nameplate Icon"] = "Icône de barre d'info"

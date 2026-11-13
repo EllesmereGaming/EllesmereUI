@@ -178,8 +178,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
     --  GENERAL: Auto Uprank Spells on Bars | Classic Windows (the vanilla
     --  spellbook and talent window as one checkbox dropdown), then Most
     --  Valuable Quest Reward (EllesmereUIForeverEssentials_QuestRewards.lua) |
-    --  Gathering Skill in Tooltips (EllesmereUIForeverEssentials_GatherSkill.lua,
-    --  its Minimap row in the cog), then Auto Summon Pet | Favorites per
+    --  Gathering Skill in Tooltips (EllesmereUIForeverEssentials_GatherSkill.lua),
+    --  then Auto Summon Pet | Favorites per
     --  Character. Every control reads and writes its feature's own key and
     --  runs that feature's own apply.
     ---------------------------------------------------------------------------
@@ -246,8 +246,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         EllesmereUI.RegisterWidgetRefresh(cwRefresh)
     end
 
-    local rewardRow
-    rewardRow, h = W:DualRow(parent, y,
+    _, h = W:DualRow(parent, y,
         { type = "toggle", text = "Most Valuable Quest Reward",
           tooltip = "Among a quest's reward choices, a money bag marks the one that sells for most, its count included.",
           getValue = function() return QR.Get("enabled") end,
@@ -261,25 +260,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
           setValue = function(v)
               GS.Cfg().enabled = v
               GS.Apply()
-              EllesmereUI:RefreshPage()  -- the cog's disabled state
           end }
     );  y = y - h
-    if not EllesmereUI._prebuilding then
-        EllesmereUI.BuildInlineCog(rewardRow._rightRegion, {
-            title = "Gathering Skill in Tooltips",
-            rows = {
-                { type = "toggle", label = "Minimap",
-                  tooltip = "Also adds the required skill to herb and ore names on the minimap.",
-                  get = function() return GS.Get("minimap") end,
-                  set = function(v)
-                      GS.Cfg().minimap = v
-                      GS.Apply()
-                  end },
-            },
-            disabled = function() return not GS.Get("enabled") end,
-            disabledTooltip = "Gathering Skill in Tooltips",
-        })
-    end
 
     -- Auto Summon Pet | Favorites per Character
     -- (EllesmereUIForeverEssentials_PetSummon.lua), while the Pet Journal exists.

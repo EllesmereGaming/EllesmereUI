@@ -11265,7 +11265,6 @@ L["pet"] = "애완동물"
 -- == WoW Forever 편의 기능 - 채집 (Gathering Skill in Tooltips) =============
 L["Gathering Skill in Tooltips"] = "툴팁에 채집 숙련도 표시"
 L["Adds the skill a herb or ore node needs to its tooltip, colored by your chance to raise your skill there."] = "약초 및 광맥 툴팁에 요구 숙련도를 표시하고, 숙련도 상승 확률에 따라 색상을 입힙니다."
-L["Also adds the required skill to herb and ore names on the minimap."] = "미니맵의 약초 및 광맥 이름에도 요구 숙련도를 표시합니다."
 
 -- 광맥 이름 (툴팁 채집 숙련도 표시 지원용)
 

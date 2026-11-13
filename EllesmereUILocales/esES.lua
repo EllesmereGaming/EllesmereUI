@@ -9695,7 +9695,6 @@ L["A member whose class has one of these spells:"] = "Un miembro cuya clase teng
 L["M+ APPLICATIONS"] = "SOLICITUDES M+"
 L["Accepted"] = "Aceptadas"
 L["Adds the skill a herb or ore node needs to its tooltip, colored by your chance to raise your skill there."] = "Añade a la descripción de una planta o veta la habilidad que pide, con el color según tu probabilidad de subir la habilidad ahí."
-L["Also adds the required skill to herb and ore names on the minimap."] = "También añade la habilidad necesaria a los nombres de plantas y vetas en el minimapa."
 L["Announce Progress"] = "Anunciar progreso"
 L["Application Visibility"] = "Ver solicitudes"
 L["At the application limit, clicking a group cancels your oldest pending application so you can sign up."] = "En el límite de solicitudes, al hacer clic en un grupo se cancela tu solicitud pendiente más antigua para que puedas inscribirte."
