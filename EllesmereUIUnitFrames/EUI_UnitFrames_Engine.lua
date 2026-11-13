@@ -249,6 +249,9 @@ do
             return
         end
 
+        -- WoW Forever reports the generic "Channeling" as a channel's display
+        -- text; the spell name is the first return.
+        if element.channeling and EllesmereUI.IS_FOREVER then text = name end
         text = EllesmereUI.CleanCastName(text)
 
         element.delay = 0
