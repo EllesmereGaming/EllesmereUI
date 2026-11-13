@@ -450,6 +450,35 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
+        -- Rounded Corners cog on Reskin Tooltip (left region): the game tooltip
+        -- with a solid border only (tooltipRoundedCorners, on unless false); a
+        -- textured style keeps its art, so the cog locks with one.
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(ttShowRow._leftRegion, {
+                gap = 9,
+                disabled = function()
+                    return ttReskinOff() or (EllesmereUIDB.tooltipBorderTexture or "solid") ~= "solid"
+                end,
+                disabledTooltip = function()
+                    return ttReskinOff() and "Reskin Tooltip" or "This option only applies to the Solid border style"
+                end,
+                title = "Reskin Tooltip",
+                rows = {
+                    { type="toggle", label="Rounded Corners",
+                      get=function() return EllesmereUIDB.tooltipRoundedCorners ~= false end,
+                      set=function(v)
+                          -- Stored only when off (on is the unset default).
+                          if v then
+                              EllesmereUIDB.tooltipRoundedCorners = nil
+                          else
+                              EllesmereUIDB.tooltipRoundedCorners = false
+                          end
+                          TooltipPreviewRepaint()
+                      end },
+                },
+            })
+        end
+
         -- "Use Modifier" cog on Show Tooltips (right region): while the chosen
         -- modifier is held, suppression is lifted so a hidden tooltip can be
         -- read on hover (e.g. peeking a spell in combat). Disabled (blocked +
@@ -943,30 +972,6 @@ initFrame:SetScript("OnEvent", function(self)
             end
             AttachBorderControls(tooltipBorder,"tooltip",ttReskinOff,true,{ apply = TooltipBorderApply })
             BorderOffsetRow("tooltip",ttReskinOff,TooltipBorderApply)
-        end
-
-        -- Rounded Corners (tooltipRoundedCorners, on unless false): the game
-        -- tooltip with a solid border only; a textured style keeps its art.
-        do
-            local function roundOff()
-                return ttReskinOff() or (EllesmereUIDB.tooltipBorderTexture or "solid") ~= "solid"
-            end
-            _, h = W:DualRow(parent, y,
-                { type="toggle", text="Rounded Corners", disabled=roundOff,
-                  disabledTooltip=function()
-                      return ttReskinOff() and "Reskin Tooltip" or "This option only applies to the Solid border style"
-                  end,
-                  getValue=function() return EllesmereUIDB.tooltipRoundedCorners ~= false end,
-                  setValue=function(v)
-                      -- Stored only when off (on is the unset default).
-                      if v then
-                          EllesmereUIDB.tooltipRoundedCorners = nil
-                      else
-                          EllesmereUIDB.tooltipRoundedCorners = false
-                      end
-                      TooltipPreviewRepaint()
-                  end },
-                EllesmereUI.BlankRowCfg());  y = y - h
         end
 
         -----------------------------------------------------------------------
