@@ -452,15 +452,15 @@ function ns.RF_BuildPartyTargets(parent, y, W)
           end }
         or BLANK());  y = y - h
 
-    if not on then return y end
+        if not on then return y end
 
     -- Row 2: Fill Color | Background (the Health Bar row's controls on the
     -- target frames' own keys).
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Fill Color",
-          values={ class = "Class Color", dark = "Dark Mode", classic = "Classic", custom = "Custom Color" },
-          order={ "class", "dark", "classic", "custom" },
-          tooltip="Class Color uses the class color for players and the reaction color for NPCs.",
+          values={ class = "Class Color", dark = "Dark Mode", classic = "Classic", custom = "Custom Color", customDynamic = "Custom Dynamic Colors" },
+          order={ "class", "dark", "classic", "custom", "customDynamic" },
+          tooltip="Custom Dynamic Colors: the health bar smoothly blends between three colors you pick -- one for full health (100%), one for half (50%), and one for empty (0%) -- shifting through them as the unit takes damage or is healed.",
           getValue=function() return PV("partyTargetHealthColorMode", "class") end,
           setValue=function(v)
               PtSet("partyTargetHealthColorMode", v)
@@ -493,11 +493,48 @@ function ns.RF_BuildPartyTargets(parent, y, W)
         block:EnableMouse(true)
         block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, "Only available with Custom fill color") end)
         block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+        -- Three gradient-stop swatches, built right-to-left so the visual order reads 100% | 50% | 0%; tooltips carry the pct.
+        local dynDefs = {
+            { key = "partyTargetDynamicColor100", def = { r = 0, g = 1, b = 0 }, label = "100%", tip = "Health bar color at full (100%) health" },
+            { key = "partyTargetDynamicColor50",  def = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 }, label = "50%",  tip = "Health bar color at half (50%) health" },
+            { key = "partyTargetDynamicColor0",   def = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 }, label = "0%",   tip = "Health bar color at empty (0%) health" },
+        }
+        local dynSwatches = {}
+        local prevAnchor = rgn._control
+        for i = #dynDefs, 1, -1 do
+            local dd = dynDefs[i]
+            local sw = EllesmereUI.BuildColorSwatch(
+                rgn, row:GetFrameLevel() + 3,
+                function()
+                    local c = PV(dd.key, nil) or dd.def
+                    return c.r, c.g, c.b, 1
+                end,
+                function(r, g, b)
+                    PtSet(dd.key, { r=r, g=g, b=b })
+                end, false, 18)
+            sw:SetPoint("RIGHT", prevAnchor, "LEFT", (prevAnchor == rgn._control) and -8 or -6, 0)
+            sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, dd.tip) end)
+            sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            dynSwatches[i] = sw
+            prevAnchor = sw
+        end
+
         local function UpdateSwatchVis()
-            if PV("partyTargetHealthColorMode", "class") == "custom" then
-                swatch:SetAlpha(1); block:Hide()
+            local mode = PV("partyTargetHealthColorMode", "class")
+            local isDynamic = mode == "customDynamic"
+            if isDynamic then
+                swatch:Hide(); block:Hide()
             else
-                swatch:SetAlpha(0.3); block:Show()
+                swatch:Show()
+                if mode == "custom" then
+                    swatch:SetAlpha(1); block:Hide()
+                else
+                    swatch:SetAlpha(0.3); block:Show()
+                end
+            end
+            for _, sw in ipairs(dynSwatches) do
+                if isDynamic then sw:Show() else sw:Hide() end
             end
         end
         EllesmereUI.RegisterWidgetRefresh(UpdateSwatchVis)
@@ -579,11 +616,7 @@ function ns.RF_BuildPartyTargets(parent, y, W)
           getValue=function() return PV("partyTargetHeight", 33) end,
           setValue=function(v) LaySet("partyTargetHeight", v) end });  y = y - h
 
-    -- Row 4: Position (+ offsets cog). Shows the side the frames actually
-    -- take (the Horizontal Frames setter's refresh re-reads it); a pick of
-    -- the side an unset Position shows (the kit's move included) is stored
-    -- as unset, so it keeps following the layout and the frame style.
-    -- Under the Party Frames kit the stacked frames' buff side is taken.
+    -- Row 4: Position (+ offsets cog) | Text Color.
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Position",
           tooltip="Right by default, or Bottom with Horizontal Frames. With Frame Style: Party Frames, the side holding the buffs is not available.",
@@ -606,7 +639,46 @@ function ns.RF_BuildPartyTargets(parent, y, W)
               if db.profile.partyCompactMode and ns.PT_PositionAlongStack(v, db.profile.partyHorizontal) then return end
               LaySet("partyTargetPosition", (v ~= ns.PT_ShownSide(true)) and v or nil)
           end },
-        BLANK());  y = y - h
+        { type="multiSwatch", text="Text Color",
+          swatches = {
+            { tooltip = "Custom Color",
+              hasAlpha = false,
+              getValue = function()
+                  local c = db.profile.partyTargetCustomTextColor
+                  if c then return c.r, c.g, c.b, 1 end
+                  return 1, 1, 1, 1
+              end,
+              setValue = function(r, g, b)
+                  PtSet("partyTargetCustomTextColor", { r=r, g=g, b=b })
+              end,
+              onClick = function(self)
+                  if PV("partyTargetTextClassColored", false) then
+                      PtSet("partyTargetTextClassColored", false)
+                      EllesmereUI:RefreshPage()
+                      return
+                  end
+                  if self._eabOrigClick then self._eabOrigClick(self) end
+              end,
+              refreshAlpha = function()
+                  return PV("partyTargetTextClassColored", false) and 0.3 or 1
+              end },
+            { tooltip = "Class Color",
+              hasAlpha = false,
+              getValue = function()
+                  local _, ct = UnitClass("player")
+                  local cc = ct and EllesmereUI.GetClassColor(ct)
+                  if cc then return cc.r, cc.g, cc.b, 1 end
+                  return 1, 1, 1, 1
+              end,
+              setValue = function() end,
+              onClick = function()
+                  PtSet("partyTargetTextClassColored", true)
+                  EllesmereUI:RefreshPage()
+              end,
+              refreshAlpha = function()
+                  return PV("partyTargetTextClassColored", false) and 1 or 0.3
+              end },
+          } });  y = y - h
     EllesmereUI.BuildInlineCog(row._leftRegion, { title = "Target Position Offsets", rows = {
         { type="slider", label="X Offset", min=-100, max=100, step=1,
           get=function() return PV("partyTargetOffsetX", 0) end,

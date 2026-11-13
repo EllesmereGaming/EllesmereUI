@@ -107,6 +107,7 @@ ResourceBars_Options\CastBarPage_Options.lua
 ResourceBars_Options\TotemBarPage_Options.lua
 ResourceBars_Options\GCDBarPage_Options.lua
 ResourceBars_Options\SwingTimerPage_Options.lua
+ResourceBars_Options\MirrorTimerPage_Options.lua
 EUI_ResourceBars_Options.lua
 UnitFrames_Options\TextSlots_Options.lua
 UnitFrames_Options\MiniFrames_Options.lua

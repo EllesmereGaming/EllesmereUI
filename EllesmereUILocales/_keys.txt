@@ -1173,6 +1173,7 @@ Open the Cooldown Manager's Buffs bar
 Open the element's settings.
 Optimize My FPS and Graphics
 Other
+Other Bars
 Outranging your healer
 Overall %1$s
 Overlay Preview
