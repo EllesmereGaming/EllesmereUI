@@ -1056,7 +1056,7 @@ do
             else
                 btn:SetAttribute("unit", owner:GetAttribute("unit"))
             end
-            btn:SetAttribute("*type1", "target")
+            EllesmereUI.SetLeftClickTarget(btn)
             btn:SetAttribute("toggleForVehicle", true)
             btn:RegisterForClicks("AnyUp")
             EllesmereUI.AttachSecureUnitMenu(btn)

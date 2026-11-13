@@ -413,7 +413,7 @@ FB.EnsureBuilt = function()
         local b = CreateFrame("Button", "ERFFriendlyBoss" .. i, container, "SecureUnitButtonTemplate")
         b._fbUnit = "boss" .. i
         b:SetAttribute("unit", b._fbUnit)
-        b:SetAttribute("*type1", "target")
+        ns.EllesmereUI.SetLeftClickTarget(b)
         b:RegisterForClicks("AnyUp")
         -- The engine gates SecureUnitButton's togglemenu; route right-click through a SecureActionButton proxy so the menu works without taint.
         if EllesmereUI.AttachSecureUnitMenu then

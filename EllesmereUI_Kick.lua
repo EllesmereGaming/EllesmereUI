@@ -280,6 +280,14 @@ function EllesmereUI.GetSecureTargetProxy(frame)
     return proxy
 end
 
+-- Left-click targets: raw "target" for a plain click, the proxy with a modifier held
+-- (12.1 blocks a raw modified target on unit buttons). OOC only, like every attribute write.
+function EllesmereUI.SetLeftClickTarget(frame)
+    frame:SetAttribute("type1", "target")
+    frame:SetAttribute("*type1", "macro")
+    frame:SetAttribute("*macrotext1", "/click " .. EllesmereUI.GetSecureTargetProxy(frame):GetName())
+end
+
 -- The macrotext that opens a unit button's secure menu (every binding that
 -- routes to the menu must use this, never a hand-built "/click <proxy>").
 function EllesmereUI.GetSecureMenuMacro(frame)
