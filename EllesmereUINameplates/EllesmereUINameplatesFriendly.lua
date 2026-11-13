@@ -19,6 +19,7 @@ local pairs, ipairs = pairs, ipairs
 local UnitHealth, UnitHealthMax = UnitHealth, UnitHealthMax
 local UnitName, UnitIsUnit = UnitName, UnitIsUnit
 local UnitCanAttack, UnitIsPlayer = UnitCanAttack, UnitIsPlayer
+local UnitInParty, UnitInRaid, UnitSelectionColor = UnitInParty, UnitInRaid, UnitSelectionColor
 local UnitClass, UnitIsDeadOrGhost = UnitClass, UnitIsDeadOrGhost
 local UnitExists, UnitHealthPercent = UnitExists, UnitHealthPercent
 local GetRaidTargetIndex, SetRaidTargetIconTexture = GetRaidTargetIndex, SetRaidTargetIconTexture
@@ -663,6 +664,10 @@ local function PaintFriendlyColors(plate, unit, fp)
         if ok or not useClass then
             if useClass then
                 plate.health:SetStatusBarColor(r, g, b)
+            elseif ns.NP_Forever() and (UnitInParty(unit) or UnitInRaid(unit)) then
+                -- WoW Forever style, group members: the engine's selection
+                -- tint, the lighter blue the stock plate shows for them.
+                plate.health:SetStatusBarColor(UnitSelectionColor(unit, true))
             else
                 local bc = (fp and fp.friendlyBarColor) or ns.defaults.friendlyBarColor
                 plate.health:SetStatusBarColor(bc.r, bc.g, bc.b)
@@ -717,6 +722,47 @@ end
 -- while that option is on. A secret or unreadable level stays a plain "??".
 local function FriendlyLevelText(unit)
     return ns.GetUnitLevelText(unit, FriendlyLevelDiffColor() and "diffAll" or nil)
+end
+
+-- Show [] Around Group/Raid (friendlyGroupBrackets, default off): wraps a
+-- friendly group member's name in standard party-blue (#aaaaff) or
+-- raid-orange (#ff7f00) square brackets, with the player's own raid
+-- subgroup taking the party color.
+local PARTY_BRACKET_OPEN  = "|cffaaaaff[|r"
+local PARTY_BRACKET_CLOSE = "|cffaaaaff]|r"
+local RAID_BRACKET_OPEN   = "|cffff7f00[|r"
+local RAID_BRACKET_CLOSE  = "|cffff7f00]|r"
+
+local function ShowFriendlyGroupBrackets()
+    local fp = FP()
+    return fp and fp.friendlyGroupBrackets == true
+end
+
+local function GetUnitGroupBracketKind(unit)
+    if not unit or UnitIsUnit(unit, "player") then return nil end
+    if IsInRaid and IsInRaid() then
+        local rIdx = UnitInRaid and UnitInRaid(unit)
+        if rIdx and not (issecretvalue and issecretvalue(rIdx)) then
+            if GetRaidRosterInfo then
+                local pIdx = UnitInRaid("player")
+                if pIdx and not (issecretvalue and issecretvalue(pIdx)) then
+                    local _, _, uSub = GetRaidRosterInfo(rIdx)
+                    local _, _, pSub = GetRaidRosterInfo(pIdx)
+                    if uSub and pSub and not (issecretvalue and (issecretvalue(uSub) or issecretvalue(pSub))) then
+                        return (uSub == pSub) and "party" or "raid"
+                    end
+                end
+            end
+            if UnitInParty and UnitInParty(unit) then
+                return "party"
+            end
+            return "raid"
+        end
+    end
+    if UnitInParty and UnitInParty(unit) then
+        return "party"
+    end
+    return nil
 end
 
 
@@ -801,13 +847,14 @@ do
         titledCount[mode] = titledCount[mode] + 1
         return s
     end
-    local aFormat, aMode, aBrackets, aLevel, aDiff, stamped
+    local aFormat, aMode, aBrackets, aLevel, aDiff, aGroupBrackets, stamped
     StampFriendlyNames = function()
         local fp = FP()
         if not fp then return end
         aFormat, aMode = fp.friendlyNameFormat, fp.friendlyBelowName or "none"
         aBrackets, stamped = fp.friendlyBelowNameGuildBrackets ~= false, true
         aLevel, aDiff = fp.friendlyShowLevel == true, fp.friendlyLevelDiffColor == true
+        aGroupBrackets = fp.friendlyGroupBrackets == true
     end
     -- The Name Format options rows and every settings re-read (ns.RefreshAllSettings:
     -- profile switches, Spec Overrides). Before the first record it only records.
@@ -818,7 +865,8 @@ do
         if fp.friendlyNameFormat == aFormat and (fp.friendlyBelowName or "none") == aMode
             and (fp.friendlyBelowNameGuildBrackets ~= false) == aBrackets
             and (fp.friendlyShowLevel == true) == aLevel
-            and (fp.friendlyLevelDiffColor == true) == aDiff then
+            and (fp.friendlyLevelDiffColor == true) == aDiff
+            and (fp.friendlyGroupBrackets == true) == aGroupBrackets then
             return
         end
         ns.RefreshFriendlyBelowName()
@@ -876,6 +924,12 @@ local _titledNameGuard = false
 local function UpdateNameOnlyText(nameFS)
     local unit = nameFSUnits[nameFS]
     if not unit or not UnitExists(unit) then return end
+    -- A recycled plate leaves a token another plate now owns: write only through the owner's plate.
+    local np = C_NamePlate.GetNamePlateForUnit(unit)
+    if not (np and np.UnitFrame and np.UnitFrame.name == nameFS) then
+        nameFSUnits[nameFS], nameFSText[nameFS] = nil, nil
+        return
+    end
     -- Nameplate tokens are recycled: a plate reused for an enemy keeps our
     -- hook and a stale friendly token, so never write on a hostile unit
     -- (Blizzard's own name write is already correct there).
@@ -890,6 +944,14 @@ local function UpdateNameOnlyText(nameFS)
     -- The friendly Name Format, while one is saved (players only).
     if isPlayer and FriendlyNameFormat() then
         want = FormatFriendlyName(unit, want, ModeHasTitle(mode))
+    end
+    if isPlayer and ShowFriendlyGroupBrackets() then
+        local gKind = GetUnitGroupBracketKind(unit)
+        if gKind == "party" then
+            want = PARTY_BRACKET_OPEN .. want .. PARTY_BRACKET_CLOSE
+        elseif gKind == "raid" then
+            want = RAID_BRACKET_OPEN .. want .. RAID_BRACKET_CLOSE
+        end
     end
     if isPlayer and ShowFriendlyLevel() then
         want = FriendlyLevelText(unit) .. " | " .. want
@@ -948,7 +1010,7 @@ local function AttachNameOnlyText(nameFS, unit)
         hooksecurefunc(nameFS, "SetText", function(self)
             if _titledNameGuard then return end
             if GetBelowNameMode() == "none" and not FriendlyNameFormat()
-                and not ShowFriendlyLevel() then
+                and not ShowFriendlyLevel() and not ShowFriendlyGroupBrackets() then
                 return
             end
             -- Blizzard just overwrote the composed string with its own plain
@@ -1196,7 +1258,8 @@ hooksecurefunc(NamePlateDriverFrame, "OnNamePlateAdded", function(_, unit)
             EnsureNameUnconstrained(nameplate.UnitFrame.name)
             -- Subtitle Text (inline title + guild line) and the Name Format, all
             -- composed onto this same FontString.
-            if GetBelowNameMode() ~= "none" or FriendlyNameFormat() or ShowFriendlyLevel() then
+            if GetBelowNameMode() ~= "none" or FriendlyNameFormat()
+                or ShowFriendlyLevel() or ShowFriendlyGroupBrackets() then
                 AttachNameOnlyText(nameplate.UnitFrame.name, unit)
             end
         end
@@ -1206,11 +1269,12 @@ end)
 hooksecurefunc(NamePlateDriverFrame, "OnNamePlateRemoved", function(_, unit)
     -- Guard: Blizzard settings panel can fire this with "preview" which is not a valid unit
     if not unit or not unit:find("^nameplate") then return end
-    -- Clean up the NPC overlay if present. The player name-only text needs no
-    -- teardown -- it lives on Blizzard's own FontString, which Blizzard
-    -- rewrites when the plate is reused (our SetText hook recomposes then).
+    -- Clean up the NPC overlay if present, and release the name FontString's
+    -- player token: a reused plate must not recompose a name from it.
     local nameplate = C_NamePlate.GetNamePlateForUnit(unit)
     if nameplate then
+        local nfs = nameplate.UnitFrame and nameplate.UnitFrame.name
+        if nfs then nameFSUnits[nfs], nameFSText[nfs] = nil, nil end
         HideNPCOverlay(nameplate)
         nameOnlyNPCSuppressed[nameplate] = nil
     end
@@ -1533,7 +1597,8 @@ function FriendlyFrame:UpdateName()
     local hasTitle = ModeHasTitle(GetBelowNameMode())
     local fmt = FriendlyNameFormat()
     local showLevel = ShowFriendlyLevel()
-    local isPlayer = (hasTitle or fmt or showLevel) and UnitIsPlayer(unit)
+    local showGroup = ShowFriendlyGroupBrackets()
+    local isPlayer = (hasTitle or fmt or showLevel or showGroup) and UnitIsPlayer(unit)
     local unitName
     if hasTitle and isPlayer then
         unitName = GetTitledName(unit)
@@ -1542,9 +1607,14 @@ function FriendlyFrame:UpdateName()
     if fmt and isPlayer and unitName then
         unitName = FormatFriendlyName(unit, unitName, hasTitle)
     end
+    local gKind = (showGroup and isPlayer) and GetUnitGroupBracketKind(unit) or nil
+    local bOpen  = (gKind == "party" and PARTY_BRACKET_OPEN)  or (gKind == "raid" and RAID_BRACKET_OPEN)  or ""
+    local bClose = (gKind == "party" and PARTY_BRACKET_CLOSE) or (gKind == "raid" and RAID_BRACKET_CLOSE) or ""
     if showLevel and isPlayer and unitName then
         -- The name may be secret: only ever a display argument.
-        self.name:SetFormattedText("%s | %s", FriendlyLevelText(unit), unitName)
+        self.name:SetFormattedText("%s | " .. bOpen .. "%s" .. bClose, FriendlyLevelText(unit), unitName)
+    elseif gKind and unitName then
+        self.name:SetFormattedText(bOpen .. "%s" .. bClose, unitName)
     else
         self.name:SetText(unitName or "")
     end
@@ -1933,12 +2003,36 @@ do
     end
 end
 
+-- Show [] Around Group/Raid: GROUP_ROSTER_UPDATE repaints friendly player
+-- names whenever party/raid membership or raid subgroup assignment changes.
+do
+    local groupEv, armed
+    function ns.NP_FriendlyGroupWatch()
+        local want = ShowFriendlyGroupBrackets() and 1 or 0
+        if want == (armed or 0) then return end
+        armed = want
+        if groupEv then groupEv:UnregisterAllEvents() end
+        if want == 0 then return end
+        if not groupEv then
+            groupEv = CreateFrame("Frame")
+            groupEv:SetScript("OnEvent", function()
+                for _, plate in pairs(friendlyPlates) do
+                    plate:UpdateName()
+                end
+                SweepPlayerSubText()
+            end)
+        end
+        groupEv:RegisterEvent("GROUP_ROSTER_UPDATE")
+    end
+end
+
 -- Live-apply a Subtitle Text setting change (mode / size / color) from the
 -- options panel, in whichever friendly mode is active.
 function ns.RefreshFriendlyBelowName()
     -- Size / font / slug: the subtitle family on every built sub text.
     ApplySubtitleFont()
     ns.NP_FriendlyLevelWatch()
+    ns.NP_FriendlyGroupWatch()
     -- Full-plate mode: repaint the name (the title is part of it now) plus
     -- the guild line and name lift on live plates.
     for _, plate in pairs(friendlyPlates) do
@@ -2070,6 +2164,7 @@ function ns.UpdateFriendlyNameplateSystem()
     -- slug toggles). Value-memoized, near-free when unchanged.
     ApplySubtitleFont()
     ns.NP_FriendlyLevelWatch()
+    ns.NP_FriendlyGroupWatch()
 
     -- In follower dungeons, force-hide friendly nameplates via CVars. In instances
     -- (dungeons/raids/scenarios/arenas/PvP), force-hide friendly NPC nameplates

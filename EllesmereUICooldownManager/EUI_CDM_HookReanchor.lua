@@ -2286,6 +2286,9 @@ local function CollectAndReanchor()
     -- Our aura icons level their slots on the frames this pass placed
     -- (EUI_CDM_AuraIcons.lua).
     if ns.CDM_AuraIconsPlaced then ns.CDM_AuraIconsPlaced() end
+    -- WoW Forever: buff icons Blizzard draws without a timer
+    -- (EUI_CDM_ForeverLinkedAura.lua).
+    if ns.CDM_LinkedAuraPlaced then ns.CDM_LinkedAuraPlaced() end
 
     if not ns._initialReanchorDone then ns._initialReanchorDone = true end
 

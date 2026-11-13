@@ -249,6 +249,9 @@ do
             return
         end
 
+        -- WoW Forever reports the generic "Channeling" as a channel's display
+        -- text; the spell name is the first return.
+        if element.channeling and EllesmereUI.IS_FOREVER then text = name end
         text = EllesmereUI.CleanCastName(text)
 
         element.delay = 0
@@ -941,7 +944,7 @@ function Engine.SpawnUnitFrame(unit, name)
     frame.EnableElement = Frame_EnableElement
     frame.DisableElement = Frame_DisableElement
     frame:SetAttribute("unit", unit)
-    frame:SetAttribute("*type1", "target")
+    EllesmereUI.SetLeftClickTarget(frame)
     frame:SetAttribute("toggleForVehicle", true)
     EllesmereUI.AttachSecureUnitMenu(frame)
     -- The secure environment rewrites the unit attribute on vehicle and pet
@@ -995,6 +998,8 @@ globalFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
 globalFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 globalFrame:RegisterEvent("RAID_TARGET_UPDATE")
 globalFrame:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
+-- A boss slot taken over by an add turning targetable (Blizzard's boss frames update on it).
+if not EllesmereUI.IS_FOREVER then globalFrame:RegisterEvent("UNIT_TARGETABLE_CHANGED") end
 -- 2D portrait art streams in AFTER the paint that asked for it (loading
 -- screens, vehicle transitions); this unitless event is the only trigger
 -- that follows, so it fans the portrait painter out to every shown frame
@@ -1029,10 +1034,13 @@ globalFrame:SetScript("OnEvent", function(self, event, unit)
             f._euiLastGuid = UnitGUID(f._euiUnit)
             Engine.RepaintAll(f, "UnitChanged")
         end
-    elseif event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then
+    elseif event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT"
+        or (event == "UNIT_TARGETABLE_CHANGED" and unit and unit:match("^boss%d$")) then
+        -- Targetable flips re-sort the slots too; the GUID probe is blind when identity is secret.
+        local reason = (event == "UNIT_TARGETABLE_CHANGED") and "UnitChanged" or event
         for i = 1, 5 do
             local f = unitFrames["boss" .. i]
-            if f and f:IsShown() then Engine.RepaintAll(f, event) end
+            if f and f:IsShown() then Engine.RepaintAll(f, reason) end
         end
         -- The slots can still be settling when the event lands (one occupant
         -- moves down while the new one moves in): one next-frame pass reads

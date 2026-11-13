@@ -314,12 +314,15 @@ function ns.LayoutCastBar(plate, footprintW, castH)
     -- Snap to whole physical pixels at the plate's own scale (nameplates have their own scale
     -- stack, not UIParent's) so the health-bottom/cast-top gap stays constant instead of
     -- oscillating +/-1px as the plate slides to fractional screen positions.
-    if offsetY ~= 0 and PP then
+    local offsetX = ns.GetCastBarOffsetX()
+    if (offsetY ~= 0 or offsetX ~= 0) and PP then
         local plateES = plate:GetEffectiveScale()
         local onePx = (plateES and plateES > 0) and (PP.perfect / plateES) or (PP.mult or 1)
         offsetY = math.floor(offsetY / onePx + 0.5) * onePx
+        offsetX = math.floor(offsetX / onePx + 0.5) * onePx
     end
-    plate.cast:SetPoint("TOPLEFT", plate.health, "BOTTOMLEFT", shiftX, offsetY)
+    plate._castOffsetX = offsetX
+    plate.cast:SetPoint("TOPLEFT", plate.health, "BOTTOMLEFT", shiftX + offsetX, offsetY)
     -- The cast bar's bottom edge below the health bar's: the bottom text slots
     -- drop by this while a cast shows (PlaceSlotText). Clamped at 0, so a cast
     -- bar raised above the health bar never lifts them.
@@ -359,12 +362,14 @@ function ns.LayoutCastIcon(plate, castH)
         -- size: anchored to the same points the health/cast borders use, they pixel-snap
         -- together and shift as ONE unit instead of rounding independently. SetWidth keeps it
         -- square (height is fixed by the top/bottom anchors = side).
+        -- The top corner follows the cast bar's X offset, as the bottom one does.
         icon:SetWidth(side)
+        local barX = plate._castOffsetX or 0
         if onRight then
-            icon:SetPoint("TOPLEFT", plate.health, "TOPRIGHT", xOff, yOff)
+            icon:SetPoint("TOPLEFT", plate.health, "TOPRIGHT", xOff + barX, yOff)
             icon:SetPoint("BOTTOMLEFT", plate.cast, "BOTTOMRIGHT", xOff, yOff)
         else
-            icon:SetPoint("TOPRIGHT", plate.health, "TOPLEFT", xOff, yOff)
+            icon:SetPoint("TOPRIGHT", plate.health, "TOPLEFT", xOff + barX, yOff)
             icon:SetPoint("BOTTOMRIGHT", plate.cast, "BOTTOMLEFT", xOff, yOff)
         end
     else
@@ -1540,6 +1545,12 @@ function ns.GetWrapBorderCastbar()
     local v = p and p.wrapBorderCastbar
     if v == nil then return defaults.wrapBorderCastbar end
     return v
+end
+-- Cast Bar X Offset; 0 while the border wraps the cast bar (the wrap spans the
+-- health bar's width).
+function ns.GetCastBarOffsetX()
+    if ns.GetWrapBorderCastbar() then return 0 end
+    return (p and p.castBarOffsetX) or defaults.castBarOffsetX
 end
 local function GetAuraSlots()
     local ds = (p and p.debuffSlot) or defaults.debuffSlot

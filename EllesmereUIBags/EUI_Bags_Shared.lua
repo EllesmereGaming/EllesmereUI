@@ -917,7 +917,9 @@ do
         -- they draw no empty slots, so Blizzard's cursor split has nowhere to
         -- land and a plain Split places its stack instead. Everywhere else the
         -- Stack Splitter setting decides whether the dialog replaces the popup.
-        local placeOnce = (window == EUI_Bags and selectedCategoryIndex >= 0)
+        -- A virtual view (EUI_CategoryManager:RegisterVirtualView) draws no empty slots either.
+        local placeOnce = (window == EUI_Bags and (selectedCategoryIndex >= 0
+            or EUI_CategoryManager:GetViewByIndex(selectedCategoryIndex) ~= nil))
         if not placeOnce and BP().bagStackSplitter ~= true then return end
         local maxStack = EUI.StackSplitFor(owner)
         if not maxStack then return end

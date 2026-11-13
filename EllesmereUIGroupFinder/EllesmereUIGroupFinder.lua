@@ -86,11 +86,28 @@ for _, k in ipairs({ "ratingOn", "ratingValue", "regions", "delves", "delveTiers
     "raidPlaystyles", "raidRoles", "partyFit", "notDeclined", "hasLust", "hasBrez", "extraMyClass", "raidMyClass",
     "extraExpr", "extraRolesAny", "roleCounts", "dimPicks" }) do FILTER_KEYS[k] = true end
 
+-- filters both tabs have: the raids tab keeps its own, under raid_<key>
+local TAB_KEYS = {}
+for _, k in ipairs({ "regions", "partyFit", "notDeclined", "hasLust", "hasBrez", "extraLustMissing",
+    "extraBrezMissing", "extraExpr", "extraRolesAny", "roleCounts", "extraSortBy" }) do TAB_KEYS[k] = true end
+local function RaidTab()
+    local sp = LFGListFrame and LFGListFrame.SearchPanel
+    return sp and sp.categoryID == (GROUP_FINDER_CATEGORY_ID_RAIDS or 3) or false
+end
+
 local charDB
 local function CharFilters() return charDB and charDB.filters end
 
 local cfg = setmetatable({}, {
     __index = function(_, k)
+        if TAB_KEYS[k] and RaidTab() then
+            local rk = "raid_" .. k
+            if FILTER_KEYS[k] then
+                local f = CharFilters()
+                return f and f[rk]
+            end
+            return Search()[rk]
+        end
         if FILTER_KEYS[k] then
             local f = CharFilters()
             return f and f[k]
@@ -98,6 +115,16 @@ local cfg = setmetatable({}, {
         return Search()[k]
     end,
     __newindex = function(_, k, v)
+        if TAB_KEYS[k] and RaidTab() then
+            local rk = "raid_" .. k
+            if FILTER_KEYS[k] then
+                local f = CharFilters()
+                if f then f[rk] = v end
+                return
+            end
+            Search()[rk] = v
+            return
+        end
         if FILTER_KEYS[k] then
             local f = CharFilters()
             if f then f[k] = v end

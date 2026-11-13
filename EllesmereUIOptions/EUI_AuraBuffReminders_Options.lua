@@ -1906,7 +1906,8 @@ initFrame:SetScript("OnEvent", function(self)
             });  y = y - h
 
             -- Camp Benefits | Sleeping Bag
-            _, h = W:DualRow(parent, y,
+            local campRow
+            campRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Camp Benefits",
                   tooltip="Reminds you when the Camp Benefits campfire buff is missing.",
                   getValue=function() local f = FDB(); return not f or f.camp ~= false end,
@@ -1933,6 +1934,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v)
                       local f = FDB(); if not f then return end; f.wellFed = v
                       RefreshAll()
+                      EllesmereUI:RefreshPage()
                   end },
                 { type="toggle", text="Gathering Tracking",
                   tooltip="Reminds you when no gathering tracking is on.",
@@ -1945,6 +1947,28 @@ initFrame:SetScript("OnEvent", function(self)
             );  y = y - h
 
             if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(gatherRow._leftRegion, {
+                    title = _G._EABR_SpellName(19705, "Well Fed"),
+                    disabled = function() local f = FDB(); return not (f and f.wellFed) end,
+                    disabledTooltip = _G._EABR_SpellName(19705, "Well Fed"),
+                    rows = {
+                        { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
+                          tooltip="Show the reminder before Well Fed expires. Set to 0 to show it only after the buff expires.",
+                          get=function() local f = FDB(); return f and f.wellFedShowBelow or 0 end,
+                          set=function(v) local f = FDB(); if f then f.wellFedShowBelow = v ~= 0 and v or nil; RefreshAll() end end },
+                                                    },
+                })
+                EllesmereUI.BuildInlineCog(campRow._rightRegion, {
+                    title = "Sleeping Bag",
+                    disabled = function() local f = FDB(); return not (f and f.sleepingBag) end,
+                    disabledTooltip = "Sleeping Bag",
+                    rows = {
+                        { type="slider", label="Show Below (Minutes)", min=0, max=10, step=1,
+                          tooltip="Show the Sleeping Bag reminder with a countdown before Well-Rested expires. Set to 0 to only remind when the buff is missing or below 3 stacks.",
+                          get=function() local f = FDB(); return f and f.sleepingBagShowBelow or 0 end,
+                          set=function(v) local f = FDB(); if f then f.sleepingBagShowBelow = v > 0 and v or nil; RefreshAll() end end },
+                    },
+                })
                 EllesmereUI.BuildInlineCog(gatherRow._rightRegion, {
                     title = "Gathering Tracking",
                     disabled = function() local f = FDB(); return not (f and f.gather == true) end,

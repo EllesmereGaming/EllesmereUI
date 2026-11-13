@@ -785,18 +785,48 @@ function ns.NP_HitboxHeight(db)
     return h
 end
 
+-- Blizzard's own plate width for the current style and size, or nil.
+local function BlizzPlateWidth()
+    local drv = NamePlateDriverFrame
+    if not (drv and drv.GetNamePlateWidth and drv.GetNamePlateScale and NamePlateConstants
+            and CVarCallbackRegistry) then return nil end
+    local ok, w = pcall(function()
+        local style = CVarCallbackRegistry:GetCVarNumberOrDefault(NamePlateConstants.STYLE_CVAR)
+        return drv:GetNamePlateWidth(style, drv:GetNamePlateScale(style))
+    end)
+    return ok and type(w) == "number" and w or nil
+end
+
+local PLATE_INSTANCES = { party = true, raid = true, scenario = true, arena = true, pvp = true }
+
 function ns.RefreshHitboxSize()
-    if InCombatLockdown() then return end
+    -- Protected in combat: redone at regen.
+    if InCombatLockdown() then ns._hitboxPending = true; return end
+    ns._hitboxPending = nil
     if not C_NamePlate or not C_NamePlate.SetNamePlateSize then return end
     local db = p or defaults
     local sx = (db.hitboxScaleX or 100) / 100
-    C_NamePlate.SetNamePlateSize(GetHealthBarWidth() * sx, ns.NP_HitboxHeight(db))
+    local w = GetHealthBarWidth() * sx
+    -- Instances show Blizzard's friendly plates (players; friendly NPCs are off there), whose
+    -- name fits the frame: the frame takes Blizzard's width, enemy clicks keep our hitbox.
+    local plateW = w
+    local _, iType = GetInstanceInfo()
+    if PLATE_INSTANCES[iType] then
+        local bw = BlizzPlateWidth()
+        if bw and bw > w then plateW = bw end
+    end
+    C_NamePlate.SetNamePlateSize(plateW, ns.NP_HitboxHeight(db))
     -- The frame grows from its CENTER, so a taller size enlarges the hitbox evenly above and
     -- below the unit. -10000 insets let the hit rect fill the full (centered) frame.
     if C_NamePlateManager and C_NamePlateManager.SetNamePlateHitTestInsets
        and Enum and Enum.NamePlateType then
-        C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Enemy, -10000, -10000, -10000, -10000)
-        C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Friendly, -10000, -10000, -10000, -10000)
+        -- A widened frame keeps our hitbox width for clicks, on both plate types.
+        local side = plateW > w and (plateW - w) / 2 or -10000
+        ns._hitboxSide = plateW > w and side or 0
+        C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Enemy, side, side, -10000, -10000)
+        C_NamePlateManager.SetNamePlateHitTestInsets(Enum.NamePlateType.Friendly, side, side, -10000, -10000)
+        -- Friendly Click Through owns the friendly insets while it is on.
+        if ns.UpdateFriendlyClickThrough then ns.UpdateFriendlyClickThrough() end
     end
     -- Anchor content at the frame center (GetHitboxYShift is 0): the frame grows
     -- centered, so the bar stays put and the hitbox stays centered on it.
@@ -836,7 +866,9 @@ function ns._ApplyHitboxOverlay(plate)
         ov:SetParent(np)
         ov:SetFrameLevel(np:GetFrameLevel() + 10)
         ov:ClearAllPoints()
-        ov:SetAllPoints(np)
+        local side = ns._hitboxSide or 0
+        ov:SetPoint("TOPLEFT", np, "TOPLEFT", side, 0)
+        ov:SetPoint("BOTTOMRIGHT", np, "BOTTOMRIGHT", -side, 0)
         ov:Show()
     elseif plate.hitboxOverlay then
         plate.hitboxOverlay:Hide()

@@ -299,6 +299,46 @@ local function BuildGeneralPage(pageName, parent, yOffset)
         }
     end
 
+    -- Blizzard's nameplateSize CVar: read by Blizzard at load, so a change asks for a reload
+    -- once the drag ends (debounced, as Max Debuffs below).
+    local npSizeOriginal = DBVal("nameplateSize") or defaults.nameplateSize
+    local npSizePendingPopup
+    local sizeRow
+    sizeRow, h = W:DualRow(parent, y,
+        { type="slider", text="Blizzard Nameplate Size", min=1, max=5, step=1,
+          tooltip="Blizzard's nameplate size: 1 Small, 2 Medium, 3 Large (default), 4 Extra Large, 5 Huge.\n\nIt sizes the Blizzard nameplates still shown with EUI Nameplates on, such as friendly players inside instances. EUI's own nameplates are not affected.\n\nWith Make Friendly Nameplates Name Only on, it only sets the width names have room for; the size difference is visible only with Name Only off.\n\nRequires a UI reload.",
+          getValue=function() return DBVal("nameplateSize") or defaults.nameplateSize end,
+          setValue=function(v)
+            DB().nameplateSize = v
+            -- Written now: Blizzard reads it at load, before EUI's own CVar pass.
+            EllesmereUI.SetCVar("nameplateSize", v, "EllesmereUINameplates")
+            if v ~= npSizeOriginal then
+                if npSizePendingPopup then npSizePendingPopup:Cancel() end
+                npSizePendingPopup = C_Timer.NewTimer(0.5, function()
+                    npSizePendingPopup = nil
+                    if (DB().nameplateSize or defaults.nameplateSize) ~= npSizeOriginal then
+                        EllesmereUI:ShowConfirmPopup({
+                            title = "Reload Required",
+                            message = "Changing Blizzard Nameplate Size requires a UI reload to take effect.",
+                            confirmText = "Reload Now",
+                            cancelText = "Later",
+                            reload    = true,
+                        })
+                    end
+                end)
+            end
+          end },
+        { type="slider", text="Friendly Name Size", trackWidth=120,
+          min=8, max=30, step=1,
+          disabled=nameOnlyOff,
+          disabledTooltip="Make Friendly Nameplates Name Only",
+          getValue=function() return DBVal("friendlyNameSize") or defaults.friendlyNameSize end,
+          setValue=function(v)
+            DB().friendlyNameSize = v
+            if ns.RefreshFriendlyNameSize then ns.RefreshFriendlyNameSize() end
+          end,
+          tooltip="Adjusts the size of friendly player names shown in Name Only mode. Default is 15." });  y = y - h
+
     local subtitleRow
     subtitleRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Subtitle Text",
@@ -367,6 +407,14 @@ local function BuildGeneralPage(pageName, parent, yOffset)
                     DB().friendlyBelowNameGuildBrackets = v and true or false
                     if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
                   end },
+                { type = "toggle", label = "Show [] Around Group/Raid",
+                  tooltip = "Wraps party members' names in party-blue [Name] brackets (including your own raid subgroup) and other raid members' names in raid-orange [Name] brackets.",
+                  rawTooltip = true,
+                  get = function() return DBVal("friendlyGroupBrackets") == true end,
+                  set = function(v)
+                    DB().friendlyGroupBrackets = v and true or false
+                    if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                  end },
             },
         })
     end
@@ -382,16 +430,13 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             if ns.UpdateFriendlyNameplateSystem then ns.UpdateFriendlyNameplateSystem() end
             EllesmereUI:RefreshPage()
           end },
-        { type="slider", text="Friendly Name Size", trackWidth=120,
-          min=8, max=30, step=1,
-          disabled=nameOnlyOff,
-          disabledTooltip="Make Friendly Nameplates Name Only",
-          getValue=function() return DBVal("friendlyNameSize") or defaults.friendlyNameSize end,
+        { type="toggle", text="Show Enemy Pet Nameplates",
+          getValue=function() return DBVal("showEnemyPets") == true end,
           setValue=function(v)
-            DB().friendlyNameSize = v
-            if ns.RefreshFriendlyNameSize then ns.RefreshFriendlyNameSize() end
+            DB().showEnemyPets = v
+            pcall(EllesmereUI.SetCVar, "nameplateShowEnemyPets", v and 1 or 0, "EllesmereUINameplates")
           end,
-          tooltip="Adjusts the size of friendly player names shown in Name Only mode. Default is 15." });  y = y - h
+          tooltip="Toggle visibility of enemy pet nameplates." });  y = y - h
 
     -- Cog popup for NPC nameplate settings (Show NPC Titles)
     do
@@ -512,17 +557,11 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             DB().friendlyClickThrough = v
             if ns.UpdateFriendlyClickThrough then ns.UpdateFriendlyClickThrough() end
           end },
-        { type="toggle", text="Show Enemy Pet Nameplates",
-          getValue=function() return DBVal("showEnemyPets") == true end,
-          setValue=function(v)
-            DB().showEnemyPets = v
-            pcall(EllesmereUI.SetCVar, "nameplateShowEnemyPets", v and 1 or 0, "EllesmereUINameplates")
-          end,
-          tooltip="Toggle visibility of enemy pet nameplates." });  y = y - h
+        EllesmereUI.BlankRowCfg());  y = y - h
 
     -- Inline DIRECTIONS cog on Friendly Name Size: name-only vertical distance
     if not EllesmereUI._prebuilding then
-        EllesmereUI.BuildInlineCog(npcRow._rightRegion, {
+        EllesmereUI.BuildInlineCog(sizeRow._rightRegion, {
             disabled = nameOnlyOff,
             title = "Name Distance",
             rows = {

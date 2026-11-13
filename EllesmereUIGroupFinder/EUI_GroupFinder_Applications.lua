@@ -281,7 +281,7 @@ BuildCardInto = function()
     bg:SetAllPoints()
     bg:SetColorTexture(0.2, 0.2, 0.2, 1)
     local S = ns.Skin()
-    if S and S.AddBorder then
+    if S and S.AddBorder and ns.SkinOn() then
         S.AddBorder(box)
     else
         local r, g, b, a = ns.ThemeBorder()

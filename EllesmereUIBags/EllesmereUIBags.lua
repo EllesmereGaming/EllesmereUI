@@ -34,7 +34,7 @@ local IsEquippableItem = C_Item.IsEquippableItem
 
 -- Red-tint usability test (shared with the bank module via EUI). Tooltip must come from
 -- the real item, never GetItemByID: scaling gear's bonus IDs lower its required level, but
--- GetItemByID shows the unscaled base item's level (reads red). Prefer bag slot > link > ID; cache by link, wipe on level-up.
+-- GetItemByID shows the unscaled base item's level (reads red). Prefer bag slot > link > ID; cache by link, wipe on level-up or skill rank change.
 local _canUseCache = {}
 local ITEM_CLASS_RECIPE = Enum.ItemClass.Recipe
 local function BagsItemUnusable(bagID, slot, itemLink, itemID)
@@ -100,6 +100,8 @@ do
     local f = CreateFrame("Frame")
     f:RegisterEvent("PLAYER_LEVEL_UP")
     f:RegisterEvent("PLAYER_LEVEL_CHANGED")
+    -- Profession and weapon skill ranks gate recipes and gear without a level change
+    pcall(f.RegisterEvent, f, "SKILL_LINES_CHANGED")
     f:SetScript("OnEvent", function() wipe(_canUseCache) end)
 end
 -- WoW Forever: the player's bags (1-4) that hold one kind of item only --

@@ -282,6 +282,15 @@ end
 -- come out yellow).
 FB.PaintBarColor = function(b, owner, s)
     local health = b._health
+    -- Dark Mode (the raid frames' Health Color mode) wins over the frames' own colour, as on the raid frames.
+    if s.healthColorMode == "dark" then
+        local r, g, bl, a = ns.EllesmereUI.GetDarkModeFill()
+        local ft = health:GetStatusBarTexture()
+        if ft then ft:SetAlpha(a) end
+        health:SetStatusBarColor(r, g, bl, (s.healthBarOpacity or 100) / 100)
+        b._bg:SetColorTexture(ns.EllesmereUI.GetDarkModeBg())
+        return
+    end
     local fbc = (owner.ColorSettings or owner.Settings)()
     fbc = fbc and fbc.healthColor
     local fillTex = health:GetStatusBarTexture()
@@ -404,7 +413,7 @@ FB.EnsureBuilt = function()
         local b = CreateFrame("Button", "ERFFriendlyBoss" .. i, container, "SecureUnitButtonTemplate")
         b._fbUnit = "boss" .. i
         b:SetAttribute("unit", b._fbUnit)
-        b:SetAttribute("*type1", "target")
+        ns.EllesmereUI.SetLeftClickTarget(b)
         b:RegisterForClicks("AnyUp")
         -- The engine gates SecureUnitButton's togglemenu; route right-click through a SecureActionButton proxy so the menu works without taint.
         if EllesmereUI.AttachSecureUnitMenu then
@@ -610,7 +619,11 @@ end
 -- Texture, fonts, text anchors and border of one button at w x h. Shared with the pet frames.
 FB.StyleVisuals = function(b, s, w, h, texPath, bgc)
     ns.RF_TexBgTint(b._bg, ns.RF_TexBgPath(s), ns.RF_IsVerticalFill(s))
-    b._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
+    if s.healthColorMode == "dark" then
+        b._bg:SetColorTexture(ns.EllesmereUI.GetDarkModeBg())
+    else
+        b._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
+    end
     b._health:SetStatusBarTexture(texPath)
     local ft = b._health:GetStatusBarTexture()
     if ft then ft:SetHorizTile(false) end

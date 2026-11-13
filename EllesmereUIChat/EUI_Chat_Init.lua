@@ -127,6 +127,12 @@ initFrame:SetScript("OnEvent", function(self)
     for _, ev in ipairs(URL_EVENTS) do
         ChatFrame_AddMessageEventFilter(ev, UrlFilter)
     end
+	
+	-- WoW:F sends CHAT_MSG_SYSTEM with an empty message so we drop it to never render a timestamp-only message.
+    ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(self, event, msg)
+        if issecretvalue and issecretvalue(msg) then return false end
+        return msg == ""
+    end)
 
     ---------------------------------------------------------------------------
     --  3. Temporary window (whisper) detection.
@@ -501,10 +507,43 @@ initFrame:SetScript("OnEvent", function(self)
             self:Hide()
             OnActiveMessage()
         end)
-        local function WakeOnChat(cf, event)
-            if event == nil or wakeFrame:IsShown() then return end
-            if issecretvalue and issecretvalue(event) then return end
-            if CHAT_MSG_EVENTS[event] and cf:IsShown() then wakeFrame:Show() end
+
+        -- Also Wake On groups (cfg.idleFadeWake) on top of CHAT_MSG_EVENTS: the
+        -- event names, and the chat type ids of lines Blizzard adds with no
+        -- event name. With no group checked these stay CHAT_MSG_EVENTS and nil.
+        local _wakeEvents, _wakeTypeIDs = CHAT_MSG_EVENTS, nil
+        function ECHAT.ApplyIdleFadeWake()
+            local sel = ECHAT.DB().idleFadeWake
+            local events, ids
+            if sel then
+                for _, g in ipairs(I.IDLE_WAKE_GROUPS) do
+                    if sel[g.key] then
+                        if not events then
+                            events, ids = {}, {}
+                            for e in pairs(CHAT_MSG_EVENTS) do events[e] = true end
+                        end
+                        for _, t in ipairs(g.types) do
+                            events["CHAT_MSG_" .. t] = true
+                            local info = ChatTypeInfo[t]
+                            if info and info.id then ids[info.id] = true end
+                        end
+                    end
+                end
+            end
+            _wakeEvents, _wakeTypeIDs = events or CHAT_MSG_EVENTS, ids
+        end
+
+        local function WakeOnChat(cf, event, chatTypeID)
+            if wakeFrame:IsShown() then return end
+            local hit
+            if event ~= nil then
+                if issecretvalue and issecretvalue(event) then return end
+                hit = _wakeEvents[event]
+            elseif _wakeTypeIDs and chatTypeID ~= nil then
+                if issecretvalue and issecretvalue(chatTypeID) then return end
+                hit = _wakeTypeIDs[chatTypeID]
+            end
+            if hit and cf:IsShown() then wakeFrame:Show() end
         end
         SetMessageWake = function(on)
             if ECHAT.EngineSetIdleObserver then
@@ -737,6 +776,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Start the initial timer
+        ECHAT.ApplyIdleFadeWake()
         ECHAT.ResetIdleTimer()
     end
 
@@ -874,6 +914,7 @@ initFrame:SetScript("OnEvent", function(self)
         ECHAT.ApplyFonts()
         if ECHAT.RefreshVisibility then ECHAT.RefreshVisibility() end
         -- The new profile's idle fade settings (and whether chat lines wake it).
+        if ECHAT.ApplyIdleFadeWake then ECHAT.ApplyIdleFadeWake() end
         if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
         -- The passes above can build panel chrome (borders, the tab-band
         -- extension) that did not exist when the house editor opened.

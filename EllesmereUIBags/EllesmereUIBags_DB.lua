@@ -49,6 +49,7 @@ local BAGS_DEFAULTS = {
         bagShowQuickIcon      = false,   -- Quick Actions: dim all but items a spell works on; click or Alt-click casts it
         bagShowSortIcon       = true,
         bagSortToBottom       = false,
+        bagGoldShowSilverCopper = false,
         -- "all" | "onebag" | "multibag"; MultiBag on WoW Forever
         bagDefaultBagType     = (EllesmereUI.IS_FOREVER == true) and "multibag" or "all",
         bagDefaultOneBag      = false,   -- legacy; migrated to bagDefaultBagType
