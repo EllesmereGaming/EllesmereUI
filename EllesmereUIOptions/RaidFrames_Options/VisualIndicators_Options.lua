@@ -1710,6 +1710,158 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
 
         if PFEnabled() then
         row, h = W:DualRow(parent, y,
+            { type="dropdown", text="Fill Color",
+              values={ class = "Class Color", dark = "Dark Mode", classic = "Classic", custom = "Custom Color", customDynamic = "Custom Dynamic Colors" },
+              order={ "class", "dark", "classic", "custom", "customDynamic" },
+              tooltip="Custom Dynamic Colors: the health bar smoothly blends between three colors you pick -- one for full health (100%), one for half (50%), and one for empty (0%) -- shifting through them as the unit takes damage or is healed.",
+              getValue=function()
+                  local raw = PFSet()
+                  return raw.healthColorMode or "custom"
+              end,
+              setValue=function(v)
+                  PFSet().healthColorMode = v
+                  if ns.PF_SyncColors then ns.PF_SyncColors() else ns._PF.SyncColors() end
+                  if ns._PF_RefreshVisible then ns._PF_RefreshVisible() end
+                  PFRefreshPreview()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="multiSwatch", text="Text Color",
+              swatches = {
+                { tooltip = "Custom Color",
+                  hasAlpha = false,
+                  getValue = function()
+                      local c = PFSet().customTextColor
+                      if c then return c.r, c.g, c.b, 1 end
+                      return 1, 1, 1, 1
+                  end,
+                  setValue = function(r, g, b)
+                      local raw = PFSet()
+                      raw.customTextColor = { r=r, g=g, b=b }
+                      raw.textClassColored = nil
+                      if ns.PF_SyncColors then ns.PF_SyncColors() else ns._PF.SyncColors() end
+                      if ns._PF_RefreshVisible then ns._PF_RefreshVisible() end
+                      PFRefreshPreview()
+                  end,
+                  onClick = function(self)
+                      local raw = PFSet()
+                      if raw.textClassColored or raw.customTextColor == nil then
+                          raw.textClassColored = nil
+                          if raw.customTextColor == nil then
+                              raw.customTextColor = { r=1, g=1, b=1 }
+                          end
+                          if ns.PF_SyncColors then ns.PF_SyncColors() else ns._PF.SyncColors() end
+                          if ns._PF_RefreshVisible then ns._PF_RefreshVisible() end
+                          PFRefreshPreview()
+                          EllesmereUI:RefreshPage()
+                          return
+                      end
+                      if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                      local raw = PFSet()
+                      return (raw.customTextColor ~= nil and not raw.textClassColored) and 1 or 0.3
+                  end },
+                { tooltip = "Class Color",
+                  hasAlpha = false,
+                  getValue = function()
+                      local _, ct = UnitClass("player")
+                      local cc = ct and EllesmereUI.GetClassColor(ct)
+                      if cc then return cc.r, cc.g, cc.b, 1 end
+                      return 1, 1, 1, 1
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      local raw = PFSet()
+                      raw.textClassColored = true
+                      raw.customTextColor = nil
+                      if ns.PF_SyncColors then ns.PF_SyncColors() else ns._PF.SyncColors() end
+                      if ns._PF_RefreshVisible then ns._PF_RefreshVisible() end
+                      PFRefreshPreview()
+                      EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      return PFSet().textClassColored and 1 or 0.3
+                  end },
+              } }); y = y - h
+
+        if not EllesmereUI._prebuilding then
+            local rgn = row._leftRegion
+            local swatch, updSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, row:GetFrameLevel() + 3,
+                function()
+                    local raw = PFSet()
+                    local c = raw.customFillColor or raw.healthColor or { r = 23/255, g = 172/255, b = 49/255 }
+                    return c.r, c.g, c.b, 1
+                end,
+                function(r, g, b)
+                    local raw = PFSet()
+                    raw.customFillColor = { r=r, g=g, b=b }
+                    raw.healthColor = { r=r, g=g, b=b }
+                    if ns.PF_SyncColors then ns.PF_SyncColors() else ns._PF.SyncColors() end
+                    if ns._PF_RefreshVisible then ns._PF_RefreshVisible() end
+                    PFRefreshPreview()
+                end, false, 20)
+            swatch:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+
+            local block = CreateFrame("Frame", nil, rgn)
+            block:SetAllPoints(swatch)
+            block:SetFrameLevel(swatch:GetFrameLevel() + 1)
+            block:EnableMouse(true)
+            block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, "Only available with Custom fill color") end)
+            block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+
+            local dynDefs = {
+                { key = "dynamicColor100", def = { r = 0, g = 1, b = 0 }, label = "100%", tip = "Health bar color at full (100%) health" },
+                { key = "dynamicColor50",  def = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 }, label = "50%",  tip = "Health bar color at half (50%) health" },
+                { key = "dynamicColor0",   def = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 }, label = "0%",   tip = "Health bar color at empty (0%) health" },
+            }
+            local dynSwatches = {}
+            local prevAnchor = rgn._control
+            for i = #dynDefs, 1, -1 do
+                local dd = dynDefs[i]
+                local sw = EllesmereUI.BuildColorSwatch(
+                    rgn, row:GetFrameLevel() + 3,
+                    function()
+                        local c = PFSet()[dd.key] or dd.def
+                        return c.r, c.g, c.b, 1
+                    end,
+                    function(r, g, b)
+                        PFSet()[dd.key] = { r=r, g=g, b=b }
+                        if ns.PF_SyncColors then ns.PF_SyncColors() else ns._PF.SyncColors() end
+                        if ns._PF_RefreshVisible then ns._PF_RefreshVisible() end
+                        PFRefreshPreview()
+                    end, false, 18)
+                sw:SetPoint("RIGHT", prevAnchor, "LEFT", (prevAnchor == rgn._control) and -8 or -6, 0)
+                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, dd.tip) end)
+                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                dynSwatches[i] = sw
+                prevAnchor = sw
+            end
+
+            local function UpdateSwatchVis()
+                local raw = PFSet()
+                local mode = raw.healthColorMode or "custom"
+                local isDynamic = mode == "customDynamic"
+                if isDynamic then
+                    swatch:Hide(); block:Hide()
+                else
+                    swatch:Show()
+                    if mode == "custom" then
+                        swatch:SetAlpha(1); block:Hide()
+                    else
+                        swatch:SetAlpha(0.3); block:Show()
+                    end
+                end
+                for _, sw in ipairs(dynSwatches) do
+                    if isDynamic then sw:Show() else sw:Hide() end
+                end
+            end
+            EllesmereUI.RegisterWidgetRefresh(UpdateSwatchVis)
+            UpdateSwatchVis()
+        end
+
+        row, h = W:DualRow(parent, y,
             { type="slider", text="Extra Width", min=-50, max=100, step=1,
               tooltip="Widens or narrows the pet frames relative to the frame size.",
               getValue = function() return PFTab().extraWidth or 0 end,

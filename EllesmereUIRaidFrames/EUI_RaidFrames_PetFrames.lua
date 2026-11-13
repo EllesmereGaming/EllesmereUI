@@ -55,7 +55,165 @@ PF.EVENTS = { "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_NAME_UPDATE" }
 PF.PET_OF = { player = "pet" }
 for i = 1, 4 do PF.PET_OF["party" .. i] = "partypet" .. i end
 for i = 1, 40 do PF.PET_OF["raid" .. i] = "raidpet" .. i end
+PF.OWNER_OF = { pet = "player" }
+for i = 1, 4 do PF.OWNER_OF["partypet" .. i] = "party" .. i end
+for i = 1, 40 do PF.OWNER_OF["raidpet" .. i] = "raid" .. i end
 PF.DEFAULT_BG = { r = 17/255, g = 17/255, b = 17/255 }
+PF.DEF_FILL   = { r = 23/255, g = 172/255, b = 49/255 }
+PF.DEF_DYN100 = { r = 0, g = 1, b = 0 }
+PF.DEF_DYN50  = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 }
+PF.DEF_DYN0   = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 }
+PF.DEF_TEXT   = { r = 1, g = 1, b = 1 }
+
+local classicHealthCurve
+local function GetClassicHealthCurve()
+    if not classicHealthCurve and C_CurveUtil and C_CurveUtil.CreateColorCurve then
+        local cv = C_CurveUtil.CreateColorCurve()
+        cv:SetType(Enum.LuaCurveType.Linear)
+        cv:AddPoint(0,   CreateColor(1, 0, 0, 1))
+        cv:AddPoint(0.5, CreateColor(1, 1, 0, 1))
+        cv:AddPoint(1,   CreateColor(0, 1, 0, 1))
+        classicHealthCurve = cv
+    end
+    return classicHealthCurve
+end
+
+PF.SyncColors = function()
+    local raw = PF.Raw() or {}
+    local fc = raw.customFillColor or raw.healthColor or PF.DEF_FILL
+    PF.mode = raw.healthColorMode or "custom"
+    PF.fr, PF.fg, PF.fb = fc.r, fc.g, fc.b
+    if raw.textClassColored then
+        PF.textMode = "class"
+        PF.textClass = true
+        PF.tr, PF.tg, PF.tb = nil, nil, nil
+    elseif raw.customTextColor ~= nil then
+        PF.textMode = "custom"
+        PF.textClass = nil
+        local tc = raw.customTextColor
+        PF.tr, PF.tg, PF.tb = tc.r, tc.g, tc.b
+    else
+        PF.textMode = nil
+        PF.textClass = nil
+        PF.tr, PF.tg, PF.tb = nil, nil, nil
+    end
+    if PF.mode == "customDynamic" and C_CurveUtil and C_CurveUtil.CreateColorCurve then
+        local c0   = raw.dynamicColor0   or PF.DEF_DYN0
+        local c50  = raw.dynamicColor50  or PF.DEF_DYN50
+        local c100 = raw.dynamicColor100 or PF.DEF_DYN100
+        if not (PF.curve
+            and PF.cr0   == c0.r   and PF.cg0   == c0.g   and PF.cb0   == c0.b
+            and PF.cr50  == c50.r  and PF.cg50  == c50.g  and PF.cb50  == c50.b
+            and PF.cr100 == c100.r and PF.cg100 == c100.g and PF.cb100 == c100.b) then
+            local cv = C_CurveUtil.CreateColorCurve()
+            cv:SetType(Enum.LuaCurveType.Linear)
+            cv:AddPoint(0,   CreateColor(c0.r,   c0.g,   c0.b,   1))
+            cv:AddPoint(0.5, CreateColor(c50.r,  c50.g,  c50.b,  1))
+            cv:AddPoint(1,   CreateColor(c100.r, c100.g, c100.b, 1))
+            PF.curve = cv
+            PF.cr0, PF.cg0, PF.cb0       = c0.r, c0.g, c0.b
+            PF.cr50, PF.cg50, PF.cb50    = c50.r, c50.g, c50.b
+            PF.cr100, PF.cg100, PF.cb100 = c100.r, c100.g, c100.b
+        end
+    end
+end
+ns.PF_SyncColors = PF.SyncColors
+I.dbSetters[#I.dbSetters + 1] = function(v) PF.SyncColors() end
+
+PF.ClassRGB = function(u, frame)
+    if not (u and UnitExists(u)) then return false end
+    local owner = PF.OWNER_OF and PF.OWNER_OF[u]
+    local targetUnit = (owner and UnitExists(owner)) and owner or u
+    if UnitIsPlayer(targetUnit) or (UnitInPartyIsAI and UnitInPartyIsAI(targetUnit)) then
+        local _, ct = UnitClass(targetUnit)
+        if issecretvalue(ct) then
+            local ok, r, g, b = EllesmereUI.GetClassColorForRestrictedUnit(targetUnit, ct)
+            if ok then return true, r, g, b end
+            local c = C_ClassColor.GetClassColor(ct)
+            if c then return true, c.r, c.g, c.b end
+            return false
+        end
+        local cc = ct and EllesmereUI.GetClassColor(ct)
+        if cc then return true, cc.r, cc.g, cc.b end
+        return false
+    end
+    local tap = UnitIsTapDenied(u)
+    local re = UnitReaction(u, "player")
+    if issecretvalue(re) then re = nil end
+    if tap then return true, 0.6, 0.6, 0.6 end
+    local c = re and FACTION_BAR_COLORS[re]
+    if c then return true, c.r, c.g, c.b end
+    return false
+end
+
+PF.PaintClassic = function(health, u)
+    local cv = GetClassicHealthCurve()
+    if cv and health and u and UnitHealthPercent then
+        local c = UnitHealthPercent(u, true, cv)
+        if c and c.GetRGB then health:SetStatusBarColor(c:GetRGB()) end
+    end
+end
+
+PF.PaintDynamic = function(health, u)
+    if PF.curve and health and u and UnitHealthPercent then
+        local c = UnitHealthPercent(u, true, PF.curve)
+        if c and c.GetRGB then health:SetStatusBarColor(c:GetRGB()) end
+    end
+end
+
+PF.PaintBarColor = function(b, s)
+    local health = b._health
+    local u = FB.UnitOf(b)
+    local mode = PF.mode or "custom"
+    local fillTex = health:GetStatusBarTexture()
+    if mode == "dark" then
+        local dr, dg, db, da = EllesmereUI.GetDarkModeFill()
+        health:SetStatusBarColor(dr, dg, db, 1)
+        if fillTex then fillTex:SetAlpha(da) end
+    else
+        if fillTex then fillTex:SetAlpha(1) end
+        local opacity = (s and s.healthBarOpacity or 100) / 100
+        if mode == "classic" then
+            PF.PaintClassic(health, u)
+        elseif mode == "customDynamic" then
+            PF.PaintDynamic(health, u)
+        elseif mode == "class" then
+            local ok, r, g, bCol = PF.ClassRGB(u, b)
+            if ok then
+                health:SetStatusBarColor(r, g, bCol, opacity)
+            else
+                health:SetStatusBarColor(PF.fr or 23/255, PF.fg or 172/255, PF.fb or 49/255, opacity)
+            end
+        else -- "custom"
+            health:SetStatusBarColor(PF.fr or 23/255, PF.fg or 172/255, PF.fb or 49/255, opacity)
+        end
+    end
+end
+PF.PaintPetBarColor = PF.PaintBarColor
+
+PF.ApplyTextColor = function(b, u)
+    if not PF.textMode then return end
+    local st = FB.txs[b]
+    if not (st and st._tx) then return end
+    local r, g, bCol
+    if PF.textMode == "class" then
+        local ok, cr, cg, cb = PF.ClassRGB(u, b)
+        if ok then
+            r, g, bCol = cr, cg, cb
+        else
+            r, g, bCol = 0.5, 0.5, 0.5
+        end
+    else
+        r, g, bCol = PF.tr or 1, PF.tg or 1, PF.tb or 1
+    end
+    for _, fs in ipairs(st._tx) do
+        if fs and fs:IsShown() then
+            fs._r, fs._g, fs._b = r, g, bCol
+            fs:SetTextColor(r, g, bCol, 1)
+        end
+    end
+end
+
 -- Beside Owner pet -> the party frame it sits beside (your own pet has none); header button -> the
 -- style generation it was last styled at; Beside Owner pet -> its preview mouse blocker.
 PF.ownerOf = setmetatable({}, { __mode = "k" })
@@ -274,6 +432,9 @@ PF.Refresh = function(b)
     if not FB.Update(b, PF) then FB.ApplyBorderColor(b) end
     PF.ApplyRange(b)
     local u = FB.UnitOf(b)
+    if u and UnitExists(u) then
+        PF.ApplyTextColor(b, u)
+    end
     local g = u and UnitGUID(u)
     if issecretvalue(g) then g = nil end
     local d = GetFFD(b)
@@ -491,6 +652,32 @@ PF.CompactStyleInput = function(t)
     t[PF.STYLE_N + 1] = ns.RF_CompactOn(PF.StyleSource(), PF.styleCtx == "party")
 end
 
+PF.FpExtra = function(t)
+    local raw = PF.Raw() or {}
+    local fc = raw.customFillColor or raw.healthColor or PF.DEF_FILL
+    local d100 = raw.dynamicColor100 or PF.DEF_DYN100
+    local d50  = raw.dynamicColor50  or PF.DEF_DYN50
+    local d0   = raw.dynamicColor0   or PF.DEF_DYN0
+    local tc   = raw.customTextColor
+    local n = PF.STYLE_N + 1
+    t[n + 1], t[n + 2], t[n + 3], t[n + 4] = raw.healthColorMode, fc.r, fc.g, fc.b
+    t[n + 5], t[n + 6], t[n + 7]           = d100.r, d100.g, d100.b
+    t[n + 8], t[n + 9], t[n + 10]          = d50.r,  d50.g,  d50.b
+    t[n + 11], t[n + 12], t[n + 13]        = d0.r,   d0.g,   d0.b
+    t[n + 14], t[n + 15], t[n + 16], t[n + 17] = raw.textClassColored, tc and tc.r, tc and tc.g, tc and tc.b
+end
+PF.EXTRA_N = PF.STYLE_N + 18
+
+PF.HdrExtra = function(t)
+    PF.CompactStyleInput(t)
+    PF.FpExtra(t)
+end
+
+PF.OwnerExtra = function(t)
+    t[PF.STYLE_N + 1] = false
+    PF.FpExtra(t)
+end
+
 -- Header buttons: five in one column beside the party frames, all forty (eight columns) once raid
 -- pets are on. The column count caps what the header shows, so it never makes a button itself.
 PF.Capacity = function()
@@ -560,10 +747,20 @@ end
 -- Per-event slices of the full paint (PF.Refresh): health events repaint the health value and texts,
 -- name events the name, range updates the range fade.
 PF.PaintHealth = function(b, u)
-    if UnitExists(u) then FB.PaintHealth(b, u, FB.Source(b)) end
+    if UnitExists(u) then
+        FB.PaintHealth(b, u, FB.Source(b))
+        if PF.mode == "classic" then
+            PF.PaintClassic(b._health, u)
+        elseif PF.mode == "customDynamic" then
+            PF.PaintDynamic(b._health, u)
+        end
+    end
 end
 PF.PaintName = function(b, u)
-    if UnitExists(u) then FB.PaintName(b, u, FB.Source(b)) end
+    if UnitExists(u) then
+        FB.PaintName(b, u, FB.Source(b))
+        PF.ApplyTextColor(b, u)
+    end
 end
 
 -- The event's pet is on the header button holding it, and beside the party frames on its Beside
@@ -818,11 +1015,19 @@ PF.OwnerLayout = function(restyle)
     local moved = side ~= PF.ownerSideCur or gap ~= PF.ownerGap
     PF.ownerW, PF.ownerH, PF.ownerSideCur, PF.ownerGap, PF.ownerBaseGap = w, h, side, gap, baseGap
     local s, texPath
-    local restyled = false
+    local restyled, repainted = false, false
     if restyle then
         s = PF.PartySource()
         texPath = ResolveHealthTexture(s)
-        restyled = PF.StyleChanged("owner", s, texPath)
+        local changed, at = PF.StyleChanged("owner", s, texPath, PF.OwnerExtra, PF.EXTRA_N)
+        if changed then
+            PF.SyncColors()
+            if at <= PF.STYLE_N then
+                restyled = true
+            else
+                repainted = true
+            end
+        end
     end
     if restyled then
         local bgc = s.customBgColor or PF.DEFAULT_BG
@@ -830,6 +1035,9 @@ PF.OwnerLayout = function(restyle)
             b:SetSize(w, h)
             FB.StyleVisuals(b, s, w, h, texPath, bgc)
         end
+        PF.RepaintShown(PF.ownerButtons)
+    elseif repainted then
+        PF.RepaintShown(PF.ownerButtons)
     elseif resized then
         for _, b in ipairs(PF.ownerButtons) do
             b:SetSize(w, h)
@@ -1022,7 +1230,13 @@ PF.Layout = function(restyle)
     if restyle or flipped then
         PF.styleCtx = ctx
         local ss = PF.StyleSource()
-        restyled = PF.StyleChanged("hdr", ss, ResolveHealthTexture(ss), PF.CompactStyleInput, PF.STYLE_N + 1)
+        local changed, at = PF.StyleChanged("hdr", ss, ResolveHealthTexture(ss), PF.HdrExtra, PF.EXTRA_N)
+        if changed then
+            PF.SyncColors()
+            if at <= PF.STYLE_N + 1 then
+                restyled = true
+            end
+        end
     end
     if resized then
         for _, b in ipairs(PF.buttons) do b:SetSize(w, h) end
@@ -1210,18 +1424,73 @@ PF.PvFrame = function(i, parent, s, w, h, c, grouped)
 
     local pet = PF.PV_PETS[i]
     local pct = pet.hp
-    local hc = c.hc
+    local raw = PF.Raw() or {}
+    local mode = raw.healthColorMode or "custom"
     f._health:SetMinMaxValues(0, 100)
     -- pet.hp is a made-up plain number (PF.PV_PETS), so it is flipped here for an
     -- inverted fill (the _euiInv stamp FB.StyleVisuals just left).
     f._health:SetValue(f._health._euiInv and (100 - pct) or pct)
-    f._health:SetStatusBarColor(hc and hc.r or 23/255, hc and hc.g or 172/255, hc and hc.b or 49/255, c.opacity)
+    local fillTex = f._health:GetStatusBarTexture()
+    if mode == "dark" then
+        local dr, dg, db, da = EllesmereUI.GetDarkModeFill()
+        f._health:SetStatusBarColor(dr, dg, db, 1)
+        if fillTex then fillTex:SetAlpha(da) end
+    else
+        if fillTex then fillTex:SetAlpha(1) end
+        if mode == "classic" then
+            local p = pct / 100
+            f._health:SetStatusBarColor(p < 0.5 and 1 or (1 - (p - 0.5) * 2), p > 0.5 and 1 or (p * 2), 0, c.opacity)
+        elseif mode == "customDynamic" then
+            local p = pct / 100
+            local c0   = raw.dynamicColor0   or PF.DEF_DYN0
+            local c50  = raw.dynamicColor50  or PF.DEF_DYN50
+            local c100 = raw.dynamicColor100 or PF.DEF_DYN100
+            if p >= 0.5 then
+                local t = (p - 0.5) * 2
+                f._health:SetStatusBarColor(c50.r + (c100.r - c50.r) * t,
+                                            c50.g + (c100.g - c50.g) * t,
+                                            c50.b + (c100.b - c50.b) * t, c.opacity)
+            else
+                local t = p * 2
+                f._health:SetStatusBarColor(c0.r + (c50.r - c0.r) * t,
+                                            c0.g + (c50.g - c0.g) * t,
+                                            c0.b + (c50.b - c0.b) * t, c.opacity)
+            end
+        elseif mode == "class" then
+            local _, ct = UnitClass("player")
+            local cc = ct and EllesmereUI.GetClassColor(ct)
+            if cc then f._health:SetStatusBarColor(cc.r, cc.g, cc.b, c.opacity)
+            else f._health:SetStatusBarColor(23/255, 172/255, 49/255, c.opacity) end
+        else -- "custom"
+            local fc = raw.customFillColor or raw.healthColor or PF.DEF_FILL
+            f._health:SetStatusBarColor(fc.r, fc.g, fc.b, c.opacity)
+        end
+    end
     -- The texts with the boss/pet rules: made-up health (3000 per percent) and a heal absorb
     -- of a quarter of it, in the raid preview's proportions.
     local st = FB.txs[f]
     local pv = st._txPv or {}
     pv.hpPct, pv.hpPer, pv.ha, pv.name = pct, 3000, pct * 750, ns.CapName(pet.name, s)
     ns.RF_TextPreview(st, s, pv)
+    if st and st._tx then
+        local tr, tg, tb
+        if raw.textClassColored then
+            local _, ct = UnitClass("player")
+            local cc = ct and EllesmereUI.GetClassColor(ct)
+            if cc then tr, tg, tb = cc.r, cc.g, cc.b
+            else tr, tg, tb = 1, 1, 1 end
+        elseif raw.customTextColor ~= nil then
+            local tc = raw.customTextColor
+            tr, tg, tb = tc.r, tc.g, tc.b
+        end
+        if tr then
+            for _, fs in ipairs(st._tx) do
+                if fs and fs:IsShown() then
+                    fs:SetTextColor(tr, tg, tb, 1)
+                end
+            end
+        end
+    end
     f:Show()
     return f
 end
@@ -1526,7 +1795,7 @@ function ns.PF_Apply(restyle)
             PF.ownerActive = true
             PF.SetOwnerLinks(true)
         end
-        PF.OwnerLayout(edge)
+        PF.OwnerLayout(edge or restyle)
         PF.SetOwnerWatch()
         PF.SetTracking(true)
         if edge then PF.NotifyReserve() end
@@ -1556,7 +1825,7 @@ function ns.PF_Apply(restyle)
     -- Layout also registers the parent's hide (PF.SetHider) and repaints the pets on screen on a
     -- restyle; the header shows last, laid out, its pets painting as they show. The roster's own
     -- re-assignments paint in the buttons' unit hook.
-    PF.Layout((restyle and PF.Ctx() == "raid") or edge)
+    PF.Layout(edge or restyle)
     ns.PF_ReAnchor()
     if not PF.container:IsShown() then PF.container:Show() end
     if PF.pvBlockOn then PF.SetPreviewBlock(true) end
