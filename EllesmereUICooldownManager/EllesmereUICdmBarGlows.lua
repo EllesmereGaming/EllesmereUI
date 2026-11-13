@@ -592,14 +592,21 @@ end
 -- replaced ability and a spell change rebind them. The CDM event frame
 -- (EUI_CDM_Events.lua) already receives those events and calls
 -- ns.QueueBarGlowRebind while ns._barGlowRebindOn is set; bursts fold into one
--- pass on the next frame. No events of our own, no frame until first needed.
+-- pass after the secure action-bar state settles. No events of our own, no
+-- frame until first needed.
 local rebindFlush
+local rebindFrames
 local function SyncRebindEvents(on)
     ns._barGlowRebindOn = on or nil
     if on and not rebindFlush then
+        rebindFrames = 0
         rebindFlush = ns.TakeShell()
         rebindFlush:Hide()
         rebindFlush:SetScript("OnUpdate", function(self)
+            if rebindFrames > 0 then
+                rebindFrames = rebindFrames - 1
+                return
+            end
             self:Hide()
             local bg = _cachedBG
             if not bg or not bg.enabled then return end
@@ -608,6 +615,7 @@ local function SyncRebindEvents(on)
         end)
     elseif not on and rebindFlush then
         rebindFlush:Hide()
+        rebindFrames = 0
     end
 end
 
@@ -623,6 +631,10 @@ function ns.QueueBarGlowRebind(event, slot)
         slotBase[slot] = now
         if not ((now and glowedAbilities[now]) or (was and glowedAbilities[was])) then return end
     end
+    -- Secure action-bar paging can update the button attributes after the
+    -- event that announces the page change. Wait through two frames so the
+    -- scan binds against the new stance/form contents, not the old page.
+    rebindFrames = 2
     rebindFlush:Show()
 end
 

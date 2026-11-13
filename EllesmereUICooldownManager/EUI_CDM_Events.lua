@@ -69,6 +69,8 @@ eventFrame:RegisterEvent("ACTIONBAR_PAGE_CHANGED")
 eventFrame:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
 eventFrame:RegisterEvent("UPDATE_OVERRIDE_ACTIONBAR")
 eventFrame:RegisterEvent("UPDATE_VEHICLE_ACTIONBAR")
+eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+eventFrame:RegisterEvent("UPDATE_SHAPESHIFT_FORMS")
 -- Hero talent / loadout change events
 eventFrame:RegisterEvent("TRAIT_CONFIG_UPDATED")
 eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
@@ -204,7 +206,8 @@ end
 -- Events that can move an ability to another action button (Bar Glows keyed per ability).
 local BAR_REBIND_EVENTS = {
     ACTIONBAR_SLOT_CHANGED = true, ACTIONBAR_PAGE_CHANGED = true, UPDATE_BONUS_ACTIONBAR = true,
-    UPDATE_SHAPESHIFT_FORM = true, SPELLS_CHANGED = true,
+    UPDATE_OVERRIDE_ACTIONBAR = true, UPDATE_VEHICLE_ACTIONBAR = true,
+    UPDATE_SHAPESHIFT_FORM = true, UPDATE_SHAPESHIFT_FORMS = true, SPELLS_CHANGED = true,
 }
 
 eventFrame:SetScript("OnEvent", function(_, event, unit, updateInfo, arg3)
