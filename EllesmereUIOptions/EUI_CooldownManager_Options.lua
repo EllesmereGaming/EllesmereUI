@@ -218,6 +218,27 @@ initFrame:SetScript("OnEvent", function(self)
         return labels, order
     end
 
+    -- Default Glow Type (profile-wide): the glow type a new Bar Glow entry starts
+    -- with. Shown on the Bar Glows and CDM Bars pages; saved entries keep theirs.
+    local function DefaultBarGlowStyle()
+        local p = DB()
+        local v = p and p.cdmBars and tonumber(p.cdmBars.defaultBarGlowStyle)
+        if v and ns.GLOW_STYLES and ns.GLOW_STYLES[v] then return v end
+        return 1
+    end
+    local function DefaultGlowTypeCfg()
+        local labels, order = GetGlowStyleValues()
+        return { type = "dropdown", text = "Default Glow Type (global)",
+                 values = labels, order = order,
+                 tooltip = "The glow type a new Bar Glow starts with. Glows you already made keep their own.",
+                 getValue = DefaultBarGlowStyle,
+                 setValue = function(v)
+                     local p = DB()
+                     if not p or not p.cdmBars then return end
+                     p.cdmBars.defaultBarGlowStyle = tonumber(v) or 1
+                 end }
+    end
+
     ---------------------------------------------------------------------------
     --  Glow sites for Global Settings > Glows: per-bar Pandemic Glow, Buff Glow
     --  and Pixel Glow parameters, Tracked Buff Bars (active spec) and Rotation
@@ -707,7 +728,7 @@ initFrame:SetScript("OnEvent", function(self)
                     assignedSet[sp.spellID] = true
                     local newEntry = {
                         spellID = sp.spellID,
-                        glowStyle = 1,
+                        glowStyle = DefaultBarGlowStyle(),
                         mode = sp.usable and "USABLE" or "ACTIVE",
                         onlyInCombat = false,
                     }
@@ -1353,6 +1374,8 @@ initFrame:SetScript("OnEvent", function(self)
         -------------------------------------------------------------------
 
         _, h = W:Spacer(parent, y, 8);  y = y - h
+
+        _, h = W:DualRow(parent, y, DefaultGlowTypeCfg(), EllesmereUI.BlankRowCfg());  y = y - h
 
         -- A selected slot that is (now) non-glowable shows no glow settings (the header tip stays).
         if curBtn and type(curBar) == "string" then
@@ -2039,7 +2062,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- opens or a page is built).
     ns._CDMO_OptEnv = {
         _cdmActivePreviewOn = _cdmActivePreviewOn, AnyIconAlwaysShowOn = AnyIconAlwaysShowOn, BuildKeybindStyleControls = BuildKeybindStyleControls,
-        DB = DB, durationPositionOrder = durationPositionOrder, durationPositionValues = durationPositionValues,
+        DB = DB, DefaultGlowTypeCfg = DefaultGlowTypeCfg, durationPositionOrder = durationPositionOrder, durationPositionValues = durationPositionValues,
         FitMenuWidth = FitMenuWidth, FONT_PATH = FONT_PATH, GetCDMOptOutline = GetCDMOptOutline,
         NormalizeToBase = NormalizeToBase, optState = optState, PP = PP,
         Refresh = Refresh, RefreshCDPreview = RefreshCDPreview, ResolveIconArt = ResolveIconArt,
