@@ -6775,4 +6775,4 @@ L["Adds Choose Languages to the cog menu of the Looking For Group window: each l
 
 -- Show Solo Player Zones (EllesmereUIForeverEssentials_LFGZones.lua)
 L["Show Solo Player Zones"] = "Afficher la zone des joueurs seuls"
-L["Shows the zone of the players listed on their own (not in a group) in the Looking For Group window, on their result row and in their listing's tooltip."] = "Affiche la zone où se trouvent les joueurs inscrits seuls (hors groupe) dans la Recherche de groupe, sur la ligne du résultat et dans l'infobulle de l'annonce."
+L["Shows the zone of the players listed on their own (not in a group) on their row of the Looking For Group window."] = "Affiche la zone où se trouvent les joueurs inscrits seuls (hors groupe) sur leur ligne de la Recherche de groupe."
