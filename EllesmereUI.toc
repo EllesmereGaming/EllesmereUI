@@ -48,6 +48,9 @@ EllesmereUI_GoldLedger.lua
 EllesmereUI_PixelPerfect.lua
 EllesmereUI.lua
 EllesmereUI_AbsorbGlow.lua
+EllesmereUI_HealthBars.lua
+EllesmereUI_HealthTicks.lua
+EllesmereUI_HealthAnimations.lua
 EllesmereUI_Panel.lua
 EllesmereUI_VisibilityRules.lua
 EllesmereUI_SharedHelpers.lua

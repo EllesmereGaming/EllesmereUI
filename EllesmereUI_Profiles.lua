@@ -934,6 +934,8 @@ local function RepointAllDBs(profileName)
     EllesmereUI.RefreshDarkMode()
     -- Number Format is per-profile too: drop the resolved configs and redraw.
     EllesmereUI.RefreshNumberFormat()
+    -- Health Ticks and Health Animations are per-profile too: redraw the bars.
+    if EllesmereUI.HealthBars then EllesmereUI.HealthBars.Refresh(true) end
     -- Sidebar sync icons key off the ACTIVE profile's group membership;
     -- re-evaluate them on every repoint (switch/create/delete/rename/import)
     if EllesmereUI._syncRefreshFns then
@@ -1068,6 +1070,8 @@ function EllesmereUI.SnapshotAllAddons()
     -- Dark Mode palette + darken amounts (always the active profile's own).
     data.darkMode = DeepCopy(EllesmereUI.GetDarkModeDB())
     data.numberFormat = DeepCopy(EllesmereUI.GetNumberFormatDB())
+    if EllesmereUI.GetHealthTicksDB then data.healthTicks = DeepCopy(EllesmereUI.GetHealthTicksDB()) end
+    if EllesmereUI.GetHealthAnimationsDB then data.healthAnimations = DeepCopy(EllesmereUI.GetHealthAnimationsDB()) end
     -- Spec Overrides ride with the profile (freshen the current spec's stored
     -- values from live first so exports never lag recent edits).
     if EllesmereUI.SpecOverrides_HarvestCurrent then
@@ -2338,6 +2342,8 @@ function EllesmereUI.ExportProfile(profileName, includedFolders, includeLayout, 
         exportData.customColors = nil
         exportData.darkMode     = nil
         exportData.numberFormat = nil
+        exportData.healthTicks = nil
+        exportData.healthAnimations = nil
         exportData.euiAccent    = nil
         exportData.uiScale      = nil
     end
@@ -3507,6 +3513,16 @@ function EllesmereUI.ImportProfile(importStr, profileName)
             merged.numberFormat = DeepCopy(imported.numberFormat)
         elseif imported.fonts then
             merged.numberFormat = nil
+        end
+        if imported.healthTicks then
+            merged.healthTicks = DeepCopy(imported.healthTicks)
+        elseif imported.fonts then
+            merged.healthTicks = nil
+        end
+        if imported.healthAnimations then
+            merged.healthAnimations = DeepCopy(imported.healthAnimations)
+        elseif imported.fonts then
+            merged.healthAnimations = nil
         end
         -- Override stores: ALL-OR-NOTHING (2026-07-20 redesign; the old per-folder
         -- value merge in SpecOverrides_MergeImportedStores is retired and must not be

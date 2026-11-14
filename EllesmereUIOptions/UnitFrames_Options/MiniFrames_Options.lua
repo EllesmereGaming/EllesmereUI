@@ -524,6 +524,14 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
         end
     end
 
+    -- Health Ticks switch of this frame.
+    if EllesmereUI.HealthTicksPlaceCfg then
+        local ticks = EllesmereUI.HealthTicksPlaceCfg(unitKey)
+        local ticksRow
+        ticksRow, h = W:DualRow(parent, y, ticks, EllesmereUI.BlankRowCfg());  y = y - h
+        ticks.attach(ticksRow._leftRegion)
+    end
+
     -- Active text slots share the Main Frames list workflow.
     local textSlots = {}
     textSlots[1] = { key="leftText", position="Left Text", default="name",

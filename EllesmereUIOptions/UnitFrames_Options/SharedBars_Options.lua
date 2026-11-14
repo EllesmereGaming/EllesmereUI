@@ -585,6 +585,13 @@ function ns.UFO_BuildHealthBarSection(parent, y, ctx)
         end
     end
 
+    -- Health Ticks switch of the selected unit (a unit pick rebuilds the page).
+    if EllesmereUI.HealthTicksPlaceCfg then
+        local ticks = EllesmereUI.HealthTicksPlaceCfg(optState.selectedUnit)
+        local ticksRow
+        ticksRow, h = W:DualRow(parent, y, ticks, EllesmereUI.BlankRowCfg());  y = y - h
+        ticks.attach(ticksRow._leftRegion)
+    end
 
     -- Active text slots, retaining the existing inline controls.
     local textSlots = {}
