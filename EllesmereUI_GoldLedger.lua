@@ -7,13 +7,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  FULL_EXPORT_EXCLUDED keeps this key out of full-account exports too).
 --
 --  EllesmereUIDB.goldLedger = {
---      chars    = { [guid] = { money, class, name, realm, updated } },
 --      warband  = { money, updated },    -- nil until first successful read
 --      tracking = false,                 -- only present when switched off
 --  }
---  By GUID: WoW Forever first names are not the whole name, and a rename keeps
---  it. Entries from older builds sit under "Name-Realm" until that character
---  next logs in.
+--  Each character's balance is in the roster (EllesmereUI.Chars):
+--  chars[guid].gold = { money, updated }; the name, realm and class are the
+--  entry's own. GL.Chars() lists them by roster key; GL.MoneyOf(key) reads one.
 --  money is copper. A character's entry is only ever written by that character
 --  while it is online, so an offline entry is its balance at logout.
 --
@@ -58,11 +57,12 @@ local function Build()
     --  know a character and disagree the DataBars value wins (written on every
     --  PLAYER_MONEY, ungated) and the entry has no age until that character next
     --  plays. Runs lazily from Data(); idempotent, and the old keys are dropped.
+    --  Builds key -> entry, then files the balance and who it is into the roster.
     --------------------------------------------------------------------------------
     local function MigrateLegacy(db, ledger)
         local bags, dbars, wband = db.characterGold, db.dataBarsGold, db.warbandGold
         if bags == nil and dbars == nil and wband == nil then return end
-        local chars = ledger.chars
+        local chars = {}
 
         if type(bags) == "table" then
             for key, e in pairs(bags) do
@@ -92,6 +92,16 @@ local function Build()
             ledger.warband = { money = wband.gold, updated = IsUsable(wband.lastUpdated) and wband.lastUpdated or nil }
         end
 
+        local roster = EUI.Chars()
+        if roster then
+            for key, e in pairs(chars) do
+                local c = roster[key]
+                if type(c) ~= "table" then c = {}; roster[key] = c end
+                if c.gold == nil then c.gold = { money = e.money, updated = e.updated } end
+                c.name, c.realm, c.class = c.name or e.name, c.realm or e.realm, c.class or e.class
+            end
+        end
+
         db.characterGold, db.dataBarsGold, db.warbandGold = nil, nil, nil
     end
 
@@ -116,23 +126,41 @@ local function Build()
     --- shadow the real table).
     function GL.Data()
         local db = _G.EllesmereUIDB
-        if type(db) ~= "table" then return { chars = {} } end
+        if type(db) ~= "table" then return {} end
         local ledger = db.goldLedger
         if type(ledger) ~= "table" then
             ledger = {}
             db.goldLedger = ledger
         end
-        if type(ledger.chars) ~= "table" then ledger.chars = {} end
         MigrateLegacy(db, ledger)
         AbsorbTrackingSwitch(db, ledger)
         return ledger
     end
 
     --- The current character's GUID, or nil while it cannot be read.
-    function GL.CharKey()
-        local guid = UnitGUID("player")
-        if not guid or (issecretvalue and issecretvalue(guid)) then return nil end
-        return guid
+    GL.CharKey = EUI.CharGUID
+
+    --- Every recorded balance: { [roster key] = { money, updated, name, realm, class } },
+    --- copies with the roster entry's name, realm and class (read only).
+    function GL.Chars()
+        GL.Data()
+        local out = {}
+        for key, c in pairs(EUI.Chars() or {}) do
+            local g = type(c) == "table" and c.gold
+            if type(g) == "table" then
+                out[key] = { money = g.money, updated = g.updated, name = c.name, realm = c.realm, class = c.class }
+            end
+        end
+        return out
+    end
+
+    --- One character's recorded balance, by its roster key; nil when it has none.
+    function GL.MoneyOf(key)
+        GL.Data()
+        local chars = EUI.Chars()
+        local c = chars and chars[key]
+        local g = type(c) == "table" and c.gold
+        if type(g) == "table" then return g.money end
     end
 
     -- The only places the modules touch the money APIs. A secret or non-number
@@ -156,8 +184,7 @@ local function Build()
     function GL.Money()
         local money = LiveMoney()
         if money then return money end
-        local key = GL.CharKey()
-        local e = key and GL.Data().chars[key]
+        local e = EUI.CharData("gold")
         return e and e.money
     end
 
@@ -178,21 +205,10 @@ local function Build()
         if money == nil then money = LiveMoney() end
         if not IsUsable(money) then return nil end
         if not GL.IsTracking() then return money end
-        local key = GL.CharKey()
-        if not key then return money end
-        local chars = GL.Data().chars
-        -- Drop the entries older builds filed under "Name-Realm".
-        local short = UnitName("player")
-        if short then
-            chars[short .. "-" .. (EUI.RealmGroupName() or "")] = nil
-            chars[short .. "-" .. (GetRealmName() or "")] = nil
-        end
-        local e = chars[key]
-        if not e then e = {}; chars[key] = e end
-        local _, class = UnitClass("player")
-        -- The full name whatever the show-surname preference.
-        local name, surname = (UnitNameUnmodified or UnitName)("player")
-        e.money, e.class, e.name, e.realm, e.updated = money, class, EUI.WithSurname(name, surname, true), EUI.RealmGroupName(), time()
+        GL.Data()
+        local e = EUI.CharData("gold", true)
+        if not e then return money end
+        e.money, e.updated = money, time()
         return money
     end
 
@@ -308,14 +324,13 @@ local function Build()
 
     --- Drop a character the player no longer has (renamed, deleted, transferred).
     function GL.Forget(key)
-        GL.Data().chars[key] = nil
+        EUI.ForgetCharField(key, "gold")
     end
 
     --- Wipe every character and the warband figure.
     function GL.Reset()
-        local ledger = GL.Data()
-        ledger.chars = {}
-        ledger.warband = nil
+        GL.Data().warband = nil
+        EUI.ClearCharField("gold")
     end
 
     return GL

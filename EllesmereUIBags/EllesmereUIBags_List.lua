@@ -977,11 +977,17 @@ function ns.RenderListView(items, opts)
             elseif slotView then
                 Add(BagKey(d.bag), "", d)
             elseif view then
-                -- a virtual view: the group's position, "Other" (0) last. As in All Items
-                -- the item is in its group too, except a pinned one hidden in its category
+                -- a virtual view: the group's position, "Other" (0) after the groups, and
+                -- our own Junk section for what the provider is never offered. As in All
+                -- Items the item is in its section too, except a pinned one hidden in its
+                -- category
                 if not d._vgOnly then
-                    local vg = d._vg
-                    Add((vg and vg > 0) and vg or (#view.groups + 1), "", d)
+                    if d._vgJunk then
+                        Add("junk", "", d)
+                    else
+                        local vg = d._vg
+                        Add((vg and vg > 0) and vg or (#view.groups + 1), "", d)
+                    end
                 end
             elseif cat and not (opts.allItems and d._pinnedOnly)
                 and not hidden[cat._defaultName] and not (cat.groupName and hidden[cat.groupName]) then
@@ -1010,8 +1016,10 @@ function ns.RenderListView(items, opts)
         end
     end
     -- Pinned first, category (or bag) order, Junk after the last saved category
-    -- (virtual categories follow it, as in the grid and the sidebar)
-    local RANK = { pinned = -2, recent = -1, main = 0, junk = EUI_CategoryManager:GetSavedCount() + 0.5 }
+    -- (virtual categories follow it, as in the grid and the sidebar); in a virtual
+    -- view Junk follows the view's last section
+    local RANK = { pinned = -2, recent = -1, main = 0,
+        junk = view and (#view.groups + 2) or (EUI_CategoryManager:GetSavedCount() + 0.5) }
     table.sort(order, function(a, b)
         return (RANK[a.key] or a.key) < (RANK[b.key] or b.key)
     end)
@@ -1039,8 +1047,9 @@ function ns.RenderListView(items, opts)
         elseif b.key == "pinned" then label, secKey = pinnedLabel, "pinned"
         elseif b.key == "recent" then label, secKey = recentLabel, "recent"
         elseif view then
-            label = b.key <= #view.groups and view.groups[b.key].name or view.otherName
-            secKey = "Virtual:view:" .. view.id .. ":" .. b.key
+            -- a group's section, or "Other" (the position after the last group)
+            local g = view.groups[b.key]
+            label, secKey = g and g.name or view.otherName, g and g.key or view.otherKey
         elseif b.key == "main" then
             local total = 0
             for bag = 0, 4 do

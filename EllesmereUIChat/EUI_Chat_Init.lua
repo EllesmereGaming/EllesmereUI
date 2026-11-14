@@ -125,11 +125,15 @@ initFrame:SetScript("OnEvent", function(self)
         return false, WrapURLs(msg), ...
     end
     for _, ev in ipairs(URL_EVENTS) do
-        ChatFrame_AddMessageEventFilter(ev, UrlFilter)
+        ChatFrameUtil.AddMessageEventFilter(ev, UrlFilter)
     end
-	
-	-- WoW:F sends CHAT_MSG_SYSTEM with an empty message so we drop it to never render a timestamp-only message.
-    ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(self, event, msg)
+
+    ---------------------------------------------------------------------------
+    --  2d. A system message with no text is dropped. WoW Forever sends them,
+    --      and an empty line shows as a blank row (a bare timestamp under
+    --      Timestamp All Messages).
+    ---------------------------------------------------------------------------
+    ChatFrameUtil.AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, msg)
         if issecretvalue and issecretvalue(msg) then return false end
         return msg == ""
     end)
@@ -410,9 +414,10 @@ initFrame:SetScript("OnEvent", function(self)
 
     ---------------------------------------------------------------------------
     --  6. Idle fade: dims chat after N seconds of inactivity. Resets on player
-    --     chat in a shown window (the selected tab or an undocked window), an
-    --     incoming whisper, edit box focus/typing, or the cursor entering the
-    --     chat area (event-driven, no polling).
+    --     chat in a shown window (the selected tab or an undocked window; the
+    --     kinds of lines ticked under Also Wake On too), an incoming whisper,
+    --     edit box focus/typing, or the cursor entering the chat area
+    --     (event-driven, no polling).
     ---------------------------------------------------------------------------
     do
         local idleTimer = nil
@@ -497,8 +502,9 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Chat lines: the display engine's tail sees each line in the window
         -- Blizzard put it in, after its own channel, message-group and filter
-        -- checks, so player chat (CHAT_MSG_EVENTS) wakes the fade only when
-        -- that window is shown. Inside Blizzard's chat handler the observer
+        -- checks, so player chat (CHAT_MSG_EVENTS) and the lines of a ticked
+        -- Also Wake On group wake the fade only when that window is shown.
+        -- Inside Blizzard's chat handler the observer
         -- only reads and shows a frame of ours; the reset runs on its next
         -- OnUpdate, outside that handler.
         local wakeFrame = CreateFrame("Frame")
@@ -533,8 +539,10 @@ initFrame:SetScript("OnEvent", function(self)
             _wakeEvents, _wakeTypeIDs = events or CHAT_MSG_EVENTS, ids
         end
 
+        -- A line that does not wake ends at the table lookup: the frame is
+        -- asked only for one that does (most lines carry no event name, and
+        -- with no group ticked those return before any call).
         local function WakeOnChat(cf, event, chatTypeID)
-            if wakeFrame:IsShown() then return end
             local hit
             if event ~= nil then
                 if issecretvalue and issecretvalue(event) then return end
@@ -543,7 +551,7 @@ initFrame:SetScript("OnEvent", function(self)
                 if issecretvalue and issecretvalue(chatTypeID) then return end
                 hit = _wakeTypeIDs[chatTypeID]
             end
-            if hit and cf:IsShown() then wakeFrame:Show() end
+            if hit and not wakeFrame:IsShown() and cf:IsShown() then wakeFrame:Show() end
         end
         SetMessageWake = function(on)
             if ECHAT.EngineSetIdleObserver then

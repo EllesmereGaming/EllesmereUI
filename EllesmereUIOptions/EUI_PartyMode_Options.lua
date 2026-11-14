@@ -779,7 +779,7 @@ do
                 EllesmereUIDB.partyModeAfkScale = nil
                 EllesmereUIDB.partyModeAfkFlip = nil
                 EllesmereUIDB.partyModeAfkFlipSpeed = nil
-                EllesmereUIDB.raidHoroscope = nil
+                EllesmereUI.ClearCharField("horoscope")
             end
             EllesmereUI_UpdateAfkScreen()
             -- Stop random trigger timer

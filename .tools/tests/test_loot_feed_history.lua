@@ -2,9 +2,11 @@
 local FALSE = { IsMouseOver = true, IsPlaying = true, IsShown = true, IsForbidden = true }
 local NUMBER = { GetWidth = true, GetHeight = true, GetEffectiveScale = true, GetStringWidth = true }
 local Fake
+local wheelCalls = 0 -- EnableMouseWheel calls on any frame
 local mt = {
     __call = function() return Fake() end,
     __index = function(t, k)
+        if k == "EnableMouseWheel" then return function() wheelCalls = wheelCalls + 1 end end
         if FALSE[k] then return function() return false end end
         if NUMBER[k] then return function() return 1 end end
         if k:match("^%l") then return nil end
@@ -22,9 +24,9 @@ local shift = true
 IsShiftKeyDown = function() return shift end
 EllesmereUI = { IS_FOREVER = true, _Pool = {}, PP = Fake(),
     L = function(s) return s end, Lf = function(s, ...) return s:format(...) end,
-    CharKey = function(sep) return "Direktsaft Traube" .. sep .. "Forever" end,
     ApplyModuleFont = function() end, GetBorderCompanion = function() end }
 setmetatable(EllesmereUI, { __index = function() return function() end end })
+local who = dofile(".tools/tests/char_roster_stub.lua")(EllesmereUI, { guid = "Player-1" })
 local cfg = { enabled = true, history = true, maxRows = 3 }
 EllesmereUIDB = { lootFeed = cfg }
 local module = {
@@ -34,6 +36,20 @@ local module = {
             Place = function() end, Read = function() return cfg end }
     end,
 }
+-- Items: none is cached until a test says so; a load the feed waits for is kept in `waiting`.
+Enum = { ItemClass = { Weapon = 2, Armor = 4, Questitem = 12 }, ItemBind = { Quest = 4, OnAcquire = 1 } }
+ITEM_QUALITY_COLORS = { [1] = { r = 1, g = 1, b = 1, hex = "|cffffffff" } }
+local cached, waiting = {}, {}
+C_Item = {
+    GetItemInfo = function(link)
+        if not cached[link] then return nil end
+        return "Sample " .. link, link, 1, 1, nil, nil, nil, nil, nil, 134400, 0, 15, nil, 0
+    end,
+}
+Item = {}
+function Item:CreateFromItemLink(link)
+    return { ContinueOnItemLoad = function(_, fn) waiting[#waiting + 1] = { link = link, fn = fn } end }
+end
 assert(loadfile("EllesmereUIForeverEssentials/EllesmereUIForeverEssentials_LootFeed.lua"))("test", module)
 
 local function Upvalue(fn, name, seen)
@@ -64,7 +80,7 @@ push("item:a", Row("a", "Staff"))
 push("money", Row("m", "Money 1"))
 push("money", Row("m", "Money 2"))
 assert(cfg.historyByChar == nil, "the history stays out of the settings")
-local list = EllesmereUIDB.lootFeedHistory["Direktsaft Traube - Forever"]
+local list = EllesmereUIDB.chars["Player-1"].lootFeedHistory
 assert(list and #list == 2, "kept per character; a refilled row updates its entry")
 assert(list[1].text == "Money 2" and list[1].key == "money" and list[2].text == "Staff", "newest first")
 assert(list[2].border.r == 0 and list[2].border.color == nil and list[2].border.hex == nil,
@@ -104,11 +120,52 @@ assert(#list == 50 and list[1].text == "Fresh Loot", "a lower Rows to Keep trims
 push("item:after", Row("after", "After"))
 assert(#list == 50 and list[1].text == "After", "and keeps to the new length")
 
-EllesmereUI.CharKey = function() return nil end
+-- Only a change of Shift arms or disarms the wheel: Ctrl and Alt fire the same event and touch no frame.
+local calls = wheelCalls
+onEvent(nil, "MODIFIER_STATE_CHANGED", "LCTRL", 1)
+onEvent(nil, "MODIFIER_STATE_CHANGED", "LALT", 1)
+assert(wheelCalls == calls, "Ctrl and Alt alone leave the wheel as it is")
+shift = true
+onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 1)
+assert(wheelCalls > calls, "Shift down arms the wheel")
+calls = wheelCalls
+onEvent(nil, "MODIFIER_STATE_CHANGED", "LCTRL", 1)
+onEvent(nil, "MODIFIER_STATE_CHANGED", "LCTRL", 0)
+assert(wheelCalls == calls, "another modifier while Shift is held arms nothing again")
+shift = false
+onEvent(nil, "MODIFIER_STATE_CHANGED", "LSHIFT", 0)
+assert(wheelCalls > calls, "letting go of Shift disarms it")
+
+-- Show Samples: a sample is never kept, also when the client loads its item only afterwards.
+cfg.skills, cfg.reputation, cfg.money, cfg.rolls, cfg.items = false, false, false, false, true
+local preview = EllesmereUI._LootFeed.Preview
+local kept, top = #list, list[1].text
+preview()
+assert(#waiting == 3 and #list == kept, "the samples wait for their items and nothing is kept")
+for _, w in ipairs(waiting) do
+    cached[w.link] = true
+    w.fn()
+end
+assert(#list == kept and list[1].text == top, "a sample whose item loads late is not kept")
+assert(Upvalue(push, "sampling") == nil, "and the feed is live again afterwards")
+preview()
+assert(#list == kept, "nor are samples of cached items")
+
+-- A real loot line whose item loads late is kept as before.
+local showItem = assert(Upvalue(preview, "ShowItem"), "ShowItem not reachable")
+waiting = {}
+showItem("item:late", 1, nil, true)
+assert(#waiting == 1 and #list == kept, "the loot line waits for its item")
+cached["item:late"] = true
+waiting[1].fn()
+assert(#list == math.min(kept + 1, 50) and list[1].text ~= top, "and is kept once the item has loaded")
+
+local newest = list[1].text
+who.guid = nil
 apply()
 push("item:nokey", Row("nokey", "No Key"))
 local stores = 0
-for _ in pairs(EllesmereUIDB.lootFeedHistory) do stores = stores + 1 end
-assert(stores == 1 and list[1].text == "After", "nothing is kept while the character key is unknown")
+for _ in pairs(EllesmereUIDB.chars) do stores = stores + 1 end
+assert(stores == 1 and list[1].text == newest, "nothing is kept while the character key is unknown")
 
 print("loot feed history OK")

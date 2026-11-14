@@ -141,7 +141,7 @@ end
 -------------------------------------------------------------------------------
 local PRIVATE_ADDON_KEYS = {
     ["EllesmereUIDataBars"] = { "characters" },  -- gold record -> EllesmereUIDB.goldLedger
-    ["EllesmereUIQoL"]      = { "chars" },       -- upgrade calc -> EllesmereUIDB.qolUpgradeCalcChars
+    ["EllesmereUIQoL"]      = { "chars" },       -- upgrade calc -> EllesmereUIDB.chars[guid].upgradeCalc
 }
 
 -- Strip account data from an addons table, in place. Accepts either keyspace
@@ -955,7 +955,7 @@ end
 --  runtime spec event handler.
 --
 --  Resolution order:
---    1. Cached spec from lastSpecByChar (reliable across sessions)
+--    1. Cached spec from EllesmereUIDB.chars[guid].lastSpec (reliable across sessions)
 --    2. Live C_SpecializationInfo.GetSpecialization() API (available after ADDON_LOADED for
 --       returning characters, may be nil for brand-new characters)
 --
@@ -967,13 +967,11 @@ local function ResolveSpecProfile()
     local specProfiles = EllesmereUIDB.specProfiles
     if not specProfiles or not next(specProfiles) then return nil end
 
-    local charKey = EllesmereUI.CharKey(" - ", EllesmereUIDB.lastSpecByChar)
-    if not EllesmereUIDB.lastSpecByChar then
-        EllesmereUIDB.lastSpecByChar = {}
-    end
+    local charKey = EllesmereUI.CharGUID()
+    local mine = EllesmereUI.CharEntry(true)
 
     -- Prefer cached spec from last session (always reliable)
-    local resolvedSpecID = EllesmereUIDB.lastSpecByChar[charKey]
+    local resolvedSpecID = mine and mine.lastSpec
 
     -- Fall back to live API if no cached value
     if not resolvedSpecID then
@@ -982,7 +980,7 @@ local function ResolveSpecProfile()
             local liveSpecID = C_SpecializationInfo.GetSpecializationInfo(specIdx)
             if liveSpecID then
                 resolvedSpecID = liveSpecID
-                EllesmereUIDB.lastSpecByChar[charKey] = resolvedSpecID
+                if mine then mine.lastSpec = resolvedSpecID end
             end
         end
     end
@@ -2098,8 +2096,8 @@ end
 -- roles), charSheetCollapsedSections (transient UI state), characterFramePos /
 -- friendsFramePos (dragged panel positions, resolution- bound), tooltipFixedPos (stale
 -- account key; the live one is per-profile and rides the profile itself),
--- blizzWindowModernBG (dead key, read nowhere), mailAltRoster / mailAltHidden (the
--- player's own characters and which of them the Mail card's Alt List leaves out),
+-- blizzWindowModernBG (dead key, read nowhere), the character roster and its mailAltHidden
+-- (the player's own characters and which of them the Mail card's Alt List leaves out),
 -- mailAltFriends (the friends' characters it has seen), mailAltListTab (its shown tab).
 -------------------------------------------------------------------------------
 local BLIZZ_SKIN_GLOBAL_KEYS = {}
@@ -2200,6 +2198,7 @@ do
         "lfgRememberRoles",
         "merchantShowAsList", "merchantListRowHeight", "merchantShowItemLevel", "merchantBulkBuy",
         "merchantExpand", "merchantCols", "merchantRows",
+        "merchantMarkOwned", "merchantHideKnown",
         "mailAltList", "mailAltListMax", "mailAltListMinLevel", "mailAltListSort",
         -- Friends List card (WoW Forever: the friend tiles and auto-accept)
         "friendsListCard",
@@ -2442,8 +2441,8 @@ end
 --  assignments, first-install state. Stores keyed by the recipient's own
 --  profiles keep the recipient's entries and take only the carried
 --  profile's from the string (FULL_IMPORT_MERGE: profile keybinds, sync
---  groups, last-spec records, color pull-from pointers, the other
---  profiles' CDM spell layouts).
+--  groups, color pull-from pointers, the other profiles' CDM spell
+--  layouts).
 --
 --  It shares NOTHING with ExportProfile / ImportProfile: no include toggles,
 --  no per-module filtering, no canonical re-keying, no store merging, no
@@ -2455,82 +2454,51 @@ end
 --  what to include: any account key added in a future version rides
 --  automatically instead of being silently missed.
 --
---  Excluded by design -- per-character data that is nobody else's:
---    goldLedger           cross-character and warband gold record
---    qolUpgradeCalcChars  Upgrade Calculator per-character cache
---    xpBarChars           XP bar session clock, XP rate and time this level
---    timePlayedChars      Time Played block: each character's total played time
---    travelHearths        Travel block's Show Other Characters: each character's
---                         hearthstone bind and ready time
---    questWatchChars      WoW Forever quest tools: quests each character's
---                         filters and auto-track moved
---    questTrackerChars    WoW Forever Custom Quest Tracker: each character's
---                         untracked, collapsed, opened and pinned quests
---    mailAltRoster        the Mail card's Alt List: every character recorded
---    mailAltHidden        and the ones its Shown Characters leaves out
---    mailAltFriends       and the Battle.net friends' characters it has seen
---    raidHoroscope        Party Mode's Should I Raid Tonight?: each
---                         character's birthday
---    cdmCachedBarSizes    Cooldown Manager bar sizes cached per character
---    bagCurrencyByChar    Bags' tracked currencies per character
---    bagPinnedByChar      Bags' pinned items per character
---    mageArmorByChar      AuraBuff Reminders (WoW Forever): the mage armor
---                         each character last had up
---    classBuffByChar      and the class buff lines each character last had up
---    lootFeedHistory      Forever Essentials' Loot History: each character's
---                         latest Loot Feed rows
---    spellUprankChars     Forever Essentials' Auto Uprank Spells on Bars: the
---                         highest spell ranks each character and pet has had
---    global               friend groups: the groups, their order and colours,
---                         and each friend's group by BattleTag
---  (The upgrade-calc and gold blobs are what PRIVATE_ADDON_KEYS strips from
---  normal strings, at their current top-level homes. The three legacy gold
---  keys stay listed: until Bags or DataBars loads and absorbs them they are
---  still on disk.) And the game settings this client had
---  before EllesmereUI, which Uninstall EUI puts back, with the values modules
---  hand back to this client's CVars later:
---    restoreOnUninstall     (EllesmereUI_Uninstall.lua)
---    gfxBackup              Optimize My FPS and Graphics' Restore values
---    friendlyPlateVisSaved  friendly plates hidden in a follower dungeon
---    chatTellMuted          the whisper sound Chat muted
---  And the inline cogs this user has opened (cogSeen: their notification dots
---  stay for whoever imports the string).
+--  FULL_EXPORT_EXCLUDED lists what it leaves out.
 -------------------------------------------------------------------------------
 local FULL_EXPORT_TYPE = "fullaccount"
 local FULL_EXPORT_EXCLUDED = {
-    goldLedger            = true,
-    dataBarsGold          = true,
-    characterGold         = true,
+    -- Per-character data that is nobody else's
+    chars                 = true, -- every character's own data, by GUID (EllesmereUI.Chars)
+    goldLedger            = true, -- warband gold and the tracking switch
+    groupFinderApps       = true, -- Group Finder application counts (account, session)
+    mailAltFriends        = true, -- Mail card Alt List: friends' characters seen
+    kickMarkers           = true, -- Kick Tracker: the group's announced markers of one instance
+    dataBarsGold          = true, -- legacy gold keys: on disk until Bags or
+    characterGold         = true, -- DataBars loads and absorbs them
     warbandGold           = true,
-    qolUpgradeCalcChars   = true,
-    xpBarChars            = true,
-    timePlayedChars       = true,
-    travelHearths         = true,
-    restoreOnUninstall    = true,
-    gfxBackup             = true,
-    friendlyPlateVisSaved = true,
-    chatTellMuted         = true,
-    groupFinderApps       = true,
-    questWatchChars       = true,
-    questTrackerChars     = true,
-    cdmRepopulatePending  = true,
+    -- Per-character stores of older builds, folded into chars by
+    -- char_roster_v1; strings from those builds still carry them
+    lastSpecByChar        = true, -- spec of each character's last session
+    qolUpgradeCalcChars   = true, -- Upgrade Calculator cache
+    xpBarChars            = true, -- XP bar session clock, rate, time this level
+    timePlayedChars       = true, -- Time Played block totals
+    travelHearths         = true, -- Travel block: hearth bind and ready time
+    questWatchChars       = true, -- Forever quest tools: filter/auto-track moves
+    questTrackerChars     = true, -- Forever quest tracker: untracked, collapsed, pinned
+    cdmRepopulatePending  = true, -- CDM spec repopulate state
     cdmRepopulateDone     = true,
-    mailAltRoster         = true,
-    mailAltHidden         = true,
-    mailAltFriends        = true,
-    raidHoroscope         = true,
-    cdmCachedBarSizes     = true,
-    bagCurrencyByChar     = true,
-    bagPinnedByChar       = true,
-    mageArmorByChar       = true,
-    classBuffByChar       = true,
-    lootFeedHistory       = true,
-    spellUprankChars      = true,
-    global                = true,
+    cdmCachedBarSizes     = true, -- CDM bar sizes
+    mailAltRoster         = true, -- Mail card Alt List
+    mailAltHidden         = true, -- and the characters it hides
+    lootFeedHistory       = true, -- Forever Loot History rows
+    raidHoroscope         = true, -- Party Mode birthdays
+    bagCurrencyByChar     = true, -- Bags tracked currencies
+    bagPinnedByChar       = true, -- Bags pinned items
+    mageArmorByChar       = true, -- AuraBuff Reminders (Forever): last mage armor
+    classBuffByChar       = true, -- and last class buff lines
+    spellUprankChars      = true, -- Auto Uprank: highest ranks per character and pet
+    global                = true, -- friend groups, keyed by BattleTag
+    -- Game settings from before EllesmereUI, put back by Uninstall EUI
+    restoreOnUninstall    = true, -- EllesmereUI_Uninstall.lua
+    gfxBackup             = true, -- Optimize My FPS and Graphics' Restore values
+    friendlyPlateVisSaved = true, -- friendly plates hidden in a follower dungeon
+    chatTellMuted         = true, -- whisper sound Chat muted
+    -- Opened inline cogs: their notification dots stay for the importer
     cogSeen               = true,
 }
 
--- Root stores keyed by profile name (or character) describe the recipient's
+-- Root stores keyed by profile name describe the recipient's
 -- own profiles. A full import keeps them and takes from the string only the
 -- carried profile's entry: fn(own, fromString, carriedName) -> new value.
 local function KeepOwn(own) return own end
@@ -2542,7 +2510,6 @@ local function OwnOrCarried(own, str, name)
 end
 local FULL_IMPORT_MERGE = {
     syncedModules  = KeepOwn,
-    lastSpecByChar = KeepOwn,
     lastNonSpecProfile = OwnOrCarried,
     colorsPullFrom     = OwnOrCarried,
     colorsSectionPullFrom = function(own, str, name)
@@ -4248,13 +4215,10 @@ do
                         specRetryTimer = nil
                         -- Record the spec so future events use the fast path
                         lastKnownSpecID = sid
-                        local ck = EllesmereUI.CharKey(" - ")
-                        lastKnownCharKey = ck
+                        lastKnownCharKey = EllesmereUI.CharGUID()
                         if not EllesmereUIDB then EllesmereUIDB = {} end
-                        if not EllesmereUIDB.lastSpecByChar then
-                            EllesmereUIDB.lastSpecByChar = {}
-                        end
-                        EllesmereUIDB.lastSpecByChar[ck] = sid
+                        local mine = EllesmereUI.CharEntry(true)
+                        if mine then mine.lastSpec = sid end
                         EllesmereUI._profileSaveLocked = false
                         -- Resolve via the unified function
                         local target = ResolveSpecProfile()
@@ -4300,7 +4264,7 @@ do
             specRetryTimer = nil
         end
 
-        local charKey = EllesmereUI.CharKey(" - ")
+        local charKey = EllesmereUI.CharGUID()
         local isFirstLogin = (lastKnownSpecID == nil)
         -- charChanged is true when the active character is different from the
         -- last session (alt-swap). On a plain /reload the charKey stays the same.
@@ -4323,8 +4287,8 @@ do
         -- Persist the current spec so PreSeedSpecProfile can guarantee the
         -- correct profile is loaded on next login via ResolveSpecProfile().
         if not EllesmereUIDB then EllesmereUIDB = {} end
-        if not EllesmereUIDB.lastSpecByChar then EllesmereUIDB.lastSpecByChar = {} end
-        EllesmereUIDB.lastSpecByChar[charKey] = specID
+        local mine = EllesmereUI.CharEntry(true)
+        if mine then mine.lastSpec = specID end
 
         -- Spec resolved successfully -- unlock auto-save if it was locked
         -- during PreSeedSpecProfile when spec was unavailable.
@@ -4410,7 +4374,7 @@ do
                 -- already injected the correct data into each child SV, the
                 -- addons built with the right values and no further action is
                 -- needed. Only call SwitchProfile if the pre-seed did not run
-                -- (e.g. first session after update, no lastSpecByChar entry).
+                -- (e.g. first session after update, no cached lastSpec).
                 if not EllesmereUI._preSeedComplete then
                     C_Timer.After(0, function()
                         C_Timer.After(0, function()

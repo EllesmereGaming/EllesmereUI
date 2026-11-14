@@ -654,6 +654,8 @@ function Engine.Attach(frame, unit, channels)
     attached[frame] = { unit = unit, channels = channels }
     unitFrames[unit] = frame
     t._euiGuidGuard = unit:match("^boss%d$") and true or nil
+    -- A boss frame: the slot takeover event is listened to from here on.
+    if t._euiGuidGuard then Engine.WatchBossSlots() end
     -- Unit-watch shows happen while events were being dropped (hidden frames
     -- skip dispatch), so a freshly shown frame repaints in full.
     if not frame._euiEngineShowHook then
@@ -998,8 +1000,29 @@ globalFrame:RegisterEvent("PLAYER_FOCUS_CHANGED")
 globalFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 globalFrame:RegisterEvent("RAID_TARGET_UPDATE")
 globalFrame:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
--- A boss slot taken over by an add turning targetable (Blizzard's boss frames update on it).
-if not EllesmereUI.IS_FOREVER then globalFrame:RegisterEvent("UNIT_TARGETABLE_CHANGED") end
+-- A unit turning targetable can take a boss slot with no engage event (an add becoming
+-- boss 2; Blizzard's own boss frames update on this event too). Listened to once a boss
+-- frame is attached (Engine.Attach), and not on WoW Forever.
+function Engine.WatchBossSlots()
+    if EllesmereUI.IS_FOREVER then return end
+    globalFrame:RegisterEvent("UNIT_TARGETABLE_CHANGED")
+end
+-- One identity repaint of the boss frames on screen, on the next frame, however many
+-- events asked for it in this one.
+local BOSS_TOKENS = { "boss1", "boss2", "boss3", "boss4", "boss5" }
+local bossSettlePending = false
+local function BossSettleRun()
+    bossSettlePending = false
+    for i = 1, 5 do
+        local f = unitFrames[BOSS_TOKENS[i]]
+        if f and f:IsShown() then Engine.RepaintAll(f, "UnitChanged") end
+    end
+end
+local function BossSettle()
+    if bossSettlePending then return end
+    bossSettlePending = true
+    C_Timer.After(0, BossSettleRun)
+end
 -- 2D portrait art streams in AFTER the paint that asked for it (loading
 -- screens, vehicle transitions); this unitless event is the only trigger
 -- that follows, so it fans the portrait painter out to every shown frame
@@ -1034,26 +1057,29 @@ globalFrame:SetScript("OnEvent", function(self, event, unit)
             f._euiLastGuid = UnitGUID(f._euiUnit)
             Engine.RepaintAll(f, "UnitChanged")
         end
-    elseif event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT"
-        or (event == "UNIT_TARGETABLE_CHANGED" and unit and unit:match("^boss%d$")) then
-        -- Targetable flips re-sort the slots too; the GUID probe is blind when identity is secret.
-        local reason = (event == "UNIT_TARGETABLE_CHANGED") and "UnitChanged" or event
+    elseif event == "INSTANCE_ENCOUNTER_ENGAGE_UNIT" then
         for i = 1, 5 do
-            local f = unitFrames["boss" .. i]
-            if f and f:IsShown() then Engine.RepaintAll(f, reason) end
+            local f = unitFrames[BOSS_TOKENS[i]]
+            if f and f:IsShown() then Engine.RepaintAll(f, event) end
         end
         -- The slots can still be settling when the event lands (one occupant
         -- moves down while the new one moves in): one next-frame pass reads
         -- the final order.
-        if not self._euiBossSettle then
-            self._euiBossSettle = true
-            C_Timer.After(0, function()
-                self._euiBossSettle = nil
-                for i = 1, 5 do
-                    local f = unitFrames["boss" .. i]
-                    if f and f:IsShown() then Engine.RepaintAll(f, "UnitChanged") end
+        BossSettle()
+    elseif event == "UNIT_TARGETABLE_CHANGED" then
+        -- A targetable flip can re-sort the boss slots, and the trackers' GUID probe
+        -- is blind where the game hides unit identity. Whatever token reports the
+        -- flip (the slot itself, the unit's nameplate, the target), the boss frames
+        -- on screen take the one next-frame repaint; with none on screen nothing is
+        -- asked for. No other frame is touched.
+        if not bossSettlePending then
+            for i = 1, 5 do
+                local f = unitFrames[BOSS_TOKENS[i]]
+                if f and f:IsShown() then
+                    BossSettle()
+                    break
                 end
-            end)
+            end
         end
     elseif event == "RAID_TARGET_UPDATE" then
         local fn = painters.raidicon

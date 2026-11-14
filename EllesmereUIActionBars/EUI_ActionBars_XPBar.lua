@@ -823,7 +823,7 @@ ns.AbbreviateLargeNumbers = (EllesmereUI.IS_FOREVER and EllesmereUI.ForeverAbbre
 --                      next load
 --    the minute clock  a ticker while the bar shows, for the time items
 --  The session clock, the rate and the saved level time live per character in
---  EllesmereUIDB.xpBarChars[guid] (built the first time an item needs it;
+--  the character roster, EllesmereUI.CharData("xpBar") (built the first time an item needs it;
 --  never exported). A text is set only when its string changed.
 -------------------------------------------------------------------------------
 -- The positions: the first text's point placed on the bar's point (inside:
@@ -935,7 +935,6 @@ ns.XPTextRested = XPTextRested
 -- Parse scratch for the layout pass.
 local xpScratch = {}
 
-local xpPlayerGUID   -- the store key, read once
 local xpLoginAt      -- GetTime() at this session's login (nil after a /reload)
 -- Time this level, once known: the level and the seconds played at it as of
 -- xpLvlStamp (a GetTime()). Kept for the rest of the UI session (GetTime()
@@ -967,28 +966,13 @@ end
 -- A duration: 3d 4h, 1h 24m, 22m.
 local FmtDur = EllesmereUI.FormatDuration
 
--- This character's entry in EllesmereUIDB.xpBarChars (create: build it, and
--- the store, when missing). nil while the player's GUID cannot be read.
+-- This character's XP bar entry in the roster (create: build it when
+-- missing). nil while the player's GUID cannot be read.
 local function XPCharEntry(create)
-    local db = EllesmereUIDB
-    if type(db) ~= "table" then return nil end
-    if not xpPlayerGUID then
-        local g = UnitGUID("player")
-        if not g or (issecretvalue and issecretvalue(g)) then return nil end
-        xpPlayerGUID = g
-    end
-    local all = db.xpBarChars
-    if type(all) ~= "table" then
-        if not create then return nil end
-        all = {}
-        db.xpBarChars = all
-    end
-    local e = all[xpPlayerGUID]
-    if type(e) ~= "table" then
-        if not create then return nil end
-        e = { sStart = xpLoginAt or GetTime() }
-        all[xpPlayerGUID] = e
-    end
+    local e = EllesmereUI.CharData("xpBar")
+    if e or not create then return e end
+    e = EllesmereUI.CharData("xpBar", true)
+    if e then e.sStart = xpLoginAt or GetTime() end
     return e
 end
 
