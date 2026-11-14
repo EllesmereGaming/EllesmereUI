@@ -63,6 +63,11 @@ Eq(state.bodies.EUI_Drink, "#showtooltip item:1205\n/use item:1205", "drink: bes
 Eq(state.bodies.EUI_Healthstone, "#showtooltip item:19013\n/use item:19013\n/use item:5512", "healthstones owned")
 Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16896\n/use item:16896", "soulstone")
 Eq(state.bodies.EUI_HealingPotion, "#showtooltip item:1710\n/use item:1710\n/use item:929", "potions above level skipped")
+EllesmereUIDB.macroFactory.EUI_Soulstone.friendlyTarget = true
+state.bodies = {}
+state.bags[16896] = nil; state.bags[16895] = 1
+up.OnEvent(up, "BAG_UPDATE_DELAYED")
+Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16895\n/use [@target,help,nodead][@player] item:16895", "soulstone friendly target toggle")
 assert(up.ev.BAG_UPDATE_DELAYED and up.ev.PLAYER_LEVEL_UP, "upkeep armed with level-up on Forever")
 
 state.bodies = {}
