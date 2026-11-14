@@ -579,7 +579,21 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
     --  Health Bar sync state via ns._NormalizePartySyncSections.
     -------------------------------------------------------------------
     local absorbsHeader
-    if onSection then onSection("healthBar", _secY, y) end; _secY = y
+    if onSection then onSection("healthBar", _secY, y) end
+
+    -- Health Ticks and Health Animations switches of this tab's frames. Below
+    -- the party sync range: they belong to the party tab, not to the raid sync.
+    if EllesmereUI.HealthTicksPlaceCfg and EllesmereUI.HealthAnimationsPlaceCfg then
+        local place = optState._partyCtx and "party" or "raid"
+        local ticks, anim = EllesmereUI.HealthTicksPlaceCfg(place), EllesmereUI.HealthAnimationsPlaceCfg(place)
+        local placeRow
+        placeRow, h = W:DualRow(parent, y, ticks, anim.damage);  y = y - h
+        ticks.attach(placeRow._leftRegion)
+        anim.AddEditLook(placeRow._rightRegion)
+        _, h = W:DualRow(parent, y, anim.heal, EllesmereUI.BlankRowCfg());  y = y - h
+    end
+
+    _secY = y
     absorbsHeader, h = W:SectionHeader(parent, "ABSORBS", y); y = y - h
 
     -- Eyeball: toggle shield/heal-absorb effects on the preview frames.
