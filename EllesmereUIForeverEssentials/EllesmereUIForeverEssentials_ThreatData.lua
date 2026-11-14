@@ -105,7 +105,8 @@ function ns.NewCollector()
         local e = entries[count]
         if not e then e = {}; entries[count] = e end
         e.key, e.unit, e.raw, e.scaled, e.tanking = unit, unit, raw, scaled, tanking
-        e.rawPct = Readable(rawPct) and rawPct or nil
+        -- When a unit becomes the tank the API may report a stale rawPct, but it's 100% by definition
+        e.rawPct = tanking and 100 or (Readable(rawPct) and rawPct or nil)
         e.isPet, e.pull, e.own, e.order = isPet, false, false, count
         list[#list + 1] = e
     end
