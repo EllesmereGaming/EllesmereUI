@@ -2463,6 +2463,7 @@ local FULL_EXPORT_EXCLUDED = {
     goldLedger            = true, -- warband gold and the tracking switch
     groupFinderApps       = true, -- Group Finder application counts (account, session)
     mailAltFriends        = true, -- Mail card Alt List: friends' characters seen
+    kickMarkers           = true, -- Kick Tracker: the group's announced markers of one instance
     dataBarsGold          = true, -- legacy gold keys: on disk until Bags or
     characterGold         = true, -- DataBars loads and absorbs them
     warbandGold           = true,

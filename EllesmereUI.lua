@@ -1313,6 +1313,15 @@ function EllesmereUI.RealmGroupName()
     return GDAPI_REALMTYPE_NORMAL
 end
 
+-- The ruleset a WoW Forever realm name ends in: "CAMWOWEU5Realm7PvE" (or, as
+-- GetRealmName words it, "CAMWOW EU5 Realm 7 PvE") -> "PvE"; also "PvP", "RP"
+-- and "RPPvP". The realms of one ruleset differ only before it. nil for a
+-- name of any other form, or one the game withholds.
+function EllesmereUI.RealmRulesetSuffix(realm)
+    realm = EllesmereUI.PlainString(realm)
+    return realm and realm:match("Realm%s*%d+%s*(%a+)$") or nil
+end
+
 -------------------------------------------------------------------------------
 --  Per-character data: EllesmereUIDB.chars[guid] = { [feature] = data }.
 --  One roster for every feature, by player GUID (a rename keeps it). Never
@@ -1329,11 +1338,12 @@ function EllesmereUI.CharGUID()
 end
 
 -- Moves this character's name-keyed entries onto its GUID (fields already
--- there win). Once a session, as soon as the GUID reads.
+-- there win). Once a session, as soon as the GUID and the name read: before
+-- login, the game's placeholder for a name it has not loaded is no name.
 local _rosterAdopted
 local function AdoptNamedEntries(chars)
     local guid, name = EllesmereUI.CharGUID(), UnitName("player")
-    if not guid or not name or issecretvalue(name) then return end
+    if not guid or not name or issecretvalue(name) or (name == UNKNOWNOBJECT and not IsLoggedIn()) then return end
     _rosterAdopted = true
     local mine = chars[guid]
     local realms = { EllesmereUI.RealmGroupName() or "", GetRealmName() or "",
@@ -3524,7 +3534,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.8.4"
+EllesmereUI.VERSION = "9.8.5"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

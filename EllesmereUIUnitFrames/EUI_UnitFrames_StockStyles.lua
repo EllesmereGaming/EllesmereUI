@@ -263,12 +263,12 @@ function ns.UF_ForeverKit()
         bar.mx, bar.my = -l * kx, t * ky
         bar.mw, bar.mh = mw * kx, mh * ky
     end
-    -- Half a pixel short: the full 123 laid the fill's bright end over the
-    -- rim, 122 left a gap before it.
+    -- 122.5 wide, half a unit short of its 123-wide mask: the fill's bright
+    -- end stops at the rim.
     Fit(P.health, 88, 45.5, 122.5, 15, 4, 123, 9, 21, 128, 32)
     -- The Forever mana mask's opening ends a column later than the health
-    -- one's: fitted at 123 its rounded right end fell past the bar, which
-    -- then ended square over the rim.
+    -- one's, so the mask is fitted 124 wide: its rounded right end meets the
+    -- bar's end.
     Fit(P.power, 88, 61.5, 123, 10, 4, 124, 4, 11, 128, 16)
     P.name = { point = "CENTER", x = 33, y = 13, w = 116, justify = "CENTER" }
     P.badge = { point = "BOTTOMLEFT", x = 13, y = 7, size = 39, atlas = circle }
@@ -276,10 +276,9 @@ function ns.UF_ForeverKit()
     P.pvp = { point = "TOP", relPoint = "TOPLEFT", x = 22, y = -65, scale = 0.8 }
     P.vis.b, P.pad.bottom = 7, 7
     -- The target bars draw over the art, so a bar a pixel past its track
-    -- shows over the rim: both span 23..145, the inside of the Forever rim
-    -- (22..145 overran its left edge). The mana mask's opening has no
-    -- rounded end on the left, so that corner stays square; fitting the
-    -- mask past it only shortens the bar.
+    -- shows over the rim: both span 23..145, the inside of the Forever rim.
+    -- The mana mask's opening has no rounded end on the left, so that
+    -- corner stays square.
     Fit(T.health, 23, 44, 122, 15, 4, 123, 10, 22, 128, 32)
     Fit(T.power, 23, 60, 122, 10, 68, 187, 4, 11, 256, 16)
     -- Both Forever target bars end alike: Hide Power Bar's stretched health
@@ -649,6 +648,18 @@ function ns.UF_BlizzResolve(frame, unit)
     -- on its own art only.
     frame._blizzExtras = (G.rep and kind == "target") or nil
     return G, mirror
+end
+-- The player frame's rest icon and resting glow sit by the art (the icon's
+-- spot and the glow belong to the player art alone): placed and shown again
+-- when the layout pass resolved another art under them, as a Portrait Side
+-- change does. Nothing for a frame with no rest indicator, or the same art.
+function ns.UF_RestFollowArt(frame, G, mirror)
+    if not frame._restPlace then return end
+    mirror = mirror or nil
+    if frame._restGeom == G and frame._restMirror == mirror then return end
+    frame._restGeom, frame._restMirror = G, mirror
+    frame._restPlace()
+    frame._restUpdate()
 end
 function ns.UF_BlizzGeom(frame)
     if not frame then return nil end
@@ -1602,21 +1613,22 @@ end
 -- Blizzard Style cast frame art reach past the bar (left, right, top), the
 -- spell name's nudge in the text box and the timer's on the bar; the live
 -- bars and the options preview both seat from here. `iconSide` is the side
--- an icon sits flush against the bar ("left" | "right" | nil). The WoW
--- Forever art's thicker rim drawn 2px out covers the bar's top edge and the
--- icon's border, so it sits flush there; its text box, under that rim too,
--- needs the name 2px lower to centre it, and the timer on the bar drops 1px
--- to centre on the fill the rim leaves.
+-- an icon sits flush against the bar ("left" | "right" | nil). The numbers
+-- are the parent's (EllesmereUI.CastChromeGeom, shared with Resource Bars).
 function ns.UF_CastChromeGeom(iconSide)
-    if not ns.UF_Forever() then return 2, 2, 2, 0, 0 end
-    return iconSide == "left" and 0 or 2, iconSide == "right" and 0 or 2, 0, -2, -1
+    return EllesmereUI.CastChromeGeom(ns.UF_Forever(), iconSide)
 end
--- The side a live cast bar's icon sits flush against it, for UF_CastChromeGeom
--- (nil while the icon is off or offset away from the bar).
+-- The side an icon sits flush against its cast bar, nil while it is off or
+-- nudged away from the bar by an offset: the one rule the live bars and the
+-- options preview share.
+function ns.UF_CastIconSide(shown, onRight, offX, offY)
+    if not shown or (offX or 0) ~= 0 or (offY or 0) ~= 0 then return nil end
+    return onRight and "right" or "left"
+end
+-- The same for a live cast bar, for UF_CastChromeGeom.
 function ns.UF_CastIconFlushSide(cb)
-    if not (cb and cb._icoShown) then return nil end
-    if (cb._icoOffX or 0) ~= 0 or (cb._icoOffY or 0) ~= 0 then return nil end
-    return cb._icoOnRight and "right" or "left"
+    if not cb then return nil end
+    return ns.UF_CastIconSide(cb._icoShown, cb._icoOnRight, cb._icoOffX, cb._icoOffY)
 end
 -- Spell name into the text box under the bar (honouring its side + offsets).
 function ns.UF_BlizzCastText(cb)
@@ -1844,6 +1856,7 @@ function ns.UF_ApplyBlizzardLayout(frame, unit)
     -- Layout by unit + Portrait Side (stamped on the frame for the helpers).
     local G, mirror = ns.UF_BlizzResolve(frame, unit)
     if not G then return end
+    ns.UF_RestFollowArt(frame, G, mirror)
     local settings = GetSettingsForUnit(unit)
 
     -- Frame: stock size + hit rect.

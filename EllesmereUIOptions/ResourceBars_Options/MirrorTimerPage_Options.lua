@@ -19,9 +19,19 @@ function ns.ERB_BuildTimerBarRows(parent, y)
     local _, h
 
     local function C(id) local p = DB(); return p and p.mirrorTimer and p.mirrorTimer[id] end
-    local function Refresh()
-        if _G._ERB_Apply then _G._ERB_Apply() end
-        if EllesmereUI.NotifyElementResized then EllesmereUI.NotifyElementResized(ns.MT_UNLOCK_KEY) end
+    -- A timer bar's own settings reach only the timer bars: their apply, never
+    -- the whole Resource Bars one. resized: the stack's size changed (a bar
+    -- turned on or off), so what is anchored to the mover follows.
+    local function Refresh(resized)
+        ns.MT_Apply()
+        if resized then EllesmereUI.NotifyElementResized(ns.MT_UNLOCK_KEY) end
+    end
+    local function AllOff()
+        for _, K in ipairs(kinds) do
+            local c = C(K.id)
+            if c and c.enabled then return false end
+        end
+        return true
     end
 
     local function Toggle(K)
@@ -30,27 +40,16 @@ function ns.ERB_BuildTimerBarRows(parent, y)
             getValue = function() local c = C(K.id); return c and c.enabled end,
             setValue = function(v)
                 local c = C(K.id); if not c then return end
-                c.enabled = v; Refresh(); EllesmereUI:RefreshPage()
+                c.enabled = v; Refresh(true); EllesmereUI:RefreshPage()
             end }
     end
 
-    -- The fill colour swatch and the Low Warning cog, on the bar's half of the row.
+    -- The Low Warning cog, nearest the switch, and the fill colour swatch left
+    -- of it, on the bar's half of the row.
     local function Extras(rgn, K)
         if EllesmereUI._prebuilding then return end
         local id = K.id
         local off = function() local c = C(id); return not (c and c.enabled) end
-        EllesmereUI.BuildInlineSwatches(rgn, {
-            { tooltip = "Fill Color", hasAlpha = true, disabledTooltip = K.name, disabled = off,
-              getValue = function()
-                  local c = C(id); if not c then return 1, 1, 1, 1 end
-                  return c.fillR or 1, c.fillG or 1, c.fillB or 1, c.fillA or 1
-              end,
-              setValue = function(r, g, b, a)
-                  local c = C(id); if not c then return end
-                  c.fillR, c.fillG, c.fillB, c.fillA = r, g, b, a
-                  Refresh()
-              end },
-        }, { size = 20 })
         EllesmereUI.BuildInlineCog(rgn, { title = K.name, disabled = off, disabledTooltip = K.name, rows = {
             { type = "toggle", label = "Low Warning",
               tooltip = "The bar turns red and blinks once it runs down to Warn When Left.",
@@ -62,10 +61,25 @@ function ns.ERB_BuildTimerBarRows(parent, y)
               get = function() local c = C(id); return c and c.lowWarnAt or 30 end,
               set = function(v) local c = C(id); if c then c.lowWarnAt = v; Refresh() end end },
         } })
+        EllesmereUI.BuildInlineSwatches(rgn, {
+            { tooltip = "Fill Color", hasAlpha = true, disabledTooltip = K.name, disabled = off,
+              getValue = function()
+                  local c = C(id); if not c then return 1, 1, 1, 1 end
+                  return c.fillR or 1, c.fillG or 1, c.fillB or 1, c.fillA or 1
+              end,
+              setValue = function(r, g, b, a)
+                  local c = C(id); if not c then return end
+                  c.fillR, c.fillG, c.fillB, c.fillA = r, g, b, a
+                  Refresh()
+              end },
+        })
     end
 
     _, h = W:Spacer(parent, y, 16);  y = y - h
-    _, h = W:SectionHeader(parent, "OTHER BARS", y);  y = y - h
+    local hdr
+    hdr, h = W:SectionHeader(parent, "OTHER BARS", y);  y = y - h
+    -- The one mover of every timer bar; it shows once a bar is on.
+    EllesmereUI.BuildSectionUnlockJump(hdr, { key = ns.MT_UNLOCK_KEY, disabled = AllOff, disabledTooltip = "Other Bars" })
 
     -- Two bars per row.
     for i = 1, #kinds, 2 do

@@ -12,7 +12,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  }
 --  Each character's balance is in the roster (EllesmereUI.Chars):
 --  chars[guid].gold = { money, updated }; the name, realm and class are the
---  entry's own. GL.Chars() lists them by roster key.
+--  entry's own. GL.Chars() lists them by roster key; GL.MoneyOf(key) reads one.
 --  money is copper. A character's entry is only ever written by that character
 --  while it is online, so an offline entry is its balance at logout.
 --
@@ -152,6 +152,15 @@ local function Build()
             end
         end
         return out
+    end
+
+    --- One character's recorded balance, by its roster key; nil when it has none.
+    function GL.MoneyOf(key)
+        GL.Data()
+        local chars = EUI.Chars()
+        local c = chars and chars[key]
+        local g = type(c) == "table" and c.gold
+        if type(g) == "table" then return g.money end
     end
 
     -- The only places the modules touch the money APIs. A secret or non-number

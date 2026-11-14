@@ -1343,6 +1343,17 @@ local GetFFD = I.GetFFD
         },
     }
     local TB_TYPE_KEY = { BREATH = "Breath", EXHAUSTION = "Fatigue", FEIGNDEATH = "Feign", DEATH = "Feign" }
+    -- The Accent fill: Window Skins' bar fill (the accent at 80%, or the Bar Fill color
+    -- picked there). The options' Accent swatch shows the same color.
+    function EllesmereUI.TIMER_BARS.AccentFill()
+        local W = WS()
+        if W and W.BarFillColor then
+            local r, g, b = W.BarFillColor()
+            return r, g, b
+        end
+        local EG = EllesmereUI.ELLESMERE_GREEN
+        return EG.r * 0.8, EG.g * 0.8, EG.b * 0.8
+    end
 
     local tbContainer, tbTextures
 
@@ -1368,13 +1379,7 @@ local GetFFD = I.GetFFD
             local c = TBGet("timerBarsFillColor", nil)
             if c then return c.r, c.g, c.b end
         end
-        local W = WS()
-        if W and W.BarFillColor then
-            local r, g, b = W.BarFillColor()
-            return r, g, b
-        end
-        local EG = EllesmereUI.ELLESMERE_GREEN or { r = 0.047, g = 0.824, b = 0.616 }
-        return EG.r * 0.8, EG.g * 0.8, EG.b * 0.8
+        return TB.AccentFill()
     end
 
     local function SkinMirrorTimer(f)

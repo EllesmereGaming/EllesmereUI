@@ -120,12 +120,12 @@ local charDB
 local function CharDB()
     if charDB then return charDB end
     if not EllesmereUIDB then EllesmereUIDB = {} end
-    local sv = EllesmereUI.CharData("questWatch", true)
-    if not sv then return {} end -- GUID unread: a throwaway, not cached
+    local kept = EllesmereUI.CharData("questWatch", true)
+    local sv = kept or {} -- GUID unread: a throwaway with the same sets, not cached
     for _, k in ipairs(CHAR_SETS) do
         if type(sv[k]) ~= "table" then sv[k] = {} end
     end
-    charDB = sv
+    charDB = kept
     return sv
 end
 

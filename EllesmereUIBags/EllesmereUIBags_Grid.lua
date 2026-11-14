@@ -1367,20 +1367,25 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
     elseif view then
         -- Virtual view (EUI_CategoryManager:RegisterVirtualView): EUI's Pinned Items and
         -- Recent Items sections first when the view keeps them, then the view's groups in
-        -- its order, "Other" last. As in All Items, Pinned and Recent repeat their items:
-        -- an item in them is in its group too (a pinned item hidden in its category is
-        -- not). A group with no items is not drawn. Nothing here is saved.
+        -- its order, "Other" after them, and our own Junk section last (junk is never
+        -- offered to the provider). As in All Items, Pinned and Recent repeat their items:
+        -- an item in them is in its section too (a pinned item hidden in its category is
+        -- not). A section with no items is not drawn. Nothing here is saved.
         local groups = view.groups
         local nGroups = #groups
-        local byGroup = { [-2] = {}, [-1] = {} }  -- -1 Pinned, -2 Recent, 0 Other, 1.. groups
+        local byGroup = { [-3] = {}, [-2] = {}, [-1] = {} }  -- -1 Pinned, -2 Recent, -3 Junk, 0 Other, 1.. groups
         for g = 0, nGroups do byGroup[g] = {} end
         for _, data in ipairs(displayItems) do
-            -- _vgPin / _vgRec / _vgOnly: set by Refresh (a view that keeps Pinned / Recent)
-            if data._vgPin then byGroup[-1][#byGroup[-1] + 1] = data end
-            if data._vgRec then byGroup[-2][#byGroup[-2] + 1] = data end
-            if not data._vgOnly then
-                local list = byGroup[data._vg or 0] or byGroup[0]
-                list[#list + 1] = data
+            -- _vg / _vgJunk / _vgPin / _vgRec / _vgOnly: set by Refresh. An item it left
+            -- unstamped (its link has not loaded) is not drawn, as in All Items.
+            local vg = data._vg
+            if vg then
+                if data._vgPin then byGroup[-1][#byGroup[-1] + 1] = data end
+                if data._vgRec then byGroup[-2][#byGroup[-2] + 1] = data end
+                if not data._vgOnly then
+                    local list = data._vgJunk and byGroup[-3] or byGroup[vg] or byGroup[0]
+                    list[#list + 1] = data
+                end
             end
         end
         local headerIdx = 0
@@ -1475,6 +1480,13 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
         end
         for g = 1, nGroups + 1 do
             RenderViewSection(g <= nGroups and groups[g].name or view.otherName, byGroup[g <= nGroups and g or 0])
+        end
+        -- What Sell Junk sells stays ours: the Junk section, under the Junk category's name
+        -- (junk exists only while the Junk Marker is on, when this refresh's classify pass
+        -- has found that category)
+        if #byGroup[-3] > 0 then
+            local junkCat = EUI_CategoryManager:GetCategories()[EUI_CategoryManager._junkCatIdx]
+            RenderViewSection(junkCat and junkCat.name or EUI_CategoryManager.JUNK_KEY, byGroup[-3])
         end
     else
         if selectedGroupName then

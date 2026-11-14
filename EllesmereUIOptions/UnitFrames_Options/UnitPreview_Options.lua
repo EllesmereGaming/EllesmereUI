@@ -2093,8 +2093,13 @@ function ns.UFO_BuildUnitPreview(parent, unitKey, side)
                     fr = castbar:CreateTexture(nil, "OVERLAY", nil, 2)
                     castbar._blizzFrame = fr
                 end
+                -- an icon nudged away from the bar keeps the art's reach on
+                -- that side, as the live bar does (ns.UF_CastIconSide)
+                local icoX, icoY
+                if unitKey == "player" then icoX, icoY = s.playerCastIconOffsetX, s.playerCastIconOffsetY
+                else icoX, icoY = s.castIconOffsetX, s.castIconOffsetY end
                 local reachL, reachR, reachT = ns.UF_CastChromeGeom(
-                    castIconFrame and castIconFrame:IsShown() and (onRight and "right" or "left") or nil)
+                    ns.UF_CastIconSide(castIconFrame and castIconFrame:IsShown(), onRight, icoX, icoY))
                 ns.UF_StockAtlas(fr, frAtlas)
                 fr:ClearAllPoints()
                 fr:SetPoint("TOPLEFT", castbar, "TOPLEFT", -reachL, reachT)

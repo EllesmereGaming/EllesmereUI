@@ -24,7 +24,7 @@ end
 -- tooltip (req, raw), and enableRow(y, sizeCfg, RefreshTotem) -> row, h: the
 -- first row, whose left slot turns the bar on and whose right slot is sizeCfg
 -- (Icon Size). mapIcon / mapTimer: the preview's click mapping keys.
--- flyoutCog: a Flyout Direction cog on Orientation (the call totem bar).
+-- flyoutCog: the Flyout Settings cog on Orientation (the call totem bar).
 local function BuildTotemSection(parent, y, S)
     local env = ns._ERB_OptEnv
     local DB = env.DB
@@ -278,11 +278,14 @@ local function BuildTotemSection(parent, y, S)
           setValue = function(v)
               local t = T(); if not t then return end
               t.orientation = v; RefreshTotem()
-              EllesmereUI:RefreshPage()
+              -- the Flyout Settings cog is live only in a column
+              if S.flyoutCog then EllesmereUI:RefreshPage() end
           end }
     );  y = y - h
 
-    -- Flyout Direction cog on Orientation
+    -- Flyout Settings cog on Orientation: the side of a column the list of
+    -- totems opens on. Greyed with the section while the bar is off, else
+    -- while the bar is a row.
     if S.flyoutCog and not EllesmereUI._prebuilding then
         local rgn = orientRow._rightRegion
         EllesmereUI.BuildInlineCog(rgn, {
@@ -291,15 +294,20 @@ local function BuildTotemSection(parent, y, S)
                 local t = T()
                 return totemOff() or not (t and t.orientation == "VERTICAL")
             end,
-            disabledTooltip = "Vertical Orientation",
+            disabledTooltip = function()
+                if totemOff() then return req end
+                return "This option requires the Vertical orientation."
+            end,
             rows = {
                 { type = "dropdown", label = "Flyout Direction",
                   values = { RIGHT = "Right", LEFT = "Left" },
                   order = { "RIGHT", "LEFT" },
                   get = function() local t = T(); return t and (t.flyoutDirection or "RIGHT") end,
+                  -- Read when a list opens; one that is open moves at once.
                   set = function(v)
                       local t = T(); if not t then return end
-                      t.flyoutDirection = v; RefreshTotem()
+                      t.flyoutDirection = v
+                      if ns.CT_PlaceFlyout then ns.CT_PlaceFlyout() end
                   end },
             },
         })

@@ -640,12 +640,17 @@ local function FvNeeds(left, warnSec)
     return false
 end
 
+-- When an aura runs out, where that can be read: nil for no aura, a secret aura or a
+-- secret time, and for an aura that does not run out.
 local function FvAuraExpiration(aura)
     if isSecret(aura) or not aura then return end
     local expiration = aura.expirationTime
     if not isSecret(expiration) and expiration and expiration > 0 then return expiration end
 end
 
+-- When the last of the foods whose buff has a name of its own (EABR.FOOD_BUFFS) runs out.
+-- nil when none is up or one of them cannot be read: Well Fed's early reminder is then
+-- left out, never guessed.
 local function FvFoodExpiration()
     local latest
     for _, id in ipairs(EABR.FOOD_BUFFS) do
@@ -737,17 +742,18 @@ function EABR.FvSleepingBagOwned()
 end
 
 -- WoW Forever collector: the Camp Benefits campfire buff, the Sleeping Bag's
--- Well-Rested buff (missing or under its full stacks, while a Cozy Sleeping Bag
--- is in the bags below max level: EABR.FvSleepingBagOwned), Well Fed (any food
+-- Well-Rested buff (missing or under its full stacks, or inside its cog's Show
+-- Below minutes of running out, then with the countdown; while a Cozy Sleeping
+-- Bag is in the bags below max level: EABR.FvSleepingBagOwned), Well Fed (any food
 -- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS), the gathering
 -- and Find Treasure trackers, a Mage's armors (EABR.CollectMageArmor), the
 -- class buffs (EABR.CollectClassBuffs), the weapon buffs
 -- (EABR.CollectForeverWeapons), the user's spell groups
 -- (EABR.CollectForeverGroups) and custom spell IDs (each for the classes ticked
 -- on it), those a ticked class buff covers standing down outside PvP. All are
--- absence only but
--- the weapon buffs, which also show their Show Below minutes before running
--- out (the one-shot duration refresh). A custom ID counts as up while any
+-- absence only but the weapon buffs, the Sleeping Bag and Well Fed, which also
+-- show their Show Below minutes before running out, with a countdown (FvNeeds
+-- arms the one-shot duration refresh for that moment). A custom ID counts as up while any
 -- spell of its rank family is (EABR.ForeverFamily). Entries are display-only
 -- textures carrying the spell for the tooltip, except the Sleeping Bag, the two
 -- trackers, the mage armors, the class buffs, the weapon buffs, the spell
@@ -803,13 +809,11 @@ function EABR.CollectForever(missing, inInstance, inPvP)
         local stacks = ok and not isSecret(aura) and (aura and aura.applications or 0)
         local expireAt, remaining
         local showBelow = fo.sleepingBagShowBelow or 0
-        if ok and showBelow > 0 and EABR.ShowUnderThresholdApplies() and not isSecret(aura) and aura then
-            local expiration = aura.expirationTime
-            if not isSecret(expiration) and expiration then
-                local left = expiration - GetTime()
-                if left > 0 and FvNeeds(left, showBelow * 60) then
-                    expireAt, remaining = expiration, left
-                end
+        local expiration = ok and showBelow > 0 and EABR.ShowUnderThresholdApplies() and FvAuraExpiration(aura)
+        if expiration then
+            local left = expiration - GetTime()
+            if left > 0 and FvNeeds(left, showBelow * 60) then
+                expireAt, remaining = expiration, left
             end
         end
         if expireAt or (stacks and not isSecret(stacks) and stacks < EABR.SLEEPING_BAG_STACKS) then
@@ -853,7 +857,10 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     if fo.wellFed and open then
         local name = SpellName(EABR.WELL_FED) or "Well Fed"
         local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
-        local show, expireAt
+        -- Shown while no food buff is up and, with Show Below set, that many minutes before
+        -- the one that is up runs out (the buff named Well Fed, else the last of the foods
+        -- with a name of their own), then with its countdown.
+        local show, expireAt, remaining
         local warnSec = (fo.wellFedShowBelow or 0) * 60
         if ok and not isSecret(aura) then
             local fallback = not aura and PlayerHasAuraByID(EABR.FOOD_BUFFS)
@@ -861,7 +868,7 @@ function EABR.CollectForever(missing, inInstance, inPvP)
             if not show and warnSec > 0 and EABR.ShowUnderThresholdApplies() then
                 expireAt = aura and FvAuraExpiration(aura) or (fallback and FvFoodExpiration())
                 if expireAt then
-                    local remaining = expireAt - GetTime()
+                    remaining = expireAt - GetTime()
                     show = remaining > 0 and FvNeeds(remaining, warnSec)
                 end
             end
@@ -872,7 +879,7 @@ function EABR.CollectForever(missing, inInstance, inPvP)
             e.texture = Tex(EABR.WELL_FED)
             e.label = name
             e.cat = "forever"; e.dismissKey = "forever:wellfed"
-            if expireAt then e.expireAt, e.expireTotal = expireAt, warnSec end
+            if expireAt then e.expireAt, e.expireTotal = expireAt, remaining end
             missing[#missing+1] = e
         end
     end

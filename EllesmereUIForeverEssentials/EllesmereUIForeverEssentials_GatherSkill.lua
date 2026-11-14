@@ -8,12 +8,14 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  your chance to raise your skill there, as recipes show it: orange, yellow,
 --  green, grey. The game's red stays when you cannot.
 --
---  World object tooltips carry no object ID, so a node is known by its name:
---  a herb node bears its herb's name, read from the herb item in the client's
---  language; an ore node's name comes from the game names in the client's
---  language (EllesmereUI.GameName, whatever the options language: game data,
---  so never reworded). Required skills: the game's (Classic objects). Nodes WoW
---  Forever added are left as the game shows them until their skill is known.
+--  World object tooltips carry no object ID, so a node is known by its name,
+--  in the client's language whatever the options language. A herb node bears
+--  its herb's name, read from the herb item, except the few some languages
+--  name otherwise (HERB_NODES); those and the ore nodes come from the game
+--  names (EllesmereUI.GameName: game data, never reworded; the client
+--  language's file comes in with this module's TOC). Required skills: the
+--  game's (Classic objects). Nodes WoW Forever added are left as the game
+--  shows them until their skill is known.
 -------------------------------------------------------------------------------
 local _, module = ...
 
@@ -150,6 +152,7 @@ local function Apply()
     end
     if hooked then return end
     hooked = true
+    -- Nothing to load where the names came in with the module's TOC.
     EllesmereUI.LoadGameNames()
     TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, OnObjectTooltip)
 end
