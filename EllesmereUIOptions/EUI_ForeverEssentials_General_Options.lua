@@ -280,18 +280,15 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               tooltip = "Pick this character's favorites from a pet's right-click menu in the Pet Journal.",
               disabled = function() return not PS.Get("enabled") end,
               disabledTooltip = "Auto Summon Pet",
-              -- This character's own setting, read without creating its table.
+              -- This character's own setting in the roster, read without creating its table.
               getValue = function()
-                  local chars, guid = PS.Get("chars"), UnitGUID("player")
-                  return chars ~= nil and guid ~= nil and chars[guid] ~= nil and chars[guid].own == true
+                  local c = EllesmereUI.CharData("petSummon")
+                  return c ~= nil and c.own == true
               end,
               setValue = function(v)
-                  local guid = UnitGUID("player")
-                  if not guid then return end
-                  local cfg = PS.Cfg()
-                  cfg.chars = cfg.chars or {}
-                  cfg.chars[guid] = cfg.chars[guid] or {}
-                  cfg.chars[guid].own = v or nil
+                  local c = EllesmereUI.CharData("petSummon", true)
+                  if not c then return end
+                  c.own = v or nil
                   PS.RefreshJournal()
               end }
         );  y = y - h
