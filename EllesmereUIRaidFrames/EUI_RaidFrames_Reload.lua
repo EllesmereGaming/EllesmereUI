@@ -267,6 +267,12 @@ EllesmereUI.RegisterDarkModeToggle({
                 p._darkPrevPartyTargetHealthColorMode = p.partyTargetHealthColorMode or "class"
                 p.partyTargetHealthColorMode = "dark"
             end
+            -- So does the pet frames' own Fill Color.
+            local pf = p.petFrames
+            if pf and pf.healthColorMode ~= "dark" then
+                pf._darkPrevHealthColorMode = pf.healthColorMode or "custom"
+                pf.healthColorMode = "dark"
+            end
         else
             if p.healthColorMode == "dark" then
                 p.healthColorMode = p._darkPrevHealthColorMode or "class"
@@ -280,7 +286,15 @@ EllesmereUI.RegisterDarkModeToggle({
                 p.partyTargetHealthColorMode = p._darkPrevPartyTargetHealthColorMode or "class"
             end
             p._darkPrevPartyTargetHealthColorMode = nil
+            local pf = p.petFrames
+            if pf then
+                if pf.healthColorMode == "dark" then
+                    pf.healthColorMode = pf._darkPrevHealthColorMode or "custom"
+                end
+                pf._darkPrevHealthColorMode = nil
+            end
         end
+        if ns.PF_SyncColors then ns.PF_SyncColors() end
         if ns.ReloadFrames then ns.ReloadFrames() end
         if ns.ReloadPartyFrames then ns.ReloadPartyFrames() end
     end,

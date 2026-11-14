@@ -280,21 +280,51 @@ end
 -- Bar colour: the owner's own colour setting (default #17AC31). The raid color modes mislead here:
 -- gradient modes read as damage states, and many NPCs carry real class tokens (a friendly add can
 -- come out yellow).
+-- Background extent: in Dark Mode only the missing health, as on the raid frames, so the fill's
+-- opacity shows the world and not the background; otherwise the whole button. Stamped.
+FB.AnchorBg = function(b, dark)
+    local bg, health = b._bg, b._health
+    local tex = dark and health:GetStatusBarTexture() or false
+    local vert = tex and health:GetOrientation() == "VERTICAL" or false
+    local inv = tex and health:GetReverseFill() or false
+    if bg._fbTex == tex and bg._fbVert == vert and bg._fbInv == inv then return end
+    bg._fbTex, bg._fbVert, bg._fbInv = tex, vert, inv
+    bg:ClearAllPoints()
+    if not tex then
+        bg:SetAllPoints()
+    elseif vert and inv then
+        bg:SetPoint("TOPLEFT", tex, "BOTTOMLEFT", 0, 0)
+        bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+    elseif vert then
+        bg:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+        bg:SetPoint("BOTTOMRIGHT", tex, "TOPRIGHT", 0, 0)
+    elseif inv then
+        bg:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+        bg:SetPoint("BOTTOMRIGHT", tex, "BOTTOMLEFT", 0, 0)
+    else
+        bg:SetPoint("TOPLEFT", tex, "TOPRIGHT", 0, 0)
+        bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+    end
+end
+
 FB.PaintBarColor = function(b, owner, s)
     if owner and owner ~= FB and (owner.PaintPetBarColor or owner.PaintBarColor) then
         (owner.PaintPetBarColor or owner.PaintBarColor)(b, s)
         return
     end
     local health = b._health
-    -- Dark Mode (the raid frames' Health Color mode) wins over the frames' own colour, as on the raid frames.
+    -- Dark Mode (the raid frames' Health Color mode) wins over the frames' own colour, as on the
+    -- raid frames: the Dark Mode Fill opacity alone (Fill Opacity is off in Dark Mode).
     if s.healthColorMode == "dark" then
         local r, g, bl, a = ns.EllesmereUI.GetDarkModeFill()
         local ft = health:GetStatusBarTexture()
         if ft then ft:SetAlpha(a) end
-        health:SetStatusBarColor(r, g, bl, (s.healthBarOpacity or 100) / 100)
+        health:SetStatusBarColor(r, g, bl, 1)
         b._bg:SetColorTexture(ns.EllesmereUI.GetDarkModeBg())
+        FB.AnchorBg(b, true)
         return
     end
+    FB.AnchorBg(b, false)
     local fbc = (owner.ColorSettings or owner.Settings)()
     fbc = fbc and fbc.healthColor
     local fillTex = health:GetStatusBarTexture()
@@ -621,9 +651,11 @@ FB.SizeVisuals = function(b, w, h, s)
 end
 
 -- Texture, fonts, text anchors and border of one button at w x h. Shared with the pet frames.
-FB.StyleVisuals = function(b, s, w, h, texPath, bgc)
+-- dark: the frames' own Dark Mode state (the pets keep their own Fill Color); nil reads s.
+FB.StyleVisuals = function(b, s, w, h, texPath, bgc, dark)
     ns.RF_TexBgTint(b._bg, ns.RF_TexBgPath(s), ns.RF_IsVerticalFill(s))
-    if s.healthColorMode == "dark" then
+    if dark == nil then dark = s.healthColorMode == "dark" end
+    if dark then
         b._bg:SetColorTexture(ns.EllesmereUI.GetDarkModeBg())
     else
         b._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)

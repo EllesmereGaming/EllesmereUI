@@ -161,11 +161,24 @@ PF.PaintDynamic = function(health, u)
     end
 end
 
+-- The background with the pets' own Fill Color: Dark Mode's behind the missing health only,
+-- else the custom one over the button. Painted, not styled: a Fill Color change only repaints.
+PF.PaintBg = function(b, s, dark)
+    if dark then
+        b._bg:SetColorTexture(EllesmereUI.GetDarkModeBg())
+    else
+        local bgc = s and s.customBgColor or PF.DEFAULT_BG
+        b._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s and s.bgDarkness or 50) / 100)
+    end
+    FB.AnchorBg(b, dark)
+end
+
 PF.PaintBarColor = function(b, s)
     local health = b._health
     local u = FB.UnitOf(b)
     local mode = PF.mode or "custom"
     local fillTex = health:GetStatusBarTexture()
+    PF.PaintBg(b, s, mode == "dark")
     if mode == "dark" then
         local dr, dg, db, da = EllesmereUI.GetDarkModeFill()
         health:SetStatusBarColor(dr, dg, db, 1)
@@ -596,7 +609,7 @@ end
 PF.StyleHeaderButton = function(b)
     if not PF.w then return end
     local s = PF.StyleSource()
-    FB.StyleVisuals(b, s, PF.w, PF.h, ResolveHealthTexture(s), s.customBgColor or PF.DEFAULT_BG)
+    FB.StyleVisuals(b, s, PF.w, PF.h, ResolveHealthTexture(s), s.customBgColor or PF.DEFAULT_BG, PF.mode == "dark")
     PF.styledGen[b] = PF.styleGen
 end
 
@@ -623,7 +636,7 @@ PF.StyleInputs = function(t, s, texPath)
     -- The texts: the plan signature, then offsets and size of each (t[26] on).
     ns.RF_TextStyleInputs(t, 25, s)
     t[PF.STYLE_N - 1] = s.textureBg  -- Textured Background
-    t[PF.STYLE_N] = s.healthColorMode == "dark"  -- Dark Mode background
+    t[PF.STYLE_N] = PF.mode == "dark"  -- Dark Mode background (the pets' own Fill Color)
 end
 
 -- True when the inputs differ from the ones last styled under key ("hdr": the header, "owner": the
@@ -1033,7 +1046,7 @@ PF.OwnerLayout = function(restyle)
         local bgc = s.customBgColor or PF.DEFAULT_BG
         for _, b in ipairs(PF.ownerButtons) do
             b:SetSize(w, h)
-            FB.StyleVisuals(b, s, w, h, texPath, bgc)
+            FB.StyleVisuals(b, s, w, h, texPath, bgc, PF.mode == "dark")
         end
         PF.RepaintShown(PF.ownerButtons)
     elseif repainted then
@@ -1420,17 +1433,18 @@ PF.PvFrame = function(i, parent, s, w, h, c, grouped)
         d = GetFFD(f)
         d._petGroupedPreview, d._petPreviewParty = true, ns._partyPvActive == true
     elseif d then d._petGroupedPreview = nil end
-    FB.StyleVisuals(f, s, w, h, c.texPath, c.bgc)
+    local raw = PF.Raw() or {}
+    local mode = raw.healthColorMode or "custom"
+    FB.StyleVisuals(f, s, w, h, c.texPath, c.bgc, mode == "dark")
 
     local pet = PF.PV_PETS[i]
     local pct = pet.hp
-    local raw = PF.Raw() or {}
-    local mode = raw.healthColorMode or "custom"
     f._health:SetMinMaxValues(0, 100)
     -- pet.hp is a made-up plain number (PF.PV_PETS), so it is flipped here for an
     -- inverted fill (the _euiInv stamp FB.StyleVisuals just left).
     f._health:SetValue(f._health._euiInv and (100 - pct) or pct)
     local fillTex = f._health:GetStatusBarTexture()
+    PF.PaintBg(f, s, mode == "dark")
     if mode == "dark" then
         local dr, dg, db, da = EllesmereUI.GetDarkModeFill()
         f._health:SetStatusBarColor(dr, dg, db, 1)
