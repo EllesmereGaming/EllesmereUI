@@ -1199,7 +1199,7 @@ local function OnFaction(text)
 end
 
 local function OnSkill(text)
-    local skill, rank = Match("SKILL_RANK_UP", text)
+    local skill, rank = Match("ERR_SKILL_UP_SI", text)
     if skill then ShowSkill(skill, tonumber(rank)) end
 end
 
