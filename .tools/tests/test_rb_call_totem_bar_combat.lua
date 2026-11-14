@@ -2,7 +2,9 @@
 -- while Edit Mode moves Blizzard's bar frame in combat. Loads the real
 -- EUI_ResourceBars_CallTotemBar.lua under a small frame model that resolves
 -- anchors to rects, then plays Blizzard's passes over it: the bottom bar
--- stack, a layout apply and a bar update, in and out of combat.
+-- stack, a layout apply and a bar update, in and out of combat. Sections 6
+-- to 11: where the list of totems and its arrow show (above their button in
+-- a row, beside it in a column), and an open list following the settings.
 --   lua .tools/tests/test_rb_call_totem_bar_combat.lua        (from the repository root)
 local TARGET = CT_TARGET or "EllesmereUIResourceBars/EUI_ResourceBars_CallTotemBar.lua"
 
@@ -106,7 +108,11 @@ local function NewFrame(name, parent)
         end
         self._points[#self._points + 1] = entry
     end
-    function f:ClearAllPoints() Guard(self, "ClearAllPoints"); self._points = {} end
+    function f:ClearAllPoints()
+        Guard(self, "ClearAllPoints")
+        self._points = {}
+        self._clears = (self._clears or 0) + 1
+    end
     function f:SetAllPoints() end
     function f:GetNumPoints() return #self._points end
     function f:GetPoint(i)
@@ -161,7 +167,8 @@ local function Blizz(fn, ...)
 end
 
 local function Load(cfg, world)
-    W = { frames = {}, violations = {}, queue = {}, inCombat = false, blizz = false, editMode = 0 }
+    -- listed: the totems the toggled button has to list (0: Blizzard opens nothing)
+    W = { frames = {}, violations = {}, queue = {}, inCombat = false, blizz = false, editMode = 0, listed = 4 }
     for k, v in pairs(world) do W[k] = v end
     EUI_CLIENT_BLOCKED = nil
     ERB_CallTotemBarFrame = nil
@@ -242,7 +249,39 @@ local function Load(cfg, world)
         if W.recall then RECALL:SetPoint("LEFT", SLOT[W.active], "RIGHT", 8, 0) end
         RECALL:SetShown(W.recall)
     end
-    function MultiCastFlyoutFrameOpenButton_Show() end
+    -- Blizzard's list of totems (the flyout) and its arrow, as the XML builds
+    -- them: plain frames of the bar, hidden, on one anchor each.
+    local flyout = NewFrame("MultiCastFlyoutFrame", bar)
+    flyout._w, flyout._h, flyout._shown = 32, 30, false
+    flyout:SetPoint("BOTTOM", bar, "BOTTOM", 0, 0)
+    local arrow = NewFrame("MultiCastFlyoutFrameOpenButton", bar)
+    arrow._w, arrow._h, arrow._shown = 28, 18, false
+    arrow:SetPoint("BOTTOM", bar, "TOP", 0, 0)
+    W.flyout, W.arrow = flyout, arrow
+    -- The arrow: handed to the hovered button and hung above it, its point
+    -- added on every show (no ClearAllPoints).
+    function MultiCastFlyoutFrameOpenButton_Show(self, kind, parent)
+        self.type, self.parent = kind, parent
+        self._parent = parent
+        self:SetPoint("BOTTOM", parent, "TOP", 0, 0)
+        self:Show()
+    end
+    -- The list: a toggle on its own button closes it (its OnHide forgets the
+    -- button); any other toggle, when that button has totems to list, sizes
+    -- it, hangs it above the button (no ClearAllPoints) and shows it (its
+    -- OnShow hides the arrow).
+    function MultiCastFlyoutFrame_ToggleFlyout(self, kind, parent)
+        if self:IsShown() and self.parent == parent then
+            self:Hide()
+            self.type, self.parent = nil, nil
+        elseif W.listed > 0 then
+            self.type, self.parent = kind, parent
+            self._h = 20 + 26 * W.listed
+            self:SetPoint("BOTTOM", parent, "TOP", 0, 0)
+            self:Show()
+            arrow:Hide()
+        end
+    end
 
     -- Edit Mode: the bottom bar stack moves a shown bar that counts as being
     -- at its default spot; a layout apply resets the anchor, then stacks.
@@ -530,6 +569,318 @@ do
     cfg.enabled = false
     ns.CT_Apply()
     check(W.bar:IsMouseEnabled() == false, "found off: put back off")
+end
+
+-------------------------------------------------------------------------------
+--  The list of totems (Blizzard's flyout) and its arrow
+-------------------------------------------------------------------------------
+-- The mouse on a button (Blizzard shows the arrow there) and a click on the
+-- arrow (Blizzard toggles the button's list). kind: "slot", or "page" for
+-- Call of the Elements.
+local function Hover(btn, kind) Blizz(MultiCastFlyoutFrameOpenButton_Show, W.arrow, kind or "slot", btn) end
+local function Toggle(btn, kind) Blizz(MultiCastFlyoutFrame_ToggleFlyout, W.flyout, kind or "slot", btn) end
+local function Kind(btn) return btn == W.SUMMON and "page" or "slot" end
+
+-- Where the open list sits against its button, on its one anchor: "above"
+-- (Blizzard's own spot, centred on the button's top edge), "right" or "left"
+-- (beside it, 2 of the bar's units away, their bottom edges level), else nil.
+local function ListSide(btn)
+    local f = W.flyout
+    if not f:IsShown() or #f._points ~= 1 then return nil end
+    local l, b, r = Rect(f)
+    local bl, bb, br, bt = Rect(btn)
+    local gap = 2 * EffScale(f)
+    if near(b, bt) and near((l + r) / 2, (bl + br) / 2) then return "above" end
+    if near(l, br + gap) and near(b, bb) then return "right" end
+    if near(r, bl - gap) and near(b, bb) then return "left" end
+    return nil
+end
+
+-- The same for the arrow: "above", or "right" / "left" (against the button's
+-- side, their middles level).
+local function ArrowSide(btn)
+    local a = W.arrow
+    if not a:IsShown() or #a._points ~= 1 or a:GetParent() ~= btn then return nil end
+    local l, b, r, t = Rect(a)
+    local bl, bb, br, bt = Rect(btn)
+    if near(b, bt) and near((l + r) / 2, (bl + br) / 2) then return "above" end
+    if near(l, br) and near((b + t) / 2, (bb + bt) / 2) then return "right" end
+    if near(r, bl) and near((b + t) / 2, (bb + bt) / 2) then return "left" end
+    return nil
+end
+
+-- The first shown button of the bar a rect lies over (nil: none); with no
+-- rect, the list's own.
+local function ListCovers(l, b, r, t)
+    if not l then l, b, r, t = Rect(W.flyout) end
+    for _, g in ipairs(Shown()) do
+        local gl, gb, gr, gt = Rect(g)
+        if l < gr - 1e-6 and gl < r - 1e-6 and b < gt - 1e-6 and gb < t - 1e-6 then return g._name end
+    end
+    return nil
+end
+
+-- The rect the list would have on Blizzard's own anchor, above btn.
+local function AboveRect(btn)
+    local f = W.flyout
+    local keep = f._points
+    f._points = { { point = "BOTTOM", rel = btn, relPoint = "TOP", x = 0, y = 0 } }
+    local l, b, r, t = Rect(f)
+    f._points = keep
+    return l, b, r, t
+end
+
+local function Clears(f) return f._clears or 0 end
+
+local function Column(direction)
+    return { enabled = true, iconSize = 24, spacing = 5, orientation = "VERTICAL", flyoutDirection = direction }
+end
+
+-------------------------------------------------------------------------------
+-- 6. A column: the list of totems opens beside its button, on the Flyout
+--    Direction side, and the arrow shows there. Above the button, Blizzard's
+--    own spot, it would lie over the buttons above.
+-------------------------------------------------------------------------------
+for _, d in ipairs({ { false, "right" }, { "RIGHT", "right" }, { "LEFT", "left" } }) do
+    for _, w in ipairs(WORLDS) do
+        local cfg = Column(d[1] or nil)
+        local label = "column, Flyout Direction " .. tostring(d[1] or "unset") .. " / " .. w.name
+        Load(cfg, w.w)
+        local list = Shown()
+        for i, btn in ipairs(list) do
+            if btn ~= W.RECALL then
+                local at = label .. ", button " .. i
+                Hover(btn, Kind(btn))
+                check(ArrowSide(btn) == d[2], at .. ": the arrow shows on the " .. d[2] .. " (" .. tostring(ArrowSide(btn)) .. ")")
+                Toggle(btn, Kind(btn))
+                check(ListSide(btn) == d[2], at .. ": the list opens on the " .. d[2] .. " (" .. tostring(ListSide(btn)) .. ")")
+                check(ListCovers() == nil, at .. ": the open list lies over no button (" .. tostring(ListCovers()) .. ")")
+                check(not W.arrow:IsShown(), at .. ": the open list hides the arrow")
+                if i > 1 then
+                    check(ListCovers(AboveRect(btn)) ~= nil, at .. ": above its button the list would lie over one (the trouble is modelled)")
+                end
+                Toggle(btn, Kind(btn))
+                check(not W.flyout:IsShown() and W.flyout.parent == nil, at .. ": a second click closes the list")
+            end
+        end
+        -- from one button's list straight to the next button's
+        if list[2] and list[2] ~= W.RECALL then
+            Toggle(list[1], Kind(list[1]))
+            Toggle(list[2], Kind(list[2]))
+            check(W.flyout.parent == list[2] and ListSide(list[2]) == d[2], label .. ": the next button's list opens beside that button, on one anchor")
+            check(ListCovers() == nil, label .. ": and lies over no button")
+        end
+        check(#W.violations == 0, label .. ": no Edit Mode override and no combat write (" .. tostring(W.violations[1]) .. ")")
+    end
+end
+
+-------------------------------------------------------------------------------
+-- 7. A row: the list and the arrow stay where Blizzard puts them, above the
+--    button, and nothing of ours re-anchors either.
+-------------------------------------------------------------------------------
+for _, c in ipairs({ CONFIGS[1], CONFIGS[2],
+                     { name = "row, Flyout Direction Left", cfg = { enabled = true, iconSize = 30, spacing = 2, flyoutDirection = "LEFT" } },
+                     { name = "row by name, Flyout Direction Right", cfg = { enabled = true, iconSize = 30, spacing = 2, orientation = "HORIZONTAL", flyoutDirection = "RIGHT" } } }) do
+    Load(c.cfg, WORLDS[1].w)
+    for i, btn in ipairs(Shown()) do
+        if btn ~= W.RECALL then
+            local at = c.name .. ", button " .. i
+            Hover(btn, Kind(btn))
+            check(ArrowSide(btn) == "above", at .. ": the arrow is above (" .. tostring(ArrowSide(btn)) .. ")")
+            Toggle(btn, Kind(btn))
+            check(ListSide(btn) == "above", at .. ": the list is above (" .. tostring(ListSide(btn)) .. ")")
+            check(ListCovers() == nil, at .. ": and lies over no button")
+            Toggle(btn, Kind(btn))
+        end
+    end
+    check(Clears(W.flyout) == 0 and Clears(W.arrow) == 0, c.name .. ": nothing of ours re-anchors the list or the arrow")
+end
+
+-------------------------------------------------------------------------------
+-- 8. In combat: neither the list nor the arrow is secure, so both take their
+--    side there too, also while Edit Mode has the bar frame somewhere else.
+-------------------------------------------------------------------------------
+for _, d in ipairs({ { "RIGHT", "right" }, { "LEFT", "left" } }) do
+    local cfg = Column(d[1])
+    local label = "combat, Flyout Direction " .. d[1]
+    Load(cfg, WORLDS[1].w)
+    EnterCombat()
+    Blizz(EditModeManagerFrame.UpdateBottomActionBarPositions, EditModeManagerFrame)
+    check(not BarAtHolder(), label .. ": the stack moved the bar frame")
+    for i, btn in ipairs(Shown()) do
+        if btn ~= W.RECALL then
+            local at = label .. ", button " .. i
+            Hover(btn, Kind(btn))
+            check(ArrowSide(btn) == d[2], at .. ": the arrow shows on the " .. d[2])
+            Toggle(btn, Kind(btn))
+            check(ListSide(btn) == d[2] and ListCovers() == nil, at .. ": the list opens on the " .. d[2] .. ", over no button")
+            Toggle(btn, Kind(btn))
+        end
+    end
+    check(#W.violations == 0, label .. ": nothing of ours writes to a protected frame (" .. tostring(W.violations[1]) .. ")")
+    LeaveCombat()
+    check(BarAtHolder() and Placed(cfg, label), label .. ": regen lays the bar out again")
+end
+
+-------------------------------------------------------------------------------
+-- 9. A list that is open when a setting changes takes its new place at once:
+--    Flyout Direction, the orientation, and the hand-back.
+-------------------------------------------------------------------------------
+do
+    local cfg = Column(nil)
+    local ns = Load(cfg, WORLDS[1].w)
+    local btn = W.SLOT[2]
+    Toggle(btn)
+    check(ListSide(btn) == "right", "an open list: beside its slot, on the right")
+
+    -- Flyout Direction, as its options row changes it
+    check(type(ns.CT_PlaceFlyout) == "function", "the options can ask for an open list to be placed")
+    local place = ns.CT_PlaceFlyout or function() end
+    cfg.flyoutDirection = "LEFT"
+    place()
+    check(ListSide(btn) == "left", "Flyout Direction Left moves the open list to the left (" .. tostring(ListSide(btn)) .. ")")
+    cfg.flyoutDirection = "RIGHT"
+    place()
+    check(ListSide(btn) == "right", "and Right moves it back (" .. tostring(ListSide(btn)) .. ")")
+    place()
+    check(ListSide(btn) == "right", "asked again with nothing changed: it stays")
+
+    -- the bar becomes a row: the list goes above its slot
+    cfg.orientation = "HORIZONTAL"
+    ns.CT_Apply()
+    check(Placed(cfg, "column to row"), "column to row: the buttons are a row")
+    check(ListSide(btn) == "above", "column to row: the open list goes above its slot (" .. tostring(ListSide(btn)) .. ")")
+    check(ListCovers() == nil, "column to row: it lies over no button (" .. tostring(ListCovers()) .. ")")
+    -- and a column again
+    cfg.orientation = "VERTICAL"
+    ns.CT_Apply()
+    check(Placed(cfg, "row to column"), "row to column: the buttons are a column")
+    check(ListSide(btn) == "right", "row to column: the open list goes beside its slot (" .. tostring(ListSide(btn)) .. ")")
+    check(ListCovers() == nil, "row to column: it lies over no button (" .. tostring(ListCovers()) .. ")")
+
+    -- in combat the apply waits for regen, and the open list with it
+    EnterCombat()
+    cfg.orientation = "HORIZONTAL"
+    ns.CT_Apply()
+    check(ListSide(btn) == "right" and #W.violations == 0, "in combat the orientation waits: the list stays beside its slot")
+    LeaveCombat()
+    check(Placed(cfg, "regen") and ListSide(btn) == "above", "regen: a row, the open list above its slot (" .. tostring(ListSide(btn)) .. ")")
+    cfg.orientation = "VERTICAL"
+    ns.CT_Apply()
+    check(ListSide(btn) == "right", "a column again: beside its slot")
+
+    -- the hand-back with the list open: Blizzard's own anchor at once
+    cfg.enabled = false
+    ns.CT_Apply()
+    local p = W.flyout._points[1]
+    check(ListSide(btn) == "above", "turned off with the list open: it goes above its slot (" .. tostring(ListSide(btn)) .. ")")
+    check(#W.flyout._points == 1 and p.point == "BOTTOM" and p.rel == btn and p.relPoint == "TOP" and p.x == 0 and p.y == 0,
+        "turned off with the list open: on Blizzard's own anchor")
+    check(W.SLOT[1]._points[1].rel == W.bar, "and the buttons are back on Blizzard's anchors")
+    check(#W.violations == 0, "no Edit Mode override and no combat write (" .. tostring(W.violations[1]) .. ")")
+end
+
+-- a closed list, and a row's list that was never moved, are left alone
+do
+    local cfg = Column("LEFT")
+    local ns = Load(cfg, WORLDS[1].w)
+    local place = ns.CT_PlaceFlyout or function() end
+    local points = W.flyout._points
+    place()
+    ns.CT_Apply()
+    check(W.flyout._points == points and Clears(W.flyout) == 0, "a closed list is not touched by a settings pass")
+    check(not W.flyout:IsShown(), "and stays closed")
+
+    cfg = { enabled = true, iconSize = 30, spacing = 2, flyoutDirection = "LEFT" }
+    ns = Load(cfg, WORLDS[1].w)
+    place = ns.CT_PlaceFlyout or function() end
+    Toggle(W.SLOT[3])
+    place()
+    ns.CT_Apply()
+    cfg.flyoutDirection = "RIGHT"
+    place()
+    check(ListSide(W.SLOT[3]) == "above" and Clears(W.flyout) == 0, "a row's open list stays on Blizzard's anchor through settings passes")
+end
+
+-- the arrow after a column became a row: its next show is above its button
+-- again, whatever Flyout Direction says, and then it is left to Blizzard
+do
+    local cfg = Column("LEFT")
+    local ns = Load(cfg, WORLDS[1].w)
+    local btn = W.SLOT[2]
+    Hover(btn)
+    check(ArrowSide(btn) == "left", "a column: the arrow shows beside its slot")
+    cfg.orientation = "HORIZONTAL"
+    ns.CT_Apply()
+    Hover(btn)
+    check(ArrowSide(btn) == "above", "column to row: the arrow's next show is above its slot (" .. tostring(ArrowSide(btn)) .. ")")
+    local clears = Clears(W.arrow)
+    Hover(W.SLOT[3])
+    check(ArrowSide(W.SLOT[3]) == "above" and Clears(W.arrow) == clears, "column to row: from then on the arrow is left to Blizzard")
+end
+
+-------------------------------------------------------------------------------
+-- 10. Off: nothing of ours touches the list or the arrow. On, a column, both
+--     go beside the button; off again with the list closed, the next show of
+--     each is Blizzard's own on one anchor, and then they are left alone.
+-------------------------------------------------------------------------------
+do
+    local cfg = Column("LEFT")
+    cfg.enabled = false
+    local ns = Load(cfg, WORLDS[1].w)
+    local btn = W.SLOT[2]
+    Hover(btn)
+    check(ArrowSide(btn) == "above", "off: the arrow is where Blizzard puts it")
+    Toggle(btn)
+    check(ListSide(btn) == "above", "off: the list is where Blizzard puts it")
+    Toggle(btn)
+    check(Clears(W.flyout) == 0 and Clears(W.arrow) == 0, "off: nothing of ours re-anchors either")
+
+    cfg.enabled = true
+    ns.CT_Apply()
+    Hover(btn)
+    check(ArrowSide(btn) == "left", "on: the arrow shows beside the slot")
+    Toggle(btn)
+    check(ListSide(btn) == "left", "on: the list opens beside the slot")
+    Toggle(btn)
+
+    cfg.enabled = false
+    ns.CT_Apply()
+    check(not W.flyout:IsShown(), "off again: the closed list stays closed")
+    Hover(btn)
+    check(ArrowSide(btn) == "above", "off again: the arrow's next show is above its slot, on one anchor (" .. tostring(ArrowSide(btn)) .. ")")
+    Toggle(btn)
+    check(ListSide(btn) == "above", "off again: the list's next open is above its slot, on one anchor (" .. tostring(ListSide(btn)) .. ")")
+    Toggle(btn)
+    local fc, ac = Clears(W.flyout), Clears(W.arrow)
+    Hover(btn)
+    Toggle(btn)
+    Toggle(btn)
+    Hover(W.SLOT[3])
+    Toggle(W.SLOT[3])
+    check(Clears(W.flyout) == fc and Clears(W.arrow) == ac, "and from then on both are left to Blizzard")
+    check(ListSide(W.SLOT[3]) == "above", "the list still opens above its slot")
+    check(#W.violations == 0, "no Edit Mode override and no combat write (" .. tostring(W.violations[1]) .. ")")
+end
+
+-------------------------------------------------------------------------------
+-- 11. A button with no totems to list: Blizzard opens nothing and nothing of
+--     ours moves. An open list stays with its own button.
+-------------------------------------------------------------------------------
+do
+    local cfg = Column(nil)
+    Load(cfg, WORLDS[1].w)
+    W.listed = 0
+    Toggle(W.SLOT[1])
+    check(not W.flyout:IsShown() and Clears(W.flyout) == 0, "nothing to list: no list, nothing re-anchored")
+    W.listed = 4
+    Toggle(W.SLOT[1])
+    check(ListSide(W.SLOT[1]) == "right", "totems to list: the list opens beside its slot")
+    local clears = Clears(W.flyout)
+    W.listed = 0
+    Toggle(W.SLOT[3])
+    check(W.flyout:IsShown() and W.flyout.parent == W.SLOT[1] and ListSide(W.SLOT[1]) == "right" and Clears(W.flyout) == clears,
+        "another button with nothing to list: the open list stays with its own slot")
 end
 
 if fails > 0 then error(fails .. " of " .. count .. " check(s) failed") end

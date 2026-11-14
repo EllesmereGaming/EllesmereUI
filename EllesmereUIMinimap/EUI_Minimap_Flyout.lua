@@ -404,7 +404,8 @@ local function EnsureFlyoutPanel()
         -- so without this the first open never installs the watcher below.
         flyoutPanel:Hide()
         -- Click-away dismiss (matches options-panel dropdowns): closes on any left press
-        -- outside the grid+toggle while shown. IsMouseButtonDown polls raw input state
+        -- outside the grid+toggle while shown, unless a menu is open (a grouped button's
+        -- own menu: EBS._AnyDropdownOpen). IsMouseButtonDown polls raw input state
         -- so clicks still land normally; the toggle is excluded so its own OnClick
         -- closes without a reopen race.
         flyoutPanel:HookScript("OnShow", function(self)

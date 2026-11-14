@@ -1,5 +1,5 @@
 -- Stub harness: the raid marker on the friendly NPC name-only overlay (Show
--- Raid Marker in the Friendly NPC Settings cog) and on the friendly plates.
+-- Raid Marker on the Friendly Plates page) and on the friendly plates.
 -- Cuts the overlay block (npcOverlays through RefreshAllNPCOverlays) and
 -- FriendlyFrame:UpdateRaidIcon out of EllesmereUINameplatesFriendly.lua and
 -- drives them on fake frames: the marker shows by default, follows
@@ -275,14 +275,15 @@ end
 --  11. The options row: on unless saved off, greyed while the element is off
 -------------------------------------------------------------------------------
 do
-    local opt = ReadSource("EllesmereUIOptions/Nameplates_Options/GeneralPage_Options.lua")
-    local a = opt:find('label = "Show Raid Marker"', 1, true)
+    local opt = ReadSource("EllesmereUIOptions/Nameplates_Options/FriendlyPage_Options.lua")
+    local a = opt:find('text="Show Raid Marker"', 1, true)
     check(a ~= nil, "11: the Show Raid Marker row exists")
     if a then
-        local row = opt:sub(a, (opt:find("},\n", a, true) or #opt) + 2)
-        check(row:find('get = function() return DBVal("showNPCRaidMarker") ~= false end', 1, true) ~= nil,
+        local row = opt:sub(a, (opt:find("});", a, true) or #opt) + 2)
+        check(row:find('getValue=function() return DBVal("showNPCRaidMarker") ~= false end', 1, true) ~= nil,
             "11: the row reads on unless saved off")
-        check(row:find('disabled = markerOff, disabledTooltip = "Raid Marker"', 1, true) ~= nil,
+        check(row:find('disabled=function() return npcOverlayOff() or markerOff() end', 1, true) ~= nil
+            and row:find('disabledTooltip=function() return npcOverlayOff() and npcOverlayTip() or "Raid Marker" end', 1, true) ~= nil,
             "11: the row greys out while the Raid Marker element is off")
     end
     check(opt:find('local function markerOff() return (DBVal("raidMarkerPos") or defaults.raidMarkerPos) == "none" end',

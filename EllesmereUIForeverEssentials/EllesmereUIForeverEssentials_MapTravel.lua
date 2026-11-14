@@ -488,6 +488,9 @@ local KIND_LABEL = { boats = "Boats", zeppelins = "Zeppelins", skycutters = "Sky
 
 local Apply
 
+-- A filter menu row's click. A row's kind is its data, which the menu hands
+-- to both of the row's functions: every row of every menu shares Want and
+-- this one, and none is made per menu. A checkbox keeps its menu open.
 local function Toggle(key)
     F.Cfg()[key] = not Want(key)
     Apply()
@@ -504,15 +507,12 @@ local function AddFilters(_, root)
     root:CreateTitle(EllesmereUI.L("Map Markers"))
     for i = 1, #KINDS do
         local key = KINDS[i]
-        root:CreateCheckbox(EllesmereUI.L(KIND_LABEL[key]), function() return Want(key) end, function()
-            Toggle(key)
-            return MenuResponse.Refresh
-        end)
+        root:CreateCheckbox(EllesmereUI.L(KIND_LABEL[key]), Want, Toggle, key)
     end
 end
 
 local function WatchMenu(on)
-    if on and not menuHandle and Menu and Menu.ModifyMenu then
+    if on and not menuHandle then
         menuDone = menuDone or setmetatable({}, { __mode = "k" })
         menuHandle = Menu.ModifyMenu("MENU_WORLD_MAP_TRACKING", AddFilters)
     elseif not on and menuHandle then

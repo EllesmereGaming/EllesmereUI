@@ -341,135 +341,79 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
           setValue=function(v) settingsTable.healthHeight = v; ReloadAndUpdate() end }),
         rightSlot);  y = y - h
 
-    -- Row 2: Fill Color + Bar Background/Opacity. Boss frames present each as an
-    -- opacity slider with inline class/custom swatches (mirroring Main Frames' Bar
-    -- Background); other mini units keep the combined "Bar Color" multiSwatch + "Bar Opacity" slider.
+    -- Row 2: Fill Color | Fill Opacity, the same on every mini frame and the boss frames. Fill
+    -- Color is a view over the saved keys: the gradient modes are healthColorMode, Custom Color
+    -- is a customFillColor without healthClassColored, anything else reads as Class Color.
     do
-        local isBoss = (unitKey == "boss")
-
-        local leftSlot2, rightSlot2
-        local leftSlot2 = { type="dropdown", text="Fill Color",
-          values={ class = "Class Color", classic = "Classic", custom = "Custom Color", customDynamic = "Custom Dynamic Colors" },
-          order={ "class", "classic", "custom", "customDynamic" },
-          tooltip="Custom Dynamic Colors: the health bar smoothly blends between three colors you pick -- one for full health (100%), one for half (50%), and one for empty (0%) -- shifting through them as the unit takes damage or is healed.",
-          getValue=function()
-              local mode = settingsTable.healthColorMode
-              if mode == "customDynamic" or mode == "classic" then
-                  return mode
-              elseif settingsTable.customFillColor ~= nil and not settingsTable.healthClassColored then
-                  return "custom"
-              else
-                  return "class"
-              end
-          end,
-          setValue=function(v)
-              if v == "class" then
-                  settingsTable.healthClassColored = true
-                  settingsTable.healthColorMode = "none"
-                  settingsTable.customFillColor = nil
-              elseif v == "custom" then
-                  settingsTable.healthClassColored = false
-                  settingsTable.healthColorMode = "none"
-                  if settingsTable.customFillColor == nil then
-                      settingsTable.customFillColor = (unitKey == "boss") and { r = 0.8, g = 0.2, b = 0.2 } or { r = 37/255, g = 193/255, b = 29/255 }
-                  end
-              elseif v == "classic" then
-                  settingsTable.healthColorMode = "classic"
-              elseif v == "customDynamic" then
-                  settingsTable.healthColorMode = "customDynamic"
-              end
-              ReloadAndUpdate()
-              EllesmereUI:RefreshPage()
-          end }
-        local rightSlot2 = { type="slider", text="Fill Opacity", min=0, max=100, step=1,
-          disabled=function() return ns.UF_DarkThemeOn(settingsTable) end,
-          disabledTooltip="Dark Mode", requireState="disabled",
-          getValue=function() return MVal("healthBarOpacity", 90) end,
-          setValue=function(v) MSet("healthBarOpacity", v) end }
-
-        local colorRow
-        colorRow, h = W:DualRow(parent, y, leftSlot2, rightSlot2);  y = y - h
-
-        if not EllesmereUI._prebuilding then
-            local rgn = colorRow._leftRegion
-            local swatch, updSwatch = EllesmereUI.BuildColorSwatch(
-                rgn, colorRow:GetFrameLevel() + 3,
-                function()
-                    local c = MGet("customFillColor")
-                    if c then return c.r, c.g, c.b, 1 end
-                    return (unitKey == "boss") and 0.8 or 37/255, (unitKey == "boss") and 0.2 or 193/255, (unitKey == "boss") and 0.2 or 29/255, 1
-                end,
-                function(r, g, b)
-                    settingsTable.customFillColor = { r=r, g=g, b=b }
-                    settingsTable.healthClassColored = false
-                    settingsTable.healthColorMode = "none"
-                    ReloadAndUpdate()
-                end, false, 20)
-            swatch:SetPoint("RIGHT", rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = swatch
-
-            local block = CreateFrame("Frame", nil, rgn)
-            block:SetAllPoints(swatch)
-            block:SetFrameLevel(swatch:GetFrameLevel() + 1)
-            block:EnableMouse(true)
-            block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, "Only available with Custom fill color") end)
-            block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-            local dynDefs = {
-                { key = "dynamicColor100", def = { r = 0, g = 1, b = 0 }, label = "100%", tip = "Health bar color at full (100%) health" },
-                { key = "dynamicColor50",  def = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 }, label = "50%",  tip = "Health bar color at half (50%) health" },
-                { key = "dynamicColor0",   def = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 }, label = "0%",   tip = "Health bar color at empty (0%) health" },
-            }
-            local dynSwatches = {}
-            local prevAnchor = rgn._control
-            for i = #dynDefs, 1, -1 do
-                local dd = dynDefs[i]
-                local sw = EllesmereUI.BuildColorSwatch(
-                    rgn, colorRow:GetFrameLevel() + 3,
-                    function()
-                        local c = settingsTable[dd.key] or dd.def
-                        return c.r, c.g, c.b, 1
-                    end,
-                    function(r, g, b)
-                        settingsTable[dd.key] = { r=r, g=g, b=b }
-                        ReloadAndUpdate()
-                    end, false, 18)
-                sw:SetPoint("RIGHT", prevAnchor, "LEFT", (prevAnchor == rgn._control) and -8 or -6, 0)
-                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, dd.tip) end)
-                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                dynSwatches[i] = sw
-                prevAnchor = sw
-            end
-
-            local function UpdateSwatchVis()
-                local mode = settingsTable.healthColorMode
-                local isDynamic = mode == "customDynamic"
-                if isDynamic then
-                    swatch:Hide(); block:Hide()
-                else
-                    swatch:Show()
-                    local cur = (mode == "classic") and "classic" or ((settingsTable.customFillColor ~= nil and not settingsTable.healthClassColored) and "custom" or "class")
-                    if cur == "custom" then
-                        swatch:SetAlpha(1); block:Hide()
-                    else
-                        swatch:SetAlpha(0.3); block:Show()
-                    end
-                end
-                for _, sw in ipairs(dynSwatches) do
-                    if isDynamic then sw:Show() else sw:Hide() end
-                end
-            end
-            EllesmereUI.RegisterWidgetRefresh(UpdateSwatchVis)
-            UpdateSwatchVis()
+        local function FillMode()
+            local mode = settingsTable.healthColorMode
+            if mode == "customDynamic" or mode == "classic" then return mode end
+            if settingsTable.customFillColor ~= nil and not settingsTable.healthClassColored then return "custom" end
+            return "class"
         end
+        -- The Custom Color a frame starts from: hostile red on the boss frames.
+        local function DefaultFill()
+            if unitKey == "boss" then return 0.8, 0.2, 0.2 end
+            return 37/255, 193/255, 29/255
+        end
+        local colorRow
+        colorRow, h = W:DualRow(parent, y,
+            { type="dropdown", text="Fill Color",
+              values={ class = "Class Color", classic = "Classic", custom = "Custom Color", customDynamic = "Custom Dynamic Colors" },
+              order={ "class", "classic", "custom", "customDynamic" },
+              tooltip="Custom Dynamic Colors: the health bar smoothly blends between three colors you pick -- one for full health (100%), one for half (50%), and one for empty (0%) -- shifting through them as the unit takes damage or is healed.",
+              getValue=FillMode,
+              setValue=function(v)
+                  if v == "class" then
+                      settingsTable.healthClassColored = true
+                      settingsTable.healthColorMode = "none"
+                  elseif v == "custom" then
+                      settingsTable.healthClassColored = false
+                      settingsTable.healthColorMode = "none"
+                      if settingsTable.customFillColor == nil then
+                          local r, g, b = DefaultFill()
+                          settingsTable.customFillColor = { r=r, g=g, b=b }
+                      end
+                  else
+                      settingsTable.healthColorMode = v
+                  end
+                  ReloadAndUpdate()
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="slider", text="Fill Opacity", min=0, max=100, step=1,
+              disabled=function() return ns.UF_DarkThemeOn(settingsTable) end,
+              disabledTooltip="Dark Mode", requireState="disabled",
+              getValue=function() return MVal("healthBarOpacity", 90) end,
+              setValue=function(v) MSet("healthBarOpacity", v) end });  y = y - h
 
+        EllesmereUI.BuildFillColorSwatches(colorRow._leftRegion, {
+            mode = FillMode,
+            getCustom = function()
+                local c = MGet("customFillColor")
+                if c then return c.r, c.g, c.b end
+                return DefaultFill()
+            end,
+            setCustom = function(r, g, b)
+                settingsTable.customFillColor = { r=r, g=g, b=b }
+                settingsTable.healthClassColored = false
+                settingsTable.healthColorMode = "none"
+                ReloadAndUpdate()
+            end,
+            keys = { "dynamicColor100", "dynamicColor50", "dynamicColor0" },
+            getStop = function(key) return settingsTable[key] end,
+            setStop = function(key, r, g, b)
+                settingsTable[key] = { r=r, g=g, b=b }
+                ReloadAndUpdate()
+            end,
+        })
+
+        -- Dark Mode draws a flat dark bar: the Fill Color controls do nothing there.
         if not EllesmereUI._prebuilding then
             AddDarkModeBlock(colorRow._leftRegion, function() return settingsTable end)
         end
     end
 
-    -- Mini frames pair Smooth Health Bars with Vertical Fill below;
-    -- boss frames keep it beside Reverse Fill.
+    -- Smooth Health Bars sits beside Vertical Fill below, Reverse Fill beside Bar Background.
     local smoothBarsWidget = { type="toggle", text="Smooth Health Bars",
           getValue=function() return MVal("smoothBars", false) end,
           setValue=function(v) MSet("smoothBars", v) end }
@@ -529,6 +473,10 @@ local function BuildMiniTextAndSize(W, parent, y, settingsTable, unitKey, enable
                   return MVal("bgClassColored", false) and 1 or 0.3
               end },
         })
+        -- The boss frames' Bar Background greys out in Dark Mode, as on the Main Frames.
+        if unitKey == "boss" then
+            AddDarkModeBlock(bgRow._leftRegion, function() return settingsTable end)
+        end
     end
 
     -- Vertical Fill swaps the fill AXIS (Reverse Fill above flips direction within

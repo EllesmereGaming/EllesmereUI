@@ -196,7 +196,5 @@ L["Separate Sidebar"] = "Separar barra lateral"
 L["Separates the sidebar from the chat panel and gives it its own background and border."] = "Separa la barra lateral del panel de chat y le asigna su propio fondo y borde."
 L["Scenario"] = "Gesta"
 
--- Ore node names (Gathering Skill in Tooltips): the client's own names, needed to recognize the nodes
-
 -- Group Finder Hide Applicant Info
 L["Note"] = "Nota"

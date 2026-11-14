@@ -339,6 +339,7 @@ end
 --   0.15 disabled (the button at 0.3). Disabled blocks the click and shows the requirement tooltip. A button that paints its own states, opts.paint(btn, off, hot),
 --   draws opts.icon bare instead, 26 square and with no dot (the unlock jump).
 -- A cog with a dot is the one its region's writes light (the cog notice above; the last such cog built on the region).
+-- opts.quiet: a cog whose rows are not for most users; its region's writes never light its dot or bring the cog tip up.
 local function BuildInlineCog(rgn, opts)
     if EllesmereUI._prebuilding then return end
     -- A disabled cog with no tooltip of its own explains itself with its host control's requirement.
@@ -397,9 +398,9 @@ local function BuildInlineCog(rgn, opts)
         hostCfg = rgn._cfg
         btn._euiCogId, btn._euiCogNote, btn._euiCogPulse = id, note, pulse
         CogDot.live[btn] = true
-        -- The cog notice: the region's writes light this cog.
+        -- The cog notice: the region's writes light this cog, unless it is a quiet one.
         btn._euiCogOff = opts.disabled
-        rgn._euiCog = btn
+        if not opts.quiet then rgn._euiCog = btn end
         btn:SetScript("OnHide", CogHidden)
     end
 
@@ -965,6 +966,73 @@ local function BuildInlineSwatches(region, swatches, opts)
     end
 end
 EllesmereUI.BuildInlineSwatches = BuildInlineSwatches
+
+-------------------------------------------------------------------------------
+--  BuildFillColorSwatches(region, opts)
+--  The inline swatches of a Fill Color dropdown half that offers Custom Color and Custom Dynamic
+--  Colors: one Custom Color swatch (live in "custom", dimmed and blocked with a tooltip in the
+--  other flat modes) and the three gradient-stop swatches (100% | 50% | 0%, left to right), which
+--  take its place in "customDynamic". Chains from region._lastInline like the other inline items.
+--  opts.mode() -> the dropdown's value; opts.getCustom() -> r, g, b; opts.setCustom(r, g, b);
+--  opts.keys = { key100, key50, key0 }; opts.getStop(key) -> the saved colour table or nil (a
+--  missing stop shows its default); opts.setStop(key, r, g, b). Nothing in the search pre-build.
+-------------------------------------------------------------------------------
+local FILL_STOPS = {
+    { def = { r = 0, g = 1, b = 0 }, tip = "Health bar color at full (100%) health" },
+    { def = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 }, tip = "Health bar color at half (50%) health" },
+    { def = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 }, tip = "Health bar color at empty (0%) health" },
+}
+local function BuildFillColorSwatches(region, opts)
+    if EllesmereUI._prebuilding then return end
+    local level = region:GetFrameLevel() + 3
+    local anchor = region._lastInline or region._control
+    local custom, updateCustom = BuildColorSwatch(region, level, function()
+        local r, g, b = opts.getCustom()
+        return r, g, b, 1
+    end, opts.setCustom, false, 20)
+    PP.Point(custom, "RIGHT", anchor, "LEFT", -8, 0)
+    region._lastInline = custom
+    local block = CreateFrame("Frame", nil, custom)
+    block:SetAllPoints()
+    block:SetFrameLevel(custom:GetFrameLevel() + 10)
+    block:EnableMouse(true)
+    block:SetScript("OnEnter", function() ShowWidgetTooltip(custom, "Only available with Custom fill color") end)
+    block:SetScript("OnLeave", function() HideWidgetTooltip() end)
+
+    -- Built right to left, so they read 100% | 50% | 0%.
+    local stops, updaters = {}, {}
+    local prev = anchor
+    for i = 3, 1, -1 do
+        local stop, key = FILL_STOPS[i], opts.keys[i]
+        local sw, update = BuildColorSwatch(region, level, function()
+            local c = opts.getStop(key) or stop.def
+            return c.r, c.g, c.b, 1
+        end, function(r, g, b) opts.setStop(key, r, g, b) end, false, 18)
+        PP.Point(sw, "RIGHT", prev, "LEFT", (prev == anchor) and -8 or -6, 0)
+        sw:HookScript("OnEnter", function() ShowWidgetTooltip(sw, stop.tip) end)
+        sw:HookScript("OnLeave", function() HideWidgetTooltip() end)
+        stops[i], updaters[i], prev = sw, update, sw
+    end
+
+    local function Update()
+        local mode = opts.mode()
+        local dynamic = mode == "customDynamic"
+        custom:SetShown(not dynamic)
+        if not dynamic then
+            local live = mode == "custom"
+            custom:SetAlpha(live and 1 or 0.3)
+            block:SetShown(not live)
+            updateCustom()
+        end
+        for i = 1, 3 do
+            stops[i]:SetShown(dynamic)
+            if dynamic then updaters[i]() end
+        end
+    end
+    RegisterWidgetRefresh(Update)
+    Update()
+end
+EllesmereUI.BuildFillColorSwatches = BuildFillColorSwatches
 
 -------------------------------------------------------------------------------
 --  Hidden-While-Disabled Section Gate

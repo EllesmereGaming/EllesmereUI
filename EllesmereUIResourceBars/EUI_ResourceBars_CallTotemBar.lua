@@ -378,6 +378,9 @@ end
 
 -- Blizzard opens the flyout above its slot, over the buttons above it in a
 -- column; a vertical bar opens it beside the slot (Flyout Direction) instead.
+-- Like the arrow it is not secure and gets Blizzard's point added on every
+-- open, so each open is cleared and re-set, and put back above the slot once
+-- the bar is no longer a column.
 local FLYOUT = _G.MultiCastFlyoutFrame
 local flyoutMoved = false
 local function OnFlyoutToggle(flyout, _, parent)
@@ -395,6 +398,16 @@ local function OnFlyoutToggle(flyout, _, parent)
         flyout:SetPoint("BOTTOMLEFT", parent, "BOTTOMRIGHT", 2, 0)
     end
 end
+
+-- An open flyout takes its place again at once when what decides it changes:
+-- the bar's orientation, Flyout Direction (its options row calls this) and
+-- the hand-back. A closed one (Blizzard forgets its button as it hides) is
+-- placed by its next open.
+local function PlaceOpenFlyout()
+    local parent = FLYOUT and FLYOUT.parent
+    if parent then OnFlyoutToggle(FLYOUT, nil, parent) end
+end
+ns.CT_PlaceFlyout = PlaceOpenFlyout
 
 local function Hook()
     if hooked then return end
@@ -482,6 +495,7 @@ local function Release()
     else
         EllesmereUI.SetFramePoint(bar, "RIGHT", UIParent, "BOTTOM", -28, 128)
     end
+    PlaceOpenFlyout()
 end
 
 function ns.CT_Apply()
@@ -514,6 +528,7 @@ function ns.CT_Apply()
         SuppressBarMouse()
     end
     Refresh()
+    PlaceOpenFlyout()
 end
 
 -------------------------------------------------------------------------------

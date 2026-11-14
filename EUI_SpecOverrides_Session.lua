@@ -140,8 +140,10 @@ end
 --   1. the entry owning one of `owned` (the same edit's fkeys that store owned
 --      already; the captured paths never are) that the slot reads;
 --   2. else an entry under the slot's own label on the same page (a row moved to
---      another section) whose every key the slot reads (a size key's exact-size
---      partner counts with it), for an edit that writes only keys no entry owns.
+--      another section, or to the page its module's movedSections names for the
+--      entry: EUI_NS.EntryPage) whose every key the slot reads (a size key's
+--      exact-size partner counts with it), for an edit that writes only keys no
+--      entry owns.
 -- Only an entry of the same module and element qualifies, and on the spec side never
 -- one a conflicting group owns (its values never bank in this session). nil = none.
 local function SlotOwnerEntry(cfg, owned, condSession, module, element, page, slotLabel, sStore)
@@ -161,7 +163,7 @@ local function SlotOwnerEntry(cfg, owned, condSession, module, element, page, sl
     for _, e in ipairs(sStore or {}) do
         local def = e.values and e.values.default
         if type(def) == "table" and e.slotLabel == slotLabel
-           and (e.page or "") == (page or "") and Qualifies(e) then
+           and (EUI_NS.EntryPage(e.module, e.page, e.section, slotLabel) or "") == (page or "") and Qualifies(e) then
             local any, all = false, true
             for fkey in pairs(def) do
                 local base = type(fkey) == "string" and fkey:match("^(.*)Px$")

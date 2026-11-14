@@ -29,7 +29,8 @@ local function Merge(acc, m)
     return "mixed"
 end
 
--- The rows in page order: { text, tooltip, get, set [, disabled, disabledTooltip] }.
+-- The rows in page order: { text, tooltip, get, set [, disabled, disabledTooltip
+-- (the name of the setting it needs, or the whole sentence with rawTooltip)] }.
 local function NameFormatSources()
     local list, MNS = {}, EllesmereUI.ModuleNS
 
@@ -131,7 +132,7 @@ local function NameFormatSources()
         list[#list + 1] = { text = "Friendly Player Nameplates",
             tooltip = "Friendly player names on nameplates, in both modes.",
             disabled = function() return np.db.profile.showFriendlyPlayers == false end,
-            disabledTooltip = "Show EUI Friendly Player Nameplates",
+            disabledTooltip = "Requires Friendly Nameplate Style set to Name Only or Nameplate", rawTooltip = true,
             get = function() return ModeOf(np.db.profile.friendlyNameFormat) end,
             set = function(v)
                 np.db.profile.friendlyNameFormat = Stored(v)
@@ -280,18 +281,16 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               tooltip = "Pick this character's favorites from a pet's right-click menu in the Pet Journal.",
               disabled = function() return not PS.Get("enabled") end,
               disabledTooltip = "Auto Summon Pet",
-              -- This character's own setting, read without creating its table.
+              -- This character's own setting, in the roster where the runtime reads
+              -- it (EllesmereUI.CharData "petSummon"); a read makes no table.
               getValue = function()
-                  local chars, guid = PS.Get("chars"), UnitGUID("player")
-                  return chars ~= nil and guid ~= nil and chars[guid] ~= nil and chars[guid].own == true
+                  local c = EllesmereUI.CharData("petSummon")
+                  return c ~= nil and c.own == true
               end,
               setValue = function(v)
-                  local guid = UnitGUID("player")
-                  if not guid then return end
-                  local cfg = PS.Cfg()
-                  cfg.chars = cfg.chars or {}
-                  cfg.chars[guid] = cfg.chars[guid] or {}
-                  cfg.chars[guid].own = v or nil
+                  local c = EllesmereUI.CharData("petSummon", true)
+                  if not c then return end
+                  c.own = v or nil
                   PS.RefreshJournal()
               end }
         );  y = y - h
@@ -325,6 +324,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
                 items[i] = { key = i, label = src.text, tooltip = src.tooltip,
                     lockedFn = src.disabled, excludeFromSummaryFn = src.disabled,
                     lockedTooltip = src.disabled and function()
+                        if src.rawTooltip then return EllesmereUI.L(src.disabledTooltip) end
                         return EllesmereUI.DisabledTooltip(src.disabledTooltip)
                     end or nil }
             end

@@ -1230,7 +1230,8 @@ _G._ECL_ApplyCastPosition = function()
     local anchored = EllesmereUI and EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored("ECL_Cast")
     if anchored and castRoot:GetLeft() then return end
     local c = Cast_DB()
-    -- Attached: the cursor owns it; unlock mode's login pass calls this too.
+    -- Attached: the cursor owns it. Unlock Mode's saved-positions pass calls this
+    -- for every registered element, mover or not.
     if c.attached ~= false then return end
     local pos = c.pos
     if pos and pos.point then
