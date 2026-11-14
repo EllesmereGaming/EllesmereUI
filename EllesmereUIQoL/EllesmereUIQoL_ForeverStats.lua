@@ -14,7 +14,7 @@ local floor = math.floor
 local HUE = EllesmereUI.FOREVER_STAT_HUES
 
 -- A sum or a scale is arithmetic, which a secret refuses: those getters
--- hand back nil (drawn as "?") rather than error.
+-- hand back nil, and the catalog loop below falls back to the last clean read.
 local function Sum(...)
     local total = 0
     for i = 1, select("#", ...) do
@@ -43,11 +43,15 @@ local GROUPS = {
         S("mhaste", "Melee Haste",  "M.Haste", HUE.haste, PCT, GetMeleeHaste),
         -- Base and ammo haste, as the character pane adds them.
         S("rhaste", "Ranged Haste", "R.Haste", HUE.haste, PCT, function() return Sum(GetRangedHaste()) end),
-        S("mhit",   "Melee Hit",    "Hit",     HUE.hit, PCT, GetHitModifier),
-        -- Off-hand hit, as the character pane shows it ("?" on a client
-        -- without the getter).
+        -- Hit = gear rating + talent modifier, as the character pane adds them.
+        S("mhit",   "Melee Hit",    "Hit",     HUE.hit, PCT, function()
+            return Sum(GetCombatRatingBonus(CR_HIT_MELEE), GetHitModifier())
+        end),
+        -- "?" on a client without the off-hand getter.
         S("ohit",   "Off-hand Hit", "OH Hit",  HUE.hit, PCT, function()
-            if GetOffhandHitModifier then return GetOffhandHitModifier() end
+            if GetOffhandHitModifier then
+                return Sum(GetCombatRatingBonus(CR_HIT_MELEE), GetOffhandHitModifier())
+            end
         end),
     } },
     { title = "Spell", stats = {
@@ -64,7 +68,9 @@ local GROUPS = {
         S("healing", "Healing Power", "Heal",    HUE.healing, NUM, GetSpellBonusHealing),
         S("scrit",   "Spell Crit",    "S.Crit",  HUE.crit, PCT, GetSpellCritChance),
         S("shaste",  "Spell Haste",   "S.Haste", HUE.haste, PCT, function() return UnitSpellHaste("player") end),
-        S("shit",    "Spell Hit",     "S.Hit",   HUE.hit, PCT, GetSpellHitModifier),
+        S("shit",    "Spell Hit",     "S.Hit",   HUE.hit, PCT, function()
+            return Sum(GetCombatRatingBonus(CR_HIT_SPELL), GetSpellHitModifier())
+        end),
         S("spen",    "Spell Pen",     "S.Pen",   HUE.spen, NUM, GetSpellPenetration),
     } },
     { title = "Spell Power / School", stats = {
@@ -114,8 +120,20 @@ local GROUPS = {
 -- order: every key, group by group (the block's default order). hidden: the
 -- profile default for secondaryStatsHidden, every stat not shown by default.
 local byKey, order, hidden = {}, {}, {}
+-- In combat a computed stat reads nil: show its last clean value until the
+-- PLAYER_REGEN_ENABLED repaint. A secret passes through (it renders live).
+local lastClean = {}
+local function KeepLastClean(key, get)
+    return function()
+        local v = get()
+        if v == nil then return lastClean[key] end
+        if not issecretvalue(v) then lastClean[key] = v end
+        return v
+    end
+end
 for _, g in ipairs(GROUPS) do
     for _, s in ipairs(g.stats) do
+        s.get = KeepLastClean(s.key, s.get)
         byKey[s.key] = s
         order[#order + 1] = s.key
         if not s.on then hidden[s.key] = true end
