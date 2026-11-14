@@ -502,10 +502,12 @@ do
 
     -- Effective threshold config for a frame's spell: per-spell family store (tier-chained) first,
     -- then the preset/custom customActiveStates entry -- the same two homes Reverse Swipe reads. Returns the arming block, or nil.
-    function ns.ResolveThresholdTextSettings(frame, sid, sd, barKey)
+    function ns.ResolveThresholdTextSettings(frame, sid, sd, barKey, asBuff)
         if not sid then return nil end
         local ss
-        if ns.ResolveSpellSettings then
+        if asBuff and ns.ResolveBuffSettings then
+            ss = ns.ResolveBuffSettings(frame, sid, sd, barKey)
+        elseif ns.ResolveSpellSettings then
             ss = ns.ResolveSpellSettings(frame, sid, sd, barKey)
         end
         if ss and (tonumber(ss.thresholdSeconds) or 0) > 0 then return ss end
@@ -639,7 +641,7 @@ local function RefreshCDMIconAppearance(barKey)
             if sidb then
                 local sdb = ns.GetBarSpellData(barKey)
                 -- Shared resolver: matches the key against the frame's full identity set (canon first, then resolvedSid/baseSpellID).
-                ssb = ns.ResolveSpellSettings and ns.ResolveSpellSettings(icon, sidb, sdb, barKey)
+                ssb = ns.ResolveBuffSettings and ns.ResolveBuffSettings(icon, sidb, sdb, barKey)
             end
             -- Stash the effective Buff Glow on fd so the BuffTicker hot path reads it without a
             -- per-tick lookup. Only restart the live glow when the effective value actually changed (no flicker on no-op rebuilds).
@@ -809,7 +811,7 @@ local function RefreshCDMIconAppearance(barKey)
                     or (ttFc and ttFc.spellID)
                 local tt
                 if ttSid and ns.ResolveThresholdTextSettings then
-                    tt = ns.ResolveThresholdTextSettings(icon, ttSid, ns.GetBarSpellData(barKey), barKey)
+                    tt = ns.ResolveThresholdTextSettings(icon, ttSid, ns.GetBarSpellData(barKey), barKey, true)
                 end
                 ns.ApplyThresholdFormatter(cd, tt)
             end
@@ -1201,6 +1203,17 @@ local function RefreshCDMIconAppearance(barKey)
     end
 end
 ns.RefreshCDMIconAppearance = RefreshCDMIconAppearance
+
+-- Per-icon menu setters: a buff's settings also style its "Replace with Buff" icons on cd/util bars.
+function ns.RefreshCDMIconSettings(barKey)
+    RefreshCDMIconAppearance(barKey)
+    if not ns._cdmAnyBuffReplace then return end
+    local bd = barDataByKey[barKey]
+    if not (bd and (bd.barType == "buffs" or bd.barType == "custom_buff")) then return end
+    for bk in pairs(ns._buffReplaceBars) do
+        if bk ~= barKey then RefreshCDMIconAppearance(bk) end
+    end
+end
 
 I.RefreshCDMIconAppearance = RefreshCDMIconAppearance
 I.broken = false
