@@ -146,10 +146,11 @@ state.bodies = {}
 up.OnEvent(up, "BAG_UPDATE_DELAYED")
 Eq(state.bodies.EUI_Firestone, nil, "firestone created: the macro already uses it")
 
-state = { level = 60, class = "MAGE", bodies = {}, macros = { EUI_Soulstone = 1, EUI_Firestone = 2 },
-    bags = { [16896] = 1 }, minLevel = {} }
+state = { level = 40, class = "MAGE", bodies = {}, macros = { EUI_Soulstone = 1, EUI_Firestone = 2, EUI_ManaGem = 3 },
+    bags = { [16896] = 1, [8008] = 1, [5513] = 1, [5514] = 1 }, minLevel = { [8008] = 58, [5513] = 38, [5514] = 23 } }
 up = Load(true, state)
 up.OnEvent(up, "PLAYER_ENTERING_WORLD")
+Eq(state.bodies.EUI_ManaGem, "#showtooltip item:5513\n/use item:5513", "mana gem: best usable gem, one line")
 Eq(state.bodies.EUI_Soulstone, nil, "no Warlock macros on a Mage")
 Eq(state.bodies.EUI_Firestone, nil, "no Warlock macros on a Mage")
 
