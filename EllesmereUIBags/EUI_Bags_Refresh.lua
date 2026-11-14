@@ -602,7 +602,12 @@ function EUI_Bags:RefreshInventory()
     for bag = 0, 5 do
         local numSlots = C_Container.GetContainerNumSlots(bag)
         local restricted = special and special[bag]
-        if bag == 5 then
+        if bag == 5 and EllesmereUI.IS_FOREVER then
+            -- A special bag in the fifth slot stays out of the header count too.
+            local _, family = C_Container.GetContainerNumFreeSlots(bag)
+            restricted = family and family ~= 0
+        end
+        if bag == 5 and not restricted then
             reagentTotal = numSlots
         elseif not restricted then
             regularTotal = regularTotal + numSlots
@@ -610,7 +615,7 @@ function EUI_Bags:RefreshInventory()
         for slot = 1, numSlots do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             if info then
-                if bag == 5 then
+                if bag == 5 and not restricted then
                     reagentUsed = reagentUsed + 1
                 elseif not restricted then
                     regularUsed = regularUsed + 1
