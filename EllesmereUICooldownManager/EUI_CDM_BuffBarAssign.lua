@@ -406,6 +406,9 @@ end
 -- that is family-incompatible with the config rejects the candidate;
 -- secret/unreadable fails open so variant slots stay bindable in combat.
 local function TbbFuzzyNameOK(cfg, frame)
+    -- The config's own entry showing a linked aura (Forever Seals) is no neighbor.
+    local info = frame.cooldownInfo
+    if info and CfgWantsSID(cfg, info.spellID) then return true end
     local fam = TbbFrameNameFamily(frame)
     if not fam then return true end
     return TbbCfgFamilyMatch(cfg, fam, true)
