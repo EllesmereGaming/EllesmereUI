@@ -2164,7 +2164,7 @@ do
         "reskinMicroMenu", "reskinBagBar", "reskinLegacySystem", "reskinHousing", "reskinDressUp", "reskinTransmog",
         "reskinMerchant", "reskinAuctionHouse", "reskinMacros",
         "reskinSettings", "reskinAddonList", "reskinCraftOrders",
-        "reskinTrainer", "reskinGossip", "reskinQuest", "reskinInspectRecipe",
+        "reskinTrainer", "reskinStable", "reskinGossip", "reskinQuest", "reskinInspectRecipe",
         "reskinDelves", "reskinSocialUI",
         "reskinQueueStatus", "reskinDelvePicker", "reskinPlayerChoice",
         "reskinTrade", "reskinFlagCarriers",
