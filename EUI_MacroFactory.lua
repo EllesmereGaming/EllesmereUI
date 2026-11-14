@@ -175,6 +175,8 @@ local GENERAL_DEFS = {
 }
 
 -- WoW Forever, best first. maxLines = 1 where items share no cooldown (one press, one item).
+-- createRanks: { create spell, stone it makes }, lowest rank first.
+-- createFixed: the stone's use is a cast, so the macro can keep both /use and /cast.
 if EllesmereUI.IS_FOREVER == true then
     local healthstones = {}
     for i, id in ipairs(EllesmereUI.FOREVER_HEALTHSTONES or {}) do healthstones[i] = id end
@@ -215,14 +217,16 @@ if EllesmereUI.IS_FOREVER == true then
         },
         {
             name = "EUI_Healthstone", icon = "Interface\\Icons\\inv_stone_04", label = "Healthstone",
-            ownedOnly = true, createSpells = { 6201, 6202, 5699, 11729, 11730 },
+            ownedOnly = true,
+            createRanks = { {6201, 5512}, {6202, 5511}, {5699, 5509}, {11729, 5510}, {11730, 9421} },
             extraToggles = { { key = "createWhenOut", label = "Create When Out" } },
             checkboxes = { { key = "opt1", label = "Healthstone", items = healthstones } },
         },
         {
             name = "EUI_Soulstone", icon = "Interface\\Icons\\inv_misc_orb_04", label = "Soulstone",
-            ownedOnly = true, maxLines = 1, friendlyTargetKey = "friendlyTarget",
-            createSpells = { 693, 20752, 20755, 20756, 20757 },
+            class = "WARLOCK", ownedOnly = true, maxLines = 1, friendlyTargetKey = "friendlyTarget",
+            createFixed = true,
+            createRanks = { {693, 5232}, {20752, 16892}, {20755, 16893}, {20756, 16895}, {20757, 16896} },
             extraToggles = {
                 { key = "friendlyTarget", label = "Friendly Target, Else Self" },
                 { key = "createWhenOut", label = "Create When Out" },
@@ -230,6 +234,25 @@ if EllesmereUI.IS_FOREVER == true then
             checkboxes = each({
                 {16896, "Major Soulstone"}, {16895, "Greater Soulstone"}, {16893, "Soulstone"},
                 {16892, "Lesser Soulstone"}, {5232, "Minor Soulstone"},
+            }),
+        },
+        {
+            name = "EUI_Firestone", icon = "Interface\\Icons\\inv_misc_gem_bloodstone_02", label = "Firestone",
+            class = "WARLOCK", ownedOnly = true, maxLines = 1, imbue = true, createFixed = true,
+            createRanks = { {6366, 1254}, {17951, 13699}, {17952, 13700}, {17953, 13701} },
+            extraToggles = { { key = "createWhenOut", label = "Create When Out" } },
+            checkboxes = each({
+                {13701, "Major Firestone"}, {13700, "Greater Firestone"}, {13699, "Firestone"},
+                {1254, "Lesser Firestone"},
+            }),
+        },
+        {
+            name = "EUI_Spellstone", icon = "Interface\\Icons\\inv_misc_gem_sapphire_01", label = "Spellstone",
+            class = "WARLOCK", ownedOnly = true, maxLines = 1, imbue = true, createFixed = true,
+            createRanks = { {2362, 5522}, {17727, 13602}, {17728, 13603} },
+            extraToggles = { { key = "createWhenOut", label = "Create When Out" } },
+            checkboxes = each({
+                {13603, "Major Spellstone"}, {13602, "Greater Spellstone"}, {5522, "Spellstone"},
             }),
         },
         {
@@ -251,6 +274,11 @@ if EllesmereUI.IS_FOREVER == true then
         trinket1,
         trinket2,
     }
+    local _, playerClass = UnitClass("player")
+    for i = #GENERAL_DEFS, 1, -1 do
+        local cls = GENERAL_DEFS[i].class
+        if cls and cls ~= playerClass then table.remove(GENERAL_DEFS, i) end
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -330,25 +358,14 @@ local function GetUsableItemIDs(def, db)
     return out
 end
 
--- Any known rank: /cast by name picks the highest one.
+-- The highest known rank and the stone it makes; /cast by name casts that rank.
 local function GetKnownCreateSpell(def, db)
-    if not (def.createSpells and db.createWhenOut) then return nil end
-    for _, spellID in ipairs(def.createSpells) do
-        if C_SpellBook.IsSpellKnown(spellID) then return spellID end
+    if not (def.createRanks and db.createWhenOut) then return nil end
+    for i = #def.createRanks, 1, -1 do
+        local rank = def.createRanks[i]
+        if C_SpellBook.IsSpellKnown(rank[1]) then return rank[1], rank[2] end
     end
     return nil
-end
-
-local function GetMacroInventoryKey(def, db)
-    if def.ownedOnly then
-        local ids = GetUsableItemIDs(def, db)
-        if #ids == 0 then
-            local spellID = GetKnownCreateSpell(def, db)
-            return spellID and ("create:" .. spellID) or nil
-        end
-        return table.concat(ids, ",")
-    end
-    return GetFirstAvailableItemID(def, db)
 end
 
 -- Replace {n} placeholders in a macro string with the client-localized name of
@@ -383,15 +400,20 @@ local function BuildOwnedOnlyBody(def, db)
         if cb and db[cb.key] ~= false and cb.items[1] then firstEnabled = cb.items[1]; break end
     end
     if not firstEnabled then return "" end
-    if #ids == 0 then
-        local spellID = GetKnownCreateSpell(def, db)
-        if spellID then
-            local name = ResolveSpellTokens("{1}", { spellID })
-            if not name then return nil end
-            return (db.showTooltip ~= false and "#showtooltip\n" or "") .. "/cast " .. name
-        end
-        ids = { firstEnabled }
+    local spellID, createdItem = GetKnownCreateSpell(def, db)
+    local castLine
+    if spellID and (def.createFixed or #ids == 0) then
+        local name = ResolveSpellTokens("{1}", { spellID })
+        if not name then return nil end
+        castLine = "/cast " .. name
     end
+    if #ids == 0 then
+        if castLine and not def.createFixed then
+            return (db.showTooltip ~= false and "#showtooltip\n" or "") .. castLine
+        end
+        ids = { createdItem or firstEnabled }
+    end
+    local tail = (def.imbue and "\n/use 16" or "") .. (castLine and ("\n" .. castLine) or "")
     local body = ""
     if db.showTooltip ~= false then body = "#showtooltip item:" .. ids[1] .. "\n" end
     local cond = def.friendlyTargetKey and db[def.friendlyTargetKey] and "[@target,help,nodead][@player] " or ""
@@ -399,12 +421,17 @@ local function BuildOwnedOnlyBody(def, db)
     local lines = 0
     for _, itemID in ipairs(ids) do
         local line = (lines > 0 and "\n" or "") .. prefix .. itemID
-        if #body + #line > 255 then break end
+        if #body + #line + #tail > 255 then break end
         body = body .. line
         lines = lines + 1
         if def.maxLines and lines >= def.maxLines then break end
     end
-    return body
+    return body .. tail
+end
+
+local function GetMacroInventoryKey(def, db)
+    if def.ownedOnly then return BuildOwnedOnlyBody(def, db) end
+    return GetFirstAvailableItemID(def, db)
 end
 
 local function BuildMacroBody(def, db)
