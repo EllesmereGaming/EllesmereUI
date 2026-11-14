@@ -573,6 +573,9 @@ local SNIPPET_PRE = [==[
     -- eqdArmed's business -- see the ANGULAR and POINTER branches -- rather
     -- than something decided here.
     local total = tonumber(self:GetAttribute("eqdTotal")) or n
+    -- When the menu has a default, the cancels below use it instead of
+    -- firing nothing. Without one they behave exactly as they always have.
+    local def = tonumber(self:GetAttribute("eqdDefault"))
 
     local idx
     if mode == "SCROLL" then
@@ -715,6 +718,7 @@ local SNIPPET_PRE = [==[
                     hovered = ((ft - 1 + d) % n) + 1
                 end
             end
+            hovered = hovered or def
             if not hovered then
                 self:SetAttribute("eqdWhy", "nothover") return nil, 1
             end
@@ -745,7 +749,8 @@ local SNIPPET_PRE = [==[
             local ns = tonumber(self:GetAttribute("eqdNSide" .. idx))
             if na and ns and (across > 0) == (ns > 0) and na > am then am = na end
             if abs(across) > am or abs(along) > half + margin then
-                self:SetAttribute("eqdWhy", "thrownclear") return nil, 1
+                if not def then self:SetAttribute("eqdWhy", "thrownclear") return nil, 1 end
+                idx = def
             end
         end
     else
@@ -779,7 +784,8 @@ local SNIPPET_PRE = [==[
         -- started cancels here while the palette still shows an entry selected.
         -- It errs toward cancelling rather than firing something unintended.
         if gx and abs(cx - gx) / s < 1 and abs(cy - gy) / s < 1 then
-            self:SetAttribute("eqdWhy", "unmoved") return nil, 1
+            if not def then self:SetAttribute("eqdWhy", "unmoved") return nil, 1 end
+            idx = def -- the steps below leave a picked entry alone, so this sticks
         end
 
         local ox, oy
@@ -807,7 +813,7 @@ local SNIPPET_PRE = [==[
             -- has no cells tested here at all, however close the pointer now
             -- sits to where they are drawn.
             local armed = tonumber(self:GetAttribute("eqdArmed"))
-            if armed then
+            if armed and not idx then
                 local base = tonumber(self:GetAttribute("eqdGBase" .. armed)) or 0
                 local num = tonumber(self:GetAttribute("eqdGNum" .. armed)) or 0
                 for j = 1, num do
@@ -846,6 +852,7 @@ local SNIPPET_PRE = [==[
                     idx = nil
                 end
             end
+            idx = idx or def
             if not idx then
                 self:SetAttribute("eqdIdx", nil)
                 self:SetAttribute("eqdWhy", "outofreach") return nil, 1
@@ -861,7 +868,7 @@ local SNIPPET_PRE = [==[
             -- exactly the ground a neighbouring claim could otherwise steal
             -- before the cursor had ever gone through its own parent to earn it.
             local armed = tonumber(self:GetAttribute("eqdArmed"))
-            if armed then
+            if armed and not idx then
                 local band = tonumber(self:GetAttribute("eqdCBand" .. armed))
                 if band and dist >= band then
                     -- Which ring dist falls in -- Lo/Hi partition the RADIUS,
@@ -893,13 +900,14 @@ local SNIPPET_PRE = [==[
             if not idx then
                 local dz = tonumber(self:GetAttribute("eqdDeadZone")) or 24
                 if dist < dz then
-                    self:SetAttribute("eqdWhy", "deadzone") return nil, 1
+                    if not def then self:SetAttribute("eqdWhy", "deadzone") return nil, 1 end
+                    idx = def
                 end
 
                 local step = tonumber(self:GetAttribute("eqdStepDeg")) or 0
-                if step == 0 then
+                if not idx and step == 0 then
                     idx = 1
-                else
+                elseif not idx then
                     local rel = theta - (tonumber(self:GetAttribute("eqdStartDeg")) or 0)
                     if self:GetAttribute("eqdFull") then
                         idx = (floor(rel / step + 0.5) % n) + 1
@@ -922,6 +930,7 @@ local SNIPPET_PRE = [==[
         end
     end
 
+    idx = idx or def -- the gap of a partial arc gets here with nothing picked
     self:SetAttribute("eqdIdx", idx)
     if not idx or idx < 1 or idx > total then
         self:SetAttribute("eqdWhy", "noidx") return nil, 1
