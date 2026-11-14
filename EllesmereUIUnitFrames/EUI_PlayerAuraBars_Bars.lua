@@ -112,14 +112,39 @@ end
 -- drops the player's combat, so the ride's hide replayed for real at that regen
 -- and the exit's show was blocked -- the bars stayed gone for the whole boss
 -- pulled afterwards.
+-- Visibility dimming (default bars): the resting alpha a parent takes while its
+-- Visibility verdict is "not shown", set by EUI_PlayerAuraBars_Visibility.lua.
+-- A suppressed or hidden parent stays at 0.
+-- Visibility gate (same file): "hide" forces the parent hidden, "driver" leaves
+-- Show/Hide to a secure state driver registered on it; nil is no gate.
+local parentDim, parentBaseAlpha, parentGate = {}, {}, {}
+function I.SetParentDim(parent, a)
+    if parentDim[parent] == a then return end
+    parentDim[parent] = a
+    if parentBaseAlpha[parent] == 1 and parent:GetAlpha() ~= (a or 1) then
+        parent:SetAlpha(a or 1)
+    end
+end
+
+-- Returns true when the gate changed.
+function I.SetParentGate(parent, g)
+    if parentGate[parent] == g then return false end
+    parentGate[parent] = g
+    return true
+end
+
 local function SetParentShownSafe(key, parent, want, recompute)
     want = want and true or false
+    local gate = parentGate[parent]
+    if gate == "hide" then want = false end
     local locked = InCombatLockdown()
     local shown = parent:IsShown()
     if issecretvalue and issecretvalue(shown) then shown = nil end
     local alpha = (pabSuppressed or (locked and not want)) and 0 or 1
+    parentBaseAlpha[parent] = alpha
+    if alpha == 1 then alpha = parentDim[parent] or 1 end
     if parent:GetAlpha() ~= alpha then parent:SetAlpha(alpha) end
-    if shown == want then return end
+    if gate == "driver" or shown == want then return end
     if locked then
         QueuePABRegenApply("shown:" .. key, recompute)
         return
@@ -144,6 +169,7 @@ local function ApplyDefaultBarShown(isBuff)
     SetParentShownSafe(isBuff and "default-buffs" or "default-debuffs", parent,
         s.enabled == true and cfg.enabled ~= false and s.useBlizzardBuffs ~= true,
         function() ApplyDefaultBarShown(isBuff) end)
+    if I.SyncVisibility then I.SyncVisibility() end
 end
 
 -- Grow direction. AK.ApplyContainerLayout only applies growth when BOTH growthH and
