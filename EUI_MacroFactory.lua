@@ -202,9 +202,14 @@ if EllesmereUI.IS_FOREVER == true then
             checkboxes = each({
                 {22895, "Conjured Cinnamon Roll"}, {8076, "Conjured Sweet Roll"}, {8075, "Conjured Sourdough"},
                 {1487, "Conjured Pumpernickel"}, {1114, "Conjured Rye"}, {1113, "Conjured Bread"},
-                {5349, "Conjured Muffin"}, {8950, "Homemade Cherry Pie"}, {4601, "Soft Banana Bread"},
-                {4544, "Mulgore Spice Bread"}, {4542, "Moist Cornbread"}, {4541, "Freshly Baked Bread"},
-                {4540, "Tough Hunk of Bread"},
+                {5349, "Conjured Muffin"},
+                -- Vendor food by required level, most healing first (Forever's vendor fish heal more).
+                {{8950, 8952, 8932, 8953, 8948, 8957}, "Vendor Food (Level 45)"},
+                {{21552, 4601, 4599, 3927, 4602, 4608}, "Vendor Food (Level 35)"},
+                {{4594, 4544, 3771, 1707, 4539, 4607}, "Vendor Food (Level 25)"},
+                {{4593, 4542, 3770, 422, 4538, 4606}, "Vendor Food (Level 15)"},
+                {{4592, 4541, 2287, 414, 4537, 4605}, "Vendor Food (Level 5)"},
+                {{787, 4540, 117, 2070, 4536, 4604}, "Vendor Food (Level 1)"},
             }),
         },
         {

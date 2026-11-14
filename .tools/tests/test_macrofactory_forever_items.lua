@@ -58,14 +58,16 @@ end
 -- Forever
 local state = {
     level = 30, bodies = {},
-    macros = { EUI_Drink = 1, EUI_Healthstone = 2, EUI_Soulstone = 3, EUI_HealingPotion = 4 },
+    macros = { EUI_Drink = 1, EUI_Healthstone = 2, EUI_Soulstone = 3, EUI_HealingPotion = 4, EUI_Food = 5 },
     bags = { [8079] = 5, [1645] = 3, [1205] = 10, [19013] = 1, [5512] = 1, [16896] = 1,
-        [13446] = 2, [1710] = 4, [929] = 1 },
-    minLevel = { [8079] = 55, [1645] = 35, [1205] = 15, [13446] = 45, [1710] = 21, [929] = 12 },
+        [13446] = 2, [1710] = 4, [929] = 1, [8950] = 5, [4542] = 5, [3771] = 2 },
+    minLevel = { [8079] = 55, [1645] = 35, [1205] = 15, [13446] = 45, [1710] = 21, [929] = 12,
+        [8950] = 45, [4542] = 15, [3771] = 25 },
 }
 local up = Load(true, state)
 up.OnEvent(up, "PLAYER_ENTERING_WORLD")
 Eq(state.bodies.EUI_Drink, "#showtooltip item:1205\n/use item:1205", "drink: best usable, one line")
+Eq(state.bodies.EUI_Food, "#showtooltip item:3771\n/use item:3771", "food: best usable vendor tier")
 Eq(state.bodies.EUI_Healthstone, "#showtooltip item:19013\n/use item:19013\n/use item:5512", "healthstones owned")
 Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16896\n/use item:16896", "soulstone")
 Eq(state.bodies.EUI_HealingPotion, "#showtooltip item:1710\n/use item:1710\n/use item:929", "potions above level skipped")
