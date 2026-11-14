@@ -227,7 +227,7 @@ if EllesmereUI.IS_FOREVER == true then
             checkboxes = { { key = "opt1", label = "Healthstone", items = healthstones } },
         },
         {
-            name = "EUI_HealingPotion", icon = "Interface\\Icons\\inv_potion_54", label = "Healing Potion",
+            name = "EUI_HealingPotion", icon = "Interface\\Icons\\inv_potion_54", label = "Heal Potion",
             ownedOnly = true,
             checkboxes = Options({
                 {13446, "Major Healing Potion"}, {3928, "Superior Healing Potion"}, {1710, "Greater Healing Potion"},
