@@ -76,10 +76,7 @@ local function BuildGeneralPage(pageName, parent, yOffset)
             end)
         PP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
         leftRgn._control = cbDD
-        cbDD:HookScript("OnEnter", function()
-            EllesmereUI.ShowWidgetTooltip(cbDD, "Choose which nameplates stack vertically instead of overlapping.")
-        end)
-        cbDD:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        cbDD._ttText = "Choose which nameplates stack vertically instead of overlapping."
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
     end
 

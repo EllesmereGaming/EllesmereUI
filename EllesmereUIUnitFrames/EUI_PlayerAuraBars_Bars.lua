@@ -57,6 +57,8 @@ local ReloadAllCustomBars -- forward-declared; assigned by EUI_PlayerAuraBars_Cu
 I.reloadAllSetters[#I.reloadAllSetters + 1] = function(v) ReloadAllCustomBars = v end
 local PAB_MaybeRefreshPreview -- forward-declared; assigned by EUI_PlayerAuraBars_Preview.lua (SetMaybeRefreshPreview), called from every live-apply function so an open bar-detail preview box tracks slider drags without those functions knowing it exists
 I.previewRefreshSetters[#I.previewRefreshSetters + 1] = function(v) PAB_MaybeRefreshPreview = v end
+local SyncVisibility -- forward-declared; assigned by EUI_PlayerAuraBars_Visibility.lua (SetSyncVisibility), called from ApplyDefaultBarShown
+I.syncVisibilitySetters[#I.syncVisibilitySetters + 1] = function(v) SyncVisibility = v end
 
 -- Last-applied growDirection per live container (weak keys); written by
 -- ApplyContainerAnchorAndGrowth, read by the restricted-apply gate below.
@@ -115,7 +117,8 @@ end
 -- Visibility dimming (default bars): the resting alpha a parent takes while its
 -- Visibility verdict is "not shown", set by EUI_PlayerAuraBars_Visibility.lua.
 -- A suppressed or hidden parent stays at 0.
--- Visibility gate (same file): "hide" forces the parent hidden, "driver" leaves
+-- Visibility gate (same file): "hide" forces the parent hidden (in combat that
+-- is alpha 0 on a parent its escape driver keeps shown), "driver" leaves
 -- Show/Hide to a secure state driver registered on it; nil is no gate.
 local parentDim, parentBaseAlpha, parentGate = {}, {}, {}
 function I.SetParentDim(parent, a)
@@ -169,7 +172,7 @@ local function ApplyDefaultBarShown(isBuff)
     SetParentShownSafe(isBuff and "default-buffs" or "default-debuffs", parent,
         s.enabled == true and cfg.enabled ~= false and s.useBlizzardBuffs ~= true,
         function() ApplyDefaultBarShown(isBuff) end)
-    if I.SyncVisibility then I.SyncVisibility() end
+    if SyncVisibility then SyncVisibility() end
 end
 
 -- Grow direction. AK.ApplyContainerLayout only applies growth when BOTH growthH and

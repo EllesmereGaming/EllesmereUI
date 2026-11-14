@@ -739,7 +739,6 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
         -- reads per element; they differ only in which units the setter fans to.
         local ALL_UNITS  = { "player", "target", "focus", "targettarget", "focustarget", "pet", "boss" }
         local MAIN_UNITS = { "player", "target", "focus", "targettarget", "focustarget", "pet" }
-        local PP = EllesmereUI.PP
         local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
             rgn, 210, rgn:GetFrameLevel() + 2,
             tipItems,

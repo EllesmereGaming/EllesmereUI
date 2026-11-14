@@ -5,9 +5,15 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Visibility for the default Buffs and Debuffs bars, from the shared
 --  Visibility row's verdict. Hidden Opacity above 0 dims the bar by alpha.
 --  At 0 the parent is really hidden, because a transparent bar still takes
---  the mouse (tooltips, right-click cancel): combat-dependent selections use a
---  secure state driver (the Minimap's way, Show/Hide is protected in combat),
---  the rest use a plain hide through SetParentShownSafe's gate.
+--  the mouse (tooltips, right-click cancel). Show/Hide on the parent is
+--  protected in combat, so:
+--    a selection made only of combat conditions (no option row, no
+--    mouseover) is a secure state driver, which shows and hides by itself;
+--    every other selection is decided in Lua: out of combat a hidden bar is
+--    hidden through SetParentShownSafe's gate, and an escape driver shows the
+--    parent whenever combat starts, where alpha carries the verdict, so a
+--    condition that changes mid-fight (a target, a dismount, a hover) shows
+--    the bar at once. The hide is taken again when combat ends.
 --  Costs nothing until an enabled bar has a visibility condition set: no
 --  updater, driver or mouseover target is registered otherwise.
 --  Reads the earlier Player Aura Bars files through ns and ns._pabInternals.
@@ -31,6 +37,9 @@ local BARS = {
     { key = "debuffs", isBuff = false },
 }
 local hovered, hoverArmed, proxies, drivers = {}, {}, {}, {}
+-- Shows the parent in combat and does nothing out of it: the state driver acts
+-- only on "show" and "hide", and this string parses to neither out of combat.
+local COMBAT_ESCAPE = "[combat] show"
 local updaterOn = false
 local SyncVisibility
 
@@ -137,24 +146,34 @@ local function ApplyBar(bar)
 
     local shown = verdict == true or hovered[key]
     local opacity = cfg.hiddenOpacity or 0
-    local vm = EllesmereUI.GetActiveVisibilityModes(cfg, "visibility")
-    local hasHover = (vm and vm.mouseover) or cfg.visibility == "mouseover"
-    local combatDep = EllesmereUI.VisDependsOnCombat(cfg, "visibility")
-
-    if opacity > 0 or (hasHover and combatDep) then
-        -- Dim by alpha. Mouseover plus a combat condition cannot hide for real:
-        -- the hover poll's Show() is blocked in combat, so the bar would stay
-        -- hidden through a fight it should show in.
+    if opacity > 0 then
+        -- Dim by alpha; the parent stays shown.
         SetParentDim(parent, (not shown) and opacity / 100 or nil)
         SetGate(bar, parent, nil, nil)
-    else
+        return true
+    end
+
+    local vm = EllesmereUI.GetActiveVisibilityModes(cfg, "visibility")
+    local hasHover = (vm and vm.mouseover) or cfg.visibility == "mouseover"
+    local str = not hasHover and not EllesmereUI.VisHasAnyOption(cfg)
+        and EllesmereUI.VisDependsOnCombat(cfg, "visibility") and DriverString(cfg, vm) or nil
+    if str then
         SetParentDim(parent, nil)
-        local str = combatDep and not hasHover and DriverString(cfg, vm) or nil
-        if str then
-            SetGate(bar, parent, "driver", str)
-        else
-            SetGate(bar, parent, (not shown) and "hide" or nil, nil)
-        end
+        SetGate(bar, parent, "driver", str)
+        return true
+    end
+
+    -- Decided in Lua. The alpha is 0 while hidden, so the parent the escape
+    -- driver shows at the start of a fight stays invisible until the verdict
+    -- says otherwise.
+    local gate = (not shown) and "hide" or nil
+    SetParentDim(parent, gate and 0 or nil)
+    SetGate(bar, parent, gate, COMBAT_ESCAPE)
+    -- After a fight the parent is still shown by the escape driver: hide it.
+    -- (That pass ends in SyncVisibility, which finds the parent hidden.)
+    if gate and not InCombatLockdown() then
+        local up = parent:IsShown()
+        if not issecretvalue(up) and up then I.ApplyDefaultBarShown(bar.isBuff) end
     end
     return true
 end
@@ -178,5 +197,7 @@ function SyncVisibility()
     end
 end
 
-I.SyncVisibility = SyncVisibility
+I.SetSyncVisibility(SyncVisibility)
+-- The options rows' apply: a Visibility or Hidden Opacity write needs no restyle.
+ns.PAB_SyncVisibility = SyncVisibility
 I.broken = false

@@ -4052,7 +4052,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function BuildChatBubblesPage(pageName, parent, yOffset)
         local W  = EllesmereUI.Widgets
-        local PP = EllesmereUI.PP
+        local PP = EllesmereUI.PanelPP
         local y  = yOffset
         local _, h
 

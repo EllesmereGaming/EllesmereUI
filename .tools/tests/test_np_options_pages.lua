@@ -1429,6 +1429,8 @@ do
     GATE.guild = Guild
     function GATE.guildCustom(s) return Guild(s) or (s.friendlyBelowNameClassColor == true and "dim0.3" or nil) end
     function GATE.guildClass(s) return Guild(s) or (s.friendlyBelowNameClassColor ~= true and "dim0.3" or nil) end
+    -- Guild Text Size: the guild line is a text of its own only on the health bar plate
+    function GATE.guildSize(s) return (plateOff(s) and PLATE) or Guild(s) end
     function GATE.npcColor(s) return (s.showFriendlyNPCs ~= true or plateOff(s)) and "off0.3" or nil end
     GATE.npc = NPC
     function GATE.npcMarker(s) return NPC(s) or (s.raidMarkerPos == "none" and "req:Raid Marker" or nil) end
@@ -2085,7 +2087,14 @@ EXPECT[FRIENDLY] = {
         "S1: false > friendlyBelowName=\"none\" ! RefreshFriendlyBelowName # RF",
         "S2: false > friendlyBelowName=\"title\" ! RefreshFriendlyBelowName # RF",
         "S3: false > friendlyBelowName=\"title\" ! RefreshFriendlyBelowName # RF"),
-    -- the guild line's colour: the Custom | Class pair, inline left of the checklist
+    -- Subtitle Text's cog: the guild line's size, nearest the checklist
+    C("FRIENDLY PLAYERS|Subtitle Text|cog:Subtitle Text Settings", "guildSize",
+        "cog of 1 row"),
+    C("FRIENDLY PLAYERS|Subtitle Text|cog:Subtitle Text Settings|Guild Text Size", "guildSize",
+        "slider 6..30/1",
+        "*: get 12 <friendlyBelowNameSize>",
+        "*: 15 > friendlyBelowNameSize=15 ! RefreshFriendlyBelowName # F"),
+    -- the guild line's colour: the Custom | Class pair, inline left of the cog
     C("FRIENDLY PLAYERS|Subtitle Text|inline:Custom Guild Color", "guildCustom",
         "color",
         "*: get 0.8,0.8,0.8 <friendlyBelowNameColor>",
@@ -2256,6 +2265,7 @@ local DRIVER = {
     friendlyBelowNameClassColor = { "F|FRIENDLY PLAYERS|Subtitle Text|inline:Custom Guild Color|click",
         "F|FRIENDLY PLAYERS|Subtitle Text|inline:Class Guild Color|click" },
     friendlyBelowNameColor = "F|FRIENDLY PLAYERS|Subtitle Text|inline:Custom Guild Color",
+    friendlyBelowNameSize = "F|FRIENDLY PLAYERS|Subtitle Text|cog:Subtitle Text Settings|Guild Text Size",
     friendlyBelowNameGuildBrackets = { "F|FRIENDLY PLAYERS|Subtitle Text|check:guild", "F|FRIENDLY PLAYERS|Subtitle Text|check:guildB" },
     friendlyClickThrough = "F|FRIENDLY PLAYERS|Friendly Names Not Clickable",
     friendlyGroupBrackets = "F|FRIENDLY PLAYERS|Friendly Nameplate Style|cog:Friendly Nameplate Settings|Show [] Around Group/Raid",
@@ -2376,7 +2386,7 @@ local TIPS = {
         ["HOVER|Hover Texture"] = "Uses the Hover Effect color and opacity. Set to None for the flat hover highlight.",
     },
     [FRIENDLY] = {
-        ["FRIENDLY PLAYERS|Friendly Nameplate Style"] = "Blizzard Default leaves friendly player nameplates to Blizzard's own Nameplate settings (Esc > Options > Nameplates). Name Only shows their names without health bars and requires 'Simplified Friendly Nameplates' to be disabled there.",
+        ["FRIENDLY PLAYERS|Subtitle Text|cog:Subtitle Text Settings|Guild Text Size"] = "Size of the guild line under friendly player names.",
         ["FRIENDLY PLAYERS|Friendly Nameplate Style|cog:Friendly Nameplate Settings|Blizzard Nameplate Size"] = "Size of Blizzard's own nameplates, which still show for friendly players inside instances. Default is 3.",
         ["FRIENDLY PLAYERS|Target Border Effects"] = "Also applies the target Border Color and Border Size effects to friendly nameplates.",
         ["FRIENDLY PLAYERS|Subtitle Text"] = "Show the player's title inline with their name, and/or their guild on a line below it, on friendly nameplates.",
@@ -2536,6 +2546,11 @@ local function CheckControls(Wd, tag, page, name, forever)
         local c = list[id]
         check(c and c.cfg and c.cfg.tooltip == tip, tag .. ": " .. name .. " | " .. id .. " does not carry its tooltip: " .. tostring(c and c.cfg and c.cfg.tooltip))
     end
+    -- the style dropdown explains itself through its entries: it carries no tooltip
+    if name == FRIENDLY or name == FRIENDLY_NO then
+        local c = list["FRIENDLY PLAYERS|Friendly Nameplate Style"]
+        check(c and c.cfg and c.cfg.tooltip == nil, tag .. ": " .. name .. ", Friendly Nameplate Style carries a tooltip")
+    end
     -- the Extras tab's pets row and two enemy scale rows are never greyed
     if name == GENERAL then
         for _, r in ipairs(rows) do
@@ -2600,7 +2615,7 @@ local function CheckKeys(Wd, tag, pages, lists)
         local w = type(want) == "table" and want or { want }
         Compare(tag .. ": the controls that write " .. key, drivers[key] or {}, w)
     end
-    eq(n, 97, "the saved keys DRIVER names")
+    eq(n, 98, "the saved keys DRIVER names")
     -- the two new pages write nothing else
     local extra = {}
     for key, d in pairs(drivers) do
@@ -3422,19 +3437,45 @@ local function CheckStyleAndNameColor(Wd, tag, page, list)
             check(ck.rgn._control == ck.frame and pt and pt[1] == "RIGHT" and pt[2] == ck.rgn and pt[3] == "RIGHT" and pt[4] == -20,
                 msg .. ": the checklist is not in its half's control place")
             check(ck.rgn._stockControl ~= ck.frame and ck.rgn._stockControl._shown == false, msg .. ": the stand-in dropdown still shows under the checklist")
-            -- no cog on Subtitle Text or Level Text any more
+            -- Level Text has no cog; Subtitle Text has one, nearest the checklist, with the guild
+            -- line's size as its one row, greyed with a sentence of its own
+            local sc, nsc = nil, 0
             for _, c in ipairs(page.cogs) do
-                check(not (c.host and (c.host.text == "Subtitle Text" or c.host.text == "Level Text")), msg .. ": " .. tostring(c.host and c.host.text) .. " has a cog")
+                check(not (c.host and c.host.text == "Level Text"), msg .. ": Level Text has a cog")
+                if c.host and c.host.text == "Subtitle Text" then sc, nsc = c, nsc + 1 end
             end
-            -- the guild colour pair: two inline swatches left of the checklist, the leftmost last
+            if check(nsc == 1, msg .. ": Subtitle Text carries " .. nsc .. " cogs") then
+                local o = sc.opts
+                check(o.title == "Subtitle Text Settings" and #o.rows == 1 and o.rows[1].label == "Guild Text Size" and not o.quiet,
+                    msg .. ": the Subtitle Text cog's title and rows")
+                check(type(o.disabled) == "function" and type(o.disabledTooltip) == "function" and o.rawTooltip == true,
+                    msg .. ": the Subtitle Text cog is not greyed with a sentence of its own")
+                check(sc.rgn == ck.rgn and sc.btn._anchor == ck.frame, msg .. ": the Subtitle Text cog does not sit beside the checklist")
+                -- its sentence: the style first, then the guild line
+                local keep = {}
+                for _, k in ipairs({ "showFriendlyPlayers", "friendlyNameOnly", "friendlyBelowName" }) do keep[k] = STORE[k] end
+                local function Tip(players, nameOnly, mode)
+                    STORE.showFriendlyPlayers, STORE.friendlyNameOnly, STORE.friendlyBelowName = players, nameOnly, mode
+                    return o.disabled() and o.disabledTooltip() or nil
+                end
+                eq(Tip(true, false, "guild"), nil, msg .. ": the cog is greyed on the health bar plate with a guild line")
+                eq(Tip(true, false, "both"), nil, msg .. ": the cog is greyed on the health bar plate with a title and a guild line")
+                eq(Tip(true, false, "title"), "This option requires Subtitle Text to include the Guild Name", msg .. ": the cog's sentence with no guild line")
+                eq(Tip(true, false, "none"), "This option requires Subtitle Text to include the Guild Name", msg .. ": the cog's sentence with no subtitle")
+                eq(Tip(true, true, "guild"), "Requires Friendly Nameplate Style set to Nameplate", msg .. ": the cog's sentence under Name Only")
+                eq(Tip(true, nil, "guild"), "Requires Friendly Nameplate Style set to Nameplate", msg .. ": the cog's sentence under an unset style (Name Only)")
+                eq(Tip(false, false, "guild"), "Requires Friendly Nameplate Style set to Nameplate", msg .. ": the cog's sentence under Blizzard Default")
+                for k in pairs({ showFriendlyPlayers = 1, friendlyNameOnly = 1, friendlyBelowName = 1 }) do STORE[k] = keep[k] end
+            end
+            -- the guild colour pair: two inline swatches left of the cog, the leftmost last
             local il
             for _, c in ipairs(page.inline) do
                 if c.host and c.host.text == "Subtitle Text" then il = c end
             end
             if check(il and #il.list == 2, msg .. ": Subtitle Text does not carry two inline swatches") then
                 check(il.list[1].tooltip == "Custom Guild Color" and il.list[2].tooltip == "Class Guild Color", msg .. ": the guild swatches' names")
-                check(il.list[2]._frame._anchor == ck.frame and il.list[1]._frame._anchor == il.list[2]._frame and il.rgn._lastInline == il.list[1]._frame,
-                    msg .. ": the guild swatches do not chain left of the checklist")
+                check(sc and il.list[2]._frame._anchor == sc.btn and il.list[1]._frame._anchor == il.list[2]._frame and il.rgn._lastInline == il.list[1]._frame,
+                    msg .. ": the guild swatches do not chain left of the cog")
             end
         end
     end
@@ -3524,7 +3565,7 @@ local function CheckSearch(Wd, tag, pages, forever)
     Words(FRIENDLY, "FRIENDLY PLAYERS", "OTHER NAMEPLATES")
     Words(FRIENDLY, "FRIENDLY NPCS", "OTHER NAMEPLATES")
     -- the dropdown answers to the two switches it took the place of, Name Color to the toggle
-    Words(FRIENDLY, "Friendly Nameplate Style", TIPS[FRIENDLY]["FRIENDLY PLAYERS|Friendly Nameplate Style"],
+    Words(FRIENDLY, "Friendly Nameplate Style",
         "Show EUI Friendly Player Nameplates", "Make Friendly Nameplates Name Only",
         "Blizzard Nameplate Size", "Size of Blizzard's own nameplates, which still show for friendly players inside instances. Default is 3.")
     Words(FRIENDLY, "Name Color", "Class Colored Names", "Class Color", "Custom Color")
@@ -3534,7 +3575,8 @@ local function CheckSearch(Wd, tag, pages, forever)
     Words(FRIENDLY, "Friendly Name Size", "Friendly Name Size (Bar Mode)", "Nameplate Offset", "Distance")
     Words(FRIENDLY, "Level Text", "Show Level", "Color Level by Difficulty")
     Words(FRIENDLY, "Subtitle Text", TIPS[FRIENDLY]["FRIENDLY PLAYERS|Subtitle Text"], "Player Title", "Guild Name", "Title & Guild",
-        "Guild Text Color", "Show <> Around Guild", "Name Text Settings")
+        "Guild Text Color", "Show <> Around Guild", "Name Text Settings",
+        "Guild Text Size", "Size of the guild line under friendly player names.")
     -- the health bar plate's rows answer for themselves while they are on the page; under Name
     -- Only or Blizzard Default they have no entry and the style row answers to their names
     do

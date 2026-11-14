@@ -495,7 +495,8 @@ local function CreateHUD(parent)
         bg:SetAllPoints()
         bg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
         local outlines = UM.hudFrame._outlines
-        outlines[#outlines + 1] = EllesmereUI.MakeRoundedBorder(btn, eg.r, eg.g, eg.b, 0.7, bg)
+        local saveBrd = EllesmereUI.MakeRoundedBorder(btn, eg.r, eg.g, eg.b, 0.7, bg)
+        outlines[#outlines + 1] = saveBrd
 
         local lbl = btn:CreateFontString(nil, "OVERLAY")
         lbl:SetFont(FONT_PATH, BTN_FONT, "OUTLINE, SLUG")
@@ -527,6 +528,11 @@ local function CreateHUD(parent)
             EllesmereUI.HideWidgetTooltip()
         end)
         btn:SetScript("OnClick", function() ns.RequestClose(true) end)
+        -- The bar outlives a session: its outline and label follow an accent change.
+        EllesmereUI.RegAccent({ type = "callback", fn = function(r, g, b)
+            saveBrd:SetColor(r, g, b, 0.7)
+            Apply(progress)
+        end })
         UM.hudFrame._saveBtn = btn
     end
 

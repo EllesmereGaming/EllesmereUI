@@ -226,15 +226,13 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     -- by the cog's rows and their tooltips too, and by the names Show EUI Friendly
     -- Player Nameplates and Make Friendly Nameplates Name Only; Name Color by
     -- Class Colored Names and its swatches' names.
-    local STYLE_TIP = "Blizzard Default leaves friendly player nameplates to Blizzard's own Nameplate settings (Esc > Options > Nameplates). Name Only shows their names without health bars and requires 'Simplified Friendly Nameplates' to be disabled there."
-    SearchWords("Friendly Nameplate Style", "FRIENDLY PLAYERS", STYLE_TIP, "Show EUI Friendly Player Nameplates",
+    SearchWords("Friendly Nameplate Style", "FRIENDLY PLAYERS", "Show EUI Friendly Player Nameplates",
         "Make Friendly Nameplates Name Only", npSizeRow.label, npSizeRow.tooltip, bracketsRow.label, bracketsRow.tooltip,
         unpack(OFF_PAGE))
     SearchWords("Name Color", "FRIENDLY PLAYERS", "Class Colored Names", "Class Color", "Custom Color")
     local friendlyRow
     friendlyRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Friendly Nameplate Style",
-          tooltip=STYLE_TIP,
           values={ blizzard="Blizzard Default", nameonly="Name Only", plate="Nameplate" },
           order={ "blizzard", "nameonly", "plate" },
           getValue=StyleOf,
@@ -510,9 +508,21 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     -- dropdown reads those keys, so Spec Overrides know the slot by them. Both
     -- answer in Global Search to the names their settings had.
     local SUBTITLE_TIP = "Show the player's title inline with their name, and/or their guild on a line below it, on friendly nameplates."
+    -- Guild Text Size: the one row of Subtitle Text's cog. The guild line is a text
+    -- of its own only on the health bar plate; under Name Only it is the second
+    -- line of the name and takes the name's size, so the cog greys there.
+    local guildSizeRow =
+        { type="slider", label="Guild Text Size", min=6, max=30, step=1,
+          tooltip="Size of the guild line under friendly player names.",
+          get=function() return DBVal("friendlyBelowNameSize") or defaults.friendlyBelowNameSize end,
+          set=function(v)
+            DB().friendlyBelowNameSize = v
+            if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+            ns.NPO_FriendlyPreviewUpdate()
+          end }
     SearchWords("Level Text", "FRIENDLY PLAYERS", "Show Level", "Color Level by Difficulty")
     SearchWords("Subtitle Text", "FRIENDLY PLAYERS", SUBTITLE_TIP, "Player Title", "Guild Name", "Title & Guild", "Guild Text Color",
-        "Show <> Around Guild", "Name Text Settings", "Custom Color", "Class Color")
+        "Show <> Around Guild", "Name Text Settings", "Custom Color", "Class Color", guildSizeRow.label, guildSizeRow.tooltip)
     local levelRow
     levelRow, h = W:DualRow(parent, y,
         { type="dropdown", text="Level Text",
@@ -584,8 +594,19 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
         rgn._control = cbDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+        -- The cog sits nearest the checklist; the swatches chain left of it.
+        EllesmereUI.BuildInlineCog(rgn, {
+            title = "Subtitle Text Settings",
+            rows = { guildSizeRow },
+            disabled = function() return friendlyPlateOff() or subtitleGuildOff() end,
+            disabledTooltip = function()
+                if friendlyPlateOff() then return PLATE_TIP end
+                return guildOffTip()
+            end,
+            rawTooltip = true,
+        })
     end
-    -- Inline swatches, left of the checklist: the guild line's colour, live while
+    -- Inline swatches, left of the cog: the guild line's colour, live while
     -- the subtitle shows a guild.
     EllesmereUI.BuildInlineSwatches(levelRow._rightRegion, MakeGuildColorSwatches(),
         { disabled = subtitleGuildOff, disabledTooltip = guildOffTip, rawTooltip = true })

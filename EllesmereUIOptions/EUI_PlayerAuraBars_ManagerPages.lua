@@ -1638,8 +1638,12 @@ end
 
 -- Default Buffs and Debuffs bars only. The shared Visibility row picks when the bar
 -- is shown; outside those conditions it dims to Hidden Opacity (0 = fully hidden).
-local function BuildVisibilityFields(frame, fontPath, sy, cfg, apply)
+local function BuildVisibilityFields(frame, fontPath, sy, cfg)
     local W = EllesmereUI.Widgets
+    -- Neither row changes how the bar is drawn: only the visibility pass runs.
+    local function apply()
+        if ns.PAB_SyncVisibility then ns.PAB_SyncVisibility() end
+    end
     local _, hh = W:SectionHeader(frame, "VISIBILITY", sy); sy = sy - hh
     _, hh = EllesmereUI.BuildVisibilityRow(W, frame, sy,
         { getStore = function() return cfg end, legacyKey = "visibility",
@@ -2057,7 +2061,7 @@ local function BuildDefaultBarDetail(frame, fontPath, isBuff)
     end
     sy = BuildCoreFields(body, fontPath, sy, cfg, ApplyBar, isBuff)
     sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar, isBuff)
-    sy = BuildVisibilityFields(body, fontPath, sy, cfg, ApplyBar)
+    sy = BuildVisibilityFields(body, fontPath, sy, cfg)
     if not isBuff then
         sy = BuildDispelColorFields(body, fontPath, sy, cfg, ApplyBar)
         sy = BuildFxEffects(body, sy, cfg, ApplyBar)

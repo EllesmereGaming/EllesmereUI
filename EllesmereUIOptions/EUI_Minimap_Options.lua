@@ -739,7 +739,6 @@ initFrame:SetScript("OnEvent", function(self)
                         FullRebuildMinimap()
                     end,
                 })
-            local PP = EllesmereUI.PP
             EllesmereUI.PanelPP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
             leftRgn._control = cbDD
             leftRgn._lastInline = nil
@@ -835,7 +834,6 @@ initFrame:SetScript("OnEvent", function(self)
                         RefreshMinimap()
                     end,
                 })
-            local PP = EllesmereUI.PP
             EllesmereUI.PanelPP.Point(cbDD, "RIGHT", leftRgn, "RIGHT", -20, 0)
             leftRgn._control = cbDD
             leftRgn._lastInline = nil

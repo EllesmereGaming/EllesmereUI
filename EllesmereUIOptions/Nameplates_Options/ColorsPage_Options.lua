@@ -1596,10 +1596,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
             end)
         PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
         rgn._control = cbDD
-        cbDD:HookScript("OnEnter", function()
-            EllesmereUI.ShowWidgetTooltip(cbDD, "Chooses which parts of the nameplate show the threat colors; with Health Bar off, the bar keeps its Enemy Types color.")
-        end)
-        cbDD:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        cbDD._ttText = "Chooses which parts of the nameplate show the threat colors; with Health Bar off, the bar keeps its Enemy Types color."
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
         -- The checkbox dropdown has no disabled state of its own: grey it and block
         -- clicks while Show Threat Colors is Never; the placeholder's disabled overlay
