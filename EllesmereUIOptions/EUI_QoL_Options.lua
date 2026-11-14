@@ -436,11 +436,11 @@ initFrame:SetScript("OnEvent", function(self)
         -- see the pre-hook below), but the factory's own rows stay out of the
         -- index, and the hidden search pre-build builds the header only: it never
         -- builds the section and never parks the one on screen. WoW Forever's
-        -- factory offers item and trinket macros only.
+        -- factory has its own item macros, plus Warlock and Mage sets instead of spec sets.
         if EllesmereUI.BuildMacroFactory then
             local prebuilding = EllesmereUI._prebuilding
             local mfDesc = EllesmereUI.IS_FOREVER
-                and EllesmereUI.L("Ready-made macros for food, drink, healthstones, soulstones, potions and trinkets")
+                and EllesmereUI.L("Ready-made macros for food, drink, healthstones, potions and trinkets, plus Warlock stones and Mage gems")
                 or EllesmereUI.L("Ready-made macros for potions, food, trinkets and focus, plus a set for your spec")
             local mfTile = { key = "macroFactory", display = "Macro Factory",
                 desc = mfDesc,

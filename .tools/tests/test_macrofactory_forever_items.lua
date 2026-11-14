@@ -151,6 +151,7 @@ state = { level = 40, class = "MAGE", bodies = {}, macros = { EUI_Soulstone = 1,
 up = Load(true, state)
 up.OnEvent(up, "PLAYER_ENTERING_WORLD")
 Eq(state.bodies.EUI_ManaGem, "#showtooltip item:5513\n/use item:5513", "mana gem: best usable gem, one line")
+assert(up.ev.PLAYER_LEVEL_UP and not up.ev.SPELLS_CHANGED, "no Create spells on a Mage: no spell upkeep")
 Eq(state.bodies.EUI_Soulstone, nil, "no Warlock macros on a Mage")
 Eq(state.bodies.EUI_Firestone, nil, "no Warlock macros on a Mage")
 
