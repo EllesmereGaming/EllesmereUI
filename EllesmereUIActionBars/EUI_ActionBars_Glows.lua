@@ -1207,6 +1207,12 @@ local function HookCooldownEdge()
     end
 end
 
+-- Lets the next ApplyCooldownEdge hook buttons built after the first pass.
+-- On ns: the lazy bar build in EUI_ActionBars_VisibilityDrivers.lua calls it.
+ns._eabCdEdgeRehook = function()
+    _cdEdge.hooked = false
+end
+
 function EAB:ApplyCooldownEdge()
     if not self.db.profile.squareIcons then return end
     HookCooldownEdge()
