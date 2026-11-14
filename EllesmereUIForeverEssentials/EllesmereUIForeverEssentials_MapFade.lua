@@ -4,24 +4,29 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --  EllesmereUIForeverEssentials_MapFade.lua  (WoW Forever only)
 --  Fade Map While Moving: turns on the game's own map fade (mapFade CVar,
 --  which no options page offers), held while on and given back after.
---  Show the Game Behind the Map: the black behind the maximized map at 20%.
---  Only the BlackoutFrame texture's alpha changes, which the game never
---  sets; the frame still keeps clicks off the world.
+--  Show the Game Behind the Map: the black behind the maximized map goes to
+--  the chosen opacity and, with Click Through on, lets the mouse through to
+--  the world. Blizzard only shows and hides BlackoutFrame, so the change
+--  holds until turned off.
 -------------------------------------------------------------------------------
 local _, module = ...
 local OWNER = "EllesmereUIForeverEssentials"
 
 -- Settings live in EllesmereUIDB.worldMapFade; unset keys read these.
 -- mapFadeWas: the game's mapFade before ours.
+-- dimOpacity: 0-100, the black behind the maximized map while dim is on.
+-- dimClickThrough: while dim is on, the mouse goes through to the world.
 local F = module.Feature("worldMapFade", {
     enabled = false,
     dim = false,
+    dimOpacity = 20,
+    dimClickThrough = false,
 })
 
-local BACKGROUND_ALPHA = 0.2  -- the black behind the maximized map while dim is on
-
 local waiter
-local dimmed = false  -- the background's alpha is ours
+local dimmed = false      -- the background's alpha is ours
+local mouseHeld = false   -- BlackoutFrame's mouse and wheel are ours
+local mouseWas, wheelWas  -- BlackoutFrame's mouse and wheel before ours
 
 -- The game's fade on while ours is; back to what it was after.
 local function HoldGameFade(on)
@@ -41,7 +46,7 @@ end
 -- The black behind the maximized map. The world map loads on demand.
 local function ApplyBackground()
     local dim = F.Get("dim") == true
-    if not (dim or dimmed) then return end
+    if not (dim or dimmed or mouseHeld) then return end
     if not C_AddOns.IsAddOnLoaded("Blizzard_WorldMap") then
         if not waiter then
             waiter = CreateFrame("Frame")
@@ -54,11 +59,27 @@ local function ApplyBackground()
         waiter:RegisterEvent("ADDON_LOADED")
         return
     end
-    local blackout = WorldMapFrame.BlackoutFrame and WorldMapFrame.BlackoutFrame.Blackout
-    if blackout then
-        blackout:SetAlpha(dim and BACKGROUND_ALPHA or 1)
-        dimmed = dim
+    if InCombatLockdown() then
+        EllesmereUI.CombatQueue.Defer("MapFadeBackground", ApplyBackground)
+        return
     end
+    local b = WorldMapFrame.BlackoutFrame
+    if not (b and b.Blackout) then return end
+    b.Blackout:SetAlpha(dim and (tonumber(F.Get("dimOpacity")) or 20) / 100 or 1)
+    dimmed = dim
+    local through = dim and F.Get("dimClickThrough") == true
+    if through then
+        if not mouseHeld then
+            mouseWas = b:IsMouseEnabled()
+            wheelWas = b:IsMouseWheelEnabled()
+        end
+        b:EnableMouse(false)
+        if wheelWas then b:EnableMouseWheel(false) end
+    elseif mouseHeld then
+        b:EnableMouse(mouseWas)
+        if wheelWas then b:EnableMouseWheel(true) end
+    end
+    mouseHeld = through
 end
 
 -- Login and the options; takes effect at once.

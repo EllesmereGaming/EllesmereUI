@@ -378,16 +378,37 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         MF.Apply()
     end
 
-    _, h = W:DualRow(parent, y,
+    local fadeRow
+    fadeRow, h = W:DualRow(parent, y,
         { type = "toggle", text = "Fade Map While Moving",
           tooltip = "The world map fades while you move and comes back when you stop or hover it.",
           getValue = function() return MF.Get("enabled") end,
           setValue = function(v) SetFade("enabled", v) end },
         { type = "toggle", text = "Show the Game Behind the Map",
-          tooltip = "Lightens the black behind the maximized world map.",
+          tooltip = "Makes the black bars beside the maximized world map transparent. Use the cog to set their opacity and whether you can click, turn the camera and zoom through them.",
           getValue = function() return MF.Get("dim") end,
-          setValue = function(v) SetFade("dim", v) end }
+          setValue = function(v)
+              SetFade("dim", v)
+              EllesmereUI:RefreshPage()  -- the cog's disabled state
+          end }
     );  y = y - h
+    if not EllesmereUI._prebuilding then
+        EllesmereUI.BuildInlineCog(fadeRow._rightRegion, {
+            title = "Map Background Settings",
+            rows = {
+                { type = "slider", label = "Opacity", min = 0, max = 100, step = 5,
+                  get = function() return MF.Get("dimOpacity") end,
+                  set = function(v) SetFade("dimOpacity", v) end },
+                { type = "toggle", label = "Click Through",
+                  tooltip = "Lets you click, turn the camera and zoom through the bars beside the map.",
+                  get = function() return MF.Get("dimClickThrough") == true end,
+                  set = function(v) SetFade("dimClickThrough", v) end },
+            },
+            gap = 9,
+            disabled = function() return not MF.Get("dim") end,
+            disabledTooltip = "Show the Game Behind the Map",
+        })
+    end
 
     local revealRow
     revealRow, h = W:DualRow(parent, y,

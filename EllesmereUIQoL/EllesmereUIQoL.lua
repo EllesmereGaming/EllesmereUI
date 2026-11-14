@@ -3930,14 +3930,16 @@ end
 
 -------------------------------------------------------------------------------
 --  Transparent World Map Sidebars: the black beside the maximized world map goes
---  to the chosen opacity (clear by default) and lets the mouse through to
---  the world. Blizzard only shows and hides BlackoutFrame, so the change
---  holds until turned off. Not offered on WoW Forever: Forever Essentials
---  has its own map background option there.
+--  to the chosen opacity (clear by default) and, with Click Through on
+--  (mapSidebarsClickThrough, on by default), lets the mouse through to the
+--  world. Blizzard only shows and hides BlackoutFrame, so the change holds
+--  until turned off. Not offered on WoW Forever: Forever Essentials has its
+--  own map background option there.
 -------------------------------------------------------------------------------
 if not EllesmereUI.IS_FOREVER then
     local loader
     local applied = false
+    local mouseHeld = false
     local mouseWas
 
     function EllesmereUI._applyMapSidebars()
@@ -3956,25 +3958,26 @@ if not EllesmereUI.IS_FOREVER then
             if on then loader:RegisterEvent("ADDON_LOADED") else loader:UnregisterEvent("ADDON_LOADED") end
             return
         end
-        if not (on or applied) then return end
+        if not (on or applied or mouseHeld) then return end
         if InCombatLockdown() then
             ns.CombatQueue.Defer("MapSidebars", EllesmereUI._applyMapSidebars)
             return
         end
         local b = WorldMapFrame.BlackoutFrame
         if not (b and b.Blackout) then return end
-        if on then
-            if not applied then
+        b.Blackout:SetAlpha(on and (EllesmereUIDB.mapSidebarsOpacity or 0) / 100 or 1)
+        applied = on
+        local through = on and EllesmereUIDB.mapSidebarsClickThrough ~= false
+        if through then
+            if not mouseHeld then
                 mouseWas = b:IsMouseEnabled()
             end
-            b.Blackout:SetAlpha((EllesmereUIDB.mapSidebarsOpacity or 0) / 100)
             -- The wheel already passes through: the frame never takes it.
             b:EnableMouse(false)
-        else
-            b.Blackout:SetAlpha(1)
+        elseif mouseHeld then
             b:EnableMouse(mouseWas)
         end
-        applied = on
+        mouseHeld = through
     end
 end
 
