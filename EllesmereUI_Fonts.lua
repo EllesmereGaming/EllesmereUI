@@ -871,6 +871,9 @@ end
 -- The font objects the pass leaves alone: the floating combat text's, which the
 -- Combat Text Font setting owns.
 EllesmereUI._GAME_TEXT_KEEP = { "CombatTextFont", "SystemFont_World" }
+-- Keep their own face, still scaled: hotkey and range-dot text shows RANGE_INDICATOR
+-- (U+25CF), which most bundled faces lack (boxes on the gamepad bars, bug#321).
+EllesmereUI._GAME_TEXT_KEEP_FACE = { "NumberFontNormalSmallGray" }
 function EllesmereUI.ApplyGlobalFontToGameText()
     local db = EllesmereUI.GetFontsDB()
     -- Zero cost while fully off: both settings absent (scale 100 stores nil)
@@ -919,6 +922,14 @@ function EllesmereUI.ApplyGlobalFontToGameText()
                     if ok and member then done[member] = true end
                 end
             end
+        end
+    end
+    -- Own face at the pass's scale; `done` then skips them in the loop below.
+    local keepFace = EllesmereUI._GAME_TEXT_KEEP_FACE
+    for k = 1, #keepFace do
+        local obj = _G[keepFace[k]]
+        if obj and type(obj) == "table" and obj.GetFont and obj.SetFont then
+            EllesmereUI._FontObjectFaceInto(obj, nil, nil, nil, scale, done)
         end
     end
     for i = 1, #fonts do

@@ -237,5 +237,28 @@ combat, world, menu = Build("shared", true)
 E.ApplyGlobalFontToGameText()
 check(STANDARD_TEXT_FONT == FRIZ and DrawLatin(menu) == FRIZ and menu._size == 12, "the pass ran with both settings off")
 
+-------------------------------------------------------------------------------
+--  4. The hotkey font keeps its face (RANGE_INDICATOR needs a glyph most bundled
+--     faces lack) but still scales, also when it shares its parent's members
+-------------------------------------------------------------------------------
+local ARIALN = "Fonts\\ARIALN.TTF"
+for _, grayFirst in ipairs({ true, false }) do
+    local tag = grayFirst and "hotkey font listed first" or "hotkey font listed last"
+    Load({ global = "Expressway", applyToAllGameText = true, gameTextScale = 125 })
+    local mono = BlizzardFamily(ARIALN, 12)
+    local gray = NewFont(ARIALN, 12, "")
+    gray._members = mono._members
+    local other = BlizzardFamily(FRIZ, 12)
+    if grayFirst then Register("NumberFontNormalSmallGray", gray) end
+    Register("NumberFont_OutlineThick_Mono_Small", mono)
+    Register("GameFontNormal", other)
+    if not grayFirst then Register("NumberFontNormalSmallGray", gray) end
+    E.ApplyGlobalFontToGameText()
+    local f, sz = DrawLatin(gray)
+    check(f == ARIALN and sz == 15, tag .. ": the hotkey font draws " .. tostring(f) .. " " .. tostring(sz))
+    f, sz = DrawLatin(other)
+    check(f == EXP and sz == 15, tag .. ": an ordinary font draws " .. tostring(f) .. " " .. tostring(sz))
+end
+
 print(string.format("game text combat font harness: %d checks, %d failed", count, fails))
 if fails > 0 then error("game text combat font harness failed") end
