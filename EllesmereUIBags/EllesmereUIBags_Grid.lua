@@ -1577,6 +1577,33 @@ function ns.RenderGridView(tempItems, displayItems, emptySlots, child, columns, 
             local junkCat = EUI_CategoryManager:GetCategories()[EUI_CategoryManager._junkCatIdx]
             RenderViewSection(junkCat and junkCat.name or EUI_CategoryManager.JUNK_KEY, byGroup[-3])
         end
+        -- Keyring stays a physical section after the virtual categories.
+        if keyringSlots and #keyringSlots > 0 then
+            local label = EllesmereUI.Lf("Keyring (%d / %d)", keyringUsed or 0, keyringCapacity or 0)
+            if compactOn then
+                ns.CompactBagsSlots(label, keyringSlots)
+            else
+                headerIdx = headerIdx + 1
+                local hdr = GetOrCreateCatHeader(headerIdx)
+                hdr:SetParent(child)
+                hdr:ClearAllPoints()
+                hdr:SetPoint("TOPLEFT", child, "TOPLEFT", startX, curY)
+                hdr:SetWidth(gridW)
+                hdr._label:SetText(label)
+                hdr:Show()
+                curY = curY - 22
+                for i, data in ipairs(keyringSlots) do
+                    slotIdx = slotIdx + 1
+                    local btn = GetOrCreateSlot(slotIdx)
+                    if btn then
+                        btn:GetParent():SetParent(child)
+                        RenderButton(btn, data, slotIdx, (i - 1) % columns,
+                            math.floor((i - 1) / columns), startX, curY, columns, true)
+                    end
+                end
+                curY = curY - (math.ceil(#keyringSlots / columns) * (SLOT_SIZE + SPACING)) - 6
+            end
+        end
     else
         if selectedGroupName then
             -- Group view: items split by member category with headers

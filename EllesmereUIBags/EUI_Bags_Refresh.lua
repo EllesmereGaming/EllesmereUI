@@ -1010,6 +1010,10 @@ function EUI_Bags:RefreshInventory()
             n = #displayItems
             S = #view.groups + 1 + (view.keepPinned and 1 or 0) + (view.keepRecent and 1 or 0)
                 + (EUI_CategoryManager:IsJunkMarkerEnabled() and 1 or 0)
+            if keyringSlots and #keyringSlots > 0 then
+                n = n + #keyringSlots
+                S = S + 1
+            end
         elseif selectedCategoryIndex == -2 then
             -- MultiBag: one section per bag that has slots (+ reagent)
             n = #tempItems + #emptySlots
@@ -1113,7 +1117,7 @@ function EUI_Bags:RefreshInventory()
             emptySlots = (#displayItems == #liveItems) and liveEmpty or nil,
             keyringSlots = keyringSlots,
             showKeyring = selectedCategoryIndex == -4 or selectedCategoryIndex == -1
-                or selectedCategoryIndex == -2 or isAllItems,
+                or selectedCategoryIndex == -2 or isAllItems or view ~= nil,
             keyringCapacity = keyringCapacity,
             keyringUsed = keyringUsed,
             -- Same rule as the grid's Pinned Items section
