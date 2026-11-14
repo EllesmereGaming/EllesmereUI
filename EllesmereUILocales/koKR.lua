@@ -14106,3 +14106,12 @@ L["Leave combat to create the macro."] = "전투 종료 후 매크로를 생성�
 L["Paste /way or /euiway lines, one waypoint per line"] = "한 줄에 경유지 하나씩 /way 또는 /euiway 줄을 붙여넣으세요"
 L["Paste Waypoints"] = "경유지 붙여넣기"
 L["Skipped %1$d of %2$d lines: only /way and /euiway waypoint lines can be pasted."] = "%1$d줄을 건너뛰었습니다(전체 %2$d줄). /way 및 /euiway 경유지 줄만 붙여넣을 수 있습니다."
+
+-- 신규 옵션 및 기능 (CDM 아이콘 정렬, 지도 배경 설정)
+L["Icon Alignment"] = "아이콘 정렬"
+L["Follow Grow"] = "성장 방향 따르기"
+L["Where the icons sit inside the reserved space when the bar has fewer icons than its minimum. Follow Grow places them at the edge the bar grows from."] = "바에 최소 크기보다 적은 수의 아이콘이 있을 때 확보된 공간 내에서 아이콘이 배치되는 위치입니다. '성장 방향 따르기'를 선택하면 바가 확장되는 시작점 끝에 배치됩니다."
+L["This option requires a minimum size above 0"] = "이 설정을 사용하려면 최소 크기가 0보다 커야 합니다"
+L["Map Background Settings"] = "지도 배경 설정"
+L["Makes the black bars beside the maximized world map transparent. Use the cog to set their opacity and whether you can click, turn the camera and zoom through them."] = "최대화된 세계 지도 양옆의 검은색 여백을 투명하게 만듭니다. 톱니바퀴 설정에서 불투명도와 지도 너머로 클릭, 카메라 회전 및 확대/축소 가능 여부를 설정할 수 있습니다."
+L["Lets you click, turn the camera and zoom through the bars beside the map."] = "지도 양옆의 여백 너머로 클릭, 카메라 회전 및 확대/축소를 할 수 있게 합니다."
