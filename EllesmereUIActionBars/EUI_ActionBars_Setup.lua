@@ -220,6 +220,11 @@ function EAB:FinishSetup()
                             if key == "MainBar" then
                                 -- For MainBar, actionSlot encodes the button index (1-12)
                                 actionSlot = i
+                                -- Start on the page the driver already resolved
+                                -- (stance, form, modifier), as the normal load does.
+                                local mbFrame = barFrames["MainBar"]
+                                local curPage = mbFrame and tonumber(mbFrame:GetAttribute("state-page"))
+                                if curPage then actionSlot = i + (curPage - 1) * 12 end
                             elseif info.isPetBar then
                                 -- PetActionButtons use their index (1-10) as their slot ID
                                 actionSlot = i
