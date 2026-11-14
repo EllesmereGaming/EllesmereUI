@@ -1199,3 +1199,11 @@ L["usage: /slc prompt lootmaster / raider / guard"] = "использовани�
 -- == Simple Loot Council 1.0.7 strings, from the Simple Loot Council standalone translations ==
 L["Seen in your group and stored by player id, so a rename will not lose them."] = "Замечены в вашей группе и сохранены по идентификатору игрока, поэтому смена имени их не потеряет."
 L["Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename."] = "Сохранен по имени, поэтому сопоставляется так, как введен. Когда этот игрок в следующий раз окажется в вашей группе, имя заменится постоянным идентификатором и переживет смену имени."
+
+-- == Simple Loot Council 1.0.8-1.2.2 strings, from the Simple Loot Council standalone translations ==
+L["  %d. %s  |cff808080BoE, %dm left|r"] = "  %d. %s  |cff808080BoE, осталось %d мин|r"
+L["  -  %s  |cff73716CBoE, not added automatically|r"] = "  -  %s  |cff73716CBoE, не добавлен автоматически|r"
+L["Answer the question on screen first."] = "Сначала ответьте на вопрос на экране."
+L["Requires the council to be allowed to vote for themselves."] = "Требуется, чтобы членам совета было разрешено голосовать за себя."
+L["skipped %d BoE item outside its six-hour window - click it in the bags panel to queue it anyway."] = "пропущен %d предмет BoE вне шестичасового окна - щелкните по нему в панели сумок, чтобы все равно поставить его в очередь."
+L["skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway."] = "пропущено %d предметов BoE вне шестичасового окна - щелкните по одному из них в панели сумок, чтобы все равно поставить его в очередь."

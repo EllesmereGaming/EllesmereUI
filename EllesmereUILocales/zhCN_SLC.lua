@@ -1213,3 +1213,10 @@ L["usage: /slc prompt lootmaster / raider / guard"] = "用法：/slc prompt loot
 -- == Simple Loot Council 1.0.7 strings, from the Simple Loot Council standalone translations ==
 L["Seen in your group and stored by player id, so a rename will not lose them."] = "在你的队伍中见过此人，并按玩家 ID 保存，因此改名不会丢失。"
 L["Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename."] = "按名字保存，因此按输入内容匹配。此玩家下次出现在你的队伍中时，会转为永久 ID，改名后依然有效。"
+
+-- == Simple Loot Council 1.0.8-1.2.2 strings, from the Simple Loot Council standalone translations ==
+L["  %d. %s  |cff808080BoE, %dm left|r"] = "  %d. %s  |cff808080BoE，剩余%dm|r"
+L["  -  %s  |cff73716CBoE, not added automatically|r"] = "  -  %s  |cff73716CBoE，不会自动加入|r"
+L["Answer the question on screen first."] = "请先回答屏幕上的问题。"
+L["Requires the council to be allowed to vote for themselves."] = "需要允许议会成员投票给自己。"
+L["skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway."] = "已跳过 %d 件超出六小时时限的 BoE 物品 - 在背包面板中点击其中一件即可强制加入队列。"
