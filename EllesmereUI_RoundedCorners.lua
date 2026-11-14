@@ -929,11 +929,13 @@ local function FitOutline(o, k)
     local bm = o.bodyMask
     if bm then
         local br = o.radius
-        -- At least the outline's outer radius in the parent's units (raised
-        -- for a wide edge or a small scale), so no body corner pokes past it.
-        local need = floor(r / k + 0.5)
-        if need > br then br = need end
-        if br > MAX_RADIUS then br = MAX_RADIUS end
+        -- A wide edge raised the outline's radius (w + 1): the body takes it
+        -- in the parent's units, so no body corner pokes past the ring.
+        if w > 1 and r > floor(o.radius * k + 0.5) then
+            local need = floor(r / k + 0.5)
+            if need > br then br = need end
+            if br > MAX_RADIUS then br = MAX_RADIUS end
+        end
         if half then
             local cap = floor(half - 0.5)
             if br > cap then br = cap end

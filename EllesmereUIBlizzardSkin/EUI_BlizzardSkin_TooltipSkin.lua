@@ -191,6 +191,17 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         return true
     end
 
+    -- The health strip's side inset: clear of the rounded corners while the
+    -- outline shows (the bar is Blizzard's, so it moves in instead of taking a
+    -- mask), 1 on the square border. _sbInset: the live bar's, nil until the
+    -- reskin has anchored it.
+    local function _ttStripInset(tt)
+        local o = FFD[tt] and FFD[tt].round
+        if not o or o.off then return 1 end
+        return o.br or o.radius
+    end
+    local _sbInset
+
     local function _ttSkin(tt, _, isEmbedded)
         if not tt or tt:IsForbidden() or not _enabled() then return end
         -- Embedded tooltips (EmbeddedItemTooltip, reward block inside a world-quest tooltip) render INSIDE a parent; skip bg/border to avoid a nested-tooltip look.
@@ -214,6 +225,14 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             local cb = FFD[tt] and FFD[tt].configBorder
             if cb then cb:Show() end
             _applyConfiguredBorder(tt, "tooltip", legacySize)
+        end
+        if _sbInset and tt == _GameTooltip then
+            local x = _ttStripInset(tt)
+            if x ~= _sbInset then
+                _sbInset = x
+                GameTooltipStatusBar:SetPoint("BOTTOMLEFT", _GameTooltip, "BOTTOMLEFT", x, 1)
+                GameTooltipStatusBar:SetPoint("BOTTOMRIGHT", _GameTooltip, "BOTTOMRIGHT", -x, 1)
+            end
         end
     end
     -- The same look for Blizzard's tooltip-like frames that are not GameTooltips
@@ -1119,6 +1138,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             GameTooltipStatusBar:ClearAllPoints()
             GameTooltipStatusBar:SetPoint("BOTTOMLEFT", _GameTooltip, "BOTTOMLEFT", 1, 1)
             GameTooltipStatusBar:SetPoint("BOTTOMRIGHT", _GameTooltip, "BOTTOMRIGHT", -1, 1)
+            _sbInset = 1  -- _ttSkin moves it clear of rounded corners on the next show
             -- Texture + height (the Show Health Strip cog); unset keeps UI-StatusBar at 3px.
             EllesmereUI._applyTooltipHealthStripStyle(true)
         end
@@ -1683,8 +1703,9 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             strip:SetValue(1)
             strip:ClearAllPoints()
             if on then
-                strip:SetPoint("BOTTOMLEFT", tt, "BOTTOMLEFT", 1, 1)
-                strip:SetPoint("BOTTOMRIGHT", tt, "BOTTOMRIGHT", -1, 1)
+                local x = _ttStripInset(tt)
+                strip:SetPoint("BOTTOMLEFT", tt, "BOTTOMLEFT", x, 1)
+                strip:SetPoint("BOTTOMRIGHT", tt, "BOTTOMRIGHT", -x, 1)
                 strip:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
                 strip:SetHeight(3)
                 strip.bg:Show()
