@@ -2,7 +2,6 @@ if EUI_CLIENT_BLOCKED then return end if ... == "SimpleLootCouncil" and SimpleLo
 
 
 
-
 SimpleLootCouncil = SimpleLootCouncil or {}
 local addon = SimpleLootCouncil
 local T = addon.Locale.Text

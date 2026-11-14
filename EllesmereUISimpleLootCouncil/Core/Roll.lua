@@ -265,6 +265,14 @@ function Roll:ApplyAsk(payload, sender)
         return
     end
 
+    local names
+    if payload.w then
+        names = {}
+        for _, name in ipairs(payload.w) do
+            if type(name) == "string" then names[#names + 1] = name end
+        end
+    end
+
 
 
     local touched = {}
@@ -280,18 +288,18 @@ function Roll:ApplyAsk(payload, sender)
                 changed = stamp > (item.rollAskSeq or 0)
                 if changed then
                     item.rollAskSeq = stamp
-                    if payload.w == nil then
+                    if names == nil then
 
                         item.rollAskAll = stamp
                     else
                         item.rollAsk = item.rollAsk or {}
-                        for _, name in ipairs(payload.w) do
+                        for _, name in ipairs(names) do
                             item.rollAsk[name] = stamp
                         end
                     end
                 end
             else
-                changed = ApplyUnstamped(item, payload.w)
+                changed = ApplyUnstamped(item, names)
             end
             if changed then touched[#touched + 1] = session end
         end
@@ -304,7 +312,7 @@ function Roll:ApplyAsk(payload, sender)
         tostring(sender))
 
     if addon.Callbacks then
-        addon.Callbacks:Fire("RollRequested", touched, payload.w)
+        addon.Callbacks:Fire("RollRequested", touched, names)
 
         addon.Callbacks:Fire("SessionChanged", #touched == 1 and touched[1] or nil, "roll")
     end

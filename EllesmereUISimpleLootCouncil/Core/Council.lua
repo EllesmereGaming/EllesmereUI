@@ -16,6 +16,9 @@ addon.Council = Council
 local seats, active, activeFor = {}, {}, nil
 
 
+local pending = {}
+
+
 
 local activeRanks, activeByRank = {}, {}
 local activeRankDetailsKnown = false
@@ -31,10 +34,25 @@ local function Present(fullName)
 end
 
 
+local function ResolvePending()
+    for short, rank in pairs(pending) do
+        local record = addon.Player:Get(short)
+        if record.guid then
+            pending[short] = nil
+            seats[record.fullName] = true
+            addon.Player:SetCouncil(record.guid, true)
+            if rank ~= true then activeByRank[record.fullName] = rank or true end
+            addon.Log:D("Council", "seat resolved", record.fullName)
+        end
+    end
+end
+
+
 local function RefreshActive(force)
     local candidates = addon.GetCandidates()
     if not force and candidates == activeFor then return false end
     activeFor = candidates
+    if next(pending) then ResolvePending() end
     local now, moved = {}, false
     for fullName in pairs(seats) do
         if candidates[fullName] then
@@ -55,6 +73,8 @@ function Council:Contains(who)
 
     local record = addon.Player:Get(who)
     if not record.fullName then return false end
+
+    if not seats[record.fullName] and next(pending) then ResolvePending() end
     return seats[record.fullName] == true and Present(record.fullName)
 end
 
@@ -864,15 +884,17 @@ function Council:Apply(guids, sender, ranks, rankGuids, rankOf)
             addon.Player:SetCouncil(identity, true)
         end
     end
-    seats = {}
+    seats, pending = {}, {}
     activeRanks, activeByRank = {}, {}
     activeRankDetailsKnown = type(rankOf) == "table"
 
     for _, short in ipairs(guids) do
         local record = addon.Player:Get(short)
-        if record.fullName then
+        if record.guid then
             seats[record.fullName] = true
-            if record.guid then addon.Player:SetCouncil(record.guid, true) end
+            addon.Player:SetCouncil(record.guid, true)
+        elseif type(short) == "string" and addon.Player:IsGUID(short) then
+            pending[short] = true
         end
         if not record.guid then complete = false end
     end
@@ -890,15 +912,17 @@ function Council:Apply(guids, sender, ranks, rankGuids, rankOf)
     if type(rankGuids) == "table" then
         for _, short in ipairs(rankGuids) do
             local record = addon.Player:Get(short)
+            local rank = type(rankOf) == "table" and rankOf[short]
+            local known = type(rank) == "string" and validRanks[rank] and rank or nil
 
-            if record.fullName and seats[record.fullName] then
-                local rank = type(rankOf) == "table" and rankOf[short]
-                if type(rank) == "string" and validRanks[rank] then
-                    activeByRank[record.fullName] = rank
+            local seated = record.fullName and seats[record.fullName]
+            if seated or pending[short] then
+
+                if not known then activeRankDetailsKnown = false end
+                if seated then
+                    activeByRank[record.fullName] = known or true
                 else
-                    activeByRank[record.fullName] = true
-
-                    activeRankDetailsKnown = false
+                    pending[short] = known or false
                 end
             end
         end

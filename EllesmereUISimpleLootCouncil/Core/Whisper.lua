@@ -252,6 +252,10 @@ local lastSent = 0
 
 
 local OUTBOX_MAX = 40
+
+
+
+local CHAT_MAX = 255
 local WAITING_MAX = 5
 local waiting = {}
 
@@ -279,7 +283,7 @@ local function Pump()
     end
 
     if entry.guide then entry.guide.started = true end
-    C_ChatInfo.SendChatMessage(entry.text, "WHISPER", nil, addon.Player:WhisperTarget(entry.to))
+    C_ChatInfo.SendChatMessage(addon.Locale.TruncateBytes(entry.text, CHAT_MAX), "WHISPER", nil, addon.Player:WhisperTarget(entry.to))
     lastSent = GetTime()
     Admit()
 end
@@ -737,10 +741,18 @@ local function Handle(text, sender)
     if CanReply(who) then
         local target = (item and item.link)
             or addon.Locale.Format(T["item %d"], session)
+        local bare = addon.Locale.Format(T["Recorded: %s on %s"], ResponseLabel(parsed), target)
+        if note then
+
+            local full = addon.Locale.Format(T["Recorded: %s on %s - %s"], ResponseLabel(parsed),
+                target, note:sub(1, 0))
+            note = addon.Locale.TruncateBytes(note, CHAT_MAX - #full)
+            if note == "" then note = nil end
+        end
         Say(who, note
             and addon.Locale.Format(T["Recorded: %s on %s - %s"], ResponseLabel(parsed),
                 target, note)
-            or addon.Locale.Format(T["Recorded: %s on %s"], ResponseLabel(parsed), target))
+            or bare)
     end
 end
 

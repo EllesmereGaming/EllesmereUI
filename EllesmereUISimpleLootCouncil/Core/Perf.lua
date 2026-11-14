@@ -474,7 +474,7 @@ local function Arm()
     local f = CreateFrame("Frame")
     f:RegisterEvent("PLAYER_LOGOUT")
     f:SetScript("OnEvent", function()
-        local saved = addon.db and addon.db.activeRun
+        local saved = addon.Player.OwnSlot and addon.Player:OwnSlot(addon.db, "activeRun")
         if Perf.seededRun and type(saved) == "table" then
             Perf.ScrubSynthetic(saved.items)
         end

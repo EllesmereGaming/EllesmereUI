@@ -822,7 +822,8 @@ local function Postpone(command, args)
     local ml = type(master) == "table" and master.ml or nil
     if type(ml) ~= "string" or addon.Player:IsSelf(ml) then return false end
     local queue = store.queue
-    queue[#queue + 1] = { c = command, a = args, ml = ml, at = time() }
+    queue[#queue + 1] = { c = command, a = args, ml = ml, at = time(),
+        char = addon.Player.SelfStamp and addon.Player.SelfStamp() }
     while #queue > OUTBOX_MAX do table.remove(queue, 1) end
     addon.Log:I("Comms", "not in a group - kept for the loot master", command, ml)
     return true
@@ -846,7 +847,9 @@ function Comms:Send(command, args, target, guaranteed)
 
 
 
-    if addon.Restrictions:IsBlocked() then
+
+    local R = addon.Restrictions
+    if R:IsBlocked() or (guaranteed and R.HasDeferred and R:HasDeferred()) then
         if guaranteed then
             addon.Restrictions:Enqueue({
                 command = command,
@@ -1060,7 +1063,7 @@ local function IsAuthorised(authority, sender, args)
     return false
 end
 
-local REFUSED_HELD_MAX, REFUSED_HELD_TTL = 16, 30
+local REFUSED_HELD_MAX, REFUSED_HELD_TTL, REFUSED_HELD_SENDERS = 16, 30, 4
 local refusedHeld = { list = {}, pending = false }
 
 
@@ -1070,8 +1073,16 @@ local function HoldRefused(command, args, sender, authority)
     local config = addon.Config
     if not config or not config.RulesSettled or config:RulesSettled() then return end
     if not IsInGroup() then return end
-    local list = refusedHeld.list
-    if #list >= REFUSED_HELD_MAX then table.remove(list, 1) end
+
+    local list, own, oldest = refusedHeld.list, 0, nil
+    for n, held in ipairs(list) do
+        if held.s == sender then own, oldest = own + 1, oldest or n end
+    end
+    if own >= REFUSED_HELD_MAX then
+        table.remove(list, oldest)
+    elseif #list >= REFUSED_HELD_MAX * REFUSED_HELD_SENDERS then
+        table.remove(list, 1)
+    end
     list[#list + 1] = { c = command, a = args, s = sender, at = GetTime() }
 end
 
@@ -1081,6 +1092,11 @@ local function ApplyOne(command, args, sender)
     local entry = handlers[command]
     if not entry then
         addon.Log:D("Comms", "no handler for", command)
+        return
+    end
+
+    if args ~= nil and type(args) ~= "table" then
+        Refuse("shape", command, sender, type(args))
         return
     end
 
@@ -1232,6 +1248,11 @@ local function ResumePartials(now)
     end
 end
 
+
+local function FirstWarn(kind, sender)
+    return FirstTime(refusalLogged, "warn|" .. kind .. "|" .. tostring(sender))
+end
+
 local function OnMessage(prefix, body, sender, channel)
 
     local member = IsMember(sender)
@@ -1248,13 +1269,13 @@ local function OnMessage(prefix, body, sender, channel)
     end
 
     if kind ~= KIND_CHUNK then
-        addon.Log:WLogOnly("Comms", "unknown frame type from", sender)
+        if FirstWarn("type", sender) then addon.Log:WLogOnly("Comms", "unknown frame type from", sender) end
         Stats.Received(nil, 1, #body)
         return
     end
 
     if #body < 5 then
-        addon.Log:WLogOnly("Comms", "malformed chunk from", sender)
+        if FirstWarn("chunk", sender) then addon.Log:WLogOnly("Comms", "malformed chunk from", sender) end
         Stats.Received(nil, 1, #body)
         return
     end
@@ -1264,7 +1285,9 @@ local function OnMessage(prefix, body, sender, channel)
 
 
     if total < 1 or total > MAX_CHUNKS or seq < 1 or seq > total then
-        addon.Log:WLogOnly("Comms", "invalid chunk", seq .. "/" .. total, "from", sender)
+        if FirstWarn("seq", sender) then
+            addon.Log:WLogOnly("Comms", "invalid chunk", seq .. "/" .. total, "from", sender)
+        end
         Stats.Received(nil, 1, #body)
         return
     end
@@ -1289,8 +1312,10 @@ local function OnMessage(prefix, body, sender, channel)
 
     if buffer and (Expired(buffer, now)
         or buffer.total ~= total or buffer.parts[seq]) then
-        addon.Log:WLogOnly("Comms", "discarding superseded partial message", key,
-            ("%d/%d chunks"):format(buffer.count, buffer.total))
+        if FirstWarn("superseded", sender) then
+            addon.Log:WLogOnly("Comms", "discarding superseded partial message", key,
+                ("%d/%d chunks"):format(buffer.count, buffer.total))
+        end
         Stats.Received(nil, buffer.count, buffer.bytes)
         DropPartial(key, buffer)
         buffer = nil
@@ -1371,15 +1396,24 @@ end
 
 
 
+
 local function FlushOutbox()
     outbox.pending = false
     local store = OutboxStore()
     if not store or not store.queue[1] or not GroupChannel() then return end
+
+    if addon.Restrictions:IsBlocked() then return end
     local now, kept, due = time(), {}, nil
+    local Player = addon.Player
+    local me = Player.SelfStamp and Player.SelfStamp()
     for _, entry in ipairs(store.queue) do
         if type(entry) == "table" and OUTBOX[entry.c] and type(entry.a) == "table"
             and type(entry.at) == "number" and now - entry.at <= OUTBOX_MAX_AGE then
-            if type(entry.ml) == "string" and IsMember(entry.ml) then
+
+            if entry.char == nil then entry.char = me end
+            if Player.OwnsStamp and not Player:OwnsStamp(entry.char) then
+                kept[#kept + 1] = entry
+            elseif type(entry.ml) == "string" and IsMember(entry.ml) then
                 due = due or {}
                 due[#due + 1] = entry
             else
@@ -1458,6 +1492,7 @@ function Comms:Init()
             return
         end
         ResumePartials(GetTime())
+        if IsInGroup() then ScheduleOutbox(RESUME_DELAY) end
         for _, lane in ipairs(lanes) do
             lane.parked = nil
             RestartPartial(lane)

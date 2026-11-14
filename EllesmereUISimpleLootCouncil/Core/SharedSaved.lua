@@ -314,6 +314,30 @@ local function MergeDeleted(winner, loser)
 end
 
 
+local function CarryPacked(winner, loser)
+    local from = type(loser.deletedPacked) == "table" and loser.deletedPacked or nil
+    for kind, segs in pairs(from or {}) do
+        if KINDS[kind] and type(segs) == "table" and #segs > 0 then
+            if type(winner.deletedPacked) ~= "table" then winner.deletedPacked = {} end
+            local into = winner.deletedPacked[kind]
+            if type(into) ~= "table" then
+                into = {}
+                winner.deletedPacked[kind] = into
+            end
+            local have = {}
+            for _, seg in ipairs(into) do if type(seg) == "table" then have[seg.blob or seg] = true end end
+            for _, seg in ipairs(segs) do
+                local key = type(seg) == "table" and (seg.blob or seg) or nil
+                if key and not have[key] then
+                    into[#into + 1] = seg
+                    have[key] = true
+                end
+            end
+        end
+    end
+end
+
+
 local function ApplyDeleted(db)
     local deleted, removed = db.deleted, 0
     if type(deleted) ~= "table" then return 0 end
@@ -373,6 +397,7 @@ function SharedSaved.Reconcile(own, mirror)
     for _, field in ipairs(KEYED) do merged = merged + MergeKeyed(winner, loser, field, added) end
     merged = merged + MergeNights(winner, loser)
     MergeDeleted(winner, loser)
+    CarryPacked(winner, loser)
 
     if addon.History and addon.History.MergeArchive then
         merged = merged + (tonumber(addon.History.MergeArchive(winner, loser, added)) or 0)
