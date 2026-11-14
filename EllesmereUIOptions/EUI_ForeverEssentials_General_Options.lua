@@ -720,6 +720,9 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         );  y = y - h
 
         local FE = EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"]
+        local function noPriceAddon()
+            return not (FE.PriceSourceLoaded("AUCTIONATOR") or FE.PriceSourceLoaded("BBB"))
+        end
         -- Only Show When Bag Space Is Low (its threshold in the cog) | Use Auction Prices (its addon in the cog)
         local lowRow
         lowRow, h = W:DualRow(parent, y,
@@ -732,9 +735,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               end },
             { type = "toggle", text = "Use Auction Prices",
               tooltip = "Prices items from your auction addon's scans. Use the cog to pick the addon.",
-              disabled = function()
-                  return not (FE.PriceSourceLoaded("AUCTIONATOR") or FE.PriceSourceLoaded("BBB"))
-              end,
+              disabled = noPriceAddon,
               disabledTooltip = "This option requires Auctionator or BootyBayBroker to be loaded.",
               getValue = function() return JI.Get("auctionPrices") == true end,
               setValue = function(v)
@@ -745,7 +746,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineCog(lowRow._rightRegion, {
                 title = "Use Auction Prices",
-                disabled = function() return JI.Get("auctionPrices") ~= true end,
+                disabled = function() return noPriceAddon() or JI.Get("auctionPrices") ~= true end,
                 disabledTooltip = "Use Auction Prices",
                 rows = {
                     { type = "dropdown", label = "Price Source",

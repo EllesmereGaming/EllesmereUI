@@ -230,7 +230,7 @@ SetApplyAll(ApplyAll)
 --  trust chain. Show/hide moves the parent frame offscreen.
 -------------------------------------------------------------------------------
 do
-    local menuFrame
+    local menuFrame, menuBorder
     local menuOpen    = false
     local MENU_WIDTH  = 160
     local BUTTON_H    = 20
@@ -266,6 +266,8 @@ do
         if visible then
             menuFrame:SetClampedToScreen(true)
             menuFrame:SetPoint("TOPRIGHT", Minimap, "TOPLEFT", -4, 0)
+            -- Parked shown off-screen, so no OnShow: the outline seats here.
+            if menuBorder then menuBorder:Fit() end
         else
             menuFrame:SetClampedToScreen(false)
             menuFrame:SetPoint("TOPLEFT", UIParent, "TOPRIGHT", 10000, 0)
@@ -276,15 +278,12 @@ do
         -- Never register this with the controller cursor (nor the escape
         -- proxy): it stays shown while parked off-screen, so the cursor would
         -- count it as open forever and hold the D-pad.
-        menuFrame = CreateFrame("Frame", "EllesmereUIMicroMenu", UIParent, "BackdropTemplate")
+        menuFrame = CreateFrame("Frame", "EllesmereUIMicroMenu", UIParent)
         menuFrame:SetFrameStrata("TOOLTIP")
-        menuFrame:SetBackdrop({
-            bgFile   = "Interface\\Buttons\\WHITE8X8",
-            edgeFile = "Interface\\Buttons\\WHITE8X8",
-            edgeSize = 1,
-        })
-        menuFrame:SetBackdropColor(0.05, 0.05, 0.05, 0.97)
-        menuFrame:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        local bg = menuFrame:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.05, 0.05, 0.05, 0.97)
+        menuBorder = EllesmereUI.MakeRoundedBorder(menuFrame, 0.3, 0.3, 0.3, 1, bg)
         menuFrame:EnableMouse(true)
 
         -- Close when clicking elsewhere

@@ -438,9 +438,57 @@ do
     -- Use the client's localized name for the food family, shared by many spell IDs.
     local NUTRITIOUS_FOOD = 1248377
     local watch, watching, foods, pending, invalidated
+    local isFood = {}  -- [itemID] = whether its use spell is the food family's, kept once its data has loaded
+    local spare        -- the table of a bag scan that found nothing new
 
     function EABR.IsForeverFoodCurrent(snapshot)
         return snapshot == foods
+    end
+
+    -- true or false once the item's data has loaded (an item's use spell never
+    -- changes), nil until then or while the family's name is missing.
+    local function IsFood(id, name)
+        local food = isFood[id]
+        if food == nil and name then
+            if select(6, C_Item.GetItemInfoInstant(id)) ~= Enum.ItemClass.Consumable then
+                food = false
+            elseif C_Item.IsItemDataCachedByID(id) then
+                food = C_Item.GetItemSpell(id) == name
+            end
+            isFood[id] = food
+        end
+        return food
+    end
+
+    -- The bags' food into found, [itemID] = count. An item whose data has not
+    -- loaded is asked for and left out until its answer.
+    local function Scan(found, name)
+        for bag = 0, NUM_BAG_SLOTS do
+            for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                local id = C_Container.GetContainerItemID(bag, slot)
+                if id and not pending[id] then
+                    local food = IsFood(id, name)
+                    if food then
+                        local info = C_Container.GetContainerItemInfo(bag, slot)
+                        found[id] = (found[id] or 0) + (info and info.stackCount or 1)
+                    elseif food == nil then
+                        if not next(pending) then watch:RegisterEvent("ITEM_DATA_LOAD_RESULT") end
+                        pending[id] = true
+                        C_Item.RequestLoadItemDataByID(id)
+                    end
+                end
+            end
+        end
+    end
+
+    local function Same(a, b)
+        for id, n in pairs(a) do
+            if b[id] ~= n then return false end
+        end
+        for id in pairs(b) do
+            if a[id] == nil then return false end
+        end
+        return true
     end
 
     function EABR.GetForeverFood()
@@ -448,31 +496,11 @@ do
         local found = {}
         invalidated = false
         local name = SpellName(NUTRITIOUS_FOOD)
-        if not name then
-            if not watch:IsEventRegistered("SPELL_DATA_LOAD_RESULT") then
-                watch:RegisterEvent("SPELL_DATA_LOAD_RESULT")
-                C_Spell.RequestLoadSpellData(NUTRITIOUS_FOOD)
-            end
-        else
-            for bag = 0, NUM_BAG_SLOTS do
-                for slot = 1, C_Container.GetContainerNumSlots(bag) do
-                    local info = C_Container.GetContainerItemInfo(bag, slot)
-                    local id = info and info.itemID
-                    if id and not pending[id] then
-                        if found[id] then
-                            found[id] = found[id] + info.stackCount
-                        elseif select(6, C_Item.GetItemInfoInstant(id)) == Enum.ItemClass.Consumable then
-                            if not C_Item.IsItemDataCachedByID(id) then
-                                if not next(pending) then watch:RegisterEvent("ITEM_DATA_LOAD_RESULT") end
-                                pending[id] = true
-                                C_Item.RequestLoadItemDataByID(id)
-                            elseif C_Item.GetItemSpell(id) == name then
-                                found[id] = info.stackCount
-                            end
-                        end
-                    end
-                end
-            end
+        if name then
+            Scan(found, name)
+        elseif not watch:IsEventRegistered("SPELL_DATA_LOAD_RESULT") then
+            watch:RegisterEvent("SPELL_DATA_LOAD_RESULT")
+            C_Spell.RequestLoadSpellData(NUTRITIOUS_FOOD)
         end
         -- A synchronous load result queues another refresh. Leave the cache empty for that pass.
         if not invalidated then foods = found end
@@ -496,10 +524,35 @@ do
                     pending[id] = nil
                     if not next(pending) then watch:UnregisterEvent(event) end
                     if not success then return end
+                    -- A loaded item that is no food changes nothing.
+                    if IsFood(id, SpellName(NUTRITIOUS_FOOD)) == false then return end
                 elseif event == "SPELL_DATA_LOAD_RESULT" then
                     if id ~= NUTRITIOUS_FOOD then return end
                     watch:UnregisterEvent(event)
                     if not success then return end
+                elseif foods then
+                    -- A bag change: the reminders refresh only when the food itself changed.
+                    local name = SpellName(NUTRITIOUS_FOOD)
+                    if name then
+                        local found = spare or {}
+                        spare = nil
+                        wipe(found)
+                        invalidated = false
+                        Scan(found, name)
+                        if invalidated then
+                            -- a load answered inside the scan and asked for the refresh itself
+                            spare = found
+                            return
+                        end
+                        if Same(found, foods) then
+                            spare = found
+                            return
+                        end
+                        foods = found
+                        if EABR.ValidateOpenPicker then EABR.ValidateOpenPicker() end
+                        if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+                        return
+                    end
                 end
                 invalidated = true
                 foods = nil

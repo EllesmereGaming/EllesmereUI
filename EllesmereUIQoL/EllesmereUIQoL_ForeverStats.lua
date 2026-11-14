@@ -122,11 +122,17 @@ local GROUPS = {
 local byKey, order, hidden = {}, {}, {}
 -- In combat a computed stat reads nil: show its last clean value until the
 -- PLAYER_REGEN_ENABLED repaint. A secret passes through (it renders live).
+-- A figure that is missing while the stats are not restricted (the load-in
+-- window) is noted in FvStats.missing, so the block's settle retry still runs.
 local lastClean = {}
+local FvStats
 local function KeepLastClean(key, get)
     return function()
         local v = get()
-        if v == nil then return lastClean[key] end
+        if v == nil then
+            if not C_Secrets.ShouldUnitStatsBeSecret() then FvStats.missing = true end
+            return lastClean[key]
+        end
         if not issecretvalue(v) then lastClean[key] = v end
         return v
     end
@@ -140,4 +146,5 @@ for _, g in ipairs(GROUPS) do
     end
 end
 
-ns.FvStats = { groups = GROUPS, byKey = byKey, order = order, hidden = hidden }
+FvStats = { groups = GROUPS, byKey = byKey, order = order, hidden = hidden }
+ns.FvStats = FvStats

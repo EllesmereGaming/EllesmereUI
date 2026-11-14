@@ -25,6 +25,18 @@ local GetArmorySlotBucket, IsArmoryGearCategory = I.GetArmorySlotBucket, I.IsArm
 local IsGearOnlyGroup, itemSlots = I.IsGearOnlyGroup, I.itemSlots
 local MergeDuplicates, PreCacheSortFields = I.MergeDuplicates, I.PreCacheSortFields
 local RegisterPawnIntegration, SetItemPanelOpen = I.RegisterPawnIntegration, I.SetItemPanelOpen
+local _openItemPanels = I._openItemPanels
+
+-- New Items Only: a trade's items can land just after its window closes, and
+-- the game ties no event to that delivery. So a rise within this many seconds
+-- of a trade window's close still counts as a trade arrival. The stamp is set
+-- at TRADE_CLOSED while the option is on and runs out by itself (a cancelled
+-- trade's too).
+local TRADE_GRACE = 2
+local tradeClosedAt
+local function TradeJustClosed()
+    return tradeClosedAt ~= nil and GetTime() - tradeClosedAt <= TRADE_GRACE
+end
 local UpdatePawnArrow, VisualSortCompare = I.UpdatePawnArrow, I.VisualSortCompare
 local CreateHeader, CreateFooter = I.CreateHeader, I.CreateFooter
 local CreateReagentBagUI, GoldLedger = I.CreateReagentBagUI, I.GoldLedger
@@ -76,8 +88,7 @@ local function StartAddon()
 
     GoldLedger.Register("bags", OnGoldChanged)
 
-    -- Position: default 50px from the bottom-right corner, saved position
-    -- overrides (held by its nearest screen corner, see ns.AnchorWindowToCorner)
+    -- Position: default 50px from the bottom-right corner; a saved spot overrides it
     if BP().bagsPosition then
         local pos = BP().bagsPosition
         EUI_Bags:SetPoint(pos.point, UIParent, pos.relativePoint, pos.x, pos.y)
@@ -101,7 +112,7 @@ local function StartAddon()
         if not IsMouseButtonDown("LeftButton") then
             _bagDragging = false
             self:Hide()
-            ns.SaveWindowCorner(EUI_Bags, "bagsPosition")
+            ns.SaveWindowPos(EUI_Bags, "bagsPosition")
             return
         end
         local cx, cy = GetCursorPosition()
@@ -132,7 +143,7 @@ local function StartAddon()
         if button == "LeftButton" and _bagDragging then
             _bagDragging = false
             _bagDragFrame:Hide()
-            ns.SaveWindowCorner(EUI_Bags, "bagsPosition")
+            ns.SaveWindowPos(EUI_Bags, "bagsPosition")
         end
     end)
 
@@ -158,7 +169,7 @@ local function StartAddon()
     EUI_Bags:HookScript("OnShow", function(self)
         self:Raise()
         self:RepinIconLevels()
-        ns.SettleWindowCorner(self, "bagsPosition")
+        ns.SettleWindowPos(self, "bagsPosition")
         PlaySound(SOUNDKIT.IG_BACKPACK_OPEN)
         -- Repaint if the unmerge state changed while hidden: the flag-flip refresh is gated on
         -- IsVisible, and closing a mailbox hides bags in the same breath so that repaint is thrown away (costs one boolean compare when already matching).
@@ -679,10 +690,9 @@ local function StartAddon()
             local count = counts[itemID]
             local known = _knownItemCounts[itemID] or 0
             -- New Items Only: more of a stackable item already carried does not
-            -- flag. Gear (max stack 1) and mail or trade arrivals still do; a
-            -- trade can land just after the window closes (_recentTradeArrival).
+            -- flag. Gear (max stack 1) and mail or trade arrivals still do.
             if count > known and (not BP().bagRecentNewOnly or known == 0 or atMail
-                or (I._openItemPanels and I._openItemPanels.trade) or EUI_Bags._recentTradeArrival
+                or _openItemPanels.trade or TradeJustClosed()
                 or (C_Item.GetItemMaxStackSizeByID(itemID) or 0) == 1) then
                 -- New, or more of a listed item: either way it is the newest now
                 local recent, ro = EUI_Bags._recentItems, EUI_Bags._recentOrder
@@ -715,7 +725,6 @@ local function StartAddon()
                 end
             end
         end
-        EUI_Bags._recentTradeArrival = nil -- the trade grace covers one pass
     end
 
     -- "Clear" link on the Recent Items headers. Only the tracked set is dropped --
@@ -967,9 +976,8 @@ local function StartAddon()
         end
         local panel = ITEM_PANEL_EVENTS[event]
         if panel then
-            -- New Items Only: received items can land after the trade window closes.
             if event == "TRADE_CLOSED" and BP().bagRecentNewOnly == true then
-                EUI_Bags._recentTradeArrival = true
+                tradeClosedAt = GetTime()
             end
             -- Tracked even while bags are hidden: the panel that opens them (OpenAllBags) can fire in either order with this event.
             if SetItemPanelOpen(panel[1], panel[2]) and EUI_Bags:IsVisible() then

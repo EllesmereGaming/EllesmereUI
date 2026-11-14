@@ -2,14 +2,15 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --------------------------------------------------------------------------------
 --  Pet Stable on WoW Forever
 --
---  Forever's stable is PetStableFrame (the load-on-demand Blizzard_StableUI
---  addon, Camelot build): a portrait window with the selected pet's model, its
+--  Forever's stable is PetStableFrame (the Blizzard_StableUI addon, which
+--  loads at startup there): a portrait window with the selected pet's model, its
 --  happiness and XP bar, three slot buttons (current pet + two stabled), the
 --  slot purchase row and the player's money. This skins it under its own card
 --  and key ("stable", enable key reskinStable): the frame art, dividers and
 --  footer faded under the shell and border, the portrait removed, the model
 --  well bordered, the XP bar flattened to the house bar fill, the slots as
---  house item slots, and the purchase button flattened. Forever only.
+--  house item slots, and the purchase button flattened. Forever only. Built
+--  at the window's first show, so a login builds nothing.
 --------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
 local EllesmereUI = _G.EllesmereUI
@@ -31,6 +32,8 @@ local function SkinSlot(btn)
         if t and t.SetAlpha then t:SetAlpha(0) end
     end
     WSkin.ItemButton(btn)
+    -- every pass: the gamepad style's switch gives the label Blizzard's font again
+    if btn.Text then WSkin.Font(btn.Text) end
     local d = GetFFD(btn)
     if d.done then return end
     d.done = true
@@ -43,7 +46,6 @@ local function SkinSlot(btn)
         ct:ClearAllPoints()
         ct:SetAllPoints(icon)
     end
-    if btn.Text then WSkin.Font(btn.Text) end
 end
 
 -- The XP bar is a masked atlas fill over a rounded track: drop both for a
@@ -125,9 +127,16 @@ end)
 WSkin.RegisterWindow({
     key = "stable",
     apply = function()
-        Skin_Stable()
         local f = _G.PetStableFrame
-        if f then WSkin.HookShow(f, WSkin.Debounce(Skin_Stable)) end
+        if not f then return end
+        -- Skinned as the window shows (its first show builds it, before that
+        -- frame draws) and once more a frame later, after Blizzard's own update.
+        local repaint = WSkin.Debounce(Skin_Stable)
+        WSkin.HookShow(f, function()
+            Skin_Stable()
+            repaint()
+        end)
+        if f:IsShown() then Skin_Stable() end
     end,
     addons = { Blizzard_StableUI = true },
 })

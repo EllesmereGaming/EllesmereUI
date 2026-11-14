@@ -236,8 +236,8 @@ end
 --  resets the window to its default size. The footer's right-edge text keeps
 --  clear of whichever icons show (cfg.inset(px)).
 --  cfg: step, relayoutStep (optional, default step), minCols, minH,
---  getCols(), getHeight(), save(cols, h), finish(), savePos() (anchors the
---  window to its nearest corner once the drag ends),
+--  getCols(), getHeight(), save(cols, h), finish(), posKey (the profile key
+--  of the window's saved spot),
 --  reset(), inset(px), isLocked(), setLocked(v), hidden() (optional: the
 --  window sizes itself, so neither icon shows)
 -------------------------------------------------------------------------------
@@ -258,7 +258,9 @@ local function GripStop(grip)
         grip._drag = nil
         grip:GetParent()._resizing = nil
         grip._cfg.finish()
-        grip._cfg.savePos()
+        -- Back to its nearest corner; without Anchor to Nearest Corner the pin
+        -- saved as the drag began stands
+        if ns.WindowCornerOn() then ns.SaveWindowCorner(grip:GetParent(), grip._cfg.posKey) end
     end
     grip:SetAlpha(grip:IsMouseOver() and GR.HOVER or GR.A)
 end
@@ -289,10 +291,14 @@ local function GripOnMouseDown(grip, button)
     local frame, cfg = grip:GetParent(), grip._cfg
     local left, top, right, bottom = frame:GetLeft(), frame:GetTop(), frame:GetRight(), frame:GetBottom()
     if not left then return end
-    -- Pin the top-left corner so only the right and bottom edges move; the
-    -- window goes back to its nearest corner on release (GripStop)
+    -- Pin the top-left corner so only the right and bottom edges move. The pin
+    -- is the saved spot, unless Anchor to Nearest Corner takes the window back
+    -- to its corner on release (GripStop)
     frame:ClearAllPoints()
     frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+    if not ns.WindowCornerOn() then
+        BP()[cfg.posKey] = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = top }
+    end
     local cx, cy = GetCursorPosition()
     local es = frame:GetEffectiveScale()
     local screenW = UIParent:GetRight() * UIParent:GetEffectiveScale() / es
@@ -416,7 +422,7 @@ local _bagGripCfg = {
         if EUI_Bags._updateThumb then EUI_Bags._updateThumb() end
     end,
     finish = function() EUI_Bags:RefreshInventory() end,
-    savePos = function() ns.SaveWindowCorner(EUI_Bags, "bagsPosition") end,
+    posKey = "bagsPosition",
     reset = function()
         local p = BP()
         p.bagColumns, p.bagHeight, p.bagListWidth = nil, nil, nil
@@ -489,7 +495,7 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     end
 
     -- 6. Size frame. Default: fixed height, dynamic width. Auto-size: height grows to fit content
-    -- (no vertical scroll), width follows column count; both track a running max while open (never shrink mid-session), floored at FIXED_H and capped at the screen.
+    -- (no vertical scroll), width follows column count; both track a running max while open (never shrink mid-session, unless Auto-Size's Shrink is on), floored at FIXED_H and capped at the screen (or Auto-Size's Max Height).
     -- WoW Forever, and Auto-Size with the Compact display: height fits the content on that running max, with no FIXED_H floor (see below).
     local FIXED_H = 650
     -- Resize grip height: the whole window, footer inside it (so a footer

@@ -737,13 +737,30 @@ local function CreateSidebar()
     titleArrow._icon:SetRotation(math.pi)
     titleArrow:Hide()
 
-    -- The window holds its nearest screen corner (ns.AnchorWindowToCorner),
-    -- so one parked on the right keeps its right edge as the width changes.
+    -- With Anchor to Nearest Corner a window parked on the right keeps its right
+    -- edge by its anchor. Without it, a window right of the screen's middle is
+    -- moved to keep that edge and pinned there by its top-left corner.
     local function ToggleSidebar()
+        local oldRight, oldTop
+        if not ns.WindowCornerOn() then
+            local center = EUI_Bags:GetCenter()
+            local screenW = UIParent:GetWidth()
+            if center and screenW and center > screenW / 2 then
+                oldRight, oldTop = EUI_Bags:GetRight(), EUI_Bags:GetTop()
+            end
+        end
+
         BP().bagSidebarCollapsed = not BP().bagSidebarCollapsed
         UpdateCollapseArrow()
         sidebar:SetWidth(GetSidebarContentWidth(sidebar))
         EUI_Bags:RefreshInventory()
+
+        if oldRight and oldTop then
+            local left = oldRight - EUI_Bags:GetWidth()
+            EUI_Bags:ClearAllPoints()
+            EUI_Bags:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, oldTop)
+            BP().bagsPosition = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = oldTop }
+        end
     end
     collapseBtn:SetScript("OnClick", ToggleSidebar)
     titleArrow:SetScript("OnClick", function()

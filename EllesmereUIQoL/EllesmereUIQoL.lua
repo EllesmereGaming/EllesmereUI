@@ -124,8 +124,18 @@ qolFrame:SetScript("OnEvent", function(self)
                 and (not request.isRoll or request.specID == LootSpec())
         end
 
+        -- The confirm's secure click does nothing in combat (Blizzard's
+        -- template skips it there): say so instead of opening, or silently
+        -- closing, a prompt that cannot act. The roll stays for after combat.
+        local function CombatRefused()
+            if not InCombatLockdown() then return false end
+            EllesmereUI.PrintError(EllesmereUI.L("A bonus roll can only be confirmed out of combat."))
+            return true
+        end
+
         local function Click(isRoll, button)
             if not active or not Enabled() then return end
+            if CombatRefused() then return end
             Invalidate()
             local frame = BonusRollFrame
             if not frame then return end
@@ -154,7 +164,10 @@ qolFrame:SetScript("OnEvent", function(self)
                 confirmGate = function()
                     return pending == request and IsCurrent(request)
                 end,
-                onConfirm = Invalidate,
+                onConfirm = function()
+                    Invalidate()
+                    CombatRefused()
+                end,
             })
         end
 
@@ -2378,6 +2391,7 @@ do
     function UpdateSecondaryStats()
         if not statsFrame or not statsFrame:IsShown() then return end
         statUnreadable = false
+        if FV then FV.missing = nil end
         if not statsFrame._classHex then
             -- Cache ONLY a resolved class color: caching the white fallback
             -- here left class-colored labels white for the whole session
@@ -2619,7 +2633,7 @@ do
         -- anySecret deliberately does NOT arm it: that clears on
         -- PLAYER_REGEN_ENABLED, and spending the budget on a whole fight would
         -- leave none for the settle that actually needs it.
-        if statUnreadable or staleSize then
+        if statUnreadable or staleSize or (FV and FV.missing) then
             ArmSecretHeal()
         else
             statsFrame._secretHeals = nil

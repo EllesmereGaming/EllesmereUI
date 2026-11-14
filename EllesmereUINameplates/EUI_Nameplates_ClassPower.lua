@@ -18,6 +18,9 @@ local C_UnitAuras = C_UnitAuras
 local UnitIsUnit = UnitIsUnit
 local Enum = Enum
 local _, PLAYER_CLASS = UnitClass("player")
+-- The energy bar beside the combo pips is WoW Forever's alone (rogues and druids):
+-- every other client builds, registers and shows none of it.
+ns.NP_ENERGY_BAR = EllesmereUI.IS_FOREVER == true and (PLAYER_CLASS == "ROGUE" or PLAYER_CLASS == "DRUID")
 
 local defaults, GetClassPowerClassColors = I.defaults, I.GetClassPowerClassColors
 local GetClassPowerCustomColor = I.GetClassPowerCustomColor
@@ -244,27 +247,21 @@ local function EnsureClassPowerBar(plate)
     plate._cpBar = bar
 end
 
--- Energy bar beside the combo pips (Rogue, Druid in cat form). Off by default; the
--- StatusBar is only built the first time it is shown.
+-- Energy bar beside the combo pips (WoW Forever: a rogue, a druid in cat form).
+-- Off by default; the StatusBar is only built the first time it is shown.
 function ns.CP_EnergyBarActive()
-    return (PLAYER_CLASS == "ROGUE" or PLAYER_CLASS == "DRUID")
-        and ns.GetClassPowerEnergyBar()
+    return ns.NP_ENERGY_BAR and ns.GetClassPowerEnergyBar() == true
         and UnitPowerType("player") == Enum.PowerType.Energy
 end
+
+-- Combat as the watcher's own events report it (set while Hide When Full listens):
+-- at PLAYER_REGEN_DISABLED the lockdown itself may not be up yet.
+local energyInCombat = false
 
 -- Hide When Full: alpha 0 while capped out of combat. Energy can be secret, so the
 -- engine does the comparison through a step curve; the result is only fed to SetAlpha.
 function ns.CP_EnergyFullAlpha()
-    if not ns.GetClassPowerEnergyHideFull() or InCombatLockdown() then return 1 end
-    local energy = Enum.PowerType.Energy
-    if not (UnitPowerPercent and C_CurveUtil and C_CurveUtil.CreateCurve and Enum.LuaCurveType) then
-        local cur, mx = UnitPower("player", energy), UnitPowerMax("player", energy)
-        if cur and mx and not (issecretvalue and (issecretvalue(cur) or issecretvalue(mx)))
-           and cur >= mx then
-            return 0
-        end
-        return 1
-    end
+    if energyInCombat or not ns.GetClassPowerEnergyHideFull() then return 1 end
     local curve = ns._cpEnergyFullCurve
     if not curve then
         curve = C_CurveUtil.CreateCurve()
@@ -273,7 +270,9 @@ function ns.CP_EnergyFullAlpha()
         curve:AddPoint(1, 0)
         ns._cpEnergyFullCurve = curve
     end
-    return UnitPowerPercent("player", energy, true, curve) or 1
+    local a = UnitPowerPercent("player", Enum.PowerType.Energy, true, curve)
+    if type(a) == "nil" then return 1 end
+    return a
 end
 
 function ns.CP_HideEnergyBar(plate)
@@ -293,11 +292,10 @@ function ns.CP_UpdateEnergyBar(plate, anchorFrame, anchorRelPoint, leftAnchor, x
     bar:ClearAllPoints()
     bar:SetSize(w, h)
     bar:SetPoint(leftAnchor, anchorFrame, anchorRelPoint, x, y)
+    -- straight to the bar: a secret takes neither a compare nor an `or`
     local energy = Enum.PowerType.Energy
-    local mx = UnitPowerMax("player", energy)
-    if not mx or (issecretvalue and issecretvalue(mx)) or mx <= 0 then mx = 100 end
-    bar:SetMinMaxValues(0, mx)
-    bar:SetValue(UnitPower("player", energy) or 0)
+    bar:SetMinMaxValues(0, UnitPowerMax("player", energy))
+    bar:SetValue(UnitPower("player", energy))
     bar:SetStatusBarColor(color[1], color[2], color[3], 1)
     bar._bg:SetColorTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
     bar:SetAlpha(ns.CP_EnergyFullAlpha())
@@ -309,7 +307,7 @@ function ns.CP_RefreshEnergyValue()
     local tp = ns._cachedTargetPlate
     local bar = tp and tp._cpEnergy
     if not (bar and bar:IsShown()) then return end
-    bar:SetValue(UnitPower("player", Enum.PowerType.Energy) or 0)
+    bar:SetValue(UnitPower("player", Enum.PowerType.Energy))
     bar:SetAlpha(ns.CP_EnergyFullAlpha())
 end
 
@@ -761,7 +759,7 @@ local function UpdateClassPowerOnPlate(plate)
         ns.CP_HideEnergyBar(plate)
     end
     -- Top position: the name sits above the stack, so re-place it when the bar comes or goes.
-    if plate._cpEnergyShown ~= eShown then
+    if (plate._cpEnergyShown or false) ~= eShown then
         plate._cpEnergyShown = eShown
         if cpPos == "top" and plate.RefreshNamePosition then plate:RefreshNamePosition() end
     end
@@ -887,6 +885,10 @@ GetClassPowerTopPush = function(plate)
     local push = h * cpScale + cpYOff
     if ns.CP_EnergyBarActive() then
         push = push + ns.GetClassPowerEnergyHeight() + math.max(ns.GetClassPowerGap() * cpScale, 1)
+        -- past the pips, its Y offset can carry it further up
+        if ns.GetClassPowerEnergyAnchor() ~= "inner" then
+            push = push + math.max(ns.GetClassPowerEnergyYOffset(), 0)
+        end
     end
     return push
 end
@@ -929,6 +931,41 @@ end
 -- Forward declarations for mutual recursion on spec change
 local DisableClassPowerWatcher
 local ApplyClassPowerSetting
+
+-- The energy bar's own events on the running watcher, by the settings as they
+-- stand: every energy change while the bar is on, the combat edges while Hide
+-- When Full is. Run as the watcher starts and on every settings apply (a
+-- profile or override switch flips these with the watcher running); a flip
+-- there repaints the target plate. Nothing at all off WoW Forever.
+local energyEvents, energyCombatEvents = false, false
+local function SyncEnergyEvents(quiet)
+    local w = classPowerWatcher
+    if not w or type(classPowerType) == "string" then return end
+    local on = ns.NP_ENERGY_BAR and ns.GetClassPowerEnergyBar() == true
+    local full = on and ns.GetClassPowerEnergyHideFull() == true
+    if on == energyEvents and full == energyCombatEvents then return end
+    if on ~= energyEvents then
+        energyEvents = on
+        if on then
+            w:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
+        else
+            w:UnregisterEvent("UNIT_POWER_FREQUENT")
+        end
+    end
+    if full ~= energyCombatEvents then
+        energyCombatEvents = full
+        if full then
+            energyInCombat = InCombatLockdown() and true or false
+            w:RegisterEvent("PLAYER_REGEN_DISABLED")
+            w:RegisterEvent("PLAYER_REGEN_ENABLED")
+        else
+            energyInCombat = false
+            w:UnregisterEvent("PLAYER_REGEN_DISABLED")
+            w:UnregisterEvent("PLAYER_REGEN_ENABLED")
+        end
+    end
+    if not quiet then RefreshClassPowerFull() end
+end
 
 -- Enable/disable the class power watcher
 local function EnableClassPowerWatcher()
@@ -1027,15 +1064,8 @@ local function EnableClassPowerWatcher()
         if classPowerType == Enum.PowerType.Runes then
             classPowerWatcher:RegisterEvent("RUNE_POWER_UPDATE")
         end
-        -- Energy bar: every energy change, as the Resource Bars power bar paints;
-        -- Hide When Full also needs combat transitions. Only while those options are on.
-        if (PLAYER_CLASS == "ROGUE" or PLAYER_CLASS == "DRUID") and ns.GetClassPowerEnergyBar() then
-            classPowerWatcher:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
-            if ns.GetClassPowerEnergyHideFull() then
-                classPowerWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
-                classPowerWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
-            end
-        end
+        -- the energy bar's events, and the combat state its first paint reads
+        SyncEnergyEvents(true)
         classPowerWatcher:SetScript("OnEvent", function(_, event, unit, powerToken)
             if event == "PLAYER_SPECIALIZATION_CHANGED" then
                 -- Group members' spec events land here too; see the filter note in the
@@ -1046,9 +1076,13 @@ local function EnableClassPowerWatcher()
             elseif event == "PLAYER_TARGET_CHANGED" or event == "UPDATE_SHAPESHIFT_FORM" then
                 RefreshClassPowerFull()
             elseif event == "UNIT_POWER_FREQUENT" then
-                if (issecretvalue and issecretvalue(powerToken)) or powerToken == "ENERGY" then
+                if issecretvalue(powerToken) or powerToken == "ENERGY" then
                     ns.CP_RefreshEnergyValue()
                 end
+            elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_REGEN_ENABLED" then
+                -- registered here only for Hide When Full (SyncEnergyEvents)
+                energyInCombat = event == "PLAYER_REGEN_DISABLED"
+                ns.CP_RefreshEnergyValue()
             else
                 RefreshClassPower()
             end
@@ -1065,6 +1099,7 @@ DisableClassPowerWatcher = function()
     classPowerWatcher:Hide()
     classPowerWatcher = nil
     classPowerFormReq = nil
+    energyEvents, energyCombatEvents, energyInCombat = false, false, false
     -- PERF: only target plate had pips; only it needs cleanup
     local tp = ns._cachedTargetPlate
     if tp then
@@ -1080,17 +1115,13 @@ end
 ApplyClassPowerSetting = function()
     if GetShowClassPower() then
         EnableClassPowerWatcher()
+        SyncEnergyEvents()
     else
         DisableClassPowerWatcher()
     end
 end
 ns.ApplyClassPowerSetting = ApplyClassPowerSetting
 ns.RefreshClassPower = RefreshClassPowerFull
--- For settings that change which events the watcher registers.
-ns.RebuildClassPowerWatcher = function()
-    DisableClassPowerWatcher()
-    ApplyClassPowerSetting()
-end
 local function DarkenColor(r, g, b, factor)
     factor = factor or 0.60
     return r * factor, g * factor, b * factor
