@@ -1361,6 +1361,12 @@ local function CreateBlizzOwnedOverlay(def, parent)
         ApplyHover(0)
         ov._brd:SetColor(ar, ag, ab, 0.6)
     end
+    -- Accent change (callback in EUI_UnlockMode_Movers.lua): a hovered overlay takes it on leave.
+    ov._applyAccent = function()
+        ar, ag, ab = GetAccent()
+        if hoverTarget == 0 then ov._brd:SetColor(ar, ag, ab, 0.6) end
+        if not (actionBtn:IsShown() and actionBtn:IsMouseOver()) then actionFs:SetTextColor(ar, ag, ab, 0.9) end
+    end
     -- Shift+Right Click temporarily hides this overlay for the current unlock
     -- session (matches the regular mover behavior). The _tempHidden flag is
     -- cleared on the next unlock entry so the overlay reappears then. Purely a

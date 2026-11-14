@@ -747,6 +747,13 @@ local function CreateMover(barKey)
         gdFS:SetTextColor(1, 0.7, 0.3, 0.85)
     end
 
+    -- Accent change (accent callback below): later repaints read the new colour; the
+    -- resting border takes it now, a hovered or selected one on leave, link texts on hover.
+    function mover._applyAccent()
+        ar, ag, ab = GetAccent()
+        if not mover._selected and UM.hoveredMover ~= mover then brd:SetColor(ar, ag, ab, 0.6) end
+    end
+
     -- Update the name label color based on anchor state
     local function RefreshAnchoredIdle()
         -- A link on an element that places itself (ownsPosition) is inert.
@@ -4599,6 +4606,12 @@ do
         end
     end
 end
+
+-- Overlays outlive a session; an accent change repaints their accent parts (runs only on a change).
+EllesmereUI.RegAccent({ type = "callback", fn = function()
+    for _, m in pairs(movers) do m._applyAccent() end
+    for _, ov in pairs(UM._blizzOwnedOverlays) do ov._applyAccent() end
+end })
 
 UM.CreateMover = CreateMover
 end

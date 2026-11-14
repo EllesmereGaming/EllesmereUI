@@ -219,6 +219,9 @@ All Warbank Tabs
 All gear assignments point to existing Equipment Manager sets.
 All selected profiles will keep their %1$s settings in sync: changes made on any of them carry over to the others. Choose which profile's settings the group starts from.
 Already assigned to %s
+Already at the largest size that fits the screen.
+Already at the largest size.
+Already at the smallest size.
 Already in use. Use the arrows to reorder.
 Already matches the template.
 Already on %s
@@ -932,6 +935,7 @@ Leatrix Plus has chat and minimap features that conflict with EllesmereUI. Disab
 Leatrix Plus options that are on:
 Leave Quick Actions.
 Leave combat to enable visiting.
+Leaves Unlock Mode. With unsaved changes, it asks whether to save them first.
 Left
 Left Click to apply buffs (out of combat), Middle Click to hide until next load screen
 Left click a button to edit its glow, right click to add a new glow
@@ -984,6 +988,8 @@ Macros can't be changed in combat.
 Main Bags (%d / %d)
 Major Features
 Makes buttons glow when a chosen buff is active or missing, or when their ability is usable.
+Makes this bar bigger.
+Makes this bar smaller.
 Map Markers
 Map pins cannot be placed inside instances.
 Map pins cannot be placed on %1$s.
@@ -1401,6 +1407,7 @@ Saved
 Saved %1$s
 Saved, but the game changed the text: this is what it kept.
 Saved.
+Saves the new positions and leaves Unlock Mode.
 Scenario
 Scorpio
 Search Features...
