@@ -603,15 +603,11 @@ local sampling  -- Show Samples is drawing: its rows are not kept
 local scroll, missed = 0, 0 -- the newest history row shown (0: live), rows kept while looking back
 local historyList
 
--- Kept in EllesmereUIDB.lootFeedHistory, outside the settings, so a full-account export leaves it out.
+-- Kept in the character roster (lootFeedHistory), outside the settings and never exported.
 local function History()
     if not historyList then
-        local key = EllesmereUIDB and EllesmereUI.CharKey(" - ", EllesmereUIDB.lootFeedHistory)
-        if not key then return {} end
-        EllesmereUIDB.lootFeedHistory = EllesmereUIDB.lootFeedHistory or {}
-        local byChar = EllesmereUIDB.lootFeedHistory
-        byChar[key] = byChar[key] or {}
-        historyList = byChar[key]
+        historyList = EllesmereUI.CharData("lootFeedHistory", true)
+        if not historyList then return {} end -- GUID unread: a throwaway, not cached
     end
     return historyList
 end
@@ -706,16 +702,19 @@ OnWheel = function(_, delta)
 end
 
 -- The wheel is caught only while Shift is down, so it never takes the camera zoom.
+-- Only a change of that state touches the frames: Ctrl and Alt fire the same event.
+local wheelOn
+local function ArmWheel(f, on)
+    f:EnableMouseWheel(on)
+    f:SetScript("OnMouseWheel", OnWheel)
+end
+
 local function CatchWheel(on)
-    if not anchor then return end
-    anchor:EnableMouseWheel(on)
-    anchor:SetScript("OnMouseWheel", OnWheel)
-    for _, set in ipairs({ active, pool }) do
-        for _, r in ipairs(set) do
-            r:EnableMouseWheel(on)
-            r:SetScript("OnMouseWheel", OnWheel)
-        end
-    end
+    if not anchor or on == wheelOn then return end
+    wheelOn = on
+    ArmWheel(anchor, on)
+    for _, r in ipairs(active) do ArmWheel(r, on) end
+    for _, r in ipairs(pool) do ArmWheel(r, on) end
 end
 
 -- Shows data under key: the row already showing key is refilled, moved to the
@@ -735,7 +734,12 @@ Push = function(key, data, entry)
         Unlist(r)
     else
         while #active >= Get("maxRows") do Release(active[#active]) end
-        r = table.remove(pool) or NewRow()
+        r = table.remove(pool)
+        if not r then
+            -- A row made while Shift is held takes the wheel like the rows before it.
+            r = NewRow()
+            if wheelOn then ArmWheel(r, true) end
+        end
         StyleRow(r)
     end
     table.insert(active, 1, r)
@@ -947,6 +951,19 @@ local function UpdateSummary()
     SyncClock()
 end
 
+-- fn to run later as the kind of row its caller is drawing now: a Show Samples
+-- row stays a sample (not kept) when the client loads its item afterwards.
+local function AsDrawn(fn)
+    local sample = sampling
+    return function()
+        local was = sampling
+        sampling = sample
+        local ok, err = pcall(fn)
+        sampling = was
+        if not ok then error(err, 0) end
+    end
+end
+
 -- Group loot by item name: links from the loot history, and the roll behind each of your wins.
 local rollLinks, wins = {}, {}
 
@@ -959,7 +976,7 @@ local function ShowItem(link, count, retried, looted, earned)
         -- Not cached yet: try again once the client has it. Only once: the
         -- client also calls back when the item fails to load.
         if not retried then
-            Item:CreateFromItemLink(link):ContinueOnItemLoad(function() ShowItem(link, count, true, looted, earned) end)
+            Item:CreateFromItemLink(link):ContinueOnItemLoad(AsDrawn(function() ShowItem(link, count, true, looted, earned) end))
         end
         return
     end
@@ -1118,9 +1135,9 @@ local function ShowRoll(key, link, itemName, winner, class, roll, retried)
     if link then
         name, _, quality, _, _, _, _, _, _, icon = C_Item.GetItemInfo(link)
         if not name and not retried then
-            Item:CreateFromItemLink(link):ContinueOnItemLoad(function()
+            Item:CreateFromItemLink(link):ContinueOnItemLoad(AsDrawn(function()
                 ShowRoll(key, link, itemName, winner, class, roll, true)
-            end)
+            end))
             return
         end
     end

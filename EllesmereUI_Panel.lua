@@ -3292,6 +3292,23 @@ function EUI_NS.GetTabLabel(folderName, page)
     return own or EllesmereUI.TAB_LABEL_OVERRIDES[page] or page
 end
 
+-- The page that holds a saved override entry's row. A suite module lists the sections
+-- whose rows are on another page in its config.movedSections: [page] = { [section] =
+-- the page that holds them, or { page = that page, stay = { [row label] = true } } when
+-- some rows are still on the first page }. Returns the page, and true when it is not the
+-- entry's own (its section is then not a section of that page). Suite-only, as
+-- tabLabels. The entry itself is only read.
+function EUI_NS.EntryPage(folderName, page, section, label)
+    local m = folderName and EUI_NS.IsSuiteKey(folderName) and modules[folderName]
+    local moved = m and type(m.movedSections) == "table" and m.movedSections[page]
+    local to = moved and moved[section]
+    if type(to) == "table" then
+        if to.stay and to.stay[label] then to = nil else to = to.page end
+    end
+    if to then return to, true end
+    return page, false
+end
+
 -- Tab buttons are pooled by position (tabBar._tabPool) and re-labelled for each
 -- module; tabBar._tabButtons lists the ones in use, in order.
 ClearTabs = function()

@@ -8,8 +8,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  take Warbound items only, which reach every character on the account, and
 --  show dimmed. A click puts the name in the To: box; a right
 --  click offers Ignore This Character and Remove Character.
---  The card also keeps Shown Characters (EllesmereUIDB.mailAltHidden, by
---  player GUID) and, in the toggle's cog, Sort By (mailAltListSort), Max
+--  The card also keeps Shown Characters (mailAltHidden = true in the
+--  character roster) and, in the toggle's cog, Sort By (mailAltListSort), Max
 --  Characters Shown (mailAltListMax) and Minimum Level (mailAltListMinLevel).
 --  The cog in the title opens the list's own menu, on the spot: the ignored
 --  characters shown too (dimmed and marked, this session only), Sort By, Max
@@ -21,16 +21,21 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  time online) or Friends (Forever has no character friend list: the
 --  Battle.net friends seen in this game, each character kept in
 --  EllesmereUIDB.mailAltFriends so it stays listed while its player is away).
+--  A friend of the other faction, in another region or on another ruleset
+--  (the letters its realm name ends in against this character's:
+--  EllesmereUI.RealmRulesetSuffix) shows dimmed: mail cannot reach it.
 --  On retail the list keeps to the player's own characters, with no tabs.
 --  Sort By, Max Characters Shown and Minimum Level apply to every tab;
 --  ignoring is for the player's own characters. The tabs are plain buttons of
 --  ours (no Blizzard tab template, whose OnShow would sit under SendMailFrame).
 --
---  The roster, EllesmereUIDB.mailAltRoster (by player GUID, which a rename
---  keeps), is written at every login and logout even while the list is off
---  (owner decision 2026-10-24): two small writes a session and nothing during
---  play, so every character played since is listed the first time the list is
---  turned on.
+--  The roster is the character roster (EllesmereUI.Chars, by player GUID,
+--  which a rename keeps): its name, realm, realmKey, class, level, faction
+--  and seen, which the core writes at login, level-up and logout whether or
+--  not the list is on, so every character played since is listed the first
+--  time the list is turned on. Remove Character sets mailAltRemoved on the
+--  entry, which leaves it out of the list and of Shown Characters until that
+--  character next logs in.
 --
 --  Zero taint: none of our code runs inside Blizzard's mail code.
 --   - The panel is a child of SendMailFrame, and no frame of ours under it
@@ -51,9 +56,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --     suggestions open when the player had started typing (Tab or the arrows
 --     can then pick one; a typed key or Escape refreshes or closes them).
 --
---  WoW Forever (no realms, surnames): a character is kept with its surname,
---  UnitName's second return there, and mail addresses it as "Name Surname"
---  (the first name alone is refused); its "realm" is the ruleset
+--  WoW Forever (no realms, surnames): the roster's name is "Name Surname"
+--  (UnitName's second return there), which mail needs (the first name alone
+--  is refused); its realm and realmKey are the ruleset
 --  (EllesmereUI.RealmGroupName), and only characters of the same ruleset and
 --  faction can be mailed, so the others are left out or dimmed. The letter
 --  window's close runs InboxFrame:Update there, not InboxFrame_Update.
@@ -77,7 +82,7 @@ local wipe, sort = wipe, table.sort
 local DEFAULT_MAX, DEFAULT_MIN_LEVEL, DEFAULT_SORT = 10, 1, "recent"
 local MAX_ROWS   = 20       -- the Max Characters Shown slider's top
 -- WoW Forever lists "Name Surname": a wider panel.
-local PANEL_W    = EllesmereUI.IS_FOREVER and 200 or 170
+local PANEL_W    = FOREVER and 200 or 170
 local ROW_H      = 22
 local TAB_H      = 20       -- the tab strip under the title
 local ICON_SIZE  = 16
@@ -111,7 +116,7 @@ local menuGuid                    -- the row the right-click menu was opened on
 local myGuid                      -- this character, read at login (never in its own list)
 local paintedGen, paintedFaction  -- the class colour palette and faction the list was painted with
 local MENU, IGNORED_MENU, Changed, BuildTabs
-local showIgnored = false         -- the title's right click: ignored characters listed too (this session)
+local showIgnored = false         -- the cog menu's Show Ignored Characters: they are listed too (this session)
 local ignoredShown = {}           -- player GUIDs of the ignored characters in the shown list
 local ignoredCount = 0            -- ignored characters this page could mail
 local tabs = {}                   -- the tab buttons, by tab key
@@ -137,15 +142,16 @@ local function NumberSetting(key, default)
     return v and math.floor(v) or default
 end
 
+-- Every recorded character not removed: { [guid] = roster entry } (a new
+-- table each call).
 local function Roster()
-    local db = EllesmereUIDB
-    if type(db) ~= "table" then return nil end
-    local r = db.mailAltRoster
-    if type(r) ~= "table" then
-        r = {}
-        db.mailAltRoster = r
+    local out = {}
+    for guid, c in pairs(EllesmereUI.Chars() or {}) do
+        if type(c) == "table" and type(c.name) == "string" and c.realmKey and not c.mailAltRemoved then
+            out[guid] = c
+        end
     end
-    return r
+    return out
 end
 
 local TAB_KEYS = { alts = true, guild = true, friends = true }
@@ -155,41 +161,19 @@ local function Tab()
     return TAB_KEYS[t] and t or "alts"
 end
 
+-- The characters Shown Characters leaves out: { [guid] = true }, or nil.
 local function Hidden()
-    local h = EllesmereUIDB and EllesmereUIDB.mailAltHidden
-    return type(h) == "table" and h or nil
+    local chars = EllesmereUI.Chars()
+    local h
+    for guid, c in pairs(chars or {}) do
+        if type(c) == "table" and c.mailAltHidden then
+            h = h or {}
+            h[guid] = true
+        end
+    end
+    return h
 end
 
--- This character as the roster keeps it. A read that comes back unknown keeps
--- the stored value (a level read before the character is in the world).
-local function RecordPlayer()
-    local guid = PlainString(UnitGUID("player"))
-    if guid then myGuid = guid end
-    local name, surname = UnitName("player")
-    name = PlainString(name)
-    local realm = PlainString(FOREVER and EUI.RealmGroupName() or GetRealmName())
-    local _, class = UnitClass("player")
-    class = PlainString(class)
-    if not (guid and name and realm and class) then return end
-    -- The realm as mail addresses it ("Area52"): the normalized name. WoW
-    -- Forever has none: the ruleset groups the characters.
-    local realmKey = FOREVER and realm or PlainString(GetNormalizedRealmName()) or (realm:gsub("[%s%-]", ""))
-    local roster = Roster()
-    if not roster then return end
-    local e = roster[guid]
-    if type(e) ~= "table" then
-        e = {}
-        roster[guid] = e
-    end
-    e.name, e.realm, e.realmKey, e.class = name, realm, realmKey, class
-    if FOREVER then e.surname = PlainString(surname) end
-    local level = UnitLevel("player")
-    if type(level) == "number" and not IsSecret(level) and level > 0 then e.level = level end
-    local faction = PlainString((UnitFactionGroup("player")))
-    if faction then e.faction = faction end
-    e.seen = time()
-    dirty = true
-end
 
 -- "Level 80 Mage, Horde": the hover line of a list row and of the Shown
 -- Characters entries, in Blizzard's own strings.
@@ -206,10 +190,18 @@ end
 --  Minimum Level. Any mail reaches this realm or a connected one, either
 --  faction; Warbound items reach every character on the account.
 -------------------------------------------------------------------------------
--- This character's realm key, as RecordPlayer stores it.
+-- This character's realm key, as the roster stores it.
 local function OwnRealmKey()
     if FOREVER then return PlainString(EUI.RealmGroupName()) end
     return PlainString(GetNormalizedRealmName())
+end
+
+-- WoW Forever: the ruleset this character's realm name ends in ("PvE"), the
+-- form a friend's is read in. Kept once read: it never changes in a session.
+local ownRules
+local function OwnRules()
+    if not ownRules then ownRules = EUI.RealmRulesetSuffix(GetNormalizedRealmName()) end
+    return ownRules
 end
 
 local function ConnectedRealms()
@@ -259,8 +251,10 @@ end
 
 -- Guild: every member but this character, online ones seen now and the
 -- others at their last time online (the game counts it in hours).
+local guildEntries = {}   -- one table per listed member, reused from paint to paint
 local function GatherGuild(me, now)
     if not IsInGuild() then return end
+    local used = 0
     for i = 1, GetNumGuildMembers() do
         local name, _, _, level, _, _, _, _, online, _, class, _, _, _, _, _, guid = GetGuildRosterInfo(i)
         name, class = PlainString(name), PlainString(class)
@@ -271,8 +265,14 @@ local function GatherGuild(me, now)
                 seen = now - ((((y or 0) * 12 + (m or 0)) * 30 + (d or 0)) * 24 + (h or 0)) * 3600
             end
             local target = Ambiguate(name, "mail")
-            contacts[target] = { name = Ambiguate(name, "guild"), target = target, class = class,
-                level = PlainLevel(level), seen = seen }
+            used = used + 1
+            local e = guildEntries[used]
+            if not e then
+                e = {}
+                guildEntries[used] = e
+            end
+            e.name, e.target, e.class, e.level, e.seen = Ambiguate(name, "guild"), target, class, PlainLevel(level), seen
+            contacts[target] = e
         end
     end
 end
@@ -302,6 +302,10 @@ local function RememberFriend(acc, now)
     e.name, e.target, e.class = name, name, class
     e.level = PlainLevel(ga.characterLevel) or e.level
     e.faction = PlainString(ga.factionName) or e.faction
+    -- Another region: listed, but mail cannot reach it.
+    e.far = (ga.isInCurrentRegion == false) or nil
+    -- Its ruleset, as its realm name ends: mail stays inside one (Paint).
+    e.rules = EUI.RealmRulesetSuffix(ga.realmName) or e.rules
     e.seen = now
 end
 
@@ -387,7 +391,9 @@ local function RowEnter(self)
         text = text .. "\n" .. EllesmereUI.L("Ignored: right-click to show it again.")
     end
     if self._limited then
-        text = text .. "\n" .. (FOREVER and EllesmereUI.L("Your mail cannot reach the other faction.")
+        text = text .. "\n" .. (self._limited == "region" and EllesmereUI.L("Your mail cannot reach another region.")
+            or self._limited == "ruleset" and EllesmereUI.L("Your mail cannot reach another ruleset.")
+            or FOREVER and EllesmereUI.L("Your mail cannot reach the other faction.")
             or EllesmereUI.L("Only Warbound items can be mailed to this character."))
     end
     EUI.ShowWidgetTooltip(self, text .. "\n" .. EUI.COLOR_CODES.DIM
@@ -625,9 +631,9 @@ local function Build()
     cog:SetSize(14, 14)
     local cogY = blizzLook and (FOREVER and -17 or -11) or -(topH / 2)
     cog:SetPoint("RIGHT", panel, "TOPRIGHT", -(inset + 6), cogY)
-    cog:SetNormalTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\cogs.png")
+    cog:SetNormalTexture(EUI.COGS_ICON)
     cog:GetNormalTexture():SetAlpha(0.6)
-    cog:SetHighlightTexture("Interface\\AddOns\\EllesmereUI\\media\\icons\\cogs.png", "ADD")
+    cog:SetHighlightTexture(EUI.COGS_ICON, "ADD")
     cog:SetScript("OnClick", function(self)
         EUI.HideWidgetTooltip()
         local function Set(key, value)
@@ -704,6 +710,7 @@ Paint = function()
     local own = OwnRealmKey()
     local realms = ConnectedRealms()
     local myFaction = FOREVER and paintedFaction
+    local myRules = FOREVER and OwnRules() or nil
     local n = #shown
     for i = 1, n do
         local guid = shown[i]
@@ -713,10 +720,13 @@ Paint = function()
         local foreign = not e.target and e.realmKey ~= own
         -- Any mail reaches this realm or a connected one, either faction;
         -- another realm takes Warbound items only and shows dimmed. WoW
-        -- Forever: the same ruleset only (Collect), and the same faction.
+        -- Forever: the same ruleset only (Collect; a friend's by its realm
+        -- name, while both it and ours are known), and the same faction.
         local limited
         if e.target then
-            limited = FOREVER and myFaction ~= nil and e.faction ~= nil and e.faction ~= myFaction
+            limited = FOREVER and (e.far and "region"
+                or (myRules ~= nil and e.rules ~= nil and e.rules ~= myRules) and "ruleset"
+                or (myFaction ~= nil and e.faction ~= nil and e.faction ~= myFaction))
         elseif FOREVER then
             limited = myFaction ~= nil and e.faction ~= nil and e.faction ~= myFaction
         else
@@ -725,20 +735,18 @@ Paint = function()
         local ignored = ignoredShown[guid] == true
         r._guid, r._foreign, r._limited, r._ignored = guid, foreign, limited, ignored
         -- Mail addresses another realm's character as "Name-Realm", and a
-        -- WoW Forever character by its full name, "Name Surname".
+        -- WoW Forever character by its full name, "Name Surname" (the roster's name).
         if e.target then
             r._target = e.target
         elseif FOREVER then
-            r._target = e.surname and (e.name .. " " .. e.surname) or e.name
+            r._target = e.name
         else
             r._target = foreign and (e.name .. "-" .. e.realmKey) or e.name
         end
         DressIcon(r._icon, e.class)
         local c = EUI.GetClassColor(e.class)
-        if e.target then
+        if e.target or FOREVER then
             r._name:SetText(e.name)
-        elseif FOREVER then
-            r._name:SetText(e.surname and (e.name .. " " .. e.surname) or e.name)
         else
             r._name:SetText(foreign and (e.name .. FOREIGN_SERVER_LABEL) or e.name)
         end
@@ -840,19 +848,13 @@ Changed = function()
 end
 
 local function SetShown(guid, on)
-    if not EllesmereUIDB then return end
-    local h = EllesmereUIDB.mailAltHidden
     if on then
-        if type(h) == "table" then
-            h[guid] = nil
-            if not next(h) then EllesmereUIDB.mailAltHidden = nil end
-        end
+        EllesmereUI.ForgetCharField(guid, "mailAltHidden")
     else
-        if type(h) ~= "table" then
-            h = {}
-            EllesmereUIDB.mailAltHidden = h
-        end
-        h[guid] = true
+        local c = EllesmereUI.Chars()
+        c = c and c[guid]
+        if type(c) ~= "table" then return end
+        c.mailAltHidden = true
     end
     dirty = true
 end
@@ -877,9 +879,8 @@ MENU = {
               confirmText = "Remove",
               cancelText  = "Cancel",
               onConfirm   = function()
-                  roster[guid] = nil
-                  local h = Hidden()
-                  if h and h[guid] then SetShown(guid, true) end
+                  e.mailAltRemoved = true
+                  e.mailAltHidden = nil
                   Changed()
               end,
           })
@@ -954,7 +955,9 @@ local function WatchContacts(on)
 end
 
 local function OnContacts(event, arg1)
-    if event == "BN_FRIEND_INFO_CHANGED" and arg1 then
+    -- Not in combat: a friend seen then is caught by a later update, or by the
+    -- Friends tab's own paint, which reads every friend online.
+    if event == "BN_FRIEND_INFO_CHANGED" and arg1 and not InCombatLockdown() then
         RememberFriend(C_BattleNet.GetFriendAccountInfo(arg1), time())
     end
     local tab = Tab()
@@ -1028,8 +1031,9 @@ function ns.MailAlts.Entries()
 end
 
 function ns.MailAlts.IsShown(guid)
-    local h = Hidden()
-    return not (h and h[guid])
+    local chars = EllesmereUI.Chars()
+    local c = chars and chars[guid]
+    return not (type(c) == "table" and c.mailAltHidden)
 end
 
 function ns.MailAlts.SetShown(guid, on)
@@ -1047,10 +1051,11 @@ ev:SetScript("OnEvent", function(self, event, arg1)
     if event == "PLAYER_LOGIN" then
         self:UnregisterEvent("PLAYER_LOGIN")
         blizzLook = WSkin.GetStyle("mail") == "off"
-        RecordPlayer()
+        myGuid = EllesmereUI.CharGUID()
+        -- Logging in brings a removed character back.
+        local mine = EllesmereUI.CharEntry()
+        if mine then mine.mailAltRemoved = nil end
         if Enabled() then Install() end
-    elseif event == "PLAYER_LOGOUT" then
-        RecordPlayer()
     elseif event ~= "ADDON_LOADED" then
         OnContacts(event, arg1)
     elseif arg1 == "Blizzard_MailFrame" then
@@ -1059,4 +1064,3 @@ ev:SetScript("OnEvent", function(self, event, arg1)
     end
 end)
 ev:RegisterEvent("PLAYER_LOGIN")
-ev:RegisterEvent("PLAYER_LOGOUT")

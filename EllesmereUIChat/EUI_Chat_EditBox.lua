@@ -24,8 +24,9 @@ local _skinned = {}
 
 -- Chat events counted as real PLAYER activity (used ONLY to wake the idle
 -- fade): a line of one of these that lands in a shown chat window resets the
--- timer (the engine's idle observer, init section 6). Player chat only: NPC
--- lines (MONSTER_SAY / MONSTER_YELL) never wake it.
+-- timer (the engine's idle observer, init section 6). Player chat only; the
+-- opt-in groups below (Also Wake On) add other kinds of lines, NPC speech
+-- among them.
 local CHAT_MSG_EVENTS = {
     CHAT_MSG_SAY = true, CHAT_MSG_YELL = true,
     CHAT_MSG_PARTY = true, CHAT_MSG_PARTY_LEADER = true,

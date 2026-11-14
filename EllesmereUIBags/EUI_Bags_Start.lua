@@ -787,7 +787,7 @@ local function StartAddon()
     -- on bags being visible, so that's a harmless no-op rather than a real cost.
     EUI_Bags:RegisterEvent("GOSSIP_CLOSED")
     -- A skill rank change can flip an item's unusable tint (BagsItemUnusable)
-    pcall(EUI_Bags.RegisterEvent, EUI_Bags, "SKILL_LINES_CHANGED")
+    EUI_Bags:RegisterEvent("SKILL_LINES_CHANGED")
     -- Set created/renamed/deleted: rebuild split categories / refresh name labels.
     -- Registered only while a set feature is on: zero event cost when disabled
     -- (merged-mode routing stays correct without it -- the lookup rebuilds per

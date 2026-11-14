@@ -45,7 +45,8 @@ local GetTime = GetTime
 
 local entryOf = {}     -- cooldownID -> its ENTRIES spell, or false
 local appliedAt = {}   -- entry spell -> GetTime() its aura was applied
-local castFrame
+local seen = {}        -- entry spell -> its aura was found since appliedAt was set
+local listening = false
 local hooked = setmetatable({}, { __mode = "k" })
 -- [item] = its cooldown was armed since its last refresh
 local armed = setmetatable({}, { __mode = "k" })
@@ -79,13 +80,19 @@ end
 local function Draw(frame, spell)
     local ad = frame.auraDataCached
     local now = GetTime()
-    if IsSecret(ad) or not ad then
-        -- Gone (consumed or expired): the next cast applies it anew. A cast in
-        -- the last second may still precede its aura.
-        local t = appliedAt[spell]
-        if not IsSecret(ad) and t and now - t > 1 then appliedAt[spell] = nil end
+    if IsSecret(ad) then
+        -- Hidden whole (aura restrictions): it is held, nothing of it can be read.
+        seen[spell] = true
         return
     end
+    if not ad then
+        -- Gone (consumed or expired): the next cast applies it anew. An aura
+        -- that was never found may still follow a cast of the last second.
+        local t = appliedAt[spell]
+        if t and (seen[spell] or now - t > 1) then appliedAt[spell], seen[spell] = nil, nil end
+        return
+    end
+    seen[spell] = true
     local cd = frame.Cooldown
     local exp, dur, rate = ad.expirationTime, ad.duration, ad.timeMod
     local start, len
@@ -132,32 +139,41 @@ local function OnCast(_, _, _, _, spellID)
     local now = GetTime()
     local t, d = appliedAt[entry], ENTRIES[entry]
     if t and t + d > now then return end
-    appliedAt[entry] = now
+    appliedAt[entry], seen[entry] = now, nil
     for frame in pairs(hooked) do
         if frame:IsShown() and EntryOf(frame.cooldownID) == entry then Draw(frame, entry) end
     end
 end
 
+local castFrame = ns.TakeShell()
+castFrame:SetScript("OnEvent", OnCast)
+
 -- After every reanchor: hook the buff icon items bound to an entry. Items are
 -- pooled, so a hooked one bound to another entry later returns at EntryOf.
--- The cast event is registered with the first hooked item.
+-- The player's casts are heard only while an entry's icon is tracked.
 function ns.CDM_LinkedAuraPlaced()
     local viewer = _G.BuffIconCooldownViewer
     local pool = viewer and viewer.itemFramePool
     if not pool then return end
+    local tracked = false
     for frame in pool:EnumerateActive() do
-        local spell = not hooked[frame] and frame.RefreshData and frame.Cooldown
-            and EntryOf(frame.cooldownID)
+        local spell = frame.RefreshData and frame.Cooldown and EntryOf(frame.cooldownID)
         if spell then
-            hooked[frame] = true
-            hooksecurefunc(frame, "RefreshData", AfterRefresh)
-            hooksecurefunc(frame.Cooldown, "SetCooldown", function() armed[frame] = true end)
-            if not castFrame then
-                castFrame = CreateFrame("Frame")
-                castFrame:SetScript("OnEvent", OnCast)
-                castFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+            tracked = true
+            if not hooked[frame] then
+                hooked[frame] = true
+                hooksecurefunc(frame, "RefreshData", AfterRefresh)
+                hooksecurefunc(frame.Cooldown, "SetCooldown", function() armed[frame] = true end)
+                Draw(frame, spell)
             end
-            Draw(frame, spell)
+        end
+    end
+    if tracked ~= listening then
+        listening = tracked
+        if tracked then
+            castFrame:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+        else
+            castFrame:UnregisterEvent("UNIT_SPELLCAST_SUCCEEDED")
         end
     end
 end

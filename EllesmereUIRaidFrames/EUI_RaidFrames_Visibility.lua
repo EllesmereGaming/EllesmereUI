@@ -317,7 +317,8 @@ end
 
 -- Party frames while IsInRaid() is true: arena (the whole team, above) or the
 -- opt-in Small Raid setting, which shows group 1 as party frames and hides
--- every other member while the raid holds fewer than 10 players. Every
+-- every other member while the raid holds fewer than 10 players (outside
+-- battlegrounds: ns._SmallRaidOn). Every
 -- "party or raid frames" decision reads this, never ns._InArena directly;
 -- the group-1 filter itself lives in _LayoutPartyFrames (ns._SmallRaidGroup).
 ns._PartyInRaid = function()
@@ -357,7 +358,8 @@ end
 -- Small Raid: raid tokens run contiguously from raid1 and exist only in a raid,
 -- so raid10 exists exactly when a raid holds 10 or more members (the
 -- GetNumGroupMembers() < 10 rule); a party never reaches it.
--- Arena has no macro condition: it is taken at the zone-in pass.
+-- Arena and battlegrounds have no macro condition: the mode is taken at the
+-- zone-in pass (an arena's own macros; a battleground's as with Small Raid off).
 ns._RF_VIS_MACROS = {
     raid = {
         group = { [true] = "[@raid1,exists] show; [@party1,exists][group] hide; show", [false] = "[@raid1,exists] show; hide" },

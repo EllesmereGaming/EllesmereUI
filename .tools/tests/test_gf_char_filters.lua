@@ -2,7 +2,8 @@
 -- first login with filters of its own starts from a copy of the profile's
 -- filters, and the profile keeps them for the characters that log in later;
 -- filter keys read and write the character's copy, everything else the
--- profile; the results list's display settings live in the profile.
+-- profile; the results list's display settings live in the profile; the
+-- filters both tabs have are kept once more for the raids tab.
 --   lua .tools/tests/test_gf_char_filters.lua      (from the repository root)
 local ROOT = arg and arg[1] or "."
 
@@ -31,6 +32,8 @@ EllesmereUI = {
     -- settings preview's names)
     SetFontFamily = function() end,
     PREVIEW_ROSTER = {},
+    -- and the roster helper its per-character application counts read
+    CharData = function() return nil end,
     Lite = {
         NewAddon = function() T.addon = {}; return T.addon end,
         NewDB = function(name, defaults)
@@ -102,5 +105,58 @@ assert(EllesmereUIGroupFinderCharDB.filters.ratingValue == 1800, "a later login 
 -- 4. the module reset clears the character's filters and the profile
 ns.ResetSettings()
 assert(next(EllesmereUIGroupFinderCharDB.filters) == nil and next(T.profile) == nil)
+
+-- 5. the filters both tabs have: the raids tab reads and writes its own copy
+--    under raid_<key> (a character filter in the character's table, the rest in
+--    the profile); every other category, and no search panel, reads the first set
+do
+    T.profile.search = { extraSortBy = "high", extraLustMissing = false }
+    local F = EllesmereUIGroupFinderCharDB.filters
+    F.regions, F.partyFit, F.hasLust, F.extraExpr, F.ratingOn = { na = true }, true, true, "tanks > 0", true
+    LFGListFrame = { SearchPanel = { categoryID = 2 } }
+    assert(cfg.regions.na == true and cfg.partyFit == true and cfg.hasLust == true and cfg.extraExpr == "tanks > 0"
+        and cfg.extraSortBy == "high" and cfg.extraLustMissing == false, "dungeons: a filter is not read from its own key")
+    -- the raids tab starts with none of them
+    LFGListFrame.SearchPanel.categoryID = 3
+    assert(cfg.regions == nil and cfg.partyFit == nil and cfg.hasLust == nil and cfg.extraExpr == nil
+        and cfg.extraSortBy == nil and cfg.extraLustMissing == nil, "raids: a dungeons filter was read")
+    assert(cfg.ratingOn == true, "raids: a filter only one tab has went per tab")
+    -- its writes land under raid_, and the dungeons values stay
+    cfg.regions = { eu = true }
+    cfg.partyFit, cfg.extraSortBy, cfg.extraExpr, cfg.extraLustMissing = false, "low", "dps < 3", true
+    assert(F.raid_regions.eu == true and F.raid_partyFit == false and F.raid_extraExpr == "dps < 3",
+        "raids: a character filter is not kept in the character's table")
+    assert(T.profile.search.raid_extraSortBy == "low" and T.profile.search.raid_extraLustMissing == true
+        and F.raid_extraSortBy == nil, "raids: a profile setting is not kept in the profile")
+    assert(cfg.extraSortBy == "low" and cfg.regions.eu == true and cfg.partyFit == false, "raids: a write is not read back")
+    LFGListFrame.SearchPanel.categoryID = 2
+    assert(cfg.regions.na == true and cfg.regions.eu == nil and cfg.partyFit == true and cfg.extraExpr == "tanks > 0"
+        and cfg.extraSortBy == "high" and cfg.extraLustMissing == false, "dungeons: changed by a raids write")
+    -- any other category and no search panel at all: the first set
+    LFGListFrame.SearchPanel.categoryID = 121
+    assert(cfg.extraExpr == "tanks > 0" and cfg.extraSortBy == "high", "another category read the raids set")
+    LFGListFrame = nil
+    assert(cfg.extraExpr == "tanks > 0", "no search panel read the raids set")
+    -- the game's own id for the raids category decides, where the client names one
+    GROUP_FINDER_CATEGORY_ID_RAIDS = 9
+    LFGListFrame = { SearchPanel = { categoryID = 3 } }
+    assert(cfg.extraExpr == "tanks > 0", "category 3 read as raids beside the client's own id")
+    LFGListFrame.SearchPanel.categoryID = 9
+    assert(cfg.extraExpr == "dps < 3", "the client's raids category did not read the raids set")
+    GROUP_FINDER_CATEGORY_ID_RAIDS = nil
+    -- a character's first login copies the filters by their own names only
+    LFGListFrame = nil
+    T.profile.search.raid_regions = { kr = true }
+    EllesmereUIGroupFinderCharDB = nil
+    T.addon:OnInitialize()
+    assert(EllesmereUIGroupFinderCharDB.filters.raid_regions == nil, "a first login copied a raids key")
+    -- the module reset clears the raids tab's too
+    EllesmereUIGroupFinderCharDB.filters.raid_partyFit = true
+    ns.ResetSettings()
+    assert(next(EllesmereUIGroupFinderCharDB.filters) == nil and next(T.profile) == nil, "the reset kept a raids filter")
+    -- the raid keys are made once, not on every read
+    assert(SRC:find('TAB_KEYS[k] = "raid_" .. k', 1, true) and select(2, SRC:gsub('"raid_" %.%.', "")) == 1,
+        "a raid key is built on a read")
+end
 
 print("group finder character filters harness: ok")

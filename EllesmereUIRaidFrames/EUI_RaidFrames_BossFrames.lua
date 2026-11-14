@@ -277,26 +277,90 @@ FB.StyleBorder = function(b)
     end
 end
 
--- Bar colour: the owner's own colour setting (default #17AC31). The raid color modes mislead here:
--- gradient modes read as damage states, and many NPCs carry real class tokens (a friendly add can
--- come out yellow).
-FB.PaintBarColor = function(b, owner, s)
+-- Whether the boss group draws in Dark Mode: the raid frames' Fill Color is Dark Mode and the
+-- group's own Follow Dark Mode is on (opt-in: unset, the group keeps Boss Health Color). Every
+-- owner of these buttons answers the same question as owner.Dark(s), s being the settings its
+-- buttons are styled from.
+FB.Dark = function(s)
+    if s.healthColorMode ~= "dark" then return false end
+    local fb = FB.Settings()
+    return (fb and fb.followDarkMode == true) or false
+end
+
+-- The Dark Mode background of a button: the styler writes it, and the paint again once the palette
+-- changed (a colour edit repaints without a restyle). FB.dbg: button -> the palette generation its
+-- dark background was written at (nil while it shows the frames' own background).
+FB.dbg = setmetatable({}, { __mode = "k" })
+FB.PaintDarkBg = function(b)
+    local EllesmereUI = ns.EllesmereUI
+    local gen = EllesmereUI._dmGen
+    if FB.dbg[b] == gen then return end
+    FB.dbg[b] = gen
+    b._bg:SetColorTexture(EllesmereUI.GetDarkModeBg())
+end
+
+-- The background's extent. In Dark Mode it covers only the part of the bar the fill does not paint,
+-- as on the raid frames, so a see-through Dark Mode Fill shows the world and not the background;
+-- otherwise, and under Textured Background (a texture that never moves), the whole button. Read
+-- off the bar (its fill texture, axis and direction) and anchored again only when one of them or
+-- the mode changed: the styler asks after it turned the bar, every paint asks with one compare.
+FB.AnchorBg = function(b, dark)
+    local bg, health = b._bg, b._health
+    local tex = (dark and not bg._rfTexBgPath) and health:GetStatusBarTexture() or false
+    local vert = tex and health:GetOrientation() == "VERTICAL" or false
+    local inv = tex and health:GetReverseFill() or false
+    if bg._fbTex == tex and bg._fbVert == vert and bg._fbInv == inv then return end
+    bg._fbTex, bg._fbVert, bg._fbInv = tex, vert, inv
+    bg:ClearAllPoints()
+    if not tex then
+        bg:SetAllPoints()
+    elseif vert then
+        if inv then
+            bg:SetPoint("TOPLEFT", tex, "BOTTOMLEFT", 0, 0)
+            bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+        else
+            bg:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+            bg:SetPoint("BOTTOMRIGHT", tex, "TOPRIGHT", 0, 0)
+        end
+    elseif inv then
+        bg:SetPoint("TOPLEFT", health, "TOPLEFT", 0, 0)
+        bg:SetPoint("BOTTOMRIGHT", tex, "BOTTOMLEFT", 0, 0)
+    else
+        bg:SetPoint("TOPLEFT", tex, "TOPRIGHT", 0, 0)
+        bg:SetPoint("BOTTOMRIGHT", health, "BOTTOMRIGHT", 0, 0)
+    end
+end
+
+-- Bar colour. An owner drawing in Dark Mode (owner.Dark(s)) takes the palette's fill at the Dark
+-- Mode Fill Opacity, on the palette's background, as the frames beside it do: the colour first and
+-- the fill's alpha last (the two are one slot, so the last write stands). Otherwise the fill is
+-- the owner's own at the frames' Fill Opacity: owner.Fill(b, s, opacity, pv) where the owner has
+-- colour modes of its own (the pet frames' Fill Color), else its colour setting (Boss Health
+-- Color, default #17AC31). The raid color modes mislead on the boss frames: gradient modes read as
+-- damage states, and many NPCs carry real class tokens (a friendly add can come out yellow).
+-- pv: a preview frame's made-up health (0 to 1), handed on to owner.Fill.
+FB.PaintBarColor = function(b, owner, s, pv)
     local health = b._health
-    -- Dark Mode (the raid frames' Health Color mode) wins over the frames' own colour, as on the raid frames.
-    if s.healthColorMode == "dark" then
+    local fillTex = health:GetStatusBarTexture()
+    if owner.Dark(s) then
         local r, g, bl, a = ns.EllesmereUI.GetDarkModeFill()
-        local ft = health:GetStatusBarTexture()
-        if ft then ft:SetAlpha(a) end
-        health:SetStatusBarColor(r, g, bl, (s.healthBarOpacity or 100) / 100)
-        b._bg:SetColorTexture(ns.EllesmereUI.GetDarkModeBg())
+        health:SetStatusBarColor(r, g, bl, 1)
+        if fillTex then fillTex:SetAlpha(a) end
+        FB.PaintDarkBg(b)
+        FB.AnchorBg(b, true)
         return
     end
-    local fbc = (owner.ColorSettings or owner.Settings)()
-    fbc = fbc and fbc.healthColor
-    local fillTex = health:GetStatusBarTexture()
+    FB.AnchorBg(b, false)
     if fillTex then fillTex:SetAlpha(1) end
+    local opacity = (s.healthBarOpacity or 100) / 100
+    if owner.Fill then
+        owner.Fill(b, s, opacity, pv)
+        return
+    end
+    local fbc = owner.Settings()
+    fbc = fbc and fbc.healthColor
     health:SetStatusBarColor(fbc and fbc.r or 23/255, fbc and fbc.g or 172/255,
-        fbc and fbc.b or 49/255, (s.healthBarOpacity or 100) / 100)
+        fbc and fbc.b or 49/255, opacity)
 end
 
 -- Text state of a button built with its texts (FB.BuildVisuals): the FontStrings, the
@@ -554,7 +618,7 @@ end
 
 -- Re-apply all setting-derived properties (size, slots, texture, fonts, text anchors). OOC only;
 -- callers gate. The owner parameter lets the Extra Frames duplicates (ns._XF) share this verbatim:
--- an owner carries buttons/container/Settings and defaults to FB itself.
+-- an owner carries buttons/container/Settings/Dark and defaults to FB itself.
 FB.ApplyStyle = function(owner)
     owner = owner or FB
     if not owner.built then return end
@@ -575,6 +639,7 @@ FB.ApplyStyle = function(owner)
     end
     local texPath = ResolveHealthTexture()
     local bgc = s.customBgColor or { r = 17/255, g = 17/255, b = 17/255 }
+    local dark = owner.Dark(s)
 
     local stepW, stepH = 0, 0
     if grow == "DOWN" or grow == "UP" then
@@ -599,7 +664,7 @@ FB.ApplyStyle = function(owner)
             b:SetPoint("TOPLEFT", owner.container, "TOPLEFT", 0, -off * stepH)
         end
 
-        FB.StyleVisuals(b, s, w, h, texPath, bgc)
+        FB.StyleVisuals(b, s, w, h, texPath, bgc, dark)
     end
 end
 
@@ -617,18 +682,23 @@ FB.SizeVisuals = function(b, w, h, s)
 end
 
 -- Texture, fonts, text anchors and border of one button at w x h. Shared with the pet frames.
-FB.StyleVisuals = function(b, s, w, h, texPath, bgc)
+-- dark: the owner draws in Dark Mode (owner.Dark(s)), so the background is the palette's. The
+-- styler always writes the background: the texture swap before it leaves that to the next paint.
+FB.StyleVisuals = function(b, s, w, h, texPath, bgc, dark)
     ns.RF_TexBgTint(b._bg, ns.RF_TexBgPath(s), ns.RF_IsVerticalFill(s))
-    if s.healthColorMode == "dark" then
-        b._bg:SetColorTexture(ns.EllesmereUI.GetDarkModeBg())
+    FB.dbg[b] = nil
+    if dark then
+        FB.PaintDarkBg(b)
     else
         b._bg:SetColorTexture(bgc.r, bgc.g, bgc.b, (s.bgDarkness or 50) / 100)
     end
     b._health:SetStatusBarTexture(texPath)
     local ft = b._health:GetStatusBarTexture()
     if ft then ft:SetHorizTile(false) end
-    -- Fill axis follows the raid Health Bar setting. The bg is a full-button texture (not fill-tracking), so nothing else re-anchors.
+    -- Fill axis follows the raid Health Bar setting. The background follows the bar it was just
+    -- given: the whole button, or in Dark Mode the part the fill does not paint (FB.AnchorBg).
     ns.RF_ApplyHealthOrientation(b._health, s)
+    FB.AnchorBg(b, dark)
     -- These carry aura containers (RFC_SetupButton below) and so can carry
     -- Health Bar Color overlays, but they have no absorb cluster and never
     -- build ReanchorAbsorbToFill, where every other frame picks the swap up.

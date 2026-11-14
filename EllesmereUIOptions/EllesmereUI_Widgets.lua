@@ -2720,14 +2720,15 @@ EllesmereUI.CreatePreviewHitOverlay = function(element, navigate, key, isText, f
     local btn = CreateFrame("Button", nil, anchor)
     if isText then
         local minS, pad = tight and 1 or 4, tight and 2 or 4
+        local function Measure()
+            local w = element:GetStringWidth() or 0
+            local hh = element:GetStringHeight() or 0
+            if w < minS then w = minS end
+            if hh < minS then hh = minS end
+            return w, hh
+        end
         local function ResizeToText()
-            local ok, tw, th = pcall(function()
-                local w = element:GetStringWidth() or 0
-                local hh = element:GetStringHeight() or 0
-                if w < minS then w = minS end
-                if hh < minS then hh = minS end
-                return w, hh
-            end)
+            local ok, tw, th = pcall(Measure)
             if not ok then tw = 40; th = 12 end
             btn:SetSize(tw + pad, th + pad)
         end

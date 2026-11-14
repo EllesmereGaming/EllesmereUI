@@ -390,15 +390,13 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return ns.OwnListGet("raidRoleIcons") end,
               setValue = function(v) ns.SetOwnListValue("raidRoleIcons", v) end })
         y = y - h
-        _, h = W:DualRow(parent, y,
-            { type = "toggle", text = "Row Art",
-              tooltip = "The instance's art across the left half of each group, fading out to the right.",
-              getValue = function() return ns.Cfg().extraRowArt == true end,
-              setValue = function(v)
-                  ns.Cfg().extraRowArt = v and true or false
-                  if ns.GFRetagRows then ns.GFRetagRows() end
-              end }, EUI.BlankRowCfg())
-        y = y - h
+        local rowArtCfg = { type = "toggle", text = "Row Art",
+            tooltip = "The instance's art across the left half of each group, fading out to the right.",
+            getValue = function() return ns.Cfg().extraRowArt == true end,
+            setValue = function(v)
+                ns.Cfg().extraRowArt = v and true or false
+                if ns.GFRetagRows then ns.GFRetagRows() end
+            end }
         local function Shown(key, default)
             local v = ns.Cfg()[key]
             if v == nil then v = ns.DEFAULTS[key] end
@@ -448,10 +446,12 @@ initFrame:SetScript("OnEvent", function(self)
             tooltip = "Shows each group's note on a line under it; hover the group for the whole note.",
             getValue = function() return ns.OwnListGet("groupNotes") == true end,
             setValue = function(v) ns.SetOwnListValue("groupNotes", v and true or false) end }
+        -- Row Art closes the section, so a blank slot only ever sits in its last row
         if tagsCfg then
-            _, h = W:DualRow(parent, y, tagsCfg, notesCfg)
+            _, h = W:DualRow(parent, y, tagsCfg, notesCfg); y = y - h
+            _, h = W:DualRow(parent, y, rowArtCfg, EUI.BlankRowCfg())
         else
-            _, h = W:DualRow(parent, y, notesCfg, EUI.BlankRowCfg())
+            _, h = W:DualRow(parent, y, notesCfg, rowArtCfg)
         end
         y = y - h
 

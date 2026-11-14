@@ -1256,7 +1256,7 @@ end
 --  settings preview: sample groups drawn by the list's own rows
 -------------------------------------------------------------------------------
 local PV_W, PV_PAD, PV_MARGIN = 330, 8, 10  -- about the list's row width
-local PV_SCALE = 1.3  -- drawn larger than the list, to read the details
+local PV_SCALE = 1  -- times the list's own size: 1 draws the rows as the dungeons & raids window does
 local PV_STEP = 0.3  -- a wheel tick, in rows
 local PV_DD_W, PV_DD_GAP = 170, 12  -- the preview picker, right of it
 local PV_TITLES = { groups = EllesmereUI.L("Group Finder Preview"), dungeon = EllesmereUI.L("Applicant Preview"),
@@ -1435,8 +1435,8 @@ local function PvFit()
     end
     local fw, fh = rw + PV_PAD * 2, PV_PAD + PV_TITLE + PV_VIEW_H + PV_PAD
     f:SetSize(fw, fh)
-    -- the ui's own scale and then some, grown or shrunk with the settings
-    -- window's scale, and shrunk only if the panel is narrower
+    -- the list's own size (the ui's scale, not the panel's), grown or shrunk
+    -- with the settings window's scale, and shrunk only if the panel is narrower
     local hw = hdr:GetWidth() or 0
     -- room for the picker on both sides, so the preview stays centered
     local avail = (hw > 0 and hw or pv.hdrW or 600) - PV_MARGIN * 2 - (pv.dd and (PV_DD_W + PV_DD_GAP) * 2 or 0)
@@ -1546,7 +1546,7 @@ function ns.OwnListPreviewBuild(hdr, hdrW)
         view:SetPoint("TOPLEFT", f, "TOPLEFT", PV_PAD, -(PV_PAD + PV_TITLE))
         view:SetClipsChildren(true)
         pv.view = view
-        -- the wheel scrolls part of a row at a time: it's drawn larger than the list
+        -- the wheel scrolls part of a row at a time: the window holds only two
         view:EnableMouseWheel(true)
         view:SetScript("OnMouseWheel", function(_, delta)
             local was = pv.scroll or 0

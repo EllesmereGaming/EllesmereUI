@@ -458,9 +458,9 @@ function ns.RF_BuildPartyTargets(parent, y, W)
     -- target frames' own keys).
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Fill Color",
-          values={ class = "Class Color", dark = "Dark Mode", classic = "Classic", custom = "Custom Color" },
-          order={ "class", "dark", "classic", "custom" },
-          tooltip="Class Color uses the class color for players and the reaction color for NPCs.",
+          values={ class = "Class Color", dark = "Dark Mode", classic = "Classic", custom = "Custom Color", customDynamic = "Custom Dynamic Colors" },
+          order={ "class", "dark", "classic", "custom", "customDynamic" },
+          tooltip="Custom Dynamic Colors: the health bar smoothly blends between three colors you pick -- one for full health (100%), one for half (50%), and one for empty (0%) -- shifting through them as the unit takes damage or is healed.",
           getValue=function() return PV("partyTargetHealthColorMode", "class") end,
           setValue=function(v)
               PtSet("partyTargetHealthColorMode", v)
@@ -471,38 +471,20 @@ function ns.RF_BuildPartyTargets(parent, y, W)
           disabledTooltip=DARK_TIP, rawTooltip=true,
           getValue=function() return PV("partyTargetBgDarkness", 50) end,
           setValue=function(v) PtSet("partyTargetBgDarkness", v) end });  y = y - h
-    -- Custom fill swatch: live only in Custom mode, dimmed and blocked otherwise.
-    if not EllesmereUI._prebuilding then
-        local rgn = row._leftRegion
-        local swatch = EllesmereUI.BuildColorSwatch(
-            rgn, row:GetFrameLevel() + 3,
-            function()
-                local c = db.profile.partyTargetCustomFillColor
-                if c then return c.r, c.g, c.b, 1 end
-                return 37/255, 193/255, 29/255, 1
-            end,
-            function(r, g, b)
-                PtSet("partyTargetCustomFillColor", { r=r, g=g, b=b })
-            end, false, 20)
-        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-        -- Blocking overlay: non-clickable + tooltip unless Fill Color is Custom.
-        local block = CreateFrame("Frame", nil, swatch)
-        block:SetAllPoints()
-        block:SetFrameLevel(swatch:GetFrameLevel() + 10)
-        block:EnableMouse(true)
-        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, "Only available with Custom fill color") end)
-        block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local function UpdateSwatchVis()
-            if PV("partyTargetHealthColorMode", "class") == "custom" then
-                swatch:SetAlpha(1); block:Hide()
-            else
-                swatch:SetAlpha(0.3); block:Show()
-            end
-        end
-        EllesmereUI.RegisterWidgetRefresh(UpdateSwatchVis)
-        UpdateSwatchVis()
-    end
+    -- The Custom Color swatch (live only in Custom mode) and the three gradient stops of Custom
+    -- Dynamic Colors, which take its place there.
+    EllesmereUI.BuildFillColorSwatches(row._leftRegion, {
+        mode = function() return PV("partyTargetHealthColorMode", "class") end,
+        getCustom = function()
+            local c = db.profile.partyTargetCustomFillColor
+            if c then return c.r, c.g, c.b end
+            return 37/255, 193/255, 29/255
+        end,
+        setCustom = function(r, g, b) PtSet("partyTargetCustomFillColor", { r=r, g=g, b=b }) end,
+        keys = { "partyTargetDynamicColor100", "partyTargetDynamicColor50", "partyTargetDynamicColor0" },
+        getStop = function(key) return PV(key, nil) end,
+        setStop = function(key, r, g, b) PtSet(key, { r=r, g=g, b=b }) end,
+    })
     -- Background Custom + Class swatch pair: clicking either toggles partyTargetBgClassColored, the inactive one dims (mirrors the fill picker).
     if not EllesmereUI._prebuilding then
         local rgn = row._rightRegion
@@ -579,11 +561,11 @@ function ns.RF_BuildPartyTargets(parent, y, W)
           getValue=function() return PV("partyTargetHeight", 33) end,
           setValue=function(v) LaySet("partyTargetHeight", v) end });  y = y - h
 
-    -- Row 4: Position (+ offsets cog). Shows the side the frames actually
-    -- take (the Horizontal Frames setter's refresh re-reads it); a pick of
-    -- the side an unset Position shows (the kit's move included) is stored
-    -- as unset, so it keeps following the layout and the frame style.
-    -- Under the Party Frames kit the stacked frames' buff side is taken.
+    -- Row 4: Position (+ offsets cog) | Text Color (the target's name). Position shows the
+    -- side the frames actually take (the Horizontal Frames setter's refresh re-reads it); a
+    -- pick of the side an unset Position shows (the kit's move included) is stored as unset,
+    -- so it keeps following the layout and the frame style. Under the Party Frames kit the
+    -- stacked frames' buff side is taken.
     row, h = W:DualRow(parent, y,
         { type="dropdown", text="Position",
           tooltip="Right by default, or Bottom with Horizontal Frames. With Frame Style: Party Frames, the side holding the buffs is not available.",
@@ -606,7 +588,46 @@ function ns.RF_BuildPartyTargets(parent, y, W)
               if db.profile.partyCompactMode and ns.PT_PositionAlongStack(v, db.profile.partyHorizontal) then return end
               LaySet("partyTargetPosition", (v ~= ns.PT_ShownSide(true)) and v or nil)
           end },
-        BLANK());  y = y - h
+        { type="multiSwatch", text="Text Color",
+          swatches = {
+            { tooltip = "Custom Color",
+              hasAlpha = false,
+              getValue = function()
+                  local c = db.profile.partyTargetCustomTextColor
+                  if c then return c.r, c.g, c.b, 1 end
+                  return 1, 1, 1, 1
+              end,
+              setValue = function(r, g, b)
+                  PtSet("partyTargetCustomTextColor", { r=r, g=g, b=b })
+              end,
+              onClick = function(self)
+                  if PV("partyTargetTextClassColored", false) then
+                      PtSet("partyTargetTextClassColored", false)
+                      EllesmereUI:RefreshPage()
+                      return
+                  end
+                  if self._eabOrigClick then self._eabOrigClick(self) end
+              end,
+              refreshAlpha = function()
+                  return PV("partyTargetTextClassColored", false) and 0.3 or 1
+              end },
+            { tooltip = "Class Color",
+              hasAlpha = false,
+              getValue = function()
+                  local _, ct = UnitClass("player")
+                  local cc = ct and EllesmereUI.GetClassColor(ct)
+                  if cc then return cc.r, cc.g, cc.b, 1 end
+                  return 1, 1, 1, 1
+              end,
+              setValue = function() end,
+              onClick = function()
+                  PtSet("partyTargetTextClassColored", true)
+                  EllesmereUI:RefreshPage()
+              end,
+              refreshAlpha = function()
+                  return PV("partyTargetTextClassColored", false) and 1 or 0.3
+              end },
+          } });  y = y - h
     EllesmereUI.BuildInlineCog(row._leftRegion, { title = "Target Position Offsets", rows = {
         { type="slider", label="X Offset", min=-100, max=100, step=1,
           get=function() return PV("partyTargetOffsetX", 0) end,

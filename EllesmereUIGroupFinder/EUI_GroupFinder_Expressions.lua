@@ -530,7 +530,7 @@ local function Paint(K)
     if not btn then return end
     local f, err = Current()
     if f then btn.Glyph:SetVertexColor(K.Accent()) else btn.Glyph:SetVertexColor(K.GLYPH, K.GLYPH, K.GLYPH) end
-    if GFNS.ActiveLook then GFNS.ActiveLook(btn, f ~= nil) else btn.activeEdge:SetShown(f ~= nil) end
+    if GFNS.ActiveLook then GFNS.ActiveLook(btn, f ~= nil) elseif btn.activeEdge then btn.activeEdge:SetShown(f ~= nil) end
     if shown and box then shown:SetText(Colorize(box:GetText())) end
     if not status then return end
     local text = box and box:GetText() or ""
@@ -547,13 +547,16 @@ end
 local function Build(SP, K)
     btn = K.GlyphButton(SP, K.ROW1_H, EXPR_TEX)
     btn.Glyph:SetSize(14, 14)
-    -- green edge while an expression is filtering
-    btn.activeEdge = CreateFrame("Frame", nil, btn)
-    btn.activeEdge:SetAllPoints()
-    btn.activeEdge:SetFrameLevel(btn:GetFrameLevel() + 3)
-    btn.activeEdge:EnableMouse(false)
-    CM.MakeBorder(btn.activeEdge, 0.3, 0.85, 0.4, 1, CM.PanelPP)
-    btn.activeEdge:Hide()
+    -- green edge while an expression is filtering (skin off: no edge is made,
+    -- GFNS.ActiveLook tints the button's box)
+    if GFNS.SkinOn and GFNS.SkinOn() then
+        btn.activeEdge = CreateFrame("Frame", nil, btn)
+        btn.activeEdge:SetAllPoints()
+        btn.activeEdge:SetFrameLevel(btn:GetFrameLevel() + 3)
+        btn.activeEdge:EnableMouse(false)
+        CM.MakeBorder(btn.activeEdge, 0.3, 0.85, 0.4, 1, CM.PanelPP)
+        btn.activeEdge:Hide()
+    end
     btn:SetFrameLevel(SP:GetFrameLevel() + 5)
 
     panel = CreateFrame("Frame", nil, SP)
