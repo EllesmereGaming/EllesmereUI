@@ -603,15 +603,11 @@ local sampling  -- Show Samples is drawing: its rows are not kept
 local scroll, missed = 0, 0 -- the newest history row shown (0: live), rows kept while looking back
 local historyList
 
--- Kept in EllesmereUIDB.lootFeedHistory, outside the settings, so a full-account export leaves it out.
+-- Kept in the character roster (lootFeedHistory), outside the settings and never exported.
 local function History()
     if not historyList then
-        local key = EllesmereUIDB and EllesmereUI.CharKey(" - ", EllesmereUIDB.lootFeedHistory)
-        if not key then return {} end
-        EllesmereUIDB.lootFeedHistory = EllesmereUIDB.lootFeedHistory or {}
-        local byChar = EllesmereUIDB.lootFeedHistory
-        byChar[key] = byChar[key] or {}
-        historyList = byChar[key]
+        historyList = EllesmereUI.CharData("lootFeedHistory", true)
+        if not historyList then return {} end -- GUID unread: a throwaway, not cached
     end
     return historyList
 end

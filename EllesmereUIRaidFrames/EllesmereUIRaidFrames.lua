@@ -395,7 +395,12 @@ local defaults = {
             raid  = false,
             position = "right",   -- "left" | "right" | "free" | "owner" (Beside Owner, Party tab)
             freePos  = { x = 100, y = -200 },
-            healthColor = { r = 23/255, g = 172/255, b = 49/255 },
+            healthColorMode = "custom", -- "class" | "dark" | "classic" | "custom" | "customDynamic"
+            customFillColor = { r = 23/255, g = 172/255, b = 49/255 },
+            healthColor     = { r = 23/255, g = 172/255, b = 49/255 },
+            dynamicColor100 = { r = 0, g = 1, b = 0 },
+            dynamicColor50  = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 },
+            dynamicColor0   = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 },
             extraWidth  = 0,      -- size offset on top of the party or raid frame size
             extraHeight = 0,
         },
@@ -795,15 +800,20 @@ local defaults = {
         partyFrameHeight  = 60,
         partyShowWhenSolo = false,
         partySmallRaid    = false,  -- raid under 10 players: group 1 as party frames, others hidden
-        partyShowTargets  = false,  -- opt-in secure target buttons beside party frames
+                partyShowTargets  = false,  -- opt-in secure target buttons beside party frames
         -- Party target frames (Party tab PARTY TARGETS section): party only, one value under
         -- every style. partyTargetPosition nil = beside stacked frames, below horizontal ones.
         partyTargetIncludeSelf     = false,     -- your own target beside your frame too
-        partyTargetHealthColorMode = "class",   -- "class" | "dark" | "classic" | "custom"
+        partyTargetHealthColorMode = "class",   -- "class" | "dark" | "classic" | "custom" | "customDynamic"
         partyTargetCustomFillColor = { r = 37/255, g = 193/255, b = 29/255 },
+        partyTargetDynamicColor100 = { r = 0, g = 1, b = 0 },
+        partyTargetDynamicColor50  = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 },
+        partyTargetDynamicColor0   = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 },
         partyTargetBgClassColored  = false,
         partyTargetCustomBgColor   = { r = 17/255, g = 17/255, b = 17/255 },
         partyTargetBgDarkness      = 50,
+        partyTargetTextClassColored = false,
+        partyTargetCustomTextColor = { r = 1, g = 1, b = 1 },
         partyTargetOffsetX         = 0,         -- -100..100
         partyTargetOffsetY         = 0,
         partyTargetWidth           = 70,

@@ -120,6 +120,27 @@ EllesmereUI.LocaleModuleLoads = function(folder)
     return C_AddOns.IsAddOnLoadable(folder, UnitName("player")) == true
 end
 
+-- World object names in the CLIENT's language whatever the options language,
+-- filled by EllesmereUILocales/<code>_GameNames.lua, to match the game's text.
+local gameNames = {}
+EllesmereUI.RegisterGameNames = function(code)
+    if code ~= GetLocale() then return nil end
+    return gameNames
+end
+
+-- Loads the client's game names; call before GameName. English has none.
+EllesmereUI.LoadGameNames = function()
+    local client = GetLocale()
+    if client == "enUS" or client == "enGB" or not SUPPORTED[client] then return end
+    if C_AddOns and C_AddOns.LoadAddOn and not C_AddOns.IsAddOnLoaded("EllesmereUILocales") then
+        C_AddOns.LoadAddOn("EllesmereUILocales")
+    end
+end
+
+EllesmereUI.GameName = function(s)
+    return gameNames[s] or s
+end
+
 --------------------------------------------------------------------------------
 --  Resolve + activate the effective locale
 --------------------------------------------------------------------------------

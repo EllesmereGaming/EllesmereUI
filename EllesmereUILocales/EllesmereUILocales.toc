@@ -45,3 +45,15 @@ koKR_SLC.lua [AllowLoadTextLocale koKR, enUS, enGB]
 ruRU_SLC.lua [AllowLoadTextLocale ruRU, enUS, enGB]
 zhCN_SLC.lua [AllowLoadTextLocale zhCN, zhTW, enUS, enGB]
 zhTW_SLC.lua [AllowLoadTextLocale zhTW, zhCN, enUS, enGB]
+
+# Game names (<code>_GameNames.lua): world object names as the game shows them,
+# read by that game client's language only, whatever EUI Options Language.
+deDE_GameNames.lua [AllowLoadTextLocale deDE]
+esES_GameNames.lua [AllowLoadTextLocale esES]
+esMX_GameNames.lua [AllowLoadTextLocale esMX]
+frFR_GameNames.lua [AllowLoadTextLocale frFR]
+koKR_GameNames.lua [AllowLoadTextLocale koKR]
+ptBR_GameNames.lua [AllowLoadTextLocale ptBR]
+ruRU_GameNames.lua [AllowLoadTextLocale ruRU]
+zhCN_GameNames.lua [AllowLoadTextLocale zhCN]
+zhTW_GameNames.lua [AllowLoadTextLocale zhTW]

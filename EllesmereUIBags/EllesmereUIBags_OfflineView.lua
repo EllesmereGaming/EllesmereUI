@@ -709,9 +709,9 @@ local function Gold(v)
     if v.mode == "bank" and TabKind(v) == "warband" then return GL.WarbandMoney() end
     local key = ShownKey(v)
     if key == Offline.CurrentKey() then return GL.Money() end
-    -- The ledger keys by GUID; an entry from an older build by "Name-Realm".
+    -- The roster keys by GUID; an entry from an older build by "Name-Realm".
     local c = Offline.Char(key)
-    local chars = GL.Data().chars
+    local chars = GL.Chars()
     local e = (c and c.guid and chars[c.guid]) or chars[key]
     return e and e.money
 end

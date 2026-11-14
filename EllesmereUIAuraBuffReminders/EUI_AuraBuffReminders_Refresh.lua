@@ -434,29 +434,17 @@ local function CollectLines(missing, auraLock, ids, lines, last, dismissKey, lab
     if id then return nil, EABR.FvSpellEntry(missing, id, dismissKey, label) end
 end
 
-local function CharStore(field)
-    local store = EllesmereUIDB[field]
-    local keys = EABR._fvCharKeys
-    if not keys then keys = {}; EABR._fvCharKeys = keys end
-    local key = keys[field]
-    if not key then
-        key = EllesmereUI.CharKey("-", store)
-        keys[field] = key
-    end
-    return store, key
-end
-
 -- Mage armors (WoW Forever): one reminder while no rank of Frost Armor, Ice
--- Armor or Mage Armor is up; the line up is recorded in
--- EllesmereUIDB.mageArmorByChar by EllesmereUI.CharKey.
+-- Armor or Mage Armor is up; the line up is recorded in this character's
+-- roster entry (mageArmor).
 function EABR.CollectMageArmor(missing, auraLock, ids)
-    local store, key = CharStore("mageArmorByChar")
-    local last = store and key and store[key]
+    local char = EllesmereUI.CharEntry()
+    local last = char and char.mageArmor
     local up = CollectLines(missing, auraLock, ids, EABR.MAGE_ARMORS, last,
         "forever:magearmor", EllesmereUI.L("Armor"))
-    if up and up ~= last and key then
-        if not store then store = {}; EllesmereUIDB.mageArmorByChar = store end
-        store[key] = up
+    if up and up ~= last then
+        char = char or EllesmereUI.CharEntry(true)
+        if char then char.mageArmor = up end
     end
 end
 
@@ -564,8 +552,7 @@ function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
     local list = EABR.FvClassBuffs()[class]
     if not list then return end
     local picks = fo.classBuffPicks
-    local store, key = CharStore("classBuffByChar")
-    local rec = store and key and store[key]
+    local rec = EllesmereUI.CharData("classBuff")
     for i = 1, #list do
         local buff = list[i]
         if ClassBuffOn(buff, picks) then
@@ -576,11 +563,9 @@ function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
                 buff.label, buff.also,
                 buff.own or buff.ownMemory, buff.ownMemory)
             if entry and PickerEnabled() then ApplyClassBuffPicker(entry, fo, buff) end
-            if up and up ~= last and key and buff.lines[2] then
-                if not store then store = {}; EllesmereUIDB.classBuffByChar = store end
-                rec = store[key]
-                if not rec then rec = {}; store[key] = rec end
-                rec[buff.key] = up
+            if up and up ~= last and buff.lines[2] then
+                rec = rec or EllesmereUI.CharData("classBuff", true)
+                if rec then rec[buff.key] = up end
             end
         end
     end

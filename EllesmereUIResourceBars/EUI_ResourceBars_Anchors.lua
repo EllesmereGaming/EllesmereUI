@@ -549,6 +549,12 @@ local function RegisterUnlockElements()
     if ns.ST_MakeUnlockElement then
         elements[#elements + 1] = ns.ST_MakeUnlockElement(MK, Rebuild)
     end
+    -- Mirror Timers: one mover for their stack.
+    if ns.MT_MakeUnlockElements then
+        for _, el in ipairs(ns.MT_MakeUnlockElements(MK) or {}) do
+            elements[#elements + 1] = el
+        end
+    end
     -- Call Totem Bar (WoW Forever): nil elsewhere.
     if ns.CT_MakeUnlockElement then
         elements[#elements + 1] = ns.CT_MakeUnlockElement(MK)
