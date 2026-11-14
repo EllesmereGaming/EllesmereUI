@@ -64,6 +64,8 @@ local lines, used = {}, 0
 local order, zoneOf, seen = {}, {}, {}
 local pending = false
 local stale = false   -- skipped a render while hidden
+local empty = false   -- nothing to list: hidden, like Blizzard's empty tracker
+local UpdateVisibility
 local fontGen = 1
 local inEncounter = false
 local prevObj = {}    -- questID -> objective texts last shown (update flashes)
@@ -883,7 +885,8 @@ end
 local function Render()
     pending = false
     if not frame then return end
-    if not frame:IsShown() then stale = true; return end
+    -- Hidden for being empty: still render, to see the first quest come in.
+    if not frame:IsShown() and not empty then stale = true; return end
     stale = false
     HideOverlay()
     frame:SetMouseMotionEnabled(HoverWanted() and true or false)
@@ -1006,6 +1009,14 @@ local function Render()
     end
     SyncItems()
     ArmTick(GetTime())
+    -- Unlock Mode keeps it shown, so the mover stays visible.
+    local nowEmpty = order[1] == nil and not EllesmereUI._unlockActive
+        and C_TradeSkillUI.GetRecipesTracked(false)[1] == nil
+        and C_TradeSkillUI.GetRecipesTracked(true)[1] == nil
+    if nowEmpty ~= empty then
+        empty = nowEmpty
+        UpdateVisibility()
+    end
 end
 
 function Queue()
@@ -1627,9 +1638,9 @@ local function Blocked()
     return Cfg("enabled") == false or EQT.IsSuppressed() or AutoHidden()
 end
 
-local function UpdateVisibility()
+function UpdateVisibility()
     if not frame then return end
-    local vis = not Blocked() and EllesmereUI.EvalVisibility(EQT.DB())
+    local vis = not Blocked() and not empty and EllesmereUI.EvalVisibility(EQT.DB())
     if not vis then frame:Hide(); return end
     frame:Show()
     frame:SetAlpha(vis == "mouseover" and 0 or 1)
