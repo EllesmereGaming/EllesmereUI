@@ -268,7 +268,8 @@ function ns.UFO_BuildTextSlots(W, parent, y, opts)
         end
         if not cell.key then return end
         targets[cell.key] = { row=row, side=side }
-        if EllesmereUI._prebuilding then return end
+        -- Index pass: only the slot's cogs, for search
+        if EllesmereUI._prebuilding then pcall(cell.decorate, rgn) return end
         EllesmereUI.BuildRowLabelMenu(rgn, { order=order, values=values,
             getValue=function() return cell.key end,
             setValue=function(v) Move(cell.key, v) end,

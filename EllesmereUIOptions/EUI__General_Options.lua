@@ -1780,7 +1780,7 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
         end
         -- Cog with "Only Hide Fully Synced" toggle on Disable Sync Icons (right region)
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = euiBtnRow._rightRegion
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Sync Icon Options",
@@ -1995,16 +1995,18 @@ initFrame:SetScript("OnEvent", function(self)
                     cancelText  = "Later",
                 })
               end });  y = y - h
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = combatTextRow._leftRegion
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rgn, 210, rgn:GetFrameLevel() + 2, COMBAT_TEXT,
-                function(key) return GetCVarBool(key) end,
-                function(key, v) SetCVarSafe(key, v and "1" or "0") end)
-            PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
-            rgn._control = cbDD
-            rgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+            if not EllesmereUI._prebuilding then
+                local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    rgn, 210, rgn:GetFrameLevel() + 2, COMBAT_TEXT,
+                    function(key) return GetCVarBool(key) end,
+                    function(key, v) SetCVarSafe(key, v and "1" or "0") end)
+                PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._control = cbDD
+                rgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+            end
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Combat Text Size",
                 rows = {
@@ -2060,6 +2062,32 @@ initFrame:SetScript("OnEvent", function(self)
               end },
             swiftmendCfg
         ); y = y - h
+
+        _, h = W:Spacer(parent, y, 20);  y = y - h
+
+        -- The options search box: results picked often rank higher.
+        _, h = W:SectionHeader(parent, "SEARCH", y);  y = y - h
+        _, h = W:DualRow(parent, y,
+            { type="toggle", text="Remember Picks",
+              tooltip="Results you pick often and recently rank higher. Kept on this account only, never in an exported profile. Turning this off forgets them.",
+              getValue=function() return EllesmereUI.SearchPicksOn and EllesmereUI.SearchPicksOn() end,
+              setValue=function(v)
+                  if EllesmereUI.SetSearchPicksOn then EllesmereUI.SetSearchPicksOn(v) end
+                  EllesmereUI:RefreshPage()
+              end },
+            { type="labeledButton", text="Pick History", buttonText="Clear", width=90,
+              tooltip="Forgets the results you have picked.",
+              disabled=function() return not (EllesmereUI.SearchPicksOn and EllesmereUI.SearchPicksOn()) end,
+              disabledTooltip="Remember Picks",
+              onClick=function()
+                  EllesmereUI:ShowConfirmPopup({
+                      title       = "Clear Pick History",
+                      message     = "Forget every search result you have picked? Search ranking goes back to the default order.",
+                      confirmText = "Clear",
+                      cancelText  = "Cancel",
+                      onConfirm   = function() if EllesmereUI.ClearSearchPicks then EllesmereUI.ClearSearchPicks() end end,
+                  })
+              end });  y = y - h
 
         _, h = W:Spacer(parent, y, 20);  y = y - h
 
@@ -2549,6 +2577,7 @@ initFrame:SetScript("OnEvent", function(self)
             title       = "Patch Notes",
             description = EllesmereUI.L("What's new in EllesmereUI."),
             pages       = { PAGE_WHATSNEW },
+            _searchPrebuild = false, -- a feed with no settings: the pass indexed nothing here
             buildPage   = function(pageName, parent, yOffset)
                 return EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
             end,

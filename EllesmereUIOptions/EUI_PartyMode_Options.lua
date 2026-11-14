@@ -193,22 +193,24 @@ do
                   setValue=function() end },
                 nil
             );  y = y - h
-            if not EllesmereUI._prebuilding then
+            do
                 local rgn = spinRow._leftRegion
-                if rgn._control then rgn._control:Hide() end
-                local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                    rgn, 200, rgn:GetFrameLevel() + 2,
-                    SPIN_ITEMS,
-                    -- The setting itself, whether or not Party Mode is on.
-                    function(k) return EllesmereUI.PartySpinOn(k, true) end,
-                    function(k, v)
-                        EllesmereUI.PartySpinSet(k, v)
-                        EllesmereUI.PartySpin_RefreshAll()
-                    end)
-                PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
-                rgn._control = cbDD
-                rgn._lastInline = nil
-                EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+                if not EllesmereUI._prebuilding then
+                    if rgn._control then rgn._control:Hide() end
+                    local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                        rgn, 200, rgn:GetFrameLevel() + 2,
+                        SPIN_ITEMS,
+                        -- The setting itself, whether or not Party Mode is on.
+                        function(k) return EllesmereUI.PartySpinOn(k, true) end,
+                        function(k, v)
+                            EllesmereUI.PartySpinSet(k, v)
+                            EllesmereUI.PartySpin_RefreshAll()
+                        end)
+                    PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                    rgn._control = cbDD
+                    rgn._lastInline = nil
+                    EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+                end
                 EllesmereUI.BuildInlineCog(rgn, {
                     title = "Spin",
                     rows = {
@@ -706,7 +708,7 @@ do
               end },
             EllesmereUI.BlankRowCfg()
         );  y = y - h
-        if not EllesmereUI._prebuilding then
+        do
             local function CornerOff() return AfkOff() or not EllesmereUIDB.partyModeAfkCorner end
             EllesmereUI.BuildInlineCog(cornerRow._leftRegion, {
                 disabled = CornerOff, disabledTooltip = "Party Lights on Corner Hit",
