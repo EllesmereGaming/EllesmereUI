@@ -1269,4 +1269,5 @@ L["  %d. %s  |cff808080BoE, %dm left|r"] = "  %d. %s  |cff808080착용 시 귀�
 L["  -  %s  |cff73716CBoE, not added automatically|r"] = "  -  %s  |cff73716C착용 시 귀속, 자동으로 추가되지 않음|r"
 L["Answer the question on screen first."] = "먼저 화면의 질문에 답하세요."
 L["Requires the council to be allowed to vote for themselves."] = "위원이 자신에게 투표할 수 있어야 합니다."
-L["skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway."] = "6시간 제한 밖의 착용 시 귀속 아이템 %d개를 건너뛰었습니다 - 그래도 추가하려면 가방 목록에서 클릭하십시오."
+L["skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway."] = "6시간이 지난 착용 시 귀속 아이템 %d개를 건너뛰었습니다 - 그래도 대기열에 추가하려면 가방 목록에서 클릭하십시오."
+L["skipped %d BoE item outside its six-hour window - click it in the bags panel to queue it anyway."] = "6시간이 지난 착용 시 귀속 아이템 %d개를 건너뛰었습니다 - 그래도 대기열에 추가하려면 가방 목록에서 클릭하십시오."
