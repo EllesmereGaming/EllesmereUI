@@ -115,7 +115,9 @@ end
 -- Visibility dimming (default bars): the resting alpha a parent takes while its
 -- Visibility verdict is "not shown", set by EUI_PlayerAuraBars_Visibility.lua.
 -- A suppressed or hidden parent stays at 0.
-local parentDim, parentBaseAlpha = {}, {}
+-- Visibility gate (same file): "hide" forces the parent hidden, "driver" leaves
+-- Show/Hide to a secure state driver registered on it; nil is no gate.
+local parentDim, parentBaseAlpha, parentGate = {}, {}, {}
 function I.SetParentDim(parent, a)
     if parentDim[parent] == a then return end
     parentDim[parent] = a
@@ -124,8 +126,17 @@ function I.SetParentDim(parent, a)
     end
 end
 
+-- Returns true when the gate changed.
+function I.SetParentGate(parent, g)
+    if parentGate[parent] == g then return false end
+    parentGate[parent] = g
+    return true
+end
+
 local function SetParentShownSafe(key, parent, want, recompute)
     want = want and true or false
+    local gate = parentGate[parent]
+    if gate == "hide" then want = false end
     local locked = InCombatLockdown()
     local shown = parent:IsShown()
     if issecretvalue and issecretvalue(shown) then shown = nil end
@@ -133,7 +144,7 @@ local function SetParentShownSafe(key, parent, want, recompute)
     parentBaseAlpha[parent] = alpha
     if alpha == 1 then alpha = parentDim[parent] or 1 end
     if parent:GetAlpha() ~= alpha then parent:SetAlpha(alpha) end
-    if shown == want then return end
+    if gate == "driver" or shown == want then return end
     if locked then
         QueuePABRegenApply("shown:" .. key, recompute)
         return
