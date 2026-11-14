@@ -84,9 +84,10 @@ will make changes to it myself.
 - Screenshots (before/after) for anything visual.
 - Fill in the PR template checklist honestly - "not applicable" is a fine
   answer, silence is not.
-- Leave test files out of your PR. `.tools/tests` is not tracked: the tests
-  there are the maintainer's local tooling and CI does not run them. Say how
-  you tested in the PR description instead.
+- Leave test files and tooling scripts out of your PR. Of `.tools` only what
+  CI runs is tracked (`guardrails.py` with its own test, and
+  `extract-locale-keys.sh`): everything else there is the maintainer's local
+  tooling. Say how you tested in the PR description instead.
 
 ## AI coding rules
 
