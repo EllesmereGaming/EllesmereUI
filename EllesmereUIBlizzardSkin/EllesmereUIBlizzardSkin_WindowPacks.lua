@@ -8836,6 +8836,12 @@ local function Skin_Trainer()
         local tfs = tb.GetFontString and tb:GetFontString()
         if tfs then WSkin.White(tfs) end
     end
+    -- The QoL Train All button beside it (exists only while that option is on).
+    local tab = _G.EUI_TrainAllButton
+    if tab then
+        WSkin.Button(tab)
+        WSkin.StateButtonLabel(tab)
+    end
     -- Top "current profession" tab: strip Blizzard chrome (bg+NineSlice), keep
     -- the profession icon, wash the guild sidebar card texture over the WHOLE
     -- tab at 50%, border the icon tight. NOT restrip-registered (would fade the icon+card being kept).
