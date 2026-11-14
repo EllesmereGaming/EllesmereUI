@@ -387,6 +387,10 @@ local function Less(t, a, b)
     local result = CompareChain(t, t.sortColumn, a, b, 1) or 0
     if result == 0 then
 
+        local column = t.sortColumn and t.columns[t.sortColumn]
+        local tie = column and column.tiebreak and column.tiebreak(a, b) or 0
+        if tie ~= 0 then return tie < 0 end
+
         local ka = tostring(a.sortKey or a.name or "")
         local kb = tostring(b.sortKey or b.name or "")
         return ka < kb

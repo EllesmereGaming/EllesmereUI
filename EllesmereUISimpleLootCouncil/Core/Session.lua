@@ -1071,6 +1071,14 @@ end
 
 
 
+local function AutorollSet(session, item, name, candidate)
+    if candidate.status ~= "RESPONDED" or not addon.Roll then return end
+    if addon.Roll.OwedBy and addon.Roll.OwedBy(item, name) then return end
+    AutorollMerged(session, name, candidate)
+end
+
+
+
 local function MergeVotes(item, index, voter, list)
     local wanted = {}
     if type(list) == "table" then
@@ -2868,7 +2876,10 @@ function Session:ApplyResponseSet(session, candidateName, response, sender)
         candidate.realResponse = response
         candidate.realStatus = status
     else
-        if candidate.response == response and candidate.status == status then return end
+
+        if candidate.response == response and candidate.status == status then
+            return AutorollSet(session, item, candidateName, candidate)
+        end
         candidate.response = response
         candidate.status = status
     end
@@ -2879,6 +2890,7 @@ function Session:ApplyResponseSet(session, candidateName, response, sender)
 
     addon.Log:I("Session", "response overridden by", tostring(sender), session,
         candidateName, tostring(response))
+    if not awarded then AutorollSet(session, item, candidateName, candidate) end
 
 
     if awarded and addon.PlayerIsMasterLooter() then
@@ -3058,6 +3070,8 @@ function Session:ApplyAward(session, winner, sender, reason, seq)
     item.delivered = false
     item.awarded = winner
 
+    item.gone, item.owed = nil, nil
+
 
     local reasonEntry = reason and addon.db.awardReasons
         and addon.db.awardReasons[reason] or nil
@@ -3202,8 +3216,25 @@ function Session:IsRemoved(item)
 end
 
 
+
+local function StandIn(item)
+    if not item.link or not item.owner or not addon.Storage then return false end
+    for _, other in ipairs(run.items) do
+        if other ~= item and not other.awarded and not other.delivered and not other.removed
+            and not other.gone and not other.owed
+            and addon.Player:IsSame(other.owner, item.owner)
+            and addon.Storage.ItemsMatch(other.link, item.link) then
+            return true
+        end
+    end
+    return false
+end
+
+
+
 function Session:IsAwardable(item)
-    return item and not item.removed and not item.gone or false
+    if not item or item.removed then return false end
+    return not item.gone or StandIn(item)
 end
 
 function Session:ApplyRemove(session, on, sender, seq, runId)
@@ -3321,75 +3352,128 @@ end
 
 
 
+local CLAIM_ORDER = { false, "landed", "pending", "lost" }
+
+
+
+local function ClaimCopy(links, claimed, link, exact)
+    for i, have in ipairs(links) do
+        if not claimed[i] and addon.Storage.ItemsMatch(have, link) then
+            claimed[i] = true
+            return true
+        end
+    end
+    if exact then return false end
+    for i = 1, #links do
+        if not claimed[i] then
+            claimed[i] = true
+            return true
+        end
+    end
+    return false
+end
+
+
+
+
 
 function Session:CheckHeld()
     if not run.active or run.ended or not run.id then return 0 end
 
-    local byId, order = {}, {}
-    for pass = 1, 2 do
+    local ItemID = addon.Storage.ItemID
+    local byId, order, settled = {}, {}, {}
+    for pass = 1, #CLAIM_ORDER do
         for _, item in ipairs(run.items) do
-            if (drops[item.id] ~= nil) == (pass == 2)
-                and item.link and not item.simulated and not item.awarded
-                and not item.delivered and not item.removed
-                and addon.Player:IsSelf(item.owner) then
-                local id = addon.Storage.ItemID(item.link)
-                if id then
-                    if not byId[id] then byId[id] = {} order[#order + 1] = id end
-                    table.insert(byId[id], item)
+            local id = (drops[item.id] or false) == CLAIM_ORDER[pass]
+                and item.link and not item.simulated and not item.removed
+                and addon.Player:IsSelf(item.owner) and ItemID(item.link)
+            if id and (item.awarded or item.delivered) then
+
+                if pass > 1 then
+                    settled[id] = settled[id] or {}
+                    table.insert(settled[id], item)
                 end
+            elseif id then
+                if not byId[id] then byId[id] = {} order[#order + 1] = id end
+                table.insert(byId[id], item)
             end
         end
     end
 
-    if #order == 0 then return 0 end
+    local changed, short = 0, {}
+    if #order > 0 then
 
-    local owedById = {}
-    for _, entry in ipairs(addon.Storage:GetAll(addon.Storage.TO_TRADE)) do
-        local id = not entry.untradeable and addon.Storage.ItemID(entry.link)
-        if id and byId[id] then
+
+        local owedById, ownById = {}, {}
+        for _, entry in ipairs(addon.Storage:GetAll(addon.Storage.TO_TRADE)) do
+            local id = not entry.untradeable and ItemID(entry.link)
             local args = entry.args or {}
-            owedById[id] = owedById[id] or {}
-            table.insert(owedById[id], { w = args.recipient, i = args.runId, s = args.session })
+            local mine = args.runId == run.id and run.items[args.session]
+            if id and byId[id] and args.runId ~= run.id then
+                owedById[id] = owedById[id] or {}
+                table.insert(owedById[id], { w = args.recipient, i = args.runId, s = args.session })
+            elseif id and byId[id] and mine and mine.awarded then
+                ownById[id] = ownById[id] or {}
+                table.insert(ownById[id], entry.link)
+            end
+        end
+
+        local counts = TradeableCounts(byId)
+        for _, id in ipairs(order) do
+            local group, links, bound = byId[id], counts[id].links, counts[id].b
+            local claimed, held = {}, {}
+            for _, link in ipairs(ownById[id] or {}) do ClaimCopy(links, claimed, link) end
+            local free = 0
+            for i = 1, #links do if not claimed[i] then free = free + 1 end end
+            for _, item in ipairs(group) do held[item] = ClaimCopy(links, claimed, item.link, true) end
+            for _, item in ipairs(group) do
+                if not held[item] then held[item] = ClaimCopy(links, claimed, item.link) end
+            end
+
+            local owedTo = owedById[id] or {}
+            local plain = math.max(0, free - #owedTo)
+            local index, borrowed = 0, 0
+            for _, item in ipairs(group) do
+                local reason, owed
+                local drop = drops[item.id]
+                if held[item] then
+                    index = index + 1
+                    if drop then drops[item.id] = nil end
+                    if index > plain then owed = CleanOwed(owedTo[index - plain]) end
+                else
+                    short[id] = true
+                    if drop == nil then
+                        borrowed = borrowed + 1
+                        local sibling = settled[id] and settled[id][borrowed]
+                        drop = sibling and drops[sibling.id]
+                    end
+
+                    if drop == "pending" or drop == "lost" then
+                        reason = drop
+                    elseif addon.Storage:IsEquipped(item.link) then
+                        reason = "equipped"
+                    elseif bound > 0 then
+                        reason = "bound"
+                    elseif drop == "landed" then
+                        reason = "pending"
+                    else
+                        reason = "left"
+                    end
+                end
+                if item.gone ~= reason or OwedKey(item.owed) ~= OwedKey(owed) then
+                    changed = changed + 1
+                    addon.Comms:Send("item_gone", { s = item.session, i = run.id,
+                        g = reason or false, o = owed or false }, nil, true)
+                    Session:ApplyGone(item.session, run.id, reason,
+                        addon.Player:GetFullName("player"), owed)
+                end
+            end
         end
     end
 
-    local counts = TradeableCounts(byId)
-    local changed = 0
-    for _, id in ipairs(order) do
-        local group = byId[id]
-        local tradeable, bound = counts[id].n, counts[id].b
-
-        local owedTo = owedById[id] or {}
-        local free = math.max(0, tradeable - #owedTo)
-        for index, item in ipairs(group) do
-            local reason, owed
-            local drop = drops[item.id]
-            if index > tradeable then
-
-                if drop == "pending" or drop == "lost" then
-                    reason = drop
-                elseif addon.Storage:IsEquipped(item.link) then
-                    reason = "equipped"
-                elseif bound > 0 then
-                    reason = "bound"
-                elseif drop == "landed" then
-                    reason = "pending"
-                else
-                    reason = "left"
-                end
-            else
-                if drop then drops[item.id] = nil end
-                if index > free then
-                    owed = CleanOwed(owedTo[index - free])
-                end
-            end
-            if item.gone ~= reason or OwedKey(item.owed) ~= OwedKey(owed) then
-                changed = changed + 1
-                addon.Comms:Send("item_gone", { s = item.session, i = run.id,
-                    g = reason or false, o = owed or false }, nil, true)
-                Session:ApplyGone(item.session, run.id, reason,
-                    addon.Player:GetFullName("player"), owed)
-            end
+    for id, list in pairs(settled) do
+        if not short[id] then
+            for _, item in ipairs(list) do drops[item.id] = nil end
         end
     end
     return changed
@@ -3746,7 +3830,8 @@ function Session:Award(session, winner, reason, expectedRunId)
 
     local owed = run.items[session].owed
     if owed and not run.items[session].awarded then
-        if Session:RetractAward(owed.i, owed.s, owed.w) then
+
+        if owed.i ~= run.id and Session:RetractAward(owed.i, owed.s, owed.w) then
             addon.Log:I("Session", "owed copy moved off", tostring(owed.w),
                 "for", session)
         end

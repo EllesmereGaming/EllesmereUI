@@ -7,9 +7,9 @@
 ## X-License: All Rights Reserved
 ## Version: 9.8.5
 ## DefaultState: disabled
-## X-SLC-Version: 1.0.1
-## X-SLC-Commit: 28b1bd74c9a0
-## X-SLC-Port-Commit: 7e890f840af7
+## X-SLC-Version: 1.0.7
+## X-SLC-Commit: afe4d6036d9d
+## X-SLC-Port-Commit: 646762610fa6
 ## Dependencies: EllesmereUI
 # Held back (EllesmereUI.HELD_BACK_ADDONS): load on demand, and nothing loads
 # it, so it never loads and its saved data stays untouched. Drop this to ship.

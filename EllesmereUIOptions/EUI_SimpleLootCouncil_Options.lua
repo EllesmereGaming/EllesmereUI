@@ -1363,7 +1363,7 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     elseif entry.pending then
 
-                        label:SetText(ClassText(entry.classFile, entry.fullName or entry.guid or "?",
+                        label:SetText(ClassText(entry.classFile, slc.Player:DisplayName(entry.fullName or entry.guid or "?"),
                             S.Flatten(S.color.textFaint)))
                     else
                         local short = ClassText(entry.classFile, Ambiguate(entry.fullName or "?", "short"))
