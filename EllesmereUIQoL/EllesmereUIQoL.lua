@@ -124,8 +124,18 @@ qolFrame:SetScript("OnEvent", function(self)
                 and (not request.isRoll or request.specID == LootSpec())
         end
 
-        local function Click(isRoll, button, mouseButton, down)
+        -- The confirm's secure click does nothing in combat (Blizzard's
+        -- template skips it there): say so instead of opening, or silently
+        -- closing, a prompt that cannot act. The roll stays for after combat.
+        local function CombatRefused()
+            if not InCombatLockdown() then return false end
+            EllesmereUI.PrintError(EllesmereUI.L("A bonus roll can only be confirmed out of combat."))
+            return true
+        end
+
+        local function Click(isRoll, button)
             if not active or not Enabled() then return end
+            if CombatRefused() then return end
             Invalidate()
             local frame = BonusRollFrame
             if not frame then return end
@@ -148,11 +158,15 @@ qolFrame:SetScript("OnEvent", function(self)
                 confirmText = isRoll and ROLL or PASS,
                 cancelText = CANCEL,
                 onCancel = request.cancel,
+                -- Blizzard's button is clicked by the popup's secure overlay:
+                -- a Click() from here taints AcceptSpellConfirmationPrompt.
+                confirmClick = button,
+                confirmGate = function()
+                    return pending == request and IsCurrent(request)
+                end,
                 onConfirm = function()
-                    if pending ~= request then return end
-                    local valid = IsCurrent(request)
                     Invalidate()
-                    if valid then button:Click(mouseButton, down) end
+                    CombatRefused()
                 end,
             })
         end
@@ -170,8 +184,8 @@ qolFrame:SetScript("OnEvent", function(self)
             overlay:SetAllPoints(button)
             overlay:SetFrameLevel(button:GetFrameLevel() + 1)
             overlay:RegisterForClicks("LeftButtonUp")
-            overlay:SetScript("OnClick", function(_, mouseButton, down)
-                Click(isRoll, button, mouseButton, down)
+            overlay:SetScript("OnClick", function()
+                Click(isRoll, button)
             end)
             overlay:SetScript("OnEnter", function(self)
                 EllesmereUI.ShowWidgetTooltip(self, isRoll and ROLL or PASS)
@@ -2377,6 +2391,7 @@ do
     function UpdateSecondaryStats()
         if not statsFrame or not statsFrame:IsShown() then return end
         statUnreadable = false
+        if FV then FV.missing = nil end
         if not statsFrame._classHex then
             -- Cache ONLY a resolved class color: caching the white fallback
             -- here left class-colored labels white for the whole session
@@ -2618,7 +2633,7 @@ do
         -- anySecret deliberately does NOT arm it: that clears on
         -- PLAYER_REGEN_ENABLED, and spending the budget on a whole fight would
         -- leave none for the settle that actually needs it.
-        if statUnreadable or staleSize then
+        if statUnreadable or staleSize or (FV and FV.missing) then
             ArmSecretHeal()
         else
             statsFrame._secretHeals = nil
@@ -3915,19 +3930,21 @@ end
 
 -------------------------------------------------------------------------------
 --  Transparent World Map Sidebars: the black beside the maximized world map goes
---  to the chosen opacity (clear by default) and lets the mouse through to
---  the world. Blizzard only shows and hides BlackoutFrame, so the change
---  holds until turned off. Not offered on WoW Forever: Forever Essentials
---  has its own map background option there.
+--  to the chosen opacity (clear by default) and, with Click Through on
+--  (mapSidebarsClickThrough, on by default), lets the mouse through to the
+--  world. Blizzard only shows and hides BlackoutFrame, so the change holds
+--  until turned off. Not offered on WoW Forever: Forever Essentials has its
+--  own map background option there.
 -------------------------------------------------------------------------------
 if not EllesmereUI.IS_FOREVER then
     local loader
     local applied = false
+    local mouseHeld = false
     local mouseWas
 
     function EllesmereUI._applyMapSidebars()
         local on = EllesmereUIDB and EllesmereUIDB.mapSidebarsClear == true
-        if not (on or applied or loader) then return end
+        if not (on or applied or mouseHeld or loader) then return end
         -- The world map loads on demand.
         if not C_AddOns.IsAddOnLoaded("Blizzard_WorldMap") then
             if on and not loader then
@@ -3941,25 +3958,27 @@ if not EllesmereUI.IS_FOREVER then
             if on then loader:RegisterEvent("ADDON_LOADED") else loader:UnregisterEvent("ADDON_LOADED") end
             return
         end
-        if not (on or applied) then return end
+        if not (on or applied or mouseHeld) then return end
+        local b = WorldMapFrame.BlackoutFrame
+        if not (b and b.Blackout) then return end
+        -- The opacity applies at once, in combat too.
+        b.Blackout:SetAlpha(on and (EllesmereUIDB.mapSidebarsOpacity or 0) / 100 or 1)
+        applied = on
+        local through = (on and EllesmereUIDB.mapSidebarsClickThrough ~= false) or false
+        if through == mouseHeld then return end
+        -- The frame's mouse changes hands out of combat only. The wheel already
+        -- passes through: the frame never takes it.
         if InCombatLockdown() then
             ns.CombatQueue.Defer("MapSidebars", EllesmereUI._applyMapSidebars)
             return
         end
-        local b = WorldMapFrame.BlackoutFrame
-        if not (b and b.Blackout) then return end
-        if on then
-            if not applied then
-                mouseWas = b:IsMouseEnabled()
-            end
-            b.Blackout:SetAlpha((EllesmereUIDB.mapSidebarsOpacity or 0) / 100)
-            -- The wheel already passes through: the frame never takes it.
+        if through then
+            mouseWas = b:IsMouseEnabled()
             b:EnableMouse(false)
         else
-            b.Blackout:SetAlpha(1)
             b:EnableMouse(mouseWas)
         end
-        applied = on
+        mouseHeld = through
     end
 end
 

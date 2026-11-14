@@ -355,6 +355,7 @@ local function HandleWay(msg)
     end
     if #dests > 0 then ShowDestinations(dests) end
 end
+ns.WaypointHandle = HandleWay  -- the paste window hands it a whole list in one call
 
 -------------------------------------------------------------------------------
 --  Slash commands, one frame after the loading screen, so a /way another

@@ -131,7 +131,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if EUI._applyPersistSignupNote then EUI._applyPersistSignupNote() end
                   EUI:RefreshPage()
               end });  y = y - h
-        if not EUI._prebuilding then
+        do
             EUI.BuildInlineCog(noteRow._rightRegion, {
                 gap = 9, tip = "Edit the saved signup note.",
                 disabled = function() return not (EllesmereUIDB and EllesmereUIDB.persistSignupNote) end,
@@ -257,7 +257,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if ns.DimFiltersChanged then ns.DimFiltersChanged() end
               end })
         y = y - h
-        if not EUI._prebuilding then
+        do
             local rgn = lineRow._leftRegion
             -- the effect's style and each status's color (the list's own
             -- colors and keys: ns.STATUS_LINES, EUI_GroupFinder_ResultsList.lua)
@@ -305,7 +305,7 @@ initFrame:SetScript("OnEvent", function(self)
               tooltip = "Group tooltips add each member's name (dungeons and arenas, where Blizzard already lists the roles and classes), or a line per member with role, specialization, class and name (other groups).",
               getValue = function() return ns.Cfg().classTooltip ~= false end,
               setValue = function(v) ns.Cfg().classTooltip = v and true or false end });  y = y - h
-        if not EUI._prebuilding then
+        do
             -- the rating text shows with the game's colors too, so the cog stays
             -- open without Raider.IO
             EUI.BuildInlineCog(rioRow._leftRegion, {

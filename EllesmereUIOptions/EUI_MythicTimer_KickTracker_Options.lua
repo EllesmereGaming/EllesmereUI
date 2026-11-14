@@ -336,7 +336,7 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
               values=POSITION_VALUES, order=POSITION_ORDER,
               getValue=function() return Get("anchor", "LEFT") end,
               setValue=SetPosition });  y = y - h
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(row._rightRegion, { tip = "Position Offsets",
                 title = "Position Offsets",
                 disabled = PlatesOff, disabledTooltip = REQ_PLATES,
@@ -389,6 +389,8 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
             fxRgn._control = fxDD
             fxRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(fxRefresh)
+        end
+        do
             EllesmereUI.BuildInlineCog(row._leftRegion, { tip = "Timer Settings",
                 title = "Cooldown Timer",
                 disabled = function() return PlatesOff() or Get("showTimer", true) ~= true end,
@@ -521,12 +523,12 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
               disabled=BarsOff, disabledTooltip=REQ_BARS,
               getValue=function() return Get("barIncludeSelf", true) == true end,
               setValue=function(v) Set("barIncludeSelf", v and true or false) end });  y = y - h
+        local elRgn = row._leftRegion
         if not EllesmereUI._prebuilding then
             -- Display Elements: the checkbox dropdown over its four keys, in
             -- place of the row's placeholder dropdown, and its cog beside it:
             -- the icon's side and one text size for the name and the timer
             -- (the Fonts page sets the two apart).
-            local elRgn = row._leftRegion
             if elRgn._control then elRgn._control:Hide() end
             local elDD, elRefresh = EllesmereUI.BuildVisOptsCBDropdown(
                 elRgn, 220, elRgn:GetFrameLevel() + 2, BAR_ELEMENTS,
@@ -537,6 +539,8 @@ ns._KT_BuildPage = function(pageName, parent, yOffset)
             elRgn._control = elDD
             elRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(elRefresh)
+        end
+        do
             EllesmereUI.BuildInlineCog(elRgn, { tip = "Element Settings",
                 title = "Display Elements",
                 disabled = BarsOff,

@@ -1497,62 +1497,64 @@ initFrame:SetScript("OnEvent", function(self)
                         end
 
                         -- Eyeball preview toggle (on right region of the At Stacks / Glow Type row)
-                        if not EllesmereUI._prebuilding then
+                        do
                             local EYE_VIS   = EllesmereUI.EYE_VISIBLE_ICON
                             local EYE_INVIS = EllesmereUI.EYE_INVISIBLE_ICON
                             local leftRgn = stackRow._rightRegion
                             if leftRgn and leftRgn._control then
-                                local eyeBtn = CreateFrame("Button", nil, leftRgn)
-                                eyeBtn:SetSize(26, 26)
-                                eyeBtn:SetPoint("RIGHT", leftRgn._control, "LEFT", -8, 0)
-                                eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
-                                EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
-                                local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-                                eyeTex:SetAllPoints()
-                                local function RefreshEye()
-                                    eyeTex:SetTexture(_bgPreviewGlowActive[pvKey] and EYE_INVIS or EYE_VIS)
-                                end
-                                RefreshEye()
-                                eyeBtn:SetScript("OnClick", function()
-                                    local previewBtn = _glowBtnFrames[curBtn]
-                                    if not previewBtn then return end
-                                    if not _bgPreviewGlowOverlays[pvKey] then
-                                        local ov = CreateFrame("Frame", nil, previewBtn)
-                                        ov:SetAllPoints(previewBtn)
-                                        ov:SetFrameLevel(previewBtn:GetFrameLevel() + 10)
-                                        ov._euiGlowPreview = true  -- exempt from Show Glows Only in Combat
-                                        _bgPreviewGlowOverlays[pvKey] = ov
-                                    end
-                                    local ov = _bgPreviewGlowOverlays[pvKey]
-                                    if _bgPreviewGlowActive[pvKey] then
-                                        ns.StopNativeGlow(ov)
-                                        _bgPreviewGlowActive[pvKey] = false
-                                        -- Restore accent border
-                                        if previewBtn._accentBrd then previewBtn._accentBrd:Show() end
-                                    else
-                                        local style = BarHasCustomShape(curBar) and 2 or (entry.glowStyle or 1)
-                                        local cr, cg, cb
-                                        if entry.colorMode == "class" then
-                                            local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
-                                            cr, cg, cb = cc.r, cc.g, cc.b
-                                        elseif entry.colorMode == "custom" and entry.glowColor then
-                                            cr, cg, cb = entry.glowColor.r, entry.glowColor.g, entry.glowColor.b
-                                        end
-                                        ns.StartNativeGlow(ov, style, cr, cg, cb,
-                                            style == 8 and { panel = true, alpha = entry.glowAlpha } or EllesmereUI.Glows.PANEL_EXTRA)
-                                        _bgPreviewGlowActive[pvKey] = true
-                                        -- Hide accent border so glow is visible
-                                        if previewBtn._accentBrd then previewBtn._accentBrd:Hide() end
+                                if not EllesmereUI._prebuilding then
+                                    local eyeBtn = CreateFrame("Button", nil, leftRgn)
+                                    eyeBtn:SetSize(26, 26)
+                                    eyeBtn:SetPoint("RIGHT", leftRgn._control, "LEFT", -8, 0)
+                                    eyeBtn:SetFrameLevel(leftRgn:GetFrameLevel() + 5)
+                                    EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
+                                    local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+                                    eyeTex:SetAllPoints()
+                                    local function RefreshEye()
+                                        eyeTex:SetTexture(_bgPreviewGlowActive[pvKey] and EYE_INVIS or EYE_VIS)
                                     end
                                     RefreshEye()
-                                end)
-                                eyeBtn:SetScript("OnEnter", function(self) EllesmereUI.SetGlyphAlpha(self, 0.7) end)
-                                eyeBtn:SetScript("OnLeave", function(self) EllesmereUI.SetGlyphAlpha(self, 0.4) end)
+                                    eyeBtn:SetScript("OnClick", function()
+                                        local previewBtn = _glowBtnFrames[curBtn]
+                                        if not previewBtn then return end
+                                        if not _bgPreviewGlowOverlays[pvKey] then
+                                            local ov = CreateFrame("Frame", nil, previewBtn)
+                                            ov:SetAllPoints(previewBtn)
+                                            ov:SetFrameLevel(previewBtn:GetFrameLevel() + 10)
+                                            ov._euiGlowPreview = true  -- exempt from Show Glows Only in Combat
+                                            _bgPreviewGlowOverlays[pvKey] = ov
+                                        end
+                                        local ov = _bgPreviewGlowOverlays[pvKey]
+                                        if _bgPreviewGlowActive[pvKey] then
+                                            ns.StopNativeGlow(ov)
+                                            _bgPreviewGlowActive[pvKey] = false
+                                            -- Restore accent border
+                                            if previewBtn._accentBrd then previewBtn._accentBrd:Show() end
+                                        else
+                                            local style = BarHasCustomShape(curBar) and 2 or (entry.glowStyle or 1)
+                                            local cr, cg, cb
+                                            if entry.colorMode == "class" then
+                                                local cc = EllesmereUI.GetClassColor(EllesmereUI._playerClass)
+                                                cr, cg, cb = cc.r, cc.g, cc.b
+                                            elseif entry.colorMode == "custom" and entry.glowColor then
+                                                cr, cg, cb = entry.glowColor.r, entry.glowColor.g, entry.glowColor.b
+                                            end
+                                            ns.StartNativeGlow(ov, style, cr, cg, cb,
+                                                style == 8 and { panel = true, alpha = entry.glowAlpha } or EllesmereUI.Glows.PANEL_EXTRA)
+                                            _bgPreviewGlowActive[pvKey] = true
+                                            -- Hide accent border so glow is visible
+                                            if previewBtn._accentBrd then previewBtn._accentBrd:Hide() end
+                                        end
+                                        RefreshEye()
+                                    end)
+                                    eyeBtn:SetScript("OnEnter", function(self) EllesmereUI.SetGlyphAlpha(self, 0.7) end)
+                                    eyeBtn:SetScript("OnLeave", function(self) EllesmereUI.SetGlyphAlpha(self, 0.4) end)
+                                    leftRgn._lastInline = eyeBtn
+                                end
 
                                 -- Blackout fill opacity, in a cog chained left of the eye. Locked
                                 -- unless the entry renders Blackout (custom-shaped bars always
                                 -- draw Shape Glow); the Glow Type setter's page refresh re-checks it.
-                                leftRgn._lastInline = eyeBtn
                                 EllesmereUI.BuildInlineCog(leftRgn, {
                                     title = "Blackout",
                                     disabled = function()
@@ -1918,7 +1920,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- (optional): why the whole row is locked, nil while it is live; the
     -- swatch and cog give that reason first, then Show Keybind.
     local function BuildKeybindStyleControls(kbRow, BD, RefreshKeybindStyle, lockTip)
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = kbRow._rightRegion
             local kbFonts, kbFontOrder = EllesmereUI.BuildFontDropdownData()
             kbFonts.__global = { text = "CDM Font" }
@@ -1999,34 +2001,36 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
 
-            local kbSwatch, updateKbSwatch = EllesmereUI.BuildColorSwatch(
-                rgn, kbRow:GetFrameLevel() + 3,
-                function() return BD().keybindR or 1, BD().keybindG or 1, BD().keybindB or 1, BD().keybindA or 0.9 end,
-                function(r, g, b, a)
-                    BD().keybindR = r; BD().keybindG = g; BD().keybindB = b; BD().keybindA = a
-                    RefreshKeybindStyle()
-                end,
-                true, 20)
-            PP.Point(kbSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-            rgn._lastInline = kbSwatch
+            if not EllesmereUI._prebuilding then
+                local kbSwatch, updateKbSwatch = EllesmereUI.BuildColorSwatch(
+                    rgn, kbRow:GetFrameLevel() + 3,
+                    function() return BD().keybindR or 1, BD().keybindG or 1, BD().keybindB or 1, BD().keybindA or 0.9 end,
+                    function(r, g, b, a)
+                        BD().keybindR = r; BD().keybindG = g; BD().keybindB = b; BD().keybindA = a
+                        RefreshKeybindStyle()
+                    end,
+                    true, 20)
+                PP.Point(kbSwatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+                rgn._lastInline = kbSwatch
 
-            local swatchBlock = CreateFrame("Frame", nil, kbSwatch)
-            swatchBlock:SetAllPoints()
-            swatchBlock:SetFrameLevel(kbSwatch:GetFrameLevel() + 10)
-            swatchBlock:EnableMouse(true)
-            swatchBlock:SetScript("OnEnter", function()
-                local tip = OffTip()
-                if tip then EllesmereUI.ShowWidgetTooltip(kbSwatch, EllesmereUI.DisabledTooltip(tip)) end
-            end)
-            swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            local function SwatchState()
-                updateKbSwatch()
-                local on = OffTip() == nil
-                kbSwatch:SetAlpha(on and 1 or 0.3)
-                swatchBlock:SetShown(not on)
+                local swatchBlock = CreateFrame("Frame", nil, kbSwatch)
+                swatchBlock:SetAllPoints()
+                swatchBlock:SetFrameLevel(kbSwatch:GetFrameLevel() + 10)
+                swatchBlock:EnableMouse(true)
+                swatchBlock:SetScript("OnEnter", function()
+                    local tip = OffTip()
+                    if tip then EllesmereUI.ShowWidgetTooltip(kbSwatch, EllesmereUI.DisabledTooltip(tip)) end
+                end)
+                swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                local function SwatchState()
+                    updateKbSwatch()
+                    local on = OffTip() == nil
+                    kbSwatch:SetAlpha(on and 1 or 0.3)
+                    swatchBlock:SetShown(not on)
+                end
+                EllesmereUI.RegisterWidgetRefresh(SwatchState)
+                SwatchState()
             end
-            EllesmereUI.RegisterWidgetRefresh(SwatchState)
-            SwatchState()
         end
     end
 

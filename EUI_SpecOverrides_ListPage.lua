@@ -48,6 +48,7 @@ local function TitleCase(s)
 end
 
 local function BuildListRow(parent, y, entry)
+    if EllesmereUI._prebuilding then return nil, 38 end -- rows hold no searchable settings
     -- Options page pool (EllesmereUI_FramePool.lua): on a pool host these rows
     -- are reset and dressed again by the next build (the list builders below).
     local CreateFrame = EllesmereUI._Pool.CreateFrame
@@ -174,6 +175,7 @@ end
 -- spec to the shared default. Removal is the only possible action -- no editing
 -- session can reach them.
 local function BuildStrandedRow(parent, y, entry, specID)
+    if EllesmereUI._prebuilding then return nil, 38 end -- rows hold no searchable settings
     local CreateFrame = EllesmereUI._Pool.CreateFrame
     local CONTENT_PAD = EllesmereUI.CONTENT_PAD or 40
     local row = CreateFrame("Frame", nil, parent)
@@ -347,6 +349,7 @@ end
 --- popup). opts: crumb, title, message ('%s' = group name), removeFn. Defaults
 --- describe the unlock-layout fork.
 local function BuildUnlockLayoutRow(parent, y, g, opts)
+    if EllesmereUI._prebuilding then return nil, 38 end -- rows hold no searchable settings
     opts = opts or {}
     local crumbText = opts.crumb or "Custom Unlock Mode"
     local titleText = opts.title or "Delete Custom Unlock Mode"

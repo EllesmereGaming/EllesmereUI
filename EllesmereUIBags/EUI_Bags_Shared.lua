@@ -165,6 +165,83 @@ local function PinItemButtonLevel(btn, level)
     if btn._warbankDim then btn._warbankDim:SetFrameLevel(level + 6) end
 end
 
+-------------------------------------------------------------------------------
+--  Window spot (bags and bank)
+--  Anchor to Nearest Corner (the Auto-Size cog; bagAnchorCorner, off unless
+--  set): a window holds the screen corner nearest its center, so when it
+--  grows or shrinks with its contents it keeps its margin to that corner's
+--  two edges (a window parked bottom-right grows up and left). Such a spot is
+--  saved as { point, relativePoint, x, y, corner = true }. Off: a drag or the
+--  grip pins the window by its top-left corner.
+-------------------------------------------------------------------------------
+function ns.WindowCornerOn()
+    return BP().bagAnchorCorner == true
+end
+
+function ns.AnchorWindowToCorner(frame)
+    local left, right = frame:GetLeft(), frame:GetRight()
+    local top, bottom = frame:GetTop(), frame:GetBottom()
+    if not (left and right and top and bottom) then return nil end
+    -- Offsets are in the window's own scale (the bag scale option)
+    local ratio = UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
+    local screenW, screenH = UIParent:GetWidth() * ratio, UIParent:GetHeight() * ratio
+    local isRight = left + right > screenW
+    local isTop = top + bottom > screenH
+    local PP = EUI.PP
+    local x = PP.Snap(isRight and right - screenW or left)
+    local y = PP.Snap(isTop and top - screenH or bottom)
+    local point = (isTop and "TOP" or "BOTTOM") .. (isRight and "RIGHT" or "LEFT")
+    frame:ClearAllPoints()
+    frame:SetPoint(point, UIParent, point, x, y)
+    return { point = point, relativePoint = point, x = x, y = y, corner = true }
+end
+
+-- Anchor the window to its nearest corner and save that as BP()[key]
+function ns.SaveWindowCorner(frame, key)
+    local pos = ns.AnchorWindowToCorner(frame)
+    if pos then BP()[key] = pos end
+end
+
+-- Pin the window by its top-left corner where it stands and save that as BP()[key]
+function ns.SaveWindowTopLeft(frame, key)
+    local left, top = frame:GetLeft(), frame:GetTop()
+    if not (left and top) then return end
+    local PP = EUI.PP
+    left, top = PP.Snap(left), PP.Snap(top)
+    BP()[key] = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = top }
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+end
+
+-- Save the spot a drag left the window at, in the form the switch asks for
+function ns.SaveWindowPos(frame, key)
+    if ns.WindowCornerOn() then
+        ns.SaveWindowCorner(frame, key)
+    else
+        ns.SaveWindowTopLeft(frame, key)
+    end
+end
+
+-- Call when the window shows: a spot saved in the other form (the switch was
+-- flipped since) is saved again where the window stands, a frame later so the
+-- open's refresh has sized it. Never in combat: a later open does it.
+function ns.SettleWindowPos(frame, key)
+    local pos = BP()[key]
+    if not pos or (pos.corner == true) == ns.WindowCornerOn() then return end
+    C_Timer.After(0, function()
+        if BP()[key] ~= pos or not frame:IsShown() or InCombatLockdown() then return end
+        if (pos.corner == true) ~= ns.WindowCornerOn() then ns.SaveWindowPos(frame, key) end
+    end)
+end
+
+-- The switch was flipped: an open window takes the new form on the next frame,
+-- a closed one at its next open.
+function ns.WindowCornerChanged()
+    local bank = _G.EUI_BankFrame
+    if EUI_Bags:IsShown() then ns.SettleWindowPos(EUI_Bags, "bagsPosition") end
+    if bank and bank:IsShown() then ns.SettleWindowPos(bank, "bankPosition") end
+end
+
 -- background color/opacity for bags and bank: the texture fades with the
 -- opacity, the tint on top takes the color
 function ns.ApplyWindowBackground(bg, overlay)

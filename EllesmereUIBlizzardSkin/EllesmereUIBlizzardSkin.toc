@@ -43,6 +43,8 @@ EllesmereUIBlizzardSkin_GroupFinderForever.lua
 EllesmereUIBlizzardSkin_BagBarForever.lua
 # WoW Forever only: the Progress Legacy window (LegacySystemFrame)
 EllesmereUIBlizzardSkin_LegacySystemForever.lua
+# WoW Forever only: the hunter Pet Stable window (PetStableFrame)
+EllesmereUIBlizzardSkin_StableForever.lua
 EllesmereUIBlizzardSkin_SkinAPI.lua
 
 # Options

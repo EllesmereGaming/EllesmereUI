@@ -333,8 +333,8 @@ function ns.CdmDurationHideFor(frame, barKey, baseHide)
     local fcd = _ecmeFC[frame]
     local sidD = (ns.GetCanonicalSpellIDForFrame and ns.GetCanonicalSpellIDForFrame(frame))
         or (fcd and fcd.spellID)
-    if not (sidD and barKey and ns.ResolveSpellSettings) then return baseHide end
-    local ssD = ns.ResolveSpellSettings(frame, sidD, ns.GetBarSpellData(barKey), barKey)
+    if not (sidD and barKey and ns.ResolveBuffSettings) then return baseHide end
+    local ssD = ns.ResolveBuffSettings(frame, sidD, ns.GetBarSpellData(barKey), barKey)
     if ssD and ssD.showCooldownText ~= nil then return not ssD.showCooldownText end
     return baseHide
 end

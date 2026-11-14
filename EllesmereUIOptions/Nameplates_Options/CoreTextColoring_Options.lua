@@ -136,6 +136,8 @@ local function BuildCoreTextColoring(parent, y, W)
                 },
             })
         end
+        -- The search index pass stops after the cog (it indexes the cog's rows)
+        if EllesmereUI._prebuilding then return end
 
         -- The custom swatch and the first NPC swatch (never shown together) both
         -- sit beside the cog, or beside the dropdown on a half without one.
@@ -220,10 +222,8 @@ local function BuildCoreTextColoring(parent, y, W)
         local l, r = shown[k], shown[k + 1]
         local row, rowH = W:DualRow(parent, y, TextColoringCfg(l.key, l.coloring),
             r and TextColoringCfg(r.key, r.coloring) or EllesmereUI.BlankRowCfg())
-        if not EllesmereUI._prebuilding then
-            MakeTextColoringInline(row, "_leftRegion", l.key, l.coloring)
-            if r then MakeTextColoringInline(row, "_rightRegion", r.key, r.coloring) end
-        end
+        MakeTextColoringInline(row, "_leftRegion", l.key, l.coloring)
+        if r then MakeTextColoringInline(row, "_rightRegion", r.key, r.coloring) end
         y = y - rowH
     end
 

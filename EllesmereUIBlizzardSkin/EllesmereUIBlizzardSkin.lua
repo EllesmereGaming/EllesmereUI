@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  context menu and static popup reskinning (EUI_BlizzardSkin_*.lua).
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.FriendsKit and EllesmereUI.FriendsList and EllesmereUI.CreateQuantityDialog and EllesmereUI.NewFrameData and EllesmereUI.GetFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.SetFontObjectFace and EllesmereUI.RealmRulesetSuffix and EllesmereUI.BorderPlacement and EllesmereUI.RoundCorners and EllesmereUI.Chars and EllesmereUI.CharEntry and EllesmereUI.CharGUID and EllesmereUI.ForgetCharField) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (FriendsForever reads the parent's friends kit and starts its custom friends list, Merchant Bulk Buy its quantity window; the tooltip lines, chat bubbles, mail alt list, the window packs' names and mail lines and the WoW Forever friends and Looking For Group texts that show other players' writing take the parent's font families, the tooltip skin sizes Blizzard's shared tooltip font objects through its SetFontObjectFace, the mail alt list reads a WoW Forever friend's ruleset through its RealmRulesetSuffix, the engine aura tooltip's border takes the parent's border placement, and the Timer Bars reskin rounds its bars with the parent's rounded corners; its per-character data is in the parent's roster: Chars, CharEntry, CharGUID, ForgetCharField)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.FriendsKit and EllesmereUI.FriendsList and EllesmereUI.CreateQuantityDialog and EllesmereUI.NewFrameData and EllesmereUI.GetFontFamily and EllesmereUI.SetFontFamily and EllesmereUI.SetFontObjectFace and EllesmereUI.RealmRulesetSuffix and EllesmereUI.BorderPlacement and EllesmereUI.RoundCorners and EllesmereUI.MakeRoundedBorder and EllesmereUI.Chars and EllesmereUI.CharEntry and EllesmereUI.CharGUID and EllesmereUI.ForgetCharField) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (FriendsForever reads the parent's friends kit and starts its custom friends list, Merchant Bulk Buy its quantity window; the tooltip lines, chat bubbles, mail alt list, the window packs' names and mail lines and the WoW Forever friends and Looking For Group texts that show other players' writing take the parent's font families, the tooltip skin sizes Blizzard's shared tooltip font objects through its SetFontObjectFace, the mail alt list reads a WoW Forever friend's ruleset through its RealmRulesetSuffix, the engine aura tooltip's border takes the parent's border placement, and the Timer Bars reskin rounds its bars with the parent's rounded corners, the tooltip skin's Rounded Corners its outline through MakeRoundedBorder; its per-character data is in the parent's roster: Chars, CharEntry, CharGUID, ForgetCharField)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
 
@@ -70,10 +70,11 @@ local WINDOW_ENABLE_KEYS = {
     trade           = "reskinTrade",
     flagcarrier     = "reskinFlagCarriers",
 }
--- WoW Forever's own windows: the bag bar and Progress Legacy skins exist only there.
+-- WoW Forever's own windows: the bag bar, Progress Legacy and Pet Stable skins exist only there.
 if EllesmereUI.IS_FOREVER then
     WINDOW_ENABLE_KEYS.bagbar       = "reskinBagBar"
     WINDOW_ENABLE_KEYS.legacysystem = "reskinLegacySystem"
+    WINDOW_ENABLE_KEYS.stable       = "reskinStable"
 end
 
 -- Windows whose skin starts at Blizz Default (owner 2026-10-29: the Flag
@@ -135,6 +136,8 @@ do
         BATCHES[#BATCHES + 1] = { marker = "foreverMicroBagSkinSeeded", keys = { "micromenu", "bagbar" } }
         -- WoW Forever: the Progress Legacy window began skinning there.
         BATCHES[#BATCHES + 1] = { marker = "foreverLegacySkinSeeded", keys = { "legacysystem" } }
+        -- WoW Forever: the Pet Stable window began skinning there.
+        BATCHES[#BATCHES + 1] = { marker = "foreverStableSkinSeeded", keys = { "stable" } }
     end
     local function SeedBatch(marker, newKeys)
         if EllesmereUIDB[marker] then return end
