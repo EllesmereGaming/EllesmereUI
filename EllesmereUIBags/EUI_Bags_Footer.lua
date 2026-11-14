@@ -468,16 +468,21 @@ local function UpdateCurrencyDisplays(footerWidth)
     return footerHeight
 end
 
--- Re-lay-out the currency footer and grow/shrink the bag frame by the height delta (grow-only running max under Auto-Size and on WoW Forever); reads the previous height BEFORE UpdateCurrencyDisplays stamps the new one.
+-- Re-lay-out the currency footer and grow/shrink the bag frame by the height delta (a running max under Auto-Size, unless its Shrink is on, and on WoW Forever); reads the previous height BEFORE UpdateCurrencyDisplays stamps the new one.
 local function SyncBagFrameToFooter()
     local prev = EUI_Bags._footerH or FOOTER_H
     local footerH = UpdateCurrencyDisplays() or FOOTER_H
     if footerH == prev then return end
     if not EUI_Bags:IsVisible() then return end
     local delta = footerH - prev
-    if EUI_Bags.AutoSizeOn() or (EUI.IS_FOREVER and not BP().bagHeight) then
-        EUI_Bags._asMaxH = math.max(EUI_Bags._asMaxH or EUI_Bags:GetHeight() or 0, EUI_Bags:GetHeight() + delta)
-        EUI_Bags:SetHeight(EUI_Bags._asMaxH)
+    local autoSize = EUI_Bags.AutoSizeOn()
+    if autoSize or (EUI.IS_FOREVER and not BP().bagHeight) then
+        local newH = EUI_Bags.AutoSizeNext(EUI_Bags:GetHeight() + delta, EUI_Bags._asMaxH or EUI_Bags:GetHeight())
+        -- Auto-Size's Max Height holds here too (the content area absorbs the rest)
+        local capH, userCap = EUI_Bags.AutoSizeMaxH(not autoSize)
+        if userCap then newH = math.min(newH, capH) end
+        EUI_Bags._asMaxH = newH
+        EUI_Bags:SetHeight(newH)
     elseif BP().bagHeight then
         -- Grip-set height is the whole window; the content area absorbs it
         return

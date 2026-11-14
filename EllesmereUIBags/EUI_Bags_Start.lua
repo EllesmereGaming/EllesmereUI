@@ -76,7 +76,8 @@ local function StartAddon()
 
     GoldLedger.Register("bags", OnGoldChanged)
 
-    -- Position: default 50px from bottom-left, saved position overrides
+    -- Position: default 50px from the bottom-right corner, saved position
+    -- overrides (held by its nearest screen corner, see ns.AnchorWindowToCorner)
     if BP().bagsPosition then
         local pos = BP().bagsPosition
         EUI_Bags:SetPoint(pos.point, UIParent, pos.relativePoint, pos.x, pos.y)
@@ -100,14 +101,7 @@ local function StartAddon()
         if not IsMouseButtonDown("LeftButton") then
             _bagDragging = false
             self:Hide()
-            local left, top = EUI_Bags:GetLeft(), EUI_Bags:GetTop()
-            if left and top then
-                local PP = EUI and EUI.PP
-                if PP and PP.Snap then left = PP.Snap(left); top = PP.Snap(top) end
-                BP().bagsPosition = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = top }
-                EUI_Bags:ClearAllPoints()
-                EUI_Bags:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-            end
+            ns.SaveWindowCorner(EUI_Bags, "bagsPosition")
             return
         end
         local cx, cy = GetCursorPosition()
@@ -138,14 +132,7 @@ local function StartAddon()
         if button == "LeftButton" and _bagDragging then
             _bagDragging = false
             _bagDragFrame:Hide()
-            local left, top = EUI_Bags:GetLeft(), EUI_Bags:GetTop()
-            if left and top then
-                local PP = EUI and EUI.PP
-                if PP and PP.Snap then left = PP.Snap(left); top = PP.Snap(top) end
-                BP().bagsPosition = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = top }
-                EUI_Bags:ClearAllPoints()
-                EUI_Bags:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
-            end
+            ns.SaveWindowCorner(EUI_Bags, "bagsPosition")
         end
     end)
 
@@ -171,6 +158,7 @@ local function StartAddon()
     EUI_Bags:HookScript("OnShow", function(self)
         self:Raise()
         self:RepinIconLevels()
+        ns.SettleWindowCorner(self, "bagsPosition")
         PlaySound(SOUNDKIT.IG_BACKPACK_OPEN)
         -- Repaint if the unmerge state changed while hidden: the flag-flip refresh is gated on
         -- IsVisible, and closing a mailbox hides bags in the same breath so that repaint is thrown away (costs one boolean compare when already matching).

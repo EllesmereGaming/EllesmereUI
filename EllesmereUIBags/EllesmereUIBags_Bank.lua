@@ -739,11 +739,7 @@ EUI_Bank:SetScript("OnMouseUp", function(self, button)
     if self._moving then
         self:StopMovingOrSizing()
         self._moving = nil
-        -- Save position
-        local point, _, relPoint, x, y = self:GetPoint(1)
-        if point then
-            BP().bankPosition = { point = point, relativePoint = relPoint, x = x, y = y }
-        end
+        ns.SaveWindowCorner(self, "bankPosition")
     end
 end)
 
@@ -1114,29 +1110,13 @@ end
 -- Sidebar header: "Tabs" label + collapse arrow
 local sidebarHdr, collapseBtn, UpdateBankCollapseArrow = ns.CreateSidebarHeader(sidebar, EllesmereUI.L("Tabs"), "bankSidebarCollapsed")
 
+-- The window holds its nearest screen corner (ns.AnchorWindowToCorner), so
+-- one parked on the right keeps its right edge as the width changes.
 collapseBtn:SetScript("OnClick", function()
-    -- Determine which edge to preserve based on screen position
-    local center = EUI_Bank:GetCenter()
-    local screenW = UIParent:GetWidth()
-    local onRightSide = center and screenW and (center > screenW / 2)
-    local oldWidth = onRightSide and EUI_Bank:GetWidth() or nil
-
     BP().bankSidebarCollapsed = not BP().bankSidebarCollapsed
     UpdateBankCollapseArrow()
     sidebar:SetWidth(GetBankSidebarContentWidth())
     EUI_Bank:RefreshBank()
-
-    -- Shift frame by width difference to preserve right edge
-    if onRightSide and oldWidth then
-        local newWidth = EUI_Bank:GetWidth()
-        local shift = oldWidth - newWidth
-        if math.abs(shift) > 0.5 then
-            local point, rel, relPoint, x, y = EUI_Bank:GetPoint()
-            EUI_Bank:ClearAllPoints()
-            EUI_Bank:SetPoint(point, rel, relPoint, x + shift, y)
-            BP().bankPosition = { point = point, relativePoint = relPoint, x = x + shift, y = y }
-        end
-    end
 end)
 
 -- Sidebar scroll frame (below header, fills rest of sidebar)
@@ -2111,9 +2091,7 @@ local _bankGripCfg = {
         UpdateThumb()
     end,
     finish = function() EUI_Bank:RefreshBank() end,
-    savePos = function(left, top)
-        BP().bankPosition = { point = "TOPLEFT", relativePoint = "BOTTOMLEFT", x = left, y = top }
-    end,
+    savePos = function() ns.SaveWindowCorner(EUI_Bank, "bankPosition") end,
     reset = function()
         local p = BP()
         p.bankColumns, p.bankHeight, p.bankListWidth = nil, nil, nil
@@ -3584,6 +3562,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
         EUI_Bank:Show()
         EUI_Bank:Raise()
         EUI_Bank:RepinIconLevels()
+        ns.SettleWindowCorner(EUI_Bank, "bankPosition")
         -- Controller cursor: scroll step buttons and a visible scrollbar,
         -- built only once a controller is in use.
         if EUI_Bank._padBuilt or EUI.PadInUse() then
