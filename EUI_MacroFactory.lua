@@ -251,7 +251,7 @@ if EllesmereUI.IS_FOREVER == true then
         WARLOCK = {
             {
                 name = "EUI_Soulstone", icon = "Interface\\Icons\\inv_misc_orb_04", label = "Soulstone",
-                ownedOnly = true, maxLines = 1, friendlyTargetKey = "friendlyTarget",
+                ownedOnly = true, maxLines = 1, mouseoverFirst = true, friendlyTargetKey = "friendlyTarget",
                 createRanks = { {693, 5232}, {20752, 16892}, {20755, 16893}, {20756, 16895}, {20757, 16896} },
                 extraToggles = { { key = "friendlyTarget", label = "Friendly Target, Else Self" }, CREATE_WHEN_OUT },
                 checkboxes = Options({
@@ -417,6 +417,8 @@ local function BuildOwnedOnlyBody(def, db)
     if #ids == 0 then ids = { createdItem or firstEnabled } end
     local body = db.showTooltip ~= false and ("#showtooltip item:" .. ids[1] .. "\n") or ""
     local cond = def.friendlyTargetKey and db[def.friendlyTargetKey] and "[@target,help,nodead][@player] " or ""
+    -- Click-cast runs macro bodies as written, so the hovered frame has to be in the macro itself.
+    if def.mouseoverFirst then cond = "[@mouseover,help,nodead]" .. (cond ~= "" and cond or "[] ") end
     local lines = {}
     local size = #body + #tail
     for _, itemID in ipairs(ids) do

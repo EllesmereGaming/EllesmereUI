@@ -69,13 +69,13 @@ up.OnEvent(up, "PLAYER_ENTERING_WORLD")
 Eq(state.bodies.EUI_Drink, "#showtooltip item:1205\n/use item:1205", "drink: best usable, one line")
 Eq(state.bodies.EUI_Food, "#showtooltip item:3771\n/use item:3771", "food: best usable vendor tier")
 Eq(state.bodies.EUI_Healthstone, "#showtooltip item:19013\n/use item:19013\n/use item:5512", "healthstones owned")
-Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16896\n/use item:16896", "soulstone")
+Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16896\n/use [@mouseover,help,nodead][] item:16896", "soulstone")
 Eq(state.bodies.EUI_HealingPotion, "#showtooltip item:1710\n/use item:1710\n/use item:929", "potions above level skipped")
 EllesmereUIDB.macroFactory.EUI_Soulstone.friendlyTarget = true
 state.bodies = {}
 state.bags[16896] = nil; state.bags[16895] = 1
 up.OnEvent(up, "BAG_UPDATE_DELAYED")
-Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16895\n/use [@target,help,nodead][@player] item:16895", "soulstone friendly target toggle")
+Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16895\n/use [@mouseover,help,nodead][@target,help,nodead][@player] item:16895", "soulstone friendly target toggle")
 assert(up.ev.BAG_UPDATE_DELAYED and up.ev.PLAYER_LEVEL_UP, "upkeep armed with level-up on Forever")
 
 state.bodies = {}
@@ -112,17 +112,17 @@ state.spellNames[20756] = "Create Soulstone"
 state.bags[16893] = 1
 state.bodies = {}
 up.OnEvent(up, "SPELLS_CHANGED")
-Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16893\n/use [@target,help,nodead][@player] item:16893\n/cast Create Soulstone",
+Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16893\n/use [@mouseover,help,nodead][@target,help,nodead][@player] item:16893\n/cast Create Soulstone",
     "soulstone held: use, then create")
 state.bags[16893] = nil
 up.OnEvent(up, "BAG_UPDATE_DELAYED")
-Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16895\n/use [@target,help,nodead][@player] item:16895\n/cast Create Soulstone",
+Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16895\n/use [@mouseover,help,nodead][@target,help,nodead][@player] item:16895\n/cast Create Soulstone",
     "no soulstone: the highest rank's stone, then create")
 
 state.bodies = {}
 ssDB.showTooltip = false
 up.OnEvent(up, "BAG_UPDATE_DELAYED")
-Eq(state.bodies.EUI_Soulstone, "/use [@target,help,nodead][@player] item:16895\n/cast Create Soulstone", "create without tooltip line")
+Eq(state.bodies.EUI_Soulstone, "/use [@mouseover,help,nodead][@target,help,nodead][@player] item:16895\n/cast Create Soulstone", "create without tooltip line")
 
 state.bodies = {}
 state.macros = {}
