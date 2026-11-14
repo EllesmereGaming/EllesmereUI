@@ -672,6 +672,10 @@ local function FriendTooltip(rec)
                 n = n + 1
                 tipBuf[n] = FRIENDS_LEVEL_TEMPLATE:format(gi.characterLevel, gi.className)
             end
+            if gi.raceName and gi.raceName ~= "" then
+                n = n + 1
+                tipBuf[n] = gi.raceName
+            end
             if gi.areaName and gi.areaName ~= "" then
                 n = n + 1
                 tipBuf[n] = gi.areaName
