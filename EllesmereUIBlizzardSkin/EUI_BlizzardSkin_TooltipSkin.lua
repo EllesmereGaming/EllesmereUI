@@ -170,6 +170,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             if o then o:SetShown(false) end
             return false
         end
+        local fitted = not o or o.width ~= w
         if o then
             o:SetWidth(w)
         else
@@ -180,9 +181,13 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             o._frame:SetScript("OnSizeChanged", _ttRefit)
             data.round = o
         end
+        -- Show Behind, as _applyConfiguredBorder places the square border.
+        local lvl = tt:GetFrameLevel()
+        o._frame:SetFrameLevel(db.tooltipBorderBehind and math.max(0, lvl - 1) or (lvl + 4))
         o:SetColor(color.r, color.g, color.b, size > 0 and alpha or 0)
         o:SetShown(true)
-        o:Fit()
+        -- MakeRoundedBorder and SetWidth have just fitted a new shape.
+        if not fitted then o:Fit() end
         return true
     end
 
@@ -205,9 +210,10 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         if _ttRound(tt, legacySize) then
             EllesmereUI._hideBlizzardConfiguredBorder(tt)
         else
-            _applyConfiguredBorder(tt, "tooltip", legacySize)
+            -- Back from the rounded path: shown first, so a size 0 apply still hides it.
             local cb = FFD[tt] and FFD[tt].configBorder
             if cb then cb:Show() end
+            _applyConfiguredBorder(tt, "tooltip", legacySize)
         end
     end
     -- The same look for Blizzard's tooltip-like frames that are not GameTooltips
