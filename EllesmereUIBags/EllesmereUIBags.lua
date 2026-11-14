@@ -330,6 +330,23 @@ end
 function EUI_Bags.AutoSizeOn()
     return BP().bagAutoSize == true and not EUI_Bags.IsListMode()
 end
+-- Auto-Size's height cap in the bag window's own scale: the Max Height share of
+-- the screen (Auto-Size cog, bagAutoSizeMaxPct), 95% when unset or screenOnly.
+-- The second return is true when the player's Max Height applies, so it also
+-- wins over the normal-size floor.
+function EUI_Bags.AutoSizeMaxH(screenOnly)
+    local sc = EUI_Bags:GetScale(); if not sc or sc <= 0 then sc = 1 end
+    local pct = not screenOnly and BP().bagAutoSizeMaxPct or nil
+    return (UIParent:GetHeight() / sc) * (pct or 95) / 100, pct ~= nil
+end
+-- Auto-Size's Shrink (its cog): the window follows the active tab down as well
+-- as up while open. Off: columns and height keep their running max until close.
+-- Takes the new size and the running max (nil before the first refresh). WoW
+-- Forever's content fit without Auto-Size stays grow-only.
+function EUI_Bags.AutoSizeNext(size, runningMax)
+    if not runningMax or (BP().bagAutoSizeShrink == true and EUI_Bags.AutoSizeOn()) then return size end
+    return math.max(runningMax, size)
+end
 
 local function ApplyBagScale()
     local s = BP().bagScale or 1

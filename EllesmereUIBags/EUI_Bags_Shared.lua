@@ -165,6 +165,50 @@ local function PinItemButtonLevel(btn, level)
     if btn._warbankDim then btn._warbankDim:SetFrameLevel(level + 6) end
 end
 
+-------------------------------------------------------------------------------
+--  Window corner anchor (bags and bank)
+--  A window holds the screen corner nearest its center, so when it grows or
+--  shrinks with its contents it keeps its margin to that corner's two edges
+--  (a window parked bottom-right grows up and left). Saved as
+--  { point, relativePoint, x, y, corner = true }; a position without the
+--  corner mark (pinned top-left by an older version) is converted the first
+--  time the window shows, once it is laid out.
+-------------------------------------------------------------------------------
+function ns.AnchorWindowToCorner(frame)
+    local left, right = frame:GetLeft(), frame:GetRight()
+    local top, bottom = frame:GetTop(), frame:GetBottom()
+    if not (left and right and top and bottom) then return nil end
+    -- Offsets are in the window's own scale (the bag scale option)
+    local ratio = UIParent:GetEffectiveScale() / frame:GetEffectiveScale()
+    local screenW, screenH = UIParent:GetWidth() * ratio, UIParent:GetHeight() * ratio
+    local isRight = left + right > screenW
+    local isTop = top + bottom > screenH
+    local x = isRight and right - screenW or left
+    local y = isTop and top - screenH or bottom
+    local PP = EUI.PP
+    if PP and PP.Snap then x, y = PP.Snap(x), PP.Snap(y) end
+    local point = (isTop and "TOP" or "BOTTOM") .. (isRight and "RIGHT" or "LEFT")
+    frame:ClearAllPoints()
+    frame:SetPoint(point, UIParent, point, x, y)
+    return { point = point, relativePoint = point, x = x, y = y, corner = true }
+end
+
+-- Anchor the window to its nearest corner and save that as BP()[key]
+function ns.SaveWindowCorner(frame, key)
+    local pos = ns.AnchorWindowToCorner(frame)
+    if pos then BP()[key] = pos end
+end
+
+-- Call when the window shows: converts a position saved before the corner
+-- anchor, a frame later so the open's refresh has sized the window.
+function ns.SettleWindowCorner(frame, key)
+    local pos = BP()[key]
+    if not pos or pos.corner then return end
+    C_Timer.After(0, function()
+        if BP()[key] == pos and frame:IsShown() then ns.SaveWindowCorner(frame, key) end
+    end)
+end
+
 -- background color/opacity for bags and bank: the texture fades with the
 -- opacity, the tint on top takes the color
 function ns.ApplyWindowBackground(bg, overlay)
