@@ -1164,7 +1164,6 @@ Off
 Offset X
 Offset Y
 Omnium Folio
-One addon slash command per line, such as /way lines
 One last pull
 One reading a day: the birthday unlocks at the daily reset, in %s.
 One reading per character each day, renewed at the daily reset. For entertainment only: the stars have never parsed.
@@ -1211,8 +1210,9 @@ Party Frames kit override: Debuff Size %d (Party > Frame Style)
 Party Keystones
 Pass immediately without confirmation. Turn off to confirm both Roll and Pass.
 Pass on this bonus roll?
-Paste Commands
+Paste /way or /euiway lines, one waypoint per line
 Paste Interrupted
+Paste Waypoints
 Paste your profile string here...
 Patch Notes
 Path from %s to %s
@@ -1491,7 +1491,7 @@ Size
 Size matched to %1$s. Unmatch in Unlock Mode to edit.
 Size matching is unavailable with Blizzard Style Unit Frames.
 Skipped
-Skipped %1$d of %2$d lines: only addon slash commands can be pasted.
+Skipped %1$d of %2$d lines: only /way and /euiway waypoint lines can be pasted.
 Skipped %d talent loadout(s) that belong to other specializations.
 Skycutter to %s
 Sleeping

@@ -1,5 +1,5 @@
 if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_ClientGate.lua)
--- /euipaste runs a pasted block of addon slash commands. Off by default and reload-gated.
+-- /euipaste runs a pasted block of /way lines. Off by default and reload-gated.
 if not (EllesmereUIDB and EllesmereUIDB.pasteCommands == true) then return end
 
 local EUI = EllesmereUI
@@ -8,6 +8,8 @@ local SLASH      = "/euipaste"
 local OWN_KEY    = "EUIPASTE"
 local MACRO_NAME = "EUI_Paste"
 local PREFIX     = EUI.COLOR_CODES.BRAND .. "EllesmereUI:|r "
+-- Run executes inside our click, so a blocked or tainting command would be blamed on EllesmereUI.
+local ALLOWED    = { ["/WAY"] = true, ["/EUIWAY"] = true }
 
 local function Say(msg) EUI.Print(PREFIX .. msg) end
 
@@ -34,10 +36,12 @@ local function LookupCommand(upper)
     end
 end
 
--- A secure alias means Blizzard registered the command, so it is never called from this addon.
-local function AddonCommand(cmd)
-    local key, handler = LookupCommand(cmd:upper())
-    if key and key ~= OWN_KEY and not issecurevariable("SLASH_" .. key .. "1") then return handler end
+-- Runs whichever addon owns the command; a secure alias means Blizzard's, which is never called.
+local function WaypointCommand(cmd)
+    local upper = cmd:upper()
+    if not ALLOWED[upper] then return end
+    local key, handler = LookupCommand(upper)
+    if key and not issecurevariable("SLASH_" .. key .. "1") then return handler end
 end
 
 local function Run(text)
@@ -45,7 +49,7 @@ local function Run(text)
     local editBox = DEFAULT_CHAT_FRAME.editBox
     for _, line in ipairs(lines) do
         local cmd, args = line:match("^(/%S+)%s*(.-)$")
-        local handler = cmd and AddonCommand(cmd)
+        local handler = cmd and WaypointCommand(cmd)
         if handler then
             xpcall(handler, geterrorhandler(), args, editBox)
         else
@@ -53,13 +57,14 @@ local function Run(text)
         end
     end
     if skipped > 0 then
-        Say(EllesmereUI.Lf("Skipped %1$d of %2$d lines: only addon slash commands can be pasted.", skipped, #lines))
+        Say(EllesmereUI.Lf("Skipped %1$d of %2$d lines: only /way and /euiway waypoint lines can be pasted.", skipped, #lines))
     end
 end
 
 local function Open()
-    EUI:ShowImportPopup(Run, EllesmereUI.L("Paste Commands"),
-        EllesmereUI.L("One addon slash command per line, such as /way lines"), "Run")
+    EUI:ShowImportPopup(Run, EllesmereUI.L("Paste Waypoints"),
+        EllesmereUI.L("Paste /way or /euiway lines, one waypoint per line"),
+        { confirmLabel = "Run", rawPaste = true })
 end
 
 -- The macro is the action bar button: created once, then handed to the cursor to drop on a bar.

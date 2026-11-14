@@ -4613,7 +4613,7 @@ function EllesmereUI.AttachImportPasteAbsorber(editBox, onRetry)
     }
 end
 
-local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLabel)
+local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLabel, rawPaste)
     local POPUP_W, POPUP_H = 520, 310
     local FONT = EllesmereUI.EXPRESSWAY
 
@@ -4743,7 +4743,7 @@ local function BuildStringPopup(title, subtitle, readOnly, onConfirm, confirmLab
     -- (import mode only; export boxes are read-only and set text directly).
     -- Attached after the OnTextChanged SetScript above so the hook survives.
     local absorber
-    if not readOnly then
+    if not readOnly and not rawPaste then
         absorber = EllesmereUI.AttachImportPasteAbsorber(editBox)
     end
 
@@ -4925,13 +4925,15 @@ end
 -------------------------------------------------------------------------------
 --  Import Popup
 -------------------------------------------------------------------------------
-function EllesmereUI:ShowImportPopup(onImport, title, subtitle, confirmLabel)
+-- opts: confirmLabel (button text), rawPaste (no paste absorber; for short multi-line text).
+function EllesmereUI:ShowImportPopup(onImport, title, subtitle, opts)
+    opts = opts or {}
     local dimmer, editBox = BuildStringPopup(
         title or "Import Profile",
         subtitle or "Paste an EllesmereUI profile string below",
         false,
         function(str) if onImport then onImport(str) end end,
-        confirmLabel or "Import")
+        opts.confirmLabel or "Import", opts.rawPaste)
 
     dimmer:Show()
     C_Timer.After(0.05, function() editBox:SetFocus() end)
