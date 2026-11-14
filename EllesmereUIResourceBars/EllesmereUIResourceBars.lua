@@ -202,6 +202,13 @@ if EllesmereUI.IS_FOREVER then
     }) do
         CHANNEL_TICK_DATA[id] = { ticks = 2 }                      -- Penance
     end
+    -- Arcane Missiles: one missile per second, none at the cast, so ticks =
+    -- seconds (3s / 4s / 5s by rank); replaces the retail 5143 missiles row.
+    CHANNEL_TICK_DATA[5143] = { ticks = 3 }
+    CHANNEL_TICK_DATA[5144] = { ticks = 4 }
+    for _, id in ipairs({ 5145, 8416, 8417, 10211, 10212, 25345 }) do
+        CHANNEL_TICK_DATA[id] = { ticks = 5 }
+    end
     -- Warlock: the rank IDs by tick count.
     local WARLOCK_TICKS = {
         [5]  = { 689, 699, 709, 7651, 11699, 11700,                -- Drain Life (5s / 1s)
