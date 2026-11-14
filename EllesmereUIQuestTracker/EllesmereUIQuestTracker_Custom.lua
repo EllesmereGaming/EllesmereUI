@@ -853,6 +853,33 @@ local function RunRowHooks(l, questID)
     end
 end
 
+-- Show Toggle on Quests Header: the Forever file puts it on Blizzard's
+-- header, which is muted here. Built on first use.
+local function SyncFilterToggle()
+    local btn = header.filter
+    local want = Cfg("filterHeaderToggle") == true
+    if not btn then
+        if not want then return end
+        btn = CreateFrame("Button", nil, header)
+        btn:SetSize(16, 16)
+        btn:SetPoint("RIGHT", header.count, "LEFT", -6, 0)
+        btn:SetNormalAtlas("ui-questtrackerbutton-filter")
+        btn:SetPushedAtlas("ui-questtrackerbutton-filter-pressed")
+        btn:SetHighlightAtlas("ui-questtrackerbutton-red-highlight", "ADD")
+        btn:SetScript("OnEnter", function(self) UpdateHover(); EllesmereUI.ShowWidgetTooltip(self, EQT.FilterToggleTip()) end)
+        btn:SetScript("OnLeave", function() UpdateHover(); EllesmereUI.HideWidgetTooltip() end)
+        btn:SetScript("OnClick", function(self)
+            EQT.Set("filterEnabled", not Cfg("filterEnabled"))
+            EQT.ApplyQuestWatches()
+            EllesmereUI:RefreshPage()
+            EllesmereUI.ShowWidgetTooltip(self, EQT.FilterToggleTip())
+        end)
+        header.filter = btn
+    end
+    btn:SetShown(want)
+    btn:SetAlpha(Cfg("filterEnabled") and 1 or 0.4)
+end
+
 local function Render()
     pending = false
     if not frame then return end
@@ -953,6 +980,7 @@ local function Render()
     local _, numQuests = C_QuestLog.GetNumQuestLogEntries()
     header.count:SetText((numQuests or 0) .. "/" .. C_QuestLog.GetMaxNumQuestsCanAccept())
     header.toggle:SetText(collapsed.all and "+" or "-")
+    SyncFilterToggle()
 
     contentH = y
     child:SetHeight(math.max(y, 1))
