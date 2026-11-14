@@ -1179,7 +1179,18 @@ LayoutCDMBar = function(barKey)
     -- (RIGHT/DOWN grow pins the start, LEFT/UP the end); CENTER splits it evenly. padLead is
     -- the share of the surplus in front of the block, in halves: 0, 2 or 1. Each lead below is
     -- rounded once, so a centred block sits where it did before the surplus followed the grow.
-    local padLead = (grow == "RIGHT" or grow == "DOWN") and 0 or ((grow == "LEFT" or grow == "UP") and 2 or 1)
+    -- minSizeAlign (START/CENTER/END) overrides the grow-derived placement; nil follows the grow.
+    local padLead
+    local minAlign = barData.minSizeAlign
+    if minAlign == "START" then
+        padLead = 0
+    elseif minAlign == "CENTER" then
+        padLead = 1
+    elseif minAlign == "END" then
+        padLead = 2
+    else
+        padLead = (grow == "RIGHT" or grow == "DOWN") and 0 or ((grow == "LEFT" or grow == "UP") and 2 or 1)
+    end
     local surplusPx, padOffsetPx = 0, 0
     -- Per-row branch: growth-axis extent of the wider row (rows center against each other within it).
     local rowContentPx
