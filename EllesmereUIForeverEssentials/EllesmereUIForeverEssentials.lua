@@ -183,26 +183,25 @@ function ns.PriceSourceLoaded(source)
     return ns.AuctionAPI() ~= nil
 end
 
--- The price addon in use: the chosen one, else whichever is loaded
--- (Auctionator first).
+-- The price addon in use: the chosen one while it is loaded, else whichever
+-- is loaded (Auctionator first).
 function ns.PriceSource(choice)
-    if ns.PRICE_SOURCES[choice] then return choice end
-    if not ns.AuctionAPI() and ns.Broker() then return "BBB" end
+    if (choice == "BBB" or not ns.AuctionAPI()) and ns.Broker() then return "BBB" end
     return "AUCTIONATOR"
 end
 
 -- What the price addon values one of the item at, when it has a price:
--- Auctionator's last seen listing, or BootyBayBroker's unit value.
+-- Auctionator's last seen listing, or BootyBayBroker's unit value. The same
+-- choice as ns.PriceSource, with each addon looked up once.
 function ns.AuctionPrice(link, choice)
+    local api = ns.AuctionAPI()
+    local bbb = (choice == "BBB" or not api) and ns.Broker() or nil
     local ok, price
-    if ns.PriceSource(choice) == "BBB" then
-        local bbb = ns.Broker()
-        local itemID = bbb and C_Item.GetItemInfoInstant(link)
+    if bbb then
+        local itemID = C_Item.GetItemInfoInstant(link)
         if not itemID then return end
         ok, price = pcall(bbb.ItemUnitValue, bbb, itemID)
-    else
-        local api = ns.AuctionAPI()
-        if not api then return end
+    elseif api then
         ok, price = pcall(api.GetAuctionPriceByItemLink, "EllesmereUI", link)
     end
     if ok and type(price) == "number" and price > 0 then return price end

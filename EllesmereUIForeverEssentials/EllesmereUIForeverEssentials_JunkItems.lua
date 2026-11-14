@@ -735,7 +735,7 @@ end
 --  has no unregister, so the callback is registered once and checks the option.
 -------------------------------------------------------------------------------
 local function OnPricesUpdated()
-    if not (auctionOn and active) then return end
+    if not (auctionOn and active) or module.PriceSource(auctionSource) ~= "AUCTIONATOR" then return end
     Forget("total")
     RequestRefresh()
 end

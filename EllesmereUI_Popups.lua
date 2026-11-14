@@ -742,8 +742,9 @@ function EllesmereUI:ShowConfirmPopup(opts)
         if opts.onCancel then opts.onCancel() end
     end)
 
-    -- Macro overlay: a protected action (/logout, or confirmClick: a click on a
-    -- Blizzard button) needs a hardware event routed through InsecureActionButtonTemplate.
+    -- Action overlay: a protected action (confirmMacro: a macro text; confirmClick:
+    -- a click on a Blizzard button) needs a hardware event routed through
+    -- InsecureActionButtonTemplate, which acts only out of combat.
     if opts.confirmMacro or opts.confirmClick then
         if not popup._macroOverlay then
             local ov = CreateFrame("Button", "EUIConfirmMacroOverlay", popup._confirmBtn, "InsecureActionButtonTemplate")
@@ -757,10 +758,11 @@ function EllesmereUI:ShowConfirmPopup(opts)
             -- Forward hover visuals to the real button underneath
             ov:SetScript("OnEnter", function() popup._confirmBtn:GetScript("OnEnter")(popup._confirmBtn) end)
             ov:SetScript("OnLeave", function() popup._confirmBtn:GetScript("OnLeave")(popup._confirmBtn) end)
-            -- confirmGate false: the action is dropped for this click.
+            -- confirmGate false: the action is dropped for this click. Cleared
+            -- first, so a gate that raises leaves no action armed.
             ov:SetScript("PreClick", function(self)
-                local go = not self._gate or self._gate()
-                self:SetAttribute("type", go and self._type or nil)
+                self:SetAttribute("type", nil)
+                if not self._gate or self._gate() then self:SetAttribute("type", self._type) end
             end)
             -- Stored callback, not a new hook per ShowConfirmPopup call (they accumulate).
             ov:HookScript("OnClick", function()

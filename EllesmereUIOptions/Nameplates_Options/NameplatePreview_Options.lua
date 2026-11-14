@@ -980,16 +980,20 @@ local function BuildNameplatePreview(parent, parentW, mode)
     CP.bar._bg = CP.bar:CreateTexture(nil, "BACKGROUND")
     CP.bar._bg:SetAllPoints()
     CP.bar._bg:SetColorTexture(0.082, 0.082, 0.082, 1)
-    -- Energy bar preview (Rogue / Druid)
-    CP.energy = CreateFrame("StatusBar", nil, pf)
-    CP.energy:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
-    CP.energy:SetFrameLevel(pf:GetFrameLevel() + 5)
-    CP.energy:Hide()
-    CP.energy._bg = CP.energy:CreateTexture(nil, "BACKGROUND")
-    CP.energy._bg:SetAllPoints()
+    -- Energy bar preview (WoW Forever rogues and druids: ns.NP_ENERGY_BAR)
+    if ns.NP_ENERGY_BAR then
+        CP.energy = CreateFrame("StatusBar", nil, pf)
+        CP.energy:SetStatusBarTexture(CP.WHITE)
+        CP.energy:SetFrameLevel(pf:GetFrameLevel() + 5)
+        CP.energy:Hide()
+        CP.energy._bg = CP.energy:CreateTexture(nil, "BACKGROUND")
+        CP.energy._bg:SetAllPoints()
+    end
     function CP.EnergyOn()
-        local _, cls = UnitClass("player")
-        return (cls == "ROGUE" or cls == "DRUID") and DBVal("classPowerEnergyBar") == true
+        return ns.NP_ENERGY_BAR and DBVal("classPowerEnergyBar") == true
+    end
+    function CP.HideEnergy()
+        if CP.energy then CP.energy:Hide() end
     end
 
     -- Offset badge: shown by UpdateCP (via CP.Clamp) only when the class-resource
@@ -3072,7 +3076,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 end
                 local cpYShown, cpYReal, cpEdgeIn, cpDirIn = CP.Clamp(cpPos == "top", yDir, cpYOff, scaledH, -healthFromTop, castBotY)
 
-                CP.energy:Hide()
+                CP.HideEnergy()
                 local bar = CP.bar
                 bar:ClearAllPoints()
                 bar:SetSize(barW, scaledH)
@@ -3095,7 +3099,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                     ns.HidePipDecor(CP.pips[i])
                 end
                 CP.bar:Hide()
-                CP.energy:Hide()
+                CP.HideEnergy()
             else
                 CP.bar:Hide()
                 local cpScale = DBVal("classPowerScale") or defaults.classPowerScale
@@ -3233,7 +3237,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                     e._bg:SetColorTexture(cpBgCol.r, cpBgCol.g, cpBgCol.b, cpBgCol.a)
                     e:Show()
                 else
-                    CP.energy:Hide()
+                    CP.HideEnergy()
                 end
                 -- Base reservation only -- the offset never grows the frame (pips
                 -- are clamped to the plate by CP.Clamp instead).
@@ -3249,7 +3253,7 @@ local function BuildNameplatePreview(parent, parentW, mode)
                 ns.HidePipDecor(CP.pips[i])
             end
             CP.bar:Hide()
-            CP.energy:Hide()
+            CP.HideEnergy()
         end
         return cpExtraH
         end

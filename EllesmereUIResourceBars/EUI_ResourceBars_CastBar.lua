@@ -1479,8 +1479,10 @@ function ns.ERB_SizeCastName(cb)
     -- The layout's timer slot fits a plain countdown; Show Total Duration,
     -- latency text and Full Craft Time write wider strings. Size the name's
     -- room (and its push, when it shares the timer's side) off the widest one
-    -- this cast will show. Blizzard Style moves the name off the bar.
-    if cb.showTimer and f._endTime and f._startTime and not ns.ERB_CastBlizz() then
+    -- this cast will show, while a cast is in flight. Blizzard Style moves the
+    -- name off the bar into its text box; Classic WoW UI keeps it on the bar.
+    if cb.showTimer and (f._casting or f._channeling or f._empowering) and f._endTime and f._startTime
+        and not (ns.ERB_CastBlizz() and not ns.ERB_CastClassic()) then
         local total = cb.showTotalDuration
         local sample
         if f._craftExtra and f._craftTotal then

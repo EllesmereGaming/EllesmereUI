@@ -358,10 +358,8 @@ initFrame:SetScript("OnEvent", function(self)
                   end },
             }
             -- The List display has no Auto-Size to Fit (its rows take the grip-set width)
-            local autoSizeSlot
             if not bagList then
-                autoSizeSlot = #layoutSlots + 1
-                layoutSlots[autoSizeSlot] = { type="toggle", text="Auto-Size to Fit",
+                layoutSlots[#layoutSlots + 1] = { type="toggle", text="Auto-Size to Fit",
                   -- WoW Forever and the Compact display fit the content, with no normal-size floor
                   tooltip=(EllesmereUI.IS_FOREVER or db.profile.bagDisplayMode == "compact")
                       and "Grow the bag window (more columns + taller, keeping its shape) so all of the active tab's slots are visible without scrolling. It only grows while open -- switching to a bigger tab enlarges it, smaller tabs keep the size -- and resets when you close the bags."
@@ -410,18 +408,38 @@ initFrame:SetScript("OnEvent", function(self)
                     -- the picker fires every frame while dragging: retint, don't re-lay out
                     BagsNS.RetintSlotBackgrounds()
                 end }
-            local autoSizeRgn
+            -- Each slot's half of its row, by the slot's label: the inline cogs hang on them
+            local slotRgn = {}
             for i = 1, #layoutSlots, 2 do
+                local left, right = layoutSlots[i], layoutSlots[i + 1]
                 local row
-                row, h = W:DualRow(parent, y, layoutSlots[i], layoutSlots[i + 1] or EllesmereUI.BlankRowCfg()); y = y - h
-                if i == autoSizeSlot then autoSizeRgn = row._leftRegion
-                elseif i + 1 == autoSizeSlot then autoSizeRgn = row._rightRegion end
+                row, h = W:DualRow(parent, y, left, right or EllesmereUI.BlankRowCfg()); y = y - h
+                slotRgn[left.text] = row._leftRegion
+                if right then slotRgn[right.text] = row._rightRegion end
+            end
+
+            if not EllesmereUI._prebuilding then
+                -- Inline cog on Window Scale: Anchor to Nearest Corner, for the bag
+                -- and bank windows in every display (off unless set).
+                EllesmereUI.BuildInlineCog(slotRgn["Window Scale"], {
+                    title = "Window Options",
+                    rows = {
+                        { type="toggle", label="Anchor to Nearest Corner",
+                          tooltip="The bag and bank windows hold the screen corner nearest them, so they grow and shrink toward it.",
+                          get=function() return db.profile.bagAnchorCorner == true end,
+                          set=function(v)
+                              db.profile.bagAnchorCorner = v and true or nil
+                              BagsNS.WindowCornerChanged()
+                          end },
+                    },
+                })
             end
 
             -- Inline cog on Auto-Size to Fit: Shrink (follow the active tab down
             -- while open) and Max Height, the height cap as a share of the screen.
             -- Unset keeps the built-in 95% (and, outside WoW Forever and the
             -- Compact display, the normal-size floor); a set value wins over both.
+            local autoSizeRgn = slotRgn["Auto-Size to Fit"]
             if autoSizeRgn and not EllesmereUI._prebuilding then
                 EllesmereUI.BuildInlineCog(autoSizeRgn, {
                     disabled = function() return db.profile.bagAutoSize ~= true end,
@@ -429,7 +447,7 @@ initFrame:SetScript("OnEvent", function(self)
                     title = "Auto-Size Options",
                     rows = {
                         { type="toggle", label="Shrink",
-                          tooltip="Shrink the bag window while it is open when the active tab needs less room, for example after selling items or switching to a smaller tab. Off: it only grows while open and resets when you close the bags.",
+                          tooltip="Also shrink the bag window while it is open, when the active tab needs less room.",
                           get=function() return db.profile.bagAutoSizeShrink == true end,
                           set=function(v)
                               db.profile.bagAutoSizeShrink = v and true or nil
@@ -438,8 +456,9 @@ initFrame:SetScript("OnEvent", function(self)
                         { type="slider", label="Max Height (% of Screen)", min=30, max=95, step=5,
                           get=function() return db.profile.bagAutoSizeMaxPct or 95 end,
                           set=function(v)
-                              db.profile.bagAutoSizeMaxPct = v
-                              ResetAndRefreshBagLayout()
+                              -- the top of the range is the built-in cap: nothing saved
+                              db.profile.bagAutoSizeMaxPct = v < 95 and v or nil
+                              RelayoutSoon()  -- the slider fires every step while dragging
                           end },
                     },
                 })
@@ -539,12 +558,9 @@ initFrame:SetScript("OnEvent", function(self)
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
                         { type="toggle", label="New Items Only",
-                          tooltip="Only items you were not carrying before appear in Recent Items. Gear and items from mail or trade always appear.",
+                          tooltip="Only lists items you were not already carrying. Gear, mail and trades always list.",
                           get=function() return db.profile.bagRecentNewOnly == true end,
-                          set=function(v)
-                              db.profile.bagRecentNewOnly = v
-                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
-                          end },
+                          set=function(v) db.profile.bagRecentNewOnly = v end },
                     },
                 })
             end
