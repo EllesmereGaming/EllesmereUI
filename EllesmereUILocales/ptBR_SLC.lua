@@ -1234,3 +1234,11 @@ L["promote loot"] = "promover o líder do saque"
 L["promoted for this raid"] = "promovido para este raide"
 L["show a group question, answers do nothing"] = "mostrar uma pergunta de grupo, as respostas não fazem nada"
 L["the council window did not open for this boss kill: %s"] = "a janela do conselho não abriu nesta morte de chefe: %s"
+
+-- == Simple Loot Council: promotion note, prompt preview ==
+L["(%s stored)"] = "(%s armazenada)"
+L["(Promoted)"] = "(Promovido)"
+L["prompt <lootmaster / raider / guard>"] = true
+L["usage: /slc prompt lootmaster / raider / guard"] = "uso: /slc prompt lootmaster / raider / guard"
+L["v%s"] = true
+L["%s  |cffffd100x%d|r"] = true
