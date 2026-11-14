@@ -870,7 +870,7 @@ EllesmereUI._onScaleChanged[#EllesmereUI._onScaleChanged + 1] = RefitLayers
 -- construction: a list's other children may lie outside it (a side submenu),
 -- where the mask would hide them.
 -- width (default 1): the edge in whole pixels, for a heavier ring (a pulse);
--- the radius keeps room for it.
+-- the radius keeps room for it; o:SetWidth(w) changes it later.
 local OUTLINE_RADIUS = 4
 
 -- Defined with the wait below: tex takes the hole m once m's art has loaded
@@ -1103,6 +1103,29 @@ local function OutlineSetShown(self, on)
     end
 end
 
+-- o:SetWidth(w): a new edge width in whole pixels on the same outline. The
+-- hole comes off, moves w px in and is reshaped by the next fit (radius at
+-- least w + 1, so w stays below EllesmereUI.ROUNDED_MAX_RADIUS).
+local function OutlineSetWidth(self, w)
+    if self.width == w then return end
+    self.width = w
+    local layer, hole = self._frame, self.hole
+    if self.r then
+        -- Uncut until the fit adds the hole back (HoleWhenLoaded shows them).
+        RemoveMask(self._fill, hole)
+        self._fill:Hide()
+        if self.cover then
+            RemoveMask(self.cover, hole)
+            self.cover:Hide()
+        end
+        self.r = nil
+    end
+    hole:ClearAllPoints()
+    hole:SetPoint("TOPLEFT", layer, "TOPLEFT", w, -w)
+    hole:SetPoint("BOTTOMRIGHT", layer, "BOTTOMRIGHT", -w, w)
+    self:Fit()
+end
+
 -- The outline's inner shape in the parent's units, made once: 1 unit in
 -- with a radius 1 unit smaller, the same arc centres, so what it masks
 -- follows the outline's corners as its sides do.
@@ -1132,7 +1155,7 @@ function EllesmereUI.MakeRoundedBorder(parent, r, g, b, a, body, radius, clip, w
     hole:SetPoint("TOPLEFT", layer, "TOPLEFT", w, -w)
     hole:SetPoint("BOTTOMRIGHT", layer, "BOTTOMRIGHT", -w, w)
     o._fill, o.hole, o.SetColor, o.SetCover = fill, hole, OutlineSetColor, OutlineSetCover
-    o.SetShown, o.MaskBody = OutlineSetShown, OutlineMaskBody
+    o.SetShown, o.MaskBody, o.SetWidth = OutlineSetShown, OutlineMaskBody, OutlineSetWidth
     o.radius = radius or OUTLINE_RADIUS
     if body then
         local bm = parent:CreateMaskTexture()

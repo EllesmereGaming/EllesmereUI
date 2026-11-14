@@ -4818,6 +4818,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.accentReskinElements = nil
                 EllesmereUIDB.tooltipPlayerTitles = nil
                 EllesmereUIDB.tooltipFontScale = nil
+                EllesmereUIDB.tooltipRoundedCorners = nil
                 EllesmereUIDB.tooltipMythicScore = nil
                 EllesmereUIDB.tooltipAnchorCursor = nil
                 EllesmereUIDB.tooltipCursorPosition = nil

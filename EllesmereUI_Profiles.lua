@@ -2121,6 +2121,7 @@ do
         "tooltipShowBuffs", "tooltipBuffPosition", "tooltipBuffSize",
         "tooltipBuffsPerRow", "tooltipBuffOffsetX", "tooltipBuffOffsetY",
         "tooltipBgColor", "tooltipBgOpacity", "tooltipBorderSize",
+        "tooltipRoundedCorners",
         "showSpellID", "spellIDModifier", "showIconID", "showItemID",
         "showItemMaxStacks", "itemStackModifier",
         "reskinPopupsMenus", "reskinGameMenu", "reskinQueuePopup",

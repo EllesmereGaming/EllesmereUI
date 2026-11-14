@@ -151,22 +151,29 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     end
 
     local function _ttRound(tt, legacySize)
-        local data = GetFFD(tt)
-        local o = data.round
-        local db, size, _, color, alpha = _resolveConfiguredBorder("tooltip", legacySize)
+        local db = EllesmereUIDB or {}
+        local o = FFD[tt] and FFD[tt].round
         local on = db.tooltipRoundedCorners ~= false
             and (db.tooltipBorderTexture or "solid") == "solid"
-            and EllesmereUI.MakeRoundedBorder ~= nil
+        local size, color, alpha, w
+        if on then
+            local _
+            _, size, _, color, alpha = _resolveConfiguredBorder("tooltip", legacySize)
+            -- The solid line's width in whole pixels, as the square border draws it.
+            w = size > 0 and (EllesmereUI.BorderPx(db.tooltipBorderThicknessPx, size, "solid") or size) or 1
+            w = math.max(1, math.floor(w + 0.5))
+            -- The radius needs w + 1 and the art stops at ROUNDED_MAX_RADIUS:
+            -- a wider line keeps the square border.
+            on = w < EllesmereUI.ROUNDED_MAX_RADIUS
+        end
         if not on then
             if o then o:SetShown(false) end
             return false
         end
-        -- The solid line's width in whole pixels, as the square border draws it.
-        local w = size > 0 and (EllesmereUI.BorderPx(db.tooltipBorderThicknessPx, size, "solid") or size) or 1
-        w = math.max(1, math.floor(w + 0.5))
-        if not o or o.width ~= w then
-            -- A new width needs a new hole; the old outline stays hidden.
-            if o then o:SetShown(false) end
+        if o then
+            o:SetWidth(w)
+        else
+            local data = GetFFD(tt)
             o = EllesmereUI.MakeRoundedBorder(tt, 1, 1, 1, 1, data.bg, nil, nil, w)
             GetFFD(o._frame).outline = o
             -- The tooltip grows with its lines while shown (no OnShow then).
