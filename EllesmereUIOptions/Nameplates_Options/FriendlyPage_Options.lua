@@ -246,7 +246,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
     -- Blizzard's own plates, which show whatever the settings here say (its
     -- brackets row greys by itself under Blizzard Default).
     -- Quiet: the dropdown's writes never light its dot.
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(friendlyRow._leftRegion, {
             title = "Friendly Nameplate Settings",
             rows = { npSizeRow, bracketsRow },
@@ -423,7 +423,7 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
           disabledTooltip=STYLE_REQ, rawTooltip=true,
           values=pnfValues, order=pnfOrder, getValue=pnfGet, setValue=pnfSet });  y = y - h
 
-    if not EllesmereUI._prebuilding then
+    do
         if barNameSize then
             EllesmereUI.BuildInlineCog(sizeRow._leftRegion, {
                 disabled = friendlyPlateOff,
@@ -554,46 +554,48 @@ local function BuildFriendlyPage(pageName, parent, yOffset)
           end,
           setValue=function() end });  y = y - h
 
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = levelRow._rightRegion
-        if rgn._control then rgn._control:Hide() end
-        local function HasTitle() local m = DBVal("friendlyBelowName"); return m == "title" or m == "both" end
-        local function HasGuild() local m = DBVal("friendlyBelowName"); return m == "guild" or m == "both" end
-        local function Bracketed() return DBVal("friendlyBelowNameGuildBrackets") ~= false end
-        local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-            rgn, 170, rgn:GetFrameLevel() + 2,
-            { { key = "title", label = "Player Title" },
-              { key = "guild", label = "Guild Name" },
-              { key = "guildB", label = "<Guild Name>" } },
-            function(k)
-                if k == "title" then return HasTitle() end
-                if k == "guild" then return HasGuild() and not Bracketed() end
-                return HasGuild() and Bracketed()
-            end,
-            function(k, v)
-                local db = DB()
-                local title, guild = HasTitle(), HasGuild()
-                if k == "title" then
-                    title = v and true or false
-                else
-                    -- The two guild entries are one line in two forms: a tick of one
-                    -- takes the other's place, and unticking the ticked one hides the line.
-                    guild = v and true or false
-                    if v then db.friendlyBelowNameGuildBrackets = (k == "guildB") end
-                end
-                db.friendlyBelowName = (title and guild and "both") or (title and "title") or (guild and "guild") or "none"
-                if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
-                -- The guild colour swatches grey with the guild line.
-                EllesmereUI:RefreshPage()
-                ns.NPO_FriendlyPreviewUpdate()
-            end,
-            nil, nil, nil, nil, nil,
-            { noAllLabel = true, notifyWrites = true,
-              disabled = friendlyPlayersOff, disabledTooltip = STYLE_REQ, rawTooltip = true })
-        PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
-        rgn._control = cbDD
-        rgn._lastInline = nil
-        EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+        if not EllesmereUI._prebuilding then
+            if rgn._control then rgn._control:Hide() end
+            local function HasTitle() local m = DBVal("friendlyBelowName"); return m == "title" or m == "both" end
+            local function HasGuild() local m = DBVal("friendlyBelowName"); return m == "guild" or m == "both" end
+            local function Bracketed() return DBVal("friendlyBelowNameGuildBrackets") ~= false end
+            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rgn, 170, rgn:GetFrameLevel() + 2,
+                { { key = "title", label = "Player Title" },
+                  { key = "guild", label = "Guild Name" },
+                  { key = "guildB", label = "<Guild Name>" } },
+                function(k)
+                    if k == "title" then return HasTitle() end
+                    if k == "guild" then return HasGuild() and not Bracketed() end
+                    return HasGuild() and Bracketed()
+                end,
+                function(k, v)
+                    local db = DB()
+                    local title, guild = HasTitle(), HasGuild()
+                    if k == "title" then
+                        title = v and true or false
+                    else
+                        -- The two guild entries are one line in two forms: a tick of one
+                        -- takes the other's place, and unticking the ticked one hides the line.
+                        guild = v and true or false
+                        if v then db.friendlyBelowNameGuildBrackets = (k == "guildB") end
+                    end
+                    db.friendlyBelowName = (title and guild and "both") or (title and "title") or (guild and "guild") or "none"
+                    if ns.RefreshFriendlyBelowName then ns.RefreshFriendlyBelowName() end
+                    -- The guild colour swatches grey with the guild line.
+                    EllesmereUI:RefreshPage()
+                    ns.NPO_FriendlyPreviewUpdate()
+                end,
+                nil, nil, nil, nil, nil,
+                { noAllLabel = true, notifyWrites = true,
+                  disabled = friendlyPlayersOff, disabledTooltip = STYLE_REQ, rawTooltip = true })
+            PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = cbDD
+            rgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+        end
         -- The cog sits nearest the checklist; the swatches chain left of it.
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Subtitle Text Settings",

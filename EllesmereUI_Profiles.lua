@@ -2483,6 +2483,7 @@ local FULL_EXPORT_EXCLUDED = {
     mailAltHidden         = true, -- and the characters it hides
     lootFeedHistory       = true, -- Forever Loot History rows
     raidHoroscope         = true, -- Party Mode birthdays
+    searchPicks           = true, -- options search: the player's own picks
     bagCurrencyByChar     = true, -- Bags tracked currencies
     bagPinnedByChar       = true, -- Bags pinned items
     mageArmorByChar       = true, -- AuraBuff Reminders (Forever): last mage armor

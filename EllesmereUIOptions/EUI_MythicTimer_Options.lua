@@ -376,7 +376,7 @@ initFrame:SetScript("OnEvent", function(self)
         y = y - h
 
         -- Inline RESIZE cog on Scale: Frame Width slider
-        if not EllesmereUI._prebuilding then
+        do
             local leftRgn = scaleRow._leftRegion
             EllesmereUI.BuildInlineCog(leftRgn, {
                 title = "Frame Width",
@@ -500,7 +500,7 @@ initFrame:SetScript("OnEvent", function(self)
                 y = y - h
             end
             -- Inline cog for border options (left region)
-            if not EllesmereUI._prebuilding then
+            do
                 local rgn = bsRow._leftRegion
                 EllesmereUI.BuildInlineCog(rgn, {
                     title = "Border Options",
@@ -734,7 +734,6 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("titleSize", v); Refresh() end })
         -- Regular-cog settings popup on Show Title: Show Dungeon Name (default on;
         -- when off the title shows only the +key level, not the dungeon name).
-        if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(row._leftRegion, { title = "Title", gap = 6, rows = {
             { type="toggle", label="Show Dungeon Name",
               get=function() return Cfg("showDungeonName") ~= false end,
@@ -752,6 +751,7 @@ initFrame:SetScript("OnEvent", function(self)
               get=function() return Cfg("keyLevelTimerSpacing") or 8 end,
               set=function(v) Set("keyLevelTimerSpacing", v); Refresh() end },
         }, disabled = function() return Cfg("enabled") == false or Cfg("showTitle") == false end, disabledTooltip = ModuleOr("Show Title") })
+        if not EllesmereUI._prebuilding then
         -- Inline accent + custom colour swatches on the Title Size slider.
         _AttachInlineAccentSwatches(row._rightRegion, "titleUseAccent", "titleColor", 1, 1, 1,
             function() return Cfg("enabled") == false or Cfg("showTitle") == false end, "Show Title")
@@ -772,14 +772,15 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return Cfg("titleAffixPosition") or "ABOVE_TIMER" end,
               setValue=function(v) Set("titleAffixPosition", v); Refresh(); EllesmereUI:RefreshPage() end })
         -- Inline Affix Size cog on Show Affix (cog before swatch), then the Affix Color swatch
-        if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(row._leftRegion, { title = "Affix Size", gap = 6, rows = {
             { type="slider", label="Size", min=6, max=20, step=1,
               get=function() return Cfg("affixSize") or 12 end,
               set=function(v) Set("affixSize", v); Refresh() end },
         }, disabled = function() return Cfg("enabled") == false or Cfg("showAffixes") == false end, disabledTooltip = ModuleOr("Show Affix") })
+        if not EllesmereUI._prebuilding then
         _AttachInlineSwatch(row._leftRegion, "affixTextColor", 1, 1, 1, nil,
             function() return Cfg("enabled") == false or Cfg("showAffixes") == false end, "Show Affix")
+        end
         -- Title/Affix Spacing cog on Position (now the right-side widget)
         EllesmereUI.BuildInlineCog(row._rightRegion, { title = "Title/Affix Spacing", gap = 6, rows = {
             { type="slider", pixel=true, label="Death Gap", min=-10, max=30, step=1,
@@ -798,7 +799,6 @@ initFrame:SetScript("OnEvent", function(self)
               get=function() return Cfg("titleAffixBarGap") or Cfg("titleAffixSandwichGap") or 6 end,
               set=function(v) Set("titleAffixBarGap", v); Refresh() end },
         }, disabled = function() return Cfg("enabled") == false end, disabledTooltip = "the module" })
-        end
         y = y - h
 
         _, h = W:SectionHeader(parent, "TIMER", y); y = y - h
@@ -853,7 +853,7 @@ initFrame:SetScript("OnEvent", function(self)
               disabledTooltip=ModuleOr("Show Timer Bar"),
               getValue=function() return Cfg("timerInBar") == true end,
               setValue=function(v) Set("timerInBar", v); Refresh(); EllesmereUI:RefreshPage() end })
-        if not EllesmereUI._prebuilding then
+        do
         -- These rows only affect the in-bar timer, so the cog also requires Move Timer Inside Bar.
         EllesmereUI.BuildInlineCog(row._rightRegion, { title = "In-Bar Timer", gap = 6, rows = {
             { type="slider", label="In-Bar Height", min=8, max=40, step=1,
@@ -970,7 +970,6 @@ initFrame:SetScript("OnEvent", function(self)
             p3cfg)
         -- Inline cog first so it sits adjacent to the control, then the Tick Color
         -- swatch (TICKS style only) left of it (cog-before-swatch rule).
-        if not EllesmereUI._prebuilding then
         EllesmereUI.BuildInlineCog(row._leftRegion, { title = "Ticks / Gaps", gap = 6, rows = {
             { type="slider", label="Tick Opacity", min=0, max=1, step=0.05,
               disabled=function() return (Cfg("timerBarStyle") or "TICKS") ~= "TICKS" end,
@@ -983,6 +982,7 @@ initFrame:SetScript("OnEvent", function(self)
               get=function() return Cfg("timerBarSegmentGap") or 2 end,
               set=function(v) Set("timerBarSegmentGap", v); Refresh() end },
         }, disabled = function() return Cfg("enabled") == false or Cfg("showTimerBar") == false end, disabledTooltip = ModuleOr("Show Timer Bar") })
+        if not EllesmereUI._prebuilding then
         _AttachInlineSwatch(row._leftRegion, "timerTickColor", 1, 1, 1, nil,
             function() return Cfg("enabled") == false or Cfg("showTimerBar") == false or (Cfg("timerBarStyle") or "TICKS") ~= "TICKS" end, "Ticks")
         p3attach(row._rightRegion)
@@ -1034,7 +1034,7 @@ initFrame:SetScript("OnEvent", function(self)
               order={ "LABEL", "BAR", "BESIDE" },
               getValue=function() return Cfg("enemyForcesPctPos") or "LABEL" end,
               setValue=function(v) Set("enemyForcesPctPos", v); Refresh() end })
-        if not EllesmereUI._prebuilding then
+        do
         EllesmereUI.BuildInlineCog(row._leftRegion, { title = "Enemy Forces Text", gap = 6, rows = {
             { type="toggle", label="Hide Label",
               get=function() return Cfg("hideEnemyForcesLabel") == true end,
@@ -1068,7 +1068,6 @@ initFrame:SetScript("OnEvent", function(self)
               order=texOrder,
               getValue=function() return Cfg("enemyBarTexture") or "none" end,
               setValue=function(v) Set("enemyBarTexture", v); Refresh() end })
-        if not EllesmereUI._prebuilding then
         -- The background texture cog, then the fill colour (accent or custom) as inline swatches.
         EllesmereUI.BuildInlineCog(row._rightRegion, { title = "Bar Texture", gap = 6, rows = {
             { type="dropdown", label="Background Texture",
@@ -1076,6 +1075,7 @@ initFrame:SetScript("OnEvent", function(self)
               get=function() return Cfg("enemyBarBgTexture") or "none" end,
               set=function(v) Set("enemyBarBgTexture", v); Refresh() end },
         }, disabled = _forcesOff, disabledTooltip = ModuleOr("Show Enemy Forces") })
+        if not EllesmereUI._prebuilding then
         _AttachInlineAccentSwatches(row._rightRegion, "enemyBarUseAccent", "enemyBarColor", 0.35, 0.55, 0.8,
             _forcesOff, ModuleOr("Show Enemy Forces"))
         end
@@ -1134,7 +1134,7 @@ initFrame:SetScript("OnEvent", function(self)
               min=8, max=20, step=1, isPercent=false,
               getValue=function() return Cfg("objectivesSize") or 12 end,
               setValue=function(v) Set("objectivesSize", v); Refresh() end })
-        if not EllesmereUI._prebuilding then
+        do
         EllesmereUI.BuildInlineCog(row._leftRegion, { title = "Boss Position", gap = 6, rows = {
             { type="slider", label="Boss X", min=-80, max=80, step=1,
               get=function() return Cfg("objectiveTextOffsetX") or 0 end,
@@ -1187,7 +1187,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) Set("objectiveCompareMode", v); Refresh() end })
         -- Split Compare cog: strict scoping (only meaningful for the level scopes,
         -- since Per Dungeon is the fallback it removes) and the upcoming-split target.
-        if not EllesmereUI._prebuilding then
+        do
         EllesmereUI.BuildInlineCog(row._rightRegion, { title = "Split Compare", gap = 6, rows = {
             { type="toggle", label="Always Show Split Times",
               tooltip="Shows your best split on upcoming bosses instead of only killed ones.",
@@ -1486,7 +1486,7 @@ initFrame:SetScript("OnEvent", function(self)
               disabled=Off, disabledTooltip=REQ,
               getValue=function() local c = TSB(); return not c or c.showSpellName ~= false end,
               setValue=function(v) local c = TSB(); if c then c.showSpellName = v and true or false; TSBRefresh() end end });  y = y - h
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(row._leftRegion, { tip = "Spell Icon Settings",
                 title = "Spell Icon Settings",
                 rows = {
@@ -1526,7 +1526,7 @@ initFrame:SetScript("OnEvent", function(self)
               tooltip="Show who each spell is being cast on, exactly like the nameplate cast bars.",
               getValue=function() local c = TSB(); return not c or c.showTarget ~= false end,
               setValue=function(v) local c = TSB(); if c then c.showTarget = v and true or false; TSBRefresh() end end });  y = y - h
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(row._leftRegion, { tip = "Cast Timer Settings",
                 title = "Cast Timer",
                 rows = {
@@ -1639,7 +1639,7 @@ initFrame:SetScript("OnEvent", function(self)
             GO.DropdownSpec(mtDesc, "Important Cast Glow",
                 "Glow the bar when the enemy casts a spell Blizzard flags as important."));  y = y - h
 
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(row._leftRegion, { tip = "Important Cast Color",
                 title = "Important Cast Color",
                 rows = {
@@ -1653,9 +1653,8 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-
-            GO.AttachInline(row._rightRegion, mtDesc)
         end
+        GO.AttachInline(row._rightRegion, mtDesc)
 
         -- Row: Fade Out of Interrupt Range | Show Raid Target Marker.
         row, h = W:DualRow(parent, y,
@@ -1678,7 +1677,7 @@ initFrame:SetScript("OnEvent", function(self)
                   TSBRefresh()
               end });  y = y - h
 
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(row._leftRegion, { tip = "Range Fade Settings",
                 title = "Fade Out of Interrupt Range",
                 rows = {
@@ -1770,7 +1769,7 @@ initFrame:SetScript("OnEvent", function(self)
                   disabled=Off, disabledTooltip=REQ,
                   getValue=function() local c = C(); return not c or c.showTimer ~= false end,
                   setValue=function(v) local c = C(); if c then c.showTimer = v and true or false; TFBRefresh() end end });  y = y - h
-            if not EllesmereUI._prebuilding then
+            do
                 EllesmereUI.BuildInlineCog(row._leftRegion, { tip = "Spell Name Settings",
                     title = "Spell Name",
                     disabled = Off, disabledTooltip = REQ,
@@ -1810,7 +1809,7 @@ initFrame:SetScript("OnEvent", function(self)
                       return v
                   end,
                   setValue=function(v) local c = C(); if c then c.showTarget = v and true or false; TFBRefresh() end end });  y = y - h
-            if not EllesmereUI._prebuilding then
+            do
                 -- Colors are shared by both bars; only the text size is per bar.
                 EllesmereUI.BuildInlineCog(row._rightRegion, { tip = "Spell Target Settings",
                     title = "Spell Target",
@@ -1931,7 +1930,7 @@ initFrame:SetScript("OnEvent", function(self)
                   end
                   TFBRefresh()
               end });  y = y - h
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(row._leftRegion, { tip = "Cast Color Settings",
                 title = "Cast Color",
                 rows = {
@@ -1991,7 +1990,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() local t = TFB(); return not t or t.interruptedFlash ~= false end,
               setValue=function(v) local t = TFB(); if t then t.interruptedFlash = v and true or false; TFBRefresh() end end },
             { type="label", text="" });  y = y - h
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(row._leftRegion, { tip = "Interrupted Flash Settings",
                 title = "Interrupted Flash",
                 rows = {

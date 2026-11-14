@@ -570,7 +570,7 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
     -- The header hover fill sits on the card (built below), inside its corners.
     local hbg
 
-    opts.glyph(hdr, enabled)
+    if not EllesmereUI._prebuilding then opts.glyph(hdr, enabled) end
 
     local title = EllesmereUI.MakeFont(hdr, 14, nil, 1, 1, 1, 0.9)
     PP.Point(title, "TOPLEFT", hdr, "TOPLEFT", 50, -12)
@@ -583,6 +583,13 @@ function EllesmereUI.BuildModuleCard(parent, y, W, tile, opts)
     desc:SetWordWrap(false)
     desc:SetText(L(tile.desc or ""))
     tile._hdr, tile._descFS = hdr, desc
+
+    -- The index pass reads the header entry and an open card's rows; the rest is chrome.
+    if EllesmereUI._prebuilding then
+        y = y - MC_HEADER_H
+        if expanded then y = tile.buildContent(parent, y - 8, W, tile) - 8 end
+        return y - MC_CARD_GAP
+    end
 
     if not enabled then
         title:SetAlpha(0.4)
@@ -1041,10 +1048,8 @@ function EllesmereUI.RestedIndicatorCfg()
       end }
 end
 
--- Animated, Size, X / Y Offset; greyed while the indicator is off. Builds
--- nothing during the search pre-build.
+-- Animated, Size, X / Y Offset; greyed while the indicator is off.
 function EllesmereUI.BuildRestedIndicatorCog(region)
-    if EllesmereUI._prebuilding then return end
     return EllesmereUI.BuildInlineCog(region, {
         title = "Rested Indicator",
         rows = {

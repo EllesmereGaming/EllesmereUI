@@ -232,6 +232,8 @@ function ns.RFO_BuildTextDisplay(W, parent, y, opts)
             title = EllesmereUI.Lf("%1$s Settings", EllesmereUI.L(t.label)),
             rows = rows,
         })
+        -- The search index pass stops after the cog (it indexes the cog's rows)
+        if EllesmereUI._prebuilding then return end
         if t.kind ~= "level" then
             local modeKey = t.cm
             local function AddSwatch(getColor, setColor, mode, opensPicker, tooltip)
@@ -395,7 +397,11 @@ function ns.RFO_BuildTextDisplay(W, parent, y, opts)
             end
             return
         end
-        if EllesmereUI._prebuilding then return end
+        if EllesmereUI._prebuilding then
+            -- the index pass reads the text cog's rows; the label menu makes frames
+            Decorate(rgn, cell)
+            return
+        end
         local t = cell.text
         -- Spec Overrides name a captured write after the text, not its position
         -- (several texts may share one).

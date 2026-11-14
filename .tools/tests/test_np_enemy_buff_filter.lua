@@ -183,7 +183,7 @@ end
 -------------------------------------------------------------------------------
 local COG = OPT:match("EllesmereUI%.BuildInlineCog%(dispelGlowRow%._leftRegion, {%s*disabled = (function%(%)[^\n]-end),")
 assert(COG, "the Enemy Buff Filter cog's disabled function is missing")
-assert(OPT:find("if not EllesmereUI._prebuilding and not EllesmereUI.IS_FOREVER then\n        EllesmereUI.BuildInlineCog(dispelGlowRow._leftRegion", 1, true),
+assert(OPT:find("if not EllesmereUI.IS_FOREVER then\n        EllesmereUI.BuildInlineCog(dispelGlowRow._leftRegion", 1, true),
     "the Enemy Buff Filter cog is no longer retail-only")
 
 local function CheckCog(fnText)

@@ -489,11 +489,12 @@ local function SiteRow(parent, y, W, site)
     local statusCfg = EllesmereUI.BlankRowCfg()
     statusCfg.tooltip = long
     local row, h = W:DualRow(parent, y, left, statusCfg)
+    local rrgn = row._rightRegion
+    local lrgn = row._leftRegion
+    local dotTex
     if not EllesmereUI._prebuilding then
-        local rrgn = row._rightRegion
         if rrgn._label then rrgn._label:SetText(short) end
-        local dotTex = StatusDot(rrgn, color)
-        local lrgn = row._leftRegion
+        dotTex = StatusDot(rrgn, color)
         if desc.paramsOnly then
             -- A label half has no control to chain from: anchor the cog at the right edge.
             local PP = EllesmereUI.PanelPP
@@ -501,10 +502,15 @@ local function SiteRow(parent, y, W, site)
             PP.Size(anchor, 1, 1)
             PP.Point(anchor, "RIGHT", lrgn, "RIGHT", -20, 0)
             lrgn._lastInline = anchor
-            EllesmereUI.BuildInlineCog(lrgn, { title = "Pixel Glow Settings", rows = GO.CogRows(desc), captureRegion = lrgn })
-        else
-            GO.AttachInline(lrgn, desc)
         end
+    end
+    if desc.paramsOnly then
+        EllesmereUI.BuildInlineCog(lrgn, { title = "Pixel Glow Settings", rows = GO.CogRows(desc), captureRegion = lrgn })
+    end
+    if not desc.paramsOnly then
+        GO.AttachInline(lrgn, desc)
+    end
+    if not EllesmereUI._prebuilding then
         local nav, module = site.nav, site.module
         if nav and nav.page then
             EllesmereUI.BuildInlineButton(rrgn, EllesmereUI.L("Open Settings"), function()
@@ -725,9 +731,9 @@ function _G._EUI_BuildGlowsPage(pageName, parent, yOffset)
     local sites = CollectSites()
     local tplRow
     tplRow, h = W:DualRow(parent, y, GO.DropdownSpec(tpl, "Glow Style"), EllesmereUI.BlankRowCfg());  y = y - h
+    GO.AttachInline(tplRow._leftRegion, tpl)
     if not EllesmereUI._prebuilding then
         local lrgn = tplRow._leftRegion
-        GO.AttachInline(lrgn, tpl)
         local pv = GO.BuildPreview(lrgn, tpl, { anchor = lrgn._lastInline, x = -12 })
         if pv then
             pv:SetFrameLevel(lrgn:GetFrameLevel() + 5)

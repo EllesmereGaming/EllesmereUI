@@ -202,7 +202,7 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
     -- Inline cog on Show Cast Bar: Hide When Idle (all units) + kick-ready tick
     -- (target/focus only). Deliberately outside the Show Cast Bar sync icon:
     -- these are per-unit detail settings.
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = sharedCastRow1._leftRegion
         local cogRows = {
             { type = "toggle", label = "Hide When Idle",
@@ -446,7 +446,7 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
     -- "Border Wraps Icon", "Vertical Separator", "Show Icon on Right",
     -- "Show Icon on Portrait", additive Offset X/Y nudges. Operates on the
     -- selected unit. An icon on the portrait greys the bar-side placement rows.
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = castRow2._leftRegion
         local function IconOnPortrait()
             return ns.UF_CastIconOnPortrait(optState.selectedUnit, UNIT_DB_MAP[optState.selectedUnit]())
@@ -716,7 +716,7 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
             ReloadAndUpdate(); UpdatePreview(); EllesmereUI:RefreshPage()
           end });  y = y - h
     -- Inline cog on Spell Name Size: X/Y offsets (+ target/focus combine)
-    if not EllesmereUI._prebuilding then
+    do
         local snCogRgn = castTextRow._leftRegion
         local snCogRows = {
                 { type="slider", label="Size", min=6, max=20, step=1,
@@ -766,7 +766,7 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
         snRgn._lastInline = snSw
     end
     -- Inline cog on Duration Size: toggle + X/Y offsets
-    if not EllesmereUI._prebuilding then
+    do
         local dtCogRgn = castTextRow._rightRegion
         local dtCogRows = {
                 { type="slider", label="Size", min=6, max=20, step=1,
@@ -932,7 +932,7 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
           getValue=function() return SValSupported("castReverseFill", false) end,
           setValue=function(v) SSetSupported("castReverseFill", v); ReloadAndUpdate(); UpdatePreview() end });  y = y - h
     -- Inline cog on Spell Target Size: toggle + X/Y offsets
-    if not EllesmereUI._prebuilding then
+    do
         local tgCogRgn = castTargetRow._leftRegion
         EllesmereUI.BuildInlineCog(tgCogRgn, {
             title = "Spell Target",
@@ -1046,13 +1046,13 @@ function ns.UFO_BuildCastBarSection(parent, y, ctx)
             impGlowRow, h = W:DualRow(parent, y, impGlowCfg, { type="label", text="Glow Color" });  y = y - h
             impGlowSide = "_leftRegion"
         end
+        -- Color swatches (in the free right half when there is one), the
+        -- Pixel Glow cog and a small preview.
+        EllesmereUI.GlowOptions.AttachInline(impGlowRow[impGlowSide], impGlowDesc,
+            impGlowSide == "_leftRegion" and impGlowRow._rightRegion or nil)
         if not EllesmereUI._prebuilding then
             local rgn = impGlowRow[impGlowSide]
-            -- Color swatches (in the free right half when there is one), the
-            -- Pixel Glow cog and a small preview.
             local GO = EllesmereUI.GlowOptions
-            GO.AttachInline(rgn, impGlowDesc,
-                impGlowSide == "_leftRegion" and impGlowRow._rightRegion or nil)
             local pv = GO.BuildPreview(rgn, impGlowDesc, { width = 40, height = 14,
                 anchor = rgn._lastInline or rgn._control, x = -12 })
             if pv then
@@ -1334,7 +1334,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     end
     -- Cog on Buffs Location: the shared settings rows, then Icon Zoom and
     -- Dispel Type Borders
-    if not EllesmereUI._prebuilding then
+    do
         local leftRgn = sharedAddRow2._leftRegion
         local buffCogRows = ns.UFO_AuraSettingsRows("buff", SValSupported, SSetSupported, 40, 4, nil,
             optState.selectedUnit ~= "player" and ns.UFO_MAX_COUNT_TOOLTIP or nil)
@@ -1360,7 +1360,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
         })
     end
     -- Directions cog on Buff Icon Size (X/Y offsets, spacing)
-    if not EllesmereUI._prebuilding then
+    do
         local rightRgn = sharedAddRow2._rightRegion
         EllesmereUI.BuildInlineCog(rightRgn, { disabled = BuffDisabled, disabledTooltip = "Buff Display",
             title = "Buff Position",
@@ -1385,7 +1385,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
           getValue=function() return SValSupported("buffStackTextSize", 14) end,
           setValue=function(v) SSetSupported("buffStackTextSize", v) end });  y = y - h
     -- Directions cog on Buff Duration Size (X/Y offsets) -- disabled with the row
-    if not EllesmereUI._prebuilding then
+    do
         local leftRgn = sharedBuffRow2._leftRegion
         EllesmereUI.BuildInlineCog(leftRgn, { disabled = buffDurOff, disabledTooltip = buffDurTip,
             title = "Duration Text",
@@ -1412,7 +1412,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     })
     end
     -- Directions cog on Buff Stack Size (X/Y offsets)
-    if not EllesmereUI._prebuilding then
+    do
         local rightRgn = sharedBuffRow2._rightRegion
         EllesmereUI.BuildInlineCog(rightRgn, { disabled = BuffDisabled, disabledTooltip = "Buff Display",
             title = "Stack Position",
@@ -1455,7 +1455,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
           setValue=function(v) SSetSupported("debuffSize", v) end });  y = y - h
     -- Cog on Debuffs Location: the shared settings rows, then Icon Zoom,
     -- Dispel Type Borders and (player) Use Dispel Colors
-    if not EllesmereUI._prebuilding then
+    do
         local leftRgn = sharedAddRow3._leftRegion
         local maxImpRow
         if optState.selectedUnit ~= "player" then
@@ -1505,7 +1505,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
         })
     end
     -- Directions cog on Debuff Icon Size (X/Y offsets, spacing)
-    if not EllesmereUI._prebuilding then
+    do
         local rightRgn = sharedAddRow3._rightRegion
         EllesmereUI.BuildInlineCog(rightRgn, { disabled = DebuffDisabled, disabledTooltip = "Debuff Display",
             title = "Debuff Position",
@@ -1530,7 +1530,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
           getValue=function() return SValSupported("debuffStackTextSize", 14) end,
           setValue=function(v) SSetSupported("debuffStackTextSize", v) end });  y = y - h
     -- Directions cog on Debuff Duration Size (X/Y offsets) -- disabled with the row
-    if not EllesmereUI._prebuilding then
+    do
         local leftRgn = sharedDebuffRow2._leftRegion
         EllesmereUI.BuildInlineCog(leftRgn, { disabled = debuffDurOff, disabledTooltip = debuffDurTip,
             title = "Duration Text",
@@ -1557,7 +1557,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
     })
     end
     -- Directions cog on Debuff Stack Size (X/Y offsets)
-    if not EllesmereUI._prebuilding then
+    do
         local rightRgn = sharedDebuffRow2._rightRegion
         EllesmereUI.BuildInlineCog(rightRgn, { disabled = DebuffDisabled, disabledTooltip = "Debuff Display",
             title = "Stack Position",
@@ -1636,7 +1636,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             end
         end
 
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = auraBorderRow._leftRegion
             local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
                 title="Border Options",
@@ -1675,7 +1675,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             local function UpdateCogVis()
                 if SVal("auraBorderTexture", "solid") == "solid" then cogBtn:Hide() else cogBtn:Show() end
             end
-            EllesmereUI.RegisterWidgetRefresh(UpdateCogVis); UpdateCogVis()
+            if not EllesmereUI._prebuilding then EllesmereUI.RegisterWidgetRefresh(UpdateCogVis); UpdateCogVis() end
         end
 
         if not EllesmereUI._prebuilding then
@@ -1757,216 +1757,218 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
         -- EUI_PlayerAuraBars_ManagerPages.lua): pinned All Buffs/Has Duration above
         -- a divider, then shared PAB_Filters entries. Checked filters SUBTRACT
         -- while All Buffs is on, ADD with it off; toggling clears selection. Other units keep the class-checkbox model.
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = filterRow._leftRegion
-            if rgn._control then rgn._control:Hide() end
-            local cbDD, cbRefresh
-            if optState.selectedUnit == "player" then
-                -- The registry list needs the curated presets present
-                -- (idempotent; PAB may be disabled).
-                if ns.PAB_ImportBM2Filters then ns.PAB_ImportBM2Filters() end
-                local ps = UNIT_DB_MAP[optState.selectedUnit]()
-                local ALL_KEY, DUR_KEY = "__allBuffs", "__hasDuration"
-                -- Hovering a dimmed Show box explains the dim (the lane is inert
-                -- while a broad mode already shows everything), same wording as
-                -- the Debuff Filter.
-                local lockedTip = EllesmereUI.L("All Buffs or Has Duration is selected, so every buff already shows. Use the red Hide box to exclude these instead.")
-                -- Any Show-lane filter, or a direct Extra Spell, counts as a
-                -- content source once neither broad mode is on.
-                local function OtherContent()
-                    if ps.buffFilters and next(ps.buffFilters) then
-                        -- WoW Forever: visible filters only (a hidden retail
-                        -- preset shows nothing on this client).
-                        if not EllesmereUI.IS_FOREVER then return true end
-                        for fid in pairs(ps.buffFilters) do
-                            if not ns.PAB_HiddenPresetFilter(fid) then return true end
+            if not EllesmereUI._prebuilding then
+                if rgn._control then rgn._control:Hide() end
+                local cbDD, cbRefresh
+                if optState.selectedUnit == "player" then
+                    -- The registry list needs the curated presets present
+                    -- (idempotent; PAB may be disabled).
+                    if ns.PAB_ImportBM2Filters then ns.PAB_ImportBM2Filters() end
+                    local ps = UNIT_DB_MAP[optState.selectedUnit]()
+                    local ALL_KEY, DUR_KEY = "__allBuffs", "__hasDuration"
+                    -- Hovering a dimmed Show box explains the dim (the lane is inert
+                    -- while a broad mode already shows everything), same wording as
+                    -- the Debuff Filter.
+                    local lockedTip = EllesmereUI.L("All Buffs or Has Duration is selected, so every buff already shows. Use the red Hide box to exclude these instead.")
+                    -- Any Show-lane filter, or a direct Extra Spell, counts as a
+                    -- content source once neither broad mode is on.
+                    local function OtherContent()
+                        if ps.buffFilters and next(ps.buffFilters) then
+                            -- WoW Forever: visible filters only (a hidden retail
+                            -- preset shows nothing on this client).
+                            if not EllesmereUI.IS_FOREVER then return true end
+                            for fid in pairs(ps.buffFilters) do
+                                if not ns.PAB_HiddenPresetFilter(fid) then return true end
+                            end
                         end
+                        if ps.buffSpells and #ps.buffSpells > 0 then return true end
+                        return false
                     end
-                    if ps.buffSpells and #ps.buffSpells > 0 then return true end
-                    return false
-                end
-                local function FilterItems()
-                    local items = {
-                        { isTopAction = true, label = "Edit Filters", onClick = function()
-                            if ns.PABMP_ShowFilterEditor then
-                                ns.PABMP_ShowFilterEditor()
-                                -- Filter edits change the resolved spell
-                                -- sets; refresh the frame when the modal
-                                -- closes (the editor is our own frame).
-                                local ed = ns._pabFilterEditor
-                                if ed and not ed._ufReloadHook then
-                                    ed._ufReloadHook = true
-                                    ed:HookScript("OnHide", function() ReloadAndUpdate() end)
+                    local function FilterItems()
+                        local items = {
+                            { isTopAction = true, label = "Edit Filters", onClick = function()
+                                if ns.PABMP_ShowFilterEditor then
+                                    ns.PABMP_ShowFilterEditor()
+                                    -- Filter edits change the resolved spell
+                                    -- sets; refresh the frame when the modal
+                                    -- closes (the editor is our own frame).
+                                    local ed = ns._pabFilterEditor
+                                    if ed and not ed._ufReloadHook then
+                                        ed._ufReloadHook = true
+                                        ed:HookScript("OnHide", function() ReloadAndUpdate() end)
+                                    end
+                                end
+                            end },
+                            -- Blacklist editing only matters while broad
+                            -- content is on (All Buffs / Has Duration).
+                            { isTopAction = true, label = "Edit Blacklist",
+                              lockedFn = function()
+                                  return ps.buffShowAll == false and ps.buffHasDuration ~= true
+                              end,
+                              lockedTooltip = function() return EllesmereUI.DisabledTooltip("All Buffs or Has Duration", "enabled") end,
+                              onClick = function()
+                                  EllesmereUI.ShowSpellBlacklistPopup({
+                                      title = "Buff Blacklist",
+                                      get = function() return ps.buffBlacklist end,
+                                      add = function(id)
+                                          ps.buffBlacklist = ps.buffBlacklist or {}
+                                          ps.buffBlacklist[id] = true
+                                      end,
+                                      remove = function(id)
+                                          if ps.buffBlacklist then
+                                              ps.buffBlacklist[id] = nil
+                                              if not next(ps.buffBlacklist) then ps.buffBlacklist = nil end
+                                          end
+                                      end,
+                                      onChanged = function() ReloadAndUpdate() end,
+                                  })
+                              end },
+                            { key = ALL_KEY, label = "All Buffs",
+                              tooltip = "Show every buff. Use the Hide lane below to remove specific filters." },
+                            { key = DUR_KEY, label = "Has Duration",
+                              tooltip = "Show every buff that has a duration (hides permanent buffs). Use the Hide lane below to remove specific filters." },
+                            { isHeader = true, label = "Show", rightLabel = "Hide" },
+                        }
+                        local BroadOn = function()
+                            return ps.buffShowAll ~= false or ps.buffHasDuration == true
+                        end
+                        local list = ns.PAB_Filters and ns.PAB_Filters() or {}
+                        -- Buff Manager parity ordering (matches the PAB pages'
+                        -- SortFiltersCanonical): presets in curated catalogue
+                        -- order (Defensives leads), then user filters in
+                        -- creation order.
+                        local rank = {}
+                        local BP = EllesmereUI.BUFF_PRESETS
+                        if BP and BP.filters then
+                            for i = 1, #BP.filters do rank[BP.filters[i].name] = i end
+                        end
+                        local sorted, pos = {}, {}
+                        for i = 1, #list do
+                            sorted[#sorted + 1] = list[i]
+                            pos[list[i]] = i
+                        end
+                        table.sort(sorted, function(a, b)
+                            return (rank[a.name] or (1000 + pos[a])) < (rank[b.name] or (1000 + pos[b]))
+                        end)
+                        for i = 1, #sorted do
+                            items[#items + 1] = { key = sorted[i].id, label = sorted[i].name,
+                                dual = true, showLockedFn = BroadOn, showLockedTooltip = lockedTip }
+                        end
+                        return items
+                    end
+                    if ns.UF_EnsurePlayerAuraLanes then ns.UF_EnsurePlayerAuraLanes(ps) end
+                    local warnClosed
+                    cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                        rgn, 210, rgn:GetFrameLevel() + 2,
+                        FilterItems,
+                        function(k, neg)
+                            if k == ALL_KEY then return ps.buffShowAll ~= false end
+                            if k == DUR_KEY then return ps.buffHasDuration == true end
+                            if neg then
+                                local nf = ps.buffNegFilters
+                                return nf and nf[k] == true
+                            end
+                            return ps.buffFilters and ps.buffFilters[k] == true
+                        end,
+                        function(k, v, neg)
+                            if k == ALL_KEY then
+                                -- Written unconditionally (Player Aura Bars parity): the
+                                -- Show lane is locked while a broad mode is on, so a
+                                -- no-empty guard here would make the toggle impossible to
+                                -- turn off. AttachEmptyFilterWarn below owns the feedback
+                                -- for the resulting empty selection instead.
+                                ps.buffShowAll = v
+                                -- Mutually exclusive with Has Duration (both are broad-content
+                                -- modes). Lanes persist across mode flips (the hide lane
+                                -- subtracts in both modes).
+                                ps.buffHasDuration = nil
+                                ReloadAndUpdate()
+                                EllesmereUI:RefreshPage()
+                                return
+                            end
+                            if k == DUR_KEY then
+                                ps.buffHasDuration = v or nil
+                                -- Mutually exclusive with All Buffs (its own broad-content
+                                -- mode); lanes persist.
+                                if v then ps.buffShowAll = false end
+                                ReloadAndUpdate()
+                                EllesmereUI:RefreshPage()
+                                return
+                            end
+                            -- Two-lane filter write: checking one lane clears the other;
+                            -- emptied lane tables drop to nil (saved-variable hygiene).
+                            if neg then
+                                ps.buffNegFilters = ps.buffNegFilters or {}
+                                ps.buffNegFilters[k] = v or nil
+                                if not next(ps.buffNegFilters) then ps.buffNegFilters = nil end
+                                if v and ps.buffFilters then ps.buffFilters[k] = nil end
+                            else
+                                ps.buffFilters = ps.buffFilters or {}
+                                ps.buffFilters[k] = v or nil
+                                if v and ps.buffNegFilters then
+                                    ps.buffNegFilters[k] = nil
+                                    if not next(ps.buffNegFilters) then ps.buffNegFilters = nil end
                                 end
                             end
-                        end },
-                        -- Blacklist editing only matters while broad
-                        -- content is on (All Buffs / Has Duration).
-                        { isTopAction = true, label = "Edit Blacklist",
-                          lockedFn = function()
-                              return ps.buffShowAll == false and ps.buffHasDuration ~= true
-                          end,
-                          lockedTooltip = function() return EllesmereUI.DisabledTooltip("All Buffs or Has Duration", "enabled") end,
-                          onClick = function()
-                              EllesmereUI.ShowSpellBlacklistPopup({
-                                  title = "Buff Blacklist",
-                                  get = function() return ps.buffBlacklist end,
-                                  add = function(id)
-                                      ps.buffBlacklist = ps.buffBlacklist or {}
-                                      ps.buffBlacklist[id] = true
-                                  end,
-                                  remove = function(id)
-                                      if ps.buffBlacklist then
-                                          ps.buffBlacklist[id] = nil
-                                          if not next(ps.buffBlacklist) then ps.buffBlacklist = nil end
-                                      end
-                                  end,
-                                  onChanged = function() ReloadAndUpdate() end,
-                              })
-                          end },
-                        { key = ALL_KEY, label = "All Buffs",
-                          tooltip = "Show every buff. Use the Hide lane below to remove specific filters." },
-                        { key = DUR_KEY, label = "Has Duration",
-                          tooltip = "Show every buff that has a duration (hides permanent buffs). Use the Hide lane below to remove specific filters." },
-                        { isHeader = true, label = "Show", rightLabel = "Hide" },
-                    }
-                    local BroadOn = function()
-                        return ps.buffShowAll ~= false or ps.buffHasDuration == true
-                    end
-                    local list = ns.PAB_Filters and ns.PAB_Filters() or {}
-                    -- Buff Manager parity ordering (matches the PAB pages'
-                    -- SortFiltersCanonical): presets in curated catalogue
-                    -- order (Defensives leads), then user filters in
-                    -- creation order.
-                    local rank = {}
-                    local BP = EllesmereUI.BUFF_PRESETS
-                    if BP and BP.filters then
-                        for i = 1, #BP.filters do rank[BP.filters[i].name] = i end
-                    end
-                    local sorted, pos = {}, {}
-                    for i = 1, #list do
-                        sorted[#sorted + 1] = list[i]
-                        pos[list[i]] = i
-                    end
-                    table.sort(sorted, function(a, b)
-                        return (rank[a.name] or (1000 + pos[a])) < (rank[b.name] or (1000 + pos[b]))
-                    end)
-                    for i = 1, #sorted do
-                        items[#items + 1] = { key = sorted[i].id, label = sorted[i].name,
-                            dual = true, showLockedFn = BroadOn, showLockedTooltip = lockedTip }
-                    end
-                    return items
-                end
-                if ns.UF_EnsurePlayerAuraLanes then ns.UF_EnsurePlayerAuraLanes(ps) end
-                local warnClosed
-                cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                    rgn, 210, rgn:GetFrameLevel() + 2,
-                    FilterItems,
-                    function(k, neg)
-                        if k == ALL_KEY then return ps.buffShowAll ~= false end
-                        if k == DUR_KEY then return ps.buffHasDuration == true end
-                        if neg then
-                            local nf = ps.buffNegFilters
-                            return nf and nf[k] == true
-                        end
-                        return ps.buffFilters and ps.buffFilters[k] == true
-                    end,
-                    function(k, v, neg)
-                        if k == ALL_KEY then
-                            -- Written unconditionally (Player Aura Bars parity): the
-                            -- Show lane is locked while a broad mode is on, so a
-                            -- no-empty guard here would make the toggle impossible to
-                            -- turn off. AttachEmptyFilterWarn below owns the feedback
-                            -- for the resulting empty selection instead.
-                            ps.buffShowAll = v
-                            -- Mutually exclusive with Has Duration (both are broad-content
-                            -- modes). Lanes persist across mode flips (the hide lane
-                            -- subtracts in both modes).
-                            ps.buffHasDuration = nil
+                            if ps.buffFilters and not next(ps.buffFilters) then ps.buffFilters = nil end
                             ReloadAndUpdate()
+                            -- Non-force: runs only the registered lightweight refresh
+                            -- callbacks (the empty-selection warning below) in place,
+                            -- without closing this open dropdown.
                             EllesmereUI:RefreshPage()
-                            return
-                        end
-                        if k == DUR_KEY then
-                            ps.buffHasDuration = v or nil
-                            -- Mutually exclusive with All Buffs (its own broad-content
-                            -- mode); lanes persist.
-                            if v then ps.buffShowAll = false end
-                            ReloadAndUpdate()
-                            EllesmereUI:RefreshPage()
-                            return
-                        end
-                        -- Two-lane filter write: checking one lane clears the other;
-                        -- emptied lane tables drop to nil (saved-variable hygiene).
-                        if neg then
-                            ps.buffNegFilters = ps.buffNegFilters or {}
-                            ps.buffNegFilters[k] = v or nil
-                            if not next(ps.buffNegFilters) then ps.buffNegFilters = nil end
-                            if v and ps.buffFilters then ps.buffFilters[k] = nil end
-                        else
-                            ps.buffFilters = ps.buffFilters or {}
-                            ps.buffFilters[k] = v or nil
-                            if v and ps.buffNegFilters then
-                                ps.buffNegFilters[k] = nil
-                                if not next(ps.buffNegFilters) then ps.buffNegFilters = nil end
+                        end,
+                        nil, 12, nil, nil, function() if warnClosed then warnClosed() end end)
+                    -- Empty-selection warning (Player Aura Bars parity): replaces the
+                    -- old silent block. A Buff Display of None already dims the whole
+                    -- control, so it is not warned about a second time.
+                    warnClosed = EllesmereUI.AttachEmptyFilterWarn(rgn, cbDD,
+                        EllesmereUI.L("You are displaying NO buffs at all."),
+                        function() return BuffDisabled() or ps.buffShowAll ~= false or ps.buffHasDuration == true or OtherContent() end)
+                else
+                    cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                        rgn, 210, rgn:GetFrameLevel() + 2, buffFilterItems,
+                        function(k, neg)
+                            if k == "__hasDuration" then return SDB().buffDurOnly == true end
+                            if neg then
+                                local m = SDB().buffNegClasses
+                                local sk = BUFF_NEG_SKEYS[k]
+                                return m ~= nil and sk ~= nil and m[sk] == true
                             end
-                        end
-                        if ps.buffFilters and not next(ps.buffFilters) then ps.buffFilters = nil end
-                        ReloadAndUpdate()
-                        -- Non-force: runs only the registered lightweight refresh
-                        -- callbacks (the empty-selection warning below) in place,
-                        -- without closing this open dropdown.
-                        EllesmereUI:RefreshPage()
-                    end,
-                    nil, 12, nil, nil, function() if warnClosed then warnClosed() end end)
-                -- Empty-selection warning (Player Aura Bars parity): replaces the
-                -- old silent block. A Buff Display of None already dims the whole
-                -- control, so it is not warned about a second time.
-                warnClosed = EllesmereUI.AttachEmptyFilterWarn(rgn, cbDD,
-                    EllesmereUI.L("You are displaying NO buffs at all."),
-                    function() return BuffDisabled() or ps.buffShowAll ~= false or ps.buffHasDuration == true or OtherContent() end)
-            else
-                cbDD, cbRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                    rgn, 210, rgn:GetFrameLevel() + 2, buffFilterItems,
-                    function(k, neg)
-                        if k == "__hasDuration" then return SDB().buffDurOnly == true end
-                        if neg then
-                            local m = SDB().buffNegClasses
+                            return SValSupported(BUFF_FILTER_KEYS[k], false)
+                        end,
+                        function(k, v, neg)
+                            local db = SDB()
+                            if k == "__hasDuration" then
+                                -- Not buffHasDuration: that is the player's broad
+                                -- mode, which copies can have left on this unit.
+                                db.buffDurOnly = v or nil
+                                ReloadAndUpdate(); UpdatePreview()
+                                return
+                            end
                             local sk = BUFF_NEG_SKEYS[k]
-                            return m ~= nil and sk ~= nil and m[sk] == true
-                        end
-                        return SValSupported(BUFF_FILTER_KEYS[k], false)
-                    end,
-                    function(k, v, neg)
-                        local db = SDB()
-                        if k == "__hasDuration" then
-                            -- Not buffHasDuration: that is the player's broad
-                            -- mode, which copies can have left on this unit.
-                            db.buffDurOnly = v or nil
-                            ReloadAndUpdate(); UpdatePreview()
-                            return
-                        end
-                        local sk = BUFF_NEG_SKEYS[k]
-                        if neg then
-                            if not sk then return end
-                            db.buffNegClasses = db.buffNegClasses or {}
-                            db.buffNegClasses[sk] = v and true or nil
-                            if not next(db.buffNegClasses) then db.buffNegClasses = nil end
-                            if v then db[BUFF_FILTER_KEYS[k]] = nil end
-                            ReloadAndUpdate(); UpdatePreview()
-                            return
-                        end
-                        if v and sk and db.buffNegClasses then
-                            db.buffNegClasses[sk] = nil
-                            if not next(db.buffNegClasses) then db.buffNegClasses = nil end
-                        end
-                        SSetSupported(BUFF_FILTER_KEYS[k], v)
-                    end)
+                            if neg then
+                                if not sk then return end
+                                db.buffNegClasses = db.buffNegClasses or {}
+                                db.buffNegClasses[sk] = v and true or nil
+                                if not next(db.buffNegClasses) then db.buffNegClasses = nil end
+                                if v then db[BUFF_FILTER_KEYS[k]] = nil end
+                                ReloadAndUpdate(); UpdatePreview()
+                                return
+                            end
+                            if v and sk and db.buffNegClasses then
+                                db.buffNegClasses[sk] = nil
+                                if not next(db.buffNegClasses) then db.buffNegClasses = nil end
+                            end
+                            SSetSupported(BUFF_FILTER_KEYS[k], v)
+                        end)
+                end
+                PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._control = cbDD; rgn._lastInline = nil
+                RegisterWidgetRefresh(cbRefresh)
+                ApplyFilterDisabled(cbDD, rgn._label, BuffDisabled)
             end
-            PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
-            rgn._control = cbDD; rgn._lastInline = nil
-            RegisterWidgetRefresh(cbRefresh)
-            ApplyFilterDisabled(cbDD, rgn._label, BuffDisabled)
 
             -- Purgeable Buff Glow (target/focus): inline cog beside the Buff
             -- Filter. The glow styles whichever purgeable buffs the filter
@@ -2174,8 +2176,10 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
         end
         -- Target/focus: Only Tracked Auras with an empty list renders
         -- nothing, so the mode dropdown carries the standard empty warning.
-        if optState.selectedUnit ~= "player" and not EllesmereUI._prebuilding then
-            AttachDebuffModeWarn(filterRow._rightRegion, SDB, DebuffDisabled)
+        if optState.selectedUnit ~= "player" then
+            if not EllesmereUI._prebuilding then
+                AttachDebuffModeWarn(filterRow._rightRegion, SDB, DebuffDisabled)
+            end
             -- Has Duration: an AND-modifier on the picked mode (engine:
             -- ChainFor), in the row's cog since the mode dropdown is
             -- single-select.
@@ -2312,7 +2316,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
             end)
         end
         -- Inline cog on Dispel Overlay: Overlay Opacity
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = dispelRow._leftRegion
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Dispel Overlay",
@@ -2366,7 +2370,7 @@ function ns.UFO_BuildBuffsDebuffsSection(parent, y, ctx)
               tooltip="Shows the overlay, type icon and border colors only for debuffs you can currently dispel.",
               getValue=function() return db.profile.dispelOverlayByMe == true end,
               setValue=function(v) db.profile.dispelOverlayByMe = v and true or false; DispelRefresh() end });  y = y - h
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(iconRow._leftRegion, {
                 disabled = function() return db.profile.showDispelIcons ~= true end,
                 disabledTooltip = "This option requires a Type Icon Position other than None",

@@ -876,12 +876,23 @@ do
     eq(rec.Calls("_ERB_Apply"), 0, "neither runs the Resource Bars apply")
     eq(rec.Calls("NotifyElementResized:ERB_MirrorBars"), 0, "neither reports a resize")
 
-    -- the search pre-build: the rows, and no cog, swatch or jump
+    -- the search pre-build: the rows and their cogs (BuildInlineCog indexes a
+    -- cog's rows for search, then returns), and no swatch
+    local function Kinds(page)
+        local n = { cog = 0, swatches = 0 }
+        for _, r2 in ipairs(page.sections[1].rows) do
+            for _, rg in ipairs({ r2._leftRegion, r2._rightRegion }) do
+                for _, b in ipairs(rg.built) do n[b.kind] = (n[b.kind] or 0) + 1 end
+            end
+        end
+        return n
+    end
+    local live = Kinds(Page({}))
     rec = Page({ prebuild = true })
     eq(#rec.sections[1].rows, 3, "the search pre-build builds the rows")
-    for _, r2 in ipairs(rec.sections[1].rows) do
-        eq(#r2._leftRegion.built + #r2._rightRegion.built, 0, "the search pre-build builds no cog or swatch")
-    end
+    local pre = Kinds(rec)
+    eq(pre.cog, live.cog, "the search pre-build reaches every cog the live build does")
+    eq(pre.swatches, 0, "the search pre-build builds no swatch")
 end
 
 -------------------------------------------------------------------------------

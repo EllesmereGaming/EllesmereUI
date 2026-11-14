@@ -104,7 +104,6 @@ initFrame:SetScript("OnEvent", function(self)
     -- chain left of it. opts: apply = run after a pick (the Loot Window card's live refresh);
     -- quality = { key, tip } adds a Quality swatch whose own color is saved at key.
     local function AttachBorderControls(row, prefix, disabledFn, allowBehind, opts)
-        if EllesmereUI._prebuilding then return end
         local PP = EllesmereUI.PanelPP
         local apply = opts and opts.apply
         local left, right = row._leftRegion, row._rightRegion
@@ -123,6 +122,7 @@ initFrame:SetScript("OnEvent", function(self)
                 disabledTooltip = prefix == "tooltip" and "Reskin Tooltip" or "Reskin Popups and Menus",
             })
         end
+        if EllesmereUI._prebuilding then return end
 
         -- A pickable swatch (Custom, Quality) opens its color picker on a click while its mode
         -- is the active one; colorKey is where it saves (default the Custom color).
@@ -454,7 +454,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- modifier is held, suppression is lifted so a hidden tooltip can be
         -- read on hover (e.g. peeking a spell in combat). Disabled (blocked +
         -- dimmed) when the reskin is off or the mode is "Always" (nothing hides).
-        if not EllesmereUI._prebuilding then
+        do
             local rightRgn = ttShowRow._rightRegion
             local function showModOff()
                 if ttReskinOff() then return true end
@@ -522,7 +522,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
 
         -- Position control on Anchor to Cursor (left region): position + X/Y offset
-        if not EllesmereUI._prebuilding then
+        do
             local leftRgn = ttAnchorRow._leftRegion
             local function ttCursorOff()
                 return not (EllesmereUIDB and EllesmereUIDB.tooltipAnchorCursor)
@@ -691,7 +691,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- "Use Modifier" cog on Spell ID on Tooltip (right region): the spell/item
         -- ID lines only show while the chosen modifier is held. Disabled (blocked +
         -- dimmed) when Spell ID on Tooltip is off, mirroring the cursor-position cog.
-        if not EllesmereUI._prebuilding then
+        do
             local rightRgn = ttExtrasRow._rightRegion
             local function sidOff()
                 return not EllesmereUI.SpellIDOn()
@@ -760,7 +760,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- "Use Modifier" cog on Show Max Stack for Items (left region): the Max
         -- Stack line only shows while the chosen modifier is held. Disabled
         -- (blocked + dimmed) when the toggle is off, mirroring the Spell ID cog.
-        if not EllesmereUI._prebuilding then
+        do
             local leftRgn = ttStackRow._leftRegion
             local function iStacksOff()
                 return not (EllesmereUIDB and EllesmereUIDB.showItemMaxStacks)
@@ -784,7 +784,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Tooltip Buffs cog on Show Player Buffs (right region)
-        if not EllesmereUI._prebuilding then
+        do
             local function ttBuffsOff()
                 return ttReskinOff() or not (EllesmereUIDB and EllesmereUIDB.tooltipShowBuffs)
             end
@@ -855,7 +855,7 @@ initFrame:SetScript("OnEvent", function(self)
               end }
         );  y = y - h
 
-        if not EllesmereUI._prebuilding then
+        do
             local leftRgn = ttStripRow._leftRegion
             -- Health strip texture dropdown: the shared bar catalogue behind a
             -- "Blizzard" entry (the unset default). The triple lives on ns so the
@@ -913,7 +913,8 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-
+        end
+        if not EllesmereUI._prebuilding then
             EllesmereUI.BuildInlineSwatches(ttStripRow._rightRegion, {
                 { tooltip = "Background Color",
                   getValue = function()
@@ -1065,7 +1066,7 @@ initFrame:SetScript("OnEvent", function(self)
         -- Minimum widget bar size (plate-hosted covers), a cog on "Reskin Widget
         -- Bars": the floor below which a shrunken nameplate's bar scales itself
         -- up. 0 = off (default, mirror Blizzard's rect exactly).
-        if widgetRgn and not EllesmereUI._prebuilding then
+        if widgetRgn then
             local lrgn  = widgetRgn
             local function CogOff()
                 -- Same default-on test the toggle itself uses: nil means on.
@@ -1125,7 +1126,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         -- Style cog + countdown text color swatch (left of it) on the Show Queue Timer toggle.
-        if timerRgn and not EllesmereUI._prebuilding then
+        if timerRgn then
             local PP = EllesmereUI.PanelPP
             local QT = EllesmereUI.QUEUE_TIMER
             local function timerOff()
@@ -1158,29 +1159,31 @@ initFrame:SetScript("OnEvent", function(self)
                 },
             })
 
-            local qtSwatch, qtSwatchRefresh = EllesmereUI.BuildColorSwatch(timerRgn,
-                timerRgn:GetFrameLevel() + 5,
-                function()
-                    local c = EllesmereUIDB and EllesmereUIDB.queueTimerTextColor
-                    return (c and c.r) or QT.TEXT_R, (c and c.g) or QT.TEXT_G, (c and c.b) or QT.TEXT_B
-                end,
-                function(r, g, b) Set("queueTimerTextColor", { r = r, g = g, b = b }) end,
-                false, 20)
-            PP.Point(qtSwatch, "RIGHT", timerRgn._lastInline or timerRgn._control, "LEFT", -8, 0)
-            timerRgn._lastInline = qtSwatch
-            qtSwatch:HookScript("OnEnter", function(self)
-                EllesmereUI.ShowWidgetTooltip(self, "Countdown Text Color")
-            end)
-            qtSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            if not EllesmereUI._prebuilding then
+                local qtSwatch, qtSwatchRefresh = EllesmereUI.BuildColorSwatch(timerRgn,
+                    timerRgn:GetFrameLevel() + 5,
+                    function()
+                        local c = EllesmereUIDB and EllesmereUIDB.queueTimerTextColor
+                        return (c and c.r) or QT.TEXT_R, (c and c.g) or QT.TEXT_G, (c and c.b) or QT.TEXT_B
+                    end,
+                    function(r, g, b) Set("queueTimerTextColor", { r = r, g = g, b = b }) end,
+                    false, 20)
+                PP.Point(qtSwatch, "RIGHT", timerRgn._lastInline or timerRgn._control, "LEFT", -8, 0)
+                timerRgn._lastInline = qtSwatch
+                qtSwatch:HookScript("OnEnter", function(self)
+                    EllesmereUI.ShowWidgetTooltip(self, "Countdown Text Color")
+                end)
+                qtSwatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
-            -- Called at build time too: the refresh list only runs on page show.
-            local function UpdQueueTimerState()
-                local off = timerOff()
-                qtSwatch:SetAlpha(off and 0.15 or 1); qtSwatch:EnableMouse(not off)
-                qtSwatchRefresh()
+                -- Called at build time too: the refresh list only runs on page show.
+                local function UpdQueueTimerState()
+                    local off = timerOff()
+                    qtSwatch:SetAlpha(off and 0.15 or 1); qtSwatch:EnableMouse(not off)
+                    qtSwatchRefresh()
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdQueueTimerState)
+                UpdQueueTimerState()
             end
-            EllesmereUI.RegisterWidgetRefresh(UpdQueueTimerState)
-            UpdQueueTimerState()
         end
 
         -----------------------------------------------------------------------
@@ -1343,7 +1346,7 @@ initFrame:SetScript("OnEvent", function(self)
             ); y = y - h
             -- Corner Radius (EllesmereUI_RoundedCorners.lua): the cog beside Border Size, the
             -- color swatches left of it. Only a picked Solid, Glow or Shadow style rounds.
-            if not EllesmereUI._prebuilding then
+            do
                 EllesmereUI.BuildInlineCog(borderRow._rightRegion, {
                     title = "Corner Radius", tip = "Corner Radius",
                     disabled = function()
@@ -1370,7 +1373,7 @@ initFrame:SetScript("OnEvent", function(self)
                   setValue=function(v) Set("timerBarsShowText", v and true or false); EllesmereUI:RefreshPage() end },
                 EllesmereUI.BlankRowCfg()
             ); y = y - h
-            if not EllesmereUI._prebuilding then
+            do
                 EllesmereUI.BuildInlineCog(nameRow._leftRegion, {
                     title = "Name Text",
                     disabled = textOff, disabledTooltip = "Show Name",
@@ -1386,6 +1389,8 @@ initFrame:SetScript("OnEvent", function(self)
                           set=function(v) Set("timerBarsTextY", v) end },
                     },
                 })
+            end
+            if not EllesmereUI._prebuilding then
                 EllesmereUI.BuildInlineSwatches(nameRow._leftRegion, {
                     { tooltip = "Text Color",
                       getValue = function() return GetColor("timerBarsTextColor", { r = 1, g = 1, b = 1 }) end,
@@ -1435,6 +1440,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         local function AttachDisabledOverlay(target)
+            if EllesmereUI._prebuilding then return end
             local block = CreateFrame("Frame", nil, target)
             block:SetAllPoints(target)
             block:SetFrameLevel(target:GetFrameLevel() + 10)
@@ -1562,7 +1568,7 @@ initFrame:SetScript("OnEvent", function(self)
 
             -- Inline cog on Socket Panel: stat letters on the gem icons (off
             -- unless turned on).
-            if not EllesmereUI._prebuilding then
+            do
                 EllesmereUI.BuildInlineCog(socketRow._leftRegion, {
                     disabled = function() return EllesmereUIDB and EllesmereUIDB.charSheetSocketPanel == false end,
                     disabledTooltip = "Socket Panel",
@@ -1648,7 +1654,7 @@ initFrame:SetScript("OnEvent", function(self)
         );  y = y - h
         AttachDisabledOverlay(enchGemRow)
 
-        if not EllesmereUI._prebuilding then
+        do
             local cogBtn = EllesmereUI.BuildInlineCog(enchGemRow._leftRegion, {
                 title = "Enchant Text",
                 rows = {
@@ -1661,11 +1667,13 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local function UpdateCogVis()
-                cogBtn:SetShown(EnchantTextShown("showEnchants", "charSheetEnchantNames"))
+            if not EllesmereUI._prebuilding then
+                local function UpdateCogVis()
+                    cogBtn:SetShown(EnchantTextShown("showEnchants", "charSheetEnchantNames"))
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+                UpdateCogVis()
             end
-            EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-            UpdateCogVis()
         end
 
         -- Durability | Season Panel. The panel greys out with the sheet off;
@@ -1706,7 +1714,7 @@ initFrame:SetScript("OnEvent", function(self)
             seasonCfg or EllesmereUI.BlankRowCfg()
         );  y = y - h
 
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(durSeasonRow._leftRegion, {
                 disabled = function() return not (EllesmereUIDB and EllesmereUIDB.showCharSheetDurability) end,
                 disabledTooltip = "Show Item Durability",
@@ -1853,8 +1861,8 @@ initFrame:SetScript("OnEvent", function(self)
                   EllesmereUIDB.showAdjustedStats = v
               end }
         );  y = y - h
+        local leftRgn = sectionsRow._leftRegion
         if not EllesmereUI._prebuilding then
-            local leftRgn = sectionsRow._leftRegion
             -- Each section's colour swatch sits on its row of the dropdown; dimmed while
             -- Blizzard UI Color applies or the section is unchecked.
             local items = {}
@@ -1903,8 +1911,10 @@ initFrame:SetScript("OnEvent", function(self)
             leftRgn._control = cbDD
             leftRgn._lastInline = nil
             EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-
-            -- Cog: the per-section extras the old per-section rows held
+        end
+        do
+            -- Cog: the per-section extras the old per-section rows held (outside the
+            -- prebuild guard so the index pass sees its rows)
             local rows = {
                 { type="toggle", label="Show Mana",
                   tooltip="Adds Mana to the Attributes section.",
@@ -2032,7 +2042,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Text Size (unset follows the character sheet's), shown only while
         -- the enchants show as text.
-        if not EllesmereUI._prebuilding then
+        do
             local cogBtn = EllesmereUI.BuildInlineCog(themedInspectSheetRow._rightRegion, {
                 title = "Enchant Text",
                 disabled = function() return EllesmereUIDB and EllesmereUIDB.themedInspectSheet == false end,
@@ -2049,11 +2059,13 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-            local function UpdateCogVis()
-                cogBtn:SetShown(EnchantTextShown("inspectShowEnchants", "inspectEnchantNames"))
+            if not EllesmereUI._prebuilding then
+                local function UpdateCogVis()
+                    cogBtn:SetShown(EnchantTextShown("inspectShowEnchants", "inspectEnchantNames"))
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+                UpdateCogVis()
             end
-            EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-            UpdateCogVis()
         end
 
         local itemLevelInspectRow
@@ -2239,7 +2251,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Guildmates in a cog on Auto-Accept Friend Invites: it only extends
         -- that feature, so the cog blocks while the toggle is off.
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(row._leftRegion, {
                 title = "Auto Accept Settings",
                 rows = {
@@ -2264,6 +2276,7 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         local function AttachDisabledOverlay(target)
+            if EllesmereUI._prebuilding then return end
             local block = CreateFrame("Frame", nil, target)
             block:SetAllPoints(target)
             block:SetFrameLevel(target:GetFrameLevel() + 10)
@@ -2355,7 +2368,6 @@ initFrame:SetScript("OnEvent", function(self)
             return EllesmereUIDB and EllesmereUIDB.merchantShowAsList == true
         end
         local function BuildExpandCog(rgn)
-            if EllesmereUI._prebuilding then return end
             local function setSize(key, v)
                 if not EllesmereUIDB then EllesmereUIDB = {} end
                 EllesmereUIDB[key] = v
@@ -2618,7 +2630,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue=function() return "__placeholder" end, setValue=function() end }
         ); y = y - h
 
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(row._leftRegion, {
                 title = "Alt List",
                 disabled = Off,
@@ -2637,6 +2649,8 @@ initFrame:SetScript("OnEvent", function(self)
                       set=function(v) Set("mailAltListMinLevel", v) end },
                 },
             })
+        end
+        if not EllesmereUI._prebuilding then
             -- Shown Characters: the checkbox dropdown in place of the row's
             -- placeholder; a long roster gets the search box.
             local rgn = row._rightRegion
@@ -3457,6 +3471,18 @@ initFrame:SetScript("OnEvent", function(self)
                 searchName, nil, nil, true)
         end
 
+        -- The index pass needs only the entry above and the card's rows, which
+        -- build as their own job (one card per job, not the whole page at once).
+        if EllesmereUI._prebuilding then
+            if hasSettings and EllesmereUI._QueueIndexBuild then
+                win._searchIndexed = true
+                EllesmereUI._searchContext = win.title
+                EllesmereUI._QueueIndexBuild(win.buildContent, y - WS_HEADER_H - 8)
+                EllesmereUI._searchContext = nil
+            end
+            return y - WS_HEADER_H - WS_CARD_GAP
+        end
+
         -- Hover wash (transparent when idle; the card bg below provides the fill)
         -- The header hover fill sits on the card (built below), inside its corners.
         local hbg
@@ -3578,8 +3604,19 @@ initFrame:SetScript("OnEvent", function(self)
             PP.DisablePixelSnap(div)
 
             y = y - 8
+            EllesmereUI._searchContext = win.title
             y = win.buildContent(parent, y)
+            EllesmereUI._searchContext = nil
             y = y - 8
+        elseif hasSettings then
+            -- A closed card's settings stay searchable: queued once a session
+            -- from a live build (the pass skips a page already built).
+            if EllesmereUI._QueueIndexBuild and not win._searchIndexed then
+                win._searchIndexed = true
+                EllesmereUI._searchContext = win.title
+                EllesmereUI._QueueIndexBuild(win.buildContent, y)
+                EllesmereUI._searchContext = nil
+            end
         end
 
         -- Card background + border spanning the header and any expanded content. Child
@@ -4211,7 +4248,7 @@ initFrame:SetScript("OnEvent", function(self)
               setValue=function(v) CBSetStyle("borderSize", v) end,
               disabled = Off, disabledTooltip = GATE_REQ });  y = y - h
 
-        if not EllesmereUI._prebuilding then
+        do
             -- Built BEFORE the swatch on purpose: the cog sits beside the control, and
             -- BuildInlineSwatches chains _lastInline, so the swatch lands to its left.
             EllesmereUI.BuildInlineCog(fontBorderRow._leftRegion, {
@@ -4236,7 +4273,8 @@ initFrame:SetScript("OnEvent", function(self)
                       end },
                 },
             })
-
+        end
+        if not EllesmereUI._prebuilding then
             -- BuildInlineSwatches, not a hand-rolled BuildColorSwatch: it is the house form for
             -- a swatch riding on a control half. It anchors through PP.Point, registers the
             -- swatch's refresh so a profile switch repaints it, and builds the greyed-out block
@@ -4273,35 +4311,37 @@ initFrame:SetScript("OnEvent", function(self)
               disabled = Off, disabledTooltip = GATE_REQ });  y = y - h
 
         -- Same build as the Channels dropdown above.
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = nameRow._leftRegion
-            if rgn._control then rgn._control:Hide() end
-            local nameItems = {
-                { key="say",   label="Say" },
-                { key="yell",  label="Yell" },
-                { key="party", label="Party" },
-                { key="raid",  label="Raid" },
-                { key="npc",   label="NPCs" },
-                { key="emote", label="Emotes" },
-            }
-            local nmDD, nmDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rgn, 240, rgn:GetFrameLevel() + 2,
-                nameItems,
-                function(k)
-                    local t = CBVal("showName")
-                    return type(t) == "table" and t[k] == true
-                end,
-                function(k, v)
-                    local db = BBDB(); if not db then return end
-                    if type(db.showName) ~= "table" then db.showName = {} end
-                    db.showName[k] = v or nil
-                    CBM.RefreshStyle()
-                end,
-                nil, nil, nil, nil, nil, { disabled = Off, disabledTooltip = GATE_REQ })
-            EllesmereUI.PanelPP.Point(nmDD, "RIGHT", rgn, "RIGHT", -20, 0)
-            rgn._control = nmDD
-            rgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(nmDDRefresh)
+            if not EllesmereUI._prebuilding then
+                if rgn._control then rgn._control:Hide() end
+                local nameItems = {
+                    { key="say",   label="Say" },
+                    { key="yell",  label="Yell" },
+                    { key="party", label="Party" },
+                    { key="raid",  label="Raid" },
+                    { key="npc",   label="NPCs" },
+                    { key="emote", label="Emotes" },
+                }
+                local nmDD, nmDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    rgn, 240, rgn:GetFrameLevel() + 2,
+                    nameItems,
+                    function(k)
+                        local t = CBVal("showName")
+                        return type(t) == "table" and t[k] == true
+                    end,
+                    function(k, v)
+                        local db = BBDB(); if not db then return end
+                        if type(db.showName) ~= "table" then db.showName = {} end
+                        db.showName[k] = v or nil
+                        CBM.RefreshStyle()
+                    end,
+                    nil, nil, nil, nil, nil, { disabled = Off, disabledTooltip = GATE_REQ })
+                EllesmereUI.PanelPP.Point(nmDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._control = nmDD
+                rgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(nmDDRefresh)
+            end
 
             EllesmereUI.BuildInlineCog(rgn, {
                 disabled = Off,
@@ -4463,7 +4503,7 @@ initFrame:SetScript("OnEvent", function(self)
         ); y = y - h
         -- Icon size: automatic (as tall as the bars) while Auto Size is on;
         -- turning it off hands the slider the current automatic size.
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(wsRow._leftRegion, {
                 title = "Whirling Surge Icon",
                 disabled = EDR_WSOff, disabledTooltip = "Show Whirling Surge",
@@ -4506,7 +4546,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return EDR_Cfg("stackSpacing") end,
               setValue = function(v) EDR_Set("stackSpacing", v); EDR_Rebuild() end }
         ); y = y - h
-        if not EllesmereUI._prebuilding then
+        do
             local vigorRows = {
                 { type = "toggle", label = "Play Sound on Full Charge",
                   tooltip = "Plays Blizzard's vigor chime each time a skyriding charge fills.",
@@ -4681,7 +4721,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return (EDR_Cfg("speedText") or {}).justify or "CENTER" end,
               setValue = function(v) EDR_SetField("speedText", "justify", v); EDR_Redraw() end }
         )
-        if not EllesmereUI._prebuilding then
+        do
         EllesmereUI.BuildInlineCog(speedTextRow._rightRegion, {
             title = "Speed Text Position",
             rows = {

@@ -110,7 +110,7 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
     );  y = y - h
 
     -- Inline cog (text, size, colors, mode) on the Combat Alert toggle.
-    if not EllesmereUI._prebuilding then
+    do
         local leftRgn = row1._leftRegion
         local function caOff()
             return not (EllesmereUIDB and EllesmereUIDB.combatAlertEnabled)
@@ -214,7 +214,7 @@ _G._EUI_BuildAlertsSection = function(parent, yOffset, W, PP)
     end
 
 
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(row1._rightRegion, {
             title = "Potion Ready Alert Settings",
             minWidth = 300,

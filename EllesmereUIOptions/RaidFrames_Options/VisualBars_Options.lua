@@ -260,7 +260,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
           getValue=function() return SVal("healthBarOpacity", 100) end,
           setValue=function(v) SSet("healthBarOpacity", v) end });
     -- Vertical Fill cog lives in the Health Bar party-sync section, so an unsynced party tab keeps its own value.
-    if not EllesmereUI._prebuilding then
+    do
         local lrgn = texRow._leftRegion
         EllesmereUI.BuildInlineCog(lrgn, {
             title = "Health Bar Fill",
@@ -302,7 +302,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
             EllesmereUI.SpecOverrides_DarkCondEditActive)
     end
     -- Custom fill swatch plus the three Custom Dynamic stop swatches (100/50/0%) share one inline slot; the Fill Color mode decides which set is interactive.
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = row._leftRegion
 
         -- Gradient thresholds cog: built first so every swatch lands left of it; live only in Custom Dynamic.
@@ -323,89 +323,91 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
             },
         })
 
-        local swatch = EllesmereUI.BuildColorSwatch(
-            rgn, row:GetFrameLevel() + 3,
-            function()
-                local c = SGet("customFillColor")
-                if c then return c.r, c.g, c.b, 1 end
-                return 37/255, 193/255, 29/255, 1
-            end,
-            function(r, g, b)
-                SWrite("customFillColor", { r=r, g=g, b=b })
-                ReloadAndUpdate()
-            end, false, 20)
-        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-        -- Blocking overlay: non-clickable + tooltip unless Fill Color is Custom.
-        local block = CreateFrame("Frame", nil, swatch)
-        block:SetAllPoints()
-        block:SetFrameLevel(swatch:GetFrameLevel() + 10)
-        block:EnableMouse(true)
-        block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, "Only available with Custom fill color") end)
-        block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-
-        -- Three gradient-stop swatches, built right-to-left so the visual order reads 100% | 50% | 0%; tooltips carry the pct.
-        -- The thresholds belong to Custom Dynamic alone: Class Reactive shows the 0% swatch
-        -- too, and its curve ends at 0% whatever they say.
-        local function Thresholded() return SVal("healthColorMode", "class") == "customDynamic" end
-        local dynDefs = {
-            { key = "dynamicColor100", def = { r = 0, g = 1, b = 0 }, label = "100%",
-              tip = function()
-                  local hi = SVal("dynamicHigh", 100)
-                  if hi >= 100 or not Thresholded() then return "Health bar color at full (100%) health" end
-                  return EllesmereUI.Lf("Health bar color at %d%% health and above", hi)
-              end },
-            { key = "dynamicColor50",  def = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 }, label = "50%",
-              tip = function() return "Health bar color at half (50%) health" end },
-            { key = "dynamicColor0",   def = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 }, label = "0%",
-              tip = function()
-                  local lo = SVal("dynamicLow", 0)
-                  if lo <= 0 or not Thresholded() then return "Health bar color at empty (0%) health" end
-                  return EllesmereUI.Lf("Health bar color at %d%% health and below", lo)
-              end },
-        }
-        local dynSwatches = {}
-        local prevAnchor = thresholdCog or rgn._control
-        for i = #dynDefs, 1, -1 do
-            local dd = dynDefs[i]
-            local sw = EllesmereUI.BuildColorSwatch(
+        if not EllesmereUI._prebuilding then
+            local swatch = EllesmereUI.BuildColorSwatch(
                 rgn, row:GetFrameLevel() + 3,
                 function()
-                    local c = SGet(dd.key) or dd.def
-                    return c.r, c.g, c.b, 1
+                    local c = SGet("customFillColor")
+                    if c then return c.r, c.g, c.b, 1 end
+                    return 37/255, 193/255, 29/255, 1
                 end,
                 function(r, g, b)
-                    SWrite(dd.key, { r=r, g=g, b=b })
+                    SWrite("customFillColor", { r=r, g=g, b=b })
                     ReloadAndUpdate()
-                end, false, 18)
-            sw:SetPoint("RIGHT", prevAnchor, "LEFT", (prevAnchor == thresholdCog or prevAnchor == rgn._control) and -8 or -6, 0)
-            sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, dd.tip()) end)
-            sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-            dynSwatches[i] = sw
-            prevAnchor = sw
-        end
+                end, false, 20)
+            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+            -- Blocking overlay: non-clickable + tooltip unless Fill Color is Custom.
+            local block = CreateFrame("Frame", nil, swatch)
+            block:SetAllPoints()
+            block:SetFrameLevel(swatch:GetFrameLevel() + 10)
+            block:EnableMouse(true)
+            block:SetScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(swatch, "Only available with Custom fill color") end)
+            block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
 
-        local function UpdateSwatchVis()
-            local mode = SVal("healthColorMode", "class")
-            local isDynamic = mode == "customDynamic"
-            -- Class Reactive shares the dynamic stops but its 100% color IS
-            -- the class color: only the 0%/50% swatches apply there.
-            local isClassReactive = mode == "classReactive"
-            -- Single custom swatch: live only in Custom mode, dimmed+blocked in other modes, fully HIDDEN in Dynamic/Class Reactive modes so it doesn't sit behind the dynamic swatches.
-            if isDynamic or isClassReactive then
-                swatch:Hide(); block:Hide()
-            else
-                swatch:Show()
-                if mode == "custom" then swatch:SetAlpha(1); block:Hide()
-                else swatch:SetAlpha(0.3); block:Show() end
+            -- Three gradient-stop swatches, built right-to-left so the visual order reads 100% | 50% | 0%; tooltips carry the pct.
+            -- The thresholds belong to Custom Dynamic alone: Class Reactive shows the 0% swatch
+            -- too, and its curve ends at 0% whatever they say.
+            local function Thresholded() return SVal("healthColorMode", "class") == "customDynamic" end
+            local dynDefs = {
+                { key = "dynamicColor100", def = { r = 0, g = 1, b = 0 }, label = "100%",
+                  tip = function()
+                      local hi = SVal("dynamicHigh", 100)
+                      if hi >= 100 or not Thresholded() then return "Health bar color at full (100%) health" end
+                      return EllesmereUI.Lf("Health bar color at %d%% health and above", hi)
+                  end },
+                { key = "dynamicColor50",  def = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 }, label = "50%",
+                  tip = function() return "Health bar color at half (50%) health" end },
+                { key = "dynamicColor0",   def = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 }, label = "0%",
+                  tip = function()
+                      local lo = SVal("dynamicLow", 0)
+                      if lo <= 0 or not Thresholded() then return "Health bar color at empty (0%) health" end
+                      return EllesmereUI.Lf("Health bar color at %d%% health and below", lo)
+                  end },
+            }
+            local dynSwatches = {}
+            local prevAnchor = thresholdCog or rgn._control
+            for i = #dynDefs, 1, -1 do
+                local dd = dynDefs[i]
+                local sw = EllesmereUI.BuildColorSwatch(
+                    rgn, row:GetFrameLevel() + 3,
+                    function()
+                        local c = SGet(dd.key) or dd.def
+                        return c.r, c.g, c.b, 1
+                    end,
+                    function(r, g, b)
+                        SWrite(dd.key, { r=r, g=g, b=b })
+                        ReloadAndUpdate()
+                    end, false, 18)
+                sw:SetPoint("RIGHT", prevAnchor, "LEFT", (prevAnchor == thresholdCog or prevAnchor == rgn._control) and -8 or -6, 0)
+                sw:HookScript("OnEnter", function() EllesmereUI.ShowWidgetTooltip(sw, dd.tip()) end)
+                sw:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+                dynSwatches[i] = sw
+                prevAnchor = sw
             end
-            for i, sw in ipairs(dynSwatches) do
-                -- dynSwatches[1] = the 100% stop (class-driven in Class Reactive).
-                if isDynamic or (isClassReactive and i > 1) then sw:Show() else sw:Hide() end
+
+            local function UpdateSwatchVis()
+                local mode = SVal("healthColorMode", "class")
+                local isDynamic = mode == "customDynamic"
+                -- Class Reactive shares the dynamic stops but its 100% color IS
+                -- the class color: only the 0%/50% swatches apply there.
+                local isClassReactive = mode == "classReactive"
+                -- Single custom swatch: live only in Custom mode, dimmed+blocked in other modes, fully HIDDEN in Dynamic/Class Reactive modes so it doesn't sit behind the dynamic swatches.
+                if isDynamic or isClassReactive then
+                    swatch:Hide(); block:Hide()
+                else
+                    swatch:Show()
+                    if mode == "custom" then swatch:SetAlpha(1); block:Hide()
+                    else swatch:SetAlpha(0.3); block:Show() end
+                end
+                for i, sw in ipairs(dynSwatches) do
+                    -- dynSwatches[1] = the 100% stop (class-driven in Class Reactive).
+                    if isDynamic or (isClassReactive and i > 1) then sw:Show() else sw:Hide() end
+                end
             end
+            EllesmereUI.RegisterWidgetRefresh(UpdateSwatchVis)
+            UpdateSwatchVis()
         end
-        EllesmereUI.RegisterWidgetRefresh(UpdateSwatchVis)
-        UpdateSwatchVis()
     end
     -- Background Custom + Class swatch pair: clicking either toggles bgClassColored, the inactive one dims (mirrors the fill picker).
     if not EllesmereUI._prebuilding then
@@ -549,7 +551,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
     -- Cog on Threat Borders: Color Custom Borders recolors the frame's own border in
     -- the threat color on aggro, drawn instead of the inner border (the slider's
     -- size still applies whenever the recolor cannot).
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = smoothThreatRow._rightRegion
         -- Its only row needs a custom border: dimmed, with the reason, until there is one.
         EllesmereUI.BuildInlineCog(rgn, {
@@ -815,7 +817,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
           disabledTooltip="Absorb Bar",
           getValue=function() return SVal("absorbBarHeight", 4) end,
           setValue=function(v) SSet("absorbBarHeight", v) end });  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = absorbBarRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             -- Vertical Grow, its only setting, has no effect off the vertical positions.
@@ -1003,7 +1005,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
             EllesmereUI.RegisterWidgetRefresh(UpdateHealAbsorbBarSwatchVis)
             UpdateHealAbsorbBarSwatchVis()
         end
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = healAbsorbBarRow._leftRegion
             EllesmereUI.BuildInlineCog(rgn, {
                 -- Vertical Grow is inert off the vertical positions.
@@ -1056,7 +1058,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
               getValue=function() return SVal("maxHealthOpacity", 100) end,
               setValue=function(v) SSet("maxHealthOpacity", v) end });  y = y - h
         -- Cog carries backing opacity only; placement is fixed right-side.
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = maxHealthRow._leftRegion
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Max Health Rendering",
@@ -1356,7 +1358,7 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
               EllesmereUI:RefreshPage(SVal("powerBorderMatchFrame", false) and CanMatchPowerBorder())
           end })),
         ns.RF_PartyKitGate(PwClassicGate(pwSizeCfg)));  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(pwBdrRow._leftRegion, {
             disabled=function() return IsPowerOff() or not CanMatchPowerBorder() end,
             disabledTooltip=function() return IsPowerOff() and "Show Power Bar For" or "Pixels or Pixels Textured Border Style" end,
@@ -1375,39 +1377,41 @@ local function BuildVisualBars(parent, y, W, onSection, EYE)
                   set=function(v) SSet("powerBorderMatchColor", v) end }),
             },
         })
-        local rgn = pwBdrRow._rightRegion
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
-            rgn, pwBdrRow:GetFrameLevel() + 3,
-            function()
-                if MatchingPowerBorder() then
-                    local c = SGet("borderColor")
-                    return c and c.r or 0, c and c.g or 0, c and c.b or 0, SVal("borderAlpha", 1)
-                end
-                local c = SGet("powerBorderColor")
-                if c then return c.r, c.g, c.b, SVal("powerBorderAlpha", 1) end
-                return 0, 0, 0, 1
-            end,
-            function(r, g, b, a)
-                SWrite("powerBorderColor", { r=r, g=g, b=b })
-                SWrite("powerBorderAlpha", a)
-                ReloadAndUpdate()
-            end, true, 20)
-        swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-        local block = CreateFrame("Frame", nil, swatch)
-        block:SetAllPoints(); block:SetFrameLevel(swatch:GetFrameLevel() + 10); block:EnableMouse(true)
-        block:SetScript("OnEnter", function()
-            EllesmereUI.ShowWidgetTooltip(swatch, MatchingPowerBorder()
-                and "Size and color follow the frame border while Match Frame Border is enabled."
-                or EllesmereUI.DisabledTooltip("Border Style"))
-        end)
-        block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        local function UpdatePwBdrSwatchState()
-            local off = IsPowerOff() or SVal("powerBorderSize", 1) == 0 or SVal("powerBorderStyle", "eui") == "eui" or MatchingPowerBorder()
-            if off then swatch:SetAlpha(0.3); block:Show() else swatch:SetAlpha(1); block:Hide() end
+        if not EllesmereUI._prebuilding then
+            local rgn = pwBdrRow._rightRegion
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(
+                rgn, pwBdrRow:GetFrameLevel() + 3,
+                function()
+                    if MatchingPowerBorder() then
+                        local c = SGet("borderColor")
+                        return c and c.r or 0, c and c.g or 0, c and c.b or 0, SVal("borderAlpha", 1)
+                    end
+                    local c = SGet("powerBorderColor")
+                    if c then return c.r, c.g, c.b, SVal("powerBorderAlpha", 1) end
+                    return 0, 0, 0, 1
+                end,
+                function(r, g, b, a)
+                    SWrite("powerBorderColor", { r=r, g=g, b=b })
+                    SWrite("powerBorderAlpha", a)
+                    ReloadAndUpdate()
+                end, true, 20)
+            swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+            local block = CreateFrame("Frame", nil, swatch)
+            block:SetAllPoints(); block:SetFrameLevel(swatch:GetFrameLevel() + 10); block:EnableMouse(true)
+            block:SetScript("OnEnter", function()
+                EllesmereUI.ShowWidgetTooltip(swatch, MatchingPowerBorder()
+                    and "Size and color follow the frame border while Match Frame Border is enabled."
+                    or EllesmereUI.DisabledTooltip("Border Style"))
+            end)
+            block:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+            local function UpdatePwBdrSwatchState()
+                local off = IsPowerOff() or SVal("powerBorderSize", 1) == 0 or SVal("powerBorderStyle", "eui") == "eui" or MatchingPowerBorder()
+                if off then swatch:SetAlpha(0.3); block:Show() else swatch:SetAlpha(1); block:Hide() end
+            end
+            EllesmereUI.RegisterWidgetRefresh(function() if updateSwatch then updateSwatch() end; UpdatePwBdrSwatchState() end)
+            UpdatePwBdrSwatchState()
         end
-        EllesmereUI.RegisterWidgetRefresh(function() if updateSwatch then updateSwatch() end; UpdatePwBdrSwatchState() end)
-        UpdatePwBdrSwatchState()
     end
 
     local pwBgRow

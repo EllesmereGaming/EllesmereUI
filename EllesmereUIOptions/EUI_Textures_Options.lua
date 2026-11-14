@@ -106,7 +106,6 @@ end
 -- (rowFn builds it; nil while the module's options are not loaded), greyed while
 -- the Blizzard Style of styleKey draws its stock art there instead.
 local function TexBgCog(rgn, rowFn, styleKey)
-    if EllesmereUI._prebuilding then return end
     local row = rowFn()
     if not row then return end
     local blizzOn = styleKey and EllesmereUI.BlizzStyle.Active(styleKey) == "blizzard"

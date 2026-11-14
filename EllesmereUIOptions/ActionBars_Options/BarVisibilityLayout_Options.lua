@@ -438,8 +438,9 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
         })
     end
 
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = fadeRow._rightRegion
+        if not EllesmereUI._prebuilding then
         if rgn._control then rgn._control:Hide() end
         local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
             rgn, 170, rgn:GetFrameLevel() + 2, fadeItems,
@@ -463,6 +464,7 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
         rgn._control = cbDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+        end
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Advanced Fade",
             disabled = AdvancedFadeOff,
@@ -483,6 +485,7 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
                   set=function(v) SSet("fadeOutSpeed", v) end },
             },
         })
+        if not EllesmereUI._prebuilding then
         EllesmereUI.BuildSyncIcon({
             region  = rgn,
             tooltip = "Apply Advanced Fade to all Bars",
@@ -496,6 +499,7 @@ local function BuildBarVisibilityLayout(parent, y, ctx)
                 onApply       = ApplyAdvancedFadeTo,
             },
         })
+        end
     end
 
     -- Toggle Action Bar beside Always Show Buttons; a visibility-only bar has no

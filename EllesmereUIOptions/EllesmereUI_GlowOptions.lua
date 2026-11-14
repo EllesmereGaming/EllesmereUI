@@ -421,7 +421,7 @@ end
 -- optional free half-region (a "Glow Color" label) that takes the swatches.
 -- A style-only lock (desc.styleDisabled) leaves both live.
 function GO.AttachInline(rgn, desc, colorRgn)
-    if EllesmereUI._prebuilding or not rgn then return end
+    if not rgn then return end
     local PP = EllesmereUI.PanelPP
     local caps = desc.caps or {}
     local function siteOff() return desc.disabled and desc.disabled() end
@@ -495,6 +495,8 @@ function GO.AttachInline(rgn, desc, colorRgn)
             rawTooltip = true,
         })
     end
+    -- The search index pass stops after the cog (it indexes the cog's rows)
+    if EllesmereUI._prebuilding then return end
 
     if colorInCog then
         -- The swatches are the cog's first row (above).
