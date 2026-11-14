@@ -210,7 +210,7 @@ local function ShowIcon(iconIdx, m)
     else
         EABR.ApplyIconBagCount(btn, (not m.isEating) and m.bagCount or nil,
             (not m.isEating) and m.desaturated or nil,
-            (not m.isEating) and m.substitute or nil, m.spellRank)
+            (not m.isEating) and m.substitute or nil, m.spellRank or (p.showCount ~= false and m.stackText or nil))
     end
     if p.showText and not m.isEating then
         local tc = p.textColor or DEFAULT_TEXT_COLOR

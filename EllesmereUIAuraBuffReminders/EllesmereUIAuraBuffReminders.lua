@@ -22,6 +22,7 @@ local EABR = EllesmereUI.Lite.NewAddon("EllesmereUIAuraBuffReminders")
 EABR.FOREVER = EllesmereUI.IS_FOREVER == true
 EABR.CAMP_BENEFITS = 1229741
 EABR.SLEEPING_BAG_BUFF = 429959
+EABR.SLEEPING_BAG_TRACKING = 429960
 EABR.SLEEPING_BAG_ITEM = 211527
 EABR.SLEEPING_BAG_STACKS = 3
 -- WoW Forever gathering trackers, in cast preference order: Find Herbs, Find

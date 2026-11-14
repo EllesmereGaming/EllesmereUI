@@ -1093,7 +1093,7 @@ function EABR.SizeIconBagCount(f, sz)
     fs:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", dx, dy)
 end
 
-function EABR.ApplyIconBagCount(f, count, outOfStock, substitute, spellRank)
+function EABR.ApplyIconBagCount(f, count, outOfStock, substitute, badge)
     if not f then return end
     EABR.CreateIconBagCountOverlay(f)
     f._outOfStock = outOfStock and true or nil
@@ -1107,10 +1107,10 @@ function EABR.ApplyIconBagCount(f, count, outOfStock, substitute, spellRank)
         fs:SetTextColor(1, 0.2, 0.2, 1)
         EABR.SizeIconBagCount(f, f:GetWidth() or ICON_SIZE)
         fs:Show()
-    elseif spellRank or (showCount and count and count > 0) then
+    elseif badge or (showCount and count and count > 0) then
         f._bagCountShown = true
-        fs:SetText(spellRank or count)
-        if substitute and not spellRank then
+        fs:SetText(badge or count)
+        if substitute and not badge then
             fs:SetTextColor(1, 0.82, 0, 1)
         else
             fs:SetTextColor(1, 1, 1, 1)
@@ -1213,6 +1213,25 @@ end
 
 function EABR.ApplyIconExpiry(f, m)
     local expireAt = m and m.expireAt
+    local swipe = f._expirySwipe
+    if expireAt and m.expireSwipe then
+        if not swipe then
+            swipe = CreateFrame("Cooldown", nil, f, "CooldownFrameTemplate")
+            swipe:SetAllPoints(f._icon)
+            swipe:SetHideCountdownNumbers(true)
+            swipe:SetDrawEdge(false)
+            swipe:SetDrawBling(false)
+            f._expirySwipe = swipe
+        end
+        if swipe._expiryEnd ~= expireAt or swipe._expiryTotal ~= m.expireTotal then
+            swipe:SetCooldown(expireAt - m.expireTotal, m.expireTotal)
+            swipe._expiryEnd, swipe._expiryTotal = expireAt, m.expireTotal
+        end
+        swipe:Show()
+    elseif swipe then
+        swipe:Hide()
+        swipe._expiryEnd, swipe._expiryTotal = nil, nil
+    end
     local binding = f._expiryBinding
     if not expireAt then
         if binding then binding:SetEnabled(false) end
@@ -1622,7 +1641,7 @@ do
         e.tooltipItem = nil
         e.cat = nil; e.data = nil; e.dismissKey = nil; e.petCycleTotal = nil
         e.isEating = nil; e.eatingExpirationTime = nil
-        e.expireAt = nil; e.expireTotal = nil
+        e.expireAt = nil; e.expireTotal = nil; e.expireSwipe = nil
         e.qualityAtlas = nil
         e.bagCount = nil
         e.substitute = nil
@@ -1632,6 +1651,7 @@ do
         e.foreverGroup = nil
         e.spellRank = nil
         e.foreverFood = nil
+        e.stackText = nil
         return e
     end
 
