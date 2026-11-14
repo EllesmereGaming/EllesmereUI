@@ -3580,6 +3580,8 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
                 barInput:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
                 barInput:SetScript("OnEscapePressed", function(self) self._cancelCommit = true; self:ClearFocus(); barSnap() end)
+                -- Covers the row when another setting owns the value (rules.barBlock)
+                barRow._dis = MakeBlocker(barRow, barRow, barInput, 2, 6)
             end
 
             -- RefreshDetail: repaint the pane for the selected entry
@@ -3600,11 +3602,11 @@ initFrame:SetScript("OnEvent", function(self)
                 --   hideHash   -- no hash row for this entry
                 --   bandPctCap -- the band editor is percent only, up to this value
                 --   multiBlock / textBlock -- why multi-band / text recoloring cannot apply (nil = it can)
-                --   barInput   -- show the cfg.barInput row
+                --   barInput   -- show the cfg.barInput row; barBlock -- why it cannot apply (nil = it can)
                 local r = rules
                 r.thrMin, r.thrMax, r.thrDef = cfg.threshMin or 1, cfg.threshMax or 99, 30
                 r.thrLabel, r.thrTip, r.pips, r.hideHash = nil, nil, false, false
-                r.bandPctCap, r.multiBlock, r.textBlock, r.barInput = nil, nil, nil, false
+                r.bandPctCap, r.multiBlock, r.textBlock, r.barInput, r.barBlock = nil, nil, nil, false, nil
                 if cfg.entryRules then cfg.entryRules(ent, r, cfg.getBarData()) end
 
                 -- Talent gate is single-spec only
@@ -3707,7 +3709,12 @@ initFrame:SetScript("OnEvent", function(self)
                 if buffRow then place(buffRow) end
                 if spenderRow then place(spenderRow) end
                 place(textInsteadRow)
-                if barRow and r.barInput then place(barRow) end
+                if barRow and r.barInput then
+                    barRow._dis._tip = r.barBlock
+                    barRow._dis:SetShown(r.barBlock ~= nil)
+                    barRow._lbl:SetAlpha(r.barBlock and 0.3 or 0.6)
+                    place(barRow)
+                end
             end
             thrPage:Hide()
         end -- BuildFrame
