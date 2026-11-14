@@ -253,13 +253,7 @@ local function ReportIfTradeable(link)
         if not lootMaster or addon.PlayerIsMasterLooter() then return end
 
 
-        local boss, encounterID = addon.Encounter:ForTradeableItem(secondsLeft)
-        addon.Comms:Send("tradeable", {
-            link = link,
-            secondsLeft = secondsLeft,
-            boss = boss,
-            encounterID = encounterID,
-      }, lootMaster, true)
+        addon.Comms:Send("tradeable", { link = link }, lootMaster, true)
     end)
 end
 
@@ -1117,6 +1111,8 @@ local MOST_WHISPERED = 2
 local HANDLING_WHISPER_GRACE = 8
 local whisperedAt = {}
 
+local MAX_REPORTED_LINK = 512
+
 
 
 function Loot:PushHandling(why, joiners)
@@ -1394,10 +1390,12 @@ function Loot:Init()
 
     addon.Comms:Register("tradeable", "any", function(args, sender)
         if not addon.PlayerIsMasterLooter() then return end
-        if not args or not args.link then return end
+
+        local link = args and args.link
+        if type(link) ~= "string" or #link > MAX_REPORTED_LINK then return end
 
         local owner = addon.Player:Get(sender).fullName
-        addon.Log:I("Loot", "reported by", tostring(owner), args.link)
+        addon.Log:I("Loot", "reported by", tostring(owner), link)
 
 
     end)
@@ -1432,6 +1430,8 @@ function Loot:Init()
             on = Loot.handling and true or false,
             funnel = Loot.funnelArmed == true,
       }, sender, true)
+
+        whisperedAt[addon.Player:NameKey(sender) or sender] = GetTime()
     end)
 
 

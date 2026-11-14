@@ -383,6 +383,16 @@ local function Reconcile()
         end
         if not found then choice.night = nil end
     end
+
+    if next(choice.players) then
+        local present = {}
+        for _, night in ipairs(choice.night and { choice.night } or (week and week.nights) or addon.Attendance:GetNights()) do
+            for name in pairs(night.members or {}) do present[name] = true end
+        end
+        for name in pairs(choice.players) do
+            if not present[name] then choice.players[name] = nil end
+        end
+    end
     return weeks
 end
 
@@ -721,7 +731,7 @@ local function DoClear()
             addon.Chat.Print(addon.Locale.Format(
                 T["attendance cleared: %d night(s), %d player entries."],
                 removedNights, removedEntries))
-            choice.week, choice.night = nil, nil
+            choice.week, choice.night, choice.ranks, choice.players = nil, nil, {}, {}
             RefreshClear()
         end,
     })

@@ -528,7 +528,7 @@ local function ShowRowTooltip(row, data)
             local main = addon.Player:Main(entry.winner)
             if qualified and addon.Player:NameKey(main) ~= addon.Player:NameKey(qualified) then
                 S.TooltipSection(GameTooltip, T["Alt / Main"])
-                GameTooltip:AddDoubleLine(T["Main"], main, 0.64, 0.63, 0.60, 1, 1, 1)
+                GameTooltip:AddDoubleLine(T["Main"], addon.Player:DisplayName(main), 0.64, 0.63, 0.60, 1, 1, 1)
             end
         end
 

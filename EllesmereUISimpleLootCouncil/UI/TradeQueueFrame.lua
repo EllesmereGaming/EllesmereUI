@@ -215,6 +215,8 @@ local function ResetRow(row)
     row.Hover:Hide()
     row.kind, row.recipient, row.canTrade, row.first = nil, nil, nil, nil
     row.nameColour = nil
+
+    row.name:SetAlpha(1)
     row.entry, row.record, row.key, row.link = nil, nil, nil, nil
     row.session, row.runId, row.entryId, row.untradeable = nil, nil, nil, nil
 end

@@ -125,7 +125,12 @@ local function Responses()
         list = function() return addon.db.responses end,
         entry = function(index) return addon.db.responses[index] end,
 
+
         add = function(r, g, b)
+            if addon.Session:IsRunning() then
+                Chat("accent", T["Response buttons locked while loot session is active"])
+                return nil
+            end
             local responses = addon.db.responses
             if #responses >= Schema.MAX_RESPONSES then return nil end
             local index = #responses + 1
@@ -143,14 +148,19 @@ local function Responses()
                 accept = T["Delete"] }
         end,
 
-        remove = function(index)
+
+        remove = function(index, entry)
             local refused = DeleteRequirement()
             if refused then
                 Chat("accent", addon.Locale.Format(T["not deleted. %s"], refused))
                 return false
             end
             local responses = addon.db.responses
-            if not responses[index] then return false end
+            if entry ~= nil and responses[index] ~= entry then
+                index = nil
+                for i, e in ipairs(responses) do if e == entry then index = i end end
+            end
+            if not index or not responses[index] then return false end
             table.remove(responses, index)
             for i, entry in ipairs(responses) do entry.sort = i end
             addon.Council:RequestBroadcast()
@@ -160,19 +170,21 @@ local function Responses()
         setName = function(index, text)
             local entry = addon.db.responses[index]
             text = text:trim()
-            if not entry or text == "" then return false end
+            if not entry or text == "" or addon.Session:IsRunning() then return false end
             entry.text = text
             addon.Council:RequestBroadcast()
             return true
         end,
 
         setAutoroll = function(entry, on)
+            if addon.Session:IsRunning() then return false end
             entry.autoroll = on and true or nil
             addon.Council:RequestBroadcast()
         end,
 
 
         setColour = function(entry, r, g, b)
+            if addon.Session:IsRunning() then return false end
             entry.r, entry.g, entry.b = r, g, b
             addon.Council:RequestBroadcast()
         end,

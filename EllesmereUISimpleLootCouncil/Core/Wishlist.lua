@@ -210,7 +210,7 @@ local function PiecesForToken(name, tokenId)
                     local entries = AsEntryArray(rawEntries)
                     if entries then
                         for _, entry in ipairs(entries) do
-                            if type(entry) == "table" and entry.sourceItem
+                            if type(entry) == "table" and type(entry.sourceItem) == "table"
                                 and entry.sourceItem.itemId == tokenId
                                 and not entry.sourceItem.catalyst then
                                 pieces = pieces or {}
@@ -257,8 +257,8 @@ local function GoWEntriesFor(name)
     if lists and gowIndexOf ~= lists then
         gowIndex, gowIndexOf = {}, lists
         for _, char in ipairs(lists) do
-            if type(char) == "table" and char.name and type(char.wishlist) == "table" then
-                local key = addon.Player:NameKey(char.name .. "-" .. (char.realmNameNormalized or ""))
+            if type(char) == "table" and type(char.name) == "string" and type(char.wishlist) == "table" then
+                local key = addon.Player:NameKey(char.name .. "-" .. (type(char.realmNameNormalized) == "string" and char.realmNameNormalized or ""))
                 if key then gowIndex[key] = char.wishlist end
             end
         end
@@ -524,10 +524,13 @@ end
 
 
 local function Percent(sim, entry)
-    if sim.baseline and sim.baseline ~= 0 and entry.gain then
-        return (entry.gain / sim.baseline) * 100, entry.gain
+
+    local baseline, gain = tonumber(sim.baseline), tonumber(entry.gain)
+    if baseline and baseline ~= 0 and gain then
+        return (gain / baseline) * 100, gain
     end
-    if entry.gainPercent then return entry.gainPercent, nil end
+    local percent = tonumber(entry.gainPercent)
+    if percent then return percent, nil end
     return nil
 end
 
@@ -547,7 +550,7 @@ local function BestOfSim(sim, itemID, difficultyID, wantSourceItemId)
         if type(entry) == "table" and (not difficultyID
                 or Canonical(entry.difficultyId) == difficultyID) then
             if wantSourceItemId then
-                if entry.sourceItem and entry.sourceItem.itemId == wantSourceItemId
+                if type(entry.sourceItem) == "table" and entry.sourceItem.itemId == wantSourceItemId
                         and not entry.sourceItem.catalyst then
                     local pct, gain = Percent(sim, entry)
                     if pct and (not viaSource or viaSource.pct < pct) then

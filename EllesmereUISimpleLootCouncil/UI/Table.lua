@@ -540,6 +540,8 @@ local function DrawRows(t, offset, force)
         if data then
             local version = versions[data] or 0
             if force or row.rowData ~= data or row.slcVersion ~= version then
+
+                if row.rowData ~= nil and row.rowData ~= data then row.slcBoundAt = GetTime() end
                 row.rowData, row.slcVersion = data, version
                 PaintPick(t, row)
 
@@ -603,6 +605,13 @@ function Table.SetHidden(t, hidden)
     Table.Draw(t)
 end
 
+
+Table.REBIND_GUARD = 0.3
+
+
+function Table.JustRebound(row)
+    return row ~= nil and row.slcBoundAt ~= nil and GetTime() - row.slcBoundAt < Table.REBIND_GUARD
+end
 
 
 function Table.Draw(t)

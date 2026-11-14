@@ -1092,6 +1092,10 @@ function History.CleanRow(entry)
             row[key] = value
         end
     end
+
+    if not (row.date and row.date:match("^%d%d%d%d/%d%d/%d%d$")) then row.date = date("!%Y/%m/%d", epoch) end
+    if not (row.time and row.time:match("^%d%d:%d%d:%d%d$")) then row.time = date("!%H:%M:%S", epoch) end
+    if row.difficultyName and row.difficultyName:find("^%s*[=+%-@\t\r]") then row.difficultyName = nil end
     local r, g, b = row.r, row.g, row.b
     if not (r and g and b and r >= 0 and r <= 1 and g >= 0 and g <= 1 and b >= 0 and b <= 1) then
         row.r, row.g, row.b = nil, nil, nil
@@ -1229,7 +1233,8 @@ function History:RemoveForSession(session, winner, runId, seq)
 
     local struckNow, gone = {}, {}
     for id, entry in pairs(addon.db.history) do
-        if entry.runId == runId and entry.session == session
+
+        if type(entry) == "table" and entry.runId == runId and entry.session == session
             and (not winner or entry.winner == winner) then
             addon.db.history[id] = nil
             struck[id] = true
@@ -1258,7 +1263,7 @@ function History:MarkDelivered(session, winner, runId)
     if not session or not runId then return 0 end
     local changed, matched = 0, 0
     for _, entry in pairs(addon.db.history or {}) do
-        if entry.runId == runId and entry.session == session
+        if type(entry) == "table" and entry.runId == runId and entry.session == session
             and (not winner or entry.winner == winner) then
             matched = matched + 1
             if not entry.delivered then
@@ -1633,7 +1638,7 @@ local function FindStoredEntry(id)
     for _, store in ipairs({ addon.db.history or {}, addon.db.imported or {} }) do
         if store[id] then return store, id, store[id] end
         for key, entry in pairs(store) do
-            if entry.id == id then return store, key, entry end
+            if type(entry) == "table" and entry.id == id then return store, key, entry end
         end
     end
     if not History:EnsureArchive() then return nil end
@@ -1645,7 +1650,9 @@ local function FindStoredEntry(id)
     for segKey, rows in pairs(loaded) do
         for tag, list in pairs(rows) do
             for key, entry in pairs(list) do
-                if entry.id == id and not LiveHas(tag, key) then return list, key, entry, segKey, tag end
+                if type(entry) == "table" and entry.id == id and not LiveHas(tag, key) then
+                    return list, key, entry, segKey, tag
+                end
             end
         end
     end
@@ -1805,7 +1812,7 @@ function History:PruneCoins(login)
     local removed = PruneArchivedCoins(cutoff)
     for _, store in ipairs({ addon.db.history or {}, addon.db.imported or {} }) do
         for id, entry in pairs(store) do
-            if entry.coin == true and EpochOf(entry) < cutoff then
+            if type(entry) == "table" and entry.coin == true and EpochOf(entry) < cutoff then
                 store[id] = nil
                 removed = removed + 1
             end
@@ -1826,7 +1833,9 @@ function History:Clear()
     local removed, rows = History:Count(), {}
     for id, entry in pairs(addon.db.history or {}) do
         Forget("history", id)
-        rows[#rows + 1] = entry
+
+        struck[id] = true
+        if type(entry) == "table" then rows[#rows + 1] = entry end
     end
 
     if addon.Storage and addon.Storage.ForgetOwnAwards then addon.Storage:ForgetOwnAwards(rows) end
@@ -1911,7 +1920,8 @@ function History:ToCSV(scope, delimiter)
 
     local function esc(value)
         if value == nil then return "" end
-        local text = tostring(value)
+
+        local text = tostring(value):gsub("[\r\n]", " ")
 
         if text:find('[,"|\n]') or text:find(delimiter, 1, true) then
             return '"' .. text:gsub('"', '""') .. '"'
@@ -1926,6 +1936,13 @@ function History:ToCSV(scope, delimiter)
     end
 
 
+    local function escFixed(value)
+        if value == nil then return "" end
+        local text = tostring(value)
+        return text:find(FORMULA_LEAD) and escText(text) or esc(text)
+    end
+
+
     local function escLink(link)
         if not link then return "" end
         return esc((tostring(link):gsub("|", "||")))
@@ -1933,7 +1950,7 @@ function History:ToCSV(scope, delimiter)
 
     for _, entry in ipairs(ordered) do
         rows[#rows + 1] = table.concat({
-            esc(entry.id), esc(entry.date), esc(entry.time),
+            esc(entry.id), escFixed(entry.date), escFixed(entry.time),
             esc(entry.source or "slc"),
             escText(entry.winner), escText(entry.owner),
 
@@ -1941,7 +1958,7 @@ function History:ToCSV(scope, delimiter)
                 or (entry.link and (C_Item.GetItemInfo(entry.link) or entry.link))),
             escLink(entry.link),
             escText(History.ResponseText(entry)), esc(entry.votes), escText(entry.instance),
-            esc(entry.difficultyName or entry.difficultyID), escText(entry.boss),
+            escFixed(entry.difficultyName or entry.difficultyID), escText(entry.boss),
 
             esc(entry.delivered == nil and "" or (entry.delivered and "yes" or "no")),
             escText(entry.note and addon.Autopass
@@ -2232,6 +2249,21 @@ function History.MergeArchive(winner, loser, added)
         if type(row) == "table" then
             local month = MonthKey(EpochOf(row))
             if LastPart(wsegs, month) > 0 then months[month] = true end
+        end
+    end
+
+    local lostDeleted = type(loser.deleted) == "table" and loser.deleted or {}
+    for _, s in ipairs(STORES) do
+        local count = s.tag == "i" and "ni" or "nh"
+        for id in pairs(type(lostDeleted[s.store]) == "table" and lostDeleted[s.store] or {}) do
+            local text = tostring(id)
+            local epoch = tonumber(text:match("^(%d+)%-") or text:match(":(%d+)%-%d+$"))
+            for key, seg in pairs(wsegs) do
+                if type(seg) == "table" and (tonumber(seg[count]) or 1) > 0 and (not epoch
+                    or ((tonumber(seg.oldest) or 0) - DAY <= epoch and epoch <= (tonumber(seg.newest) or 0) + DAY)) then
+                    months[SplitSegKey(key)] = true
+                end
+            end
         end
     end
     if next(months) == nil then return 0 end

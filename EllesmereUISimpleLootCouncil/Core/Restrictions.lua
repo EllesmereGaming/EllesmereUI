@@ -104,6 +104,11 @@ end
 Restrictions.Flush = function(_) Flush() end
 
 
+function Restrictions:HasDeferred()
+    return queue[1] ~= nil
+end
+
+
 
 
 

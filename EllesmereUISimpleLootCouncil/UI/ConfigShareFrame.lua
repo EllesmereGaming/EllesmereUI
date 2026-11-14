@@ -230,6 +230,12 @@ local function OfferPrompt(offer)
 end
 
 
+
+local function Plain(text)
+    return (tostring(text):gsub("||?", "||"))
+end
+
+
 local function OfferDetail(offer)
     local out = {}
     if offer.council then
@@ -237,7 +243,7 @@ local function OfferDetail(offer)
         local names = {}
         for i, member in ipairs(offer.council.members) do
             if i > 8 then break end
-            names[#names + 1] = Ambiguate(member.name, "none")
+            names[#names + 1] = Plain(Ambiguate(member.name, "none"))
         end
         out[#out + 1] = { addon.Locale.Format(addon.Locale.Plural{
             one = "Loot council: %d player - %s", other = "Loot council: %d players - %s",
@@ -246,8 +252,10 @@ local function OfferDetail(offer)
         local guild = addon.RaidTeam and addon.RaidTeam:GetGuildName()
         if #ranks > 0 then
             if guild and guild == offer.council.guild then
+                local shown = {}
+                for i, rank in ipairs(ranks) do shown[i] = Plain(rank) end
                 out[#out + 1] = { addon.Locale.Format(T["Guild ranks: %s"],
-                    table.concat(ranks, ", ")), LINE2_H }
+                    table.concat(shown, ", ")), LINE2_H }
             else
                 out[#out + 1] = { T["Their guild ranks are left out: they belong to another guild."], LINE_H }
             end
@@ -259,12 +267,14 @@ local function OfferDetail(offer)
     end
     if offer.responses then
         local names = {}
-        for _, entry in ipairs(offer.responses) do names[#names + 1] = entry.text end
+        for _, entry in ipairs(offer.responses) do names[#names + 1] = Plain(entry.text) end
         out[#out + 1] = { addon.Locale.Format(T["Response buttons: %s"],
             table.concat(names, ", ")), LINE2_H }
     end
     return out
 end
+
+Panel.OfferDetail = OfferDetail
 
 local function BuildOffer()
     offerFrame = S.Window("SimpleLootCouncilConfigOfferFrame", "configOffer", OFFER_W, 240,

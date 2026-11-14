@@ -566,7 +566,8 @@ function QueueFrame:AddAllFromBags()
     end
 
 
-    local picks, skipped, won = addon.BagShare.FreeToStage(
+
+    local picks, skipped, won, untimed = addon.BagShare.FreeToStage(
         addon.Storage:GetTradeableItems(), me)
     local links, bosses, encounterIDs = {}, {}, {}
     for i, entry in ipairs(picks) do
@@ -592,6 +593,12 @@ function QueueFrame:AddAllFromBags()
             one = "skipped %d item awarded to you - click it in the bags panel to queue it anyway.",
             other = "skipped %d items awarded to you - click one in the bags panel to queue it anyway.",
         }, won, won))
+    end
+    if untimed > 0 then
+        addon.Chat.Print(addon.Locale.Format(addon.Locale.Plural{
+            one = "skipped %d BoE item outside its six-hour window - click it in the bags panel to queue it anyway.",
+            other = "skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway.",
+        }, untimed, untimed))
     end
     QueueFrame:Refresh()
     return added

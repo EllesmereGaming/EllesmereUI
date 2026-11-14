@@ -152,13 +152,29 @@ end
 
 
 
+local function Saved(key)
+    local Player = addon.Player
+    if Player and Player.OwnSlot then return Player:OwnSlot(addon.db, key) end
+    return addon.db and addon.db[key]
+end
+local function SetSaved(key, value)
+    local Player = addon.Player
+    if Player and Player.SetOwnSlot then
+        Player:SetOwnSlot(addon.db, key, value)
+    elseif addon.db then
+        addon.db[key] = value
+    end
+end
+
+
+
 
 local function OwnsBackup()
     if not run.active or not run.id then return false end
     local me = addon.Player:GetFullName("player")
     if not me then return false end
     if run.backupOwner and addon.Player:IsSame(run.backupOwner, me) then return true end
-    local prior = addon.db and addon.db.activeRun
+    local prior = Saved("activeRun")
     return type(prior) == "table" and prior.runId == run.id
         and addon.Player:IsSame(prior.lootMaster, me)
 end
@@ -199,27 +215,25 @@ function Session:SaveRun()
         saved.lootMaster = me
 
         if scrub then scrub(saved.items) end
-        addon.db.activeRun = saved
+        SetSaved("activeRun", saved)
 
-        addon.db.runCopy = {}
+        SetSaved("runCopy", {})
     else
 
 
-        addon.db.activeRun = {}
+        SetSaved("activeRun", {})
 
 
         local council = addon.Council and addon.Council:Contains(me)
         local copy = Snapshot(not council and me or nil) or {}
         if scrub and copy.items then scrub(copy.items) end
-        addon.db.runCopy = copy
+        SetSaved("runCopy", copy)
     end
 end
 
 local function ClearPersisted()
-    if addon.db then
-        addon.db.activeRun = {}
-        addon.db.noteDrafts = nil
-    end
+    SetSaved("activeRun", {})
+    SetSaved("noteDrafts", nil)
 end
 
 local function SnapshotValid(payload)
@@ -261,9 +275,9 @@ local RECOVERY_REFUSED_LOG = {
 
 function Session:RecoverPersisted()
     if run.active or not addon.db then return false end
-    local saved = addon.db.activeRun
+    local saved = Saved("activeRun")
     if not SnapshotValid(saved) then
-        addon.db.activeRun = {}
+        SetSaved("activeRun", {})
         return false
     end
 
@@ -272,7 +286,7 @@ function Session:RecoverPersisted()
     if not addon.Player:IsSame(saved.lootMaster, me) then
 
 
-        addon.db.activeRun = {}
+        SetSaved("activeRun", {})
         addon.Log:D("Session", "discarded saved run owned by",
             saved.lootMaster, "while recovering as", me)
         return false
@@ -281,7 +295,7 @@ function Session:RecoverPersisted()
         for _, item in ipairs(saved.items) do
             for name in pairs(item.candidates) do
                 if not addon.Player:IsSame(name, me) then
-                    addon.db.activeRun = {}
+                    SetSaved("activeRun", {})
                     addon.Log:I("Session", "discarded saved group run", tostring(saved.runId),
                         "- not in a group")
                     return false
@@ -498,6 +512,34 @@ local function CleanRow(row)
     return clean
 end
 Session.CleanRow = CleanRow
+local function CleanOwed(owed)
+    if type(owed) ~= "table" then return nil end
+    local w, i, s = owed.w, owed.i, owed.s
+    if type(w) ~= "string" or w == "" or #w > 64 then return nil end
+    if i ~= nil and (type(i) ~= "string" or #i > 64) then return nil end
+    if s ~= nil and (type(s) ~= "number" or s % 1 ~= 0 or s < 1 or s > 1000) then
+        return nil
+    end
+    return { w = w, i = i, s = s }
+end
+
+local GONE_REASONS = { equipped = true, bound = true, left = true, pending = true, lost = true }
+local function CleanItemFields(item)
+    item.awardSeq = Bounded(item.awardSeq, 0, 2 ^ 31)
+    item.rollRound = Bounded(item.rollRound, 0, 2 ^ 31)
+    item.awarded = type(item.awarded) == "string" and item.awarded or nil
+    item.delivered = item.delivered == true
+    item.gone = GONE_REASONS[item.gone] and item.gone or nil
+    item.owed = CleanOwed(item.owed)
+end
+
+
+local ITEMS_AHEAD = 64
+
+local function ItemIndex(value, high)
+    local index = Bounded(tonumber(value), 1, high)
+    return index and index % 1 == 0 and index or nil
+end
 
 
 
@@ -839,9 +881,10 @@ local function DecodeRolls(names)
                         candidate = { status = "ANNOUNCED", voters = {} }
                         item.candidates[name] = candidate
                     end
-                    candidate.roll = tonumber(roll[1])
-                    candidate.rollBy = type(roll[2]) == "string" and roll[2] or nil
-                    candidate.rollSeq = tonumber(roll[3])
+
+                    candidate.roll = Bounded(tonumber(roll[1]), -2 ^ 31, 2 ^ 31)
+                    candidate.rollBy = ROLL_BY[roll[2]] and roll[2] or nil
+                    candidate.rollSeq = Bounded(tonumber(roll[3]), 0, 2 ^ 31)
                 end
             end
         end
@@ -1154,7 +1197,7 @@ function Session:ApplyRunPart(payload, sender)
 
     local entries = {}
     for _, entry in ipairs(payload.items) do
-        local index = type(entry) == "table" and tonumber(entry.s)
+        local index = type(entry) == "table" and ItemIndex(entry.s, 2 ^ 31)
         if not index or entries[index]
             or (entry.c ~= nil and type(entry.c) ~= "table")
             or (entry.v ~= nil and type(entry.v) ~= "table") then
@@ -1404,10 +1447,10 @@ end
 
 function RunCopy.Load()
     heldCopy, heldAsk, heldRefused = nil, nil, false
-    local saved = addon.db and addon.db.runCopy
+    local saved = Saved("runCopy")
     if type(saved) ~= "table" or saved.runId == nil then return end
     if not SnapshotValid(saved) then
-        addon.db.runCopy = {}
+        SetSaved("runCopy", {})
         addon.Log:D("Session", "saved copy of the run discarded - expired or malformed")
         return
     end
@@ -1422,7 +1465,7 @@ function RunCopy.Drop(why)
     addon.Log:D("Session", "saved copy of run", tostring(heldCopy.runId), "put away -", why,
         "- the live run is", tostring(run.active and run.id or nil))
     heldCopy, heldAsk, heldRefused = nil, nil, false
-    if addon.db then addon.db.runCopy = {} end
+    SetSaved("runCopy", {})
 end
 
 
@@ -2624,6 +2667,7 @@ function Session:ApplyRunStart(payload, sender, recovered)
         if payload.snapshotVersion == SNAPSHOT_VERSION then
             run.items[index] = CopyMap(entry)
             run.items[index].session = index
+            CleanItemFields(run.items[index])
 
 
             local rows = {}
@@ -2659,9 +2703,9 @@ function Session:ApplyRunStart(payload, sender, recovered)
     if payload.snapshotVersion == SNAPSHOT_VERSION then DecodeRolls(payload.rn) end
 
 
-    local drafts = addon.db and addon.db.noteDrafts
+    local drafts = Saved("noteDrafts")
     if drafts and drafts.runId ~= run.id then
-        addon.db.noteDrafts = nil
+        SetSaved("noteDrafts", nil)
         drafts = nil
     end
     local me = addon.Player:GetFullName("player")
@@ -3303,16 +3347,6 @@ local function OwedKey(owed)
 end
 
 
-local function CleanOwed(owed)
-    if type(owed) ~= "table" then return nil end
-    local w, i, s = owed.w, owed.i, owed.s
-    if type(w) ~= "string" or w == "" or #w > 64 then return nil end
-    if i ~= nil and (type(i) ~= "string" or #i > 64) then return nil end
-    if s ~= nil and (type(s) ~= "number" or s % 1 ~= 0 or s < 1 or s > 1000) then
-        return nil
-    end
-    return { w = w, i = i, s = s }
-end
 
 function Session:ApplyGone(session, runId, reason, sender, owed)
     if not run.active or not runId or run.id ~= runId then return end
@@ -3718,14 +3752,14 @@ function Session:SetNote(session, note, send)
     end
     candidate.note = note ~= "" and note or nil
     if addon.db then
-        if type(addon.db.noteDrafts) ~= "table"
-            or addon.db.noteDrafts.runId ~= run.id then
-            addon.db.noteDrafts = { runId = run.id, notes = {} }
+        local drafts = Saved("noteDrafts")
+        if type(drafts) ~= "table" or drafts.runId ~= run.id then
+            drafts = { runId = run.id, notes = {} }
+            SetSaved("noteDrafts", drafts)
         end
-        if type(addon.db.noteDrafts.notes) ~= "table" then
-            addon.db.noteDrafts.notes = {}
-        end
-        addon.db.noteDrafts.notes[session] = note
+        if type(drafts.notes) ~= "table" then drafts.notes = {} end
+        drafts.notes[session] = note
+        drafts.at = GetServerTime()
     end
     if send then
         SendAnswer("note", { s = session, n = note }, true)
@@ -3908,8 +3942,12 @@ function Session:ApplyItemsAdd(payload, sender)
 
 
     local added = {}
-    for index, entry in pairs(payload.items) do
-        if run.items[index] then
+    for key, entry in pairs(payload.items) do
+
+        local index = type(entry) == "table" and ItemIndex(key, #run.items + ITEMS_AHEAD)
+        if not index then
+            Refuse("items_add", "malformed", sender)
+        elseif run.items[index] then
             if run.items[index].id == entry.id then
 
                 addon.Log:D("Session", "items_add already applied", index)
@@ -4774,7 +4812,7 @@ function Session:Init()
         PruneDrops()
 
         RunCopy.Drop("run_ended")
-        if addon.db then addon.db.runCopy = {} end
+        SetSaved("runCopy", {})
         noRunFrom = run.lootMaster or "?"
         ForgetUndelivered()
     end)
@@ -4793,7 +4831,7 @@ function Session:Init()
         recoveryAttempts = 0
     end)
     local function SavedSoloRun()
-        local saved = addon.db and addon.db.activeRun
+        local saved = Saved("activeRun")
         local me = addon.Player:GetFullName("player")
         return type(saved) == "table" and me ~= nil
             and saved.groupKey == GroupKey()
@@ -4830,7 +4868,7 @@ function Session:Init()
         C_Timer.After(CONCLUDE_AFTER, function()
             if run.active or recoveryPending or recoveryGroupKey ~= key then return end
             if not addon.PlayerIsMasterLooter() then return end
-            local saved = addon.db and addon.db.activeRun
+            local saved = Saved("activeRun")
             local me = addon.Player:GetFullName("player")
             if type(saved) == "table" and saved.runId ~= nil
                 and addon.Player:IsSame(saved.lootMaster, me) then
@@ -4952,6 +4990,14 @@ function Session:Init()
         recoveryWaiting = false
         ScheduleRecovery()
     end) end
+
+    local function Stale(value)
+        local at = type(value) == "table" and (value.savedAt or value.at)
+        return type(at) ~= "number" or GetServerTime() - at > SNAPSHOT_MAX_AGE
+    end
+    for _, key in ipairs(addon.Player.PruneSlots and { "activeRun", "runCopy", "noteDrafts" } or {}) do
+        addon.Player:PruneSlots(addon.db, key, Stale)
+    end
 
     RunCopy.Load()
     ScheduleRecovery()

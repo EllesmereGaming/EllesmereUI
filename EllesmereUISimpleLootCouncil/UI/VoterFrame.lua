@@ -635,6 +635,8 @@ local function GroupItems()
 
 
                 groups[key] = {
+
+                    key = key,
                     link = item.link,
                     item = item,
                     sessions = {},
@@ -906,6 +908,7 @@ local function Attach(container)
 end
 
 
+
 local function AskedOfMe(sessions, names, me)
     local named = names == nil
     for _, name in ipairs(names or {}) do
@@ -914,7 +917,7 @@ local function AskedOfMe(sessions, names, me)
     if not named then return false end
     for _, session in ipairs(sessions or {}) do
         local item = addon.Session:GetItem(session)
-        if item and not item.removed and addon.Roll.OwedBy(item, me) then return true end
+        if item and not item.removed and not item.awarded and addon.Roll.OwedBy(item, me) then return true end
     end
     return false
 end
@@ -1030,7 +1033,7 @@ local function PaintWindow()
 
 
 
-        local key = group.link or tostring(group.sessions[1])
+        local key = group.key or group.link or tostring(group.sessions[1])
         local sameItem = e.groupKey == key
         if not sameItem and e.groupKey then
             e.flushNote()
@@ -1288,7 +1291,7 @@ function VoterFrame:Init()
         local me = addon.Player:GetFullName("player")
         local owed = 0
         for _, item in ipairs(addon.Session:GetItems()) do
-            if not item.removed and addon.Roll.OwedBy(item, me) then owed = owed + 1 end
+            if not item.removed and not item.awarded and addon.Roll.OwedBy(item, me) then owed = owed + 1 end
         end
         if owed > 0 then dismissedRun, dismissedMax = nil, 0 end
 
