@@ -434,6 +434,7 @@ local function _ApplyAlpha(alpha)
     if not _alphaFrames then _BuildAlphaCache() end
     -- Our tab strip (UIParent-parented) fades directly; its buttons inherit.
     if ns._chatTabStrip then ns._chatTabStrip:SetAlpha(alpha) end
+    if ns._chatBar then ns._chatBar:SetAlpha(alpha) end
     -- Blizzard Style shows Blizzard's real docked tabs: they fade at DOCK
     -- level, the same container-alpha write the tab sweep makes for the
     -- EllesmereUI look (never the per-tab alphas or their globals).

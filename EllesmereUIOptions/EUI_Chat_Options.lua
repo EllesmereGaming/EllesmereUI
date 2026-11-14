@@ -36,6 +36,7 @@ initFrame:SetScript("OnEvent", function(self)
         if ECHAT.ApplyBackground  then ECHAT.ApplyBackground()  end
         if ECHAT.ApplyFonts       then ECHAT.ApplyFonts()       end
         if ECHAT.RefreshVisibility then ECHAT.RefreshVisibility() end
+        if ECHAT.ApplyChatBar     then ECHAT.ApplyChatBar()     end
     end
 
     local function BuildPage(pageName, parent, yOffset)
@@ -796,6 +797,170 @@ initFrame:SetScript("OnEvent", function(self)
             { type="label", text="" });  y = y - h
 
         end -- isSidebar
+
+        -- -- CHAT BAR ----------------------------------------------------------
+        if pageName == "Chat Bar" then
+            local function ApplyBar()
+                if ECHAT.ApplyChatBar then ECHAT.ApplyChatBar() end
+            end
+            local function BarOff() return not Cfg("chatBarEnabled") end
+            local function Slider(text, key, lo, hi, step, def)
+                return { type="slider", text=text, min=lo, max=hi, step=step,
+                    disabled=BarOff, disabledTooltip="Enable Chat Bar",
+                    getValue=function() return Cfg(key) or def end,
+                    setValue=function(v) Set(key, v); ApplyBar() end }
+            end
+            local function Toggle(text, key)
+                return { type="toggle", text=text,
+                    disabled=BarOff, disabledTooltip="Enable Chat Bar",
+                    getValue=function() return Cfg(key) ~= false end,
+                    setValue=function(v) Set(key, v); ApplyBar() end }
+            end
+
+            -- Intro as the other pages draw it (Gamepad): centered dim text on
+            -- a sized host, no row background. Chrome only, skipped by search.
+            if not EllesmereUI._prebuilding then
+                local PPP = EllesmereUI.PanelPP
+                local introHost = CreateFrame("Frame", nil, parent)
+                PPP.Size(introHost, parent:GetWidth() - EllesmereUI.CONTENT_PAD * 2, 44)
+                PPP.Point(introHost, "TOPLEFT", parent, "TOPLEFT", EllesmereUI.CONTENT_PAD, y - 20)
+                local intro = EllesmereUI.MakeFont(introHost, 14, nil, 1, 1, 1, 0.65)
+                intro:SetPoint("TOPLEFT", introHost, "TOPLEFT", 0, -2)
+                intro:SetPoint("TOPRIGHT", introHost, "TOPRIGHT", 0, -2)
+                intro:SetJustifyH("CENTER")
+                intro:SetWordWrap(true)
+                intro:SetText(EllesmereUI.L("Shows a row of buttons that switch the chat channel of the input box.") .. "\n"
+                    .. EllesmereUI.L("Channels with a number (General, Trade) can only be picked out of combat."))
+            end
+            y = y - 48
+
+            local hdr
+            hdr, h = W:SectionHeader(parent, "CHAT BAR", y); y = y - h
+            EllesmereUI.BuildSectionUnlockJump(hdr, { key = "ECHAT_ChatBar",
+                disabled = BarOff, disabledTooltip = "Enable Chat Bar" })
+
+            _, h = W:DualRow(parent, y,
+                { type="toggle", text="Enable Chat Bar",
+                  getValue=function() return Cfg("chatBarEnabled") == true end,
+                  setValue=function(v)
+                      Set("chatBarEnabled", v)
+                      ApplyBar()
+                      EllesmereUI:RefreshPage()
+                  end },
+                Slider("Font Size", "chatBarFontSize", 8, 20, 1, 11))
+            y = y - h
+
+            _, h = W:DualRow(parent, y,
+                Slider("Button Width", "chatBarButtonWidth", 14, 40, 1, 22),
+                Slider("Button Height", "chatBarButtonHeight", 14, 40, 1, 20))
+            y = y - h
+
+            -- The buttons follow the chat's look (Global Settings > Style):
+            -- the stock looks and WoW Forever wear the sidebar's button art,
+            -- so the fill applies to the EllesmereUI look only and is gated
+            -- (dimmed, with the style's requirement tooltip) under the others.
+            -- The fill takes the chat background's opacity until the toggle
+            -- gives it its own, set in the cog.
+            local customBgCfg = Toggle("Custom Background Opacity", "chatBarBgCustom")
+            customBgCfg.tooltip = "Off: the buttons take the opacity of the chat background. On: set their own opacity in the menu next to the switch."
+            customBgCfg.getValue = function() return Cfg("chatBarBgCustom") == true end
+            if STOCK then BS.Gate("chat", customBgCfg) end
+            local bgRow
+            bgRow, h = W:DualRow(parent, y,
+                Slider("Button Spacing", "chatBarSpacing", 0, 10, 1, 2),
+                customBgCfg)
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(bgRow._rightRegion, {
+                    disabled = function()
+                        return STOCK or BarOff() or Cfg("chatBarBgCustom") ~= true
+                    end,
+                    -- Under a stock look the switch's own gate tooltip speaks.
+                    disabledTooltip = not STOCK and function()
+                        return BarOff() and "Enable Chat Bar" or "Custom Background Opacity"
+                    end or nil,
+                    title = "Background",
+                    rows = {
+                        { type="slider", label="Opacity", min=0, max=100, step=5,
+                          get=function()
+                              local a = Cfg("chatBarBgAlpha") or Cfg("bgAlpha") or 0.65
+                              return math.floor(a * 100 + 0.5)
+                          end,
+                          set=function(v) Set("chatBarBgAlpha", v / 100); ApplyBar() end },
+                    },
+                })
+            end
+            y = y - h
+
+            local hideCfg = Toggle("Hide Unavailable Buttons", "chatBarHideUnavailable")
+            hideCfg.tooltip = "Hides the buttons you cannot use right now: channels like Party outside a group or Officer without the rank, Raid Check unless you lead or assist the group, and Pull Timer where BigWigs or DBM would not let you start one and during boss encounters, Mythic+ and rated PvP. Off: they stay on the bar, dimmed, and ignore clicks."
+            local combatCfg = Toggle("Dim in Combat", "chatBarDimInCombat")
+            combatCfg.tooltip = "Dims the buttons you cannot use in combat: the numbered channels, Roll, Raid Check, Pull Timer and Reload UI. In combat they ignore clicks and hover either way."
+            _, h = W:DualRow(parent, y, hideCfg, combatCfg); y = y - h
+
+            -- Opt-in: opening the box from addon code may taint the chat type
+            -- (EUI_Chat_Bar.lua, OpenChat), so the tooltip says what it risks.
+            local openCfg = Toggle("Open Input Box on Click", "chatBarOpenOnClick")
+            openCfg.getValue = function() return Cfg("chatBarOpenOnClick") == true end
+            openCfg.tooltip = "Opens the chat input box when you click a channel button. Off: the click only picks the channel, and Enter opens the box on it.\n\nDuring boss encounters, Mythic+ and rated PvP the click never opens the box.\n\n|cffff4d4dWarning: opening the box from an addon may stop your messages from sending in those fights.|r"
+            -- How the picked channel is marked in the EllesmereUI look
+            -- (chatBarActiveStyle, EUI_Chat_Bar.lua).
+            local markerCfg = { type="dropdown", text="Active Channel",
+                tooltip="How the picked channel is marked: a line in the channel's color under the button, or the whole button filled with that color.",
+                disabled=BarOff, disabledTooltip="Enable Chat Bar",
+                values={ line = "Underline", fill = "Channel Color Fill" },
+                order={ "line", "fill" },
+                getValue=function() return Cfg("chatBarActiveStyle") or "line" end,
+                setValue=function(v) Set("chatBarActiveStyle", v); ApplyBar() end }
+            -- Blizzard Style, Classic and WoW Forever always fill the button.
+            if STOCK then BS.Gate("chat", markerCfg) end
+            _, h = W:DualRow(parent, y, openCfg, markerCfg); y = y - h
+
+            -- Channels in pairs that belong together: the group finder's
+            -- instance chat with the group, raid with its warning, guild with officers;
+            -- the bar lays its buttons out in the same order.
+            _, h = W:SectionHeader(parent, "CHANNELS", y); y = y - h
+            _, h = W:DualRow(parent, y, Toggle("Say", "chatBarShowSay"), Toggle("Yell", "chatBarShowYell")); y = y - h
+            _, h = W:DualRow(parent, y, Toggle("Instance", "chatBarShowInstance"), Toggle("Party", "chatBarShowParty")); y = y - h
+            _, h = W:DualRow(parent, y, Toggle("Raid", "chatBarShowRaid"), Toggle("Raid Warning", "chatBarShowRaidWarning")); y = y - h
+            _, h = W:DualRow(parent, y, Toggle("Guild", "chatBarShowGuild"), Toggle("Officer", "chatBarShowOfficer")); y = y - h
+            _, h = W:DualRow(parent, y, Toggle("Emote", "chatBarShowEmote"), Toggle("World Channels", "chatBarShowWorldChannels")); y = y - h
+
+            _, h = W:SectionHeader(parent, "TOOLS", y); y = y - h
+            local readyCfg = Toggle("Raid Check", "chatBarShowReadyCheck")
+            readyCfg.tooltip = "Right-click the button to start a role check."
+            _, h = W:DualRow(parent, y, Toggle("Roll", "chatBarShowRoll"), readyCfg); y = y - h
+            local timerRow
+            timerRow, h = W:DualRow(parent, y, Toggle("Pull Timer", "chatBarShowPullTimer"), Toggle("Reload UI", "chatBarShowReload"))
+            if not EllesmereUI._prebuilding then
+                -- Cog: the Pull Timer button's timings (left click pulls,
+                -- right click breaks). Dimmed and inert while the button is off.
+                local function Num(key, def)
+                    return function() return Cfg(key) or def end
+                end
+                local function SetNum(key)
+                    return function(v) Set(key, v); ApplyBar() end
+                end
+                EllesmereUI.BuildInlineCog(timerRow._leftRegion, {
+                    disabled = function() return BarOff() or Cfg("chatBarShowPullTimer") == false end,
+                    disabledTooltip = "Pull Timer",
+                    title = "Pull Timer",
+                    rows = {
+                        { type="slider", label="Pull Timer Duration", min = 3, max = 60, step = 1,
+                          tooltip="Left-click the Pull Timer button to start a pull timer of this many seconds.",
+                          get=Num("chatBarPullDuration", 10), set=SetNum("chatBarPullDuration") },
+                        { type="slider", label="Break Duration (min)", min = 1, max = 30, step = 1,
+                          tooltip="Right-click the Pull Timer button to start a break of this many minutes. It runs on the BigWigs or DBM break bar; without them it runs on the game's countdown, which boss mods in the group show as a pull.",
+                          get=Num("chatBarBreakMinutes", 5), set=SetNum("chatBarBreakMinutes") },
+                        { type="toggle", label="Announce Break",
+                          tooltip="Tells your raid or group in chat when you start a break. Only the group's leader or an assist can start one.",
+                          get=function() return Cfg("chatBarBreakAnnounce") ~= false end,
+                          set=function(v) Set("chatBarBreakAnnounce", v); ApplyBar() end },
+                    },
+                })
+            end
+            y = y - h
+
+        end
 
         if isTabs then
             -- Classic WoW UI (the vanilla tab sheet) and WoW Forever (the
@@ -1654,7 +1819,7 @@ initFrame:SetScript("OnEvent", function(self)
     -- paints its own tabs with the Tabs page's typography).
     local blizzTabsStyle = EllesmereUI.BlizzStyle and EllesmereUI.BlizzStyle.Active("chat") == "blizzard"
         and not EllesmereUI.BlizzStyle.Forever("chat")
-    local chatPages = blizzTabsStyle and { "Chat", "Sidebar" } or { "Chat", "Tabs", "Sidebar" }
+    local chatPages = blizzTabsStyle and { "Chat", "Sidebar", "Chat Bar" } or { "Chat", "Tabs", "Sidebar", "Chat Bar" }
     -- Chat Bubbles live in Blizzard Skins+: this tab links straight there, so it
     -- is offered only while that module is loaded.
     if EllesmereUI._ModuleNS["EllesmereUIBlizzardSkin"] then chatPages[#chatPages + 1] = "Chat Bubbles" end
@@ -1665,7 +1830,7 @@ initFrame:SetScript("OnEvent", function(self)
         pages       = chatPages,
         pageLinks   = { ["Chat Bubbles"] = { module = "EllesmereUIBlizzardSkin", page = "Chat Bubbles" } },
         buildPage   = function(pageName, p, yOffset) return BuildPage(pageName, p, yOffset) end,
-        searchTerms = "chat tabs border spacing background sidebar friends voice url copy whisper channel abbreviate shortened class color names timestamps timestamp all messages font size",
+        searchTerms = "chat tabs border spacing background sidebar friends voice url copy whisper channel abbreviate shortened class color names timestamps timestamp all messages font size chat bar channel buttons say party raid guild roll ready check pull",
         onReset = function()
             local d = _G._ECHAT_DB
             if d and d.ResetProfile then d:ResetProfile() end
