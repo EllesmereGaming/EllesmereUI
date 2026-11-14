@@ -244,6 +244,75 @@ local function EnsureClassPowerBar(plate)
     plate._cpBar = bar
 end
 
+-- Energy bar beside the combo pips (Rogue, Druid in cat form). Off by default; the
+-- StatusBar is only built the first time it is shown.
+function ns.CP_EnergyBarActive()
+    return (PLAYER_CLASS == "ROGUE" or PLAYER_CLASS == "DRUID")
+        and ns.GetClassPowerEnergyBar()
+        and UnitPowerType("player") == Enum.PowerType.Energy
+end
+
+-- Hide When Full: alpha 0 while capped out of combat. Energy can be secret, so the
+-- engine does the comparison through a step curve; the result is only fed to SetAlpha.
+function ns.CP_EnergyFullAlpha()
+    if not ns.GetClassPowerEnergyHideFull() or InCombatLockdown() then return 1 end
+    local energy = Enum.PowerType.Energy
+    if not (UnitPowerPercent and C_CurveUtil and C_CurveUtil.CreateCurve and Enum.LuaCurveType) then
+        local cur, mx = UnitPower("player", energy), UnitPowerMax("player", energy)
+        if cur and mx and not (issecretvalue and (issecretvalue(cur) or issecretvalue(mx)))
+           and cur >= mx then
+            return 0
+        end
+        return 1
+    end
+    local curve = ns._cpEnergyFullCurve
+    if not curve then
+        curve = C_CurveUtil.CreateCurve()
+        curve:SetType(Enum.LuaCurveType.Step)
+        curve:AddPoint(0, 1)
+        curve:AddPoint(1, 0)
+        ns._cpEnergyFullCurve = curve
+    end
+    return UnitPowerPercent("player", energy, true, curve) or 1
+end
+
+function ns.CP_HideEnergyBar(plate)
+    if plate._cpEnergy then plate._cpEnergy:Hide() end
+end
+
+function ns.CP_UpdateEnergyBar(plate, anchorFrame, anchorRelPoint, leftAnchor, x, y, w, h, color, bgCol)
+    local bar = plate._cpEnergy
+    if not bar then
+        bar = CreateFrame("StatusBar", nil, plate)
+        bar:SetStatusBarTexture(ns.CP_SHAPE.WHITE)
+        bar:SetFrameLevel(plate:GetFrameLevel() + 5)
+        bar._bg = bar:CreateTexture(nil, "BACKGROUND")
+        bar._bg:SetAllPoints()
+        plate._cpEnergy = bar
+    end
+    bar:ClearAllPoints()
+    bar:SetSize(w, h)
+    bar:SetPoint(leftAnchor, anchorFrame, anchorRelPoint, x, y)
+    local energy = Enum.PowerType.Energy
+    local mx = UnitPowerMax("player", energy)
+    if not mx or (issecretvalue and issecretvalue(mx)) or mx <= 0 then mx = 100 end
+    bar:SetMinMaxValues(0, mx)
+    bar:SetValue(UnitPower("player", energy) or 0)
+    bar:SetStatusBarColor(color[1], color[2], color[3], 1)
+    bar._bg:SetColorTexture(bgCol.r, bgCol.g, bgCol.b, bgCol.a)
+    bar:SetAlpha(ns.CP_EnergyFullAlpha())
+    bar:Show()
+end
+
+-- UNIT_POWER_FREQUENT path: value and Hide When Full only, no relayout.
+function ns.CP_RefreshEnergyValue()
+    local tp = ns._cachedTargetPlate
+    local bar = tp and tp._cpEnergy
+    if not (bar and bar:IsShown()) then return end
+    bar:SetValue(UnitPower("player", Enum.PowerType.Energy) or 0)
+    bar:SetAlpha(ns.CP_EnergyFullAlpha())
+end
+
 -- Update pip display on a plate (or hide if plate is nil)
 local function UpdateClassPowerOnPlate(plate)
     if not plate or not plate._cpPips then return end
@@ -254,6 +323,7 @@ local function UpdateClassPowerOnPlate(plate)
             if plate._cpPips[i]._bg then plate._cpPips[i]._bg:Hide() end
         end
         if plate._cpBar then plate._cpBar:Hide() end
+        ns.CP_HideEnergyBar(plate)
         if _G._EWC then _G._EWC.Gate("np") end
         return
     end
@@ -513,6 +583,7 @@ local function UpdateClassPowerOnPlate(plate)
             plate._cpPips[i]:Hide()
             if plate._cpPips[i]._bg then plate._cpPips[i]._bg:Hide() end
         end
+        ns.CP_HideEnergyBar(plate)
         return
     end
 
@@ -554,6 +625,13 @@ local function UpdateClassPowerOnPlate(plate)
 
     local leftAnchor = (anchorPoint == "BOTTOM") and "BOTTOMLEFT" or "TOPLEFT"
 
+    -- Energy bar: "inner" sits against the health bar and pushes the pips outward.
+    local eShown = ns.CP_EnergyBarActive()
+    local eInner = eShown and ns.GetClassPowerEnergyAnchor() == "inner"
+    local eH = eShown and math.max(1, math.floor(ns.GetClassPowerEnergyHeight() / onePx + 0.5)) * onePx or 0
+    local eGap = math.max(scaledGap, onePx)
+    local pipY = yDir * (cpYOff + (eInner and (eH + eGap) or 0))
+
     -- Engine-owned warrior charge fill: size and anchor the shared overlay
     -- from the same math the pips would use, hand over the resolved color,
     -- park the legacy pips, and stop before any value work.
@@ -580,7 +658,7 @@ local function UpdateClassPowerOnPlate(plate)
             -- (i-1)*stride is an exact integer multiple of physical pixels, so every pip lands on the same grid.
             local pipLeftX = (i - 1) * stride - halfGroup + cpXOff
             pip:SetPoint(leftAnchor, anchorFrame, anchorRelPoint,
-                pipLeftX, yDir * cpYOff)
+                pipLeftX, pipY)
 
             -- Background texture behind each pip
             local bg = pip._bg
@@ -671,10 +749,27 @@ local function UpdateClassPowerOnPlate(plate)
             ns.HidePipDecor(pip)
         end
     end
+
+    if eShown then
+        local eW = math.max(1, math.floor(groupW * ns.GetClassPowerEnergyWidth() / onePx + 0.5)) * onePx
+        local eHalf = math.floor((eW / 2) / onePx + 0.5) * onePx
+        local eEdge = eInner and cpYOff or (cpYOff + scaledH + eGap)
+        ns.CP_UpdateEnergyBar(plate, anchorFrame, anchorRelPoint, leftAnchor,
+            cpXOff - eHalf + ns.GetClassPowerEnergyXOffset(),
+            yDir * eEdge + ns.GetClassPowerEnergyYOffset(), eW, eH, cpColor, bgCol)
+    else
+        ns.CP_HideEnergyBar(plate)
+    end
+    -- Top position: the name sits above the stack, so re-place it when the bar comes or goes.
+    if plate._cpEnergyShown ~= eShown then
+        plate._cpEnergyShown = eShown
+        if cpPos == "top" and plate.RefreshNamePosition then plate:RefreshNamePosition() end
+    end
 end
 
 local function HideClassPowerOnPlate(plate)
     if not plate or not plate._cpPips then return end
+    ns.CP_HideEnergyBar(plate)
     for i = 1, #plate._cpPips do
         plate._cpPips[i]:Hide()
         if plate._cpPips[i]._bg then plate._cpPips[i]._bg:Hide() end
@@ -789,7 +884,11 @@ GetClassPowerTopPush = function(plate)
     local cpYOff = ns.GetClassPowerYOffset()
     -- Square-footprint shapes are taller than the flat rectangle pip.
     local h = ns.CP_SHAPE.SQUARE[ns.GetClassPowerShape()] and CP_PIP_W or CP_PIP_H
-    return h * cpScale + cpYOff
+    local push = h * cpScale + cpYOff
+    if ns.CP_EnergyBarActive() then
+        push = push + ns.GetClassPowerEnergyHeight() + math.max(ns.GetClassPowerGap() * cpScale, 1)
+    end
+    return push
 end
 SetClassPowerTopPush(GetClassPowerTopPush)
 
@@ -928,7 +1027,16 @@ local function EnableClassPowerWatcher()
         if classPowerType == Enum.PowerType.Runes then
             classPowerWatcher:RegisterEvent("RUNE_POWER_UPDATE")
         end
-        classPowerWatcher:SetScript("OnEvent", function(_, event, unit)
+        -- Energy bar: every energy change, as the Resource Bars power bar paints;
+        -- Hide When Full also needs combat transitions. Only while those options are on.
+        if (PLAYER_CLASS == "ROGUE" or PLAYER_CLASS == "DRUID") and ns.GetClassPowerEnergyBar() then
+            classPowerWatcher:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
+            if ns.GetClassPowerEnergyHideFull() then
+                classPowerWatcher:RegisterEvent("PLAYER_REGEN_DISABLED")
+                classPowerWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+            end
+        end
+        classPowerWatcher:SetScript("OnEvent", function(_, event, unit, powerToken)
             if event == "PLAYER_SPECIALIZATION_CHANGED" then
                 -- Group members' spec events land here too; see the filter note in the
                 -- string-resource branch above.
@@ -937,6 +1045,10 @@ local function EnableClassPowerWatcher()
                 ApplyClassPowerSetting()
             elseif event == "PLAYER_TARGET_CHANGED" or event == "UPDATE_SHAPESHIFT_FORM" then
                 RefreshClassPowerFull()
+            elseif event == "UNIT_POWER_FREQUENT" then
+                if (issecretvalue and issecretvalue(powerToken)) or powerToken == "ENERGY" then
+                    ns.CP_RefreshEnergyValue()
+                end
             else
                 RefreshClassPower()
             end
@@ -974,6 +1086,11 @@ ApplyClassPowerSetting = function()
 end
 ns.ApplyClassPowerSetting = ApplyClassPowerSetting
 ns.RefreshClassPower = RefreshClassPowerFull
+-- For settings that change which events the watcher registers.
+ns.RebuildClassPowerWatcher = function()
+    DisableClassPowerWatcher()
+    ApplyClassPowerSetting()
+end
 local function DarkenColor(r, g, b, factor)
     factor = factor or 0.60
     return r * factor, g * factor, b * factor

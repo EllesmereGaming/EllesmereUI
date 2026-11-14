@@ -375,8 +375,8 @@ local NEED_ATLAS = { TANK = "groupfinder-icon-role-micro-tank", HEALER = "groupf
 local BLIZZ_RR_ATLAS = { TANK = "groupfinder-icon-role-large-tank", HEALER = "groupfinder-icon-role-large-heal",
     DAMAGER = "groupfinder-icon-role-large-dps" }
 local BLIZZ_RR_SCALE = 1.22  -- art size over its visible ring
--- a delisted group's text colour: the delisted row highlight colour, set on each paint
-local DR, DG, DB = 0x5B / 255, 0x5B / 255, 0x5B / 255
+-- a delisted group's text colour: the delisted row highlight colour, set on each paint (not DB: that's the settings)
+local DelR, DelG, DelB = 0x5B / 255, 0x5B / 255, 0x5B / 255
 local REMAINING = { TANK = "TANK_REMAINING", HEALER = "HEALER_REMAINING", DAMAGER = "DAMAGER_REMAINING" }
 local PERSON_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png"
 local PLAYERS_COLOR = { 0.4, 0.4, 0.42 }
@@ -845,7 +845,7 @@ local LIVE = {
 -- a font string in the delisted grey, or back to the colour it was made with
 local function Grey(fs, gone)
     if not fs.baseColor then fs.baseColor = { fs:GetTextColor() } end
-    if gone then fs:SetTextColor(DR, DG, DB)
+    if gone then fs:SetTextColor(DelR, DelG, DelB)
     else local c = fs.baseColor; fs:SetTextColor(c[1], c[2], c[3], c[4]) end
 end
 
@@ -873,7 +873,7 @@ local function LineThree(r, id, info, src)
     if tag then
         if r.l3prev then Put(r, r.sep2, 4) end
         r.tag:SetText(tag)
-        if gone then r.tag:SetTextColor(DR, DG, DB) else r.tag:SetTextColor(tr, tg, tb, 1) end
+        if gone then r.tag:SetTextColor(DelR, DelG, DelB) else r.tag:SetTextColor(tr, tg, tb, 1) end
         Put(r, r.tag, 4)
         if flag then
             local fh = math.max(8, ns.OwnListSize("lineSize"))
@@ -900,7 +900,7 @@ local function Fill(r, id, src)
     local gone = info.isDelisted
     gone = not Secret(gone) and gone and true or false
     r.gone = gone
-    if gone then DR, DG, DB = StatusColor(LINE_DELISTED) end
+    if gone then DelR, DelG, DelB = StatusColor(LINE_DELISTED) end
     -- protected text, straight to the font string
     r.name:SetText(info.name)
     local acts = info.activityIDs
@@ -911,7 +911,7 @@ local function Fill(r, id, src)
     local nr, ng, nb
     nr, ng, nb = src.nameColor(id, info, ai)  -- "and" would drop g and b
     if not nr then nr, ng, nb = FriendColor(info) end
-    if gone then r.name:SetTextColor(DR, DG, DB)
+    if gone then r.name:SetTextColor(DelR, DelG, DelB)
     elseif nr then r.name:SetTextColor(nr, ng, nb) else r.name:SetTextColor(1, 0.82, 0) end
     r.act:SetText(ai and ai.fullName or "")
     Grey(r.act, gone)
@@ -964,7 +964,7 @@ local function Fill(r, id, src)
         local cr, cg, cb = 1, 1, 1
         if ns.GFRatingColor then cr, cg, cb = ns.GFRatingColor(score) end
         r.score:SetText(score)
-        if r.gone then r.score:SetTextColor(DR, DG, DB) else r.score:SetTextColor(cr, cg, cb) end
+        if r.gone then r.score:SetTextColor(DelR, DelG, DelB) else r.score:SetTextColor(cr, cg, cb) end
     else
         r.score:SetText("")
     end

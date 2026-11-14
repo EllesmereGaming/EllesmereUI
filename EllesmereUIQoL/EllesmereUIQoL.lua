@@ -124,7 +124,7 @@ qolFrame:SetScript("OnEvent", function(self)
                 and (not request.isRoll or request.specID == LootSpec())
         end
 
-        local function Click(isRoll, button, mouseButton, down)
+        local function Click(isRoll, button)
             if not active or not Enabled() then return end
             Invalidate()
             local frame = BonusRollFrame
@@ -148,12 +148,13 @@ qolFrame:SetScript("OnEvent", function(self)
                 confirmText = isRoll and ROLL or PASS,
                 cancelText = CANCEL,
                 onCancel = request.cancel,
-                onConfirm = function()
-                    if pending ~= request then return end
-                    local valid = IsCurrent(request)
-                    Invalidate()
-                    if valid then button:Click(mouseButton, down) end
+                -- Blizzard's button is clicked by the popup's secure overlay:
+                -- a Click() from here taints AcceptSpellConfirmationPrompt.
+                confirmClick = button,
+                confirmGate = function()
+                    return pending == request and IsCurrent(request)
                 end,
+                onConfirm = Invalidate,
             })
         end
 
@@ -170,8 +171,8 @@ qolFrame:SetScript("OnEvent", function(self)
             overlay:SetAllPoints(button)
             overlay:SetFrameLevel(button:GetFrameLevel() + 1)
             overlay:RegisterForClicks("LeftButtonUp")
-            overlay:SetScript("OnClick", function(_, mouseButton, down)
-                Click(isRoll, button, mouseButton, down)
+            overlay:SetScript("OnClick", function()
+                Click(isRoll, button)
             end)
             overlay:SetScript("OnEnter", function(self)
                 EllesmereUI.ShowWidgetTooltip(self, isRoll and ROLL or PASS)

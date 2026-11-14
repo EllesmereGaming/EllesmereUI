@@ -795,6 +795,7 @@ local function BuildDisplayBars(parent, y, ctx)
           setValue=function(v)
             DB().classPowerPos = v
             ns.RefreshClassPower(); UpdatePreview()
+            EllesmereUI:RefreshPage()  -- relabel the Energy Bar Position dropdown
           end, order={ "top", "bottom" } },
         { type="slider", text="Size", min=0.5, max=4.0, step=0.1,
           getValue=function() return DBVal("classPowerScale") or defaults.classPowerScale end,
@@ -904,6 +905,87 @@ local function BuildDisplayBars(parent, y, ctx)
         local off = borderOff()
         swatch:SetAlpha(off and 0.15 or 1)
         swatch:EnableMouse(not off)
+    end
+
+    -- Rows 5-7: Energy bar beside the pips (Rogue / Druid only)
+    local energyClass = select(2, UnitClass("player"))
+    if energyClass == "ROGUE" or energyClass == "DRUID" then
+        local function energyOff() return DBVal("classPowerEnergyBar") ~= true end
+        local classResourceRow5
+        classResourceRow5, h = W:DualRow(parent, y,
+            { type="toggle", text="Show Energy Bar",
+              getValue=function() return DBVal("classPowerEnergyBar") == true end,
+              setValue=function(v)
+                DB().classPowerEnergyBar = v
+                ns.RebuildClassPowerWatcher(); UpdatePreview()
+                EllesmereUI:RefreshPage()
+              end },
+            { type="slider", pixel=true, text="Energy Bar Height", min=1, max=12, step=1,
+              disabled=energyOff,
+              disabledTooltip="Show Energy Bar",
+              getValue=function() return DBVal("classPowerEnergyHeight") or defaults.classPowerEnergyHeight end,
+              setValue=function(v)
+                DB().classPowerEnergyHeight = v
+                ns.RefreshClassPower(); UpdatePreview()
+              end });  y = y - h
+
+        -- Row 6: Energy Bar Position (with inline cog for X/Y) | Width
+        local classResourceRow6
+        classResourceRow6, h = W:DualRow(parent, y,
+            { type="dropdown", text="Energy Bar Position",
+              -- "outer" sits past the pips, so it is above them when the class
+              -- resource is on top of the health bar and below when on the bottom.
+              values=((DBVal("classPowerPos") or defaults.classPowerPos) == "top")
+                  and { outer = "Above Class Resource", inner = "Below Class Resource" }
+                  or  { outer = "Below Class Resource", inner = "Above Class Resource" },
+              order={ "outer", "inner" },
+              disabled=energyOff,
+              disabledTooltip="Show Energy Bar",
+              getValue=function() return DBVal("classPowerEnergyAnchor") or defaults.classPowerEnergyAnchor end,
+              setValue=function(v)
+                DB().classPowerEnergyAnchor = v
+                ns.RefreshClassPower(); UpdatePreview()
+              end },
+            { type="slider", text="Energy Bar Width", min=0.5, max=3.0, step=0.1,
+              disabled=energyOff,
+              disabledTooltip="Show Energy Bar",
+              getValue=function() return DBVal("classPowerEnergyWidth") or defaults.classPowerEnergyWidth end,
+              setValue=function(v)
+                DB().classPowerEnergyWidth = v
+                ns.RefreshClassPower(); UpdatePreview()
+              end });  y = y - h
+
+        if not EllesmereUI._prebuilding then
+            local leftRgn = classResourceRow6._leftRegion
+            EllesmereUI.BuildInlineCog(leftRgn, {
+                anchorTo = leftRgn._control,
+                disabled = energyOff,
+                disabledTooltip = "Show Energy Bar",
+                isOpen = CogPopupOpen,
+                show = function(self)
+                    ShowCogPopup(self, {
+                        title = "Energy Bar Position",
+                        xGet = function() return DBVal("classPowerEnergyXOffset") or defaults.classPowerEnergyXOffset end,
+                        xSet = function(v) DB().classPowerEnergyXOffset = v; ns.RefreshClassPower(); UpdatePreview() end,
+                        yGet = function() return DBVal("classPowerEnergyYOffset") or defaults.classPowerEnergyYOffset end,
+                        ySet = function(v) DB().classPowerEnergyYOffset = v; ns.RefreshClassPower(); UpdatePreview() end,
+                    })
+                end,
+            })
+        end
+
+        -- Row 7: Hide When Full
+        local classResourceRow7
+        classResourceRow7, h = W:DualRow(parent, y,
+            { type="toggle", text="Hide When Full Out of Combat",
+              disabled=energyOff,
+              disabledTooltip="Show Energy Bar",
+              getValue=function() return DBVal("classPowerEnergyHideFull") == true end,
+              setValue=function(v)
+                DB().classPowerEnergyHideFull = v
+                ns.RebuildClassPowerWatcher(); UpdatePreview()
+              end },
+            EllesmereUI.BlankRowCfg());  y = y - h
     end
     end   -- close Class Resource hidden-while-disabled gate
 

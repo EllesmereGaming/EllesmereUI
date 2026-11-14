@@ -42,8 +42,9 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
     end
     -- Auction prices count only while the tracker or an item price shows, and
     -- only with the price addon's API at hand.
+    local FE = EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"]
     local function auctionSource()
-        return EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"].AuctionAPI() ~= nil
+        return FE.PriceSourceLoaded("AUCTIONATOR") or FE.PriceSourceLoaded("BBB")
     end
     local function pricesUnused()
         return not (LF.Get("tracker") or (LF.Get("items") and LF.Get("showPrice")))
@@ -53,7 +54,7 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
     end
     local function auctionTip()
         if off() then return "Loot Feed" end
-        if not auctionSource() then return "This option requires Auctionator to be loaded." end
+        if not auctionSource() then return "This option requires Auctionator or BootyBayBroker to be loaded." end
         return "This option requires Gold per Hour Tracker or Show Item Price to be enabled."
     end
     local function style()
@@ -213,15 +214,31 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
             itemsOff, "Items")
     );  y = y - h
 
-    _, h = W:DualRow(parent, y,
+    local priceRow
+    priceRow, h = W:DualRow(parent, y,
         Toggle("showPrice", "Show Item Price", "Shows what the looted stack is worth.",
             function()
                 LF.RefreshPreview()
-                EllesmereUI:RefreshPage()  -- Use Auctionator Prices greys with it
+                EllesmereUI:RefreshPage()  -- Use Auction Prices greys with it
             end, itemsOff, "Items"),
-        Toggle("auctionPrices", "Use Auctionator Prices", "Prices items from Auctionator scans.",
-            LF.RefreshPreview, auctionOff, auctionTip)
+        Toggle("auctionPrices", "Use Auction Prices",
+            "Prices items from your auction addon's scans. Use the cog to pick the addon.",
+            function()
+                LF.RefreshPreview()
+                EllesmereUI:RefreshPage()  -- the cog's disabled state
+            end, auctionOff, auctionTip)
     );  y = y - h
+    EllesmereUI.BuildInlineCog(priceRow._rightRegion, { title = "Use Auction Prices",
+        disabled = function() return auctionOff() or not LF.Get("auctionPrices") end,
+        disabledTooltip = "Use Auction Prices",
+        rows = {
+            { type = "dropdown", label = "Price Source",
+              values = FE.PRICE_SOURCES, order = FE.PRICE_SOURCE_ORDER,
+              get = function() return FE.PriceSource(LF.Get("priceSource")) end,
+              set = function(v) LF.Cfg().priceSource = v; LF.RefreshPreview() end,
+              itemDisabled = function(v) return not FE.PriceSourceLoaded(v) end },
+        },
+    })
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 

@@ -1,9 +1,16 @@
 # Contributing to EllesmereUI
 
-**FEATURE REQUESTS FREEZE HAS BEEN LIFTED, BUT DUE TO THE SIZE OF EUI, FEATURE**
-**REQUESTS MAY OR MAY NOT BE MERGED DEPENDING ON SEVERAL FACTORS LIKE % OF PLAYERS**
-**THAT WOULD USE IT, POTENTIAL MAINTENANCE, CODE SIZE, AND MORE. IF YOU WANT TO**
-**BUILD A FEATURE I GENERALLY SUGGEST DMING ME ON DISCORD FIRST @ ELLESMERE**
+Bug reports and feature requests now live on the website, and contributors
+pick them up there: the [Bug Tracker](https://ellesmereui.com/bugs) and
+[Feature Requests](https://ellesmereui.com/features). Claim what you work on
+so nobody doubles up, link your pull request, and the site follows it to the
+release with your name on it. A feature request gets a review before you
+build, because not every feature fits EllesmereUI. The
+[Contributor Guide](https://ellesmereui.com/spotlight-contributing) shows how
+it all works, step by step.
+
+To become a contributor, sign in on the website with Discord, then DM me on
+Discord (`@ellesmere`) to request contributor access.
 
 Thanks for wanting to contribute! Pull requests are welcome. This document
 explains how PRs are reviewed and the hard rules the codebase lives by, so
@@ -77,6 +84,9 @@ will make changes to it myself.
 - Screenshots (before/after) for anything visual.
 - Fill in the PR template checklist honestly - "not applicable" is a fine
   answer, silence is not.
+- Leave test files out of your PR. `.tools/tests` is not tracked: the tests
+  there are the maintainer's local tooling and CI does not run them. Say how
+  you tested in the PR description instead.
 
 ## AI coding rules
 

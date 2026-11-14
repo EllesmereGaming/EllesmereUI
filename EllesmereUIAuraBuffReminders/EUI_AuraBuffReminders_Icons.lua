@@ -1239,6 +1239,7 @@ end
 
 local ShowForeverGroupMenu
 local iconPickerStyle
+local ShowForeverFoodMenu
 
 local function GetOrCreateIcon(index)
     if iconPool[index] then return iconPool[index] end
@@ -1256,6 +1257,9 @@ local function GetOrCreateIcon(index)
     btn:HookScript("PostClick", function(self, button, down)
         if button == "MiddleButton" and self._dismissKey then
             _dismissedUntilLoad[self._dismissKey] = true
+            if self._dismissKey == "forever:wellfed" then
+                EABR.SyncForeverFoodWatch(false)
+            end
             if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
         elseif button == "LeftButton" and self._requestKey and not down then
             EABR.SendBuffRequest(self._requestKey, self._requestName)
@@ -1264,6 +1268,8 @@ local function GetOrCreateIcon(index)
             if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
         elseif button == "RightButton" and self._foreverGroup and not InCombat() then
             ShowForeverGroupMenu(self)
+        elseif button == "RightButton" and self._foreverFood and not InCombat() then
+            ShowForeverFoodMenu(self)
         end
     end)
 
@@ -1364,6 +1370,61 @@ function EABR.ForeverPickerSpellData(id, ranked)
     return data.macro, data.rank
 end
 
+local function DrawPickerIcon(frame, texture, selected)
+    if selected then
+        local border = frame:AttachTexture()
+        border:SetSize(38, 38)
+        border:SetPoint("CENTER")
+        border:SetColorTexture(1, 0.82, 0, 1)
+    end
+    local icon = frame:AttachTexture()
+    icon:SetDrawLayer("ARTWORK", 1)
+    icon:SetSize(34, 34)
+    icon:SetPoint("CENTER")
+    icon:SetTexture(texture or 134400)
+end
+
+local function ShowPickerGrid(btn, ids, IsCurrent, populate)
+    if not (MenuUtil and MenuUtil.CreateContextMenu and MenuVariants
+        and MenuConstants and MenuConstants.HorizontalGridDirection) then return end
+    EABR.HideIconTooltip(btn)
+    if not iconPickerStyle then
+        local inset = { left = 4, right = 4, top = 4, bottom = 4 }
+        local padding = { width = 0, height = 0 }
+        iconPickerStyle = CreateFromMixins(MenuVariants.GetDefaultContextMenuMixin(), {
+            GetInset = function() return inset end,
+            GetChildExtentPadding = function() return padding end,
+            Generate = function(frame)
+                local background = frame:AttachTexture()
+                background:SetAtlas("common-dropdown-bg")
+                background:SetAllPoints()
+                background:SetAlpha(0.925)
+            end,
+        })
+    end
+    local previousStyle = btn.menuMixin
+    btn.menuMixin = iconPickerStyle
+    local menu = MenuUtil.CreateContextMenu(btn, function(_, root)
+        root:AddMenuReleasedCallback(function() EABR.ValidateOpenPicker = nil end)
+        local columns = math.min(#ids, max(1, floor((UIParent:GetWidth() - 32) / 42)))
+        root:SetGridMode(MenuConstants.HorizontalGridDirection, columns, 2)
+        -- The context menu otherwise applies a minimum width meant for text rows.
+        root:SetMaximumWidth(columns * 38 + 8)
+        populate(root)
+    end)
+    btn.menuMixin = previousStyle
+    if menu then
+        EABR.ValidateOpenPicker = function()
+            if not IsCurrent() then menu:Close() end
+        end
+    end
+    if menu and not InputUtil.IsGamepadUIEnabled() then
+        local point = menu:GetPoint()
+        menu:ClearAllPoints()
+        InputUtil.AnchorRegionToCursor(menu, point == "BOTTOMLEFT" and "BOTTOM" or "TOP")
+    end
+end
+
 ShowForeverGroupMenu = function(btn)
     local group = btn._foreverGroup
     local profile = db.profile
@@ -1461,46 +1522,13 @@ ShowForeverGroupMenu = function(btn)
             frame:EnableMouseWheel(false)
         end)
     end
-    if #ids < 2 or not (MenuUtil and MenuUtil.CreateContextMenu and MenuVariants
-        and MenuConstants and MenuConstants.HorizontalGridDirection) then return end
-    EABR.HideIconTooltip(btn)
-    if not iconPickerStyle then
-        local inset = { left = 4, right = 4, top = 4, bottom = 4 }
-        local padding = { width = 0, height = 0 }
-        iconPickerStyle = CreateFromMixins(MenuVariants.GetDefaultContextMenuMixin(), {
-            GetInset = function() return inset end,
-            GetChildExtentPadding = function() return padding end,
-            Generate = function(frame)
-                local background = frame:AttachTexture()
-                background:SetAtlas("common-dropdown-bg")
-                background:SetAllPoints()
-                background:SetAlpha(0.925)
-            end,
-        })
-    end
-    local previousStyle = btn.menuMixin
-    btn.menuMixin = iconPickerStyle
-    local menu = MenuUtil.CreateContextMenu(btn, function(_, root)
-        root:AddMenuReleasedCallback(function() EABR.ValidateOpenPicker = nil end)
-        local columns = math.min(#ids, max(1, floor((UIParent:GetWidth() - 32) / 42)))
-        root:SetGridMode(MenuConstants.HorizontalGridDirection, columns, 2)
-        -- The context menu otherwise applies a minimum width meant for text rows.
-        root:SetMaximumWidth(columns * 38 + 8)
+    if #ids < 2 then return end
+    ShowPickerGrid(btn, ids, IsCurrent, function(root)
         for _, id in ipairs(ids) do
             local button = root:CreateButton("", SelectSpell, id)
             button:AddInitializer(function(frame, description)
                 local spellID = description:GetData()
-                if IsSelected(spellID) then
-                    local border = frame:AttachTexture()
-                    border:SetSize(38, 38)
-                    border:SetPoint("CENTER")
-                    border:SetColorTexture(1, 0.82, 0, 1)
-                end
-                local icon = frame:AttachTexture()
-                icon:SetDrawLayer("ARTWORK", 1)
-                icon:SetSize(34, 34)
-                icon:SetPoint("CENTER")
-                icon:SetTexture(Tex(spellID) or 134400)
+                DrawPickerIcon(frame, Tex(spellID), IsSelected(spellID))
                 return 38, 38
             end)
             button:SetTooltip(function(tooltip, description)
@@ -1514,17 +1542,63 @@ ShowForeverGroupMenu = function(btn)
             AddRankControl(button, id)
         end
     end)
-    btn.menuMixin = previousStyle
-    if menu then
-        EABR.ValidateOpenPicker = function()
-            if not IsCurrent() then menu:Close() end
+end
+
+local foodMacros
+function EABR.ForeverFoodMacro(itemID)
+    if not foodMacros then foodMacros = {} end
+    local macro = foodMacros[itemID]
+    if not macro then
+        -- A faded pooled button can still receive clicks during lockdown.
+        macro = "/use [nocombat] item:" .. itemID
+        foodMacros[itemID] = macro
+    end
+    return macro
+end
+
+ShowForeverFoodMenu = function(btn)
+    local profile = db.profile
+    local fo = profile.forever
+    local foods = btn._foreverFood
+    local function IsCurrent()
+        return not InCombat() and db.profile == profile and profile.forever == fo
+            and fo and fo.pickerEnabled == true and fo.wellFed
+            and foods and EABR.IsForeverFoodCurrent(foods) and btn._foreverFood == foods and btn:IsVisible()
+    end
+    if not IsCurrent() then return end
+    local ids = {}
+    for id in pairs(foods) do ids[#ids + 1] = id end
+    if #ids == 0 then return end
+    table.sort(ids)
+    local function SelectFood(id)
+        if not IsCurrent() or not foods[id] then return end
+        local count = C_Item.GetItemCount(id)
+        if not count or count <= 0 then return end
+        fo.wellFedItem = id
+        SetIconMacro(btn, EABR.ForeverFoodMacro(id), C_Item.GetItemIconByID(id))
+        btn._tooltipItem = id
+        EABR.ApplyIconBagCount(btn, count)
+    end
+    ShowPickerGrid(btn, ids, IsCurrent, function(root)
+        for _, id in ipairs(ids) do
+            local button = root:CreateButton("", SelectFood, id)
+            button:AddInitializer(function(frame, description)
+                local itemID = description:GetData()
+                DrawPickerIcon(frame, C_Item.GetItemIconByID(itemID), btn._tooltipItem == itemID)
+                local count = frame:AttachFontString()
+                count:SetFontObject(NumberFontNormalSmall)
+                count:SetDrawLayer("OVERLAY", 7)
+                count:SetWidth(30)
+                count:SetJustifyH("RIGHT")
+                count:SetPoint("CENTER", frame, "CENTER", 0, -10)
+                count:SetText(foods[itemID])
+                return 38, 38
+            end)
+            button:SetTooltip(function(tooltip, description)
+                tooltip:SetItemByID(description:GetData())
+            end)
         end
-    end
-    if menu and not InputUtil.IsGamepadUIEnabled() then
-        local point = menu:GetPoint()
-        menu:ClearAllPoints()
-        InputUtil.AnchorRegionToCursor(menu, point == "BOTTOMLEFT" and "BOTTOM" or "TOP")
-    end
+    end)
 end
 
 -------------------------------------------------------------------------------
@@ -1557,6 +1631,7 @@ do
         e.requestKey = nil; e.requestName = nil
         e.foreverGroup = nil
         e.spellRank = nil
+        e.foreverFood = nil
         return e
     end
 
