@@ -1242,3 +1242,18 @@ L["prompt <lootmaster / raider / guard>"] = true
 L["usage: /slc prompt lootmaster / raider / guard"] = "uso: /slc prompt lootmaster / raider / guard"
 L["v%s"] = true
 L["%s  |cffffd100x%d|r"] = true
+-- == Simple Loot Council 1.0.6 strings, from the Simple Loot Council standalone translations ==
+L["Clear \"Awarded to you\""] = "Limpar \"Atribuído a você\""
+L["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."] = "Excluir %s atribuído a %s?\n\nEle ainda não foi negociado, então isso também desfaz a atribuição: ele sai de \"Saque para negociar\" e do histórico de cada membro da raide, como faz \"Desfazer\"."
+
+-- == Simple Loot Council 1.0.7 strings, from the Simple Loot Council standalone translations ==
+L["Seen in your group and stored by player id, so a rename will not lose them."] = "Visto no seu grupo e armazenado pelo ID do jogador, então uma troca de nome não os perde."
+L["Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename."] = "Armazenado pelo nome, então é comparado como foi digitado. Na próxima vez que este jogador estiver no seu grupo, ele vira um ID permanente e sobrevive a uma troca de nome."
+
+-- == Simple Loot Council 1.0.8-1.2.2 strings, from the Simple Loot Council standalone translations ==
+L["  %d. %s  |cff808080BoE, %dm left|r"] = "  %d. %s  |cff808080BoE, faltam %dm|r"
+L["  -  %s  |cff73716CBoE, not added automatically|r"] = "  -  %s  |cff73716CBoE, não adicionado automaticamente|r"
+L["Answer the question on screen first."] = "Responda primeiro à pergunta na tela."
+L["Requires the council to be allowed to vote for themselves."] = "Requer que o conselho possa votar em si mesmo."
+L["skipped %d BoE item outside its six-hour window - click it in the bags panel to queue it anyway."] = "ignorado %d item BoE fora da janela de seis horas - clique nele no painel de bolsas para enfileirá-lo mesmo assim."
+L["skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway."] = "ignorados %d itens BoE fora da janela de seis horas - clique em um no painel de bolsas para enfileirá-lo mesmo assim."

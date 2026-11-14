@@ -1237,3 +1237,20 @@ L["show a group question, answers do nothing"] = "mostra una domanda di gruppo, 
 L["the council window did not open for this boss kill: %s"] = "la finestra del consiglio non si è aperta per questa uccisione del boss: %s"
 L["whisper %s your answer for an item."] = "sussurra a %s la tua risposta per un oggetto."
 L["would ask whether to send the guide to the raid or by whisper:"] = "chiederebbe se inviare la guida all'incursione o per sussurro:"
+
+-- == Simple Loot Council 1.0.6 strings, from the Simple Loot Council standalone translations ==
+L["Clear \"Awarded to you\""] = "Rimuovi \"Assegnato a te\""
+L["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."] = "Eliminare %s assegnato a %s?\n\nNon è ancora stato scambiato, quindi questo annulla anche l'assegnazione: esce da \"Bottino da commerciare\" e dalla cronologia di ogni membro dell'incursione, come fa \"Revoca\"."
+L["usage: /slc prompt lootmaster / raider / guard"] = "uso: /slc prompt lootmaster / raider / guard"
+
+-- == Simple Loot Council 1.0.7 strings, from the Simple Loot Council standalone translations ==
+L["Seen in your group and stored by player id, so a rename will not lose them."] = "Visto nel tuo gruppo e salvato tramite l'ID del giocatore, quindi un cambio di nome non lo fa perdere."
+L["Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename."] = "Salvato per nome, quindi viene confrontato come digitato. La prossima volta che questo giocatore sarà nel tuo gruppo diventerà un ID permanente e sopravviverà a un cambio di nome."
+
+-- == Simple Loot Council 1.0.8-1.2.2 strings, from the Simple Loot Council standalone translations ==
+L["  %d. %s  |cff808080BoE, %dm left|r"] = "  %d. %s  |cff808080BoE, %dm rimasti|r"
+L["  -  %s  |cff73716CBoE, not added automatically|r"] = "  -  %s  |cff73716CBoE, non aggiunto automaticamente|r"
+L["Answer the question on screen first."] = "Rispondi prima alla domanda sullo schermo."
+L["Requires the council to be allowed to vote for themselves."] = "Richiede che il consiglio possa votare per se stesso."
+L["skipped %d BoE item outside its six-hour window - click it in the bags panel to queue it anyway."] = "saltato %d oggetto BoE fuori dalla sua finestra di sei ore: cliccalo nel pannello delle sacche per metterlo comunque in coda."
+L["skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway."] = "saltati %d oggetti BoE fuori dalla loro finestra di sei ore: clicca uno nel pannello delle sacche per metterlo comunque in coda."
