@@ -174,32 +174,30 @@ local GENERAL_DEFS = {
     },
 }
 
--- WoW Forever's class macros (its right column, where retail has the spec sets).
+-- WoW Forever: its own item macros (best first) and, instead of spec sets, class macros.
 local CLASS_DEFS = {}
 
--- WoW Forever, best first. maxLines = 1 where items share no cooldown (one press, one item).
--- createRanks: { create spell, stone it makes }, lowest rank first. Using these stones
--- is a cast, so a /cast after the /use fails harmlessly while a stone is in the bags.
 if EllesmereUI.IS_FOREVER == true then
-    local healthstones = {}
-    for i, id in ipairs(EllesmereUI.FOREVER_HEALTHSTONES or {}) do healthstones[i] = id end
-    healthstones[#healthstones + 1] = 5512
-    local function each(list)
+    local function Options(list)
         local cbs = {}
         for i, e in ipairs(list) do
             cbs[i] = { key = "opt" .. i, label = e[2], items = type(e[1]) == "table" and e[1] or { e[1] } }
         end
         return cbs
     end
-    local trinket1, trinket2
+    local CREATE_WHEN_OUT = { key = "createWhenOut", label = "Create When Out" }
+    local trinkets = {}
     for _, def in ipairs(GENERAL_DEFS) do
-        if def.name == "EUI_Trinket1" then trinket1 = def elseif def.name == "EUI_Trinket2" then trinket2 = def end
+        if def.name == "EUI_Trinket1" or def.name == "EUI_Trinket2" then trinkets[#trinkets + 1] = def end
     end
+    local healthstones = { unpack(EllesmereUI.FOREVER_HEALTHSTONES or {}) }
+    healthstones[#healthstones + 1] = 5512
+
     GENERAL_DEFS = {
         {
             name = "EUI_Food", icon = "Interface\\Icons\\inv_misc_food_73cinnamonroll", label = "Food",
             ownedOnly = true, maxLines = 1,
-            checkboxes = each({
+            checkboxes = Options({
                 {22895, "Conjured Cinnamon Roll"}, {8076, "Conjured Sweet Roll"}, {8075, "Conjured Sourdough"},
                 {1487, "Conjured Pumpernickel"}, {1114, "Conjured Rye"}, {1113, "Conjured Bread"},
                 {5349, "Conjured Muffin"},
@@ -215,7 +213,7 @@ if EllesmereUI.IS_FOREVER == true then
         {
             name = "EUI_Drink", icon = "Interface\\Icons\\inv_drink_18", label = "Drink",
             ownedOnly = true, maxLines = 1,
-            checkboxes = each({
+            checkboxes = Options({
                 {8079, "Conjured Crystal Water"}, {8078, "Conjured Sparkling Water"}, {8077, "Conjured Mineral Water"},
                 {3772, "Conjured Spring Water"}, {2136, "Conjured Purified Water"}, {2288, "Conjured Fresh Water"},
                 {5350, "Conjured Water"}, {{8766, 287964}, "Morning Glory Dew"},
@@ -229,48 +227,9 @@ if EllesmereUI.IS_FOREVER == true then
             checkboxes = { { key = "opt1", label = "Healthstone", items = healthstones } },
         },
         {
-            name = "EUI_Soulstone", icon = "Interface\\Icons\\inv_misc_orb_04", label = "Soulstone",
-            class = "WARLOCK", ownedOnly = true, maxLines = 1, friendlyTargetKey = "friendlyTarget",
-            createRanks = { {693, 5232}, {20752, 16892}, {20755, 16893}, {20756, 16895}, {20757, 16896} },
-            extraToggles = {
-                { key = "friendlyTarget", label = "Friendly Target, Else Self" },
-                { key = "createWhenOut", label = "Create When Out" },
-            },
-            checkboxes = each({
-                {16896, "Major Soulstone"}, {16895, "Greater Soulstone"}, {16893, "Soulstone"},
-                {16892, "Lesser Soulstone"}, {5232, "Minor Soulstone"},
-            }),
-        },
-        {
-            name = "EUI_Firestone", icon = "Interface\\Icons\\inv_misc_gem_bloodstone_02", label = "Firestone",
-            class = "WARLOCK", ownedOnly = true, maxLines = 1, imbue = true,
-            createRanks = { {6366, 1254}, {17951, 13699}, {17952, 13700}, {17953, 13701} },
-            extraToggles = { { key = "createWhenOut", label = "Create When Out" } },
-            checkboxes = each({
-                {13701, "Major Firestone"}, {13700, "Greater Firestone"}, {13699, "Firestone"},
-                {1254, "Lesser Firestone"},
-            }),
-        },
-        {
-            name = "EUI_Spellstone", icon = "Interface\\Icons\\inv_misc_gem_sapphire_01", label = "Spellstone",
-            class = "WARLOCK", ownedOnly = true, maxLines = 1, imbue = true,
-            createRanks = { {2362, 5522}, {17727, 13602}, {17728, 13603} },
-            extraToggles = { { key = "createWhenOut", label = "Create When Out" } },
-            checkboxes = each({
-                {13603, "Major Spellstone"}, {13602, "Greater Spellstone"}, {5522, "Spellstone"},
-            }),
-        },
-        {
-            name = "EUI_ManaGem", icon = "Interface\\Icons\\inv_misc_gem_ruby_01", label = "Mana Gem",
-            class = "MAGE", ownedOnly = true, maxLines = 1,
-            checkboxes = each({
-                {8008, "Mana Ruby"}, {8007, "Mana Citrine"}, {5513, "Mana Jade"}, {5514, "Mana Agate"},
-            }),
-        },
-        {
             name = "EUI_HealingPotion", icon = "Interface\\Icons\\inv_potion_54", label = "Healing Potion",
             ownedOnly = true,
-            checkboxes = each({
+            checkboxes = Options({
                 {13446, "Major Healing Potion"}, {3928, "Superior Healing Potion"}, {1710, "Greater Healing Potion"},
                 {929, "Healing Potion"}, {858, "Lesser Healing Potion"}, {118, "Minor Healing Potion"},
             }),
@@ -278,22 +237,61 @@ if EllesmereUI.IS_FOREVER == true then
         {
             name = "EUI_ManaPotion", icon = "Interface\\Icons\\inv_potion_76", label = "Mana Potion",
             ownedOnly = true,
-            checkboxes = each({
+            checkboxes = Options({
                 {13444, "Major Mana Potion"}, {13443, "Superior Mana Potion"}, {6149, "Greater Mana Potion"},
                 {3827, "Mana Potion"}, {3385, "Lesser Mana Potion"}, {2455, "Minor Mana Potion"},
             }),
         },
-        trinket1,
-        trinket2,
+        trinkets[1],
+        trinkets[2],
+    }
+
+    local CLASS_MACROS = {
+        -- Using these stones is a cast, so the /cast after the /use fails while one is held.
+        WARLOCK = {
+            {
+                name = "EUI_Soulstone", icon = "Interface\\Icons\\inv_misc_orb_04", label = "Soulstone",
+                ownedOnly = true, maxLines = 1, friendlyTargetKey = "friendlyTarget",
+                createRanks = { {693, 5232}, {20752, 16892}, {20755, 16893}, {20756, 16895}, {20757, 16896} },
+                extraToggles = { { key = "friendlyTarget", label = "Friendly Target, Else Self" }, CREATE_WHEN_OUT },
+                checkboxes = Options({
+                    {16896, "Major Soulstone"}, {16895, "Greater Soulstone"}, {16893, "Soulstone"},
+                    {16892, "Lesser Soulstone"}, {5232, "Minor Soulstone"},
+                }),
+            },
+            {
+                name = "EUI_Firestone", icon = "Interface\\Icons\\inv_misc_gem_bloodstone_02", label = "Firestone",
+                ownedOnly = true, maxLines = 1, imbue = true,
+                createRanks = { {6366, 1254}, {17951, 13699}, {17952, 13700}, {17953, 13701} },
+                extraToggles = { CREATE_WHEN_OUT },
+                checkboxes = Options({
+                    {13701, "Major Firestone"}, {13700, "Greater Firestone"}, {13699, "Firestone"},
+                    {1254, "Lesser Firestone"},
+                }),
+            },
+            {
+                name = "EUI_Spellstone", icon = "Interface\\Icons\\inv_misc_gem_sapphire_01", label = "Spellstone",
+                ownedOnly = true, maxLines = 1, imbue = true,
+                createRanks = { {2362, 5522}, {17727, 13602}, {17728, 13603} },
+                extraToggles = { CREATE_WHEN_OUT },
+                checkboxes = Options({
+                    {13603, "Major Spellstone"}, {13602, "Greater Spellstone"}, {5522, "Spellstone"},
+                }),
+            },
+        },
+        MAGE = {
+            {
+                -- No Create When Out: a gem's use is instant, so the /cast could fire on the same press.
+                name = "EUI_ManaGem", icon = "Interface\\Icons\\inv_misc_gem_ruby_01", label = "Mana Gem",
+                ownedOnly = true, maxLines = 1,
+                checkboxes = Options({
+                    {8008, "Mana Ruby"}, {8007, "Mana Citrine"}, {5513, "Mana Jade"}, {5514, "Mana Agate"},
+                }),
+            },
+        },
     }
     local _, playerClass = UnitClass("player")
-    for i = #GENERAL_DEFS, 1, -1 do
-        local cls = GENERAL_DEFS[i].class
-        if cls then
-            local def = table.remove(GENERAL_DEFS, i)
-            if cls == playerClass then table.insert(CLASS_DEFS, 1, def) end
-        end
-    end
+    CLASS_DEFS = CLASS_MACROS[playerClass] or CLASS_DEFS
 end
 
 -------------------------------------------------------------------------------
@@ -329,19 +327,6 @@ end
 -------------------------------------------------------------------------------
 --  Macro body generation
 -------------------------------------------------------------------------------
--- Set from PLAYER_LEVEL_UP's argument: UnitLevel can still read the old level then.
-local knownPlayerLevel
-
-local function IsItemUsable(def, itemID)
-    if (C_Item.GetItemCount(itemID, false) or 0) == 0 then return false end
-    if not def.ownedOnly then return true end
-    -- Uncached item info: treat as usable rather than drop an item from the bags.
-    local minLevel = select(5, C_Item.GetItemInfo(itemID))
-    if not minLevel then return true end
-    local level = math.max(knownPlayerLevel or 0, UnitLevel("player") or 0)
-    return minLevel <= level
-end
-
 local function GetFirstAvailableItemID(def, db)
     if not def.checkboxes then return nil end
     local cbs = def.checkboxes
@@ -350,7 +335,7 @@ local function GetFirstAvailableItemID(def, db)
         local cb = cbs[idx]
         if cb and db[cb.key] ~= false then
             for _, itemID in ipairs(cb.items) do
-                if IsItemUsable(def, itemID) then
+                if (C_Item.GetItemCount(itemID, false) or 0) > 0 then
                     return itemID
                 end
             end
@@ -359,21 +344,33 @@ local function GetFirstAvailableItemID(def, db)
     return nil
 end
 
+-- Set from PLAYER_LEVEL_UP's argument: UnitLevel can still read the old level then.
+local knownPlayerLevel
+
+local function IsItemUsable(itemID)
+    if (C_Item.GetItemCount(itemID, false) or 0) == 0 then return false end
+    -- Uncached item info: treat as usable rather than drop an item from the bags.
+    local minLevel = select(5, C_Item.GetItemInfo(itemID))
+    return not minLevel or minLevel <= math.max(knownPlayerLevel or 0, UnitLevel("player") or 0)
+end
+
+-- The enabled items in priority order that are usable now, and the first enabled item.
 local function GetUsableItemIDs(def, db)
-    local out = {}
+    local usable, firstEnabled = {}, nil
     local cbs = def.checkboxes
     for _, idx in ipairs(EnsureOrder(db, #cbs)) do
         local cb = cbs[idx]
         if cb and db[cb.key] ~= false then
             for _, itemID in ipairs(cb.items) do
-                if IsItemUsable(def, itemID) then out[#out + 1] = itemID end
+                firstEnabled = firstEnabled or itemID
+                if IsItemUsable(itemID) then usable[#usable + 1] = itemID end
             end
         end
     end
-    return out
+    return usable, firstEnabled
 end
 
--- The highest known rank and the stone it makes; /cast by name casts that rank.
+-- createRanks: { Create spell, stone it makes }, lowest first; /cast by name casts the top rank.
 local function GetKnownCreateSpell(def, db)
     if not (def.createRanks and db.createWhenOut) then return nil end
     for i = #def.createRanks, 1, -1 do
@@ -406,37 +403,30 @@ local function ResolveSpellTokens(text, spells)
     return out
 end
 
--- With nothing usable, the first enabled item keeps the macro's icon and tooltip.
+-- /use lines for usable items only; nil while the Create spell's name is not cached.
 local function BuildOwnedOnlyBody(def, db)
-    local ids = GetUsableItemIDs(def, db)
-    local firstEnabled
-    for _, idx in ipairs(EnsureOrder(db, #def.checkboxes)) do
-        local cb = def.checkboxes[idx]
-        if cb and db[cb.key] ~= false and cb.items[1] then firstEnabled = cb.items[1]; break end
-    end
+    local ids, firstEnabled = GetUsableItemIDs(def, db)
     if not firstEnabled then return "" end
+    local tail = def.imbue and "\n/use 16" or ""
     local spellID, createdItem = GetKnownCreateSpell(def, db)
-    local castLine
     if spellID then
         local name = ResolveSpellTokens("{1}", { spellID })
         if not name then return nil end
-        castLine = "/cast " .. name
+        tail = tail .. "\n/cast " .. name
     end
     if #ids == 0 then ids = { createdItem or firstEnabled } end
-    local tail = (def.imbue and "\n/use 16" or "") .. (castLine and ("\n" .. castLine) or "")
-    local body = ""
-    if db.showTooltip ~= false then body = "#showtooltip item:" .. ids[1] .. "\n" end
+    local body = db.showTooltip ~= false and ("#showtooltip item:" .. ids[1] .. "\n") or ""
     local cond = def.friendlyTargetKey and db[def.friendlyTargetKey] and "[@target,help,nodead][@player] " or ""
-    local prefix = "/use " .. cond .. "item:"
-    local lines = 0
+    local lines = {}
+    local size = #body + #tail
     for _, itemID in ipairs(ids) do
-        local line = (lines > 0 and "\n" or "") .. prefix .. itemID
-        if #body + #line + #tail > 255 then break end
-        body = body .. line
-        lines = lines + 1
-        if def.maxLines and lines >= def.maxLines then break end
+        local line = "/use " .. cond .. "item:" .. itemID
+        size = size + #line + (#lines > 0 and 1 or 0)
+        if size > 255 then break end
+        lines[#lines + 1] = line
+        if #lines == def.maxLines then break end
     end
-    return body .. tail
+    return body .. table.concat(lines, "\n") .. tail
 end
 
 local function GetMacroInventoryKey(def, db)
@@ -538,27 +528,30 @@ end
 --  first loading screen, or the first macro update, whichever finds one of
 --  these macros first) and by the factory when it creates one; a pass that
 --  finds none left (deleted in the game's macro window) disarms it. On WoW
---  Forever a level-up and a learned spell also count (required levels, Create When Out).
---  Nothing listens without Quality of Life or for a player with no such macro.
+--  Forever a level-up also counts (required levels), and for a class with
+--  Create spells a spell change too. Nothing listens without Quality of Life
+--  or for a player with no such macro.
 -------------------------------------------------------------------------------
--- The item each item macro was last written for this session (nil: not yet).
+-- What each item macro was last written for this session: retail's first item, Forever's body.
 local lastAvailableItems = {}
 
 local ITEM_DEFS = {}
 for i = 1, #GENERAL_DEFS do
     if GENERAL_DEFS[i].checkboxes then ITEM_DEFS[#ITEM_DEFS + 1] = GENERAL_DEFS[i] end
 end
-for i = 1, #CLASS_DEFS do ITEM_DEFS[#ITEM_DEFS + 1] = CLASS_DEFS[i] end
+local needsSpellUpkeep = false
+for i = 1, #CLASS_DEFS do
+    ITEM_DEFS[#ITEM_DEFS + 1] = CLASS_DEFS[i]
+    if CLASS_DEFS[i].createRanks then needsSpellUpkeep = true end
+end
 
 local itemUpkeep = CreateFrame("Frame")
 
 local function ArmItemUpkeep()
     itemUpkeep:RegisterEvent("BAG_UPDATE_DELAYED")
     itemUpkeep:RegisterEvent("PLAYER_REGEN_ENABLED")
-    if EllesmereUI.IS_FOREVER then
-        itemUpkeep:RegisterEvent("PLAYER_LEVEL_UP")
-        itemUpkeep:RegisterEvent("SPELLS_CHANGED")
-    end
+    if EllesmereUI.IS_FOREVER then itemUpkeep:RegisterEvent("PLAYER_LEVEL_UP") end
+    if needsSpellUpkeep then itemUpkeep:RegisterEvent("SPELLS_CHANGED") end
 end
 
 local function ItemUpkeepPass()
@@ -579,12 +572,9 @@ local function ItemUpkeepPass()
 end
 
 itemUpkeep:SetScript("OnEvent", function(self, event, arg1)
-    if event == "PLAYER_LEVEL_UP" then
-        knownPlayerLevel = arg1
-        ItemUpkeepPass()
-        return
-    end
-    if event == "BAG_UPDATE_DELAYED" or event == "PLAYER_REGEN_ENABLED" or event == "SPELLS_CHANGED" then
+    if event == "PLAYER_LEVEL_UP" then knownPlayerLevel = arg1 end
+    if event == "BAG_UPDATE_DELAYED" or event == "PLAYER_REGEN_ENABLED"
+       or event == "PLAYER_LEVEL_UP" or event == "SPELLS_CHANGED" then
         ItemUpkeepPass()
         return
     end
@@ -946,10 +936,16 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     local activeClassName = UnitClass("player") or "Unknown"
     -- All spec macro bodies use spell-ID {n} tokens (localized at build time via
     -- ResolveSpellTokens), so they work on every client locale.
-    -- Forever has class macros instead: the spec sets use retail spell IDs.
-    local activeSpecDefs
-    if EllesmereUI.IS_FOREVER then activeSpecDefs = CLASS_DEFS
-    else activeSpecDefs = activeSpecID and SPEC_DEFS[activeSpecID] or {} end
+    local activeSpecDefs, rightTitle, emptyText
+    if EllesmereUI.IS_FOREVER then
+        activeSpecDefs = CLASS_DEFS
+        rightTitle = activeClassName .. " " .. EllesmereUI.L("Macro Factory")
+        emptyText = EllesmereUI.L("No class macros for ") .. activeClassName
+    else
+        activeSpecDefs = activeSpecID and SPEC_DEFS[activeSpecID] or {}
+        rightTitle = (activeSpecName or EllesmereUI.L("Spec")) .. " " .. activeClassName .. " " .. EllesmereUI.L("Macro Factory")
+        emptyText = EllesmereUI.L("No spec macros for ") .. (activeSpecName or EllesmereUI.L("this spec"))
+    end
 
     ---------------------------------------------------------------------------
     --  Layout
@@ -1605,20 +1601,14 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     BuildMacroGroup(GENERAL_DEFS, "LEFT", "General Macro Factory")
 
     -- Build spec macros on right side
-    if EllesmereUI.IS_FOREVER and #activeSpecDefs > 0 then
-        BuildMacroGroup(activeSpecDefs, "RIGHT", activeClassName .. " " .. EllesmereUI.L("Macro Factory"), SPEC_ICONS_PER_ROW, SPEC_ICON_GAP, MAX_SPEC_VISIBLE_ROWS)
-    elseif #activeSpecDefs > 0 then
-        BuildMacroGroup(activeSpecDefs, "RIGHT", (activeSpecName or EllesmereUI.L("Spec")) .. " " .. activeClassName .. " " .. EllesmereUI.L("Macro Factory"), SPEC_ICONS_PER_ROW, SPEC_ICON_GAP, MAX_SPEC_VISIBLE_ROWS)
+    if #activeSpecDefs > 0 then
+        BuildMacroGroup(activeSpecDefs, "RIGHT", rightTitle, SPEC_ICONS_PER_ROW, SPEC_ICON_GAP, MAX_SPEC_VISIBLE_ROWS)
     else
         local emptyFS = container:CreateFontString(nil, "OVERLAY")
         emptyFS:SetFont(fontPath, 16, "")
         emptyFS:SetTextColor(1, 1, 1, 0.25)
         emptyFS:SetPoint("CENTER", container, "TOPLEFT", halfW + halfW / 2, -SECTION_H / 2)
-        if EllesmereUI.IS_FOREVER then
-            emptyFS:SetText(EllesmereUI.L("No class macros for ") .. activeClassName)
-        else
-            emptyFS:SetText(EllesmereUI.L("No spec macros for ") .. (activeSpecName or EllesmereUI.L("this spec")))
-        end
+        emptyFS:SetText(emptyText)
         emptyFS:SetJustifyH("CENTER")
     end
 

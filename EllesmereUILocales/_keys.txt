@@ -1303,7 +1303,7 @@ Ranged
 Re-sync %1$s?
 Reading the meters mid-fight
 Ready
-Ready-made macros for food, drink, healthstones, soulstones, potions and trinkets
+Ready-made macros for food, drink, healthstones, potions and trinkets, plus Warlock stones and Mage gems
 Ready-made macros for potions, food, trinkets and focus, plus a set for your spec
 Reagent Bag
 Reagent Bag (%d / %d)
