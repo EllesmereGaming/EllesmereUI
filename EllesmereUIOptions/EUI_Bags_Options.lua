@@ -504,6 +504,13 @@ initFrame:SetScript("OnEvent", function(self)
                               db.profile.bagShowRecentClear = v
                               if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
                           end },
+                        { type="toggle", label="New Items Only",
+                          tooltip="Only items you were not carrying before appear in Recent Items. Gear and items from mail or trade always appear.",
+                          get=function() return db.profile.bagRecentNewOnly == true end,
+                          set=function(v)
+                              db.profile.bagRecentNewOnly = v
+                              if _G.EUI_Bags and _G.EUI_Bags.RefreshInventory then _G.EUI_Bags:RefreshInventory() end
+                          end },
                     },
                 })
             end
