@@ -3198,6 +3198,16 @@ initFrame:SetScript("OnEvent", function(self)
             end,
         },
         {
+            key   = "stable",
+            title = "Pet Stable",
+            desc  = "The hunter pet stable: pet model, XP bar, pet slots and the slot purchase row.",
+            reloadMsg = "Changing the Pet Stable reskin requires a UI reload to fully swap between Blizzard and Ellesmere styles.",
+            setEnabled = function(v)
+                if not EllesmereUIDB then EllesmereUIDB = {} end
+                EllesmereUIDB.reskinStable = v
+            end,
+        },
+        {
             key   = "gossip",
             title = "Gossip",
             desc  = "The NPC dialog window: greeting text, gossip and quest options, and goodbye button.",
@@ -3321,11 +3331,11 @@ initFrame:SetScript("OnEvent", function(self)
             if foreverDropped[WINDOWS[i].key] then table.remove(WINDOWS, i) end
         end
     else
-        -- The Bag Bar and Progress Legacy skins exist only on Forever; drop
-        -- their cards on retail.
+        -- The Bag Bar, Progress Legacy and Pet Stable skins exist only on
+        -- Forever; drop their cards on retail.
         for i = #WINDOWS, 1, -1 do
             local key = WINDOWS[i].key
-            if key == "bagbar" or key == "legacysystem" then table.remove(WINDOWS, i) end
+            if key == "bagbar" or key == "legacysystem" or key == "stable" then table.remove(WINDOWS, i) end
         end
     end
 
@@ -4898,6 +4908,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.reskinAddonList = nil
                 EllesmereUIDB.reskinCraftOrders = nil
                 EllesmereUIDB.reskinTrainer = nil
+                EllesmereUIDB.reskinStable = nil
                 EllesmereUIDB.reskinGossip = nil
                 EllesmereUIDB.reskinQuest = nil
                 EllesmereUIDB.reskinInspectRecipe = nil
