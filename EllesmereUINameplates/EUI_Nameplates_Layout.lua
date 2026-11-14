@@ -1336,6 +1336,31 @@ end
 function ns.GetClassPowerBorderSize()
     return (p and p.classPowerBorderSize) or defaults.classPowerBorderSize
 end
+function ns.GetClassPowerEnergyBar()
+    local v = p and p.classPowerEnergyBar
+    if v == nil then return defaults.classPowerEnergyBar end
+    return v
+end
+function ns.GetClassPowerEnergyHeight()
+    return (p and p.classPowerEnergyHeight) or defaults.classPowerEnergyHeight
+end
+function ns.GetClassPowerEnergyWidth()
+    return (p and p.classPowerEnergyWidth) or defaults.classPowerEnergyWidth
+end
+function ns.GetClassPowerEnergyAnchor()
+    return (p and p.classPowerEnergyAnchor) or defaults.classPowerEnergyAnchor
+end
+function ns.GetClassPowerEnergyXOffset()
+    return (p and p.classPowerEnergyXOffset) or defaults.classPowerEnergyXOffset
+end
+function ns.GetClassPowerEnergyYOffset()
+    return (p and p.classPowerEnergyYOffset) or defaults.classPowerEnergyYOffset
+end
+function ns.GetClassPowerEnergyHideFull()
+    local v = p and p.classPowerEnergyHideFull
+    if v == nil then return defaults.classPowerEnergyHideFull end
+    return v
+end
 local function IsBorderEnabled()
     -- The stock styles carry their own art instead of an EUI border: the
     -- stock background art (Blizzard Style), the vanilla border sheets
