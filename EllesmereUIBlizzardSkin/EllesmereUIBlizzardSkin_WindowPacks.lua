@@ -8836,11 +8836,12 @@ local function Skin_Trainer()
         local tfs = tb.GetFontString and tb:GetFontString()
         if tfs then WSkin.White(tfs) end
     end
-    -- The QoL Train All button beside it (exists only while that option is on).
-    local tab = _G.EUI_TrainAllButton
-    if tab then
-        WSkin.Button(tab)
-        WSkin.StateButtonLabel(tab)
+    -- Quality of Life's Train All button beside it (our own frame, made the
+    -- first time that option is on; each show of the window picks it up).
+    local trainAll = _G.EUI_TrainAllButton
+    if trainAll then
+        WSkin.Button(trainAll)
+        WSkin.StateButtonLabel(trainAll)
     end
     -- Top "current profession" tab: strip Blizzard chrome (bg+NineSlice), keep
     -- the profession icon, wash the guild sidebar card texture over the WHOLE
@@ -8851,7 +8852,8 @@ local function Skin_Trainer()
         local icon = step.icon or step.Icon
         if step.NineSlice then WSkin.FadeNineSlice(step.NineSlice) end
         local shl = _G.ClassTrainerFrameSkillStepButtonHighlight
-        -- Keep selection/hover/lock: fading them made the step look unclickable.
+        -- Kept out of the fade: the selection and hover textures (the step's
+        -- click feedback, recoloured below) and the lock.
         local keep = {}
         if icon then keep[icon] = true end
         if sdt.tabTex then keep[sdt.tabTex] = true end

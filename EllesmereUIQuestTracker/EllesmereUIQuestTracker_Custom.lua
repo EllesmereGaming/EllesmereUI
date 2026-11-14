@@ -65,6 +65,7 @@ local order, zoneOf, seen = {}, {}, {}
 local pending = false
 local stale = false   -- skipped a render while hidden
 local empty = false   -- nothing to list: hidden, like Blizzard's empty tracker
+local emptyOnly = false  -- hidden for that alone: renders go on, to see the first quest come in
 local UpdateVisibility
 local fontGen = 1
 local inEncounter = false
@@ -855,6 +856,19 @@ local function RunRowHooks(l, questID)
     end
 end
 
+-- The header's filter button in the header colour, as the header's text and
+-- the button on Blizzard's header are. Desaturated first, so the art's own
+-- colour does not multiply with ours.
+local function TintFilterToggle()
+    local btn = header.filter
+    if not btn then return end
+    local r, g, b = EQT.GetHeaderRGB()
+    local normal, pushed, highlight = btn:GetNormalTexture(), btn:GetPushedTexture(), btn:GetHighlightTexture()
+    if normal then normal:SetDesaturated(true); normal:SetVertexColor(r, g, b) end
+    if pushed then pushed:SetDesaturated(true); pushed:SetVertexColor(r, g, b) end
+    if highlight then highlight:SetDesaturated(true); highlight:SetVertexColor(r, g, b) end
+end
+
 -- Show Toggle on Quests Header: the Forever file puts it on Blizzard's
 -- header, which is muted here. Built on first use.
 local function SyncFilterToggle()
@@ -877,6 +891,7 @@ local function SyncFilterToggle()
             EllesmereUI.ShowWidgetTooltip(self, EQT.FilterToggleTip())
         end)
         header.filter = btn
+        TintFilterToggle()
     end
     btn:SetShown(want)
     btn:SetAlpha(Cfg("filterEnabled") and 1 or 0.4)
@@ -885,8 +900,9 @@ end
 local function Render()
     pending = false
     if not frame then return end
-    -- Hidden for being empty: still render, to see the first quest come in.
-    if not frame:IsShown() and not empty then stale = true; return end
+    -- Hidden only for being empty: still render, to see the first quest come
+    -- in. Hidden by anything else, the render waits for the next show.
+    if not frame:IsShown() and not emptyOnly then stale = true; return end
     stale = false
     HideOverlay()
     frame:SetMouseMotionEnabled(HoverWanted() and true or false)
@@ -1325,6 +1341,7 @@ local function ApplyBackground()
     local hr, hg, hb = EQT.GetHeaderRGB()
     header.text:SetTextColor(hr, hg, hb)
     header.toggle:SetTextColor(hr, hg, hb)
+    TintFilterToggle()
 end
 
 local function RefreshFonts()
@@ -1640,8 +1657,12 @@ end
 
 function UpdateVisibility()
     if not frame then return end
-    local vis = not Blocked() and not empty and EllesmereUI.EvalVisibility(EQT.DB())
-    if not vis then frame:Hide(); return end
+    local vis = not Blocked() and EllesmereUI.EvalVisibility(EQT.DB())
+    -- An empty tracker that would otherwise show is hidden with its renders
+    -- going on; one skipped while something else hid it is made up now.
+    emptyOnly = (vis and empty) and true or false
+    if emptyOnly and stale then Queue() end
+    if not vis or empty then frame:Hide(); return end
     frame:Show()
     frame:SetAlpha(vis == "mouseover" and 0 or 1)
 end

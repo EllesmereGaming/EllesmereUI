@@ -119,7 +119,10 @@ end
 -- family. Like the reagent bag they get their own category and sections and
 -- stay out of Main Bags, the header count, OneBag's sort, Auto Split and drop
 -- placement. nil on retail or with none equipped; the next call reuses the
--- set, so read it right away.
+-- set, so read it right away. Such a bag in the fifth slot (bag 5) is not in
+-- the set: it keeps the reagent bag's section, sort and split paths, and only
+-- the header count leaves it out, by the tally's own family read
+-- (EUI_Bags:RefreshInventory).
 do
     local special = {}
     function ns.SpecialBags()

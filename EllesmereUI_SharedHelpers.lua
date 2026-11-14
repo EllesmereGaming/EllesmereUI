@@ -1189,6 +1189,12 @@ do
         local getLeft = C_TradeSkillUI and C_TradeSkillUI.GetRemainingRecasts
         if not (on and getLeft) then
             f._craftExtra, f._craftLeft = nil, nil
+            -- Nothing left to drop for this bar: the stop watch lets go with
+            -- the last tracked bar.
+            if tracked[f] then
+                tracked[f] = nil
+                if not next(tracked) then watch:UnregisterAllEvents() end
+            end
             return
         end
         local left = getLeft() or 0

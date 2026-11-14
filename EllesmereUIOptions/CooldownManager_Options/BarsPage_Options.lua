@@ -2515,10 +2515,7 @@ local function BuildCDMBarsPage(pageName, parent, yOffset)
                       and { AUTO = "Follow Grow", START = "Top", CENTER = "Center", END = "Bottom" }
                       or  { AUTO = "Follow Grow", START = "Left", CENTER = "Center", END = "Right" },
                   order={ "AUTO", "START", "CENTER", "END" },
-                  tooltip="Where the icons sit inside the reserved space when the bar has fewer icons than its minimum. Follow Grow places them at the edge the bar grows from.",
-                  disabled=function() return not BD().minSizeIcons end,
-                  disabledTooltip="This option requires a minimum size above 0",
-                  rawTooltip=true,
+                  tooltip="Where icons sit in the reserved space.",
                   get=function() return BD().minSizeAlign or "AUTO" end,
                   set=function(v)
                       BD().minSizeAlign = (v ~= "AUTO") and v or nil

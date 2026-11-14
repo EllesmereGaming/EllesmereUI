@@ -49,7 +49,7 @@ function EllesmereUI.SearchPicksOn()
     return EllesmereUIDB and EllesmereUIDB.searchPicksOn == true or false
 end
 function EllesmereUI.SetSearchPicksOn(on)
-    EllesmereUIDB = EllesmereUIDB or {}
+    if not EllesmereUIDB then return end
     EllesmereUIDB.searchPicksOn = on and true or nil
     if not on then EllesmereUIDB.searchPicks = nil end
 end
@@ -60,11 +60,12 @@ local function PickKey(e)
     if e.kind == "page" then return "\2" .. e.module .. "\1" .. e.page end
     local key = e.module .. "\1" .. e.page .. "\1" .. e.label
     if e.host or e.cogTitle then key = key .. "\1" .. (e.host or "") .. "\1" .. (e.cogTitle or "") end
+    if e.cogSection then key = key .. "\1" .. e.cogSection end
     return key
 end
 local function RecordPick(entry)
+    -- On means the saved table is there (SearchPicksOn reads it).
     if not EllesmereUI.SearchPicksOn() then return end
-    EllesmereUIDB = EllesmereUIDB or {}
     local picks = EllesmereUIDB.searchPicks or {}
     EllesmereUIDB.searchPicks = picks
     local key, now = PickKey(entry), time()
@@ -97,16 +98,16 @@ local _prebuildComplete = false
 -- localized form when that differs. Rows register in page order, so the
 -- last path is reused while it repeats: no tables or concat on a hit.
 local _ctxArgs, _ctxText = {}, nil
-local function ContextText(folder, page, card, section, host, cogTitle)
+local function ContextText(folder, page, card, section, host, cogTitle, cogSection)
     local a = _ctxArgs
     if _ctxText and a[1] == folder and a[2] == page and a[3] == card and a[4] == section
-       and a[5] == host and a[6] == cogTitle then
+       and a[5] == host and a[6] == cogTitle and a[7] == cogSection then
         return _ctxText
     end
-    a[1], a[2], a[3], a[4], a[5], a[6] = folder, page, card, section, host, cogTitle
+    a[1], a[2], a[3], a[4], a[5], a[6], a[7] = folder, page, card, section, host, cogTitle, cogSection
     local config = ns.modules and ns.modules[folder]
     local parts = { config and select(2, ModuleLabel(config, folder)) or folder, PageLabel(folder, page) }
-    for _, s in ipairs({ card or false, section or false, host or false, cogTitle or false }) do
+    for _, s in ipairs({ card or false, section or false, host or false, cogTitle or false, cogSection or false }) do
         if s and s ~= "" then
             parts[#parts + 1] = s
             local loc = EllesmereUI.L(s)
@@ -117,8 +118,10 @@ local function ContextText(folder, page, card, section, host, cogTitle)
     return _ctxText
 end
 
--- host / cogTitle: set for a row inside an inline cog popup (_RegisterCogSearch).
-function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder, page, sectionName, selectorSetter, selectorKey, isSection, host, cogTitle)
+-- host / cogTitle: set for a row inside an inline cog popup (_RegisterCogSearch);
+-- cogSection: that row's section title in a sections cog. Returns the entry,
+-- the one already registered under the same key included.
+function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder, page, sectionName, selectorSetter, selectorKey, isSection, host, cogTitle, cogSection)
     -- Opt-out for whole UI regions: a builder sets this around widget
     -- construction it wants excluded from the search entirely (e.g. the QoL
     -- Macro Factory, whose rows must never be indexed or deep-linked).
@@ -131,7 +134,8 @@ function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder
     -- Cog rows repeat their labels ("Size") across a page: keyed by host and popup too.
     local key = moduleFolder .. "\1" .. page .. "\1" .. label
     if host or cogTitle then key = key .. "\1" .. (host or "") .. "\1" .. (cogTitle or "") end
-    if _seenKeys[key] then return end
+    if cogSection then key = key .. "\1" .. cogSection end
+    if _seenKeys[key] then return _seenKeys[key] end
     if (host or cogTitle) and _prebuildComplete and not EllesmereUI._prebuilding and EllesmereUI.IsDevModeActive() then
         print("|cffff6060EUI GlobalSearch:|r cog row \"" .. label .. "\" (" .. moduleFolder .. "::" .. page
             .. ") was not indexed by the pass -- its cog call is not reached while prebuilding, or it depends on state set after the pass.")
@@ -140,7 +144,7 @@ function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder
     if type(tooltip) ~= "string" or tooltip == "" then tooltip = nil end
     local card = EllesmereUI._searchContext
     local entry = {
-        ctx = ContextText(moduleFolder, page, card, sectionName, host, cogTitle),
+        ctx = ContextText(moduleFolder, page, card, sectionName, host, cogTitle, cogSection),
         label = label,
         -- Lowercased once here so a keystroke never re-lowers the whole index.
         lLabel = label:lower(),
@@ -169,8 +173,21 @@ function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder
     -- Set after: in the constructor they would double every entry's hash part.
     if card then entry.card = card end
     if host or cogTitle then entry.host, entry.cogTitle = host, cogTitle end
+    if cogSection then entry.cogSection = cogSection end
     _searchIndex[#_searchIndex + 1] = entry
     _seenKeys[key] = entry
+    return entry
+end
+
+-- A cog row its popup is leaving out right now (the row's or its section's
+-- hidden function) is no result. Only a plain true counts: a function kept
+-- from the index pass can answer with one of the pass's stand-in objects.
+local function SaysHidden(fn)
+    local ok, v = pcall(fn)
+    return ok and v == true
+end
+local function CogRowHidden(e)
+    return (e.hiddenRow and SaysHidden(e.hiddenRow)) or (e.hiddenSec and SaysHidden(e.hiddenSec)) or false
 end
 
 -------------------------------------------------------------------------------
@@ -519,7 +536,8 @@ local function WordPass(words)
                         break
                     end
                 end
-                if inLabel >= 0 and inLabel + inTip > 0 then
+                if inLabel >= 0 and inLabel + inTip > 0
+                   and not ((entry.hiddenRow or entry.hiddenSec) and CogRowHidden(entry)) then
                     local tier = inLabel == nw and WORD_TIER_ALL or WORD_TIER_SOME
                     scored[#scored + 1] = { entry = entry, score = tier * TIER
                         + math.min(inLabel, 9) * 1000 + math.min(inTip, 9) * 100 + math.max(0, 99 - first) }
@@ -616,6 +634,7 @@ local function SearchIndex(query, maxResults)
                         end
                     else
                         local s = ScoreEntry(entry, n, stem, ns, words)
+                        if s and (entry.hiddenRow or entry.hiddenSec) and CogRowHidden(entry) then s = nil end
                         if s then
                             local exact = entry.lLabel == n or entry.lLoc == n or entry.lPage == n
                             scored[#scored + 1] = { entry = entry, score = s, exact = exact }
@@ -966,20 +985,41 @@ local function CogSearchKey(module, page, host, title)
     return module .. "\1" .. page .. "\1" .. (host or "") .. "\1" .. (title or "")
 end
 
+-- One list of a cog popup's rows. Each entry keeps its row's and its section's
+-- hidden function, the newest one at every registration (a live build after
+-- the index pass hands over fresh ones), for CogRowHidden at result time.
+local function RegisterCogRows(rows, module, page, section, setter, selKey, host, title, cogSection, secHidden)
+    for _, r in ipairs(rows) do
+        local label = type(r) == "table" and r.label
+        if type(label) == "string" and label ~= "" then
+            local loc = EllesmereUI.L(label)
+            local entry = EllesmereUI._RegisterSearchEntry(label, loc ~= label and loc or nil,
+                type(r.tooltip) == "string" and r.tooltip or nil,
+                module, page, section, setter, selKey, nil, host, title, cogSection)
+            if entry then
+                entry.hiddenRow = type(r.hidden) == "function" and r.hidden or nil
+                entry.hiddenSec = secHidden
+            end
+        end
+    end
+end
+
 -- Indexes an inline cog popup's rows (called first thing by BuildInlineCog,
 -- live and in the index pass). Context as CogDot.Key reads it: the host
 -- row's section and label, and the popup title. rawget throughout: the
 -- region may be an absorber.
 function EllesmereUI._RegisterCogSearch(rgn, opts)
     if type(rgn) ~= "table" or type(opts) ~= "table" then return end
-    local rows = opts.rows
-    if opts.sections then
-        rows = {}
-        for _, sec in ipairs(opts.sections) do
-            for _, r in ipairs(sec.rows or {}) do rows[#rows + 1] = r end
+    local rows, sections = opts.rows, opts.sections
+    if type(sections) == "table" then
+        local any = false
+        for _, sec in ipairs(sections) do
+            if type(sec) == "table" and type(sec.rows) == "table" and sec.rows[1] then any = true; break end
         end
+        if not any then return end
+    elseif type(rows) ~= "table" or not rows[1] then
+        return
     end
-    if type(rows) ~= "table" or not rows[1] then return end
     if rawget(rgn, "_searchIgnore") then return end
     local section
     if getmetatable(rgn) == _absorberMeta then
@@ -1002,14 +1042,19 @@ function EllesmereUI._RegisterCogSearch(rgn, opts)
     -- As CogDot.Key: a cog built after its page build (a lazily built panel) takes the shown page.
     local module = EllesmereUI._buildingModule or (EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule())
     local page = EllesmereUI._buildingPage or (EllesmereUI.GetActivePage and EllesmereUI:GetActivePage())
-    for _, r in ipairs(rows) do
-        local label = type(r) == "table" and r.label
-        if type(label) == "string" and label ~= "" then
-            local loc = EllesmereUI.L(label)
-            EllesmereUI._RegisterSearchEntry(label, loc ~= label and loc or nil,
-                type(r.tooltip) == "string" and r.tooltip or nil,
-                module, page, section, sel and sel.setter, sel and sel.key, nil, host, title)
+    local setter, selKey = sel and sel.setter, sel and sel.key
+    if type(sections) == "table" then
+        -- A sections cog: each row is filed under its section's title, so rows
+        -- of one name in two sections ("Size") are two results.
+        for _, sec in ipairs(sections) do
+            if type(sec) == "table" and type(sec.rows) == "table" then
+                RegisterCogRows(sec.rows, module, page, section, setter, selKey, host, title,
+                    type(sec.title) == "string" and sec.title ~= "" and sec.title or nil,
+                    type(sec.hidden) == "function" and sec.hidden or nil)
+            end
         end
+    else
+        RegisterCogRows(rows, module, page, section, setter, selKey, host, title, nil, nil)
     end
     -- The cog's identity, for MarkSearchCog after a jump to one of its rows.
     if module and page then return CogSearchKey(module, page, host, title) end
@@ -1490,7 +1535,8 @@ local function EnsureSearchUI()
         local cogHost = entry.host ~= "" and entry.host or entry.cogTitle
         return entry.labelLoc and (entry.label .. "  (" .. entry.labelLoc .. ")") or entry.label,
             JoinBreadcrumb(GetModuleDisplayName(entry.module), PageLabel(entry.module, entry.page),
-                entry.card and EllesmereUI.L(entry.card), cogHost and EllesmereUI.L(cogHost))
+                entry.card and EllesmereUI.L(entry.card), cogHost and EllesmereUI.L(cogHost),
+                entry.cogSection and EllesmereUI.L(entry.cogSection))
     end
 
     -- A merged row's sub-line names what tells its members apart: the first
@@ -1503,6 +1549,7 @@ local function EnsureSearchUI()
             local h = e.host ~= "" and e.host or e.cogTitle
             return h and EllesmereUI.L(h)
         end,
+        function(e) return e.cogSection and EllesmereUI.L(e.cogSection) end,
         function(e) return e.section and TitleCaseSection(e.section) end,
     }
     local function GroupPlaces(g)

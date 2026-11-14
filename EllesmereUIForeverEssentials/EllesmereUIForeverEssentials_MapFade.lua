@@ -24,9 +24,9 @@ local F = module.Feature("worldMapFade", {
 })
 
 local waiter
-local dimmed = false      -- the background's alpha is ours
-local mouseHeld = false   -- BlackoutFrame's mouse and wheel are ours
-local mouseWas, wheelWas  -- BlackoutFrame's mouse and wheel before ours
+local dimmed = false     -- the background's alpha is ours
+local mouseHeld = false  -- BlackoutFrame's mouse is ours
+local mouseWas           -- BlackoutFrame's mouse before ours
 
 -- The game's fade on while ours is; back to what it was after.
 local function HoldGameFade(on)
@@ -59,25 +59,24 @@ local function ApplyBackground()
         waiter:RegisterEvent("ADDON_LOADED")
         return
     end
+    local b = WorldMapFrame.BlackoutFrame
+    if not (b and b.Blackout) then return end
+    -- The opacity applies at once, in combat too.
+    b.Blackout:SetAlpha(dim and (tonumber(F.Get("dimOpacity")) or 20) / 100 or 1)
+    dimmed = dim
+    local through = dim and F.Get("dimClickThrough") == true
+    if through == mouseHeld then return end
+    -- The frame's mouse changes hands out of combat only. The wheel already
+    -- passes through: the frame never takes it.
     if InCombatLockdown() then
         EllesmereUI.CombatQueue.Defer("MapFadeBackground", ApplyBackground)
         return
     end
-    local b = WorldMapFrame.BlackoutFrame
-    if not (b and b.Blackout) then return end
-    b.Blackout:SetAlpha(dim and (tonumber(F.Get("dimOpacity")) or 20) / 100 or 1)
-    dimmed = dim
-    local through = dim and F.Get("dimClickThrough") == true
     if through then
-        if not mouseHeld then
-            mouseWas = b:IsMouseEnabled()
-            wheelWas = b:IsMouseWheelEnabled()
-        end
+        mouseWas = b:IsMouseEnabled()
         b:EnableMouse(false)
-        if wheelWas then b:EnableMouseWheel(false) end
-    elseif mouseHeld then
+    else
         b:EnableMouse(mouseWas)
-        if wheelWas then b:EnableMouseWheel(true) end
     end
     mouseHeld = through
 end

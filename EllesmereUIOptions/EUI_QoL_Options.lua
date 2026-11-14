@@ -1898,7 +1898,7 @@ initFrame:SetScript("OnEvent", function(self)
             local sidebarsRow
             sidebarsRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Transparent World Map Sidebars",
-                  tooltip="Makes the black bars beside the maximized world map transparent. Use the cog to set their opacity and whether you can click, turn the camera and zoom through them.",
+                  tooltip="Clears the black bars beside the maximized map.",
                   getValue=function()
                       return EllesmereUIDB and EllesmereUIDB.mapSidebarsClear or false
                   end,
@@ -1929,7 +1929,7 @@ initFrame:SetScript("OnEvent", function(self)
                               if EllesmereUI._applyMapSidebars then EllesmereUI._applyMapSidebars() end
                           end },
                         { type = "toggle", label = "Click Through",
-                          tooltip = "Lets you click, turn the camera and zoom through the bars beside the map.",
+                          tooltip = "Lets clicks and camera turns pass through.",
                           get = function()
                               return not (EllesmereUIDB and EllesmereUIDB.mapSidebarsClickThrough == false)
                           end,

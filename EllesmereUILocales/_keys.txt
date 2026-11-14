@@ -1103,7 +1103,7 @@ No active glows
 No active glows. Turn off Hide Inactive Glows to edit the others.
 No blacklisted spells.
 No buffs assigned. Right click a button in the preview to assign buffs.
-No class macros for 
+No class macros for %1$s
 No class resources in inventory
 No conditions: the icon always shows.
 No conditions: the swing timer always shows.

@@ -769,18 +769,19 @@ local function StartAddon()
     end
 
     -- Cooldown-only repaint of the shown item buttons, once per frame at most.
-    -- The slot data is kept in step so the next full refresh paints the same.
+    -- Each button keeps the cooldown it was last painted with (_cdS / _cdD, set
+    -- by the full refresh too): an item shown twice, in Pinned or Recent Items
+    -- and in its category, is two buttons over one slot data table.
     local cooldownQueued = false
     local function PaintCooldownPool(pool)
         for _, btn in pairs(pool) do
-            local d = btn._cdData
-            if d and btn.Cooldown and btn:IsVisible() then
+            if btn._cdItem and btn.Cooldown and btn:IsVisible() then
                 local start, duration, enable = C_Container.GetContainerItemCooldown(btn:GetParent():GetID(), btn:GetID())
                 if not (enable and enable ~= 0 and start > 0 and duration > 0) then
                     start, duration = nil, nil
                 end
-                if start ~= d._cdStart or duration ~= d._cdDuration then
-                    d._cdStart, d._cdDuration = start, duration
+                if start ~= btn._cdS or duration ~= btn._cdD then
+                    btn._cdS, btn._cdD = start, duration
                     -- A list row shows a cooldown only on its icon column.
                     if start and (not btn._lvIcon or btn._lvIcon:IsShown()) then
                         if not btn._lvIcon then btn.Cooldown:SetDrawEdge(true) end

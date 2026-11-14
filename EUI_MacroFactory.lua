@@ -38,12 +38,15 @@ local FOCUS_MARK_COORDS = {
 -- keep their own descriptive label -- picking one variant's name would be arbitrary --
 -- run through L(). noRequest: when true, skip the async load request (used by the
 -- refresh path, where the initial build already requested the uncached item).
+-- An option of one item, or of several that share a name (nameItem), shows the
+-- client's own item name once it has loaded.
 local function OptionDisplayName(opt, noRequest)
     local ids = opt.items
-    if ids and #ids == 1 then
-        local n = C_Item.GetItemInfo(ids[1])
+    local id = opt.nameItem or (ids and #ids == 1 and ids[1])
+    if id then
+        local n = C_Item.GetItemInfo(id)
         if n then return n end
-        if not noRequest then C_Item.RequestLoadItemDataByID(ids[1]) end
+        if not noRequest then C_Item.RequestLoadItemDataByID(id) end
     end
     return EllesmereUI.L(opt.label)
 end
@@ -181,7 +184,7 @@ if EllesmereUI.IS_FOREVER == true then
     local function Options(list)
         local cbs = {}
         for i, e in ipairs(list) do
-            cbs[i] = { key = "opt" .. i, label = e[2], items = type(e[1]) == "table" and e[1] or { e[1] } }
+            cbs[i] = { key = "opt" .. i, label = e[2], items = type(e[1]) == "table" and e[1] or { e[1] }, nameItem = e[3] }
         end
         return cbs
     end
@@ -190,7 +193,7 @@ if EllesmereUI.IS_FOREVER == true then
     for _, def in ipairs(GENERAL_DEFS) do
         if def.name == "EUI_Trinket1" or def.name == "EUI_Trinket2" then trinkets[#trinkets + 1] = def end
     end
-    local healthstones = { unpack(EllesmereUI.FOREVER_HEALTHSTONES or {}) }
+    local healthstones = { unpack(EllesmereUI.FOREVER_HEALTHSTONES) }
     healthstones[#healthstones + 1] = 5512
 
     GENERAL_DEFS = {
@@ -216,7 +219,7 @@ if EllesmereUI.IS_FOREVER == true then
             checkboxes = Options({
                 {8079, "Conjured Crystal Water"}, {8078, "Conjured Sparkling Water"}, {8077, "Conjured Mineral Water"},
                 {3772, "Conjured Spring Water"}, {2136, "Conjured Purified Water"}, {2288, "Conjured Fresh Water"},
-                {5350, "Conjured Water"}, {{8766, 287964}, "Morning Glory Dew"},
+                {5350, "Conjured Water"}, {{8766, 287964}, "Morning Glory Dew", 8766},
                 {1645, "Moonberry Juice"}, {1708, "Sweet Nectar"}, {1205, "Melon Juice"},
                 {1179, "Ice Cold Milk"}, {159, "Refreshing Spring Water"},
             }),
@@ -516,11 +519,22 @@ local function WriteMacro(idx, def, db)
     if def.checkboxes then lastAvailableItems[def.name] = GetMacroInventoryKey(def, db) end
 end
 
+local queueKeys = {}
+
 local function UpdateMacro(def, db)
     local idx = GetMacroIndexByName(def.name)
     if idx ~= 0 then
         if InCombatLockdown() then
-            EllesmereUI.CombatQueue.Defer("MacroFactory:" .. def.name, function()
+            -- One pending write per macro: it reads the settings and the bags
+            -- again when it runs, so a later change in the same fight needs no
+            -- second one.
+            local key = queueKeys[def.name]
+            if not key then
+                key = "MacroFactory:" .. def.name
+                queueKeys[def.name] = key
+            end
+            if EllesmereUI.CombatQueue.Has(key) then return end
+            EllesmereUI.CombatQueue.Defer(key, function()
                 local i = GetMacroIndexByName(def.name)
                 if i == 0 then return end
                 WriteMacro(i, def, GetMacroDB(def.name))
@@ -954,7 +968,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     if EllesmereUI.IS_FOREVER then
         activeSpecDefs = CLASS_DEFS
         rightTitle = activeClassName .. " " .. EllesmereUI.L("Macro Factory")
-        emptyText = EllesmereUI.L("No class macros for ") .. activeClassName
+        emptyText = EllesmereUI.Lf("No class macros for %1$s", activeClassName)
     else
         activeSpecDefs = activeSpecID and SPEC_DEFS[activeSpecID] or {}
         rightTitle = (activeSpecName or EllesmereUI.L("Spec")) .. " " .. activeClassName .. " " .. EllesmereUI.L("Macro Factory")

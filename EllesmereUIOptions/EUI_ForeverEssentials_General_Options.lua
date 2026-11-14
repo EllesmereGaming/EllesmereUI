@@ -385,7 +385,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
           getValue = function() return MF.Get("enabled") end,
           setValue = function(v) SetFade("enabled", v) end },
         { type = "toggle", text = "Show the Game Behind the Map",
-          tooltip = "Makes the black bars beside the maximized world map transparent. Use the cog to set their opacity and whether you can click, turn the camera and zoom through them.",
+          tooltip = "Lightens the black behind the maximized world map.",
           getValue = function() return MF.Get("dim") end,
           setValue = function(v)
               SetFade("dim", v)
@@ -400,7 +400,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
                   get = function() return MF.Get("dimOpacity") end,
                   set = function(v) SetFade("dimOpacity", v) end },
                 { type = "toggle", label = "Click Through",
-                  tooltip = "Lets you click, turn the camera and zoom through the bars beside the map.",
+                  tooltip = "Lets clicks and camera turns pass through.",
                   get = function() return MF.Get("dimClickThrough") == true end,
                   set = function(v) SetFade("dimClickThrough", v) end },
             },

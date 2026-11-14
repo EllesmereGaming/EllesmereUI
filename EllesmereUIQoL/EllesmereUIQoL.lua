@@ -3944,7 +3944,7 @@ if not EllesmereUI.IS_FOREVER then
 
     function EllesmereUI._applyMapSidebars()
         local on = EllesmereUIDB and EllesmereUIDB.mapSidebarsClear == true
-        if not (on or applied or loader) then return end
+        if not (on or applied or mouseHeld or loader) then return end
         -- The world map loads on demand.
         if not C_AddOns.IsAddOnLoaded("Blizzard_WorldMap") then
             if on and not loader then
@@ -3959,22 +3959,23 @@ if not EllesmereUI.IS_FOREVER then
             return
         end
         if not (on or applied or mouseHeld) then return end
+        local b = WorldMapFrame.BlackoutFrame
+        if not (b and b.Blackout) then return end
+        -- The opacity applies at once, in combat too.
+        b.Blackout:SetAlpha(on and (EllesmereUIDB.mapSidebarsOpacity or 0) / 100 or 1)
+        applied = on
+        local through = (on and EllesmereUIDB.mapSidebarsClickThrough ~= false) or false
+        if through == mouseHeld then return end
+        -- The frame's mouse changes hands out of combat only. The wheel already
+        -- passes through: the frame never takes it.
         if InCombatLockdown() then
             ns.CombatQueue.Defer("MapSidebars", EllesmereUI._applyMapSidebars)
             return
         end
-        local b = WorldMapFrame.BlackoutFrame
-        if not (b and b.Blackout) then return end
-        b.Blackout:SetAlpha(on and (EllesmereUIDB.mapSidebarsOpacity or 0) / 100 or 1)
-        applied = on
-        local through = on and EllesmereUIDB.mapSidebarsClickThrough ~= false
         if through then
-            if not mouseHeld then
-                mouseWas = b:IsMouseEnabled()
-            end
-            -- The wheel already passes through: the frame never takes it.
+            mouseWas = b:IsMouseEnabled()
             b:EnableMouse(false)
-        elseif mouseHeld then
+        else
             b:EnableMouse(mouseWas)
         end
         mouseHeld = through
