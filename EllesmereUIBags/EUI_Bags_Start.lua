@@ -791,6 +791,9 @@ local function StartAddon()
     EUI_Bags:RegisterEvent("GOSSIP_CLOSED")
     -- A skill rank change can flip an item's unusable tint (BagsItemUnusable)
     EUI_Bags:RegisterEvent("SKILL_LINES_CHANGED")
+    -- Using an item that is not consumed changes no slot, so only this event
+    -- reports its cooldown. Listened to while the bags show.
+    EUI_Bags:HookScript("OnShow", function(self) self:RegisterEvent("BAG_UPDATE_COOLDOWN") end)
     -- Set created/renamed/deleted: rebuild split categories / refresh name labels.
     -- Registered only while a set feature is on: zero event cost when disabled
     -- (merged-mode routing stays correct without it -- the lookup rebuilds per
@@ -1028,12 +1031,15 @@ local function StartAddon()
             if not EUI_Bags.refreshEnabled then return end
             if EUI_Bags._unlockSort then EUI_Bags._unlockSort() end
             ScheduleRefresh()
+        elseif event == "BAG_UPDATE_COOLDOWN" then
+            ScheduleRefresh()
         elseif event == "CURRENCY_DISPLAY_UPDATE" then
             SyncBagFrameToFooter()
         end
     end)
 
     EUI_Bags:HookScript("OnHide", function()
+        EUI_Bags:UnregisterEvent("BAG_UPDATE_COOLDOWN")
         EUI_BagsWindow:Hide()
         -- Controller cursor: the carried-item watch lives only while the bags are open.
         local watch = EUI_Bags._padCursorWatch
