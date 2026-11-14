@@ -1888,7 +1888,7 @@ initFrame:SetScript("OnEvent", function(self)
             local sidebarsRow
             sidebarsRow, h = W:DualRow(parent, y,
                 { type="toggle", text="Transparent World Map Sidebars",
-                  tooltip="Makes the black bars beside the maximized world map transparent, and lets you click, turn the camera and zoom through them. Use the cog to set their opacity.",
+                  tooltip="Makes the black bars beside the maximized world map transparent. Use the cog to set their opacity and whether you can click, turn the camera and zoom through them.",
                   getValue=function()
                       return EllesmereUIDB and EllesmereUIDB.mapSidebarsClear or false
                   end,
@@ -1916,6 +1916,21 @@ initFrame:SetScript("OnEvent", function(self)
                           set = function(v)
                               if not EllesmereUIDB then EllesmereUIDB = {} end
                               EllesmereUIDB.mapSidebarsOpacity = v
+                              if EllesmereUI._applyMapSidebars then EllesmereUI._applyMapSidebars() end
+                          end },
+                        { type = "toggle", label = "Click Through",
+                          tooltip = "Lets you click, turn the camera and zoom through the bars beside the map.",
+                          get = function()
+                              return not (EllesmereUIDB and EllesmereUIDB.mapSidebarsClickThrough == false)
+                          end,
+                          set = function(v)
+                              if not EllesmereUIDB then EllesmereUIDB = {} end
+                              -- Stored only when off: unset reads as on.
+                              if v then
+                                  EllesmereUIDB.mapSidebarsClickThrough = nil
+                              else
+                                  EllesmereUIDB.mapSidebarsClickThrough = false
+                              end
                               if EllesmereUI._applyMapSidebars then EllesmereUI._applyMapSidebars() end
                           end },
                     },
@@ -2687,6 +2702,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.targetDistancePos = nil
                 EllesmereUIDB.mapSidebarsClear = nil
                 EllesmereUIDB.mapSidebarsOpacity = nil
+                EllesmereUIDB.mapSidebarsClickThrough = nil
                 EllesmereUIDB.autoAcceptRes = nil
                 EllesmereUIDB.autoAcceptResCombat = nil
                 if EllesmereUIDB.unlockAnchors then
