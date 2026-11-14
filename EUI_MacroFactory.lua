@@ -215,13 +215,18 @@ if EllesmereUI.IS_FOREVER == true then
         },
         {
             name = "EUI_Healthstone", icon = "Interface\\Icons\\inv_stone_04", label = "Healthstone",
-            ownedOnly = true,
+            ownedOnly = true, createSpells = { 6201, 6202, 5699, 11729, 11730 },
+            extraToggles = { { key = "createWhenOut", label = "Create When Out" } },
             checkboxes = { { key = "opt1", label = "Healthstone", items = healthstones } },
         },
         {
             name = "EUI_Soulstone", icon = "Interface\\Icons\\inv_misc_orb_04", label = "Soulstone",
             ownedOnly = true, maxLines = 1, friendlyTargetKey = "friendlyTarget",
-            extraToggles = { { key = "friendlyTarget", label = "Friendly Target, Else Self" } },
+            createSpells = { 693, 20752, 20755, 20756, 20757 },
+            extraToggles = {
+                { key = "friendlyTarget", label = "Friendly Target, Else Self" },
+                { key = "createWhenOut", label = "Create When Out" },
+            },
             checkboxes = each({
                 {16896, "Major Soulstone"}, {16895, "Greater Soulstone"}, {16893, "Soulstone"},
                 {16892, "Lesser Soulstone"}, {5232, "Minor Soulstone"},
@@ -325,38 +330,25 @@ local function GetUsableItemIDs(def, db)
     return out
 end
 
+-- Any known rank: /cast by name picks the highest one.
+local function GetKnownCreateSpell(def, db)
+    if not (def.createSpells and db.createWhenOut) then return nil end
+    for _, spellID in ipairs(def.createSpells) do
+        if C_SpellBook.IsSpellKnown(spellID) then return spellID end
+    end
+    return nil
+end
+
 local function GetMacroInventoryKey(def, db)
     if def.ownedOnly then
         local ids = GetUsableItemIDs(def, db)
-        if #ids == 0 then return nil end
+        if #ids == 0 then
+            local spellID = GetKnownCreateSpell(def, db)
+            return spellID and ("create:" .. spellID) or nil
+        end
         return table.concat(ids, ",")
     end
     return GetFirstAvailableItemID(def, db)
-end
-
--- With nothing usable, the first enabled item keeps the macro's icon and tooltip.
-local function BuildOwnedOnlyBody(def, db)
-    local ids = GetUsableItemIDs(def, db)
-    local firstEnabled
-    for _, idx in ipairs(EnsureOrder(db, #def.checkboxes)) do
-        local cb = def.checkboxes[idx]
-        if cb and db[cb.key] ~= false and cb.items[1] then firstEnabled = cb.items[1]; break end
-    end
-    if not firstEnabled then return "" end
-    if #ids == 0 then ids = { firstEnabled } end
-    local body = ""
-    if db.showTooltip ~= false then body = "#showtooltip item:" .. ids[1] .. "\n" end
-    local cond = def.friendlyTargetKey and db[def.friendlyTargetKey] and "[@target,help,nodead][@player] " or ""
-    local prefix = "/use " .. cond .. "item:"
-    local lines = 0
-    for _, itemID in ipairs(ids) do
-        local line = (lines > 0 and "\n" or "") .. prefix .. itemID
-        if #body + #line > 255 then break end
-        body = body .. line
-        lines = lines + 1
-        if def.maxLines and lines >= def.maxLines then break end
-    end
-    return body
 end
 
 -- Replace {n} placeholders in a macro string with the client-localized name of
@@ -380,6 +372,39 @@ local function ResolveSpellTokens(text, spells)
     end)
     if missing then return nil end
     return out
+end
+
+-- With nothing usable, the first enabled item keeps the macro's icon and tooltip.
+local function BuildOwnedOnlyBody(def, db)
+    local ids = GetUsableItemIDs(def, db)
+    local firstEnabled
+    for _, idx in ipairs(EnsureOrder(db, #def.checkboxes)) do
+        local cb = def.checkboxes[idx]
+        if cb and db[cb.key] ~= false and cb.items[1] then firstEnabled = cb.items[1]; break end
+    end
+    if not firstEnabled then return "" end
+    if #ids == 0 then
+        local spellID = GetKnownCreateSpell(def, db)
+        if spellID then
+            local name = ResolveSpellTokens("{1}", { spellID })
+            if not name then return nil end
+            return (db.showTooltip ~= false and "#showtooltip\n" or "") .. "/cast " .. name
+        end
+        ids = { firstEnabled }
+    end
+    local body = ""
+    if db.showTooltip ~= false then body = "#showtooltip item:" .. ids[1] .. "\n" end
+    local cond = def.friendlyTargetKey and db[def.friendlyTargetKey] and "[@target,help,nodead][@player] " or ""
+    local prefix = "/use " .. cond .. "item:"
+    local lines = 0
+    for _, itemID in ipairs(ids) do
+        local line = (lines > 0 and "\n" or "") .. prefix .. itemID
+        if #body + #line > 255 then break end
+        body = body .. line
+        lines = lines + 1
+        if def.maxLines and lines >= def.maxLines then break end
+    end
+    return body
 end
 
 local function BuildMacroBody(def, db)
@@ -476,7 +501,7 @@ end
 --  first loading screen, or the first macro update, whichever finds one of
 --  these macros first) and by the factory when it creates one; a pass that
 --  finds none left (deleted in the game's macro window) disarms it. On WoW
---  Forever a level-up also counts, as items carry a required level there.
+--  Forever a level-up and a learned spell also count (required levels, Create When Out).
 --  Nothing listens without Quality of Life or for a player with no such macro.
 -------------------------------------------------------------------------------
 -- The item each item macro was last written for this session (nil: not yet).
@@ -492,7 +517,10 @@ local itemUpkeep = CreateFrame("Frame")
 local function ArmItemUpkeep()
     itemUpkeep:RegisterEvent("BAG_UPDATE_DELAYED")
     itemUpkeep:RegisterEvent("PLAYER_REGEN_ENABLED")
-    if EllesmereUI.IS_FOREVER then itemUpkeep:RegisterEvent("PLAYER_LEVEL_UP") end
+    if EllesmereUI.IS_FOREVER then
+        itemUpkeep:RegisterEvent("PLAYER_LEVEL_UP")
+        itemUpkeep:RegisterEvent("SPELLS_CHANGED")
+    end
 end
 
 local function ItemUpkeepPass()
@@ -518,7 +546,7 @@ itemUpkeep:SetScript("OnEvent", function(self, event, arg1)
         ItemUpkeepPass()
         return
     end
-    if event == "BAG_UPDATE_DELAYED" or event == "PLAYER_REGEN_ENABLED" then
+    if event == "BAG_UPDATE_DELAYED" or event == "PLAYER_REGEN_ENABLED" or event == "SPELLS_CHANGED" then
         ItemUpkeepPass()
         return
     end

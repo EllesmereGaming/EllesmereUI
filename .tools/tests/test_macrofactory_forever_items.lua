@@ -31,6 +31,11 @@ local function Load(isForever, state)
         GetItemCount = function(id) return state.bags[id] or 0 end,
         GetItemInfo = function(id) return "name", "link", 1, 1, state.minLevel[id] end,
     }
+    C_SpellBook = { IsSpellKnown = function(id) return (state.known or {})[id] == true end }
+    C_Spell = {
+        GetSpellInfo = function(id) return state.spellNames and state.spellNames[id] and { name = state.spellNames[id] } end,
+        RequestLoadSpellData = function() end,
+    }
     UnitLevel = function() return state.level end
     InCombatLockdown = function() return false end
     GetMacroIndexByName = function(n) return state.macros[n] or 0 end
@@ -84,6 +89,29 @@ state.bodies = {}
 state.bags = {}
 up.OnEvent(up, "BAG_UPDATE_DELAYED")
 Eq(state.bodies.EUI_Drink, "#showtooltip item:8079\n/use item:8079", "nothing owned: first enabled item")
+Eq(state.bodies.EUI_Healthstone, "#showtooltip item:9421\n/use item:9421", "no stone, Create When Out off")
+
+local hsDB = EllesmereUIDB.macroFactory.EUI_Healthstone
+hsDB.createWhenOut = true
+state.bodies = {}
+up.OnEvent(up, "SPELLS_CHANGED")
+Eq(state.bodies.EUI_Healthstone, nil, "Create When Out, spell not known: unchanged")
+
+state.known = { [6201] = true, [11730] = true }
+state.spellNames = { [6201] = "Create Healthstone" }
+up.OnEvent(up, "SPELLS_CHANGED")
+Eq(state.bodies.EUI_Healthstone, "#showtooltip\n/cast Create Healthstone", "out of stones: create")
+
+state.bodies = {}
+state.bags[19012] = 1
+up.OnEvent(up, "BAG_UPDATE_DELAYED")
+Eq(state.bodies.EUI_Healthstone, "#showtooltip item:19012\n/use item:19012", "stone created: use it")
+
+state.bodies = {}
+state.bags[19012] = nil
+hsDB.showTooltip = false
+up.OnEvent(up, "BAG_UPDATE_DELAYED")
+Eq(state.bodies.EUI_Healthstone, "/cast Create Healthstone", "create without tooltip line")
 
 state.bodies = {}
 state.macros = {}
