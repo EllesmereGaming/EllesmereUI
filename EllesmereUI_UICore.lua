@@ -128,8 +128,9 @@ function EllesmereUI.BuildTipCallout(parent, opts)
     tip:SetWidth(w)
     tip:EnableMouse(true)
     tip:Hide()
-    SolidTex(tip, "BACKGROUND", TIP_BG_R, TIP_BG_G, TIP_BG_B, bgA):SetAllPoints()
-    MakeBorder(tip, ar, ag, ab, 0.25, pp)
+    local tipBg = SolidTex(tip, "BACKGROUND", TIP_BG_R, TIP_BG_G, TIP_BG_B, bgA)
+    tipBg:SetAllPoints()
+    EllesmereUI.MakeRoundedBorder(tip, ar, ag, ab, 0.25, tipBg)
 
     -- The arrow: a rotated square whose inner half the box edge clips away
     local off = opts.arrowOffset or 0
@@ -239,7 +240,7 @@ local function GetTooltipFrame()
         local bg = tooltipFrame:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         tooltipFrame.bg = bg
-        MakeBorder(tooltipFrame, 1, 1, 1, 0.15, PP)
+        tooltipFrame._brd = EllesmereUI.MakeRoundedBorder(tooltipFrame, 1, 1, 1, 0.15, bg)
         -- The panel font as a font family: the tooltip also shows friends' names
         -- and notes, whose scripts the panel font may lack.
         tooltipFrame.text = tooltipFrame:CreateFontString(nil, "OVERLAY")
@@ -388,6 +389,8 @@ local function ShowWidgetTooltip(label, text, opts)
             end
         end
     end
+    -- Sized and placed after its show: the outline seats on whole pixels again.
+    tt._brd:Fit()
     -- Cancel an in-progress fade-out so its OnFinished doesn't hide us
     if tt._fadeOutAG then tt._fadeOutAG:Stop() end
     if tt._fadeAG then tt._fadeAG:Stop() end
@@ -826,6 +829,10 @@ local function CtxNewPanel(look, level)
         art:SetAlpha(0.925)
         bg:SetColorTexture(0, 0, 0, 0)
         p._art = art
+    elseif look == CTX_LOOKS.default then
+        -- The plain right-click menu is rounded; the meter looks follow the
+        -- Blizzard popup menu border (CtxLayout).
+        p._brd = EllesmereUI.MakeRoundedBorder(p, 1, 1, 1, RS.BRD_ALPHA or 0.18, bg)
     elseif PP_L and PP_L.CreateBorder then
         PP_L.CreateBorder(p, 1, 1, 1, RS.BRD_ALPHA or 0.18, 1)
     end
@@ -1131,6 +1138,7 @@ CtxShowSub = function(row, children)
         sub:SetPoint("TOPLEFT", row, "TOPRIGHT", 0, 0)
     end
     sub:Show()
+    if sub._brd then sub._brd:Fit() end
 end
 
 local function ShowContextMenu(anchor, items, opts)
@@ -1159,7 +1167,7 @@ local function ShowContextMenu(anchor, items, opts)
     if (panel._menuScale or 1) ~= menuScale then
         panel._menuScale = menuScale
         panel:SetScale(menuScale)
-        EllesmereUI.PP.SetBorderSize(panel, 1)
+        if not panel._brd then EllesmereUI.PP.SetBorderSize(panel, 1) end
     end
 
     CtxLayout(panel, items, opts and opts.minWidth, panel._fontKey)
@@ -1180,6 +1188,8 @@ local function ShowContextMenu(anchor, items, opts)
     end
     _ctxOpen = panel
     panel:Show()
+    -- Already shown for another owner: no OnShow, so the outline seats here.
+    if panel._brd then panel._brd:Fit() end
 
     if opts and opts.noPoll then
         panel:SetScript("OnUpdate", nil)   -- the owner closes it

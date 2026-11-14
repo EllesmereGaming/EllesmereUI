@@ -140,6 +140,68 @@ local FFD, GetFFD = I.FFD, I.GetFFD
     end
     EllesmereUI._getPopupMenuButtonTextColor = _getElementColor
 
+    -- Rounded corners (tooltipRoundedCorners, on unless false) for a solid
+    -- border: a rounded outline in the configured colour and width on our own
+    -- pixel layer, our bg masked to the same shape (state in FFD, nothing on
+    -- the tooltip). A textured style keeps its square art. Returns true while
+    -- the rounded outline stands in for the configured border.
+    local function _ttRefit(layer)
+        local o = FFD[layer] and FFD[layer].outline
+        if o then o:Fit() end
+    end
+
+    local function _ttRound(tt, legacySize)
+        local db = EllesmereUIDB or {}
+        local o = FFD[tt] and FFD[tt].round
+        local on = db.tooltipRoundedCorners ~= false
+            and (db.tooltipBorderTexture or "solid") == "solid"
+        local size, color, alpha, w
+        if on then
+            local _
+            _, size, _, color, alpha = _resolveConfiguredBorder("tooltip", legacySize)
+            -- The solid line's width in whole pixels, as the square border draws it.
+            w = size > 0 and (EllesmereUI.BorderPx(db.tooltipBorderThicknessPx, size, "solid") or size) or 1
+            w = math.max(1, math.floor(w + 0.5))
+            -- The radius needs w + 1 and the art stops at ROUNDED_MAX_RADIUS:
+            -- a wider line keeps the square border.
+            on = w < EllesmereUI.ROUNDED_MAX_RADIUS
+        end
+        if not on then
+            if o then o:SetShown(false) end
+            return false
+        end
+        local fitted = not o or o.width ~= w
+        if o then
+            o:SetWidth(w)
+        else
+            local data = GetFFD(tt)
+            o = EllesmereUI.MakeRoundedBorder(tt, 1, 1, 1, 1, data.bg, nil, nil, w)
+            GetFFD(o._frame).outline = o
+            -- The tooltip grows with its lines while shown (no OnShow then).
+            o._frame:SetScript("OnSizeChanged", _ttRefit)
+            data.round = o
+        end
+        -- Show Behind, as _applyConfiguredBorder places the square border.
+        local lvl = tt:GetFrameLevel()
+        o._frame:SetFrameLevel(db.tooltipBorderBehind and math.max(0, lvl - 1) or (lvl + 4))
+        o:SetColor(color.r, color.g, color.b, size > 0 and alpha or 0)
+        o:SetShown(true)
+        -- MakeRoundedBorder and SetWidth have just fitted a new shape.
+        if not fitted then o:Fit() end
+        return true
+    end
+
+    -- The health strip's side inset: clear of the rounded corners while the
+    -- outline shows (the bar is Blizzard's, so it moves in instead of taking a
+    -- mask), 1 on the square border. _sbInset: the live bar's, nil until the
+    -- reskin has anchored it.
+    local function _ttStripInset(tt)
+        local o = FFD[tt] and FFD[tt].round
+        if not o or o.off then return 1 end
+        return o.br or o.radius
+    end
+    local _sbInset
+
     local function _ttSkin(tt, _, isEmbedded)
         if not tt or tt:IsForbidden() or not _enabled() then return end
         -- Embedded tooltips (EmbeddedItemTooltip, reward block inside a world-quest tooltip) render INSIDE a parent; skip bg/border to avoid a nested-tooltip look.
@@ -156,7 +218,22 @@ local FFD, GetFFD = I.FFD, I.GetFFD
         GetFFD(tt).bg:Show()
         -- Border size/color (Blizz UI Enhanced > Blizzard Tooltip > Border), same reapply-every-call pattern; size 0 hides the border.
         local _, _, _, _, legacySize = EllesmereUI.GetTooltipBorder()
-        _applyConfiguredBorder(tt, "tooltip", legacySize)
+        if _ttRound(tt, legacySize) then
+            EllesmereUI._hideBlizzardConfiguredBorder(tt)
+        else
+            -- Back from the rounded path: shown first, so a size 0 apply still hides it.
+            local cb = FFD[tt] and FFD[tt].configBorder
+            if cb then cb:Show() end
+            _applyConfiguredBorder(tt, "tooltip", legacySize)
+        end
+        if _sbInset and tt == _GameTooltip then
+            local x = _ttStripInset(tt)
+            if x ~= _sbInset then
+                _sbInset = x
+                GameTooltipStatusBar:SetPoint("BOTTOMLEFT", _GameTooltip, "BOTTOMLEFT", x, 1)
+                GameTooltipStatusBar:SetPoint("BOTTOMRIGHT", _GameTooltip, "BOTTOMRIGHT", -x, 1)
+            end
+        end
     end
     -- The same look for Blizzard's tooltip-like frames that are not GameTooltips
     -- (their window packs call it on show).
@@ -1061,6 +1138,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             GameTooltipStatusBar:ClearAllPoints()
             GameTooltipStatusBar:SetPoint("BOTTOMLEFT", _GameTooltip, "BOTTOMLEFT", 1, 1)
             GameTooltipStatusBar:SetPoint("BOTTOMRIGHT", _GameTooltip, "BOTTOMRIGHT", -1, 1)
+            _sbInset = 1  -- _ttSkin moves it clear of rounded corners on the next show
             -- Texture + height (the Show Health Strip cog); unset keeps UI-StatusBar at 3px.
             EllesmereUI._applyTooltipHealthStripStyle(true)
         end
@@ -1599,6 +1677,7 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             if tt.NineSlice then tt.NineSlice:SetAlpha(1) end
             if data.bg then data.bg:Hide() end
             if data.configBorder then data.configBorder:Hide() end
+            if data.round then data.round:SetShown(false) end
             local nm = tt:GetName()
             for i = 1, tt:NumLines() do
                 local left, right = _G[nm .. "TextLeft" .. i], _G[nm .. "TextRight" .. i]
@@ -1624,8 +1703,9 @@ local FFD, GetFFD = I.FFD, I.GetFFD
             strip:SetValue(1)
             strip:ClearAllPoints()
             if on then
-                strip:SetPoint("BOTTOMLEFT", tt, "BOTTOMLEFT", 1, 1)
-                strip:SetPoint("BOTTOMRIGHT", tt, "BOTTOMRIGHT", -1, 1)
+                local x = _ttStripInset(tt)
+                strip:SetPoint("BOTTOMLEFT", tt, "BOTTOMLEFT", x, 1)
+                strip:SetPoint("BOTTOMRIGHT", tt, "BOTTOMRIGHT", -x, 1)
                 strip:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
                 strip:SetHeight(3)
                 strip.bg:Show()
