@@ -1022,6 +1022,37 @@ initFrame:SetScript("OnEvent", function(self)
             EllesmereUI.RegisterWidgetRefresh(UpdateResetVis)
         end
 
+        -- Flyout Auto Close (+ cog: Time): the Addon Compartment and M+ Portals flyouts.
+        local autoCloseRow
+        autoCloseRow, h = W:DualRow(parent, y,
+            { type="toggle", text="Flyout Auto Close",
+              tooltip=EllesmereUI.IS_FOREVER
+                  and "Closes the Addon Compartment flyout once the mouse has left it for the set time."
+                  or "Closes the Addon Compartment and M+ Portals flyouts once the mouse has left them for the set time.",
+              getValue=function() local m = MinimapDB(); return m and m.flyoutAutoClose == true end,
+              setValue=function(v)
+                local m = MinimapDB(); if not m then return end
+                m.flyoutAutoClose = v
+                EllesmereUI:RefreshPage()
+              end },
+            EllesmereUI.BlankRowCfg())
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(autoCloseRow._leftRegion, {
+                disabled = function() local m = MinimapDB(); return not (m and m.flyoutAutoClose) end,
+                disabledTooltip = "Flyout Auto Close",
+                title = "Flyout Auto Close",
+                rows = {
+                    { type="slider", label="Time (s)", min = 0, max = 10, step = 1,
+                      get=function() local m = MinimapDB(); return m and m.flyoutAutoCloseTime or 3 end,
+                      set=function(v)
+                          local m = MinimapDB(); if not m then return end
+                          m.flyoutAutoCloseTime = v
+                      end },
+                },
+            })
+        end
+        y = y - h
+
         y = y - 10
 
         -- BLIZZARD ELEMENTS section header

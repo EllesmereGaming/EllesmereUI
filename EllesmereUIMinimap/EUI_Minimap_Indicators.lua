@@ -409,6 +409,7 @@ local function ToggleMinimapPortalFlyout(anchorBtn)
         -- Keep the mouseover stack shown while open; re-evaluate on close so it can hide.
         _portalFlyout:HookScript("OnShow", function() if MO_Evaluate then MO_Evaluate() end end)
         _portalFlyout:HookScript("OnHide", function() if MO_Evaluate then MO_Evaluate() end end)
+        EllesmereUI.AttachFlyoutAutoClose(_portalFlyout, EBS._FlyoutAutoCloseSecs)
     end
     local flyout = _portalFlyout
     -- Scale to the user's M+ Portals Scale (safe with secure children: combat

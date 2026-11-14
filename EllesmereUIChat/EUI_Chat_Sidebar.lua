@@ -425,6 +425,10 @@ function ECHAT.TogglePortalFlyout(anchorBtn)
             name = "EUIChat", bg = { BG_R, BG_G, BG_B }, labelFont = GetFont(), unitEvents = true,
             labelFlags = (EUI.SlugFlag("OUTLINE, SLUG")) or "OUTLINE, SLUG",
         })
+        EUI.AttachFlyoutAutoClose(_portalFlyout, function()
+            local c = ECHAT.DB()
+            return c.portalAutoClose and (c.portalAutoCloseTime or 3) or nil
+        end)
     end
     local flyout = _portalFlyout
     -- Visibility, not the shown flag: leaving the house editor hides our host

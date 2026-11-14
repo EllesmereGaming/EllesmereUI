@@ -1642,6 +1642,34 @@ initFrame:SetScript("OnEvent", function(self)
         end
         y = y - h
 
+        -- Row 5: Flyout Auto Close (+ cog: Time) for the sidebar's M+ Portals flyout. No
+        -- portals on WoW Forever, so no row there.
+        if not EllesmereUI.IS_FOREVER then
+            local autoCloseRow
+            autoCloseRow, h = W:DualRow(parent, y,
+                { type="toggle", text="Flyout Auto Close",
+                  tooltip="Closes the M+ Portals flyout once the mouse has left it for the set time.",
+                  getValue=function() return Cfg("portalAutoClose") == true end,
+                  setValue=function(v)
+                      Set("portalAutoClose", v)
+                      EllesmereUI:RefreshPage()
+                  end },
+                EllesmereUI.BlankRowCfg())
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineCog(autoCloseRow._leftRegion, {
+                    disabled = function() return Cfg("portalAutoClose") ~= true end,
+                    disabledTooltip = "Flyout Auto Close",
+                    title = "Flyout Auto Close",
+                    rows = {
+                        { type="slider", label="Time (s)", min = 0, max = 10, step = 1,
+                          get=function() return Cfg("portalAutoCloseTime") or 3 end,
+                          set=function(v) Set("portalAutoCloseTime", v) end },
+                    },
+                })
+            end
+            y = y - h
+        end
+
         end -- isChat
 
         return math.abs(y)
