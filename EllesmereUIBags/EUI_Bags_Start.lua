@@ -690,7 +690,12 @@ local function StartAddon()
         for _, itemID in ipairs(order) do
             local count = counts[itemID]
             local known = _knownItemCounts[itemID] or 0
-            if count > known then
+            -- New Items Only: more of a stackable item already carried does not
+            -- flag. Gear (max stack 1) and mail or trade arrivals still do; a
+            -- trade can land just after the window closes (_recentTradeArrival).
+            if count > known and (not BP().bagRecentNewOnly or known == 0 or atMail
+                or (I._openItemPanels and I._openItemPanels.trade) or EUI_Bags._recentTradeArrival
+                or (C_Item.GetItemMaxStackSizeByID(itemID) or 0) == 1) then
                 -- New, or more of a listed item: either way it is the newest now
                 local recent, ro = EUI_Bags._recentItems, EUI_Bags._recentOrder
                 if recent[itemID] then
@@ -722,6 +727,7 @@ local function StartAddon()
                 end
             end
         end
+        EUI_Bags._recentTradeArrival = nil -- the trade grace covers one pass
     end
 
     -- "Clear" link on the Recent Items headers. Only the tracked set is dropped --
@@ -973,6 +979,10 @@ local function StartAddon()
         end
         local panel = ITEM_PANEL_EVENTS[event]
         if panel then
+            -- New Items Only: received items can land after the trade window closes.
+            if event == "TRADE_CLOSED" and BP().bagRecentNewOnly == true then
+                EUI_Bags._recentTradeArrival = true
+            end
             -- Tracked even while bags are hidden: the panel that opens them (OpenAllBags) can fire in either order with this event.
             if SetItemPanelOpen(panel[1], panel[2]) and EUI_Bags:IsVisible() then
                 EUI_Bags:RefreshInventory()
