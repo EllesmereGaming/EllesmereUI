@@ -92,32 +92,21 @@ state.bodies = {}
 state.bags = {}
 up.OnEvent(up, "BAG_UPDATE_DELAYED")
 Eq(state.bodies.EUI_Drink, "#showtooltip item:8079\n/use item:8079", "nothing owned: first enabled item")
-Eq(state.bodies.EUI_Healthstone, "#showtooltip item:9421\n/use item:9421", "no stone, Create When Out off")
+Eq(state.bodies.EUI_Healthstone, "#showtooltip item:9421\n/use item:9421", "no healthstone: first enabled stone")
 
-local hsDB = EllesmereUIDB.macroFactory.EUI_Healthstone
-hsDB.createWhenOut = true
-state.bodies = {}
-up.OnEvent(up, "SPELLS_CHANGED")
-Eq(state.bodies.EUI_Healthstone, nil, "Create When Out, spell not known: unchanged")
-
+EllesmereUIDB.macroFactory.EUI_Healthstone.createWhenOut = true
 state.known = { [6201] = true, [11730] = true }
 state.spellNames = { [11730] = "Create Healthstone" }
+state.bodies = {}
 up.OnEvent(up, "SPELLS_CHANGED")
-Eq(state.bodies.EUI_Healthstone, "#showtooltip\n/cast Create Healthstone", "out of stones: create")
-
-state.bodies = {}
-state.bags[19012] = 1
-up.OnEvent(up, "BAG_UPDATE_DELAYED")
-Eq(state.bodies.EUI_Healthstone, "#showtooltip item:19012\n/use item:19012", "stone created: use it")
-
-state.bodies = {}
-state.bags[19012] = nil
-hsDB.showTooltip = false
-up.OnEvent(up, "BAG_UPDATE_DELAYED")
-Eq(state.bodies.EUI_Healthstone, "/cast Create Healthstone", "create without tooltip line")
+Eq(state.bodies.EUI_Healthstone, nil, "healthstone never creates")
 
 local ssDB = EllesmereUIDB.macroFactory.EUI_Soulstone
 ssDB.createWhenOut = true
+state.bodies = {}
+up.OnEvent(up, "SPELLS_CHANGED")
+Eq(state.bodies.EUI_Soulstone, nil, "Create When Out, spell not known: unchanged")
+
 state.known[20755] = true; state.known[20756] = true
 state.spellNames[20756] = "Create Soulstone"
 state.bags[16893] = 1
@@ -129,6 +118,11 @@ state.bags[16893] = nil
 up.OnEvent(up, "BAG_UPDATE_DELAYED")
 Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16895\n/use [@target,help,nodead][@player] item:16895\n/cast Create Soulstone",
     "no soulstone: the highest rank's stone, then create")
+
+state.bodies = {}
+ssDB.showTooltip = false
+up.OnEvent(up, "BAG_UPDATE_DELAYED")
+Eq(state.bodies.EUI_Soulstone, "/use [@target,help,nodead][@player] item:16895\n/cast Create Soulstone", "create without tooltip line")
 
 state.bodies = {}
 state.macros = {}

@@ -178,8 +178,8 @@ local GENERAL_DEFS = {
 local CLASS_DEFS = {}
 
 -- WoW Forever, best first. maxLines = 1 where items share no cooldown (one press, one item).
--- createRanks: { create spell, stone it makes }, lowest rank first.
--- createFixed: the stone's use is a cast, so the macro can keep both /use and /cast.
+-- createRanks: { create spell, stone it makes }, lowest rank first. Using these stones
+-- is a cast, so a /cast after the /use fails harmlessly while a stone is in the bags.
 if EllesmereUI.IS_FOREVER == true then
     local healthstones = {}
     for i, id in ipairs(EllesmereUI.FOREVER_HEALTHSTONES or {}) do healthstones[i] = id end
@@ -226,14 +226,11 @@ if EllesmereUI.IS_FOREVER == true then
         {
             name = "EUI_Healthstone", icon = "Interface\\Icons\\inv_stone_04", label = "Healthstone",
             ownedOnly = true,
-            createRanks = { {6201, 5512}, {6202, 5511}, {5699, 5509}, {11729, 5510}, {11730, 9421} },
-            extraToggles = { { key = "createWhenOut", label = "Create When Out" } },
             checkboxes = { { key = "opt1", label = "Healthstone", items = healthstones } },
         },
         {
             name = "EUI_Soulstone", icon = "Interface\\Icons\\inv_misc_orb_04", label = "Soulstone",
             class = "WARLOCK", ownedOnly = true, maxLines = 1, friendlyTargetKey = "friendlyTarget",
-            createFixed = true,
             createRanks = { {693, 5232}, {20752, 16892}, {20755, 16893}, {20756, 16895}, {20757, 16896} },
             extraToggles = {
                 { key = "friendlyTarget", label = "Friendly Target, Else Self" },
@@ -246,7 +243,7 @@ if EllesmereUI.IS_FOREVER == true then
         },
         {
             name = "EUI_Firestone", icon = "Interface\\Icons\\inv_misc_gem_bloodstone_02", label = "Firestone",
-            class = "WARLOCK", ownedOnly = true, maxLines = 1, imbue = true, createFixed = true,
+            class = "WARLOCK", ownedOnly = true, maxLines = 1, imbue = true,
             createRanks = { {6366, 1254}, {17951, 13699}, {17952, 13700}, {17953, 13701} },
             extraToggles = { { key = "createWhenOut", label = "Create When Out" } },
             checkboxes = each({
@@ -256,7 +253,7 @@ if EllesmereUI.IS_FOREVER == true then
         },
         {
             name = "EUI_Spellstone", icon = "Interface\\Icons\\inv_misc_gem_sapphire_01", label = "Spellstone",
-            class = "WARLOCK", ownedOnly = true, maxLines = 1, imbue = true, createFixed = true,
+            class = "WARLOCK", ownedOnly = true, maxLines = 1, imbue = true,
             createRanks = { {2362, 5522}, {17727, 13602}, {17728, 13603} },
             extraToggles = { { key = "createWhenOut", label = "Create When Out" } },
             checkboxes = each({
@@ -413,17 +410,12 @@ local function BuildOwnedOnlyBody(def, db)
     if not firstEnabled then return "" end
     local spellID, createdItem = GetKnownCreateSpell(def, db)
     local castLine
-    if spellID and (def.createFixed or #ids == 0) then
+    if spellID then
         local name = ResolveSpellTokens("{1}", { spellID })
         if not name then return nil end
         castLine = "/cast " .. name
     end
-    if #ids == 0 then
-        if castLine and not def.createFixed then
-            return (db.showTooltip ~= false and "#showtooltip\n" or "") .. castLine
-        end
-        ids = { createdItem or firstEnabled }
-    end
+    if #ids == 0 then ids = { createdItem or firstEnabled } end
     local tail = (def.imbue and "\n/use 16" or "") .. (castLine and ("\n" .. castLine) or "")
     local body = ""
     if db.showTooltip ~= false then body = "#showtooltip item:" .. ids[1] .. "\n" end
