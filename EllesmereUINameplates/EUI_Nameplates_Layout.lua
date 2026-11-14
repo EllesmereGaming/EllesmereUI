@@ -115,7 +115,11 @@ local function GetPandemicGlowSpeed()
     return (p and p.pandemicGlowSpeed) or defaults.pandemicGlowSpeed
 end
 ns.GetPandemicGlowSpeed = GetPandemicGlowSpeed
+-- WoW Forever has no pandemic window (a refresh carries no time over there, so the game
+-- never opens one): the glow is off whatever is saved, and its options are not built.
+ns.NP_PANDEMIC_NONE = EllesmereUI.IS_FOREVER == true
 function ns.GetPandemicGlow()
+    if ns.NP_PANDEMIC_NONE then return false end
     local v = p and p.pandemicGlow
     if v == nil then v = defaults.pandemicGlow end
     return v == true
@@ -381,6 +385,9 @@ function ns.LayoutCastIcon(plate, castH)
             icon:SetPoint("TOPRIGHT", plate.cast, "TOPLEFT", xOff, yOff)
         end
     end
+    -- A cast glow art showing on this plate goes around the icon (the cast file, which loads
+    -- after this one).
+    if ns.NP_PlaceCastGlowArt then ns.NP_PlaceCastGlowArt(plate) end
 end
 
 -- How far the cast icon protrudes past the bar edge, plus that side ("left"/"right"). The
@@ -1546,11 +1553,28 @@ function ns.GetWrapBorderCastbar()
     if v == nil then return defaults.wrapBorderCastbar end
     return v
 end
--- Cast Bar X Offset; 0 while the border wraps the cast bar (the wrap spans the
--- health bar's width).
+-- Whether Wrap Around Castbar can draw: the setting is on and there is a border to wrap
+-- (Basic or Custom). Neither stock style has one, and neither has Border None.
+function ns.NP_WrapCanDraw()
+    return (ns.GetWrapBorderCastbar() and (IsBorderEnabled() or ns.IsCustomBorderEnabled())) and true or false
+end
+-- Cast Bar X Offset; 0 while the border can wrap the cast bar (the wrap spans the health
+-- bar's width). A saved wrap that cannot draw holds nothing back.
 function ns.GetCastBarOffsetX()
-    if ns.GetWrapBorderCastbar() then return 0 end
+    if ns.NP_WrapCanDraw() then return 0 end
     return (p and p.castBarOffsetX) or defaults.castBarOffsetX
+end
+-- Places the cast bars and cast icons again, for a setting that only moves the cast bar:
+-- each live plate at its cast bar's own height (a focus plate keeps its Focus Cast Height),
+-- pooled plates at their next spawn (the appearance pass).
+function ns.NP_RelayoutCastBars()
+    ns._npAppearanceGen = (ns._npAppearanceGen or 0) + 1
+    local barW = ns.GetHealthBarWidth()
+    for _, plate in pairs(ns.plates) do
+        local castH = plate.cast:GetHeight()
+        ns.LayoutCastBar(plate, barW, castH)
+        ns.LayoutCastIcon(plate, castH)
+    end
 end
 local function GetAuraSlots()
     local ds = (p and p.debuffSlot) or defaults.debuffSlot

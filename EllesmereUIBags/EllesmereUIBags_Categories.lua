@@ -1209,18 +1209,23 @@ end
 --  unregister or ask for a repaint from inside its own classify call.
 -------------------------------------------------------------------------------
 -- One repaint for every change made in a frame: a request shows a hidden frame
--- whose next update hides it, then repaints the bags and an open bank.
+-- whose next update hides it, then repaints the bags and an open bank. bagsOnly:
+-- the request is a view's, which the bank never shows; the bank is repainted
+-- when any request of the frame asked for it.
 local _repaint
-local function QueueRepaint()
+local function QueueRepaint(bagsOnly)
     if not _repaint then
         _repaint = CreateFrame("Frame")
         _repaint:SetScript("OnUpdate", function(self)
             self:Hide()
+            local bank = self._bank
+            self._bank = nil
             local bags = _G.EUI_Bags
             if bags and bags.RefreshInventory then bags:RefreshInventory() end
-            if ns.RefreshOpenBank then ns.RefreshOpenBank() end
+            if bank and ns.RefreshOpenBank then ns.RefreshOpenBank() end
         end)
     end
+    if not bagsOnly then _repaint._bank = true end
     _repaint:Show()
 end
 
@@ -1300,6 +1305,7 @@ function CategoryManager:OnVirtualAnswersChanged() end
 --    EUI_CategoryManager:RegisterVirtualView(id, def)   true, or false on bad arguments
 --    EUI_CategoryManager:UnregisterVirtualView(id)      true when it was registered
 --    EUI_CategoryManager:RefreshVirtualViews()          the answers changed: repaint
+--                                                       (while a view is selected)
 --
 --    def.name       the entry's name
 --    def.icon       file ID, path or atlas (default: the question mark)
@@ -1317,6 +1323,10 @@ function CategoryManager:OnVirtualAnswersChanged() end
 --                   order, then id. A group with no items is not drawn.
 --    def.classify   function(itemLink, itemID, bag, slot, quality) -> a group
 --                   id, or nil / an unknown id for "Other".
+--  Junk (grey and marked items while the Junk Marker is on: what Sell Junk
+--  sells) is not offered to the provider: it shows in a Junk section of EUI's
+--  own, last. An item whose link has not loaded is not offered either, and is
+--  not drawn until it has.
 --  The view covers the bags window. The bank and another character's bags
 --  keep their own categories.
 -------------------------------------------------------------------------------
@@ -1331,13 +1341,14 @@ local function ViewBefore(a, b)
     return a.id < b.id
 end
 
--- The list changed: an open view that left falls back to All Items; repaint.
+-- The list changed: an open view that left falls back to All Items; repaint
+-- the bags (their sidebar lists the views).
 local function ViewsChanged(self)
     if ns.GetSelection and ns.SetSelection then
         local sel = ns.GetSelection()
         if sel and sel <= VIEW_FIRST and not self:GetViewByIndex(sel) then ns.SetSelection(0, nil) end
     end
-    QueueRepaint()
+    QueueRepaint(true)
 end
 
 function CategoryManager:RegisterVirtualView(id, def)
@@ -1353,6 +1364,9 @@ function CategoryManager:RegisterVirtualView(id, def)
                     id    = g.id,
                     name  = type(g.name) == "string" and g.name ~= "" and g.name or g.id,
                     order = tonumber(g.order) or 0,
+                    -- the list view's collapse key (kept for the session): by the
+                    -- group's id, so a new group order moves no collapsed state
+                    key   = "Virtual:view:" .. id .. ":g:" .. g.id,
                 }
             end
         end
@@ -1378,6 +1392,7 @@ function CategoryManager:RegisterVirtualView(id, def)
         order     = tonumber(def.order) or 0,
         otherName = type(def.otherName) == "string" and def.otherName ~= "" and def.otherName
                     or EllesmereUI.L("Other"),
+        otherKey  = "Virtual:view:" .. id .. ":other",
         keepPinned = def.keepPinned == true or nil,
         keepRecent = def.keepRecent == true or nil,
         groups    = groups,
@@ -1403,10 +1418,12 @@ function CategoryManager:UnregisterVirtualView(id)
     return false
 end
 
--- A provider's answers changed (its data loaded, its rules changed): classify again.
+-- A provider's answers changed (its data loaded, its rules changed): classify
+-- again. Only a selected view shows them, so nothing repaints while none is.
 function CategoryManager:RefreshVirtualViews()
     if not _views or _asking then return end
-    QueueRepaint()
+    local sel = ns.GetSelection and ns.GetSelection()
+    if sel and sel <= VIEW_FIRST then QueueRepaint(true) end
 end
 
 -- The registered views in order (nil while none): the sidebar lists them.

@@ -242,8 +242,7 @@ do
         { text = "Talents",         microButton = "PlayerSpellsMicroButton" },
         { text = "Professions",     microButton = "ProfessionMicroButton" },
         { divider = true },
-        { text = "Group Finder",    microButton = "LFDMicroButton",
-          forever = { text = "Group Finder", fn = function() if ToggleGroupFinderFrame then ToggleGroupFinderFrame() end end } },
+        { text = "Group Finder",    microButton = "LFDMicroButton" },
         { text = "Adventure Guide", microButton = "EJMicroButton", noForever = true },
         { text = "Achievements",    microButton = "AchievementMicroButton",
           forever = { text = "Legacy", microButton = "LegacyMicroButton" } },
@@ -297,8 +296,11 @@ do
         end)
 
         local y = -PADDING
-        -- Forever: no Adventure Guide or Housing UI, Achievements is Legacy, and the
-        -- vanilla-style Group Finder opens through Blizzard's toggle, not its micro button.
+        -- WoW Forever: no Adventure Guide or Housing window (noForever), and Legacy
+        -- stands in Achievements' place (forever = the row shown there instead).
+        -- Every micro button row stays a secure click there too, Group Finder
+        -- included: opening one of Blizzard's windows from our own Lua runs its
+        -- code tainted.
         local fv = EllesmereUI.IS_FOREVER == true
         for _, item in ipairs(menuItems) do
             if fv and item.forever then item = item.forever end

@@ -178,8 +178,10 @@ local function InitializeFrames()
     -- (Combat indicator overlay moved below the target/focus spawns -- the
     -- target frame does not exist yet at this point in the setup.)
 
-    -- Rested indicator on player health bar top-left: "ZZZ" text, or
-    -- Blizzard's animated player frame rest icon when Animated is on.
+    -- Rested indicator on the player frame: "ZZZ" text on the health bar's
+    -- top-left, or Blizzard's animated player frame rest icon when Animated is
+    -- on (the same spot; under the WoW Forever look's player art the stock
+    -- frame's own spot above the portrait, with its gold resting glow).
     do
         local pf = frames.player
         if pf and pf.Health then
@@ -192,14 +194,20 @@ local function InitializeFrames()
                 restText:Hide()
                 pf._restText = restText
 
+                -- The cog's X / Y offsets.
+                local function RestOffsets()
+                    local db = EllesmereUIDB
+                    return (db and db.restedIndicatorXOffset) or 0, (db and db.restedIndicatorYOffset) or 0
+                end
                 local function PlaceRest(region)
-                    local rx = (EllesmereUIDB and EllesmereUIDB.restedIndicatorXOffset) or 0
-                    local ry = (EllesmereUIDB and EllesmereUIDB.restedIndicatorYOffset) or 0
+                    local rx, ry = RestOffsets()
                     region:ClearAllPoints()
                     region:SetPoint("TOPLEFT", pf.Health, "TOPLEFT", 3 + rx, -2 + ry)
                 end
                 -- Places the text, and the animated icon once built, at the cog's X/Y
-                -- offsets (and the icon at its Size).
+                -- offsets (and the icon at its Size). The icon's spot depends on the
+                -- frame's art: the stock layout pass runs this again when that changes
+                -- (ns.UF_RestFollowArt).
                 pf._restPlace = function()
                     PlaceRest(pf._restText)
                     local a = pf._restAnim
@@ -211,8 +219,7 @@ local function InitializeFrames()
                             -- the stock box, the 30x30 flipbook centred on it. The Size
                             -- setting scales both, 24 being the stock look.
                             local k = size / 24
-                            local rx = (EllesmereUIDB and EllesmereUIDB.restedIndicatorXOffset) or 0
-                            local ry = (EllesmereUIDB and EllesmereUIDB.restedIndicatorYOffset) or 0
+                            local rx, ry = RestOffsets()
                             a:SetSize(20 * k, 20 * k)
                             a:ClearAllPoints()
                             ns.UF_BlizzPoint(a, "TOPLEFT", pf, "TOPLEFT", 64 + rx, -6 + ry, pf._blizzMirror)

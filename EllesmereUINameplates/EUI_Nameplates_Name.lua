@@ -487,14 +487,17 @@ function NameplateFrame:UpdateFaction(artOnly)
     -- Elements sharing the slot follow the badge's show and move.
     if ns.NP_CoreChain then ns.NP_CoreChain(self, slot) end
 end
--- The room a name has in the Top slot: the bar minus the raid marker, the Rare/Quest
--- indicator, the Quest Objective Text and the faction badge while they show in Top or a top
--- corner (Left, Right and Bottom sit off the name's row), and minus the wider Top Left /
--- Top Right text on each side (the name is centred between them). The Top Custom text
--- naming the unit takes it too (AddCustomText, then UpdateNameWidth keeps it current).
-local function OnNameRow(slot)
+-- Whether a Core Positions slot sits at the Top name's height: Top or a top corner (Left,
+-- Right and Bottom sit off the name's row). The options preview asks the same.
+function ns.NP_OnNameRow(slot)
     return slot == "top" or slot == "topleft" or slot == "topright"
 end
+local OnNameRow = ns.NP_OnNameRow
+-- The room a name has in the Top slot: the bar minus the raid marker, the Rare/Quest
+-- indicator, the Quest Objective Text and the faction badge while they show on the name's
+-- row, and minus the wider Top Left / Top Right text on each side (the name is centred
+-- between them). The Top Custom text naming the unit takes it too (AddCustomText, then
+-- UpdateNameWidth keeps it current).
 local function TopNameWidth(self, barW)
     local nameW = barW - 2 * math.max(ns.NP_TopCornerTextWidth("textSlotTopLeft"),
         ns.NP_TopCornerTextWidth("textSlotTopRight"))

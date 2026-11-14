@@ -1152,7 +1152,7 @@ local function ForeverRuleset(accountInfo)
     if not (gi and gi.isOnline and gi.wowProjectID == WOW_PROJECT_FOREVER) then return nil end
     local ruleset = gi.richPresence and gi.richPresence:match("^.- %- (.-) %- ")
     if not ruleset or ruleset == "" then
-        ruleset = RealmRuleset(gi.realmName and gi.realmName:match("Realm%d+(%a+)$"))
+        ruleset = RealmRuleset(EllesmereUI.RealmRulesetSuffix(gi.realmName))
     end
     if not ruleset then return nil end
     if gi.isInCurrentRegion == false and FriendsListUtil and FriendsListUtil.GetRegionName then

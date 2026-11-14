@@ -13,6 +13,9 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  and styleDisabled + styleDisabledTooltip (a whole sentence, shown as is):
 --  a lock on the style alone -- the color swatches and the Pixel Glow cog stay
 --  live, and the template leaves the site alone while it holds.
+--  defaultColorOnPick (a set of shared style indexes): for a site that draws
+--  those styles in art with colors of its own, switching the style control to
+--  one of them selects the Default color (the custom color itself is kept).
 
 
 local GO = {}
@@ -254,10 +257,22 @@ local function StyleLock(desc)
         end
 end
 
+-- A pick from a style control; shown is the value the control showed before it. Switching
+-- to a style the site lists in defaultColorOnPick selects the Default color.
+local function PickStyle(desc, v, shown)
+    local own = desc.defaultColorOnPick
+    if own and v ~= shown and desc.caps and desc.caps.mode then
+        local idx = GO.ToShared(desc, v)
+        if idx and own[idx] then desc.set("mode", "default") end
+    end
+    desc.set("style", v)
+end
+
 -- DualRow half spec for the style dropdown.
 function GO.DropdownSpec(desc, text, tooltip)
     local values, order = GO.StyleValues(desc)
     local lockFn, lockTip, lockRaw = StyleLock(desc)
+    local getStyle = StyleGetter(desc, values)
     return {
         type = "dropdown", text = text or "Glow",
         values = values, order = order,
@@ -265,10 +280,10 @@ function GO.DropdownSpec(desc, text, tooltip)
         disabled = lockFn,
         disabledTooltip = lockTip,
         rawTooltip = lockRaw,
-        getValue = StyleGetter(desc, values),
+        getValue = getStyle,
         setValue = function(v)
             local function commit()
-                desc.set("style", v)
+                PickStyle(desc, v, getStyle())
                 GO.Changed(desc)
                 C_Timer.After(0, function() EllesmereUI:RefreshPage() end)
             end
@@ -380,12 +395,13 @@ function GO.PopupRows(desc, styleLabel, hidePixel)
     local rows = {}
     local off = function() return not GO.Renders(desc) end
     local lockFn, lockTip, lockRaw = StyleLock(desc)
+    local getStyle = StyleGetter(desc, values)
     rows[#rows + 1] = { type = "dropdown", label = styleLabel or "Glow Style",
         values = values, order = order, ddWidth = 170,
         disabled = lockFn, disabledTooltip = lockTip, rawTooltip = lockRaw,
-        get = StyleGetter(desc, values),
+        get = getStyle,
         set = function(v)
-            local function commit() desc.set("style", v); GO.Changed(desc); EllesmereUI:RefreshPage() end
+            local function commit() PickStyle(desc, v, getStyle()); GO.Changed(desc); EllesmereUI:RefreshPage() end
             if desc.confirm then desc.confirm(v, commit) else commit() end
         end }
     local caps = desc.caps or {}

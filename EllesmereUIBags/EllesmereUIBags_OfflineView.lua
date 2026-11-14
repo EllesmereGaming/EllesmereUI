@@ -677,13 +677,14 @@ local function PaintSlot(b, it)
     b:Show()
 end
 
--- the bar's gold: its right edge on the window's own gold readout
+-- the bar's gold: its right edge on the window's own gold readout (goldRefHidden: a
+-- readout that keeps its spot while it is hidden)
 local function PaintGold(v, gold)
     local money, bar = v.money, v.bar
     money:ClearAllPoints()
     local ref = v.goldRef and v.goldRef()
     local dx = -10
-    if ref and ref:IsShown() and ref:GetRight() and bar:GetRight() then dx = ref:GetRight() - bar:GetRight() end
+    if ref and (v.goldRefHidden or ref:IsShown()) and ref:GetRight() and bar:GetRight() then dx = ref:GetRight() - bar:GetRight() end
     money:SetPoint("RIGHT", bar, "RIGHT", dx, 0)
     if type(gold) == "number" then
         MoneyFrame_Update(v.moneyName, gold)
@@ -709,11 +710,11 @@ local function Gold(v)
     if v.mode == "bank" and TabKind(v) == "warband" then return GL.WarbandMoney() end
     local key = ShownKey(v)
     if key == Offline.CurrentKey() then return GL.Money() end
-    -- The ledger keys by GUID; an entry from an older build by "Name-Realm".
+    -- The roster keys by GUID; an entry from an older build by "Name-Realm".
     local c = Offline.Char(key)
-    local chars = GL.Data().chars
-    local e = (c and c.guid and chars[c.guid]) or chars[key]
-    return e and e.money
+    local money = c and c.guid and GL.MoneyOf(c.guid) or nil
+    if money == nil then money = GL.MoneyOf(key) end
+    return money
 end
 
 -- everything the grid draws from; the same signature twice means nothing moved.
@@ -946,6 +947,8 @@ local EUI_Bank = bankView.win
 if EUI_Bank then
     bankView.count = function() return EUI_Bank._headerItemCount end
     bankView.goldRef = function() return EUI_Bank._warbandGoldText end
+    -- hidden where there is no warband bank, and still anchored clear of the resize grip
+    bankView.goldRefHidden = true
     bankView.under = function()
         return { EUI_Bank._scrollFrame, EUI_Bank._scrollTrack, EUI_Bank._sidebarSF, ns.ListHeaderBar(EUI_Bank) }
     end

@@ -5,7 +5,7 @@
 -- Forever no longer takes. Scenario 7 drives the Weapon Buffs reminder,
 -- scenario 8 a spell group's click and tooltip rank, scenario 9 a custom
 -- spell's, scenario 10 the class buffs and Mage Armors, scenario 11 the
--- Sleeping Bag.
+-- Sleeping Bag, scenario 12 Well Fed and its Show Below.
 --   lua .tools/tests/test_abr_forever_combat.lua        (from the repository root)
 local ROOT = arg and arg[1] or "."
 
@@ -25,7 +25,8 @@ local MAIN_SRC = ReadSource("EllesmereUIAuraBuffReminders/EllesmereUIAuraBuffRem
 -------------------------------------------------------------------------------
 local TEST = { combat = false, up = {}, src = {}, auraReads = 0, trackingWanted = {}, weaponWanted = {},
     weapon = {}, enchants = {}, bags = {}, bagWanted = {}, stacks = {}, itemCountReads = 0, level = 40,
-    sleepWatchWanted = {}, restricted = false, secretAura = {} }
+    sleepWatchWanted = {}, restricted = false, secretAura = {}, expires = {}, secretVals = {}, nameReads = {},
+    secretTable = {} }
 
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 function GetTime() return 100 end
@@ -39,9 +40,16 @@ C_UnitAuras = {
         TEST.auraReads = TEST.auraReads + 1
         if TEST.restricted and TEST.secretAura[id] then return nil end
         if TEST.up[id] then
+            -- TEST.secretTable[id]: the aura itself comes back secret, a table none of whose
+            -- fields may be read
+            if TEST.secretTable[id] then
+                local aura = setmetatable({}, { __index = function() error("a field of a secret aura was read", 2) end })
+                TEST.secretVals[aura] = true
+                return aura
+            end
             -- its caster: TEST.src[id], else the player
             local src = TEST.src[id] or "player"
-            return { spellId = id, duration = 0, expirationTime = 0, sourceUnit = src,
+            return { spellId = id, duration = 0, expirationTime = TEST.expires[id] or 0, sourceUnit = src,
                 isFromPlayerOrPlayerPet = src == "player", applications = TEST.stacks[id] }
         end
     end,
@@ -53,7 +61,11 @@ C_UnitAuras = {
             if n == i then return { spellId = id, name = "Aura" .. id } end
         end
     end,
-    GetAuraDataBySpellName = function() return nil end,
+    -- TEST.fed: the player's aura under the Well Fed name, when one is up
+    GetAuraDataBySpellName = function(unit, name, filter)
+        TEST.nameReads[#TEST.nameReads + 1] = unit .. "|" .. tostring(name) .. "|" .. tostring(filter)
+        return TEST.fed
+    end,
 }
 
 -- One skill line holding the custom spell and the group's spell
@@ -109,8 +121,8 @@ EllesmereUI = {
         beneficiaries = { MAGE = true, PRIEST = true } } },
     AuraKit = { AurasRestricted = function() return TEST.restricted end },
     L = function(s) return s end,
-    CharKey = function(sep) return "Tester" .. sep .. "Realm" end,
 }
+dofile(".tools/tests/char_roster_stub.lua")(EllesmereUI, { guid = "Player-1" })
 
 -------------------------------------------------------------------------------
 --  The internals the two files read (the main file and the earlier parts build
@@ -127,6 +139,8 @@ function EABR.FvSyncWeaponEvents(want) TEST.weaponWanted[#TEST.weaponWanted + 1]
 function EABR.FvSyncBagEvent(want) TEST.bagWanted[#TEST.bagWanted + 1] = want end
 function EABR.FvSyncSleepBagWatch(want) TEST.sleepWatchWanted[#TEST.sleepWatchWanted + 1] = want end
 EABR.SLEEPING_BAG_BUFF, EABR.SLEEPING_BAG_ITEM, EABR.SLEEPING_BAG_STACKS = 429959, 211527, 3
+-- The main file's rule for every Show Below threshold: never in combat (or a running key on retail).
+EABR.ShowUnderThresholdApplies = function() return not TEST.combat end
 -- The main file's catalogue, cut to the one category a priest's blade can take
 EABR.FV_WEAPON_BUFFS = {
     { key = "sharpening", name = "Sharpening Stone", weapon = "BLADED", items = { 2862, 2863 } },
@@ -141,7 +155,8 @@ local I = {
     cursorAnchorSetters = {},
     InCombat = function() return TEST.combat end,
     InMythicPlusKey = function() return false end,
-    isSecret = function() return false end,
+    -- TEST.secretVals[value] = true: that aura table or number reads secret
+    isSecret = function(v) return v ~= nil and TEST.secretVals[v] == true end,
     SpellName = function(id) return NAMES[id] end,
     Known = function(id) return C_SpellBook.IsSpellKnown(id) end,
     ShortLabel = function(s) return s end,
@@ -392,8 +407,8 @@ local function ClassEntries(class, cfo)
     return entries
 end
 local function Recorded(key)
-    local s = EllesmereUIDB.classBuffByChar
-    return s and s["Tester-Realm"] and s["Tester-Realm"][key]
+    local s = EllesmereUIDB.chars and EllesmereUIDB.chars["Player-1"]
+    return s and s.classBuff and s.classBuff[key]
 end
 local bookBefore = #BOOK
 for _, id in ipairs({ 19740, 19834, 19742, 19850, 465, 10290 }) do BOOK[#BOOK + 1] = id end
@@ -488,7 +503,7 @@ assert(#cb == 1 and cb[1].spellID == 6117 and cb[1].dismissKey == "forever:magea
 TEST.up[7302] = true
 cb = {}
 EABR.CollectMageArmor(cb, false, {})
-assert(#cb == 0 and EllesmereUIDB.mageArmorByChar["Tester-Realm"] == 2, "Ice Armor up was not recorded")
+assert(#cb == 0 and EllesmereUIDB.chars["Player-1"].mageArmor == 2, "Ice Armor up was not recorded")
 TEST.up[7302] = nil
 cb = {}
 EABR.CollectMageArmor(cb, false, {})
@@ -575,6 +590,52 @@ TEST.stacks[WELL_RESTED] = 2
 assert(SleepShown(select(2, Collect())), "two stacks of Well-Rested hid the reminder")
 TEST.stacks[WELL_RESTED] = 3
 assert(not SleepShown(select(2, Collect())), "three stacks of Well-Rested still reminded")
+-- Show Below (Minutes), the Sleeping Bag cog: at full stacks the reminder also shows that long before
+-- Well-Rested runs out, with the countdown; 0 (the default) keeps to the stack rule. GetTime() = 100.
+TEST.expires[WELL_RESTED] = 300
+EABR._nextDurationRefreshTime = nil
+assert(not SleepShown(select(2, Collect())), "Show Below 0: full stacks with 200 s left reminded")
+assert(EABR._nextDurationRefreshTime == nil, "Show Below 0: a refresh was armed for the buff's end")
+fo.sleepingBagShowBelow = 5
+e = SleepShown(select(2, Collect()))
+assert(e and e.expireAt == 300 and e.expireTotal == 200, "inside Show Below: no reminder with its countdown")
+fo.sleepingBagShowBelow = 2
+EABR._nextDurationRefreshTime = nil
+assert(not SleepShown(select(2, Collect())), "outside Show Below: the reminder showed")
+assert(EABR._nextDurationRefreshTime == 180,
+    "one refresh is armed for the two-minute mark: " .. tostring(EABR._nextDurationRefreshTime))
+-- Under 3 stacks the stack rule shows it; the countdown only inside Show Below.
+TEST.stacks[WELL_RESTED] = 1
+e = SleepShown(select(2, Collect()))
+assert(e and e.expireAt == nil, "under 3 stacks outside Show Below: shown with a countdown")
+fo.sleepingBagShowBelow = 5
+e = SleepShown(select(2, Collect()))
+assert(e and e.expireAt == 300, "under 3 stacks inside Show Below: no countdown")
+-- A buff that has run out by the clock is the stack rule's alone.
+TEST.stacks[WELL_RESTED], TEST.expires[WELL_RESTED] = 3, 50
+assert(not SleepShown(select(2, Collect())), "an expiry time in the past showed the reminder")
+-- A Well-Rested that comes back secret: none of its fields is read and nothing is shown.
+TEST.expires[WELL_RESTED] = 300
+assert(SleepShown(select(2, Collect())), "full stacks inside Show Below: no reminder")
+TEST.secretTable[WELL_RESTED] = true
+assert(not SleepShown(select(2, Collect())), "a secret Well-Rested aura showed the reminder")
+TEST.secretTable[WELL_RESTED], TEST.secretVals = nil, {}
+-- A secret expiry time on a readable aura: the stack rule alone, and no refresh is armed.
+TEST.secretVals[300] = true
+EABR._nextDurationRefreshTime = nil
+assert(not SleepShown(select(2, Collect())) and EABR._nextDurationRefreshTime == nil,
+    "a secret expiry time showed the early reminder or armed a refresh")
+TEST.secretVals = {}
+-- Where the main file's threshold rule says no, the stack rule alone.
+do
+    local applies = EABR.ShowUnderThresholdApplies
+    EABR.ShowUnderThresholdApplies = function() return false end
+    EABR._nextDurationRefreshTime = nil
+    assert(not SleepShown(select(2, Collect())) and EABR._nextDurationRefreshTime == nil,
+        "with thresholds off the Sleeping Bag reminded early or armed a refresh")
+    EABR.ShowUnderThresholdApplies = applies
+end
+fo.sleepingBagShowBelow, TEST.expires[WELL_RESTED] = nil, nil
 TEST.up[WELL_RESTED], TEST.stacks[WELL_RESTED] = nil, nil
 TEST.combat = true
 assert(not SleepShown(select(2, Collect())), "the Sleeping Bag showed in combat")
@@ -597,8 +658,124 @@ assert(EABR._fvMaxLevel == true, "max level was not kept")
 fo.sleepingBag, TEST.bags[BAG], TEST.level, EABR._fvMaxLevel, EABR._fvSleepBag = false, nil, 40, nil, nil
 local opt = OPTIONS_SRC:gsub("\r\n", "\n")
 local campAt, sleepAt = opt:find('text="Camp Benefits"', 1, true), opt:find('text="Sleeping Bag"', 1, true)
+-- The Sleeping Bag toggle refreshes the page: the cog beside it greys out with it.
+local sleepEnd = opt:find("y = y - h", sleepAt, true)
+assert(opt:sub(sleepAt, sleepEnd):find("EllesmereUI:RefreshPage()", 1, true), "the Sleeping Bag toggle does not refresh the page")
+assert(opt:find('title = "Sleeping Bag"', 1, true) and opt:find("sleepingBagShowBelow", 1, true), "the Sleeping Bag cog's Show Below row")
 local fedAt = opt:find('_G._EABR_SpellName(19705, "Well Fed")', 1, true)
 assert(campAt and sleepAt and fedAt and campAt < sleepAt and sleepAt < fedAt,
     "Sleeping Bag is not beside Camp Benefits, before Well Fed")
+
+-- 12. Well Fed: shown while no food buff is up (the buff named Well Fed, or one of the foods
+--     whose buff has its own name). Show Below (Minutes), its cog: above 0 it also shows that long
+--     before the buff that is up runs out, with the countdown; outside that window one refresh is
+--     armed for the moment it opens. An aura or time that cannot be read never shows the early
+--     reminder. GetTime() = 100.
+do
+    local FOOD_A, FOOD_B = 5001, 5002
+    EABR.WELL_FED, EABR.FOOD_BUFFS = 19705, { FOOD_A, FOOD_B }
+    NAMES[19705] = "Well Fed"
+    local function Fed(list)
+        for _, entry in ipairs(list) do
+            if entry.dismissKey == "forever:wellfed" then return entry end
+        end
+    end
+    local function Run()
+        EABR._nextDurationRefreshTime = nil
+        return Fed(select(2, Collect()))
+    end
+    fo.wellFed = true
+    -- nothing up: the reminder, with no countdown
+    TEST.nameReads = {}
+    local w = Run()
+    assert(w and w.mode == "texture" and w.spellID == 19705 and w.label == "Well Fed" and w.expireAt == nil,
+        "no food buff: no plain Well Fed reminder")
+    assert(TEST.nameReads[1] == "player|Well Fed|HELPFUL", "Well Fed is not looked up by its name on the player: " .. tostring(TEST.nameReads[1]))
+    -- Well Fed up, Show Below unset: nothing, and no refresh is armed
+    TEST.fed = { expirationTime = 1000 }
+    assert(not Run() and EABR._nextDurationRefreshTime == nil, "Well Fed up with Show Below off: a reminder or a refresh")
+    fo.wellFedShowBelow = 0
+    assert(not Run() and EABR._nextDurationRefreshTime == nil, "Show Below 0: a reminder or a refresh")
+    -- Show Below 5 minutes, 900 s left: nothing yet, one refresh armed for the five-minute mark
+    fo.wellFedShowBelow = 5
+    assert(not Run(), "outside Show Below: the reminder showed")
+    assert(EABR._nextDurationRefreshTime == 700, "the refresh is not armed for the five-minute mark: " .. tostring(EABR._nextDurationRefreshTime))
+    -- 250 s left: the reminder, with its countdown to the buff's end
+    TEST.fed = { expirationTime = 350 }
+    w = Run()
+    assert(w and w.expireAt == 350 and w.expireTotal == 250, "inside Show Below: no reminder with the time left ("
+        .. tostring(w and w.expireAt) .. ", " .. tostring(w and w.expireTotal) .. ")")
+    assert(EABR._nextDurationRefreshTime == nil, "inside Show Below a refresh was armed")
+    -- where the main file's threshold rule says no, the plain rule alone
+    do
+        local applies = EABR.ShowUnderThresholdApplies
+        EABR.ShowUnderThresholdApplies = function() return false end
+        assert(not Run() and EABR._nextDurationRefreshTime == nil, "with thresholds off Well Fed reminded early or armed a refresh")
+        EABR.ShowUnderThresholdApplies = applies
+    end
+    -- a buff that does not run out, or has run out by the clock: nothing
+    TEST.fed = { expirationTime = 0 }
+    assert(not Run() and EABR._nextDurationRefreshTime == nil, "a Well Fed that does not run out reminded")
+    TEST.fed = { expirationTime = 50 }
+    assert(not Run(), "an expiry time in the past reminded")
+    -- an aura that reads secret: neither missing nor early
+    TEST.fed = { expirationTime = 350 }
+    TEST.secretVals[TEST.fed] = true
+    assert(not Run(), "a secret Well Fed aura showed a reminder")
+    TEST.secretVals = {}
+    -- a secret expiry time: the buff is up, the early reminder is left out
+    TEST.secretVals[350] = true
+    assert(not Run() and EABR._nextDurationRefreshTime == nil, "a secret expiry time showed the early reminder")
+    TEST.secretVals = {}
+    -- a food whose buff has its own name: up, so no plain reminder; the early one follows its expiry
+    TEST.fed = nil
+    TEST.up[FOOD_A], TEST.expires[FOOD_A] = true, 1000
+    assert(not Run() and EABR._nextDurationRefreshTime == 700, "a named food outside Show Below: reminded, or no refresh armed")
+    TEST.expires[FOOD_A] = 350
+    w = Run()
+    assert(w and w.expireAt == 350 and w.expireTotal == 250, "a named food inside Show Below: no reminder with its countdown")
+    -- two such foods: the one that lasts longer decides
+    TEST.up[FOOD_B], TEST.expires[FOOD_B] = true, 900
+    assert(not Run() and EABR._nextDurationRefreshTime == 600, "two foods: the shorter one decided ("
+        .. tostring(EABR._nextDurationRefreshTime) .. ")")
+    -- one of them unreadable: nothing is guessed
+    TEST.expires[FOOD_B] = nil
+    assert(not Run() and EABR._nextDurationRefreshTime == nil, "a food with no readable expiry still gave an early reminder")
+    TEST.up[FOOD_B] = nil
+    -- Show Below back to 0 with a food about to run out: the plain rule alone
+    fo.wellFedShowBelow = nil
+    assert(not Run(), "Show Below off: a food about to run out reminded")
+    fo.wellFedShowBelow = 5
+    -- in combat and in PvP the section shows nothing
+    TEST.combat = true
+    assert(not Run(), "Well Fed showed in combat")
+    TEST.combat = false
+    local pvp = {}
+    EABR.CollectForever(pvp, false, true)
+    assert(not Fed(pvp), "Well Fed showed in PvP")
+    -- off: nothing, whatever is set
+    fo.wellFed = false
+    TEST.up[FOOD_A], TEST.expires[FOOD_A] = nil, nil
+    assert(not Run(), "Well Fed off: the reminder showed")
+    fo.wellFedShowBelow = nil
+    -- the options file compiles (every cog block is closed)
+    assert(loadstring(OPTIONS_SRC, "=EUI_AuraBuffReminders_Options.lua"))
+    -- the options: the Well Fed cog and its row, after the Sleeping Bag's, before Gathering Tracking's
+    local o = OPTIONS_SRC:gsub("\r\n", "\n")
+    local sleepCog = o:find("EllesmereUI.BuildInlineCog(campRow._rightRegion, {", 1, true)
+    local fedCog = o:find("EllesmereUI.BuildInlineCog(gatherRow._leftRegion, {", 1, true)
+    local gatherCog = o:find("EllesmereUI.BuildInlineCog(gatherRow._rightRegion, {", 1, true)
+    assert(sleepCog and fedCog and gatherCog and sleepCog < fedCog and fedCog < gatherCog, "the three cogs are not in the order of their rows")
+    local cog = o:sub(fedCog, gatherCog - 1)
+    assert(select(2, cog:gsub("\n                }%)\n", "")) == 1, "the Well Fed cog is not closed before the next one")
+    assert(cog:find('label="Show Below (Minutes)", min=0, max=10, step=1', 1, true), "the Well Fed cog has no Show Below row from 0 to 10")
+    assert(cog:find('tooltip="Also reminds you this many minutes before Well Fed runs out. 0 = off."', 1, true), "the row's tooltip is not the one line")
+    assert(cog:find("f.wellFedShowBelow = v > 0 and v or nil", 1, true), "the row does not clear the key at 0")
+    assert(cog:find("disabled = function() local f = FDB(); return not (f and f.wellFed) end", 1, true), "the cog is not locked while Well Fed is off")
+    -- the Well Fed toggle refreshes the page: its cog greys out with it
+    local fedToggle = o:find('{ type="toggle", text=_G._EABR_SpellName(19705, "Well Fed")', 1, true)
+    local gatherToggle = o:find('{ type="toggle", text="Gathering Tracking"', fedToggle, true)
+    assert(o:sub(fedToggle, gatherToggle):find("EllesmereUI:RefreshPage()", 1, true), "the Well Fed toggle does not refresh the page")
+end
 
 print("aurabuff reminders forever combat harness: ok")

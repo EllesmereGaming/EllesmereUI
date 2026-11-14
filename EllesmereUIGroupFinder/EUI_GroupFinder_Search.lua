@@ -164,8 +164,13 @@ function XF.StockBox(f, bg, part)
     return true
 end
 ns.StockBox = XF.StockBox
+-- a box's ring of ours, made only with the skin on: a border that is made and
+-- then hidden stays in the border registry for the session
+function XF.CheckRing(cb)
+    return XF.SkinOn() and CM.MakeBorder(cb, 0.25, 0.25, 0.25, 0.6, CM.PanelPP) or nil
+end
 -- skin off: blizzard's check box art on our box; true when it took (paint then only shows / hides fill)
-function XF.StockCheck(cb, bg, fill, ring)
+function XF.StockCheck(cb, bg, fill)
     if XF.SkinOn() then return false end
     bg:SetTexture("Interface\\Buttons\\UI-CheckBox-Up")
     fill:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
@@ -174,10 +179,10 @@ function XF.StockCheck(cb, bg, fill, ring)
         t:SetPoint("TOPLEFT", cb, "TOPLEFT", -4, 4)
         t:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", 4, -4)
     end
-    if ring and ring._frame then ring._frame:Hide() end
     return true
 end
--- a box's checked look: blizzard's tick, or our accent fill and ring
+-- a box's checked look: blizzard's tick, or our accent fill and ring (a stock
+-- box has no ring)
 function XF.PaintCheck(cb, fill, ring, on)
     fill:SetShown(on)
     if cb.stock then return end
@@ -193,7 +198,7 @@ end
 ns.NewButton = XF.NewButton
 ns.STOCK_ROWS_L, ns.STOCK_ROWS_R, ns.STOCK_BAR = 4, 10, 6  -- applicant rows inside blizzard's inset
 
--- a picked square: a white edge, or blizzard's highlight held on
+-- a picked square: a white edge, or with the skin off its box and icon tinted green
 function XF.PickBorder(sq, edge, on)
     if XF.SkinOn() then
         if on then CM.PanelPP.SetBorderColor(edge, 1, 1, 1, 1) else XF.RestBorder(edge) end
@@ -1745,11 +1750,11 @@ local function MenuItem(parent, y, text, onClick)
     local cbBg = cb:CreateTexture(nil, "BACKGROUND")
     cbBg:SetAllPoints()
     cbBg:SetColorTexture(0.12, 0.12, 0.12, 1)
-    item.ring = CM.MakeBorder(cb, 0.25, 0.25, 0.25, 0.6, CM.PanelPP)
+    item.ring = XF.CheckRing(cb)
     item.fill = cb:CreateTexture(nil, "ARTWORK")
     item.fill:SetPoint("TOPLEFT", cb, "TOPLEFT", 3, -3)
     item.fill:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", -3, 3)
-    item.stock = XF.StockCheck(cb, cbBg, item.fill, item.ring)
+    item.stock = XF.StockCheck(cb, cbBg, item.fill)
     local tR, tG, tB, tA = CM.TEXT_DIM_R, CM.TEXT_DIM_G, CM.TEXT_DIM_B, CM.TEXT_DIM_A
     item.label = item:CreateFontString(nil, "OVERLAY")
     XF.Font(item.label, ITEM_FONT)
@@ -2015,11 +2020,11 @@ function XF.AddCountRow(m, y, role, text)
     local sbg = sw:CreateTexture(nil, "BACKGROUND")
     sbg:SetAllPoints()
     sbg:SetColorTexture(0.12, 0.12, 0.12, 1)
-    sw.ring = CM.MakeBorder(sw, 0.25, 0.25, 0.25, 0.6, CM.PanelPP)
+    sw.ring = XF.CheckRing(sw)
     sw.fill = sw:CreateTexture(nil, "ARTWORK")
     sw.fill:SetPoint("TOPLEFT", sw, "TOPLEFT", 3, -3)
     sw.fill:SetPoint("BOTTOMRIGHT", sw, "BOTTOMRIGHT", -3, 3)
-    sw.stock = XF.StockCheck(sw, sbg, sw.fill, sw.ring)
+    sw.stock = XF.StockCheck(sw, sbg, sw.fill)
     sw:SetScript("OnClick", function()
         local r = Rule()
         r.on = (not r.on) or nil
@@ -2150,11 +2155,11 @@ local function AddRatingRow(m, y)
     local cbg = cb:CreateTexture(nil, "BACKGROUND")
     cbg:SetAllPoints()
     cbg:SetColorTexture(0.12, 0.12, 0.12, 1)
-    cb.ring = CM.MakeBorder(cb, 0.25, 0.25, 0.25, 0.6, CM.PanelPP)
+    cb.ring = XF.CheckRing(cb)
     cb.fill = cb:CreateTexture(nil, "ARTWORK")
     cb.fill:SetPoint("TOPLEFT", cb, "TOPLEFT", 3, -3)
     cb.fill:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", -3, 3)
-    cb.stock = XF.StockCheck(cb, cbg, cb.fill, cb.ring)
+    cb.stock = XF.StockCheck(cb, cbg, cb.fill)
     cb:SetScript("OnClick", function()
         local c = Cfg()
         c.ratingOn = (not c.ratingOn) or nil
@@ -2464,8 +2469,8 @@ local function SkinnedButton(parent, w, h, keepKeys, decorate)
     if decorate then decorate(b) end
     local S = Skin()
     if stock then
-        -- no edge of ours: a picked square holds the template's highlight on (XF.PickBorder), and a
-        -- border colour write on a frame with no border does nothing
+        -- no edge of ours: a picked square is tinted (XF.PickBorder), and a border colour write on
+        -- a frame with no border does nothing
         return b
     elseif S and S.Button then
         S.Button(b, keepKeys)
@@ -3023,8 +3028,9 @@ Paint = function()
             active = not DiffAllOrNone(f) or DungeonPlaystyles(f) or DungeonRolesSet(f) or (f.minimumRating or 0) ~= 0
         end
         diffBtn.active = (active or RegionFilterActive() or XF.ExtraFilterActive()) and true or false
-        -- green edge while a filter's on, same as the expressions button
-        if not diffBtn.activeEdge then
+        -- green edge while a filter's on, same as the expressions button (skin
+        -- off: no edge is made, XF.ActiveLook tints the button's box)
+        if XF.SkinOn() and not diffBtn.activeEdge then
             local edge = CreateFrame("Frame", nil, diffBtn)
             edge:SetAllPoints()
             edge:SetFrameLevel(diffBtn:GetFrameLevel() + 3)

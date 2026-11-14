@@ -296,13 +296,13 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIGroupFinder", page = "Premade Search", section = "DISPLAY", highlight = "Show Group Notes" } or nil,
             },
             {
-                -- The Status Effect row of RESULTS LIST on the Premade Search page; its cog holds the style
-                -- and the colors (retail only).
+                -- The Row Highlight row of RESULTS LIST on the Premade Search page (this release named it
+                -- Status Effect); its cog holds the style and the colors (retail only).
                 module = "Group Finder",
                 retail = true,
                 title  = "Status Effect",
                 desc   = "Groups you applied to can be tinted in their status color instead of underlined, with a color of your choice for each status",
-                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIGroupFinder", page = "Premade Search", section = "RESULTS LIST", highlight = "Status Effect" } or nil,
+                nav    = (not EllesmereUI.IS_FOREVER) and { module = "EllesmereUIGroupFinder", page = "Premade Search", section = "RESULTS LIST", highlight = "Row Highlight" } or nil,
             },
             {
                 -- The Enemy Players Use Enemy Color row of ENEMY COLORS on the Nameplates Colors page (both
@@ -393,12 +393,12 @@ EllesmereUI._WHATSNEW_PATCHES = {
                 nav     = EllesmereUI.IS_FOREVER and { module = "_EUIGlobal", page = "Style" } or nil,
             },
             {
-                -- The Friendly Nameplate Settings cog on Show EUI Friendly Player Nameplates, in OTHER
-                -- NAMEPLATES on the Nameplates General page (both clients).
+                -- The Health Bar Color swatch on Class Colored Health Bar, in FRIENDLY PLAYERS on the
+                -- Nameplates Friendly Plates page (both clients).
                 module = "Nameplates",
                 title  = "Friendly Health Bar Color",
                 desc   = "Friendly Nameplate Settings has a Health Bar Color for friendly players' bars while Class Colored Health Bar is off",
-                nav    = { module = "EllesmereUINameplates", page = "General", section = "OTHER NAMEPLATES", highlight = "Show EUI Friendly Player Nameplates" },
+                nav    = { module = "EllesmereUINameplates", page = "Friendly Plates", section = "FRIENDLY PLAYERS", highlight = "Class Colored Health Bar" },
             },
             {
                 -- The Forms and Talents cog on the Visibility row of LAYOUT on the Swing Timer page
