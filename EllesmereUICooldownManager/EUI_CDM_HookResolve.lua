@@ -117,7 +117,8 @@ local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey)
     -- family store below falls back to spellSettingsCD and applies a CD-era
     -- entry under the same id to the buff.
     local hostedFrame = false
-    if frame and bk and sd2 and sd2.hostedBuffSpellIDs then
+    -- A "Replace with Buff" frame takes the cooldown's identity: resolve it as that cooldown.
+    if frame and bk and sd2 and sd2.hostedBuffSpellIDs and not (fc0 and fc0.replacesCd) then
         local fdH = ns._hookFrameData and ns._hookFrameData[frame]
         if (fc0 and fc0.isHostedBuff)
            or (fdH and fdH._isBuffViewerFrame)
