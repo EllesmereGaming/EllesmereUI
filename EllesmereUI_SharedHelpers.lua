@@ -1168,6 +1168,23 @@ end
 do
     local floor, format = math.floor, string.format
 
+    -- A stopped batch (cancel, movement) drops its count, so the next batch is
+    -- not read as the rest of it. Watched only while a batch is tracked.
+    local tracked, watch = {}, nil
+    local function WatchBatchStop(f)
+        if not watch then
+            watch = CreateFrame("Frame")
+            watch:SetScript("OnEvent", function(self)
+                if UnitCastingInfo("player") then return end
+                for bar in pairs(tracked) do bar._craftLeft = nil end
+                wipe(tracked)
+                self:UnregisterAllEvents()
+            end)
+        end
+        tracked[f] = true
+        watch:RegisterEvent("UPDATE_TRADESKILL_CAST_STOPPED")
+    end
+
     function EllesmereUI.SetCraftBatch(f, on, spellID, castID, castDur)
         local getLeft = C_TradeSkillUI and C_TradeSkillUI.GetRemainingRecasts
         if not (on and getLeft) then
@@ -1187,6 +1204,7 @@ do
             f._craftExtra = nil
             return
         end
+        WatchBatchStop(f)
         local done = f._craftDone
         local total = floor((done + 1 + left) * castDur)
         f._craftExtra = left * castDur
