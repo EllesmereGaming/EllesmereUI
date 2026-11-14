@@ -447,16 +447,20 @@ local function AttachDataBarHoverHooks(barKey)
 end
 
 local function AttachHoverHooks(barKey)
-    -- Idempotency (same guard as both sibling attach functions): HookScript
-    -- stacks and can never be unhooked, so a second pass would permanently
-    -- double every hover handler on the bar and its 12 buttons.
-    if hoverStates[barKey] then return end
+    -- Idempotency: HookScript stacks and can never be unhooked, so a second
+    -- pass would permanently double every hover handler on the bar and its
+    -- 12 buttons. A flag, not the state's existence: a bar skipped at load
+    -- waits for its buttons (ns._eabBuildSkippedBars attaches then), and
+    -- other hover code may create its state first.
+    local state = hoverStates[barKey]
+    if state and state.hooksAttached then return end
 
     local frame = barFrames[barKey]
     local buttons = barButtons[barKey]
-    if not frame or not buttons then return end
+    if not frame or not buttons or ns._eabBarNoButtons[barKey] then return end
 
-    local state = EAB_VTABLE.Hover.GetState(barKey, frame)
+    state = EAB_VTABLE.Hover.GetState(barKey, frame)
+    state.hooksAttached = true
 
     local function CanEnter(self)
         -- Skip hidden empty buttons (alwaysShowButtons off)

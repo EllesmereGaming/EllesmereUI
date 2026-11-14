@@ -382,6 +382,7 @@ ns._eabBuildSkippedBars = function()
            and (not ns.IsNeverBar(info) or ns.BarHasBoundKeys(info)) then
             ns.BuildBarButtons(info, frame, false)
             LayoutBar(key)
+            I.AttachHoverHooks(key)
             -- Still hidden (keybind case, or a reveal whose driver has not
             -- shown the frame yet): the hide edge already passed with no
             -- buttons, so park the new mixin event lists the way it would
@@ -397,6 +398,11 @@ ns._eabBuildSkippedBars = function()
         -- The refs pass already ran without these buttons in it.
         SetSecureRefsReady(false)
         SecureSetupHandler_PrepareRefs()
+        -- The once-per-session hook passes (Quick Keybind, cooldown edge)
+        -- ran without these buttons. Both guard each button, so their next
+        -- run only hooks the new ones.
+        I._quickKeybindState.buttonsInit = nil
+        ns._eabCdEdgeRehook()
         -- Everything cosmetic (borders, shapes, fonts, backgrounds, button
         -- art, cooldown visuals, range colouring) converges through the
         -- full apply. Next frame, not inline: ApplyAll calls back into
