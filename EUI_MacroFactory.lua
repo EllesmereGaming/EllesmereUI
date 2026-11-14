@@ -261,6 +261,13 @@ if EllesmereUI.IS_FOREVER == true then
             }),
         },
         {
+            name = "EUI_ManaGem", icon = "Interface\\Icons\\inv_misc_gem_ruby_01", label = "Mana Gem",
+            class = "MAGE", ownedOnly = true, maxLines = 1,
+            checkboxes = each({
+                {8008, "Mana Ruby"}, {8007, "Mana Citrine"}, {5513, "Mana Jade"}, {5514, "Mana Agate"},
+            }),
+        },
+        {
             name = "EUI_HealingPotion", icon = "Interface\\Icons\\inv_potion_54", label = "Healing Potion",
             ownedOnly = true,
             checkboxes = each({
