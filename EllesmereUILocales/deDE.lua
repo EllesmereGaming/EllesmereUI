@@ -9973,3 +9973,12 @@ L["Tints red the vendor items you already have (known recipes, mounts, pets, toy
 L["Hide Owned (%d)"] = "Besitz ausblenden (%d)"
 L["Show Owned (%d)"] = "Besitz anzeigen (%d)"
 L["Click to hide the items you already have, or to show them again."] = "Klicken, um Gegenstände auszublenden, die Du bereits hast, oder sie wieder anzuzeigen."
+
+-- Bags Reagent Bag Icon
+L["Reagent Bag Icon"] = "Symbol der Reagenzientasche"
+L["Marks items in the reagent bag with the chosen icon, except in the Reagent Bag sections. While an icon is chosen, Merge Duplicate Items keeps reagent bag stacks apart from stacks in other bags."] = "Markiert Gegenstände in der Reagenzientasche mit dem gewählten Symbol, außer in den Abschnitten 'Reagenzientasche'. Solange ein Symbol gewählt ist, hält 'Doppelte Gegenstände zusammenführen' Stapel aus der Reagenzientasche von Stapeln aus anderen Taschen getrennt."
+L["Reagent Bag Icon Options"] = "Optionen für das Symbol der Reagenzientasche"
+L["Profession"] = "Beruf"
+L["Golden Leaf"] = "Goldenes Blatt"
+L["Gold Nugget"] = "Goldnugget"
+L["Golden Hammer"] = "Goldener Hammer"

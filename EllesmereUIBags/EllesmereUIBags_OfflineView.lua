@@ -560,7 +560,7 @@ local function Classified(list, bags, src)
     for pos, t in ipairs(type(list) == "table" and list or {}) do
         if type(t) == "table" then
             total = total + (t.size or 0)
-            local inReagent = bags and pos == 6 and reagent
+            local inReagent = bags and pos == 6 and not disabled["Reagent Bag"] and reagent
             for slot, str in pairs(type(t.items) == "table" and t.items or {}) do
                 used = used + 1
                 local id = Offline.ItemID(str)
