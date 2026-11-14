@@ -512,7 +512,7 @@ local lastAvailableItems = {}
 local function WriteMacro(idx, def, db)
     local body = BuildMacroBody(def, db)
     if not body then return end
-    EditMacro(idx, nil, nil, body)
+    if select(3, GetMacroInfo(idx)) ~= body then EditMacro(idx, nil, nil, body) end
     if def.checkboxes then lastAvailableItems[def.name] = GetMacroInventoryKey(def, db) end
 end
 
