@@ -8844,9 +8844,14 @@ local function Skin_Trainer()
         local sdt = GetFFD(step)
         local icon = step.icon or step.Icon
         if step.NineSlice then WSkin.FadeNineSlice(step.NineSlice) end
+        local shl = _G.ClassTrainerFrameSkillStepButtonHighlight
+        -- Keep selection/hover/lock: fading them made the step look unclickable.
         local keep = {}
         if icon then keep[icon] = true end
         if sdt.tabTex then keep[sdt.tabTex] = true end
+        if step.selectedTex then keep[step.selectedTex] = true end
+        if shl then keep[shl] = true end
+        if step.lock then keep[step.lock] = true end
         WSkin.FadeRegions(step, keep)
         -- Full window width, 15px taller (measured one-shot keeping the current top; retried on show until rects exist).
         if not sdt.resized then
@@ -8875,7 +8880,6 @@ local function Skin_Trainer()
         if step.selectedTex and step.selectedTex.SetColorTexture then
             step.selectedTex:SetColorTexture(1, 1, 1, 0.15)
         end
-        local shl = _G.ClassTrainerFrameSkillStepButtonHighlight
         if shl and shl.SetColorTexture then shl:SetColorTexture(1, 1, 1, 0.1) end
     end
     -- Skill rank status bar (profession trainers only).
