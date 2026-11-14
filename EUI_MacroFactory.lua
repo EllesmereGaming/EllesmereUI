@@ -174,6 +174,9 @@ local GENERAL_DEFS = {
     },
 }
 
+-- WoW Forever's class macros (its right column, where retail has the spec sets).
+local CLASS_DEFS = {}
+
 -- WoW Forever, best first. maxLines = 1 where items share no cooldown (one press, one item).
 -- createRanks: { create spell, stone it makes }, lowest rank first.
 -- createFixed: the stone's use is a cast, so the macro can keep both /use and /cast.
@@ -277,7 +280,10 @@ if EllesmereUI.IS_FOREVER == true then
     local _, playerClass = UnitClass("player")
     for i = #GENERAL_DEFS, 1, -1 do
         local cls = GENERAL_DEFS[i].class
-        if cls and cls ~= playerClass then table.remove(GENERAL_DEFS, i) end
+        if cls then
+            local def = table.remove(GENERAL_DEFS, i)
+            if cls == playerClass then table.insert(CLASS_DEFS, 1, def) end
+        end
     end
 end
 
@@ -538,6 +544,7 @@ local ITEM_DEFS = {}
 for i = 1, #GENERAL_DEFS do
     if GENERAL_DEFS[i].checkboxes then ITEM_DEFS[#ITEM_DEFS + 1] = GENERAL_DEFS[i] end
 end
+for i = 1, #CLASS_DEFS do ITEM_DEFS[#ITEM_DEFS + 1] = CLASS_DEFS[i] end
 
 local itemUpkeep = CreateFrame("Frame")
 
@@ -935,8 +942,10 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     local activeClassName = UnitClass("player") or "Unknown"
     -- All spec macro bodies use spell-ID {n} tokens (localized at build time via
     -- ResolveSpellTokens), so they work on every client locale.
-    -- The spec sets use retail spell IDs.
-    local activeSpecDefs = not EllesmereUI.IS_FOREVER and activeSpecID and SPEC_DEFS[activeSpecID] or {}
+    -- Forever has class macros instead: the spec sets use retail spell IDs.
+    local activeSpecDefs
+    if EllesmereUI.IS_FOREVER then activeSpecDefs = CLASS_DEFS
+    else activeSpecDefs = activeSpecID and SPEC_DEFS[activeSpecID] or {} end
 
     ---------------------------------------------------------------------------
     --  Layout
@@ -1592,14 +1601,20 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
     BuildMacroGroup(GENERAL_DEFS, "LEFT", "General Macro Factory")
 
     -- Build spec macros on right side
-    if #activeSpecDefs > 0 then
+    if EllesmereUI.IS_FOREVER and #activeSpecDefs > 0 then
+        BuildMacroGroup(activeSpecDefs, "RIGHT", activeClassName .. " " .. EllesmereUI.L("Macro Factory"), SPEC_ICONS_PER_ROW, SPEC_ICON_GAP, MAX_SPEC_VISIBLE_ROWS)
+    elseif #activeSpecDefs > 0 then
         BuildMacroGroup(activeSpecDefs, "RIGHT", (activeSpecName or EllesmereUI.L("Spec")) .. " " .. activeClassName .. " " .. EllesmereUI.L("Macro Factory"), SPEC_ICONS_PER_ROW, SPEC_ICON_GAP, MAX_SPEC_VISIBLE_ROWS)
     else
         local emptyFS = container:CreateFontString(nil, "OVERLAY")
         emptyFS:SetFont(fontPath, 16, "")
         emptyFS:SetTextColor(1, 1, 1, 0.25)
         emptyFS:SetPoint("CENTER", container, "TOPLEFT", halfW + halfW / 2, -SECTION_H / 2)
-        emptyFS:SetText(EllesmereUI.L("No spec macros for ") .. (activeSpecName or EllesmereUI.L("this spec")))
+        if EllesmereUI.IS_FOREVER then
+            emptyFS:SetText(EllesmereUI.L("No class macros for ") .. activeClassName)
+        else
+            emptyFS:SetText(EllesmereUI.L("No spec macros for ") .. (activeSpecName or EllesmereUI.L("this spec")))
+        end
         emptyFS:SetJustifyH("CENTER")
     end
 
