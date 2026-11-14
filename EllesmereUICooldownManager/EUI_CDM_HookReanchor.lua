@@ -24,6 +24,7 @@ local IsRouteMapBuilt, ResolveCDIDToBar = I.IsRouteMapBuilt, I.ResolveCDIDToBar
 local ResolveFrameSpellID, ResolveSpellSettings = I.ResolveFrameSpellID, I.ResolveSpellSettings
 local IsFrameIncluded, CategorizeFrame = I.IsFrameIncluded, I.CategorizeFrame
 local DecorateFrame, _trinketFrames = I.DecorateFrame, I._trinketFrames
+local WatchParkedIcon = I.WatchParkedIcon
 local _trinketItemCache, ApplySpellDesaturation = I._trinketItemCache, I.ApplySpellDesaturation
 local GetOrCreateTrinketFrame = I.GetOrCreateTrinketFrame
 local UpdateTrinketCooldown, UpdateTrinketFrame = I.UpdateTrinketCooldown, I.UpdateTrinketFrame
@@ -2243,6 +2244,10 @@ local function CollectAndReanchor()
                 frame:ClearAllPoints()
                 frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -10000, 10000)
                 if efd then efd._parkGuard = nil end
+                -- A frame never claimed has no SetPoint hook of DecorateFrame's:
+                -- give it the park's own, or Blizzard's next layout leaves it in
+                -- the viewer's grid, catching hover there.
+                WatchParkedIcon(frame)
                 if frame.Cooldown and frame.Cooldown.SetDrawSwipe then
                     frame.Cooldown:SetDrawSwipe(false)
                 end
@@ -2281,6 +2286,9 @@ local function CollectAndReanchor()
     -- Our aura icons level their slots on the frames this pass placed
     -- (EUI_CDM_AuraIcons.lua).
     if ns.CDM_AuraIconsPlaced then ns.CDM_AuraIconsPlaced() end
+    -- WoW Forever: buff icons Blizzard draws without a timer
+    -- (EUI_CDM_ForeverLinkedAura.lua).
+    if ns.CDM_LinkedAuraPlaced then ns.CDM_LinkedAuraPlaced() end
 
     if not ns._initialReanchorDone then ns._initialReanchorDone = true end
 

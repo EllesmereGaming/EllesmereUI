@@ -214,6 +214,23 @@ local function Tint(fs, e, unit, s, pr, pg, pb)
     end
 end
 
+-- A name's tint: the frame's own name colour when it has one (d._txName(unit) -> r, g, b,
+-- plain numbers, or nothing: the pet frames' Text Color), else the text's colour mode.
+local function TintName(fs, e, unit, s, d)
+    local own = d._txName
+    if own then
+        local r, g, b = own(unit)
+        if r then
+            if fs._r ~= r or fs._g ~= g or fs._b ~= b then
+                fs._r, fs._g, fs._b = r, g, b
+                fs:SetTextColor(r, g, b, e.prop.a)
+            end
+            return
+        end
+    end
+    Tint(fs, e, unit, s)
+end
+
 -- Show Above Icons per text: the carrier sits where the name's setting puts it (the
 -- reload passes level it); a text set the other way goes on a second carrier at the
 -- other level (live buttons build it with the first; previews here, on first need).
@@ -365,7 +382,7 @@ function ns.RF_TextFull(d, s, unit)
         local kind, fs = e.kind, pool[e.i]
         if kind == "name" then
             PaintName(fs, e, unit, s, fb)
-            Tint(fs, e, unit, s)
+            TintName(fs, e, unit, s, d)
         elseif kind == "level" then
             if not fb then
                 ns._RFLevelInto(fs, unit)
@@ -398,7 +415,7 @@ function ns.RF_TextNames(d, unit)
         for j = 1, #l do
             local e = l[j]
             PaintName(pool[e.i], e, unit, s, fb)
-            Tint(pool[e.i], e, unit, s)
+            TintName(pool[e.i], e, unit, s, d)
         end
     end
     l = not fb and p.level
@@ -549,6 +566,12 @@ local function PvPaint(fs, e, s, pv, fb)
         ns.FormatHealAbsorbInto(fs, pv.ha or 0, e.mode)
     end
     local P = e.prop
+    -- A preview name in the frame's own name colour (pv.nr, pv.ng, pv.nb: the pet
+    -- frames' Text Color).
+    if kind == "name" and pv.nr then
+        fs:SetTextColor(pv.nr, pv.ng, pv.nb, P.a)
+        return
+    end
     local r, g, b = ns.RF_PreviewTextColor(s[e.k.ColorMode], s[e.k.Color], pv.class,
         P.r or 1, P.g or 1, P.b or 1, pv.pToken)
     fs:SetTextColor(r, g, b, P.a)

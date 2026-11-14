@@ -1133,13 +1133,52 @@ local function BuildCharLine(accountInfo)
     return shown
 end
 
+-- WoW Forever friend's ruleset, the middle of richPresence
+-- ("Forever - Roleplay PvP - Tirisfal Glades"), plus their region when it is
+-- not ours. nil for anyone else. The project id is a literal: the client
+-- defines its constant only on WoW Forever, and a viewer on another client
+-- has such friends too.
+local WOW_PROJECT_FOREVER = 18
+-- realmName suffix ("CAMWOWUS2Realm10RPPvP") -> ruleset, for a richPresence
+-- that names none: our own names, worded as the rich presence words them.
+local function RealmRuleset(suffix)
+    if suffix == "PvE" then return EllesmereUI.L("Normal") end
+    if suffix == "PvP" then return EllesmereUI.L("PvP") end
+    if suffix == "RP" then return EllesmereUI.L("Roleplay") end
+    if suffix == "RPPvP" then return EllesmereUI.L("Roleplay PvP") end
+end
+local function ForeverRuleset(accountInfo)
+    local gi = accountInfo and accountInfo.gameAccountInfo
+    if not (gi and gi.isOnline and gi.wowProjectID == WOW_PROJECT_FOREVER) then return nil end
+    local ruleset = gi.richPresence and gi.richPresence:match("^.- %- (.-) %- ")
+    if not ruleset or ruleset == "" then
+        ruleset = RealmRuleset(EllesmereUI.RealmRulesetSuffix(gi.realmName))
+    end
+    if not ruleset then return nil end
+    if gi.isInCurrentRegion == false and FriendsListUtil and FriendsListUtil.GetRegionName then
+        ruleset = ruleset .. " (" .. FriendsListUtil.GetRegionName(accountInfo) .. ")"
+    end
+    return ruleset
+end
+
 local function BuildInfo(accountInfo)
     local text = ""
     if FriendsListUtil and FriendsListUtil.BuildLocationDisplayText then
         text = FriendsListUtil.BuildLocationDisplayText(accountInfo) or ""
     end
+    -- A WoW Forever friend on our own client: the ruleset after the zone, in
+    -- the zone's colour. Where Blizzard's line is the friend's rich presence
+    -- instead (seen from another client, or no zone yet), that names the
+    -- ruleset already.
+    local gi = accountInfo.gameAccountInfo
+    if gi and gi.areaName and IsSameProjectOnline(gi) then
+        local ruleset = ForeverRuleset(accountInfo)
+        if ruleset then
+            text = text .. LocationColor(accountInfo):WrapTextInColorCode(
+                (gi.areaName ~= "" and " - " or "") .. ruleset)
+        end
+    end
     if text == "" then
-        local gi = accountInfo.gameAccountInfo
         local cp = gi and gi.clientProgram
         if gi and gi.isOnline and (cp == "App" or cp == "BSAp") then
             local loc = GetLocale()
@@ -1318,7 +1357,9 @@ local function RegionOnLeave()
     EllesmereUI.HideWidgetTooltip()
 end
 function Kit.UpdateRegionButton(frame, d, gameAccountInfo, anchor, show)
-    local mini = show and gameAccountInfo and GetFriendMiniRegion(gameAccountInfo)
+    -- Same-region friends never carry a mark.
+    local mini = show and gameAccountInfo and gameAccountInfo.isInCurrentRegion ~= true
+        and GetFriendMiniRegion(gameAccountInfo)
     local full = mini and GetFullRegion(mini)
     if not (mini and full and full ~= GetMyFullRegion()) then
         if d.regionBtn then d.regionBtn:Hide() end
@@ -1440,6 +1481,7 @@ Kit._tile = {
     CharLine     = BuildCharLine,
     LevelColor   = LocationColor,
     Info         = BuildInfo,
+    Ruleset      = ForeverRuleset,
     State        = TileState,
     ClassFile    = GetClassFile,
     ClassIconTex = SetClassIconTex,
@@ -1728,11 +1770,6 @@ local activeDecorator
 -- Such a host may start later in the session: it waits for no card.
 function Kit.StartTiles(h)
     if host then return end
-    -- WoW Forever's Gamepad interface style navigates Blizzard's windows from
-    -- secure code, and the tile hover hooks are script hooks on Blizzard's
-    -- cards, so the tiles stand down for the session under it where that
-    -- navigation can still be tainted (EllesmereUI.PadTaintStandDown).
-    if EllesmereUI.PadTaintStandDown() then return end
     host = h
     if h.cards == false then return end
     if h.style ~= "eui" then
@@ -1828,13 +1865,8 @@ local function AutoAcceptOnEvent(self, event, _, _, _, _, _, _, inviterGUID)
         end
         if isFriend then
             AcceptGroup()
-            -- WoW Forever's Gamepad interface style runs Blizzard's popups from
-            -- secure code: its invite popup is left to it where that navigation
-            -- can still be tainted (EllesmereUI.PadTaintStandDown).
-            if not EllesmereUI.PadTaintStandDown() then
-                autoAcceptHidePopup = true
-                self:RegisterEvent("GROUP_ROSTER_UPDATE")
-            end
+            autoAcceptHidePopup = true
+            self:RegisterEvent("GROUP_ROSTER_UPDATE")
         end
     elseif event == "GROUP_ROSTER_UPDATE" and autoAcceptHidePopup then
         autoAcceptHidePopup = false

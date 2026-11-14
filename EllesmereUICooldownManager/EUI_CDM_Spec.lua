@@ -90,11 +90,6 @@ if EllesmereUI.IS_FOREVER then
     end
 end
 
--- Per-character identifier for legacy callers; no longer used for spec storage.
-function ns.GetCharKey()
-    return EllesmereUI.CharKey("-", EllesmereUIDB and EllesmereUIDB.cdmCachedBarSizes) or "Unknown-Unknown"
-end
-
 local function EnsureSpec(profile, key)
     profile.spec[key] = profile.spec[key] or { mappings = {}, selectedMapping = 1 }
     return profile.spec[key]
@@ -209,15 +204,14 @@ local DeepCopy = EllesmereUI.Lite.DeepCopy
 -------------------------------------------------------------------------------
 --  Cached bar sizes -- cosmetic hint for pre-sizing frames on login so anchored
 --  elements don't jump. Zero impact on spell logic or icons. Stored at
---  EllesmereUIDB.cdmCachedBarSizes[charKey][specKey][barKey] = count
+--  EllesmereUI.CharData("cdmBarSizes")[specKey][barKey] = count
 -------------------------------------------------------------------------------
 function ns.SaveCachedBarSizes()
     if not EllesmereUIDB then return end
-    local charKey = ns.GetCharKey()
     local specKey = ns.GetActiveSpecKey()
     if not specKey or specKey == "0" then return end
-    if not EllesmereUIDB.cdmCachedBarSizes then EllesmereUIDB.cdmCachedBarSizes = {} end
-    if not EllesmereUIDB.cdmCachedBarSizes[charKey] then EllesmereUIDB.cdmCachedBarSizes[charKey] = {} end
+    local sizes = EllesmereUI.CharData("cdmBarSizes", true)
+    if not sizes then return end
     local frames = ns.cdmBarFrames
     local iconsByKey = ns.cdmBarIcons
     if not frames or not iconsByKey then return end
@@ -232,7 +226,7 @@ function ns.SaveCachedBarSizes()
             if vis > 0 then counts[key] = vis end
         end
     end
-    EllesmereUIDB.cdmCachedBarSizes[charKey][specKey] = counts
+    sizes[specKey] = counts
 end
 
 --- Save the current spec's non-spell per-spec data. Spell data lives directly in the global store via ns.GetBarSpellData() and never needs copying.

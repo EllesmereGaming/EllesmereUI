@@ -66,9 +66,14 @@ local EUI = ns.EllesmereUI
 -- reserve's source), the colour settings the paint reads (cached by the restyle), the listeners,
 -- and the owner bookkeeping: owner token -> "<token>target", header button -> its target frame.
 local PT = { tgtOf = {}, frameOf = setmetatable({}, { __mode = "k" }), tgtEv = {}, tgtWant = {}, acc = 0,
-             DEF_FILL = { r = 37/255, g = 193/255, b = 29/255 } }
--- The shared style inputs plus the target frames' own ten (PT_FpExtra).
-PT.FP_N = ns._PF.STYLE_N + 10
+             DEF_FILL = { r = 37/255, g = 193/255, b = 29/255 },
+             DEF_DYN100 = { r = 0, g = 1, b = 0 },
+             DEF_DYN50  = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 },
+             DEF_DYN0   = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 },
+             DEF_TEXT   = { r = 1, g = 1, b = 1 },
+             stops = {} }
+-- The shared style inputs plus the target frames' own twenty-three (PT_FpExtra).
+PT.FP_N = ns._PF.STYLE_N + 23
 
 -- Owner unit -> its target frame, for UNIT_TARGET. Frames showing your own target stay out: they
 -- read "target" and follow PLAYER_TARGET_CHANGED.
@@ -155,6 +160,14 @@ local function PT_PaintClassic(health, u)
     if c and c.GetRGB then health:SetStatusBarColor(c:GetRGB()) end
 end
 
+-- The Custom Dynamic gradient at the unit's current health (secret-safe curve evaluation).
+local function PT_PaintDynamic(health, u)
+    if PT.curve then
+        local c = UnitHealthPercent(u, true, PT.curve)
+        if c and c.GetRGB then health:SetStatusBarColor(c:GetRGB()) end
+    end
+end
+
 -- Identity paint: name, fill and background colours, and the value, which jumps (a new unit). Runs
 -- on target, unit and settings edges only. Names and colours can be secret: setters only.
 local function PT_Paint(frame)
@@ -165,17 +178,21 @@ local function PT_Paint(frame)
     frame._nameText:SetText(UnitName(u))
     local health, bg, mode = frame._health, frame._bg, PT.mode
     local fillTex = health:GetStatusBarTexture()
+    local ok, r, g, b = false
+    if (mode ~= "dark" and (mode ~= "classic" and mode ~= "custom" and mode ~= "customDynamic")) or PT.bgClass or PT.textClass then
+        ok, r, g, b = PT_ClassRGB(u, frame)
+    end
     if mode == "dark" then
-        local r, g, b, a = EUI.GetDarkModeFill()
-        health:SetStatusBarColor(r, g, b, 1)
-        if fillTex then fillTex:SetAlpha(a) end
+        local dr, dg, db, da = EUI.GetDarkModeFill()
+        health:SetStatusBarColor(dr, dg, db, 1)
+        if fillTex then fillTex:SetAlpha(da) end
         bg:SetColorTexture(EUI.GetDarkModeBg())
     else
         if fillTex then fillTex:SetAlpha(1) end
-        local ok, r, g, b = false
-        if (mode ~= "classic" and mode ~= "custom") or PT.bgClass then ok, r, g, b = PT_ClassRGB(u, frame) end
         if mode == "classic" then
             PT_PaintClassic(health, u)
+        elseif mode == "customDynamic" then
+            PT_PaintDynamic(health, u)
         elseif mode == "custom" then
             health:SetStatusBarColor(PT.fr, PT.fg, PT.fb, 1)
         elseif ok then
@@ -188,6 +205,15 @@ local function PT_Paint(frame)
         else
             bg:SetColorTexture(PT.br, PT.bgg, PT.bb, PT.bgA)
         end
+    end
+    if PT.textClass then
+        if ok then
+            frame._nameText:SetTextColor(r, g, b, 1)
+        else
+            frame._nameText:SetTextColor(0.5, 0.5, 0.5, 1)
+        end
+    else
+        frame._nameText:SetTextColor(PT.tr or 1, PT.tg or 1, PT.tb or 1, 1)
     end
     health:SetValue(GetSafeHealthPercent(u))
 end
@@ -202,7 +228,11 @@ local function PT_PaintValue(frame, u)
     else
         health:SetValue(GetSafeHealthPercent(u))
     end
-    if PT.mode == "classic" then PT_PaintClassic(health, u) end
+    if PT.mode == "classic" then
+        PT_PaintClassic(health, u)
+    elseif PT.mode == "customDynamic" then
+        PT_PaintDynamic(health, u)
+    end
 end
 
 -- Every target frame on screen, in full (settings pushes: a restyle, Dark Mode and class colours
@@ -548,14 +578,22 @@ ns._PT_Layout = function()
 end
 
 -- The target frames' own style inputs after the shared ones: Fill Color and its custom colour,
--- Background (class or custom colour, darkness) and Smooth Bars.
+-- Custom Dynamic gradient stops, Background (class or custom colour, darkness), Text Color (class or custom) and Smooth Bars.
 local function PT_FpExtra(t)
     local p, n = db.profile, ns._PF.STYLE_N
     local fc = p.partyTargetCustomFillColor or PT.DEF_FILL
     local bc = p.partyTargetCustomBgColor or ns._PF.DEFAULT_BG
+    local d100 = p.partyTargetDynamicColor100 or PT.DEF_DYN100
+    local d50  = p.partyTargetDynamicColor50  or PT.DEF_DYN50
+    local d0   = p.partyTargetDynamicColor0   or PT.DEF_DYN0
+    local tc   = p.partyTargetCustomTextColor or PT.DEF_TEXT
     t[n + 1], t[n + 2], t[n + 3], t[n + 4] = p.partyTargetHealthColorMode, fc.r, fc.g, fc.b
     t[n + 5], t[n + 6], t[n + 7], t[n + 8] = p.partyTargetBgClassColored, bc.r, bc.g, bc.b
     t[n + 9], t[n + 10] = p.partyTargetBgDarkness, PT_Source().smoothBars
+    t[n + 11], t[n + 12], t[n + 13] = d100.r, d100.g, d100.b
+    t[n + 14], t[n + 15], t[n + 16] = d50.r,  d50.g,  d50.b
+    t[n + 17], t[n + 18], t[n + 19] = d0.r,   d0.g,   d0.b
+    t[n + 20], t[n + 21], t[n + 22], t[n + 23] = p.partyTargetTextClassColored, tc.r, tc.g, tc.b
 end
 
 -- Textured Background on a target frame, from the party settings: the fixed health
@@ -595,8 +633,16 @@ ns._PT_Restyle = function()
     PT.bgClass = p.partyTargetBgClassColored and true or nil
     PT.br, PT.bgg, PT.bb = bc.r, bc.g, bc.b
     PT.bgA = (p.partyTargetBgDarkness or 50) / 100
+    local tc = p.partyTargetCustomTextColor or PT.DEF_TEXT
+    PT.textClass = p.partyTargetTextClassColored and true or nil
+    PT.tr, PT.tg, PT.tb = tc.r, tc.g, tc.b
     local interp = Enum.StatusBarInterpolation
     PT.smooth = (s.smoothBars and interp and interp.ExponentialEaseOut) or nil
+    -- The target frames' own curve (PT.stops), built again only when a stop changed.
+    if PT.mode == "customDynamic" then
+        PT.curve = ns.RF_StopsCurve(PT.stops, p.partyTargetDynamicColor0, p.partyTargetDynamicColor50,
+            p.partyTargetDynamicColor100)
+    end
     -- 0: nothing styled yet (new frames); up to STYLE_N: a shared input changed.
     if at <= ns._PF.STYLE_N then
         local nameSize = s.nameSize or 10
@@ -687,7 +733,7 @@ local function PT_Build(owner, globalName)
     local frame = CreateFrame("Button", globalName, owner, "SecureUnitButtonTemplate")
     frame:SetAttribute("useparent-unit", true)
     frame:SetAttribute("unitsuffix", "target")
-    frame:SetAttribute("*type1", "target")
+    ns.EllesmereUI.SetLeftClickTarget(frame)
     frame:RegisterForClicks("AnyUp")
     frame:Hide()
 
@@ -955,6 +1001,14 @@ local function PT_PvFrame(i, parent, s, spec)
     health:SetMinMaxValues(0, 100)
     health:SetValue(mock.hp)
     name:SetText(mock.name)
+    if s.partyTargetTextClassColored then
+        local rc = FACTION_BAR_COLORS[mock.re]
+        if rc then name:SetTextColor(rc.r, rc.g, rc.b, 1)
+        else name:SetTextColor(1, 1, 1, 1) end
+    else
+        local tc = s.partyTargetCustomTextColor or PT.DEF_TEXT
+        name:SetTextColor(tc.r, tc.g, tc.b, 1)
+    end
     local mode = s.partyTargetHealthColorMode or "class"
     ns.RF_TexBgLayer(health, bg, (mode ~= "dark" or ns.RF_TexBgOpaque(st, true))
         and ns.RF_TexBgPath(st) or nil)
@@ -969,6 +1023,10 @@ local function PT_PvFrame(i, parent, s, spec)
         if mode == "classic" then
             local p = mock.hp / 100
             health:SetStatusBarColor(p < 0.5 and 1 or (1 - (p - 0.5) * 2), p > 0.5 and 1 or (p * 2), 0, 1)
+        elseif mode == "customDynamic" then
+            local sr, sg, sb = ns.RF_StopsColorAt(s.partyTargetDynamicColor0, s.partyTargetDynamicColor50,
+                s.partyTargetDynamicColor100, mock.hp / 100)
+            health:SetStatusBarColor(sr, sg, sb, 1)
         elseif mode == "custom" then
             local c = s.partyTargetCustomFillColor or PT.DEF_FILL
             health:SetStatusBarColor(c.r, c.g, c.b, 1)

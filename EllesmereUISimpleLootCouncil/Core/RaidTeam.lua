@@ -679,7 +679,11 @@ function RaidTeam:ParseDate(text)
             tonumber(digits:sub(7, 8))
     end
     if not year or not month or not day then return nil end
-    if month < 1 or month > 12 or day < 1 or day > 31 then return nil end
+    if month < 1 or month > 12 or day < 1 then return nil end
+
+    local leap = (year % 4 == 0 and year % 100 ~= 0) or year % 400 == 0
+    local length = (month == 2 and (leap and 29 or 28)) or ((month == 4 or month == 6 or month == 9 or month == 11) and 30) or 31
+    if day > length then return nil end
 
     return UTCMidnight(year, month, day)
 end

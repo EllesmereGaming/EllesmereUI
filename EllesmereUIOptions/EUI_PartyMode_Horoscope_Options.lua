@@ -11,8 +11,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  One reading per character per WoW daily reset: the first read saves the period
 --  (readAt, the reset that ends it), the card shows that reading until then and the
 --  birthday stays locked.
---  Each character's chart: EllesmereUIDB.raidHoroscope[CharKey] = { month, day,
---  readAt }, left out of profile exports (FULL_EXPORT_EXCLUDED).
+--  Each character's chart: EllesmereUI.CharData("horoscope") = { month, day,
+--  readAt }, left out of profile exports with the rest of the roster.
 -------------------------------------------------------------------------------
 local EllesmereUI = _G.EllesmereUI
 if EllesmereUI._BuildRaidHoroscopePage then return end
@@ -330,22 +330,7 @@ end
 
 -- This character's chart; create = make it (setters only, never a getter)
 local function Chart(create)
-    local db = EllesmereUIDB
-    if not db then return nil end
-    local all = db.raidHoroscope
-    if not all then
-        if not create then return nil end
-        all = {}
-        db.raidHoroscope = all
-    end
-    local key = EllesmereUI.CharKey("-", all)
-    if not key then return nil end
-    local c = all[key]
-    if not c and create then
-        c = {}
-        all[key] = c
-    end
-    return c
+    return EllesmereUI.CharData("horoscope", create)
 end
 
 -- Tonight's reading, or nil while the chart has no birthday: one table, filled again
@@ -481,14 +466,8 @@ function EllesmereUI._BuildRaidHoroscopePage(parent, yOffset)
     local card = CreateFrame("Button", nil, parent)
     PP.Size(card, width, CARD_H)
     PP.Point(card, "TOPLEFT", parent, "TOPLEFT", pad, y - 6)
-    local fill = card:CreateTexture(nil, "BACKGROUND")
-    fill:SetAllPoints()
-    fill:SetColorTexture(FILL_R, FILL_G, FILL_B, 1)
-    local border = EllesmereUI.MakeBorder(card, 1, 1, 1, 0.12, PP)
-    local edge = card:CreateTexture(nil, "ARTWORK")
-    edge:SetHeight(2)
-    edge:SetPoint("TOPLEFT")
-    edge:SetPoint("TOPRIGHT")
+    local border = EllesmereUI.MakeRoundedCard(card, 0.12, 1, 2, FILL_R, FILL_G, FILL_B)
+    local edge = border.accent
 
     -- Two star sets twinkling out of step
     local skies = {}

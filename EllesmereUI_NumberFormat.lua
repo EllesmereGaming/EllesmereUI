@@ -400,7 +400,7 @@ end
 --   True for a whole-number amount of 0, secret ones too: a probe FontString's
 --   GetText is nil after TruncateWhenZero (as ns.FormatHealAbsorbInto, Raid Frames).
 --   For a secret amount that text is a secret string, so it is only tested for
---   truth, never compared (comparing a secret, even to nil, raises).
+--   truth, never compared with a value (that raises).
 --   The probe sits on its own hidden, parentless frame, outside Blizzard's tree.
 do
     local probe

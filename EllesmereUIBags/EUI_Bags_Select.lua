@@ -16,8 +16,9 @@ local EUI = EllesmereUI
 
 local BP, GetAccentRGB, GetFont, IsGearItem = I.BP, I.GetAccentRGB, I.GetFont, I.IsGearItem
 local IsItemPinned, NormalizePinKey = I.IsItemPinned, I.NormalizePinKey
-local SetBagFont, _openItemPanels = I.SetBagFont, I._openItemPanels
+local SetBagFont, _openItemPanels, PinnedItems = I.SetBagFont, I._openItemPanels, I.PinnedItems
 local itemSlots, SetInsetBorderColor = I.itemSlots, I.SetInsetBorderColor
+local GetInsetBorderStyle, SetInsetBorderThickness = I.GetInsetBorderStyle, I.SetInsetBorderThickness
 
 -------------------------------------------------------------------------------
 --  Pin Selection Mode
@@ -70,8 +71,8 @@ function ns.PinCursorItem()
     -- The third return is the item link: pins are keyed by it (NormalizePinKey)
     local cursorType, itemID, cursorLink = GetCursorInfo()
     if cursorType ~= "item" or not itemID then return false end
-    if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
-    local pinned = EllesmereUIDB.bagPinnedItems
+    local pinned = PinnedItems(true)
+    if not pinned then ClearCursor(); return true end
     if not IsItemPinned(pinned, cursorLink, itemID) then
         pinned[NormalizePinKey(cursorLink, itemID)] = IsGearItem(cursorLink) and 1 or 999
     end
@@ -366,12 +367,7 @@ EnterAssignSelectMode = function(catKey, junk)
         local function ClearHover()
             if hoveredBtn then
                 if savedR then SetInsetBorderColor(hoveredBtn, savedR, savedG, savedB, savedA) end
-                if savedBrdSize and hoveredBtn._brdT then
-                    hoveredBtn._brdT:SetHeight(savedBrdSize)
-                    hoveredBtn._brdB:SetHeight(savedBrdSize)
-                    hoveredBtn._brdL:SetWidth(savedBrdSize)
-                    hoveredBtn._brdR:SetWidth(savedBrdSize)
-                end
+                if savedBrdSize then SetInsetBorderThickness(hoveredBtn, savedBrdSize) end
             end
             hoveredBtn = nil
             savedR = nil
@@ -395,17 +391,13 @@ EnterAssignSelectMode = function(catKey, junk)
             if btn == hoveredBtn then return end
             ClearHover()
             if btn and btn.icon and btn.icon:IsShown() then
-                if btn._brdT then
-                    savedR, savedG, savedB, savedA = btn._brdT:GetVertexColor()
-                    savedBrdSize = btn._brdT:GetHeight()
+                savedR, savedG, savedB, savedA, savedBrdSize = GetInsetBorderStyle(btn)
+                if savedR then
                     local ar, ag, ab = GetAccentRGB()
                     SetInsetBorderColor(btn, ar, ag, ab, 1)
                     local PP = EUI and EUI.PP
                     local px2 = ((PP and PP.mult) or 1) * 2
-                    btn._brdT:SetHeight(px2)
-                    btn._brdB:SetHeight(px2)
-                    btn._brdL:SetWidth(px2)
-                    btn._brdR:SetWidth(px2)
+                    SetInsetBorderThickness(btn, px2)
                 end
                 hoverOv:ClearAllPoints()
                 hoverOv:SetAllPoints(btn)
@@ -563,7 +555,8 @@ function EUI_Bags:SyncHeaderIcons()
     local prev, gap = self._searchBox, 13
     local sortOn = p.bagShowSortIcon ~= false
     self._sortBtn:SetShown(sortOn)
-    if sortOn then prev, gap = self._sortBtn, 6 end
+    local forever = ns.BagsForever()
+    if sortOn or forever then prev, gap = self._sortBtn, 6 end
     local bagsOn = p.bagShowBagsIcon ~= false
     bags:ClearAllPoints()
     bags:SetPoint("RIGHT", prev, "LEFT", -gap, 0)
@@ -584,14 +577,22 @@ function EUI_Bags:SyncHeaderIcons()
         self._junkBtn:SetShown(junkOn)
         self._sellJunkBtn:SetShown(junkOn and _openItemPanels.merchant == true)
     end
-    if not junkOn and self._junkMode then ExitAssignSelectMode() end
-    -- The leftmost shown icon bounds the title and item count (FitHeaderText)
     local edge = prev
     if junkOn and self._junkBtn then
         edge = self._sellJunkBtn:IsShown() and self._sellJunkBtn or self._junkBtn
     end
-    self._hdrEdge = edge
-    self:FitHeaderText()
+    -- The leftmost shown icon bounds the search on Forever and the title on EUI.
+    if forever then
+        local search, header = self._searchBox, bags:GetParent()
+        search:ClearAllPoints()
+        search:SetPoint("LEFT", header, "TOPLEFT", 45, header._foreverToolsY)
+        search:SetPoint("RIGHT", edge, "LEFT", -6, 0)
+    end
+    if not junkOn and self._junkMode then ExitAssignSelectMode() end
+    if not forever then
+        self._hdrEdge = edge
+        self:FitHeaderText()
+    end
 end
 
 -- The slots one Sell Junk sweep may sell, gathered once as bag * 1000 + slot
@@ -603,7 +604,7 @@ end
 local function GatherJunkSlots(slots, ids)
     local special = ns.SpecialBags()
     local setGear = EUI_CategoryManager:GetSetGearLookup()
-    local pinned = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+    local pinned = PinnedItems()
     local kept = 0
     for bag = 0, 5 do
         if not (special and special[bag]) then
@@ -796,12 +797,7 @@ EnterPinSelectMode = function()
                 if pinSavedR then
                     SetInsetBorderColor(pinHoveredBtn, pinSavedR, pinSavedG, pinSavedB, pinSavedA)
                 end
-                if pinSavedBrdSize and pinHoveredBtn._brdT then
-                    pinHoveredBtn._brdT:SetHeight(pinSavedBrdSize)
-                    pinHoveredBtn._brdB:SetHeight(pinSavedBrdSize)
-                    pinHoveredBtn._brdL:SetWidth(pinSavedBrdSize)
-                    pinHoveredBtn._brdR:SetWidth(pinSavedBrdSize)
-                end
+                if pinSavedBrdSize then SetInsetBorderThickness(pinHoveredBtn, pinSavedBrdSize) end
             end
             pinHoveredBtn = nil
             pinSavedR = nil
@@ -825,17 +821,13 @@ EnterPinSelectMode = function()
             if btn == pinHoveredBtn then return end
             ClearPinHover()
             if btn and btn.icon and btn.icon:IsShown() then
-                if btn._brdT then
-                    pinSavedR, pinSavedG, pinSavedB, pinSavedA = btn._brdT:GetVertexColor()
-                    pinSavedBrdSize = btn._brdT:GetHeight()
+                pinSavedR, pinSavedG, pinSavedB, pinSavedA, pinSavedBrdSize = GetInsetBorderStyle(btn)
+                if pinSavedR then
                     local ar, ag, ab = GetAccentRGB()
                     SetInsetBorderColor(btn, ar, ag, ab, 1)
                     local PP = EUI and EUI.PP
                     local px2 = ((PP and PP.mult) or 1) * 2
-                    btn._brdT:SetHeight(px2)
-                    btn._brdB:SetHeight(px2)
-                    btn._brdL:SetWidth(px2)
-                    btn._brdR:SetWidth(px2)
+                    SetInsetBorderThickness(btn, px2)
                 end
                 pinHoverOv:ClearAllPoints()
                 pinHoverOv:SetAllPoints(btn)
@@ -853,11 +845,11 @@ EnterPinSelectMode = function()
                 if bagID and slotID and slotID > 0 then
                     local info = C_Container.GetContainerItemInfo(bagID, slotID)
                     if info and info.itemID then
-                        if not EllesmereUIDB then EllesmereUIDB = {} end
-                        if not EllesmereUIDB.bagPinnedItems then EllesmereUIDB.bagPinnedItems = {} end
+                        local pinned = PinnedItems(true)
+                        if not pinned then ClearPinHover(); ExitPinSelectMode(); return end
                         local itemLink = C_Container.GetContainerItemLink(bagID, slotID)
                         local pinKey = NormalizePinKey(itemLink, info.itemID)
-                        EllesmereUIDB.bagPinnedItems[pinKey] = (EllesmereUIDB.bagPinnedItems[pinKey] or 0) + 1
+                        pinned[pinKey] = (pinned[pinKey] or 0) + 1
                         ClearPinHover()
                         ExitPinSelectMode()
                         EUI_Bags:RefreshInventory()

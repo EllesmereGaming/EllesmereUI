@@ -95,6 +95,10 @@ function EAB:OnInitialize()
                 end
             end)
         end
+        -- Count alpha: a profile swap or an override can change a bar's Charge
+        -- Numbers or Hide Count at 0, which no count event repaints until the
+        -- button's next one (alpha on our own buttons only: safe in combat).
+        EAB:RefreshCountVisibility()
     end
 
 

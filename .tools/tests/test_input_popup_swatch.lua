@@ -97,6 +97,7 @@ EllesmereUI = {
     MakeFont = function(parent) return Obj("FontString", parent) end,
     MakeBorder = function(f) return Obj("Border", f) end,
     MakeRoundedBorder = function(f) return Obj("Border", f) end,
+    RoundBody = function() end,
     SolidTex = function(parent, _, r, g, b, a)
         local t = Obj("Texture", parent)
         t._rgba = { r, g, b, a }

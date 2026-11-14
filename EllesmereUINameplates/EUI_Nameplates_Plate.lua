@@ -1192,6 +1192,7 @@ function NameplateFrame:ClearUnit()
     self.classFrame:Hide()
     if self.factionFrame then self.factionFrame:Hide() end
     if self.questTextFrame then self.questTextFrame:Hide() end
+    if self.questTextTypeIcon then self.questTextTypeIcon:Hide() end
     if self.focusLetter then self.focusLetter:Hide() end
     if self.leftArrow then self.leftArrow:Hide() end
     if self.rightArrow then self.rightArrow:Hide() end

@@ -104,18 +104,11 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         PP.Point(card, "TOPLEFT", parent, "TOPLEFT", x, cy)
         card:SetFrameLevel(parent:GetFrameLevel() + 2)
 
-        local bg = card:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
-        local brd = MakeBorder(card, 1, 1, 1, 0.12, PP)
+        local brd = EllesmereUI.MakeRoundedCard(card, 0.12, 0.50, 2)
+        local bg, accent = brd.bg, brd.accent
 
-        local accent = card:CreateTexture(nil, "ARTWORK", nil, 7)
         accent:SetColorTexture(EG.r, EG.g, EG.b, 0.6)
         OnAccent(accent, function(r, g, b) accent:SetColorTexture(r, g, b, 0.6) end)
-        PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
-        PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
-        accent:SetHeight(2)
-        if PP.DisablePixelSnap then PP.DisablePixelSnap(accent) end
 
         local titleFs = MakeFont(card, 14, nil, EG.r, EG.g, EG.b, 0.9)
         OnAccent(titleFs, function(r, g, b) titleFs:SetTextColor(r, g, b, 0.9) end)
@@ -160,10 +153,8 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         PP.Point(card, "TOPLEFT", parent, "TOPLEFT", x, cy)
         card:SetFrameLevel(parent:GetFrameLevel() + 2)
 
-        local bg = card:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
-        local brd = MakeBorder(card, 1, 1, 1, 0.15, PP)
+        local brd = EllesmereUI.MakeRoundedCard(card, 0.15, 0.92, 2)
+        local bg, accent = brd.bg, brd.accent
 
         -- Per-entry accent (entry.accent = {r,g,b}); the theme accent otherwise.
         local ac = entry.accent or EG
@@ -171,13 +162,8 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         local function OnBannerAccent(obj, paint)
             if not entry.accent then OnAccent(obj, paint) end
         end
-        local accent = card:CreateTexture(nil, "ARTWORK", nil, 7)
         accent:SetColorTexture(ac.r, ac.g, ac.b, 0.9)
         OnBannerAccent(accent, function(r, g, b) accent:SetColorTexture(r, g, b, 0.9) end)
-        PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
-        PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
-        accent:SetHeight(2)
-        if PP.DisablePixelSnap then PP.DisablePixelSnap(accent) end
 
         -- Flanking decorative bar-charts: dim white steps, accent "now" bar, faint baseline.
         -- They are the performance banner's art; a banner that carries its own
@@ -283,18 +269,11 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         PP.Point(card, "TOPLEFT", parent, "TOPLEFT", x, cy)
         card:SetFrameLevel(parent:GetFrameLevel() + 2)
 
-        local bg = card:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.077, 0.068, 0.058, 0.95)
-        MakeBorder(card, 1, 1, 1, 0.18, PP)
+        local brd = EllesmereUI.MakeRoundedCard(card, 0.18, 0.95, 3)
+        local bg, accent = brd.bg, brd.accent
 
-        local accent = card:CreateTexture(nil, "ARTWORK", nil, 7)
         accent:SetColorTexture(EG.r, EG.g, EG.b, 0.9)
         OnAccent(accent, function(r, g, b) accent:SetColorTexture(r, g, b, 0.9) end)
-        PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
-        PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
-        accent:SetHeight(3)
-        if PP.DisablePixelSnap then PP.DisablePixelSnap(accent) end
 
         -- Right-pointing play triangle: collapse the right edge of a color
         -- texture to its vertical midpoint (vertex 3 = UpperRight, 4 = LowerRight).
@@ -353,7 +332,7 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         wbg:SetAllPoints()
         wbg:SetColorTexture(0.045, 0.035, 0.027, 1)
         -- Neutral border: the link-blue text carries the "this is the link" read.
-        MakeBorder(urlWell, 1, 1, 1, 0.22, PP)
+        EllesmereUI.MakeRoundedBorder(urlWell, 1, 1, 1, 0.22, wbg)
 
         -- Play badge standing left of the URL well (announcement-popup chip).
         local badge = CreateFrame("Frame", nil, card)
@@ -556,10 +535,11 @@ function EllesmereUI._BuildWhatsNewPage(pageName, parent, yOffset)
         local boxBg = box:CreateTexture(nil, "BACKGROUND")
         boxBg:SetAllPoints()
         boxBg:SetColorTexture(0.103, 0.095, 0.088, 1)
-        local boxBrd = MakeBorder(box, 1, 1, 1, 0.25, PP)
+        local boxBrd = EllesmereUI.MakeRoundedBorder(box, 1, 1, 1, 0.25, boxBg)
         local check = box:CreateTexture(nil, "ARTWORK")
         PP.Point(check, "TOPLEFT", box, "TOPLEFT", 3, -3)
         PP.Point(check, "BOTTOMRIGHT", box, "BOTTOMRIGHT", -3, 3)
+        EllesmereUI.RoundBody(box, check, 1)
         local lbl = MakeFont(row, 12, nil, 1, 1, 1, 0.5)
         PP.Point(lbl, "LEFT", box, "RIGHT", 7, 0)
         lbl:SetText(EllesmereUI.L("New Patch Reminder Dot"))
@@ -1105,17 +1085,10 @@ function EllesmereUI._BuildLegendsPage(pageName, parent, yOffset)
         card:SetFrameLevel(root:GetFrameLevel() + 2)
         PP.Size(card, colW, wallH)
         PP.Point(card, "TOPLEFT", root, "TOPLEFT", x, y)
-        local bg = card:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.077, 0.068, 0.058, 0.50)
-        MakeBorder(card, 1, 1, 1, 0.12, PP)
-        local accent = card:CreateTexture(nil, "ARTWORK", nil, 7)
+        local brd = EllesmereUI.MakeRoundedCard(card, 0.12, 0.50, 2)
+        local bg, accent = brd.bg, brd.accent
         accent:SetColorTexture(EG.r, EG.g, EG.b, 0.6)
         OnAccent(accent, function(r, g, b) accent:SetColorTexture(r, g, b, 0.6) end)
-        PP.Point(accent, "TOPLEFT", card, "TOPLEFT", 1, -1)
-        PP.Point(accent, "TOPRIGHT", card, "TOPRIGHT", -1, -1)
-        accent:SetHeight(2)
-        PP.DisablePixelSnap(accent)
 
         local header = MakeFont(card, 13, nil, EG.r, EG.g, EG.b, 0.9)
         OnAccent(header, function(r, g, b) header:SetTextColor(r, g, b, 0.9) end)

@@ -57,6 +57,12 @@ local TIMER_WARN_AT = 0.33
 
 
 local COMPARE_H       = 86
+
+
+CM.DELTA_W   = 48
+CM.DUAL_GAP  = 9
+CM.HAND_MAIN = { 0.239, 0.490, 0.910 }
+CM.HAND_OFF  = { 0.651, 0.816, 1.000 }
 local STRIP_WASH_A    = 0.13
 
 local STRIP_WASH_BASE = { 1, 1, 1, 1 }
@@ -106,6 +112,25 @@ local function CannotAwardText(item)
     return addon.Locale.Format(
         T["%s can no longer be traded.\n\nIts holder no longer has it in their bags. Right-click it in the list to remove it from the run."],
         ItemText(item.link))
+end
+
+
+function CM.SortRoll(row)
+    local roll = row.candidate and tonumber(row.candidate.roll)
+    if roll ~= roll then return nil end
+    return roll
+end
+
+
+
+function CM.RowClickAllowed(cell)
+    local pressed = cell.pressedRow
+    cell.pressedRow = nil
+    if Tbl.JustRebound(cell:GetParent()) or (pressed ~= nil and pressed ~= cell.row) then
+        addon.Log:D("UI", "row click on a row that just moved ignored")
+        return false
+    end
+    return true
 end
 
 
@@ -493,6 +518,64 @@ end
 
 
 
+function CM.DualUpgrade(cell, c)
+    local dual, mainLevel, offLevel, incoming
+    if c then
+        dual, mainLevel, offLevel, incoming =
+            addon.Gear:DualWieldAgainst(CM.selectedEquipLoc, c)
+    end
+    local lines = cell.Dual
+    if not (dual and incoming) then
+        if lines and lines.shown then
+            lines.shown = false
+            for i = 1, 4 do lines[i]:Hide() end
+        end
+        return false
+    end
+
+    if not lines then
+        lines = {}
+        cell.Dual = lines
+        for i = 1, 4 do
+            lines[i] = S.Label(cell, i % 2 == 1 and S.fontNum or S.fontNumSmall, "CENTER")
+            lines[i]:SetTextColor(S.Unpack(i <= 2 and CM.HAND_MAIN or CM.HAND_OFF))
+        end
+    end
+
+    local gen = cell:GetParent():GetParent().anchorGen
+    if lines.gen ~= gen then
+        lines.gen = gen
+        local _, deltaH = S.fontNum:GetFont()
+        local _, rangeH = S.fontNumSmall:GetFont()
+        deltaH, rangeH = deltaH or 12, rangeH or 11
+        local y = math.floor((2 * (deltaH + 1 + rangeH) + CM.DUAL_GAP) / 2)
+        for i = 1, 4 do
+            lines[i]:ClearAllPoints()
+            P.Point(lines[i], "TOPLEFT", cell, "LEFT", 4, y)
+            P.Point(lines[i], "TOPRIGHT", cell, "RIGHT", -4, y)
+            y = y - (i % 2 == 1 and deltaH + 1 or rangeH + CM.DUAL_GAP)
+        end
+    end
+
+
+    local key = mainLevel .. ":" .. offLevel .. ":" .. incoming
+    if lines.key ~= key then
+        lines.key = key
+        for i, level in ipairs({ mainLevel, offLevel }) do
+            local diff = incoming - level
+            lines[i * 2 - 1]:SetText(addon.Locale.Format(T["%s%d"], diff > 0 and "+" or "", diff))
+            lines[i * 2]:SetText(addon.Locale.Format(T["%d -> %d"], level, incoming))
+        end
+    end
+    if not lines.shown then
+        lines.shown = true
+        for i = 1, 4 do lines[i]:Show() end
+    end
+    return true
+end
+
+
+
 function MLFrame:FitTextWidths()
 
     local probe = CM.itemInfo:CreateFontString(nil, "ARTWORK")
@@ -784,6 +867,15 @@ local function BuildColumns(forCompact)
                 if sa == sb then return 0 end
                 return sa < sb and -1 or 1
             end,
+
+            tiebreak = function(a, b)
+                local ra = CM.SortRoll(a)
+                local rb = CM.SortRoll(b)
+                if ra == rb then return 0 end
+                if ra == nil then return 1 end
+                if rb == nil then return -1 end
+                return ra > rb and -1 or 1
+            end,
             render = function(cell, row)
                 local text, colour = ResolveResponse(row.candidate)
                 local candidate = row.candidate
@@ -844,7 +936,9 @@ local function BuildColumns(forCompact)
             end,
             render = function(cell, row)
                 local c = row.candidate
-                local diff = c and c.diff
+
+                local g1, g2, diff
+                if c then g1, g2, diff = addon.Gear:ComparedFor(CM.selectedEquipLoc, c) end
 
 
                 local setMatch = c and selectedSet and (
@@ -856,12 +950,15 @@ local function BuildColumns(forCompact)
                     setText, reachesBonus = addon.Gear.SetProgress(c.setCount, c.setReplaces)
                 end
                 local replaced
+                local stacked = CM.DualUpgrade(cell, c)
 
-                if not diff then
+                if stacked then
+                    cell.Text:SetText("")
+                elseif not diff then
 
                     cell.Text:SetText("")
                 else
-                    for _, item in ipairs({ c.gear1, c.gear2 }) do
+                    for _, item in ipairs({ g1, g2 }) do
                         local ilvl = addon.Gear:ItemLevel(item)
                         if ilvl and (not replaced or ilvl < replaced) then
                             replaced = ilvl
@@ -881,7 +978,9 @@ local function BuildColumns(forCompact)
                     end
                 end
 
-                if setText then
+                if stacked then
+                    cell.Sub:SetText("")
+                elseif setText then
 
                     cell.Sub:SetText(setText)
                     cell.Sub:SetTextColor(S.Unpack(reachesBonus
@@ -1020,8 +1119,8 @@ local function BuildColumns(forCompact)
             sub = true, font = S.fontNumHint, subFont = S.fontNumHint,
 
             compare = function(a, b)
-                local ra = a.candidate and tonumber(a.candidate.roll)
-                local rb = b.candidate and tonumber(b.candidate.roll)
+                local ra = CM.SortRoll(a)
+                local rb = CM.SortRoll(b)
                 if ra == rb then return 0 end
                 if ra == nil then return -1 end
                 if rb == nil then return 1 end
@@ -1106,15 +1205,24 @@ local function BuildColumns(forCompact)
 
 
 
+
+                    local function Press() cell.pressedRow = cell.row end
+                    cell.voteButton:HookScript("OnMouseDown", Press)
+                    cell.awardButton:HookScript("OnMouseDown", Press)
                     cell.voteButton:SetScript("OnClick", function()
-                        if cell.row then
-                            addon.Session:Vote(selectedSession, cell.row.name, cell.voteIntent)
+                        local row = cell.row
+                        if not row or not CM.RowClickAllowed(cell) then return end
+                        if cell.session ~= selectedSession or cell.runId ~= addon.Session:GetRunId() then
+                            addon.Log:D("UI", "vote click for an item no longer shown ignored", tostring(cell.session))
+                            return
                         end
+                        addon.Session:Vote(cell.session, row.name, cell.voteIntent)
                     end)
 
                     cell.awardButton:SetScript("OnClick", function()
                         local row = cell.row
-                        if not row or not CM.AwardClickAllowed(cell.session, cell.runId) then return end
+                        if not row or not CM.RowClickAllowed(cell) then return end
+                        if not CM.AwardClickAllowed(cell.session, cell.runId) then return end
                         local item = addon.Session:GetItem(cell.session)
                         if not item then return end
                         if cell.awardIntent == "undo" then
@@ -1137,15 +1245,20 @@ local function BuildColumns(forCompact)
                     cell.voteLabel = voteLabel
                     cell.voteButton:SetLabel(voteLabel)
                 end
+
+                local selfBarred = row.name == me and not addon.Config:Vote().selfVote
                 local voteReason = addon.Restrictions:IsBlocked()
                     and (addon.Restrictions:GetBlockReason()
                         or S.RequiresSentence(T["Requires comms to be available."]))
+                    or not addon.Council:Contains(me)
+                        and S.RequiresSentence(T["Requires you to be on the council."])
+                    or selfBarred and S.RequiresSentence(T["Requires the council to be allowed to vote for themselves."])
                     or S.RequiresSentence(T["Requires you to be on the council."])
                 if cell.voteReason ~= voteReason then
                     cell.voteReason = voteReason
                     cell.voteButton:SetDisabledReason(voteReason)
                 end
-                local voteEnabled = addon.Council:Contains(me)
+                local voteEnabled = addon.Council:Contains(me) and not selfBarred
                     and not addon.Restrictions:IsBlocked() and true or false
                 if cell.voteEnabled ~= voteEnabled then
                     cell.voteEnabled = voteEnabled
@@ -1417,7 +1530,9 @@ function ShowRowMenu(row, data)
     local session, runId = selectedSession, addon.Session:GetRunId()
     local item = addon.Session:GetItem(session)
     if not item then return end
-    local function Same() return addon.Session:GetRunId() == runId end
+    local function Same()
+        return addon.Session:GetRunId() == runId and addon.Session:GetItem(session) == item
+    end
 
     local shortName = Ambiguate(data.name, "short")
     local items = { { title = shortName } }
@@ -1425,7 +1540,7 @@ function ShowRowMenu(row, data)
 
     if item.awarded == data.name then
         items[#items + 1] = { text = T["Undo award"], onClick = function()
-            if Same() then MLFrame:Unaward(session) end
+            if Same() and item.awarded == data.name then MLFrame:Unaward(session) end
         end }
     else
         items[#items + 1] = {
@@ -1454,25 +1569,25 @@ function ShowRowMenu(row, data)
     for index, response in ipairs(addon.Config:Responses()) do
         local responseIndex = index
         responses[#responses + 1] = { text = response.text, onClick = function()
-            addon.Session:SetResponse(session, data.name, responseIndex)
+            if Same() then addon.Session:SetResponse(session, data.name, responseIndex) end
         end }
     end
     responses[#responses + 1] = { text = T["Pass"], onClick = function()
-        addon.Session:SetResponse(session, data.name, nil)
+        if Same() then addon.Session:SetResponse(session, data.name, nil) end
     end }
     items[#items + 1] = { text = T["Set response"], children = responses }
 
     items[#items + 1] = { text = T["Clear rolls"], children = {
         { text = T["Clear roll on this player"], onClick = function()
-            addon.Roll:SetOne(session, data.name, false)
+            if Same() then addon.Roll:SetOne(session, data.name, false) end
         end },
         { text = T["Clear rolls on this item"], onClick = function()
-            addon.Roll:Clear({ session })
+            if Same() then addon.Roll:Clear({ session }) end
         end },
     } }
 
     items[#items + 1] = { text = T["Generate roll for this player"], onClick = function()
-        addon.Roll:SetOne(session, data.name, true)
+        if Same() then addon.Roll:SetOne(session, data.name, true) end
     end }
 
     items[#items + 1] = "-"
@@ -1949,9 +2064,9 @@ end
 
 
 
-local function LowerEquipped(candidate)
+local function LowerEquipped(gear1, gear2)
     local best, bestName, bestQuality, bestLevel
-    for _, itemString in ipairs({ candidate.gear1, candidate.gear2 }) do
+    for _, itemString in ipairs({ gear1, gear2 }) do
         if itemString then
             local name, _, quality = C_Item.GetItemInfo(itemString)
             local ilvl = addon.Gear:ItemLevel(itemString)
@@ -1963,6 +2078,95 @@ local function LowerEquipped(candidate)
         end
     end
     return best, bestName, bestQuality, bestLevel
+end
+
+
+
+function CM.AgainstLayout(dual)
+    dual = dual and true or false
+    if CM.againstDual == dual then return end
+    CM.againstDual = dual
+
+    local compare, off = CM.compare, CM.offHand
+    local inset = dual and (10 + CM.DELTA_W + 6) or 10
+    againstName:SetPoint("RIGHT", compare, "RIGHT", -inset, 0)
+    againstDetail:SetPoint("RIGHT", compare, "RIGHT", -inset, 0)
+    againstDelta:ClearAllPoints()
+    if dual then
+
+        againstDelta:SetPoint("TOPRIGHT", compare, "TOPRIGHT", -10, -11)
+        againstDelta:SetWidth(CM.DELTA_W)
+        againstDelta:SetJustifyH("RIGHT")
+    else
+        againstDelta:SetPoint("TOPLEFT", againstDetail, "BOTTOMLEFT", 0, -4)
+        againstDelta:SetPoint("RIGHT", compare, "RIGHT", -10, 0)
+        againstDelta:SetJustifyH("LEFT")
+    end
+    off.Icon:SetShown(dual)
+    off.Name:SetShown(dual)
+    off.Detail:SetShown(dual)
+    off.Delta:SetShown(dual)
+end
+
+
+
+function CM.PaintHand(w, itemString, level, incoming, colour)
+    local name, _, quality = C_Item.GetItemInfo(itemString)
+    w.Icon:SetItem(itemString)
+    w.Icon:SetQualityBorder(quality)
+    w.Icon:Show()
+
+    if name then
+        w.Name:SetText(name)
+        local r, g, b
+        if quality then r, g, b = C_Item.GetItemQualityColor(quality) end
+        if r then
+            w.Name:SetTextColor(r, g, b)
+        else
+            w.Name:SetTextColor(S.Unpack(S.color.text))
+        end
+        w.Detail:SetText(level
+            and addon.Locale.Format(T["equipped  \194\183  ilvl %d"], level) or T["equipped"])
+    else
+
+        CM.againstLoading = true
+        w.Name:SetText(T["Loading item..."])
+        w.Name:SetTextColor(S.Unpack(S.color.textMuted))
+        w.Detail:SetText(T["equipped"])
+    end
+    w.Detail:SetTextColor(S.Unpack(colour))
+
+    local diff = incoming and level and incoming - level
+    w.Delta:SetText(diff and ((diff > 0 and "+" or "") .. diff) or "\226\128\148")
+    w.Delta:SetTextColor(S.Unpack(diff and diff > 0 and S.color.good
+        or diff and diff < 0 and S.color.bad or S.color.textMuted))
+end
+
+
+
+function CM.BuildOffHand(compare)
+    local w = {}
+    w.Icon = S.ItemIcon(compare, 24)
+    w.Icon:SetPoint("BOTTOMLEFT", compare, "BOTTOMLEFT", 10, 10)
+
+    w.Delta = S.Label(compare, S.fontNumHuge, "RIGHT")
+    w.Delta:SetPoint("BOTTOMRIGHT", compare, "BOTTOMRIGHT", -10, 11)
+    w.Delta:SetSize(CM.DELTA_W, 22)
+
+
+    local inset = 10 + CM.DELTA_W + 6
+    w.Name = S.Label(compare, S.fontBody, "LEFT")
+    w.Name:SetPoint("TOPLEFT", w.Icon, "TOPRIGHT", 9, 1)
+    w.Name:SetPoint("TOPRIGHT", compare, "BOTTOMRIGHT", -inset, 35)
+    w.Detail = S.Label(compare, S.fontSmall, "LEFT")
+    w.Detail:SetPoint("TOPLEFT", w.Name, "BOTTOMLEFT", 0, -3)
+    w.Detail:SetPoint("TOPRIGHT", w.Name, "BOTTOMRIGHT", 0, -3)
+
+    w.Icon:Hide()
+    w.Name:Hide()
+    w.Detail:Hide()
+    w.Delta:Hide()
+    return w
 end
 
 local function PaintAgainst(name)
@@ -1977,6 +2181,7 @@ local function PaintAgainst(name)
 
         if CM.againstBlank then return end
         CM.againstBlank = true
+        CM.AgainstLayout(false)
         againstIcon:SetItem(nil)
         againstIcon:SetQualityBorder(nil)
         againstIcon:Hide()
@@ -1990,9 +2195,23 @@ local function PaintAgainst(name)
     end
     CM.againstBlank = false
 
-    local itemString, equipped, quality, equippedLevel = LowerEquipped(candidate)
 
-    local diff = candidate.diff
+
+    local equipLoc = item.link and select(4, C_Item.GetItemInfoInstant(item.link))
+    local dual, mainLevel, offLevel, incoming =
+        addon.Gear:DualWieldAgainst(equipLoc, candidate)
+    CM.AgainstLayout(dual)
+    if dual then
+        CM.PaintHand(CM.mainHand, candidate.gear1, mainLevel, incoming, CM.HAND_MAIN)
+        CM.PaintHand(CM.offHand, candidate.gear2, offLevel, incoming, CM.HAND_OFF)
+        return
+    end
+
+
+    local g1, g2, diff, pending = addon.Gear:ComparedFor(equipLoc, candidate)
+    if pending then CM.againstLoading = true end
+    local itemString, equipped, quality, equippedLevel = LowerEquipped(g1, g2)
+
     againstDelta:SetText(diff and ((diff > 0 and "+" or "") .. diff) or "\226\128\148")
     againstDelta:SetTextColor(S.Unpack(diff and diff > 0 and S.color.good
         or diff and diff < 0 and S.color.bad or S.color.textMuted))
@@ -2081,6 +2300,9 @@ end
 
 local function PaintFeatured(item)
     selectedSet = nil
+
+    CM.selectedEquipLoc = item and item.link
+        and select(4, C_Item.GetItemInfoInstant(item.link)) or nil
     if item then
         local itemID = addon.Storage.ItemID(item.link)
         if itemID then
@@ -2305,12 +2527,17 @@ function MLFrame:Paint(scope)
     if touched then
         PaintRows(not retry and scope or nil, item)
 
-        local hovered
+        local hovered, hoveredRow
         for _, row in ipairs(ActiveTable().rows) do
             if row.rowData and row:IsMouseOver() then
-                hovered = row.rowData.name
+                hovered, hoveredRow = row.rowData.name, row
                 break
             end
+        end
+
+        if hovered and CM.hovered and hovered ~= CM.hovered then
+            CM.hovered = hovered
+            ShowMoreInfo(hoveredRow, hovered)
         end
         RefreshAgainst(hovered or CM.pick)
     end
@@ -2354,6 +2581,23 @@ function MLFrame:ShowResponse(forced)
     CM.ShowTab("response")
     frame:Show()
     return true
+end
+
+
+
+function MLFrame:AlertResponse()
+    if not CM.ready or not CM.Ensure() or not (CM.responseOn and CM.ResponseSeat()) then
+        return
+    end
+    if not frame:IsShown() then
+        C_Timer.After(0, function() MLFrame:ShowResponse(true) end)
+    elseif CM.pulsing or CM.tab == "response" then
+        addon.Style.PlayNotification("responseTab")
+    else
+
+        CM.leftResponseAt = GetTime() - CM.PULSE_AFTER
+        CM.SyncPulse()
+    end
 end
 
 
@@ -2563,6 +2807,12 @@ function CM.Build()
     againstDelta:SetPoint("TOPLEFT", againstDetail, "BOTTOMLEFT", 0, -4)
     againstDelta:SetPoint("RIGHT", compare, "RIGHT", -10, 0)
     againstDelta:SetHeight(22)
+
+
+    CM.compare, CM.againstDual = compare, false
+    CM.mainHand = { Icon = againstIcon, Name = againstName, Detail = againstDetail,
+        Delta = againstDelta }
+    CM.offHand = CM.BuildOffHand(compare)
 
 
     local runRule = S.FadeRule(rail)
@@ -2943,7 +3193,8 @@ function CM.SyncPulse()
     if not frame or not frame.Tabs.SetTabPulse then return end
     local due = CM.responseOn and CM.ResponseSeat() and CM.tab ~= "response"
         and CM.leftResponseAt ~= nil and GetTime() - CM.leftResponseAt >= CM.PULSE_AFTER
-    frame.Tabs:SetTabPulse("response", due and true or false)
+    CM.pulsing = due and true or false
+    frame.Tabs:SetTabPulse("response", CM.pulsing)
 end
 
 function CM.PlaceTimer(response)

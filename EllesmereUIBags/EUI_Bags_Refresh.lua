@@ -24,14 +24,14 @@ local SPACING, _pendingResortCats = I.SPACING, I._pendingResortCats
 ns.OnSlotMetrics(function(m) SLOT_SIZE, SPACING = m[1], m[2] end)
 local _pendingResortGroups, _slotCategories = I._pendingResortGroups, I._slotCategories
 local AcquireSlotTable, bagSlots = I.AcquireSlotTable, I.bagSlots
-local DetectAndApplySwaps, FOOTER_H, HEADER_H = I.DetectAndApplySwaps, I.FOOTER_H, I.HEADER_H
+local DetectAndApplySwaps, FOOTER_H = I.DetectAndApplySwaps, I.FOOTER_H
 local PreCacheSortFields, reagentSlots = I.PreCacheSortFields, I.reagentSlots
 local ReleaseAllSlotTables, SaveCategoryOrder = I.ReleaseAllSlotTables, I.SaveCategoryOrder
 local TakeBagSnapshot, UpdatePawnArrow = I.TakeBagSnapshot, I.UpdatePawnArrow
 local VisualSortCompare, UpdateBagMoneyDisplay = I.VisualSortCompare, I.UpdateBagMoneyDisplay
 local UpdateCurrencyDisplays, SCROLLBAR_HIT_W = I.UpdateCurrencyDisplays, I.SCROLLBAR_HIT_W
 local SetInsetBorderColor, GetOrCreateBagSlot = I.SetInsetBorderColor, I.GetOrCreateBagSlot
-local GetOrCreateReagentSlot = I.GetOrCreateReagentSlot
+local GetOrCreateReagentSlot, PinnedItems = I.GetOrCreateReagentSlot, I.PinnedItems
 local BuildSidebarButtons, GetSidebarWidth = I.BuildSidebarButtons, I.GetSidebarWidth
 local SetGearCatSet, SetPaintedPanelOpen = I.SetGearCatSet, I.SetPaintedPanelOpen
 
@@ -83,6 +83,9 @@ local function GetOrCreateCatHeader(idx)
     f._line:SetPoint("LEFT", f._hint, "RIGHT", 6, 0)
     f._line:SetPoint("RIGHT", f, "RIGHT", -SPACING, 0)
     f._line:SetColorTexture(0.7, 0.7, 0.7, 0.2)
+    if ns.BagsForever() then
+        ns.SetForeverBagSectionColors(f._label, f._line)
+    end
     _catHeaders[idx] = f
     return f
 end
@@ -187,11 +190,14 @@ local function CreateBagScrollFrame()
     if EUI_Bags._scrollFrame then return end
 
     local sidebarW = GetSidebarWidth()
+    local headerH = EUI_Bags.Header:GetHeight()
+    local rightInset = ns.BagsForever() and -7 or -1
+    EUI_Bags._scrollRightInset = rightInset
 
     -- ScrollFrame: fills between header, footer, and sidebar
     local sf = CreateFrame("ScrollFrame", nil, EUI_Bags)
-    sf:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", sidebarW, -(HEADER_H + 1))
-    sf:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "TOPRIGHT", -1, 0)
+    sf:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", sidebarW, -(headerH + 1))
+    sf:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "TOPRIGHT", rightInset, 0)
     sf:EnableMouseWheel(true)
 
     -- Scroll child: tall frame that holds all items
@@ -203,8 +209,8 @@ local function CreateBagScrollFrame()
 
     -- Track (always visible)
     local track, thumb, UpdateThumb = ns.AttachGridScrollbar(EUI_Bags, sf, true, false)
-    track:SetPoint("TOPRIGHT", EUI_Bags, "TOPRIGHT", -1, -(HEADER_H + 1))
-    track:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "TOPRIGHT", -1, 0)
+    track:SetPoint("TOPRIGHT", EUI_Bags, "TOPRIGHT", rightInset, -(headerH + 1))
+    track:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "TOPRIGHT", rightInset, 0)
 
     EUI_Bags._scrollFrame = sf
     EUI_Bags._scrollChild = child
@@ -417,12 +423,7 @@ local _bagGripCfg = {
         EUI_Bags:RefreshInventory()
     end,
     -- The gold display sits in the footer's bottom-right corner
-    inset = function(px)
-        local money = EUI_Bags.Money
-        if not money then return end
-        money:ClearAllPoints()
-        money:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "BOTTOMRIGHT", -px, 7)
-    end,
+    inset = I.PositionBagMoney,
     isLocked = function() return BP().bagWindowLocked == true end,
     setLocked = function(v) BP().bagWindowLocked = v and true or false end,
     -- Auto-Size owns the window size
@@ -467,6 +468,7 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     -- In combat the sort button's lock depends on the view just painted.
     if InCombatLockdown() and EUI_Bags._applySortEnabled then EUI_Bags._applySortEnabled() end
     local sf, child = EUI_Bags._scrollFrame, EUI_Bags._scrollChild
+    local headerH = EUI_Bags.Header:GetHeight()
     local contentH = math.abs(curY) + 10
     if child then child:SetHeight(contentH) end
 
@@ -481,8 +483,9 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     -- Update scroll track left position to match sidebar
     if EUI_Bags._scrollTrack then
         EUI_Bags._scrollTrack:ClearAllPoints()
-        EUI_Bags._scrollTrack:SetPoint("TOPRIGHT", EUI_Bags, "TOPRIGHT", -1, -(HEADER_H + 1))
-        EUI_Bags._scrollTrack:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "TOPRIGHT", -1, 0)
+        local rightInset = EUI_Bags._scrollRightInset
+        EUI_Bags._scrollTrack:SetPoint("TOPRIGHT", EUI_Bags, "TOPRIGHT", rightInset, -(headerH + 1))
+        EUI_Bags._scrollTrack:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "TOPRIGHT", rightInset, 0)
     end
 
     -- 6. Size frame. Default: fixed height, dynamic width. Auto-size: height grows to fit content
@@ -504,7 +507,7 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
     if autoSize or (EUI.IS_FOREVER and not userH) then
         local sc = EUI_Bags:GetScale(); if not sc or sc <= 0 then sc = 1 end
         local maxH = (UIParent:GetHeight() / sc) * 0.95
-        local fitH = contentH + HEADER_H + currencyFooterH + 2
+        local fitH = contentH + headerH + currencyFooterH + 2
         local neededH
         if EUI.IS_FOREVER or EUI_Bags.IsCompactMode() then
             -- Fit the content instead of flooring at FIXED_H (WoW Forever bags hold far fewer slots, and the Compact
@@ -512,7 +515,7 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
             -- normal height stays the cap (taller content scrolls).
             if not autoSize then maxH = math.min(maxH, FIXED_H + currencyFooterH - FOOTER_H) end
             local sbHdr, sbChild = EUI_Bags._sidebarHdr, EUI_Bags._sidebarChild
-            local sbH = HEADER_H + currencyFooterH + (sbHdr and sbHdr:GetHeight() or 0) + (sbChild and sbChild:GetHeight() or 0)
+            local sbH = headerH + currencyFooterH + (sbHdr and sbHdr:GetHeight() or 0) + (sbChild and sbChild:GetHeight() or 0)
             -- A hidden sidebar (collapsed, no icon strip) sets no floor
             if sidebarW == 0 then sbH = 0 end
             neededH = math.min(math.max(fitH, sbH), maxH)
@@ -533,8 +536,10 @@ local function FinishRefresh(curY, gridContentW, sidebarW, regularUsed, regularT
         local format = BP().bagSlotCountFormat
         local separate = not EllesmereUI.IS_FOREVER and BP().bagSeparateReagentSlots == true
         local countText
+        -- A virtual view shows the whole bag, so it counts slots as All Items does.
         if not separate and format ~= "free" and format ~= "free_total"
-            and selectedCategoryIndex ~= 0 and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2 then
+            and selectedCategoryIndex ~= 0 and selectedCategoryIndex ~= -1 and selectedCategoryIndex ~= -2
+            and not EUI_CategoryManager:GetViewByIndex(selectedCategoryIndex) then
             countText = EllesmereUI.Lf("%d Items", totalCount)
         elseif separate then
             countText = FormatSlots(regularUsed, regularTotal, false, format)
@@ -684,13 +689,7 @@ function EUI_Bags:RefreshInventory()
                     end
                     -- _isQuest (any quest item, incl. active objectives + starters) drives the gold
                     -- border; _isQuestStarter (questID set but inactive) is Blizzard's "!" and drives the corner marker.
-                    local qInfo = C_Container.GetContainerItemQuestInfo(bag, slot)
-                    if qInfo and (qInfo.isQuestItem or qInfo.questID) then
-                        d._isQuest = true
-                        if qInfo.questID and not qInfo.isActive then
-                            d._isQuestStarter = true
-                        end
-                    end
+                    d._isQuest, d._isQuestStarter = ns.GetSlotQuestFlags(bag, slot)
                 end
                 tempItems[#tempItems + 1] = d
             else
@@ -738,7 +737,7 @@ function EUI_Bags:RefreshInventory()
         end
     end
     local showPinned = BP().bagShowPinnedItems ~= false
-    local pinnedSet = EllesmereUIDB and EllesmereUIDB.bagPinnedItems
+    local pinnedSet = PinnedItems()
     local hidePinned = BP().bagHidePinnedInCategories == true
     -- Dim Items in OneBag/MultiBag: in those views (-1 / -2), while the Pinned
     -- Items quickview shows there, a pinned item is drawn dimmed in its bag
@@ -830,6 +829,39 @@ function EUI_Bags:RefreshInventory()
         if show then displayItems[#displayItems + 1] = data end
     end
 
+    -- 4a. A virtual view (another addon's entry in the top list) is selected: each
+    -- shown item gets its group. Nothing runs while no view is registered.
+    local view = EUI_CategoryManager:GetViewByIndex(selectedCategoryIndex)
+    if view then
+        -- _vg = the item's group (0 = Other). A view that keeps Pinned / Recent (the same
+        -- switches as All Items) also marks the items those sections repeat: _vgPin, _vgRec.
+        -- As in All Items, such an item stays in its group too. Only a pinned item that is
+        -- hidden in its category (_pinnedOnly, Hide Items in Their Categories) leaves it: _vgOnly.
+        -- Junk (what Sell Junk sells, while the Junk Marker is on) is not offered to the
+        -- provider: _vgJunk files it in a Junk section of ours, drawn last. An item whose
+        -- link has not loaded is not offered either and stays unstamped (_vg nil): it is
+        -- not drawn, as in All Items.
+        local keepPin = view.keepPinned and showPinned and pinnedSet or nil
+        local keepRec = view.keepRecent and showRecent and EUI_Bags._recentItems or nil
+        for _, data in ipairs(displayItems) do
+            local info = data.info
+            local itemID = info and info.itemID
+            local link = data.itemLink
+            if link then
+                local quality = info and info.quality
+                local junk = EUI_CategoryManager:IsJunk(itemID, quality) or nil
+                data._vgJunk = junk
+                data._vg = junk and 0
+                    or EUI_CategoryManager:ClassifyView(view, link, itemID, data.bag, data.slot, quality)
+                data._vgPin = keepPin and itemID and IsItemPinned(keepPin, link, itemID) or nil
+                data._vgOnly = data._vgPin and data._pinnedOnly or nil
+                data._vgRec = keepRec and itemID and not data._pinnedOnly and keepRec[itemID] and true or nil
+            else
+                data._vg, data._vgJunk, data._vgPin, data._vgOnly, data._vgRec = nil, nil, nil, nil, nil
+            end
+        end
+    end
+
     -- 4b. Pending resort: sort + save order for categories invalidated by group changes (reuses already-scanned tempItems, no bag re-scan).
     if next(_pendingResortCats) or next(_pendingResortGroups) then
         local cats = EUI_CategoryManager:GetCategories()
@@ -911,6 +943,13 @@ function EUI_Bags:RefreshInventory()
                 if hasSetChild then S = S + 1 end
             end
             if S < 1 then S = 1 end
+        elseif view then
+            -- Virtual view: one section per group (+ "Other", + Pinned / Recent when
+            -- it keeps them, + our Junk section while the Junk Marker is on); no
+            -- empty slots drawn
+            n = #displayItems
+            S = #view.groups + 1 + (view.keepPinned and 1 or 0) + (view.keepRecent and 1 or 0)
+                + (EUI_CategoryManager:IsJunkMarkerEnabled() and 1 or 0)
         elseif selectedCategoryIndex == -2 then
             -- MultiBag: one section per bag that has slots (+ reagent)
             n = #tempItems + #emptySlots
@@ -951,6 +990,7 @@ function EUI_Bags:RefreshInventory()
 
     local columns = GetColumns()
     local sidebarW = GetSidebarWidth()
+    local headerH = EUI_Bags.Header:GetHeight()
     local gridPadX = 10
     local gridW = columns * (SLOT_SIZE + SPACING)
     -- List rows take the grip-set width (List has no Auto-Size), by default the default pitch's
@@ -964,8 +1004,8 @@ function EUI_Bags:RefreshInventory()
     local child = EUI_Bags._scrollChild
     if sf then
         sf:ClearAllPoints()
-        sf:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", sidebarW, -(HEADER_H + 1))
-        sf:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "TOPRIGHT", -1, 0)
+        sf:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", sidebarW, -(headerH + 1))
+        sf:SetPoint("BOTTOMRIGHT", EUI_Bags.Footer, "TOPRIGHT", EUI_Bags._scrollRightInset, 0)
     end
     if child then
         child:SetWidth(gridW + gridPadX * 2 + scrollbarPad)
@@ -986,21 +1026,26 @@ function EUI_Bags:RefreshInventory()
             -- Left / Right Gap: space between the list area edges and the rows
             rowW = math.max(100, gridW + gridPadX * 2 + scrollbarPad - (BP().bagListGapL or 15) - (BP().bagListGapR or 23)),
             startX = BP().bagListGapL or 15,
-            leftX = sidebarW, topY = -(HEADER_H + 1),
+            leftX = sidebarW, topY = -(headerH + 1),
             allItems = isAllItems,
             slotView = (selectedCategoryIndex == -1 and "one") or (selectedCategoryIndex == -2 and "multi") or nil,
+            -- A virtual view: sections by its groups; Pinned / Recent sections only
+            -- when it keeps them (view.keepPinned / keepRecent)
+            view = view,
             -- Same rule as the grid's Recent Items section
-            recent = (showRecent and (isAllItems or (selectedCategoryIndex < 0 and BP().bagRecentInOneBag == true)))
+            recent = (showRecent and (view and view.keepRecent
+                or not view and (isAllItems or (selectedCategoryIndex < 0 and BP().bagRecentInOneBag == true))))
                 and EUI_Bags._recentItems or nil,
             -- The Recent Items tab: its items in one newest-first section
             recentOnly = isRecentView or nil,
             -- Empty rows only when nothing is search-filtered out
             emptySlots = (#displayItems == #liveItems) and liveEmpty or nil,
             -- Same rule as the grid's Pinned Items section
-            pinned = (showPinned and (isAllItems or (selectedCategoryIndex < 0 and BP().bagPinnedInOneBag ~= false)))
+            pinned = (showPinned and (view and view.keepPinned
+                or not view and (isAllItems or (selectedCategoryIndex < 0 and BP().bagPinnedInOneBag ~= false))))
                 and pinnedSet or nil,
         })
-        sf:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", sidebarW, -(HEADER_H + 1 + colHdrH))
+        sf:SetPoint("TOPLEFT", EUI_Bags, "TOPLEFT", sidebarW, -(headerH + 1 + colHdrH))
         FinishRefresh(-(listH + colHdrH), gridW + gridPadX * 2 + scrollbarPad + 2, sidebarW, regularUsed, regularTotal, reagentUsed, reagentTotal, totalCount)
         return
     end
@@ -1067,6 +1112,7 @@ function EUI_BagsReagent:RefreshInventory()
             if btn.icon then btn.icon:Hide() end
             if btn.ItemLevelText then btn.ItemLevelText:SetText("") end
             SetInsetBorderColor(btn, 0.25, 0.25, 0.25, 1)
+            if btn._fvSlotBorder then ns.SetForeverSlotQuestBorder(btn, false) end
         else
             if btn.icon then btn.icon:Show() end
             ns.SetSlotIcon(btn, data.info.iconFileID)
@@ -1101,6 +1147,9 @@ function EUI_BagsReagent:RefreshInventory()
 
             local r, g, b = ns.QualityBorderColor(data.info.quality or 1)
             SetInsetBorderColor(btn, r, g, b, 1)
+            if btn._fvSlotBorder then
+                ns.SetForeverSlotQuestBorder(btn, ns.GetSlotQuestFlags(data.bag, data.slot))
+            end
         end
         UpdatePawnArrow(btn, itemLink)
         if next(EUI_Bags.itemOverlayIcons) ~= nil then

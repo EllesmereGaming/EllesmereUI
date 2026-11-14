@@ -1197,6 +1197,8 @@ _G._ECL_ApplyGCDPosition = function()
     local anchored = EllesmereUI and EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored("ECL_GCD")
     if anchored and gcdRoot:GetLeft() then return end
     local g = GCD_DB()
+    -- Attached: the cursor owns it (same as the cast circle below).
+    if g.attached ~= false then return end
     local pos = g.pos
     if pos and pos.point then
         local px, py = pos.x or 0, pos.y or 0
@@ -1228,6 +1230,9 @@ _G._ECL_ApplyCastPosition = function()
     local anchored = EllesmereUI and EllesmereUI.IsUnlockAnchored and EllesmereUI.IsUnlockAnchored("ECL_Cast")
     if anchored and castRoot:GetLeft() then return end
     local c = Cast_DB()
+    -- Attached: the cursor owns it. Unlock Mode's saved-positions pass calls this
+    -- for every registered element, mover or not.
+    if c.attached ~= false then return end
     local pos = c.pos
     if pos and pos.point then
         local px, py = pos.x or 0, pos.y or 0

@@ -586,12 +586,9 @@ function EAB:FinishSetup()
     end)
 
     -- When a spell flyout closes, fade out any bars that were kept visible by it.
-    -- Not under WoW Forever's Gamepad interface style where its navigation can
-    -- still be tainted (EllesmereUI.PadTaintStandDown): it shows and hides the
-    -- flyout from secure code (the flyout skin stands down there too).
     do
         local flyFrame = GetEABFlyout():GetFrame()
-        if flyFrame and not EllesmereUI.PadTaintStandDown() then
+        if flyFrame then
             flyFrame:HookScript("OnHide", function()
                 if _quickKeybindState.open then return end
                 for key, state in pairs(hoverStates) do

@@ -747,6 +747,13 @@ local function CreateMover(barKey)
         gdFS:SetTextColor(1, 0.7, 0.3, 0.85)
     end
 
+    -- Accent change (accent callback below): later repaints read the new colour; the
+    -- resting border takes it now, a hovered or selected one on leave, link texts on hover.
+    function mover._applyAccent()
+        ar, ag, ab = GetAccent()
+        if not mover._selected and UM.hoveredMover ~= mover then brd:SetColor(ar, ag, ab, 0.6) end
+    end
+
     -- Update the name label color based on anchor state
     local function RefreshAnchoredIdle()
         -- A link on an element that places itself (ownsPosition) is inert.
@@ -1240,6 +1247,7 @@ local function CreateMover(barKey)
             UM.growDropdownCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
             UM.SetMoverOverlayLevel(UM.growDropdownCatcher, 9)
             UM.growDropdownCatcher:SetAllPoints(UIParent)
+            UM.growDropdownCatcher._umCatcher = true  -- not an element for the hover bar
             UM.growDropdownCatcher:RegisterForClicks("AnyUp")
             UM.growDropdownCatcher:SetScript("OnClick", function()
                 UM.growDropdownFrame:Hide()
@@ -2481,6 +2489,7 @@ local function CreateMover(barKey)
                         UM.anchorDropdownCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
                         UM.SetMoverOverlayLevel(UM.anchorDropdownCatcher, 9)
                         UM.anchorDropdownCatcher:SetAllPoints(UIParent)
+                        UM.anchorDropdownCatcher._umCatcher = true  -- not an element for the hover bar
                         UM.anchorDropdownCatcher:RegisterForClicks("AnyUp")
                         UM.anchorDropdownCatcher:SetScript("OnClick", function()
                             UM.anchorDropdownFrame:Hide()
@@ -3237,6 +3246,7 @@ local function CreateMover(barKey)
             snapClickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
             UM.SetMoverOverlayLevel(snapClickCatcher, -1)
             snapClickCatcher:SetAllPoints(UIParent)
+            snapClickCatcher._umCatcher = true  -- not an element for the hover bar
             snapClickCatcher:RegisterForClicks("AnyUp")
             snapClickCatcher:SetScript("OnClick", function()
                 CloseSnapMenu()
@@ -4476,6 +4486,7 @@ local function CreateMover(barKey)
             cogClickCatcher:SetFrameStrata("FULLSCREEN_DIALOG")
             UM.SetMoverOverlayLevel(cogClickCatcher, -1)
             cogClickCatcher:SetAllPoints(UIParent)
+            cogClickCatcher._umCatcher = true  -- not an element for the hover bar
             cogClickCatcher:RegisterForClicks("AnyUp")
             cogClickCatcher:SetScript("OnClick", function()
                 CloseCogMenu()
@@ -4595,6 +4606,12 @@ do
         end
     end
 end
+
+-- Overlays outlive a session; an accent change repaints their accent parts (runs only on a change).
+EllesmereUI.RegAccent({ type = "callback", fn = function()
+    for _, m in pairs(movers) do m._applyAccent() end
+    for _, ov in pairs(UM._blizzOwnedOverlays) do ov._applyAccent() end
+end })
 
 UM.CreateMover = CreateMover
 end

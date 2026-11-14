@@ -84,21 +84,13 @@ local function PetKey()
     return family and name and (family .. ":" .. name)
 end
 
--- The highest ranks seen, per character (by GUID: a WoW Forever first name is
--- not unique) and per pet: account data outside the settings, kept out of
--- full exports (EllesmereUI_Profiles.lua's FULL_EXPORT_EXCLUDED).
+-- The highest ranks seen, per character (the roster's spellUprank) and per
+-- pet: account data outside the settings, never exported.
 local function Known()
-    local all = EllesmereUIDB.spellUprankChars
-    if type(all) ~= "table" then
-        all = {}
-        EllesmereUIDB.spellUprankChars = all
-    end
-    local guid = UnitGUID("player")
-    local mine = all[guid]
-    if not mine then
-        mine = { player = {}, pets = {} }
-        all[guid] = mine
-    end
+    local mine = EllesmereUI.CharData("spellUprank", true)
+    if not mine then return { player = {}, pets = {} } end -- GUID unread: a throwaway
+    mine.player = mine.player or {}
+    mine.pets = mine.pets or {}
     return mine
 end
 

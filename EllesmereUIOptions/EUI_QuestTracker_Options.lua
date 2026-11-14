@@ -44,7 +44,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function BuildPage(_, parent, yOffset)
         local W  = EllesmereUI.Widgets
-        local PP = EllesmereUI.PP
+        local PP = EllesmereUI.PanelPP
         local y  = yOffset
         local row, h
 
@@ -664,8 +664,6 @@ initFrame:SetScript("OnEvent", function(self)
         end
 
         local ApplyWatches, ApplyProgress = EQT.ApplyQuestWatches, EQT.ApplyQuestProgress
-        local StandDown = EQT.QuestToolsStandDown
-        local GAMEPAD_TIP = "This option does not work with the Gamepad interface style."
         -- Quest Log Order is the base sort mode (a saved "default", the retired
         -- Blizzard order mode, reads as it).
         local function SortModeCfg()
@@ -674,10 +672,10 @@ initFrame:SetScript("OnEvent", function(self)
             return m
         end
         -- Section gate: Sort Quests, Filter Quests and Auto Track Zone Quests are
-        -- built only while Experimental Quest Tools is on (and usable); turning
+        -- built only while Experimental Quest Tools is on; turning
         -- it on or off rebuilds the page. The progress rows always show.
         -- The custom tracker needs no switch: it never edits the watch list.
-        local toolsOn = CUSTOM or (Cfg("questWatchExperimental") == true and not StandDown())
+        local toolsOn = CUSTOM or Cfg("questWatchExperimental") == true
         local function FilterRow(key, label)
             return { type="toggle", label=label,
                 get=function() return Cfg(key) or false end,
@@ -686,8 +684,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         local expCfg = { type="toggle", text="Experimental Quest Tools",
               tooltip="Unlocks Sort Quests, Filter Quests and Auto Track Zone Quests.",
-              disabled=function() return CUSTOM or StandDown() end,
-              disabledTooltip=CUSTOM and "Always on with the Custom Quest Tracker." or GAMEPAD_TIP,
+              disabled=function() return CUSTOM end,
+              disabledTooltip="Always on with the Custom Quest Tracker.",
               rawTooltip=CUSTOM or nil,
               getValue=function() return CUSTOM or Cfg("questWatchExperimental") == true end,
               setValue=function(v)

@@ -86,6 +86,8 @@ EllesmereUI = {
     PP = { Point = function() end, Size = function() end, mult = 1 },
     CLASS_ICON_SPRITE_COORDS = { MAGE = { 0, 0.25, 0, 0.25 } },
     SHAPE_MASKS = {}, SHAPE_BORDERS = {}, SHAPE_INSETS = {},
+    UIScaledAlpha = function(a) return a end,
+    OnUIAlphaChanged = function() end,
 }
 
 local painters = {}

@@ -570,27 +570,61 @@ function ns.BM2_DeleteFilter(id)
     ns.BM2_Invalidate()
 end
 
--- Checkbox state: true/false explicit; nil on a CUSTOM spell removes it.
+-- Checkbox state: true/false explicit; nil on a CUSTOM spell removes it,
+-- its typed mark included.
 function ns.BM2_SetSpellState(filterId, spellID, state)
     local f = ns.BM2_GetFilter(filterId)
     if not f then return end
     if state == nil and f.custom[spellID] then
         f.custom[spellID] = nil
         f.spells[spellID] = nil
+        local fx = f.exact
+        if fx then
+            fx[spellID] = nil
+            if next(fx) == nil then f.exact = nil end
+        end
     else
         f.spells[spellID] = state and true or false
     end
     ns.BM2_Invalidate()
 end
 
+-- A filter's own typed mark on id (f.exact[id], written by BM2_AddCustomSpell):
+-- void where the filter's preset curates the id, since a curated spell
+-- always keeps its family.
+local function FilterExact(f, id)
+    local fx = f.exact
+    if not (fx and fx[id]) then return false end
+    local curated = f.preset and DEFAULT_FILTER_SPELLS[f.preset]
+    return not (curated and curated[id])
+end
+
 -- An id kept only for the other client counts as absent: adding it makes it
--- the user's own on both clients.
-function ns.BM2_AddCustomSpell(filterId, spellID)
+-- the user's own on both clients. typed (the Filter Editor's Add Spell ID,
+-- never its Search Spells pick or a copy from another library): the id tracks
+-- that aura alone from now on (f.exact[id]), and typing one the filter
+-- already holds as the user's own narrows it the same way; ids saved before
+-- carry no mark and keep their family. No mark on WoW Forever, where a typed
+-- rank stands for every rank of its spell.
+function ns.BM2_AddCustomSpell(filterId, spellID, typed)
     local f = ns.BM2_GetFilter(filterId)
     if not (f and spellID and spellID > 0) then return false end
-    if f.spells[spellID] ~= nil and not OtherClientSpell(f, spellID) then return false end -- already present
-    f.custom[spellID] = true
-    f.spells[spellID] = true
+    local mark = typed == true and EllesmereUI.IS_FOREVER ~= true
+    if f.spells[spellID] ~= nil and not OtherClientSpell(f, spellID) then
+        -- Already present: only a typed id not yet marked, and not one the
+        -- filter's preset curates, changes anything.
+        local curated = f.preset and DEFAULT_FILTER_SPELLS[f.preset]
+        if not mark or (curated and curated[spellID]) or (f.exact and f.exact[spellID]) then
+            return false
+        end
+    else
+        f.custom[spellID] = true
+        f.spells[spellID] = true
+    end
+    if mark then
+        f.exact = f.exact or {}
+        f.exact[spellID] = true
+    end
     ns.BM2_Invalidate()
     return true
 end
@@ -851,11 +885,39 @@ end
 -------------------------------------------------------------------------------
 -- Resolution: indicator -> effective spell array
 -------------------------------------------------------------------------------
+-- Whether a source that keeps the curated family brings id into the
+-- indicator: a direct spell with no typed mark, or an assigned filter that
+-- holds it switched on without one. Asked only for the few ids a source typed.
+local function FamilySource(ind, id)
+    local sp = ind.spells
+    if sp then
+        local ex = ind.exactSpells
+        if not (ex and ex[id]) then
+            for i = 1, #sp do
+                if sp[i] == id then return true end
+            end
+        end
+    end
+    if ind.filters then
+        for fid in pairs(ind.filters) do
+            local f = ns.BM2_GetFilter(fid)
+            if f and f.spells[id] and not FilterExact(f, id) and not OtherClientSpell(f, id) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 -- Union of direct spells + enabled spells of assigned filters, plus per-spell
 -- OWNERSHIP: each source (filter or direct extra) has its own flag (ind.ownFilters[fid]
 -- / ind.ownExtras[sid]); a spell from several sources is own-only ONLY if all say so
 -- (show-all wins, the less restrictive intent). Alternates inherit their primary's
--- state. Returns (sortedList, ownMap), stable-sorted for deterministic signatures.
+-- state. Returns (sortedList, ownMap, exactMap), stable-sorted for deterministic
+-- signatures. exactMap (nil when empty) holds the ids every source typed (a
+-- direct one through BM2_SetSpellExact, a filter's through BM2_AddCustomSpell):
+-- those match their own aura alone. One source that keeps the family (a pick
+-- from Presets, a filter's curated or saved spell) and the family counts.
 -- Rebuilt every call (cheap: once per class per reload) because the LEGACY editor
 -- mutates ind.spells without bumping the edit generation, so a generation-keyed cache
 -- would serve stale unions after a spell edit.
@@ -864,6 +926,14 @@ function ns.BM2_ResolveSpellsOwn(ind)
     -- WoW Forever: a rank alternate counts as its family's primary (nil on
     -- every other client). Per-extra own flags stay keyed by the stored id.
     local ap = ns.BM2_ForeverAltPrimary
+    -- Typed marks are never read on WoW Forever, where a typed rank stands
+    -- for every rank of its spell. typed = the ids some source marks, made
+    -- only when one does.
+    local typed
+    if not ap and ind.exactSpells then
+        typed = {}
+        for id in pairs(ind.exactSpells) do typed[id] = true end
+    end
     local function Add(id, own)
         local cur = set[id]
         if cur == nil then
@@ -885,8 +955,15 @@ function ns.BM2_ResolveSpellsOwn(ind)
             local f = ns.BM2_GetFilter(fid)
             if f then
                 local fOwn = of and of[fid]
+                local fx = (not ap) and f.exact or nil
                 for id, on in pairs(f.spells) do
-                    if on and not OtherClientSpell(f, id) then Add((ap and ap[id]) or id, fOwn) end
+                    if on and not OtherClientSpell(f, id) then
+                        Add((ap and ap[id]) or id, fOwn)
+                        if fx and fx[id] then
+                            typed = typed or {}
+                            typed[id] = true
+                        end
+                    end
                 end
             end
         end
@@ -922,12 +999,55 @@ function ns.BM2_ResolveSpellsOwn(ind)
     local out = {}
     for id in pairs(set) do out[#out + 1] = id end
     table.sort(out)
-    return out, set
+    local exact
+    if typed then
+        for id in pairs(typed) do
+            if set[id] ~= nil and not FamilySource(ind, id) then
+                exact = exact or {}
+                exact[id] = true
+            end
+        end
+    end
+    return out, set, exact
 end
 
 function ns.BM2_ResolveSpells(ind)
     local out = ns.BM2_ResolveSpellsOwn(ind)
     return out
+end
+
+-- A spell ID typed through Custom Spell ID tracks that aura alone
+-- (ind.exactSpells[id]); a pick from the Presets list, like a filter, keeps the
+-- other ids of its curated family. Not written on WoW Forever, where a typed
+-- rank stands for every rank of its spell.
+function ns.BM2_SetSpellExact(ind, id, exact)
+    if exact then
+        if EllesmereUI.IS_FOREVER == true then return end
+        ind.exactSpells = ind.exactSpells or {}
+        ind.exactSpells[id] = true
+    elseif ind.exactSpells then
+        ind.exactSpells[id] = nil
+        if next(ind.exactSpells) == nil then ind.exactSpells = nil end
+    end
+end
+
+-- The Custom Spell ID top action of an Extra Spells menu (the indicator
+-- editor's and the New Indicator popup's): onID(id) takes each number
+-- confirmed in its popup.
+function ns.BM2_SpellIdAction(onID)
+    return { isTopAction = true, label = "Custom Spell ID", onClick = function()
+        EllesmereUI:ShowInputPopup({
+            title = EllesmereUI.L("Add Spell ID"),
+            message = EllesmereUI.L("Enter the spell ID to track on this indicator."),
+            placeholder = EllesmereUI.L("Spell ID"),
+            confirmText = EllesmereUI.L("Add"),
+            cancelText = EllesmereUI.L("Cancel"),
+            onConfirm = function(text)
+                local id = tonumber(text or "")
+                if id and id > 0 then onID(id) end
+            end,
+        })
+    end }
 end
 
 -- Preferred DISPLAY spell (sidebar tile icon etc.): a resolved spell the
@@ -1050,7 +1170,11 @@ function ns.BM2_SpecIndicators(frameKind)
                 if showIn == "raid" then drop = frameKind == "party"
                 elseif showIn == "party" then drop = frameKind ~= "party" end
             end
-            local resolved = not drop and ns.BM2_ResolveSpells(ind) or nil
+            local resolved, exact
+            if not drop then
+                local _
+                resolved, _, exact = ns.BM2_ResolveSpellsOwn(ind)
+            end
             if resolved and #resolved > 0 then
                 if not views then
                     views = bm2ViewCache[bucket or "?"]
@@ -1062,6 +1186,9 @@ function ns.BM2_SpecIndicators(frameKind)
                 for k in pairs(v) do v[k] = nil end
                 for k, val in pairs(ind) do v[k] = val end
                 v.spells = resolved
+                -- Exact ids, which match their own aura alone (nil = every id
+                -- keeps its curated family; BmIncludeMap reads it).
+                v.exactSpells = exact
                 -- Per-filter square colors fan out into the view's spellColors
                 -- (fresh merged table; readers reach it through the stable
                 -- view, so the identity-stability contract holds).
@@ -1101,6 +1228,9 @@ EllesmereUI._BM2FilterBridge = {
     AddFilter      = function(name) return ns.BM2_AddFilter(name) end,
     SetSpellState  = function(id, spellID, state) return ns.BM2_SetSpellState(id, spellID, state) end,
     AddCustomSpell = function(id, spellID) return ns.BM2_AddCustomSpell(id, spellID) end,
+    -- True for an id typed into filter f: it tracks that aura alone here,
+    -- so a copy does not fan it out to its alternates.
+    SpellExact     = function(f, id) return EllesmereUI.IS_FOREVER ~= true and FilterExact(f, id) end,
     PresetAlts     = function() return ns.BM2_PresetAlts end,
     CuratedSpells  = function(presetKey) return presetKey and DEFAULT_FILTER_SPELLS[presetKey] or nil end,
     -- True for an id a preset filter keeps only for the other client.

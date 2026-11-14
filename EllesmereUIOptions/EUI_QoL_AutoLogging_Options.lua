@@ -384,7 +384,7 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     --  runtime builds nothing there and the section is not built)
     ---------------------------------------------------------------------------
     if _G._EUI_BuildBattleResSection and not EllesmereUI.IS_FOREVER then
-        local brezH = _G._EUI_BuildBattleResSection(parent, y, W, EllesmereUI.PP)
+        local brezH = _G._EUI_BuildBattleResSection(parent, y, W, EllesmereUI.PanelPP)
         y = y - brezH
     end
 
@@ -393,7 +393,7 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     --  runtime returns at load there and the section is not built)
     ---------------------------------------------------------------------------
     if _G._EUI_BuildBloodlustSection and not EllesmereUI.IS_FOREVER then
-        local lustH = _G._EUI_BuildBloodlustSection(parent, y, W, EllesmereUI.PP)
+        local lustH = _G._EUI_BuildBloodlustSection(parent, y, W, EllesmereUI.PanelPP)
         y = y - lustH
     end
 

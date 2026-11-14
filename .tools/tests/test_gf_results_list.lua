@@ -2,7 +2,14 @@
 -- it: the full collect and paint, one group's update (only its row repaints),
 -- filter and secrecy changes and the sort modes (the whole list), the row
 -- layout memo, a raid row's score anchor, the sign-up timer frame, the window
--- look and the hand-back to Blizzard's list.
+-- look and the hand-back to Blizzard's list; a first visit to Quests or Custom
+-- (the list stays hidden, its results unread), a hidden sign-up status, our
+-- frame levels over Blizzard's faded list, group notes (a note's line, a
+-- note that comes or goes in one group's update), the row looks, the name
+-- colour of a group with a friend or guildmate in it and the countdown's end.
+-- It runs in the EllesmereUI look; with the global GF_LOOK = "stock" set first
+-- (test_gf_results_list_stock.lua) every scenario runs in Blizzard's look, the
+-- one the list takes while the Group Finder window skin is off.
 --   lua .tools/tests/test_gf_results_list.lua      (from the repository root)
 local ROOT = arg and arg[1] or "."
 
@@ -13,6 +20,7 @@ local function ReadSource(name)
     return src
 end
 local SRC = ReadSource("EllesmereUIGroupFinder/EUI_GroupFinder_ResultsList.lua")
+local STOCK = GF_LOOK == "stock"
 
 -- the widget methods the file calls: a mock answers those, any other field reads nil
 local METHODS = {}
@@ -98,9 +106,13 @@ local function MakeObj(kind, parent)
         if k == "SetEnabled" then return function(self, v) self._enabled = v and true or false end end
         if k == "IsEnabled" then return function(self) return self._enabled ~= false end end
         if k == "SetClipsChildren" then return function(self, v) self._clips = v end end
+        if k == "SetAtlas" then return function(self, atlas) self._atlas = atlas end end
+        if k == "SetColorTexture" then return function(self, ...) self._tint = { ... } end end
         if k == "CreateTexture" or k == "CreateFontString" or k == "CreateMaskTexture" then
             return function(self) return MakeObj(k, self) end
         end
+        if k == "SetTexture" then return function(self, t) self._texture = t end end
+        if k == "SetDesaturated" then return function(self, v) self._desat = v and true or false end end
         if METHODS[k] then return function() end end
         return nil
     end })
@@ -108,7 +120,11 @@ local function MakeObj(kind, parent)
     return o
 end
 
-function CreateFrame(kind, name, parent) return MakeObj(kind, parent) end
+function CreateFrame(kind, name, parent, template)
+    local o = MakeObj(kind, parent)
+    o._template = template
+    return o
+end
 function hooksecurefunc(a, b, c)
     if type(a) == "string" then
         T["hook_" .. a] = b
@@ -136,6 +152,8 @@ GameTooltip = MakeObj("GameTooltip")
 function GameTooltip_Hide() end
 DEFAULT_CHAT_FRAME = MakeObj("Frame")
 C_ClassColor = { GetClassColor = function() return { r = 0.5, g = 0.5, b = 0.5 } end }
+Enum = { LFGListDisplayType = { RoleCount = 0, RoleEnumerate = 1, ClassEnumerate = 2, HideAll = 3, PlayerCount = 4,
+    Comment = 5 } }
 
 -- secrecy: a result whose info table is marked reads as secret
 local SECRET = {}
@@ -148,6 +166,7 @@ C_LFGList = {
         return T.info[id]
     end,
     GetApplicationInfo = function(id)
+        T.appReads = (T.appReads or 0) + 1
         local s = T.status[id] or "none"
         return id, s, false, s == "applied" and 240 or 0
     end,
@@ -171,6 +190,7 @@ C_LFGList = {
 }
 
 EllesmereUI = {
+    IsSecret = function(v) return v ~= nil and issecretvalue(v) end,
     HELD_BACK_ADDONS = {},
     L = function(s) return s end,
     Lf = function(s) return s end,
@@ -182,7 +202,7 @@ EllesmereUI = {
     ELLESMERE_GREEN = { r = 0.05, g = 0.82, b = 0.62 },
     BuildFullName = function(n) return n end,
     GetBorderStyleSelectDefaults = function() return { r = 1, g = 1, b = 1 } end,
-    ApplyBorderStyle = function() end,
+    ApplyBorderStyle = function() T.borderApplies = (T.borderApplies or 0) + 1 end,
     -- the font family helper: counts every call (the layout memo's measure) and
     -- keeps what the string was given
     SetFontFamily = function(fs, path, size, flags, shadow)
@@ -215,6 +235,7 @@ local ns = {
     GFOpt = function() return true end,
     GFRatingColor = function() return 1, 1, 1 end,
     ThemeBorder = function() return 1, 1, 1 end,
+    SkinOn = function() return not STOCK end,
     GFShortName = function() return nil end,
     RegionList = function() return nil end,
     WhenGroupFinder = function(fn) T.whenGF = fn end,
@@ -270,10 +291,29 @@ local function ResetCounts()
 end
 
 -------------------------------------------------------------------------------
---  1. the list takes over: built once, Blizzard's list faded, events while it shows
+--  0. a first visit to a category our list leaves to Blizzard's (outside the
+--     five it covers) builds the list hidden (an empty list frame shown there
+--     took every click and scroll from Blizzard's list) and walks no result
+--     for secrecy
 -------------------------------------------------------------------------------
 assert(T.whenGF, "the list waits for blizzard's group finder")
 T.whenGF()
+SP.categoryID = 4
+T.appReads = 0
+ns.OwnListRefresh()
+frame = Find(function(f) return f._parent == SP and f._scripts.OnMouseWheel ~= nil end)
+assert(frame, "the list was not built")
+assert(ns.OwnListActive() == false and not frame._shown and SP.ScrollBox._alpha == 1,
+    "the empty list frame shows over blizzard's list on a first visit to a category it leaves alone")
+assert(T.appReads == 0, "the results were walked for secrecy on a category our list leaves alone")
+SP.categoryID = 7
+ns.OwnListRefresh()
+assert(not frame._shown, "the empty list frame shows on a second category it leaves alone")
+SP.categoryID = 2
+
+-------------------------------------------------------------------------------
+--  1. the list takes over: built once, Blizzard's list faded, events while it shows
+-------------------------------------------------------------------------------
 ns.OwnListRefresh()
 frame = Find(function(f) return f._parent == SP and f._scripts.OnMouseWheel ~= nil end)
 assert(frame and frame._shown, "our list was not built over blizzard's")
@@ -390,8 +430,8 @@ assert(ticker._shown, "no timer for the signed-up group in view")
 T.now = T.now + 61
 ticker._scripts.OnUpdate(ticker, 1.0)
 local five = RowFor(5)
--- signed up with 240 s left of 300 (60 s gone), then 61 s more
-assert(five and five.timer._text == "2:01", "the timer did not count: " .. tostring(five and five.timer._text))
+-- signed up with 240 s left of 300 (60 s gone), then 61 s more: 2:59 left
+assert(five and five.timer._text == "2:59", "the timer did not count: " .. tostring(five and five.timer._text))
 T.apps = {}
 T.status[5] = nil
 Event("LFG_LIST_APPLICATION_STATUS_UPDATED", 5, "none", "applied")
@@ -424,7 +464,7 @@ ns.OwnListRefresh()
 assert(ns.OwnListActive() == true and SP.ScrollBox._alpha == 0, "our list did not come back")
 
 -- another category: blizzard's list
-SP.categoryID = 6
+SP.categoryID = 4
 ns.OwnListRefresh()
 assert(ns.OwnListActive() == false and T.redecorates == 2)
 SP.categoryID = 2
@@ -451,4 +491,372 @@ ns.GFShortName = function() return nil end
 T.db.rowHeight = nil
 ns.OwnListRefresh()
 
-print("group finder results list harness: ok")
+-------------------------------------------------------------------------------
+--  11. a hidden sign-up status hands the panel back to Blizzard's list (our rows
+--      cannot tell whether that group can be picked), through a refresh and
+--      through one group's update; ours comes back once it reads again
+-------------------------------------------------------------------------------
+T.status[7] = { [SECRET] = true }
+ns.OwnListRefresh()
+assert(ns.OwnListActive() == false and not frame._shown and SP.ScrollBox._alpha == 1,
+    "a hidden sign-up status kept our list")
+T.status[7] = nil
+ns.OwnListRefresh()
+assert(ns.OwnListActive() == true and frame._shown, "our list did not come back")
+T.status[8] = { [SECRET] = true }
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 8)
+Flush()
+assert(ns.OwnListActive() == false, "a group's update with a hidden sign-up status kept our list")
+T.status[8] = nil
+ns.OwnListRefresh()
+assert(ns.OwnListActive() == true, "our list did not come back after the update")
+
+-------------------------------------------------------------------------------
+--  12. something raises Blizzard's faded list and button: ours go back above
+--      them on the next refresh, and a level already above is left alone
+-------------------------------------------------------------------------------
+local signBtn = Find(function(f) return f._kind == "Button" and f._parent == SP and f ~= SP.SignUpButton end)
+assert(signBtn, "no sign up button of ours")
+SP.ScrollBox._level, SP.SignUpButton._level = 40, 30
+ns.OwnListRefresh()
+assert(frame._level >= 50 and signBtn._level >= 35, "our list or sign up button stayed under blizzard's")
+frame._level = 99
+ns.OwnListRefresh()
+assert(frame._level == 99, "a level already above was rewritten")
+
+-------------------------------------------------------------------------------
+--  13. Quests and Custom take our list too
+-------------------------------------------------------------------------------
+SP.categoryID = 1
+ns.OwnListRefresh()
+assert(ns.OwnListActive() == true and frame._shown and SP.ScrollBox._alpha == 0, "Quests did not take our list")
+SP.categoryID = 6
+ns.OwnListRefresh()
+assert(ns.OwnListActive() == true and frame._shown, "Custom did not take our list")
+SP.categoryID = 2
+ns.OwnListRefresh()
+
+-------------------------------------------------------------------------------
+--  14. a row's member side follows its activity's display type, as Blizzard's
+--      rows do: a player count (a grey circle, the count above), nothing for
+--      HideAll and for a type Blizzard's rows do not draw, role counts for a
+--      RoleCount activity of five; no display type read keeps the size rule
+-------------------------------------------------------------------------------
+local DT = Enum.LFGListDisplayType
+T.acts[3] = { fullName = "Some Zone", maxNumPlayers = 0, displayType = DT.PlayerCount }
+T.acts[4] = { fullName = "Hidden", maxNumPlayers = 5, displayType = DT.HideAll }
+T.acts[5] = { fullName = "Some Quest", maxNumPlayers = 5, displayType = DT.RoleCount }
+T.acts[6] = { fullName = "Commented", maxNumPlayers = 5, displayType = DT.Comment }
+local function Side(r)
+    local icons, circles = 0, 0
+    for k = 1, 5 do if r.icons[k]._shown then icons = icons + 1 end end
+    for k = 1, 3 do if r.rr[k].bg._shown then circles = circles + 1 end end
+    return icons, circles, r.rr[4].bg._shown and r.rr[4].count._text or nil
+end
+local function WithActivity(id, act)
+    T.info[id].activityIDs = { act }
+    Event("LFG_LIST_SEARCH_RESULT_UPDATED", id)
+    Flush()
+    return RowFor(id)
+end
+local row = WithActivity(3, 3)
+local icons, circles, players = Side(row)
+assert(icons == 0 and circles == 0 and players == "2" and row.scoreRaid,
+    "a player count activity: " .. icons .. " icons, " .. circles .. " circles, " .. tostring(players))
+for id, act in pairs({ [4] = 4, [6] = 6 }) do
+    row = WithActivity(id, act)
+    icons, circles, players = Side(row)
+    assert(icons == 0 and circles == 0 and players == nil and not row.scoreRaid,
+        "activity " .. act .. " drew a member side: " .. icons .. " icons, " .. circles .. " circles")
+end
+row = WithActivity(5, 5)
+icons, circles, players = Side(row)
+assert(icons == 0 and circles == 3 and players == nil, "a RoleCount activity of five did not show role counts")
+icons, circles = Side(RowFor(1))
+assert(icons > 0 and circles == 0, "a five-player activity with no display type lost its member icons")
+icons, circles = Side(RowFor(2))
+assert(icons == 0 and circles == 3, "a raid with no display type lost its role counts")
+for id = 3, 6 do WithActivity(id, 1) end
+
+-------------------------------------------------------------------------------
+--  15. the count circles wear the member icons' border: a ring around a round
+--      circle, the border size out from it; on square icons an edge frame whose
+--      style is applied once per border setting
+-------------------------------------------------------------------------------
+local rp = RowFor(2).rr[1]
+assert(rp.ring._shown and not rp.edge._shown, "a round role count circle has no ring")
+assert(rp.ring._points.TOPLEFT[3] == -1 and rp.ring._points.TOPLEFT[4] == 1, "the ring is not the border size out")
+T.db.iconShape = "square"
+ns.SetOwnListValue("iconShape", "square")
+rp = RowFor(2).rr[1]
+assert(rp.edge._shown and not rp.ring._shown, "a square role count circle has no border frame")
+local applies = T.borderApplies or 0
+ns.OwnListRefresh()
+assert((T.borderApplies or 0) == applies, "an unchanged border was styled again")
+T.db.iconShape = nil
+ns.SetOwnListValue("iconShape", nil)
+
+-------------------------------------------------------------------------------
+--  16. group notes: a group with a note is a line taller and the rows under it
+--      move down by that line; a note that comes or goes in one group's update
+--      collects the list again (its row changes height), a changed note text
+--      or a group without a note repaints its row alone, and a group the
+--      filters leave out, or any group with notes off, changes nothing
+-------------------------------------------------------------------------------
+local GAP = 2
+local rowH, noteH = ns.OwnListRowHeight(), ns.OwnListSize("lineSize") + 4
+T.info[3].comment = "Know the route"
+ns.SetOwnListValue("groupNotes", true)
+local r3, r4 = RowFor(3), RowFor(4)
+assert(r3 and r3._h == rowH + noteH and r3.note._shown, "a group with a note is not a line taller")
+assert(r4._h == rowH and not r4.note._shown, "a group without a note grew")
+assert((-r4._points.TOPLEFT[4]) - (-r3._points.TOPLEFT[4]) == rowH + noteH + GAP,
+    "the row under a note did not move down by the note's line")
+-- the note goes away in one group's update: the list collects again
+ResetCounts()
+T.info[3].comment = ""
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 3)
+Flush()
+assert(T.collects == 1, "a note that went away did not collect the list again")
+assert(RowFor(3)._h == rowH and not RowFor(3).note._shown, "the row kept its note line")
+-- a note arrives
+ResetCounts()
+T.info[4].comment = "Need a tank"
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 4)
+Flush()
+assert(T.collects == 1, "a new note did not collect the list again")
+assert(RowFor(4)._h == rowH + noteH and RowFor(4).note._shown, "the new note has no line")
+-- the note's text changes: that row alone repaints
+ResetCounts()
+T.info[4].comment = "Need a healer"
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 4)
+Flush()
+assert(T.collects == 0 and T.fills[4] == 1, "a changed note collected the list again")
+assert(RowFor(4).note._text == "Need a healer", "the row did not take the new note")
+-- a group without a note changes: its row alone
+ResetCounts()
+T.info[6].name = "Six"
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 6)
+Flush()
+assert(T.collects == 0 and T.fills[6] == 1, "with notes on, a group without a note collected the list again")
+-- a group the filters leave out (hidden mode): its note changes nothing
+T.pass[5] = false
+ns.OwnListRefresh()
+ResetCounts()
+T.info[5].comment = "Hidden group"
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 5)
+Flush()
+assert(T.collects == 0, "a hidden group's note collected the list again")
+T.pass[5] = nil
+-- notes off: a note change is a plain update
+ns.SetOwnListValue("groupNotes", nil)
+ResetCounts()
+T.info[6].comment = "Off"
+Event("LFG_LIST_SEARCH_RESULT_UPDATED", 6)
+Flush()
+assert(T.collects == 0, "with notes off a note collected the list again")
+assert(not RowFor(6).note._shown, "a note shows with notes off")
+for id = 3, 6 do T.info[id].comment = nil end
+T.info[6].name = "Group 6"
+ns.OwnListRefresh()
+
+-------------------------------------------------------------------------------
+-- 17. the looks: the EllesmereUI one, or Blizzard's while the Group Finder
+--     window skin is off (rows, the cancel button, the sign up button, the
+--     selected row)
+-------------------------------------------------------------------------------
+do
+    local r = RowFor(3)
+    assert(r.stock == STOCK, "a row took the wrong look")
+    assert((r.cancel._template == "UIMenuButtonStretchTemplate") == STOCK, "the cancel button's template")
+    assert((r.cancel.tex._atlas == "groupfinder-icon-redx") == STOCK, "the cancel button's x")
+    assert((r.hl._atlas == "groupfinder-highlightbar-blue") == STOCK, "the row's hover bar")
+    assert((signBtn._template == "UIPanelButtonTemplate") == STOCK, "the sign up button's template")
+    -- a click selects the group: Blizzard's yellow bar shown, or our accent wash
+    r._scripts.OnClick(r, "LeftButton")
+    r = RowFor(3)
+    local other = RowFor(4)
+    if STOCK then
+        assert(r.sel._atlas == "groupfinder-highlightbar-yellow" and r.sel._shown, "the selected row shows no yellow bar")
+        assert(not other.sel._shown, "an unselected row shows the yellow bar")
+    else
+        assert(r.sel._tint and r.sel._tint[4] == 0.18, "the selected row has no accent wash")
+        assert(other.sel._tint and other.sel._tint[4] == 0, "an unselected row has the accent wash")
+    end
+end
+
+-------------------------------------------------------------------------------
+-- 18. a friend or guildmate in the group: Blizzard's blue name, after our own
+--     name colours; a hidden count colours nothing
+-------------------------------------------------------------------------------
+do
+    BATTLENET_FONT_COLOR = { GetRGB = function() return 0.51, 0.773, 1 end }
+    local function Color(id)
+        local c = RowFor(id).name._color
+        return c[1], c[2], c[3]
+    end
+    local function Blue(id) local r, g, b = Color(id); return r == 0.51 and g == 0.773 and b == 1 end
+    local function Gold(id) local r, g, b = Color(id); return r == 1 and g == 0.82 and b == 0 end
+    T.info[3].numBNetFriends, T.info[3].numCharFriends, T.info[3].numGuildMates = 0, 0, 1
+    T.info[4].numBNetFriends = 2
+    T.info[5].numBNetFriends, T.info[5].numCharFriends, T.info[5].numGuildMates = 0, 0, 0
+    T.info[6].numBNetFriends, T.info[6].numGuildMates = 3, { [SECRET] = true }
+    ns.OwnListRefresh()
+    assert(Blue(3), "a guildmate's group is not blue")
+    assert(Blue(4), "a friend's group is not blue (the other counts unread)")
+    assert(Gold(5), "a group with no friend in it is not gold")
+    assert(Gold(6), "a hidden count coloured the name")
+    assert(Gold(1), "a group with no counts at all is not gold")
+    -- one group's update repaints its name
+    T.info[5].numCharFriends = 1
+    Event("LFG_LIST_SEARCH_RESULT_UPDATED", 5)
+    Flush()
+    assert(Blue(5), "a friend joining did not turn the name blue")
+    -- our own name colours come first
+    ns.GFNameColor = function(id) if id == 3 then return 1, 0.2, 0.2 end end
+    ns.OwnListRefresh()
+    local r, g, b = Color(3)
+    assert(r == 1 and g == 0.2 and b == 0.2, "the friend colour beat our own name colour")
+    assert(Blue(4), "our name colours took the friend colour off another group")
+    ns.GFNameColor = nil
+    -- no colour object: gold
+    BATTLENET_FONT_COLOR = nil
+    ns.OwnListRefresh()
+    assert(Gold(3) and Gold(4), "a friend's group is not gold without the colour object")
+    for id = 3, 6 do
+        T.info[id].numBNetFriends, T.info[id].numCharFriends, T.info[id].numGuildMates = nil, nil, nil
+    end
+    ns.OwnListRefresh()
+end
+
+-------------------------------------------------------------------------------
+-- 19. the countdown shows the time left at once and stops at 0:00
+-------------------------------------------------------------------------------
+do
+    T.apps = { 5 }
+    T.status[5] = "applied"
+    Event("LFG_LIST_APPLICATION_STATUS_UPDATED", 5, "applied", "none")
+    Flush()
+    assert(RowFor(5).timer._text == "4:00", "the timer does not start at the time left: " .. tostring(RowFor(5).timer._text))
+    T.now = T.now + 400
+    ticker._scripts.OnUpdate(ticker, 1.0)
+    assert(RowFor(5).timer._text == "0:00", "the timer ran past the timeout: " .. tostring(RowFor(5).timer._text))
+    T.apps = {}
+    T.status[5] = nil
+    Event("LFG_LIST_APPLICATION_STATUS_UPDATED", 5, "none", "applied")
+    Flush()
+end
+
+-------------------------------------------------------------------------------
+-- 20. a delisted group is greyed (its texts in the delisted colour, its flag
+--     without colour) and faded by Delisted Opacity; relisted, it is as before
+-------------------------------------------------------------------------------
+do
+    local GREY = 0x5B / 255
+    local function near(a, b) return a ~= nil and math.abs(a - b) < 1e-6 end
+    local function Col(fs) local c = fs._color or {}; return c[1], c[2], c[3] end
+    T.info[4].isDelisted = true
+    ns.OwnListRefresh()
+    local r = RowFor(4)
+    assert(r, "a delisted group left the list")
+    local nr, ng, nb = Col(r.name)
+    assert(near(nr, GREY) and near(ng, GREY) and near(nb, GREY), "a delisted group's title is not grey: " .. tostring(nr))
+    assert(near(Col(r.act), GREY), "a delisted group's activity is not grey")
+    assert(near(Col(r.status), GREY), "the Delisted text is not in the delisted colour")
+    assert(r.flag._desat == true, "a delisted group's flag kept its colour")
+    assert(r._alpha == 0.5, "Delisted Opacity's default is not 50%: " .. tostring(r._alpha))
+    ns.SetOwnListValue("delistedOpacity", 80)
+    ns.OwnListRefresh()
+    assert(RowFor(4)._alpha == 0.8, "Delisted Opacity did not reach the row")
+    ns.SetOwnListValue("delistedOpacity", nil)
+    -- the delisted colour is the row highlight's own, a picked one included
+    ns.SetOwnListValue("color_lineDelisted", { r = 0.1, g = 0.2, b = 0.3 })
+    ns.OwnListRefresh()
+    nr, ng, nb = Col(RowFor(4).name)
+    assert(near(nr, 0.1) and near(ng, 0.2) and near(nb, 0.3), "the picked delisted colour is not the title's")
+    ns.SetOwnListValue("color_lineDelisted", nil)
+    -- listed again: its own colours, in full
+    T.info[4].isDelisted = false
+    ns.OwnListRefresh()
+    r = RowFor(4)
+    nr, ng = Col(r.name)
+    assert(nr == 1 and ng == 0.82, "a relisted group's title stayed grey")
+    assert(Col(r.act) == 1 and r.flag._desat == false and r._alpha == 1, "a relisted group stayed greyed or faded")
+    -- a delisted flag the game keeps secret raises nothing
+    T.info[4].isDelisted = { [SECRET] = true }
+    local ok, err = pcall(ns.OwnListRefresh)
+    assert(ok, "a secret delisted flag raised: " .. tostring(err))
+    T.info[4].isDelisted = false
+    ns.OwnListRefresh()
+end
+
+-------------------------------------------------------------------------------
+-- 21. Row Highlight: Signed Up (applied, waiting) follows Accepted's switch and
+--     colour until it is set itself; the None style highlights nothing and
+--     Full Row tints the row
+-------------------------------------------------------------------------------
+do
+    local function near(a, b) return a ~= nil and math.abs(a - b) < 1e-6 end
+    T.apps = { 5 }
+    T.status[5] = "applied"
+    Event("LFG_LIST_APPLICATION_STATUS_UPDATED", 5, "applied", "none")
+    Flush()
+    assert(not RowFor(5).under._shown, "signed up: underlined with Accepted off")
+    ns.SetOwnListValue("lineAccepted", true)
+    ns.OwnListRefresh()
+    assert(RowFor(5).under._shown, "signed up: does not follow Accepted's switch")
+    ns.SetOwnListValue("color_lineAccepted", { r = 0.9, g = 0.1, b = 0.9 })
+    ns.OwnListRefresh()
+    local tint = RowFor(5).under._tint
+    assert(tint and near(tint[1], 0.9) and near(tint[2], 0.1), "signed up: does not follow Accepted's colour")
+    -- its own switch and colour win once set
+    ns.SetOwnListValue("color_lineSigned", { r = 0.2, g = 0.4, b = 0.6 })
+    ns.OwnListRefresh()
+    tint = RowFor(5).under._tint
+    assert(near(tint[1], 0.2) and near(tint[3], 0.6), "signed up: its own colour is not used")
+    ns.SetOwnListValue("lineSigned", false)
+    ns.OwnListRefresh()
+    assert(not RowFor(5).under._shown, "signed up: switched off, it still underlines")
+    ns.SetOwnListValue("lineSigned", nil)
+    ns.SetOwnListValue("color_lineSigned", nil)
+    -- the styles
+    ns.SetOwnListValue("statusStyle", "none")
+    ns.OwnListRefresh()
+    local r = RowFor(5)
+    assert(not r.under._shown and not r.stat._shown, "the None style still highlights")
+    ns.SetOwnListValue("statusStyle", "row")
+    ns.OwnListRefresh()
+    r = RowFor(5)
+    assert(r.stat._shown and not r.under._shown, "the Full Row style does not tint the row")
+    ns.SetOwnListValue("statusStyle", nil)
+    ns.SetOwnListValue("lineAccepted", nil)
+    ns.SetOwnListValue("color_lineAccepted", nil)
+    T.apps = {}
+    T.status[5] = nil
+    Event("LFG_LIST_APPLICATION_STATUS_UPDATED", 5, "none", "applied")
+    Flush()
+end
+
+-------------------------------------------------------------------------------
+-- 22. Raid Role Icons (group 2 is the raid): our circles with Blizzard's small
+--     role glyph, whatever Missing Role Icons says, or Blizzard's own circles
+-------------------------------------------------------------------------------
+do
+    ns.OwnListRefresh()
+    local p = RowFor(2).rr[1]
+    assert(p.icon._atlas == "groupfinder-icon-role-micro-tank" and p.bg._tint, "our raid circle: " .. tostring(p.icon._atlas))
+    ns.SetOwnListValue("missingIcons", "ellesmere")
+    ns.OwnListRefresh()
+    assert(RowFor(2).rr[1].icon._atlas == "groupfinder-icon-role-micro-tank", "our raid circle changed with Missing Role Icons")
+    ns.SetOwnListValue("missingIcons", nil)
+    ns.SetOwnListValue("raidRoleIcons", "blizzard")
+    ns.OwnListRefresh()
+    p = RowFor(2).rr[1]
+    assert(p.bg._atlas == "groupfinder-icon-role-large-tank" and p.bg._shown, "Blizzard's raid circle: " .. tostring(p.bg._atlas))
+    ns.SetOwnListValue("raidRoleIcons", nil)
+    ns.OwnListRefresh()
+    p = RowFor(2).rr[1]
+    assert(p.icon._atlas == "groupfinder-icon-role-micro-tank" and p.icon._shown, "back on our raid circles")
+end
+
+print("group finder results list harness: ok" .. (STOCK and " (Blizzard's look)" or ""))

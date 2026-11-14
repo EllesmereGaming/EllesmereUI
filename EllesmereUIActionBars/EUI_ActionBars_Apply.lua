@@ -541,7 +541,7 @@ function EAB:ApplyCooldownFonts()
     end
 end
 
--- Show Equipped Item Color, live: every square button's Border takes the look
+-- Equipped Item Color, live: every square button's Border takes the look
 -- (and shows on an equipped item's button, in its rarity color) or hides
 -- again. The Blizzard and Classic styles keep their own equipped border, so
 -- EllesmereUI style only. changedOnly (ApplyAll: profile / spec switches,
@@ -571,20 +571,25 @@ function EAB:ApplyEquippedBorder(changedOnly)
     end
 end
 
--- Immediate re-apply of the Hide Count at 0 alpha on every button, so the options
--- toggle applies on click instead of waiting for the next count event. Alpha only --
--- the count TEXT stays whatever its owners last wrote. Cold path: options clicks only.
-function EAB:RefreshAllCounts()
+-- Immediate re-apply of the count alpha (a bar's Charge Numbers and Hide Count
+-- at 0) on one bar's buttons, or every bar's with no key, so an options change
+-- applies on click instead of waiting for the next count event. Alpha only --
+-- the count TEXT stays whatever its owners last wrote. Cold path: options
+-- clicks only.
+function EAB:RefreshCountVisibility(barKey)
     if not (C_ActionBar and C_ActionBar.GetActionDisplayCount) then return end
     for _, info in ipairs(BAR_CONFIG) do
-        if not info.isStance and not info.isPetBar then
+        if not info.isStance and not info.isPetBar and (barKey == nil or info.key == barKey) then
             local btns = barButtons[info.key]
             if btns then
                 for _, btn in ipairs(btns) do
                     if btn.Count then
                         local action = btn:GetAttribute("action")
                         if action and HasAction(action) then
-                            ns._EABZeroCountAlpha(EFD(btn), btn.Count,
+                            -- The count alpha finds the bar by this key.
+                            local fd = EFD(btn)
+                            fd.barKey = info.key
+                            ns._EABZeroCountAlpha(fd, btn.Count,
                                 C_ActionBar.GetActionDisplayCount(action), action)
                         end
                     end
@@ -594,7 +599,11 @@ function EAB:RefreshAllCounts()
     end
 end
 
--- Re-apply "Alpha when on CD" across every action button: on setting change (immediate
+function EAB:RefreshAllCounts()
+    self:RefreshCountVisibility()
+end
+
+-- Re-apply "Alpha on Cooldown" across every action button: on setting change (immediate
 -- feedback plus a clean restore to full alpha at 100) and on the main apply. Same
 -- secret-safe curve detection as the live ACTIONBAR_UPDATE_COOLDOWN handler.
 function EAB:ApplyCDAlphaAll()

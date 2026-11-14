@@ -802,18 +802,13 @@ local function BuildXPBarPage(pageName, parent, yOffset)
             ctrl:Hide()
         end
         if p1 then cbDD:SetPoint(p1, rel, p2, ax, ay)
-        else EllesmereUI.PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0) end
+        else EllesmereUI.PanelPP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0) end
         rgn._control = cbDD
         rgn._lastInline = nil
         EllesmereUI.RegisterWidgetRefresh(cbRefresh)
         -- What the text shows, on the list while it is closed (the name above
         -- it is the position button, with its own tooltip).
-        cbDD:HookScript("OnEnter", function(self)
-            if self._ddMenu and self._ddMenu:IsShown() then return end
-            EllesmereUI.ShowWidgetTooltip(self, SLOT_TIP)
-        end)
-        cbDD:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-        cbDD:HookScript("OnClick", function() EllesmereUI.HideWidgetTooltip() end)
+        cbDD._ttText = SLOT_TIP
         -- The list has no disabled state of its own: grey it and block clicks;
         -- the row's disabled overlay explains the lock.
         local function SyncLock()

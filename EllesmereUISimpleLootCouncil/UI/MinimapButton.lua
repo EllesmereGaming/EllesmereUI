@@ -127,10 +127,14 @@ local function ShowTip()
     P.Size(tip, math.ceil(w) + 2 + 2 * TIP_PAD, math.ceil(h) + 2 * TIP_PAD)
 
 
+
     local x, y = button:GetCenter()
+    local scale, screen = button:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    if type(scale) ~= "number" or type(screen) ~= "number" or issecretvalue and
+        (issecretvalue(scale) or issecretvalue(screen)) then scale, screen = 1, 1 end
     local gap = TIP_GAP * P.Hairline(tip)
-    local below = y and y > UIParent:GetHeight() / 2
-    local right = x and x > UIParent:GetWidth() / 2
+    local below = y and y * scale > UIParent:GetHeight() * screen / 2
+    local right = x and x * scale > UIParent:GetWidth() * screen / 2
     local from = (below and "TOP" or "BOTTOM") .. (right and "RIGHT" or "LEFT")
     local to = (below and "BOTTOM" or "TOP") .. (right and "RIGHT" or "LEFT")
     tip:ClearAllPoints()

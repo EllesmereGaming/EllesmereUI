@@ -1196,3 +1196,19 @@ L["show a group question, answers do nothing"] = "顯示一個隊伍提問，回
 L["the council window did not open for this boss kill: %s"] = "此次擊殺首領後議會視窗未能開啟：%s"
 L["whisper %s your answer for an item."] = "向 %s 密語你對某件物品的回應。"
 L["would ask whether to send the guide to the raid or by whisper:"] = "將詢問是發送到團隊還是以密語發送指南："
+
+-- == Simple Loot Council 1.0.6 strings, from the Simple Loot Council standalone translations ==
+L["Clear \"Awarded to you\""] = "清除「已分配給你」"
+L["Delete %s awarded to %s?\n\nIt has not been traded yet, so this also undoes the award: it leaves Loot to Trade and every raider's history, as Undo award does."] = "刪除分配給 %2$s 的 %1$s？\n\n該物品尚未交易，因此這也會撤銷分配：它會從「待交易戰利品」和每位團隊成員的歷史記錄中移除，與「撤銷分配」相同。"
+L["usage: /slc prompt lootmaster / raider / guard"] = "用法：/slc prompt lootmaster / raider / guard"
+
+-- == Simple Loot Council 1.0.7 strings, from the Simple Loot Council standalone translations ==
+L["Seen in your group and stored by player id, so a rename will not lose them."] = "在你的隊伍中見過此人，並按玩家 ID 儲存，因此改名不會丟失。"
+L["Stored by name, so it is matched as typed. The next time this player is in your group it becomes a permanent id and survives a rename."] = "按名字儲存，因此按輸入內容符合。此玩家下次出現在你的隊伍中時，會轉為永久 ID，改名後依然有效。"
+
+-- == Simple Loot Council 1.0.8-1.2.2 strings, from the Simple Loot Council standalone translations ==
+L["  %d. %s  |cff808080BoE, %dm left|r"] = "  %d. %s  |cff808080BoE，剩餘 %d 分鐘|r"
+L["  -  %s  |cff73716CBoE, not added automatically|r"] = "  -  %s  |cff73716CBoE，不會自動加入|r"
+L["Answer the question on screen first."] = "請先回答畫面上的問題。"
+L["Requires the council to be allowed to vote for themselves."] = "需要允許議會成員投票給自己。"
+L["skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway."] = "已跳過 %d 件超出六小時時限的 BoE 物品 - 在背包面板中點擊其中一件即可強制加入佇列。"

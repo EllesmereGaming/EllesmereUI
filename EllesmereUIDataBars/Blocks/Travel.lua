@@ -368,6 +368,88 @@ local function TravelGetPrimaryCooldown()
     return TravelGetRemainingCooldown(travelPrimaryHearthId, false)
 end
 
+-- Show Other Characters (block setting altHearths, off by default): every
+-- character's hearthstone, in the character roster as
+-- EllesmereUI.CharData("travelHearth") = { bind, readyAt } (the name and class
+-- are the roster entry's own). readyAt is a time() stamp (0 = ready): item cooldowns keep
+-- running while logged out, so an alt's row counts down from what it last
+-- saved. A character saves itself on each
+-- block refresh while the setting is on, but writes only when its bind or
+-- ready time changed (the refresh runs every second while the tooltip or a
+-- cooldown shows); a secret (combat) read saves nothing.
+-- This character's key, read once a session, and what it last wrote (the
+-- first save of a session always writes).
+local _myHearthKey, _savedBind, _savedReadyAt
+local function TravelSaveMyHearth()
+    if not _myHearthKey then
+        _myHearthKey = EllesmereUI.CharGUID()
+        if not _myHearthKey then return end
+    end
+    local cd, known = TravelGetPrimaryCooldown()
+    if not known then return end
+    local bind = GetBindLocation()
+    local readyAt = (cd > 0) and (time() + cd) or 0
+    local e = EllesmereUI.CharData("travelHearth")
+    -- Unchanged: same bind, same ready time give or take a second of drift.
+    if type(e) == "table" and bind == _savedBind and _savedReadyAt
+       and math.abs(readyAt - _savedReadyAt) <= 1 then
+        return
+    end
+    if type(e) ~= "table" then
+        e = EllesmereUI.CharData("travelHearth", true)
+        if not e then return end
+    end
+    e.bind = bind
+    e.readyAt = readyAt
+    _savedBind, _savedReadyAt = bind, readyAt
+end
+
+-- The other characters' rows, sorted by name (reused buffers: the open tooltip
+-- refreshes every second). Ctrl + Alt + Left Click on a row stops following
+-- that character, as the Gold block's Remove Character; onRemoved closes the
+-- tip. Returns the number of rows.
+local _altBuf, _altKeyOf = {}, {}
+local function TravelAltSort(a, z) return (a.name or "") < (z.name or "") end
+local function TravelAddAltRows(ar, ag, ab, onRemoved)
+    local mine = _myHearthKey or EllesmereUI.CharGUID()
+    local n = 0
+    wipe(_altKeyOf)
+    for key, c in pairs(EllesmereUI.Chars() or {}) do
+        if key ~= mine and type(c) == "table" and c.name and type(c.travelHearth) == "table" then
+            n = n + 1
+            _altBuf[n] = c
+            _altKeyOf[c] = key
+        end
+    end
+    for i = n + 1, #_altBuf do _altBuf[i] = nil end
+    if n == 0 then return 0 end
+    table.sort(_altBuf, TravelAltSort)
+    ns.Tip_AddLine(" ")
+    ns.Tip_AddLine(L["OTHER_CHARACTERS"], ar, ag, ab)
+    local now = time()
+    for i = 1, n do
+        local c = _altBuf[i]
+        local e = c.travelHearth
+        local cc = c.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[c.class]
+        local cr, cg, cb = 1, 1, 1
+        if cc then cr, cg, cb = cc.r, cc.g, cc.b end
+        local rem = (e.readyAt or 0) - now
+        local cdStr, rr, rg, rb = L["READY"], 0, 1, 0
+        if rem > 0 then
+            cdStr = ns.FormatCooldown(rem) or L["READY"]
+            rr, rg, rb = 0.5, 0.5, 0.5
+        end
+        local key = _altKeyOf[c]
+        ns.Tip_AddClickable(c.name .. " (" .. (e.bind or "?") .. ")", cdStr, function(mouseButton)
+            if mouseButton ~= "LeftButton" then return end
+            if not (IsControlKeyDown() and IsAltKeyDown()) then return end
+            EllesmereUI.ForgetCharField(key, "travelHearth")
+            if onRemoved then onRemoved() end
+        end, cr, cg, cb, rr, rg, rb)
+    end
+    return n
+end
+
 -- "smart": the cooldown while cooling, else the destination.
 local TEXT_KEYS = { "textLeft", "textRight", "textMiddle" }
 local function TravelClickTextMode(dt, btn)
@@ -680,6 +762,11 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
             end
         end
 
+        local altRows = 0
+        if dt.altHearths == true then
+            altRows = TravelAddAltRows(ar, ag, ab, function() ns.Tip_Hide(hearthButton) end)
+        end
+
         -- Show M+ Portals: nil reads as shown (no migration needed). OFF skips the section and its spell-resolution work entirely.
         -- WoW Forever has no Mythic+ teleports: the section never builds there.
         _mythicLineCount = 0
@@ -759,6 +846,9 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
                 local label = (btn == 1 and L["LEFT_CLICK"]) or (btn == 2 and L["RIGHT_CLICK"]) or L["MIDDLE_CLICK"]
                 ns.Tip_AddDouble(label, what, 1, 1, 1, ar, ag, ab)
             end
+        end
+        if altRows > 0 then
+            ns.Tip_AddDouble(L["CTRL_ALT_LEFT_CLICK"], L["REMOVE_CHARACTER"], 1, 1, 1, ar, ag, ab)
         end
         ns.Tip_Show()
     end
@@ -869,6 +959,7 @@ ns.BlockFactories.travel = function(blockCfg, slot, content, barCtx)
 
     function inst:Refresh()
         SyncHouseWatch()
+        if D().altHearths == true then TravelSaveMyHearth() end
         if not built then return end
         K.SetBlockIcon(hearthIcon, blockCfg)
         local barCfg = BC()

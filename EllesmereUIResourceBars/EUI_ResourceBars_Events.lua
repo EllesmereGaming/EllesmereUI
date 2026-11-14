@@ -244,6 +244,7 @@ function ERB:ApplyAll()
     if ns.MigrateLegacyAnchorTo then ns.MigrateLegacyAnchorTo() end
     if ns.AS_Apply then ns.AS_Apply() end
     if ns.ST_Apply then ns.ST_Apply() end
+    if ns.MT_Apply then ns.MT_Apply() end
     if ns.CT_Apply then ns.CT_Apply() end
 
     -- Vehicle proxy: hide resource bars during full vehicle UI ([vehicleui]
@@ -508,6 +509,9 @@ local function OnEvent(self, event, ...)
         -- coalesce the heavy rebuild via a debounce so a burst of node events
         -- rebuilds once, not once per event.
         ns.InvalidateThresholdCaches()
+        -- WoW Forever swing timer: its talent conditions read fresh (the file
+        -- exists only on that client).
+        if ns.ST_TalentChanged then ns.ST_TalentChanged() end
         ns.ScheduleTalentApply()
     elseif event == "UPDATE_SHAPESHIFT_FORM" then
         SetCachedPrimary(GetPrimaryPowerType())
@@ -553,6 +557,9 @@ local function OnEvent(self, event, ...)
         IP.hashEndTime = 0
     elseif event == "PLAYER_ENTERING_WORLD" then
         C_Timer.After(0.5, function()
+            -- WoW Forever swing timer: a talent read the login apply made before
+            -- the talent data was in is read again by this apply.
+            if ns.ST_TalentChanged then ns.ST_TalentChanged() end
             ERB:ApplyAll()
             RegisterUnlockElements()
             -- ApplyAll just cached the power type off a spec that may not have

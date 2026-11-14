@@ -157,7 +157,7 @@ do
     end
 
     local function InstallHook()
-        if hooked or EllesmereUI.BlizzSkinPadStandDown() then return end
+        if hooked then return end
         hooked = true
         EnsureCursorFrame()
         -- Stop the tracker when the tooltip closes; ApplyCursorAnchor reshows it.

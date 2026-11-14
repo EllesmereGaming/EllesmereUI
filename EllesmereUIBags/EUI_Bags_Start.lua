@@ -159,7 +159,7 @@ local function StartAddon()
     EUI_Bags.bgOverlay:SetAllPoints()
     EUI_Bags.bgOverlay:SetColorTexture(0, 0, 0, 0.25)
 
-    if EUI and EUI.PanelPP then
+    if not ns.SkinForeverBagWindow(EUI_Bags, EUI_Bags.bg, EUI_Bags.bgOverlay, true, true) and EUI.PanelPP then
         EUI.PanelPP.CreateBorder(EUI_Bags, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7)
     end
 
@@ -390,7 +390,9 @@ local function StartAddon()
     EUI_BagsWindow.bg = EUI_BagsWindow:CreateTexture(nil, "BACKGROUND")
     EUI_BagsWindow.bg:SetAllPoints()
     EUI_BagsWindow.bg:SetColorTexture(0.02, 0.02, 0.02, 0.95)
-    if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(EUI_BagsWindow, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
+    if not ns.SkinForeverBagWindow(EUI_BagsWindow, EUI_BagsWindow.bg) and EUI.PanelPP then
+        EUI.PanelPP.CreateBorder(EUI_BagsWindow, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7)
+    end
     EllesmereUI.RegisterEscapeClose(EUI_BagsWindow)
 
     EUI_BagsReagent:SetSize(320, 300)
@@ -406,7 +408,9 @@ local function StartAddon()
     EUI_BagsReagent.bg = EUI_BagsReagent:CreateTexture(nil, "BACKGROUND")
     EUI_BagsReagent.bg:SetAllPoints()
     EUI_BagsReagent.bg:SetColorTexture(0.02, 0.02, 0.02, 0.95)
-    if EUI and EUI.PanelPP then EUI.PanelPP.CreateBorder(EUI_BagsReagent, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7) end
+    if not ns.SkinForeverBagWindow(EUI_BagsReagent, EUI_BagsReagent.bg, nil, true, true) and EUI.PanelPP then
+        EUI.PanelPP.CreateBorder(EUI_BagsReagent, 0.1, 0.1, 0.1, 1, 1, "OVERLAY", 7)
+    end
 
     EUI_BagsReagent:RegisterEvent("BAG_UPDATE")
     EUI_BagsReagent:SetScript("OnEvent", function(self, event)
@@ -529,8 +533,13 @@ local function StartAddon()
     -- Hide Blizzard bag frames by reparenting to a hidden container (never write .Show/.Hide onto Blizzard frames -- causes taint).
     local _blizzBagHidden = CreateFrame("Frame")
     _blizzBagHidden:Hide()
+    -- The same rect as Blizzard's ContainerFrameContainer (all of UIParent):
+    -- UpdateContainerFrameAnchors pins the first open bag to its parent, and a
+    -- bag that opens while parented here (the keyring below) keeps that pin
+    -- after it is let out, so a rectless container left it with no position.
+    _blizzBagHidden:SetAllPoints(UIParent)
 
-    -- WoW Forever's keyring (bag -2) has no place in our bag window, so its
+    -- WoW Forever's keyring (bag -1) has no place in our bag window, so its
     -- button keeps opening Blizzard's own keyring window: the one bag frame
     -- let back out of the hidden container while it shows.
     local KEYRING = EUI.IS_FOREVER and Enum.BagIndex and Enum.BagIndex.Keyring or nil
@@ -622,8 +631,10 @@ local function StartAddon()
     end
     local function BankOpen()
         if not (C_PlayerInteractionManager and C_PlayerInteractionManager.IsInteractingWithNpcOfType) then return false end
-        return (C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.Banker)
-            or C_PlayerInteractionManager.IsInteractingWithNpcOfType(Enum.PlayerInteractionType.AccountBanker)) and true or false
+        local PIT, IsAt = Enum.PlayerInteractionType, C_PlayerInteractionManager.IsInteractingWithNpcOfType
+        -- some bankers open the character bank as CharacterBanker
+        return (IsAt(PIT.Banker) or (PIT.CharacterBanker and IsAt(PIT.CharacterBanker))
+            or IsAt(PIT.AccountBanker)) and true or false
     end
 
     -- One total per item across the bags AND worn gear: equipping, taking off
@@ -775,6 +786,8 @@ local function StartAddon()
     -- unrelated NPC gossip close, but ScheduleRefresh below is cheap and gated
     -- on bags being visible, so that's a harmless no-op rather than a real cost.
     EUI_Bags:RegisterEvent("GOSSIP_CLOSED")
+    -- A skill rank change can flip an item's unusable tint (BagsItemUnusable)
+    EUI_Bags:RegisterEvent("SKILL_LINES_CHANGED")
     -- Set created/renamed/deleted: rebuild split categories / refresh name labels.
     -- Registered only while a set feature is on: zero event cost when disabled
     -- (merged-mode routing stays correct without it -- the lookup rebuilds per
@@ -950,6 +963,7 @@ local function StartAddon()
         if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
             if interactionType == Enum.PlayerInteractionType.MailInfo
                 or interactionType == Enum.PlayerInteractionType.Banker
+                or interactionType == Enum.PlayerInteractionType.CharacterBanker
                 or interactionType == Enum.PlayerInteractionType.AccountBanker then
                 -- Same settle-window hold as the legacy branch above.
                 _snapshotReady = false
@@ -979,6 +993,12 @@ local function StartAddon()
             -- A keystone downgrade here doesn't need a hidden-side invalidation:
             -- the next manual open already forces a full RefreshInventory
             -- (ToggleEUI). This only matters while bags are already visible.
+            if EUI_Bags:IsVisible() then ScheduleRefresh() end
+            return
+        end
+        if event == "SKILL_LINES_CHANGED" then
+            -- Weapon skill ups land mid-fight: repaint once when combat ends
+            if InCombatLockdown() then EUI_Bags._refreshPendingCombat = true; return end
             if EUI_Bags:IsVisible() then ScheduleRefresh() end
             return
         end

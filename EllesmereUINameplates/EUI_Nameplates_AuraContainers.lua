@@ -235,8 +235,8 @@ local DISPELLABLE = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.D
 -- "helpful auras that show on enemy nameplates even if non-stealable" -- the
 -- purpose-built enemy-buff curation token (source-verified 2026-08-16).
 local IMPORTANT = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.Important
--- "Dispellable By Me" (npEnemyBuffDispelByMe, retail, nil = off): Only
--- Dispellable narrows to the group's own dispels.
+-- "Dispellable By Me" (npEnemyBuffDispelByMe, retail, nil = off): Important
+-- and Only Dispellable narrow "dispellable" to the group's own dispels.
 local RAID_DISPELLABLE = AuraUtil and AuraUtil.AuraFilters and AuraUtil.AuraFilters.RaidPlayerDispellable
 
 -- Effective glow state: the Dispel Glow setting AND the player's offensive
@@ -1036,23 +1036,26 @@ end
 -- keeps the union overlap-free), narrowed to IMPORTANT in Important mode and
 -- whole in Show All mode, parked at 0 in Dispellable mode. Important mode
 -- therefore shows important OR dispellable, Show All every buff, and
--- Dispellable the glow group alone (on retail Dispellable By Me narrows it to
--- the group's own dispels: BuffDispelByMe). All are composed filter STRINGS with
--- INCLUDE_NAME_PLATE_ONLY (matches Blizzard's own buffFilterString) --
--- C-evaluated, so the split holds on secret enemy data in instanced PvP and
--- the glow needs no per-aura signal (the machinery #1509 deleted). The
--- Dispel Glow setting never touches these filters -- it is only the style
--- the "np" group wears, so every shown dispellable buff glows.
+-- Dispellable the glow group alone. On retail, Dispellable By Me
+-- (BuffDispelByMe) narrows "dispellable" to the group's own dispels in
+-- Important and Dispellable mode: both groups then take RAID_DISPELLABLE in
+-- place of DISPELLABLE, so they stay exact complements. All are composed
+-- filter STRINGS with INCLUDE_NAME_PLATE_ONLY (matches Blizzard's own
+-- buffFilterString) -- C-evaluated, so the split holds on secret enemy data in
+-- instanced PvP and the glow needs no per-aura signal (the machinery #1509
+-- deleted). The Dispel Glow setting never touches these filters -- it is only
+-- the style the "np" group wears, so every shown dispellable buff glows.
 local function BuffMode()
     local m = PVal("npEnemyBuffFilter")
     if m == "dispellable" or m == "showall" then return m end
     return "important"
 end
 
--- Only Dispellable with "Dispellable By Me" on (retail only; Important and
--- Show All never read it).
+-- Important or Only Dispellable with "Dispellable By Me" on (retail only;
+-- Show All never reads it).
 local function BuffDispelByMe()
-    return not EllesmereUI.IS_FOREVER and RAID_DISPELLABLE ~= nil and BuffMode() == "dispellable"
+    local mode = BuffMode()
+    return not EllesmereUI.IS_FOREVER and RAID_DISPELLABLE ~= nil and mode ~= "showall"
         and PVal("npEnemyBuffDispelByMe") == true
 end
 
@@ -1073,7 +1076,8 @@ local function BuffFilterPlain()
     if mode == "dispellable" or not DISPELLABLE then return nil end
     local t = { "HELPFUL", "INCLUDE_NAME_PLATE_ONLY" }
     if mode == "important" and IMPORTANT then t[#t + 1] = IMPORTANT end
-    t[#t + 1] = "!" .. DISPELLABLE
+    -- The same token the glow group uses, so the two stay exact complements.
+    t[#t + 1] = "!" .. (BuffDispelByMe() and RAID_DISPELLABLE or DISPELLABLE)
     return t
 end
 

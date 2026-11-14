@@ -243,14 +243,15 @@ do
         { text = "Professions",     microButton = "ProfessionMicroButton" },
         { divider = true },
         { text = "Group Finder",    microButton = "LFDMicroButton" },
-        { text = "Adventure Guide", microButton = "EJMicroButton" },
-        { text = "Achievements",    microButton = "AchievementMicroButton" },
+        { text = "Adventure Guide", microButton = "EJMicroButton", noForever = true },
+        { text = "Achievements",    microButton = "AchievementMicroButton",
+          forever = { text = "Legacy", microButton = "LegacyMicroButton" } },
         { text = "Collections",     microButton = "CollectionsMicroButton" },
         { text = "Quest Log",       microButton = "QuestLogMicroButton" },
         { divider = true },
         { text = "Friends",         microButton = "QuickJoinToastButton" },
         { text = "Guild",           microButton = "GuildMicroButton" },
-        { text = "Housing",         microButton = "HousingMicroButton" },
+        { text = "Housing",         microButton = "HousingMicroButton", noForever = true },
         { text = "Calendar",        fn = function() if ToggleCalendar then ToggleCalendar() end end },
         { divider = true },
         { text = "Game Menu",       fn = function() ToggleFrame(GameMenuFrame) end },
@@ -295,8 +296,17 @@ do
         end)
 
         local y = -PADDING
+        -- WoW Forever: no Adventure Guide or Housing window (noForever), and Legacy
+        -- stands in Achievements' place (forever = the row shown there instead).
+        -- Every micro button row stays a secure click there too, Group Finder
+        -- included: opening one of Blizzard's windows from our own Lua runs its
+        -- code tainted.
+        local fv = EllesmereUI.IS_FOREVER == true
         for _, item in ipairs(menuItems) do
-            if item.divider then
+            if fv and item.forever then item = item.forever end
+            if fv and item.noForever then
+                -- not on this client
+            elseif item.divider then
                 local div = menuFrame:CreateTexture(nil, "ARTWORK")
                 div:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 8, y - 4)
                 div:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -8, y - 4)

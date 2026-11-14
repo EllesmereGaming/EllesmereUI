@@ -81,11 +81,11 @@ local FAMILIES = {
       notTank = true },
     -- The paladin blessings, normal and Greater: a member shows at most one,
     -- by role (the role settings, not a switch, pick it). The keys are the
-    -- role settings' values.
+    -- role settings' values (a saved "light", a blessing the game removed, is
+    -- skipped).
     { key = "might",     class = "PALADIN", blessing = true, icon = 19740, from = { "might" } },
     { key = "wisdom",    class = "PALADIN", blessing = true, icon = 19742, from = { "wisdom" } },
     { key = "kings",     class = "PALADIN", blessing = true, icon = 20217, from = { "kings" } },
-    { key = "light",     class = "PALADIN", blessing = true, icon = 19977, from = { "light" } },
 }
 local NUM_FAMILIES = #FAMILIES
 for i = 1, NUM_FAMILIES do
@@ -144,15 +144,26 @@ local function Choice(s, role, class)
 end
 ns.RF_FvBlessingChoice, ns.RF_FvBlessingKey, ns.RF_FvBlessingExKey = Choice, BLESS_KEY, EX_KEY
 
+-- A list takes a blessing when it holds a key the indicator knows: a saved key
+-- it skips (a blessing the game removed) does not count.
+local function TakesOne(list)
+    for i = 1, #list do
+        if BLESS_INDEX[list[i]] then return true end
+    end
+    return false
+end
+
 -- Blessings are on in a settings table while any role takes one, or any
 -- class exception does.
 local function BlessingsOn(s)
-    if #Choice(s, "TANK") > 0 or #Choice(s, "HEALER") > 0 or #Choice(s, "DAMAGER") > 0 then return true end
+    if TakesOne(Choice(s, "TANK")) or TakesOne(Choice(s, "HEALER")) or TakesOne(Choice(s, "DAMAGER")) then
+        return true
+    end
     for _, key in pairs(EX_KEY) do
         local ex = s[key]
         if type(ex) == "table" then
             for _, list in pairs(ex) do
-                if type(list) == "table" and #list > 0 then return true end
+                if type(list) == "table" and TakesOne(list) then return true end
             end
         end
     end

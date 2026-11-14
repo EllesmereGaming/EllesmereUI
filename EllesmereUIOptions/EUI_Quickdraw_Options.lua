@@ -833,7 +833,8 @@ initFrame:SetScript("OnEvent", function(self)
                                 local spellID, _, isKnown, spellName =
                                     GetFlyoutSlotInfo(info.actionID, s)
                                 if isKnown then
-                                    Add(spellID, spellName, C_Spell.GetSpellTexture(spellID))
+                                    -- One icon only: the second return would land in rankText.
+                                    Add(spellID, spellName, (C_Spell.GetSpellTexture(spellID)))
                                 end
                             end
                         end
@@ -1595,7 +1596,7 @@ initFrame:SetScript("OnEvent", function(self)
         local aBg = addBtn:CreateTexture(nil, "BACKGROUND")
         aBg:SetAllPoints()
         aBg:SetColorTexture(ACCENT.r, ACCENT.g, ACCENT.b, 0.20)
-        EllesmereUI.MakeBorder(addBtn, ACCENT.r, ACCENT.g, ACCENT.b, 0.7, EllesmereUI.PP)
+        EllesmereUI.MakeRoundedBorder(addBtn, ACCENT.r, ACCENT.g, ACCENT.b, 0.7, aBg)
         local aTx = EllesmereUI.MakeFont(addBtn, 11, nil, 1, 1, 1, 0.9)
         aTx:SetPoint("CENTER")
         aTx:SetText(EllesmereUI.L("Add"))
@@ -3176,12 +3177,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end
             end,
             { disabled = function() return Cfg("enabled") ~= true end, disabledTooltip = "the module" })
-        local tip = EllesmereUI.L("Choose the specs this action menu works in.")
-        cbDD:HookScript("OnEnter", function()
-            local open = EllesmereUI._openDropdownMenu
-            if not (open and open:IsShown()) then EllesmereUI.ShowWidgetTooltip(cbDD, tip) end
-        end)
-        cbDD:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
+        cbDD._ttText = EllesmereUI.L("Choose the specs this action menu works in.")
         EllesmereUI.RegisterWidgetRefresh(cbRefresh)
 
         local label = EllesmereUI.MakeFont(row, 14, nil, 1, 1, 1)

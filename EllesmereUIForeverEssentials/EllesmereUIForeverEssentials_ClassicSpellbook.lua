@@ -611,7 +611,7 @@ local function Apply()
     end
     Build()
     AimRoute(true)
-    if not microLayer and not EllesmereUI.PadTaintStandDown() then
+    if not microLayer then
         microLayer = module.MicroClickLayer("SpellbookMicroButton", MicroToggle)
     end
     if microLayer then

@@ -843,13 +843,12 @@ end
 -- geometry change, one re-pin ever touch it. Host = the unit button (our
 -- frame). The rect is OURS end to end: pinned to the health frame at the
 -- container's own pin and sized to the display's maximum footprint from
--- settings (declared caps x largest cell), never anchored to the engine
--- container -- the engine sizes that one from secret aura content, and a rect
--- container -- the engine lays the icons out around the container's anchor
--- and never resizes the container frame itself (it stays at its 1x1
--- provisional size; probed live 2026-08-25), so a frame anchored to the
--- container's corners is a 1x1 frame nobody can hover (the first field
--- builds: "tooltip always shows").
+-- settings (declared caps x largest cell), cut to the unit button's own rect
+-- (EaterRect), never anchored to the engine container: the engine lays the
+-- icons out around the container's anchor and never resizes the container
+-- frame itself (it stays at its 1x1 provisional size; probed live
+-- 2026-08-25), so a frame anchored to the container's corners is a 1x1
+-- frame nobody can hover (the first field builds: "tooltip always shows").
 -- Motion is CONSUMED: SetPropagateMouseMotion(true) is pass-through -- it
 -- un-blocks everything beneath, aura buttons included (probed live with a
 -- working eater: focus stack = eater + unit button, tooltip still showed).
@@ -883,6 +882,51 @@ end
 local tipEaterCount = 0
 -- Ensure-pass stamp: a tile eater the current pass did not ensure is parked at its end.
 local tipPass = 0
+
+-- A frame point's horizontal and vertical share: 0 = left / bottom edge,
+-- 1 = right / top edge, 0.5 = the middle.
+local function PointShare(p)
+    local sx, sy = 0.5, 0.5
+    if p:find("LEFT", 1, true) then sx = 0 elseif p:find("RIGHT", 1, true) then sx = 1 end
+    if p:find("BOTTOM", 1, true) then sy = 0 elseif p:find("TOP", 1, true) then sy = 1 end
+    return sx, sy
+end
+
+local function Round2(v) return math.floor(v * 100 + 0.5) / 100 end
+
+-- Where the eater goes: the footprint placed at its pin, kept on the unit
+-- button's own rect. The eater is a unit button, so any part of it past that
+-- rect would answer hover, clicks and click-cast bindings for this unit over
+-- empty space or over a neighbouring frame. Returns the eater's bottom-left
+-- offset and size, relative to the pinned corner of the pin host, or (when
+-- clipped, hostRel) to the unit button's bottom-left corner, so a clipped edge
+-- stays on the button when the pin host resizes; nil when no part of the
+-- footprint lies on the unit. Both frames are ours and share one scale. Before
+-- either has a readable position the footprint is placed unclipped; every
+-- pass measures again.
+local function EaterRect(host, pinHost, point, corner, offX, offY, w, h)
+    local px, py = PointShare(point)
+    local x0, y0 = Round2(offX - px * w), Round2(offY - py * h)
+    local pl, pb = pinHost:GetLeft(), pinHost:GetBottom()
+    local hl, hb, hr, ht = host:GetLeft(), host:GetBottom(), host:GetRight(), host:GetTop()
+    if not (pl and pb and hl and hb and hr and ht)
+        or EllesmereUI.IsSecret(pl) or EllesmereUI.IsSecret(hl) then
+        return x0, y0, w, h
+    end
+    local pw, ph = pinHost:GetSize()
+    local cx, cy = PointShare(corner)
+    local ox, oy = pl + cx * pw, pb + cy * ph
+    hl, hr, hb, ht = Round2(hl - ox), Round2(hr - ox), Round2(hb - oy), Round2(ht - oy)
+    local x1, y1 = x0 + w, y0 + h
+    if x0 >= hl and x1 <= hr and y0 >= hb and y1 <= ht then return x0, y0, w, h end
+    if x0 < hl then x0 = hl end
+    if x1 > hr then x1 = hr end
+    if y0 < hb then y0 = hb end
+    if y1 > ht then y1 = ht end
+    if x1 - x0 < 1 or y1 - y0 < 1 then return nil end
+    return x0 - hl, y0 - hb, x1 - x0, y1 - y0, true
+end
+
 local function EnsureEater(d, slot, host, container, active, pinHost, point, corner, offX, offY, w, h)
     local map = d.tipModEaters
     local e = map and map[slot]
@@ -898,18 +942,28 @@ local function EnsureEater(d, slot, host, container, active, pinHost, point, cor
     -- with a centered or inward pin the excess would sit on the neighbouring
     -- units at a higher level, stealing their hover and clicks for this unit.
     -- Bounds = the smaller of the button and the pin host (both our frames,
-    -- settings-sized); pins that deliberately place icons outside the frame
-    -- keep their overshoot exactly as the icons themselves do.
+    -- settings-sized). Offsets that place icons outside the frame do not
+    -- take the eater with them: EaterRect keeps it on the button, and those
+    -- icons answer hover as in plain Shown.
     local maxW, maxH = host:GetSize()
     local pw, ph = pinHost:GetSize()
     if pw and pw > 0 and pw < maxW then maxW = pw end
     if ph and ph > 0 and ph < maxH then maxH = ph end
     if w > maxW then w = maxW end
     if h > maxH then h = maxH end
+    local ex, ey, ew, eh, hostRel = EaterRect(host, pinHost, point, corner, offX, offY, w, h)
+    if not ex then
+        -- No part of the footprint lies on the unit: nothing to gate here.
+        if e and e._euiActive then
+            if InCombatLockdown() then d.rfcBmPending = true; return end
+            ParkEater(e)
+        end
+        return
+    end
     local lvl = (container:GetFrameLevel() or 1) + 30
-    local geoChanged = not e or e._euiPin ~= point or e._euiCorner ~= corner
-        or e._euiOX ~= offX or e._euiOY ~= offY or e._euiHost ~= pinHost
-        or e._euiW ~= w or e._euiH ~= h
+    local geoChanged = not e or e._euiRel ~= hostRel or e._euiCorner ~= corner
+        or e._euiOX ~= ex or e._euiOY ~= ey or e._euiHost ~= pinHost
+        or e._euiW ~= ew or e._euiH ~= eh
     local lvlChanged = not e or e._euiLvl ~= lvl
     local armChanged = not e or not e._euiActive
     if not (geoChanged or lvlChanged or armChanged) then
@@ -928,8 +982,7 @@ local function EnsureEater(d, slot, host, container, active, pinHost, point, cor
         e:SetAttribute("eui_tipeater", true)
         -- Native clicks mirror the unit button: left = target, right = the
         -- secure unit menu. Click-cast re-writes these when it is enabled.
-        e:SetAttribute("type1", "target")
-        e:SetAttribute("*type1", "target")
+        EllesmereUI.SetLeftClickTarget(e)
         EllesmereUI.AttachSecureUnitMenu(e)
         -- HookScript, not SetScript: the click-cast header wraps these same
         -- script slots securely, and a hook never displaces a wrap. The Lua
@@ -948,11 +1001,15 @@ local function EnsureEater(d, slot, host, container, active, pinHost, point, cor
         e:SetFrameLevel(lvl)
     end
     if geoChanged then
-        e._euiPin, e._euiCorner, e._euiOX, e._euiOY = point, corner, offX, offY
-        e._euiHost, e._euiW, e._euiH = pinHost, w, h
+        e._euiRel, e._euiCorner, e._euiOX, e._euiOY = hostRel, corner, ex, ey
+        e._euiHost, e._euiW, e._euiH = pinHost, ew, eh
         e:ClearAllPoints()
-        e:SetPoint(point, pinHost, corner, offX, offY)
-        e:SetSize(w, h)
+        if hostRel then
+            e:SetPoint("BOTTOMLEFT", host, "BOTTOMLEFT", ex, ey)
+        else
+            e:SetPoint("BOTTOMLEFT", pinHost, corner, ex, ey)
+        end
+        e:SetSize(ew, eh)
     end
     if armChanged then
         e._euiActive = true

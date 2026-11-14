@@ -345,6 +345,34 @@ EllesmereUI.CLASS_ICON_SPRITE_COORDS = {
     DEMONHUNTER = { 0.375, 0.5,   0.25,  0.375 },
 }
 
+-- EUI LEGENDS event roster (PERMANENT): the event winners + team members who
+-- earned a spot in the suite's previews, with class-balancing filler names. The
+-- Raid & Party Frames preview fills its slots 2-20 with these in this order (Name,
+-- class and role travel together through its role sort; hpal = a holy paladin),
+-- and Group Finder's settings preview names its sample members and applicants
+-- from it, a member's own class first. Read-only.
+EllesmereUI.PREVIEW_ROSTER = {
+    { name = "Xeno",          class = "MONK",        role = "TANK" },
+    { name = "Grimjaw",       class = "WARRIOR",     role = "TANK" },
+    { name = "Stickymittens", class = "PALADIN",     role = "HEALER", hpal = true },
+    { name = "Toxik",         class = "MONK",        role = "HEALER" },
+    { name = "Delasteve",     class = "PALADIN",     role = "HEALER", hpal = true },
+    { name = "Burne",         class = "DRUID",       role = "HEALER" },
+    { name = "Lily",          class = "PALADIN",     role = "HEALER", hpal = true },
+    { name = "Kulia",         class = "PALADIN",     role = "HEALER", hpal = true },
+    { name = "Thiaspriest",   class = "PRIEST",      role = "DAMAGER" },
+    { name = "Pelleas",       class = "SHAMAN",      role = "DAMAGER" },
+    { name = "Khardi",        class = "HUNTER",      role = "DAMAGER" },
+    { name = "Morgath",       class = "DEATHKNIGHT", role = "DAMAGER" },
+    { name = "Drakmoor",      class = "DEMONHUNTER", role = "DAMAGER" },
+    { name = "Embertide",     class = "EVOKER",      role = "DAMAGER" },
+    { name = "Elyndra",       class = "MAGE",        role = "DAMAGER" },
+    { name = "Fenwick",       class = "ROGUE",       role = "DAMAGER" },
+    { name = "Zulkhar",       class = "WARLOCK",     role = "DAMAGER" },
+    { name = "Luneth",        class = "DRUID",       role = "DAMAGER" },
+    { name = "Stormhelm",     class = "SHAMAN",      role = "DAMAGER" },
+}
+
 -- Font (Expressway lives in EllesmereUI/media)
 local EXPRESSWAY = MEDIA_PATH .. "fonts\\Expressway.ttf"
 
@@ -394,7 +422,9 @@ end
 -- hearthstone column, all secure. Build lazily, never in combat; the caller
 -- caches the frame and owns anchoring. opts: name (frame name prefix), bg
 -- ({r,g,b}), labelFont, labelFlags, clamp (clamp to screen), unitEvents
--- (register the cast events for "player" only).
+-- (register the cast events for "player" only). Out of combat a left click
+-- anywhere else closes it; the caller names the button that toggles it before
+-- each Show (flyout._toggle = button), whose own click then closes it.
 function EllesmereUI.CreatePortalFlyout(opts)
     if InCombatLockdown() then return nil end
     local floor = math.floor
@@ -632,11 +662,13 @@ function EllesmereUI.CreatePortalFlyout(opts)
         RefreshHearthCooldowns()
     end
 
-    -- Events live only while shown: cooldown + cast highlight refresh.
+    -- Events live only while shown: cooldown + cast highlight refresh, and the
+    -- mouse press that closes it.
     local CAST_EVENTS = { "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_SUCCEEDED",
                           "UNIT_SPELLCAST_FAILED", "UNIT_SPELLCAST_INTERRUPTED" }
     flyout:SetScript("OnShow", function(self)
         self:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+        self:RegisterEvent("GLOBAL_MOUSE_DOWN")
         for _, ev in ipairs(CAST_EVENTS) do
             if opts.unitEvents then self:RegisterUnitEvent(ev, "player") else self:RegisterEvent(ev) end
         end
@@ -658,6 +690,14 @@ function EllesmereUI.CreatePortalFlyout(opts)
         if event == "SPELL_UPDATE_COOLDOWN" then
             RefreshPortalButtons()
             RefreshHearthCooldowns()
+        elseif event == "GLOBAL_MOUSE_DOWN" then
+            -- A left click anywhere else closes it (unit is the mouse button here).
+            -- A press on its toggle is left alone: that button's click closes it.
+            local toggle = self._toggle
+            if unit == "LeftButton" and not InCombatLockdown() and not self:IsMouseOver()
+               and not (toggle and toggle:IsVisible() and toggle:IsMouseOver()) then
+                self:Hide()
+            end
         elseif unit == "player" then
             local casting = (event == "UNIT_SPELLCAST_START") and spellID or nil
             for _, btn in ipairs(portalBtns) do
@@ -1273,19 +1313,161 @@ function EllesmereUI.RealmGroupName()
     return GDAPI_REALMTYPE_NORMAL
 end
 
--- Per-character key "Name<sep>RealmGroupName". Moves a store's entry from the
--- old realm-name key (Forever only; retail keys match).
-function EllesmereUI.CharKey(sep, store)
-    local name, group = UnitName("player"), EllesmereUI.RealmGroupName()
-    if not name or not group then return nil end
-    local key = name .. sep .. group
-    if not EllesmereUI.IS_FOREVER then return key end
-    local old = name .. sep .. (GetRealmName() or "")
-    if type(store) == "table" and old ~= key and store[old] ~= nil then
-        if store[key] == nil then store[key] = store[old] end
-        store[old] = nil
+-- The ruleset a WoW Forever realm name ends in: "CAMWOWEU5Realm7PvE" (or, as
+-- GetRealmName words it, "CAMWOW EU5 Realm 7 PvE") -> "PvE"; also "PvP", "RP"
+-- and "RPPvP". The realms of one ruleset differ only before it. nil for a
+-- name of any other form, or one the game withholds.
+function EllesmereUI.RealmRulesetSuffix(realm)
+    realm = EllesmereUI.PlainString(realm)
+    return realm and realm:match("Realm%s*%d+%s*(%a+)$") or nil
+end
+
+-------------------------------------------------------------------------------
+--  Per-character data: EllesmereUIDB.chars[guid] = { [feature] = data }.
+--  One roster for every feature, by player GUID (a rename keeps it). Never
+--  exported (FULL_EXPORT_EXCLUDED). Entries the char_roster_v1 migration
+--  could not tie to a GUID sit under "Name-Realm" ("Name-Ruleset" on WoW
+--  Forever) until that character next logs in, when Chars() moves them.
+-------------------------------------------------------------------------------
+
+-- This character's GUID; nil while it cannot be read.
+function EllesmereUI.CharGUID()
+    local guid = UnitGUID("player")
+    if not guid or issecretvalue(guid) then return nil end
+    return guid
+end
+
+-- Moves this character's name-keyed entries onto its GUID (fields already
+-- there win). Once a session, as soon as the GUID and the name read: before
+-- login, the game's placeholder for a name it has not loaded is no name.
+local _rosterAdopted
+local function AdoptNamedEntries(chars)
+    local guid, name = EllesmereUI.CharGUID(), UnitName("player")
+    if not guid or not name or issecretvalue(name) or (name == UNKNOWNOBJECT and not IsLoggedIn()) then return end
+    _rosterAdopted = true
+    local mine = chars[guid]
+    local realms = { EllesmereUI.RealmGroupName() or "", GetRealmName() or "",
+        GetNormalizedRealmName and GetNormalizedRealmName() or "" }
+    for _, realm in ipairs(realms) do
+        local key = name .. "-" .. realm
+        local old = chars[key]
+        if type(old) == "table" then
+            if type(mine) ~= "table" then mine = {}; chars[guid] = mine end
+            for k, v in pairs(old) do
+                if mine[k] == nil then mine[k] = v end
+            end
+        end
+        chars[key] = nil
     end
-    return key
+end
+
+-- The roster; nil without the account DB.
+function EllesmereUI.Chars()
+    local db = EllesmereUIDB
+    if type(db) ~= "table" then return nil end
+    local chars = db.chars
+    if type(chars) ~= "table" then chars = {}; db.chars = chars end
+    if not _rosterAdopted then AdoptNamedEntries(chars) end
+    return chars
+end
+
+-- This character's entry; create builds it. nil while the GUID is unknown.
+function EllesmereUI.CharEntry(create)
+    local chars, guid = EllesmereUI.Chars(), EllesmereUI.CharGUID()
+    if not chars or not guid then return nil end
+    local c = chars[guid]
+    if type(c) ~= "table" then
+        if not create then return nil end
+        c = {}
+        chars[guid] = c
+    end
+    return c
+end
+
+-- This character's table for one feature; create builds it.
+function EllesmereUI.CharData(field, create)
+    local c = EllesmereUI.CharEntry(create)
+    if not c then return nil end
+    local d = c[field]
+    if type(d) ~= "table" then
+        if not create then return nil end
+        d = {}
+        c[field] = d
+    end
+    return d
+end
+
+-- Who each character is, on its entry beside the feature data, written by
+-- that character at login, level-up and logout:
+--   name      the full name (with the surname on WoW Forever)
+--   realm     the realm (retail) or ruleset (WoW Forever): RealmGroupName
+--   realmKey  the realm as mail addresses it ("Area52"); the ruleset on WoW Forever
+--   class, race (file tokens: "MAGE", "Scourge"), level, faction
+--   seen      time() of the last write
+-- A read that comes back unknown or secret keeps the stored value.
+local function RecordIdentity(level)
+    local c = EllesmereUI.CharEntry(true)
+    if not c then return end
+    local Plain = EllesmereUI.PlainString
+    local first, surname = (UnitNameUnmodified or UnitName)("player")
+    first = Plain(first)
+    if first then c.name = EllesmereUI.WithSurname(first, Plain(surname), true) end
+    c.realm = Plain(EllesmereUI.RealmGroupName()) or c.realm
+    if EllesmereUI.IS_FOREVER then
+        c.realmKey = c.realm
+    else
+        c.realmKey = Plain(GetNormalizedRealmName and GetNormalizedRealmName()) or c.realmKey
+    end
+    local _, class = UnitClass("player")
+    c.class = Plain(class) or c.class
+    local _, race = UnitRace("player")
+    c.race = Plain(race) or c.race
+    level = level or UnitLevel("player")
+    if type(level) == "number" and not issecretvalue(level) and level > 0 then c.level = level end
+    c.faction = Plain((UnitFactionGroup("player"))) or c.faction
+    c.seen = time()
+end
+do
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_LOGIN")
+    f:RegisterEvent("PLAYER_LEVEL_UP")
+    f:RegisterEvent("PLAYER_LOGOUT")
+    f:SetScript("OnEvent", function(_, event, newLevel)
+        RecordIdentity(event == "PLAYER_LEVEL_UP" and newLevel or nil)
+    end)
+end
+
+-- Every character's table for one feature: { [roster key] = data }. A new
+-- table each call; its values are the stored ones.
+function EllesmereUI.CharFieldMap(field)
+    local out = {}
+    local chars = EllesmereUI.Chars()
+    if not chars then return out end
+    for key, c in pairs(chars) do
+        if type(c) == "table" and type(c[field]) == "table" then out[key] = c[field] end
+    end
+    return out
+end
+
+-- Drops one character's data for one feature (an entry left empty goes).
+function EllesmereUI.ForgetCharField(key, field)
+    local chars = EllesmereUIDB and EllesmereUIDB.chars
+    local c = type(chars) == "table" and chars[key]
+    if type(c) ~= "table" then return end
+    c[field] = nil
+    if next(c) == nil then chars[key] = nil end
+end
+
+-- Drops one feature's data from every character (an entry left empty goes).
+function EllesmereUI.ClearCharField(field)
+    local chars = EllesmereUIDB and EllesmereUIDB.chars
+    if type(chars) ~= "table" then return end
+    for key, c in pairs(chars) do
+        if type(c) == "table" then
+            c[field] = nil
+            if next(c) == nil then chars[key] = nil end
+        end
+    end
 end
 
 -- "Name-Realm" whisper/invite target. With realmName it builds (realm wins,
@@ -3352,7 +3534,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.8.1"
+EllesmereUI.VERSION = "9.8.5"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end
@@ -3643,14 +3825,9 @@ end
 C_Timer.After(2, function()
     if EllesmereUIDB and EllesmereUIDB.firstInstallPopupShown then
         -- Defer while any intro popup is still pending/open; each runs the conflict check itself
-        -- when dismissed (RaidFrames / PatchNotes / WindowSkins / SpecOverrides / PTRManagers /
-        -- StyleLaunch / GroupFinder / KickTracker popup files, plus the 12.1 launch video
-        -- announcement in EllesmereUI_VideoGuides.lua).
-        if EllesmereUI._raidFramesIntroPending or EllesmereUI._patchNotesIntroPending
-           or EllesmereUI._windowSkinsIntroPending or EllesmereUI._specOvIntroPending
-           or EllesmereUI._ptrManagersIntroPending or EllesmereUI._launchVideoIntroPending
-           or EllesmereUI._styleLaunchIntroPending or EllesmereUI._groupFinderIntroPending
-           or EllesmereUI._kickTrackerIntroPending
+        -- when dismissed (the Kick Tracker and style choice popup files, plus the 12.1 launch
+        -- video announcement in EllesmereUI_VideoGuides.lua).
+        if EllesmereUI._launchVideoIntroPending or EllesmereUI._kickTrackerIntroPending
            or EllesmereUI._styleChoicePending then return end
         EllesmereUI._RunConflictCheck()
     end
@@ -3742,7 +3919,7 @@ SlashCmdList.EUIRESETHINT = function()
             EllesmereUIDB.inlineCogTipSeen = nil
             EllesmereUIDB.cogSeen = nil
         end
-        EllesmereUI.Print("|cff00ff00[EllesmereUI]|r All hints reset. /reload to see them again.")
+        EllesmereUI.Print(EllesmereUI.L("|cff00ff00[EllesmereUI]|r All hints reset. /reload to see them again."))
     end)
 end
 
@@ -3754,7 +3931,7 @@ SlashCmdList.EUIRESETSCALE = function()
             EllesmereUIDB.ppUIScale = nil
             EllesmereUIDB.ppUIScaleAuto = nil
         end
-        EllesmereUI.Print("|cff00ff00[EllesmereUI]|r UI scale reset. /reload to re-snapshot from your Blizzard scale.")
+        EllesmereUI.Print(EllesmereUI.L("|cff00ff00[EllesmereUI]|r UI scale reset. /reload to re-snapshot from your Blizzard scale."))
     end)
 end
 

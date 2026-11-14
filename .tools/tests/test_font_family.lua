@@ -171,8 +171,11 @@ function FSMT:Draw(text)
     return obj and obj._face, obj and obj._size, obj and obj._flags, shadow
 end
 
+-- Frames: the probe's holder and the login retry's listener. Fire hands an event
+-- to every frame registered for it.
 local function StubCreateFrame()
-    return {
+    local f = {
+        _events = {},
         Hide = function() end,
         CreateFontString = function()
             local fs = NewFontString()
@@ -180,6 +183,27 @@ local function StubCreateFrame()
             return fs
         end,
     }
+    function f:RegisterEvent(event) self._events[event] = true end
+    function f:UnregisterEvent(event) self._events[event] = nil end
+    function f:UnregisterAllEvents() wipe(self._events) end
+    function f:SetScript(name, fn) self["_" .. name] = fn end
+    T.frames[#T.frames + 1] = f
+    return f
+end
+
+local function Fire(event)
+    for _, f in ipairs(T.frames) do
+        if f._events[event] and f._OnEvent then f._OnEvent(f, event) end
+    end
+end
+
+-- How many events the file's frames listen to.
+local function Listening()
+    local n = 0
+    for _, f in ipairs(T.frames) do
+        for _ in pairs(f._events) do n = n + 1 end
+    end
+    return n
 end
 
 function wipe(t)
@@ -190,7 +214,7 @@ end
 -- Loads a fresh copy of the file for one client language.
 local function Load(locale, opts)
     opts = opts or {}
-    T = { created = 0, objSetFont = 0, setFontObject = 0, reads = 0, probe = {} }
+    T = { created = 0, objSetFont = 0, setFontObject = 0, reads = 0, probe = {}, frames = {} }
     REG = {}
     BADFILES = { [BAD] = true }
     EUI_CLIENT_BLOCKED = nil
@@ -438,18 +462,92 @@ E.SetFontFamily(ffs, EXP, 12, "", true)
 assert(T.created == 1 and ffs._pin[1] == EXP and ffs._obj == _G.EllesmereUIShadowFont)
 
 -------------------------------------------------------------------------------
---  5. A path the client cannot load takes the standard font, tested once
+--  5. A path the client cannot load takes the standard font. Until the loading
+--     screen after the first failure ends, a failure is not kept (a fresh game
+--     start can fail a file the client has not read yet): each new key tests it
+--     again and the login events retest it; from then on it is kept, tested once
 -------------------------------------------------------------------------------
 E = Load("enUS")
 local bad = E.GetFontFamily(BAD, 12, "", false)
 CheckFaces(bad, FRIZ, CYR, KO, ZHCN, ZHTW, "missing file")
-E.GetFontFamily(BAD, 14, "OUTLINE", true)
+local bad14 = E.GetFontFamily(BAD, 14, "OUTLINE", true)
 E.GetFontFamily(EXP, 12, "", false)
 E.GetFontFamily(EXP, 16, "", false)
-assert(T.probe[BAD] == 1 and T.probe[EXP] == 1, "a path was tested more than once")
+assert(T.probe[BAD] == 2 and T.probe[EXP] == 1, "before login: a failure is tested per key, a success once")
+assert(E._fontPathPending[BAD] and E._fontPathOK[BAD] == nil and E._fontPathOK[EXP] == true,
+    "a failure before login was kept, or a success was not")
+assert(#E._fontFamPending == 2 and Listening() == 3, "the two families or the three login events are not queued")
+Fire("PLAYER_LOGIN")
+Fire("PLAYER_ENTERING_WORLD")
+assert(T.probe[BAD] == 4 and E._fontPathPending[BAD] and E._fontRetryDone == nil,
+    "the login events did not retest the path, or closed the window early")
+CheckFaces(bad, FRIZ, CYR, KO, ZHCN, ZHTW, "missing file after the login events")
+Fire("LOADING_SCREEN_DISABLED")
+assert(T.probe[BAD] == 5 and E._fontPathOK[BAD] == false and E._fontRetryDone == true,
+    "the loading screen's end did not settle the path")
+assert(next(E._fontPathPending) == nil and #E._fontFamPending == 0 and Listening() == 0,
+    "the retry outlived the loading screen")
+CheckFaces(bad14, FRIZ, CYR, KO, ZHCN, ZHTW, "missing file, settled")
+E.GetFontFamily(BAD, 15, "", false)
+assert(T.probe[BAD] == 5, "a path was tested again after the loading screen")
+-- a failure after that is kept at once
+local LATE = "Interface\\AddOns\\Missing\\Late.ttf"
+BADFILES[LATE] = true
+E.GetFontFamily(LATE, 12, "", false)
+E.GetFontFamily(LATE, 13, "", false)
+assert(T.probe[LATE] == 1 and E._fontPathOK[LATE] == false and Listening() == 0,
+    "a failure after the loading screen was retested")
 E._clientFontPath = "Fonts\\ARIALN.TTF"
 CheckFaces(E.GetFontFamily(BAD, 9, "", false), "Fonts\\ARIALN.TTF", CYR, KO, ZHCN, ZHTW, "missing file, client font")
 E._clientFontPath = nil
+
+-------------------------------------------------------------------------------
+--  5b. A file the client reads only after the first test (a fresh game start)
+--      goes into the families built without it at the login event that finds
+--      it, member by member and as their own font, so their strings update in
+--      place
+-------------------------------------------------------------------------------
+E = Load("enUS")
+BADFILES[EXP] = true
+local early = E.GetFontFamily(EXP, 12, "", true)
+local early14 = E.GetFontFamily(EXP, 14, "OUTLINE", false)
+CheckFaces(early, FRIZ, CYR, KO, ZHCN, ZHTW, "an unread file before login")
+assert(early._face == FRIZ, "the fallen-back family's own font")
+local efs = NewFontString()
+E.SetFontFamily(efs, EXP, 12, "", true)
+assert(efs:Draw(LATIN) == FRIZ and efs._obj == early)
+BADFILES[EXP] = nil                       -- the client has read the file now
+Fire("PLAYER_LOGIN")
+CheckFaces(early, EXP, EXP, KO, ZHCN, ZHTW, "the unread file at PLAYER_LOGIN")
+CheckFaces(early14, EXP, EXP, KO, ZHCN, ZHTW, "the unread file at PLAYER_LOGIN, second key")
+local r14 = early14._members.roman
+assert(r14._size == 14 and r14._flags == "OUTLINE", "a patched member lost its size or flags")
+assert(early._face == EXP and early._size == 12 and early._flags == "", "the family's own font did not follow")
+assert(efs._obj == early and efs:Draw(LATIN) == EXP and efs:Draw(CYRILLIC) == EXP,
+    "the string did not take the file in place")
+assert(E._fontPathOK[EXP] == true and E._fontPathPending[EXP] == nil and #E._fontFamPending == 0,
+    "the loaded path is still pending")
+local probes = T.probe[EXP]
+CheckFaces(E.GetFontFamily(EXP, 16, "", false), EXP, EXP, KO, ZHCN, ZHTW, "a key built after the retest")
+assert(T.probe[EXP] == probes, "a loaded path was tested again")
+Fire("PLAYER_ENTERING_WORLD")
+assert(Listening() == 3 and E._fontRetryDone == nil, "the window closed before the loading screen's end")
+Fire("LOADING_SCREEN_DISABLED")
+assert(Listening() == 0 and E._fontRetryDone == true, "the retry did not stand down at the loading screen's end")
+
+-- the client's own CJK alphabet takes the path, a path without Cyrillic leaves the
+-- russian member alone, and a file read only by PLAYER_ENTERING_WORLD
+E = Load("koKR")
+BADFILES[POP] = true
+local kf = E.GetFontFamily(POP, 12, "", false)
+CheckFaces(kf, FRIZ, CYR, FRIZ, ZHCN, ZHTW, "koKR, an unread file before login")
+Fire("PLAYER_LOGIN")
+CheckFaces(kf, FRIZ, CYR, FRIZ, ZHCN, ZHTW, "koKR, still unread at PLAYER_LOGIN")
+BADFILES[POP] = nil
+Fire("PLAYER_ENTERING_WORLD")
+CheckFaces(kf, POP, CYR, POP, ZHCN, ZHTW, "koKR, read by PLAYER_ENTERING_WORLD")
+Fire("LOADING_SCREEN_DISABLED")
+assert(Listening() == 0 and E._fontPathOK[POP] == true, "koKR: the retry did not settle")
 
 -------------------------------------------------------------------------------
 --  6. SetFontObjectFace on a Blizzard family and on a plain object; snapshots
@@ -594,5 +692,91 @@ for _, a in ipairs(ALPHABETS) do
     assert(m._flags == "" and m._size == 12, "the failsafe reached our family: " .. a)
 end
 GameTooltipText, GameTooltipHeaderText, GameTooltipTextSmall = nil, nil, nil
+
+-------------------------------------------------------------------------------
+--  8. Premade Groups' category labels are copies of GameFontNormal taken as
+--     each button is built, so one built before the game text pass keeps the
+--     client's face: a hook on the button builder gives a label still on that
+--     face the global one, at its own size and flags. Only with Apply to All
+--     Game Text; never under Blizzard Default (the same face) or on WoW
+--     Forever (no such window)
+-------------------------------------------------------------------------------
+do
+    local function Pass(fonts, opts)
+        opts = opts or {}
+        E = Load("enUS", { db = { fonts = fonts } })
+        local waits, hooks = {}, {}
+        EventUtil = { ContinueOnAddOnLoaded = function(name, fn)
+            waits[#waits + 1] = { name, fn }
+            if not opts.later then fn() end
+        end }
+        hooksecurefunc = function(name, fn) hooks[#hooks + 1] = { name, fn } end
+        if not opts.noBuilder then LFGListCategorySelection_AddButton = function() end end
+        if opts.forever then E.IS_FOREVER = true end
+        E.ApplyGlobalFontToGameText()
+        return waits, hooks
+    end
+    local function Done()
+        EventUtil, hooksecurefunc, LFGListCategorySelection_AddButton = nil, nil, nil
+    end
+    local function Label(face, size, flags)
+        local l = { _face = face, _size = size, _flags = flags, _sets = 0 }
+        function l:GetFont() return self._face, self._size, self._flags end
+        function l:SetFont(f, s, fl)
+            assert(type(f) == "string" and type(s) == "number" and type(fl) == "string",
+                "a bad SetFont on a category label")
+            self._face, self._size, self._flags = f, s, fl
+            self._sets = self._sets + 1
+        end
+        return l
+    end
+
+    local waits, hooks = Pass({ global = "Poppins", applyToAllGameText = true })
+    assert(#waits == 1 and waits[1][1] == "Blizzard_GroupFinder", "the pass does not wait for the group finder")
+    assert(#hooks == 1 and hooks[1][1] == "LFGListCategorySelection_AddButton",
+        "no hook on the category button builder")
+    local onButton = hooks[1][2]
+    -- built before the pass (the client's face), after it, with an outline, with no flags
+    local first, later = Label(FRIZ, 12, ""), Label(POP, 13.2, "")
+    local outlined, bare = Label(FRIZ, 14, "OUTLINE"), Label(FRIZ, 12, nil)
+    local cs = { CategoryButtons = { { Label = first }, { Label = later }, { Label = outlined }, { Label = bare }, {} } }
+    for i = 1, 6 do onButton(cs, i) end  -- button 5 has no label, 6 does not exist
+    assert(first._face == POP and first._size == 12 and first._flags == "" and first._sets == 1,
+        "the label built before the pass did not take the global face at its own size")
+    assert(later._sets == 0, "a label built after the pass was set again")
+    assert(outlined._face == POP and outlined._size == 14 and outlined._flags == "OUTLINE",
+        "a label lost its own size or outline")
+    assert(bare._face == POP and bare._flags == "", "a label with no flags")
+    for i = 1, 6 do onButton(cs, i) end
+    assert(first._sets == 1 and outlined._sets == 1 and bare._sets == 1, "a label on the global face was set again")
+    onButton(nil, 1)
+    onButton({}, 1)
+    onButton({ CategoryButtons = "x" }, 1)
+    Done()
+
+    -- the group finder loads later: nothing is hooked until then
+    waits, hooks = Pass({ global = "Poppins", applyToAllGameText = true }, { later = true })
+    assert(#waits == 1 and #hooks == 0, "the builder was hooked before the group finder loaded")
+    waits[1][2]()
+    assert(#hooks == 1, "the builder was not hooked once the group finder loaded")
+    Done()
+    -- loaded with no builder function: nothing to hook
+    waits, hooks = Pass({ global = "Poppins", applyToAllGameText = true }, { noBuilder = true })
+    assert(#waits == 1 and #hooks == 0, "a missing builder was hooked")
+    Done()
+
+    -- nothing waits: the option off (the scale alone too), Blizzard Default, WoW Forever
+    local quiet = {
+        { "both settings off", { global = "Poppins" } },
+        { "the scale alone", { global = "Poppins", gameTextScale = 120 } },
+        { "Blizzard Default", { global = "__blizzard", applyToAllGameText = true } },
+        { "WoW Forever", { global = "Poppins", applyToAllGameText = true }, { forever = true } },
+    }
+    for _, q in ipairs(quiet) do
+        waits, hooks = Pass(q[2], q[3])
+        assert(#waits == 0 and #hooks == 0, q[1] .. ": the pass waits for the group finder")
+        Done()
+    end
+end
 
 print("font family harness: ok")

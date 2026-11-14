@@ -209,6 +209,13 @@ end
 local function ApplyClassColor(fs, unit, useClassColor, customR, customG, customB)
     if not fs then return end
     if useClassColor and unit then
+        if unit == "pet" then
+            local _, ct = UnitClass("player")
+            if ct and not issecretvalue(ct) then
+                local cc = EllesmereUI.GetClassColor(ct)
+                if cc then fs:SetTextColor(cc.r, cc.g, cc.b); return end
+            end
+        end
         -- Class color for players (and AI party members), reaction color for NPCs,
         -- matching the health bar and the custom Enemy Colors override. Shared
         -- with the eui-tgtname tag via ns.ResolveUnitNameColor.
@@ -263,6 +270,16 @@ function ns.UF_RecolorTexts(frame, unit, s)
         if btb.RightText then ApplyClassColor(btb.RightText, unit, s.btbRightClassColor, s.btbRightColorR, s.btbRightColorG, s.btbRightColorB) end
         if btb.CenterText then ApplyClassColor(btb.CenterText, unit, s.btbCenterClassColor, s.btbCenterColorR, s.btbCenterColorG, s.btbCenterColorB) end
         if btb._applyBTBPowerColors then btb._applyBTBPowerColors(s) end
+    end
+end
+
+-- Colors changed (EllesmereUI.ApplyColorsToOUF): texts are colored once when set,
+-- so the class-colored ones repaint here with the new palette.
+EllesmereUI._UFRecolorAllTexts = function()
+    local frames = I.frames
+    if not (frames and db) then return end
+    for unit in pairs(unitSettingsKey) do
+        if frames[unit] then ns.UF_RecolorTexts(frames[unit], unit) end
     end
 end
 

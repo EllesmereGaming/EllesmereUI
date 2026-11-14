@@ -146,8 +146,10 @@ local function UpdateKeybinds()
             -- page-7 ability the button no longer shows (the show-one/
             -- fire-another split GetClassPagingConditions warns about). Cost:
             -- press-and-hold repeat on MainBar while the opt-out is on.
-            if info.key == "MainBar" and bs
-               and (bs.disableFormPaging or bs.disableSkyridingPaging) then
+            -- Read through the paging conditions' own rule, so the keys
+            -- follow exactly the opt-outs the bar's page follows.
+            local noForm, noSky = EAB_VTABLE.GetAutoPagingOptOuts(info.key)
+            if noForm or noSky then
                 barHasCustomPaging = true
             end
             for i, btn in ipairs(btns) do
@@ -318,6 +320,12 @@ local function ApplyClickRegistration()
             if btns then
                 for _, btn in ipairs(btns) do
                     if btn then
+                        -- A mouse click's flip that a drag left behind goes
+                        -- with the value it stood in for, or the button's
+                        -- next release would restore key down over this one.
+                        if btn:GetAttribute("eabPickupFlipped") then
+                            btn:SetAttribute("eabPickupFlipped", false)
+                        end
                         btn:SetAttribute("useOnKeyDown", keyDown)
                     end
                 end

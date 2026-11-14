@@ -3,8 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Nameplates_Options\DisplayLayout_Options.lua
 --  Nameplates options: the Style, Core Positions and Core Text Positions
 --  sections of the Display page. Called by BuildDisplayPage; returns y, the
---  rows and text cells its click navigation maps to, and the cog popup and
---  texture helpers DisplayBars_Options.lua uses. The Core Text Coloring
+--  rows and text cells its click navigation maps to, and the cog popup
+--  helpers DisplayBars_Options.lua uses. The Core Text Coloring
 --  section under Core Text Positions lives in CoreTextColoring_Options.lua
 --  (called from here; it reads the text slot table defined below). Shared
 --  helpers come from ns._NPO_OptEnv, the per-build slot helpers from ctx.
@@ -129,6 +129,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     local DB, DBVal, defaults, GetNPOptOutline = env.DB, env.DBVal, env.defaults, env.GetNPOptOutline
     local hbtOrder, hbtValues, optState, pairs = env.hbtOrder, env.hbtValues, env.optState, env.pairs
     local plates, PP, UpdatePreview, RefreshAllPlates = env.plates, env.PP, env.UpdatePreview, env.RefreshAllPlates
+    local RefreshAllTextures = env.RefreshAllTextures
     local GetElementAtPosition, RefreshAllSlots, SetElementAtPosition, SetTextElementAtSlot = ctx.GetElementAtPosition, ctx.RefreshAllSlots, ctx.SetElementAtPosition, ctx.SetTextElementAtSlot
     local W = ctx.W
     local _, h
@@ -142,14 +143,6 @@ local function BuildDisplayLayout(parent, y, ctx)
     local styleHeader
     styleHeader, h = W:SectionHeader(parent, "STYLE", y);  y = y - h
     y = EllesmereUI.BlizzStyle.Note(parent, y, "nameplates")
-
-    local function RefreshAllTextures()
-        ns.RefreshAllSettings()
-        for _, plate in pairs(ns.friendlyPlates or {}) do
-            if ns.ApplyHealthBarTexture then ns.ApplyHealthBarTexture(plate) end
-            if ns.ApplyCastBarTexture then ns.ApplyCastBarTexture(plate) end
-        end
-    end
 
     -- Row 1: Border (None/Basic/Custom) | Border Size. Pure VIEW over showBorder + customBorderEnabled: None=off, Basic=standard border, Custom=custom border engine (reveals the Custom Border row below via page rebuild; None/Basic collapse it).
     -- Both stock styles gate both slots: they draw their own art (the stock background, the vanilla border sheets) and stand every EUI border down.
@@ -176,6 +169,9 @@ local function BuildDisplayLayout(parent, y, ctx)
             end
             ns.RefreshBorder()
             ns.RefreshBorderColor()
+            -- With Wrap Around Castbar saved on, the border decides whether a wrap can draw,
+            -- and with that whether Cast Bar X Offset applies: re-place the cast bars.
+            if DBVal("wrapBorderCastbar") == true and (DBVal("castBarOffsetX") or 0) ~= 0 then ns.NP_RelayoutCastBars() end
             UpdatePreview()
             -- Force rebuild so the Custom Border row shows/hides and rows below reflow.
             EllesmereUI:RefreshPage(true)
@@ -256,6 +252,8 @@ local function BuildDisplayLayout(parent, y, ctx)
                 ns.ApplyBorderWrapToAll()
                 -- Corner Radius stands down while the wrap is on: square or re-round the plates.
                 if (DBVal("cornerRadius") or 0) > 0 then ns.RefreshBorder(); ns.RefreshCastBorder() end
+                -- Cast Bar X Offset stands down too: re-place the cast bars.
+                if (DBVal("castBarOffsetX") or 0) ~= 0 then ns.NP_RelayoutCastBars() end
                 UpdatePreview()
                 -- Show Seam Line's and Corner Radius's disabled states follow this toggle.
                 EllesmereUI:RefreshPage()
@@ -1146,7 +1144,6 @@ local function BuildDisplayLayout(parent, y, ctx)
             local refreshList = EllesmereUI._widgetRefreshList
             local firstRefresh = #refreshList + 1
             local SolidTex = EllesmereUI.SolidTex
-            local MakeBorder = EllesmereUI.MakeBorder
             local MakeFont = EllesmereUI.MakeFont
             local BuildSliderCore = EllesmereUI.BuildSliderCore
             local BORDER_COLOR = EllesmereUI.BORDER_COLOR
@@ -1178,7 +1175,7 @@ local function BuildDisplayLayout(parent, y, ctx)
 
             local bg = SolidTex(pf, "BACKGROUND", 0.077, 0.068, 0.058, 0.95)
             bg:SetAllPoints()
-            MakeBorder(pf, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15)
+            EllesmereUI.MakeRoundedBorder(pf, BORDER_COLOR.r, BORDER_COLOR.g, BORDER_COLOR.b, 0.15, bg)
 
             local titleFS = MakeFont(pf, 11, "", 1, 1, 1)
             titleFS:SetAlpha(0.7)
@@ -1480,7 +1477,7 @@ local function BuildDisplayLayout(parent, y, ctx)
                 cogPopup._curMin = opts.sizeMin; cogPopup._curMax = opts.sizeMax; cogPopup._curStep = sStep
             end
             cogPopup._sGet = opts.sizeGet; cogPopup._sSet = opts.sizeSet
-            cogPopup._sLabel:SetText(opts.sizeLabel or EllesmereUI.L("Size"))
+            cogPopup._sLabel:SetText(EllesmereUI.L(opts.sizeLabel or "Size"))
             cogPopup._sLabel:Show()
             if cogPopup._sTrack then cogPopup._sTrack:Show() end
             if cogPopup._sValBox then cogPopup._sValBox:Show() end
@@ -1887,6 +1884,21 @@ local function BuildDisplayLayout(parent, y, ctx)
             { title = "Quest Indicator", hidden = Lacks("quest"),
               rows = { SizeRow("quest"), InstancesRow("quest") } },
             { title = "Quest Objective Text", hidden = Lacks("questtext"), rows = {
+                { type = "toggle", label = "Objective Type Icon",
+                  tooltip = "Shows a sword for kill objectives, a bag for item objectives, and the generic quest icon when the type cannot be matched exactly.",
+                  get = function() return DBVal("showQuestObjectiveTypeIcon") == true end,
+                  set = function(v)
+                      DB().showQuestObjectiveTypeIcon = v
+                      ns.RefreshQuestObjective()
+                      refresh()
+                  end },
+                { type = "slider", label = "Icon Scale", min = 50, max = 200, step = 5,
+                  hidden = function() return DBVal("showQuestObjectiveTypeIcon") ~= true end,
+                  get = function() return DBVal("questObjectiveTypeIconScale") or 100 end,
+                  set = function(v)
+                      DB().questObjectiveTypeIconScale = v
+                      refresh()
+                  end },
                 { type = "slider", label = "Text Size", min = 6, max = 24, step = 1,
                   tooltip = "Size of the quest progress text.",
                   get = function() return ns.NP_QuestTextSize(DB()) end,
@@ -2496,7 +2508,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     if not EllesmereUI._prebuilding then optState._npTextFP = ns.NPO_TextStructureFP() end
 
     return y, styleHeader, coreHeader, coreRow1, coreRow2, coreRow3, coreTextHeader, textSlotCells,
-        textFirstRow, ShowCogPopup, CogPopupOpen, RefreshAllTextures
+        textFirstRow, ShowCogPopup, CogPopupOpen
 end
 
 -- Used by EUI_Nameplates_Options.lua

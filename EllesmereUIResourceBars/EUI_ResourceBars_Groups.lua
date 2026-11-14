@@ -713,6 +713,16 @@ function ns.ERB_SetBlizzCastFill(kind)
     f._blizzFillKind = kind
     f._bar:GetStatusBarTexture():SetAtlas(atlas)
 end
+-- Blizzard Style frame art reach past the fill (left, right, top), the
+-- spell name's nudge in the text box, the timer's on the bar, and the
+-- spark's extra height, nudge and width; the live bar and the options preview
+-- both seat from here. The numbers are the parent's (EllesmereUI.CastChromeGeom,
+-- shared with Unit Frames): this names the bar's art and the side its icon
+-- sits on. An icon here is always flush against the bar.
+function ns.ERB_CastChromeGeom(cb)
+    if not ns.ERB_CastForever() then return EllesmereUI.CastChromeGeom(false) end
+    return EllesmereUI.CastChromeGeom(true, ns.ERB_CastIconW(cb) > 0 and (cb.iconOnRight and "right" or "left") or nil)
+end
 -- Frame art around the bar plus, under Blizzard Style, the text box under it
 -- (the spell name moves into the box, honouring the Spell Text side and
 -- offsets); Classic WoW UI draws the vanilla frame alone. Rebuilt on every
@@ -748,12 +758,13 @@ function ns.ERB_ApplyBlizzCastChrome(cb, barW)
         tb:Hide()
         return
     end
+    local reachL, reachR, reachT, textY = ns.ERB_CastChromeGeom(cb)
     local frameAtlas = ns.ERB_BlizzAtlas("frame")
     if frameAtlas then
         ns.ERB_StockAtlas(fr, frameAtlas)
         fr:ClearAllPoints()
-        fr:SetPoint("TOPLEFT", clip, "TOPLEFT", -2, 2)
-        fr:SetPoint("BOTTOMRIGHT", clip, "BOTTOMRIGHT", 2, -2)
+        fr:SetPoint("TOPLEFT", clip, "TOPLEFT", -reachL, reachT)
+        fr:SetPoint("BOTTOMRIGHT", clip, "BOTTOMRIGHT", reachR, -2)
         fr:Show()
     else
         fr:Hide()
@@ -767,7 +778,7 @@ function ns.ERB_ApplyBlizzCastChrome(cb, barW)
         tb:Show()
         local nameText = f._nameText
         local side = cb.spellTextSide or "left"
-        local x, y = cb.spellTextX or 0, cb.spellTextY or 0
+        local x, y = cb.spellTextX or 0, (cb.spellTextY or 0) + textY
         nameText:ClearAllPoints()
         if side == "right" then
             nameText:SetJustifyH("RIGHT")

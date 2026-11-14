@@ -161,6 +161,13 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
 
     _, h = W:DualRow(parent, y,
         Toggle("skills", "Skill Ups", "Weapon and profession skill increases.", Reapply),
+        Toggle("rolls", "Loot Rolls",
+            "Who won each group loot roll and with what roll. Your own wins add the roll to the item's row.",
+            Reapply)
+    );  y = y - h
+
+    local trackerRow
+    trackerRow, h = W:DualRow(parent, y,
         Toggle("tracker", "Gold per Hour Tracker", "Pins a row with your gold per hour.",
             function()
                 LF.Apply()
@@ -169,8 +176,21 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
                     EllesmereUI.RepositionBarToMover("EUI_LootFeed")
                 end
                 EllesmereUI:RefreshPage()
-            end)
+            end),
+        Toggle("history", "Loot History",
+            "Keeps your latest rows per character, also after a reload. Hold Shift and turn the mouse wheel over the feed to look back.",
+            Reapply)
     );  y = y - h
+    EllesmereUI.BuildInlineCog(trackerRow._rightRegion, { title = "Loot History",
+        disabled = function() return off() or not LF.Get("history") end,
+        disabledTooltip = "Loot History",
+        rows = {
+            { type = "slider", label = "Rows to Keep", min = 50, max = 500, step = 50,
+              tooltip = "How many rows each character keeps. Lowering it removes the oldest rows.",
+              get = function() return LF.Get("historyMax") end,
+              set = function(v) LF.Cfg().historyMax = v; Reapply() end },
+        },
+    })
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
 

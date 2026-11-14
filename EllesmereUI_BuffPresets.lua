@@ -133,10 +133,17 @@ local function ForeverCatalogue()
                 [1008] = { class = "MAGE", alts = { 8455, 10169, 10170 } },  -- Amplify Magic
                 [604] = { class = "MAGE", alts = { 8450, 8451, 10173, 10174 } },  -- Dampen Magic
             },
-            -- Aura spell ids of the vanilla flasks, elixirs and potions. Flasks,
-            -- protection potions, Free Action and Limited Invulnerability are
-            -- checked by default; the rest start unchecked.
+            -- Aura spell ids of the vanilla flasks, elixirs, potions, food and
+            -- drink. Flasks, protection potions, Free Action and Limited
+            -- Invulnerability are checked by default; the rest start unchecked.
             consumables = {
+                -- Food and Drink: every eating or drinking aura a Forever item
+                -- casts (each food and drink rank is its own id).
+                [433] = { class = "ALL", disabled = true, alts = { 434, 435, 1127, 1129, 1131, 2639,
+                    5004, 5006, 5007, 6410, 7737, 10256, 24005, 24707, 24869, 25660, 29008, 29073,
+                    470362, 470369, 1225769, 1225771, 1225772 } },  -- Food
+                [430] = { class = "ALL", disabled = true, alts = { 431, 432, 1133, 1135, 1137, 22734,
+                    24355, 29007, 468767 } },  -- Drink
                 [17626] = { class = "ALL" },  -- Flask of the Titans
                 [17628] = { class = "ALL" },  -- Flask of Supreme Power
                 [17627] = { class = "ALL" },  -- Flask of Distilled Wisdom
@@ -586,8 +593,8 @@ if EllesmereUI.IS_FOREVER == true then
             single = { 467, 782, 1075, 8914, 9756, 9910 }, group = {},
             ids = { 467, 782, 1075, 8914, 9756, 9910, 15438, 16877, 21335, 21337, 22128, 22351, 22696,
                     25640, 25777, 438294, 438326, 1213813, 1213816, 1213834, 1236308, 1291338, 1312955 } },
-        -- Paladin blessings, each with its Greater version (1213408 Kings and
-        -- 26650 Light are the client's two non-trainable copies).
+        -- Paladin blessings, each with its Greater version (1213408 is the
+        -- client's non-trainable copy of Kings).
         might = { names = { 19740, 25782 },
             single = { 19740, 19834, 19835, 19836, 19837, 19838, 25291 }, group = { 25782, 25916 },
             ids = { 19740, 19834, 19835, 19836, 19837, 19838, 25291, 25782, 25916 } },
@@ -602,9 +609,6 @@ if EllesmereUI.IS_FOREVER == true then
         salvation = { names = { 1038, 25895 },
             single = { 1038 }, group = { 25895 },
             ids = { 1038, 1912, 25895 } },
-        light = { names = { 19977, 25890 },
-            single = { 19977, 19978, 19979 }, group = { 25890 },
-            ids = { 19977, 19978, 19979, 26650, 25890 } },
         -- beneficiaries: the classes the buff serves (every mana user,
         -- hunters included); a family without it serves everyone.
         ai = { names = { 1459, 23028 },

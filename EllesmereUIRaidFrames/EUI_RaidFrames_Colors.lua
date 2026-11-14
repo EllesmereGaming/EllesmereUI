@@ -67,41 +67,99 @@ end
 
 -- Custom Dynamic Colors: the Classic path with user-chosen stops. Live frames feed a C_CurveUtil
 -- curve to UnitHealthPercent (secret-value safe); cached, rebuilt only when one of the three
--- colors changes. do-block keeps the cache state off the main-chunk local budget.
+-- colors or one of the two thresholds changes. do-block keeps the cache state off the
+-- main-chunk local budget.
 do
     local DEF100 = { r = 0, g = 1, b = 0 }
     local DEF50  = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 }
     local DEF0   = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 }
     local dynCurve
-    local r0, g0, b0, r50, g50, b50, r100, g100, b100
+    local r0, g0, b0, r50, g50, b50, r100, g100, b100, lowSaved, highSaved
+
+    -- Low / High thresholds (percent): at or below Low the 0% color holds, at or above High
+    -- the 100% color holds. Clamped to their slider ranges so the stops stay in order.
+    local function Thresholds(s)
+        return Clamp(s.dynamicLow or 0, 0, 20) / 100, Clamp(s.dynamicHigh or 100, 80, 100) / 100
+    end
+
     function ns.GetCustomDynamicCurve(s)
         s = s or db.profile
         local c0   = s.dynamicColor0   or DEF0
         local c50  = s.dynamicColor50  or DEF50
         local c100 = s.dynamicColor100 or DEF100
+        -- Every unit asks on every health paint: the saved thresholds are compared
+        -- as they stand, and clamped only when the curve is built.
+        local low, high = s.dynamicLow, s.dynamicHigh
         if not (dynCurve
             and r0   == c0.r   and g0   == c0.g   and b0   == c0.b
             and r50  == c50.r  and g50  == c50.g  and b50  == c50.b
-            and r100 == c100.r and g100 == c100.g and b100 == c100.b) then
+            and r100 == c100.r and g100 == c100.g and b100 == c100.b
+            and lowSaved == low and highSaved == high) then
+            local lo, hi = Thresholds(s)
             dynCurve = C_CurveUtil.CreateColorCurve()
             dynCurve:SetType(Enum.LuaCurveType.Linear)
-            dynCurve:AddPoint(0,   CreateColor(c0.r,   c0.g,   c0.b,   1))
-            dynCurve:AddPoint(0.5, CreateColor(c50.r,  c50.g,  c50.b,  1))
-            dynCurve:AddPoint(1,   CreateColor(c100.r, c100.g, c100.b, 1))
+            dynCurve:AddPoint(0, CreateColor(c0.r, c0.g, c0.b, 1))
+            if lo > 0 then dynCurve:AddPoint(lo, CreateColor(c0.r, c0.g, c0.b, 1)) end
+            dynCurve:AddPoint(0.5, CreateColor(c50.r, c50.g, c50.b, 1))
+            if hi < 1 then dynCurve:AddPoint(hi, CreateColor(c100.r, c100.g, c100.b, 1)) end
+            dynCurve:AddPoint(1, CreateColor(c100.r, c100.g, c100.b, 1))
             r0, g0, b0       = c0.r, c0.g, c0.b
             r50, g50, b50    = c50.r, c50.g, c50.b
             r100, g100, b100 = c100.r, c100.g, c100.b
+            lowSaved, highSaved = low, high
         end
         return dynCurve
     end
 
     -- Clean-number interpolation matching the curve, for previews where the
-    -- percent is a known fake (0-1): linear 0/50 below half, 50/100 above.
+    -- percent is a known fake (0-1): flat past the Low / High thresholds, linear between.
     function ns.ResolveDynamicColor(s, pct01)
         s = s or db.profile
         local c0   = s.dynamicColor0   or DEF0
         local c50  = s.dynamicColor50  or DEF50
         local c100 = s.dynamicColor100 or DEF100
+        local lo, hi = Thresholds(s)
+        if pct01 >= hi then return c100.r, c100.g, c100.b end
+        if pct01 <= lo then return c0.r, c0.g, c0.b end
+        if pct01 >= 0.5 then
+            local t = (pct01 - 0.5) / (hi - 0.5)
+            return c50.r + (c100.r - c50.r) * t,
+                   c50.g + (c100.g - c50.g) * t,
+                   c50.b + (c100.b - c50.b) * t
+        end
+        local t = (pct01 - lo) / (0.5 - lo)
+        return c0.r + (c50.r - c0.r) * t,
+               c0.g + (c50.g - c0.g) * t,
+               c0.b + (c50.b - c0.b) * t
+    end
+
+    -- The plain three-stop gradient of the frames that keep stops of their own (the pet
+    -- frames, the party target frames): no thresholds. cache: a table the caller keeps,
+    -- so each kind of frame has its own curve and differently coloured kinds never
+    -- rebuild each other's; built again only when a stop changed. A missing stop takes
+    -- its default.
+    function ns.RF_StopsCurve(cache, c0, c50, c100)
+        c0, c50, c100 = c0 or DEF0, c50 or DEF50, c100 or DEF100
+        if not (cache.curve
+            and cache[1] == c0.r   and cache[2] == c0.g   and cache[3] == c0.b
+            and cache[4] == c50.r  and cache[5] == c50.g  and cache[6] == c50.b
+            and cache[7] == c100.r and cache[8] == c100.g and cache[9] == c100.b) then
+            local curve = C_CurveUtil.CreateColorCurve()
+            curve:SetType(Enum.LuaCurveType.Linear)
+            curve:AddPoint(0, CreateColor(c0.r, c0.g, c0.b, 1))
+            curve:AddPoint(0.5, CreateColor(c50.r, c50.g, c50.b, 1))
+            curve:AddPoint(1, CreateColor(c100.r, c100.g, c100.b, 1))
+            cache.curve = curve
+            cache[1], cache[2], cache[3] = c0.r, c0.g, c0.b
+            cache[4], cache[5], cache[6] = c50.r, c50.g, c50.b
+            cache[7], cache[8], cache[9] = c100.r, c100.g, c100.b
+        end
+        return cache.curve
+    end
+
+    -- Its clean-number twin for the previews (pct01: a made-up 0-1 health).
+    function ns.RF_StopsColorAt(c0, c50, c100, pct01)
+        c0, c50, c100 = c0 or DEF0, c50 or DEF50, c100 or DEF100
         if pct01 >= 0.5 then
             local t = (pct01 - 0.5) * 2
             return c50.r + (c100.r - c50.r) * t,
@@ -113,6 +171,12 @@ do
                c0.g + (c50.g - c0.g) * t,
                c0.b + (c50.b - c0.b) * t
     end
+end
+
+-- The Classic curve's clean-number twin for the previews (pct01: a made-up 0-1 health).
+function ns.RF_ClassicColorAt(pct01)
+    if pct01 >= 0.5 then return 1 - (pct01 - 0.5) * 2, 1, 0 end
+    return 1, pct01 * 2, 0
 end
 
 -- Class Color Reactive: the Custom Dynamic gradient whose 100% stop is the

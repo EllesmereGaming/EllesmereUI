@@ -14,14 +14,16 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  bags[i] is bag i - 1 (false when that bag slot's empty), bank[i] and
 --  tabs[i] are the i-th bank tab. pets and keystones keep their full link,
 --  since their string alone can't name them.
---  key = "Name-Realm" (EllesmereUI.CharKey).
---  wow forever: keyed by guid like the gold ledger, since a first name isn't
---  unique there, and the name keeps its surname. a bank tab is a bag put in a
+--  key = the character's guid (EllesmereUI.CharGUID), which a rename keeps;
+--  an entry from an older build sits under "Name-Realm" until that character
+--  logs in. wow forever: the name keeps its surname. a bank tab is a bag put in a
 --  bank slot (up to 9), so its size follows that bag and a tab with no bag
 --  saves as false. no warband bank there.
 --
 --  both switches are account-wide (EllesmereUIDB.bagOfflineBank /
---  .bagTooltipCounts), like the data. read only: a bag saves after
+--  .bagTooltipCounts), like the data. offline bank is set on the bags' bank
+--  page, the tooltip counts in blizzard skins+ (tooltip extras: item counts),
+--  both through Offline.Set. read only: a bag saves after
 --  BAG_UPDATE_DELAYED when it changed, banks while a banker's open. nothing
 --  gets saved, hooked or listened to while both are off.
 -------------------------------------------------------------------------------
@@ -104,10 +106,7 @@ function Offline.Store()
     return db
 end
 
-local function OwnKey()
-    if EUI.IS_FOREVER then return EUI.GetGoldLedger().CharKey() end
-    return EUI.CharKey("-")
-end
+local function OwnKey() return EUI.CharGUID() end
 Offline.CurrentKey = OwnKey
 
 -- a class's colour code, custom class colours included
@@ -338,6 +337,12 @@ end
 --  events (only registered while an option needs them)
 -------------------------------------------------------------------------------
 local PIT = Enum.PlayerInteractionType
+-- banker types: true for a character bank. some bankers open it as
+-- CharacterBanker (67) rather than Banker
+local BANKERS = {}
+if PIT.Banker then BANKERS[PIT.Banker] = true end
+if PIT.CharacterBanker then BANKERS[PIT.CharacterBanker] = true end
+if PIT.AccountBanker then BANKERS[PIT.AccountBanker] = false end
 local ev = CreateFrame("Frame")
 ev:SetScript("OnEvent", function(_, event, arg)
     if event == "BAG_UPDATE" then
@@ -358,13 +363,13 @@ ev:SetScript("OnEvent", function(_, event, arg)
             Queue(false, true)
         end
     elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then
-        if arg == PIT.Banker or arg == PIT.AccountBanker then
-            atBank, atCharBank = true, arg == PIT.Banker
+        if BANKERS[arg] ~= nil then
+            atBank, atCharBank = true, BANKERS[arg]
             MarkAll(CHAR_BANK); MarkAll(WARBAND_BANK)
             Queue(false, true)
         end
     elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
-        if arg == PIT.Banker or arg == PIT.AccountBanker then
+        if BANKERS[arg] ~= nil then
             Flush()  -- save before the contents go unreadable
             atBank, atCharBank = false, false
         end

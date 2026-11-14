@@ -284,8 +284,8 @@ function L.Toggle(parent, x, width, y, opts)
     end
 
 
-    row:SetScript("OnMouseUp", function()
-        if not opts.set then return end
+    row:SetScript("OnMouseUp", function(_, button)
+        if not opts.set or button ~= "LeftButton" then return end
         box.Toggle()
     end)
 

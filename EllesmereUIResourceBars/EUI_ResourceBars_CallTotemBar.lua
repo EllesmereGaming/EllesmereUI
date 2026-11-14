@@ -12,13 +12,18 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --             system's saved base SetPoint / ClearAllPoints / SetScale, which
 --             never flag Edit Mode's anchor pass; a layout apply's re-anchor
 --             (ApplySystemAnchor) and Edit Mode's bottom bar stack, which
---             holds this bar too, are answered by re-pinning
+--             holds this bar too, are answered by re-pinning. Both also run
+--             in combat (a form change, a mount, a level-up), where the
+--             re-pin waits for regen, so the buttons hang from the holder,
+--             never from the bar: wherever Edit Mode puts the bar frame
+--             meanwhile, they stay
 --   overlay   its Edit Mode selection at alpha 0 with no mouse, so Edit Mode
---             cannot select or drag it
+--             cannot select or drag it, and the bar frame's own mouse off,
+--             so it takes no clicks where Edit Mode puts it in combat
 --   layout    scale from Icon Size, and the shown buttons laid out in a row
---             or column with the chosen spacing (each totem button sits on
---             its element slot); re-run after every Blizzard bar update, which
---             re-anchors the first slot and Totemic Recall
+--             or column with the chosen spacing (each totem button at its
+--             element slot's spot); re-run after every Blizzard bar update,
+--             which re-anchors the first slot and Totemic Recall
 --   look      Blizzard's frame, ring and slot art faded, icons unmasked and
 --             cropped square, our border frame on each button, the cooldown
 --             numbers shown or hidden and sized by Show Timer / Timer Size
@@ -29,11 +34,12 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -- Off by default: nothing is hooked or changed until it is first turned on.
 -- Shamans only: no other class has call totem spells.
 -- Limits: a combat /reload or an in-combat bar update (a flyout page switch)
--- can leave the first slot, Totemic Recall and the bar where Blizzard puts
--- them until combat ends (most visible in a column). If the bar is snapped to
--- another system in Edit Mode, resetting, reverting or hiding that system
--- re-pins the bar here, but Edit Mode records the bar's current spot as its
--- own, so saving the layout then keeps it for when this is turned off.
+-- can leave the first slot and Totemic Recall where Blizzard puts them until
+-- combat ends (most visible in a column); the totem buttons stay. If the bar
+-- is snapped to another system in Edit Mode, resetting, reverting or hiding
+-- that system re-pins the bar here, but Edit Mode records the bar's current
+-- spot as its own, so saving the layout then keeps it for when this is
+-- turned off.
 
 local _, ns = ...
 local EllesmereUI = _G.EllesmereUI
@@ -223,10 +229,15 @@ local function PinBar()
 end
 
 -- The shown buttons in a row (left to right) or a column (top to bottom), each
--- totem button on its element slot. Blizzard's updates re-anchor the first
--- slot by its BOTTOMLEFT and Totemic Recall by its LEFT, so those two points
--- are the ones used here: an update that lands before our pass moves them, it
--- never pulls them between two anchors.
+-- totem button at its element slot's spot. Every button hangs from the
+-- holder's top-left corner, where the bar's own is pinned, never from the
+-- bar: Edit Mode re-anchors the bar frame in combat too (its bottom bar stack
+-- on a form change or a mount, its layout apply on a level-up), when the
+-- re-pin has to wait for regen, and a button on the holder stays through it.
+-- Blizzard's updates re-anchor the first slot by its BOTTOMLEFT and Totemic
+-- Recall by its LEFT, so those two points are the ones used here: an update
+-- that lands before our pass moves them, it never pulls them between two
+-- anchors.
 local function Layout(c)
     local iconSize = c.iconSize or 30
     local scale = iconSize / BTN
@@ -249,18 +260,22 @@ local function Layout(c)
         local b = order[i]
         local off = (i - 1) * (BTN + gap)
         local x = vertical and 0 or off
-        local y = vertical and (len - BTN - off) or 0
+        local y = -(vertical and off or 0) - BTN
         b:ClearAllPoints()
         if b == RECALL then
-            b:SetPoint("LEFT", bar, "BOTTOMLEFT", x, y + BTN / 2)
+            b:SetPoint("LEFT", holder, "TOPLEFT", x, y + BTN / 2)
         else
-            b:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", x, y)
+            b:SetPoint("BOTTOMLEFT", holder, "TOPLEFT", x, y)
         end
     end
+    -- The element slots follow Call of the Elements when it shows.
+    local first = (SUMMON and order[1] == SUMMON) and 1 or 0
     for i = 1, #ACT do
         local b = ACT[i]
+        local off = (first + (i - 1) % 4) * (BTN + gap)
         b:ClearAllPoints()
-        b:SetPoint("CENTER", SLOT[((i - 1) % 4) + 1], "CENTER", 0, 0)
+        b:SetPoint("CENTER", holder, "TOPLEFT",
+            (vertical and 0 or off) + BTN / 2, -(vertical and off or 0) - BTN / 2)
     end
 
     if vertical then bar:SetSize(BTN, len) else bar:SetSize(len, BTN) end
@@ -352,12 +367,47 @@ local function OnFlyoutArrow(arrow, _, parent)
     if not (side or arrowMoved) then return end
     arrowMoved = side
     arrow:ClearAllPoints()
-    if side then
+    if side and c.flyoutDirection == "LEFT" then
+        arrow:SetPoint("RIGHT", parent, "LEFT", 0, 0)
+    elseif side then
         arrow:SetPoint("LEFT", parent, "RIGHT", 0, 0)
     else
         arrow:SetPoint("BOTTOM", parent, "TOP", 0, 0)
     end
 end
+
+-- Blizzard opens the flyout above its slot, over the buttons above it in a
+-- column; a vertical bar opens it beside the slot (Flyout Direction) instead.
+-- Like the arrow it is not secure and gets Blizzard's point added on every
+-- open, so each open is cleared and re-set, and put back above the slot once
+-- the bar is no longer a column.
+local FLYOUT = _G.MultiCastFlyoutFrame
+local flyoutMoved = false
+local function OnFlyoutToggle(flyout, _, parent)
+    if not (flyout and parent) or flyout.parent ~= parent or not flyout:IsShown() then return end
+    local c = owned and P()
+    local side = (c and c.orientation == "VERTICAL") or false
+    if not (side or flyoutMoved) then return end
+    flyoutMoved = side
+    flyout:ClearAllPoints()
+    if not side then
+        flyout:SetPoint("BOTTOM", parent, "TOP", 0, 0)
+    elseif c.flyoutDirection == "LEFT" then
+        flyout:SetPoint("BOTTOMRIGHT", parent, "BOTTOMLEFT", -2, 0)
+    else
+        flyout:SetPoint("BOTTOMLEFT", parent, "BOTTOMRIGHT", 2, 0)
+    end
+end
+
+-- An open flyout takes its place again at once when what decides it changes:
+-- the bar's orientation, Flyout Direction (its options row calls this) and
+-- the hand-back. A closed one (Blizzard forgets its button as it hides) is
+-- placed by its next open.
+local function PlaceOpenFlyout()
+    local parent = FLYOUT and FLYOUT.parent
+    if parent then OnFlyoutToggle(FLYOUT, nil, parent) end
+end
+ns.CT_PlaceFlyout = PlaceOpenFlyout
 
 local function Hook()
     if hooked then return end
@@ -376,6 +426,9 @@ local function Hook()
     hooksecurefunc("MultiCastActionBarFrame_Update", OnBarUpdate)
     if _G.MultiCastFlyoutFrameOpenButton_Show then
         hooksecurefunc("MultiCastFlyoutFrameOpenButton_Show", OnFlyoutArrow)
+    end
+    if FLYOUT and _G.MultiCastFlyoutFrame_ToggleFlyout then
+        hooksecurefunc("MultiCastFlyoutFrame_ToggleFlyout", OnFlyoutToggle)
     end
 end
 
@@ -396,6 +449,20 @@ local function ReleaseSelection()
     if selMouse ~= nil then sel:EnableMouse(selMouse) end
 end
 
+-- The bar frame's own mouse only fills the gaps between Blizzard's buttons.
+-- Off while the bar is ours: Edit Mode can leave the frame somewhere else
+-- for a whole fight, where it would take the clicks meant for what is under
+-- it. This one frame only, put back as each takeover found it.
+local barMouse
+local function SuppressBarMouse()
+    barMouse = bar:IsMouseEnabled()
+    bar:EnableMouse(false)
+end
+
+local function ReleaseBarMouse()
+    if barMouse ~= nil then bar:EnableMouse(barMouse) end
+end
+
 Refresh = function()
     local c = P()
     if not (owned and c) then return end
@@ -410,6 +477,7 @@ local function Release()
     UnskinAll()
     RestoreLayout()
     ReleaseSelection()
+    ReleaseBarMouse()
     EllesmereUI.SetFrameScale(bar, home.scale)
     bar:SetSize(home.w, home.h)
     bar:SetFrameStrata(home.strata)
@@ -427,6 +495,7 @@ local function Release()
     else
         EllesmereUI.SetFramePoint(bar, "RIGHT", UIParent, "BOTTOM", -28, 128)
     end
+    PlaceOpenFlyout()
 end
 
 function ns.CT_Apply()
@@ -456,8 +525,10 @@ function ns.CT_Apply()
         end
         owned = true
         SuppressSelection()
+        SuppressBarMouse()
     end
     Refresh()
+    PlaceOpenFlyout()
 end
 
 -------------------------------------------------------------------------------

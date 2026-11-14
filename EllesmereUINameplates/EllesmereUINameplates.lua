@@ -219,13 +219,16 @@ local defaults = {
     -- starts identical to "Enemies" (see GetReactionColor).
     miniColoringMPlusOnly = false,  -- on = Mini Enemies color only in 5-mans; off = everywhere
     -- Simple Coloring When Not In M+ (inline cog on Enemy Types): outside 5-mans, mob-type colors (Mini
-    -- Enemies/Casters/Mini-Bosses/Bosses) collapse to owBasicColor; Neutral stays own color.
+    -- Enemies/Casters/Mini-Bosses/Bosses) collapse to owBasicColor; Neutral keeps its own color out of
+    -- combat and takes owBasicColor in combat.
     owBasicColoring = false,
     owBasicColor = { r = 0.800, g = 0.137, b = 0.137 },
     -- Color Casting Enemies: a mob without a mana pool takes the Interruptible color once it
     -- casts something interruptible, else the Uninterruptible color once it casts something
     -- that is not; each color applies to the mob types ticked for it.
     castingEnemyColors = false,
+    -- Enemy Players Use Enemy Color: enemy players take the Enemies color, not their class color.
+    enemyPlayerEnemyColor = false,
     castingIntColor   = { r = 0.310, g = 0.702, b = 1.000 },
     castingUnintColor = { r = 0.953, g = 0.573, b = 0.000 },
     castingIntNormal = true, castingIntElite = true, castingIntMiniBoss = true, castingIntBoss = true,
@@ -294,11 +297,15 @@ local defaults = {
     friendlyHealthBarWidth = 150,
     showFriendlyNPCs = false,
     showNPCTitles = true,
+    showNPCRaidMarker = true,
     showFriendlyPlayers = true,
     friendlyClickThrough = false,
     friendlyShowDefaultNames = false,
     classColorFriendly = true,
     friendlyNameClassColor = false,
+    -- Name Color's Custom colour (friendlyNameColorMode, "class" or "custom", has no
+    -- default: unset, each friendly style reads one of the two keys above).
+    friendlyNameColor = { r = 1, g = 1, b = 1 },
     -- Target Border Effects (Friendly Nameplate Settings cog): the target Border Color
     -- and Border Size effects on friendly plates too.
     friendlyTargetBorderFx = false,
@@ -316,7 +323,10 @@ local defaults = {
     friendlyBelowNameGuildBrackets = true,
     friendlyShowLevel = false,
     friendlyLevelDiffColor = false,
+    friendlyGroupBrackets = false,
     showEnemyPets = false,
+    -- Blizzard's nameplateSize CVar (1 Small .. 5 Huge), applied on load; 3 = Large, the old forced value.
+    nameplateSize = 3,
     font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",
     textSlotTop = "enemyName",
     textSlotRight = "healthPercent",
@@ -430,6 +440,7 @@ local defaults = {
     rareEliteIconSize = 20,
     castBarHeight = 17,
     castBarOffsetY = 0,
+    castBarOffsetX = 0,
     castBarSparkEnabled = true,
     castOverlayEnabled = false,
     hideEnemyNameWhileCasting = false,
@@ -534,6 +545,8 @@ local defaults = {
     -- what shows the text on a fresh Forever profile. No UI writes it.
     replaceQuestIconWithObjective = (EllesmereUI.IS_FOREVER == true) and true or false,
     questObjectiveTextSize = 14,  -- the Quest Objective Text element's Text Size
+    showQuestObjectiveTypeIcon = false,
+    questObjectiveTypeIconScale = 100,
     showCastIcon = true,
     castIconScale = 1,
     castIconOffsetX = 0,

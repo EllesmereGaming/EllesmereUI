@@ -432,12 +432,10 @@ end
 --     because a drag's grid-hide fade can land while the panel stays open;
 --     released to the normal fade-out on close unless hovered.
 -- resync = drop everything planted first and re-evaluate (options toggle
--- flips while the panel is already open). While the option stands down
--- (EAB._sbOff, set by the wiring below; the options grey its row) both
--- panels count as closed.
+-- flips while the panel is already open).
 function EAB._UpdateSpellbookNeverBars(resync)
-    local open = not EAB._sbOff and ((PlayerSpellsFrame and PlayerSpellsFrame:IsShown())
-        or (MacroFrame and MacroFrame:IsShown()))
+    local open = (PlayerSpellsFrame and PlayerSpellsFrame:IsShown())
+        or (MacroFrame and MacroFrame:IsShown())
     if resync == true or not open then
         local forced = _gridState._sbNeverForced
         if forced then
@@ -511,11 +509,7 @@ end
 
 -- Trigger wiring: OnShow/OnHide HookScripts on the two panels (both are
 -- LoadOnDemand -- ADDON_LOADED installs late hooks, unregistering once both
--- are in). WoW Forever's Gamepad interface style shows and hides both panels
--- from secure code, where a hook of ours would taint it on a client whose
--- navigation still can be (EllesmereUI.PadTaintStandDown): there the option
--- stands down for the session (EAB._sbOff), decided once logged in and again
--- before each late hook.
+-- are in).
 do
     local hooked = {}
     local function OnPanelToggle()
@@ -535,24 +529,12 @@ do
     ev:SetScript("OnEvent", function(self, event, addon)
         if event == "PLAYER_LOGIN" then
             self:UnregisterEvent("PLAYER_LOGIN")
-            if EllesmereUI.PadTaintStandDown() then
-                EAB._sbOff = true
-                return
-            end
             local a, b = TryHook("PlayerSpellsFrame"), TryHook("MacroFrame")
             if not (a and b) then self:RegisterEvent("ADDON_LOADED") end
         else
             local name = (addon == "Blizzard_PlayerSpells" and "PlayerSpellsFrame")
                 or (addon == "Blizzard_MacroUI" and "MacroFrame")
             if not name then return end
-            if EllesmereUI.PadTaintStandDown() then
-                -- Switched to that style since login: no late hook, and a hook
-                -- already in place sees both panels as closed from here on.
-                EAB._sbOff = true
-                self:UnregisterEvent("ADDON_LOADED")
-                EAB._UpdateSpellbookNeverBars()
-                return
-            end
             TryHook(name)
             if hooked.PlayerSpellsFrame and hooked.MacroFrame then
                 self:UnregisterEvent("ADDON_LOADED")

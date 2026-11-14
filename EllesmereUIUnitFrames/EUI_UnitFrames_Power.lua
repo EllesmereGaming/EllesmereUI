@@ -648,11 +648,10 @@ local function CreatePowerBar(frame, unit, settings)
         elseif fmt == "both" then
             ns.SetTextZoneRaw(frame, ppFS, "%s | %s" .. pctSuffix, { TP.curpp, TP.perpp })
         elseif fmt == "smart" then
-            -- Percent for mana-based specs, numeric otherwise; resolved at apply
-            -- time and re-applied on spec change via ReloadAndUpdate. WoW Forever
-            -- passes the player's forced power (druid Mana) so it follows the bar.
-            local isPercent = EUI_IsSmartPowerPercent(unit == "player" and EllesmereUI.IS_FOREVER == true
-                and EllesmereUI.GetPlayerPowerOverride() or nil)
+            -- Percent for mana-based specs, numeric otherwise (always numeric on
+            -- WoW Forever); resolved at apply time and re-applied on spec change
+            -- via ReloadAndUpdate.
+            local isPercent = EUI_IsSmartPowerPercent()
             if isPercent then
                 ns.SetTextZoneRaw(frame, ppFS, "%s" .. pctSuffix, { TP.perpp })
             else
@@ -691,7 +690,8 @@ local function CreatePowerBar(frame, unit, settings)
             self._grayedOut = true
             if self.bg then
                 self.bg:SetColorTexture(0.25, 0.25, 0.25, 1)
-                self.bg:SetAlpha(1)
+                -- Gray tints the bg; its opacity stays the user's Background Opacity.
+                self.bg:SetAlpha((s.customPowerBgAlpha or 100) / 100)
             end
         elseif not shouldGray and self._grayedOut then
             self._grayedOut = false

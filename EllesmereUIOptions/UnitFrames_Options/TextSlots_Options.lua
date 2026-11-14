@@ -36,7 +36,7 @@ function ns.UFO_EditCustomText(prefix, db, unit, onSave)
     elseif db[prefix .. "ClassColor"] then
         if unit == "player" then
             local _, cls = UnitClass("player")
-            color = cls and (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[cls]
+            color = cls and EllesmereUI.GetClassColor(cls)
         else
             color = { r = 0.9, g = 0.3, b = 0.3 }
         end
