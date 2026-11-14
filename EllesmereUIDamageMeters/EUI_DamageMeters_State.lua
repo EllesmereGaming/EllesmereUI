@@ -144,6 +144,8 @@ end
 -- Applies a window's saved position. Two formats: unlock format { point, relPoint, x, y } (relative
 -- to UIParent, from unlock mode's Save & Exit); legacy format { x = left, y = top } (TOPLEFT offset from UIParent's BOTTOMLEFT, from header drags outside unlock mode)
 ns.ApplyWinPosition = function(frame, wdb, idx)
+    local bars = EUI._ModuleNS.EllesmereUIDataBars
+    if bars and bars.PlaceDockMeter and bars.PlaceDockMeter(frame, idx) then return end
     -- The resize grip owns the frame's anchor while a drag is in flight. Even
     -- with the format converted above, re-anchoring mid-resize would fight the
     -- grip's live SetPoint for a frame; leave it alone until the drag ends.
@@ -243,6 +245,12 @@ ns.RegisterDMUnlock = function()
     end
     local elements = {}
     for i = 1, #_windows do
+        local bars = EUI._ModuleNS.EllesmereUIDataBars
+        local docked = bars and bars.MeterDockState and bars.MeterDockState(i)
+        if docked and EUI.UnregisterUnlockElement then
+            EUI:UnregisterUnlockElement("EDM_Win" .. i)
+        end
+        if not docked then
         elements[#elements + 1] = MK({
             key   = "EDM_Win" .. i,
             label = EUI.Lf("Damage Meter %1$d", i),
@@ -335,6 +343,7 @@ ns.RegisterDMUnlock = function()
                 if w and w.ApplyPosition then w.ApplyPosition() end
             end,
         })
+        end
     end
     -- Standalone combat timer rides the master toggle (factory defined in EUI_DamageMeters_Timer.lua, resolved via ns)
     if DB().standaloneTimer and ns.MakeSATimerUnlockElement then
