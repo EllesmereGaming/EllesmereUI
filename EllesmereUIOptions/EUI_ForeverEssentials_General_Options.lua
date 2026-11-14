@@ -719,7 +719,8 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               setValue = function(v) JunkSet("showFreeSlots", v) end }
         );  y = y - h
 
-        -- Only Show When Bag Space Is Low (its threshold in the cog) | Use Auctionator Prices
+        local FE = EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"]
+        -- Only Show When Bag Space Is Low (its threshold in the cog) | Use Auction Prices (its addon in the cog)
         local lowRow
         lowRow, h = W:DualRow(parent, y,
             { type = "toggle", text = "Only Show When Bag Space Is Low",
@@ -729,16 +730,31 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
                   JunkSet("onlyLowBagSpace", v)
                   EllesmereUI:RefreshPage()  -- the cog's disabled state
               end },
-            { type = "toggle", text = "Use Auctionator Prices",
-              tooltip = "Prices items from Auctionator scans.",
+            { type = "toggle", text = "Use Auction Prices",
+              tooltip = "Prices items from your auction addon's scans. Use the cog to pick the addon.",
               disabled = function()
-                  return EllesmereUI._ModuleNS["EllesmereUIForeverEssentials"].AuctionAPI() == nil
+                  return not (FE.PriceSourceLoaded("AUCTIONATOR") or FE.PriceSourceLoaded("BBB"))
               end,
-              disabledTooltip = "This option requires Auctionator to be loaded.",
+              disabledTooltip = "This option requires Auctionator or BootyBayBroker to be loaded.",
               getValue = function() return JI.Get("auctionPrices") == true end,
-              setValue = function(v) JunkSet("auctionPrices", v) end }
+              setValue = function(v)
+                  JunkSet("auctionPrices", v)
+                  EllesmereUI:RefreshPage()  -- the cog's disabled state
+              end }
         );  y = y - h
         if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineCog(lowRow._rightRegion, {
+                title = "Use Auction Prices",
+                disabled = function() return JI.Get("auctionPrices") ~= true end,
+                disabledTooltip = "Use Auction Prices",
+                rows = {
+                    { type = "dropdown", label = "Price Source",
+                      values = FE.PRICE_SOURCES, order = FE.PRICE_SOURCE_ORDER,
+                      get = function() return FE.PriceSource(JI.Get("priceSource")) end,
+                      set = function(v) JunkSet("priceSource", v) end,
+                      itemDisabled = function(v) return not FE.PriceSourceLoaded(v) end },
+                },
+            })
             EllesmereUI.BuildInlineCog(lowRow._leftRegion, {
                 title = "Only Show When Bag Space Is Low",
                 disabled = function() return JI.Get("onlyLowBagSpace") ~= true end,

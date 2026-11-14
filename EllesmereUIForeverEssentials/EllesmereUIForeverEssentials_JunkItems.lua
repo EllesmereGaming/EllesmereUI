@@ -8,8 +8,8 @@ if not (EllesmereUI and EllesmereUI.IS_FOREVER) then return end
 --    Ctrl + Left Click  : delete the stack (above Delete Without Confirming: a
 --                         second Ctrl + Left Click confirms; Rare and better type DELETE first)
 --    Middle Click       : never show this item again (account-wide)
---  Each icon shows its stack's value underneath (vendor, or Auctionator's with
---  Use Auctionator Prices on), cut to whole silver (1g 15s 12c -> 1g 15s).
+--  Each icon shows its stack's value underneath (vendor, or the price addon's
+--  with Use Auction Prices on), cut to whole silver (1g 15s 12c -> 1g 15s).
 --  Copper only appears while the value is under 1g.
 -------------------------------------------------------------------------------
 local _, module = ...
@@ -30,7 +30,7 @@ local DEFAULTS = {
     iconSize         = 32,
     iconSpacing      = 20,        -- gap between icons, px
     priceSide        = "bottom",  -- bottom | top
-    auctionPrices    = false,     -- value stacks at Auctionator's price when it has one
+    auctionPrices    = false,     -- value stacks at the price addon's price when it has one
     showFreeSlots    = false,     -- title reads "Bag Slots - free/total"; off hides the title
     onlyLowBagSpace  = false,     -- also hidden until fewer bag slots are free than the threshold
     freeSlotThreshold = 5,        -- free regular bag slots, 1..100
@@ -70,7 +70,8 @@ local armedCell              -- the cell whose stack the next Ctrl + Left Click 
 local swapCount = 0          -- cells holding a double-click guard
 local priceFitW = 0          -- widest price a cell shows in full (its icon plus the spacing, less 2 px)
 local lastFree, lastTotal    -- the title's counts as last drawn
-local auctionOn = false      -- Use Auctionator Prices, as the remembered values were priced
+local auctionOn = false      -- Use Auction Prices, as the remembered values were priced
+local auctionSource          -- the price addon they were priced by
 local dbHooked = false       -- Auctionator's price-update callback registered
 
 -- Per-slot facts for the scanned bags. A pass re-reads only the bags marked
@@ -240,7 +241,7 @@ end
 
 -- Soulbound stacks cannot be auctioned: they keep their vendor value.
 local function StackValue(r)
-    local each = auctionOn and not r.bound and r.link and module.AuctionPrice(r.link)
+    local each = auctionOn and not r.bound and r.link and module.AuctionPrice(r.link, auctionSource)
     return each and each * r.count or r.vendor
 end
 
@@ -751,9 +752,9 @@ end
 -------------------------------------------------------------------------------
 Refresh = function()
     if not active then return end
-    local ah = Get("auctionPrices") == true
-    if ah ~= auctionOn then
-        auctionOn = ah
+    local ah, source = Get("auctionPrices") == true, Get("priceSource")
+    if ah ~= auctionOn or source ~= auctionSource then
+        auctionOn, auctionSource = ah, source
         Forget("total")
     end
     if ah and not dbHooked then HookPriceUpdates() end

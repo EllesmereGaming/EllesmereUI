@@ -160,7 +160,7 @@ function ns.MicroClickLayer(microName, onClick)
 end
 
 -------------------------------------------------------------------------------
---  Auctionator prices (Loot Feed, Junk Items)
+--  Auction prices (Loot Feed, Junk Items)
 -------------------------------------------------------------------------------
 -- Auctionator's API, while that addon is loaded.
 function ns.AuctionAPI()
@@ -168,10 +168,42 @@ function ns.AuctionAPI()
     return api and api.GetAuctionPriceByItemLink and api or nil
 end
 
--- What Auctionator last saw one of the item listed for, when it has a price.
-function ns.AuctionPrice(link)
-    local api = ns.AuctionAPI()
-    if not api then return end
-    local ok, price = pcall(api.GetAuctionPriceByItemLink, "EllesmereUI", link)
+-- BootyBayBroker, while that addon is loaded.
+function ns.Broker()
+    local ace = LibStub and LibStub("AceAddon-3.0", true)
+    local bbb = ace and ace:GetAddon("BootyBayBroker", true)
+    return bbb and type(bbb.ItemUnitValue) == "function" and bbb or nil
+end
+
+ns.PRICE_SOURCES = { AUCTIONATOR = "Auctionator", BBB = "BootyBayBroker" }
+ns.PRICE_SOURCE_ORDER = { "AUCTIONATOR", "BBB" }
+
+function ns.PriceSourceLoaded(source)
+    if source == "BBB" then return ns.Broker() ~= nil end
+    return ns.AuctionAPI() ~= nil
+end
+
+-- The price addon in use: the chosen one, else whichever is loaded
+-- (Auctionator first).
+function ns.PriceSource(choice)
+    if ns.PRICE_SOURCES[choice] then return choice end
+    if not ns.AuctionAPI() and ns.Broker() then return "BBB" end
+    return "AUCTIONATOR"
+end
+
+-- What the price addon values one of the item at, when it has a price:
+-- Auctionator's last seen listing, or BootyBayBroker's unit value.
+function ns.AuctionPrice(link, choice)
+    local ok, price
+    if ns.PriceSource(choice) == "BBB" then
+        local bbb = ns.Broker()
+        local itemID = bbb and C_Item.GetItemInfoInstant(link)
+        if not itemID then return end
+        ok, price = pcall(bbb.ItemUnitValue, bbb, itemID)
+    else
+        local api = ns.AuctionAPI()
+        if not api then return end
+        ok, price = pcall(api.GetAuctionPriceByItemLink, "EllesmereUI", link)
+    end
     if ok and type(price) == "number" and price > 0 then return price end
 end
