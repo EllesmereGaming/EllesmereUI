@@ -4,7 +4,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Finds EllesmereUI's health bars (nameplates, unit frames, raid and party
 --  frames) and hands each one to the bar features (Health Ticks, Health
 --  Animations). It reads the module namespaces through EllesmereUI._ModuleNS and
---  changes no module file. Nothing is registered while no feature is on.
+--  changes no module file. Nothing is registered while no feature is on. A crowd
+--  of new nameplates in one frame is drawn over a few frames (frame budget).
 --
 --  A feature (HB.AddFeature) is a table:
 --    Resolve()          settings changed: rebuild what the feature needs per place
@@ -15,6 +16,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --    Clear(bar, e)      remove what the feature drew (cheap when nothing is there)
 --    Health(unit, set)  optional, UNIT_HEALTH: set = HB.byUnit[unit] (bar -> entry)
 --    Redo(bar, e)       optional, after a loading screen: build the bar's drawing again
+--                       (called just before the bar's next draw)
 --  An entry e: place, unit, kind ("plate", "raid", "unit"), owner, ffd.
 --  Features keep their per-bar state in weak tables of their own.
 --------------------------------------------------------------------------------
@@ -114,6 +116,41 @@ local BARS = setmetatable({}, { __mode = "k" })
 local byUnit = {}
 HB.BARS, HB.byUnit = BARS, byUnit
 
+-------------------------------------------------------------------------------
+--  Frame budget. Drawing a bar for a new unit is heavy (Health Ticks sets about
+--  300 mark bars, 2.5 to 5 ms), and a crowd puts many nameplates up in one
+--  frame. Past BUDGET_MS of drawing in a frame, a draw waits in a queue: the
+--  oldest first, at least one per frame, so the queue always moves. A bar that
+--  waits shows nothing yet. A check that only looks at a bar and the unit frames
+--  never wait. Without debugprofilestop nothing waits. GetTime() is the same all
+--  through a frame, so it tells frames apart.
+-------------------------------------------------------------------------------
+local BUDGET_MS = 3
+local clock = debugprofilestop
+local spent, spentAt = 0, -1          -- ms drawn in the frame whose GetTime() is spentAt
+local pend = {}                       -- pend[bar] = the draw that waits
+local pendList, pendHead, pendTail = {}, 1, 0
+local queued = 0
+local draining = false
+local DrainQueue                      -- below, once StillValid exists
+
+local function Spent()
+    local now = GetTime()
+    if now ~= spentAt then spentAt, spent = now, 0 end
+    return spent
+end
+
+local function Charge(t0)
+    Spent()
+    spent = spent + (clock() - t0)
+end
+
+local function ClearPending()
+    for bar in pairs(pend) do pend[bar] = nil end
+    for i = pendHead, pendTail do pendList[i] = nil end
+    pendHead, pendTail, queued = 1, 0, 0
+end
+
 -- The features follow a left-to-right horizontal fill only.
 local function AxisOK(bar)
     if bar:GetOrientation() == "VERTICAL" then return false end
@@ -146,6 +183,10 @@ local function Unlink(bar, e)
 end
 
 local function Detach(bar)
+    if pend[bar] then
+        pend[bar] = nil
+        queued = queued - 1
+    end
     local e = BARS[bar]
     if not e then return end
     for i = 1, #FEATURES do Safe(FEATURES[i], FEATURES[i].Clear, bar, e) end
@@ -153,11 +194,8 @@ local function Detach(bar)
 end
 HB.Detach = Detach
 
-local function Attach(bar, place, unit, kind, owner, force, ffd)
-    if not WANT[place] then
-        Detach(bar)
-        return
-    end
+-- Draws a bar now (the work the frame budget meters).
+local function DoAttach(bar, place, unit, kind, owner, force, ffd)
     local e = BARS[bar]
     if not e then
         e = {}
@@ -175,7 +213,63 @@ local function Attach(bar, place, unit, kind, owner, force, ffd)
         e.unit = unit
     end
     e.place, e.kind, e.owner, e.ffd = place, kind, owner, ffd
+    if e.redo then
+        e.redo = nil
+        for i = 1, #FEATURES do
+            local f = FEATURES[i]
+            if f.Redo then Safe(f, f.Redo, bar, e) end
+        end
+    end
     Apply(bar, e, force or not same)
+end
+
+-- A draw that finds the frame's budget spent waits for a later frame. need: it
+-- must be a full redraw (force, or a new unit).
+local function Defer(bar, place, unit, kind, owner, need, ffd, same)
+    local a = pend[bar]
+    if a then
+        -- Already waiting: the newest values count; a new unit needs a full draw.
+        local stays = a.unit == unit and a.place == place and a.owner == owner
+        a.place, a.unit, a.kind, a.owner, a.ffd = place, unit, kind, owner, ffd
+        a.force = a.force or need or not stays
+        return
+    end
+    if not same then
+        -- The bar's old unit is gone: its drawing goes now, not after the wait.
+        local e = BARS[bar]
+        if e and e.unit then Detach(bar) end
+    end
+    pendTail = pendTail + 1
+    pendList[pendTail] = bar
+    -- seq: its place in the line (an older line entry of the same bar is stale)
+    pend[bar] = { place = place, unit = unit, kind = kind, owner = owner, force = need, ffd = ffd, seq = pendTail }
+    queued = queued + 1
+    if not draining then
+        draining = true
+        C_Timer.After(0, DrainQueue)
+    end
+end
+
+local function Attach(bar, place, unit, kind, owner, force, ffd)
+    if not WANT[place] then
+        Detach(bar)
+        return
+    end
+    if not clock then
+        DoAttach(bar, place, unit, kind, owner, force, ffd)
+        return
+    end
+    if kind ~= "unit" then
+        local e = BARS[bar]
+        local same = e ~= nil and e.unit == unit and e.place == place and e.owner == owner
+        if (force or not same) and (queued > 0 or Spent() >= BUDGET_MS) then
+            Defer(bar, place, unit, kind, owner, force or not same, ffd, same)
+            return
+        end
+    end
+    local t0 = clock()
+    DoAttach(bar, place, unit, kind, owner, force, ffd)
+    Charge(t0)
 end
 
 -------------------------------------------------------------------------------
@@ -307,6 +401,39 @@ local function StillValid(bar, e, unit)
     return true
 end
 
+-- Each frame while draws wait: the oldest waiting bars are drawn while the frame
+-- has budget (one at least). A bar whose owner moved on while it waited is
+-- dropped.
+DrainQueue = function()
+    draining = false
+    Spent()
+    local drew = false
+    while pendHead <= pendTail do
+        if drew and spent >= BUDGET_MS then break end
+        local slot = pendHead
+        local bar = pendList[slot]
+        pendList[slot] = nil
+        pendHead = slot + 1
+        local a = pend[bar]
+        if a and a.seq == slot then
+            pend[bar] = nil
+            queued = queued - 1
+            if anyOn and WANT[a.place] and StillValid(bar, a, a.unit) then
+                local t0 = clock()
+                DoAttach(bar, a.place, a.unit, a.kind, a.owner, a.force, a.ffd)
+                Charge(t0)
+                drew = true
+            end
+        end
+    end
+    if pendHead <= pendTail then
+        draining = true
+        C_Timer.After(0, DrainQueue)
+    else
+        pendHead, pendTail = 1, 0
+    end
+end
+
 -------------------------------------------------------------------------------
 --  Events (registered only while a feature is on)
 -------------------------------------------------------------------------------
@@ -417,17 +544,13 @@ function H.PLAYER_ENTERING_WORLD()
 end
 
 -- A push in the first frames after a loading screen can run before the game has
--- laid the frames out: build every drawn bar again once it has.
+-- laid the frames out: build every drawn bar again once it has. Each bar is built
+-- again in its own draw, so the frame budget spreads them over frames.
 function H.LOADING_SCREEN_DISABLED()
     C_Timer.After(0.5, function()
         if not anyOn then return end
-        for bar, e in pairs(BARS) do
-            if e.unit then
-                for i = 1, #FEATURES do
-                    local f = FEATURES[i]
-                    if f.Redo then Safe(f, f.Redo, bar, e) end
-                end
-            end
+        for _, e in pairs(BARS) do
+            if e.unit then e.redo = true end
         end
         HB.Refresh(true)
     end)
@@ -467,6 +590,7 @@ function HB.Refresh(force)
     Resolve()
     SyncEvents()
     if not anyOn then
+        ClearPending()
         for bar in pairs(BARS) do Detach(bar) end
         return
     end
