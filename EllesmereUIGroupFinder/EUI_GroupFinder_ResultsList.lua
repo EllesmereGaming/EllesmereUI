@@ -217,12 +217,49 @@ local dimmed = {}
 -- kept from the last collect: applications, each listed group's filter pass
 -- (a result update is checked against it) and the sort's values
 local seen, isApp, passOf, sortVal = {}, {}, {}, {}
--- pending applications your filters would now leave out, and the ones already cancelled for it
-local mismatch, autoCancelled = {}, {}
-local function MismatchOf(id)
+-- pending applications your filters would now leave out, the ones cancelled for it,
+-- and each one's pass when first seen applied (only a pass that turns into a fail counts)
+local mismatch, autoCancelled, cancelSent, firstPass = {}, {}, {}, {}
+-- only worked out while the colour or the auto cancel is on
+local function MismatchOn()
+    if ns.OwnListGet("lineMismatch") ~= false then return true end
+    local gc = GFNS.Cfg and GFNS.Cfg()
+    return gc and gc.autoCancelMismatch == true or false
+end
+-- the filters are per tab: only the shown tab's applications are judged
+local function OnShownTab(id)
+    local info = C_LFGList.GetSearchResultInfo(id)
+    if not Readable(info) then return false end
+    local acts = info.activityIDs
+    local act = type(acts) == "table" and not Secret(acts) and acts[1]
+    local ai = act and not Secret(act) and C_LFGList.GetActivityInfoTable(act)
+    return Readable(ai) and SP and ai.categoryID == SP.categoryID or false
+end
+local function MismatchOf(id, note)
     local _, status = C_LFGList.GetApplicationInfo(id)
-    if Secret(status) or status ~= "applied" or not GFNS.ExtraPassesAsNew then return false end
-    return not GFNS.ExtraPassesAsNew(id)
+    if Secret(status) or status ~= "applied" then
+        firstPass[id] = nil
+        return false
+    end
+    if not GFNS.ExtraPassesAsNew or not OnShownTab(id) then return false end
+    local pass = GFNS.ExtraPassesAsNew(id) and true or false
+    if firstPass[id] == nil then
+        if note then firstPass[id] = pass end
+        return false
+    end
+    return firstPass[id] and not pass
+end
+-- cancelling needs a click, so it waits for your next one on the list
+local function SendMismatchCancels()
+    local gc = GFNS.Cfg and GFNS.Cfg()
+    if not (gc and gc.autoCancelMismatch) then return end
+    for id in pairs(mismatch) do
+        if not autoCancelled[id] then
+            autoCancelled[id] = true
+            cancelSent[id] = true
+            C_LFGList.CancelApplication(id)
+        end
+    end
 end
 local noteOf, tops = {}, {}  -- shown groups with a note, each shown row's top
 
@@ -258,10 +295,11 @@ local function Collect()
     local appsFirst = ns.OwnListGet("appsFirst") ~= false
     for _, id in ipairs(res) do if not Secret(id) then Pos(id) end end
     local apps = C_LFGList.GetApplications() or {}
+    local judge = MismatchOn()
     for _, id in ipairs(apps) do
         if not Secret(id) then
             isApp[id] = true
-            if MismatchOf(id) then mismatch[id] = true end
+            if judge and MismatchOf(id, true) then mismatch[id] = true end
         end
     end
     if appsFirst then
@@ -584,6 +622,7 @@ local function MakeRow(i, parent)
     end)
     r.cancel:SetScript("OnClick", function(self)
         if self:GetParent().preview then return end
+        SendMismatchCancels()
         local id = self:GetParent().resultID
         if id and not Secret(id) then C_LFGList.CancelApplication(id) end
     end)
@@ -666,6 +705,7 @@ local function MakeRow(i, parent)
         if self.preview then return end
         local id = self.resultID
         if not id or not active then return end
+        SendMismatchCancels()
         if button == "RightButton" then return ns.OwnListMenu(self, id) end
         local now = GetTime()
         if lastClickID == id and (now - lastClickTime) < 0.4 then clickCount = clickCount + 1 else clickCount = 1 end
@@ -1760,13 +1800,14 @@ local function Flush()
     end
     if not full then
         local notesOn = ns.OwnListGet("groupNotes")
+        local judge = MismatchOn()
         for id in pairs(dirty) do
             if ResultSecret(id) then
                 full = true
                 break
             end
             -- a pending application started or stopped matching your filters
-            if isApp[id] and MismatchOf(id) ~= (mismatch[id] == true) then
+            if judge and isApp[id] and MismatchOf(id) ~= (mismatch[id] == true) then
                 full = true
                 break
             end
@@ -1857,7 +1898,10 @@ local function Build()
             hl:SetAllPoints()
             hl:SetColorTexture(1, 1, 1, 0.1)
         end
-        signBtn:SetScript("OnClick", function() SignUp(selected) end)
+        signBtn:SetScript("OnClick", function()
+            SendMismatchCancels()
+            SignUp(selected)
+        end)
         signBtn:SetScript("OnEnter", function(self)
             if not self.why then return end
             EUI.ShowWidgetTooltip(self, self.why)
@@ -1890,12 +1934,17 @@ local function Build()
     flusher = CreateFrame("Frame")
     flusher:Hide()
     flusher:SetScript("OnUpdate", Flush)
-    frame:SetScript("OnEvent", function(_, event, id)
+    frame:SetScript("OnEvent", function(_, event, id, newStatus)
         if event == "LFG_LIST_SEARCH_RESULT_UPDATED" then
             -- one group changed; a result can also go secret mid-list
             if type(id) == "number" and not Secret(id) then dirty[id] = true else fullDirty = true end
             flusher:Show()
         elseif event == "LFG_LIST_APPLICATION_STATUS_UPDATED" then
+            -- an auto cancel went through
+            if cancelSent[id] and newStatus == "cancelled" then
+                EUI.Print(EllesmereUI.L("Cancelled an application that no longer matches your filters."))
+            end
+            if type(id) == "number" then cancelSent[id] = nil end
             -- applications reorder the list (applied groups on top)
             fullDirty = true
             flusher:Show()
@@ -1969,17 +2018,6 @@ function ns.OwnListRefresh()
         end
         Collect()
         Paint()
-        -- auto cancel: once per application, only ones that stopped matching your filters
-        local gc = GFNS.Cfg and GFNS.Cfg()
-        if gc and gc.autoCancelMismatch then
-            for id in pairs(mismatch) do
-                if not autoCancelled[id] then
-                    autoCancelled[id] = true
-                    C_LFGList.CancelApplication(id)
-                    print(EllesmereUI.L("EllesmereUI: cancelled an application that no longer matches your filters."))
-                end
-            end
-        end
     end
 end
 

@@ -359,6 +359,7 @@ Camp
 Can tank or dps
 Cancel
 Cancelled
+Cancelled an application that no longer matches your filters.
 Cancer
 Cannot determine your current zone.
 Cannot open options during combat.
@@ -622,7 +623,6 @@ Elements cannot size match to\n%1$s
 Ellesmere's Twitch stream
 EllesmereUI Style, Blizzard Style and Classic WoW UI reload the UI once to apply. Each module can be switched separately later.
 EllesmereUI's features work with every look. Change your mind any time under Global Settings > Style.
-EllesmereUI: cancelled an application that no longer matches your filters.
 EllesmereUI:|r Kick Tracker announcement reset. It fires on your next /reload.
 Else: Variant %d
 Elwynn Forest

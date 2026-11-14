@@ -159,7 +159,7 @@ initFrame:SetScript("OnEvent", function(self)
               getValue = function() return ns.Cfg().cancelOldest == true end,
               setValue = function(v) ns.Cfg().cancelOldest = v and true or false end },
             { type = "toggle", text = "Cancel Mismatched Applications",
-              tooltip = "Cancels a pending application once the group no longer matches your filters, for example when your role fills up. Checked while the results list is open.",
+              tooltip = "Cancels a pending application once the group no longer matches your filters, for example when your role fills up. Only judges the tab you're on, and the cancel goes out on your next click on the list.",
               getValue = function() return ns.Cfg().autoCancelMismatch == true end,
               setValue = function(v) ns.Cfg().autoCancelMismatch = v and true or nil end });  y = y - h
         if PGFLoaded() then
