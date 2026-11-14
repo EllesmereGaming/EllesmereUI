@@ -1161,7 +1161,10 @@ local function XPQuestXP(s)
     local all, onlyZone = ov and not s.questOverlayCompleted, ov and s.questOverlayZone
     local total, done, inc = 0, 0, 0
     for i = 1, QL.GetNumQuestLogEntries() do
-        local q = QL.GetQuestIDForLogIndex(i)
+        -- Only quests the quest log lists: hidden and task/bounty entries skipped.
+        local info = QL.GetInfo(i)
+        local q = info and not info.isHeader and not info.isHidden
+            and not info.isTask and not info.isBounty and info.questID
         if q and q > 0 then
             local complete = QL.IsComplete(q)
             if complete or all then
