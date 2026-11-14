@@ -260,7 +260,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- Guildmate option lives in a cog on Auto-Accept Friend Invites; it
         -- only extends that feature, so the cog blocks while the toggle is off.
-        if not EllesmereUI._prebuilding then
+        do
         local rgn = row._rightRegion
         local function autoAcceptOff()
             local f = FriendsDB()

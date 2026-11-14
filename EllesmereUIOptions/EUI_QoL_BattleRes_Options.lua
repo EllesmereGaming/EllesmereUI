@@ -433,6 +433,10 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
           setValue=function(v) Set("textSize", v); Refresh() end })
     y = y - h
 
+    AttachToggleCog(dispRow._leftRegion, "Icon Settings", "Desaturate when No Charges",
+        function() return Cfg("desaturateNoCharges") ~= false end,
+        function(v) Set("desaturateNoCharges", v); Refresh() end,
+        TextModeOn, ICON_ROWS_TIP)
     if not EllesmereUI._prebuilding then
         local rgn = dispRow._leftRegion
         -- Builds one inline color swatch with the blocking-overlay disabled
@@ -472,11 +476,6 @@ _G._EUI_BuildBattleResSection = function(parent, yOffset, W, PP)
             UpdateState()
             return swatch
         end
-        AttachToggleCog(rgn, "Icon Settings", "Desaturate when No Charges",
-            function() return Cfg("desaturateNoCharges") ~= false end,
-            function(v) Set("desaturateNoCharges", v); Refresh() end,
-            TextModeOn, ICON_ROWS_TIP)
-
         local timerSwatch = MakeInlineTextSwatch("textTimerColor", "Timer Color", rgn._lastInline or rgn._control)
         local countSwatch = MakeInlineTextSwatch("textCountColor", "Count Color", timerSwatch)
         rgn._lastInline = countSwatch
@@ -759,12 +758,10 @@ _G._EUI_BuildBloodlustSection = function(parent, yOffset, W, PP)
               end })
         y = y - h
 
-        if not EllesmereUI._prebuilding then
-            AttachToggleCog(row._leftRegion, "Sated Settings", "Desaturate when Sated",
-                function() return BL_Cfg("desaturateSated") ~= false end,
-                function(v) BL_Set("desaturateSated", v); BL_Refresh() end,
-                function() return BL_Cfg("showSated") == false end, "Show Icon when Sated")
-        end
+        AttachToggleCog(row._leftRegion, "Sated Settings", "Desaturate when Sated",
+            function() return BL_Cfg("desaturateSated") ~= false end,
+            function(v) BL_Set("desaturateSated", v); BL_Refresh() end,
+            function() return BL_Cfg("showSated") == false end, "Show Icon when Sated")
 
         -- Ready appearance: colour swatch, offset cog and size slider on one row,
         -- disabled (not hidden) while Show Ready is off so the layout never

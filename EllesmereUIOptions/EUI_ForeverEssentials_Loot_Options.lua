@@ -308,7 +308,7 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
             setPx = function(v) LF.Cfg().borderSizePx = v end,
             apply = function() LF.ApplyStyle(); EllesmereUI:RefreshPage() end }
     );  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local offsetX, offsetY = EllesmereUI.BorderOffsetCogRows{
             getTex = function() return LF.Get("borderTexture") end,
             getStep = function() return LF.Get("borderSize") end,
@@ -350,6 +350,8 @@ _G._EUI_BuildLootFeedPage = function(pageName, parent, yOffset)
                   get = function() return LF.Get("separator") end,
                   set = function(v) LF.Cfg().separator = v; LF.ApplyStyle() end },
             } })
+    end
+    if not EllesmereUI._prebuilding then
         Swatch(borderRow._rightRegion, "border", "Border Color", noBorderColor,
             function()
                 if off() then return "Loot Feed" end

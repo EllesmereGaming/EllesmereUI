@@ -1394,7 +1394,7 @@ function _G._EUI_BuildFontsPage(pageName, parent, yOffset)
               if rl then for i2 = 1, #rl do rl[i2]() end end
               FontReload()
           end });  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(globalFontRow._leftRegion, {
             title = "Global Font",
             rows = {

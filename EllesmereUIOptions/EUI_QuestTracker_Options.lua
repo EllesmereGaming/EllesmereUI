@@ -322,7 +322,7 @@ initFrame:SetScript("OnEvent", function(self)
               tooltip="Draws a 1px accent line above the background at the top of the tracker.",
               getValue=function() return Cfg("showTopLine") ~= false end,
               setValue=function(v) Set("showTopLine", v); if EQT.ApplyBackground then EQT.ApplyBackground() end end })
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = bgRow._leftRegion
             local ctrl = rgn._control
             -- The custom tracker can hide its background until hovered.
@@ -341,19 +341,21 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
             end
-            local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
-                rgn, bgRow:GetFrameLevel() + 3,
-                function()
-                    return (Cfg("bgR") or 0), (Cfg("bgG") or 0), (Cfg("bgB") or 0)
-                end,
-                function(r, g, b)
-                    Set("bgR", r); Set("bgG", g); Set("bgB", b)
-                    if EQT.ApplyBackground then EQT.ApplyBackground() end
-                end,
-                false, 20)
-            PP.Point(bgSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
-            rgn._lastInline = bgSwatch
-            EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
+            if not EllesmereUI._prebuilding then
+                local bgSwatch, bgSwatchRefresh = EllesmereUI.BuildColorSwatch(
+                    rgn, bgRow:GetFrameLevel() + 3,
+                    function()
+                        return (Cfg("bgR") or 0), (Cfg("bgG") or 0), (Cfg("bgB") or 0)
+                    end,
+                    function(r, g, b)
+                        Set("bgR", r); Set("bgG", g); Set("bgB", b)
+                        if EQT.ApplyBackground then EQT.ApplyBackground() end
+                    end,
+                    false, 20)
+                PP.Point(bgSwatch, "RIGHT", rgn._lastInline or ctrl, "LEFT", -8, 0)
+                rgn._lastInline = bgSwatch
+                EllesmereUI.RegisterWidgetRefresh(function() bgSwatchRefresh() end)
+            end
         end
         y = y - h
 

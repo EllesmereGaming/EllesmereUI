@@ -365,7 +365,7 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
     -- Color Border's cog, built while it is picked (the dropdown rebuilds the
     -- page) and shown only over a border drawn as strips; a border change on
     -- the Display page reaches it through the page's refreshers.
-    if Mode() == "border" and not EllesmereUI._prebuilding then
+    if Mode() == "border" then
         local cog = EllesmereUI.BuildInlineCog(modeRow._leftRegion, {
             title = "Color Border",
             rows = {
@@ -378,9 +378,11 @@ function ns.NP_BuildDebuffColorsOptions(parent, y)
                   end },
             },
         })
-        local function ShowCog() cog:SetShown(StripBorder()) end
-        ShowCog()
-        EllesmereUI.RegisterWidgetRefresh(ShowCog)
+        if not EllesmereUI._prebuilding then
+            local function ShowCog() cog:SetShown(StripBorder()) end
+            ShowCog()
+            EllesmereUI.RegisterWidgetRefresh(ShowCog)
+        end
     end
 
     -- Texture Nameplate's texture, the row below while it is picked (unset reads
@@ -998,7 +1000,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
     end
 
     -- Inline cog on "Enemy Types": Simple Coloring When Not In M+. On: outside 5-man dungeons, Mini/Caster/Miniboss/Boss all use the flat "All Enemies" color below (Neutral keeps its own); off (default) has no effect anywhere. Keys keep their owBasic* names from before the current UI label.
-    if not EllesmereUI._prebuilding then
+    do
         local leftRgn = enemyTypesRow._leftRegion
         local isOWOff = function()
             local v = DBVal("owBasicColoring")
@@ -1090,7 +1092,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
     end
 
     -- Inline cog on "Neutral & Mini Enemies": "Mini Coloring M+ Only" toggle. On (default) restricts the Mini Enemies color to 5-man dungeons; off applies it everywhere.
-    if not EllesmereUI._prebuilding then
+    do
         local leftRgn = neutralMiniRow._leftRegion
         EllesmereUI.BuildInlineCog(leftRgn, {
             title = "Mini Enemies",
@@ -1129,7 +1131,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
           tooltip="Enemy players take the Enemies color instead of their class color." });  y = y - h
 
     -- Inline cog with the mob types each applies to, then the Interruptible / Uninterruptible swatches.
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = castingRow._leftRegion
         local isCastingOff = function() return DBVal("castingEnemyColors") ~= true end
         local typeItems = {
@@ -1156,20 +1158,22 @@ local function BuildColorsPage(pageName, parent, yOffset)
                 TypeRow("Uninterruptible Applies To", "castingUnint"),
             },
         })
-        EllesmereUI.BuildInlineSwatches(rgn, {
-            { tooltip = "Interruptible Caster",
-              getValue = function() return DBColor("castingIntColor") end,
-              setValue = function(r, g, b)
-                DB().castingIntColor = { r = r, g = g, b = b }
-                RefreshAllPlates()
-              end },
-            { tooltip = "Uninterruptible Caster",
-              getValue = function() return DBColor("castingUnintColor") end,
-              setValue = function(r, g, b)
-                DB().castingUnintColor = { r = r, g = g, b = b }
-                RefreshAllPlates()
-              end },
-        }, { disabled = isCastingOff, disabledTooltip = "Color Casting Enemies" })
+        if not EllesmereUI._prebuilding then
+            EllesmereUI.BuildInlineSwatches(rgn, {
+                { tooltip = "Interruptible Caster",
+                  getValue = function() return DBColor("castingIntColor") end,
+                  setValue = function(r, g, b)
+                    DB().castingIntColor = { r = r, g = g, b = b }
+                    RefreshAllPlates()
+                  end },
+                { tooltip = "Uninterruptible Caster",
+                  getValue = function() return DBColor("castingUnintColor") end,
+                  setValue = function(r, g, b)
+                    DB().castingUnintColor = { r = r, g = g, b = b }
+                    RefreshAllPlates()
+                  end },
+            }, { disabled = isCastingOff, disabledTooltip = "Color Casting Enemies" })
+        end
     end
 
     _, h = W:Spacer(parent, y, 20);  y = y - h
@@ -1311,7 +1315,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
 
     -- Inline cog on "Non-Tank Threat": steady red execute-style glow
     -- while the Near Aggro color is active (see EnsureNearAggroGlow).
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(nonTankRow._leftRegion, {
             disabled = threatNever,
             disabledTooltip = "Show Threat Colors",
@@ -1336,7 +1340,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
     end
 
     -- Inline cog next to the DPS toggle, then the "No Aggro" color swatch left of it
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = nonTankRow._rightRegion
         local dpsNoAggroColorGet = function() return DBColor("dpsNoAggro") end
         local dpsNoAggroColorSet = function(r, g, b)
@@ -1377,10 +1381,12 @@ local function BuildColorsPage(pageName, parent, yOffset)
                   set=function(v) DB().dpsNoAggroOverrideBoss = v; RefreshAllPlates() end },
             },
         })
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, dpsNoAggroColorGet, dpsNoAggroColorSet, nil, 20)
-        PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-        LockThreatSwatch(swatch, updateSwatch, isDpsNoAggroDisabled, 'DPS: Show Special "No Aggro" Color')
+        if not EllesmereUI._prebuilding then
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, dpsNoAggroColorGet, dpsNoAggroColorSet, nil, 20)
+            PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+            LockThreatSwatch(swatch, updateSwatch, isDpsNoAggroDisabled, 'DPS: Show Special "No Aggro" Color')
+        end
     end
 
     -- Row 3: Classic Tank Aggro (left) ---- Tank: Show Special "Has Aggro" Color (right)
@@ -1427,7 +1433,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
     end
 
     -- Inline cog next to the tank Has Aggro toggle, then the "Has Aggro" color swatch left of it
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = tankAggroRow._rightRegion
         local tankAggroColorGet = function() return DBColor("tankHasAggro") end
         local tankAggroColorSet = function(r, g, b)
@@ -1461,10 +1467,12 @@ local function BuildColorsPage(pageName, parent, yOffset)
                   set=function(v) DB().tankHasAggroOverrideBoss = v; RefreshAllPlates() end },
             },
         })
-        local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, tankAggroColorGet, tankAggroColorSet, nil, 20)
-        PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
-        rgn._lastInline = swatch
-        LockThreatSwatch(swatch, updateSwatch, isTankHasAggroDisabled, 'Tank: Show Special "Has Aggro" Color')
+        if not EllesmereUI._prebuilding then
+            local swatch, updateSwatch = EllesmereUI.BuildColorSwatch(rgn, rgn:GetFrameLevel() + 5, tankAggroColorGet, tankAggroColorSet, nil, 20)
+            PP.Point(swatch, "RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
+            rgn._lastInline = swatch
+            LockThreatSwatch(swatch, updateSwatch, isTankHasAggroDisabled, 'Tank: Show Special "Has Aggro" Color')
+        end
     end
 
     -- Show Threat On: which parts of the plate carry the threat colors above. Border and
@@ -1544,7 +1552,7 @@ local function BuildColorsPage(pageName, parent, yOffset)
             chanCfg);  y = y - h
         chanRow = threatPctRow
 
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(threatPctRow._leftRegion, {
                 title = "Threat %",
                 disabled = threatPctOff,

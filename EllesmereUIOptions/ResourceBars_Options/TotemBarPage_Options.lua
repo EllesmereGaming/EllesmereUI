@@ -69,7 +69,7 @@ local function BuildTotemSection(parent, y, S)
           end }, RefreshTotem);  y = y - h
 
     -- Spacing cog on Icon Size (right region)
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(row1._rightRegion, {
             title = "Icon Settings",
             rows = {
@@ -204,7 +204,7 @@ local function BuildTotemSection(parent, y, S)
 
         -- Border Options cog on Border Style (left region): hidden for "solid",
         -- disabled with the section's controls while the bar is off
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = bsRow._leftRegion
             local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
                 disabled = totemOff, disabledTooltip = req, rawTooltip = raw,
@@ -242,13 +242,15 @@ local function BuildTotemSection(parent, y, S)
                       end },
                 },
             })
-            local function UpdateCogVis()
-                local t = T()
-                local tex = t and t.borderTexture or "solid"
-                if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
+            if not EllesmereUI._prebuilding then
+                local function UpdateCogVis()
+                    local t = T()
+                    local tex = t and t.borderTexture or "solid"
+                    if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+                UpdateCogVis()
             end
-            EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-            UpdateCogVis()
         end
     end
 
@@ -286,7 +288,7 @@ local function BuildTotemSection(parent, y, S)
     -- Flyout Settings cog on Orientation: the side of a column the list of
     -- totems opens on. Greyed with the section while the bar is off, else
     -- while the bar is a row.
-    if S.flyoutCog and not EllesmereUI._prebuilding then
+    if S.flyoutCog then
         local rgn = orientRow._rightRegion
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Flyout Settings",

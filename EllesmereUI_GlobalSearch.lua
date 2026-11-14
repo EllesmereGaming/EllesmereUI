@@ -38,12 +38,87 @@ end
 --  Index storage
 -------------------------------------------------------------------------------
 local _searchIndex = {}
+-- Registration key -> entry (also the pick history's key).
 local _seenKeys = {}
+
+-- Picked results (frecency), key -> { count, last time }, capped; the least
+-- valuable pick makes room. On unless turned off (EllesmereUIDB.searchPicksOff);
+-- off keeps no history.
+local PICKS_MAX = 200
+function EllesmereUI.SearchPicksOn()
+    return not (EllesmereUIDB and EllesmereUIDB.searchPicksOff)
+end
+function EllesmereUI.SetSearchPicksOn(on)
+    EllesmereUIDB = EllesmereUIDB or {}
+    EllesmereUIDB.searchPicksOff = not on or nil
+    if not on then EllesmereUIDB.searchPicks = nil end
+end
+local function PickValue(p, now)
+    return p[1] / (1 + (now - p[2]) / 604800) -- a week-old pick counts half
+end
+local function PickKey(e)
+    if e.kind == "page" then return "\2" .. e.module .. "\1" .. e.page end
+    local key = e.module .. "\1" .. e.page .. "\1" .. e.label
+    if e.host or e.cogTitle then key = key .. "\1" .. (e.host or "") .. "\1" .. (e.cogTitle or "") end
+    return key
+end
+local function RecordPick(entry)
+    if not EllesmereUI.SearchPicksOn() then return end
+    EllesmereUIDB = EllesmereUIDB or {}
+    local picks = EllesmereUIDB.searchPicks or {}
+    EllesmereUIDB.searchPicks = picks
+    local key, now = PickKey(entry), time()
+    local p = picks[key]
+    if p then
+        p[1], p[2] = p[1] + 1, now
+        return
+    end
+    local n, worstKey, worst = 0, nil, math.huge
+    for k, q in pairs(picks) do
+        n = n + 1
+        local v = PickValue(q, now)
+        if v < worst then worstKey, worst = k, v end
+    end
+    if n >= PICKS_MAX then picks[worstKey] = nil end
+    picks[key] = { 1, now }
+end
+function EllesmereUI.ClearSearchPicks()
+    if EllesmereUIDB then EllesmereUIDB.searchPicks = nil end
+end
 
 -- Registered by TagOptionRow / SectionHeader as each option row / section
 -- header is built during normal navigation, and by the one-time pre-build
 -- pass below for pages nobody has opened yet this session.
-function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder, page, sectionName, selectorSetter, selectorKey, isSection)
+-- Set once the index pass has finished (dev-mode coverage report below).
+local _prebuildComplete = false
+
+-- Where an entry lives, lowercased once: module, page, Window Skins card,
+-- section, and for a cog row its host row and popup title, each also in its
+-- localized form when that differs. Rows register in page order, so the
+-- last path is reused while it repeats: no tables or concat on a hit.
+local _ctxArgs, _ctxText = {}, nil
+local function ContextText(folder, page, card, section, host, cogTitle)
+    local a = _ctxArgs
+    if _ctxText and a[1] == folder and a[2] == page and a[3] == card and a[4] == section
+       and a[5] == host and a[6] == cogTitle then
+        return _ctxText
+    end
+    a[1], a[2], a[3], a[4], a[5], a[6] = folder, page, card, section, host, cogTitle
+    local config = ns.modules and ns.modules[folder]
+    local parts = { config and select(2, ModuleLabel(config, folder)) or folder, PageLabel(folder, page) }
+    for _, s in ipairs({ card or false, section or false, host or false, cogTitle or false }) do
+        if s and s ~= "" then
+            parts[#parts + 1] = s
+            local loc = EllesmereUI.L(s)
+            if loc ~= s then parts[#parts + 1] = loc end
+        end
+    end
+    _ctxText = table.concat(parts, " "):lower()
+    return _ctxText
+end
+
+-- host / cogTitle: set for a row inside an inline cog popup (_RegisterCogSearch).
+function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder, page, sectionName, selectorSetter, selectorKey, isSection, host, cogTitle)
     -- Opt-out for whole UI regions: a builder sets this around widget
     -- construction it wants excluded from the search entirely (e.g. the QoL
     -- Macro Factory, whose rows must never be indexed or deep-linked).
@@ -53,12 +128,19 @@ function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder
     -- emptiness check so those don't register as inert, unmatchable junk entries.
     if label then label = label:match("^%s*(.-)%s*$") end
     if not label or label == "" or not moduleFolder or not page then return end
+    -- Cog rows repeat their labels ("Size") across a page: keyed by host and popup too.
     local key = moduleFolder .. "\1" .. page .. "\1" .. label
+    if host or cogTitle then key = key .. "\1" .. (host or "") .. "\1" .. (cogTitle or "") end
     if _seenKeys[key] then return end
-    _seenKeys[key] = true
+    if (host or cogTitle) and _prebuildComplete and not EllesmereUI._prebuilding and EllesmereUI.IsDevModeActive() then
+        print("|cffff6060EUI GlobalSearch:|r cog row \"" .. label .. "\" (" .. moduleFolder .. "::" .. page
+            .. ") was not indexed by the pass -- its cog call is not reached while prebuilding, or it depends on state set after the pass.")
+    end
     if labelLoc == "" then labelLoc = nil end
     if type(tooltip) ~= "string" or tooltip == "" then tooltip = nil end
-    _searchIndex[#_searchIndex + 1] = {
+    local card = EllesmereUI._searchContext
+    local entry = {
+        ctx = ContextText(moduleFolder, page, card, sectionName, host, cogTitle),
         label = label,
         -- Lowercased once here so a keystroke never re-lowers the whole index.
         lLabel = label:lower(),
@@ -84,6 +166,11 @@ function EllesmereUI._RegisterSearchEntry(label, labelLoc, tooltip, moduleFolder
         -- "Section: Title Case" destinations instead of option rows.
         isSection = isSection,
     }
+    -- Set after: in the constructor they would double every entry's hash part.
+    if card then entry.card = card end
+    if host or cogTitle then entry.host, entry.cogTitle = host, cogTitle end
+    _searchIndex[#_searchIndex + 1] = entry
+    _seenKeys[key] = entry
 end
 
 -------------------------------------------------------------------------------
@@ -91,20 +178,27 @@ end
 --  ScoreEntry's tiers. Cheap enough to run per keystroke over the whole
 --  index -- no Levenshtein needed.
 -------------------------------------------------------------------------------
+-- The needle split into one-character strings, once per query.
+local _fuzzyNeedle, _fuzzyChars = nil, {}
 local function FuzzyScore(haystack, needle)
-    local hLen, nLen = #haystack, #needle
-    -- Forward pass only finds where the earliest full match ends.
-    local hi, ni = 1, 1
-    while hi <= hLen and ni <= nLen do
-        if haystack:byte(hi) == needle:byte(ni) then ni = ni + 1 end
-        hi = hi + 1
+    local nLen = #needle
+    if needle ~= _fuzzyNeedle then
+        _fuzzyNeedle, _fuzzyChars = needle, {}
+        for i = 1, nLen do _fuzzyChars[i] = needle:sub(i, i) end
     end
-    if ni <= nLen then return nil end -- not every needle char found in order
-    local lastMatch = hi - 1
+    -- Forward pass only finds where the earliest full match ends: a plain
+    -- find per needle character, so the scan between them runs in C.
+    local hi, find = 0, string.find
+    for i = 1, nLen do
+        hi = find(haystack, _fuzzyChars[i], hi + 1, true)
+        if not hi then return nil end -- not every needle char found in order
+    end
+    local lastMatch = hi
     -- Backward pass from there finds the latest start, so the match is not
     -- anchored on a stray early letter ("stats" on "secondary stat display"
     -- must start at "stat", not at the "s" of "secondary").
     local consecutiveRun, score = 0, 0
+    local ni
     hi, ni = lastMatch, nLen
     while ni >= 1 do
         if haystack:byte(hi) == needle:byte(ni) then
@@ -131,36 +225,58 @@ end
 
 -- Tiers, best first: label exact, label plural-stem exact, tooltip exact,
 -- tooltip stem, label fuzzy, tooltip fuzzy. A tier always outranks the one
--- below it; within a tier, earlier position / denser match wins.
+-- below it. Within a substring tier (best first): the match starts a word,
+-- or the field; the caller's bonus (the hit is in the entry's own name; it is
+-- a page or section); the share of the field the query covers.
 local TIER = 10000
-local function FieldScore(h, nh, needle, stem, ns, exactTier, fuzzyTier)
+local function IsWordByte(c)
+    return c and ((c >= 97 and c <= 122) or (c >= 48 and c <= 57) or c >= 128)
+end
+local function Within(h, i, n, bonus)
+    local w = 0
+    if i == 1 then w = 4500 elseif not IsWordByte(h:byte(i - 1)) then w = 4000 end
+    return w + bonus + math.floor(999 * n / #h)
+end
+local function FieldScore(h, nh, needle, stem, ns, exactTier, fuzzyTier, bonus)
     if not h then return nil end
     local i = h:find(needle, 1, true)
-    if i then return exactTier * TIER + math.max(0, TIER - 1 - i) end
+    if i then return exactTier * TIER + Within(h, i, #needle, bonus) end
     if stem then
         -- Singular form must end its word: "stat" in "stat display", not "status".
         i = h:find(stem, 1, true)
         while i do
-            local c = h:byte(i + #stem)
-            if not c or c < 97 or (c > 122 and c < 128) then
-                return (exactTier - 1) * TIER + math.max(0, TIER - 1 - i)
+            if not IsWordByte(h:byte(i + #stem)) then
+                return (exactTier - 1) * TIER + Within(h, i, #stem, bonus)
             end
             i = h:find(stem, i + 1, true)
         end
     end
+    -- Space-free: word starts are not known here.
     i = nh:find(ns, 1, true)
-    if i then return (exactTier - 1) * TIER + math.max(0, TIER - 1 - i) end
+    if i then return (exactTier - 1) * TIER + bonus + math.floor(999 * #ns / #nh) end
     local s = FuzzyScore(h, needle)
     if s then return fuzzyTier * TIER + math.min(s, TIER - 1) end
 end
 
-local function ScoreEntry(entry, needle, stem, ns)
-    local a = FieldScore(entry.lLabel, entry.nLabel, needle, stem, ns, 5, 1)
-    local b = FieldScore(entry.lLoc, entry.nLoc, needle, stem, ns, 5, 1)
-    local c = FieldScore(entry.lTip, entry.nTip, needle, stem, ns, 3, 0)
+local OWN_BONUS, DEST_BONUS = 2000, 1000
+local function ScoreEntry(entry, needle, stem, ns, words)
+    local isPage = entry.kind == "page"
+    local dest = (isPage or entry.isSection) and DEST_BONUS or 0
+    -- A page's label is "module page": the hit counts as its own name only
+    -- when a query word is in the page name ("party frames" on Party).
+    local own = OWN_BONUS
+    if isPage then
+        own = 0
+        for k = 1, #words do
+            if entry.lPage:find(words[k], 1, true) then own = OWN_BONUS; break end
+        end
+    end
+    local a = FieldScore(entry.lLabel, entry.nLabel, needle, stem, ns, 5, 1, own + dest)
+    local b = FieldScore(entry.lLoc, entry.nLoc, needle, stem, ns, 5, 1, OWN_BONUS + dest)
+    local c = FieldScore(entry.lTip, entry.nTip, needle, stem, ns, 3, 0, 0)
     -- Page results also score on the tab name alone: "fonts" hits "Fonts" at
     -- position 1 instead of late in "Global Settings Fonts".
-    local d = FieldScore(entry.lPage, entry.nPage, needle, stem, ns, 5, 1)
+    local d = FieldScore(entry.lPage, entry.nPage, needle, stem, ns, 5, 1, OWN_BONUS + dest)
     if b and (not a or b > a) then a = b end
     if c and (not a or c > a) then a = c end
     if d and (not a or d > a) then a = d end
@@ -192,8 +308,9 @@ local function SortResults(a, b)
     local ta = ea.displayLabel or ea.label
     local tb = eb.displayLabel or eb.label
     if #ta ~= #tb then return #ta < #tb end
-    local ka = KIND_RANK[ea.kind] or (ea.isSection and 2 or 3)
-    local kb = KIND_RANK[eb.kind] or (eb.isSection and 2 or 3)
+    -- Cog rows last: their short labels ("Size") tie with the page's own rows.
+    local ka = KIND_RANK[ea.kind] or (ea.isSection and 2 or ((ea.host or ea.cogTitle) and 4 or 3))
+    local kb = KIND_RANK[eb.kind] or (eb.isSection and 2 or ((eb.host or eb.cogTitle) and 4 or 3))
     if ka ~= kb then return ka < kb end
     if ea.module ~= eb.module then
         local ra, rb = _moduleRank[ea.module] or 1000, _moduleRank[eb.module] or 1000
@@ -214,9 +331,10 @@ end
 --  any of its widgets are ever constructed.
 -------------------------------------------------------------------------------
 local _coarseCandidates
+local _pageByKey -- pick key -> page candidate
 
 local function BuildCoarseCandidates()
-    _coarseCandidates = {}
+    _coarseCandidates, _pageByKey = {}, {}
     for folder, config in pairs(ns.modules or {}) do
         if config.pages then
             -- moduleText is the plain-text form used in the haystack.
@@ -243,6 +361,7 @@ local function BuildCoarseCandidates()
                     module = folder,
                     page = page,
                 }
+                _pageByKey["\2" .. folder .. "\1" .. page] = _coarseCandidates[#_coarseCandidates]
             end
         end
     end
@@ -259,14 +378,14 @@ local _moduleAliases
 local function BuildModuleAliases()
     _moduleAliases = {}
     local seen = {}
-    local function Add(alias, folder)
+    local function Add(alias, folder, wholeOnly)
         if not alias then return end
         alias = alias:lower():gsub("^%s+", ""):gsub("%s+$", "")
         if alias == "" then return end
         local key = alias .. "\1" .. folder
         if seen[key] then return end
         seen[key] = true
-        _moduleAliases[#_moduleAliases + 1] = { alias = alias, folder = folder }
+        _moduleAliases[#_moduleAliases + 1] = { alias = alias, folder = folder, wholeOnly = wholeOnly }
     end
     for folder, config in pairs(ns.modules or {}) do
         Add(config.title and EllesmereUI.L(config.title), folder)
@@ -293,6 +412,12 @@ local function BuildModuleAliases()
         -- The module's former name.
         EllesmereUIRaidFrames      = { "raid frames" },
     }
+    -- Typed in full only: as a prefix, "h" or "gen" would put Global Settings first.
+    -- Not a bare "settings": a full alias anywhere in a query filters to the module.
+    if ns.modules and ns.modules[EllesmereUI.GLOBAL_KEY] then
+        Add("home", EllesmereUI.GLOBAL_KEY, true)
+        Add("general settings", EllesmereUI.GLOBAL_KEY, true)
+    end
     for folder, list in pairs(EXTRA_ALIASES) do
         if ns.modules and ns.modules[folder] then
             for _, a in ipairs(list) do Add(a, folder) end
@@ -368,12 +493,54 @@ if EllesmereUI.IS_FOREVER then
 end
 local SYNONYM_MIN_PREFIX = 3
 
+-- Multi-word queries: every word must appear in the label, tooltip or the
+-- entry's path (ctx), and at least one in the label or tooltip, so a bare
+-- path ("character sheet") does not list every row under it. Plain finds
+-- only; words found in the label rank first, then the tooltip.
+local WORD_TIER_ALL, WORD_TIER_SOME = 4, 2
+local MAX_GROUP_MEMBERS = 50
+local function WordPass(words)
+    local scored, nw = {}, #words
+    local function Consider(list)
+        for _, entry in ipairs(list) do
+            do
+                local lab, loc, tip, ctx = entry.lLabel, entry.lLoc, entry.lTip, entry.ctx or ""
+                local inLabel, inTip, first = 0, 0, 99
+                for k = 1, nw do
+                    local w = words[k]
+                    local p = lab:find(w, 1, true) or (loc and loc:find(w, 1, true))
+                    if p then
+                        inLabel = inLabel + 1
+                        if p < first then first = p end
+                    elseif tip and tip:find(w, 1, true) then
+                        inTip = inTip + 1
+                    elseif not ctx:find(w, 1, true) then
+                        inLabel = -1
+                        break
+                    end
+                end
+                if inLabel >= 0 and inLabel + inTip > 0 then
+                    local tier = inLabel == nw and WORD_TIER_ALL or WORD_TIER_SOME
+                    scored[#scored + 1] = { entry = entry, score = tier * TIER
+                        + math.min(inLabel, 9) * 1000 + math.min(inTip, 9) * 100 + math.max(0, 99 - first) }
+                end
+            end
+        end
+    end
+    Consider(_searchIndex)
+    Consider(_coarseCandidates)
+    return scored
+end
+
 local function SearchIndex(query, maxResults)
     maxResults = maxResults or 30
     local needle = (query or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     if needle == "" then return {} end
     if not _coarseCandidates then BuildCoarseCandidates() end
     if not _moduleAliases then BuildModuleAliases() end
+    -- Split once; every pass reads the query's words, none changes them.
+    local qWords = {}
+    for w in needle:gmatch("%S+") do qWords[#qWords + 1] = w end
 
     -- Detect a module name ANYWHERE in the query (whole words only, longest alias
     -- first) and split it off as an ADDITIVE boost: "raid frames border style" and
@@ -408,13 +575,12 @@ local function SearchIndex(query, maxResults)
     -- typed. Longest trailing chunk wins; all prefix-matching modules are
     -- searched as a union, so ambiguity ("r") just means a wider net.
     if not filterSet then
-        local words = {}
-        for w in needle:gmatch("%S+") do words[#words + 1] = w end
+        local words = qWords
         for i = 1, #words do
             local chunk = table.concat(words, " ", i, #words)
             local set
             for _, m in ipairs(_moduleAliases) do
-                if m.alias:sub(1, #chunk) == chunk then
+                if not m.wholeOnly and m.alias:sub(1, #chunk) == chunk then
                     set = set or {}
                     set[m.folder] = true
                 end
@@ -435,6 +601,11 @@ local function SearchIndex(query, maxResults)
         -- "stats" also finds "stat" as a near-exact hit, one tier down.
         local stem = #n >= 4 and n:sub(-1) == "s" and n:sub(1, -2) or nil
         local ns = n:gsub(" ", "")
+        local words = qWords
+        if n ~= needle then
+            words = {}
+            for w in n:gmatch("%S+") do words[#words + 1] = w end
+        end
         local function Consider(list)
             for _, entry in ipairs(list) do
                 if not folderSet or folderSet[entry.module] then
@@ -444,7 +615,7 @@ local function SearchIndex(query, maxResults)
                             scored[#scored + 1] = { entry = entry, score = TIER - entry.order }
                         end
                     else
-                        local s = ScoreEntry(entry, n, stem, ns)
+                        local s = ScoreEntry(entry, n, stem, ns, words)
                         if s then
                             local exact = entry.lLabel == n or entry.lLoc == n or entry.lPage == n
                             scored[#scored + 1] = { entry = entry, score = s, exact = exact }
@@ -521,10 +692,48 @@ local function SearchIndex(query, maxResults)
     if filterSet then
         Merge(ScorePass(filterSet, subNeedle), 6 * TIER) -- above every tier
     end
+    if #qWords > 1 then Merge(WordPass(qWords), 0) end
+
+    -- Picked before: up to most of a tier's spread on top, never into the next tier.
+    local picks = EllesmereUIDB and EllesmereUIDB.searchPicks
+    -- Left by an import that turned Remember Picks off.
+    if picks and not EllesmereUI.SearchPicksOn() then EllesmereUIDB.searchPicks, picks = nil, nil end
+    -- A bare module name lists its pages in tab order, unboosted.
+    if picks and not (filterSet and subNeedle == "") then
+        local now = time()
+        for key, p in pairs(picks) do
+            local e = _seenKeys[key] or _pageByKey[key]
+            local sc = e and seenEntries[e]
+            if sc then
+                local within = sc.score % TIER
+                sc.score = sc.score - within + math.min(TIER - 1, within + math.floor(math.min(999, 250 * PickValue(p, now))))
+            end
+        end
+    end
 
     table.sort(scored, SortResults)
     local out = {}
-    for i = 1, math.min(maxResults, #scored) do out[i] = scored[i].entry end
+    -- Merge similar results: rows that read the same (kind and label) fold
+    -- into the best-ranked one's place, its members in rank order. A typed
+    -- word that tells them apart leaves one match, which shows on its own.
+    local slotOf = { p = {}, s = {}, o = {} }
+    for _, sc in ipairs(scored) do
+        local e = sc.entry
+        local kind = e.kind == "page" and "p" or (e.isSection and "s" or "o")
+        local text = kind == "p" and e.lPage or e.lLabel
+        local i = slotOf[kind][text]
+        if i then
+            local g = out[i]
+            if not g.isGroup then
+                g = setmetatable({ isGroup = true, members = { g } }, { __index = g })
+                out[i] = g
+            end
+            if #g.members < MAX_GROUP_MEMBERS then g.members[#g.members + 1] = e end
+        elseif #out < maxResults then
+            out[#out + 1] = e
+            slotOf[kind][text] = #out
+        end
+    end
     return out
 end
 
@@ -615,6 +824,24 @@ local function NewAbsorber()
     return setmetatable({}, _absorberMeta)
 end
 
+-- Absorber rows keep what a cog reads off its host (the slot cfg, the row
+-- label, the Blizzard Style hidden flag), so cogs register during the pass.
+local function AbsorberLabeled(text)
+    local a = NewAbsorber()
+    if type(text) == "string" then rawset(a, "_labelText", text) end
+    return a
+end
+local function AbsorberRow(leftCfg, rightCfg, midCfg, hidden)
+    local row = NewAbsorber()
+    for key, cfg in pairs({ _leftRegion = leftCfg or false, _rightRegion = rightCfg or false, _midRegion = midCfg or false }) do
+        local rgn = NewAbsorber()
+        if cfg then rawset(rgn, "_widgetCfg", cfg) end
+        if hidden then rawset(rgn, "_searchIgnore", true) end
+        rawset(row, key, rgn)
+    end
+    return row
+end
+
 -- Mirrors IndexSlotForSearch in EllesmereUI_Widgets.lua exactly: empty
 -- labels skip, localized form rides along only when it differs, section is
 -- the absorber pass's own tracker (the real path reads it off the parent
@@ -640,19 +867,19 @@ function AbsorberW:SectionHeader(parent, text, yOffset)
 end
 function AbsorberW:Toggle(parent, text, yOffset, getValue, setValue, tooltip)
     AbsorberRegister(text, tooltip)
-    return NewAbsorber(), 40
+    return AbsorberLabeled(text), 40
 end
 function AbsorberW:Slider(parent, text, yOffset, minVal, maxVal, step, getValue, setValue, tooltip, pixel)
     AbsorberRegister(text, tooltip)
-    return NewAbsorber(), 40
+    return AbsorberLabeled(text), 40
 end
 function AbsorberW:Dropdown(parent, text, yOffset, values, getValue, setValue, order, tooltip)
     AbsorberRegister(text, tooltip)
-    return NewAbsorber(), 40
+    return AbsorberLabeled(text), 40
 end
 function AbsorberW:Checkbox(parent, text, yOffset, getValue, setValue, tooltip)
     AbsorberRegister(text, tooltip)
-    return NewAbsorber(), 40
+    return AbsorberLabeled(text), 40
 end
 function AbsorberW:ColorPicker(parent, text, yOffset, getValue, setValue, hasAlpha)
     AbsorberRegister(text, nil)
@@ -669,26 +896,30 @@ end
 function AbsorberW:DualRow(parent, yOffset, leftCfg, rightCfg)
     -- A row the live factory hides for Blizzard Style has nothing to find.
     local BS = EllesmereUI.BlizzStyle
-    if BS and BS.RowHidden and BS.RowHidden(leftCfg, rightCfg) then return NewAbsorber(), 0 end
+    if BS and BS.RowHidden and BS.RowHidden(leftCfg, rightCfg) then return AbsorberRow(leftCfg, rightCfg, nil, true), 0 end
     AbsorberRegister(leftCfg and leftCfg.text, leftCfg and leftCfg.tooltip)
     AbsorberRegister(rightCfg and rightCfg.text, rightCfg and rightCfg.tooltip)
-    return NewAbsorber(), 40
+    return AbsorberRow(leftCfg, rightCfg), 40
 end
 function AbsorberW:TripleRow(parent, yOffset, leftCfg, midCfg, rightCfg, splits)
     AbsorberRegister(leftCfg and leftCfg.text, leftCfg and leftCfg.tooltip)
     AbsorberRegister(midCfg and midCfg.text, midCfg and midCfg.tooltip)
     AbsorberRegister(rightCfg and rightCfg.text, rightCfg and rightCfg.tooltip)
-    return NewAbsorber(), 40
+    return AbsorberRow(leftCfg, rightCfg, midCfg), 40
 end
 function AbsorberW:MultiSwatchRow(parent, yOffset, cfg)
     AbsorberRegister(cfg and cfg.text, nil)
-    return NewAbsorber(), 40
+    return AbsorberLabeled(cfg and cfg.text), 40
 end
 function AbsorberW:DropdownWithOffsets(parent, yOffset, dropdownCfg, xSliderCfg, ySliderCfg)
     AbsorberRegister(dropdownCfg and dropdownCfg.text, dropdownCfg and dropdownCfg.tooltip)
     AbsorberRegister(xSliderCfg and xSliderCfg.text, xSliderCfg and xSliderCfg.tooltip)
     AbsorberRegister(ySliderCfg and ySliderCfg.text, ySliderCfg and ySliderCfg.tooltip)
-    return NewAbsorber(), 40
+    -- The live row's slot labels (DropdownWithOffsets)
+    local row = AbsorberRow()
+    rawset(row._leftRegion, "_slotLabel", dropdownCfg and dropdownCfg.text or "")
+    rawset(row._rightRegion, "_slotLabel", (xSliderCfg and xSliderCfg.text or "") .. " " .. (ySliderCfg and ySliderCfg.text or ""))
+    return row, 40
 end
 function AbsorberW:WideDualButton(parent, text1, text2, yOffset, onClick1, onClick2, btnWidth)
     AbsorberRegister(text1, nil)
@@ -703,7 +934,7 @@ function AbsorberW:WideTripleButton(parent, text1, text2, text3, yOffset, onClic
 end
 function AbsorberW:WideDropdown(parent, title, yOffset, values, getValue, setValue, order, btnWidth, disabledValuesFn)
     AbsorberRegister(title, nil)
-    return NewAbsorber(), 40
+    return AbsorberLabeled(title), 40
 end
 function AbsorberW:TripleDropdown(parent, configs, yOffset)
     AbsorberRegister(configs and configs[1] and configs[1][1], nil)
@@ -731,22 +962,115 @@ setmetatable(AbsorberW, { __index = function(_, k)
     return function() return NewAbsorber(), 40 end
 end })
 
-local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
-    if not _hiddenParent then
+local function CogSearchKey(module, page, host, title)
+    return module .. "\1" .. page .. "\1" .. (host or "") .. "\1" .. (title or "")
+end
+
+-- Indexes an inline cog popup's rows (called first thing by BuildInlineCog,
+-- live and in the index pass). Context as CogDot.Key reads it: the host
+-- row's section and label, and the popup title. rawget throughout: the
+-- region may be an absorber.
+function EllesmereUI._RegisterCogSearch(rgn, opts)
+    if type(rgn) ~= "table" or type(opts) ~= "table" then return end
+    local rows = opts.rows
+    if opts.sections then
+        rows = {}
+        for _, sec in ipairs(opts.sections) do
+            for _, r in ipairs(sec.rows or {}) do rows[#rows + 1] = r end
+        end
+    end
+    if type(rows) ~= "table" or not rows[1] then return end
+    if rawget(rgn, "_searchIgnore") then return end
+    local section
+    if getmetatable(rgn) == _absorberMeta then
+        section = _absSection
+    else
+        local row = rgn.GetParent and rgn:GetParent()
+        if row and rawget(row, "_searchIgnore") then return end
+        local sec = rawget(rgn, "_sectionHeader") or (row and rawget(row, "_sectionHeader"))
+        if not sec and row and row.GetParent then sec = rawget(row:GetParent() or {}, "_currentSection") end
+        section = sec and rawget(sec, "_sectionName")
+    end
+    local cfg = rawget(rgn, "_widgetCfg") or rawget(rgn, "_cfg")
+    local host = cfg and cfg.text
+    if type(host) ~= "string" or host == "" then host = rawget(rgn, "_labelText") end
+    if type(host) ~= "string" or host == "" then host = rawget(rgn, "_slotLabel") end
+    local title = type(opts.title) == "string" and opts.title or nil
+    -- No host label: "" still keys the row apart from a page row of the same name.
+    if type(host) ~= "string" or host:match("^%s*$") then host = title or "" end
+    local sel = EllesmereUI._buildingSelector
+    -- As CogDot.Key: a cog built after its page build (a lazily built panel) takes the shown page.
+    local module = EllesmereUI._buildingModule or (EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule())
+    local page = EllesmereUI._buildingPage or (EllesmereUI.GetActivePage and EllesmereUI:GetActivePage())
+    for _, r in ipairs(rows) do
+        local label = type(r) == "table" and r.label
+        if type(label) == "string" and label ~= "" then
+            local loc = EllesmereUI.L(label)
+            EllesmereUI._RegisterSearchEntry(label, loc ~= label and loc or nil,
+                type(r.tooltip) == "string" and r.tooltip or nil,
+                module, page, section, sel and sel.setter, sel and sel.key, nil, host, title)
+        end
+    end
+    -- The cog's identity, for MarkSearchCog after a jump to one of its rows.
+    if module and page then return CogSearchKey(module, page, host, title) end
+end
+
+-- ONE reused wrapper for every job: with the widget factory absorbed,
+-- the only things ever created on it are the rare custom-chrome frames
+-- a few builders make directly -- not the per-page widget mass.
+local function HiddenWrapper()
+    if not _absWrapper then
         _hiddenParent = CreateFrame("Frame", nil, UIParent)
         _hiddenParent:Hide()
+        _absWrapper = CreateFrame("Frame", nil, _hiddenParent)
+        _absWrapper:SetSize(1030, 4000)
     end
-    if selectorSetter and selectorKey then selectorSetter(selectorKey) end
+    return _absWrapper
+end
 
-    -- ONE reused wrapper for every job: with the widget factory absorbed,
-    -- the only things ever created on it are the rare custom-chrome frames
-    -- a few builders make directly -- not the per-page widget mass.
-    local wrapper = _absWrapper
-    if not wrapper then
-        wrapper = CreateFrame("Frame", nil, _hiddenParent)
-        wrapper:SetSize(1030, 4000)
-        _absWrapper = wrapper
+-- Live builds queue their index-only builds until the pass starts, so a
+-- player who never searches never pays for them.
+-- While the pass runs, a queued build is one more of its jobs.
+local _queuedIndexBuilds, _passJobs = {}, nil
+function EllesmereUI._QueueIndexBuild(fn, ...)
+    if _prebuildDone and not _passJobs then return EllesmereUI._IndexOnlyBuild(fn, ...) end
+    local q = {
+        fn = fn, n = select("#", ...), args = { ... }, card = EllesmereUI._searchContext,
+        module = EllesmereUI._buildingModule or (EllesmereUI.GetActiveModule and EllesmereUI:GetActiveModule()),
+        page = EllesmereUI._buildingPage or (EllesmereUI.GetActivePage and EllesmereUI:GetActivePage()),
+        sel = EllesmereUI._buildingSelector,
+    }
+    if _passJobs then _passJobs[#_passJobs + 1] = { queued = q }
+    else _queuedIndexBuilds[#_queuedIndexBuilds + 1] = q end
+end
+
+local function RunQueuedIndexBuild(q)
+    EllesmereUI._buildingModule, EllesmereUI._buildingPage = q.module, q.page
+    EllesmereUI._buildingSelector, EllesmereUI._searchContext = q.sel, q.card
+    EllesmereUI._IndexOnlyBuild(q.fn, unpack(q.args, 1, q.n))
+    EllesmereUI._buildingModule, EllesmereUI._buildingPage = nil, nil
+    EllesmereUI._buildingSelector, EllesmereUI._searchContext = nil, nil
+end
+
+-- Builds fn(wrapper, ...) as the index pass would, from inside a live build:
+-- for settings a live page leaves unbuilt (a closed Window Skins card), which
+-- the pass never sees once the page is cached. Refreshes it registers are dropped.
+function EllesmereUI._IndexOnlyBuild(fn, ...)
+    local wrapper = HiddenWrapper()
+    local wasPre, realWidgets, sec = EllesmereUI._prebuilding, EllesmereUI.Widgets, _absSection
+    local refreshSnap = EllesmereUI._SnapshotAndClearWidgetRefreshList()
+    EllesmereUI._prebuilding, EllesmereUI.Widgets, _absSection = true, AbsorberW, nil
+    local ok, err = pcall(fn, wrapper, ...)
+    EllesmereUI._prebuilding, EllesmereUI.Widgets, _absSection = wasPre, realWidgets, sec
+    if refreshSnap then EllesmereUI._RestoreWidgetRefreshList(refreshSnap) end
+    if not ok and EllesmereUI.IsDevModeActive() then
+        print("|cffff6060EUI GlobalSearch:|r index-only build failed: " .. tostring(err))
     end
+end
+
+local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
+    if selectorSetter and selectorKey then selectorSetter(selectorKey) end
+    local wrapper = HiddenWrapper()
     EllesmereUI._buildingModule = folder
     EllesmereUI._buildingPage = page
     EllesmereUI._prebuilding = true
@@ -774,6 +1098,7 @@ local function PrebuildOnce(config, folder, page, selectorSetter, selectorKey)
             .. tostring(folder) .. "::" .. tostring(page) .. ": " .. tostring(err))
     end
     if refreshSnap then EllesmereUI._RestoreWidgetRefreshList(refreshSnap) end
+    EllesmereUI._searchContext = nil
 
     -- Some buildPage implementations register cleanup (event listeners, etc.) via
     -- parent:HookScript("OnHide", ...), expecting it to fire once the user navigates
@@ -796,6 +1121,7 @@ end
 -- job) because the variant pages are the suite's heaviest; the per-frame
 -- budget in RunPrebuildPass then spreads them across frames.
 local function PrebuildJob(job)
+    if job.queued then return RunQueuedIndexBuild(job.queued) end
     local config = job.config
     if not config.buildPage then return end
     -- Re-check (not just at job-list-build time): the staggered pass spans many
@@ -874,7 +1200,31 @@ local function RunPrebuildPass(onComplete)
         end
     end
 
-    local i = 0
+    for _, q in ipairs(_queuedIndexBuilds) do jobs[#jobs + 1] = { queued = q } end
+    _queuedIndexBuilds, _passJobs = nil, jobs
+    local i, workMs, frames, entries0, worstFrame = 0, 0, 0, #_searchIndex, 0
+    -- Dev mode: what the pass cost, to compare branches in game. The worst
+    -- frame and the slowest builds are what a player could feel.
+    local function Report()
+        if not EllesmereUI.IsDevModeActive() then return end
+        print(("|cff60c0ffEUI GlobalSearch:|r index pass %.1f ms over %d frames (worst %.1f ms), %d builds, %d entries (%d total)")
+            :format(workMs, frames, worstFrame, #jobs, #_searchIndex - entries0, #_searchIndex))
+        local function What(j)
+            local q = j.queued
+            return q and ("card " .. tostring(q.card) .. " (" .. tostring(q.module) .. "::" .. tostring(q.page) .. ")")
+                or (j.folder .. "::" .. j.page .. (j.selectorKey and (" [" .. tostring(j.selectorKey) .. "]") or ""))
+        end
+        table.sort(jobs, function(a, b) return a.ms > b.ms end)
+        for k = 1, math.min(10, #jobs) do
+            print(("   %.1f ms, %d entries: %s"):format(jobs[k].ms, jobs[k].entries, What(jobs[k])))
+        end
+        -- Builds that indexed nothing new (skipped jobs cost ~0 ms).
+        local idle, idleMs = {}, 0
+        for _, j in ipairs(jobs) do
+            if j.entries == 0 and j.ms >= 0.5 then idle[#idle + 1] = What(j); idleMs = idleMs + j.ms end
+        end
+        if idle[1] then print(("   %.1f ms in %d builds that added no entries: %s"):format(idleMs, #idle, table.concat(idle, ", "))) end
+    end
     local function StepJob()
         -- A full page build is a multi-millisecond main-thread hit; never do
         -- that during combat. Pause the pass and resume once combat ends.
@@ -885,23 +1235,37 @@ local function RunPrebuildPass(onComplete)
         -- As many builds as fit in a small per-frame budget (at least one),
         -- then yield a frame: fast to finish without a visible hitch.
         local t0 = debugprofilestop()
+        frames = frames + 1
         repeat
             i = i + 1
             local job = jobs[i]
             if not job then
+                _passJobs = nil
+                local spent = debugprofilestop() - t0
+                workMs = workMs + spent
+                if spent > worstFrame then worstFrame = spent end
+                _prebuildComplete = true
+                Report()
                 if onComplete then onComplete() end
                 return
             end
+            local j0, n0 = debugprofilestop(), #_searchIndex
             PrebuildJob(job)
+            job.ms, job.entries = debugprofilestop() - j0, #_searchIndex - n0
         until debugprofilestop() - t0 > PREBUILD_BUDGET_MS
+        local spent = debugprofilestop() - t0
+        workMs = workMs + spent
+        if spent > worstFrame then worstFrame = spent end
         C_Timer.After(0, StepJob)
     end
+    if not jobs[1] then _passJobs = nil end
     if jobs[1] then
         -- Next frame, not synchronously: the trigger is a keystroke handler
         -- and the first page build should not lag the typing.
         C_Timer.After(0, StepJob)
-    elseif onComplete then
-        onComplete()
+    else
+        _prebuildComplete = true
+        if onComplete then onComplete() end
     end
 end
 
@@ -921,7 +1285,9 @@ local results, selIdx = {}, 1 -- last shown results; Tab/arrows move selIdx, Ent
 
 local RESULT_ROW_H = 34
 local RESULT_ROW_GAP = 4   -- breathing room between result rows
-local MAX_VISIBLE_RESULTS = 12
+local MAX_VISIBLE_RESULTS = 12  -- popup height in rows; more scroll
+local MAX_RESULTS = 50
+local ROW_STEP = RESULT_ROW_H + RESULT_ROW_GAP
 
 local function GetModuleDisplayName(folder)
     local config = ns.modules and ns.modules[folder]
@@ -958,6 +1324,7 @@ local function TitleCaseSection(s)
 end
 
 local function JumpToResult(entry, sidebarSearchBox)
+    RecordPick(entry)
     -- Coarse (whole-page) results have no single option to highlight -- just land on
     -- the page. Fine-grained option/section results scroll to and glow the specific
     -- matching row via EllesmereUI:NavigateToElementSettings (the same deep-link
@@ -985,7 +1352,17 @@ local function JumpToResult(entry, sidebarSearchBox)
         if entry.selectorSetter and entry.selectorKey then
             preSelectFn = function() entry.selectorSetter(entry.selectorKey) end
         end
-        EllesmereUI:NavigateToElementSettings(entry.module, entry.page, entry.section, preSelectFn, entry.label)
+        -- A cog row is not on the page: glow the row whose cog holds it.
+        -- An empty host would match the section's first row: glow nothing then.
+        local glow = entry.label
+        if entry.host or entry.cogTitle then glow = entry.host ~= "" and entry.host or nil end
+        EllesmereUI:NavigateToElementSettings(entry.module, entry.page, entry.section, preSelectFn, glow)
+    end
+    -- Mark the cog that holds the row once the jump's row glow has run
+    -- (any other jump clears the mark).
+    if EllesmereUI.MarkSearchCog then
+        local key = (entry.host or entry.cogTitle) and CogSearchKey(entry.module, entry.page, entry.host, entry.cogTitle)
+        C_Timer.After(0.25, function() EllesmereUI.MarkSearchCog(key) end)
     end
     if popup then popup:Hide() end
     if sidebarSearchBox then sidebarSearchBox:SetText("") end
@@ -1003,7 +1380,7 @@ local function EnsureSearchUI()
 
     -- Results popup, anchored below the existing sidebar search box.
     popup = CreateFrame("Frame", nil, clickArea)
-    popup:SetSize(380, MAX_VISIBLE_RESULTS * (RESULT_ROW_H + RESULT_ROW_GAP) - RESULT_ROW_GAP + 8)
+    popup:SetSize(380, MAX_VISIBLE_RESULTS * ROW_STEP - RESULT_ROW_GAP + 8)
     popup:SetPoint("TOPLEFT", sidebarSearchBox, "BOTTOMLEFT", 0, -4)
     popup:SetFrameStrata("FULLSCREEN_DIALOG")
     popup:SetFrameLevel(220)
@@ -1014,16 +1391,39 @@ local function EnsureSearchUI()
     popupBg:SetColorTexture(0.098, 0.090, 0.082, 0.97)
     popup._brd = EllesmereUI.MakeRoundedBorder(popup, 1, 1, 1, 0.12, popupBg)
 
-    local resultsFrame = CreateFrame("Frame", nil, popup)
-    resultsFrame:SetPoint("TOPLEFT", popup, "TOPLEFT", 4, -4)
-    resultsFrame:SetPoint("BOTTOMRIGHT", popup, "BOTTOMRIGHT", -4, 4)
+    local scroll = CreateFrame("ScrollFrame", nil, popup)
+    -- Sized with its content, not from anchors: the bar hides only when the
+    -- two heights match exactly, and an anchored height reads stale or rounded.
+    scroll:SetPoint("TOPLEFT", popup, "TOPLEFT", 4, -4)
+    scroll:SetPoint("TOPRIGHT", popup, "TOPRIGHT", -4, -4)
+    scroll:SetHeight(MAX_VISIBLE_RESULTS * ROW_STEP - RESULT_ROW_GAP)
+    local resultsFrame = CreateFrame("Frame", nil, scroll)
+    resultsFrame:SetSize(popup:GetWidth() - 8, ROW_STEP)
+    scroll:SetScrollChild(resultsFrame)
+    local UpdateThumb, ScrollTo = EllesmereUI.AttachSmoothScrollbar(scroll, {
+        child = resultsFrame, step = ROW_STEP * 2, rightInset = 2, topInset = 6,
+        trackParent = popup, panelWheel = true, passWheel = true,
+    })
 
+    -- What the rows show: the results, with an expanded merged row's members
+    -- listed under it (depth 1). Rows are made as first needed, then reused.
+    local display, expanded = {}, nil
     resultRows = {}
-    for i = 1, MAX_VISIBLE_RESULTS do
+    local Activate
+    local function PlaceText(row, indent)
+        row._label:ClearAllPoints()
+        row._label:SetPoint("LEFT", row, "LEFT", 8 + indent, 8)
+        row._label:SetPoint("RIGHT", row, "RIGHT", -8, 8)
+        row._sub:ClearAllPoints()
+        row._sub:SetPoint("LEFT", row, "LEFT", 8 + indent, -9)
+        row._sub:SetPoint("RIGHT", row, "RIGHT", -8, -9)
+    end
+    local function MakeRow(i)
         local row = CreateFrame("Button", nil, resultsFrame)
         row:SetHeight(RESULT_ROW_H)
-        row:SetPoint("TOPLEFT", resultsFrame, "TOPLEFT", 1, -(i - 1) * (RESULT_ROW_H + RESULT_ROW_GAP))
-        row:SetPoint("TOPRIGHT", resultsFrame, "TOPRIGHT", -1, -(i - 1) * (RESULT_ROW_H + RESULT_ROW_GAP))
+        -- Right inset leaves room for the scrollbar.
+        row:SetPoint("TOPLEFT", resultsFrame, "TOPLEFT", 1, -(i - 1) * ROW_STEP)
+        row:SetPoint("TOPRIGHT", resultsFrame, "TOPRIGHT", -6, -(i - 1) * ROW_STEP)
 
         local hl = row:CreateTexture(nil, "ARTWORK")
         hl:SetAllPoints()
@@ -1033,8 +1433,6 @@ local function EnsureSearchUI()
         EllesmereUI.PrimeFontShadow(lbl, true)
         lbl:SetFont(fontPath, 14, "")
         lbl:SetTextColor(0.85, 0.85, 0.88, 1)
-        lbl:SetPoint("LEFT", row, "LEFT", 8, 8)
-        lbl:SetPoint("RIGHT", row, "RIGHT", -8, 8)
         lbl:SetJustifyH("LEFT")
         lbl:SetWordWrap(false)
 
@@ -1042,23 +1440,149 @@ local function EnsureSearchUI()
         EllesmereUI.PrimeFontShadow(sub, true)
         sub:SetFont(fontPath, 12, "")
         sub:SetTextColor(1, 1, 1, 0.45)
-        sub:SetPoint("LEFT", row, "LEFT", 8, -9)
         sub:SetJustifyH("LEFT")
+        sub:SetWordWrap(false)
 
         row:SetScript("OnEnter", function() hl:SetColorTexture(1, 1, 1, 0.08) end)
-        row:SetScript("OnLeave", function() hl:SetColorTexture(1, 1, 1, (i == selIdx and results[i]) and 0.08 or 0) end)
+        row:SetScript("OnLeave", function() hl:SetColorTexture(1, 1, 1, (i == selIdx and display[i]) and 0.08 or 0) end)
+        row:SetScript("OnClick", function() Activate(i) end)
 
         row._hl = hl
         row._label = lbl
         row._sub = sub
+        PlaceText(row, 0)
         row:Hide()
         resultRows[i] = row
+        return row
     end
+    MakeRow(1)
 
-    local function SetSelected(i)
-        resultRows[selIdx]._hl:SetColorTexture(1, 1, 1, 0)
+    -- scrollIntoView: keep a keyboard selection on screen.
+    local function SetSelected(i, scrollIntoView)
+        if resultRows[selIdx] then resultRows[selIdx]._hl:SetColorTexture(1, 1, 1, 0) end
         selIdx = i
         resultRows[selIdx]._hl:SetColorTexture(1, 1, 1, 0.08)
+        if scrollIntoView then
+            local top, cur, visH = (i - 1) * ROW_STEP, scroll:GetVerticalScroll(), scroll:GetHeight()
+            if top < cur then
+                ScrollTo(top)
+            elseif top + RESULT_ROW_H > cur + visH then
+                ScrollTo(top + RESULT_ROW_H - visH)
+            end
+        end
+    end
+
+    -- The label and breadcrumb of one result row.
+    local function EntryText(entry, accentHex)
+        if entry.kind == "page" then
+            -- Coarse whole-page result: prefixed like sections so it
+            -- reads as "go to this page", not a specific option on it.
+            return accentHex .. EllesmereUI.L("Page") .. ":|r " .. entry.displayLabel, entry.moduleLabel
+        elseif entry.isSection then
+            local name = TitleCaseSection(entry.label)
+            if entry.labelLoc then
+                name = name .. "  (" .. TitleCaseSection(entry.labelLoc) .. ")"
+            end
+            return accentHex .. EllesmereUI.L("Section") .. ":|r " .. name,
+                JoinBreadcrumb(GetModuleDisplayName(entry.module), PageLabel(entry.module, entry.page),
+                    entry.card and EllesmereUI.L(entry.card))
+        end
+        local cogHost = entry.host ~= "" and entry.host or entry.cogTitle
+        return entry.labelLoc and (entry.label .. "  (" .. entry.labelLoc .. ")") or entry.label,
+            JoinBreadcrumb(GetModuleDisplayName(entry.module), PageLabel(entry.module, entry.page),
+                entry.card and EllesmereUI.L(entry.card), cogHost and EllesmereUI.L(cogHost))
+    end
+
+    -- A merged row's sub-line names what tells its members apart: the first
+    -- of module, page, card, popup host, section that differs among them.
+    local PLACE_LEVELS = {
+        function(e) return GetModuleDisplayName(e.module) end,
+        function(e) return PageLabel(e.module, e.page) end,
+        function(e) return e.card and EllesmereUI.L(e.card) end,
+        function(e)
+            local h = e.host ~= "" and e.host or e.cogTitle
+            return h and EllesmereUI.L(h)
+        end,
+        function(e) return e.section and TitleCaseSection(e.section) end,
+    }
+    local function GroupPlaces(g)
+        local names
+        for _, level in ipairs(PLACE_LEVELS) do
+            local list, seen = {}, {}
+            for _, e in ipairs(g.members) do
+                local n = level(e)
+                if n and not seen[n] then seen[n] = true; list[#list + 1] = n end
+            end
+            names = names or list
+            if #list > 1 then names = list break end
+        end
+        local count = #g.members >= MAX_GROUP_MEMBERS and (MAX_GROUP_MEMBERS .. "+") or #g.members
+        return EllesmereUI.Lf("%s places: %s", count, table.concat(names, ", "))
+    end
+
+    -- Paints the display list; the scroll position and selection stay put.
+    local function Render()
+        local EG = EllesmereUI.ELLESMERE_GREEN
+        local accentHex = EG and EllesmereUI.HexColor(EG.r, EG.g, EG.b) or EllesmereUI.COLOR_CODES.WHITE
+        for i = #resultRows + 1, #display do MakeRow(i) end
+        for i, row in ipairs(resultRows) do
+            local item = display[i]
+            if item then
+                local entry, indent = item.entry, item.depth * 14
+                local text, crumb = EntryText(entry, accentHex)
+                if entry.isGroup then
+                    text = text .. "  " .. accentHex .. (entry == expanded and "-" or "+") .. "|r"
+                    crumb = GroupPlaces(entry)
+                end
+                row._label:SetText(text)
+                row._sub:SetText(crumb)
+                PlaceText(row, indent)
+                row._hl:SetColorTexture(1, 1, 1, i == selIdx and 0.08 or 0)
+                row:EnableMouse(true)
+                row:Show()
+            else
+                row:Hide()
+            end
+        end
+        local shown = #display
+        if shown > 0 then
+            local visH = math.min(shown, MAX_VISIBLE_RESULTS) * ROW_STEP - RESULT_ROW_GAP
+            popup:SetHeight(visH + 8)
+            scroll:SetHeight(visH)
+            resultsFrame:SetHeight(shown * ROW_STEP - RESULT_ROW_GAP)
+            -- Retyped while shown: refit the outline's bottom edge.
+            popup._brd:Fit()
+            popup:Show()
+            UpdateThumb()
+        end
+        return shown
+    end
+
+    local function BuildDisplay()
+        display = {}
+        for _, entry in ipairs(results) do
+            display[#display + 1] = { entry = entry, depth = 0 }
+            if entry == expanded then
+                for _, m in ipairs(entry.members) do display[#display + 1] = { entry = m, depth = 1 } end
+            end
+        end
+    end
+
+    -- A merged row opens or closes in place (one open at a time); any other row jumps.
+    Activate = function(i)
+        local item = display[i]
+        if not item then return end
+        local entry = item.entry
+        if not entry.isGroup then return JumpToResult(entry, sidebarSearchBox) end
+        expanded = expanded ~= entry and entry or nil
+        BuildDisplay()
+        for k, it in ipairs(display) do
+            if it.entry == entry then selIdx = k break end
+        end
+        Render()
+        -- Closing a long list can leave the offset past the end: clamp it.
+        ScrollTo(scroll:GetVerticalScroll())
+        SetSelected(selIdx, true)
     end
 
     local RunSearch
@@ -1071,13 +1595,16 @@ local function EnsureSearchUI()
         if _prebuildDone then return end
         RunPrebuildPass(function()
             indexReady = true
-            if sidebarSearchBox:GetText() ~= "" then RunSearch() end
+            if sidebarSearchBox:GetText() ~= "" then RunSearch(true) end
         end)
     end
     sidebarSearchBox:HookScript("OnEditFocusGained", StartPrebuild)
 
-    RunSearch = function()
+    -- keepPlace: the index grew under an open popup; keep its open merged
+    -- row, selection and scroll where the player left them.
+    RunSearch = function(keepPlace)
         local query = sidebarSearchBox:GetText()
+        local wasOpen, wasSel, wasScroll = expanded, selIdx, scroll:GetVerticalScroll()
         -- The index pass normally started on focus; a query typed without focus
         -- (e.g. pasted) starts it here. Coarse module/page results show immediately;
         -- the pass re-runs the query when it finishes. While a search is active, every "Show
@@ -1088,39 +1615,16 @@ local function EnsureSearchUI()
             EllesmereUI.SetLessCommonSearchActive(query ~= "")
         end
         if query ~= "" then StartPrebuild() end
-        results = SearchIndex(query, MAX_VISIBLE_RESULTS)
-        -- Accent-colored "Page:"/"Section:" prefixes. Hex is computed per
-        -- search, so a live accent change is picked up on the next keystroke.
-        local EG = EllesmereUI.ELLESMERE_GREEN
-        local accentHex = EG and EllesmereUI.HexColor(EG.r, EG.g, EG.b) or EllesmereUI.COLOR_CODES.WHITE
-        for i, row in ipairs(resultRows) do
-            local entry = results[i]
-            if entry then
-                if entry.kind == "page" then
-                    -- Coarse whole-page result: prefixed like sections so it
-                    -- reads as "go to this page", not a specific option on it.
-                    row._label:SetText(accentHex .. EllesmereUI.L("Page") .. ":|r " .. entry.displayLabel)
-                    row._sub:SetText(entry.moduleLabel)
-                elseif entry.isSection then
-                    local name = TitleCaseSection(entry.label)
-                    if entry.labelLoc then
-                        name = name .. "  (" .. TitleCaseSection(entry.labelLoc) .. ")"
-                    end
-                    row._label:SetText(accentHex .. EllesmereUI.L("Section") .. ":|r " .. name)
-                    row._sub:SetText(JoinBreadcrumb(GetModuleDisplayName(entry.module), PageLabel(entry.module, entry.page)))
-                else
-                    row._label:SetText(entry.labelLoc and (entry.label .. "  (" .. entry.labelLoc .. ")") or entry.label)
-                    row._sub:SetText(JoinBreadcrumb(GetModuleDisplayName(entry.module), PageLabel(entry.module, entry.page)))
-                end
-                row:SetScript("OnClick", function() JumpToResult(entry, sidebarSearchBox) end)
-                row:EnableMouse(true)
-                row:Show()
-            else
-                row:Hide()
+        results, expanded = SearchIndex(query, MAX_RESULTS), nil
+        if keepPlace == true and wasOpen then
+            for _, e in ipairs(results) do
+                if e.isGroup and e.kind == wasOpen.kind and e.isSection == wasOpen.isSection
+                   and e.lLabel == wasOpen.lLabel then expanded = e break end
             end
         end
-        SetSelected(1)
-        local shown = #results
+        BuildDisplay()
+        selIdx = keepPlace == true and math.max(1, math.min(wasSel, #display)) or 1
+        local shown = Render()
         if shown == 0 and indexReady and query:match("%S") then
             -- Inert "No results" row instead of an empty popup. Pipes are
             -- shown literally so the query cannot inject escape codes.
@@ -1129,31 +1633,27 @@ local function EnsureSearchUI()
             row._label:SetText(EllesmereUI.Lf("No results for %s", "\"" .. q .. "\""))
             row._sub:SetText(EllesmereUI.L("Check the spelling or try a different word"))
             row._hl:SetColorTexture(1, 1, 1, 0)
-            row:SetScript("OnClick", nil)
             row:EnableMouse(false)
             row:Show()
-            shown = 1
-        end
-        if shown > 0 then
-            local n = math.min(shown, MAX_VISIBLE_RESULTS)
-            popup:SetHeight(n * (RESULT_ROW_H + RESULT_ROW_GAP) - RESULT_ROW_GAP + 8)
-            -- Retyped while shown: refit the outline's bottom edge.
+            popup:SetHeight(RESULT_ROW_H + 8)
+            scroll:SetHeight(RESULT_ROW_H)
+            resultsFrame:SetHeight(RESULT_ROW_H)
             popup._brd:Fit()
             popup:Show()
-        else
+            UpdateThumb()
+        elseif shown == 0 then
             popup:Hide()
         end
+        ScrollTo(keepPlace == true and wasScroll or 0)
     end
 
     -- HookScript adds to the box's existing handlers rather than replacing
     -- them, so the sidebar addon/page filtering it already does keeps working.
     sidebarSearchBox:HookScript("OnTextChanged", RunSearch)
-    sidebarSearchBox:HookScript("OnEnterPressed", function(self)
-        if results[selIdx] then JumpToResult(results[selIdx], self) end
-    end)
+    sidebarSearchBox:HookScript("OnEnterPressed", function() Activate(selIdx) end)
     local function Step(d)
-        local n = #results
-        if n > 0 and popup:IsShown() then SetSelected((selIdx - 1 + d) % n + 1) end
+        local n = #display
+        if n > 0 and popup:IsShown() then SetSelected((selIdx - 1 + d) % n + 1, true) end
     end
     sidebarSearchBox:HookScript("OnTabPressed", function() Step(IsShiftKeyDown() and -1 or 1) end)
     sidebarSearchBox:HookScript("OnArrowPressed", function(_, key)

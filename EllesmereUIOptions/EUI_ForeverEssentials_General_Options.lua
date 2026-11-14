@@ -426,7 +426,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               ZL.Apply()
           end }
     );  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(revealRow._leftRegion, {
             title = "Reveal Unexplored Areas Settings",
             rows = {
@@ -447,7 +447,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
 
     -- Map Markers: one toggle; the cog picks the kinds, as the map's filter
     -- menu does, all shown until turned off.
-    if not EllesmereUI._prebuilding then
+    do
         local TIPS = {
             exits = "On zone maps, an arrow on each road out of the zone, pointing to the zone it leads to.",
             flights = "On zone maps, the flight masters, those you have not found yet included.",
@@ -738,7 +738,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               getValue = function() return JI.Get("auctionPrices") == true end,
               setValue = function(v) JunkSet("auctionPrices", v) end }
         );  y = y - h
-        if not EllesmereUI._prebuilding then
+        do
             EllesmereUI.BuildInlineCog(lowRow._leftRegion, {
                 title = "Only Show When Bag Space Is Low",
                 disabled = function() return JI.Get("onlyLowBagSpace") ~= true end,
@@ -790,9 +790,12 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
               EllesmereUI:RefreshPage()  -- the cog's disabled state
           end }
     );  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = fishKeyRow._leftRegion
-        local kbBtn, refresh = EllesmereUI.BuildKeybindButton(rgn, {
+        local kbBtn
+        if not EllesmereUI._prebuilding then
+        local refresh
+        kbBtn, refresh = EllesmereUI.BuildKeybindButton(rgn, {
             w = 140, h = 30, font = 13,
             get = function() return FI.Get("key") end,
             set = function(v)
@@ -803,6 +806,7 @@ _G._EUI_BuildForeverGeneralPage = function(pageName, parent, yOffset)
         })
         EllesmereUI.PanelPP.Point(kbBtn, "RIGHT", rgn, "RIGHT", -20, 0)
         EllesmereUI.RegisterWidgetRefresh(refresh)
+        end
 
         local function fishRow(label, tooltip, key)
             return { type = "toggle", label = label, tooltip = tooltip,

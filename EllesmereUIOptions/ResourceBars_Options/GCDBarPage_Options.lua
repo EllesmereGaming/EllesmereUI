@@ -85,7 +85,7 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
           setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.frameStrata = v; RefreshGCD() end }
     );  y = y - h
     -- Inline position cog (X/Y + unlock) on Enable
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = enableRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local p = DB(); return p and not p.gcdBar.enabled end,
@@ -173,7 +173,7 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
           setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.alwaysShow = v; RefreshGCD() end }
     );  y = y - h
     -- Inline cog on Always Show: idle fill appearance
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(gcdShowRow._rightRegion, {
             title = "Always Show",
             rows = {
@@ -278,7 +278,7 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
             UpdateSwatchState()
         end
         -- Offset cog on Border Style (left region), hidden for "solid"
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = bsRow._leftRegion
             local sepValues, sepOrder = ns.ERB_SeparatorArtValues(true)
             local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
@@ -332,13 +332,15 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
                       set = function(v) local p = DB(); if not p then return end; p.gcdBar.edgeSepY = v; RefreshGCD(); EllesmereUI:RefreshPage() end },
                 },
             })
-            local function UpdateCogVis()
-                local p = DB()
-                local tex = p and p.gcdBar.borderTexture or "solid"
-                if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
+            if not EllesmereUI._prebuilding then
+                local function UpdateCogVis()
+                    local p = DB()
+                    local tex = p and p.gcdBar.borderTexture or "solid"
+                    if tex == "solid" then cogBtn:Hide() else cogBtn:Show() end
+                end
+                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+                UpdateCogVis()
             end
-            EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-            UpdateCogVis()
         end
     end
 
@@ -368,7 +370,7 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
           setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.bgA = v / 100; RefreshGCD() end }
     );  y = y - h
     -- Gradient cog on Color
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = colorRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local p = DB(); return p and not p.gcdBar.enabled end,
@@ -432,7 +434,7 @@ function ns.ERB_BuildGCDBarPage(pageName, parent, yOffset)
           setValue = function(v) local p = DB(); if not p then return end; p.gcdBar.showSpark = v; RefreshGCD() end }
     );  y = y - h
     -- Inline cog on Bar Texture: Textured Background (greyed with the dropdown).
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(gcdTexRow._leftRegion, {
             disabled = gcdOff, disabledTooltip = "GCD Bar",
             title = "Texture Settings",

@@ -190,9 +190,11 @@ do
     eq(Titles(rec), "LAYOUT", "retail's section")
     eq(#FlyoutCogs(rec), 0, "Flyout Settings cogs on retail")
 
+    local live = #Build({ forever = true, class = "SHAMAN", cfg = { enabled = true, orientation = "VERTICAL" } }).cogs
     rec = Build({ forever = true, class = "SHAMAN", prebuild = true, cfg = { enabled = true, orientation = "VERTICAL" } })
     eq(Titles(rec), "ACTIVE TOTEM BAR | CALL TOTEM BAR", "the search pre-build's sections")
-    eq(#rec.cogs, 0, "cogs of any kind in the search pre-build")
+    -- BuildInlineCog indexes its rows for search, then returns, in the pre-build
+    eq(#rec.cogs, live, "the search pre-build reaches every cog the live build does")
 end
 
 -------------------------------------------------------------------------------

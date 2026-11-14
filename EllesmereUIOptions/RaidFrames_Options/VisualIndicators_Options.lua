@@ -483,7 +483,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
           disabledTooltip="Role Icons",
           getValue=function() return SVal("roleIconSize", 14) end,
           setValue=function(v) SSet("roleIconSize", v) end });  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = roleRow2._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Role Icon Offset",
@@ -578,7 +578,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         { type="slider", text="Icon Size", min=8, max=40, step=1,
           getValue=function() return SVal("readyCheckSize", 20) end,
           setValue=function(v) SSet("readyCheckSize", v) end });  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = rcRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Ready Check / Summon / Rez",
@@ -623,7 +623,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         { type="slider", text="Text Size", min=6, max=30, step=1,
           getValue=function() return SVal("statusTextSize", 14) end,
           setValue=function(v) SSet("statusTextSize", v) end });  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = stRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Status Text",
@@ -765,7 +765,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
           disabledTooltip="Combat Icon",
           getValue=function() return SVal("combatIndicatorSize", 16) end,
           setValue=function(v) SSet("combatIndicatorSize", v) end });  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = ciRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Combat Icon",
@@ -834,7 +834,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             swatch:SetPoint("RIGHT", rgn._lastInline or rgn._control, "LEFT", -8, 0)
             rgn._lastInline = swatch
         end
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = gnRow._leftRegion
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Group Number Offset",
@@ -888,7 +888,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
           disabledTooltip="Ping Marker",
           getValue=function() return SVal("pingMarkerSize", 30) end,
           setValue=function(v) SSet("pingMarkerSize", v) end });  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = pingRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Ping Marker Offset",
@@ -1053,7 +1053,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
     end
     -- Cog on the Dispel Border slider: thickness in physical pixels of the engine-tinted dispel ring on dispellable debuff ICONS,
     -- and Color Custom Borders (the frame's own border copied in the dispel type color).
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = row._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Dispel Border",
@@ -1130,7 +1130,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
           getValue=function() return SVal("topNameBarHeight", 20) end,
           setValue=function(v) SSet("topNameBarHeight", v) end });  y = y - h
 
-    if not TNBOff() and not EllesmereUI._prebuilding then
+    if not TNBOff() then
         EllesmereUI.BuildInlineCog(row._rightRegion, {
             disabled=function()
                 local key = SGet("borderTexture")
@@ -1264,7 +1264,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
           getValue=function() return SVal("roleIconOnNameBar", false) end,
           setValue=function(v) SSet("roleIconOnNameBar", v); EllesmereUI:RefreshPage() end },
         EllesmereUI.BlankRowCfg());  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(tnbRow4._leftRegion, {
             title = "Role Icon Position",
             disabled = function() return not SVal("roleIconOnNameBar", false) end,
@@ -1339,7 +1339,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
         -- Inline cog on the display dropdown: Show in Dungeons (opt-in;
         -- the group gate is raid-only without it). Dimmed while Never,
         -- like every row below the dropdown.
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = row._leftRegion
             EllesmereUI.BuildInlineCog(rgn, {
                 disabled = function() return not FBEnabled() end, disabledTooltip = FB_DISABLED_TIP,
@@ -1483,7 +1483,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                   EllesmereUI:RefreshPage()
               end) }); y = y - h
         -- Inline cog on Show Tanks: tank auto-include options.
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = row._rightRegion
             EllesmereUI.BuildInlineCog(rgn, {
                 title = "Show Tanks Options",
@@ -1931,7 +1931,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
           getValue=function() return CurTooltipMode() end,
           setValue=function(v) SSet("tooltipMode", v) end });  y = y - h
     -- Cog: buff/HoT aura-icon tooltips (Buff Manager), hidden by default and opt-in here. This is the ONLY gate on the aura tip: the dropdown's tooltip mode governs the UNIT tooltip and must NOT veto an aura tip enabled here (see ns.RaidFrameTooltipAllowed).
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = row._rightRegion
         local tipRows
             -- 4-state on the same key: true/nil=hidden, false=shown, "cursor"=shown at cursor, "combat"=hidden during combat.
@@ -2036,7 +2036,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
           } }
     );  y = y - h
     -- Inline cog (text settings) + preview eyeball on the toggle
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = hmRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Healer Mana Display",
@@ -2081,35 +2081,37 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             },
         })
 
-        local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
-        local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
-        local eyeBtn = CreateFrame("Button", nil, rgn)
-        eyeBtn:SetSize(26, 26)
-        eyeBtn:SetPoint("RIGHT", rgn._lastInline, "LEFT", -4, 0)
-        rgn._lastInline = eyeBtn
-        eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-        EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
-        local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-        eyeTex:SetAllPoints(); eyeTex:SetTexture(EYE_VISIBLE)
-        local function RefreshHMEye()
-            eyeTex:SetTexture(ns._hmPreview and EYE_INVISIBLE or EYE_VISIBLE)
-        end
-        EYE.refreshHMEye = RefreshHMEye
-        eyeBtn:SetScript("OnClick", function()
-            if ns.HM_SetPreview then ns.HM_SetPreview(not ns._hmPreview) end
-            RefreshHMEye()
-        end)
-        eyeBtn:SetScript("OnEnter", function(s)
-            EllesmereUI.SetGlyphAlpha(s, 0.7)
-            EllesmereUI.ShowWidgetTooltip(s, ns._hmPreview and "Hide the preview" or "Preview the display at its position")
-        end)
-        eyeBtn:SetScript("OnLeave", function(s)
-            EllesmereUI.SetGlyphAlpha(s, 0.4)
-            EllesmereUI.HideWidgetTooltip()
-        end)
-        if not hmEyeOnHide then
-            hmEyeOnHide = true
-            EllesmereUI:RegisterOnHide(StopHMPreviewOnHide)
+        if not EllesmereUI._prebuilding then
+            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
+            local eyeBtn = CreateFrame("Button", nil, rgn)
+            eyeBtn:SetSize(26, 26)
+            eyeBtn:SetPoint("RIGHT", rgn._lastInline, "LEFT", -4, 0)
+            rgn._lastInline = eyeBtn
+            eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
+            local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+            eyeTex:SetAllPoints(); eyeTex:SetTexture(EYE_VISIBLE)
+            local function RefreshHMEye()
+                eyeTex:SetTexture(ns._hmPreview and EYE_INVISIBLE or EYE_VISIBLE)
+            end
+            EYE.refreshHMEye = RefreshHMEye
+            eyeBtn:SetScript("OnClick", function()
+                if ns.HM_SetPreview then ns.HM_SetPreview(not ns._hmPreview) end
+                RefreshHMEye()
+            end)
+            eyeBtn:SetScript("OnEnter", function(s)
+                EllesmereUI.SetGlyphAlpha(s, 0.7)
+                EllesmereUI.ShowWidgetTooltip(s, ns._hmPreview and "Hide the preview" or "Preview the display at its position")
+            end)
+            eyeBtn:SetScript("OnLeave", function(s)
+                EllesmereUI.SetGlyphAlpha(s, 0.4)
+                EllesmereUI.HideWidgetTooltip()
+            end)
+            if not hmEyeOnHide then
+                hmEyeOnHide = true
+                EllesmereUI:RegisterOnHide(StopHMPreviewOnHide)
+            end
         end
     end
 
@@ -2205,7 +2207,7 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
               disabled=PGOff, disabledTooltip="Player Group Label",
               swatches=PGModeSwatches("borderColorMode", "borderColor") }
         );  y = y - h
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = pgRow._leftRegion
             local function SizeRow(label, key)
                 return { type="slider", label=label, min=0, max=200, step=1,
@@ -2239,39 +2241,41 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                 },
             })
 
-            local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
-            local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
-            local eyeBtn = CreateFrame("Button", nil, rgn)
-            eyeBtn:SetSize(26, 26)
-            eyeBtn:SetPoint("RIGHT", rgn._lastInline, "LEFT", -4, 0)
-            rgn._lastInline = eyeBtn
-            eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
-            EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
-            local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
-            eyeTex:SetAllPoints(); eyeTex:SetTexture(EYE_VISIBLE)
-            local function RefreshPGEye()
-                eyeTex:SetTexture(ns._pgPreview and EYE_INVISIBLE or EYE_VISIBLE)
-                eyeBtn:SetEnabled(not PGOff())
-                EllesmereUI.SetGlyphAlpha(eyeBtn, PGOff() and 0.15 or 0.4)
-            end
-            EYE.refreshPGEye = RefreshPGEye
-            EllesmereUI.RegisterWidgetRefresh(RefreshPGEye)
-            RefreshPGEye()
-            eyeBtn:SetScript("OnClick", function()
-                if ns.PG_SetPreview then ns.PG_SetPreview(not ns._pgPreview) end
+            if not EllesmereUI._prebuilding then
+                local EYE_VISIBLE   = EllesmereUI.EYE_VISIBLE_ICON
+                local EYE_INVISIBLE = EllesmereUI.EYE_INVISIBLE_ICON
+                local eyeBtn = CreateFrame("Button", nil, rgn)
+                eyeBtn:SetSize(26, 26)
+                eyeBtn:SetPoint("RIGHT", rgn._lastInline, "LEFT", -4, 0)
+                rgn._lastInline = eyeBtn
+                eyeBtn:SetFrameLevel(rgn:GetFrameLevel() + 5)
+                EllesmereUI.SetGlyphAlpha(eyeBtn, 0.4)
+                local eyeTex = eyeBtn:CreateTexture(nil, "OVERLAY")
+                eyeTex:SetAllPoints(); eyeTex:SetTexture(EYE_VISIBLE)
+                local function RefreshPGEye()
+                    eyeTex:SetTexture(ns._pgPreview and EYE_INVISIBLE or EYE_VISIBLE)
+                    eyeBtn:SetEnabled(not PGOff())
+                    EllesmereUI.SetGlyphAlpha(eyeBtn, PGOff() and 0.15 or 0.4)
+                end
+                EYE.refreshPGEye = RefreshPGEye
+                EllesmereUI.RegisterWidgetRefresh(RefreshPGEye)
                 RefreshPGEye()
-            end)
-            eyeBtn:SetScript("OnEnter", function(s)
-                EllesmereUI.SetGlyphAlpha(s, 0.7)
-                EllesmereUI.ShowWidgetTooltip(s, ns._pgPreview and "Hide the preview" or "Preview the label at its position")
-            end)
-            eyeBtn:SetScript("OnLeave", function(s)
-                EllesmereUI.SetGlyphAlpha(s, 0.4)
-                EllesmereUI.HideWidgetTooltip()
-            end)
-            if not pgEyeOnHide then
-                pgEyeOnHide = true
-                EllesmereUI:RegisterOnHide(StopPGPreviewOnHide)
+                eyeBtn:SetScript("OnClick", function()
+                    if ns.PG_SetPreview then ns.PG_SetPreview(not ns._pgPreview) end
+                    RefreshPGEye()
+                end)
+                eyeBtn:SetScript("OnEnter", function(s)
+                    EllesmereUI.SetGlyphAlpha(s, 0.7)
+                    EllesmereUI.ShowWidgetTooltip(s, ns._pgPreview and "Hide the preview" or "Preview the label at its position")
+                end)
+                eyeBtn:SetScript("OnLeave", function(s)
+                    EllesmereUI.SetGlyphAlpha(s, 0.4)
+                    EllesmereUI.HideWidgetTooltip()
+                end)
+                if not pgEyeOnHide then
+                    pgEyeOnHide = true
+                    EllesmereUI:RegisterOnHide(StopPGPreviewOnHide)
+                end
             end
         end
     end
