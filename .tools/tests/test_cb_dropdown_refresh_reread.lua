@@ -134,6 +134,18 @@ local EUI = setmetatable({
     -- Every other helper does nothing and answers nil; fields stay nil.
     if type(k) == "string" and k:match("^%u") then return Noop end
 end })
+-- The dropdown button's hover tooltip comes from two helpers of the widget base file, which
+-- the checkbox dropdowns read at call time: the real pair, cut out of that file.
+function issecretvalue() return false end
+do
+    local base = Read("EllesmereUIOptions/EllesmereUI_Widgets.lua")
+    local a = assert(base:find("local function ShowDropdownTip(", 1, true), "ShowDropdownTip not found")
+    local b = assert(base:find("-- Wire OnEnter/OnLeave/OnClick/OnShow/OnHide", a, true), "end of the helpers not found")
+    local show, hide = assert(loadstring("local EllesmereUI = ...\n"
+        .. "local ShowWidgetTooltip, HideWidgetTooltip = EllesmereUI.ShowWidgetTooltip, EllesmereUI.HideWidgetTooltip\n"
+        .. base:sub(a, b - 1) .. "\nreturn ShowDropdownTip, HideDropdownTip", "=Widgets (the dropdown tooltip)"))(EUI)
+    EUI._widgetInternals = { ShowDropdownTip = show, HideDropdownTip = hide }
+end
 _G.EllesmereUI = EUI
 assert(loadstring(Read(WIDGET), "=CheckboxDropdowns"))()
 

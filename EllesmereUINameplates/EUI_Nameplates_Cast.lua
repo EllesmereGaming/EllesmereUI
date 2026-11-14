@@ -106,13 +106,222 @@ local TGT_GLOW_KEYS = EllesmereUI.Glows.FlatKeys("castTargetGlow")
 -- One scratch spec for every plate and both glows: StartSpecGlow reads it synchronously.
 local castGlowSpec = {}
 
--- Starts the glow on a cast bar overlay. Restarts only when the setting or the bar size changed.
-local function StartCastGlow(self, ov, cfg, k)
+-- Modern WoW Glow on a cast bar is Blizzard's own nameplate cast bar art, not the action bar
+-- proc art the style draws on icons (square art: stretched to a bar it reached over both
+-- ends, across the spell name and the timer). Blizzard draws each art at one bar size, so
+-- here it is cut into eight pieces on one frame per glow overlay: its four corners keep
+-- their own size, its two lines stretch along the bar and its two end pieces up it, and the
+-- frame sits on the bar's edges at any bar size (stretched whole, its ends stood off the
+-- bar and its lines lay over it). w / h: the art's size in its own pixels; capL / capT /
+-- capR / capB: the corners; left / top / right / bottom: how far the art reaches past the
+-- bar's corners, in the bar's units, as Blizzard's nameplates place it. The important cast
+-- art pulses between half and full alpha over two seconds (an engine animation; Blizzard's
+-- own goes down to none); the targeted art is steady. A colour tints the art as it tints
+-- the other art styles; the Default colour is the art's own. A client without the art keeps
+-- the old glow.
+-- The art shows above everything else on the plate, borders included: its frame sits on the
+-- strata the plate's custom borders and texts use (the cast bar's own while Casts In Front of
+-- Nameplates lifts the bar), at LEVEL, above the texts' 900 and the name marker's 901.
+-- A spell icon standing beside the bar counts as part of the bar while it is not Full Sized
+-- and its Y offset is within ICON_Y either way: the art then goes around the icon and the
+-- bar together.
+local CastArt = {
+    important = { atlas = "ui-hud-nameplates-importantcast", h = 16, top = 3, bottom = 3, capT = 3, capB = 3, pulse = true },
+    targeted  = { atlas = "ui-hud-nameplates-targetedbyenemy", w = 218, h = 19, left = 4, top = 4, right = 4, bottom = 4,
+                  capL = 9, capT = 8, capR = 9, capB = 8 },
+    LEVEL = 950,
+    ICON_Y = 2,
+}
+for i, entry in ipairs(EllesmereUI.Glows.STYLES) do
+    if entry.name == "Modern WoW Glow" then CastArt.style = i break end
+end
+-- The shared style drawn as that art, for the options.
+ns.NP_CAST_ART_STYLE = CastArt.style
+
+-- Whether the client has this art; its sheet file and coordinates are read once. The
+-- important cast art comes in two revisions, told apart by their proportions: retail's is
+-- 264 x 16 and its end flares reach 26 and 25 past the bar (Blizzard's own offsets); WoW
+-- Forever ships an older, paler one, 248 x 16, whose flares reach 18 and 17. Each corner
+-- runs 6 or 7 past its flare.
+function CastArt.Has(art)
+    local has = art.has
+    if has == nil then
+        local info = C_Texture.GetAtlasInfo(art.atlas)
+        local file = info and (info.file or info.filename)
+        has = file ~= nil
+        if has then
+            if not art.w then
+                local older = (info.width or 264) / (info.height or 16) < 16
+                art.w = older and 248 or 264
+                art.left, art.right = older and 18 or 26, older and 17 or 25
+                art.capL, art.capR = art.left + 6, art.right + 7
+            end
+            art.file = file
+            art.l, art.r, art.t, art.b = info.leftTexCoord, info.rightTexCoord, info.topTexCoord, info.bottomTexCoord
+        end
+        art.has = has
+    end
+    return has
+end
+
+-- The art's eight pieces on its frame f, cut from the sheet: 1 to 3 its top line (left
+-- corner, stretch, right corner), 4 and 5 its left and right end pieces, 6 to 8 its bottom
+-- line. No pixel snapping: the pieces must meet at every plate scale.
+function CastArt.Build(f, art)
+    local du, dv = (art.r - art.l) / art.w, (art.b - art.t) / art.h
+    local x1, x2 = art.l + art.capL * du, art.r - art.capR * du
+    local y1, y2 = art.t + art.capT * dv, art.b - art.capB * dv
+    local p = {}
+    for i = 1, 8 do
+        local tex = f:CreateTexture(nil, "OVERLAY")
+        tex:SetTexture(art.file)
+        tex:SetSnapToPixelGrid(false)
+        tex:SetTexelSnappingBias(0)
+        p[i] = tex
+    end
+    p[1]:SetTexCoord(art.l, x1, art.t, y1)
+    p[1]:SetSize(art.capL, art.capT)
+    p[1]:SetPoint("TOPLEFT", f, "TOPLEFT")
+    p[3]:SetTexCoord(x2, art.r, art.t, y1)
+    p[3]:SetSize(art.capR, art.capT)
+    p[3]:SetPoint("TOPRIGHT", f, "TOPRIGHT")
+    p[6]:SetTexCoord(art.l, x1, y2, art.b)
+    p[6]:SetSize(art.capL, art.capB)
+    p[6]:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT")
+    p[8]:SetTexCoord(x2, art.r, y2, art.b)
+    p[8]:SetSize(art.capR, art.capB)
+    p[8]:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT")
+    p[2]:SetTexCoord(x1, x2, art.t, y1)
+    p[2]:SetPoint("TOPLEFT", p[1], "TOPRIGHT")
+    p[2]:SetPoint("BOTTOMRIGHT", p[3], "BOTTOMLEFT")
+    p[7]:SetTexCoord(x1, x2, y2, art.b)
+    p[7]:SetPoint("TOPLEFT", p[6], "TOPRIGHT")
+    p[7]:SetPoint("BOTTOMRIGHT", p[8], "BOTTOMLEFT")
+    p[4]:SetTexCoord(art.l, x1, y1, y2)
+    p[4]:SetPoint("TOPLEFT", p[1], "BOTTOMLEFT")
+    p[4]:SetPoint("BOTTOMRIGHT", p[6], "TOPRIGHT")
+    p[5]:SetTexCoord(x2, art.r, y1, y2)
+    p[5]:SetPoint("TOPLEFT", p[3], "BOTTOMLEFT")
+    p[5]:SetPoint("BOTTOMRIGHT", p[8], "TOPRIGHT")
+    return p
+end
+
+-- How far the art reaches past the bar's four edges (left, top, right, bottom), in the bar's
+-- units: its own reach, plus the spell icon while the icon counts as part of the bar. The
+-- icon is a square of the bar's height at its own scale, hung from the bar's top corner on
+-- its side and moved by its offsets (ns.LayoutCastIcon); the reach takes in whatever of it
+-- stands past the bar's end on its side, above the bar and below it.
+function CastArt.Reach(plate, art)
+    local l, t, r, b = art.left, art.top, art.right, art.bottom
+    if not ns.GetShowCastIcon() or ns.GetCastIconFullSize() or ns.NP_Classic() then return l, t, r, b end
+    local yOff = (p and p.castIconOffsetY) or defaults.castIconOffsetY
+    if yOff < -CastArt.ICON_Y or yOff > CastArt.ICON_Y then return l, t, r, b end
+    local scale = ns.GetCastIconScale() or 1
+    local barH = plate.cast:GetHeight()
+    local side = barH * scale
+    local x = ((p and p.castIconOffsetX) or defaults.castIconOffsetX) * scale
+    local y = yOff * scale
+    local onRight = ns.GetCastIconOnRight()
+    local out = onRight and (side + x) or (side - x)
+    if out > 0 then
+        if onRight then r = r + out else l = l + out end
+    end
+    if y > 0 then t = t + y end
+    local below = side - y - barH
+    if below > 0 then b = b + below end
+    return l, t, r, b
+end
+
+-- Seats the art's frame on its overlay: above everything else on the plate, and around the
+-- bar (and the spell icon, CastArt.Reach). A strata change resets a frame's level, and the
+-- cast bar's own strata change resets its children's, so both are checked on every call;
+-- nothing is written while nothing moved.
+function CastArt.Place(plate, ov, art)
+    local f = ov._art
+    local strata = plate._castOverlayLifted and plate.cast:GetFrameStrata() or "MEDIUM"
+    if f:GetFrameStrata() ~= strata then f:SetFrameStrata(strata) end
+    if f:GetFrameLevel() ~= CastArt.LEVEL then f:SetFrameLevel(CastArt.LEVEL) end
+    local l, t, r, b = CastArt.Reach(plate, art)
+    if f._l ~= l or f._t ~= t or f._r ~= r or f._b ~= b then
+        f._l, f._t, f._r, f._b = l, t, r, b
+        f:SetPoint("TOPLEFT", ov, "TOPLEFT", -l, t)
+        f:SetPoint("BOTTOMRIGHT", ov, "BOTTOMRIGHT", r, -b)
+    end
+end
+
+-- Shows the art on a plate's overlay (its frame and pieces are built once per overlay) in
+-- colour r, g, b; r nil = its own colours. Repaints only when the colour changed.
+function CastArt.Show(plate, ov, art, r, g, b)
+    local f = ov._art
+    if not f then
+        f = CreateFrame("Frame", nil, ov)
+        f._pieces = CastArt.Build(f, art)
+        if art.pulse then
+            local ag = f:CreateAnimationGroup()
+            ag:SetLooping("REPEAT")
+            local up = ag:CreateAnimation("Alpha")
+            up:SetOrder(1)
+            up:SetDuration(1)
+            up:SetFromAlpha(0.5)
+            up:SetToAlpha(1)
+            local down = ag:CreateAnimation("Alpha")
+            down:SetOrder(2)
+            down:SetDuration(1)
+            down:SetFromAlpha(1)
+            down:SetToAlpha(0.5)
+            ov._artPulse = ag
+        end
+        ov._art = f
+        ov._artTint = false
+    end
+    CastArt.Place(plate, ov, art)
+    if ov._artTint ~= (r ~= nil) or ov._artR ~= r or ov._artG ~= g or ov._artB ~= b then
+        ov._artTint, ov._artR, ov._artG, ov._artB = r ~= nil, r, g, b
+        local pieces = f._pieces
+        for i = 1, 8 do
+            local tex = pieces[i]
+            if r then
+                tex:SetDesaturated(true)
+                tex:SetVertexColor(r, g, b)
+            else
+                tex:SetDesaturated(false)
+                tex:SetVertexColor(1, 1, 1)
+            end
+        end
+    end
+    if not ov._artOn then
+        ov._artOn = true
+        f:Show()
+        if ov._artPulse then ov._artPulse:Play() end
+    end
+end
+
+function CastArt.Hide(ov)
+    if not ov._artOn then return end
+    ov._artOn = false
+    if ov._artPulse then ov._artPulse:Stop() end
+    ov._art:Hide()
+end
+
+-- Starts the glow on a cast bar overlay: the nameplate art for Modern WoW Glow, the glow
+-- engine for every other style (it restarts only when the setting or the bar size changed).
+-- Switching between the two stops the other.
+local function StartCastGlow(self, ov, cfg, k, art)
     local Glows = EllesmereUI.Glows
     local style = cfg[k.style] or defaults[k.style] or 1
     if type(style) ~= "number" or style < 1 or style > #PANDEMIC_GLOW_STYLES then style = 1 end
     local spec = Glows.SpecFromFlat(castGlowSpec, cfg, k, cfg[k.mode] or "custom", defaults)
     spec.style = ns.NP_TO_SHARED_GLOW[style] or 1
+    if spec.style == CastArt.style and CastArt.Has(art) then
+        if ov._engineGlow then
+            ov._engineGlow = false
+            Glows.StopAllGlows(ov)
+        end
+        CastArt.Show(self, ov, art, spec.r, spec.g, spec.b)
+        return
+    end
+    CastArt.Hide(ov)
+    ov._engineGlow = true
     local pW, pH = self.cast:GetWidth(), self.cast:GetHeight()
     if pW < 5 then pW = 100 end
     if pH < 5 then pH = 14 end
@@ -131,7 +340,7 @@ function NameplateFrame:UpdateImportantCastGlow()
     end
 
     local ov = EnsureCastGlowOverlay(self, "_importantCastOverlay", 5)
-    StartCastGlow(self, ov, cfg, IMP_GLOW_KEYS)
+    StartCastGlow(self, ov, cfg, IMP_GLOW_KEYS, CastArt.important)
     self._importantGlowActive = true
 
     -- SetAlphaFromBoolean handles the secret boolean taint-free.
@@ -151,7 +360,7 @@ function NameplateFrame:UpdateCastTargetGlow()
         self:ClearCastTargetGlow(); return
     end
     local ov = EnsureCastGlowOverlay(self, "_castTargetOverlay", 6)
-    StartCastGlow(self, ov, cfg, TGT_GLOW_KEYS)
+    StartCastGlow(self, ov, cfg, TGT_GLOW_KEYS, CastArt.targeted)
     self._castTargetGlowActive = true
     ov:Show()
     if self._importantGlowActive then
@@ -169,6 +378,8 @@ end
 function NameplateFrame:ClearCastTargetGlow()
     if self._castTargetGlowActive and self._castTargetOverlay then
         EllesmereUI.Glows.StopAllGlows(self._castTargetOverlay)
+        self._castTargetOverlay._engineGlow = false
+        CastArt.Hide(self._castTargetOverlay)
         self._castTargetOverlay:SetAlpha(0)
         self._castTargetOverlay:Hide()
         self._castTargetGlowActive = false
@@ -178,10 +389,22 @@ end
 function NameplateFrame:ClearImportantCastGlow()
     if self._importantGlowActive and self._importantCastOverlay then
         EllesmereUI.Glows.StopAllGlows(self._importantCastOverlay)
+        self._importantCastOverlay._engineGlow = false
+        CastArt.Hide(self._importantCastOverlay)
         self._importantCastOverlay:SetAlpha(0)
         self._importantCastOverlay:Hide()
         self._importantGlowActive = false
     end
+end
+
+-- The art showing on a plate takes its seat again: the plate's spell icon was laid out anew
+-- (the art goes around it) or its cast bar was lifted or lowered (Casts In Front of
+-- Nameplates). Two field reads for a plate that shows no art.
+function ns.NP_PlaceCastGlowArt(plate)
+    local ov = plate._importantCastOverlay
+    if ov and ov._artOn then CastArt.Place(plate, ov, CastArt.important) end
+    ov = plate._castTargetOverlay
+    if ov and ov._artOn then CastArt.Place(plate, ov, CastArt.targeted) end
 end
 
 -- A cast glow setting changed (its options row, Global Settings > Glows): the casts already

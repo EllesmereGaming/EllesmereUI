@@ -70,7 +70,8 @@ local PT = { tgtOf = {}, frameOf = setmetatable({}, { __mode = "k" }), tgtEv = {
              DEF_DYN100 = { r = 0, g = 1, b = 0 },
              DEF_DYN50  = { r = 0xEC/255, g = 0xEC/255, b = 0x32/255 },
              DEF_DYN0   = { r = 0xE3/255, g = 0x30/255, b = 0x30/255 },
-             DEF_TEXT   = { r = 1, g = 1, b = 1 } }
+             DEF_TEXT   = { r = 1, g = 1, b = 1 },
+             stops = {} }
 -- The shared style inputs plus the target frames' own twenty-three (PT_FpExtra).
 PT.FP_N = ns._PF.STYLE_N + 23
 
@@ -624,7 +625,7 @@ ns._PT_Restyle = function()
     local texPath = ResolveHealthTexture(s)
     local changed, at = ns._PF.StyleChanged("pt", s, texPath, PT_FpExtra, PT.FP_N)
     if not changed then return end
-        local p = db.profile
+    local p = db.profile
     local fc = p.partyTargetCustomFillColor or PT.DEF_FILL
     local bc = p.partyTargetCustomBgColor or ns._PF.DEFAULT_BG
     PT.mode = p.partyTargetHealthColorMode or "class"
@@ -637,24 +638,10 @@ ns._PT_Restyle = function()
     PT.tr, PT.tg, PT.tb = tc.r, tc.g, tc.b
     local interp = Enum.StatusBarInterpolation
     PT.smooth = (s.smoothBars and interp and interp.ExponentialEaseOut) or nil
+    -- The target frames' own curve (PT.stops), built again only when a stop changed.
     if PT.mode == "customDynamic" then
-        local c0   = p.partyTargetDynamicColor0   or PT.DEF_DYN0
-        local c50  = p.partyTargetDynamicColor50  or PT.DEF_DYN50
-        local c100 = p.partyTargetDynamicColor100 or PT.DEF_DYN100
-        if not (PT.curve
-            and PT.cr0   == c0.r   and PT.cg0   == c0.g   and PT.cb0   == c0.b
-            and PT.cr50  == c50.r  and PT.cg50  == c50.g  and PT.cb50  == c50.b
-            and PT.cr100 == c100.r and PT.cg100 == c100.g and PT.cb100 == c100.b) then
-            local cv = C_CurveUtil.CreateColorCurve()
-            cv:SetType(Enum.LuaCurveType.Linear)
-            cv:AddPoint(0,   CreateColor(c0.r,   c0.g,   c0.b,   1))
-            cv:AddPoint(0.5, CreateColor(c50.r,  c50.g,  c50.b,  1))
-            cv:AddPoint(1,   CreateColor(c100.r, c100.g, c100.b, 1))
-            PT.curve = cv
-            PT.cr0, PT.cg0, PT.cb0       = c0.r, c0.g, c0.b
-            PT.cr50, PT.cg50, PT.cb50    = c50.r, c50.g, c50.b
-            PT.cr100, PT.cg100, PT.cb100 = c100.r, c100.g, c100.b
-        end
+        PT.curve = ns.RF_StopsCurve(PT.stops, p.partyTargetDynamicColor0, p.partyTargetDynamicColor50,
+            p.partyTargetDynamicColor100)
     end
     -- 0: nothing styled yet (new frames); up to STYLE_N: a shared input changed.
     if at <= ns._PF.STYLE_N then
@@ -1025,7 +1012,7 @@ local function PT_PvFrame(i, parent, s, spec)
     local mode = s.partyTargetHealthColorMode or "class"
     ns.RF_TexBgLayer(health, bg, (mode ~= "dark" or ns.RF_TexBgOpaque(st, true))
         and ns.RF_TexBgPath(st) or nil)
-        if mode == "dark" then
+    if mode == "dark" then
         local r, g, b, a = EUI.GetDarkModeFill()
         health:SetStatusBarColor(r, g, b, 1)
         if tex then tex:SetAlpha(a) end
@@ -1037,21 +1024,9 @@ local function PT_PvFrame(i, parent, s, spec)
             local p = mock.hp / 100
             health:SetStatusBarColor(p < 0.5 and 1 or (1 - (p - 0.5) * 2), p > 0.5 and 1 or (p * 2), 0, 1)
         elseif mode == "customDynamic" then
-            local p = mock.hp / 100
-            local c0   = s.partyTargetDynamicColor0   or PT.DEF_DYN0
-            local c50  = s.partyTargetDynamicColor50  or PT.DEF_DYN50
-            local c100 = s.partyTargetDynamicColor100 or PT.DEF_DYN100
-            if p >= 0.5 then
-                local t = (p - 0.5) * 2
-                health:SetStatusBarColor(c50.r + (c100.r - c50.r) * t,
-                                         c50.g + (c100.g - c50.g) * t,
-                                         c50.b + (c100.b - c50.b) * t, 1)
-            else
-                local t = p * 2
-                health:SetStatusBarColor(c0.r + (c50.r - c0.r) * t,
-                                         c0.g + (c50.g - c0.g) * t,
-                                         c0.b + (c50.b - c0.b) * t, 1)
-            end
+            local sr, sg, sb = ns.RF_StopsColorAt(s.partyTargetDynamicColor0, s.partyTargetDynamicColor50,
+                s.partyTargetDynamicColor100, mock.hp / 100)
+            health:SetStatusBarColor(sr, sg, sb, 1)
         elseif mode == "custom" then
             local c = s.partyTargetCustomFillColor or PT.DEF_FILL
             health:SetStatusBarColor(c.r, c.g, c.b, 1)

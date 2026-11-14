@@ -80,13 +80,13 @@ local TITLE_MIN_W = 40         -- the narrowest a quest title gets, whatever the
 local charDB
 local function CharDB()
     if charDB then return charDB end
-    local sv = EllesmereUI.CharData("questTracker", true)
-    if not sv then return {} end -- GUID unread: a throwaway, not cached
+    local kept = EllesmereUI.CharData("questTracker", true)
+    local sv = kept or {} -- GUID unread: a throwaway with the same sets, not cached
     if type(sv.ctUntracked) ~= "table" then sv.ctUntracked = {} end
     if type(sv.ctCollapsed) ~= "table" then sv.ctCollapsed = {} end
     if type(sv.ctDoneOpen) ~= "table" then sv.ctDoneOpen = {} end
     if type(sv.ctPinned) ~= "table" then sv.ctPinned = {} end
-    charDB = sv
+    charDB = kept
     return sv
 end
 
@@ -1020,7 +1020,6 @@ local function Untrack(questID)
 end
 
 local function TogglePin(questID)
-    if InCombatLockdown() then return end
     local pinned = CharDB().ctPinned
     pinned[questID] = not pinned[questID] or nil
     Queue()
@@ -1062,10 +1061,12 @@ local function ShowMenu(owner, questID)
         items[#items + 1] = { text = focused and STOP_SUPER_TRACK_QUEST or SUPER_TRACK_QUEST, noLoc = true,
             onClick = function() ToggleFocus(questID) end }
     end
-    items[#items + 1] = { noLoc = true, isDisabled = InCombatLockdown,
+    items[#items + 1] = { noLoc = true,
         text = CharDB().ctPinned[questID] and EllesmereUI.L("Unpin") or EllesmereUI.L("Pin to Top"),
         onClick = function() TogglePin(questID) end }
     items[#items + 1] = { text = OBJECTIVES_STOP_TRACKING, noLoc = true, onClick = function() Untrack(questID) end }
+    -- Sharing a quest is refused in combat (a blocked action from addon code): the entry
+    -- is greyed there, and a click after combat began with the menu open does nothing.
     if IsInGroup() and C_QuestLog.IsPushableQuest(questID) then
         items[#items + 1] = { text = SHARE_QUEST, noLoc = true, isDisabled = InCombatLockdown, onClick = function()
             if InCombatLockdown() then return end

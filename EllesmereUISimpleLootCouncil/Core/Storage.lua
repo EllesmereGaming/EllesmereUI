@@ -19,6 +19,8 @@ Storage.KEPT = "kept"
 Storage.UNTRADEABLE_KEEP = 24 * 60 * 60
 Storage.TRADE_WINDOW = 4 * 60 * 60
 
+Storage.OTHER_KEEP = 7 * 24 * 60 * 60
+
 
 
 
@@ -109,6 +111,14 @@ local function ItemID(link)
     return tonumber(link:match("|Hitem:(%d+)")) or tonumber(link:match("^item:(%d+)"))
 end
 Storage.ItemID = ItemID
+
+
+
+local function Mine(entry)
+    local Player = addon.Player
+    return not (Player and Player.OwnsStamp) or Player:OwnsStamp(entry.char)
+end
+local function SelfStamp() return addon.Player.SelfStamp and addon.Player.SelfStamp() end
 
 
 
@@ -305,10 +315,53 @@ local function SlotFacts(bag, slot)
 end
 
 
+
 local function IsEpicBoE(bag, slot, bonding)
     if bonding ~= Enum.TooltipDataItemBinding.BindOnEquip then return false end
-    local bound, quality = SlotFacts(bag, slot)
-    return quality == Enum.ItemQuality.Epic and not bound
+    local bound, quality, location = SlotFacts(bag, slot)
+    if quality ~= Enum.ItemQuality.Epic or bound then return false end
+    return true, location and C_Item.GetItemGUID(location) or nil
+end
+
+
+
+local BOE_WINDOW, BOE_KEPT = 6 * 3600, 7 * 86400
+local boeTracking, boeBaseline, boePruned = false, true, false
+
+
+function Storage:TrackBoEs(on)
+    on = on and true or false
+    if on and not boeTracking then boeBaseline = true end
+    boeTracking = on
+end
+
+
+local function PruneBoEs(store, now)
+    boePruned = true
+    for guid, record in pairs(store) do
+        if type(record) ~= "table" or type(record.seen) ~= "number"
+            or now - record.seen > BOE_KEPT then
+            store[guid] = nil
+        end
+    end
+end
+
+
+local function BoELeft(guid)
+    local db = addon.db
+    if not guid or not db then return nil end
+    if type(db.boeSeen) ~= "table" then db.boeSeen = {} end
+    local store, now = db.boeSeen, GetServerTime()
+    if not boePruned then PruneBoEs(store, now) end
+    local record = store[guid]
+    if type(record) ~= "table" then
+        record = { at = boeTracking and not boeBaseline and now or false }
+        store[guid] = record
+        if record.at then addon.Log:I("Storage", "BoE timed for six hours", guid) end
+    end
+    record.seen = now
+    local left = record.at and BOE_WINDOW - (now - record.at)
+    return left and left > 0 and left or nil
 end
 
 
@@ -439,7 +492,8 @@ local function CopyReadings(list)
     local out = {}
     for i, item in ipairs(list) do
         out[i] = { link = item.link, bag = item.bag, slot = item.slot,
-            secondsLeft = item.secondsLeft, eligible = item.eligible, boe = item.boe }
+            secondsLeft = item.secondsLeft, eligible = item.eligible, boe = item.boe,
+            boeLeft = item.boeLeft }
     end
     return out
 end
@@ -456,7 +510,7 @@ end
 
 
 local function Scan(cached)
-    local found = {}
+    local found, occupied = {}, false
     for bag = Enum.BagIndex.Backpack, NUM_TOTAL_EQUIPPED_BAG_SLOTS do
         local readings
         if cached then
@@ -474,6 +528,7 @@ local function Scan(cached)
                 link = C_Container.GetContainerItemLink(bag, slot)
                 if link then secondsLeft, bonding = ReadSlot(bag, slot, link) end
             end
+            if link then occupied = true end
             if link and secondsLeft and secondsLeft > 0 then
                 found[#found + 1] = {
                     link = link,
@@ -483,14 +538,20 @@ local function Scan(cached)
 
                     eligible = addon.Loot and addon.Loot:IsCouncilItem(link) or false,
                 }
-            elseif link and IsEpicBoE(bag, slot, bonding) then
+            elseif link then
+                local boe, guid = IsEpicBoE(bag, slot, bonding)
+                if boe then
 
-                found[#found + 1] = {
-                    link = link, bag = bag, slot = slot, boe = true, eligible = true,
-                }
+                    found[#found + 1] = {
+                        link = link, bag = bag, slot = slot, boe = true, eligible = true,
+                        boeLeft = BoELeft(guid),
+                    }
+                end
             end
         end
     end
+
+    if boeTracking and occupied then boeBaseline = false end
     if cached then dirtyBags = {} else PruneTimeless() end
     return found
 end
@@ -545,7 +606,11 @@ function Storage:GetTradeableItems(cached)
             end
         end
     end
-    for _, copy in pairs(Pair(Storage:GetWon(), unowed)) do
+    local won = {}
+    for _, entry in ipairs(Storage:GetWon()) do
+        if Mine(entry) or entry.char == nil then won[#won + 1] = entry end
+    end
+    for _, copy in pairs(Pair(won, unowed)) do
         copy.item.won = true
     end
 
@@ -558,7 +623,7 @@ end
 
 
 
-local WON_TTL = 4 * 60 * 60
+local WON_TTL = BOE_WINDOW + 15 * 60
 local WON_MAX = 64
 local wonListening = false
 
@@ -576,13 +641,81 @@ function Storage:GetWon()
     return store
 end
 
-function Storage:RecordWon(link)
+
+function Storage:RecordWon(link, runId, session)
     if type(link) ~= "string" or not addon.db then return end
     if type(addon.db.wonCopies) ~= "table" then addon.db.wonCopies = {} end
     local store = addon.db.wonCopies
     if #store >= WON_MAX then table.remove(store, 1) end
-    store[#store + 1] = { link = link, addedAt = GetServerTime() }
+    store[#store + 1] = { link = link, addedAt = GetServerTime(), r = runId, s = session,
+        char = SelfStamp() }
     addon.Log:D("Storage", "won copy recorded", link)
+end
+
+local function AwardKey(runId, session)
+    return tostring(runId) .. "|" .. tostring(session)
+end
+
+
+
+function Storage:ForgetOwnAwards(rows)
+    if not addon.db or type(addon.db.itemStorage) ~= "table" then return 0 end
+    local keys
+    for _, row in ipairs(rows or {}) do
+        if type(row) == "table" and row.runId and row.session
+            and addon.Player:IsSelf(row.winner) then
+            keys = keys or {}
+            keys[AwardKey(row.runId, row.session)] = true
+        end
+    end
+    if not keys then return 0 end
+
+    local removed, ledger = 0, addon.db.itemStorage
+    for i = #ledger, 1, -1 do
+        local args = ledger[i].args
+        if ledger[i].category == Storage.KEPT and Mine(ledger[i]) and type(args) == "table"
+            and keys[AwardKey(args.runId, args.session)] then
+            addon.Log:I("Storage", "kept record dropped with its history row", ledger[i].link)
+            table.remove(ledger, i)
+            removed = removed + 1
+        end
+    end
+    local won = addon.db.wonCopies
+    if type(won) == "table" then
+        for i = #won, 1, -1 do
+            local entry = won[i]
+            if type(entry) == "table" and entry.r and keys[AwardKey(entry.r, entry.s)] then
+                addon.Log:I("Storage", "won record dropped with its history row", entry.link)
+                table.remove(won, i)
+                removed = removed + 1
+            end
+        end
+    end
+    if removed > 0 and addon.Callbacks then addon.Callbacks:Fire("StorageChanged") end
+    return removed
+end
+
+
+
+function Storage:ClearOwnLabel(link, kept)
+    if type(link) ~= "string" or not addon.db then return false end
+    local list = kept and addon.db.itemStorage or addon.db.wonCopies
+    if type(list) ~= "table" then return false end
+    local id = ItemID(link)
+    for _, exact in ipairs({ true, false }) do
+        for i = #list, 1, -1 do
+            local entry = list[i]
+            if type(entry) == "table" and (not kept or entry.category == Storage.KEPT and Mine(entry))
+                and (exact and ItemsMatch(entry.link, link)
+                    or not exact and id and ItemID(entry.link) == id) then
+                table.remove(list, i)
+                addon.Log:I("Storage", kept and "kept" or "won", "record cleared from the bags list", entry.link)
+                if addon.Callbacks then addon.Callbacks:Fire("StorageChanged") end
+                return true
+            end
+        end
+    end
+    return false
 end
 
 
@@ -664,6 +797,7 @@ function Storage:Add(link, category, args)
         category = category,
         addedAt = time(),
         args = args or {},
+        char = SelfStamp(),
     }
 
     local bag, _, secondsLeft = Storage:FindInBags(link)
@@ -681,7 +815,7 @@ function Storage:Add(link, category, args)
     local owed = 0
     for _, other in ipairs(addon.db.itemStorage) do
 
-        if not other.missingAtAdd and not other.untradeable
+        if Mine(other) and not other.missingAtAdd and not other.untradeable
             and ItemID(other.link) == id then
             owed = owed + 1
         end
@@ -729,7 +863,7 @@ end
 function Storage:GetAll(category)
     local out = {}
     for _, entry in ipairs(addon.db.itemStorage) do
-        if not category or entry.category == category then
+        if Mine(entry) and (not category or entry.category == category) then
             out[#out + 1] = entry
         end
     end
@@ -740,7 +874,7 @@ end
 function Storage:GetHeld()
     local out = {}
     for _, entry in ipairs(addon.db.itemStorage) do
-        if entry.category == Storage.TO_TRADE or entry.category == Storage.KEPT then
+        if Mine(entry) and (entry.category == Storage.TO_TRADE or entry.category == Storage.KEPT) then
             out[#out + 1] = entry
         end
     end
@@ -892,15 +1026,44 @@ local function ScanHeld(entries)
     return copies, counts, totalSlots
 end
 
+
+
+local function Adopt(all, counts)
+    local held, me = {}, SelfStamp()
+    if not me then return false end
+    for _, entry in ipairs(all) do
+        local id = entry.link and ItemID(entry.link)
+        if id and Mine(entry) then held[id] = (held[id] or 0) + 1 end
+    end
+    local adopted = false
+    for _, entry in ipairs(all) do
+        local id = entry.link and ItemID(entry.link)
+        local count = id and counts[id]
+        if entry.char == nil and count and count.tradeable + count.bound > (held[id] or 0) then
+            entry.char, held[id], adopted = me, (held[id] or 0) + 1, true
+            addon.Log:I("Storage", "ledger entry adopted by this character", entry.link)
+        end
+    end
+    return adopted
+end
+
 function Storage:Reconcile(reason)
-    local list = addon.db.itemStorage
-    local copies, counts, totalSlots = ScanHeld(list)
+    local all, scanned = addon.db.itemStorage, {}
+    for _, entry in ipairs(all) do
+        if entry.char == nil or Mine(entry) then scanned[#scanned + 1] = entry end
+    end
+    local copies, counts, totalSlots = ScanHeld(scanned)
 
 
     if totalSlots == 0 then
         addon.Log:WLogOnly("Storage", "bags not readable - skipping reconcile,",
-            #list, "entries kept")
+            #all, "entries kept")
         return {}, {}
+    end
+    local adopted = Adopt(all, counts)
+    local list = {}
+    for _, entry in ipairs(all) do
+        if Mine(entry) then list[#list + 1] = entry end
     end
 
     local budget, boundCopies = {}, {}
@@ -917,11 +1080,24 @@ function Storage:Reconcile(reason)
 
     local drop = {}
     local marked, cleared = {}, {}
-    local changed = false
+    local changed = adopted
+
+
+
+    local exact, reserved = {}, {}
+    for _, entry in ipairs(list) do
+        local copy = paired[entry]
+        if copy and entry.category == Storage.TO_TRADE and ItemsMatch(copy.link, entry.link) then
+            local id = ItemID(entry.link)
+            exact[entry], reserved[id] = true, (reserved[id] or 0) + 1
+        end
+    end
 
     for i = 1, #list do
         local entry = list[i]
         local id = entry.link and ItemID(entry.link)
+        local spare = id and (budget[id] or 0) - (exact[entry] and 0 or (reserved[id] or 0))
+        if exact[entry] then reserved[id] = reserved[id] - 1 end
 
         if entry.untradeable then
 
@@ -934,7 +1110,7 @@ function Storage:Reconcile(reason)
             local expired = remaining ~= nil and remaining <= 0
             local handedTo = not expired and not entry.missingAtAdd
                 and HandedToOther(id, entry.args and entry.args.recipient)
-            if not expired and (budget[id] or 0) > 0 then
+            if not expired and spare > 0 then
                 budget[id] = budget[id] - 1
                 if entry.missingAtAdd then
 
@@ -1011,20 +1187,23 @@ function Storage:Reconcile(reason)
         end
     end
 
-    local removed = {}
+    local removed, gone = {}, {}
     for i = #list, 1, -1 do
         if drop[i] then
             local entry = list[i]
 
             entry.dropped = drop[i]
             removed[#removed + 1] = entry
-            table.remove(list, i)
+            gone[entry] = true
         end
+    end
+    for i = #all, 1, -1 do
+        if gone[all[i]] then table.remove(all, i) end
     end
 
     if #removed > 0 then
         addon.Log:I("Storage", "reconciled", tostring(reason), "-", #removed,
-            "entries dropped,", #list, "kept")
+            "entries dropped,", #all, "kept")
         for _, entry in ipairs(removed) do
             addon.Log:D("Storage", "dropped", entry.dropped, entry.link,
                 "owed to", tostring(entry.args and entry.args.recipient))
@@ -1053,6 +1232,10 @@ local function LoginPrune()
             if Aged(entry, now) then why = "aged" end
         elseif not id then
             why = "unusable"
+        elseif not Mine(entry) and (type(entry.addedAt) ~= "number"
+            or now - entry.addedAt > Storage.OTHER_KEEP) then
+
+            why = "aged"
         elseif entry.category ~= Storage.TO_TRADE then
             local remaining = RecordedClock(entry, now)
             if remaining and remaining <= 0 then why = "expired" end
@@ -1080,10 +1263,10 @@ function Storage:Init()
 
     if wonListening then return end
     wonListening = true
-    addon.Callbacks:Register("ItemDelivered", function(_, winner, item)
+    addon.Callbacks:Register("ItemDelivered", function(session, winner, item, runId)
         if type(item) == "table" and not item.simulated and winner
             and addon.Player:IsSelf(winner) then
-            Storage:RecordWon(item.link)
+            Storage:RecordWon(item.link, runId, session)
         end
     end)
 end

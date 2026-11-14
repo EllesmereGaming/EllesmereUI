@@ -18,6 +18,8 @@ local S, L
 local frame, questionText, sectionText, bodyText, silenceRow, buttonRow
 local onAccept, onDecline
 
+local previewing = false
+
 
 
 local askedFor = nil
@@ -26,7 +28,7 @@ local guardAskedFor = nil
 local showing = nil
 
 
-local promoteAskedFor, promoteOpen, promoteShowing = nil, false, false
+local promoteAskedFor, promoteOpen = nil, false
 
 local function AskedKey(groupKey)
     return groupKey .. "|" .. tostring(addon.GetMasterLooter())
@@ -72,7 +74,8 @@ local function Build()
     addon.Pixel.Point(silenceRow.LabelText, "RIGHT", silenceRow, "RIGHT", 0, 0)
 
 
-    silenceRow:SetScript("OnMouseUp", function()
+    silenceRow:SetScript("OnMouseUp", function(_, button)
+        if button ~= "LeftButton" then return end
         silenceRow.Box:SetChecked(not silenceRow.Box:GetChecked())
     end)
 
@@ -81,7 +84,7 @@ local function Build()
         {
             key = "Yes", text = T["Yes"], opts = { primary = true, width = half },
             onClick = function()
-                if silenceRow:IsShown() then
+                if silenceRow:IsShown() and not previewing then
                     addon.db.raidPrompt.silence = silenceRow.Box:GetChecked()
                         and true or false
 
@@ -219,6 +222,7 @@ local function Ask(kind, question, section, body, allowSilence, accept, decline,
     sectionText:SetTextColor(S.Unpack(S.color.bad))
     bodyText:SetText(body)
     onAccept, onDecline = accept, decline
+    previewing = false
 
     local yes, no = ButtonLabels(kind)
     buttonRow.Yes:SetLabel(yes)
@@ -332,12 +336,19 @@ local function AskGuard()
 end
 
 
+
 local PREVIEW = { lootmaster = AskLootMaster, raider = AskRaider, guard = AskGuard }
 function RaidPrompt:Preview(kind)
     local ask = PREVIEW[kind]
     if not ask then return false end
+    if open then
+        addon.Chat.Print(T["Answer the question on screen first."])
+        return true
+    end
     ask()
     onAccept, onDecline = nil, nil
+
+    open, showing, previewing = false, nil, true
     return true
 end
 
@@ -391,19 +402,13 @@ local function EvaluatePromote()
     if open and showing ~= "promote" then return end
     if promoteAskedFor == record.guid and not promoteOpen then return end
     if showing == "promote" then return end
-    if promoteShowing then return end
-    promoteAskedFor, promoteOpen, promoteShowing = record.guid, true, true
+    promoteAskedFor, promoteOpen = record.guid, true
     addon.db.lootMasterKept.name = record.fullName
     addon.db.lootMasterKept.classFile = record.classFile or addon.db.lootMasterKept.classFile
     addon.Log:I("RaidPrompt", "asking to re-promote the loot master -", record.fullName)
 
 
-    C_Timer.After(0, function()
-        promoteShowing = false
-        local now = PromoteToOffer()
-        if not promoteOpen or not now or (open and showing ~= "promote") then return end
-        AskPromote(now)
-    end)
+    AskPromote(record)
 end
 
 

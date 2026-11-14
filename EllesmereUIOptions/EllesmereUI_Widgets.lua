@@ -264,17 +264,18 @@ end
 
 -------------------------------------------------------------------------------
 
---  BuildCheckboxControl(parent, frameLevel) -- box + border + checkmark texture
+--  BuildCheckboxControl(parent, frameLevel[, pp]) -- box + border + checkmark texture
+--  pp: pixel grid, default PanelPP; frames outside the panel pass EllesmereUI.PP.
 --  Returns: box (Frame), check (Texture), boxBorder, applyVisual (fn)
 --  applyVisual(isOn, isHovering) updates colors/visibility.
 -------------------------------------------------------------------------------
-local function BuildCheckboxControl(parent, frameLevel)
-    local RealPP = EllesmereUI.PP
+local function BuildCheckboxControl(parent, frameLevel, pp)
+    pp = pp or PP
     local BOX_SZ  = 18
     local BOX_PAD = 2
 
     local box = CreateFrame("Frame", nil, parent)
-    RealPP.Size(box, BOX_SZ, BOX_SZ)
+    pp.Size(box, BOX_SZ, BOX_SZ)
     box:SetFrameLevel(frameLevel)
 
     local boxBg = SolidTex(box, "BACKGROUND", CB.BOX_R, CB.BOX_G, CB.BOX_B, 1)
@@ -284,7 +285,7 @@ local function BuildCheckboxControl(parent, frameLevel)
 
     local check = SolidTex(box, "ARTWORK", ELLESMERE_GREEN.r, ELLESMERE_GREEN.g, ELLESMERE_GREEN.b, 1)
     DisablePixelSnap(check)
-    RealPP.SetInside(check, box, BOX_PAD, BOX_PAD)
+    pp.SetInside(check, box, BOX_PAD, BOX_PAD)
     -- The outline's radius less the inset, so the fill's corners follow it.
     EllesmereUI.RoundBody(box, check, 2)
 
@@ -1393,6 +1394,31 @@ do
     end
 end
 
+-- A dropdown button's hover tooltip, asked on hover and when the list closes under the cursor:
+-- the button's own (_ttText with _ttOpts), and a value cut off with "..." (single-line label between
+-- the button's left edge and its arrow) in full, above the own tooltip when the button has both (the
+-- joined text is no catalog key, so L() leaves it alone).
+local function ShowDropdownTip(ddBtn, ddLbl)
+    local own = ddBtn._ttText
+    local cut = ddLbl:IsTruncated()
+    if issecretvalue(cut) or not cut then
+        if own then ShowWidgetTooltip(ddBtn, own, ddBtn._ttOpts) end
+        return
+    end
+    ddBtn._cutValueTip = true
+    if not own then
+        ShowWidgetTooltip(ddBtn, ddLbl:GetText())
+        return
+    end
+    if type(own) == "function" then own = own() end
+    ShowWidgetTooltip(ddBtn, (ddLbl:GetText() or "") .. "\n" .. EllesmereUI.L(own), ddBtn._ttOpts)
+end
+local function HideDropdownTip(ddBtn)
+    if not (ddBtn._ttText or ddBtn._cutValueTip) then return end
+    ddBtn._cutValueTip = nil
+    HideWidgetTooltip()
+end
+
 -- Wire OnEnter/OnLeave/OnClick/OnShow/OnHide for a dropdown button + menu. s = { bg_r..a, bg_hr..ha, brd_r..a, brd_hr..ha, txt_r..a, txt_hr..ha } (24 values)
 -- ddBtn._valueDimA, when set, holds the value text at that alpha in both states (a greyed-out current value stays greyed under the cursor).
 local function WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s, keepClickHandler)
@@ -1408,14 +1434,12 @@ local function WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s, keep
     end
     ddBtn:SetScript("OnEnter", function()
         ApplyHover()
-        if ddBtn._ttText and not menu:IsShown() then
-            ShowWidgetTooltip(ddBtn, ddBtn._ttText, ddBtn._ttOpts)
-        end
+        if not menu:IsShown() then ShowDropdownTip(ddBtn, ddLbl) end
     end)
     ddBtn:SetScript("OnLeave", function()
         if not menu:IsShown() then
             ApplyNormal()
-            if ddBtn._ttText then HideWidgetTooltip() end
+            HideDropdownTip(ddBtn)
         end
     end)
     -- keepClickHandler: caller owns OnClick/OnHide (BuildDropdownControl's lazy-menu path). Overwriting OnClick
@@ -1424,7 +1448,7 @@ local function WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s, keep
     -- HookScripts callers attached to OnClick, since SetScript discards existing hooks.
     if not keepClickHandler then
         ddBtn:SetScript("OnClick", function()
-            if ddBtn._ttText then HideWidgetTooltip() end
+            HideDropdownTip(ddBtn)
             if menu:IsShown() then menu:Hide() else menu:Show() end
         end)
         ddBtn:HookScript("OnHide", function() menu:Hide() end)
@@ -1492,12 +1516,10 @@ local function WireDropdownScripts(ddBtn, ddLbl, bg, brd, menu, refresh, s, keep
         if self._flyouts then for _, fo in ipairs(self._flyouts) do fo:Hide() end end
         if ddBtn:IsMouseOver() then
             ApplyHover()
-            if ddBtn._ttText then
-                ShowWidgetTooltip(ddBtn, ddBtn._ttText, ddBtn._ttOpts)
-            end
+            ShowDropdownTip(ddBtn, ddLbl)
         else
             ApplyNormal()
-            if ddBtn._ttText then HideWidgetTooltip() end
+            HideDropdownTip(ddBtn)
         end
         -- Controller cursor: back onto the dropdown button (a no-op once that is hidden too).
         if EllesmereUI.PadCursorShown() then EllesmereUI.PadFocus(ddBtn) end
@@ -2218,14 +2240,14 @@ local function WireLazyDropdown(ddBtn, ddLbl, bg, brd, s, build)
     end
     ddBtn:SetScript("OnEnter", function()
         ApplyHover()
-        if ddBtn._ttText then ShowWidgetTooltip(ddBtn, ddBtn._ttText, ddBtn._ttOpts) end
+        ShowDropdownTip(ddBtn, ddLbl)
     end)
     ddBtn:SetScript("OnLeave", function()
         if not (menu and menu:IsShown()) then ApplyNormal() end
-        if ddBtn._ttText then HideWidgetTooltip() end
+        HideDropdownTip(ddBtn)
     end)
     ddBtn:SetScript("OnClick", function()
-        if ddBtn._ttText then HideWidgetTooltip() end
+        HideDropdownTip(ddBtn)
         if not menu then
             local refresh
             menu, refresh = build()
@@ -2553,6 +2575,8 @@ EllesmereUI._widgetInternals = {
     QueueLabelClamp = QueueLabelClamp,
     LabelTooltipText = LabelTooltipText,
     WireLazyDropdown = WireLazyDropdown,
+    ShowDropdownTip = ShowDropdownTip,
+    HideDropdownTip = HideDropdownTip,
 }
 
 -------------------------------------------------------------------------------
@@ -2694,14 +2718,15 @@ EllesmereUI.CreatePreviewHitOverlay = function(element, navigate, key, isText, f
     local btn = CreateFrame("Button", nil, anchor)
     if isText then
         local minS, pad = tight and 1 or 4, tight and 2 or 4
+        local function Measure()
+            local w = element:GetStringWidth() or 0
+            local hh = element:GetStringHeight() or 0
+            if w < minS then w = minS end
+            if hh < minS then hh = minS end
+            return w, hh
+        end
         local function ResizeToText()
-            local ok, tw, th = pcall(function()
-                local w = element:GetStringWidth() or 0
-                local hh = element:GetStringHeight() or 0
-                if w < minS then w = minS end
-                if hh < minS then hh = minS end
-                return w, hh
-            end)
+            local ok, tw, th = pcall(Measure)
             if not ok then tw = 40; th = 12 end
             btn:SetSize(tw + pad, th + pad)
         end

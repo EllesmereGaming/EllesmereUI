@@ -110,6 +110,9 @@ addon.defaults = {
     bagReadings = {},
 
 
+    boeSeen = {},
+
+
     wonCopies = {},
 
 
@@ -554,6 +557,13 @@ function addon.RunMigrations(db)
     if from == nil then
         db.schemaVersion = addon.SCHEMA_VERSION
         return notices
+    end
+
+    from = tonumber(from)
+    if not from or from ~= from then
+        if addon.Log then addon.Log:W("Saved", "schemaVersion is not a number; taken as current") end
+        from = addon.SCHEMA_VERSION
+        db.schemaVersion = from
     end
     if from >= addon.SCHEMA_VERSION then
         return notices

@@ -87,7 +87,6 @@ local function KindName(K)
     end
     return EllesmereUI.L(K.name)
 end
-ns.MT_Name = KindName
 local KIND_OF = {}     -- client timer name -> kind
 for _, K in ipairs(KINDS) do
     for timer in pairs(K.timers) do KIND_OF[timer] = K end
@@ -138,9 +137,7 @@ local function View()
 end
 
 -- A restricted answer is no answer: the bar keeps what it last showed.
-local function Plain(v)
-    return not issecretvalue(v)
-end
+local IsSecret = EllesmereUI.IsSecret
 
 -------------------------------------------------------------------------------
 --  One bar: build and look
@@ -312,16 +309,20 @@ local function ApplyLook(obj, cfg, own)
         obj.bg:SetAllPoints(f)
     end
 
-    -- Frame art: above the fill and spark, under the texts.
+    -- Frame art: above the fill and spark, under the texts. Its seat, the
+    -- timer's nudge and the spark's size are the cast bar's own (the parent's
+    -- numbers; a timer bar has no icon beside it).
     local h = cfg.height or 20
     obj.art:SetFrameLevel(pl + 6)
     obj.textFrame:SetFrameLevel(pl + 8)
+    local reachL, reachR, reachT, _, timerNudge, sparkExtraH, sparkNudge, sparkW =
+        EllesmereUI.CastChromeGeom(blizzKit and ns.ERB_CastForever() or false)
     local frameAtlas = blizzKit and ns.ERB_BlizzAtlas and ns.ERB_BlizzAtlas("frame")
     if frameAtlas then
         ns.ERB_StockAtlas(obj.frameTex, frameAtlas)
         obj.frameTex:ClearAllPoints()
-        obj.frameTex:SetPoint("TOPLEFT", f, "TOPLEFT", -2, 2)
-        obj.frameTex:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", 2, -2)
+        obj.frameTex:SetPoint("TOPLEFT", f, "TOPLEFT", -reachL, reachT)
+        obj.frameTex:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", reachR, -2)
         obj.frameTex:Show()
     else
         obj.frameTex:Hide()
@@ -358,7 +359,8 @@ local function ApplyLook(obj, cfg, own)
             spark:SetSize(ss, ss)
             sparkY = C.sparkY * h / C.barH
         else
-            spark:SetSize(8, h)
+            spark:SetSize(sparkW, h + sparkExtraH)
+            sparkY = sparkNudge
         end
         spark:SetPoint("CENTER", bar:GetStatusBarTexture(), "RIGHT", 0, sparkY)
         spark:Show()
@@ -371,7 +373,7 @@ local function ApplyLook(obj, cfg, own)
     local timeSide = (cfg.showTimer == false) and "none" or (cfg.timerSide or "right")
     PlaceText(obj.label, f, labelSide, cfg.spellTextSize or 11, cfg.spellTextX or 0, cfg.spellTextY or 0,
         cfg.spellTextR or 1, cfg.spellTextG or 1, cfg.spellTextB or 1, cfg.spellTextA or 1)
-    PlaceText(obj.time, f, timeSide, cfg.timerSize or 11, cfg.timerX or 0, cfg.timerY or 0,
+    PlaceText(obj.time, f, timeSide, cfg.timerSize or 11, cfg.timerX or 0, (cfg.timerY or 0) + timerNudge,
         cfg.timerR or 1, cfg.timerG or 1, cfg.timerB or 1, cfg.timerA or 1)
 
     -- Rounded corners (EllesmereUI_RoundedCorners.lua; nothing at radius 0).
@@ -453,6 +455,21 @@ local function ArmWarn(K, frac, total, paused)
     if not paused then K.warnTimer = C_Timer.NewTimer((frac - at) * total, K.warnNow) end
 end
 
+-- Where a live mirror timer (a: value read at a.at) stands now: the game's
+-- answer, as its own bar reads it each frame, else, for a moving timer, where
+-- its rate has carried it since the last reading.
+local function Reading(a, moving)
+    local now = GetTime()
+    if a.at == now then return end
+    local cur = GetMirrorTimerProgress(a.timer)
+    if not IsSecret(cur) and type(cur) == "number" then
+        a.value = cur
+    elseif moving then
+        a.value = a.value + a.scale * 1000 * (now - a.at)
+    end
+    a.at = now
+end
+
 -- The bar's state: its sample in Unlock Mode, else its live timer.
 local function Show(K)
     if K.sample then
@@ -468,7 +485,9 @@ local function Show(K)
         Run(K, left, a.total)
         return ArmWarn(K, left / a.total, a.total)
     end
-    -- value and max in ms, moving by scale per second.
+    -- value and max in ms, moving by scale per second. This also runs on every
+    -- settings apply, long after the event that brought the value.
+    Reading(a, not a.paused)
     local max = a.max > 0 and a.max or 1
     local v = math.max(0, math.min(a.value, max))
     local rate = a.scale
@@ -563,16 +582,21 @@ end
 -- so this runs one frame after every start, once Blizzard's own handler has
 -- given the frame its timer.
 local function ApplyBlizzard()
+    -- No bar of ours on and nothing of Blizzard's hidden by us: nothing to do.
+    if not (S.events or S.blizzHidden or next(S.barHidden)) then return end
     local blizz = _G.MirrorTimerContainer
+    local list = blizz and blizz.mirrorTimers
     local any = false
-    for _, tf in ipairs(blizz and blizz.mirrorTimers or {}) do
-        local K = tf.timer and KIND_OF[tf.timer]
-        local cfg = K and Cfg(K.id)
-        if cfg and cfg.enabled then
-            tf:SetAlpha(0)
-            any = true
-        elseif S.blizzHidden then
-            tf:SetAlpha(1)
+    if list then
+        for _, tf in ipairs(list) do
+            local K = tf.timer and KIND_OF[tf.timer]
+            local cfg = K and Cfg(K.id)
+            if cfg and cfg.enabled then
+                tf:SetAlpha(0)
+                any = true
+            elseif S.blizzHidden then
+                tf:SetAlpha(1)
+            end
         end
     end
     S.blizzHidden = any or nil
@@ -580,7 +604,9 @@ local function ApplyBlizzard()
     -- move its alpha; nothing of Blizzard's shows it again), the golden
     -- numbers beside it untouched.
     local tracker = _G.TimerTracker
-    for _, timer in ipairs(tracker and tracker.timerList or {}) do
+    list = tracker and tracker.timerList
+    if not list then return end
+    for _, timer in ipairs(list) do
         local K = timer.type and START_KIND[timer.type]
         local cfg = K and Cfg(K.id)
         local bar = timer.bar
@@ -610,12 +636,13 @@ local function IsPaused(v)
 end
 
 local function StartTimer(timer, value, maxValue, scale, paused, label)
-    if not (Plain(timer) and Plain(value) and Plain(maxValue) and Plain(scale) and Plain(paused) and Plain(label)) then return end
+    if IsSecret(timer) or IsSecret(value) or IsSecret(maxValue) or IsSecret(scale) or IsSecret(paused) or IsSecret(label) then return end
     local K = type(timer) == "string" and KIND_OF[timer]
     if not K or type(maxValue) ~= "number" or type(value) ~= "number" then return end
     local cfg = Cfg(K.id)
     if not (cfg and cfg.enabled and K.built) then return end
-    K.active = { timer = timer, value = value, max = maxValue, scale = tonumber(scale) or -1,
+    -- at: when value was read (Show reads it again on a later pass).
+    K.active = { timer = timer, value = value, at = GetTime(), max = maxValue, scale = tonumber(scale) or -1,
                  label = label, paused = IsPaused(paused) }
     Show(K)
     UpdateVisibility(K)
@@ -624,17 +651,16 @@ end
 -- A pause freezes the bar where the timer stands; a resume runs it again
 -- from there.
 local function PauseTimer(timer, paused)
-    local K = Plain(timer) and type(timer) == "string" and KIND_OF[timer]
+    local K = not IsSecret(timer) and type(timer) == "string" and KIND_OF[timer]
     local a = K and K.active
-    if not (a and a.timer == timer and Plain(paused)) then return end
-    local v = GetMirrorTimerProgress(timer)
-    if Plain(v) and type(v) == "number" then a.value = v end
+    if not a or a.timer ~= timer or IsSecret(paused) then return end
+    Reading(a, not a.paused)
     a.paused = IsPaused(paused)
     Show(K)
 end
 
 local function StopTimer(timer)
-    local K = Plain(timer) and type(timer) == "string" and KIND_OF[timer]
+    local K = not IsSecret(timer) and type(timer) == "string" and KIND_OF[timer]
     if K and K.active and K.active.timer == timer then Clear(K) end
 end
 
@@ -649,8 +675,8 @@ end
 
 -- A TimerTracker countdown of type timerType: seconds left out of total.
 local function StartCountdown(timerType, seconds, total)
-    local K = Plain(timerType) and START_KIND[timerType]
-    if not (K and Plain(seconds) and Plain(total)) then return end
+    local K = not IsSecret(timerType) and START_KIND[timerType]
+    if not K or IsSecret(seconds) or IsSecret(total) then return end
     if type(seconds) ~= "number" or type(total) ~= "number" then return end
     if total <= 0 or seconds <= 0 then  -- a cancelled countdown comes as 0, 0
         if K.active then Clear(K); ApplyBlizzard() end
@@ -668,7 +694,7 @@ local function StartCountdown(timerType, seconds, total)
 end
 
 local function StopCountdown(timerType)
-    local K = Plain(timerType) and START_KIND[timerType]
+    local K = not IsSecret(timerType) and START_KIND[timerType]
     if not (K and K.active) then return end
     Clear(K)
     ApplyBlizzard()
@@ -681,7 +707,7 @@ local function Resync()
     end
     for i = 1, 3 do
         local timer, _, maxValue, scale, paused, label = GetMirrorTimerInfo(i)
-        if Plain(timer) and timer and timer ~= "UNKNOWN" then
+        if timer and not IsSecret(timer) and timer ~= "UNKNOWN" then
             StartTimer(timer, GetMirrorTimerProgress(timer), maxValue, scale, paused, label)
         end
     end
@@ -697,6 +723,9 @@ eventFrame:SetScript("OnEvent", function(_, event, a1, a2, a3, a4, a5, a6)
         PauseTimer(a1, a2)
     elseif event == "MIRROR_TIMER_STOP" then
         StopTimer(a1)
+        -- Blizzard's frame for that timer is free again (Edit Mode shows it as a
+        -- sample): its alpha goes back once Blizzard's own handler has let it go.
+        if S.blizzHidden then C_Timer.After(0, ApplyBlizzard) end
     elseif event == "START_TIMER" then
         StartCountdown(a1, a2, a3)
         C_Timer.After(0, ApplyBlizzard)

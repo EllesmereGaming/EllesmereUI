@@ -56,9 +56,29 @@ function FontMT:SetFont(face, size, flags)
     assert(type(face) == "string" and type(size) == "number" and size > 0, "a bad SetFont on a font object")
     self._face, self._size, self._flags = face, size, flags
 end
-function FontMT:SetShadowColor() end
-function FontMT:SetShadowOffset() end
-function FontMT:SetTextColor() end
+function FontMT:SetShadowColor(r, g, b, a) self._shadow = { r, g, b, a } end
+function FontMT:GetShadowColor()
+    local s = self._shadow
+    if s then return s[1], s[2], s[3], s[4] end
+    return 0, 0, 0, 0
+end
+function FontMT:SetShadowOffset(x, y) self._shadowX, self._shadowY = x, y end
+function FontMT:GetShadowOffset() return self._shadowX or 0, self._shadowY or 0 end
+function FontMT:SetTextColor(r, g, b, a) self._color = { r, g, b, a } end
+function FontMT:GetTextColor()
+    local c = self._color
+    if c then return c[1], c[2], c[3], c[4] end
+    return 1, 1, 1, 1
+end
+-- Pointing an object at a family: its alphabets then answer that family's members (the owner's
+-- in-game dump, 2026-11-13: after SetFontObject(a family of ours) the hotkey font's roman
+-- member is no longer the one it shared with NumberFontNormalSmall). What the object keeps of
+-- its own colour and shadow is not known, so the model drops both: the caller must put them back.
+function FontMT:SetFontObject(font)
+    self._members = font._members
+    self._face, self._size, self._flags = font:GetFont()
+    self._color, self._shadow, self._shadowX, self._shadowY = nil, nil, nil, nil
+end
 function FontMT:SetJustifyH() end
 function FontMT:SetJustifyV() end
 function FontMT:GetFontObjectForAlphabet(alphabet)
@@ -100,7 +120,9 @@ local function StubCreateFrame()
 end
 
 local E
+local famCalls, famFail = 0, false   -- CreateFontFamily: how often it ran, and whether it fails
 local function Load(fonts, locale)
+    famCalls, famFail = 0, false
     REG = {}
     EUI_CLIENT_BLOCKED = nil
     LibStub = nil
@@ -113,6 +135,8 @@ local function Load(fonts, locale)
     end
     CreateFrame = StubCreateFrame
     CreateFontFamily = function(name, members)
+        famCalls = famCalls + 1
+        if famFail then error("the family could not be made") end
         local fam = NewFont(members[1].file, members[1].height, members[1].flags)
         fam._members = {}
         for _, m in ipairs(members) do fam._members[m.alphabet] = NewFont(m.file, m.height, m.flags) end
@@ -212,30 +236,144 @@ for _, shape in ipairs({ "shared", "own", "plain" }) do
     check(child._size == 15, shape .. " scale: an object on the menu font's members did not scale")
 end
 
+---------------------------------------------------------------------------------------------
+--  4. The hotkey font keeps its faces under the face swap (RANGE_INDICATOR needs a
+--     glyph most bundled faces lack) and still scales. It shares its members with the
+--     family behind the count texts, which must NOT keep Blizzard's face with it: the
+--     hotkey font moves onto a family of our own.
 -------------------------------------------------------------------------------
---  3. Both settings on, a client without the combat text objects, a Poppins pick
+local ARIALN = "Fonts\\ARIALN.TTF"
+-- shape: "shared" (the client: the hotkey font and the count font answer the family's
+-- members), "own" (members of its own) or "plain" (no members).
+local function Hotkey(shape, grayFirst, fonts)
+    Load(fonts)
+    local mono = BlizzardFamily(ARIALN, 12)
+    local small = NewFont(ARIALN, 12, "")          -- the count texts' font, on the same family
+    small._members = mono._members
+    local gray
+    if shape == "shared" then
+        gray = NewFont(ARIALN, 12, "")
+        gray._members = mono._members
+    elseif shape == "own" then
+        gray = BlizzardFamily(ARIALN, 12)
+    else
+        gray = NewFont(ARIALN, 12, "")
+    end
+    gray:SetTextColor(0.6, 0.6, 0.6, 1)
+    gray:SetShadowColor(0, 0, 0, 0.5)
+    gray:SetShadowOffset(1, -1)
+    local other = BlizzardFamily(FRIZ, 12)
+    if grayFirst then Register("NumberFontNormalSmallGray", gray) end
+    Register("NumberFont_OutlineThick_Mono_Small", mono)
+    Register("NumberFontNormalSmall", small)
+    Register("GameFontNormal", other)
+    if not grayFirst then Register("NumberFontNormalSmallGray", gray) end
+    return gray, mono, small, other
+end
+local SWAP125 = { global = "Expressway", applyToAllGameText = true, gameTextScale = 125 }
+for _, shape in ipairs({ "shared", "own", "plain" }) do
+    for _, grayFirst in ipairs({ true, false }) do
+        local tag = shape .. ", hotkey font listed " .. (grayFirst and "first" or "last")
+        local gray, mono, small, other = Hotkey(shape, grayFirst, SWAP125)
+        local sharedBefore = gray._members
+        E.ApplyGlobalFontToGameText()
+        local f, sz = DrawLatin(gray)
+        check(f == ARIALN and sz == 15, tag .. ": the hotkey font draws " .. tostring(f) .. " " .. tostring(sz))
+        f, sz = DrawLatin(mono)
+        check(f == EXP and sz == 15, tag .. ": the family behind the count texts draws " .. tostring(f) .. " " .. tostring(sz))
+        f, sz = DrawLatin(small)
+        check(f == EXP and sz == 15, tag .. ": the count font draws " .. tostring(f) .. " " .. tostring(sz))
+        f, sz = DrawLatin(other)
+        check(f == EXP and sz == 15, tag .. ": an ordinary font draws " .. tostring(f) .. " " .. tostring(sz))
+        -- its own font too (what GetFont() reads and copies take): Blizzard's face, scaled once
+        local ownFace, ownSize = gray:GetFont()
+        check(ownFace == ARIALN and ownSize == 15, tag .. ": the hotkey font's own font reads " .. tostring(ownFace) .. " " .. tostring(ownSize))
+        local r, g, b = gray:GetTextColor()
+        check(r == 0.6 and g == 0.6 and b == 0.6, tag .. ": the hotkey font lost its grey (" .. tostring(r) .. ")")
+        local _, _, _, sa = gray:GetShadowColor()
+        local sx, sy = gray:GetShadowOffset()
+        check(sa == 0.5 and sx == 1 and sy == -1, tag .. ": the hotkey font lost its shadow")
+        if shape == "plain" then
+            check(famCalls == 0, tag .. ": a family was made for a font object that has no members")
+        else
+            check(famCalls == 1, tag .. ": " .. famCalls .. " families were made for the hotkey font")
+            check(gray._members ~= sharedBefore and gray._members.roman ~= mono._members.roman,
+                tag .. ": the hotkey font still draws through the members it had")
+            -- every alphabet keeps the face it had, at the scaled size
+            local m = gray._members
+            check(m.russian._face == CYR and m.korean._face == KO and m.simplifiedchinese._face == ZHCN
+                and m.traditionalchinese._face == ZHTW, tag .. ": a member of the hotkey font's family lost its own face")
+            check(m.russian._size == 15 and m.korean._size == 15, tag .. ": a member of the hotkey font's family is not scaled once")
+            -- ours: a later pass over the game's font list leaves the family and its members alone
+            check(E._fontFamilySet[m.roman] == true, tag .. ": the hotkey font's family is not marked as ours")
+        end
+    end
+end
+
+-- the face swap at 100%: the same split, nothing scaled
+do
+    local gray, mono, small = Hotkey("shared", true, { global = "Expressway", applyToAllGameText = true })
+    E.ApplyGlobalFontToGameText()
+    local f, sz = DrawLatin(gray)
+    check(f == ARIALN and sz == 12, "swap at 100%: the hotkey font draws " .. tostring(f) .. " " .. tostring(sz))
+    f, sz = DrawLatin(small)
+    check(f == EXP and sz == 12, "swap at 100%: the count font draws " .. tostring(f) .. " " .. tostring(sz))
+end
+
+-- a scale alone takes no face away: no family, the members stay shared and scale once
+for _, grayFirst in ipairs({ true, false }) do
+    local tag = "scale alone, hotkey font listed " .. (grayFirst and "first" or "last")
+    local gray, mono, small = Hotkey("shared", grayFirst, { global = "Expressway", gameTextScale = 125 })
+    E.ApplyGlobalFontToGameText()
+    check(famCalls == 0 and gray._members == mono._members, tag .. ": the hotkey font was moved onto a family of its own")
+    local f, sz = DrawLatin(gray)
+    check(f == ARIALN and sz == 15, tag .. ": the hotkey font draws " .. tostring(f) .. " " .. tostring(sz))
+    f, sz = DrawLatin(small)
+    check(f == ARIALN and sz == 15, tag .. ": the count font draws " .. tostring(f) .. " " .. tostring(sz))
+end
+
+-- the family cannot be made: no error, and the hotkey font is left to the pass with the rest
+-- (it takes the chosen face, as before the fix; the count texts are not held back for it)
+do
+    local gray, mono, small = Hotkey("shared", true, SWAP125)
+    famFail = true
+    local okPass, errPass = pcall(E.ApplyGlobalFontToGameText)
+    check(okPass, "the family cannot be made: the pass raised " .. tostring(errPass))
+    local f, sz = DrawLatin(small)
+    check(f == EXP and sz == 15, "the family cannot be made: the count font draws " .. tostring(f) .. " " .. tostring(sz))
+    check(gray._members == mono._members, "the family cannot be made: the hotkey font left its members anyway")
+    famFail = false
+end
+
+-- both settings off: nothing is made for the hotkey font
+do
+    local gray, mono = Hotkey("shared", true, { global = "Expressway" })
+    E.ApplyGlobalFontToGameText()
+    check(famCalls == 0 and gray._members == mono._members and DrawLatin(gray) == ARIALN, "both settings off: the hotkey font was touched")
+end
+
+------------------------------------------------------------------------------
+--  4. The hotkey font keeps its face (RANGE_INDICATOR needs a glyph most bundled
+--     faces lack) but still scales, also when it shares its parent's members
 -------------------------------------------------------------------------------
-Load({ global = "Poppins", applyToAllGameText = true, gameTextScale = 110 })
-local combat, world, menu = Build("shared", true)
-E.ApplyGlobalFontToGameText()
-Untouched(combat, "both settings, CombatTextFont")
-Untouched(world, "both settings, SystemFont_World")
-local face, size = DrawLatin(menu)
-check(face == POP and math.abs(size - 13.2) < 1e-9, "both settings: the menu font is " .. tostring(face) .. " " .. tostring(size))
-
-Load({ global = "Expressway", applyToAllGameText = true })
-REG = {}
-local lone = BlizzardFamily(FRIZ, 12)
-Register("SystemFont_Shadow_Med1", lone)
-local ok, err = pcall(E.ApplyGlobalFontToGameText)
-check(ok, "no combat text objects: the pass raised " .. tostring(err))
-check(DrawLatin(lone) == EXP, "no combat text objects: the pass stopped short")
-
--- the pass is still free while both settings are off
-Load({ global = "Expressway" })
-combat, world, menu = Build("shared", true)
-E.ApplyGlobalFontToGameText()
-check(STANDARD_TEXT_FONT == FRIZ and DrawLatin(menu) == FRIZ and menu._size == 12, "the pass ran with both settings off")
+local ARIALN = "Fonts\\ARIALN.TTF"
+for _, grayFirst in ipairs({ true, false }) do
+    local tag = grayFirst and "hotkey font listed first" or "hotkey font listed last"
+    Load({ global = "Expressway", applyToAllGameText = true, gameTextScale = 125 })
+    local mono = BlizzardFamily(ARIALN, 12)
+    local gray = NewFont(ARIALN, 12, "")
+    gray._members = mono._members
+    local other = BlizzardFamily(FRIZ, 12)
+    if grayFirst then Register("NumberFontNormalSmallGray", gray) end
+    Register("NumberFont_OutlineThick_Mono_Small", mono)
+    Register("GameFontNormal", other)
+    if not grayFirst then Register("NumberFontNormalSmallGray", gray) end
+    E.ApplyGlobalFontToGameText()
+    local f, sz = DrawLatin(gray)
+    check(f == ARIALN and sz == 15, tag .. ": the hotkey font draws " .. tostring(f) .. " " .. tostring(sz))
+    f, sz = DrawLatin(other)
+    check(f == EXP and sz == 15, tag .. ": an ordinary font draws " .. tostring(f) .. " " .. tostring(sz))
+end
 
 print(string.format("game text combat font harness: %d checks, %d failed", count, fails))
 if fails > 0 then error("game text combat font harness failed") end

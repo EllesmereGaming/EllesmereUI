@@ -425,6 +425,20 @@ for _, forever in ipairs({ true, false }) do
         Eq(ns.GetRareEliteIconSize(), old.rare, W("unchanged live rare"))
         Eq(ns.NP_GetFactionIconSize(), old.faction, W("unchanged live faction"))
     end
+    ---------------------------------------------------------------------------
+    -- the Pandemic Glow: WoW Forever has no pandemic window (a refresh carries no time over
+    -- there), so the glow reads off on that client whatever is saved
+    ---------------------------------------------------------------------------
+    Eq(ns.NP_PANDEMIC_NONE, forever, W("NP_PANDEMIC_NONE"))
+    SetProfile(Fresh(D, { pandemicGlow = true }))
+    Eq(ns.GetPandemicGlow(), not forever, W("Pandemic Glow saved on"))
+    SetProfile(Fresh(D, { pandemicGlow = false }))
+    Eq(ns.GetPandemicGlow(), false, W("Pandemic Glow saved off"))
+    SetProfile(Fresh(D))
+    Eq(ns.GetPandemicGlow(), false, W("Pandemic Glow unset"))
+    SetProfile(nil)
+    Eq(ns.GetPandemicGlow(), false, W("Pandemic Glow with no profile"))
+
     SetProfile(nil)
     print(tag .. ": ok")
 end

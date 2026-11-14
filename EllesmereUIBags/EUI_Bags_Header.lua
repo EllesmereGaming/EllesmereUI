@@ -229,8 +229,12 @@ local function CreateHeader()
     -- an item can stay locked for another reason): the wait a round always had.
     local SORT_SETTLE_AFTER = 0.15
     -- The end of a run: repaint and new-item detection come back once nothing is
-    -- locked. Looked at every SORT_TAIL_STEP seconds, at most SORT_TAIL_STEPS times.
-    local SORT_TAIL_STEP, SORT_TAIL_STEPS = 0.05, 6
+    -- locked, at the latest this many seconds on (an item locked for another
+    -- reason: a trade, a mail attachment).
+    local SORT_TAIL_CAP = 0.3
+    -- The frame that waits for those last locks, made on first use and
+    -- registered only during that wait.
+    local sortTail
 
     -- mergeOnly (category views): consolidate partial stacks, then the visual sort.
     local function DoPhysicalSort(mergeOnly)
@@ -293,7 +297,10 @@ local function CreateHeader()
         -- After a pass sent item moves: waits until they are settled, then calls
         -- go() once. Settled = BAG_UPDATE_DELAYED (the batch of answers is over)
         -- with no locked item left in bags bagMin..bagMax. Else SORT_SETTLE_AFTER
-        -- seconds after the first bag update. No update at all: the backstop.
+        -- seconds after the first bag update: only a bag update starts that
+        -- clock, since a BAG_UPDATE_DELAYED that comes while the moves are still
+        -- locked (one left over from the round before) says nothing about them.
+        -- No update at all: the backstop.
         -- f is the phase's own frame; its run token drops a stale wait.
         local function WaitSettled(f, token, bagMin, bagMax, go)
             local settle = {}
@@ -313,7 +320,7 @@ local function CreateHeader()
                 if f._runToken ~= token or f._settle ~= settle then return end
                 if event == "BAG_UPDATE_DELAYED" and not AnyLocked(bagMin, bagMax) then
                     Go()
-                elseif not timer then
+                elseif event == "BAG_UPDATE" and not timer then
                     timer = true
                     C_Timer.After(SORT_SETTLE_AFTER, Go)
                 end
@@ -417,7 +424,8 @@ local function CreateHeader()
         -----------------------------------------------------------------------
 
         -- Scan, compute sorted order and execute all moves in one pass; re-scans every call so retries work from fresh state.
-        local function ComputeAndExecute(bagMin, bagMax)
+        -- beforeMoves: called once the pass knows it has moves to send, before they go out.
+        local function ComputeAndExecute(bagMin, bagMax, beforeMoves)
             if InCombatLockdown() then return false end  -- combat started: stop moving items
             bagMin = bagMin or 0
             bagMax = bagMax or 4
@@ -517,13 +525,15 @@ local function CreateHeader()
                 end
             end
 
+            if #moves == 0 then return false end
+            if beforeMoves then beforeMoves() end
             for _, m in ipairs(moves) do
                 C_Container.PickupContainerItem(m[1], m[2])
                 C_Container.PickupContainerItem(m[3], m[4])
                 ClearCursor()
             end
 
-            return #moves > 0
+            return true
         end
 
         -- combat: ended at the combat edge, so the bags refresh at once, still
@@ -542,19 +552,32 @@ local function CreateHeader()
             end
             -- Repaint and new-item detection come back once nothing is locked: a
             -- move still in flight looks like a lost item to DetectNewItems, which
-            -- would flag it new later. At most SORT_TAIL_STEPS looks (the old 0.3 s).
-            local looks = 0
-            local function Tail()
-                looks = looks + 1
-                if looks < SORT_TAIL_STEPS and AnyLocked(0, 5) then
-                    C_Timer.After(SORT_TAIL_STEP, Tail)
-                    return
-                end
+            -- would flag it new later. Nothing locked: at once. Else at the lock or
+            -- bag event that finds nothing locked, at the latest SORT_TAIL_CAP
+            -- seconds on.
+            local function Done()
                 EUI_Bags.refreshEnabled = true
                 EUI_Bags:RefreshInventory()
                 C_Timer.After(3, UnlockSort)
             end
-            C_Timer.After(SORT_TAIL_STEP, Tail)
+            if not AnyLocked(0, 5) then Done(); return end
+            if not sortTail then sortTail = CreateFrame("Frame") end
+            -- a later run's end takes the frame over: this one's cap then drops out
+            local wait = {}
+            sortTail._wait = wait
+            local function End()
+                if sortTail._wait ~= wait then return end
+                sortTail._wait = nil
+                sortTail:UnregisterAllEvents()
+                sortTail:SetScript("OnEvent", nil)
+                Done()
+            end
+            sortTail:SetScript("OnEvent", function()
+                if not AnyLocked(0, 5) then End() end
+            end)
+            sortTail:RegisterEvent("ITEM_LOCK_CHANGED")
+            sortTail:RegisterEvent("BAG_UPDATE_DELAYED")
+            C_Timer.After(SORT_TAIL_CAP, End)
         end
 
         local function RunRetryLoop(bagMin, bagMax, onDone)
@@ -565,12 +588,17 @@ local function CreateHeader()
             if not retryFrame then retryFrame = CreateFrame("Frame") end
             local runToken = {}
             retryFrame._runToken = runToken
+            -- Once per round that has moves to send, before they go out: draw
+            -- the moves made so far. refreshEnabled stays false (no event
+            -- repaint, no new-item detection). An error in it is reported and
+            -- the round goes on: the run must reach its end, where the bags
+            -- unfreeze and the sound effects come back.
+            local function DrawRound()
+                securecallfunction(EUI_Bags.RefreshInventory, EUI_Bags)
+            end
             local function NextRound()
                 retryCount = retryCount + 1
-                -- Once per round, draw the moves made so far. refreshEnabled
-                -- stays false (no event repaint, no new-item detection).
-                EUI_Bags:RefreshInventory()
-                local moved = ComputeAndExecute(bagMin, bagMax)
+                local moved = ComputeAndExecute(bagMin, bagMax, DrawRound)
                 if moved and retryCount < 15 then
                     WaitSettled(retryFrame, runToken, bagMin, bagMax, NextRound)
                 else

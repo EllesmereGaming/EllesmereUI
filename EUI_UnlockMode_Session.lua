@@ -457,6 +457,18 @@ local function CreateHUD(parent)
     exitBtn:SetPoint("LEFT", UM.hudFrame, "TOPLEFT", exitLeftEdge + BANNER_PX_W / 2, btnCenterY)
     local _, exitBrd = EllesmereUI.MakeStyledButton(exitBtn, "Exit", BTN_FONT,
         EllesmereUI.RB_COLOURS, function() ns.RequestClose(false) end)
+    -- Wrapped, not hooked: the bar's mouse cut calls GetScript("OnLeave") to drop the tooltip.
+    do
+        local enter, leave = exitBtn:GetScript("OnEnter"), exitBtn:GetScript("OnLeave")
+        exitBtn:SetScript("OnEnter", function(self)
+            enter(self)
+            UM.ShowBarTip(self, EllesmereUI.L("Leaves Unlock Mode. With unsaved changes, it asks whether to save them first."))
+        end)
+        exitBtn:SetScript("OnLeave", function(self)
+            leave(self)
+            EllesmereUI.HideWidgetTooltip()
+        end)
+    end
     UM.hudFrame._exitBtn = exitBtn
 
     -- The rounded outlines take their whole-pixel seat as the bar shows, still above
@@ -483,7 +495,8 @@ local function CreateHUD(parent)
         bg:SetAllPoints()
         bg:SetColorTexture(0.077, 0.068, 0.058, 0.92)
         local outlines = UM.hudFrame._outlines
-        outlines[#outlines + 1] = EllesmereUI.MakeRoundedBorder(btn, eg.r, eg.g, eg.b, 0.7, bg)
+        local saveBrd = EllesmereUI.MakeRoundedBorder(btn, eg.r, eg.g, eg.b, 0.7, bg)
+        outlines[#outlines + 1] = saveBrd
 
         local lbl = btn:CreateFontString(nil, "OVERLAY")
         lbl:SetFont(FONT_PATH, BTN_FONT, "OUTLINE, SLUG")
@@ -506,9 +519,20 @@ local function CreateHUD(parent)
             end
             Apply(progress)
         end
-        btn:SetScript("OnEnter", function(self) target = 1; self:SetScript("OnUpdate", OnUpdate) end)
-        btn:SetScript("OnLeave", function(self) target = 0; self:SetScript("OnUpdate", OnUpdate) end)
+        btn:SetScript("OnEnter", function(self)
+            target = 1; self:SetScript("OnUpdate", OnUpdate)
+            UM.ShowBarTip(self, EllesmereUI.L("Saves the new positions and leaves Unlock Mode."))
+        end)
+        btn:SetScript("OnLeave", function(self)
+            target = 0; self:SetScript("OnUpdate", OnUpdate)
+            EllesmereUI.HideWidgetTooltip()
+        end)
         btn:SetScript("OnClick", function() ns.RequestClose(true) end)
+        -- The bar outlives a session: its outline and label follow an accent change.
+        EllesmereUI.RegAccent({ type = "callback", fn = function(r, g, b)
+            saveBrd:SetColor(r, g, b, 0.7)
+            Apply(progress)
+        end })
         UM.hudFrame._saveBtn = btn
     end
 
@@ -551,7 +575,6 @@ local function CreateHUD(parent)
             if atMin then
                 minusBtn._shadow:SetTextColor(DISABLED_R, DISABLED_G, DISABLED_B, NORMAL_A * 0.6)
                 minusBtn._label:SetTextColor(DISABLED_R, DISABLED_G, DISABLED_B, NORMAL_A)
-                minusBtn:EnableMouse(true)  -- still catch hover for tooltip
                 minusBtn._isDisabled = true
             else
                 minusBtn._shadow:SetTextColor(0, 0, 0, NORMAL_A)
@@ -561,13 +584,15 @@ local function CreateHUD(parent)
             if atMax then
                 plusBtn._shadow:SetTextColor(DISABLED_R, DISABLED_G, DISABLED_B, NORMAL_A * 0.6)
                 plusBtn._label:SetTextColor(DISABLED_R, DISABLED_G, DISABLED_B, NORMAL_A)
-                plusBtn:EnableMouse(true)
                 plusBtn._isDisabled = true
             else
                 plusBtn._shadow:SetTextColor(0, 0, 0, NORMAL_A)
                 plusBtn._label:SetTextColor(NORMAL_R, NORMAL_G, NORMAL_B, NORMAL_A)
                 plusBtn._isDisabled = false
             end
+            -- A click under the cursor: the open tooltip follows the new state and bar scale.
+            local owner = EllesmereUI._WidgetTooltipOwner()
+            if owner and (owner == minusBtn or owner == plusBtn) then owner:GetScript("OnEnter")(owner) end
         end
 
         -- noSave: the filter's screen fit (EUI_UnlockMode_Filter.lua) keeps the saved choice.
@@ -588,7 +613,7 @@ local function CreateHUD(parent)
         end
 
         -- Helper: create a text button with drop shadow
-        local function MakeScaleBtn(text, anchorPoint, anchorTo, anchorRel, xOff, yOff)
+        local function MakeScaleBtn(text, anchorPoint, anchorTo, anchorRel, xOff, yOff, tip, tipDisabled)
             local btn = CreateFrame("Button", nil, UM.hudFrame)
             btn:SetSize(SCALE_BTN_SZ, SCALE_BTN_SZ)
             btn:SetPoint(anchorPoint, anchorTo, anchorRel, xOff, yOff)
@@ -613,11 +638,13 @@ local function CreateHUD(parent)
             btn._isDisabled = false
 
             btn:SetScript("OnEnter", function(self)
+                UM.ShowBarTip(self, self._isDisabled and tipDisabled or tip)
                 if self._isDisabled then return end
                 self._shadow:SetTextColor(0, 0, 0, HOVER_A)
                 self._label:SetTextColor(HOVER_R, HOVER_G, HOVER_B, HOVER_A)
             end)
             btn:SetScript("OnLeave", function(self)
+                EllesmereUI.HideWidgetTooltip()
                 if self._isDisabled then return end
                 self._shadow:SetTextColor(0, 0, 0, NORMAL_A)
                 self._label:SetTextColor(NORMAL_R, NORMAL_G, NORMAL_B, NORMAL_A)
@@ -627,14 +654,19 @@ local function CreateHUD(parent)
         end
 
         -- Minus button (10px left of the Exit button, outer side)
-        minusBtn = MakeScaleBtn("\226\128\147", "RIGHT", exitBtn, "LEFT", -SCALE_BTN_GAP, 0)
+        minusBtn = MakeScaleBtn("\226\128\147", "RIGHT", exitBtn, "LEFT", -SCALE_BTN_GAP, 0,
+            EllesmereUI.L("Makes this bar smaller."), EllesmereUI.L("Already at the smallest size."))
         minusBtn:SetScript("OnClick", function(self)
             if self._isDisabled then return end
             ApplyBannerScale(bannerUserScale - SCALE_STEP)
         end)
 
         -- Plus button (10px right of the Save & Exit button, outer side)
-        plusBtn = MakeScaleBtn("+", "LEFT", UM.hudFrame._saveBtn, "RIGHT", SCALE_BTN_GAP, 0)
+        plusBtn = MakeScaleBtn("+", "LEFT", UM.hudFrame._saveBtn, "RIGHT", SCALE_BTN_GAP, 0,
+            EllesmereUI.L("Makes this bar bigger."), function()
+                if bannerUserScale < SCALE_MAX - 0.001 then return EllesmereUI.L("Already at the largest size that fits the screen.") end
+                return EllesmereUI.L("Already at the largest size.")
+            end)
         plusBtn:SetScript("OnClick", function(self)
             if self._isDisabled then return end
             ApplyBannerScale(bannerUserScale + SCALE_STEP)

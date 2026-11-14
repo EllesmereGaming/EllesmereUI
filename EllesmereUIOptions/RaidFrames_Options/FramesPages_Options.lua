@@ -1852,7 +1852,7 @@ local function BuildPartyPage(pageName, parent, yOffset)
               PartyReloadAndUpdate()
           end },
         { type="toggle", text="Party Frames in Small Raids",
-          tooltip="In raid groups under 10 players, show group 1 as party frames and hide everyone else.",
+          tooltip="In raid groups under 10 players, show group 1 as party frames and hide everyone else. Not in battlegrounds.",
           getValue=function() return db.profile.partySmallRaid or false end,
           setValue=function(v)
               db.profile.partySmallRaid = v

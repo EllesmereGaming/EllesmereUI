@@ -2,7 +2,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 -------------------------------------------------------------------------------
 --  EllesmereUIBags.lua -- Enhanced Bags System for EllesmereUI (Midnight): sidebar category filter + flat item grid layout.
 -------------------------------------------------------------------------------
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog and EllesmereUI.ReleaseStaleHold and EllesmereUI.ForeverLookMajority and EllesmereUI.ForeverHeavyOK and EllesmereUI.ForeverHeavy and EllesmereUI.ForeverHeavySeat and EllesmereUI.ForeverHeavyTitle and EllesmereUI.ForeverBorder and EllesmereUI.ForeverBorderSeat and EllesmereUI.ForeverBorderPaint) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window; ReleaseStaleHold / DropHold, the sort's sound effects mute; the WoW Forever style draws the parent's Forever frames and follows its look majority)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.CreateQuantityDialog and EllesmereUI.ReleaseStaleHold and EllesmereUI.ForeverLookMajority and EllesmereUI.ForeverHeavyOK and EllesmereUI.ForeverHeavy and EllesmereUI.ForeverHeavySeat and EllesmereUI.ForeverHeavyTitle and EllesmereUI.ForeverBorder and EllesmereUI.ForeverBorderSeat and EllesmereUI.ForeverBorderPaint and EllesmereUI.CharData and EllesmereUI.CharGUID) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the stack splitter is the parent's quantity window; ReleaseStaleHold / DropHold, the sort's sound effects mute; the WoW Forever style draws the parent's Forever frames and follows its look majority; its per-character data is in the parent's roster: CharData, CharGUID)
 local ns = select(2, ...)
 EllesmereUI._ModuleNS["EllesmereUIBags"] = ns  -- LOD options files read this module ns via the registry
 ns.CombatQueue = EllesmereUI.NewCombatQueue(CreateFrame("Frame"))
@@ -34,7 +34,7 @@ local IsEquippableItem = C_Item.IsEquippableItem
 
 -- Red-tint usability test (shared with the bank module via EUI). Tooltip must come from
 -- the real item, never GetItemByID: scaling gear's bonus IDs lower its required level, but
--- GetItemByID shows the unscaled base item's level (reads red). Prefer bag slot > link > ID; cache by link, wipe on level-up or skill rank change.
+-- GetItemByID shows the unscaled base item's level (reads red). Prefer bag slot > link > ID; cache by link, cleared on a level-up or a skill change.
 local _canUseCache = {}
 local ITEM_CLASS_RECIPE = Enum.ItemClass.Recipe
 local function BagsItemUnusable(bagID, slot, itemLink, itemID)
@@ -100,9 +100,19 @@ do
     local f = CreateFrame("Frame")
     f:RegisterEvent("PLAYER_LEVEL_UP")
     f:RegisterEvent("PLAYER_LEVEL_CHANGED")
-    -- Profession and weapon skill ranks gate recipes and gear without a level change
-    pcall(f.RegisterEvent, f, "SKILL_LINES_CHANGED")
-    f:SetScript("OnEvent", function() wipe(_canUseCache) end)
+    -- A skill rank gates recipes and some items without a level change.
+    f:RegisterEvent("SKILL_LINES_CHANGED")
+    f:SetScript("OnEvent", function(_, event)
+        if event == "SKILL_LINES_CHANGED" and InCombatLockdown() then
+            -- A rank gained in a fight (weapon and defense skill, by the dozen while
+            -- leveling) can only make an item usable: the unusable answers alone go.
+            for item, unusable in pairs(_canUseCache) do
+                if unusable then _canUseCache[item] = nil end
+            end
+            return
+        end
+        wipe(_canUseCache)
+    end)
 end
 -- WoW Forever: the player's bags (1-4) that hold one kind of item only --
 -- quivers, ammo pouches, soul, herb and enchanting bags, by their non-zero bag

@@ -230,8 +230,8 @@ initFrame:SetScript("OnEvent", function(self)
     local function MakeTemplateCard(host, x, y, w, cardH, def)
         local EGc = EllesmereUI.ELLESMERE_GREEN
         local card = CreateFrame("Button", nil, host)
-        PP.Size(card, w, cardH)
-        PP.Point(card, "TOPLEFT", host, "TOPLEFT", x, y)
+        EllesmereUI.PanelPP.Size(card, w, cardH)
+        EllesmereUI.PanelPP.Point(card, "TOPLEFT", host, "TOPLEFT", x, y)
         card:SetFrameLevel(host:GetFrameLevel() + 2)
 
         local cbrd = EllesmereUI.MakeRoundedCard(card, 0.12, 0.50, 2)
@@ -241,22 +241,22 @@ initFrame:SetScript("OnEvent", function(self)
 
         local cIcon = card:CreateTexture(nil, "ARTWORK")
         cIcon:SetSize(24, 24)
-        PP.Point(cIcon, "LEFT", card, "LEFT", 14, 0)
+        EllesmereUI.PanelPP.Point(cIcon, "LEFT", card, "LEFT", 14, 0)
         cIcon:SetTexture(MEDIA_ICONS .. def.icon)
         cIcon:SetVertexColor(EGc.r, EGc.g, EGc.b)
         cIcon:SetAlpha(0.6)
         if cIcon.SetSnapToPixelGrid then cIcon:SetSnapToPixelGrid(false); cIcon:SetTexelSnappingBias(0) end
 
         local titleFs = EllesmereUI.MakeFont(card, 12, nil, 1, 1, 1, 0.9)
-        PP.Point(titleFs, "TOPLEFT", cIcon, "TOPRIGHT", 12, 1)
-        PP.Point(titleFs, "RIGHT", card, "RIGHT", -8, 0)
+        EllesmereUI.PanelPP.Point(titleFs, "TOPLEFT", cIcon, "TOPRIGHT", 12, 1)
+        EllesmereUI.PanelPP.Point(titleFs, "RIGHT", card, "RIGHT", -8, 0)
         titleFs:SetJustifyH("LEFT")
         titleFs:SetWordWrap(false)
         titleFs:SetText(L(def.title))
 
         local descFs = EllesmereUI.MakeFont(card, 10, nil, 1, 1, 1, 0.35)
-        PP.Point(descFs, "TOPLEFT", titleFs, "BOTTOMLEFT", 0, -4)
-        PP.Point(descFs, "RIGHT", card, "RIGHT", -8, 0)
+        EllesmereUI.PanelPP.Point(descFs, "TOPLEFT", titleFs, "BOTTOMLEFT", 0, -4)
+        EllesmereUI.PanelPP.Point(descFs, "RIGHT", card, "RIGHT", -8, 0)
         descFs:SetJustifyH("LEFT")
         descFs:SetWordWrap(false)
         descFs:SetText(L(def.desc))
@@ -377,8 +377,8 @@ initFrame:SetScript("OnEvent", function(self)
         local ddW = 280
         local NEWBTN_W = 110
         local ddBtn = CreateFrame("Button", nil, hdr)
-        PP.Size(ddBtn, ddW, DD_H)
-        PP.Point(ddBtn, "TOPLEFT", hdr, "TOPLEFT", (hdrW - (ddW + 10 + NEWBTN_W)) / 2, fy)
+        EllesmereUI.PanelPP.Size(ddBtn, ddW, DD_H)
+        EllesmereUI.PanelPP.Point(ddBtn, "TOPLEFT", hdr, "TOPLEFT", (hdrW - (ddW + 10 + NEWBTN_W)) / 2, fy)
         ddBtn:SetFrameLevel(hdr:GetFrameLevel() + 5)
         local ddBg = ddBtn:CreateTexture(nil, "BACKGROUND")
         ddBg:SetAllPoints()
@@ -650,8 +650,8 @@ initFrame:SetScript("OnEvent", function(self)
 
         -- "+ New Bar" (toggles the template card strip)
         local newBtn = CreateFrame("Button", nil, hdr)
-        PP.Size(newBtn, 110, DD_H)
-        PP.Point(newBtn, "LEFT", ddBtn, "RIGHT", 10, 0)
+        EllesmereUI.PanelPP.Size(newBtn, 110, DD_H)
+        EllesmereUI.PanelPP.Point(newBtn, "LEFT", ddBtn, "RIGHT", 10, 0)
         newBtn:SetFrameLevel(hdr:GetFrameLevel() + 5)
         EllesmereUI.MakeStyledButton(newBtn, "+ New Bar", 12, EllesmereUI.WB_COLOURS, function()
             _cardsExpanded = not _cardsExpanded
@@ -671,8 +671,8 @@ initFrame:SetScript("OnEvent", function(self)
             local cw = floor((stripW - gap * 3) / 4)
             local ch = 64
             local host = CreateFrame("Frame", nil, hdr)
-            PP.Size(host, stripW, ch)
-            PP.Point(host, "TOPLEFT", hdr, "TOPLEFT", PAD, fy)
+            EllesmereUI.PanelPP.Size(host, stripW, ch)
+            EllesmereUI.PanelPP.Point(host, "TOPLEFT", hdr, "TOPLEFT", PAD, fy)
             for i = 1, 4 do
                 MakeTemplateCard(host, (i - 1) * (cw + gap), 0, cw, ch, TEMPLATE_CARDS[i])
             end
@@ -1704,8 +1704,8 @@ initFrame:SetScript("OnEvent", function(self)
             -- Explicit size + single TOPLEFT anchor (search contract); the
             -- host doubles as a search pseudo-section.
             local host = CreateFrame("Frame", nil, parent)
-            PP.Size(host, hostW, hostH)
-            PP.Point(host, "TOPLEFT", parent, "TOPLEFT", PADC, y)
+            EllesmereUI.PanelPP.Size(host, hostW, hostH)
+            EllesmereUI.PanelPP.Point(host, "TOPLEFT", parent, "TOPLEFT", PADC, y)
             host._isSectionHeader = true
             host._sectionName = "Create New DataBar"
             local hint = EllesmereUI.MakeFont(host, 13, nil, 1, 1, 1, 0.55)
@@ -2002,7 +2002,7 @@ initFrame:SetScript("OnEvent", function(self)
                     RefreshPreviewTheme()
                 end,
                 false, 20)
-            PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
+            EllesmereUI.PanelPP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
             if theme.style ~= "modern" then
                 swatch:SetAlpha(0.3)
                 local blk = CreateFrame("Frame", nil, swatch)
@@ -2539,7 +2539,7 @@ initFrame:SetScript("OnEvent", function(self)
                         Apply()
                     end,
                     true, 20)
-                PP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
+                EllesmereUI.PanelPP.Point(swatch, "RIGHT", ctrl, "LEFT", -8, 0)
                 local block = CreateFrame("Frame", nil, swatch)
                 block:SetAllPoints()
                 block:SetFrameLevel(swatch:GetFrameLevel() + 10)
@@ -3536,7 +3536,7 @@ initFrame:SetScript("OnEvent", function(self)
                         EllesmereUI.ShowWidgetTooltip(swatch, sp.tip)
                     end)
                     swatch:HookScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
-                    PP.Point(swatch, "RIGHT", anchor, "LEFT", -8, 0)
+                    EllesmereUI.PanelPP.Point(swatch, "RIGHT", anchor, "LEFT", -8, 0)
                     anchor = swatch
 
                     -- Blocking overlay while Show Icon is off: the icons are
@@ -3580,7 +3580,7 @@ initFrame:SetScript("OnEvent", function(self)
                         Apply()
                     end,
                     false, 20)
-                PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
+                EllesmereUI.PanelPP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
                 local blk = CreateFrame("Frame", nil, swatch)
                 blk:SetAllPoints()
                 blk:SetFrameLevel(swatch:GetFrameLevel() + 5)
@@ -3763,7 +3763,7 @@ initFrame:SetScript("OnEvent", function(self)
                             Apply()
                         end,
                         false, 20)
-                    PP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
+                    EllesmereUI.PanelPP.Point(swatch, "RIGHT", rgn._control, "LEFT", -8, 0)
                     rgn._lastInline = swatch
                     local block = CreateFrame("Frame", nil, swatch)
                     block:SetAllPoints()

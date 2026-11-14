@@ -6,8 +6,11 @@
 -- slot's getters read -- one of the edit's owned fkeys, or, for an edit of only
 -- new keys, an entry under the slot's label on the same page whose every key the
 -- slot reads -- and takes the slot's current name and place; anything else,
--- including a setter's write to another row's key, captures as before.
+-- including a setter's write to another row's key, captures as before. An entry
+-- filed under a section its module lists on another page (movedSections) counts
+-- as on that page: the real EUI_NS.EntryPage, cut from the panel file.
 local path = arg and arg[1] or "EUI_SpecOverrides_Session.lua"
+local panelPath = arg and arg[2] or "EllesmereUI_Panel.lua"
 
 local FOLDER = "EllesmereUIActionBars"
 local FS, PS = "\31", "\30"
@@ -243,6 +246,27 @@ local ns = {
     _soInternals = I,
     GetTabLabel = function(_, page) return "Tab:" .. tostring(page) end,
 }
+-- The real page helper, cut by its first and last lines, over a module registry of
+-- this harness's own: FOLDER lists two sections whose rows are on another page (one
+-- row of the first is still on its page), and a folder that is no suite module
+-- lists one too.
+do
+    local f = assert(io.open(panelPath, "rb"))
+    local src = (f:read("*a"):gsub("\r\n", "\n"))
+    f:close()
+    local a = assert(src:find("\nfunction EUI_NS.EntryPage(", 1, true), "EUI_NS.EntryPage is not in the panel file")
+    local b = assert(src:find("\nend\n", a, true))
+    local modules = {
+        [FOLDER] = { movedSections = { ["Old Page"] = {
+            ["OLD SECTION"] = { page = "New Page", stay = { ["Stay Row"] = true } },
+            ["GONE SECTION"] = "New Page",
+        } } },
+        OtherAddon = { movedSections = { ["Old Page"] = { ["OLD SECTION"] = "New Page" } } },
+    }
+    ns.IsSuiteKey = function(k) return k == FOLDER end
+    assert(loadstring("local EUI_NS, modules = ...\n" .. src:sub(a + 1, b + 4), "=EntryPage"))(ns, modules)
+    assert(type(ns.EntryPage) == "function", "the cut did not define EUI_NS.EntryPage")
+end
 
 local chunk = assert(loadfile(path))
 chunk("EllesmereUI", ns)
@@ -557,5 +581,143 @@ Edit("Cond New", "APPEARANCE", { "condKey" })
 assert(#condStore == nC and CO.label == "Cond New" and CO.section == "APPEARANCE",
     "a conditional session relabels its own entry")
 assert(W.label == "Swipe Moved", "a conditional session never relabels a spec entry")
+
+-------------------------------------------------------------------------------
+--  11. A row moved to another page: its entry follows the first edit that
+--      writes a key it owns and the slot reads
+-------------------------------------------------------------------------------
+EnterGroupEdit(G1)
+-- An edit of an owned key and a new one: one entry, at the slot's new page and
+-- section, with the new key.
+Edit("Target Arrows", "EFFECTS", { "showArrows" })
+local TA = Find(specStore, "Target Arrows")
+local nTA = #specStore
+assert(TA and TA.page == "Bar Display")
+curPage = "Target Page"
+n0 = #texts
+Edit("Target Arrows", "TARGET", { "showArrows", "arrowStyle" })
+assert(#specStore == nTA and Count(specStore, "Target Arrows") == 1, "a row on another page keeps one entry")
+assert(TA.page == "Target Page" and TA.section == "TARGET", "page and section follow the slot")
+assert(TA.crumb == "Title:" .. FOLDER .. "  >  Action Bar 1  >  Tab:Target Page  >  TARGET")
+assert(EntryOwning(FK("arrowStyle")) == TA and not StatusSaysNew(n0))
+-- A checklist whose stand-in getter reads its keys is known the same way.
+curPage = "Bar Display"
+Edit("Target Effect", "EFFECTS", { "fxGlow" }, { "fxGlow", "fxBorder", "fxHighlight" })
+local FX = Find(specStore, "Target Effect")
+local nFX = #specStore
+curPage = "Target Page"
+Edit("Target Effect", "TARGET", { "fxGlow" }, { "fxGlow", "fxBorder", "fxHighlight" })
+assert(#specStore == nFX and FX.page == "Target Page" and FX.section == "TARGET", "an owned-only edit moves the entry")
+-- One whose getter reads nothing is not: its entry stays, and a new key starts a second one.
+curPage = "Bar Display"
+Edit("Hover Effect", "EFFECTS", { "hvGlow" }, {})
+local HV = Find(specStore, "Hover Effect")
+local nHV = #specStore
+curPage = "Target Page"
+Edit("Hover Effect", "HOVER", { "hvGlow" }, {})
+assert(#specStore == nHV and HV.page == "Bar Display" and HV.section == "EFFECTS", "no read, no proof: the entry stays")
+Edit("Hover Effect", "HOVER", { "hvBorder" }, {})
+assert(#specStore == nHV + 1 and Count(specStore, "Hover Effect") == 2 and HV.page == "Bar Display")
+-- A key a cog wrote under its host row's name: the row that now shows that key
+-- takes the entry (its values and other keys with it), and so does the next row
+-- of another of its keys.
+curPage = "Bar Display"
+Edit("Show Friendly Plates", "OTHER", { "barWidth" }, { "showFriendly" })
+Edit("Show Friendly Plates", "OTHER", { "barHeight" }, { "showFriendly" })
+local FP = Find(specStore, "Show Friendly Plates")
+local nFP = #specStore
+assert(FP and EntryOwning(FK("barWidth")) == FP and EntryOwning(FK("barHeight")) == FP)
+local fpWidth = FP.values.default[FK("barWidth")]
+curPage = "Friendly Page"
+Edit("Health Bar Width", "FRIENDLY PLAYERS", { "barWidth" })
+assert(#specStore == nFP and FP.label == "Health Bar Width" and FP.slotLabel == "Health Bar Width")
+assert(FP.page == "Friendly Page" and FP.section == "FRIENDLY PLAYERS")
+assert(FP.values.default[FK("barWidth")] == fpWidth and EntryOwning(FK("barHeight")) == FP,
+    "the values and the entry's other keys stay with it")
+Edit("Health Bar Height", "FRIENDLY PLAYERS", { "barHeight" })
+assert(#specStore == nFP and FP.label == "Health Bar Height", "one entry, named after the last of its rows edited")
+-- An edit of only new keys never reaches an entry on another page (section 9):
+-- the row starts a second entry and the first keeps its place.
+curPage = "Bar Display"
+Edit("Arrow Scale Row", "EFFECTS", { "arrowScale" })
+local AS = Find(specStore, "Arrow Scale Row")
+curPage = "Target Page"
+Edit("Arrow Scale Row", "TARGET", { "arrowColor" }, { "arrowScale", "arrowColor" })
+assert(Count(specStore, "Arrow Scale Row") == 2 and AS.page == "Bar Display" and AS.section == "EFFECTS")
+curPage = "Bar Display"
+
+-------------------------------------------------------------------------------
+--  12. A section its module lists on another page (movedSections): an entry
+--      filed under it counts as on that page
+-------------------------------------------------------------------------------
+do
+    local function Is(wantPage, wantMoved, ...)
+        local page, moved = ns.EntryPage(...)
+        assert(page == wantPage and moved == wantMoved, "EntryPage: got " .. tostring(page) .. ", " .. tostring(moved)
+            .. "; want " .. tostring(wantPage) .. ", " .. tostring(wantMoved))
+    end
+    Is("New Page", true, FOLDER, "Old Page", "GONE SECTION", "Any Row")
+    Is("New Page", true, FOLDER, "Old Page", "OLD SECTION", "Moved Row")
+    Is("New Page", true, FOLDER, "Old Page", "OLD SECTION", nil)
+    Is("Old Page", false, FOLDER, "Old Page", "OLD SECTION", "Stay Row")         -- a row still on its page
+    Is("New Page", true, FOLDER, "Old Page", "GONE SECTION", "Stay Row")         -- which only its own section says
+    Is("Old Page", false, FOLDER, "Old Page", "EFFECTS", "Moved Row")            -- a section not listed
+    Is("New Page", false, FOLDER, "New Page", "OLD SECTION", "Moved Row")        -- the section's name on another page
+    Is("Third Page", false, FOLDER, "Third Page", "OLD SECTION", "Moved Row")
+    Is("Old Page", false, FOLDER, "Old Page", nil, "Moved Row")
+    Is(nil, false, FOLDER, nil, "OLD SECTION", "Moved Row")
+    Is("Old Page", false, "OtherAddon", "Old Page", "OLD SECTION", "Moved Row")  -- not a suite module: not read
+    Is("Old Page", false, "NoSuchModule", "Old Page", "OLD SECTION", "Moved Row")
+    Is("Old Page", false, nil, "Old Page", "OLD SECTION", "Moved Row")
+end
+-- An edit of only new keys reaches the row's entry from the page the module names.
+curPage = "Old Page"
+Edit("Moved Row", "OLD SECTION", { "mvKey" })
+local MV = Find(specStore, "Moved Row")
+local nMV = #specStore
+assert(MV and MV.page == "Old Page" and MV.section == "OLD SECTION")
+curPage = "New Page"
+n0 = #texts
+Edit("Moved Row", "NEW SECTION", { "mvNew" }, { "mvKey", "mvNew" })
+assert(#specStore == nMV and Count(specStore, "Moved Row") == 1, "a row its module lists on another page keeps one entry")
+assert(MV.page == "New Page" and MV.section == "NEW SECTION", "page and section follow the slot")
+assert(EntryOwning(FK("mvNew")) == MV and EntryOwning(FK("mvKey")) == MV and not StatusSaysNew(n0))
+-- A row still on its page is not on the other one: an edit there starts a second
+-- entry, and the first follows its row to another section of its own page.
+curPage = "Old Page"
+Edit("Stay Row", "OLD SECTION", { "stKey" })
+local ST = Find(specStore, "Stay Row")
+curPage = "New Page"
+Edit("Stay Row", "NEW SECTION", { "stNew" }, { "stKey", "stNew" })
+assert(Count(specStore, "Stay Row") == 2 and ST.page == "Old Page" and ST.section == "OLD SECTION",
+    "a row still on its page is taken from the other page")
+curPage = "Old Page"
+local nST = #specStore
+Edit("Stay Row", "KEPT SECTION", { "stKept" }, { "stKey", "stKept" })
+assert(#specStore == nST and ST.page == "Old Page" and ST.section == "KEPT SECTION" and EntryOwning(FK("stKept")) == ST,
+    "a row still on its page keeps its entry there")
+-- The entry counts as on the page the module names and on no other, its first one
+-- included (the module says the row is not there).
+curPage = "Old Page"
+Edit("Third Row", "GONE SECTION", { "thKey" })
+local TH = Find(specStore, "Third Row")
+curPage = "Third Page"
+Edit("Third Row", "ANY", { "thNew" }, { "thKey", "thNew" })
+assert(Count(specStore, "Third Row") == 2 and TH.page == "Old Page" and TH.section == "GONE SECTION")
+curPage = "Old Page"
+Edit("Third Row", "KEPT SECTION", { "thKept" }, { "thKey", "thKept" })
+assert(Count(specStore, "Third Row") == 3 and TH.page == "Old Page" and TH.section == "GONE SECTION",
+    "an entry whose row is on another page is taken on its first page")
+-- A conditional session's store follows the same rule.
+Cond.EnterEdit(CG)
+curPage = "Old Page"
+Edit("Cond Moved", "GONE SECTION", { "cmKey" })
+local CM = Find(condStore, "Cond Moved")
+local nCM = #condStore
+curPage = "New Page"
+Edit("Cond Moved", "NEW SECTION", { "cmNew" }, { "cmKey", "cmNew" })
+assert(CM and #condStore == nCM and CM.page == "New Page" and CM.section == "NEW SECTION",
+    "a conditional entry does not follow its row to the page the module names")
+curPage = "Bar Display"
 
 print("test_specov_capture_reuse: ok")

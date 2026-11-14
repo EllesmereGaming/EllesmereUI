@@ -58,6 +58,18 @@ local PROPOSAL_MAX = 32
 local MAX_LINK_LENGTH = 512
 
 
+local function InGroup(name)
+    if (addon.GetCandidates and addon.GetCandidates() or {})[name] then return true end
+    return addon.Roster and addon.Roster.IsMember and addon.Roster:IsMember(name) or false
+end
+
+
+local function EncounterID(value)
+    local id = tonumber(value)
+    return id and id >= 1 and id < 2 ^ 31 and id % 1 == 0 and id or nil
+end
+
+
 local function Sanitise(proposed, who)
     local items = {}
     if type(proposed) ~= "table" then return items end
@@ -66,15 +78,18 @@ local function Sanitise(proposed, who)
     end
     for index, entry in ipairs(proposed) do
         if index > PROPOSAL_MAX then break end
-        if type(entry) == "table" and type(entry.l) == "string"
+        local owner = type(entry) == "table" and (entry.o == nil and who or entry.o)
+        if type(owner) ~= "string" or not (owner == who or InGroup(owner)) then
+            addon.Log:D("StartRequest", "proposal entry from", tostring(who), "names no group member")
+        elseif type(entry.l) == "string"
             and #entry.l <= MAX_LINK_LENGTH and entry.l:find("|Hitem:", 1, true) then
             items[#items + 1] = {
                 link = entry.l,
-                owner = type(entry.o) == "string" and entry.o or who,
+                owner = owner,
                 boss = type(entry.b) == "string" and entry.b or nil,
 
 
-                encounterID = tonumber(entry.e),
+                encounterID = EncounterID(entry.e),
             }
         end
     end

@@ -117,7 +117,8 @@ local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey)
     -- family store below falls back to spellSettingsCD and applies a CD-era
     -- entry under the same id to the buff.
     local hostedFrame = false
-    if frame and bk and sd2 and sd2.hostedBuffSpellIDs then
+    -- A "Replace with Buff" frame takes the cooldown's identity: resolve it as that cooldown.
+    if frame and bk and sd2 and sd2.hostedBuffSpellIDs and not (fc0 and fc0.replacesCd) then
         local fdH = ns._hookFrameData and ns._hookFrameData[frame]
         if (fc0 and fc0.isHostedBuff)
            or (fdH and fdH._isBuffViewerFrame)
@@ -277,7 +278,8 @@ end
 -- Result memo over the resolver. Per-frame stamp keyed on ns._cdmResGen (bumped
 -- by EVERY input edge: per-spell/tier create-delete, host flips, cdID-key gate
 -- flip, clean-sid flips, SPELL_OVERRIDE_UPDATED, SPELLS_CHANGED, rebuilds) plus
--- the frame's content identity (sid2/resolvedSid/baseSpellID) plus the bar.
+-- the frame's content identity (sid2/resolvedSid/baseSpellID, and replacesCd: the
+-- collect pass writes it with no bump, and it decides the store) plus the bar.
 -- In-place mutation needs no bump (the memo returns the table writers edit).
 -- The hit path still re-asserts the tier chain (two bars can share one family
 -- entry) at one getmetatable+compare cost; nil-frame callers bypass the memo.
@@ -292,7 +294,8 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
     end
     local bk = barKey or fc0.barKey
     if fc0.ssRGen == ns._cdmResGen and fc0.ssRSid == sid2 and fc0.ssRBk == bk
-       and fc0.ssRRS == fc0.resolvedSid and fc0.ssRBS == fc0.baseSpellID then
+       and fc0.ssRRS == fc0.resolvedSid and fc0.ssRBS == fc0.baseSpellID
+       and fc0.ssRRC == fc0.replacesCd then
         local v = fc0.ssRVal
         if v == false then return nil end
         ns.ChainSettings(v, fc0.ssRTier)
@@ -305,6 +308,7 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
     fc0.ssRBk = bk
     fc0.ssRRS = fc0.resolvedSid
     fc0.ssRBS = fc0.baseSpellID
+    fc0.ssRRC = fc0.replacesCd
     if res == nil then
         fc0.ssRVal = false
         fc0.ssRTier = nil

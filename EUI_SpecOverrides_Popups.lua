@@ -1145,6 +1145,11 @@ RefreshCardsPopup = function()
     p:SetHeight(-y + 12)
     -- The height lands after the outline's seat: refit so the bottom edge stays sharp.
     if p._brd then p._brd:Fit() end
+    -- The cards fit on their own show, before this height: a clamp that moves the popup leaves them soft.
+    local shown = p._cards
+    if shown then
+        for i = 1, p._cardN do shown[i]._brd:Fit() end
+    end
 end
 SetRefreshCardsPopup(RefreshCardsPopup)
 
@@ -1575,8 +1580,11 @@ function Cond.ShowPickerPopup(existing)
             keyRow:SetShown(p._staged.keybind and true or false)
             local extra = p._staged.keybind and 34 or 0
             p:SetHeight(-y + 56 + extra)
-            -- Toggled while shown (Keybind checkbox): refit the bottom edge.
+            -- Toggled while shown (Keybind checkbox): refit the bottom edge, the key row shown
+            -- just now, and the two buttons that hang off the edge that moved.
             p._brd:Fit()
+            kbrd:Fit()
+            if p._nextBrd then p._nextBrd:Fit(); p._cancelBrd:Fit() end
             ShowKeyText()
         end
 
@@ -1587,6 +1595,7 @@ function Cond.ShowPickerPopup(existing)
         local nextBtnBg = EllesmereUI.SolidTex(nextBtn, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
         nextBtnBg:SetAllPoints()
         local nbrd = EllesmereUI.MakeRoundedBorder(nextBtn, ACCENT_R, ACCENT_G, ACCENT_B, 0.5, nextBtnBg)
+        p._nextBrd = nbrd
         local nlbl = EllesmereUI.MakeFont(nextBtn, 12, nil, ACCENT_R, ACCENT_G, ACCENT_B, 1)
         nlbl:SetPoint("CENTER")
         nlbl:SetText(L("Next"))
@@ -1610,6 +1619,7 @@ function Cond.ShowPickerPopup(existing)
         local cancelBg = EllesmereUI.SolidTex(cancel, "BACKGROUND", 0.10, 0.10, 0.11, 0.9)
         cancelBg:SetAllPoints()
         local xbrd2 = EllesmereUI.MakeRoundedBorder(cancel, 1, 1, 1, 0.22, cancelBg)
+        p._cancelBrd = xbrd2
         local xlbl2 = EllesmereUI.MakeFont(cancel, 12, nil, 1, 1, 1, 0.7)
         xlbl2:SetPoint("CENTER")
         xlbl2:SetText(L("Cancel"))

@@ -524,6 +524,9 @@ local SETTING_BLACKLIST = {
         dmDebuff      = true,   -- debuff-manager layer territory
         partyFrameStyle = true, -- reload-gated Party page Frame Style (latched at load, like the Style flags)
     },
+    EllesmereUINameplates = {
+        nameplateSize = true, -- reload-gated Blizzard Nameplate Size (the game reads its CVar at load)
+    },
 }
 
 -- Only the COMPOUND half of the unified Visibility row is excluded: the mode SET

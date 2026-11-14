@@ -177,6 +177,136 @@ do
     env.EllesmereUI.IS_FOREVER = nil
 end
 
+-- 8. the once-a-session adoption waits for a real name: before login, the game's placeholder for a name it
+--    has not loaded moves nothing and the next read tries again; after login a name is the character's own
+do
+    UNKNOWNOBJECT = "Unknown"
+    local loggedIn = false
+    IsLoggedIn = function() return loggedIn end
+    EllesmereUIDB = { chars = { ["Bob-Realm"] = { xpBar = { gained = 4 } }, ["Unknown-Realm"] = { xpBar = { gained = 9 } } } }
+    local EUI, o = Fresh({ guid = "Player-9", name = "Unknown" })
+    check(EUI.CharData("xpBar") == nil and EllesmereUIDB.chars["Bob-Realm"] ~= nil and EllesmereUIDB.chars["Unknown-Realm"] ~= nil,
+        "before login a name the game has not loaded moves nothing")
+    o.name = "Bob"
+    check(EUI.CharData("xpBar") ~= nil and EUI.CharData("xpBar").gained == 4 and EllesmereUIDB.chars["Bob-Realm"] == nil,
+        "once the name reads, the character's entries move")
+    check(EllesmereUIDB.chars["Unknown-Realm"] ~= nil, "an entry under the placeholder is nobody's")
+    EllesmereUIDB = { chars = { ["Unknown-Realm"] = { xpBar = { gained = 9 } } } }
+    loggedIn = true
+    local EUI2 = Fresh({ guid = "Player-8", name = "Unknown" })
+    check(EUI2.CharData("xpBar") ~= nil and EUI2.CharData("xpBar").gained == 9, "after login a name equal to the placeholder is the character's own")
+    UNKNOWNOBJECT, IsLoggedIn = nil, nil
+end
+
+-- 9. the quest tracker's per-character sets (both accessors, cut from their files): while the GUID is unread
+--    the table handed out has the same sets, is not kept and is stored nowhere; once it reads, the roster's
+do
+    local function ReadFile(p)
+        local f = assert(io.open(p, "rb"))
+        local s = f:read("*a"):gsub("\r\n", "\n")
+        f:close()
+        return s
+    end
+    local TAIL = "\n    return sv\nend\n"
+    for _, case in ipairs({
+        { "EllesmereUIQuestTracker/EllesmereUIQuestTracker_Custom.lua", "local charDB\nlocal function CharDB()", "questTracker",
+          { "ctUntracked", "ctCollapsed", "ctDoneOpen", "ctPinned" } },
+        { "EllesmereUIQuestTracker/EllesmereUIQuestTracker_Forever.lua", 'local CHAR_SETS = { "hidden", "exempt", "auto", "declined" }', "questWatch",
+          { "hidden", "exempt", "auto", "declined" } },
+    }) do
+        local file, field, sets = case[1], case[3], case[4]
+        local src = ReadFile(file)
+        local a = assert(src:find(case[2], 1, true), file .. ": the accessor was not found")
+        local b = assert(src:find(TAIL, a, true), file .. ": the accessor's end was not found")
+        EllesmereUIDB = {}
+        local EUI, o = Fresh({})
+        local CharDB = setfenv(assert(loadstring(src:sub(a, b + #TAIL - 1) .. "\nreturn CharDB", "=" .. file)),
+            setmetatable({ EllesmereUI = EUI }, { __index = _G }))()
+        local function HasSets(t)
+            for _, k in ipairs(sets) do
+                if type(t[k]) ~= "table" then return false end
+            end
+            return true
+        end
+        local t1 = CharDB()
+        check(type(t1) == "table" and HasSets(t1), file .. ": the sets are missing while the GUID is unread")
+        check(CharDB() ~= t1, file .. ": the table handed out while the GUID is unread is kept")
+        check(Count(EllesmereUIDB.chars or {}) == 0, file .. ": something was stored while the GUID is unread")
+        o.guid = "Player-1"
+        local t2 = CharDB()
+        check(t2 ~= t1 and HasSets(t2) and EllesmereUIDB.chars["Player-1"][field] == t2, file .. ": once the GUID reads, the table is not the roster's")
+        o.guid = nil
+        check(CharDB() == t2, file .. ": the roster's table is not kept once read")
+    end
+end
+
+-- 10. per-character data never rides a full export: the roster, and the one per-character store kept outside
+--     it (the Kick Tracker's markers of the group's current instance)
+do
+    local fh = assert(io.open("EllesmereUI_Profiles.lua", "rb"))
+    local src = fh:read("*a"):gsub("\r\n", "\n")
+    fh:close()
+    local a = assert(src:find("local FULL_EXPORT_EXCLUDED = {", 1, true), "the export exclusions were not found")
+    local b = assert(src:find("\n}\n", a, true), "the end of the export exclusions was not found")
+    local excluded = assert(loadstring(src:sub(a, b + 2) .. "\nreturn FULL_EXPORT_EXCLUDED", "=the export exclusions"))()
+    check(excluded.chars == true, "the roster rides a full export")
+    check(excluded.kickMarkers == true, "the Kick Tracker's per-character markers ride a full export")
+end
+
+-- 11. a module that calls a roster helper names it in its stale-parent guard (an older parent has none of
+--     them): every Lua file a module's TOC lists is read for the helpers it calls
+do
+    local HELPERS = { "CharGUID", "Chars", "CharEntry", "CharData", "CharFieldMap", "ForgetCharField", "ClearCharField" }
+    local MODULES = { "ActionBars", "AuraBuffReminders", "Bags", "BlizzardSkin", "Chat", "CooldownManager", "DamageMeters",
+        "DataBars", "ForeverEssentials", "Friends", "GroupFinder", "LoadoutManager", "Minimap", "MythicTimer", "Nameplates",
+        "QoL", "QuestTracker", "Quickdraw", "RaidFrames", "ResourceBars", "SimpleLootCouncil", "UnitFrames" }
+    local function Read(p)
+        local f = io.open(p, "rb")
+        if not f then return nil end
+        local s = f:read("*a"):gsub("\r\n", "\n")
+        f:close()
+        return s
+    end
+    local users = 0
+    for _, short in ipairs(MODULES) do
+        local folder = "EllesmereUI" .. short
+        local toc = Read(folder .. "/" .. folder .. ".toc") or Read(folder .. "/" .. folder .. "_Camelot.toc")
+        check(toc ~= nil, folder .. ": no TOC found")
+        if toc then
+            local used = {}
+            for line in toc:gmatch("[^\n]+") do
+                local path = line:match("^%s*([^#%s][^%[]-%.lua)%s*%[?")
+                if path and not path:find("..", 1, true) then
+                    local src = Read(folder .. "/" .. path:gsub("\\", "/"))
+                    if src then
+                        for _, name in ipairs(HELPERS) do
+                            if src:find("EllesmereUI%." .. name .. "%f[^%w_]") or src:find("%f[%w_]EUI%." .. name .. "%f[^%w_]") then
+                                used[name] = true
+                            end
+                        end
+                    end
+                end
+            end
+            if next(used) then
+                users = users + 1
+                local main = Read(folder .. "/" .. folder .. ".lua") or ""
+                local guard
+                for line in main:gmatch("[^\n]+") do
+                    if line:find("stale-parent guard", 1, true) then guard = line:match("^(.-)%) then EUI_CLIENT_BLOCKED") break end
+                end
+                check(guard ~= nil, folder .. ": calls the roster but has no stale-parent guard")
+                for _, name in ipairs(HELPERS) do
+                    if used[name] then
+                        check(guard ~= nil and (guard .. " "):find("EllesmereUI%." .. name .. "%f[^%w_]") ~= nil,
+                            folder .. ": calls EllesmereUI." .. name .. " without naming it in its stale-parent guard")
+                    end
+                end
+            end
+        end
+    end
+    check(users >= 10, "only " .. users .. " modules were found calling the roster (the scan reads too little)")
+end
+
 if fails > 0 then
     print(fails .. " failure(s)")
     os.exit(1)
