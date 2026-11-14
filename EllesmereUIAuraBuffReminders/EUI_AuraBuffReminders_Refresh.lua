@@ -434,29 +434,147 @@ local function CollectLines(missing, auraLock, ids, lines, last, dismissKey, lab
     if id then return nil, EABR.FvSpellEntry(missing, id, dismissKey, label) end
 end
 
-local function CharStore(field)
-    local store = EllesmereUIDB[field]
-    local keys = EABR._fvCharKeys
-    if not keys then keys = {}; EABR._fvCharKeys = keys end
-    local key = keys[field]
-    if not key then
-        key = EllesmereUI.CharKey("-", store)
-        keys[field] = key
+do
+    -- Use the client's localized name for the food family, shared by many spell IDs.
+    local NUTRITIOUS_FOOD = 1248377
+    local watch, watching, foods, pending, invalidated
+    local isFood = {}  -- [itemID] = whether its use spell is the food family's, kept once its data has loaded
+    local spare        -- the table of a bag scan that found nothing new
+
+    function EABR.IsForeverFoodCurrent(snapshot)
+        return snapshot == foods
     end
-    return store, key
+
+    -- true or false once the item's data has loaded (an item's use spell never
+    -- changes), nil until then or while the family's name is missing.
+    local function IsFood(id, name)
+        local food = isFood[id]
+        if food == nil and name then
+            if select(6, C_Item.GetItemInfoInstant(id)) ~= Enum.ItemClass.Consumable then
+                food = false
+            elseif C_Item.IsItemDataCachedByID(id) then
+                food = C_Item.GetItemSpell(id) == name
+            end
+            isFood[id] = food
+        end
+        return food
+    end
+
+    -- The bags' food into found, [itemID] = count. An item whose data has not
+    -- loaded is asked for and left out until its answer.
+    local function Scan(found, name)
+        for bag = 0, NUM_BAG_SLOTS do
+            for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                local id = C_Container.GetContainerItemID(bag, slot)
+                if id and not pending[id] then
+                    local food = IsFood(id, name)
+                    if food then
+                        local info = C_Container.GetContainerItemInfo(bag, slot)
+                        found[id] = (found[id] or 0) + (info and info.stackCount or 1)
+                    elseif food == nil then
+                        if not next(pending) then watch:RegisterEvent("ITEM_DATA_LOAD_RESULT") end
+                        pending[id] = true
+                        C_Item.RequestLoadItemDataByID(id)
+                    end
+                end
+            end
+        end
+    end
+
+    local function Same(a, b)
+        for id, n in pairs(a) do
+            if b[id] ~= n then return false end
+        end
+        for id in pairs(b) do
+            if a[id] == nil then return false end
+        end
+        return true
+    end
+
+    function EABR.GetForeverFood()
+        if foods then return foods end
+        local found = {}
+        invalidated = false
+        local name = SpellName(NUTRITIOUS_FOOD)
+        if name then
+            Scan(found, name)
+        elseif not watch:IsEventRegistered("SPELL_DATA_LOAD_RESULT") then
+            watch:RegisterEvent("SPELL_DATA_LOAD_RESULT")
+            C_Spell.RequestLoadSpellData(NUTRITIOUS_FOOD)
+        end
+        -- A synchronous load result queues another refresh. Leave the cache empty for that pass.
+        if not invalidated then foods = found end
+        return found
+    end
+
+    function EABR.SyncForeverFoodWatch(want)
+        if want == watching then return end
+        watching = want
+        foods = nil
+        if not want then
+            if watch then watch:UnregisterAllEvents(); wipe(pending) end
+            return
+        end
+        if not watch then
+            pending = {}
+            watch = CreateFrame("Frame")
+            watch:SetScript("OnEvent", function(_, event, id, success)
+                if event == "ITEM_DATA_LOAD_RESULT" then
+                    if not pending[id] then return end
+                    pending[id] = nil
+                    if not next(pending) then watch:UnregisterEvent(event) end
+                    if not success then return end
+                    -- A loaded item that is no food changes nothing.
+                    if IsFood(id, SpellName(NUTRITIOUS_FOOD)) == false then return end
+                elseif event == "SPELL_DATA_LOAD_RESULT" then
+                    if id ~= NUTRITIOUS_FOOD then return end
+                    watch:UnregisterEvent(event)
+                    if not success then return end
+                elseif foods then
+                    -- A bag change: the reminders refresh only when the food itself changed.
+                    local name = SpellName(NUTRITIOUS_FOOD)
+                    if name then
+                        local found = spare or {}
+                        spare = nil
+                        wipe(found)
+                        invalidated = false
+                        Scan(found, name)
+                        if invalidated then
+                            -- a load answered inside the scan and asked for the refresh itself
+                            spare = found
+                            return
+                        end
+                        if Same(found, foods) then
+                            spare = found
+                            return
+                        end
+                        foods = found
+                        if EABR.ValidateOpenPicker then EABR.ValidateOpenPicker() end
+                        if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+                        return
+                    end
+                end
+                invalidated = true
+                foods = nil
+                if EABR.ValidateOpenPicker then EABR.ValidateOpenPicker() end
+                if _G._EABR_RequestRefresh then _G._EABR_RequestRefresh() end
+            end)
+        end
+        watch:RegisterEvent("BAG_UPDATE_DELAYED")
+    end
 end
 
 -- Mage armors (WoW Forever): one reminder while no rank of Frost Armor, Ice
--- Armor or Mage Armor is up; the line up is recorded in
--- EllesmereUIDB.mageArmorByChar by EllesmereUI.CharKey.
+-- Armor or Mage Armor is up; the line up is recorded in this character's
+-- roster entry (mageArmor).
 function EABR.CollectMageArmor(missing, auraLock, ids)
-    local store, key = CharStore("mageArmorByChar")
-    local last = store and key and store[key]
+    local char = EllesmereUI.CharEntry()
+    local last = char and char.mageArmor
     local up = CollectLines(missing, auraLock, ids, EABR.MAGE_ARMORS, last,
         "forever:magearmor", EllesmereUI.L("Armor"))
-    if up and up ~= last and key then
-        if not store then store = {}; EllesmereUIDB.mageArmorByChar = store end
-        store[key] = up
+    if up and up ~= last then
+        char = char or EllesmereUI.CharEntry(true)
+        if char then char.mageArmor = up end
     end
 end
 
@@ -564,8 +682,7 @@ function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
     local list = EABR.FvClassBuffs()[class]
     if not list then return end
     local picks = fo.classBuffPicks
-    local store, key = CharStore("classBuffByChar")
-    local rec = store and key and store[key]
+    local rec = EllesmereUI.CharData("classBuff")
     for i = 1, #list do
         local buff = list[i]
         if ClassBuffOn(buff, picks) then
@@ -576,11 +693,9 @@ function EABR.CollectClassBuffs(missing, fo, auraLock, ids, class)
                 buff.label, buff.also,
                 buff.own or buff.ownMemory, buff.ownMemory)
             if entry and PickerEnabled() then ApplyClassBuffPicker(entry, fo, buff) end
-            if up and up ~= last and key and buff.lines[2] then
-                if not store then store = {}; EllesmereUIDB.classBuffByChar = store end
-                rec = store[key]
-                if not rec then rec = {}; store[key] = rec end
-                rec[buff.key] = up
+            if up and up ~= last and buff.lines[2] then
+                rec = rec or EllesmereUI.CharData("classBuff", true)
+                if rec then rec[buff.key] = up end
             end
         end
     end
@@ -653,6 +768,31 @@ local function FvNeeds(left, warnSec)
     local nextAt = EABR._nextDurationRefreshTime
     if not nextAt or at < nextAt then EABR._nextDurationRefreshTime = at end
     return false
+end
+
+-- When an aura runs out, where that can be read: nil for no aura, a secret aura or a
+-- secret time, and for an aura that does not run out.
+local function FvAuraExpiration(aura)
+    if isSecret(aura) or not aura then return end
+    local expiration = aura.expirationTime
+    if not isSecret(expiration) and expiration and expiration > 0 then return expiration end
+end
+
+-- When the last of the foods whose buff has a name of its own (EABR.FOOD_BUFFS) runs out.
+-- nil when none is up or one of them cannot be read: Well Fed's early reminder is then
+-- left out, never guessed.
+local function FvFoodExpiration()
+    local latest
+    for _, id in ipairs(EABR.FOOD_BUFFS) do
+        local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, id)
+        if not ok or isSecret(aura) then return end
+        if aura then
+            local expiration = FvAuraExpiration(aura)
+            if not expiration then return end
+            if not latest or expiration > latest then latest = expiration end
+        end
+    end
+    return latest
 end
 
 local function FvWeaponEntry(missing, hand, label, dismissKey, buff, spellID, itemID, hideNoItem, left)
@@ -732,17 +872,18 @@ function EABR.FvSleepingBagOwned()
 end
 
 -- WoW Forever collector: the Camp Benefits campfire buff, the Sleeping Bag's
--- Well-Rested buff (missing or under its full stacks, while a Cozy Sleeping Bag
--- is in the bags below max level: EABR.FvSleepingBagOwned), Well Fed (any food
+-- Well-Rested buff (missing or under its full stacks, or inside its cog's Show
+-- Below minutes of running out, then with the countdown; while a Cozy Sleeping
+-- Bag is in the bags below max level: EABR.FvSleepingBagOwned), Well Fed (any food
 -- buff: the shared Well Fed name, or one of EABR.FOOD_BUFFS), the gathering
 -- and Find Treasure trackers, a Mage's armors (EABR.CollectMageArmor), the
 -- class buffs (EABR.CollectClassBuffs), the weapon buffs
 -- (EABR.CollectForeverWeapons), the user's spell groups
 -- (EABR.CollectForeverGroups) and custom spell IDs (each for the classes ticked
 -- on it), those a ticked class buff covers standing down outside PvP. All are
--- absence only but
--- the weapon buffs, which also show their Show Below minutes before running
--- out (the one-shot duration refresh). A custom ID counts as up while any
+-- absence only but the weapon buffs, the Sleeping Bag and Well Fed, which also
+-- show their Show Below minutes before running out, with a countdown (FvNeeds
+-- arms the one-shot duration refresh for that moment). A custom ID counts as up while any
 -- spell of its rank family is (EABR.ForeverFamily). Entries are display-only
 -- textures carrying the spell for the tooltip, except the Sleeping Bag, the two
 -- trackers, the mage armors, the class buffs, the weapon buffs, the spell
@@ -773,7 +914,11 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     if watchPickerSpells ~= (EABR._fvPickerSpellEvents or false) then
         EABR.FvSyncPickerSpellEvents(watchPickerSpells)
     end
-    if not shows then return end
+    local watchFood = watchPickerSpells and not inPvP and fo.wellFed or false
+    if not shows then
+        EABR.SyncForeverFoodWatch(false)
+        return
+    end
     local open = not inPvP
     -- Under the aura lock a secret aura reads absent, so an aura reminder
     -- shows only while none of its spells is secret.
@@ -796,11 +941,21 @@ function EABR.CollectForever(missing, inInstance, inPvP)
     if sleepBag and not (auraLock and not EABR.FvRanksReadable(sleepIDs)) then
         local ok, aura = pcall(C_UnitAuras.GetPlayerAuraBySpellID, EABR.SLEEPING_BAG_BUFF)
         local stacks = ok and not isSecret(aura) and (aura and aura.applications or 0)
-        if stacks and not isSecret(stacks) and stacks < EABR.SLEEPING_BAG_STACKS then
+        local expireAt, remaining
+        local showBelow = fo.sleepingBagShowBelow or 0
+        local expiration = ok and showBelow > 0 and EABR.ShowUnderThresholdApplies() and FvAuraExpiration(aura)
+        if expiration then
+            local left = expiration - GetTime()
+            if left > 0 and FvNeeds(left, showBelow * 60) then
+                expireAt, remaining = expiration, left
+            end
+        end
+        if expireAt or (stacks and not isSecret(stacks) and stacks < EABR.SLEEPING_BAG_STACKS) then
             local item = EABR.SLEEPING_BAG_ITEM
             local e = AcquireEntry()
             e.mode = "item"; e.itemID = item
             e.texture = C_Item.GetItemIconByID(item) or Tex(EABR.SLEEPING_BAG_BUFF)
+            e.expireAt, e.expireTotal = expireAt, remaining
             e.label = EllesmereUI.L("Sleeping")
             e.cat = "forever"; e.dismissKey = "forever:sleepingbag"
             missing[#missing+1] = e
@@ -833,17 +988,50 @@ function EABR.CollectForever(missing, inInstance, inPvP)
         if not scanned then treasureUp = EABR.FvTrackingState() end
         if not treasureUp then EABR.FvSpellEntry(missing, tid, "forever:treasure") end
     end
-    if fo.wellFed and open then
+    if fo.wellFed and open and not _dismissedUntilLoad["forever:wellfed"] then
         local name = SpellName(EABR.WELL_FED) or "Well Fed"
         local ok, aura = pcall(C_UnitAuras.GetAuraDataBySpellName, "player", name, "HELPFUL")
-        if ok and not isSecret(aura) and not aura and not PlayerHasAuraByID(EABR.FOOD_BUFFS) then
+        -- Shown while no food buff is up and, with Show Below set, that many minutes before
+        -- the one that is up runs out (the buff named Well Fed, else the last of the foods
+        -- with a name of their own), then with its countdown.
+        local show, expireAt, remaining
+        local warnSec = (fo.wellFedShowBelow or 0) * 60
+        if ok and not isSecret(aura) then
+            local fallback = not aura and PlayerHasAuraByID(EABR.FOOD_BUFFS)
+            show = not aura and not fallback
+            if not show and warnSec > 0 and EABR.ShowUnderThresholdApplies() then
+                expireAt = aura and FvAuraExpiration(aura) or (fallback and FvFoodExpiration())
+                if expireAt then
+                    remaining = expireAt - GetTime()
+                    show = remaining > 0 and FvNeeds(remaining, warnSec)
+                end
+            end
+        end
+        EABR.SyncForeverFoodWatch(watchFood and show == true)
+        if show then
             local e = AcquireEntry()
             e.mode = "texture"; e.spellID = EABR.WELL_FED
             e.texture = Tex(EABR.WELL_FED)
             e.label = name
             e.cat = "forever"; e.dismissKey = "forever:wellfed"
+            if expireAt then e.expireAt, e.expireTotal = expireAt, remaining end
+            if watchFood then
+                local foods = EABR.GetForeverFood()
+                e.foreverFood = next(foods) and foods or nil
+                local id = fo.wellFedItem
+                if id and foods[id] then
+                    e.mode = "macro"
+                    e.macro = EABR.ForeverFoodMacro(id)
+                    e.spellID = nil
+                    e.tooltipItem = id
+                    e.texture = C_Item.GetItemIconByID(id) or e.texture
+                    e.bagCount = foods[id]
+                end
+            end
             missing[#missing+1] = e
         end
+    else
+        EABR.SyncForeverFoodWatch(false)
     end
     if fo.mageArmor and open and GetPlayerClass() == "MAGE" then
         EABR.CollectMageArmor(missing, auraLock, ids)
@@ -1132,6 +1320,7 @@ end
 -- watch and the minimap, weapon and bag events); the next pass that can show
 -- re-arms them.
 function EABR.FvStandDown()
+    EABR.SyncForeverFoodWatch(false)
     EABR.FvSyncGroupWatch(nil, false)
     EABR.FvSyncTrackingEvent(false)
     EABR.FvSyncWeaponEvents(false)

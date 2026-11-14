@@ -5,7 +5,7 @@
 ## Group: EllesmereUI
 ## Notes: Premade Group search filters, group list, applicant list, and application tools.
 ## Author: Ellesmere
-## Version: 9.8.4
+## Version: 9.8.6
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIGroupFinderDB
 ## SavedVariablesPerCharacter: EllesmereUIGroupFinderCharDB

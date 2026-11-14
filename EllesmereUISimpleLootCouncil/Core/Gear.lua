@@ -30,6 +30,13 @@ local OFFHAND_ONLY = {
 }
 
 
+local OFFHAND_ITEM = {
+    INVTYPE_SHIELD   = true,
+    INVTYPE_HOLDABLE = true,
+}
+local MAIN_ONLY = { INVSLOT_MAINHAND }
+
+
 local TWO_HANDED = {
     INVTYPE_2HWEAPON    = true,
     INVTYPE_RANGED      = true,
@@ -73,9 +80,25 @@ local EQUIP_SLOTS = {
 
 
 
+local FOREVER_RANGED = {
+    INVTYPE_RANGED = true, INVTYPE_RANGEDRIGHT = true, INVTYPE_RANGEDLEFT = true,
+    INVTYPE_THROWN = true, INVTYPE_RELIC = true,
+}
+
+
+
+
 local function ResolveSlots(equipLoc, linkFor, equipLocFor)
+    if addon.IsForever and FOREVER_RANGED[equipLoc] then return { INVSLOT_RANGED or 18 } end
     local slots = EQUIP_SLOTS[equipLoc]
     if not slots then return nil end
+
+    if equipLoc == "INVTYPE_WEAPON" then
+
+        local offHand = linkFor(INVSLOT_OFFHAND)
+        if offHand and OFFHAND_ITEM[equipLocFor(offHand) or ""] then return MAIN_ONLY end
+        return slots
+    end
 
     if not OFFHAND_ONLY[equipLoc] then return slots end
 
@@ -281,6 +304,67 @@ function Gear:Diff(itemLink, g1, g2)
     if not worst then return nil end
 
     return incoming - worst
+end
+
+
+local OFFHAND_WEAPON = {
+    INVTYPE_WEAPON        = true,
+    INVTYPE_WEAPONOFFHAND = true,
+    INVTYPE_2HWEAPON      = true,
+}
+
+
+local PAIRED = {
+    INVTYPE_FINGER  = true,
+    INVTYPE_TRINKET = true,
+}
+
+
+
+
+function Gear.DualWield(equipLoc, gear1, gear2, diff, equipLocFor, levelFor)
+    if not gear1 or not gear2 then return false end
+    if not PAIRED[equipLoc] and (equipLoc ~= "INVTYPE_WEAPON"
+        or not OFFHAND_WEAPON[equipLocFor(gear2) or ""]) then
+        return false
+    end
+
+    local mainLevel, offLevel = levelFor(gear1), levelFor(gear2)
+    local incoming
+    if diff and mainLevel and offLevel then
+        incoming = math.min(mainLevel, offLevel) + diff
+    end
+    return true, mainLevel, offLevel, incoming
+end
+
+
+
+
+function Gear.Compared(equipLoc, gear1, gear2, diff, equipLocFor, levelFor)
+    if equipLoc ~= "INVTYPE_WEAPON" or not gear1 or not gear2
+        or not OFFHAND_ITEM[equipLocFor(gear2) or ""] then
+        return gear1, gear2, diff, false
+    end
+    if not diff then return gear1, nil, nil, false end
+
+    local mainLevel, offLevel = levelFor(gear1), levelFor(gear2)
+    if not (mainLevel and offLevel) then return gear1, nil, nil, true end
+    return gear1, nil, math.min(mainLevel, offLevel) + diff - mainLevel, false
+end
+
+
+local function InstantEquipLoc(item)
+    return (select(4, C_Item.GetItemInfoInstant(item)))
+end
+
+function Gear:DualWieldAgainst(equipLoc, candidate)
+    return Gear.DualWield(equipLoc, candidate.gear1, candidate.gear2, candidate.diff,
+        InstantEquipLoc, ItemLevel)
+end
+
+function Gear:ComparedFor(equipLoc, candidate)
+    return Gear.Compared(equipLoc, candidate.gear1, candidate.gear2, candidate.diff,
+        InstantEquipLoc, ItemLevel)
 end
 
 

@@ -1636,6 +1636,29 @@ local function BuildDisplayFields(frame, fontPath, sy, cfg, apply, isBuff)
     return sy
 end
 
+-- Default Buffs and Debuffs bars only. The shared Visibility row picks when the bar
+-- is shown; outside those conditions it dims to Hidden Opacity (0 = fully hidden).
+local function BuildVisibilityFields(frame, fontPath, sy, cfg)
+    local W = EllesmereUI.Widgets
+    -- Neither row changes how the bar is drawn: only the visibility pass runs.
+    local function apply()
+        if ns.PAB_SyncVisibility then ns.PAB_SyncVisibility() end
+    end
+    local _, hh = W:SectionHeader(frame, "VISIBILITY", sy); sy = sy - hh
+    _, hh = EllesmereUI.BuildVisibilityRow(W, frame, sy,
+        { getStore = function() return cfg end, legacyKey = "visibility",
+          caps = { partyIncludesRaid = false, luaDragonriding = true },
+          onChanged = apply, onOptionChanged = apply },
+        {
+            type = "slider", text = "Hidden Opacity", min = 0, max = 100, step = 5, trackWidth = 120,
+            tooltip = "How visible the bar stays while its Visibility conditions are not met. 0 hides it completely.",
+            getValue = function() return cfg.hiddenOpacity or 0 end,
+            setValue = function(v) cfg.hiddenOpacity = v; apply() end
+        }
+    ); sy = sy - hh
+    return sy
+end
+
 -- Debuff-category bars only (default debuffs + custom debuff bars).
 local DISPEL_ICON_POS_VALUES = {
     none        = "None",
@@ -2038,6 +2061,7 @@ local function BuildDefaultBarDetail(frame, fontPath, isBuff)
     end
     sy = BuildCoreFields(body, fontPath, sy, cfg, ApplyBar, isBuff)
     sy = BuildDisplayFields(body, fontPath, sy, cfg, ApplyBar, isBuff)
+    sy = BuildVisibilityFields(body, fontPath, sy, cfg)
     if not isBuff then
         sy = BuildDispelColorFields(body, fontPath, sy, cfg, ApplyBar)
         sy = BuildFxEffects(body, sy, cfg, ApplyBar)

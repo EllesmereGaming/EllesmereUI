@@ -41,11 +41,14 @@ local _keyringRowShown = false
 -- 0 while collapsed under Hide Sidebar Icons When Collapsed (default off): the
 -- sidebar hides and its expand arrow sits left of the window title.
 -- fixed views up top: all items, onebag, multibag, plus bank when offline bank is on
+local function OfflineBankOn()
+    return (ns.Offline and ns.Offline.Enabled()) and true or false
+end
+-- ...and one entry per virtual view another addon registered (none: no cost)
 local function FixedViewCount()
-    local count = 3
-    if _keyringRowShown then count = count + 1 end
-    if ns.Offline and ns.Offline.Enabled() then count = count + 1 end
-    return count
+    local n = OfflineBankOn() and 4 or 3
+    local views = EUI_CategoryManager:GetViews()
+    return (views and (n + #views) or n) + (_keyringRowShown and 1 or 0)
 end
 
 local function GetSidebarWidth()
@@ -735,19 +738,25 @@ local function CreateSidebar()
     titleArrow._icon:SetRotation(math.pi)
     titleArrow:Hide()
 
+    -- With Anchor to Nearest Corner a window parked on the right keeps its right
+    -- edge by its anchor. Without it, a window right of the screen's middle is
+    -- moved to keep that edge and pinned there by its top-left corner.
     local function ToggleSidebar()
-        local center = EUI_Bags:GetCenter()
-        local screenW = UIParent:GetWidth()
-        local onRightSide = center and screenW and (center > screenW / 2)
-        local oldRight = onRightSide and EUI_Bags:GetRight() or nil
-        local oldTop = onRightSide and EUI_Bags:GetTop() or nil
+        local oldRight, oldTop
+        if not ns.WindowCornerOn() then
+            local center = EUI_Bags:GetCenter()
+            local screenW = UIParent:GetWidth()
+            if center and screenW and center > screenW / 2 then
+                oldRight, oldTop = EUI_Bags:GetRight(), EUI_Bags:GetTop()
+            end
+        end
 
         BP().bagSidebarCollapsed = not BP().bagSidebarCollapsed
         UpdateCollapseArrow()
         sidebar:SetWidth(GetSidebarContentWidth(sidebar))
         EUI_Bags:RefreshInventory()
 
-        if onRightSide and oldRight and oldTop then
+        if oldRight and oldTop then
             local left = oldRight - EUI_Bags:GetWidth()
             EUI_Bags:ClearAllPoints()
             EUI_Bags:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, oldTop)
@@ -1148,7 +1157,14 @@ local function BuildSidebarButtons(categoryCounts, totalCount, showKeyring)
         }
     end
     -- bank: the offline bank view
-    if ns.Offline and ns.Offline.Enabled() then
+    -- virtual views (EUI_CategoryManager:RegisterVirtualView), after the three
+    local views = EUI_CategoryManager:GetViews()
+    if views then
+        for _, v in ipairs(views) do
+            displayList[#displayList + 1] = { catIdx = v.idx, name = v.name, icon = v.icon, isAtlas = v.isAtlas, count = totalCount }
+        end
+    end
+    if OfflineBankOn() then
         displayList[#displayList + 1] = { catIdx = -3, name = EllesmereUI.L("Bank"), icon = 133784 }
     end
 

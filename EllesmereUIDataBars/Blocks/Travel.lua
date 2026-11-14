@@ -369,57 +369,36 @@ local function TravelGetPrimaryCooldown()
 end
 
 -- Show Other Characters (block setting altHearths, off by default): every
--- character's hearthstone, account-wide in EllesmereUIDB.travelHearths, keyed
--- by EllesmereUI.CharKey("-") (Name-Realm on retail, the character's GUID on
--- WoW Forever) = { name (with the surname on WoW Forever), class, bind,
--- readyAt }. readyAt is a time() stamp (0 = ready): item cooldowns keep
+-- character's hearthstone, in the character roster as
+-- EllesmereUI.CharData("travelHearth") = { bind, readyAt } (the name and class
+-- are the roster entry's own). readyAt is a time() stamp (0 = ready): item cooldowns keep
 -- running while logged out, so an alt's row counts down from what it last
 -- saved. A character saves itself on each
 -- block refresh while the setting is on, but writes only when its bind or
 -- ready time changed (the refresh runs every second while the tooltip or a
 -- cooldown shows); a secret (combat) read saves nothing.
-local function TravelHearthStore()
-    local db = _G.EllesmereUIDB
-    if type(db) ~= "table" then return nil end
-    local store = db.travelHearths
-    if type(store) ~= "table" then
-        store = {}
-        db.travelHearths = store
-    end
-    return store
-end
-
--- This character's key and full name, read once a session, and what it last
--- wrote (the first save of a session always writes).
-local _myHearthKey, _myHearthName, _savedBind, _savedReadyAt
+-- This character's key, read once a session, and what it last wrote (the
+-- first save of a session always writes).
+local _myHearthKey, _savedBind, _savedReadyAt
 local function TravelSaveMyHearth()
-    local store = TravelHearthStore()
-    if not store then return end
     if not _myHearthKey then
-        _myHearthKey = EllesmereUI.CharKey("-", store)
+        _myHearthKey = EllesmereUI.CharGUID()
         if not _myHearthKey then return end
-        -- The full name whatever the show-surname preference: two WoW Forever
-        -- characters can share a first name.
-        local name, surname = (UnitNameUnmodified or UnitName)("player")
-        _myHearthName = EllesmereUI.WithSurname(name, surname, true)
     end
     local cd, known = TravelGetPrimaryCooldown()
     if not known then return end
     local bind = GetBindLocation()
     local readyAt = (cd > 0) and (time() + cd) or 0
-    local e = store[_myHearthKey]
+    local e = EllesmereUI.CharData("travelHearth")
     -- Unchanged: same bind, same ready time give or take a second of drift.
     if type(e) == "table" and bind == _savedBind and _savedReadyAt
        and math.abs(readyAt - _savedReadyAt) <= 1 then
         return
     end
     if type(e) ~= "table" then
-        e = {}
-        store[_myHearthKey] = e
+        e = EllesmereUI.CharData("travelHearth", true)
+        if not e then return end
     end
-    local _, class = UnitClass("player")
-    e.name = _myHearthName
-    e.class = class
     e.bind = bind
     e.readyAt = readyAt
     _savedBind, _savedReadyAt = bind, readyAt
@@ -432,16 +411,14 @@ end
 local _altBuf, _altKeyOf = {}, {}
 local function TravelAltSort(a, z) return (a.name or "") < (z.name or "") end
 local function TravelAddAltRows(ar, ag, ab, onRemoved)
-    local store = TravelHearthStore()
-    if not store then return 0 end
-    local mine = _myHearthKey or EllesmereUI.CharKey("-")
+    local mine = _myHearthKey or EllesmereUI.CharGUID()
     local n = 0
     wipe(_altKeyOf)
-    for key, e in pairs(store) do
-        if key ~= mine and type(e) == "table" and e.name then
+    for key, c in pairs(EllesmereUI.Chars() or {}) do
+        if key ~= mine and type(c) == "table" and c.name and type(c.travelHearth) == "table" then
             n = n + 1
-            _altBuf[n] = e
-            _altKeyOf[e] = key
+            _altBuf[n] = c
+            _altKeyOf[c] = key
         end
     end
     for i = n + 1, #_altBuf do _altBuf[i] = nil end
@@ -451,8 +428,9 @@ local function TravelAddAltRows(ar, ag, ab, onRemoved)
     ns.Tip_AddLine(L["OTHER_CHARACTERS"], ar, ag, ab)
     local now = time()
     for i = 1, n do
-        local e = _altBuf[i]
-        local cc = e.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[e.class]
+        local c = _altBuf[i]
+        local e = c.travelHearth
+        local cc = c.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[c.class]
         local cr, cg, cb = 1, 1, 1
         if cc then cr, cg, cb = cc.r, cc.g, cc.b end
         local rem = (e.readyAt or 0) - now
@@ -461,12 +439,11 @@ local function TravelAddAltRows(ar, ag, ab, onRemoved)
             cdStr = ns.FormatCooldown(rem) or L["READY"]
             rr, rg, rb = 0.5, 0.5, 0.5
         end
-        local key = _altKeyOf[e]
-        ns.Tip_AddClickable(e.name .. " (" .. (e.bind or "?") .. ")", cdStr, function(mouseButton)
+        local key = _altKeyOf[c]
+        ns.Tip_AddClickable(c.name .. " (" .. (e.bind or "?") .. ")", cdStr, function(mouseButton)
             if mouseButton ~= "LeftButton" then return end
             if not (IsControlKeyDown() and IsAltKeyDown()) then return end
-            local s = TravelHearthStore()
-            if s then s[key] = nil end
+            EllesmereUI.ForgetCharField(key, "travelHearth")
             if onRemoved then onRemoved() end
         end, cr, cg, cb, rr, rg, rb)
     end

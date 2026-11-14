@@ -1487,7 +1487,7 @@ local function CollectAndReanchor()
                                 if base and base > 0 and _globalClaimSet[base] then hasClaim = true end
                             end
                             -- An entry an aura icon of ours draws (EUI_CDM_AuraIcons.lua:
-                            -- the WoW Forever Seals stand-in), native-first like a racial.
+                            -- a registered provider's spell ID), native-first like a racial.
                             local auraF = not hasClaim and ns.CDM_AuraIconFor
                                 and ns.CDM_AuraIconFor(barKey, sid)
                             if auraF then
@@ -2286,6 +2286,9 @@ local function CollectAndReanchor()
     -- Our aura icons level their slots on the frames this pass placed
     -- (EUI_CDM_AuraIcons.lua).
     if ns.CDM_AuraIconsPlaced then ns.CDM_AuraIconsPlaced() end
+    -- WoW Forever: buff icons Blizzard draws without a timer
+    -- (EUI_CDM_ForeverLinkedAura.lua).
+    if ns.CDM_LinkedAuraPlaced then ns.CDM_LinkedAuraPlaced() end
 
     if not ns._initialReanchorDone then ns._initialReanchorDone = true end
 

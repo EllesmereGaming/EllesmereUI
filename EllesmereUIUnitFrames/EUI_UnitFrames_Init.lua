@@ -178,8 +178,10 @@ local function InitializeFrames()
     -- (Combat indicator overlay moved below the target/focus spawns -- the
     -- target frame does not exist yet at this point in the setup.)
 
-    -- Rested indicator on player health bar top-left: "ZZZ" text, or
-    -- Blizzard's animated player frame rest icon when Animated is on.
+    -- Rested indicator on the player frame: "ZZZ" text on the health bar's
+    -- top-left, or Blizzard's animated player frame rest icon when Animated is
+    -- on (the same spot; under the WoW Forever look's player art the stock
+    -- frame's own spot above the portrait, with its gold resting glow).
     do
         local pf = frames.player
         if pf and pf.Health then
@@ -192,21 +194,44 @@ local function InitializeFrames()
                 restText:Hide()
                 pf._restText = restText
 
+                -- The cog's X / Y offsets.
+                local function RestOffsets()
+                    local db = EllesmereUIDB
+                    return (db and db.restedIndicatorXOffset) or 0, (db and db.restedIndicatorYOffset) or 0
+                end
                 local function PlaceRest(region)
-                    local rx = (EllesmereUIDB and EllesmereUIDB.restedIndicatorXOffset) or 0
-                    local ry = (EllesmereUIDB and EllesmereUIDB.restedIndicatorYOffset) or 0
+                    local rx, ry = RestOffsets()
                     region:ClearAllPoints()
                     region:SetPoint("TOPLEFT", pf.Health, "TOPLEFT", 3 + rx, -2 + ry)
                 end
                 -- Places the text, and the animated icon once built, at the cog's X/Y
-                -- offsets (and the icon at its Size).
+                -- offsets (and the icon at its Size). The icon's spot depends on the
+                -- frame's art: the stock layout pass runs this again when that changes
+                -- (ns.UF_RestFollowArt).
                 pf._restPlace = function()
                     PlaceRest(pf._restText)
                     local a = pf._restAnim
                     if a then
                         local size = (EllesmereUIDB and EllesmereUIDB.restedIndicatorAnimatedSize) or 24
-                        a:SetSize(size, size)
-                        PlaceRest(a)
+                        local tex = pf._restAnimTex
+                        if ns.UF_Forever() and pf._blizzGeom == ns.UF_BLIZZ.player then
+                            -- WoW Forever's own PlayerRestLoop: a 20x20 frame at (64, -6) of
+                            -- the stock box, the 30x30 flipbook centred on it. The Size
+                            -- setting scales both, 24 being the stock look.
+                            local k = size / 24
+                            local rx, ry = RestOffsets()
+                            a:SetSize(20 * k, 20 * k)
+                            a:ClearAllPoints()
+                            ns.UF_BlizzPoint(a, "TOPLEFT", pf, "TOPLEFT", 64 + rx, -6 + ry, pf._blizzMirror)
+                            tex:ClearAllPoints()
+                            tex:SetPoint("CENTER", a, "CENTER")
+                            tex:SetSize(30 * k, 30 * k)
+                        else
+                            a:SetSize(size, size)
+                            PlaceRest(a)
+                            tex:ClearAllPoints()
+                            tex:SetAllPoints(a)
+                        end
                     end
                 end
 
@@ -236,13 +261,46 @@ local function InitializeFrames()
                         restAnim:SetFrameLevel(((pf._barClip or pf):GetFrameLevel()) + 10)
                         restAnim:Hide()
                         local restTex = restAnim:CreateTexture(nil, "OVERLAY")
-                        restTex:SetAllPoints(restAnim)
                         EllesmereUI.AddRestFlipbook(restAnim, restTex)
                         pf._restAnim = restAnim
+                        pf._restAnimTex = restTex
                         pf._restPlace()
                     end
                     pf._restText:SetShown(on and not animated)
                     if pf._restAnim then pf._restAnim:SetShown(on and animated) end
+
+                    -- WoW Forever's stock frame also lights its art while resting: the
+                    -- status glow over the art in gold, pulsing between 55/255 and full
+                    -- alpha over a second (PlayerFrame_UpdateStatus). Rides the animated
+                    -- icon, on the player art only.
+                    local glow = pf._restGlow
+                    local glowOn = on and animated and ns.UF_Forever()
+                        and pf._blizzGeom == ns.UF_BLIZZ.player
+                        and ns.UF_AtlasOK("UI-HUD-UnitFrame-Player-PortraitOn-Status")
+                    if glowOn and not glow then
+                        glow = CreateFrame("Frame", nil, pf)
+                        glow:SetAllPoints(pf)
+                        glow:EnableMouse(false)
+                        local bar = pf._barClip or pf
+                        glow:SetFrameStrata(bar:GetFrameStrata())
+                        glow:SetFrameLevel(bar:GetFrameLevel() + 9)
+                        glow:Hide()
+                        local gt = glow:CreateTexture(nil, "OVERLAY")
+                        UnsnapTex(gt)
+                        ns.UF_StockAtlas(gt, "UI-HUD-UnitFrame-Player-PortraitOn-Status", true)
+                        gt:SetPoint("CENTER", pf, "CENTER", 0, 0)
+                        gt:SetVertexColor(1, 0.88, 0.25)
+                        local pulse = glow:CreateAnimationGroup()
+                        pulse:SetLooping("REPEAT")
+                        local up = pulse:CreateAnimation("Alpha")
+                        up:SetOrder(1); up:SetDuration(0.5); up:SetFromAlpha(55 / 255); up:SetToAlpha(1)
+                        local down = pulse:CreateAnimation("Alpha")
+                        down:SetOrder(2); down:SetDuration(0.5); down:SetFromAlpha(1); down:SetToAlpha(55 / 255)
+                        glow:SetScript("OnShow", function() pulse:Play() end)
+                        glow:SetScript("OnHide", function() pulse:Stop() end)
+                        pf._restGlow = glow
+                    end
+                    if glow then glow:SetShown(glowOn and true or false) end
                 end
 
                 -- Its events are registered by _restUpdate while the indicator is on.

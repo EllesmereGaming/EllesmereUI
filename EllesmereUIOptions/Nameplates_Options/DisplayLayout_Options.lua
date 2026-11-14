@@ -3,8 +3,8 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  Nameplates_Options\DisplayLayout_Options.lua
 --  Nameplates options: the Style, Core Positions and Core Text Positions
 --  sections of the Display page. Called by BuildDisplayPage; returns y, the
---  rows and text cells its click navigation maps to, and the cog popup and
---  texture helpers DisplayBars_Options.lua uses. The Core Text Coloring
+--  rows and text cells its click navigation maps to, and the cog popup
+--  helpers DisplayBars_Options.lua uses. The Core Text Coloring
 --  section under Core Text Positions lives in CoreTextColoring_Options.lua
 --  (called from here; it reads the text slot table defined below). Shared
 --  helpers come from ns._NPO_OptEnv, the per-build slot helpers from ctx.
@@ -129,6 +129,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     local DB, DBVal, defaults, GetNPOptOutline = env.DB, env.DBVal, env.defaults, env.GetNPOptOutline
     local hbtOrder, hbtValues, optState, pairs = env.hbtOrder, env.hbtValues, env.optState, env.pairs
     local plates, PP, UpdatePreview, RefreshAllPlates = env.plates, env.PP, env.UpdatePreview, env.RefreshAllPlates
+    local RefreshAllTextures = env.RefreshAllTextures
     local GetElementAtPosition, RefreshAllSlots, SetElementAtPosition, SetTextElementAtSlot = ctx.GetElementAtPosition, ctx.RefreshAllSlots, ctx.SetElementAtPosition, ctx.SetTextElementAtSlot
     local W = ctx.W
     local _, h
@@ -142,14 +143,6 @@ local function BuildDisplayLayout(parent, y, ctx)
     local styleHeader
     styleHeader, h = W:SectionHeader(parent, "STYLE", y);  y = y - h
     y = EllesmereUI.BlizzStyle.Note(parent, y, "nameplates")
-
-    local function RefreshAllTextures()
-        ns.RefreshAllSettings()
-        for _, plate in pairs(ns.friendlyPlates or {}) do
-            if ns.ApplyHealthBarTexture then ns.ApplyHealthBarTexture(plate) end
-            if ns.ApplyCastBarTexture then ns.ApplyCastBarTexture(plate) end
-        end
-    end
 
     -- Row 1: Border (None/Basic/Custom) | Border Size. Pure VIEW over showBorder + customBorderEnabled: None=off, Basic=standard border, Custom=custom border engine (reveals the Custom Border row below via page rebuild; None/Basic collapse it).
     -- Both stock styles gate both slots: they draw their own art (the stock background, the vanilla border sheets) and stand every EUI border down.
@@ -176,6 +169,9 @@ local function BuildDisplayLayout(parent, y, ctx)
             end
             ns.RefreshBorder()
             ns.RefreshBorderColor()
+            -- With Wrap Around Castbar saved on, the border decides whether a wrap can draw,
+            -- and with that whether Cast Bar X Offset applies: re-place the cast bars.
+            if DBVal("wrapBorderCastbar") == true and (DBVal("castBarOffsetX") or 0) ~= 0 then ns.NP_RelayoutCastBars() end
             UpdatePreview()
             -- Force rebuild so the Custom Border row shows/hides and rows below reflow.
             EllesmereUI:RefreshPage(true)
@@ -200,7 +196,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
     -- border size control. The stock styles keep every plate square, and so
     -- does Wrap Around Castbar (the plates stand rounding down while it is on).
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(borderStyleRow._rightRegion, {
             title = "Corner Radius", tip = "Corner Radius",
             disabled = function()
@@ -226,7 +222,7 @@ local function BuildDisplayLayout(parent, y, ctx)
         })
     end
     -- Inline cog on the Border region: opt-in "Wrap Around Castbar" (beside the control; the colour swatch sits left of it); dimmed only for "None" mode (wrap applies to both Basic and Custom).
-    if not EllesmereUI._prebuilding then
+    do
         local leftRgn = borderStyleRow._leftRegion
         local function wrapCogOff()
             -- Only "None" disables it; Basic and Custom both support the wrap.
@@ -256,6 +252,8 @@ local function BuildDisplayLayout(parent, y, ctx)
                 ns.ApplyBorderWrapToAll()
                 -- Corner Radius stands down while the wrap is on: square or re-round the plates.
                 if (DBVal("cornerRadius") or 0) > 0 then ns.RefreshBorder(); ns.RefreshCastBorder() end
+                -- Cast Bar X Offset stands down too: re-place the cast bars.
+                if (DBVal("castBarOffsetX") or 0) ~= 0 then ns.NP_RelayoutCastBars() end
                 UpdatePreview()
                 -- Show Seam Line's and Corner Radius's disabled states follow this toggle.
                 EllesmereUI:RefreshPage()
@@ -353,7 +351,7 @@ local function BuildDisplayLayout(parent, y, ctx)
         -- Reached by the preview's click navigation (the level in the
         -- border's plate scrolls here), which is built further down.
         parent._classicPlateRow = classicPlateRow
-        if not EllesmereUI._prebuilding then
+        do
             local function PlateOffsetCog(rgn, title, xKey, yKey)
                 EllesmereUI.BuildInlineCog(rgn, {
                     title = title,
@@ -447,7 +445,7 @@ local function BuildDisplayLayout(parent, y, ctx)
         end
 
         -- Inline "Border Options" cog on the Custom Border Style region (shifts + Show Behind)
-        if not EllesmereUI._prebuilding then
+        do
             local leftRgn = customBorderRow._leftRegion
             -- Shift offsets only apply to textured styles (row only exists when Custom is selected, so no enable gate needed).
             local function cbCogOff() return (DBVal("customBorderTexture") or defaults.customBorderTexture) == "solid" end
@@ -491,7 +489,7 @@ local function BuildDisplayLayout(parent, y, ctx)
         -- swatch below chains left of it): the custom border on the aura icons and on the
         -- cast spell icon. A cog, not a row: both are niche, and the whole block exists
         -- only while Border = Custom. The if-body scopes its locals (builder budget).
-        if not EllesmereUI._prebuilding then
+        do
             local rightRgn = customBorderRow._rightRegion
             EllesmereUI.BuildInlineCog(rightRgn, {
                 title = "Icon Borders",
@@ -660,7 +658,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     end
 
     -- Inline "Absorb Settings" cog on the Absorb Style region (right of Row 2)
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = bgHoverRow._rightRegion
         EllesmereUI.BuildInlineCog(rgn, {
             title = "Absorb Settings",
@@ -776,7 +774,7 @@ local function BuildDisplayLayout(parent, y, ctx)
           end }));  y = y - h
     -- Textured Background cogs on the two texture dropdowns, greyed while
     -- Blizzard Style draws its stock backgrounds (as Global Settings > Textures).
-    if not EllesmereUI._prebuilding then
+    do
         local function TexBgApply() RefreshAllTextures(); UpdatePreview() end
         local blizz = ns.NP_BlizzOnly()
         local function TexBgCog(rgn, kind)
@@ -1942,6 +1940,7 @@ local function BuildDisplayLayout(parent, y, ctx)
             sections = CoreCog.Sections(posKey),
             columnsFrom = 3,
         })
+        if EllesmereUI._prebuilding then return end
         -- The core eyes anchor to THIS, not _lastInline: the tracked-auras
         -- link below becomes _lastInline but is HIDDEN for the raid marker,
         -- Rare/Quest and Quest Objective Text slots (the only slots the eyes
@@ -2016,9 +2015,9 @@ local function BuildDisplayLayout(parent, y, ctx)
     if not EllesmereUI._prebuilding then
     InstallCoreCB(coreRow1._leftRegion,  "top")
     InstallCoreCB(coreRow1._rightRegion, "right")
+    end
     MakeCogIcon(coreRow1, "_leftRegion",  "top",      "Top")
     MakeCogIcon(coreRow1, "_rightRegion", "right",    "Right")
-    end
 
     -- Row 2: Left | Top Right
     coreRow2, h = W:DualRow(parent, y,
@@ -2039,9 +2038,9 @@ local function BuildDisplayLayout(parent, y, ctx)
     if not EllesmereUI._prebuilding then
     InstallCoreCB(coreRow2._leftRegion,  "left")
     InstallCoreCB(coreRow2._rightRegion, "topright")
+    end
     MakeCogIcon(coreRow2, "_leftRegion",  "left",     "Left")
     MakeCogIcon(coreRow2, "_rightRegion", "topright", "Top Right")
-    end
 
     -- Row 3: Top Left | Bottom
     coreRow3, h = W:DualRow(parent, y,
@@ -2062,9 +2061,9 @@ local function BuildDisplayLayout(parent, y, ctx)
     if not EllesmereUI._prebuilding then
     InstallCoreCB(coreRow3._leftRegion,  "topleft")
     InstallCoreCB(coreRow3._rightRegion, "bottom")
+    end
     MakeCogIcon(coreRow3, "_leftRegion", "topleft", "Top Left")
     MakeCogIcon(coreRow3, "_rightRegion", "bottom", "Bottom")
-    end
 
     -- Map each position to { row, regionKey } for eye icon anchoring
     local posToRegion = {
@@ -2510,7 +2509,7 @@ local function BuildDisplayLayout(parent, y, ctx)
     if not EllesmereUI._prebuilding then optState._npTextFP = ns.NPO_TextStructureFP() end
 
     return y, styleHeader, coreHeader, coreRow1, coreRow2, coreRow3, coreTextHeader, textSlotCells,
-        textFirstRow, ShowCogPopup, CogPopupOpen, RefreshAllTextures
+        textFirstRow, ShowCogPopup, CogPopupOpen
 end
 
 -- Used by EUI_Nameplates_Options.lua

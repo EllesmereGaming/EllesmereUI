@@ -530,7 +530,7 @@ local function Paint(K)
     if not btn then return end
     local f, err = Current()
     if f then btn.Glyph:SetVertexColor(K.Accent()) else btn.Glyph:SetVertexColor(K.GLYPH, K.GLYPH, K.GLYPH) end
-    btn.activeEdge:SetShown(f ~= nil)
+    if GFNS.ActiveLook then GFNS.ActiveLook(btn, f ~= nil) elseif btn.activeEdge then btn.activeEdge:SetShown(f ~= nil) end
     if shown and box then shown:SetText(Colorize(box:GetText())) end
     if not status then return end
     local text = box and box:GetText() or ""
@@ -547,13 +547,16 @@ end
 local function Build(SP, K)
     btn = K.GlyphButton(SP, K.ROW1_H, EXPR_TEX)
     btn.Glyph:SetSize(14, 14)
-    -- green edge while an expression is filtering
-    btn.activeEdge = CreateFrame("Frame", nil, btn)
-    btn.activeEdge:SetAllPoints()
-    btn.activeEdge:SetFrameLevel(btn:GetFrameLevel() + 3)
-    btn.activeEdge:EnableMouse(false)
-    CM.MakeBorder(btn.activeEdge, 0.3, 0.85, 0.4, 1, CM.PanelPP)
-    btn.activeEdge:Hide()
+    -- green edge while an expression is filtering (skin off: no edge is made,
+    -- GFNS.ActiveLook tints the button's box)
+    if GFNS.SkinOn and GFNS.SkinOn() then
+        btn.activeEdge = CreateFrame("Frame", nil, btn)
+        btn.activeEdge:SetAllPoints()
+        btn.activeEdge:SetFrameLevel(btn:GetFrameLevel() + 3)
+        btn.activeEdge:EnableMouse(false)
+        CM.MakeBorder(btn.activeEdge, 0.3, 0.85, 0.4, 1, CM.PanelPP)
+        btn.activeEdge:Hide()
+    end
     btn:SetFrameLevel(SP:GetFrameLevel() + 5)
 
     panel = CreateFrame("Frame", nil, SP)
@@ -565,7 +568,7 @@ local function Build(SP, K)
     bg:SetAllPoints()
     local fr, fg, fb = K.ThemeFill()
     bg:SetColorTexture(fr, fg, fb, 0.98)
-    CM.MakeBorder(panel, K.ThemeBorder())
+    if not (GFNS.StockBox and GFNS.StockBox(panel, bg)) then CM.MakeBorder(panel, K.ThemeBorder()) end
 
     local title = panel:CreateFontString(nil, "OVERLAY")
     K.Font(title, 9)
@@ -574,7 +577,7 @@ local function Build(SP, K)
     title:SetText(EllesmereUI.L("Expressions"))
 
     -- clear button, skinned
-    local clear = CreateFrame("Button", nil, panel)
+    local clear = GFNS.NewButton and GFNS.NewButton(panel) or CreateFrame("Button", nil, panel)
     clear:SetSize(46, 16)
     clear:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, -4)
     clear:SetNormalFontObject("GameFontHighlight")
@@ -587,7 +590,8 @@ local function Build(SP, K)
     ct:SetTextColor(CM.TEXT_DIM_R, CM.TEXT_DIM_G, CM.TEXT_DIM_B, CM.TEXT_DIM_A)
     local skin = CM._ModuleNS and CM._ModuleNS.EllesmereUIBlizzardSkin
     local S = skin and skin.WSkin
-    if S and S.Button then
+    if not (GFNS.SkinOn and GFNS.SkinOn()) then  -- the template's rounded art
+    elseif S and S.Button then
         S.Button(clear, { "Label" })
     else
         local cbg = clear:CreateTexture(nil, "BACKGROUND")

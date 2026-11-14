@@ -871,6 +871,52 @@ end
 -- The font objects the pass leaves alone: the floating combat text's, which the
 -- Combat Text Font setting owns.
 EllesmereUI._GAME_TEXT_KEEP = { "CombatTextFont", "SystemFont_World" }
+-- Keep their own faces under the face swap, still scaled: hotkey and range-dot text shows
+-- RANGE_INDICATOR (U+25CF), which most bundled faces have no glyph for (it draws as boxes).
+EllesmereUI._GAME_TEXT_KEEP_FACE = { "NumberFontNormalSmallGray" }
+-- Keeps one font object on its own faces. Such an object draws through the members of the
+-- family it inherits and shares them with that family and with every other object on it
+-- (the hotkey font with the count texts'), so its faces cannot be kept on those members.
+-- It is pointed at a family of our own, made from the members' own faces at their sizes
+-- times `scale`, and keeps its colour and shadow; the shared members then take the pass
+-- like any other. Our family, its members and the object go into `done`. An object the
+-- family cannot be made for is left to the pass; a plain one owns its face and is scaled
+-- where it is.
+function EllesmereUI._KeepFontObjectFace(obj, scale, done)
+    if not EllesmereUI._FontObjectIsFamily(obj) then
+        EllesmereUI._SetFontMemberFace(obj, nil, nil, nil, scale, done)
+        return
+    end
+    local alphabets = EllesmereUI._FONT_ALPHABETS
+    local members, n = {}, 0
+    for i = 1, #alphabets do
+        local ok, member = pcall(obj.GetFontObjectForAlphabet, obj, alphabets[i])
+        if ok and member then
+            local face, size, flags = member:GetFont()
+            if face and size and size > 0 then
+                n = n + 1
+                members[n] = { alphabet = alphabets[i], file = face, height = size * scale, flags = flags or "" }
+            end
+        end
+    end
+    if n == 0 then return end
+    local okFam, fam = pcall(CreateFontFamily, "EUIFontFamily" .. (EllesmereUI._fontFamilyCount + 1), members)
+    if not (okFam and fam) then return end
+    EllesmereUI._fontFamilyCount = EllesmereUI._fontFamilyCount + 1
+    local r, g, b, a = obj:GetTextColor()
+    local sr, sg, sb, sa = obj:GetShadowColor()
+    local sx, sy = obj:GetShadowOffset()
+    if not pcall(obj.SetFontObject, obj, fam) then return end
+    if r then obj:SetTextColor(r, g, b, a) end
+    if sr then obj:SetShadowColor(sr, sg, sb, sa) end
+    if sx then obj:SetShadowOffset(sx, sy) end
+    local ours = EllesmereUI._fontFamilySet
+    ours[fam], done[fam], done[obj] = true, true, true
+    for i = 1, #alphabets do
+        local ok, member = pcall(fam.GetFontObjectForAlphabet, fam, alphabets[i])
+        if ok and member then ours[member], done[member] = true, true end
+    end
+end
 function EllesmereUI.ApplyGlobalFontToGameText()
     local db = EllesmereUI.GetFontsDB()
     -- Zero cost while fully off: both settings absent (scale 100 stores nil)
@@ -918,6 +964,17 @@ function EllesmereUI.ApplyGlobalFontToGameText()
                     local ok, member = pcall(obj.GetFontObjectForAlphabet, obj, alphabets[a])
                     if ok and member then done[member] = true end
                 end
+            end
+        end
+    end
+    -- Their own faces at the pass's scale (EllesmereUI._KeepFontObjectFace). Only the face
+    -- swap takes a face away: a scale alone leaves them to the loop below.
+    if swap then
+        local keepFace = EllesmereUI._GAME_TEXT_KEEP_FACE
+        for k = 1, #keepFace do
+            local obj = _G[keepFace[k]]
+            if obj and type(obj) == "table" and obj.GetFont and obj.SetFont then
+                EllesmereUI._KeepFontObjectFace(obj, scale, done)
             end
         end
     end

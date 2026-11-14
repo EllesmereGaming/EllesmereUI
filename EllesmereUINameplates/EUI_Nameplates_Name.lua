@@ -374,7 +374,7 @@ function NameplateFrame:UpdateQuestText(chainedBy)
     PlaceSlotIcon(self, f, slot, xOff, yOff, 2, h)
     self._qtSlot = slot
     f:Show()
-    if not wasShown or lastW ~= w then self:UpdateNameWidth() end
+    if not wasShown or lastW ~= w or lastSlot ~= slot then self:UpdateNameWidth() end
     -- A side slot pushes the target arrows out, like the classification icon.
     if (not wasShown or lastSlot ~= slot or lastW ~= w)
         and (slot == "left" or slot == "right" or lastSlot == "left" or lastSlot == "right") then
@@ -477,7 +477,7 @@ function NameplateFrame:UpdateFaction(artOnly)
     local lastSlot = self._facSlot
     self._facSlot = slot
     self.factionFrame:Show()
-    if not wasShown then self:UpdateNameWidth() end
+    if not wasShown or lastSlot ~= slot then self:UpdateNameWidth() end
     -- A side-slot badge pushes the target arrows out, like the classification icon:
     -- re-flank them when it appears or moves into or out of a side slot.
     if (not wasShown or lastSlot ~= slot)
@@ -487,30 +487,35 @@ function NameplateFrame:UpdateFaction(artOnly)
     -- Elements sharing the slot follow the badge's show and move.
     if ns.NP_CoreChain then ns.NP_CoreChain(self, slot) end
 end
+-- Whether a Core Positions slot sits at the Top name's height: Top or a top corner (Left,
+-- Right and Bottom sit off the name's row). The options preview asks the same.
+function ns.NP_OnNameRow(slot)
+    return slot == "top" or slot == "topleft" or slot == "topright"
+end
+local OnNameRow = ns.NP_OnNameRow
 -- The room a name has in the Top slot: the bar minus the raid marker, the Rare/Quest
--- indicator, the Quest Objective Text and the faction badge while they show, and minus the
--- wider Top Left / Top Right text on each side (the name is centred between them). The Top
--- Custom text naming the unit takes it too (AddCustomText, then UpdateNameWidth keeps it
--- current).
+-- indicator, the Quest Objective Text and the faction badge while they show on the name's
+-- row, and minus the wider Top Left / Top Right text on each side (the name is centred
+-- between them). The Top Custom text naming the unit takes it too (AddCustomText, then
+-- UpdateNameWidth keeps it current).
 local function TopNameWidth(self, barW)
     local nameW = barW - 2 * math.max(ns.NP_TopCornerTextWidth("textSlotTopLeft"),
         ns.NP_TopCornerTextWidth("textSlotTopRight"))
-    local rmPos = GetRaidMarkerPos()
-    if rmPos ~= "none" and self.raidFrame:IsShown() then
+    if OnNameRow(GetRaidMarkerPos()) and self.raidFrame:IsShown() then
         nameW = nameW - 2 * (GetRaidMarkerSize() - 2) - 7
     end
-    local clSlot = GetClassificationSlot()
-    if clSlot ~= "none" and self.classFrame:IsShown() then
+    if OnNameRow(GetClassificationSlot()) and self.classFrame:IsShown() then
         nameW = nameW - ((self.classFrame._npSz or GetRareEliteIconSize()) + 4)
     end
     local qf = self.questTextFrame
-    if qf and qf:IsShown() then
+    if qf and qf:IsShown() and OnNameRow(ns.NP_GetQuestTextSlot()) then
         nameW = nameW - ((qf._npW or 0) + 4)
     end
     -- Stacked with the classification icon ("Rare/Quest + Faction") it takes
     -- no extra width; alone it reserves its own.
     local stacked = p and p.classificationIncludeFaction and self.classFrame:IsShown()
-    if self.factionFrame and self.factionFrame:IsShown() and not stacked then
+    if self.factionFrame and self.factionFrame:IsShown() and not stacked
+        and OnNameRow(ns.NP_GetFactionSlot()) then
         nameW = nameW - (ns.NP_GetFactionIconSize() + 4)
     end
     return nameW

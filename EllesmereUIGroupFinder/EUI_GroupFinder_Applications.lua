@@ -8,16 +8,6 @@ if EllesmereUI.HELD_BACK_ADDONS[ADDON_NAME] then return end -- held back (Ellesm
 local CM = EllesmereUI
 
 local IsSecret, PlainString = EllesmereUI.IsSecret, EllesmereUI.PlainString
--- Realm the way UnitFullName returns it.
-local function NormRealm(realm)
-    realm = PlainString(realm)
-    if not realm then return nil end
-    realm = realm:gsub("[%s%-]", "")
-    return realm ~= "" and realm or nil
-end
-local function MyRealm()
-    return NormRealm(GetNormalizedRealmName and GetNormalizedRealmName()) or NormRealm(GetRealmName()) or "?"
-end
 
 local KEYS = { "applied", "accepted", "declined", "delisted", "cancelled", "invited" }
 local SESSION_GAP = 300  -- relogging within 5 min keeps the session
@@ -100,11 +90,9 @@ local function Fill(t)
     return t
 end
 
-local myKey
 local function Store()
     local a = ns.AppCountsStore()
     if type(a.account) ~= "table" then a.account = Blank() end
-    if type(a.chars) ~= "table" then a.chars = {} end
     if type(a.session) ~= "table" then a.session = Blank() end
     return a
 end
@@ -113,9 +101,8 @@ local function Counts(scope)
     local a = Store()
     if scope == "account" then return Fill(a.account) end
     if scope == "session" then return Fill(a.session) end
-    if not myKey then return Blank() end
-    a.chars[myKey] = Fill(a.chars[myKey] or Blank())
-    return a.chars[myKey]
+    local mine = EllesmereUI.CharData("groupFinderApps", true)
+    return mine and Fill(mine) or Blank()
 end
 
 -------------------------------------------------------------------------------
@@ -281,7 +268,7 @@ BuildCardInto = function()
     bg:SetAllPoints()
     bg:SetColorTexture(0.2, 0.2, 0.2, 1)
     local S = ns.Skin()
-    if S and S.AddBorder then
+    if S and S.AddBorder and ns.SkinOn() then
         S.AddBorder(box)
     else
         local r, g, b, a = ns.ThemeBorder()
@@ -394,8 +381,11 @@ function ns.ResetApplications(scope)
         a.account = Blank()
     elseif scope == "session" then
         a.session = Blank()
-    elseif myKey then
-        a.chars[myKey] = Blank()
+    else
+        local mine = EllesmereUI.CharData("groupFinderApps")
+        if mine then
+            for _, k in ipairs(KEYS) do mine[k] = 0 end
+        end
     end
     Refresh()
 end
@@ -416,9 +406,6 @@ local function HookPVE()
 end
 
 function ns.Apps_Enable()
-    local name, realm = UnitFullName("player")
-    name = PlainString(name)
-    if name then myKey = name .. "-" .. (PlainString(realm) or MyRealm()) end
     local a = Store()
     if time() - (tonumber(a.session.t) or 0) > SESSION_GAP then a.session = Blank() end
     -- Follow the search rows when they resize.

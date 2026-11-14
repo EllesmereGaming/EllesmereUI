@@ -10,6 +10,7 @@ local AutoStart = {}
 addon.AutoStart = AutoStart
 
 
+
 local MAX_KILLS = 4
 
 local kills = {}
@@ -21,6 +22,9 @@ local toldCouncil = false
 local warnedFor
 
 local pendingKill
+
+local boeKill
+local BOE_WAIT = 10
 
 
 local function IsHost()
@@ -48,6 +52,7 @@ local function SyncEvents()
 end
 
 local function Forget(why)
+    boeKill = nil
     if #kills == 0 and #queued == 0 then return end
     wipe(kills)
     wipe(queued)
@@ -106,7 +111,7 @@ end
 local Flush
 
 local function FlushSoon()
-    if flushPending or #queued == 0 then return end
+    if flushPending or (#queued == 0 and not boeKill) then return end
     flushPending = true
     C_Timer.After(0, function()
         flushPending = false
@@ -114,8 +119,22 @@ local function FlushSoon()
     end)
 end
 
+
+local function AddBoEs(kill, holders)
+    local added = 0
+    for _, holder in ipairs(holders) do
+        local ids = {}
+        for i = 1, #holder.links do ids[i] = kill.id end
+        local count = #addon.Session:AddItems(holder.links, holder.owner, kill.name, ids)
+        addon.Log:I("AutoStart", count, "BoE(s) added from the bags of", tostring(holder.owner))
+        added = added + count
+    end
+    return added
+end
+
 Flush = function()
-    if #queued == 0 then return end
+    local boesDue = boeKill ~= nil and (#queued > 0 or GetTime() >= boeKill.due)
+    if #queued == 0 and not boesDue then return end
     if not IsHost() then
         Forget("no longer running the loot")
         return
@@ -127,9 +146,15 @@ Flush = function()
 
     if addon.Restrictions:IsBlocked() then return end
     local Session = addon.Session
+    local boes = boesDue and addon.BagShare:TimedBoEs() or {}
+    if #queued == 0 and #boes == 0 then
+        boeKill = nil
+        return
+    end
     if Session:IsRunning() and Finished() then
         addon.Log:I("AutoStart", "every item of the open run is settled - ending it for the new loot")
         Session:End()
+        if boesDue then boes = addon.BagShare:TimedBoEs() end
     end
 
     if not Session:IsRunning() and addon.Council:GetCount() == 0 then
@@ -150,15 +175,20 @@ Flush = function()
     end
 
     local running = Session:IsRunning()
-    local indices = Session:AddDrops(links, bosses, encounterIDs)
+    local indices = #links > 0 and Session:AddDrops(links, bosses, encounterIDs) or {}
     local items = Session:GetItems()
     for i, entry in ipairs(batch) do
         local item = indices[i] and items[indices[i]]
         if item then entry.kill.items[entry.listID] = item.id end
     end
+    local added = #indices
+    if boesDue then
+        added = added + AddBoEs(boeKill, boes)
+        boeKill = nil
+    end
     addon.Log:I("AutoStart", #indices, "boss drop(s) added",
         running and "to the open run" or "- starting a run")
-    if not running then Session:Start() end
+    if not running and added > 0 then Session:Start() end
 
 
     for _, entry in ipairs(batch) do
@@ -266,6 +296,8 @@ local function OnEncounterEnded(entry)
         SyncEvents()
         addon.Log:I("AutoStart", "following the loot of", tostring(entry.name))
     end
+    boeKill = { id = entry.id, name = entry.name, due = GetTime() + BOE_WAIT - 0.5 }
+    C_Timer.After(BOE_WAIT, function() FlushSoon() end)
     Scan(kill)
 end
 

@@ -1470,7 +1470,8 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         local items = addon.Storage:GetTradeableItems()
 
 
-        local eligible, filtered, owed, won = {}, {}, {}, {}
+
+        local eligible, filtered, owed, won, untimed = {}, {}, {}, {}, {}
         for _, entry in ipairs(items) do
             if not entry.eligible then
                 filtered[#filtered + 1] = entry
@@ -1478,6 +1479,8 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
                 owed[#owed + 1] = entry
             elseif entry.won then
                 won[#won + 1] = entry
+            elseif addon.BagShare.Untimed(entry) then
+                untimed[#untimed + 1] = entry
             else
                 eligible[#eligible + 1] = entry
             end
@@ -1492,17 +1495,25 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
                 return
             end
             local me = addon.Player:GetFullName("player")
-            local picks, skipped = addon.BagShare.FreeToStage(items, me)
+            local picks, skipped, _, old = addon.BagShare.FreeToStage(items, me)
             local kept = 0
             for _, entry in ipairs(owed) do
                 if entry.kept then kept = kept + 1 end
             end
             local staged = #eligible + #owed - kept - #picks - skipped
+            local function SayUntimed()
+                if old == 0 then return end
+                Print(addon.Locale.Format(addon.Locale.Plural{
+                    one = "skipped %d BoE item outside its six-hour window - click it in the bags panel to queue it anyway.",
+                    other = "skipped %d BoE items outside their six-hour window - click one in the bags panel to queue it anyway.",
+                }, old, old))
+            end
             if #picks == 0 then
                 Print(skipped > 0
                     and T["nothing eligible in bags - every eligible copy is already owed to a winner in Loot to Trade."]
                     or staged > 0 and T["nothing to add - every eligible item in your bags is already queued or in the run."]
                     or T["nothing eligible in bags"])
+                SayUntimed()
                 return
             end
 
@@ -1552,6 +1563,7 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
                     other = "skipped %d items already queued or in the run",
                 }, staged, staged))
             end
+            SayUntimed()
             if addon.UI.QueueFrame then addon.UI.QueueFrame:Refresh() end
             return
         end
@@ -1566,9 +1578,14 @@ SlashCmdList["SIMPLELOOTCOUNCIL"] = function(input)
         }, #eligible, #eligible))
         for i, entry in ipairs(eligible) do
 
-            Print(entry.boe and addon.Locale.Format(T["  %d. %s  |cff808080BoE|r"], i, entry.link)
+            Print(entry.boe and addon.Locale.Format(T["  %d. %s  |cff808080BoE, %dm left|r"],
+                    i, entry.link, math.floor(entry.boeLeft / 60))
                 or addon.Locale.Format(T["  %d. %s  |cff808080%dm left|r"],
                     i, entry.link, math.floor(entry.secondsLeft / 60)))
+        end
+        for _, entry in ipairs(untimed) do
+            Print(addon.Locale.Format(T["  -  %s  |cff73716CBoE, not added automatically|r"],
+                entry.link))
         end
         for _, entry in ipairs(owed) do
             local owedTo = entry.owedTo and Ambiguate(entry.owedTo, "short") or T["unknown"]

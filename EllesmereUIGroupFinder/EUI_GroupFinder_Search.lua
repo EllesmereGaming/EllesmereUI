@@ -136,14 +136,97 @@ ns.Skin, ns.ThemeBorder = Skin, ThemeBorder
 function XF.RestBorder(f)
     if XF.SkinOn() then CM.PanelPP.SetBorderColor(f, ThemeBorder()) else CM.PanelPP.SetBorderColor(f, 0, 0, 0, 0) end
 end
--- a picked square: a white edge, or blizzard's highlight held on
+-- skin off: blizzard's tooltip box for our menus. part "fill" = no edge, "edge" = no fill.
+-- false with the skin on, so callers keep their own look
+XF.STOCK_FILL = { bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", tile = true, tileSize = 16,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 } }
+XF.STOCK_EDGE = { edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 12 }
+-- a column of a two-column menu: no inset on the side they meet
+XF.STOCK_FILL_L = { bgFile = XF.STOCK_FILL.bgFile, tile = true, tileSize = 16,
+    insets = { left = 3, right = 0, top = 3, bottom = 3 } }
+XF.STOCK_FILL_R = { bgFile = XF.STOCK_FILL.bgFile, tile = true, tileSize = 16,
+    insets = { left = 0, right = 3, top = 3, bottom = 3 } }
+XF.STOCK_BOTH = { bgFile = XF.STOCK_FILL.bgFile, tile = true, tileSize = 16, edgeFile = XF.STOCK_EDGE.edgeFile,
+    edgeSize = 12, insets = XF.STOCK_FILL.insets }
+function XF.StockBox(f, bg, part)
+    if XF.SkinOn() then return false end
+    if bg then bg:Hide() end
+    if not f.SetBackdrop then
+        Mixin(f, BackdropTemplateMixin)
+        f:HookScript("OnSizeChanged", f.OnBackdropSizeChanged)
+    end
+    local fill = part == "fill" or part == "fillL" or part == "fillR"
+    f:SetBackdrop(part == "fillL" and XF.STOCK_FILL_L or part == "fillR" and XF.STOCK_FILL_R
+        or fill and XF.STOCK_FILL or part == "edge" and XF.STOCK_EDGE or XF.STOCK_BOTH)
+    local c, e = TOOLTIP_DEFAULT_BACKGROUND_COLOR, TOOLTIP_DEFAULT_COLOR
+    if part ~= "edge" then f:SetBackdropColor(c and c.r or 0.09, c and c.g or 0.09, c and c.b or 0.19, 0.95) end
+    if not fill then f:SetBackdropBorderColor(e and e.r or 1, e and e.g or 1, e and e.b or 1, 1) end
+    return true
+end
+ns.StockBox = XF.StockBox
+-- a box's ring of ours, made only with the skin on: a border that is made and
+-- then hidden stays in the border registry for the session
+function XF.CheckRing(cb)
+    return XF.SkinOn() and CM.MakeBorder(cb, 0.25, 0.25, 0.25, 0.6, CM.PanelPP) or nil
+end
+-- skin off: blizzard's check box art on our box; true when it took (paint then only shows / hides fill)
+function XF.StockCheck(cb, bg, fill)
+    if XF.SkinOn() then return false end
+    bg:SetTexture("Interface\\Buttons\\UI-CheckBox-Up")
+    fill:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+    for _, t in ipairs({ bg, fill }) do
+        t:ClearAllPoints()
+        t:SetPoint("TOPLEFT", cb, "TOPLEFT", -4, 4)
+        t:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", 4, -4)
+    end
+    return true
+end
+-- a box's checked look: blizzard's tick, or our accent fill and ring (a stock
+-- box has no ring)
+function XF.PaintCheck(cb, fill, ring, on)
+    fill:SetShown(on)
+    if cb.stock then return end
+    local r, g, b = Accent()
+    fill:SetColorTexture(r, g, b, 1)
+    if on then ring:SetColor(r, g, b, 0.8) else ring:SetColor(0.25, 0.25, 0.25, 0.6) end
+end
+
+-- a plain button: blizzard's rounded menu button with the skin off
+function XF.NewButton(parent)
+    return CreateFrame("Button", nil, parent, (not XF.SkinOn()) and "UIMenuButtonStretchTemplate" or nil)
+end
+ns.NewButton = XF.NewButton
+ns.STOCK_ROWS_L, ns.STOCK_ROWS_R, ns.STOCK_BAR = 4, 10, 6  -- applicant rows inside blizzard's inset
+
+-- a picked square: a white edge, or with the skin off its box and icon tinted green
 function XF.PickBorder(sq, edge, on)
     if XF.SkinOn() then
         if on then CM.PanelPP.SetBorderColor(edge, 1, 1, 1, 1) else XF.RestBorder(edge) end
         return
     end
     XF.RestBorder(edge)
-    if on then sq:LockHighlight() else sq:UnlockHighlight() end
+    XF.TintSquare(sq, on and "pick" or nil)
+end
+-- a button's "filtering" look: a green edge, or with the skin off its box tinted green
+function XF.ActiveLook(btn, on)
+    if XF.SkinOn() then
+        if btn.activeEdge then btn.activeEdge:SetShown(on) end
+        return
+    end
+    if btn.activeEdge then btn.activeEdge:Hide() end
+    XF.TintSquare(btn, on and "pick" or nil)
+end
+ns.ActiveLook = XF.ActiveLook
+-- skin off: a square's box and icon tinted, "pick" / "alive" green, "dead" red, nil plain
+XF.TINT = { pick = { 0.45, 1, 0.45, 0.7, 1, 0.7 }, alive = { 0.45, 1, 0.45, 0.7, 1, 0.7 }, dead = { 1, 0.4, 0.4, 1, 0.6, 0.6 } }
+function XF.TintSquare(sq, kind)
+    local t = XF.TINT[kind]
+    for _, art in ipairs(sq.stockArt or XF.EMPTY) do
+        if t then art:SetVertexColor(t[1], t[2], t[3]) else art:SetVertexColor(1, 1, 1) end
+    end
+    if sq.icon then
+        if t then sq.icon:SetVertexColor(t[4], t[5], t[6]) else sq.icon:SetVertexColor(1, 1, 1) end
+    end
 end
 ns.BOTTOM_Y = BOTTOM_Y
 local function SetBorderColor(frame, r, g, b, a)
@@ -576,10 +659,14 @@ local function Encounters(jid)
         end
     end
     for i = 1, 30 do
-        local name, _, encID = EJ_GetEncounterInfoByIndex(i)
+        local name, _, encID = EJ_GetEncounterInfoByIndex(i, jid)
         if not name then break end
-        local icon = EJ_GetCreatureInfo and select(5, EJ_GetCreatureInfo(1, encID))
-        out[#out + 1] = { key = encID, name = name, icon = icon }
+        -- the selection can lag behind, so keep only bosses the journal files under this raid
+        local own = EJ_GetEncounterInfo and select(6, EJ_GetEncounterInfo(encID))
+        if not own or own == jid then
+            local icon = EJ_GetCreatureInfo and select(5, EJ_GetCreatureInfo(1, encID))
+            out[#out + 1] = { key = encID, name = name, icon = icon }
+        end
     end
     if prevInst then EJ_SelectInstance(prevInst) end
     if prevDiff and EJ_SetDifficulty then EJ_SetDifficulty(prevDiff) end
@@ -1663,10 +1750,11 @@ local function MenuItem(parent, y, text, onClick)
     local cbBg = cb:CreateTexture(nil, "BACKGROUND")
     cbBg:SetAllPoints()
     cbBg:SetColorTexture(0.12, 0.12, 0.12, 1)
-    item.ring = CM.MakeBorder(cb, 0.25, 0.25, 0.25, 0.6, CM.PanelPP)
+    item.ring = XF.CheckRing(cb)
     item.fill = cb:CreateTexture(nil, "ARTWORK")
     item.fill:SetPoint("TOPLEFT", cb, "TOPLEFT", 3, -3)
     item.fill:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", -3, 3)
+    item.stock = XF.StockCheck(cb, cbBg, item.fill)
     local tR, tG, tB, tA = CM.TEXT_DIM_R, CM.TEXT_DIM_G, CM.TEXT_DIM_B, CM.TEXT_DIM_A
     item.label = item:CreateFontString(nil, "OVERLAY")
     XF.Font(item.label, ITEM_FONT)
@@ -1688,10 +1776,7 @@ local function MenuItem(parent, y, text, onClick)
         self:SetAlpha(off and 0.35 or 1)
     end
     function item:SetChecked(on)
-        local r, g, b = Accent()
-        self.fill:SetColorTexture(r, g, b, 1)
-        self.fill:SetShown(on)
-        if on then self.ring:SetColor(r, g, b, 0.8) else self.ring:SetColor(0.25, 0.25, 0.25, 0.6) end
+        XF.PaintCheck(self, self.fill, self.ring, on)
     end
     return item
 end
@@ -1935,10 +2020,11 @@ function XF.AddCountRow(m, y, role, text)
     local sbg = sw:CreateTexture(nil, "BACKGROUND")
     sbg:SetAllPoints()
     sbg:SetColorTexture(0.12, 0.12, 0.12, 1)
-    sw.ring = CM.MakeBorder(sw, 0.25, 0.25, 0.25, 0.6, CM.PanelPP)
+    sw.ring = XF.CheckRing(sw)
     sw.fill = sw:CreateTexture(nil, "ARTWORK")
     sw.fill:SetPoint("TOPLEFT", sw, "TOPLEFT", 3, -3)
     sw.fill:SetPoint("BOTTOMRIGHT", sw, "BOTTOMRIGHT", -3, 3)
+    sw.stock = XF.StockCheck(sw, sbg, sw.fill)
     sw:SetScript("OnClick", function()
         local r = Rule()
         r.on = (not r.on) or nil
@@ -1992,10 +2078,7 @@ function XF.PaintCountRows(m)
                 row.box:SetText(n and tostring(n) or "")
             end
             local sw = row.sw
-            local ar, ag, ab = Accent()
-            sw.fill:SetColorTexture(ar, ag, ab, 1)
-            sw.fill:SetShown(on)
-            if on then sw.ring:SetColor(ar, ag, ab, 0.8) else sw.ring:SetColor(0.25, 0.25, 0.25, 0.6) end
+            XF.PaintCheck(sw, sw.fill, sw.ring, on)
             local a = on and 1 or 0.4
             row.op:SetAlpha(a)
             row.box:SetAlpha(a)
@@ -2072,10 +2155,11 @@ local function AddRatingRow(m, y)
     local cbg = cb:CreateTexture(nil, "BACKGROUND")
     cbg:SetAllPoints()
     cbg:SetColorTexture(0.12, 0.12, 0.12, 1)
-    cb.ring = CM.MakeBorder(cb, 0.25, 0.25, 0.25, 0.6, CM.PanelPP)
+    cb.ring = XF.CheckRing(cb)
     cb.fill = cb:CreateTexture(nil, "ARTWORK")
     cb.fill:SetPoint("TOPLEFT", cb, "TOPLEFT", 3, -3)
     cb.fill:SetPoint("BOTTOMRIGHT", cb, "BOTTOMRIGHT", -3, 3)
+    cb.stock = XF.StockCheck(cb, cbg, cb.fill)
     cb:SetScript("OnClick", function()
         local c = Cfg()
         c.ratingOn = (not c.ratingOn) or nil
@@ -2114,10 +2198,7 @@ function XF.PaintRating(m)
     if not r then return end
     local c = Cfg()
     local on = c.ratingOn == true
-    local ar, ag, ab = Accent()
-    r.cb.fill:SetColorTexture(ar, ag, ab, 1)
-    r.cb.fill:SetShown(on)
-    if on then r.cb.ring:SetColor(ar, ag, ab, 0.8) else r.cb.ring:SetColor(0.25, 0.25, 0.25, 0.6) end
+    XF.PaintCheck(r.cb, r.cb.fill, r.cb.ring, on)
     if not r.box:HasFocus() then
         local v = tonumber(c.ratingValue)
         r.box:SetText(v and v > 0 and tostring(v) or "")
@@ -2220,6 +2301,7 @@ local function BuildSidePanel(m, raids)
     bg:SetAllPoints()
     local r, g, b = ThemeFill()
     bg:SetColorTexture(r, g, b, 0.98)
+    XF.StockBox(side, bg, "fillL")
     side.items = {}
     local y = 3
     y = AddRegionItems(side, y)
@@ -2243,7 +2325,8 @@ local function BuildSidePanel(m, raids)
     edge:SetFrameLevel(m:GetFrameLevel() + 10)
     edge:EnableMouse(false)
     local S = Skin()
-    if S and S.AddBorder then S.AddBorder(edge) else CM.MakeBorder(edge, ThemeBorder()) end
+    if XF.StockBox(edge, nil, "edge") then  -- blizzard's edge
+    elseif S and S.AddBorder then S.AddBorder(edge) else CM.MakeBorder(edge, ThemeBorder()) end
     side:Hide()
     m.side = side
     m:SetScript("OnShow", function() side:Show(); DimForMenu(true) end)
@@ -2275,6 +2358,7 @@ local function BuildMenu()
     bg:SetAllPoints()
     local r, g, b = ThemeFill()
     bg:SetColorTexture(r, g, b, 0.98)
+    XF.StockBox(menu, bg, "fillR")
     menu.items = {}
     local y = 3
     y = AddSection(menu, y, EllesmereUI.L("Difficulty"))
@@ -2311,6 +2395,7 @@ local function BuildRaidDiffMenu()
     bg:SetAllPoints()
     local r, g, b = ThemeFill()
     bg:SetColorTexture(r, g, b, 0.98)
+    XF.StockBox(m, bg, "fillR")
     local function Diffs()
         local c = Cfg()
         if type(c.raidDiffs) ~= "table" then c.raidDiffs = {} end
@@ -2369,6 +2454,13 @@ end
 local function SkinnedButton(parent, w, h, keepKeys, decorate)
     local stock = not XF.SkinOn()
     local b = CreateFrame("Button", nil, parent, stock and "UIMenuButtonStretchTemplate" or nil)
+    if stock then
+        b.stockArt = {}
+        local hl = b:GetHighlightTexture()
+        for _, r in ipairs({ b:GetRegions() }) do
+            if r ~= hl and r:IsObjectType("Texture") then b.stockArt[#b.stockArt + 1] = r end
+        end
+    end
     b:SetSize(w, h)
     b:SetNormalFontObject("GameFontHighlight")
     b:SetHighlightFontObject("GameFontHighlight")
@@ -2377,8 +2469,8 @@ local function SkinnedButton(parent, w, h, keepKeys, decorate)
     if decorate then decorate(b) end
     local S = Skin()
     if stock then
-        -- no edge of ours: a picked square holds the template's highlight on (XF.PickBorder), and a
-        -- border colour write on a frame with no border does nothing
+        -- no edge of ours: a picked square is tinted (XF.PickBorder), and a border colour write on
+        -- a frame with no border does nothing
         return b
     elseif S and S.Button then
         S.Button(b, keepKeys)
@@ -2628,7 +2720,7 @@ local function BossPickList()
     bg:SetAllPoints()
     local r, g, b = ThemeFill()
     bg:SetColorTexture(r, g, b, 0.98)
-    CM.MakeBorder(list, ThemeBorder())
+    if not XF.StockBox(list, bg) then CM.MakeBorder(list, ThemeBorder()) end
     list.rows = {}
     for i, p in ipairs(BOSS_PICKS) do
         local it = CreateFrame("Button", nil, list)
@@ -2694,15 +2786,6 @@ end
 local function MakeBossSquare(parent)
     local b = MakeSquare(parent)
     b.icon:SetTexCoord(0.25, 0.75, 0, 1)
-    if not XF.SkinOn() then
-        -- alive / dead outline around the icon, above blizzard's rounded edge
-        b.state = CreateFrame("Frame", nil, b)
-        b.state:SetPoint("TOPLEFT", b.icon, "TOPLEFT", -1, 1)
-        b.state:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 1, -1)
-        b.state:SetFrameLevel(b:GetFrameLevel() + 2)
-        b.state:EnableMouse(false)
-        CM.PanelPP.CreateBorder(b.state, 0, 0, 0, 0, 1, "OVERLAY", 7)
-    end
     b:SetScript("OnEnter", BossEnter)
     b:SetScript("OnClick", function(self)
         if self.boss then OpenBossPick(self) end
@@ -2749,7 +2832,8 @@ local function BuildRaidMenu()
     local r, g, b = ThemeFill()
     bg:SetColorTexture(r, g, b, 0.98)
     local S = Skin()
-    if S and S.AddBorder then S.AddBorder(raidMenu) else CM.MakeBorder(raidMenu, ThemeBorder()) end
+    if XF.StockBox(raidMenu, bg) then  -- blizzard's box
+    elseif S and S.AddBorder then S.AddBorder(raidMenu) else CM.MakeBorder(raidMenu, ThemeBorder()) end
     raidMenu.items = {}
     local y = 3
     -- current season only, older raids dimmed and out
@@ -2847,7 +2931,8 @@ local function BuildTierMenu()
     local r, g, b = ThemeFill()
     bg:SetColorTexture(r, g, b, 0.98)
     local S = Skin()
-    if S and S.AddBorder then S.AddBorder(tierMenu) else CM.MakeBorder(tierMenu, ThemeBorder()) end
+    if XF.StockBox(tierMenu, bg) then  -- blizzard's box
+    elseif S and S.AddBorder then S.AddBorder(tierMenu) else CM.MakeBorder(tierMenu, ThemeBorder()) end
     local function Tiers()
         local c = Cfg()
         if type(c.delveTiers) ~= "table" then c.delveTiers = {} end
@@ -2943,8 +3028,9 @@ Paint = function()
             active = not DiffAllOrNone(f) or DungeonPlaystyles(f) or DungeonRolesSet(f) or (f.minimumRating or 0) ~= 0
         end
         diffBtn.active = (active or RegionFilterActive() or XF.ExtraFilterActive()) and true or false
-        -- green edge while a filter's on, same as the expressions button
-        if not diffBtn.activeEdge then
+        -- green edge while a filter's on, same as the expressions button (skin
+        -- off: no edge is made, XF.ActiveLook tints the button's box)
+        if XF.SkinOn() and not diffBtn.activeEdge then
             local edge = CreateFrame("Frame", nil, diffBtn)
             edge:SetAllPoints()
             edge:SetFrameLevel(diffBtn:GetFrameLevel() + 3)
@@ -2952,7 +3038,7 @@ Paint = function()
             CM.MakeBorder(edge, 0.3, 0.85, 0.4, 1, CM.PanelPP)
             diffBtn.activeEdge = edge
         end
-        diffBtn.activeEdge:SetShown(diffBtn.active)
+        XF.ActiveLook(diffBtn, diffBtn.active)
         diffBtn:SetText(EllesmereUI.L("Filters"))
         XF.PaintLabel(diffBtn)
     end
@@ -2996,11 +3082,11 @@ Paint = function()
             sq.icon:SetDesaturated(chosenBosses ~= nil and not on)
             sq.icon:SetAlpha((chosenBosses == nil or on) and 1 or 0.45)
             -- green: alive, red: dead
-            local edge = sq.state or sq
-            if pick == "dead" then SetBorderColor(edge, 1, 0.15, 0.15, 1)
-            elseif on then SetBorderColor(edge, 0.2, 1, 0.3, 1)
-            else XF.RestBorder(edge) end
-            if not XF.SkinOn() then if on then sq:LockHighlight() else sq:UnlockHighlight() end end
+            if not XF.SkinOn() then
+                XF.TintSquare(sq, pick == "dead" and "dead" or on and "alive" or nil)
+            elseif pick == "dead" then SetBorderColor(sq, 1, 0.15, 0.15, 1)
+            elseif on then SetBorderColor(sq, 0.2, 1, 0.3, 1)
+            else XF.RestBorder(sq) end
         end
     end
     local def = DungeonsDefault(f)
@@ -3112,12 +3198,15 @@ local function CogFilterButton(btn)
     local wash = catcher:CreateTexture(nil, "HIGHLIGHT")
     wash:SetAllPoints()
     wash:SetColorTexture(1, 1, 1, 0.1)
+    if not XF.SkinOn() then wash:Hide() end  -- blizzard's own hover, on the face below
     catcher:SetScript("OnEnter", function(self)
         d.cog:SetAlpha(1)
+        if not XF.SkinOn() then d.face:LockHighlight() end
         XF.Tip(self, EllesmereUI.L("Group Filters Settings"))
     end)
     catcher:SetScript("OnLeave", function()
         d.cog:SetAlpha(0.8)
+        d.face:UnlockHighlight()
         XF.Untip()
     end)
     catcher:SetScript("OnClick", function()
@@ -3975,8 +4064,13 @@ local function LayoutViewerRefresh(AV)
     local pad = tonumber(Cfg().padding) or 12
     local ar, ir = AV:GetRight(), AV.Inset:GetRight()
     look:ClearAllPoints()
-    -- 3 in from the rows' edge, over the decline buttons
-    look:SetPoint("BOTTOMRIGHT", AV.Inset, "TOPRIGHT", (ar and ir) and (ar - ir - pad - 3) or 0, 0)
+    if not XF.SkinOn() then
+        -- blizzard's inset shows: in line with the rows inside it
+        look:SetPoint("BOTTOMRIGHT", AV.Inset, "TOPRIGHT", -ns.STOCK_ROWS_R, 0)
+    else
+        -- 3 in from the rows' edge, over the decline buttons
+        look:SetPoint("BOTTOMRIGHT", AV.Inset, "TOPRIGHT", (ar and ir) and (ar - ir - pad - 3) or 0, 0)
+    end
     blz:ClearAllPoints()
     blz:SetAllPoints(look)
     blz:SetFrameLevel(look:GetFrameLevel() + 4)

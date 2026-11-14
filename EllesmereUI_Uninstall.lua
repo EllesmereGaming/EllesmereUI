@@ -38,8 +38,10 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  back to the game's default and an Edit Mode setting to the fallback its
 --  writer named (or leaves it), and a module turned off leaves its CVars as
 --  they are, their records kept for Uninstall while they still hold
---  EllesmereUI's values. Fresh is judged from the saved data alone: a value
---  EllesmereUI set before its saved data was deleted reads as the player's own.
+--  EllesmereUI's values (but for a value that harms the client it is on,
+--  HarmsClient below, which goes back to the game's default). Fresh is judged
+--  from the saved data alone: a value EllesmereUI set before its saved data
+--  was deleted reads as the player's own.
 --
 --  Record: EllesmereUIDB.restoreOnUninstall (never exported or imported, kept
 --  by Reset ALL Settings)
@@ -395,11 +397,22 @@ local function ModuleOff(owner, acct)
         or C_AddOns.GetAddOnEnableState(owner) == Enum.AddOnEnableState.None
 end
 
+-- A value of EllesmereUI's that harms the client it is on. WoW Forever caps
+-- nameplateMaxDistance at its own default, and a value above the cap is not
+-- clamped: nameplates show at a shorter range.
+local function HarmsClient(key, cur)
+    if EllesmereUI.IS_FOREVER ~= true or key ~= "nameplatemaxdistance" then return false end
+    local def = tonumber(C_CVar.GetCVarDefault(key))
+    cur = tonumber(cur)
+    return def ~= nil and cur ~= nil and cur > def
+end
+
 -- One part of the record (the account's, acct, or this character's): each
 -- record of a module that is off goes back to its snapshot while it still
 -- holds EllesmereUI's value, and is dropped. One with no snapshot stays while
 -- the CVar holds EllesmereUI's value, so Uninstall can still put it back to
--- the game's default. A hold such a module left open is released.
+-- the game's default; a value that harms this client (HarmsClient) goes back
+-- to that default here. A hold such a module left open is released.
 local function RevertOffModules(root, acct)
     if not root then return end
     local held = root.held
@@ -417,6 +430,11 @@ local function RevertOffModules(root, acct)
                 if e.b ~= nil and e.b ~= e.a and cur == e.a then
                     pcall(C_CVar.SetCVar, key, e.b)
                     _putBack[key] = true
+                elseif e.b == nil and cur == e.a and HarmsClient(key, cur) then
+                    pcall(C_CVar.SetCVar, key, C_CVar.GetCVarDefault(key))
+                    _putBack[key] = true
+                    -- read again: a write the game refused keeps the record for the next login
+                    cur = GetCVar(key)
                 end
                 if e.b ~= nil or cur ~= e.a then t[key] = nil end
             end

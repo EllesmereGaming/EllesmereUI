@@ -303,6 +303,9 @@ local defaults = {
     friendlyShowDefaultNames = false,
     classColorFriendly = true,
     friendlyNameClassColor = false,
+    -- Name Color's Custom colour (friendlyNameColorMode, "class" or "custom", has no
+    -- default: unset, each friendly style reads one of the two keys above).
+    friendlyNameColor = { r = 1, g = 1, b = 1 },
     -- Target Border Effects (Friendly Nameplate Settings cog): the target Border Color
     -- and Border Size effects on friendly plates too.
     friendlyTargetBorderFx = false,
@@ -320,7 +323,10 @@ local defaults = {
     friendlyBelowNameGuildBrackets = true,
     friendlyShowLevel = false,
     friendlyLevelDiffColor = false,
+    friendlyGroupBrackets = false,
     showEnemyPets = false,
+    -- Blizzard's nameplateSize CVar (1 Small .. 5 Huge), applied on load; 3 = Large, the old forced value.
+    nameplateSize = 3,
     font = "Interface\\AddOns\\EllesmereUI\\media\\fonts\\Expressway.TTF",
     textSlotTop = "enemyName",
     textSlotRight = "healthPercent",
@@ -351,6 +357,13 @@ local defaults = {
     classPowerGap = 2,
     classPowerShape = "rectangle",  -- rectangle | square | circle | diamond | hexagon | shield
     classPowerBorder = false,
+    classPowerEnergyBar = false,  -- Rogue / Druid: energy bar beside the pips
+    classPowerEnergyHeight = 4,
+    classPowerEnergyWidth = 1.0,      -- multiple of the pip row width
+    classPowerEnergyAnchor = "outer", -- outer: past the pips | inner: next to the health bar
+    classPowerEnergyXOffset = 0,
+    classPowerEnergyYOffset = 0,
+    classPowerEnergyHideFull = false, -- hide while capped and out of combat
     classPowerBorderColor = { r = 0, g = 0, b = 0, a = 1.0 },
     classPowerBorderSize = 1,
     healthBarWidth = 6,
@@ -434,6 +447,7 @@ local defaults = {
     rareEliteIconSize = 20,
     castBarHeight = 17,
     castBarOffsetY = 0,
+    castBarOffsetX = 0,
     castBarSparkEnabled = true,
     castOverlayEnabled = false,
     hideEnemyNameWhileCasting = false,

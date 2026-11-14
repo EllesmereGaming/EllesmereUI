@@ -367,12 +367,47 @@ local function OnFlyoutArrow(arrow, _, parent)
     if not (side or arrowMoved) then return end
     arrowMoved = side
     arrow:ClearAllPoints()
-    if side then
+    if side and c.flyoutDirection == "LEFT" then
+        arrow:SetPoint("RIGHT", parent, "LEFT", 0, 0)
+    elseif side then
         arrow:SetPoint("LEFT", parent, "RIGHT", 0, 0)
     else
         arrow:SetPoint("BOTTOM", parent, "TOP", 0, 0)
     end
 end
+
+-- Blizzard opens the flyout above its slot, over the buttons above it in a
+-- column; a vertical bar opens it beside the slot (Flyout Direction) instead.
+-- Like the arrow it is not secure and gets Blizzard's point added on every
+-- open, so each open is cleared and re-set, and put back above the slot once
+-- the bar is no longer a column.
+local FLYOUT = _G.MultiCastFlyoutFrame
+local flyoutMoved = false
+local function OnFlyoutToggle(flyout, _, parent)
+    if not (flyout and parent) or flyout.parent ~= parent or not flyout:IsShown() then return end
+    local c = owned and P()
+    local side = (c and c.orientation == "VERTICAL") or false
+    if not (side or flyoutMoved) then return end
+    flyoutMoved = side
+    flyout:ClearAllPoints()
+    if not side then
+        flyout:SetPoint("BOTTOM", parent, "TOP", 0, 0)
+    elseif c.flyoutDirection == "LEFT" then
+        flyout:SetPoint("BOTTOMRIGHT", parent, "BOTTOMLEFT", -2, 0)
+    else
+        flyout:SetPoint("BOTTOMLEFT", parent, "BOTTOMRIGHT", 2, 0)
+    end
+end
+
+-- An open flyout takes its place again at once when what decides it changes:
+-- the bar's orientation, Flyout Direction (its options row calls this) and
+-- the hand-back. A closed one (Blizzard forgets its button as it hides) is
+-- placed by its next open.
+local function PlaceOpenFlyout()
+    local parent = FLYOUT and FLYOUT.parent
+    if parent then OnFlyoutToggle(FLYOUT, nil, parent) end
+end
+ns.CT_PlaceFlyout = PlaceOpenFlyout
 
 local function Hook()
     if hooked then return end
@@ -391,6 +426,9 @@ local function Hook()
     hooksecurefunc("MultiCastActionBarFrame_Update", OnBarUpdate)
     if _G.MultiCastFlyoutFrameOpenButton_Show then
         hooksecurefunc("MultiCastFlyoutFrameOpenButton_Show", OnFlyoutArrow)
+    end
+    if FLYOUT and _G.MultiCastFlyoutFrame_ToggleFlyout then
+        hooksecurefunc("MultiCastFlyoutFrame_ToggleFlyout", OnFlyoutToggle)
     end
 end
 
@@ -457,6 +495,7 @@ local function Release()
     else
         EllesmereUI.SetFramePoint(bar, "RIGHT", UIParent, "BOTTOM", -28, 128)
     end
+    PlaceOpenFlyout()
 end
 
 function ns.CT_Apply()
@@ -489,6 +528,7 @@ function ns.CT_Apply()
         SuppressBarMouse()
     end
     Refresh()
+    PlaceOpenFlyout()
 end
 
 -------------------------------------------------------------------------------

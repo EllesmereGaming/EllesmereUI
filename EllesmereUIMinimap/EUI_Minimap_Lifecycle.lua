@@ -230,7 +230,7 @@ SetApplyAll(ApplyAll)
 --  trust chain. Show/hide moves the parent frame offscreen.
 -------------------------------------------------------------------------------
 do
-    local menuFrame
+    local menuFrame, menuBorder
     local menuOpen    = false
     local MENU_WIDTH  = 160
     local BUTTON_H    = 20
@@ -243,14 +243,15 @@ do
         { text = "Professions",     microButton = "ProfessionMicroButton" },
         { divider = true },
         { text = "Group Finder",    microButton = "LFDMicroButton" },
-        { text = "Adventure Guide", microButton = "EJMicroButton" },
-        { text = "Achievements",    microButton = "AchievementMicroButton" },
+        { text = "Adventure Guide", microButton = "EJMicroButton", noForever = true },
+        { text = "Achievements",    microButton = "AchievementMicroButton",
+          forever = { text = "Legacy", microButton = "LegacyMicroButton" } },
         { text = "Collections",     microButton = "CollectionsMicroButton" },
         { text = "Quest Log",       microButton = "QuestLogMicroButton" },
         { divider = true },
         { text = "Friends",         microButton = "QuickJoinToastButton" },
         { text = "Guild",           microButton = "GuildMicroButton" },
-        { text = "Housing",         microButton = "HousingMicroButton" },
+        { text = "Housing",         microButton = "HousingMicroButton", noForever = true },
         { text = "Calendar",        fn = function() if ToggleCalendar then ToggleCalendar() end end },
         { divider = true },
         { text = "Game Menu",       fn = function() ToggleFrame(GameMenuFrame) end },
@@ -265,6 +266,8 @@ do
         if visible then
             menuFrame:SetClampedToScreen(true)
             menuFrame:SetPoint("TOPRIGHT", Minimap, "TOPLEFT", -4, 0)
+            -- Parked shown off-screen, so no OnShow: the outline seats here.
+            if menuBorder then menuBorder:Fit() end
         else
             menuFrame:SetClampedToScreen(false)
             menuFrame:SetPoint("TOPLEFT", UIParent, "TOPRIGHT", 10000, 0)
@@ -275,15 +278,12 @@ do
         -- Never register this with the controller cursor (nor the escape
         -- proxy): it stays shown while parked off-screen, so the cursor would
         -- count it as open forever and hold the D-pad.
-        menuFrame = CreateFrame("Frame", "EllesmereUIMicroMenu", UIParent, "BackdropTemplate")
+        menuFrame = CreateFrame("Frame", "EllesmereUIMicroMenu", UIParent)
         menuFrame:SetFrameStrata("TOOLTIP")
-        menuFrame:SetBackdrop({
-            bgFile   = "Interface\\Buttons\\WHITE8X8",
-            edgeFile = "Interface\\Buttons\\WHITE8X8",
-            edgeSize = 1,
-        })
-        menuFrame:SetBackdropColor(0.05, 0.05, 0.05, 0.97)
-        menuFrame:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        local bg = menuFrame:CreateTexture(nil, "BACKGROUND")
+        bg:SetAllPoints()
+        bg:SetColorTexture(0.05, 0.05, 0.05, 0.97)
+        menuBorder = EllesmereUI.MakeRoundedBorder(menuFrame, 0.3, 0.3, 0.3, 1, bg)
         menuFrame:EnableMouse(true)
 
         -- Close when clicking elsewhere
@@ -295,8 +295,17 @@ do
         end)
 
         local y = -PADDING
+        -- WoW Forever: no Adventure Guide or Housing window (noForever), and Legacy
+        -- stands in Achievements' place (forever = the row shown there instead).
+        -- Every micro button row stays a secure click there too, Group Finder
+        -- included: opening one of Blizzard's windows from our own Lua runs its
+        -- code tainted.
+        local fv = EllesmereUI.IS_FOREVER == true
         for _, item in ipairs(menuItems) do
-            if item.divider then
+            if fv and item.forever then item = item.forever end
+            if fv and item.noForever then
+                -- not on this client
+            elseif item.divider then
                 local div = menuFrame:CreateTexture(nil, "ARTWORK")
                 div:SetPoint("TOPLEFT", menuFrame, "TOPLEFT", 8, y - 4)
                 div:SetPoint("TOPRIGHT", menuFrame, "TOPRIGHT", -8, y - 4)

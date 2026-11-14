@@ -142,7 +142,13 @@ initFrame:SetScript("OnEvent", function(self)
 
 
 
+    local function Unlocked() return false end
+    local sectionLock = Unlocked
+
+
+
     local function Cfg(row)
+        local refused = sectionLock
         local cfg = { type = row.type, text = row.text, tooltip = row.tooltip,
             values = row.values, order = row.order, inputWidth = row.inputWidth,
             min = row.min, max = row.max, step = row.step, valueSnap = row.valueSnap,
@@ -159,7 +165,7 @@ initFrame:SetScript("OnEvent", function(self)
             return row.getValue()
         end
         cfg.setValue = function(value)
-            if not LockReason() then row.setValue(value) end
+            if not LockReason() and not refused() then row.setValue(value) end
             Invalidate()
         end
 
@@ -246,6 +252,7 @@ initFrame:SetScript("OnEvent", function(self)
     end
     local function ChecksDecorator(row)
         local items = ChecksItems(row)
+        local refused = sectionLock
         local function Get(key)
             if row.lockedValue and row.locked and select(2, row.locked()) then
                 return row.lockedValue(key)
@@ -266,7 +273,8 @@ initFrame:SetScript("OnEvent", function(self)
                 region:GetFrameLevel() + 2, items, Get,
                 function(key, value)
 
-                    if not ChecksReason(row) and not (row.locked and select(2, row.locked())) and (value or not row.exclusive) then row.setValue(key, value) end
+                    if not ChecksReason(row) and not (row.locked and select(2, row.locked())) and not refused()
+                        and (value or not row.exclusive) then row.setValue(key, value) end
                     Invalidate()
                 end, nil, nil, nil, nil, nil,
                 ChecksLock({ emptyLabel = "None", noAllLabel = row.exclusive }, row))
@@ -340,7 +348,7 @@ initFrame:SetScript("OnEvent", function(self)
         local bg = p:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
         bg:SetColorTexture(0.098, 0.090, 0.082, 0.97)
-        p._brd = EllesmereUI.MakeRoundedBorder(p, 1, 1, 1, 0.12, bg)
+        EllesmereUI.MakeBorder(p, 1, 1, 1, 0.12)
         p.rows, p.selected = {}, 0
 
         local away = _G.CreateFrame("Frame")
@@ -679,6 +687,12 @@ initFrame:SetScript("OnEvent", function(self)
         local T, Format = slc.Locale.Text, slc.Locale.Format
         local refreshes = {}
         local function OnRefresh(fn) refreshes[#refreshes + 1] = fn end
+
+
+        local function CloseColourPicker()
+            local popup = EllesmereUI._colorPickerPopup
+            if popup and popup:IsShown() then popup:Hide() end
+        end
 
         local covers = {}
         if not prebuild then lockCovers[pageName] = covers end
@@ -1072,6 +1086,7 @@ initFrame:SetScript("OnEvent", function(self)
 
 
         function custom.responses(spec)
+            local refused = sectionLock
             for index, built in ipairs(spec.list()) do
 
 
@@ -1081,7 +1096,10 @@ initFrame:SetScript("OnEvent", function(self)
                     inputStyle = "popup", inputWidth = 180, noCapture = true,
                     getValue = function() return entry.text or "" end,
 
-                    setValue = function(text) spec.setName(index, text) Invalidate() end },
+                    setValue = function(text)
+                        if not refused() then spec.setName(index, text) end
+                        Invalidate()
+                    end },
                     function(region)
 
                         if region._label then region._label:SetText("") end
@@ -1100,7 +1118,9 @@ initFrame:SetScript("OnEvent", function(self)
 
                         EllesmereUI.BuildInlineSwatches(region, { {
                             getValue = function() return entry.r or 0.8, entry.g or 0.8, entry.b or 0.8, 1 end,
-                            setValue = function(r, g, b) spec.setColour(entry, r, g, b) end,
+                            setValue = function(r, g, b)
+                                if refused() then CloseColourPicker() else spec.setColour(entry, r, g, b) end
+                            end,
                         } })
 
                         local swatch = region._lastInline
@@ -1132,7 +1152,7 @@ initFrame:SetScript("OnEvent", function(self)
                                 EllesmereUI.HideWidgetTooltip()
                             end)
                             auto:SetScript("OnClick", function()
-                                if spec.sessionLocked() then return end
+                                if refused() then return end
                                 spec.setAutoroll(entry, not (entry.autoroll == true))
                                 Paint()
                                 Invalidate()
@@ -1146,11 +1166,11 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                         local requirement = spec.deleteRequirement
                         local delete = EllesmereUI.BuildInlineButton(region, spec.confirmDelete().accept, function()
-                            if requirement() then return end
+                            if refused() or requirement() then return end
                             local copy = spec.confirmDelete()
                             S.Confirm({ title = copy.title, body = copy.body, accept = copy.accept,
                                 onAccept = function()
-                                    if spec.remove(index) then Invalidate() end
+                                    if not refused() and spec.remove(index) then Invalidate() end
                                 end })
                         end, { width = 70, disabled = function() return requirement() ~= nil end,
                             disabledTooltip = requirement, rawTooltip = true })
@@ -1173,6 +1193,7 @@ initFrame:SetScript("OnEvent", function(self)
             end
             if #spec.list() < spec.max then
                 Place({ type = "button", text = spec.addText, noCapture = true, onClick = function()
+                    if refused() then return end
                     local accent = EllesmereUI.ELLESMERE_GREEN
                     local index = spec.add(accent.r, accent.g, accent.b)
                     if index then
@@ -1228,6 +1249,7 @@ initFrame:SetScript("OnEvent", function(self)
 
         function custom.council(spec)
             if prebuild then return end
+            local refused = sectionLock
             local status = Note("", 0.85)
             OnRefresh(function()
                 local good, warn = S.ColorStart(S.Flatten(S.color.good)), S.ColorStart(S.Flatten(S.color.warn))
@@ -1241,7 +1263,7 @@ initFrame:SetScript("OnEvent", function(self)
             local function AddTyped()
                 CloseSuggestions()
                 local name = box:GetText():trim()
-                if name == "" then return end
+                if name == "" or refused() then return end
 
                 if TryPride(name) then
                     box:SetText("")
@@ -1295,7 +1317,6 @@ initFrame:SetScript("OnEvent", function(self)
                 p:SetSize(b:GetWidth(), #shown * SUG_ROW_H + 8)
                 p:ClearAllPoints()
                 p:SetPoint("TOPLEFT", b, "BOTTOMLEFT", 0, -2)
-                p._brd:Fit()
                 p:Show()
             end
             local function Typed(b, userInput)
@@ -1363,7 +1384,7 @@ initFrame:SetScript("OnEvent", function(self)
                         end
                     elseif entry.pending then
 
-                        label:SetText(ClassText(entry.classFile, entry.fullName or entry.guid or "?",
+                        label:SetText(ClassText(entry.classFile, slc.Player:DisplayName(entry.fullName or entry.guid or "?"),
                             S.Flatten(S.color.textFaint)))
                     else
                         local short = ClassText(entry.classFile, Ambiguate(entry.fullName or "?", "short"))
@@ -1386,7 +1407,7 @@ initFrame:SetScript("OnEvent", function(self)
                 end)
                 row:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
                 EllesmereUI.BuildInlineButton(row, T["Remove"], function()
-                    if not entry then return end
+                    if not entry or refused() then return end
                     spec.remove(entry)
                     councilDirty = true
                     Invalidate()
@@ -1398,6 +1419,7 @@ initFrame:SetScript("OnEvent", function(self)
 
 
         function custom.councilRanks(spec)
+            local refused = sectionLock
             if not prebuild then
                 Note(S.Colorize(S.color.accent, spec.heading:upper()), 0.85)
                 for _, hint in ipairs(spec.hints()) do Note(hint) end
@@ -1441,6 +1463,7 @@ initFrame:SetScript("OnEvent", function(self)
                     btn:SetScript("OnEnter", function() hovering = true Paint() end)
                     btn:SetScript("OnLeave", function() hovering = false Paint() end)
                     btn:SetScript("OnClick", function()
+                        if refused() then return end
                         spec.setEmpowered(name, not spec.isEmpowered(name))
                         Paint()
 
@@ -1549,6 +1572,12 @@ initFrame:SetScript("OnEvent", function(self)
         for _, section in ipairs(sections) do
             _, h = W:SectionHeader(parent, section.title:upper(), y);  y = y - h
             local rowsTop = y
+            sectionLock = Unlocked
+            if (section.id == "council" or section.id == "master" or section.id == "voting") and section.locked then
+                sectionLock = function() return section.locked() ~= nil end
+            elseif section.id == "responses" then
+                sectionLock = Schema.Row("responses").sessionLocked
+            end
             for _, row in ipairs(section.rows) do
                 if row.hidden and row.hidden() then
 
@@ -1580,10 +1609,11 @@ initFrame:SetScript("OnEvent", function(self)
 
             if section.id == "responses" and not prebuild and y < rowsTop then
                 local spec = Schema.Row("responses")
-                LockCover(rowsTop, y, spec.sessionLockedText, spec.sessionLocked)
+                LockCover(rowsTop, y, spec.sessionLockedText, spec.sessionLocked, CloseColourPicker)
             end
         end
 
+        sectionLock = Unlocked
         if prebuild then return math.abs(y) end
 
 

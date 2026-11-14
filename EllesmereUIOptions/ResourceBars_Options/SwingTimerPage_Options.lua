@@ -95,7 +95,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.frameStrata = v; RefreshST() end }
     );  y = y - h
     -- Inline position cog (X/Y + unlock) on Enable, as on the GCD Bar page
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = enableRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local p = DB(); return p and not p.swingTimer.enabled end,
@@ -161,7 +161,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           getValue = function() local p = DB(); return p and p.swingTimer.textSize or 11 end,
           setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.textSize = v; RefreshST() end }
     );  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local function OffsetRow(label, key)
             return { type = "slider", label = label, min = -100, max = 100, step = 1,
               get = function() local p = DB(); return p and p.swingTimer[key] or 0 end,
@@ -199,7 +199,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
     -- require talents, saved per class so one profile serves every class. While
     -- they rule it out, the timer stands down like switched off. A class with no
     -- forms gets the talent picker straight from the cog.
-    if not EllesmereUI._prebuilding then
+    do
         local function STCfg() local p = DB(); return p and p.swingTimer end
         local condShow
         local function OpenTalents()
@@ -244,7 +244,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
         end
     end
 
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(stShowRow._rightRegion, {
             title = "Idle Rows",
             rows = {
@@ -338,10 +338,9 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
             end
         end
         -- Corner Radius cog on the size slider (right region), the Border color
-        -- swatch left of it; neither in the search pre-build (they index
-        -- nothing, and the row is a stand-in there) nor on Classic WoW UI's
-        -- frame size slider
-        if not EllesmereUI._prebuilding and not stClassic then
+        -- swatch left of it (not in the search pre-build: the row is a
+        -- stand-in there); neither on Classic WoW UI's frame size slider
+        if not stClassic then
             -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
             -- border size control. The stock styles keep the rows square.
             EllesmereUI.BuildInlineCog(bsRow._rightRegion, {
@@ -360,29 +359,31 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
                 }, function() local p = DB(); return p and p.swingTimer.cornerMask end,
                    function(v) local p = DB(); if not p then return end; p.swingTimer.cornerMask = v; RefreshST() end),
             })
-            EllesmereUI.BuildInlineSwatches(bsRow._rightRegion, {
-                { tooltip = "Border Color", hasAlpha = true,
-                  disabled = function()
-                      local p = DB()
-                      return not (p and p.swingTimer.enabled and (p.swingTimer.borderSize or 0) > 0)
-                  end,
-                  disabledTooltip = function()
-                      if stOff() then return ST_TIP end
-                      return "This option requires a Border Size above 0."
-                  end,
-                  getValue = function()
-                      local p = DB()
-                      return (p and p.swingTimer.borderR or 0), (p and p.swingTimer.borderG or 0),
-                             (p and p.swingTimer.borderB or 0), (p and p.swingTimer.borderA or 1)
-                  end,
-                  setValue = function(r, g, b, a)
-                      local p = DB(); if not p then return end
-                      p.swingTimer.borderR, p.swingTimer.borderG, p.swingTimer.borderB, p.swingTimer.borderA = r, g, b, a
-                      RefreshST(); EllesmereUI:RefreshPage()
-                  end },
-            }, { size = 20 })
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.BuildInlineSwatches(bsRow._rightRegion, {
+                    { tooltip = "Border Color", hasAlpha = true,
+                      disabled = function()
+                          local p = DB()
+                          return not (p and p.swingTimer.enabled and (p.swingTimer.borderSize or 0) > 0)
+                      end,
+                      disabledTooltip = function()
+                          if stOff() then return ST_TIP end
+                          return "This option requires a Border Size above 0."
+                      end,
+                      getValue = function()
+                          local p = DB()
+                          return (p and p.swingTimer.borderR or 0), (p and p.swingTimer.borderG or 0),
+                                 (p and p.swingTimer.borderB or 0), (p and p.swingTimer.borderA or 1)
+                      end,
+                      setValue = function(r, g, b, a)
+                          local p = DB(); if not p then return end
+                          p.swingTimer.borderR, p.swingTimer.borderG, p.swingTimer.borderB, p.swingTimer.borderA = r, g, b, a
+                          RefreshST(); EllesmereUI:RefreshPage()
+                      end },
+                }, { size = 20 })
+            end
         end
-        if not EllesmereUI._prebuilding then
+        do
             local rgn = bsRow._leftRegion
             local cogBtn = EllesmereUI.BuildInlineCog(rgn, {
                 title = "Border Options",
@@ -403,8 +404,10 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
                 local tex = p and p.swingTimer.borderTexture or "solid"
                 if tex == "solid" or stClassic then cogBtn:Hide() else cogBtn:Show() end
             end
-            EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
-            UpdateCogVis()
+            if not EllesmereUI._prebuilding then
+                EllesmereUI.RegisterWidgetRefresh(UpdateCogVis)
+                UpdateCogVis()
+            end
         end
     end
 
@@ -454,7 +457,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           getValue = function() local p = DB(); return math.floor(((p and p.swingTimer.bgA or 0.7) * 100) + 0.5) end,
           setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.bgA = v / 100; RefreshST() end }
     );  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = colorRow._leftRegion
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = function() local p = DB(); return p and not p.swingTimer.enabled end,
@@ -508,7 +511,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           getValue = function() return "__placeholder" end,
           setValue = function() end }
     );  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         -- Not tied to Show Spark: a combined off hand's spark shows either way.
         -- Colours: store keys <key>SparkR/G/B/A, unset by default; each swatch
         -- shows the colour the bar paints (ST_SparkColor). A pick of the unset
@@ -556,36 +559,38 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
             },
         })
     end
-    if not EllesmereUI._prebuilding then
+    do
         local rgn = sparkRow._rightRegion
-        if rgn._control then rgn._control:Hide() end
-        -- Checked = the row shows. The keys are the per-row toggles this
-        -- list replaces (nil = on), so every profile carries over as is.
-        local WEAPON_ITEMS = {
-            { key = "showMH", label = "Main Hand" },
-            { key = "showOH", label = "Off Hand" },
-            { key = "showR",  label = "Ranged" },
-        }
-        local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-            rgn, 210, rgn:GetFrameLevel() + 2, WEAPON_ITEMS,
-            function(k) local p = DB(); return not p or p.swingTimer[k] ~= false end,
-            function(k, v)
-                local p = DB(); if not p then return end
-                p.swingTimer[k] = v
-                -- The cog's Combine Hands greys out while a hand is off.
-                RefreshST(); EllesmereUI:RefreshPage()
-            end)
-        PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
-        rgn._control = cbDD
-        rgn._lastInline = nil
-        local function UpdateWeaponsDD()
-            local off = stOff()
-            cbDD:SetAlpha(off and 0.3 or 1)
-            cbDD:EnableMouse(not off)
-            cbDDRefresh()
+        if not EllesmereUI._prebuilding then
+            if rgn._control then rgn._control:Hide() end
+            -- Checked = the row shows. The keys are the per-row toggles this
+            -- list replaces (nil = on), so every profile carries over as is.
+            local WEAPON_ITEMS = {
+                { key = "showMH", label = "Main Hand" },
+                { key = "showOH", label = "Off Hand" },
+                { key = "showR",  label = "Ranged" },
+            }
+            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rgn, 210, rgn:GetFrameLevel() + 2, WEAPON_ITEMS,
+                function(k) local p = DB(); return not p or p.swingTimer[k] ~= false end,
+                function(k, v)
+                    local p = DB(); if not p then return end
+                    p.swingTimer[k] = v
+                    -- The cog's Combine Hands greys out while a hand is off.
+                    RefreshST(); EllesmereUI:RefreshPage()
+                end)
+            PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = cbDD
+            rgn._lastInline = nil
+            local function UpdateWeaponsDD()
+                local off = stOff()
+                cbDD:SetAlpha(off and 0.3 or 1)
+                cbDD:EnableMouse(not off)
+                cbDDRefresh()
+            end
+            UpdateWeaponsDD()
+            EllesmereUI.RegisterWidgetRefresh(UpdateWeaponsDD)
         end
-        UpdateWeaponsDD()
-        EllesmereUI.RegisterWidgetRefresh(UpdateWeaponsDD)
         -- Combine Hands needs both hands tracked, so it rides this row's cog.
         EllesmereUI.BuildInlineCog(rgn, {
             disabled = stOff, disabledTooltip = ST_TIP,
@@ -669,7 +674,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           getValue = function() local p = DB(); return p and p.swingTimer.attackState or "queued" end,
           setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.attackState = v; RefreshST(); EllesmereUI:RefreshPage() end }
     );  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(stateRow._rightRegion, {
             disabled = stOff, disabledTooltip = ST_TIP,
             title = "Attack State Colors",
@@ -688,7 +693,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
             },
         })
     end
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(stateRow._leftRegion, {
             title = "Range Check",
             rows = {
@@ -712,7 +717,7 @@ function ns.ERB_BuildSwingTimerPage(pageName, parent, yOffset)
           setValue = function(v) local p = DB(); if not p then return end; p.swingTimer.moveGuide = v; RefreshST(); EllesmereUI:RefreshPage() end },
         EllesmereUI.BlankRowCfg()
     );  y = y - h
-    if not EllesmereUI._prebuilding then
+    do
         EllesmereUI.BuildInlineCog(guideRow._leftRegion, {
             disabled = function() return stOff() or guideOff() end,
             disabledTooltip = function() if stOff() then return ST_TIP end; return "Movement Guide" end,

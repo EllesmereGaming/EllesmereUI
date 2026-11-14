@@ -25,21 +25,15 @@ local STAR = "PetJournal-FavoritesIcon"   -- the journal's favorite star, tinted
 
 -- Settings live in EllesmereUIDB.petSummon; unset keys read these.
 --   enabled                 Auto Summon Pet
---   chars[player GUID]      own = Favorites per Character, favorites = { [pet GUID] = true },
---                           dismissed = the player put the pet away (until they summon one)
+-- Per character, in the roster (EllesmereUI.CharData "petSummon"):
+--   own = Favorites per Character, favorites = { [pet GUID] = true },
+--   dismissed = the player put the pet away (until they summon one)
 local F = module.Feature("petSummon", { enabled = false })
 local IsEnabled = F.Enabled
 
 -- This character's settings; nil until written, unless create.
 local function CharCfg(create)
-    local cfg = create and F.Cfg() or F.Read()
-    local guid = UnitGUID("player")
-    if not guid then return nil end
-    if create then
-        cfg.chars = cfg.chars or {}
-        cfg.chars[guid] = cfg.chars[guid] or {}
-    end
-    return cfg.chars and cfg.chars[guid]
+    return EllesmereUI.CharData("petSummon", create)
 end
 
 local function OwnOn()
@@ -54,6 +48,7 @@ end
 
 local function SetOwnFavorite(petGUID, on)
     local c = CharCfg(true)
+    if not c then return end
     c.favorites = c.favorites or {}
     c.favorites[petGUID] = on or nil
 end

@@ -15,10 +15,13 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --
 --  The expiry is the item's own, read by ns.ReadAuraExpiration (Also Show Below
 --  N Seconds reads it the same way): a time that reads secret lights nothing.
---  The cast time is the tracked spell's own (talents included), so an instant
---  lights only once the aura would run out before you are free, and nothing
---  lights while you are casting the spell itself. An input that cannot be read
---  counts as "free now" or "instant", which can only light the glow later.
+--  The cast time is the tracked spell's own (talents included), and it counts as
+--  MIN_WINDOW at least: an instant, or a cast shorter than a global cooldown,
+--  would otherwise light only as its aura runs out. So every aura lights for at
+--  least its last MIN_WINDOW seconds, from the moment your next action is the
+--  last one that still lands before it expires. Nothing lights while you are
+--  casting the spell itself. An input that cannot be read counts as "free now"
+--  or as that shortest cast, which can only light the glow later.
 --
 --  Event-driven, probing the delta: the player's cast events say when the
 --  current cast and the GCD end, and on those edges (and on cast-time changes
@@ -39,6 +42,8 @@ local UnitCastingInfo, UnitChannelInfo = UnitCastingInfo, UnitChannelInfo
 local PlainString = EllesmereUI.PlainString
 local ReadExpiration = ns.ReadAuraExpiration
 local GCD_SPELL = 61304
+-- The shortest cast a spell counts as, in seconds: one base global cooldown.
+local MIN_WINDOW = 1.5
 local HUGE = math.huge
 local EMPTY = {}
 
@@ -106,8 +111,9 @@ local function ReadGCD()
 end
 
 -- The verdict for one aura item now: true while casting its spell as your next
--- action would land it at or after the running aura's expiry. A false verdict
--- also returns the moment an idle wait would turn it on.
+-- action would land it at or after the running aura's expiry, a cast counting
+-- as MIN_WINDOW at least. A false verdict also returns the moment an idle wait
+-- would turn it on.
 local function Evaluate(frame, now)
     local exp, rate = ReadExpiration(frame)
     if not exp then return false end
@@ -126,6 +132,7 @@ local function Evaluate(frame, now)
     -- Casting the spell itself refreshes the aura: nothing to queue.
     if castName and plain and castName == SpellName(sid) then return false end
     local c = plain and CastTime(sid) or 0
+    if c < MIN_WINDOW then c = MIN_WINDOW end
     local free = now
     if castEnd > free then free = castEnd end
     if gcdEnd > free then free = gcdEnd end

@@ -1313,39 +1313,161 @@ function EllesmereUI.RealmGroupName()
     return GDAPI_REALMTYPE_NORMAL
 end
 
--- Moves store[old] to store[key] unless key already holds an entry; old goes
--- either way.
-local function AdoptCharEntry(store, old, key)
-    if store[old] ~= nil then
-        if store[key] == nil then store[key] = store[old] end
-        store[old] = nil
+-- The ruleset a WoW Forever realm name ends in: "CAMWOWEU5Realm7PvE" (or, as
+-- GetRealmName words it, "CAMWOW EU5 Realm 7 PvE") -> "PvE"; also "PvP", "RP"
+-- and "RPPvP". The realms of one ruleset differ only before it. nil for a
+-- name of any other form, or one the game withholds.
+function EllesmereUI.RealmRulesetSuffix(realm)
+    realm = EllesmereUI.PlainString(realm)
+    return realm and realm:match("Realm%s*%d+%s*(%a+)$") or nil
+end
+
+-------------------------------------------------------------------------------
+--  Per-character data: EllesmereUIDB.chars[guid] = { [feature] = data }.
+--  One roster for every feature, by player GUID (a rename keeps it). Never
+--  exported (FULL_EXPORT_EXCLUDED). Entries the char_roster_v1 migration
+--  could not tie to a GUID sit under "Name-Realm" ("Name-Ruleset" on WoW
+--  Forever) until that character next logs in, when Chars() moves them.
+-------------------------------------------------------------------------------
+
+-- This character's GUID; nil while it cannot be read.
+function EllesmereUI.CharGUID()
+    local guid = UnitGUID("player")
+    if not guid or issecretvalue(guid) then return nil end
+    return guid
+end
+
+-- Moves this character's name-keyed entries onto its GUID (fields already
+-- there win). Once a session, as soon as the GUID and the name read: before
+-- login, the game's placeholder for a name it has not loaded is no name.
+local _rosterAdopted
+local function AdoptNamedEntries(chars)
+    local guid, name = EllesmereUI.CharGUID(), UnitName("player")
+    if not guid or not name or issecretvalue(name) or (name == UNKNOWNOBJECT and not IsLoggedIn()) then return end
+    _rosterAdopted = true
+    local mine = chars[guid]
+    local realms = { EllesmereUI.RealmGroupName() or "", GetRealmName() or "",
+        GetNormalizedRealmName and GetNormalizedRealmName() or "" }
+    for _, realm in ipairs(realms) do
+        local key = name .. "-" .. realm
+        local old = chars[key]
+        if type(old) == "table" then
+            if type(mine) ~= "table" then mine = {}; chars[guid] = mine end
+            for k, v in pairs(old) do
+                if mine[k] == nil then mine[k] = v end
+            end
+        end
+        chars[key] = nil
     end
 end
 
--- Per-character key. Retail: "Name<sep>Realm". WoW Forever: the character's
--- GUID (nil while it cannot be read), since a first name is not unique there
--- and a GUID survives a rename. Each store passed in takes over what older
--- builds filed under "Name<sep>Ruleset" or "Name<sep>Realm"; nothing files
--- those keys any more, so an entry two characters shared goes to the first
--- of them to log in.
-function EllesmereUI.CharKey(sep, ...)
-    local name, group = UnitName("player"), EllesmereUI.RealmGroupName()
-    if not name or not group then return nil end
-    if not EllesmereUI.IS_FOREVER then return name .. sep .. group end
-    local guid = UnitGUID("player")
-    if not guid or issecretvalue(guid) then return nil end
-    local byGroup, byRealm
-    for i = 1, select("#", ...) do
-        local store = select(i, ...)
-        if type(store) == "table" then
-            if not byGroup then
-                byGroup, byRealm = name .. sep .. group, name .. sep .. (GetRealmName() or "")
-            end
-            AdoptCharEntry(store, byGroup, guid)
-            AdoptCharEntry(store, byRealm, guid)
+-- The roster; nil without the account DB.
+function EllesmereUI.Chars()
+    local db = EllesmereUIDB
+    if type(db) ~= "table" then return nil end
+    local chars = db.chars
+    if type(chars) ~= "table" then chars = {}; db.chars = chars end
+    if not _rosterAdopted then AdoptNamedEntries(chars) end
+    return chars
+end
+
+-- This character's entry; create builds it. nil while the GUID is unknown.
+function EllesmereUI.CharEntry(create)
+    local chars, guid = EllesmereUI.Chars(), EllesmereUI.CharGUID()
+    if not chars or not guid then return nil end
+    local c = chars[guid]
+    if type(c) ~= "table" then
+        if not create then return nil end
+        c = {}
+        chars[guid] = c
+    end
+    return c
+end
+
+-- This character's table for one feature; create builds it.
+function EllesmereUI.CharData(field, create)
+    local c = EllesmereUI.CharEntry(create)
+    if not c then return nil end
+    local d = c[field]
+    if type(d) ~= "table" then
+        if not create then return nil end
+        d = {}
+        c[field] = d
+    end
+    return d
+end
+
+-- Who each character is, on its entry beside the feature data, written by
+-- that character at login, level-up and logout:
+--   name      the full name (with the surname on WoW Forever)
+--   realm     the realm (retail) or ruleset (WoW Forever): RealmGroupName
+--   realmKey  the realm as mail addresses it ("Area52"); the ruleset on WoW Forever
+--   class, race (file tokens: "MAGE", "Scourge"), level, faction
+--   seen      time() of the last write
+-- A read that comes back unknown or secret keeps the stored value.
+local function RecordIdentity(level)
+    local c = EllesmereUI.CharEntry(true)
+    if not c then return end
+    local Plain = EllesmereUI.PlainString
+    local first, surname = (UnitNameUnmodified or UnitName)("player")
+    first = Plain(first)
+    if first then c.name = EllesmereUI.WithSurname(first, Plain(surname), true) end
+    c.realm = Plain(EllesmereUI.RealmGroupName()) or c.realm
+    if EllesmereUI.IS_FOREVER then
+        c.realmKey = c.realm
+    else
+        c.realmKey = Plain(GetNormalizedRealmName and GetNormalizedRealmName()) or c.realmKey
+    end
+    local _, class = UnitClass("player")
+    c.class = Plain(class) or c.class
+    local _, race = UnitRace("player")
+    c.race = Plain(race) or c.race
+    level = level or UnitLevel("player")
+    if type(level) == "number" and not issecretvalue(level) and level > 0 then c.level = level end
+    c.faction = Plain((UnitFactionGroup("player"))) or c.faction
+    c.seen = time()
+end
+do
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_LOGIN")
+    f:RegisterEvent("PLAYER_LEVEL_UP")
+    f:RegisterEvent("PLAYER_LOGOUT")
+    f:SetScript("OnEvent", function(_, event, newLevel)
+        RecordIdentity(event == "PLAYER_LEVEL_UP" and newLevel or nil)
+    end)
+end
+
+-- Every character's table for one feature: { [roster key] = data }. A new
+-- table each call; its values are the stored ones.
+function EllesmereUI.CharFieldMap(field)
+    local out = {}
+    local chars = EllesmereUI.Chars()
+    if not chars then return out end
+    for key, c in pairs(chars) do
+        if type(c) == "table" and type(c[field]) == "table" then out[key] = c[field] end
+    end
+    return out
+end
+
+-- Drops one character's data for one feature (an entry left empty goes).
+function EllesmereUI.ForgetCharField(key, field)
+    local chars = EllesmereUIDB and EllesmereUIDB.chars
+    local c = type(chars) == "table" and chars[key]
+    if type(c) ~= "table" then return end
+    c[field] = nil
+    if next(c) == nil then chars[key] = nil end
+end
+
+-- Drops one feature's data from every character (an entry left empty goes).
+function EllesmereUI.ClearCharField(field)
+    local chars = EllesmereUIDB and EllesmereUIDB.chars
+    if type(chars) ~= "table" then return end
+    for key, c in pairs(chars) do
+        if type(c) == "table" then
+            c[field] = nil
+            if next(c) == nil then chars[key] = nil end
         end
     end
-    return guid
 end
 
 -- "Name-Realm" whisper/invite target. With realmName it builds (realm wins,
@@ -3412,7 +3534,7 @@ end
 -------------------------------------------------------------------------------
 --  Slash commands
 -------------------------------------------------------------------------------
-EllesmereUI.VERSION = "9.8.4"
+EllesmereUI.VERSION = "9.8.6"
 
 -- Register this addon's version into a shared global table (taint-free at load time)
 if not _G._EUI_AddonVersions then _G._EUI_AddonVersions = {} end

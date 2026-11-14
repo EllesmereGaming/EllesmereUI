@@ -630,6 +630,8 @@ EllesmereUI._ELEMENT_SETTINGS_MAP = {
     ["ERB_Power"]         = { module = "EllesmereUIResourceBars",       page = "Class, Power and Health Bars", sectionName = "POWER BAR",            highlightText = "Bar Height" },
     ["ERB_ClassResource"] = { module = "EllesmereUIResourceBars",       page = "Class, Power and Health Bars", sectionName = "CLASS RESOURCE BAR",   highlightText = "Bar Height" },
     ["ERB_CastBar"]       = { module = "EllesmereUIResourceBars",       page = "Cast Bar",                     sectionName = "BAR DISPLAY",          highlightText = "Bar Height" },
+    -- Mirror Timers: their stack's one mover, the OTHER BARS section of the Cast Bar page.
+    ["ERB_MirrorBars"]    = { module = "EllesmereUIResourceBars",       page = "Cast Bar",                     sectionName = "OTHER BARS" },
 
     -- Action Bars (all share "Bar Display" page; dropdown pre-selected to correct bar)
     ["MainBar"]   = { module = "EllesmereUIActionBars",          page = "Bar Display",                  sectionName = "LAYOUT",  preSelectFn = SelectActionBar("MainBar"),   highlightText = "Icon Size" },

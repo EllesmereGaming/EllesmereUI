@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: EllesmereUI community translations. Loads on demand for non-English locales.
 ## Author: Ellesmere
-## Version: 9.8.4
+## Version: 9.8.6
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -45,3 +45,18 @@ koKR_SLC.lua [AllowLoadTextLocale koKR, enUS, enGB]
 ruRU_SLC.lua [AllowLoadTextLocale ruRU, enUS, enGB]
 zhCN_SLC.lua [AllowLoadTextLocale zhCN, zhTW, enUS, enGB]
 zhTW_SLC.lua [AllowLoadTextLocale zhTW, zhCN, enUS, enGB]
+
+# Game names (<code>_GameNames.lua): world object names as the game shows them,
+# read by that game client's language only, whatever EUI Options Language. The
+# module that reads them (Forever Essentials) lists the same files in its own
+# TOC, so this addon is not loaded for them; these lines serve a load of this
+# addon for its translations and EllesmereUI.LoadGameNames' fallback.
+deDE_GameNames.lua [AllowLoadTextLocale deDE]
+esES_GameNames.lua [AllowLoadTextLocale esES]
+esMX_GameNames.lua [AllowLoadTextLocale esMX]
+frFR_GameNames.lua [AllowLoadTextLocale frFR]
+koKR_GameNames.lua [AllowLoadTextLocale koKR]
+ptBR_GameNames.lua [AllowLoadTextLocale ptBR]
+ruRU_GameNames.lua [AllowLoadTextLocale ruRU]
+zhCN_GameNames.lua [AllowLoadTextLocale zhCN]
+zhTW_GameNames.lua [AllowLoadTextLocale zhTW]

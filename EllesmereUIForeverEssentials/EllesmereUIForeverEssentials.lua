@@ -5,7 +5,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  after this one in the TOC; this file publishes the module.
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI._Pool and EllesmereUI.RegisterNumberFormatCallback and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.ForeverTalentTrees and EllesmereUI.TalentTreeGrid) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the threat meter redraws through the parent's RegisterNumberFormatCallback and takes its font families through ApplyModuleFontFamily; Classic Talents reads its trees through ForeverTalentTrees and TalentTreeGrid)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI._Pool and EllesmereUI.RegisterNumberFormatCallback and EllesmereUI.ApplyModuleFontFamily and EllesmereUI.ForeverTalentTrees and EllesmereUI.TalentTreeGrid and EllesmereUI.CharData and EllesmereUI.LoadGameNames and EllesmereUI.GameName) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the threat meter redraws through the parent's RegisterNumberFormatCallback and takes its font families through ApplyModuleFontFamily; Classic Talents reads its trees through ForeverTalentTrees and TalentTreeGrid; its per-character data is in the parent's roster: CharData; Gathering Skill reads the client's node names through LoadGameNames and GameName)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 
 -- Lifecycle object (OnInitialize / OnEnable) for features that need one. No
@@ -160,7 +160,7 @@ function ns.MicroClickLayer(microName, onClick)
 end
 
 -------------------------------------------------------------------------------
---  Auctionator prices (Loot Feed, Junk Items)
+--  Auction prices (Loot Feed, Junk Items)
 -------------------------------------------------------------------------------
 -- Auctionator's API, while that addon is loaded.
 function ns.AuctionAPI()
@@ -168,10 +168,41 @@ function ns.AuctionAPI()
     return api and api.GetAuctionPriceByItemLink and api or nil
 end
 
--- What Auctionator last saw one of the item listed for, when it has a price.
-function ns.AuctionPrice(link)
+-- BootyBayBroker, while that addon is loaded.
+function ns.Broker()
+    local ace = LibStub and LibStub("AceAddon-3.0", true)
+    local bbb = ace and ace:GetAddon("BootyBayBroker", true)
+    return bbb and type(bbb.ItemUnitValue) == "function" and bbb or nil
+end
+
+ns.PRICE_SOURCES = { AUCTIONATOR = "Auctionator", BBB = "BootyBayBroker" }
+ns.PRICE_SOURCE_ORDER = { "AUCTIONATOR", "BBB" }
+
+function ns.PriceSourceLoaded(source)
+    if source == "BBB" then return ns.Broker() ~= nil end
+    return ns.AuctionAPI() ~= nil
+end
+
+-- The price addon in use: the chosen one while it is loaded, else whichever
+-- is loaded (Auctionator first).
+function ns.PriceSource(choice)
+    if (choice == "BBB" or not ns.AuctionAPI()) and ns.Broker() then return "BBB" end
+    return "AUCTIONATOR"
+end
+
+-- What the price addon values one of the item at, when it has a price:
+-- Auctionator's last seen listing, or BootyBayBroker's unit value. The same
+-- choice as ns.PriceSource, with each addon looked up once.
+function ns.AuctionPrice(link, choice)
     local api = ns.AuctionAPI()
-    if not api then return end
-    local ok, price = pcall(api.GetAuctionPriceByItemLink, "EllesmereUI", link)
+    local bbb = (choice == "BBB" or not api) and ns.Broker() or nil
+    local ok, price
+    if bbb then
+        local itemID = C_Item.GetItemInfoInstant(link)
+        if not itemID then return end
+        ok, price = pcall(bbb.ItemUnitValue, bbb, itemID)
+    elseif api then
+        ok, price = pcall(api.GetAuctionPriceByItemLink, "EllesmereUI", link)
+    end
     if ok and type(price) == "number" and price > 0 then return price end
 end

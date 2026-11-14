@@ -40,7 +40,7 @@ initFrame:SetScript("OnEvent", function(self)
 
     local function BuildPage(pageName, parent, yOffset)
         local W  = EllesmereUI.Widgets
-        local PP = EllesmereUI.PP
+        local PP = EllesmereUI.PanelPP
         local y  = yOffset
         local _, h
 
@@ -186,7 +186,7 @@ initFrame:SetScript("OnEvent", function(self)
                       if ECHAT.ApplyChatFontSize then ECHAT.ApplyChatFontSize(v) end
                   end })
             -- Cog for Outline Mode
-            if not EllesmereUI._prebuilding then
+            do
                 local rrgn = fontRow._leftRegion
                 local outlineValues = {
                     ["__global"] = { text = "EUI Global Default" },
@@ -457,8 +457,12 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
               end });  y = y - h
 
-        -- Row 2 (odd last slot): Fade Strength | (empty)
-        _, h = W:DualRow(parent, y,
+        -- Row 2: Fade Strength | Also Wake On (checkbox dropdown over the
+        -- placeholder, which keeps the label, tooltip and disabled state; its
+        -- getter reads every key the checklist writes, so the Spec Overrides
+        -- gold walk marks the slot while one of them is overridden)
+        local wakeRow
+        wakeRow, h = W:DualRow(parent, y,
             { type="slider", text="Fade Strength",
               min = 0, max = 100, step = 1,
               disabled=function() return Cfg("idleFadeEnabled") == false end,
@@ -468,7 +472,50 @@ initFrame:SetScript("OnEvent", function(self)
                   Set("idleFadeStrength", v)
                   if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
               end },
-            { type="label", text="" });  y = y - h
+            { type="dropdown", text="Also Wake On",
+              tooltip="Other chat lines that wake a faded chat.",
+              values={ __placeholder = "..." }, order={ "__placeholder" },
+              getValue=function()
+                  local t = Cfg("idleFadeWake")
+                  if t then
+                      local groups = ECHAT.IDLE_WAKE_GROUPS
+                      for i = 1, groups and #groups or 0 do local _ = t[groups[i].key] end
+                  end
+                  return "__placeholder"
+              end,
+              setValue=function() end,
+              disabled=function() return Cfg("idleFadeEnabled") == false end,
+              disabledTooltip="Enable Idle Fade" });  y = y - h
+        if not EllesmereUI._prebuilding then
+            local rgn = wakeRow._rightRegion
+            if rgn._control then rgn._control:Hide() end
+            local wakeItems = {}
+            for _, g in ipairs(ECHAT.IDLE_WAKE_GROUPS or {}) do
+                wakeItems[#wakeItems + 1] = { key = g.key, label = g.label }
+            end
+            local wakeDD, wakeRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                rgn, 210, rgn:GetFrameLevel() + 2, wakeItems,
+                function(key)
+                    local t = Cfg("idleFadeWake")
+                    return t and t[key] == true or false
+                end,
+                function(key, v)
+                    local t = Cfg("idleFadeWake")
+                    if not t then t = {}; Set("idleFadeWake", t) end
+                    t[key] = v and true or nil
+                    if ECHAT.ApplyIdleFadeWake then ECHAT.ApplyIdleFadeWake() end
+                end,
+                nil, nil, nil, nil, nil,
+                -- notifyWrites: a tick inside a Spec or Conditional Override
+                -- session is captured as it happens, under this row's name
+                { noAllLabel = true, notifyWrites = true,
+                  disabled = function() return Cfg("idleFadeEnabled") == false end,
+                  disabledTooltip = "Enable Idle Fade" })
+            EllesmereUI.PanelPP.Point(wakeDD, "RIGHT", rgn, "RIGHT", -20, 0)
+            rgn._control = wakeDD
+            rgn._lastInline = nil
+            EllesmereUI.RegisterWidgetRefresh(wakeRefresh)
+        end
 
         end -- isChat
 
@@ -524,7 +571,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ApplySidebarBackground then ECHAT.ApplySidebarBackground() end
               end }))
         -- Cog for Sidebar Visibility
-        if not EllesmereUI._prebuilding then
+        do
             local lrgn = sidebarRow._leftRegion
             EllesmereUI.BuildInlineCog(lrgn, {
                 title = "Sidebar Settings",
@@ -559,7 +606,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ApplyExtendedBackground then ECHAT.ApplyExtendedBackground() end
                   EllesmereUI:RefreshPage()
               end })
-        if not EllesmereUI._prebuilding then
+        do
             local lrgn = sidebarLayoutRow._rightRegion
             EllesmereUI.BuildInlineCog(lrgn, {
                 disabled = function() return not Cfg("sidebarSeparate") end,
@@ -689,7 +736,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ApplySidebarIcons then ECHAT.ApplySidebarIcons() end
                   EllesmereUI:RefreshPage()
               end })
-        if not EllesmereUI._prebuilding then
+        do
             local lrgn = sizeRow._leftRegion
             EllesmereUI.BuildInlineCog(lrgn, {
                 title = "Icon Settings",
@@ -1016,10 +1063,8 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
             end
-            if not EllesmereUI._prebuilding then
             AttachTabBgOpacityCog(tabBgRow._leftRegion, false)
             AttachTabBgOpacityCog(tabBgRow._rightRegion, true)
-            end
             y = y - h
 
             local function UnderlineMode()
@@ -1384,7 +1429,7 @@ initFrame:SetScript("OnEvent", function(self)
             { type="toggle", text="Hide Tooltip on Hover",
               getValue=function() return Cfg("hideTooltipOnHover") or false end,
               setValue=function(v) Set("hideTooltipOnHover", v) end })
-        if not EllesmereUI._prebuilding then
+        do
             local lrgn = histRow._leftRegion
             EllesmereUI.BuildInlineCog(lrgn, {
                 title = "Session History",
@@ -1573,7 +1618,7 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ApplyClassColorNames then ECHAT.ApplyClassColorNames(v) end
                   if ECHAT.EngineQueueRebuildAll then ECHAT.EngineQueueRebuildAll() end
               end })
-        if not EllesmereUI._prebuilding then
+        do
             -- Cog: world channels as letters (the old Ge / T / LD / WD / LFG)
             -- instead of their numbers. Dimmed and inert while the toggle is off.
             local lrgn = abbrevRow._leftRegion

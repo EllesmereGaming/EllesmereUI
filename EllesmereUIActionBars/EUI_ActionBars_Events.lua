@@ -430,6 +430,9 @@ end
 -- dispatcher's ACTIONBAR_UPDATE_COOLDOWN branch uses.
 function EAB_VTABLE.ForceButtonRefresh(btn, action)
     if not action then return end
+    -- Whether the slot holds anything: its icon shows only then, and only then
+    -- is its count read.
+    local filled = HasAction(action)
     local icon = btn.icon or btn.Icon
     if icon then
         -- Stamp the icon texture-delta memo with what we actually paint:
@@ -446,7 +449,7 @@ function EAB_VTABLE.ForceButtonRefresh(btn, action)
         -- nothing until hover runs Blizzard's Update. Gate on HasAction --
         -- the slot-filled boolean is the question being asked (the texture
         -- fileID is never secret, per the API docs on every client).
-        icon:SetShown(HasAction(action))
+        icon:SetShown(filled)
         -- Saturated baseline on every content change: desaturation is
         -- event/hover-managed and survives the slot emptying, so new content
         -- would inherit stale desat until mouseover; recompute below
@@ -475,12 +478,17 @@ function EAB_VTABLE.ForceButtonRefresh(btn, action)
         end
     end
     if btn.Count and C_ActionBar and C_ActionBar.GetActionDisplayCount then
-        -- No `or ""` on the raw return: it is secret while cooldowns are
-        -- restricted, and coercing one before the guard is what strands the
-        -- count. SetText accepts a secret, so only the plain nil needs healing.
-        local display = C_ActionBar.GetActionDisplayCount(action)
-        if not (issecretvalue and issecretvalue(display)) and display == nil then
-            display = ""
+        -- Empty slot: blank, as Blizzard's Update does; its count is never read
+        -- (WoW Forever reads a stack count for an empty slot).
+        local display = ""
+        if filled then
+            -- No `or ""` on the raw return: it is secret while cooldowns are
+            -- restricted, and coercing one before the guard is what strands the
+            -- count. SetText accepts a secret, so only the plain nil needs healing.
+            display = C_ActionBar.GetActionDisplayCount(action)
+            if not (issecretvalue and issecretvalue(display)) and display == nil then
+                display = ""
+            end
         end
         btn.Count:SetText(display)
         ns._EABZeroCountAlpha(EFD(btn), btn.Count, display, action)
@@ -1142,16 +1150,13 @@ do
                 local mfd = EFD(btn)
                 mfd.lastCountText = nil
                 mfd.usableState = nil
-                -- Slot emptied: refresh leaves stale count text behind
-                -- (buttons no longer receive ACTIONBAR_SLOT_CHANGED themselves).
+                -- (An emptied slot's count is blank already: the forced refresh
+                -- above writes it.)
                 local filled = HasAction(action)
-                if btn.Count and not filled then
-                    btn.Count:SetText("")
-                end
-                -- Blizzard icon background follows slot contents, same reason
-                -- as count text (no per-button OnEvent sees this event), so a
-                -- vacated slot kept its background hidden. Raw read (not
-                -- EFD()): don't allocate per-button state for options never built.
+                -- Blizzard icon background follows slot contents: no per-button
+                -- OnEvent sees this event, so a vacated slot kept its
+                -- background hidden. Raw read (not EFD()): don't allocate
+                -- per-button state for options never built.
                 local bfd = ns._eabFD[btn]
                 local clip = bfd and bfd.iconBgClip
                 if clip then

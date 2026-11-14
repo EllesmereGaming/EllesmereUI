@@ -226,6 +226,36 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
                   reload    = true,
               })
           end },
+        { type    = "toggle",
+          text    = "Enable /euipaste Command",
+          tooltip = "Adds /euipaste (and /paste when no other addon uses it): paste a list of /way or /euiway waypoint lines and run them at once. Other lines are skipped.",
+          getValue = function() return EllesmereUIDB and EllesmereUIDB.pasteCommands == true end,
+          setValue = function(v)
+              if not EllesmereUIDB then return end
+              EllesmereUIDB.pasteCommands = v or nil
+              EllesmereUI:RefreshPage()
+              EllesmereUI:ShowConfirmPopup({
+                  title = "Reload Required",
+                  message = "Changing the /euipaste command requires a reload to update slash command registration.",
+                  confirmText = "Reload",
+                  cancelText = "Later",
+                  reload    = true,
+              })
+          end }
+    ); y = y - h
+
+    _, h = W:DualRow(parent, y,
+        { type    = "labeledButton",
+          text    = "Action Bar Macro",
+          buttonText = "Create Macro",
+          width   = 130,
+          tooltip = "Creates an account macro named EUI_Paste that opens the waypoint paste window and puts it on your cursor. Click an action bar slot to place it.",
+          -- The runtime exists only after a reload with the command enabled.
+          disabled = function() return not EllesmereUI._createPasteMacro end,
+          disabledTooltip = "Enable /euipaste Command",
+          onClick = function()
+              if EllesmereUI._createPasteMacro then EllesmereUI._createPasteMacro() end
+          end },
         EllesmereUI.BlankRowCfg()
     ); y = y - h
 
@@ -349,7 +379,7 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     --  runtime builds nothing there and the section is not built)
     ---------------------------------------------------------------------------
     if _G._EUI_BuildBattleResSection and not EllesmereUI.IS_FOREVER then
-        local brezH = _G._EUI_BuildBattleResSection(parent, y, W, EllesmereUI.PP)
+        local brezH = _G._EUI_BuildBattleResSection(parent, y, W, EllesmereUI.PanelPP)
         y = y - brezH
     end
 
@@ -358,7 +388,7 @@ local function BuildAutoLoggingPage(pageName, parent, yOffset)
     --  runtime returns at load there and the section is not built)
     ---------------------------------------------------------------------------
     if _G._EUI_BuildBloodlustSection and not EllesmereUI.IS_FOREVER then
-        local lustH = _G._EUI_BuildBloodlustSection(parent, y, W, EllesmereUI.PP)
+        local lustH = _G._EUI_BuildBloodlustSection(parent, y, W, EllesmereUI.PanelPP)
         y = y - lustH
     end
 

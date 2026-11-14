@@ -5,12 +5,26 @@
 ## Group: EllesmereUI
 ## Notes: Essential tools for WoW Forever.
 ## Author: Ellesmere
-## Version: 9.8.4
+## Version: 9.8.6
 ## Dependencies: EllesmereUI
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
 
 # Main Lua
 EllesmereUIForeverEssentials.lua
+
+# Game names: world object names in the game client's language, each file read
+# by that client language alone. The files live with the translations (the one
+# folder that holds non-ASCII text); listed here they come in with this module,
+# so the locale addon is never loaded for them.
+..\EllesmereUILocales\deDE_GameNames.lua [AllowLoadTextLocale deDE]
+..\EllesmereUILocales\esES_GameNames.lua [AllowLoadTextLocale esES]
+..\EllesmereUILocales\esMX_GameNames.lua [AllowLoadTextLocale esMX]
+..\EllesmereUILocales\frFR_GameNames.lua [AllowLoadTextLocale frFR]
+..\EllesmereUILocales\koKR_GameNames.lua [AllowLoadTextLocale koKR]
+..\EllesmereUILocales\ptBR_GameNames.lua [AllowLoadTextLocale ptBR]
+..\EllesmereUILocales\ruRU_GameNames.lua [AllowLoadTextLocale ruRU]
+..\EllesmereUILocales\zhCN_GameNames.lua [AllowLoadTextLocale zhCN]
+..\EllesmereUILocales\zhTW_GameNames.lua [AllowLoadTextLocale zhTW]
 
 # General (spell uprank, classic spellbook and talents, junk items, simplified stats, gathering skill, map fade, active stance icon, map reveal, map markers, quest rewards)
 EllesmereUIForeverEssentials_Uprank.lua

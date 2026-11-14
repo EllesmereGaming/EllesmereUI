@@ -341,6 +341,8 @@ local job
 local driver
 
 local waited = setmetatable({}, { __mode = "k" })
+local appearanceTries = setmetatable({}, { __mode = "k" })
+local APPEARANCE_TRIES, APPEARANCE_RETRY = 3, 2
 local WaitForItem
 
 
@@ -421,21 +423,33 @@ local function Step()
     end
 end
 
+local function Requeue(item, runId)
+    if not addon.db.autopass or addon.Session:GetRunId() ~= runId then return end
+    if job and job.runId == runId then
+        job.queue[#job.queue + 1] = item
+    else
+        job = { runId = runId, queue = { item }, passed = 0, frames = 0, worst = 0, ms = 0 }
+    end
+    Step()
+end
+
 WaitForItem = function(item, runId)
     local link = item.link
-    if type(link) ~= "string" or waited[item] == runId then return end
-    if not C_Item.GetItemInfoInstant(link) or C_Item.GetItemInfo(link) then return end
+    if type(link) ~= "string" or not C_Item.GetItemInfoInstant(link) then return end
+    if C_Item.GetItemInfo(link) then
+
+        local tries = appearanceTries[item]
+        if not tries or tries.runId ~= runId then tries = { runId = runId, n = 0 } end
+        if tries.n >= APPEARANCE_TRIES then return end
+        tries.n, appearanceTries[item] = tries.n + 1, tries
+        addon.Log:D("Autopass", "waiting for appearance data", link, tries.n)
+        C_Timer.After(APPEARANCE_RETRY, function() Requeue(item, runId) end)
+        return
+    end
+    if waited[item] == runId then return end
     waited[item] = runId
     addon.Log:D("Autopass", "waiting once for item data", link)
-    Item:CreateFromItemLink(link):ContinueOnItemLoad(function()
-        if not addon.db.autopass or addon.Session:GetRunId() ~= runId then return end
-        if job and job.runId == runId then
-            job.queue[#job.queue + 1] = item
-        else
-            job = { runId = runId, queue = { item }, passed = 0, frames = 0, worst = 0, ms = 0 }
-        end
-        Step()
-    end)
+    Item:CreateFromItemLink(link):ContinueOnItemLoad(function() Requeue(item, runId) end)
 end
 
 function Autopass:Apply(indices, runId)

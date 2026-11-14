@@ -257,9 +257,10 @@ local bindProxy          = nil   -- SecureActionButtonTemplate (unnamed frame fa
 local globalBtn        = nil   -- SecureActionButtonTemplate (hovercast bindings)
 local registeredFrames = {}
 local ownedFrames      = {}
--- Captures each frame's native type1/*type1 (left-click target) on first register, so
--- DoUnregisterFrame restores it exactly (raid -> target, EUI frames -> none; forcing
--- the raid default onto EUI frames would be wrong). Weak-keyed so dead frames drop out.
+-- Captures each frame's native left-click target attributes (type1, the *type1 wildcard
+-- and its macrotext) on first register, so DoUnregisterFrame restores them exactly: our
+-- own unit buttons get back what EllesmereUI.SetLeftClickTarget gave them, another
+-- addon's frame whatever it had. Weak-keyed so dead frames drop out.
 local originalTargetAttrs = setmetatable({}, { __mode = "k" })
 local regQueue         = {}
 local unregQueue       = {}
@@ -1540,7 +1541,7 @@ end
 -- Sets a secure "type" attribute, gated OOC via a combat driver when oocOnly:
 -- menu/target have no macro conditional (unlike spell/macro), so the attribute
 -- itself must switch -- real action OOC, inert "none" in combat. "none" (never
--- nil) matters: unit buttons default *type2="click" (menu proxy; see
+-- nil) matters: unit buttons default *type2="macro" (menu proxy; see
 -- AttachSecureUnitMenu), and the secure resolver falls back to that wildcard
 -- whenever type<N> is nil, so "none" (not nil) suppresses it. OOC-only call
 -- site (InCombatLockdown guards in DoRegisterFrame/CC_ApplyBindings);
@@ -1572,10 +1573,9 @@ local function SetClickAttr(frame, parsed, actionType, spellOrMacro, macrotext, 
     -- left-click (button 1), which still targets via Blizzard's native
     -- Interaction click-binding -- leave that one direct, route every other
     -- target binding through the ungated "click" proxy.
-    if actionType == "target" and (suffix ~= "1" or prefix ~= "") and EllesmereUI.GetSecureTargetProxy then
-        local proxy = EllesmereUI.GetSecureTargetProxy(frame)
+    if actionType == "target" and (suffix ~= "1" or prefix ~= "") then
         SetGatedType(frame, typeAttr, "macro", oocOnly)
-        frame:SetAttribute(prefix .. "macrotext" .. suffix, "/click " .. proxy:GetName())
+        frame:SetAttribute(prefix .. "macrotext" .. suffix, EllesmereUI.GetSecureTargetMacro(frame))
         return
     end
     -- Raw action type. Only menu/target honor oocOnly via the combat driver;
@@ -1612,10 +1612,9 @@ local function SetKeyAttr(frame, idx, actionType, spellOrMacro, macrotext, oocOn
     end
     -- A "target" keybind is never plain left-click, so it always hits the 12.0.7
     -- gate -- route it through the ungated "click" proxy (see SetClickAttr).
-    if actionType == "target" and EllesmereUI.GetSecureTargetProxy then
-        local proxy = EllesmereUI.GetSecureTargetProxy(frame)
+    if actionType == "target" then
         SetGatedType(frame, typeAttr, "macro", oocOnly)
-        frame:SetAttribute("macrotext-" .. suffix, "/click " .. proxy:GetName())
+        frame:SetAttribute("macrotext-" .. suffix, EllesmereUI.GetSecureTargetMacro(frame))
         return
     end
     -- Only menu/target honor oocOnly via the combat driver (see SetClickAttr).
@@ -1831,28 +1830,48 @@ local function GetClickDirection()
     return (cc and cc.enabled and cc.downClick) and "AnyDown" or "AnyUp"
 end
 
--- Neutralizes unbound-click defaults so a click with no binding does nothing.
--- A unit button is created with type1/*type1="target" + menu wildcard
--- *type2="click"; clearing the wildcards alone isn't enough (type1 survives,
--- and nil type1 falls through to Blizzard's native left-click-targets), so an
--- unbound button gets inert type1/type2="none" instead (non-nil, unrecognized
--- -> does nothing, suppresses the fallback). Bound buttons keep their own
--- type<N> from SetClickAttr. Own secure frame, OOC only -> no taint risk.
--- plan is the bindings' ResolvePlan (keys already parsed).
+-- The unbound-click defaults under click casting. A unit button is created with
+-- left = target (type1, plus the *type1 wildcard through the target proxy for a
+-- held modifier) and the menu on right (the *type2 wildcard through the menu
+-- proxy). A plain left or right click with no binding does nothing: clearing the
+-- wildcards alone isn't enough (type1 survives, and nil type1 falls through to
+-- Blizzard's native left-click-targets), so an unbound button gets inert
+-- type1/type2="none" instead (non-nil, unrecognized -> does nothing, suppresses
+-- the fallback). While plain left is bound to Target, or plain right to Menu (and
+-- not Out of Combat Only), its wildcard stays, so a modified click with no
+-- binding of its own does the same; otherwise the wildcard goes and such a click
+-- does nothing. Bound buttons keep their own type<N> from SetClickAttr. Own secure
+-- frame, OOC only -> no taint risk. plan is the bindings' ResolvePlan (keys
+-- already parsed).
 local function NeutralizeDefaultClicks(frame, plan)
-    local b1, b2 = false, false
+    local b1, b2, leftTarget, rightMenu = false, false, false, false
     for i = 1, #plan do
         local r = plan[i]
         if r.frame then
             local parsed = r.parsed
             if parsed.isMouseButton and parsed.modifiers == "" then
-                if parsed.buttonNum == 1 then b1 = true
-                elseif parsed.buttonNum == 2 then b2 = true end
+                if parsed.buttonNum == 1 then
+                    b1 = true
+                    leftTarget = r.aType == "target" and not r.b.oocOnly
+                elseif parsed.buttonNum == 2 then
+                    b2 = true
+                    rightMenu = r.aType == "togglemenu" and not r.b.oocOnly
+                end
             end
         end
     end
-    frame:SetAttribute("*type1", nil)
-    frame:SetAttribute("*type2", nil)
+    -- Left-click bound to Target keeps targeting with a modifier held (a held Shift for a
+    -- keybind); a modifier+left binding of its own still wins over the wildcard.
+    if leftTarget then
+        EllesmereUI.SetLeftClickTarget(frame)
+    else
+        frame:SetAttribute("*type1", nil)
+        frame:SetAttribute("*macrotext1", nil)
+    end
+    -- Same for right-click bound to Menu: the secure menu proxy opens with a modifier held.
+    local menuMacro = rightMenu and EllesmereUI.GetSecureMenuMacro(frame)
+    frame:SetAttribute("*type2", menuMacro and "macro" or nil)
+    frame:SetAttribute("*macrotext2", menuMacro or nil)
     frame:SetAttribute("*clickbutton2", nil)
     if not b1 then frame:SetAttribute("type1", "none") end
     if not b2 then frame:SetAttribute("type2", "none") end
@@ -1958,11 +1977,12 @@ local function DoRegisterFrame(frame)
     -- login/reload. Every step below is idempotent/self-guarded.
     registeredFrames[frame] = true
     -- Captures native left-click target attrs ONCE so DoUnregisterFrame restores
-    -- them exactly (raid -> target, EUI frames -> none) across cycles.
+    -- them exactly across cycles.
     if originalTargetAttrs[frame] == nil then
         originalTargetAttrs[frame] = {
-            type1     = frame:GetAttribute("type1"),
-            starType1 = frame:GetAttribute("*type1"),
+            type1      = frame:GetAttribute("type1"),
+            starType1  = frame:GetAttribute("*type1"),
+            starMacro1 = frame:GetAttribute("*macrotext1"),
         }
     end
     frame:RegisterForClicks(GetClickDirection())
@@ -2028,16 +2048,16 @@ local function DoUnregisterFrame(frame)
     ClearKeyAttrs(frame, lastBindingCount)
 
     -- Restores the frame's NATIVE left-click target attrs captured at register
-    -- time (raid -> type1/*type1="target", EUI frames -> none, never forced to
-    -- target). Menu's *type2/*clickbutton2 are restored by AttachSecureUnitMenu.
+    -- time (type1, the *type1 wildcard and its macrotext; never forced to target).
+    -- Menu's *type2/*macrotext2 are restored by AttachSecureUnitMenu.
     local o = originalTargetAttrs[frame]
     if o then
         frame:SetAttribute("type1", o.type1)
         frame:SetAttribute("*type1", o.starType1)
+        frame:SetAttribute("*macrotext1", o.starMacro1)
     else
         -- Never captured (shouldn't happen): fall back to the raid default.
-        frame:SetAttribute("type1", "target")
-        frame:SetAttribute("*type1", "target")
+        EllesmereUI.SetLeftClickTarget(frame)
     end
     if EllesmereUI.AttachSecureUnitMenu then
         EllesmereUI.AttachSecureUnitMenu(frame)

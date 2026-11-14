@@ -266,6 +266,10 @@ end
 
 
 
+
+local ROW_GRACE = 10 * 60
+Snapshot.ROW_GRACE = ROW_GRACE
+
 function Snapshot:Prune(live, login)
     if not addon.db or not addon.db.historySnapshots then return 0 end
 
@@ -277,11 +281,16 @@ function Snapshot:Prune(live, login)
         end)
     end
 
-    local cutoff = GetServerTime() - KEEP_DAYS * 24 * 60 * 60
+    local now = GetServerTime()
+    local cutoff = now - KEEP_DAYS * 24 * 60 * 60
     local orphans, aged, compacted = 0, 0, 0
     local unpacked = {}
     for key, snapshot in pairs(addon.db.historySnapshots) do
-        if not live[key] then
+        local young = type(snapshot) == "table" and type(snapshot.epoch) == "number"
+            and now - snapshot.epoch < ROW_GRACE
+        if not live[key] and young then
+
+        elseif not live[key] then
             addon.db.historySnapshots[key] = nil
             orphans = orphans + 1
         else

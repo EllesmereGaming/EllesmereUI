@@ -46,7 +46,8 @@ local function Pump()
     local channel = Channel()
 
     if channel then
-        C_ChatInfo.SendChatMessage(message, channel)
+
+        C_ChatInfo.SendChatMessage(addon.Locale.TruncateBytes(message, 255), channel)
         lastSent = GetTime()
     end
 end

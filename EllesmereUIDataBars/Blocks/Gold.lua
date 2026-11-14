@@ -365,7 +365,7 @@ ns.BlockFactories.gold = function(blockCfg, slot, content, barCtx)
         -- unlisted: stored characters the roster leaves out (the hint offers them all)
         local charCount, unlisted = 0, 0
         if showChars then
-            local store = GL.Data().chars
+            local store = GL.Chars()
             -- The list holds store KEYS (GUIDs): a delete needs the key, and the entry itself does not carry one.
             local selfKey = GL.CharKey()
             -- Roster shows only balances above 10,000 gold (copper threshold) plus the live char; filtered chars still count into the total.

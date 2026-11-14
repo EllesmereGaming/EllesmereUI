@@ -793,6 +793,10 @@ local function FitLayer(L)
         layers[layer] = nil
         return
     end
+    -- A parent under a restricted anchor (a game tooltip on some owners)
+    -- raises on every layout read with no flag to ask first: skip the fit,
+    -- the next show tries again.
+    if not pcall(L.parent.GetLeft, L.parent) then return end
     local px = EllesmereUI.PP.perfect
     if L.px ~= px then
         L.px = px
@@ -866,8 +870,12 @@ EllesmereUI._onScaleChanged[#EllesmereUI._onScaleChanged + 1] = RefitLayers
 -- construction: a list's other children may lie outside it (a side submenu),
 -- where the mask would hide them.
 -- width (default 1): the edge in whole pixels, for a heavier ring (a pulse);
--- the radius keeps room for it.
+-- the radius keeps room for it; o:SetWidth(w) changes it later.
 local OUTLINE_RADIUS = 4
+
+-- Defined with the wait below: tex takes the hole m once m's art has loaded
+-- and stays hidden until then.
+local HoleWhenLoaded
 
 local function OutlineSetColor(self, r, g, b, a)
     self._fill:SetVertexColor(r, g, b, a or 1)
@@ -883,7 +891,7 @@ local function OutlineSetCover(self, r, g, b)
         cover = self._frame:CreateTexture(nil, "BORDER", nil, 6)
         cover:SetAllPoints(self._frame)
         self.cover = cover
-        if self.r then AddMask(cover, self.hole) end
+        if self.r then HoleWhenLoaded(cover, self.hole) end
     end
     cover:SetColorTexture(r, g, b, 1)
 end
@@ -914,12 +922,20 @@ local function FitOutline(o, k)
         hole:SetTexture(ROUNDED_INV[inner * 16 + ALL_CORNERS], "CLAMPTOWHITE", "CLAMPTOWHITE")
         hole:SetTextureSliceMargins(inner, inner, inner, inner)
         hole:SetTextureSliceMode(STRETCHED)
-        AddMask(fill, hole)
-        if cover then AddMask(cover, hole) end
+        -- Hidden while the hole's art loads: uncut, they would draw a box.
+        HoleWhenLoaded(fill, hole)
+        if cover then HoleWhenLoaded(cover, hole) end
     end
     local bm = o.bodyMask
     if bm then
         local br = o.radius
+        -- A wide edge raised the outline's radius (w + 1): the body takes it
+        -- in the parent's units, so no body corner pokes past the ring.
+        if w > 1 and r > floor(o.radius * k + 0.5) then
+            local need = floor(r / k + 0.5)
+            if need > br then br = need end
+            if br > MAX_RADIUS then br = MAX_RADIUS end
+        end
         if half then
             local cap = floor(half - 0.5)
             if br > cap then br = cap end
@@ -929,7 +945,7 @@ local function FitOutline(o, k)
             if o.br then RemoveMask(o.body, bm) end
             o.br = br
             SetRounded(bm, br, ALL_CORNERS, "CLAMPTOBLACKADDITIVE")
-            AddMask(o.body, bm)
+            if not o.off then o:MaskBody() end
         end
     end
 end
@@ -1017,7 +1033,10 @@ local function ClipWaitTick(self)
         if w.m:IsObjectLoaded() then
             maskWaiting[tex] = nil
             -- Not a texture the options page pool handed to another build since.
-            if PoolDress(tex) == w.gen then AddMask(tex, w.m) end
+            if PoolDress(tex) == w.gen then
+                AddMask(tex, w.m)
+                if w.hide then tex:Show() end
+            end
         end
     end
     for tex, o in pairs(artWaiting) do
@@ -1056,6 +1075,64 @@ local function MaskWhenLoaded(tex, m)
     if w then w.m, w.gen = m, PoolDress(tex) else maskWaiting[tex] = { m = m, gen = PoolDress(tex) } end
 end
 
+-- An outline's fill or cover and its hole: uncut it would draw a whole box,
+-- so it hides while the hole's art loads (Hide, as a texture's SetAlpha
+-- writes its vertex colour's alpha) and the wait shows it with the mask.
+function HoleWhenLoaded(tex, m)
+    if maskWaiting then maskWaiting[tex] = nil end
+    MaskWhenLoaded(tex, m)
+    local w = maskWaiting and maskWaiting[tex]
+    if w then w.hide = true end
+    tex:SetShown(not w)
+end
+
+-- The body takes its mask (a wait for an earlier shape is dropped).
+local function OutlineMaskBody(self)
+    local body = self.body
+    if maskWaiting then maskWaiting[body] = nil end
+    MaskWhenLoaded(body, self.bodyMask)
+end
+
+-- o:SetShown(on): off hides the outline and takes its mask off the body
+-- (square again, a setting turned off live); on brings both back.
+local function OutlineSetShown(self, on)
+    self._frame:SetShown(on)
+    local off = not on or nil
+    if self.off == off then return end
+    self.off = off
+    local bm, body = self.bodyMask, self.body
+    if not (bm and self.br) then return end
+    if on then
+        self:MaskBody()
+    else
+        if maskWaiting then maskWaiting[body] = nil end
+        RemoveMask(body, bm)
+    end
+end
+
+-- o:SetWidth(w): a new edge width in whole pixels on the same outline. The
+-- hole comes off, moves w px in and is reshaped by the next fit (radius at
+-- least w + 1, so w stays below EllesmereUI.ROUNDED_MAX_RADIUS).
+local function OutlineSetWidth(self, w)
+    if self.width == w then return end
+    self.width = w
+    local layer, hole = self._frame, self.hole
+    if self.r then
+        -- Uncut until the fit adds the hole back (HoleWhenLoaded shows them).
+        RemoveMask(self._fill, hole)
+        self._fill:Hide()
+        if self.cover then
+            RemoveMask(self.cover, hole)
+            self.cover:Hide()
+        end
+        self.r = nil
+    end
+    hole:ClearAllPoints()
+    hole:SetPoint("TOPLEFT", layer, "TOPLEFT", w, -w)
+    hole:SetPoint("BOTTOMRIGHT", layer, "BOTTOMRIGHT", -w, w)
+    self:Fit()
+end
+
 -- The outline's inner shape in the parent's units, made once: 1 unit in
 -- with a radius 1 unit smaller, the same arc centres, so what it masks
 -- follows the outline's corners as its sides do.
@@ -1085,6 +1162,7 @@ function EllesmereUI.MakeRoundedBorder(parent, r, g, b, a, body, radius, clip, w
     hole:SetPoint("TOPLEFT", layer, "TOPLEFT", w, -w)
     hole:SetPoint("BOTTOMRIGHT", layer, "BOTTOMRIGHT", -w, w)
     o._fill, o.hole, o.SetColor, o.SetCover = fill, hole, OutlineSetColor, OutlineSetCover
+    o.SetShown, o.MaskBody, o.SetWidth = OutlineSetShown, OutlineMaskBody, OutlineSetWidth
     o.radius = radius or OUTLINE_RADIUS
     if body then
         local bm = parent:CreateMaskTexture()

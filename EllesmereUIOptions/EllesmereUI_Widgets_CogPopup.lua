@@ -1019,7 +1019,7 @@ local function BuildCogPopup(opts)
                 if EllesmereUI.PadCP() then menu.CloseButton = ddBtn end
                 local mBg2 = SolidTex(menu, "BACKGROUND", EllesmereUI.DD_BG_R, EllesmereUI.DD_BG_G, EllesmereUI.DD_BG_B, 0.98)
                 mBg2:SetAllPoints()
-                EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, mBg2, nil, true)
+                local mBrd2 = EllesmereUI.MakeRoundedBorder(menu, 1, 1, 1, EllesmereUI.DD_BRD_A, mBg2, nil, true)
                 menu:SetPoint("TOPLEFT", ddBtn, "BOTTOMLEFT", 0, -2)
                 ddBtn._ddMenu = menu  -- popup click-outside ignores menu interaction
 
@@ -1028,6 +1028,9 @@ local function BuildCogPopup(opts)
 
                 menu:SetScript("OnShow", function(self)
                     self:SetScale(ddBtn:GetEffectiveScale() / UIParent:GetEffectiveScale())
+                    -- Seat the list, then its outline: the outline's layer fit on its own show, before this scale.
+                    EllesmereUI.SeatDropdownMenu(self)
+                    mBrd2:Fit()
                     self:SetScript("OnUpdate", function(m)
                         if isDragging then return end  -- never dismiss mid-drag
                         if not ddBtn:IsMouseOver() and not m:IsMouseOver() then

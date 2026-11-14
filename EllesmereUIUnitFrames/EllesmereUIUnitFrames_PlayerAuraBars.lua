@@ -833,10 +833,11 @@ EllesmereUI.NewInternals(ns, "_pabInternals", {
     AKSetters = {}, buffsContainerSetters = {}, debuffsContainerSetters = {},
     buffsParentSetters = {}, debuffsParentSetters = {}, buffsSlotSigSetters = {},
     pabSuppressedSetters = {}, reloadAllSetters = {}, previewRefreshSetters = {},
+    syncVisibilitySetters = {},
 }, {
     SetAK = "AKSetters", SetBuffsContainer = "buffsContainerSetters",
     SetDebuffsContainer = "debuffsContainerSetters", SetBuffsParent = "buffsParentSetters",
     SetDebuffsParent = "debuffsParentSetters", SetBuffsSlotSig = "buffsSlotSigSetters",
     SetPabSuppressed = "pabSuppressedSetters", SetReloadAllCustomBars = "reloadAllSetters",
-    SetMaybeRefreshPreview = "previewRefreshSetters",
+    SetMaybeRefreshPreview = "previewRefreshSetters", SetSyncVisibility = "syncVisibilitySetters",
 })

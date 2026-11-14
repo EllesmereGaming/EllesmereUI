@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: EllesmereUI settings panel. Loads on demand when you open EllesmereUI options.
 ## Author: Ellesmere
-## Version: 9.8.4
+## Version: 9.8.6
 ## Dependencies: EllesmereUI
 ## LoadOnDemand: 1
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -78,8 +78,11 @@ Nameplates_Options\ColorsPage_Options.lua
 Nameplates_Options\CoreTextColoring_Options.lua
 Nameplates_Options\DisplayBars_Options.lua
 Nameplates_Options\DisplayLayout_Options.lua
+Nameplates_Options\FriendlyPage_Options.lua
+Nameplates_Options\FriendlyPreview_Options.lua
 Nameplates_Options\GeneralPage_Options.lua
 Nameplates_Options\NameplatePreview_Options.lua
+Nameplates_Options\TargetFocusHoverPage_Options.lua
 EUI_Nameplates_Options.lua
 EUI_QoL_Options.lua
 EUI_QoL_StatPicker.lua
@@ -107,6 +110,7 @@ ResourceBars_Options\CastBarPage_Options.lua
 ResourceBars_Options\TotemBarPage_Options.lua
 ResourceBars_Options\GCDBarPage_Options.lua
 ResourceBars_Options\SwingTimerPage_Options.lua
+ResourceBars_Options\MirrorTimerPage_Options.lua
 EUI_ResourceBars_Options.lua
 UnitFrames_Options\TextSlots_Options.lua
 UnitFrames_Options\MiniFrames_Options.lua

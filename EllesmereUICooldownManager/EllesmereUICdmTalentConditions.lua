@@ -96,8 +96,7 @@ function ns.TalentCondFilterPass(cdFrames)
                 local cdSid = fc.replacesCd
                 if cdSid then
                     -- Replace-with-Buff frame: follows its cooldown's own CD-family
-                    -- entry. The resolver would read the buff store for this
-                    -- buff-viewer frame on any bar that has ever hosted a buff.
+                    -- entry, read raw (the conditions never come from a bar tier).
                     local store = ns.GetSpellSettingsStore(bk)
                     local e = store and store[cdSid]
                     conds = type(e) == "table" and rawget(e, "talentConditions") or nil

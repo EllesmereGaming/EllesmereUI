@@ -56,7 +56,7 @@ local MIN_WIDTH = 400
 local scroll, toggle
 
 
-local dock, scrollIn, dockLaid, dockSelect, dockSig
+local dock, scrollIn, dockLaid, dockAlert, dockSig
 local laidOutVisible
 
 local TAG_OFFSET
@@ -635,6 +635,8 @@ local function GroupItems()
 
 
                 groups[key] = {
+
+                    key = key,
                     link = item.link,
                     item = item,
                     sessions = {},
@@ -906,6 +908,21 @@ local function Attach(container)
 end
 
 
+
+local function AskedOfMe(sessions, names, me)
+    local named = names == nil
+    for _, name in ipairs(names or {}) do
+        named = named or addon.Player:IsSame(name, me)
+    end
+    if not named then return false end
+    for _, session in ipairs(sessions or {}) do
+        local item = addon.Session:GetItem(session)
+        if item and not item.removed and not item.awarded and addon.Roll.OwedBy(item, me) then return true end
+    end
+    return false
+end
+
+
 local function Release()
     dock, dockLaid = nil, false
     if addon.UI.MLFrame then addon.UI.MLFrame:SetResponseAvailable(false) end
@@ -913,6 +930,10 @@ local function Release()
 end
 
 local function PaintWindow()
+
+    local alert = dockAlert
+    dockAlert = nil
+
 
 
     if not addon.Session:IsRunning() then
@@ -934,10 +955,7 @@ local function PaintWindow()
         dock = host
         HideInternally()
         council:SetResponseAvailable(true)
-        if dockSelect and not host.IsActive() then
-            dockSelect = nil
-            C_Timer.After(0, function() council:ShowResponse(true) end)
-        end
+        if alert then council:AlertResponse() end
         if not host.IsActive() then
             dockLaid = false
             return
@@ -1015,7 +1033,7 @@ local function PaintWindow()
 
 
 
-        local key = group.link or tostring(group.sessions[1])
+        local key = group.key or group.link or tostring(group.sessions[1])
         local sameItem = e.groupKey == key
         if not sameItem and e.groupKey then
             e.flushNote()
@@ -1269,13 +1287,15 @@ function VoterFrame:Init()
 
 
 
-    addon.Callbacks:Register("RollRequested", function()
+    addon.Callbacks:Register("RollRequested", function(sessions, names)
         local me = addon.Player:GetFullName("player")
         local owed = 0
         for _, item in ipairs(addon.Session:GetItems()) do
-            if not item.removed and addon.Roll.OwedBy(item, me) then owed = owed + 1 end
+            if not item.removed and not item.awarded and addon.Roll.OwedBy(item, me) then owed = owed + 1 end
         end
-        if owed > 0 then dismissedRun, dismissedMax = nil, 0; dockSelect = true end
+        if owed > 0 then dismissedRun, dismissedMax = nil, 0 end
+
+        dockAlert = dockAlert or AskedOfMe(sessions, names, me)
 
 
 

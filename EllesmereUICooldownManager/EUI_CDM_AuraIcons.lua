@@ -16,10 +16,11 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --      menu's Custom Spell ID, stored as a hosted-buff marker): drawn here
 --      while no Blizzard frame or placeholder claims it, its idle icon grey,
 --      as a hosted buff keeps its slot on such a bar;
---    * a spell ID a provider draws (ns.CDM_AuraIconProvider): the WoW Forever
---      Seals stand-in (EUI_CDM_ForeverSeals.lua). The drop pass and the
---      repopulate keep such an ID, and the options preview never dims it as
---      unlearned (ns.CDM_AuraIconKeeps).
+--    * a spell ID a provider registered (ns.CDM_AuraIconProvider): a stand-in
+--      for an entry Blizzard's Cooldown Manager fails to draw. No file
+--      registers one at present. The drop pass and the repopulate keep such
+--      an ID, and the options preview never dims it as unlearned
+--      (ns.CDM_AuraIconKeeps).
 --
 --  One slot per entry, moved between bars through its proxy: a frame of ours
 --  the slot button fills, parented to the host frame, so the slot takes the

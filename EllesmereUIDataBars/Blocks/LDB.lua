@@ -76,6 +76,8 @@ end
 local function LDBDisplayText(obj)
     if not obj then return nil end
     local t = obj.text
+    -- Some plugins publish a bare number (an error count) instead of a string.
+    if type(t) == "number" then return tostring(t) end
     if type(t) == "string" and t ~= "" then return t end
     local v = obj.value
     if v ~= nil then

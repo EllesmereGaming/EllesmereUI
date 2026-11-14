@@ -165,6 +165,8 @@ function VersionFrame:Toggle()
     end
     WhenBuilt(function()
         frame:RestorePosition()
+
+        addon.Version:Poll()
         VersionFrame:Refresh()
         frame:Show()
     end)

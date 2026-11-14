@@ -4,7 +4,7 @@
 ## Group: EllesmereUI
 ## Notes: Simple unit frames with a modern visual style.
 ## Author: Ellesmere
-## Version: 9.8.4
+## Version: 9.8.6
 ## Dependencies: EllesmereUI
 ## SavedVariables: EllesmereUIUnitFramesDB
 ## IconTexture: Interface\AddOns\EllesmereUI\media\eg-logo.tga
@@ -35,6 +35,7 @@ EUI_PlayerAuraBars_Style.lua
 EUI_PlayerAuraBars_Groups.lua
 EUI_PlayerAuraBars_Config.lua
 EUI_PlayerAuraBars_Bars.lua
+EUI_PlayerAuraBars_Visibility.lua
 EUI_PlayerAuraBars_Filters.lua
 EUI_PlayerAuraBars_CustomBars.lua
 EUI_PlayerAuraBars_Preview.lua

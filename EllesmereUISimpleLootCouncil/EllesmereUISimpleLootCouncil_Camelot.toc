@@ -5,11 +5,11 @@
 ## Notes: Lets a raid's loot council vote on item distribution over addon comms.
 ## Author: Laxx
 ## X-License: All Rights Reserved
-## Version: 9.8.4
+## Version: 9.8.6
 ## DefaultState: disabled
-## X-SLC-Version: 1.0.1
-## X-SLC-Commit: 28b1bd74c9a0
-## X-SLC-Port-Commit: 7e890f840af7
+## X-SLC-Version: 1.2.2
+## X-SLC-Commit: ff2a50ee7c1a
+## X-SLC-Port-Commit: 27e144ae9616
 ## Dependencies: EllesmereUI
 # Held back (EllesmereUI.HELD_BACK_ADDONS): load on demand, and nothing loads
 # it, so it never loads and its saved data stays untouched. Drop this to ship.

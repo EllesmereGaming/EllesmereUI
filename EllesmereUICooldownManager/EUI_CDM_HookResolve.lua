@@ -99,7 +99,7 @@ ns.ResolveFrameSpellID = ResolveFrameSpellID
 -- identity set: direct hit, linkedSpellIDs, then override resolution in BOTH
 -- directions (assigned id may be the base whose live override is an identity id,
 -- e.g. Corruption 172 -> Wither 445468, or vice versa).
-local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey)
+local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey, asBuff)
     if not sid2 then return nil end
     -- Bar identity: explicit barKey wins (nil-frame callers), else frame context.
     local fc0 = frame and _ecmeFC[frame]
@@ -117,7 +117,10 @@ local function ResolveSpellSettingsUncached(frame, sid2, sd2, barKey)
     -- family store below falls back to spellSettingsCD and applies a CD-era
     -- entry under the same id to the buff.
     local hostedFrame = false
-    if frame and bk and sd2 and sd2.hostedBuffSpellIDs then
+    if fc0 and fc0.replacesCd then
+        -- "Replace with Buff" frame: the cooldown's entry, unless the caller asks for the buff's.
+        hostedFrame = asBuff and true or false
+    elseif frame and bk and sd2 and sd2.hostedBuffSpellIDs then
         local fdH = ns._hookFrameData and ns._hookFrameData[frame]
         if (fc0 and fc0.isHostedBuff)
            or (fdH and fdH._isBuffViewerFrame)
@@ -277,7 +280,8 @@ end
 -- Result memo over the resolver. Per-frame stamp keyed on ns._cdmResGen (bumped
 -- by EVERY input edge: per-spell/tier create-delete, host flips, cdID-key gate
 -- flip, clean-sid flips, SPELL_OVERRIDE_UPDATED, SPELLS_CHANGED, rebuilds) plus
--- the frame's content identity (sid2/resolvedSid/baseSpellID) plus the bar.
+-- the frame's content identity (sid2/resolvedSid/baseSpellID, and replacesCd: the
+-- collect pass writes it with no bump, and it decides the store) plus the bar.
 -- In-place mutation needs no bump (the memo returns the table writers edit).
 -- The hit path still re-asserts the tier chain (two bars can share one family
 -- entry) at one getmetatable+compare cost; nil-frame callers bypass the memo.
@@ -292,7 +296,8 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
     end
     local bk = barKey or fc0.barKey
     if fc0.ssRGen == ns._cdmResGen and fc0.ssRSid == sid2 and fc0.ssRBk == bk
-       and fc0.ssRRS == fc0.resolvedSid and fc0.ssRBS == fc0.baseSpellID then
+       and fc0.ssRRS == fc0.resolvedSid and fc0.ssRBS == fc0.baseSpellID
+       and fc0.ssRRC == fc0.replacesCd then
         local v = fc0.ssRVal
         if v == false then return nil end
         ns.ChainSettings(v, fc0.ssRTier)
@@ -305,6 +310,7 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
     fc0.ssRBk = bk
     fc0.ssRRS = fc0.resolvedSid
     fc0.ssRBS = fc0.baseSpellID
+    fc0.ssRRC = fc0.replacesCd
     if res == nil then
         fc0.ssRVal = false
         fc0.ssRTier = nil
@@ -316,6 +322,14 @@ local function ResolveSpellSettings(frame, sid2, sd2, barKey)
     return res
 end
 ns.ResolveSpellSettings = ResolveSpellSettings
+
+-- Buff-side lookups (Buff Glow, Duration Text): a "Replace with Buff" frame reads the buff's own entry.
+function ns.ResolveBuffSettings(frame, sid2, sd2, barKey)
+    local fc0 = frame and _ecmeFC[frame]
+    if not (fc0 and fc0.replacesCd) then return ResolveSpellSettings(frame, sid2, sd2, barKey) end
+    if sd2 == false then sd2 = ns.GetBarSpellData and ns.GetBarSpellData(barKey or fc0.barKey) end
+    return ResolveSpellSettingsUncached(frame, sid2, sd2, barKey, true)
+end
 
 -- Effective swipe direction for a CDM frame: the frame-KIND baseline (buffs fill
 -- up, cooldowns deplete) flipped by per-spell / preset "Reverse Swipe". Every

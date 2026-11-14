@@ -559,7 +559,7 @@ function S.Button(parent, text, opts)
     w = math.max(w, h)
     P.Size(b, w, h)
 
-    local bg, border, label = EUI.MakeStyledButton(b, "", fontHeight, EUI.WB_COLOURS, nil, not S.rounded)
+    local bg, border, label = EUI.MakeStyledButton(b, "", fontHeight, EUI.WB_COLOURS)
     label:SetFontObject(font)
     label:SetAlpha(1)
     label:SetJustifyH("CENTER")
@@ -1619,11 +1619,23 @@ end
 
 local menuOwner
 
+
+local menuWindows = setmetatable({}, { __mode = "k" })
+local function CloseWithWindow(anchor)
+    local window = S.WindowOf(anchor)
+    if not window or window == UIParent or menuWindows[window] then return end
+    menuWindows[window] = true
+    window:HookScript("OnHide", function(self)
+        if menuOwner and S.WindowOf(menuOwner) == self then S.CloseContextMenu() end
+    end)
+end
+
 function S.ContextMenu(anchor, items, opts)
     for _, item in ipairs(items) do
         if type(item) == "table" and item.checkbox then return CheckboxMenu(anchor, items) end
     end
     menuOwner = anchor
+    CloseWithWindow(anchor)
     EUI.ShowContextMenu(anchor, MenuItems(items), MenuOpts(opts))
 end
 

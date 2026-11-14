@@ -28,14 +28,45 @@ function ns.NP_BlizzOnlyGate(cfg)
     return cfg
 end
 
+-- A row half's slider label, for a "(Percent)" suffix beside it: the half's own
+-- label (a page built again keeps its earlier dresses' font strings, idle,
+-- among the half's regions).
+local function SliderLabel(rgn, text)
+    local label = rgn._label
+    if label and label.GetText and EllesmereUI.EnKey(label:GetText()) == text then return label end
+end
+
+-- Global Search words for a section header or a row, registered right before
+-- it (the index keeps a label's first entry on a page): the other names its
+-- settings are known by, what an inline swatch holds, and for a row its own
+-- tooltip, each in English and in the client's language. section: the row's
+-- section name; nil when label is a section header itself.
+local function SearchWords(label, section, ...)
+    if not EllesmereUI._RegisterSearchEntry then return end
+    local L, text = EllesmereUI.L, {}
+    for i = 1, select("#", ...) do
+        local s = select(i, ...)
+        text[#text + 1] = s
+        local loc = L(s)
+        if loc ~= s then text[#text + 1] = loc end
+    end
+    local labelLoc = L(label)
+    EllesmereUI._RegisterSearchEntry(label, labelLoc ~= label and labelLoc or nil, table.concat(text, " "),
+        EllesmereUI._buildingModule, EllesmereUI._buildingPage, section or label, nil, nil, not section or nil)
+end
+
 -------------------------------------------------------------------------------
---  Page / section names
+--  Page / section names. A page name is the page's identity (saved overrides,
+--  search and links key on it); the Display, Colors, Friendly Plates and
+--  General tabs read Enemy, Enemy Colors, Friendly and Extras through the
+--  module's tabLabels.
 -------------------------------------------------------------------------------
 local PAGE_GENERAL   = "General"
 local PAGE_DISPLAY   = "Display"
 local PAGE_COLORS    = "Colors"
+local PAGE_TFH       = "Target, Focus & Hover"
+local PAGE_FRIENDLY  = "Friendly Plates"
 
-local SECTION_FRIENDLY  = "OTHER NAMEPLATES"
 local SECTION_ENEMY_NP  = "NAMEPLATE SPACING"
 local SECTION_MISC      = "EXTRAS"
 local SECTION_AURA      = "EXTRA AURA OPTIONS"
@@ -139,6 +170,16 @@ initFrame:SetScript("OnEvent", function(self)
         if ns.NPC_ReloadAll then ns.NPC_ReloadAll() end
     end
 
+    -- Bar textures: the settings pass for the enemy plates, then the friendly
+    -- plates' health and cast bars.
+    local function RefreshAllTextures()
+        ns.RefreshAllSettings()
+        for _, plate in pairs(ns.friendlyPlates or {}) do
+            if ns.ApplyHealthBarTexture then ns.ApplyHealthBarTexture(plate) end
+            if ns.ApplyCastBarTexture then ns.ApplyCastBarTexture(plate) end
+        end
+    end
+
     ---------------------------------------------------------------------------
     --  Health bar texture dropdown values (built from ns tables)
     ---------------------------------------------------------------------------
@@ -176,23 +217,173 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     -- Mutable state shared with the page builders under Nameplates_Options\.
     -- A table instead of locals so every file reads and writes the live value.
-    -- Nil until set: activePreview (preview frame), _previewHintFS (hint
-    -- FontString), RefreshCoreEyes (Display page), _colorPreviewRefreshAll
-    -- (Colors page, refreshes all color preview bars on cache restore).
+    -- Nil until set: activePreview (the Display page's preview frame),
+    -- tfhPreview (the Target, Focus & Hover page's) and tfhMode (the state it
+    -- draws, picked for the session), RefreshCoreEyes (Display page).
     local optState = {}
     local _displayHeaderBuilder   -- stored for page cache re-use
-    local _headerBaseH = 0               -- header height WITHOUT hint (for cache restore)
 
-    local function IsPreviewHintDismissed()
-        return EllesmereUIDB and EllesmereUIDB.previewHintDismissed
+    ---------------------------------------------------------------------------
+    --  Preview click navigation, one kit for every page whose header preview
+    --  takes clicks (Display, Target, Focus & Hover, Friendly Plates), handed
+    --  to the page files as env.Nav. A page is known by its id: its page name
+    --  (env.PAGE_DISPLAY, env.PAGE_TFH, env.PAGE_FRIENDLY). Nothing is built
+    --  until a page asks, and nothing runs while no preview is clicked.
+    --
+    --  Nav.Page(id, map) -> P
+    --    The page's navigator, one per id for the session. With map: map
+    --    becomes the page's mapping and the page gets a new glow; call it on
+    --    every live build of the page, after its header is built, never in
+    --    the search pre-build. Without map, P as it is (for a header builder
+    --    that makes overlays before the page body runs).
+    --    map[key] = { section = section header, target = row, slotSide =
+    --    "left" | "right" | nil }, or a function returning such a table or
+    --    nil, called at click time.
+    --  P.Go(key)
+    --    Resolves map[key]. With a section and a target: dismisses the page's
+    --    hint, scrolls the page to 40 px above the section header and 0.15 s
+    --    later plays the green highlight on the row, or on its half when
+    --    slotSide is set, unless the row was dressed again meanwhile (a page
+    --    built again). Reads the page's map at click time, so an overlay made
+    --    by an earlier build lands on this build's rows.
+    --  P.Overlay(element, key, isText, level, opts) -> btn, hlBase, hlCont
+    --    EllesmereUI.CreatePreviewHitOverlay over element, its hover border on
+    --    a child frame of its own, clicking P.Go(key). Over the page pool's
+    --    frames the overlay is the pool's too (parked and dressed again with
+    --    the preview, so it is made on every build); over a frame of the
+    --    page's own, make it once and keep it.
+    --  Nav.Hint(id, host, hdr, y, baseH) -> height, fs
+    --    In a header builder. Until the account dismisses the hint, the line
+    --    "Click elements to scroll to and highlight their options" on host
+    --    (made once, held across builds), its bottom y above hdr's bottom;
+    --    after, hidden. baseH: the header's height without the hint. Returns
+    --    the header's height with it, and the font string (nil until made).
+    --  Nav.HintH(id, baseH) -> the height the page's hint adds while it shows
+    --    (29), else 0. baseH (optional) is the header's new height without the
+    --    hint, for a header whose height follows the settings.
+    --  Nav.HintRestore(id)
+    --    The page shown again from the page cache: its hint shows or hides by
+    --    the account's choice, and once the page has given its base height
+    --    (Nav.Hint, or Nav.HintH with baseH) the header takes that height,
+    --    plus the hint's while the account has not dismissed it.
+    --  The caller owns its map, its overlays (levels, which show, when they
+    --    are made), where its hint sits and its header's height; the kit sets
+    --    that height only on a cache restore and while a dismissed hint fades.
+    ---------------------------------------------------------------------------
+    local Nav = {}
+    do
+        local HINT_H = 29                       -- header px the hint line adds
+        local HIT_STYLE = { container = true }  -- the hover border on its own child frame
+        local pages = {}                        -- id -> P: the map, the glow, the hint
+
+        local function HintDismissed()
+            return EllesmereUIDB and EllesmereUIDB.previewHintDismissed
+        end
+        local function GlowPx() return PP.Scale(2) end
+
+        function Nav.Page(id, map)
+            local P = pages[id]
+            if not P then
+                P = { base = 0 }
+                function P.Go(key)
+                    local m = P.map and P.map[key]
+                    if type(m) == "function" then m = m() end
+                    if not m or not m.section or not m.target then return end
+
+                    -- The header shrinks by the hint's height back to the page's base.
+                    EllesmereUI.DismissPreviewHint(P.fs, P.base, HINT_H, P.y)
+
+                    local sf = EllesmereUI._scrollFrame
+                    if not sf then return end
+                    local _, _, _, _, headerY = m.section:GetPoint(1)
+                    if not headerY then return end
+                    local scrollPos = math.max(0, math.abs(headerY) - 40)
+                    EllesmereUI.SmoothScrollTo(scrollPos)
+                    local glowTarget = m.target
+                    if m.slotSide and m.target then
+                        local region = (m.slotSide == "left") and m.target._leftRegion or m.target._rightRegion
+                        if region then glowTarget = region end
+                    end
+                    -- A page built again before the glow plays dressed the row anew: no glow.
+                    local glow, glowGen = P.glow, PoolGen(glowTarget)
+                    C_Timer.After(0.15, function()
+                        if PoolGen(glowTarget) ~= glowGen then return end
+                        glow(glowTarget)
+                    end)
+                end
+                function P.Overlay(element, key, isText, level, opts)
+                    return EllesmereUI.CreatePreviewHitOverlay(element, P.Go, key, isText, level, opts, HIT_STYLE)
+                end
+                pages[id] = P
+            end
+            if map then
+                P.map = map
+                P.glow = EllesmereUI.MakeSettingGlow({ color = EllesmereUI.ELLESMERE_GREEN, thickness = GlowPx, noSnap = true })
+            end
+            return P
+        end
+
+        function Nav.Hint(id, host, hdr, y, baseH)
+            local P = Nav.Page(id)
+            -- A hint whose parent was dropped with an old header is made again.
+            if P.fs and not P.fs:GetParent() then
+                P.fs = nil
+            end
+            local shown = not HintDismissed()
+            if shown then
+                if not P.fs then
+                    -- Held across builds: out of the frame pool for good (later
+                    -- builds of its host only hide it with the host).
+                    P.fs = PoolKeep(EllesmereUI.MakeFont(host, 11, nil, 1, 1, 1))
+                    P.fs:SetAlpha(0.45)
+                    P.fs:SetText(EllesmereUI.L("Click elements to scroll to and highlight their options"))
+                end
+                P.fs:SetParent(host)
+                P.fs:ClearAllPoints()
+                P.fs:SetPoint("BOTTOM", hdr, "BOTTOM", 0, y)
+                P.fs:SetAlpha(0.45)
+                P.fs:Show()
+            elseif P.fs then
+                P.fs:Hide()
+            end
+            P.y, P.base = y, baseH
+            return baseH + (shown and HINT_H or 0), P.fs
+        end
+
+        function Nav.HintH(id, baseH)
+            local P = pages[id]
+            if not P then return 0 end
+            if baseH then P.base = baseH end
+            return (P.fs and P.fs:IsShown()) and HINT_H or 0
+        end
+
+        -- Refreshes the hint's visibility only; never makes one.
+        function Nav.HintRestore(id)
+            local P = pages[id]
+            if not P then return end
+            local dismissed = HintDismissed()
+            if P.fs then
+                if dismissed then
+                    P.fs:Hide()
+                else
+                    P.fs:SetAlpha(0.45)
+                    P.fs:Show()
+                end
+            end
+            if P.base > 0 then
+                -- the hint's line only where the page has a hint to show
+                EllesmereUI:SetContentHeaderHeightSilent(P.base + ((P.fs and not dismissed) and HINT_H or 0))
+            end
+        end
     end
 
     -- Raid marker hidden by default, toggled via eye icon; optState fields so both the preview and the Display page can access them.
     optState.showRaidMarkerPreview = false
     optState.showClassificationPreview = false
     optState.showQuestTextPreview = false
-    optState.showTargetGlowPreview = false
     optState.showAbsorbPreview = false
+    -- (the Friendly Plates page's eye: the raid marker on the sample NPC)
+    optState.showNPCMarkerPreview = false
 
     -- Transient flags: force-show indicators during slider drag
     optState._sliderDragShowRaidMarker = false
@@ -207,13 +398,16 @@ initFrame:SetScript("OnEvent", function(self)
         optState._previewCastIconIdx = math.random(#displayCastIcons)
     end
 
-    -- Only while the preview is on screen: setters of other pages and the panel's
-    -- show callback reach it from any page, and the Display page's cache restore
-    -- updates it when it shows again.
+    -- The Display page and the Target, Focus & Hover page each keep a preview in
+    -- their own header. Only the one on screen is repainted: setters of other
+    -- pages and the panel's show callback reach this from any page, and a page's
+    -- cache restore updates its own preview when it shows again.
     local function UpdatePreview()
-        local pv = optState.activePreview
-        if pv and pv.Update and pv:IsVisible() then
-            pv:Update()
+        for i = 1, 2 do
+            local pv = optState[i == 1 and "activePreview" or "tfhPreview"]
+            if pv and pv.Update and pv:IsVisible() then
+                pv:Update()
+            end
         end
     end
 
@@ -279,7 +473,9 @@ initFrame:SetScript("OnEvent", function(self)
             },
         }
         -- The cast bar glows (flat <prefix>* keys, on/off in <prefix>): the cast bar is a
-        -- bar host (no Shape). An edit reaches the casts already showing.
+        -- bar host (no Shape). An edit reaches the casts already showing. Modern WoW Glow
+        -- is drawn as Blizzard's nameplate cast bar art, so picking it selects the Default
+        -- color: the art's own.
         local function RefreshCastGlows()
             if ns.NP_RefreshCastGlows then ns.NP_RefreshCastGlows() end
         end
@@ -289,6 +485,7 @@ initFrame:SetScript("OnEvent", function(self)
                 view = ns.NP_GLOW_VIEW, host = "bar",
                 caps = { mode = true, params = true, bg = true },
                 defaultColor = defaults[k.color],
+                defaultColorOnPick = ns.NP_CAST_ART_STYLE and { [ns.NP_CAST_ART_STYLE] = true } or nil,
                 isOff = function() return DBVal(prefix) ~= true end,
                 onChange = RefreshCastGlows,
                 get = function(f)
@@ -344,9 +541,12 @@ initFrame:SetScript("OnEvent", function(self)
         GO.RegisterSite({ id = "np_dispel", label = "Dispel Glow", group = "module",
             module = "EllesmereUINameplates", page = PAGE_GENERAL, section = SECTION_AURA,
             highlight = "Dispel Glow Style", desc = npDispelGlowDesc })
-        GO.RegisterSite({ id = "np_pandemic", label = "Pandemic Glow", group = "module",
-            module = "EllesmereUINameplates", page = PAGE_GENERAL, section = SECTION_AURA,
-            highlight = "Pandemic Glow Style", desc = npPandemicGlowDesc })
+        -- (not on WoW Forever: no pandemic window there, ns.NP_PANDEMIC_NONE)
+        if not ns.NP_PANDEMIC_NONE then
+            GO.RegisterSite({ id = "np_pandemic", label = "Pandemic Glow", group = "module",
+                module = "EllesmereUINameplates", page = PAGE_GENERAL, section = SECTION_AURA,
+                highlight = "Pandemic Glow Style", desc = npPandemicGlowDesc })
+        end
         GO.RegisterSite({ id = "np_importantcast", label = "Important Cast Glow", group = "module",
             module = "EllesmereUINameplates", page = PAGE_DISPLAY, section = SECTION_CASTBAR,
             highlight = "Important Cast Glow", desc = npImpCastGlowDesc })
@@ -358,8 +558,6 @@ initFrame:SetScript("OnEvent", function(self)
     ---------------------------------------------------------------------------
     --  Display page  (preview in content header + settings in scroll area)
     ---------------------------------------------------------------------------
-    local LazyColorPreviewBar -- forward declaration; defined with the Colors page helpers below
-
     local function BuildDisplayPage(pageName, parent, yOffset)
         local W = EllesmereUI.Widgets
         local y = yOffset
@@ -380,30 +578,9 @@ initFrame:SetScript("OnEvent", function(self)
                 optState.activePreview._headerExtra = PRESET_HEADER_H + PREVIEW_TOP_PAD + PREVIEW_BOTTOM_PAD
             end
 
-            -- "Click elements" hint: parented to activePreview (not headerParent directly, which orphaned it via ClearContentHeaderInner on page switch) so the FontString travels through the content-header cache; if orphaned (parent gone), nil it to recreate.
-            if optState._previewHintFS and not optState._previewHintFS:GetParent() then
-                optState._previewHintFS = nil
-            end
-            local hintShown = not IsPreviewHintDismissed()
-            if hintShown then
-                if not optState._previewHintFS then
-                    -- Held across builds: out of the preview's frame pool for good
-                    -- (its later builds only hide it with the preview).
-                    optState._previewHintFS = PoolKeep(EllesmereUI.MakeFont(optState.activePreview or headerParent, 11, nil, 1, 1, 1))
-                    optState._previewHintFS:SetAlpha(0.45)
-                    optState._previewHintFS:SetText(EllesmereUI.L("Click elements to scroll to and highlight their options"))
-                end
-                optState._previewHintFS:SetParent(optState.activePreview or headerParent)
-                optState._previewHintFS:ClearAllPoints()
-                optState._previewHintFS:SetPoint("BOTTOM", headerParent, "BOTTOM", 0, 17)
-                optState._previewHintFS:SetAlpha(0.45)
-                optState._previewHintFS:Show()
-            elseif optState._previewHintFS then
-                optState._previewHintFS:Hide()
-            end
-
-            _headerBaseH = previewH + PRESET_HEADER_H + PREVIEW_TOP_PAD + PREVIEW_BOTTOM_PAD
-            return _headerBaseH + (hintShown and 29 or 0)
+            -- "Click elements" hint: parented to activePreview (not headerParent directly, which orphaned it via ClearContentHeaderInner on page switch) so the FontString travels through the content-header cache.
+            return (Nav.Hint(PAGE_DISPLAY, optState.activePreview or headerParent, headerParent, 17,
+                previewH + PRESET_HEADER_H + PREVIEW_TOP_PAD + PREVIEW_BOTTOM_PAD))
         end
         EllesmereUI:SetContentHeader(_displayHeaderBuilder)
 
@@ -583,13 +760,12 @@ initFrame:SetScript("OnEvent", function(self)
         local styleHeader, coreHeader, coreRow1, coreRow2, coreRow3, coreTextHeader, textSlotCells
         local textFirstRow
         y, styleHeader, coreHeader, coreRow1, coreRow2, coreRow3, coreTextHeader, textSlotCells,
-            textFirstRow, ctx.ShowCogPopup, ctx.CogPopupOpen,
-            ctx.RefreshAllTextures = ns.NPO_BuildDisplayLayout(parent, y, ctx)
+            textFirstRow, ctx.ShowCogPopup, ctx.CogPopupOpen = ns.NPO_BuildDisplayLayout(parent, y, ctx)
         local healthBarHeader, healthBarHeightRow, castBarHeightRow, showCastIconRow, castTimerRow
-        local tfxHeader, targetGlowRow, classResourceHeader, classResourceSection, generalTextHeader
+        local classResourceHeader, classResourceSection, generalTextHeader
         local auraDurPosRow, auraTimerStackRow, spellNameRow
         y, healthBarHeader, healthBarHeightRow, castBarHeightRow, showCastIconRow, castTimerRow,
-            tfxHeader, targetGlowRow, classResourceHeader, classResourceSection, generalTextHeader,
+            classResourceHeader, classResourceSection, generalTextHeader,
             auraDurPosRow, auraTimerStackRow, spellNameRow = ns.NPO_BuildDisplayBars(parent, y, ctx)
 
         -- The search pre-build indexes rows only. The click navigation below
@@ -598,10 +774,9 @@ initFrame:SetScript("OnEvent", function(self)
         if EllesmereUI._prebuilding then return math.abs(y) end
 
         -----------------------------------------------------------------------
-        --  CLICK NAVIGATION: glow, scroll, mapping, hit overlays
+        --  CLICK NAVIGATION: mapping and hit overlays (the glow, the scroll and
+        --  the overlay factory are the Nav kit's)
         -----------------------------------------------------------------------
-        local PlaySettingGlow = EllesmereUI.MakeSettingGlow({ color = EllesmereUI.ELLESMERE_GREEN, thickness = function() return PP.Scale(2) end, noSnap = true })
-
         -- Maps Core Text Position slot keys to their row/region (the cells of
         -- the texts the list shows)
         local textSlotToRow = textSlotCells
@@ -650,11 +825,10 @@ initFrame:SetScript("OnEvent", function(self)
             castTarget   = { section = generalTextHeader, target = spellNameRow,        slotSide = "right" },
             healthBar    = { section = healthBarHeader,  target = healthBarHeightRow },
             classResource = { section = classResourceHeader, target = classResourceSection },
-            targetArrows = { section = tfxHeader,            target = targetGlowRow,       slotSide = "right" },
-        }
 
-        -- Dynamic resolvers for elements assigned to Core Positions / Core Text Positions
-        local dynamicMappings = {
+            -- Resolvers, called at click time: the elements assigned to Core
+            -- Positions / Core Text Positions, and the stock styles' levels.
+
             -- Classic WoW UI: the level in the health border's plate. Its row
             -- exists only on that style, so this resolves to nothing elsewhere.
             classicLevel = function()
@@ -699,7 +873,7 @@ initFrame:SetScript("OnEvent", function(self)
         }
         -- Custom texts: each position's own font string, that position's row.
         for _, slotKey in ipairs(ns.textSlotKeys) do
-            dynamicMappings["custom_" .. slotKey] = function()
+            clickMappings["custom_" .. slotKey] = function()
                 local info = textSlotToRow[slotKey]
                 if not info then return { section = coreTextHeader, target = textFirstRow } end
                 return { section = coreTextHeader, target = info.row, slotSide = (info.side == "_leftRegion") and "left" or "right" }
@@ -707,59 +881,30 @@ initFrame:SetScript("OnEvent", function(self)
         end
         -- The font strings a single element owns: the row of the slot showing it.
         for mapKey, element in pairs({ healthNumber = "healthNumber", levelText = "level", targetOfTarget = "targetOfTarget" }) do
-            dynamicMappings[mapKey] = function()
+            clickMappings[mapKey] = function()
                 local info = textSlotToRow[FindTextSlotForElement(element) or ""]
                 if not info then return { section = coreTextHeader, target = textFirstRow } end
                 return { section = coreTextHeader, target = info.row, slotSide = (info.side == "_leftRegion") and "left" or "right" }
             end
         end
 
-        local function NavigateToSetting(key)
-            local m = clickMappings[key]
-            -- Check dynamic mappings (icon/text elements assigned to Core Positions)
-            if not m then
-                local resolver = dynamicMappings[key]
-                if resolver then m = resolver() end
-            end
-            if not m or not m.section or not m.target then return end
+        -- This build's map; a click on a key scrolls to its row and highlights it.
+        local nav = Nav.Page(PAGE_DISPLAY, clickMappings)
+        local NavigateToSetting = nav.Go
 
-            -- Header grows by 29 but shrinks by 39 (kept as shipped).
-            EllesmereUI.DismissPreviewHint(optState._previewHintFS, _headerBaseH, 29, 17)
-
-            local sf = EllesmereUI._scrollFrame
-            if not sf then return end
-            local _, _, _, _, headerY = m.section:GetPoint(1)
-            if not headerY then return end
-            local scrollPos = math.max(0, math.abs(headerY) - 40)
-            EllesmereUI.SmoothScrollTo(scrollPos)
-            local glowTarget = m.target
-            if m.slotSide and m.target then
-                local region = (m.slotSide == "left") and m.target._leftRegion or m.target._rightRegion
-                if region then glowTarget = region end
-            end
-            -- A page built again before the glow plays dressed the row anew: no glow.
-            local glowGen = PoolGen(glowTarget)
-            C_Timer.After(0.15, function()
-                if PoolGen(glowTarget) ~= glowGen then return end
-                PlaySettingGlow(glowTarget)
-            end)
-        end
-
-        -- Hit overlay factory for preview elements. opts (optional): hlAnchor = frame to draw the highlight around (instead of btn); hlBehindText = true draws it on a child frame at icon level+1 (text lives at icon level+2).
         local function SnapPreview(val)
             local s = optState.activePreview and optState.activePreview:GetEffectiveScale() or 1
             if s <= 0 then s = 1 end
             return math.floor(val * s + 0.5) / s
         end
+        -- Hit overlays for preview elements. opts (optional): hlAnchor = frame to
+        -- draw the highlight around (instead of the overlay); hlBehindText = true
+        -- draws it on a child frame at icon level+1 (text lives at icon level+2).
         -- Every build of this page runs right after its header built the preview
         -- again (the SetContentHeader call above), so the overlays below go on a
         -- preview that has none: a new one, or (page reuse) the same frames dressed
         -- again with their overlays parked by the preview's pool.
-        local hitStyle = { container = true }
-        local function CreateHitOverlay(element, mappingKey, isText, frameLevelOverride, opts)
-            local btn = EllesmereUI.CreatePreviewHitOverlay(element, NavigateToSetting, mappingKey, isText, frameLevelOverride, opts, hitStyle)
-            return btn
-        end
+        local CreateHitOverlay = nav.Overlay
 
         -- Create hit overlays for all interactive preview elements
         local textOverlays = {}  -- collect text overlays for size refresh
@@ -968,178 +1113,11 @@ initFrame:SetScript("OnEvent", function(self)
             -- Sync overlay visibility with preview toggles
             pv._raidOverlay = raidOverlay
             pv._classOverlay = classOverlay
-            -- Target arrows wrapper button spanning both arrow textures
-            local arrowOverlay
-            if pv._arrows then
-                local arrowBtn = CreateFrame("Button", nil, pv)
-                arrowBtn:SetPoint("TOPLEFT", pv._arrows.left, "TOPLEFT", -2, 2)
-                arrowBtn:SetPoint("BOTTOMRIGHT", pv._arrows.right, "BOTTOMRIGHT", 2, -2)
-                arrowBtn:SetFrameLevel((pv._health and pv._health:GetFrameLevel() or 20) + 15)
-                arrowBtn:RegisterForClicks("LeftButtonDown")
-                local cc = EllesmereUI.ELLESMERE_GREEN
-                local function MkAHL()
-                    local t = arrowBtn:CreateTexture(nil, "OVERLAY", nil, 7)
-                    t:SetColorTexture(cc.r, cc.g, cc.b, 1)
-                    if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false); t:SetTexelSnappingBias(0) end
-                    return t
-                end
-                -- Highlight on left arrow
-                local aPx = SnapPreview(2)
-                local alt = MkAHL(); alt:SetHeight(aPx); alt:SetPoint("TOPLEFT", pv._arrows.left, -2, 2); alt:SetPoint("TOPRIGHT", pv._arrows.left, 2, 2)
-                local alb = MkAHL(); alb:SetHeight(aPx); alb:SetPoint("BOTTOMLEFT", pv._arrows.left, -2, -2); alb:SetPoint("BOTTOMRIGHT", pv._arrows.left, 2, -2)
-                local all = MkAHL(); all:SetWidth(aPx); all:SetPoint("TOPLEFT", alt, "BOTTOMLEFT"); all:SetPoint("BOTTOMLEFT", alb, "TOPLEFT")
-                local alr = MkAHL(); alr:SetWidth(aPx); alr:SetPoint("TOPRIGHT", alt, "BOTTOMRIGHT"); alr:SetPoint("BOTTOMRIGHT", alb, "TOPRIGHT")
-                -- Highlight on right arrow
-                local art = MkAHL(); art:SetHeight(aPx); art:SetPoint("TOPLEFT", pv._arrows.right, -2, 2); art:SetPoint("TOPRIGHT", pv._arrows.right, 2, 2)
-                local arb = MkAHL(); arb:SetHeight(aPx); arb:SetPoint("BOTTOMLEFT", pv._arrows.right, -2, -2); arb:SetPoint("BOTTOMRIGHT", pv._arrows.right, 2, -2)
-                local arl = MkAHL(); arl:SetWidth(aPx); arl:SetPoint("TOPLEFT", art, "BOTTOMLEFT"); arl:SetPoint("BOTTOMLEFT", arb, "TOPLEFT")
-                local arr = MkAHL(); arr:SetWidth(aPx); arr:SetPoint("TOPRIGHT", art, "BOTTOMRIGHT"); arr:SetPoint("BOTTOMRIGHT", arb, "TOPRIGHT")
-                arrowBtn._hlTextures = { alt, alb, all, alr, art, arb, arl, arr }
-                local function ShowAHL() for _, t in ipairs(arrowBtn._hlTextures) do t:Show() end end
-                local function HideAHL() for _, t in ipairs(arrowBtn._hlTextures) do t:Hide() end end
-                HideAHL()
-                arrowBtn:SetScript("OnEnter", function() ShowAHL() end)
-                arrowBtn:SetScript("OnLeave", function() HideAHL() end)
-                arrowBtn:SetScript("OnMouseDown", function() NavigateToSetting("targetArrows") end)
-                -- Only show when arrows are visible
-                if not pv._arrows.left:IsShown() then arrowBtn:Hide() end
-                arrowOverlay = arrowBtn
-            end
-            pv._arrowOverlay = arrowOverlay
             -- Store text overlays for size refresh on preview update
             pv._textOverlays = textOverlays
         end
 
         return math.abs(y)
-    end
-
-    ---------------------------------------------------------------------------
-    --  Colors page
-    ---------------------------------------------------------------------------
-
-    -- Spell icon pool for cast bar previews, cycled in order
-    local castIconPool = { 136197, 236802, 135808, 136116, 135735, 136048, 135812, 136075 }
-    local castIconIdx = 0
-    local function NextCastIcon()
-        castIconIdx = castIconIdx + 1
-        if castIconIdx > #castIconPool then castIconIdx = 1 end
-        return castIconPool[castIconIdx]
-    end
-
-    -- Cast fill values: each at least 5% apart, range 40 90%
-    local castFillUsed = {}
-    local function NextCastFill()
-        for _ = 1, 50 do
-            local v = 0.40 + math.random() * 0.20
-            local ok = true
-            for _, prev in ipairs(castFillUsed) do
-                if math.abs(v - prev) < 0.05 then ok = false; break end
-            end
-            if ok then
-                castFillUsed[#castFillUsed + 1] = v
-                return v
-            end
-        end
-        -- fallback if somehow can't find a valid value
-        local v = 0.40 + math.random() * 0.20
-        castFillUsed[#castFillUsed + 1] = v
-        return v
-    end
-
-    -- Shared preview bar list and lazy builder (used by both Display and Colors pages).
-    -- One entry per bar (colorType and colorKey): each build of the row that shows a
-    -- bar replaces that bar's entry, so the list keeps the latest build's bars only.
-    local _colorPagePreviews = {}
-    local _colorPreviewSlot = {}   -- "colorType:colorKey" -> index in _colorPagePreviews
-
-    LazyColorPreviewBar = function(parentRow, colorType, colorKey, anchorFrame)
-        local real = nil
-        local proxy = {}
-        local _disabled = false
-        local _colorOverrideFn = nil
-        -- The row's dress this bar belongs to (page reuse): once the row is dressed
-        -- again for a later build, this proxy and its bar are that build's no more.
-        local rowGen = PoolGen(parentRow)
-        local function Built()
-            if real and PoolGen(parentRow) == rowGen then return real end
-        end
-        local function EnsureBuilt()
-            if PoolGen(parentRow) ~= rowGen then return nil end
-            if real then return real end
-            real = ns.NPO_MakeColorPreviewBar(parentRow, colorType, colorKey, anchorFrame)
-            if _disabled and real._health then real._health:SetAlpha(0.3) end
-            return real
-        end
-        proxy.GetFrame = function() return EnsureBuilt() end
-        proxy.UpdateColor = function()
-            local r = EnsureBuilt()
-            if r and r.UpdateColor then
-                if _colorOverrideFn then
-                    local cr, cg, cb = _colorOverrideFn()
-                    if cr and r._health then
-                        r._health:SetStatusBarColor(cr, cg, cb, 1)
-                        return
-                    end
-                end
-                r.UpdateColor()
-            end
-        end
-        proxy.UpdateOverlay = function()
-            local r = EnsureBuilt()
-            if r and r.UpdateOverlay then r.UpdateOverlay() end
-        end
-        proxy.RefreshBorderStyle = function()
-            local r = Built()
-            if r and r.RefreshBorderStyle then r.RefreshBorderStyle() end
-        end
-        proxy.RefreshBorderColor = function()
-            local r = Built()
-            if r and r.RefreshBorderColor then r.RefreshBorderColor() end
-        end
-        proxy.Randomize = function()
-            local r = Built()
-            if r and r.Randomize then r.Randomize() end
-        end
-        proxy.RefreshHealthText = function()
-            local r = Built()
-            if r and r.RefreshHealthText then r.RefreshHealthText() end
-        end
-        proxy.SetDisabled = function(off)
-            _disabled = off
-            local r = Built()
-            if r and r._health then
-                r._health:SetAlpha(off and 0.3 or 1)
-            end
-        end
-        proxy.SetColorOverride = function(fn)
-            _colorOverrideFn = fn
-        end
-        parentRow:HookScript("OnShow", function()
-            if not real then
-                EnsureBuilt()
-                -- Listed once: page reuse can hand the same bar frame to a later build.
-                local list = _G._EUI_ColorPreviews
-                local listed = false
-                for i = 1, #list do
-                    if list[i] == real then listed = true; break end
-                end
-                if not listed then list[#list + 1] = real end
-            end
-            if real and real._health then
-                real._health:SetAlpha(_disabled and 0.3 or 1)
-            end
-        end)
-        if parentRow:IsVisible() then
-            EnsureBuilt()
-        end
-        local slot = colorType .. ":" .. tostring(colorKey)
-        local idx = _colorPreviewSlot[slot]
-        if not idx then
-            idx = #_colorPagePreviews + 1
-            _colorPreviewSlot[slot] = idx
-        end
-        _colorPagePreviews[idx] = proxy
-        return proxy
     end
 
     -- Textured Background: the Texture Settings cog row, shared by the Display
@@ -1162,22 +1140,24 @@ initFrame:SetScript("OnEvent", function(self)
     -- prologs). Every field is final here: optState holds the mutable state.
     ns._NPO_OptEnv = {
         TexBgRowCfg = TexBgRowCfg,
-        _colorPagePreviews = _colorPagePreviews, ADDON_NAME = ADDON_NAME, BAR_W = BAR_W, DB = DB,
+        ADDON_NAME = ADDON_NAME, BAR_W = BAR_W, DB = DB,
         DBColor = DBColor, DBVal = DBVal, defaults = defaults, displayCastIcons = displayCastIcons,
         FOCUS_LETTER_ANCHOR_ORDER = FOCUS_LETTER_ANCHOR_ORDER,
         FOCUS_LETTER_ANCHORS = FOCUS_LETTER_ANCHORS, GetFocusLetterAnchor = GetFocusLetterAnchor,
         GetNPOptOutline = GetNPOptOutline, hbtOrder = hbtOrder, hbtValues = hbtValues,
-        LazyColorPreviewBar = LazyColorPreviewBar, NAME_RAID_MARKER_GAP = NAME_RAID_MARKER_GAP,
-        NextCastFill = NextCastFill, NextCastIcon = NextCastIcon,
+        NAME_RAID_MARKER_GAP = NAME_RAID_MARKER_GAP, Nav = Nav,
         npDispelGlowDesc = npDispelGlowDesc, npImpCastGlowDesc = npImpCastGlowDesc,
         npPandemicGlowDesc = npPandemicGlowDesc, npCastTargetGlowDesc = npCastTargetGlowDesc,
-        optState = optState, pairs = pairs, pcall = pcall, plates = plates, PP = PP,
+        optState = optState, PAGE_DISPLAY = PAGE_DISPLAY, PAGE_FRIENDLY = PAGE_FRIENDLY, PAGE_TFH = PAGE_TFH,
+        pairs = pairs, pcall = pcall, plates = plates, PP = PP,
         RandomizePreviewValues = RandomizePreviewValues, RefreshAllAuras = RefreshAllAuras,
-        RefreshAllPlates = RefreshAllPlates, SECTION_AURA = SECTION_AURA,
-        SECTION_CASTBAR = SECTION_CASTBAR, SECTION_ENEMY = SECTION_ENEMY,
-        SECTION_ENEMY_NP = SECTION_ENEMY_NP, SECTION_FRIENDLY = SECTION_FRIENDLY,
+        RefreshAllPlates = RefreshAllPlates, RefreshAllTextures = RefreshAllTextures,
+        SearchWords = SearchWords,
+        SECTION_AURA = SECTION_AURA, SECTION_CASTBAR = SECTION_CASTBAR,
+        SECTION_ENEMY = SECTION_ENEMY, SECTION_ENEMY_NP = SECTION_ENEMY_NP,
         SECTION_MISC = SECTION_MISC, SECTION_THREAT = SECTION_THREAT, SetFSFont = SetFSFont,
-        SetPVFont = SetPVFont, THREAT_PCT_POSITION_ORDER = THREAT_PCT_POSITION_ORDER,
+        SetPVFont = SetPVFont, SliderLabel = SliderLabel,
+        THREAT_PCT_POSITION_ORDER = THREAT_PCT_POSITION_ORDER,
         THREAT_PCT_POSITIONS = THREAT_PCT_POSITIONS, UpdatePreview = UpdatePreview,
     }
 
@@ -1207,7 +1187,19 @@ initFrame:SetScript("OnEvent", function(self)
     EllesmereUI:RegisterModule("EllesmereUINameplates", {
         title       = "Nameplates",
         description = "Custom nameplate design and behavior.",
-        pages       = { PAGE_DISPLAY, PAGE_COLORS, PAGE_GENERAL },
+        pages       = { PAGE_DISPLAY, PAGE_COLORS, PAGE_TFH, PAGE_FRIENDLY, PAGE_GENERAL },
+        tabLabels   = { [PAGE_DISPLAY] = "Enemy", [PAGE_COLORS] = "Enemy Colors", [PAGE_FRIENDLY] = "Friendly",
+                        [PAGE_GENERAL] = "Extras" },
+        -- Sections whose rows are on another page: a saved Spec or Conditional Override
+        -- entry filed under one is listed, and opened by Go to Setting, on the page that
+        -- holds its row (EUI_NS.EntryPage). Show Enemy Pet Nameplates is still on this page.
+        movedSections = {
+            [PAGE_DISPLAY] = { ["TARGET, FOCUS & HOVER EFFECTS"] = PAGE_TFH },
+            [PAGE_GENERAL] = {
+                ["TARGET AND FOCUS EFFECTS"] = PAGE_TFH,
+                ["OTHER NAMEPLATES"] = { page = PAGE_FRIENDLY, stay = { ["Show Enemy Pet Nameplates"] = true } },
+            },
+        },
         buildPage   = function(pageName, parent, yOffset)
             if pageName == PAGE_GENERAL then
                 return ns.NPO_BuildGeneralPage(pageName, parent, yOffset)
@@ -1215,13 +1207,21 @@ initFrame:SetScript("OnEvent", function(self)
                 return BuildDisplayPage(pageName, parent, yOffset)
             elseif pageName == PAGE_COLORS then
                 return ns.NPO_BuildColorsPage(pageName, parent, yOffset)
+            elseif pageName == PAGE_TFH then
+                return ns.NPO_BuildTargetFocusHoverPage(pageName, parent, yOffset)
+            elseif pageName == PAGE_FRIENDLY then
+                return ns.NPO_BuildFriendlyPage(pageName, parent, yOffset)
             end
         end,
         getHeaderBuilder = function(pageName)
             if pageName == PAGE_DISPLAY then
                 return _displayHeaderBuilder
+            elseif pageName == PAGE_TFH then
+                return ns.NPO_BuildTFHHeader
+            elseif pageName == PAGE_FRIENDLY then
+                return ns.NPO_BuildFriendlyHeader
             end
-            return nil  -- General and Colors have no content header
+            return nil  -- Colors and General have no content header
         end,
         onPageCacheRestore = function(pageName)
             if pageName == PAGE_DISPLAY then
@@ -1244,23 +1244,16 @@ initFrame:SetScript("OnEvent", function(self)
                 RandomizePreviewValues()
                 -- Refresh the preview after cache restore
                 if optState.activePreview and optState.activePreview.Update then optState.activePreview:Update() end
-                -- Refresh hint visibility only; never recreate here.
-                local dismissed = IsPreviewHintDismissed()
-                if optState._previewHintFS then
-                    if dismissed then
-                        optState._previewHintFS:Hide()
-                    else
-                        optState._previewHintFS:SetAlpha(0.45)
-                        optState._previewHintFS:Show()
-                    end
-                end
-                -- Set correct header height based on current hint state
-                if _headerBaseH > 0 then
-                    EllesmereUI:SetContentHeaderHeightSilent(_headerBaseH + (dismissed and 0 or 29))
-                end
-            elseif pageName == PAGE_COLORS then
-                -- Refresh all color preview bars (colors from DB)
-                if optState._colorPreviewRefreshAll then optState._colorPreviewRefreshAll() end
+                -- The hint and the header's height by the hint's state
+                Nav.HintRestore(PAGE_DISPLAY)
+            elseif pageName == PAGE_TFH then
+                -- Repaint the preview (settings can change behind the cached page)
+                if optState.tfhPreview then optState.tfhPreview:Update() end
+                Nav.HintRestore(PAGE_TFH)
+            elseif pageName == PAGE_FRIENDLY then
+                -- Repaint the sample plates (settings can change behind the cached page)
+                ns.NPO_FriendlyPreviewUpdate()
+                Nav.HintRestore(PAGE_FRIENDLY)
             end
         end,
         onReset     = function()

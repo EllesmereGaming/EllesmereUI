@@ -44,12 +44,16 @@ local BAGS_DEFAULTS = {
         bagDimPinnedInOneBag  = false,   -- Dim Items in OneBag/MultiBag (the Pinned Items cog)
         bagRecentInOneBag     = false,
         bagShowRecentClear    = false,
+        bagRecentNewOnly      = false,   -- Recent Items: only items not carried before (gear, mail, trade always)
         -- Bag Top Bar Icons: the header's Show Bags, Junk Marker, Quick Actions and Sort icons
         bagShowBagsIcon       = true,
         bagShowJunkIcon       = true,    -- the Junk Marker: header coin, Junk category, Sell Junk at merchants
         bagShowQuickIcon      = false,   -- Quick Actions: dim all but items a spell works on; click or Alt-click casts it
         bagShowSortIcon       = true,
         bagSortToBottom       = false,
+        -- Show Coins: the coins the gold summary shows, "gold" | "silver" (gold and silver) |
+        -- "copper" (all three); Gold and Silver on WoW Forever
+        bagGoldCoins          = (EllesmereUI.IS_FOREVER == true) and "silver" or "gold",
         -- "all" | "onebag" | "multibag"; MultiBag on WoW Forever
         bagDefaultBagType     = (EllesmereUI.IS_FOREVER == true) and "multibag" or "all",
         bagDefaultOneBag      = false,   -- legacy; migrated to bagDefaultBagType

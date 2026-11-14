@@ -493,8 +493,12 @@ end
             spark:SetSize(ss, ss)
             sparkY = C.sparkY * h / C.barH
         else
-            spark:SetSize(8, h)
+            local _, _, _, _, _, sparkExtraH, sparkNudge, sparkW = ns.ERB_CastChromeGeom(cb)
+            spark:SetSize(sparkW, h + sparkExtraH)
+            sparkY = sparkNudge
         end
+        -- The per-tick re-anchor (UpdateCastBar) keeps this offset.
+        castBarFrame._sparkY = sparkY
         spark:ClearAllPoints()
 
         if cb.gradientEnabled and castBarFrame._gradClip then
@@ -531,6 +535,24 @@ end
                 end
             end
         end
+        -- WoW Forever: the stock fill art has shaped ends, the zone is a
+        -- plain rectangle; masked to the fill's shape so its corners never
+        -- show past the fill (a channel's front zone left a red corner pixel
+        -- at the frame art's rounded corner). Once: the style is latched.
+        if blizzKit and ns.ERB_CastForever() then
+            local m = castBarFrame._latencyMask
+            if not m then
+                local fillAtlas = ns.ERB_BlizzAtlas("cast")
+                if fillAtlas then
+                    m = bar:CreateMaskTexture()
+                    m:SetAtlas(fillAtlas)
+                    m:SetAllPoints(bar)
+                    castBarFrame._latencyMask = m
+                end
+            end
+            ns.ERB_MaskTex(castBarFrame._latencyOverlay, m)
+            ns.ERB_MaskTex(castBarFrame._latencyOverlayFront, m)
+        end
     else
         if castBarFrame._latencyOverlay then castBarFrame._latencyOverlay:Hide() end
         if castBarFrame._latencyOverlayFront then castBarFrame._latencyOverlayFront:Hide() end
@@ -556,7 +578,8 @@ end
         local pt, xb, jh = ns.GetCastTextAnchor(durSide, false, timerW)
         timerText:ClearAllPoints()
         timerText:SetJustifyH(jh)
-        timerText:SetPoint(pt, bar, pt, xb + (cb.timerX or 0), cb.timerY or 0)
+        local _, _, _, _, timerNudge = ns.ERB_CastChromeGeom(cb)
+        timerText:SetPoint(pt, bar, pt, xb + (cb.timerX or 0), (cb.timerY or 0) + timerNudge)
         timerText:Show()
         ns.ERB_CastTextColor(timerText, cb.timerR, cb.timerG, cb.timerB, cb.timerA)
     else
@@ -586,9 +609,9 @@ end
     ns.ReflowFontString(nameText)
     -- Blizzard Style chrome: frame art + text box (moves the spell name under the bar).
     if blizz then ns.ERB_ApplyBlizzCastChrome(cb, barW) end
-    -- Show Full Spell Name: the font above reset the name to its configured
-    -- size; re-fit a cast in flight to the width it now has.
-    if cb.fitSpellName then ns.ERB_FitCastName(cb) end
+    -- Re-size a cast in flight: the slot above only fits a plain countdown,
+    -- and Show Full Spell Name needs a re-fit after the font reset.
+    ns.ERB_SizeCastName(cb)
 
     -- Hide pips (build reset), then RE-LAY them for an in-flight empower:
     -- same wipe-sticks class as the channel ticks below (field: Evokers
@@ -1214,7 +1237,7 @@ SetUpdateCastBar(function(dt)
         if castBarFrame._sparkAnchor ~= target then
             castBarFrame._sparkAnchor = target
             castBarFrame._spark:ClearAllPoints()
-            castBarFrame._spark:SetPoint("CENTER", target, "RIGHT", 0, 0)
+            castBarFrame._spark:SetPoint("CENTER", target, "RIGHT", 0, castBarFrame._sparkY or 0)
         end
     end
 end)
@@ -1447,17 +1470,19 @@ function ns.CastDisplayName(cb, name, spellID)
     return name
 end
 
--- Show Full Spell Name: shrink the spell text to fit its width instead of
--- cutting it off (player cast names are always clean strings).
-function ns.ERB_FitCastName(cb)
+-- Size the spell text's room off this cast's timer string; Show Full Spell
+-- Name then shrinks the text to fit it (player cast names are always clean).
+function ns.ERB_SizeCastName(cb)
     local f = castBarFrame
     if not (f and cb.showSpellText) then return end
     local fs = f._nameText
     -- The layout's timer slot fits a plain countdown; Show Total Duration,
     -- latency text and Full Craft Time write wider strings. Size the name's
     -- room (and its push, when it shares the timer's side) off the widest one
-    -- this cast will show. Blizzard Style moves the name off the bar.
-    if cb.showTimer and f._endTime and f._startTime and not ns.ERB_CastBlizz() then
+    -- this cast will show, while a cast is in flight. Blizzard Style moves the
+    -- name off the bar into its text box; Classic WoW UI keeps it on the bar.
+    if cb.showTimer and (f._casting or f._channeling or f._empowering) and f._endTime and f._startTime
+        and not (ns.ERB_CastBlizz() and not ns.ERB_CastClassic()) then
         local total = cb.showTotalDuration
         local sample
         if f._craftExtra and f._craftTotal then
@@ -1479,7 +1504,9 @@ function ns.ERB_FitCastName(cb)
         end
         fs:SetWidth(max(20, barW - 8 - (spellSide == "center" and 2 or 1) * timerW))
     end
-    EllesmereUI.FitCastName(fs, fs:GetText(), cb.spellTextSize or 11)
+    if cb.fitSpellName then
+        EllesmereUI.FitCastName(fs, fs:GetText(), cb.spellTextSize or 11)
+    end
 end
 
 OnCastStart = function()
@@ -1553,7 +1580,7 @@ OnCastStart = function()
 
     ShowLatencyOverlay("cast")
     -- After the latency overlay: its " (NNms)" suffix widens the timer.
-    if cb.fitSpellName then ns.ERB_FitCastName(cb) end
+    ns.ERB_SizeCastName(cb)
 
     ns.ActivateCastBar()
 end
@@ -1618,7 +1645,7 @@ OnChannelStart = function()
     ShowChannelTicks(spellID)
 
     ShowLatencyOverlay("channel")
-    if cb.fitSpellName then ns.ERB_FitCastName(cb) end
+    ns.ERB_SizeCastName(cb)
 
     ns.ActivateCastBar()
 end
@@ -1986,7 +2013,7 @@ OnEmpowerStart = function()
     castBarFrame._totalDurSuffix = " / " .. format("%.1f", (endTimeMS - startTimeMS) / 1000)
     HideLatencyOverlay()
     castBarFrame._nameText:SetText(ns.CastDisplayName(cb, name, spellID))
-    if cb.fitSpellName then ns.ERB_FitCastName(cb) end
+    ns.ERB_SizeCastName(cb)
     ns.ERB_SetBlizzCastFill("cast")
     ns.ERB_CastOverrideStart(cb, notInterruptible)
     if not ns.ApplyCastTimer("empower") then

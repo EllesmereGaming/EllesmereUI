@@ -594,32 +594,6 @@ ReloadFramesBody = function()
 
                         -- Update power bar border (detached only; lazily created)
                         ns.UpdatePowerBorder(frame.Power, settings)
-
-                        -- Gray out power bar background for generic melee NPCs
-                        if ppPos ~= "none" and (ppPos == "below" or ppPos == "above") then
-                            local shouldGray = false
-                            if unit ~= "player" and UnitExists(unit) and UnitCanAttack("player", unit) and not UnitIsPlayer(unit) then
-                                local cls = UnitClassification(unit)
-                                local isBoss = (cls == "worldboss")
-                                local isElite = (cls == "elite" or cls == "rareelite")
-                                local lvl = UnitLevel(unit)
-                                local pLvl = UnitLevel("player")
-                                local lvlOk = lvl and not (issecretvalue and issecretvalue(lvl))
-                                local pLvlOk = pLvl and not (issecretvalue and issecretvalue(pLvl))
-                                local isMB = isElite and lvlOk and (lvl == -1 or (pLvlOk and lvl >= pLvl + 1))
-                                local isCst = UnitClassBase and UnitClassBase(unit); if issecretvalue(isCst) then isCst = nil end; isCst = (isCst == "PALADIN")
-                                if not isBoss and not isMB and not isCst then shouldGray = true end
-                            end
-                            if shouldGray then
-                                frame.Power._grayedOut = true
-                                if frame.Power.bg then
-                                    frame.Power.bg:SetColorTexture(0.25, 0.25, 0.25, 1)
-                                    frame.Power.bg:SetAlpha(1)
-                                end
-                            else
-                                frame.Power._grayedOut = false
-                            end
-                        end
                     end
                     if frame.Castbar then
                         local castbarBg = frame.Castbar:GetParent()
@@ -915,32 +889,6 @@ ReloadFramesBody = function()
 
                         -- Update power bar border (detached only; lazily created)
                         ns.UpdatePowerBorder(frame.Power, settings)
-
-                        -- Gray out power bar background for generic melee NPCs
-                        if ppPos ~= "none" and (ppPos == "below" or ppPos == "above") then
-                            local shouldGray = false
-                            if unit ~= "player" and UnitExists(unit) and UnitCanAttack("player", unit) and not UnitIsPlayer(unit) then
-                                local cls = UnitClassification(unit)
-                                local isBoss = (cls == "worldboss")
-                                local isElite = (cls == "elite" or cls == "rareelite")
-                                local lvl = UnitLevel(unit)
-                                local pLvl = UnitLevel("player")
-                                local lvlOk = lvl and not (issecretvalue and issecretvalue(lvl))
-                                local pLvlOk = pLvl and not (issecretvalue and issecretvalue(pLvl))
-                                local isMB = isElite and lvlOk and (lvl == -1 or (pLvlOk and lvl >= pLvl + 1))
-                                local isCst = UnitClassBase and UnitClassBase(unit); if issecretvalue(isCst) then isCst = nil end; isCst = (isCst == "PALADIN")
-                                if not isBoss and not isMB and not isCst then shouldGray = true end
-                            end
-                            if shouldGray then
-                                frame.Power._grayedOut = true
-                                if frame.Power.bg then
-                                    frame.Power.bg:SetColorTexture(0.25, 0.25, 0.25, 1)
-                                    frame.Power.bg:SetAlpha(1)
-                                end
-                            else
-                                frame.Power._grayedOut = false
-                            end
-                        end
                     end
 
                     -- Reposition name and health text
@@ -1429,30 +1377,6 @@ ReloadFramesBody = function()
                         frame.Power:Show()
                     end
                     if frame.Power._applyPowerPercentText then frame.Power._applyPowerPercentText(settings) end
-
-                    -- Gray out power bar background for generic melee NPCs
-                    if bPpPos ~= "none" and (bPpPos == "below" or bPpPos == "above") then
-                        local shouldGray = false
-                        if UnitExists(unit) and UnitCanAttack("player", unit) and not UnitIsPlayer(unit) then
-                            local cls = UnitClassification(unit)
-                            local isBoss = (cls == "worldboss")
-                            local isElite = (cls == "elite" or cls == "rareelite")
-                            local lvl = UnitLevel(unit)
-                            local pLvl = UnitLevel("player")
-                            local isMB = isElite and (lvl == -1 or (pLvl and lvl >= pLvl + 1))
-                            local isCst = UnitClassBase and UnitClassBase(unit); if issecretvalue(isCst) then isCst = nil end; isCst = (isCst == "PALADIN")
-                            if not isBoss and not isMB and not isCst then shouldGray = true end
-                        end
-                        if shouldGray then
-                            frame.Power._grayedOut = true
-                            if frame.Power.bg then
-                                frame.Power.bg:SetColorTexture(0.25, 0.25, 0.25, 1)
-                                frame.Power.bg:SetAlpha(1)
-                            end
-                        else
-                            frame.Power._grayedOut = false
-                        end
-                    end
                 end
 
                 -- Castbar (boss)
@@ -1601,9 +1525,6 @@ ReloadFramesBody = function()
                 frame.Health.smoothing = Enum and Enum.StatusBarInterpolation
                     and Enum.StatusBarInterpolation.Immediate
             end
-            if frame.Health.ForceUpdate then
-                frame.Health:ForceUpdate()
-            end
 
             -- Apply power bar opacity
             if frame.Power then
@@ -1687,12 +1608,14 @@ ReloadFramesBody = function()
                 elseif frame.Power.bg then
                     frame.Power.bg:SetColorTexture(17/255, 17/255, 17/255, 1)
                 end
+                -- The repaint above clears any gray: the pass's closing repaint
+                -- (ApplyEnemyColors) grays an ordinary enemy's bar again.
+                frame.Power._grayedOut = false
                 frame.Power:SetReverseFill(settings.powerReverseFill and true or false)
                 -- Reverse-fill direction is only final here; re-derive Fill Opacity state
                 -- (ApplyPowerBarAlpha above ran before this SetReverseFill, so a direction
                 -- change would otherwise leave the bg anchored to the wrong side).
                 ApplyPowerBarAlpha(frame.Power, UnitToSettingsKey(unit))
-                if frame.Power.ForceUpdate then frame.Power:ForceUpdate() end
                 if unit == "player" then
                     ns.UF_SetupPowerCost(frame.Power, settings)
                     ns.UF_PowerValSync(frame)
@@ -2006,6 +1929,8 @@ ReloadFramesBody = function()
     end
     -- Last: its ForceAll repaint must follow the per-frame ApplyDarkTheme, or turning
     -- Dark Mode off left the class-colored fill dark until the next health event.
+    -- The same repaint grays the power bar of an ordinary enemy again, whose
+    -- background the pass above repainted.
     ApplyEnemyColors()
 end
 

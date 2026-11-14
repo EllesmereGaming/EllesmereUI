@@ -31,7 +31,7 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXCLUDED_DIRS = ("Libs/", ".tools/")
 BOM = b"\xef\xbb\xbf"
-CHECK_KEYS = ("combat-deferral", "deprecated-global", "ascii")
+CHECK_KEYS = ("combat-deferral", "deprecated-global", "ascii", "cog-index")
 # The approver starts with a non-space and holds no date, no "until" and no other tag; the
 # reason is more than a block comment's close.
 ALLOW_RE = re.compile(r"guardrails-allow:\s*(?P<check>[\w-]+)(?:\s+until\s+(?P<date>\S+))?"
@@ -2107,6 +2107,131 @@ def check_combat_deferral(change, errors):
                                 "EllesmereUI_Ticker.lua)"))
 
 
+def _prebuilding_test(cond):
+    """+1 when an if-condition holds whenever prebuilding (X._prebuilding, alone or
+    or-ed), -1 when it fails whenever prebuilding (not X._prebuilding, alone or
+    and-ed), 0 otherwise. Parenthesized forms are not read."""
+    operands, ops, cur, depth = [], set(), [], 0
+    for t in cond:
+        s = sym(t)
+        depth += s in ("(", "[", "{")
+        depth -= s in (")", "]", "}")
+        if depth == 0 and s in ("and", "or"):
+            ops.add(s)
+            operands.append(cur)
+            cur = []
+        else:
+            cur.append(t)
+    operands.append(cur)
+    for o in operands:
+        neg = bool(o) and sym(o[0]) == "not"
+        chain = o[1:] if neg else o
+        if (len(chain) >= 3 and chain[-1][0] == "name" and chain[-1][1] == "_prebuilding"
+                and all(sym(x) == "." if k % 2 else x[0] == "name" for k, x in enumerate(chain))):
+            if neg:
+                return -1 if "or" not in ops else 0
+            return 1 if "and" not in ops else 0
+    return 0
+
+
+# BuildInlineCog and the helpers that build a cog popup through it.
+COG_CALLS = ("BuildInlineCog", "AttachInline", "AttachToggleCog", "AttachFrameSourceCog",
+             "BuildHashCog", "MakeTextColoringInline", "AddSectionSoundCog",
+             "BuildRestedIndicatorCog", "OrientCog", "TextCog")
+
+
+def hidden_cog_calls(tokens):
+    """(line, name) of cog calls (COG_CALLS) the search index pass cannot reach:
+    inside the then-branch of `if not X._prebuilding`, the else-branch of
+    `if X._prebuilding`, or after `if X._prebuilding then return end` in the same
+    function, also inside a function written in such a place."""
+    return [(line, name) for line, name, hidden in prebuild_calls(tokens, COG_CALLS) if hidden]
+
+
+def _defines(tokens, i):
+    """Whether the name at i is the one a `function a.b:name(` statement defines."""
+    j = i - 1
+    while j >= 0 and (tokens[j][0] == "name" or sym(tokens[j]) in (".", ":")):
+        j -= 1
+    return j >= 0 and sym(tokens[j]) == "function"
+
+
+def prebuild_calls(tokens, names):
+    """(line, name, hidden) for each call of one of names: hidden when the index pass
+    cannot reach it (see hidden_cog_calls)."""
+    out, stack, loop_do, i, n = [], [], 0, 0, len(tokens)
+    while i < n:
+        t, s = tokens[i], sym(tokens[i])
+        if s == "if" or s == "elseif":
+            j = i + 1
+            while j < n and sym(tokens[j]) != "then":
+                j += 1
+            test = _prebuilding_test(tokens[i + 1:j])
+            if s == "if":
+                stack.append({"kind": "if", "test": test, "branch": "then"})
+            elif stack and stack[-1]["kind"] == "if":
+                # Only a negative test is certain for an elseif body.
+                stack[-1].update(test=-1 if test == -1 else 0, branch="then")
+            i = j + 1
+            continue
+        if s == "else" and stack and stack[-1]["kind"] == "if":
+            stack[-1]["branch"] = "else"
+        elif s == "function":
+            stack.append({"kind": "function", "early": False})
+        elif s in ("while", "for"):
+            stack.append({"kind": "loop"})
+            loop_do += 1
+        elif s == "do":
+            if loop_do:
+                loop_do -= 1
+            else:
+                stack.append({"kind": "do"})
+        elif s == "repeat":
+            stack.append({"kind": "repeat"})
+        elif s in ("end", "until"):
+            if stack:
+                stack.pop()
+        elif s == "return":
+            top = stack[-1] if stack else None
+            if top and top["kind"] == "if" and top["test"] == 1 and top["branch"] == "then":
+                fn = next((f for f in reversed(stack) if f["kind"] == "function"), None)
+                if fn:
+                    fn["early"] = True
+        elif (t[0] == "name" and t[1] in names and i + 1 < n
+              and sym(tokens[i + 1]) == "(" and not _defines(tokens, i)):
+            hidden = False
+            for f in reversed(stack):
+                # A function written inside a guard exists only where the guard holds.
+                if f["kind"] == "function":
+                    if f["early"]:
+                        hidden = True
+                        break
+                    continue
+                if f["kind"] == "if" and ((f["test"] == -1 and f["branch"] == "then")
+                                          or (f["test"] == 1 and f["branch"] == "else")):
+                    hidden = True
+                    break
+            out.append((t[2], t[1], hidden))
+        i += 1
+    return out
+
+
+def check_cog_index(change, errors):
+    """A cog popup's rows are searchable only when the index pass reaches its
+    BuildInlineCog call (EllesmereUI_GlobalSearch.lua, _RegisterCogSearch)."""
+    for path, added in change.added_by_path.items():
+        if b"_prebuilding" not in change.read(path):
+            continue
+        for line, name in hidden_cog_calls(change.lex(path)[0]):
+            if line not in added or allowed(change, "cog-index", path, [line], errors):
+                continue
+            errors.append(Error(path, line, name + " inside a _prebuilding guard: the "
+                                "search index pass never reaches it, so its cog popup's rows cannot "
+                                "be searched. Keep the frame work guarded and make the cog call "
+                                "outside the guard (BuildInlineCog registers the rows, then "
+                                "returns, while prebuilding)"))
+
+
 def forever_listed(types):
     names = {x.strip().lower() for x in types.split(",")}
     return "camelot" in names or "mainline" in names
@@ -2237,7 +2362,7 @@ def check_paths(change, errors):
 
 
 CHECKS = [check_paths, check_compile, check_client_gate, check_combat_deferral,
-          check_deprecated_globals, check_ascii, check_exception_tags]
+          check_deprecated_globals, check_ascii, check_cog_index, check_exception_tags]
 
 
 def main():

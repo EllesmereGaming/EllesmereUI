@@ -215,21 +215,45 @@ function BagShare.Unstaged(items, owner)
 end
 
 
+function BagShare.Untimed(entry)
+    return not entry.secondsLeft and not (entry.boeLeft and entry.boeLeft > 0)
+end
+
+
+
 
 function BagShare.FreeToStage(items, owner)
-    local picks, skipped, won = {}, 0, 0
+    local picks, skipped, won, untimed = {}, 0, 0, 0
     for _, entry in ipairs(BagShare.Unstaged(items, owner)) do
         if entry.eligible and not entry.kept then
             if entry.owed then
                 skipped = skipped + 1
             elseif entry.won then
                 won = won + 1
+            elseif BagShare.Untimed(entry) then
+                untimed = untimed + 1
             else
                 picks[#picks + 1] = entry
             end
         end
     end
-    return picks, skipped, won
+    return picks, skipped, won, untimed
+end
+
+
+
+function BagShare:TimedBoEs()
+    local out = {}
+    for _, holder in ipairs(BagShare:Holders()) do
+        local links = {}
+        for _, entry in ipairs((BagShare.FreeToStage(holder.items, holder.owner))) do
+
+            local link = entry.boeLeft and BagShare.LinkFromItemString(entry.link)
+            if link then links[#links + 1] = link end
+        end
+        if #links > 0 then out[#out + 1] = { owner = holder.owner, links = links } end
+    end
+    return out
 end
 
 
@@ -250,6 +274,8 @@ local function BuildPayload()
             e = entry.eligible and true or nil,
 
             o = entry.owed and (entry.owedTo or "") or nil,
+
+            b = not entry.won and entry.boeLeft and math.floor(entry.boeLeft) or nil,
         }
     end
     return { items = items }
@@ -260,7 +286,8 @@ end
 function BagShare.WirePayload(payload)
     local items = {}
     for index, entry in ipairs(payload.items) do
-        items[index] = { l = BagShare.ItemKey(entry.l), s = entry.s, e = entry.e, o = entry.o }
+        items[index] = { l = BagShare.ItemKey(entry.l), s = entry.s, e = entry.e, o = entry.o,
+            b = entry.b }
     end
     return { items = items }
 end
@@ -274,8 +301,9 @@ local lastDigest = nil
 function BagShare.Digest(items)
     local parts = {}
     for index, entry in ipairs(items or {}) do
+
         parts[index] = (entry.l or "") .. (entry.e and "+" or "-")
-            .. (entry.o and ("@" .. entry.o) or "")
+            .. (entry.o and ("@" .. entry.o) or "") .. (entry.b and "~" or "")
     end
     return table.concat(parts, "\n")
 end
@@ -364,12 +392,16 @@ end
 
 local MAX_SHARED_ITEMS = 200
 local MAX_TRADE_SECONDS = 4 * 60 * 60 + 60
+local MAX_BOE_SECONDS = 6 * 60 * 60 + 60
 
-local function ValidSeconds(value)
+local function ValidSeconds(value, most)
     if type(value) ~= "number" or value ~= value then return nil end
-    if value < 0 or value > MAX_TRADE_SECONDS then return nil end
+    if value < 0 or value > (most or MAX_TRADE_SECONDS) then return nil end
     return value
 end
+
+
+local warnedUnknown = {}
 
 local function ValidItemText(value)
     if type(value) ~= "string" then return false end
@@ -396,6 +428,7 @@ function BagShare:Apply(payload, sender)
             items[#items + 1] = {
                 link = link or entry.l,
                 secondsLeft = ValidSeconds(entry.s),
+                boeLeft = ValidSeconds(entry.b, MAX_BOE_SECONDS),
                 eligible = entry.e and true or false,
                 owed = owed or nil,
                 owedTo = owed and entry.o ~= "" and entry.o or nil,
@@ -404,13 +437,31 @@ function BagShare:Apply(payload, sender)
     end
 
     if not sender then return end
+
+    local loads, unknown = {}, nil
+    for itemString in pairs(loading or {}) do
+        local item = Item:CreateFromItemLink(itemString)
+        if item:IsItemEmpty() then unknown = true else loads[itemString] = item end
+    end
+    if unknown then
+        local kept = {}
+        for _, item in ipairs(items) do
+            if not (loading[item.link] and not loads[item.link]) then kept[#kept + 1] = item end
+        end
+        if not warnedUnknown[sender] then
+            warnedUnknown[sender] = true
+            addon.Log:WLogOnly("BagShare", "list from", tostring(sender), "names",
+                #items - #kept, "unknown items, left out")
+        end
+        items = kept
+    end
     local snapshot = { owner = sender, at = GetTime(), items = items }
     caches[sender] = snapshot
 
 
 
-    for itemString in pairs(loading or {}) do
-        Item:CreateFromItemLink(itemString):ContinueOnItemLoad(function()
+    for itemString, item in pairs(loads) do
+        item:ContinueOnItemLoad(function()
             if caches[sender] ~= snapshot then return end
             local link = BagShare.LinkFromItemString(itemString)
             if not link then return end
@@ -459,9 +510,11 @@ function BagShare:Get(owner)
 
 
         if not item.secondsLeft or remaining > 0 then
+            local boeLeft = item.boeLeft and item.boeLeft - elapsed
             out.items[#out.items + 1] = {
                 link = item.link,
                 secondsLeft = remaining,
+                boeLeft = boeLeft and boeLeft > 0 and boeLeft or nil,
                 eligible = item.eligible,
                 owed = item.owed,
                 owedTo = item.owedTo,
@@ -695,6 +748,8 @@ function BagShare:Init()
         local want = BagShare:ShouldWatch()
         if want == watching then return end
         watching = want
+
+        addon.Storage:TrackBoEs(want)
         addon.Storage:InvalidateBags()
         if want then
             f:RegisterEvent("BAG_UPDATE")

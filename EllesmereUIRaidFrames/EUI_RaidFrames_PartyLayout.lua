@@ -154,7 +154,7 @@ ns._LayoutPartyFrames = function()
             -- Small Raid keeps its group-1 limit in a party too (every party member
             -- is subgroup 1 there), so a party the driver keeps shown as it turns
             -- into a small raid mid-fight shows group 1, not the first five raiders.
-            local fGroup = smallRaidGroup or ((s.partySmallRaid == true and not ns._InArena()) and 1) or nil
+            local fGroup = smallRaidGroup or ((ns._SmallRaidOn() and not ns._InArena()) and 1) or nil
             wantGroupFilter = fGroup and tostring(fGroup) or "1,2,3,4,5,6,7,8"
         end
 
