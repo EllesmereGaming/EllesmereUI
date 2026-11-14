@@ -327,6 +327,68 @@ class CombatDeferral(RepoCase):
                      'local e = "PLAYER_REGEN_ENABLED"\n'), [])
 
 
+class CogIndex(RepoCase):
+    def lines(self, body):
+        return [e.split(": ")[0] for e in self.errors_for("A.lua", body, [g.check_cog_index])]
+
+    def test_guarded_cog(self):
+        self.assertEqual(self.lines("if not EllesmereUI._prebuilding then\n"
+                                    "    EllesmereUI.BuildInlineCog(rgn, { rows = {} })\n"
+                                    "end\n"
+                                    "if ok and not EUI._prebuilding then BuildInlineCog(r, o) end\n"),
+                         ["A.lua:3", "A.lua:5"])
+
+    def test_else_of_prebuilding_and_early_return(self):
+        self.assertEqual(self.lines("if EllesmereUI._prebuilding then x() else BuildInlineCog(r, o) end\n"
+                                    "local function F()\n"
+                                    "    if EllesmereUI._prebuilding then return end\n"
+                                    "    EllesmereUI.BuildInlineCog(r, o)\n"
+                                    "end\n"
+                                    "local function G() EllesmereUI.BuildInlineCog(r, o) end\n"),
+                         ["A.lua:2", "A.lua:5"])
+
+    def test_reachable_cogs_pass(self):
+        self.assertEqual(self.lines("if not EllesmereUI._prebuilding then\n"
+                                    "    f:SetPoint('LEFT')\n"
+                                    "end\n"
+                                    "EllesmereUI.BuildInlineCog(rgn, { rows = {} })\n"
+                                    "do EllesmereUI.BuildInlineCog(rgn, o) end\n"
+                                    "if EllesmereUI._prebuilding then BuildInlineCog(r, o) end\n"
+                                    "for i = 1, 3 do BuildInlineCog(r, o) end\n"
+                                    "local function BuildInlineCog(rgn, opts)\n"
+                                    "    if EllesmereUI._prebuilding then return end\n"
+                                    "end\n"), [])
+
+    def test_compound_conditions_and_wrappers(self):
+        self.assertEqual(self.lines("if a or not EUI._prebuilding then BuildInlineCog(r, o) end\n"
+                                    "if x then y() elseif not EUI._prebuilding then BuildInlineCog(r, o) end\n"
+                                    "local function F()\n"
+                                    "    if EUI._prebuilding and z then return end\n"
+                                    "    BuildInlineCog(r, o)\n"
+                                    "end\n"
+                                    "if not EUI._prebuilding then GO.AttachInline(rgn, d) end\n"),
+                         ["A.lua:3", "A.lua:8"])
+
+    def test_function_written_inside_a_guard(self):
+        self.assertEqual(self.lines("if not EUI._prebuilding then\n"
+                                    "    local function Attach(r) GO.AttachInline(r, d) end\n"
+                                    "    Attach(a)\n"
+                                    "end\n"
+                                    "local function F()\n"
+                                    "    if EUI._prebuilding then return end\n"
+                                    "    local cb = function() BuildInlineCog(r, o) end\n"
+                                    "end\n"
+                                    "if EUI._prebuilding then x() else\n"
+                                    "    local function H() BuildInlineCog(r, o) end\n"
+                                    "end\n"
+                                    "local function K() local function L() BuildInlineCog(r, o) end end\n"),
+                         ["A.lua:3", "A.lua:8", "A.lua:11"])
+
+    def test_exception(self):
+        self.assertEqual(self.lines("if not EllesmereUI._prebuilding then\n"
+                                    "    BuildInlineCog(r, o) -- guardrails-allow: cog-index by Ellesmere: a test\n"
+                                    "end\n"), [])
+
 class Exceptions(RepoCase):
     LINE = 'f:RegisterEvent("PLAYER_REGEN_ENABLED") -- guardrails-allow: '
 

@@ -467,40 +467,41 @@ initFrame:SetScript("OnEvent", function(self)
         -- The checklist in `rgn` (a DualRow half built from C.Cfg), its cog
         -- and its Apply to All link.
         function C.Build(rgn)
-            if EllesmereUI._prebuilding then return end
-            if rgn._control then rgn._control:Hide() end
-            local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
-                rgn, 170, rgn:GetFrameLevel() + 2,
-                { { key = "L", label = "Left Endcap" }, { key = "R", label = "Right Endcap" } },
-                function(k)
-                    local l, r = ns.AB_CapsSides(o.key())
-                    if k == "L" then return l end
-                    return r
-                end,
-                function(k, v)
-                    -- Both sides are written, the untouched one as the bar
-                    -- shows it now: a written side never reads a default.
-                    local s = o.store()
-                    local l, r = ns.AB_CapsSides(o.key())
-                    if k == "L" then l = v and true or false else r = v and true or false end
-                    s.endCapLeft, s.endCapRight = l, r
-                    o.write()
-                end, nil, nil, nil, nil, nil,
-                -- Spec Overrides see each click as it happens (the slot's capture).
-                { notifyWrites = true })
-            PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
-            rgn._control = cbDD
-            rgn._lastInline = nil
-            EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
-            -- The checklist has no disabled state of its own: grey it and
-            -- block clicks on a vertical bar (the row label explains).
-            local function ApplyCapsDisabled()
-                local off = C.Vertical()
-                cbDD:SetAlpha(off and 0.3 or 1)
-                cbDD:EnableMouse(not off)
+            if not EllesmereUI._prebuilding then
+                if rgn._control then rgn._control:Hide() end
+                local cbDD, cbDDRefresh = EllesmereUI.BuildVisOptsCBDropdown(
+                    rgn, 170, rgn:GetFrameLevel() + 2,
+                    { { key = "L", label = "Left Endcap" }, { key = "R", label = "Right Endcap" } },
+                    function(k)
+                        local l, r = ns.AB_CapsSides(o.key())
+                        if k == "L" then return l end
+                        return r
+                    end,
+                    function(k, v)
+                        -- Both sides are written, the untouched one as the bar
+                        -- shows it now: a written side never reads a default.
+                        local s = o.store()
+                        local l, r = ns.AB_CapsSides(o.key())
+                        if k == "L" then l = v and true or false else r = v and true or false end
+                        s.endCapLeft, s.endCapRight = l, r
+                        o.write()
+                    end, nil, nil, nil, nil, nil,
+                    -- Spec Overrides see each click as it happens (the slot's capture).
+                    { notifyWrites = true })
+                PP.Point(cbDD, "RIGHT", rgn, "RIGHT", -20, 0)
+                rgn._control = cbDD
+                rgn._lastInline = nil
+                EllesmereUI.RegisterWidgetRefresh(cbDDRefresh)
+                -- The checklist has no disabled state of its own: grey it and
+                -- block clicks on a vertical bar (the row label explains).
+                local function ApplyCapsDisabled()
+                    local off = C.Vertical()
+                    cbDD:SetAlpha(off and 0.3 or 1)
+                    cbDD:EnableMouse(not off)
+                end
+                ApplyCapsDisabled()
+                EllesmereUI.RegisterWidgetRefresh(ApplyCapsDisabled)
             end
-            ApplyCapsDisabled()
-            EllesmereUI.RegisterWidgetRefresh(ApplyCapsDisabled)
 
             local rows = {}
             if not C.stock then
@@ -541,6 +542,7 @@ initFrame:SetScript("OnEvent", function(self)
                 rawTooltip = true,
                 rows = rows,
             })
+            if EllesmereUI._prebuilding then return end
 
             if o.syncKeys then
                 EllesmereUI.BuildSyncIcon({

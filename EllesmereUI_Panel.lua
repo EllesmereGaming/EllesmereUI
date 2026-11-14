@@ -4697,6 +4697,8 @@ local function PagePassBody(cacheKey, pageName, config, refresh)
     local ok, totalH = true, 0
     if config.buildPage then
         EllesmereUI._passReadSearchFlag = nil
+        -- A card context left set by a build that errored.
+        EllesmereUI._searchContext = nil
         EllesmereUI._buildingModule = activeModule
         EllesmereUI._buildingPage = pageName
         local h
