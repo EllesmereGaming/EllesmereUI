@@ -2697,10 +2697,11 @@ initFrame:SetScript("OnEvent", function(self)
                 end
                 EllesmereUIDB.hideTransforms = false
                 EllesmereUIDB.hideTransformItems = nil
-                -- The /keys popup, LFG Reminder and /way sections (the reset reloads).
+                -- The /keys popup, LFG Reminder, /way and /euipaste sections (the reset reloads).
                 EllesmereUIDB.keystonePopup = nil
                 EllesmereUIDB.teleportPrompt = nil
                 EllesmereUIDB.waypointCmd = nil
+                EllesmereUIDB.pasteCommands = nil
             end
             EllesmereUIDB.autoLogging = nil
             if _G._EUI_ResetUpgradeCalc then _G._EUI_ResetUpgradeCalc() end
