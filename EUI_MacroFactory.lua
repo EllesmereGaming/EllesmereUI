@@ -506,6 +506,16 @@ local function ResolveMacroIcon(def)
     return "INV_MISC_QUESTIONMARK"
 end
 
+-- What each item macro was last written for this session: retail's first item, Forever's body.
+local lastAvailableItems = {}
+
+local function WriteMacro(idx, def, db)
+    local body = BuildMacroBody(def, db)
+    if not body then return end
+    EditMacro(idx, nil, nil, body)
+    if def.checkboxes then lastAvailableItems[def.name] = GetMacroInventoryKey(def, db) end
+end
+
 local function UpdateMacro(def, db)
     local idx = GetMacroIndexByName(def.name)
     if idx ~= 0 then
@@ -513,12 +523,10 @@ local function UpdateMacro(def, db)
             EllesmereUI.CombatQueue.Defer("MacroFactory:" .. def.name, function()
                 local i = GetMacroIndexByName(def.name)
                 if i == 0 then return end
-                local body = BuildMacroBody(def, GetMacroDB(def.name))
-                if body then EditMacro(i, nil, nil, body) end
+                WriteMacro(i, def, GetMacroDB(def.name))
             end)
         else
-            local body = BuildMacroBody(def, db)
-            if body then EditMacro(idx, nil, nil, body) end
+            WriteMacro(idx, def, db)
         end
     end
 end
@@ -530,30 +538,36 @@ end
 --  first loading screen, or the first macro update, whichever finds one of
 --  these macros first) and by the factory when it creates one; a pass that
 --  finds none left (deleted in the game's macro window) disarms it. On WoW
---  Forever a level-up also counts (required levels), and for a class with
---  Create spells a spell change too. Nothing listens without Quality of Life
---  or for a player with no such macro.
+--  Forever a level-up also counts (required levels), and a learned spell while
+--  a stone macro has Create When Out on. Nothing listens without Quality of
+--  Life or for a player with no such macro.
 -------------------------------------------------------------------------------
--- What each item macro was last written for this session: retail's first item, Forever's body.
-local lastAvailableItems = {}
-
 local ITEM_DEFS = {}
 for i = 1, #GENERAL_DEFS do
     if GENERAL_DEFS[i].checkboxes then ITEM_DEFS[#ITEM_DEFS + 1] = GENERAL_DEFS[i] end
 end
-local needsSpellUpkeep = false
 for i = 1, #CLASS_DEFS do
     ITEM_DEFS[#ITEM_DEFS + 1] = CLASS_DEFS[i]
-    if CLASS_DEFS[i].createRanks then needsSpellUpkeep = true end
 end
 
 local itemUpkeep = CreateFrame("Frame")
+
+local function SyncSpellUpkeep()
+    for i = 1, #CLASS_DEFS do
+        local def = CLASS_DEFS[i]
+        if def.createRanks and GetMacroIndexByName(def.name) ~= 0 and GetMacroDB(def.name).createWhenOut then
+            itemUpkeep:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
+            return
+        end
+    end
+    itemUpkeep:UnregisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
+end
 
 local function ArmItemUpkeep()
     itemUpkeep:RegisterEvent("BAG_UPDATE_DELAYED")
     itemUpkeep:RegisterEvent("PLAYER_REGEN_ENABLED")
     if EllesmereUI.IS_FOREVER then itemUpkeep:RegisterEvent("PLAYER_LEVEL_UP") end
-    if needsSpellUpkeep then itemUpkeep:RegisterEvent("SPELLS_CHANGED") end
+    SyncSpellUpkeep()
 end
 
 local function ItemUpkeepPass()
@@ -563,20 +577,18 @@ local function ItemUpkeepPass()
         if GetMacroIndexByName(def.name) ~= 0 then
             any = true
             local db = GetMacroDB(def.name)
-            local key = GetMacroInventoryKey(def, db)
-            if key ~= lastAvailableItems[def.name] then
-                lastAvailableItems[def.name] = key
+            if GetMacroInventoryKey(def, db) ~= lastAvailableItems[def.name] then
                 UpdateMacro(def, db)
             end
         end
     end
-    if not any then itemUpkeep:UnregisterAllEvents() end
+    if any then SyncSpellUpkeep() else itemUpkeep:UnregisterAllEvents() end
 end
 
 itemUpkeep:SetScript("OnEvent", function(self, event, arg1)
     if event == "PLAYER_LEVEL_UP" then knownPlayerLevel = arg1 end
     if event == "BAG_UPDATE_DELAYED" or event == "PLAYER_REGEN_ENABLED"
-       or event == "PLAYER_LEVEL_UP" or event == "SPELLS_CHANGED" then
+       or event == "PLAYER_LEVEL_UP" or event == "LEARNED_SPELL_IN_SKILL_LINE" then
         ItemUpkeepPass()
         return
     end
@@ -1277,6 +1289,7 @@ function EllesmereUI.BuildMacroFactory(parent, startY, PP)
                             db[xt.key] = (not db[xt.key]) or nil
                             RefX()
                             UpdateMacro(def, db)
+                            if def.createRanks then SyncSpellUpkeep() end
                         end)
                         mY = mY - MH
                     end
