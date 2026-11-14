@@ -1519,9 +1519,11 @@ local function BuildCogPopup(opts)
         -- Refresh all widget visuals from get functions
         popupFrame._refresh()
 
-        -- Anchor below the cog icon and animate downward
+        -- Anchor below the cog icon and animate downward (opts.openUp: above it, animating upward)
+        local up = opts.openUp
         popupFrame:ClearAllPoints()
-        popupFrame:SetPoint("TOP", anchorBtn, "BOTTOM", 0, -5)
+        if up then popupFrame:SetPoint("BOTTOM", anchorBtn, "TOP", 0, 5)
+        else popupFrame:SetPoint("TOP", anchorBtn, "BOTTOM", 0, -5) end
         popupFrame:SetAlpha(0)
         popupFrame:Show()
         local elapsed = 0
@@ -1538,7 +1540,8 @@ local function BuildCogPopup(opts)
             local t = math.min(elapsed / 0.15, 1)
             self:SetAlpha(t)
             self:ClearAllPoints()
-            self:SetPoint("TOP", anchorBtn, "BOTTOM", 0, -5 + (8 * (1 - t)))
+            if up then self:SetPoint("BOTTOM", anchorBtn, "TOP", 0, 5 - (8 * (1 - t)))
+            else self:SetPoint("TOP", anchorBtn, "BOTTOM", 0, -5 + (8 * (1 - t))) end
             if t >= 1 then self:SetScript("OnUpdate", self._clickOutside) end
         end)
         if anchorBtn._euiCogState then anchorBtn._euiCogState() end
@@ -1567,7 +1570,8 @@ local function BuildCogPopup(opts)
         popupOwner = owner; want._owner = owner
         want._refresh()
         want:ClearAllPoints()
-        want:SetPoint("TOP", owner, "BOTTOM", 0, -5)
+        if opts.openUp then want:SetPoint("BOTTOM", owner, "TOP", 0, 5)
+        else want:SetPoint("TOP", owner, "BOTTOM", 0, -5) end
         want:SetAlpha(1)
         want:Show()
         want:SetScript("OnUpdate", want._clickOutside)

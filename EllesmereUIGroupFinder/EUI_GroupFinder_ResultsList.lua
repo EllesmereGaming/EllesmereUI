@@ -40,7 +40,8 @@ end
 local DISPLAY_DEFAULTS = { iconShape = "circle", borderTexture = "solid", borderSize = 1, missingIcons = "blizzard",
     raidRoleIcons = "ellesmere",
     appsFirst = true, signupClicks = "double", visibility = "hidden",
-    lineDelisted = false, lineAccepted = false, lineCancelled = false, lineDeclined = false, delistedOpacity = 50 }
+    lineDelisted = false, lineAccepted = false, lineCancelled = false, lineDeclined = false, lineMismatch = false,
+    delistedOpacity = 50 }
 -- signed up was part of accepted: until it's set, it follows accepted's switch and color
 local FOLLOWS = { lineSigned = "lineAccepted", color_lineSigned = "color_lineAccepted" }
 function ns.OwnListGet(k)
@@ -216,6 +217,13 @@ local dimmed = {}
 -- kept from the last collect: applications, each listed group's filter pass
 -- (a result update is checked against it) and the sort's values
 local seen, isApp, passOf, sortVal = {}, {}, {}, {}
+-- pending applications your filters would now leave out, and the ones already cancelled for it
+local mismatch, autoCancelled = {}, {}
+local function MismatchOf(id)
+    local _, status = C_LFGList.GetApplicationInfo(id)
+    if Secret(status) or status ~= "applied" or not GFNS.ExtraPassesAsNew then return false end
+    return not GFNS.ExtraPassesAsNew(id)
+end
 local noteOf, tops = {}, {}  -- shown groups with a note, each shown row's top
 
 -- the group's note when notes are on and it has one
@@ -240,6 +248,7 @@ end
 local function Collect()
     wipe(shown)
     wipe(dimmed)
+    wipe(mismatch)
     wipe(seen)
     wipe(isApp)
     wipe(passOf)
@@ -250,7 +259,10 @@ local function Collect()
     for _, id in ipairs(res) do if not Secret(id) then Pos(id) end end
     local apps = C_LFGList.GetApplications() or {}
     for _, id in ipairs(apps) do
-        if not Secret(id) then isApp[id] = true end
+        if not Secret(id) then
+            isApp[id] = true
+            if MismatchOf(id) then mismatch[id] = true end
+        end
     end
     if appsFirst then
         for _, id in ipairs(apps) do
@@ -375,8 +387,8 @@ local NEED_ATLAS = { TANK = "groupfinder-icon-role-micro-tank", HEALER = "groupf
 local BLIZZ_RR_ATLAS = { TANK = "groupfinder-icon-role-large-tank", HEALER = "groupfinder-icon-role-large-heal",
     DAMAGER = "groupfinder-icon-role-large-dps" }
 local BLIZZ_RR_SCALE = 1.22  -- art size over its visible ring
--- a delisted group's text colour: the delisted row highlight colour, set on each paint
-local DR, DG, DB = 0x5B / 255, 0x5B / 255, 0x5B / 255
+-- a delisted group's text colour: the delisted row highlight colour, set on each paint (not DB: that's the settings)
+local DelR, DelG, DelB = 0x5B / 255, 0x5B / 255, 0x5B / 255
 local REMAINING = { TANK = "TANK_REMAINING", HEALER = "HEALER_REMAINING", DAMAGER = "DAMAGER_REMAINING" }
 local PERSON_TEX = "Interface\\AddOns\\EllesmereUI\\media\\icons\\eui-person.png"
 local PLAYERS_COLOR = { 0.4, 0.4, 0.42 }
@@ -440,8 +452,10 @@ local LINE_SIGNED    = { "lineSigned", 0.1, 0.9, 0.1, "color_lineSigned" }
 local LINE_ACCEPTED  = { "lineAccepted", 0.1, 0.9, 0.1, "color_lineAccepted" }
 local LINE_CANCELLED = { "lineCancelled", 1, 0.55, 0.1, "color_lineCancelled" }
 local LINE_DECLINED  = { "lineDeclined", 1, 0.2, 0.2, "color_lineDeclined" }
+local LINE_MISMATCH  = { "lineMismatch", 1, 0.82, 0, "color_lineMismatch" }
 -- by switch, for the settings page's color pickers
 ns.STATUS_LINES = { lineDelisted = LINE_DELISTED, lineSigned = LINE_SIGNED, lineAccepted = LINE_ACCEPTED,
+    lineMismatch = LINE_MISMATCH,
     lineCancelled = LINE_CANCELLED, lineDeclined = LINE_DECLINED }
 -- a status's color: the user's, else its own
 local function StatusColor(line)
@@ -845,7 +859,7 @@ local LIVE = {
 -- a font string in the delisted grey, or back to the colour it was made with
 local function Grey(fs, gone)
     if not fs.baseColor then fs.baseColor = { fs:GetTextColor() } end
-    if gone then fs:SetTextColor(DR, DG, DB)
+    if gone then fs:SetTextColor(DelR, DelG, DelB)
     else local c = fs.baseColor; fs:SetTextColor(c[1], c[2], c[3], c[4]) end
 end
 
@@ -873,7 +887,7 @@ local function LineThree(r, id, info, src)
     if tag then
         if r.l3prev then Put(r, r.sep2, 4) end
         r.tag:SetText(tag)
-        if gone then r.tag:SetTextColor(DR, DG, DB) else r.tag:SetTextColor(tr, tg, tb, 1) end
+        if gone then r.tag:SetTextColor(DelR, DelG, DelB) else r.tag:SetTextColor(tr, tg, tb, 1) end
         Put(r, r.tag, 4)
         if flag then
             local fh = math.max(8, ns.OwnListSize("lineSize"))
@@ -900,7 +914,7 @@ local function Fill(r, id, src)
     local gone = info.isDelisted
     gone = not Secret(gone) and gone and true or false
     r.gone = gone
-    if gone then DR, DG, DB = StatusColor(LINE_DELISTED) end
+    if gone then DelR, DelG, DelB = StatusColor(LINE_DELISTED) end
     -- protected text, straight to the font string
     r.name:SetText(info.name)
     local acts = info.activityIDs
@@ -911,7 +925,7 @@ local function Fill(r, id, src)
     local nr, ng, nb
     nr, ng, nb = src.nameColor(id, info, ai)  -- "and" would drop g and b
     if not nr then nr, ng, nb = FriendColor(info) end
-    if gone then r.name:SetTextColor(DR, DG, DB)
+    if gone then r.name:SetTextColor(DelR, DelG, DelB)
     elseif nr then r.name:SetTextColor(nr, ng, nb) else r.name:SetTextColor(1, 0.82, 0) end
     r.act:SetText(ai and ai.fullName or "")
     Grey(r.act, gone)
@@ -964,23 +978,25 @@ local function Fill(r, id, src)
         local cr, cg, cb = 1, 1, 1
         if ns.GFRatingColor then cr, cg, cb = ns.GFRatingColor(score) end
         r.score:SetText(score)
-        if r.gone then r.score:SetTextColor(DR, DG, DB) else r.score:SetTextColor(cr, cg, cb) end
+        if r.gone then r.score:SetTextColor(DelR, DelG, DelB) else r.score:SetTextColor(cr, cg, cb) end
     else
         r.score:SetText("")
     end
     local st = appStatus and STATUS[appStatus]
     local delisted = info.isDelisted
     if not Secret(delisted) and delisted then st = STATUS.declined_delisted end  -- secret check first
+    -- signed up, but your filters would now leave the group out
+    local stale = st == STATUS.applied and mismatch[id] and ns.OwnListGet("lineMismatch") ~= false
     if st then
         r.status:SetText(st[1])
         -- same color as the row highlight
-        local sl = LINE_OF[st]
+        local sl = stale and LINE_MISMATCH or LINE_OF[st]
         if sl then r.status:SetTextColor(StatusColor(sl)) else r.status:SetTextColor(st[2], st[3], st[4], 1) end
     else
         r.status:SetText("")
     end
     -- row highlight: an underline, or the whole row tinted
-    local line = st and LINE_OF[st]
+    local line = stale and LINE_MISMATCH or st and LINE_OF[st]
     local on = line and ns.OwnListGet(line[1]) ~= false or false
     local style = ns.OwnListGet("statusStyle")
     if style == "none" then on = false end  -- the status text keeps its colour
@@ -1749,6 +1765,11 @@ local function Flush()
                 full = true
                 break
             end
+            -- a pending application started or stopped matching your filters
+            if isApp[id] and MismatchOf(id) ~= (mismatch[id] == true) then
+                full = true
+                break
+            end
             local was = passOf[id]
             -- a group outside the last collect is not on our list
             if was ~= nil and not isApp[id] then
@@ -1948,6 +1969,17 @@ function ns.OwnListRefresh()
         end
         Collect()
         Paint()
+        -- auto cancel: once per application, only ones that stopped matching your filters
+        local gc = GFNS.Cfg and GFNS.Cfg()
+        if gc and gc.autoCancelMismatch then
+            for id in pairs(mismatch) do
+                if not autoCancelled[id] then
+                    autoCancelled[id] = true
+                    C_LFGList.CancelApplication(id)
+                    print(EllesmereUI.L("EllesmereUI: cancelled an application that no longer matches your filters."))
+                end
+            end
+        end
     end
 end
 
