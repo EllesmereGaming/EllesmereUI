@@ -220,7 +220,8 @@ if EllesmereUI.IS_FOREVER == true then
         },
         {
             name = "EUI_Soulstone", icon = "Interface\\Icons\\inv_misc_orb_04", label = "Soulstone",
-            ownedOnly = true, maxLines = 1,
+            ownedOnly = true, maxLines = 1, friendlyTargetKey = "friendlyTarget",
+            extraToggles = { { key = "friendlyTarget", label = "Friendly Target, Else Self" } },
             checkboxes = each({
                 {16896, "Major Soulstone"}, {16895, "Greater Soulstone"}, {16893, "Soulstone"},
                 {16892, "Lesser Soulstone"}, {5232, "Minor Soulstone"},
@@ -345,7 +346,8 @@ local function BuildOwnedOnlyBody(def, db)
     if #ids == 0 then ids = { firstEnabled } end
     local body = ""
     if db.showTooltip ~= false then body = "#showtooltip item:" .. ids[1] .. "\n" end
-    local prefix = "/use item:"
+    local cond = def.friendlyTargetKey and db[def.friendlyTargetKey] and "[@target,help,nodead][@player] " or ""
+    local prefix = "/use " .. cond .. "item:"
     local lines = 0
     for _, itemID in ipairs(ids) do
         local line = (lines > 0 and "\n" or "") .. prefix .. itemID
