@@ -175,6 +175,7 @@ local function RenderButton(btn, data, _, col, row, startX, currentY, _, interac
 
     btn:SetID(data.slot or 0)
     parent:SetID(data.bag or 0)
+    btn._cdData = data.info and data or nil
 
     -- Always clear overlays upfront (pooled buttons carry stale state from prior items)
     if btn.ProfessionQualityOverlay then

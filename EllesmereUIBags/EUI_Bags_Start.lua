@@ -768,6 +768,37 @@ local function StartAddon()
         C_Timer.After(0.1, FireRefresh)
     end
 
+    -- Cooldown-only repaint of the shown item buttons, once per frame at most.
+    -- The slot data is kept in step so the next full refresh paints the same.
+    local cooldownQueued = false
+    local function PaintCooldownPool(pool)
+        for _, btn in pairs(pool) do
+            local d = btn._cdData
+            if d and btn.Cooldown and btn:IsVisible() then
+                local start, duration, enable = C_Container.GetContainerItemCooldown(btn:GetParent():GetID(), btn:GetID())
+                if not (enable and enable ~= 0 and start > 0 and duration > 0) then
+                    start, duration = nil, nil
+                end
+                if start ~= d._cdStart or duration ~= d._cdDuration then
+                    d._cdStart, d._cdDuration = start, duration
+                    -- A list row shows a cooldown only on its icon column.
+                    if start and (not btn._lvIcon or btn._lvIcon:IsShown()) then
+                        if not btn._lvIcon then btn.Cooldown:SetDrawEdge(true) end
+                        btn.Cooldown:SetCooldown(start, duration)
+                    else
+                        btn.Cooldown:Clear()
+                    end
+                end
+            end
+        end
+    end
+    local function PaintCooldowns()
+        cooldownQueued = false
+        if not EUI_Bags:IsVisible() then return end
+        PaintCooldownPool(itemSlots)
+        if ns.ListRows then PaintCooldownPool(ns.ListRows) end
+    end
+
     EUI_Bags:RegisterEvent("BAG_UPDATE")
     -- Equipping / unequipping a bag: its BAG_UPDATE can land before the slot
     -- counts change; BAG_UPDATE_DELAYED fires once the whole batch settles
@@ -791,6 +822,9 @@ local function StartAddon()
     EUI_Bags:RegisterEvent("GOSSIP_CLOSED")
     -- A skill rank change can flip an item's unusable tint (BagsItemUnusable)
     EUI_Bags:RegisterEvent("SKILL_LINES_CHANGED")
+    -- Using an item that is not consumed changes no slot, so only this event
+    -- reports its cooldown. Listened to while the bags show.
+    EUI_Bags:HookScript("OnShow", function(self) self:RegisterEvent("BAG_UPDATE_COOLDOWN") end)
     -- Set created/renamed/deleted: rebuild split categories / refresh name labels.
     -- Registered only while a set feature is on: zero event cost when disabled
     -- (merged-mode routing stays correct without it -- the lookup rebuilds per
@@ -1028,12 +1062,18 @@ local function StartAddon()
             if not EUI_Bags.refreshEnabled then return end
             if EUI_Bags._unlockSort then EUI_Bags._unlockSort() end
             ScheduleRefresh()
+        elseif event == "BAG_UPDATE_COOLDOWN" then
+            if not cooldownQueued then
+                cooldownQueued = true
+                C_Timer.After(0, PaintCooldowns)
+            end
         elseif event == "CURRENCY_DISPLAY_UPDATE" then
             SyncBagFrameToFooter()
         end
     end)
 
     EUI_Bags:HookScript("OnHide", function()
+        EUI_Bags:UnregisterEvent("BAG_UPDATE_COOLDOWN")
         EUI_BagsWindow:Hide()
         -- Controller cursor: the carried-item watch lives only while the bags are open.
         local watch = EUI_Bags._padCursorWatch
