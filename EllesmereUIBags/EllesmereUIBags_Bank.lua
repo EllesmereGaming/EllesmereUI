@@ -874,7 +874,7 @@ local function EnsureBankTabConfigFrame()
         btn:SetPoint("TOPLEFT", assignToTabFrame, "TOPLEFT", xOffset, yOffset)
         btn:SetFrameLevel(assignToTabFrame:GetFrameLevel() + 2)
 
-        local box, _, _, cbApply = EUI.BuildCheckboxControl(btn, assignToTabFrame:GetFrameLevel() + 2)
+        local box, _, _, cbApply = EUI.BuildCheckboxControl(btn, assignToTabFrame:GetFrameLevel() + 2, EUI.PP)
         PP.Point(box, "LEFT", btn, "LEFT", 0, 0)
 
         local label = EUI.MakeFont(btn, 14, nil, EUI.TEXT_WHITE.r, EUI.TEXT_WHITE.g, EUI.TEXT_WHITE.b)

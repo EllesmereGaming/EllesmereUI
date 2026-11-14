@@ -661,7 +661,7 @@ function ns.UFO_BuildDisplaySection(parent, y, ctx)
     if not EllesmereUI._prebuilding then
         local leftRgn = sharedScaleBorderRow._rightRegion
         local ctrl = leftRgn._control
-        local PP = EllesmereUI.PP
+        local PP = EllesmereUI.PanelPP
 
         -- Corner Radius (EllesmereUI_RoundedCorners.lua): an inline cog on the
         -- border size control.

@@ -168,7 +168,7 @@ local function BuildTotemSection(parent, y, S)
         if not EllesmereUI._prebuilding then
             local rgn = bsRow._rightRegion
             local ctrl = rgn._control
-            local PP = EllesmereUI.PP
+            local PP = EllesmereUI.PanelPP
             local borderSwatch, updateBorderSwatch = EllesmereUI.BuildColorSwatch(
                 rgn, bsRow:GetFrameLevel() + 3,
                 function()
