@@ -37,6 +37,7 @@ local function Load(isForever, state)
         RequestLoadSpellData = function() end,
     }
     UnitLevel = function() return state.level end
+    UnitClass = function() return "Class", state.class or "WARLOCK" end
     InCombatLockdown = function() return false end
     GetMacroIndexByName = function(n) return state.macros[n] or 0 end
     EditMacro = function(i, _, _, body)
@@ -98,7 +99,7 @@ up.OnEvent(up, "SPELLS_CHANGED")
 Eq(state.bodies.EUI_Healthstone, nil, "Create When Out, spell not known: unchanged")
 
 state.known = { [6201] = true, [11730] = true }
-state.spellNames = { [6201] = "Create Healthstone" }
+state.spellNames = { [11730] = "Create Healthstone" }
 up.OnEvent(up, "SPELLS_CHANGED")
 Eq(state.bodies.EUI_Healthstone, "#showtooltip\n/cast Create Healthstone", "out of stones: create")
 
@@ -113,10 +114,48 @@ hsDB.showTooltip = false
 up.OnEvent(up, "BAG_UPDATE_DELAYED")
 Eq(state.bodies.EUI_Healthstone, "/cast Create Healthstone", "create without tooltip line")
 
+local ssDB = EllesmereUIDB.macroFactory.EUI_Soulstone
+ssDB.createWhenOut = true
+state.known[20755] = true; state.known[20756] = true
+state.spellNames[20756] = "Create Soulstone"
+state.bags[16893] = 1
+state.bodies = {}
+up.OnEvent(up, "SPELLS_CHANGED")
+Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16893\n/use [@target,help,nodead][@player] item:16893\n/cast Create Soulstone",
+    "soulstone held: use, then create")
+state.bags[16893] = nil
+up.OnEvent(up, "BAG_UPDATE_DELAYED")
+Eq(state.bodies.EUI_Soulstone, "#showtooltip item:16895\n/use [@target,help,nodead][@player] item:16895\n/cast Create Soulstone",
+    "no soulstone: the highest rank's stone, then create")
+
 state.bodies = {}
 state.macros = {}
 up.OnEvent(up, "BAG_UPDATE_DELAYED")
 assert(not up.ev.BAG_UPDATE_DELAYED and not up.ev.PLAYER_LEVEL_UP, "no macro left: upkeep disarmed")
+
+-- Forever imbue stones, and the Warlock-only macros on another class
+state = {
+    level = 60, bodies = {}, macros = { EUI_Firestone = 1, EUI_Spellstone = 2 },
+    bags = {}, minLevel = {}, known = { [6366] = true, [17951] = true }, spellNames = { [17951] = "Create Firestone" },
+}
+up = Load(true, state)
+up.OnEvent(up, "PLAYER_ENTERING_WORLD")
+Eq(state.bodies.EUI_Firestone, "#showtooltip item:13701\n/use item:13701\n/use 16", "firestone: imbue the main hand")
+EllesmereUIDB.macroFactory.EUI_Firestone.createWhenOut = true
+up.OnEvent(up, "SPELLS_CHANGED")
+Eq(state.bodies.EUI_Firestone, "#showtooltip item:13699\n/use item:13699\n/use 16\n/cast Create Firestone",
+    "firestone: the known rank's stone, imbue, then create")
+state.bags[13699] = 1
+state.bodies = {}
+up.OnEvent(up, "BAG_UPDATE_DELAYED")
+Eq(state.bodies.EUI_Firestone, nil, "firestone created: the macro already uses it")
+
+state = { level = 60, class = "MAGE", bodies = {}, macros = { EUI_Soulstone = 1, EUI_Firestone = 2 },
+    bags = { [16896] = 1 }, minLevel = {} }
+up = Load(true, state)
+up.OnEvent(up, "PLAYER_ENTERING_WORLD")
+Eq(state.bodies.EUI_Soulstone, nil, "no Warlock macros on a Mage")
+Eq(state.bodies.EUI_Firestone, nil, "no Warlock macros on a Mage")
 
 -- Retail
 local retail = {
