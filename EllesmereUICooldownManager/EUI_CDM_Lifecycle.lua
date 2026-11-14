@@ -637,10 +637,9 @@ function ECME:CDMFinishSetup()
         local p = ECME.db and ECME.db.profile
         if p and p.cdmBars and p.cdmBars.enabled and EllesmereUIDB then
 
-            local charKey = ns.GetCharKey()
             local specKey = ns.GetActiveSpecKey()
-            local cache = EllesmereUIDB.cdmCachedBarSizes
-            local counts = cache and cache[charKey] and cache[charKey][specKey]
+            local cache = EllesmereUI.CharData("cdmBarSizes")
+            local counts = cache and cache[specKey]
             if counts then
                 for i, barData in ipairs(p.cdmBars.bars) do
                     if barData.enabled then

@@ -6,7 +6,7 @@ if EUI_CLIENT_BLOCKED then return end -- pre-12.1 client failsafe (EllesmereUI_C
 --  animations, combat fade, low-resource alerts, class-colored bars
 -------------------------------------------------------------------------------
 local ADDON_NAME, ns = ...
-if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI._Pool and EllesmereUI.AbsorbGlow and EllesmereUI.SetCraftBatch and EllesmereUI.FitCastName and EllesmereUI.CleanCastName and EllesmereUI.AbbreviateValue and EllesmereUI.PadModeOn and EllesmereUI.TalentConditionsHold) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Call Totem Bar scales its Edit Mode system through the parent's SetFrameScale, the health bar's absorb glow line is the parent's AbsorbGlow, every player cast start runs the parent's SetCraftBatch, Show Full Spell Name is the parent's FitCastName, the cast name drops the quest-object " - No Text" through its CleanCastName, and the health text formats through the parent's AbbreviateValue, and the gamepad cast bar hide follows its PadModeOn, and the WoW Forever swing timer's talent conditions read its TalentConditionsHold)
+if not (EllesmereUI and EllesmereUI._ModuleNS and EllesmereUI.NewInternals and EllesmereUI.NewCombatQueue and EllesmereUI.SetFrameScale and EllesmereUI._Pool and EllesmereUI.AbsorbGlow and EllesmereUI.SetCraftBatch and EllesmereUI.FitCastName and EllesmereUI.CleanCastName and EllesmereUI.AbbreviateValue and EllesmereUI.PadModeOn and EllesmereUI.TalentConditionsHold and EllesmereUI.CastChromeGeom) then EUI_CLIENT_BLOCKED = true; return end -- stale-parent guard: a partially updated install (old parent, new child) goes dormant via the line-1 failsafe instead of erroring (the Call Totem Bar scales its Edit Mode system through the parent's SetFrameScale, the health bar's absorb glow line is the parent's AbsorbGlow, every player cast start runs the parent's SetCraftBatch, Show Full Spell Name is the parent's FitCastName, the cast name drops the quest-object " - No Text" through its CleanCastName, and the health text formats through the parent's AbbreviateValue, and the gamepad cast bar hide follows its PadModeOn, and the WoW Forever swing timer's talent conditions read its TalentConditionsHold, and the stock cast bar art seats from its CastChromeGeom)
 EllesmereUI._ModuleNS[ADDON_NAME] = ns  -- LOD options files read this module ns via the registry
 local ERB = EllesmereUI.Lite.NewAddon(ADDON_NAME)
 ns.ERB = ERB
@@ -187,7 +187,9 @@ local CHANNEL_TICK_DATA = {
 -- ticks every second, none at the cast (ticks = 3). Penance channels for 2s and
 -- fires a bolt at the cast and every second after (ticks = 2), as on retail;
 -- the cast bar shows the damage or heal channel the cast triggers, so each rank
--- lists both, plus its channeled cast spell.
+-- lists both, plus its channeled cast spell. The Warlock's channels tick once
+-- per interval, none at the cast, so ticks = length / interval (the client's
+-- spell data), for every rank a Warlock learns.
 if EllesmereUI.IS_FOREVER then
     for _, id in ipairs({ 15407, 17311, 17312, 17313, 17314, 18807 }) do
         CHANNEL_TICK_DATA[id] = { ticks = 3 }                      -- Mind Flay
@@ -199,6 +201,19 @@ if EllesmereUI.IS_FOREVER then
         1316994, 1316992, 1316995,                                 -- rank 4
     }) do
         CHANNEL_TICK_DATA[id] = { ticks = 2 }                      -- Penance
+    end
+    -- Warlock: the rank IDs by tick count.
+    local WARLOCK_TICKS = {
+        [5]  = { 689, 699, 709, 7651, 11699, 11700,                -- Drain Life (5s / 1s)
+                 1120, 8288, 8289, 11675,                          -- Drain Soul (15s / 3s)
+                 5138, 6226, 11703, 11704 },                       -- Drain Mana (5s / 1s)
+        [15] = { 403677, 403685, 403686, 403687, 403688, 403689,   -- Drain Life, 15s version
+                 1949, 11683, 11684 },                             -- Hellfire (15s / 1s)
+        [4]  = { 5740, 6219, 11677, 11678 },                       -- Rain of Fire (8s / 2s)
+        [6]  = { 1316697 },                                        -- Wrack (6s / 1s)
+    }
+    for n, ids in pairs(WARLOCK_TICKS) do
+        for _, id in ipairs(ids) do CHANNEL_TICK_DATA[id] = { ticks = n } end
     end
 end
 

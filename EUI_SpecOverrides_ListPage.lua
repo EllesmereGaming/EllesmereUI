@@ -64,8 +64,10 @@ local function BuildListRow(parent, y, entry)
     crumb:SetPoint("LEFT", name, "RIGHT", 10, 0)
     -- Built from the entry's fields when it has a page, so a renamed module or
     -- tab label (or a client language switch) shows current names, not the
-    -- baked crumb.
-    local crumbText = entry.page and BuildEntryCrumb(entry.module, entry.element, entry.page, entry.section)
+    -- baked crumb. An entry whose row is on another page (EUI_NS.EntryPage) shows
+    -- that page, and no section: its own is not one of that page's.
+    local rowPage, moved = EUI_NS.EntryPage(entry.module, entry.page, entry.section, entry.slotLabel or entry.label)
+    local crumbText = entry.page and BuildEntryCrumb(entry.module, entry.element, rowPage, not moved and entry.section or nil)
         or entry.crumb
     crumb:SetText(crumbText and TitleCase(crumbText) or "")
 
@@ -158,8 +160,8 @@ local function BuildListRow(parent, y, entry)
         end
         if mod and EllesmereUI:GetModuleTitle(mod) then
             EllesmereUI:SelectModule(mod)
-            if entry.page and EllesmereUI.SelectPage then
-                EllesmereUI:SelectPage(entry.page)
+            if rowPage and EllesmereUI.SelectPage then
+                EllesmereUI:SelectPage(rowPage)
             end
         end
     end)

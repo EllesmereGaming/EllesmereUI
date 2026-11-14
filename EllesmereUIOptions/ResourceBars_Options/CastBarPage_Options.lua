@@ -1126,6 +1126,9 @@ function ns.ERB_BuildCastBarPage(pageName, parent, yOffset)
         "Latency Overlay"
     )
 
+    -- OTHER BARS: Breath, Fatigue... drawn like this bar (MirrorTimerPage_Options.lua).
+    if ns.ERB_BuildTimerBarRows then y = ns.ERB_BuildTimerBarRows(parent, y) end
+
     -- Wire up click mappings for cast bar preview hit overlays (never from a hidden pre-build: the shared live table would end up pointing at off-screen rows)
     if not EllesmereUI._prebuilding then
         _clickMappings.castBar       = { section = castSection, target = classSizeRow }

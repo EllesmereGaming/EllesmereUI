@@ -46,6 +46,19 @@ end
 -- then DeepMergeDefaults on a different class refills it with the wrong color.
 local CUSTOM_FILL_DEFAULT = { 1, 1, 1 }
 
+-- Mirror Timers (EUI_ResourceBars_MirrorTimer.lua): one timer bar's own
+-- settings, its switch, fill colour and Low Warning; the rest of its look is
+-- the Player Cast Bar's. A fresh table per call. OFF by default: nothing is
+-- built, registered or hidden until a bar is turned on.
+local function MirrorTimerDefaults(r, g, b)
+    return {
+        enabled   = false,
+        fillR = r, fillG = g, fillB = b, fillA = 1,
+        lowWarn   = false,   -- red and blinking once lowWarnAt percent is left
+        lowWarnAt = 30,      -- percent of the bar left where the warning starts
+    }
+end
+
 local DEFAULTS = {
     profile = {
         -- Blizzard Style (Global Settings > Style) for the health, power and
@@ -466,6 +479,17 @@ local DEFAULTS = {
             visHideNoEnemy = false,
             unlockPos     = nil,
         },
+        -- Mirror Timers: the timer bars (Breath, Fatigue, Feign Death and the
+        -- countdowns), set in the OTHER BARS section of the Cast Bar page.
+        -- unlockPos: their stack's one Unlock Mode position.
+        mirrorTimer = {
+            breath  = MirrorTimerDefaults(0, 0.5, 1),
+            fatigue = MirrorTimerDefaults(1, 0.9, 0),
+            feign   = MirrorTimerDefaults(1, 0.7, 0),
+            pvp     = MirrorTimerDefaults(0.8, 0.1, 0.1),
+            countdown = MirrorTimerDefaults(1, 0.8, 0.2),
+            unlockPos = nil,
+        },
         -- Sunfury Arcane Mage Arcane Soul callout (EUI_ResourceBars_ArcaneSoul.lua).
         -- Flat colour keys per module convention; OFF by default, and nothing at
         -- all is built or registered until it is turned on.
@@ -503,6 +527,7 @@ local DEFAULTS = {
             showTimer     = true,
             timerSize     = 11,
             orientation   = "HORIZONTAL",  -- "HORIZONTAL" or "VERTICAL"
+            flyoutDirection = "RIGHT",     -- vertical only: "RIGHT" or "LEFT"
             borderSize    = 1,
             borderR       = 0, borderG = 0, borderB = 0, borderA = 1,
             borderTexture = "solid",

@@ -716,17 +716,12 @@ end
 -- Blizzard Style frame art reach past the fill (left, right, top), the
 -- spell name's nudge in the text box, the timer's on the bar, and the
 -- spark's extra height, nudge and width; the live bar and the options preview
--- both seat from here. The WoW Forever art's thicker rim drawn 2px out
--- covers the bar's top edge and the icon's border, so it sits flush there;
--- its text box, under that rim too, needs the name 2px lower to centre it,
--- and the timer on the bar drops 1px to centre on the fill the rim leaves.
--- The Forever pip art is tall and thin (5x30 over an 11px fill): it stands
--- 4px taller than the bar, centred on the same visible fill, and 5px wide
--- (the 8px EUI spark width stretched it to twice its art's proportion).
+-- both seat from here. The numbers are the parent's (EllesmereUI.CastChromeGeom,
+-- shared with Unit Frames): this names the bar's art and the side its icon
+-- sits on. An icon here is always flush against the bar.
 function ns.ERB_CastChromeGeom(cb)
-    if not ns.ERB_CastForever() then return 2, 2, 2, 0, 0, 0, 0, 8 end
-    local iconIn = ns.ERB_CastIconW(cb) > 0
-    return (iconIn and not cb.iconOnRight) and 0 or 2, (iconIn and cb.iconOnRight) and 0 or 2, 0, -2, -1, 4, -1, 5
+    if not ns.ERB_CastForever() then return EllesmereUI.CastChromeGeom(false) end
+    return EllesmereUI.CastChromeGeom(true, ns.ERB_CastIconW(cb) > 0 and (cb.iconOnRight and "right" or "left") or nil)
 end
 -- Frame art around the bar plus, under Blizzard Style, the text box under it
 -- (the spell name moves into the box, honouring the Spell Text side and

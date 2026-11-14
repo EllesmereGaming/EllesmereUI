@@ -1307,6 +1307,12 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             return (FBSet().display or "never") ~= "never"
         end
         local FB_DISABLED_TIP = "This option requires Add Friendly Boss Group to be set to Healers or Always."
+        -- Boss Health Color does nothing while the group draws in Dark Mode: Follow Dark Mode on
+        -- under the raid frames' Dark Mode Fill Color (the boss frames follow the raid settings).
+        local FB_DARK_TIP = "Not available in Dark Mode. Dark Mode colors can be adjusted in Global Settings -> Colors."
+        local function FBDark()
+            return FBSet().followDarkMode == true and db.profile.healthColorMode == "dark"
+        end
 
         row, h = W:DualRow(parent, y,
             { type="dropdown", text="Add Friendly Boss Group",
@@ -1346,6 +1352,15 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
                           -- the secure group driver, so the flip is live.
                           FBSet().showInDungeons = v and true or nil
                           ns.FB_Apply()
+                      end },
+                    { type="toggle", label="Follow Dark Mode",
+                      tooltip="Darkens the boss frames while the raid Fill Color is Dark Mode. Off keeps Boss Health Color.",
+                      get=function() return FBSet().followDarkMode == true end,
+                      set=function(v)
+                          -- Absent = off (additive key): the group keeps Boss Health Color.
+                          FBSet().followDarkMode = v and true or nil
+                          ns.FB_Apply()
+                          EllesmereUI:RefreshPage()
                       end },
                 },
             })
@@ -1401,11 +1416,11 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
             swatchBlock:SetFrameLevel(swatch:GetFrameLevel() + 10)
             swatchBlock:EnableMouse(true)
             swatchBlock:SetScript("OnEnter", function()
-                EllesmereUI.ShowWidgetTooltip(swatch, FB_DISABLED_TIP)
+                EllesmereUI.ShowWidgetTooltip(swatch, FBDark() and FB_DARK_TIP or FB_DISABLED_TIP)
             end)
             swatchBlock:SetScript("OnLeave", function() EllesmereUI.HideWidgetTooltip() end)
             local function UpdateFBSwatch()
-                local on = FBEnabled()
+                local on = FBEnabled() and not FBDark()
                 swatch:SetAlpha(on and 1 or 0.3)
                 swatchBlock:SetShown(not on)
                 if rgn._label then rgn._label:SetAlpha(on and 1 or 0.3) end
@@ -1709,6 +1724,107 @@ local function BuildVisualIndicators(parent, y, W, onSection, EYE, CustomBorderO
               end }); y = y - h
 
         if PFEnabled() then
+        -- The pets' colours are one set for both tabs. A colour edit repaints the pets on screen;
+        -- a Fill Color pick can also change whether they draw dark, a style input (the
+        -- background), so it runs the pets' restyle checks first.
+        local function PetColors(restyle)
+            if restyle then
+                ns.PF_Apply(true)
+                ns.PF_PartyRestyle()
+            end
+            ns._PF_RefreshVisible()
+            PFRefreshPreview()
+        end
+        -- Nothing picked: the pets follow the Dark Mode of this tab's frames, and are otherwise
+        -- their own colour.
+        local function PetMode()
+            return PFSet().healthColorMode or ns.PF_FollowMode(tabKey)
+        end
+        row, h = W:DualRow(parent, y,
+            { type="dropdown", text="Fill Color",
+              values={ class = "Class Color", dark = "Dark Mode", classic = "Classic", custom = "Custom Color", customDynamic = "Custom Dynamic Colors" },
+              order={ "class", "dark", "classic", "custom", "customDynamic" },
+              tooltip="Custom Dynamic Colors: the health bar smoothly blends between three colors you pick -- one for full health (100%), one for half (50%), and one for empty (0%) -- shifting through them as the unit takes damage or is healed.",
+              getValue=PetMode,
+              setValue=function(v)
+                  -- Saved only where it differs from what following the frames gives, so the
+                  -- pets go on following until a pick says otherwise.
+                  PFSet().healthColorMode = (v ~= ns.PF_FollowMode(tabKey)) and v or nil
+                  PetColors(true)
+                  EllesmereUI:RefreshPage()
+              end },
+            -- The pet's name only. Neither swatch lit: the name keeps the Name Color of the
+            -- frames the pets are styled from. The lit Class Color turns off on a second click.
+            { type="multiSwatch", text="Name Color",
+              swatches = {
+                { tooltip = "Custom Color",
+                  hasAlpha = false,
+                  getValue = function()
+                      local c = PFSet().customTextColor
+                      if c then return c.r, c.g, c.b, 1 end
+                      return 1, 1, 1, 1
+                  end,
+                  setValue = function(r, g, b)
+                      local raw = PFSet()
+                      raw.customTextColor = { r=r, g=g, b=b }
+                      raw.textClassColored = nil
+                      PetColors()
+                  end,
+                  onClick = function(self)
+                      local raw = PFSet()
+                      if raw.textClassColored or raw.customTextColor == nil then
+                          raw.textClassColored = nil
+                          if raw.customTextColor == nil then raw.customTextColor = { r=1, g=1, b=1 } end
+                          PetColors()
+                          EllesmereUI:RefreshPage()
+                          return
+                      end
+                      if self._eabOrigClick then self._eabOrigClick(self) end
+                  end,
+                  refreshAlpha = function()
+                      local raw = PFSet()
+                      return (raw.customTextColor ~= nil and not raw.textClassColored) and 1 or 0.3
+                  end },
+                { tooltip = "Class Color",
+                  hasAlpha = false,
+                  getValue = function()
+                      local _, ct = UnitClass("player")
+                      local cc = ct and EllesmereUI.GetClassColor(ct)
+                      if cc then return cc.r, cc.g, cc.b, 1 end
+                      return 1, 1, 1, 1
+                  end,
+                  setValue = function() end,
+                  onClick = function()
+                      local raw = PFSet()
+                      raw.textClassColored = (not raw.textClassColored) or nil
+                      raw.customTextColor = nil
+                      PetColors()
+                      EllesmereUI:RefreshPage()
+                  end,
+                  refreshAlpha = function()
+                      return PFSet().textClassColored and 1 or 0.3
+                  end },
+              } }); y = y - h
+
+        EllesmereUI.BuildFillColorSwatches(row._leftRegion, {
+            mode = PetMode,
+            getCustom = function()
+                local c = PFSet().healthColor
+                if c then return c.r, c.g, c.b end
+                return 23/255, 172/255, 49/255
+            end,
+            setCustom = function(r, g, b)
+                PFSet().healthColor = { r=r, g=g, b=b }
+                PetColors()
+            end,
+            keys = { "dynamicColor100", "dynamicColor50", "dynamicColor0" },
+            getStop = function(key) return PFSet()[key] end,
+            setStop = function(key, r, g, b)
+                PFSet()[key] = { r=r, g=g, b=b }
+                PetColors()
+            end,
+        })
+
         row, h = W:DualRow(parent, y,
             { type="slider", text="Extra Width", min=-50, max=100, step=1,
               tooltip="Widens or narrows the pet frames relative to the frame size.",

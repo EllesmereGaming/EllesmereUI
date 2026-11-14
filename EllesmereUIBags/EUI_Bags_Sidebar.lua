@@ -46,8 +46,7 @@ end
 -- ...and one entry per virtual view another addon registered (none: no cost)
 local function FixedViewCount()
     local n = OfflineBankOn() and 4 or 3
-    local CM = _G.EUI_CategoryManager
-    local views = CM and CM.GetViews and CM:GetViews()
+    local views = EUI_CategoryManager:GetViews()
     return views and (n + #views) or n
 end
 
@@ -1144,7 +1143,7 @@ local function BuildSidebarButtons(categoryCounts, totalCount)
         if _k ~= _dbt then displayList[#displayList + 1] = _fixedViews[_k] end
     end
     -- virtual views (EUI_CategoryManager:RegisterVirtualView), after the three
-    local views = EUI_CategoryManager and EUI_CategoryManager:GetViews()
+    local views = EUI_CategoryManager:GetViews()
     if views then
         for _, v in ipairs(views) do
             displayList[#displayList + 1] = { catIdx = v.idx, name = v.name, icon = v.icon, isAtlas = v.isAtlas, count = totalCount }

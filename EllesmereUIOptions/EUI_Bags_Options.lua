@@ -213,12 +213,9 @@ initFrame:SetScript("OnEvent", function(self)
                               or "Saves each character's bags and bank, and the warband bank, when you see them. Use the person button by the bags or bank title to see another character's bags or bank, and Bank in the bags sidebar for their bank or the warband bank, from anywhere. Applies to all characters.",
                           getValue=function() return Offline.Enabled() end,
                           setValue=function(v) Offline.Set("bagOfflineBank", v) end },
-                        { type="toggle", text="Tooltip Item Counts",
-                          tooltip=EllesmereUI.IS_FOREVER
-                              and "Item tooltips list how many of that item each of your characters has in their bags and bank. Applies to all characters."
-                              or "Item tooltips list how many of that item each of your characters has in their bags and bank, plus the warband bank. Applies to all characters.",
-                          getValue=function() return Offline.CountsEnabled() end,
-                          setValue=function(v) Offline.Set("bagTooltipCounts", v) end }
+                        -- The item counts in tooltips that read the same saved inventories
+                        -- are switched in Blizzard Skins+ > Tooltips & Menus > Tooltip Extras.
+                        EllesmereUI.BlankRowCfg()
                     ); y = y - h
                 end
 
@@ -1016,7 +1013,7 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUI.RegisterWidgetRefresh(junkDDRefresh)
             end
 
-            -- Bag Top Bar Icons (+ inline cog: Sort to Bottom) | Gold Tracking and History (+ inline cog: Show Silver and Copper)
+            -- Bag Top Bar Icons (+ inline cog: Sort to Bottom) | Gold Tracking and History (+ inline cog: Show Coins)
             local iconsRow
             iconsRow, h = W:DualRow(parent, y,
                 { type="label", text="Bag Top Bar Icons",
@@ -1026,7 +1023,7 @@ initFrame:SetScript("OnEvent", function(self)
                   getValue=function() return EllesmereUI.GetGoldLedger().IsTracking() end,
                   setValue=function(v)
                       EllesmereUI.GetGoldLedger().SetTracking(v)
-                      EllesmereUI:RefreshPage()
+                      EllesmereUI:RefreshPage()  -- the Gold Tracking Options cog follows it
                   end }
             ); y = y - h
 
@@ -1100,19 +1097,18 @@ initFrame:SetScript("OnEvent", function(self)
                     },
                 })
 
-                -- Inline cog for Gold Tracking and History: "Show Silver and Copper"
+                -- Gold Tracking and History's cog: Show Coins, the coins of the gold summary
                 EllesmereUI.BuildInlineCog(iconsRow._rightRegion, {
-                    chain = false,
                     disabled = function() return not EllesmereUI.GetGoldLedger().IsTracking() end,
                     disabledTooltip = "Gold Tracking and History",
                     title = "Gold Tracking Options",
                     rows = {
-                        { type="toggle", label="Show Silver and Copper",
-                          tooltip="Display silver and copper values alongside gold in the bags hover tooltip.",
-                          get=function() return db.profile.bagGoldShowSilverCopper == true end,
-                          set=function(v)
-                              db.profile.bagGoldShowSilverCopper = v and true or false
-                          end },
+                        { type="dropdown", label="Show Coins", ddWidth=190,
+                          tooltip="The coins the gold summary shows for each character.",
+                          values={ gold="Only Gold", silver="Gold and Silver", copper="Gold, Silver and Copper" },
+                          order={ "gold", "silver", "copper" },
+                          get=function() return db.profile.bagGoldCoins end,
+                          set=function(v) db.profile.bagGoldCoins = v end },
                     },
                 })
             end
@@ -1348,7 +1344,7 @@ initFrame:SetScript("OnEvent", function(self)
             -- Wipe per-character data from root DB
             if EllesmereUIDB then
                 EllesmereUIDB.bagPinnedItems = nil
-                EllesmereUIDB.bagPinnedByChar = nil
+                EllesmereUI.ClearCharField("bagPinned")
                 EllesmereUIDB.bagPinsPerCharacter = nil
                 EllesmereUIDB.bagItemAssignments = nil
                 EllesmereUIDB.bagJunkPrev = nil
@@ -1356,8 +1352,10 @@ initFrame:SetScript("OnEvent", function(self)
                 EllesmereUIDB.characterGold = nil
                 EllesmereUIDB.dataBarsGold = nil
                 EllesmereUIDB.warbandGold = nil
-                EllesmereUIDB.bagCurrencyByChar = nil
-                -- offline bank: its switches and every saved inventory
+                EllesmereUI.ClearCharField("bagCurrency")
+                -- offline bank: its switches and every saved inventory (the tooltip
+                -- counts' row stands on the Blizzard Skins+ page; the saved
+                -- inventories they read are this module's, so this reset ends them too)
                 EllesmereUIDB.bagOfflineBank = nil
                 EllesmereUIDB.bagTooltipCounts = nil
                 -- auto deposit/withdraw

@@ -458,7 +458,9 @@ initFrame:SetScript("OnEvent", function(self)
               end });  y = y - h
 
         -- Row 2: Fade Strength | Also Wake On (checkbox dropdown over the
-        -- placeholder, which keeps the label, tooltip and disabled state)
+        -- placeholder, which keeps the label, tooltip and disabled state; its
+        -- getter reads every key the checklist writes, so the Spec Overrides
+        -- gold walk marks the slot while one of them is overridden)
         local wakeRow
         wakeRow, h = W:DualRow(parent, y,
             { type="slider", text="Fade Strength",
@@ -471,9 +473,16 @@ initFrame:SetScript("OnEvent", function(self)
                   if ECHAT.ResetIdleTimer then ECHAT.ResetIdleTimer() end
               end },
             { type="dropdown", text="Also Wake On",
-              tooltip="Player chat in a visible chat window always wakes the chat. Check more kinds of lines here to wake it too.",
+              tooltip="Other chat lines that wake a faded chat.",
               values={ __placeholder = "..." }, order={ "__placeholder" },
-              getValue=function() return "__placeholder" end,
+              getValue=function()
+                  local t = Cfg("idleFadeWake")
+                  if t then
+                      local groups = ECHAT.IDLE_WAKE_GROUPS
+                      for i = 1, groups and #groups or 0 do local _ = t[groups[i].key] end
+                  end
+                  return "__placeholder"
+              end,
               setValue=function() end,
               disabled=function() return Cfg("idleFadeEnabled") == false end,
               disabledTooltip="Enable Idle Fade" });  y = y - h
@@ -497,7 +506,9 @@ initFrame:SetScript("OnEvent", function(self)
                     if ECHAT.ApplyIdleFadeWake then ECHAT.ApplyIdleFadeWake() end
                 end,
                 nil, nil, nil, nil, nil,
-                { noAllLabel = true,
+                -- notifyWrites: a tick inside a Spec or Conditional Override
+                -- session is captured as it happens, under this row's name
+                { noAllLabel = true, notifyWrites = true,
                   disabled = function() return Cfg("idleFadeEnabled") == false end,
                   disabledTooltip = "Enable Idle Fade" })
             EllesmereUI.PanelPP.Point(wakeDD, "RIGHT", rgn, "RIGHT", -20, 0)
