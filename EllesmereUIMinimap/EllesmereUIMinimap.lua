@@ -136,6 +136,7 @@ local defaults = {
             btnRowSpacing        = 0,
             btnRowDistance       = 0,
             flyoutGrowDir        = "auto",   -- Grow Tooltip/Popup: auto/up/down/left/right
+            flyoutAsList         = false,    -- flyout as a one-column list with button names
             elementRowPosition   = "tlDown", -- tlDown = original corner + direction
             elementRowSpacing    = 0,
             elementRowDistance   = 0,

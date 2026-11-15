@@ -18,7 +18,7 @@ local GetFFD, PP, flyoutSavedParents = I.GetFFD, I.PP, I.flyoutSavedParents
 local GetBtnRowMode, GetCustomTooltipScale = I.GetBtnRowMode, I.GetCustomTooltipScale
 local GetElementRowMode, GetInteractableBtnSize = I.GetElementRowMode, I.GetInteractableBtnSize
 local GetRowBase, IsJunkTexture, IsUngrouped = I.GetRowBase, I.IsJunkTexture, I.IsUngrouped
-local RestoreButtonDecorations = I.RestoreButtonDecorations
+local RestoreButtonDecorations, ClearFlyoutName = I.RestoreButtonDecorations, I.ClearFlyoutName
 local StripButtonDecorations, GetCoordsModePos = I.StripButtonDecorations, I.GetCoordsModePos
 local UpdateCoords, ApplyBtnOffset = I.UpdateCoords, I.ApplyBtnOffset
 local EnableFreeMove, FOLIO_REPLACEMENT_BUTTONS = I.EnableFreeMove, I.FOLIO_REPLACEMENT_BUTTONS
@@ -1175,6 +1175,7 @@ local function LayoutIndicatorFrames(minimap, p, circleMode)
             -- Restore from flyout if needed
             if flyoutSavedParents[btn] then
                 if GetFFD(btn).flyoutRing then GetFFD(btn).flyoutRing:Hide() end
+                ClearFlyoutName(btn)
                 if btn.SetFixedFrameStrata then btn:SetFixedFrameStrata(false) end
                 if btn.SetFixedFrameLevel then btn:SetFixedFrameLevel(false) end
                 flyoutSavedParents[btn] = nil
