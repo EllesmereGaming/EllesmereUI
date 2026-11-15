@@ -238,7 +238,7 @@ end
 local function MismatchOf(id, note)
     local _, status = C_LFGList.GetApplicationInfo(id)
     if Secret(status) or status ~= "applied" then
-        firstPass[id] = nil
+        firstPass[id], autoCancelled[id] = nil, nil
         return false
     end
     if not GFNS.ExtraPassesAsNew or not OnShownTab(id) then return false end
@@ -302,6 +302,9 @@ local function Collect()
             if judge and MismatchOf(id, true) then mismatch[id] = true end
         end
     end
+    -- applications that ended unseen (window closed): a new sign up starts fresh
+    for id in pairs(firstPass) do if not isApp[id] then firstPass[id] = nil end end
+    for id in pairs(autoCancelled) do if not isApp[id] then autoCancelled[id] = nil end end
     if appsFirst then
         for _, id in ipairs(apps) do
             if not Secret(id) and not seen[id] then
