@@ -171,6 +171,73 @@ EBS._MapCrop = function(p, mapSize)
     return 0
 end
 
+-- Map pins place edge icons on the full square canvas, so a crop hides the
+-- top/bottom ones; pull any point inside the cropped strip onto the shown edge.
+do
+    local half, edgeY = 0, nil   -- edgeY nil = no crop, hooks idle
+    local hooked, busy, lastCount = {}, false, -1
+    local evFrame
+
+    local Scan
+
+    local function Clamp(pin)
+        if not edgeY or busy then return end
+        -- A pin made since the last scan gets picked up on its siblings' next move.
+        if Minimap:GetNumChildren() ~= lastCount then Scan() end
+        local pt, rel, relPt, x, y = pin:GetPoint(1)
+        if pt ~= "CENTER" or rel ~= Minimap or relPt ~= "CENTER" or pin:GetNumPoints() ~= 1 then return end
+        if type(x) ~= "number" or type(y) ~= "number" then return end
+        -- Offsets are in the pin's own scale; compare them in map units.
+        local s = pin:GetEffectiveScale() / Minimap:GetEffectiveScale()
+        local ay = math.abs(y) * s
+        -- Points outside the canvas (ring buttons) or inside the shown map stay.
+        if ay <= edgeY or ay > half or math.abs(x) * s > half then return end
+        local k = edgeY / ay
+        busy = true
+        pin:SetPoint("CENTER", Minimap, "CENTER", x * k, y * k)
+        busy = false
+    end
+
+    Scan = function()
+        local n = Minimap:GetNumChildren()
+        if n == lastCount then return end
+        lastCount = n
+        for _, child in ipairs({ Minimap:GetChildren() }) do
+            if not hooked[child] and not child:IsProtected() then
+                hooked[child] = true
+                hooksecurefunc(child, "SetPoint", Clamp)
+                Clamp(child)
+            end
+        end
+    end
+
+    local SCAN_EVENTS = {
+        "PLAYER_ENTERING_WORLD", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS",
+        "ZONE_CHANGED_NEW_AREA", "QUEST_LOG_UPDATE", "PLAYER_STARTED_MOVING",
+        "MINIMAP_UPDATE_ZOOM",
+    }
+
+    -- Called every apply pass with the map size and its crop.
+    EBS._ApplyPinCrop = function(mapSize, crop)
+        if crop and crop > 0 then
+            half = mapSize / 2
+            -- Same inset from the shown edge as the pins keep from the sides.
+            edgeY = mapSize * 0.45 - crop
+            if not evFrame then
+                evFrame = CreateFrame("Frame")
+                evFrame:SetScript("OnEvent", Scan)
+            end
+            for _, ev in ipairs(SCAN_EVENTS) do evFrame:RegisterEvent(ev) end
+            lastCount = -1
+            Scan()
+            for child in pairs(hooked) do Clamp(child) end
+        elseif edgeY then
+            edgeY = nil
+            evFrame:UnregisterAllEvents()
+        end
+    end
+end
+
 -- The mask that crops rectangular mode's square canvas covers the terrain only -- the
 -- engine keeps drawing unit blips across the whole canvas, and the one thing that
 -- confines the native render is the minimap's PARENT rect (ordinary child frames and
